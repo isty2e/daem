@@ -15,7 +15,17 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func visitNativeDirectoryNames(directoryFD int, visit func(string) error) error {
+func visitNativeDirectoryNames(directoryFD int, visit func(string) (bool, error)) error {
+	return visitNativeDirectoryNamesWithClose(directoryFD, visit, func(file *os.File) error {
+		return file.Close()
+	})
+}
+
+func visitNativeDirectoryNamesWithClose(
+	directoryFD int,
+	visit func(string) (bool, error),
+	closeFile func(*os.File) error,
+) error {
 	readFD, err := unix.Openat(directoryFD, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
@@ -29,15 +39,19 @@ func visitNativeDirectoryNames(directoryFD int, visit func(string) error) error 
 	for {
 		names, readErr := file.Readdirnames(256)
 		for _, name := range names {
-			if err := visit(name); err != nil {
-				return errors.Join(err, file.Close())
+			stop, visitErr := visit(name)
+			if visitErr != nil {
+				return errors.Join(visitErr, closeFile(file))
+			}
+			if stop {
+				return closeFile(file)
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
-			return file.Close()
+			return closeFile(file)
 		}
 		if readErr != nil {
-			return errors.Join(readErr, file.Close())
+			return errors.Join(readErr, closeFile(file))
 		}
 	}
 }
@@ -148,12 +162,21 @@ func readNativeDirectoryNamesUpTo(
 	return names, nil
 }
 
-var errNativeExactNameFound = errors.New("exact native directory name found")
-
 func nativeDirectoryContainsExactName(
 	ctx context.Context,
 	directoryFD int,
 	name string,
+) (bool, error) {
+	return nativeDirectoryContainsExactNameWithClose(ctx, directoryFD, name, func(file *os.File) error {
+		return file.Close()
+	})
+}
+
+func nativeDirectoryContainsExactNameWithClose(
+	ctx context.Context,
+	directoryFD int,
+	name string,
+	closeFile func(*os.File) error,
 ) (bool, error) {
 	if ctx == nil {
 		return false, fmt.Errorf("artifact access context is required")
@@ -161,25 +184,21 @@ func nativeDirectoryContainsExactName(
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	err := visitNativeDirectoryNames(directoryFD, func(candidate string) error {
+	found := false
+	err := visitNativeDirectoryNamesWithClose(directoryFD, func(candidate string) (bool, error) {
 		if err := ctx.Err(); err != nil {
-			return err
+			return false, err
 		}
-		if candidate == name {
-			return errNativeExactNameFound
-		}
-		return nil
-	})
-	if errors.Is(err, errNativeExactNameFound) {
-		return true, nil
-	}
+		found = candidate == name
+		return found, nil
+	}, closeFile)
 	if err != nil {
-		return false, err
+		return found, err
 	}
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	return false, nil
+	return found, nil
 }
 
 func verifyNativeDirectoryNames(ctx context.Context, directoryFD int, expected []string) error {

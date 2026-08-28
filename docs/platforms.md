@@ -49,10 +49,11 @@ and again before success. Nested relative selections receive the same
 operation-local ancestor validation, and nested directory-listing witnesses
 retain that relative chain for later inventory revalidation. The witness is
 immutable and process-local: it grants no mutation or durable recovery
-authority. Linux requires both `STATX_MNT_ID` and `STATX_BTIME` for each
-component; an unavailable mount or incarnation identity fails the affected
-artifact operation rather than falling back to reusable inode or pathname
-facts.
+authority. Darwin requires at least one reported non-reusable incarnation fact:
+a nonzero birth time or generation number. Linux requires both `STATX_MNT_ID`
+and `STATX_BTIME` for each component. An unavailable mount or incarnation
+identity fails the affected artifact operation rather than falling back to
+reusable inode or pathname facts.
 
 The admitted Darwin target has a macOS 26 runtime floor. Earlier macOS releases
 are outside the support contract because their directory rename semantics can

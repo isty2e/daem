@@ -63,15 +63,15 @@ func visitDirectoryNative(
 	visit func(Entry) error,
 ) error {
 	_, err := visitOpenedNativeDirectory(ctx, view, relativePath, func(entry nativeEntry) error {
-		return visitNativeDirectoryNames(entry.fd, func(name string) error {
+		return visitNativeDirectoryNames(entry.fd, func(name string) (bool, error) {
 			if err := ctx.Err(); err != nil {
-				return err
+				return false, err
 			}
 			observed, stat, err := observeNativeEntry(entry.fd, name)
 			if err != nil {
-				return err
+				return false, err
 			}
-			return visit(Entry{
+			return false, visit(Entry{
 				name: name,
 				kind: publicEntryKind(observed.kind),
 				mode: fs.FileMode(stat.Mode & 0o777),
@@ -88,11 +88,11 @@ func visitDirectoryNamesNative(
 	visit func(string) error,
 ) (DirectoryListingWitness, error) {
 	return visitOpenedNativeDirectory(ctx, view, relativePath, func(entry nativeEntry) error {
-		return visitNativeDirectoryNames(entry.fd, func(name string) error {
+		return visitNativeDirectoryNames(entry.fd, func(name string) (bool, error) {
 			if err := ctx.Err(); err != nil {
-				return err
+				return false, err
 			}
-			return visit(name)
+			return false, visit(name)
 		})
 	})
 }

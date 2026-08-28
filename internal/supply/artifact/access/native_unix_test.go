@@ -204,6 +204,43 @@ func TestOpenNativeRelativeRejectsReplacementAfterExactNameObservation(t *testin
 	}
 }
 
+func TestNativeDirectoryContainsExactNamePreservesCloseError(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "entry"), []byte("content\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	directoryFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := unix.Close(directoryFD); err != nil {
+			t.Errorf("close directory: %v", err)
+		}
+	}()
+
+	closeFailure := errors.New("injected directory close failure")
+	closeCalls := 0
+	exact, err := nativeDirectoryContainsExactNameWithClose(
+		t.Context(),
+		directoryFD,
+		"entry",
+		func(file *os.File) error {
+			closeCalls++
+			return errors.Join(file.Close(), closeFailure)
+		},
+	)
+	if !exact {
+		t.Fatal("exact name was not reported")
+	}
+	if !errors.Is(err, closeFailure) {
+		t.Fatalf("exact-name close error = %v, want injected close failure", err)
+	}
+	if closeCalls != 1 {
+		t.Fatalf("directory close calls = %d, want 1", closeCalls)
+	}
+}
+
 func TestReadNativeDirectoryNamesUpToChargesOneOverflowProbe(t *testing.T) {
 	root := t.TempDir()
 	for index := range 4 {
