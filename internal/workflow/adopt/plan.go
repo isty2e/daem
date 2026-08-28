@@ -90,7 +90,7 @@ func buildPlan(
 	var extensionResult adoptextension.Result
 	err = skippedCollector.Collect(func(skipped adoptmodel.SkipEmitter) error {
 		var collectErr error
-		extensionResult, collectErr = adoptextension.Collect(adoptextension.Input{
+		extensionResult, collectErr = adoptextension.Collect(ctx, adoptextension.Input{
 			ManifestRoot: filepath.Dir(output),
 			Targets:      requestTargets,
 			Scopes:       requestScopes,

@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -276,7 +277,7 @@ func TestCollectReportsAntigravitySourceProvenanceSkip(t *testing.T) {
 		Targets:      []target.Target{target.TargetAntigravityCLI},
 		Scopes:       []target.Scope{target.ScopeGlobal},
 	}
-	result, err := Collect(input, func(skip Skip) error {
+	result, err := Collect(t.Context(), input, func(skip Skip) error {
 		emitted = append(emitted, skip)
 		return nil
 	})
@@ -298,8 +299,81 @@ func TestCollectReportsAntigravitySourceProvenanceSkip(t *testing.T) {
 	}
 
 	cause := errors.New("skip admission failed")
-	if _, err := Collect(input, func(Skip) error { return cause }); !errors.Is(err, cause) {
+	if _, err := Collect(t.Context(), input, func(Skip) error { return cause }); !errors.Is(err, cause) {
 		t.Fatalf("Collect emitter error = %v, want %v", err, cause)
+	}
+}
+
+func TestCollectAntigravityStopsBundleObservationAtFirstSkipError(t *testing.T) {
+	root := isolatedExtensionImportRoot(t)
+	importManifest := filepath.Join(
+		root,
+		".gemini",
+		"config",
+		"import_manifest.json",
+	)
+	writeExtensionFixture(t, importManifest, `{"imports":[{"name":"c"},{"name":"a"},{"name":"b"}]}`)
+	for _, name := range []string{"a", "b"} {
+		writeExtensionFixture(
+			t,
+			filepath.Join(root, ".gemini", "config", "plugins", name, "plugin.json"),
+			`{"name":"`+name+`"}`,
+		)
+	}
+
+	cause := errors.New("skip admission stopped")
+	seen := make([]string, 0, 2)
+	result, err := Collect(t.Context(), Input{
+		ManifestRoot: root,
+		Targets:      []target.Target{target.TargetAntigravityCLI},
+		Scopes:       []target.Scope{target.ScopeGlobal},
+	}, func(skip Skip) error {
+		seen = append(seen, skip.LivePath)
+		if len(seen) == 2 {
+			return cause
+		}
+		return nil
+	})
+	if !errors.Is(err, cause) {
+		t.Fatalf("Collect error = %v, want %v", err, cause)
+	}
+	if len(result.Skipped()) != 0 || len(seen) != 2 ||
+		!strings.HasSuffix(seen[0], "#plugin=a") ||
+		!strings.HasSuffix(seen[1], "#plugin=b") {
+		t.Fatalf("result skipped = %#v, seen = %#v, want no result and sorted first two callbacks", result.Skipped(), seen)
+	}
+}
+
+func TestCollectAntigravityCancellationStopsBeforeNextBundle(t *testing.T) {
+	root := isolatedExtensionImportRoot(t)
+	writeExtensionFixture(
+		t,
+		filepath.Join(root, ".gemini", "config", "import_manifest.json"),
+		`{"imports":[{"name":"a"},{"name":"b"}]}`,
+	)
+	writeExtensionFixture(
+		t,
+		filepath.Join(root, ".gemini", "config", "plugins", "a", "plugin.json"),
+		`{"name":"a"}`,
+	)
+
+	cause := errors.New("cancel Antigravity extension import")
+	ctx, cancel := context.WithCancelCause(t.Context())
+	seen := 0
+	result, err := Collect(ctx, Input{
+		ManifestRoot: root,
+		Targets:      []target.Target{target.TargetAntigravityCLI},
+		Scopes:       []target.Scope{target.ScopeGlobal},
+	}, func(Skip) error {
+		seen++
+		cancel(cause)
+		return nil
+	})
+	if !errors.Is(err, cause) {
+		t.Fatalf("Collect error = %v, want %v", err, cause)
+	}
+	if seen != 1 || len(result.Skipped()) != 0 {
+		t.Fatalf("seen = %d, result skipped = %#v, want one callback and no partial result", seen, result.Skipped())
 	}
 }
 

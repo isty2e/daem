@@ -321,30 +321,33 @@ func (collector *importCollector) collectAntigravity() error {
 	if err != nil {
 		return err
 	}
-	inventory, err := observeantigravity.ReadInventory(paths)
+	inventory, err := observeantigravity.ReadInventoryContext(collector.ctx, paths)
 	if err != nil {
+		if contextErr := extensionImportContextError(collector.ctx); contextErr != nil {
+			return contextErr
+		}
 		return err
 	}
-	names, err := inventory.CompletePluginNames()
-	if err != nil {
-		return err
-	}
-	for _, name := range names {
-		if err := collector.addSkip(Skip{
+	count, err := inventory.VisitCompletePluginNames(collector.ctx, func(name string) error {
+		return collector.addSkip(Skip{
 			LivePath: paths.ImportManifestPath() + "#plugin=" + name,
 			Reason:   reasonSourceProvenanceUnrecoverable,
 			Target:   target.TargetAntigravityCLI,
 			Scope:    target.ScopeGlobal,
-		}); err != nil {
-			return err
+		})
+	})
+	if err != nil {
+		if contextErr := extensionImportContextError(collector.ctx); contextErr != nil {
+			return contextErr
 		}
+		return err
 	}
 	collector.scans = append(collector.scans, Scan{
 		LivePath:     paths.ImportManifestPath(),
 		Target:       target.TargetAntigravityCLI,
 		Scope:        target.ScopeGlobal,
-		Entries:      len(names),
-		Skipped:      len(names),
+		Entries:      count,
+		Skipped:      count,
 		MaximumBytes: observeantigravity.MaximumInventoryBytes,
 	})
 	return nil

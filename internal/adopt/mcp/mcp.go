@@ -252,12 +252,13 @@ func mcpImportContextError(ctx context.Context) error {
 }
 
 func claudeProjectCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64, skipped adopt.SkipEmitter) ([]adopt.MCPServer, error) {
-	projections, rejections, err := mcpcodec.ExtractClaudeProjectMCPServerProjections(ctx, document.content)
+	projections, err := mcpcodec.ExtractClaudeProjectMCPServerProjections(
+		ctx,
+		document.content,
+		mcpRejectionSink(ctx, skipped, source.primaryPath),
+	)
 	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, contextErr
-		}
-		if err := skipped.Add(adopt.Skipped{LivePath: source.primaryPath, Reason: skipReason(err)}); err != nil {
+		if err := classifyMCPExtractionError(ctx, skipped, source.primaryPath, err); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -281,19 +282,17 @@ func claudeProjectCandidates(ctx context.Context, source importSource, document 
 			Env:          hostEnvReferences(projection.Env),
 		})
 	}
-	if err := emitMCPRejections(ctx, skipped, source.primaryPath, rejections); err != nil {
-		return nil, err
-	}
 	return servers, mcpImportContextError(ctx)
 }
 
 func claudeGlobalCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64, skipped adopt.SkipEmitter) ([]adopt.MCPServer, error) {
-	projections, rejections, err := mcpcodec.ExtractClaudeGlobalMCPServerProjections(ctx, document.content)
+	projections, err := mcpcodec.ExtractClaudeGlobalMCPServerProjections(
+		ctx,
+		document.content,
+		mcpRejectionSink(ctx, skipped, source.primaryPath),
+	)
 	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, contextErr
-		}
-		if err := skipped.Add(adopt.Skipped{LivePath: source.primaryPath, Reason: skipReason(err)}); err != nil {
+		if err := classifyMCPExtractionError(ctx, skipped, source.primaryPath, err); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -317,19 +316,17 @@ func claudeGlobalCandidates(ctx context.Context, source importSource, document i
 			Env:          hostEnvReferences(projection.Env),
 		})
 	}
-	if err := emitMCPRejections(ctx, skipped, source.primaryPath, rejections); err != nil {
-		return nil, err
-	}
 	return servers, mcpImportContextError(ctx)
 }
 
 func openCodeProjectCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64, skipped adopt.SkipEmitter) ([]adopt.MCPServer, error) {
-	projections, rejections, err := mcpcodec.ExtractOpenCodeProjectMCPServerProjections(ctx, document.content)
+	projections, err := mcpcodec.ExtractOpenCodeProjectMCPServerProjections(
+		ctx,
+		document.content,
+		mcpRejectionSink(ctx, skipped, source.primaryPath),
+	)
 	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, contextErr
-		}
-		if err := skipped.Add(adopt.Skipped{LivePath: source.primaryPath, Reason: skipReason(err)}); err != nil {
+		if err := classifyMCPExtractionError(ctx, skipped, source.primaryPath, err); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -353,19 +350,17 @@ func openCodeProjectCandidates(ctx context.Context, source importSource, documen
 			Env:          map[string]string{},
 		})
 	}
-	if err := emitMCPRejections(ctx, skipped, source.primaryPath, rejections); err != nil {
-		return nil, err
-	}
 	return servers, mcpImportContextError(ctx)
 }
 
 func openCodeGlobalCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64, skipped adopt.SkipEmitter) ([]adopt.MCPServer, error) {
-	projections, rejections, err := mcpcodec.ExtractOpenCodeGlobalMCPServerProjections(ctx, document.content)
+	projections, err := mcpcodec.ExtractOpenCodeGlobalMCPServerProjections(
+		ctx,
+		document.content,
+		mcpRejectionSink(ctx, skipped, source.primaryPath),
+	)
 	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, contextErr
-		}
-		if err := skipped.Add(adopt.Skipped{LivePath: source.primaryPath, Reason: skipReason(err)}); err != nil {
+		if err := classifyMCPExtractionError(ctx, skipped, source.primaryPath, err); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -389,19 +384,17 @@ func openCodeGlobalCandidates(ctx context.Context, source importSource, document
 			Env:          openCodeEnvReferences(projection.Environment),
 		})
 	}
-	if err := emitMCPRejections(ctx, skipped, source.primaryPath, rejections); err != nil {
-		return nil, err
-	}
 	return servers, mcpImportContextError(ctx)
 }
 
 func codexProjectCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64, skipped adopt.SkipEmitter) ([]adopt.MCPServer, error) {
-	projections, rejections, err := mcpcodec.ExtractCodexProjectMCPServerProjections(ctx, document.content)
+	projections, err := mcpcodec.ExtractCodexProjectMCPServerProjections(
+		ctx,
+		document.content,
+		mcpRejectionSink(ctx, skipped, source.primaryPath),
+	)
 	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, contextErr
-		}
-		if err := skipped.Add(adopt.Skipped{LivePath: source.primaryPath, Reason: skipReason(err)}); err != nil {
+		if err := classifyMCPExtractionError(ctx, skipped, source.primaryPath, err); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -425,19 +418,17 @@ func codexProjectCandidates(ctx context.Context, source importSource, document i
 			Env:          map[string]string{},
 		})
 	}
-	if err := emitMCPRejections(ctx, skipped, source.primaryPath, rejections); err != nil {
-		return nil, err
-	}
 	return servers, mcpImportContextError(ctx)
 }
 
 func codexGlobalCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64, skipped adopt.SkipEmitter) ([]adopt.MCPServer, error) {
-	projections, rejections, err := mcpcodec.ExtractCodexGlobalMCPServerProjections(ctx, document.content)
+	projections, err := mcpcodec.ExtractCodexGlobalMCPServerProjections(
+		ctx,
+		document.content,
+		mcpRejectionSink(ctx, skipped, source.primaryPath),
+	)
 	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, contextErr
-		}
-		if err := skipped.Add(adopt.Skipped{LivePath: source.primaryPath, Reason: skipReason(err)}); err != nil {
+		if err := classifyMCPExtractionError(ctx, skipped, source.primaryPath, err); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -461,19 +452,17 @@ func codexGlobalCandidates(ctx context.Context, source importSource, document im
 			Env:          sameNameEnvReferences(projection.EnvVars),
 		})
 	}
-	if err := emitMCPRejections(ctx, skipped, source.primaryPath, rejections); err != nil {
-		return nil, err
-	}
 	return servers, mcpImportContextError(ctx)
 }
 
 func antigravityGlobalCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64, skipped adopt.SkipEmitter) ([]adopt.MCPServer, error) {
-	projections, rejections, err := mcpcodec.ExtractAntigravityGlobalMCPServerProjections(ctx, document.content)
+	projections, err := mcpcodec.ExtractAntigravityGlobalMCPServerProjections(
+		ctx,
+		document.content,
+		mcpRejectionSink(ctx, skipped, source.primaryPath),
+	)
 	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, contextErr
-		}
-		if err := skipped.Add(adopt.Skipped{LivePath: source.primaryPath, Reason: skipReason(err)}); err != nil {
+		if err := classifyMCPExtractionError(ctx, skipped, source.primaryPath, err); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -497,30 +486,57 @@ func antigravityGlobalCandidates(ctx context.Context, source importSource, docum
 			Env:          map[string]string{},
 		})
 	}
-	if err := emitMCPRejections(ctx, skipped, source.primaryPath, rejections); err != nil {
-		return nil, err
-	}
 	return servers, mcpImportContextError(ctx)
 }
 
-func emitMCPRejections(
+type mcpRejectionEmissionError struct {
+	cause error
+}
+
+func (err *mcpRejectionEmissionError) Error() string {
+	return err.cause.Error()
+}
+
+func (err *mcpRejectionEmissionError) Unwrap() error {
+	return err.cause
+}
+
+func mcpRejectionSink(
 	ctx context.Context,
 	skipped adopt.SkipEmitter,
 	livePath string,
-	rejections []mcpcodec.MCPProjectionRejection,
-) error {
-	for _, rejection := range rejections {
+) mcpcodec.MCPProjectionRejectionSink {
+	return func(rejection mcpcodec.MCPProjectionRejection) error {
 		if err := mcpImportContextError(ctx); err != nil {
-			return err
+			return &mcpRejectionEmissionError{cause: err}
 		}
 		if err := skipped.Add(adopt.Skipped{
 			LivePath: livePath + "#" + string(rejection.ContentPath()),
 			Reason:   reasonString(rejection.Reason()),
 		}); err != nil {
-			return err
+			return &mcpRejectionEmissionError{cause: err}
 		}
+		return nil
 	}
-	return mcpImportContextError(ctx)
+}
+
+func classifyMCPExtractionError(
+	ctx context.Context,
+	skipped adopt.SkipEmitter,
+	livePath string,
+	err error,
+) error {
+	var emissionError *mcpRejectionEmissionError
+	if errors.As(err, &emissionError) {
+		return emissionError.cause
+	}
+	if contextErr := mcpImportContextError(ctx); contextErr != nil {
+		return contextErr
+	}
+	return skipped.Add(adopt.Skipped{
+		LivePath: livePath,
+		Reason:   skipReason(err),
+	})
 }
 
 func mcpConfigPath(destination output.Destination, scope targetpkg.Scope) (string, error) {

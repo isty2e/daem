@@ -106,7 +106,7 @@ func TestInventoryRejectsPartialDuplicateAndMismatchedRelations(t *testing.T) {
 	})
 }
 
-func TestCompletePluginNamesReturnsOnlyValidatedSourceInexactRows(t *testing.T) {
+func TestVisitCompletePluginNamesReturnsOnlyValidatedSourceInexactRows(t *testing.T) {
 	paths, _, _ := antigravityInventoryFixture(t, "guidance@google")
 	writeAntigravityImportManifest(
 		t,
@@ -117,19 +117,19 @@ func TestCompletePluginNamesReturnsOnlyValidatedSourceInexactRows(t *testing.T) 
 	writeAntigravityPluginManifest(t, paths, "tools", `{"name":"tools"}`)
 
 	inventory := mustReadInventory(t, paths)
-	names, err := inventory.CompletePluginNames()
+	names, err := collectCompletePluginNames(t, inventory)
 	if err != nil {
-		t.Fatalf("CompletePluginNames: %v", err)
+		t.Fatalf("VisitCompletePluginNames: %v", err)
 	}
 	if len(names) != 2 || names[0] != "guidance" || names[1] != "tools" {
-		t.Fatalf("CompletePluginNames = %#v", names)
+		t.Fatalf("visited plugin names = %#v", names)
 	}
 
 	if err := os.Remove(mustPluginManifestPath(t, paths, "tools")); err != nil {
 		t.Fatal(err)
 	}
 	inventory = mustReadInventory(t, paths)
-	if _, err := inventory.CompletePluginNames(); err == nil {
+	if _, err := collectCompletePluginNames(t, inventory); err == nil {
 		t.Fatal("partial plugin relation was accepted as import diagnostic")
 	}
 }
@@ -253,6 +253,16 @@ func antigravityInventoryFixture(
 		t.Fatal(err)
 	}
 	return paths, key, carrier
+}
+
+func collectCompletePluginNames(t *testing.T, inventory Inventory) ([]string, error) {
+	t.Helper()
+	names := make([]string, 0)
+	_, err := inventory.VisitCompletePluginNames(t.Context(), func(name string) error {
+		names = append(names, name)
+		return nil
+	})
+	return names, err
 }
 
 func mustReadInventory(t *testing.T, paths HostPaths) Inventory {

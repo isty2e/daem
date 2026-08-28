@@ -184,7 +184,7 @@ func TestMCPJSONCanonicalEntriesRejectUnpairedSurrogatesForEveryPlacement(t *tes
 func TestMCPJSONLoneSurrogateCannotReachLifecycleMaterialization(t *testing.T) {
 	operations := mustMCPCodecOperations(t, aggregate.MCPPlacementClaudeProject)
 	host := []byte(`{"mcpServers":{"context7":{"type":"stdio","command":"node","args":["\ud800"],"env":{}}}}`)
-	if _, _, err := ExtractClaudeProjectMCPServerProjections(t.Context(), host); err == nil {
+	if _, _, err := collectClaudeProjectMCPServerProjections(t.Context(), host); err == nil {
 		t.Fatal("host extraction accepted a lone surrogate")
 	} else {
 		assertMCPProjectionReason(t, err, MCPProjectionReasonConfigMalformed)
@@ -217,7 +217,7 @@ func TestMCPJSONLoneSurrogateCannotReachLifecycleMaterialization(t *testing.T) {
 
 func TestMCPJSONValidSurrogatePairPreservesTheDecodedScalar(t *testing.T) {
 	host := []byte(`{"mcpServers":{"context7":{"type":"stdio","command":"node","args":["\ud83d\ude00"],"env":{}}}}`)
-	projections, rejections, err := ExtractClaudeProjectMCPServerProjections(t.Context(), host)
+	projections, rejections, err := collectClaudeProjectMCPServerProjections(t.Context(), host)
 	if err != nil || len(rejections) != 0 || len(projections) != 1 {
 		t.Fatalf("extraction = %#v, %#v, %v", projections, rejections, err)
 	}

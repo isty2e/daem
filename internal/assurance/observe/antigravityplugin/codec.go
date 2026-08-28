@@ -2,6 +2,7 @@ package antigravityplugin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -12,8 +13,12 @@ import (
 
 const maximumInventoryDepth = 32
 
-func decodeImports(content []byte) ([]string, error) {
-	if err := jsonstrict.Validate(
+func decodeImportsContext(ctx context.Context, content []byte) ([]string, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("Antigravity CLI import manifest context is required")
+	}
+	if err := jsonstrict.ValidateContext(
+		ctx,
 		content,
 		"Antigravity CLI import manifest",
 		maximumInventoryDepth,
@@ -22,6 +27,9 @@ func decodeImports(content []byte) ([]string, error) {
 	}
 	var document map[string]json.RawMessage
 	if err := json.Unmarshal(content, &document); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	rawImports, present := document["imports"]
@@ -37,6 +45,9 @@ func decodeImports(content []byte) ([]string, error) {
 	}
 	imports := make([]string, 0, len(entries))
 	for index, raw := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var entry map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &entry); err != nil {
 			return nil, fmt.Errorf("imports[%d] must be an object: %w", index, err)
@@ -54,6 +65,9 @@ func decodeImports(content []byte) ([]string, error) {
 		}
 		imports = append(imports, name)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return imports, nil
 }
 
@@ -69,8 +83,12 @@ func validateImportName(name string) error {
 	return nil
 }
 
-func validatePluginManifest(content []byte, plugin string) error {
-	if err := jsonstrict.Validate(
+func validatePluginManifestContext(ctx context.Context, content []byte, plugin string) error {
+	if ctx == nil {
+		return fmt.Errorf("Antigravity CLI plugin manifest context is required")
+	}
+	if err := jsonstrict.ValidateContext(
+		ctx,
 		content,
 		"Antigravity CLI plugin manifest",
 		maximumInventoryDepth,
@@ -79,6 +97,9 @@ func validatePluginManifest(content []byte, plugin string) error {
 	}
 	var document map[string]json.RawMessage
 	if err := json.Unmarshal(content, &document); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	rawName, present := document["name"]
@@ -92,5 +113,5 @@ func validatePluginManifest(content []byte, plugin string) error {
 	if name != plugin {
 		return fmt.Errorf("name %q does not match selected plugin %q", name, plugin)
 	}
-	return nil
+	return ctx.Err()
 }

@@ -154,38 +154,58 @@ func extractOpenCodeMCPServerProjection(existing []byte, serverID string, spec m
 	return extractMCPJSONServerProjection(existing, serverID, spec, decodeOpenCodeProjectMCPServerEntry)
 }
 
-func ExtractOpenCodeProjectMCPServerProjections(ctx context.Context, existing []byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error) {
-	return extractOpenCodeMCPServerProjections(ctx, existing, openCodeProjectMCPConfigSpec(), aggregate.OpenCodeProjectMCPLocalCommandV1)
+func ExtractOpenCodeProjectMCPServerProjections(
+	ctx context.Context,
+	existing []byte,
+	reject MCPProjectionRejectionSink,
+) ([]MCPNoEnvServerProjection, error) {
+	return extractOpenCodeMCPServerProjections(
+		ctx,
+		existing,
+		openCodeProjectMCPConfigSpec(),
+		aggregate.OpenCodeProjectMCPLocalCommandV1,
+		reject,
+	)
 }
 
-func ExtractOpenCodeGlobalMCPServerProjections(ctx context.Context, existing []byte) ([]OpenCodeGlobalMCPServerProjection, []MCPProjectionRejection, error) {
+func ExtractOpenCodeGlobalMCPServerProjections(
+	ctx context.Context,
+	existing []byte,
+	reject MCPProjectionRejectionSink,
+) ([]OpenCodeGlobalMCPServerProjection, error) {
+	if err := requireMCPProjectionRejectionSink(reject); err != nil {
+		return nil, err
+	}
 	config, err := decodeMCPConfigContext(ctx, existing, openCodeGlobalMCPConfigSpec())
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
-			return nil, nil, contextErr
+			return nil, contextErr
 		}
-		return nil, nil, err
+		return nil, err
 	}
-	projections := make([]OpenCodeGlobalMCPServerProjection, 0, len(config.servers))
-	rejections := make([]MCPProjectionRejection, 0)
+	projections := make([]OpenCodeGlobalMCPServerProjection, 0)
 	serverIDs := sortedMCPServerIDs(config.servers)
 	if err := ctx.Err(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	for _, serverID := range serverIDs {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if err := validateServerID(serverID); err != nil {
-			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementOpenCodeGlobal, serverID, err))
+			if err := reject(mcpProjectionRejection(aggregate.MCPPlacementOpenCodeGlobal, serverID, err)); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		entry, entryErr := decodeOpenCodeGlobalMCPServerEntry(config.servers[serverID], serverID)
 		if err := ctx.Err(); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if entryErr != nil {
-			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementOpenCodeGlobal, serverID, entryErr))
+			if err := reject(mcpProjectionRejection(aggregate.MCPPlacementOpenCodeGlobal, serverID, entryErr)); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		projections = append(projections, OpenCodeGlobalMCPServerProjection{
@@ -196,37 +216,52 @@ func ExtractOpenCodeGlobalMCPServerProjections(ctx context.Context, existing []b
 			AdapterContract: aggregate.OpenCodeGlobalMCPLocalEnvV1,
 		})
 	}
-	return projections, rejections, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return projections, nil
 }
 
-func extractOpenCodeMCPServerProjections(ctx context.Context, existing []byte, spec mcpConfigSpec, adapterContract string) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error) {
+func extractOpenCodeMCPServerProjections(
+	ctx context.Context,
+	existing []byte,
+	spec mcpConfigSpec,
+	adapterContract string,
+	reject MCPProjectionRejectionSink,
+) ([]MCPNoEnvServerProjection, error) {
+	if err := requireMCPProjectionRejectionSink(reject); err != nil {
+		return nil, err
+	}
 	config, err := decodeMCPConfigContext(ctx, existing, spec)
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
-			return nil, nil, contextErr
+			return nil, contextErr
 		}
-		return nil, nil, err
+		return nil, err
 	}
-	projections := make([]MCPNoEnvServerProjection, 0, len(config.servers))
-	rejections := make([]MCPProjectionRejection, 0)
+	projections := make([]MCPNoEnvServerProjection, 0)
 	serverIDs := sortedMCPServerIDs(config.servers)
 	if err := ctx.Err(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	for _, serverID := range serverIDs {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if err := validateServerID(serverID); err != nil {
-			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementOpenCodeProject, serverID, err))
+			if err := reject(mcpProjectionRejection(aggregate.MCPPlacementOpenCodeProject, serverID, err)); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		entry, entryErr := decodeOpenCodeProjectMCPServerEntry(config.servers[serverID], serverID)
 		if err := ctx.Err(); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if entryErr != nil {
-			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementOpenCodeProject, serverID, entryErr))
+			if err := reject(mcpProjectionRejection(aggregate.MCPPlacementOpenCodeProject, serverID, entryErr)); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		projections = append(projections, MCPNoEnvServerProjection{
@@ -236,7 +271,10 @@ func extractOpenCodeMCPServerProjections(ctx context.Context, existing []byte, s
 			AdapterContract: adapterContract,
 		})
 	}
-	return projections, rejections, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return projections, nil
 }
 
 func extractOpenCodeProjectMCPServerProjectionBytes(existing []byte, serverID string) ([]byte, bool, error) {
