@@ -43,6 +43,12 @@ func TestNativePathWitnessDistinguishesObjectIncarnationAndMount(t *testing.T) {
 		birthTimeNano:   5,
 		mount:           nativeMountIdentity{first: 6, second: 7},
 	}
+	build := func(identity nativePathComponentIdentity) nativePathWitness {
+		builder := newNativePathWitnessBuilder()
+		builder.append(identity)
+		return builder.finish()
+	}
+	baseWitness := build(base)
 	for _, mutation := range []func(*nativePathComponentIdentity){
 		func(identity *nativePathComponentIdentity) { identity.device++ },
 		func(identity *nativePathComponentIdentity) { identity.inode++ },
@@ -55,8 +61,8 @@ func TestNativePathWitnessDistinguishesObjectIncarnationAndMount(t *testing.T) {
 	} {
 		changed := base
 		mutation(&changed)
-		if changed == base {
-			t.Fatal("path witness identity mutation was not observable")
+		if changedWitness := build(changed); changedWitness == baseWitness {
+			t.Fatalf("path witness did not encode identity mutation: %#v", changed)
 		}
 	}
 }
@@ -175,18 +181,22 @@ func TestOpenNativeRelativeRejectsReplacementAfterExactNameObservation(t *testin
 	}()
 
 	replaced := false
-	containsExactName := func(ctx context.Context, parentFD int, name string) (bool, error) {
-		exact, err := nativeDirectoryContainsExactName(ctx, parentFD, name)
+	observeExactName := func(
+		ctx context.Context,
+		parentFD int,
+		name string,
+	) (nativeExactNameBinding, bool, error) {
+		binding, exact, err := observeNativeExactNameBinding(ctx, parentFD, name)
 		if err != nil || !exact || replaced {
-			return exact, err
+			return binding, exact, err
 		}
 		replaced = true
 		moved := filepath.Join(root, "moved")
 		if err := os.Rename(selected, moved); err != nil {
-			return false, err
+			return nativeExactNameBinding{}, false, err
 		}
 		writeAccessTestFile(t, filepath.Join(selected, "replacement"), []byte("replacement\n"))
-		return true, nil
+		return binding, true, nil
 	}
 
 	entry, err := openNativeRelativeWithExactNameCheck(
@@ -194,7 +204,7 @@ func TestOpenNativeRelativeRejectsReplacementAfterExactNameObservation(t *testin
 		rootFD,
 		"selected",
 		nativePathWitness{},
-		containsExactName,
+		observeExactName,
 	)
 	if entry != nil {
 		_ = entry.close()
@@ -204,7 +214,52 @@ func TestOpenNativeRelativeRejectsReplacementAfterExactNameObservation(t *testin
 	}
 }
 
-func TestNativeDirectoryContainsExactNamePreservesCloseError(t *testing.T) {
+func TestOpenNativeRelativeRejectsCaseOnlyRenameAfterExactNameObservation(t *testing.T) {
+	root := t.TempDir()
+	selected := filepath.Join(root, "selected")
+	writeAccessTestFile(t, filepath.Join(selected, "content"), []byte("content\n"))
+	rootFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := unix.Close(rootFD); err != nil {
+			t.Errorf("close root: %v", err)
+		}
+	}()
+
+	observations := 0
+	observeExactName := func(
+		ctx context.Context,
+		parentFD int,
+		name string,
+	) (nativeExactNameBinding, bool, error) {
+		observations++
+		if observations > 1 {
+			return nativeExactNameBinding{}, false, nil
+		}
+		return observeNativeExactNameBinding(ctx, parentFD, name)
+	}
+
+	entry, err := openNativeRelativeWithExactNameCheck(
+		t.Context(),
+		rootFD,
+		"selected",
+		nativePathWitness{},
+		observeExactName,
+	)
+	if entry != nil {
+		_ = entry.close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "exact casing") {
+		t.Fatalf("relative open after case-only rename error = %v, want exact-case rejection", err)
+	}
+	if observations != 2 {
+		t.Fatalf("exact-name observations = %d, want before-and-after binding observations", observations)
+	}
+}
+
+func TestObserveNativeExactNameBindingPreservesCloseError(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "entry"), []byte("content\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -221,10 +276,13 @@ func TestNativeDirectoryContainsExactNamePreservesCloseError(t *testing.T) {
 
 	closeFailure := errors.New("injected directory close failure")
 	closeCalls := 0
-	exact, err := nativeDirectoryContainsExactNameWithClose(
+	_, exact, err := observeNativeExactNameBindingWithIO(
 		t.Context(),
 		directoryFD,
 		"entry",
+		func(file *os.File, maximum int) ([]string, error) {
+			return file.Readdirnames(maximum)
+		},
 		func(file *os.File) error {
 			closeCalls++
 			return errors.Join(file.Close(), closeFailure)
@@ -235,6 +293,89 @@ func TestNativeDirectoryContainsExactNamePreservesCloseError(t *testing.T) {
 	}
 	if !errors.Is(err, closeFailure) {
 		t.Fatalf("exact-name close error = %v, want injected close failure", err)
+	}
+	if closeCalls != 1 {
+		t.Fatalf("directory close calls = %d, want 1", closeCalls)
+	}
+}
+
+func TestObserveNativeExactNameBindingRejectsParentChangeDuringScan(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "entry"), []byte("content\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	directoryFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := unix.Close(directoryFD); err != nil {
+			t.Errorf("close directory: %v", err)
+		}
+	}()
+
+	changed := false
+	_, _, err = observeNativeExactNameBindingWithIO(
+		t.Context(),
+		directoryFD,
+		"entry",
+		func(file *os.File, maximum int) ([]string, error) {
+			names, readErr := file.Readdirnames(maximum)
+			if !changed {
+				changed = true
+				if err := os.Chmod(root, 0o750); err != nil {
+					return nil, err
+				}
+			}
+			return names, readErr
+		},
+		func(file *os.File) error {
+			return file.Close()
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "directory changed during exact-name observation") {
+		t.Fatalf("parent-change observation error = %v, want stable-parent rejection", err)
+	}
+}
+
+func TestObserveNativeExactNameBindingPreservesBatchReadErrorBeforeEarlyStop(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "entry"), []byte("content\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	directoryFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := unix.Close(directoryFD); err != nil {
+			t.Errorf("close directory: %v", err)
+		}
+	}()
+
+	readFailure := errors.New("injected directory read failure")
+	closeFailure := errors.New("injected directory close failure")
+	closeCalls := 0
+	_, exact, err := observeNativeExactNameBindingWithIO(
+		t.Context(),
+		directoryFD,
+		"entry",
+		func(*os.File, int) ([]string, error) {
+			return []string{"entry"}, readFailure
+		},
+		func(file *os.File) error {
+			closeCalls++
+			return errors.Join(file.Close(), closeFailure)
+		},
+	)
+	if !exact {
+		t.Fatal("exact name was not reported from the errored batch")
+	}
+	if !errors.Is(err, readFailure) {
+		t.Fatalf("early-stop read error = %v, want injected read failure", err)
+	}
+	if !errors.Is(err, closeFailure) {
+		t.Fatalf("early-stop close error = %v, want injected close failure", err)
 	}
 	if closeCalls != 1 {
 		t.Fatalf("directory close calls = %d, want 1", closeCalls)

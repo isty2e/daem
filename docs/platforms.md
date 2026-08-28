@@ -46,8 +46,10 @@ operation-local mount evidence. `OpenView` first resolves its permitted parent
 aliases; `OpenNoFollowView` rejects every alias component. Each read, listing,
 hash, measurement, and verified copy validates that chain before observation
 and again before success. Nested relative selections receive the same
-operation-local ancestor validation, and nested directory-listing witnesses
-retain that relative chain for later inventory revalidation. The witness is
+operation-local ancestor validation. Their exact stored spelling and selected
+object binding must remain equal across final binding validation under stable
+parent-directory observations. Nested directory-listing witnesses retain that
+relative chain for later inventory revalidation. The witness is
 immutable and process-local: it grants no mutation or durable recovery
 authority. Darwin requires at least one reported non-reusable incarnation fact:
 a nonzero birth time or generation number. Linux requires both `STATX_MNT_ID`

@@ -26,6 +26,22 @@ func visitNativeDirectoryNamesWithClose(
 	visit func(string) (bool, error),
 	closeFile func(*os.File) error,
 ) error {
+	return visitNativeDirectoryNamesWithIO(
+		directoryFD,
+		visit,
+		func(file *os.File, maximum int) ([]string, error) {
+			return file.Readdirnames(maximum)
+		},
+		closeFile,
+	)
+}
+
+func visitNativeDirectoryNamesWithIO(
+	directoryFD int,
+	visit func(string) (bool, error),
+	readNames func(*os.File, int) ([]string, error),
+	closeFile func(*os.File) error,
+) error {
 	readFD, err := unix.Openat(directoryFD, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
@@ -37,21 +53,24 @@ func visitNativeDirectoryNamesWithClose(
 	}
 
 	for {
-		names, readErr := file.Readdirnames(256)
+		names, readErr := readNames(file, 256)
+		stop := false
+		var visitErr error
 		for _, name := range names {
-			stop, visitErr := visit(name)
-			if visitErr != nil {
-				return errors.Join(visitErr, closeFile(file))
-			}
-			if stop {
-				return closeFile(file)
+			stop, visitErr = visit(name)
+			if visitErr != nil || stop {
+				break
 			}
 		}
-		if errors.Is(readErr, io.EOF) {
+		var batchReadErr error
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			batchReadErr = readErr
+		}
+		if visitErr != nil || batchReadErr != nil {
+			return errors.Join(visitErr, batchReadErr, closeFile(file))
+		}
+		if stop || errors.Is(readErr, io.EOF) {
 			return closeFile(file)
-		}
-		if readErr != nil {
-			return errors.Join(readErr, closeFile(file))
 		}
 	}
 }
@@ -162,43 +181,73 @@ func readNativeDirectoryNamesUpTo(
 	return names, nil
 }
 
-func nativeDirectoryContainsExactName(
+func observeNativeExactNameBinding(
 	ctx context.Context,
 	directoryFD int,
 	name string,
-) (bool, error) {
-	return nativeDirectoryContainsExactNameWithClose(ctx, directoryFD, name, func(file *os.File) error {
-		return file.Close()
-	})
+) (nativeExactNameBinding, bool, error) {
+	return observeNativeExactNameBindingWithIO(
+		ctx,
+		directoryFD,
+		name,
+		func(file *os.File, maximum int) ([]string, error) {
+			return file.Readdirnames(maximum)
+		},
+		func(file *os.File) error {
+			return file.Close()
+		},
+	)
 }
 
-func nativeDirectoryContainsExactNameWithClose(
+func observeNativeExactNameBindingWithIO(
 	ctx context.Context,
 	directoryFD int,
 	name string,
+	readNames func(*os.File, int) ([]string, error),
 	closeFile func(*os.File) error,
-) (bool, error) {
+) (nativeExactNameBinding, bool, error) {
 	if ctx == nil {
-		return false, fmt.Errorf("artifact access context is required")
+		return nativeExactNameBinding{}, false, fmt.Errorf("artifact access context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return false, err
+		return nativeExactNameBinding{}, false, err
 	}
+	parentBefore, err := openedNativeEntry(directoryFD)
+	if err != nil {
+		return nativeExactNameBinding{}, false, err
+	}
+
+	var binding nativeExactNameBinding
 	found := false
-	err := visitNativeDirectoryNamesWithClose(directoryFD, func(candidate string) (bool, error) {
+	err = visitNativeDirectoryNamesWithIO(directoryFD, func(candidate string) (bool, error) {
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		found = candidate == name
-		return found, nil
-	}, closeFile)
+		if candidate != name {
+			return false, nil
+		}
+		observed, _, err := observeNativeEntry(directoryFD, candidate)
+		if err != nil {
+			return false, err
+		}
+		binding = nativeExactNameBinding{identity: observed.identity}
+		found = true
+		return true, nil
+	}, readNames, closeFile)
 	if err != nil {
-		return found, err
+		return binding, found, err
+	}
+	parentAfter, err := openedNativeEntry(directoryFD)
+	if err != nil {
+		return binding, found, err
+	}
+	if !parentBefore.identity.equal(parentAfter.identity) {
+		return binding, found, fmt.Errorf("artifact access directory changed during exact-name observation")
 	}
 	if err := ctx.Err(); err != nil {
-		return false, err
+		return nativeExactNameBinding{}, false, err
 	}
-	return found, nil
+	return binding, found, nil
 }
 
 func verifyNativeDirectoryNames(ctx context.Context, directoryFD int, expected []string) error {

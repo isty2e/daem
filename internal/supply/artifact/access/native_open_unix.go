@@ -209,7 +209,7 @@ func openNativeRelative(
 		rootFD,
 		relativePath,
 		expectedAuthority,
-		nativeDirectoryContainsExactName,
+		observeNativeExactNameBinding,
 	)
 }
 
@@ -218,7 +218,7 @@ func openNativeRelativeWithExactNameCheck(
 	rootFD int,
 	relativePath string,
 	expectedAuthority nativePathWitness,
-	containsExactName func(context.Context, int, string) (bool, error),
+	observeExactName func(context.Context, int, string) (nativeExactNameBinding, bool, error),
 ) (*relativeNativeEntry, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("artifact access context is required")
@@ -246,7 +246,7 @@ func openNativeRelativeWithExactNameCheck(
 			parentFD,
 			component,
 			entry,
-			containsExactName,
+			observeExactName,
 		); err != nil {
 			return nil, errors.Join(
 				err,
@@ -443,7 +443,7 @@ func verifyNativeEntry(
 		parentFD,
 		name,
 		entry,
-		nativeDirectoryContainsExactName,
+		observeNativeExactNameBinding,
 	)
 }
 
@@ -452,19 +452,38 @@ func verifyNativeEntryWithExactNameCheck(
 	parentFD int,
 	name string,
 	entry nativeEntry,
-	containsExactName func(context.Context, int, string) (bool, error),
+	observeExactName func(context.Context, int, string) (nativeExactNameBinding, bool, error),
 ) error {
-	exact, err := containsExactName(ctx, parentFD, name)
+	before, exact, err := observeExactName(ctx, parentFD, name)
 	if err != nil {
 		return err
 	}
 	if !exact {
 		return fmt.Errorf("artifact access entry %q changed exact casing while open", name)
 	}
+	if !before.matches(entry) {
+		return fmt.Errorf("artifact access entry %q exact-name binding changed while open", name)
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return verifyNativeEntryBinding(parentFD, name, entry)
+	if err := verifyNativeEntryBinding(parentFD, name, entry); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	after, exact, err := observeExactName(ctx, parentFD, name)
+	if err != nil {
+		return err
+	}
+	if !exact {
+		return fmt.Errorf("artifact access entry %q changed exact casing while open", name)
+	}
+	if !before.sameBinding(after) || !after.matches(entry) {
+		return fmt.Errorf("artifact access entry %q exact-name binding changed while open", name)
+	}
+	return ctx.Err()
 }
 
 func verifyNativeEntryBinding(parentFD int, name string, entry nativeEntry) error {
