@@ -56,103 +56,159 @@ type importHookHandler struct {
 	StatusMessage string `json:"statusMessage"`
 }
 
+type candidateHooks struct {
+	readRegularFile func(context.Context, string, int64) ([]byte, bool, error)
+}
+
 func Candidates(
 	ctx context.Context,
 	target targetpkg.Target,
 	scope targetpkg.Scope,
-) ([]adopt.Hook, []adopt.Skipped, error) {
+	skipped adopt.SkipEmitter,
+) ([]adopt.Hook, error) {
+	return candidatesWithHooks(ctx, target, scope, skipped, candidateHooks{})
+}
+
+func candidatesWithHooks(
+	ctx context.Context,
+	target targetpkg.Target,
+	scope targetpkg.Scope,
+	skipped adopt.SkipEmitter,
+	hooks candidateHooks,
+) ([]adopt.Hook, error) {
 	if ctx == nil {
-		return nil, nil, fmt.Errorf("hook import context is required")
+		return nil, fmt.Errorf("hook import context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, nil, err
+		return nil, err
+	}
+	readRegularFile := hooks.readRegularFile
+	if readRegularFile == nil {
+		readRegularFile = filesnapshot.ReadRegularFileContext
 	}
 	liveDestination, ok := commandhook.Destination(target, scope)
 	if !ok {
-		return nil, []adopt.Skipped{adopt.UnsupportedSurfaceSkip(target, scope, "hooks")}, nil
+		if err := skipped.Add(adopt.UnsupportedSurfaceSkip(target, scope, "hooks")); err != nil {
+			return nil, err
+		}
+		return nil, nil
 	}
-	inlineSkipped, err := importCodexInlineHookSkips(ctx, target, scope, liveDestination)
+	inlineSkipped, err := importCodexInlineHookSkip(ctx, target, scope, liveDestination, readRegularFile)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	livePath, err := hookDestinationPath(liveDestination, scope)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	liveDestinationValue := liveDestination.String()
-	content, exists, err := filesnapshot.ReadRegularFileContext(
+	content, exists, err := readRegularFile(
 		ctx,
 		livePath,
 		hookdocument.MaximumBytes,
 	)
 	if err != nil {
 		if skip, ok := hookSnapshotSkip(liveDestinationValue, err); ok {
-			skipped := append([]adopt.Skipped{skip}, inlineSkipped...)
-			return nil, skipped, nil
+			if err := skipped.Add(skip); err != nil {
+				return nil, err
+			}
+			if inlineSkipped.Reason != "" {
+				if err := skipped.Add(inlineSkipped); err != nil {
+					return nil, err
+				}
+			}
+			return nil, nil
 		}
-		return nil, nil, fmt.Errorf("read live hook path %q: %w", liveDestinationValue, err)
+		return nil, fmt.Errorf("read live hook path %q: %w", liveDestinationValue, err)
 	}
 	if !exists {
-		skipped := append([]adopt.Skipped{{LivePath: liveDestinationValue, Reason: importHookSkipMissing}}, inlineSkipped...)
-		return nil, skipped, nil
+		if err := skipped.Add(adopt.Skipped{LivePath: liveDestinationValue, Reason: importHookSkipMissing}); err != nil {
+			return nil, err
+		}
+		if inlineSkipped.Reason != "" {
+			if err := skipped.Add(inlineSkipped); err != nil {
+				return nil, err
+			}
+		}
+		return nil, nil
 	}
 
-	hooks, skipped := parseImportHooks(content, target, scope, liveDestinationValue)
-	skipped = append(skipped, inlineSkipped...)
-	return hooks, skipped, nil
+	importedHooks, documentSkipped := parseImportHooks(content, target, scope, liveDestinationValue)
+	if err := emitHookSkips(ctx, skipped, documentSkipped); err != nil {
+		return nil, err
+	}
+	if inlineSkipped.Reason != "" {
+		if err := skipped.Add(inlineSkipped); err != nil {
+			return nil, err
+		}
+	}
+	return importedHooks, nil
 }
 
-func importCodexInlineHookSkips(
+func importCodexInlineHookSkip(
 	ctx context.Context,
 	target targetpkg.Target,
 	scope targetpkg.Scope,
 	hookDestination output.Destination,
-) ([]adopt.Skipped, error) {
+	readRegularFile func(context.Context, string, int64) ([]byte, bool, error),
+) (adopt.Skipped, error) {
 	if target != targetpkg.TargetCodex {
-		return nil, nil
+		return adopt.Skipped{}, nil
 	}
 	configDestination, ok := commandhook.CodexInlineConfigDestination(hookDestination)
 	if !ok {
-		return nil, nil
+		return adopt.Skipped{}, nil
 	}
 	configPath, err := hookDestinationPath(configDestination, scope)
 	if err != nil {
-		return nil, err
+		return adopt.Skipped{}, err
 	}
 
-	content, exists, err := filesnapshot.ReadRegularFileContext(ctx, configPath, maximumInlineConfigBytes)
+	content, exists, err := readRegularFile(ctx, configPath, maximumInlineConfigBytes)
 	if err != nil {
-		if _, ok := hookSnapshotSkip(configDestination.String(), err); ok {
-			return []adopt.Skipped{{LivePath: configDestination.String(), Reason: "inline_config_unreadable"}}, nil
+		if skip, ok := hookSnapshotSkip(configDestination.String(), err); ok {
+			return skip, nil
 		}
-		return nil, fmt.Errorf("read Codex inline hook config %q: %w", configDestination, err)
+		return adopt.Skipped{}, fmt.Errorf("read Codex inline hook config %q: %w", configDestination, err)
 	}
 	if !exists {
-		return nil, nil
+		return adopt.Skipped{}, nil
 	}
 	if err := tomlstrict.Admit(ctx, content, tomlstrict.StandardLimits()); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, err
+			return adopt.Skipped{}, err
 		}
 		reason := adopt.SkipReason(importHookSkipInlineConfigStructure)
 		if errors.Is(err, tomlstrict.ErrMalformed) {
 			reason = "inline_config_malformed"
 		}
-		return []adopt.Skipped{{LivePath: configDestination.String(), Reason: reason}}, nil
+		return adopt.Skipped{LivePath: configDestination.String(), Reason: reason}, nil
 	}
 	var decoded map[string]toml.Primitive
 	metadata, err := tomlstrict.DecodeAdmitted(ctx, content, &decoded)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, err
+			return adopt.Skipped{}, err
 		}
-		return []adopt.Skipped{{LivePath: configDestination.String(), Reason: "inline_config_malformed"}}, nil
+		return adopt.Skipped{LivePath: configDestination.String(), Reason: "inline_config_malformed"}, nil
 	}
 	if metadata.IsDefined("hooks") {
-		return []adopt.Skipped{{LivePath: configDestination.String(), Reason: "unsupported_inline_hooks"}}, nil
+		return adopt.Skipped{LivePath: configDestination.String(), Reason: "unsupported_inline_hooks"}, nil
 	}
 
-	return nil, nil
+	return adopt.Skipped{}, nil
+}
+
+func emitHookSkips(ctx context.Context, skipped adopt.SkipEmitter, values []adopt.Skipped) error {
+	for _, value := range values {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := skipped.Add(value); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
 }
 
 func hookDestinationPath(destination output.Destination, scope targetpkg.Scope) (string, error) {

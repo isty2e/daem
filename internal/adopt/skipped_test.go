@@ -2,6 +2,7 @@ package adopt
 
 import (
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -120,17 +121,17 @@ func TestSkippedCollectorBoundsRowsDiagnosticBytesAndDetail(t *testing.T) {
 		Reason:   "missing",
 	}
 	for range maximumSkippedObservations {
-		if err := collector.Add(row); err != nil {
+		if err := collectSkipped(collector, row); err != nil {
 			t.Fatalf("exact row budget returned error: %v", err)
 		}
 	}
-	if err := collector.Add(row); !errors.Is(err, ErrSkipObservationLimitExceeded) {
+	if err := collectSkipped(collector, row); !errors.Is(err, ErrSkipObservationLimitExceeded) {
 		t.Fatalf("limit+1 error = %v, want skip observation exhaustion", err)
 	}
 
 	collector = NewSkippedCollector()
 	oversizedDetail := "conflicts_with=" + strings.Repeat("x", maximumSkippedDetailBytes)
-	if err := collector.Add(Skipped{
+	if err := collectSkipped(collector, Skipped{
 		Target:   target.TargetCodex,
 		Scope:    target.ScopeGlobal,
 		LivePath: "duplicate",
@@ -147,7 +148,7 @@ func TestSkippedCollectorBoundsRowsDiagnosticBytesAndDetail(t *testing.T) {
 	}
 
 	collector = NewSkippedCollector()
-	if err := collector.Add(Skipped{
+	if err := collectSkipped(collector, Skipped{
 		Target:   target.TargetCodex,
 		Scope:    target.ScopeProject,
 		LivePath: strings.Repeat("p", maximumSkippedDiagnosticBytes),
@@ -158,6 +159,143 @@ func TestSkippedCollectorBoundsRowsDiagnosticBytesAndDetail(t *testing.T) {
 	if got := collector.Skipped(); len(got) != 0 {
 		t.Fatalf("over-limit row retained: %#v", got)
 	}
+}
+
+func TestSkippedCollectorTransactionsRollbackOrdinaryFailures(t *testing.T) {
+	t.Parallel()
+
+	collector := NewSkippedCollector()
+	committed := Skipped{
+		Target:   target.TargetCodex,
+		Scope:    target.ScopeProject,
+		LivePath: "committed",
+		Reason:   "missing",
+	}
+	if err := collectSkipped(collector, committed); err != nil {
+		t.Fatal(err)
+	}
+
+	cause := errors.New("producer failed")
+	var retained SkipEmitter
+	err := collector.Collect(func(emitter SkipEmitter) error {
+		retained = emitter.WithRoute(target.TargetOpenCode, target.ScopeGlobal)
+		if err := retained.Add(Skipped{LivePath: "rolled-back", Reason: "missing"}); err != nil {
+			return err
+		}
+		return cause
+	})
+	if !errors.Is(err, cause) {
+		t.Fatalf("Collect error = %v, want producer cause", err)
+	}
+	if got := collector.Skipped(); len(got) != 1 || got[0] != committed {
+		t.Fatalf("rolled-back collector = %#v, want only %#v", got, committed)
+	}
+	if err := retained.Add(Skipped{LivePath: "late", Reason: "missing"}); err == nil {
+		t.Fatal("retained emitter remained active after producer return")
+	}
+}
+
+func TestSkippedCollectorRetainsBoundedPrefixOnlyOnExhaustion(t *testing.T) {
+	t.Parallel()
+
+	collector := NewSkippedCollector()
+	emitted := 0
+	err := collector.Collect(func(emitter SkipEmitter) error {
+		route := emitter.WithRoute(target.TargetCodex, target.ScopeProject)
+		for range maximumSkippedObservations + 100 {
+			emitted++
+			if err := route.Add(Skipped{LivePath: "live", Reason: "missing"}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if !errors.Is(err, ErrSkipObservationLimitExceeded) {
+		t.Fatalf("Collect error = %v, want exhaustion", err)
+	}
+	if emitted != maximumSkippedObservations+1 {
+		t.Fatalf("producer emitted %d rows, want first N+1 stop", emitted)
+	}
+	if got := collector.Skipped(); len(got) != maximumSkippedObservations {
+		t.Fatalf("retained rows = %d, want %d", len(got), maximumSkippedObservations)
+	}
+}
+
+func TestSkippedCollectorProducerAllocationsDoNotScalePastLimit(t *testing.T) {
+	measure := func(total int) float64 {
+		return testing.AllocsPerRun(5, func() {
+			collector := NewSkippedCollector()
+			err := collector.Collect(func(emitter SkipEmitter) error {
+				route := emitter.WithRoute(target.TargetCodex, target.ScopeProject)
+				for range total {
+					if err := route.Add(Skipped{LivePath: "live", Reason: "missing"}); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+			if !errors.Is(err, ErrSkipObservationLimitExceeded) {
+				panic(err)
+			}
+		})
+	}
+	small := measure(maximumSkippedObservations + 100)
+	large := measure(maximumSkippedObservations * 100)
+	if large > small+4 {
+		t.Fatalf("post-limit allocations scale with input: small=%.0f large=%.0f", small, large)
+	}
+}
+
+func TestSkippedCollectorRollsBackPanicAndGoexit(t *testing.T) {
+	t.Parallel()
+
+	assertEmpty := func(t *testing.T, collector *SkippedCollector) {
+		t.Helper()
+		if got := collector.Skipped(); len(got) != 0 {
+			t.Fatalf("collector retained aborted rows: %#v", got)
+		}
+	}
+
+	panicCollector := NewSkippedCollector()
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("producer panic was not observed")
+			}
+		}()
+		_ = panicCollector.Collect(func(emitter SkipEmitter) error {
+			if err := emitter.WithRoute(target.TargetCodex, target.ScopeProject).Add(
+				Skipped{LivePath: "panic", Reason: "missing"},
+			); err != nil {
+				t.Fatal(err)
+			}
+			panic("stop")
+		})
+	}()
+	assertEmpty(t, panicCollector)
+
+	goexitCollector := NewSkippedCollector()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = goexitCollector.Collect(func(emitter SkipEmitter) error {
+			if err := emitter.WithRoute(target.TargetCodex, target.ScopeProject).Add(
+				Skipped{LivePath: "goexit", Reason: "missing"},
+			); err != nil {
+				return err
+			}
+			runtime.Goexit()
+			return nil
+		})
+	}()
+	<-done
+	assertEmpty(t, goexitCollector)
+}
+
+func collectSkipped(collector *SkippedCollector, skipped Skipped) error {
+	return collector.Collect(func(emitter SkipEmitter) error {
+		return emitter.Add(skipped)
+	})
 }
 
 func TestCandidateSetRejectsSkippedObservationBudgetBypass(t *testing.T) {

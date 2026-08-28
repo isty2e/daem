@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
+	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -38,7 +39,7 @@ func TestCandidatesImportsRepresentableCodexHook(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
+	hooks, skipped, err := collectCandidates(context.Background(), target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +83,7 @@ func TestCandidatesSkipsCodexHookShapeThatSurfaceCannotRepresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
+	hooks, skipped, err := collectCandidates(context.Background(), target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +199,7 @@ func TestCandidatesRejectsUnsafeHookFileShapes(t *testing.T) {
 
 	assertSkip := func(reason adopt.SkipReason) {
 		t.Helper()
-		hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
+		hooks, skipped, err := collectCandidates(context.Background(), target.TargetCodex, target.ScopeProject)
 		if err != nil {
 			t.Fatalf("Candidates returned error: %v", err)
 		}
@@ -252,7 +253,7 @@ func TestCandidatesClassifiesCodexInlineConfigStructureLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
+	hooks, skipped, err := collectCandidates(context.Background(), target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatalf("Candidates returned error: %v", err)
 	}
@@ -261,11 +262,60 @@ func TestCandidatesClassifiesCodexInlineConfigStructureLimit(t *testing.T) {
 	}
 }
 
+func TestCandidatesPreservesCodexInlineSnapshotReasons(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		readErr    error
+		reason     adopt.SkipReason
+		actionHint adopt.SkipActionHint
+	}{
+		{name: "symlink", readErr: filesnapshot.ErrSymlink, reason: importHookSkipSymlink, actionHint: adopt.SkipActionReplaceUnsupportedEntry},
+		{name: "not regular", readErr: filesnapshot.ErrNotRegular, reason: importHookSkipNotRegular, actionHint: adopt.SkipActionReplaceUnsupportedEntry},
+		{name: "too large", readErr: filesnapshot.ErrLimitExceeded, reason: importHookSkipTooLarge, actionHint: adopt.SkipActionReduceSource},
+		{name: "changed", readErr: filesnapshot.ErrChanged, reason: importHookSkipChanged, actionHint: adopt.SkipActionRetryWhenStable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			readCount := 0
+			_, skipped, err := collectCandidatesWithHooks(
+				t.Context(),
+				target.TargetCodex,
+				target.ScopeProject,
+				candidateHooks{readRegularFile: func(context.Context, string, int64) ([]byte, bool, error) {
+					readCount++
+					if readCount == 1 {
+						return nil, false, test.readErr
+					}
+					return nil, false, nil
+				}},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(skipped) != 2 || skipped[0].Reason != importHookSkipMissing {
+				t.Fatalf("skipped order = %#v, want main Hook skip before inline-config skip", skipped)
+			}
+			observed := skipped[1]
+			if observed.LivePath != ".codex/config.toml" || observed.Reason != test.reason ||
+				observed.Category() != adopt.SkipCategoryActionRequired ||
+				observed.ActionHint() != test.actionHint {
+				t.Fatalf("inline skip = %#v, want reason=%q category=action_required action=%q", observed, test.reason, test.actionHint)
+			}
+			if observed.Reason == "inline_config_unreadable" {
+				t.Fatalf("inline snapshot cause collapsed to generic reason: %#v", observed)
+			}
+		})
+	}
+}
+
 func TestCandidatesStopsWhenHookImportContextIsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	hooks, skipped, err := Candidates(ctx, target.TargetCodex, target.ScopeProject)
+	hooks, skipped, err := collectCandidates(ctx, target.TargetCodex, target.ScopeProject)
 	if !errors.Is(err, context.Canceled) || hooks != nil || skipped != nil {
 		t.Fatalf("Candidates = (%#v, %#v, %v), want context cancellation", hooks, skipped, err)
 	}

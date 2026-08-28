@@ -86,29 +86,32 @@ type candidateHooks struct {
 	beforeSuccess           func()
 }
 
-// Candidates observes one MCP document and returns admitted standalone
-// projections, exact source authority, and classified skips.
+// Candidates observes one MCP document, emits classified skips at their first
+// amplifying boundary, and returns admitted standalone projections plus exact
+// source authority.
 func Candidates(
 	ctx context.Context,
 	target targetpkg.Target,
 	scope targetpkg.Scope,
-) ([]adopt.MCPServer, []adopt.MCPSourceAuthority, []adopt.Skipped, error) {
-	return candidatesWithHooks(ctx, target, scope, candidateHooks{})
+	skipped adopt.SkipEmitter,
+) ([]adopt.MCPServer, []adopt.MCPSourceAuthority, error) {
+	return candidatesWithHooks(ctx, target, scope, skipped, candidateHooks{})
 }
 
 func candidatesWithHooks(
 	ctx context.Context,
 	target targetpkg.Target,
 	scope targetpkg.Scope,
+	skipped adopt.SkipEmitter,
 	hooks candidateHooks,
-) ([]adopt.MCPServer, []adopt.MCPSourceAuthority, []adopt.Skipped, error) {
+) ([]adopt.MCPServer, []adopt.MCPSourceAuthority, error) {
 	if ctx == nil {
-		return nil, nil, nil, fmt.Errorf("MCP import context is required")
+		return nil, nil, fmt.Errorf("MCP import context is required")
 	}
 	if err := mcpImportContextError(ctx); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	var importConfig func(context.Context, importSource, importDocument, int64) ([]adopt.MCPServer, []adopt.Skipped, error)
+	var importConfig func(context.Context, []byte, *mcpProjectionAdmission) error
 	switch {
 	case target == targetpkg.TargetClaudeCode && scope == targetpkg.ScopeProject:
 		importConfig = claudeProjectCandidates
@@ -125,31 +128,28 @@ func candidatesWithHooks(
 	case target == targetpkg.TargetAntigravityCLI && scope == targetpkg.ScopeGlobal:
 		importConfig = antigravityGlobalCandidates
 	default:
-		return finishCandidates(
-			ctx,
-			hooks,
-			nil,
-			nil,
-			[]adopt.Skipped{adopt.UnsupportedSurfaceSkip(target, scope, "mcp_server")},
-		)
+		if err := skipped.Add(adopt.UnsupportedSurfaceSkip(target, scope, "mcp_server")); err != nil {
+			return nil, nil, err
+		}
+		return finishCandidates(ctx, hooks, nil, nil)
 	}
 	placement, ok := aggregate.ImplementedMCPPlacement(target, scope)
 	if !ok {
-		return nil, nil, nil, fmt.Errorf("MCP import route %s/%s has no canonical placement", target, scope)
+		return nil, nil, fmt.Errorf("MCP import route %s/%s has no canonical placement", target, scope)
 	}
 	codec, ok := aggregatecodec.Catalog().Lookup(placement.CodecContractID())
 	if !ok {
-		return nil, nil, nil, fmt.Errorf("MCP import route %s/%s has no aggregate codec", target, scope)
+		return nil, nil, fmt.Errorf("MCP import route %s/%s has no aggregate codec", target, scope)
 	}
 	primaryPath, err := mcpConfigPath(placement.ConfigPath(), scope)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	requiredAbsentPaths := make([]string, 0, 1)
 	if conflictingConfig, hasConflict := placement.ConflictingConfigPath(); hasConflict {
 		conflictingPath, err := mcpConfigPath(conflictingConfig, scope)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		requiredAbsentPaths = append(requiredAbsentPaths, conflictingPath)
 	}
@@ -158,70 +158,102 @@ func candidatesWithHooks(
 	document, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, nil, contextErr
+			return nil, nil, contextErr
 		}
-		return nil, nil, skipSlice(skip), err
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := skipped.Add(skip); err != nil {
+			return nil, nil, err
+		}
+		return finishCandidates(ctx, hooks, nil, nil)
 	}
 	if hooks.afterSnapshot != nil {
 		hooks.afterSnapshot()
 	}
 	if err := mcpImportContextError(ctx); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	authorities := []adopt.MCPSourceAuthority{
 		source.authority(target, scope, document, maximumBytes),
 	}
-	servers, skipped, err := importConfig(
-		ctx,
-		source,
-		document,
-		maximumBytes,
-	)
-	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, nil, contextErr
+	admission := &mcpProjectionAdmission{
+		ctx:          ctx,
+		target:       target,
+		scope:        scope,
+		source:       source,
+		document:     document,
+		maximumBytes: maximumBytes,
+		skipped:      skipped,
+		before:       hooks.beforeArgumentAdmission,
+	}
+	if err := importConfig(ctx, document.content, admission); err != nil {
+		if err := classifyMCPExtractionError(ctx, skipped, source.primaryPath, err); err != nil {
+			return nil, nil, err
 		}
-		return nil, nil, nil, err
 	}
-	servers, skipped, err = admitMCPArgumentCandidates(ctx, servers, skipped, hooks.beforeArgumentAdmission)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return finishCandidates(ctx, hooks, servers, authorities, skipped)
+	return finishCandidates(ctx, hooks, admission.servers, authorities)
 }
 
-func admitMCPArgumentCandidates(
-	ctx context.Context,
-	servers []adopt.MCPServer,
-	skipped []adopt.Skipped,
-	before func(int),
-) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	admitted := make([]adopt.MCPServer, 0, len(servers))
-	classified := append([]adopt.Skipped(nil), skipped...)
-	for index, server := range servers {
-		if before != nil {
-			before(index)
-		}
-		if err := mcpImportContextError(ctx); err != nil {
-			return nil, nil, err
-		}
-		validationErr := desiredmcp.ValidateStdioArguments(server.Args)
-		if err := mcpImportContextError(ctx); err != nil {
-			return nil, nil, err
-		}
-		if validationErr != nil {
-			classified = append(classified, adopt.Skipped{
-				LivePath: server.LivePath(),
-				Reason:   skipInvalidArgument,
-			})
-			continue
-		}
-		admitted = append(admitted, server)
+type mcpProjectionAdmission struct {
+	ctx             context.Context
+	target          targetpkg.Target
+	scope           targetpkg.Scope
+	source          importSource
+	document        importDocument
+	maximumBytes    int64
+	skipped         adopt.SkipEmitter
+	before          func(int)
+	projectionIndex int
+	servers         []adopt.MCPServer
+}
+
+func (admission *mcpProjectionAdmission) admit(
+	contentPath string,
+	resourceName string,
+	command string,
+	args []string,
+	environment func() map[string]string,
+) error {
+	index := admission.projectionIndex
+	admission.projectionIndex++
+	if admission.before != nil {
+		admission.before(index)
 	}
-	if err := mcpImportContextError(ctx); err != nil {
-		return nil, nil, err
+	if err := mcpImportContextError(admission.ctx); err != nil {
+		return &mcpImportSinkError{cause: err}
 	}
-	return admitted, classified, nil
+	route, err := admission.source.route(contentPath, admission.document, admission.maximumBytes)
+	if err != nil {
+		return &mcpImportSinkError{cause: err}
+	}
+	server := adopt.MCPServer{
+		ResourceName: resourceName,
+		Target:       admission.target,
+		Scope:        admission.scope,
+		SourceRoute:  route,
+		Command:      command,
+		Args:         args,
+	}
+	validationErr := desiredmcp.ValidateStdioArguments(args)
+	if err := mcpImportContextError(admission.ctx); err != nil {
+		return &mcpImportSinkError{cause: err}
+	}
+	if validationErr != nil {
+		if err := admission.skipped.Add(adopt.Skipped{
+			LivePath: server.LivePath(),
+			Reason:   skipInvalidArgument,
+		}); err != nil {
+			return &mcpImportSinkError{cause: err}
+		}
+		return nil
+	}
+	if environment == nil {
+		environment = func() map[string]string { return map[string]string{} }
+	}
+	server.Env = environment()
+	admission.servers = append(admission.servers, server)
+	return nil
 }
 
 func finishCandidates(
@@ -229,15 +261,14 @@ func finishCandidates(
 	hooks candidateHooks,
 	servers []adopt.MCPServer,
 	authorities []adopt.MCPSourceAuthority,
-	skipped []adopt.Skipped,
-) ([]adopt.MCPServer, []adopt.MCPSourceAuthority, []adopt.Skipped, error) {
+) ([]adopt.MCPServer, []adopt.MCPSourceAuthority, error) {
 	if hooks.beforeSuccess != nil {
 		hooks.beforeSuccess()
 	}
 	if err := mcpImportContextError(ctx); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	return servers, authorities, skipped, nil
+	return servers, authorities, nil
 }
 
 func mcpImportContextError(ctx context.Context) error {
@@ -250,214 +281,173 @@ func mcpImportContextError(ctx context.Context) error {
 	return nil
 }
 
-func claudeProjectCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	projections, rejections, err := mcpcodec.ExtractClaudeProjectMCPServerProjections(ctx, document.content)
-	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
-	}
-	servers := make([]adopt.MCPServer, 0, len(projections))
-	for _, projection := range projections {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		route, err := source.route(mcpcodec.ClaudeProjectMCPContentPath(projection.ServerID), document, maximumBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		servers = append(servers, adopt.MCPServer{
-			ResourceName: projection.ServerID,
-			Target:       targetpkg.TargetClaudeCode,
-			Scope:        targetpkg.ScopeProject,
-			SourceRoute:  route,
-			Command:      projection.Command,
-			Args:         append([]string(nil), projection.Args...),
-			Env:          hostEnvReferences(projection.Env),
-		})
-	}
-	return servers, rejectionSkips(source.primaryPath, rejections), mcpImportContextError(ctx)
+func claudeProjectCandidates(ctx context.Context, content []byte, admission *mcpProjectionAdmission) error {
+	return mcpcodec.ExtractClaudeProjectMCPServerProjections(
+		ctx,
+		content,
+		func(projection mcpcodec.ClaudeProjectMCPServerProjection) error {
+			return admission.admit(
+				mcpcodec.ClaudeProjectMCPContentPath(projection.ServerID),
+				projection.ServerID,
+				projection.Command,
+				projection.Args,
+				func() map[string]string { return hostEnvReferences(projection.Env) },
+			)
+		},
+		mcpRejectionSink(ctx, admission.skipped, admission.source.primaryPath),
+	)
 }
 
-func claudeGlobalCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	projections, rejections, err := mcpcodec.ExtractClaudeGlobalMCPServerProjections(ctx, document.content)
-	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
-	}
-	servers := make([]adopt.MCPServer, 0, len(projections))
-	for _, projection := range projections {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		route, err := source.route(mcpcodec.ClaudeGlobalMCPContentPath(projection.ServerID), document, maximumBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		servers = append(servers, adopt.MCPServer{
-			ResourceName: projection.ServerID,
-			Target:       targetpkg.TargetClaudeCode,
-			Scope:        targetpkg.ScopeGlobal,
-			SourceRoute:  route,
-			Command:      projection.Command,
-			Args:         append([]string(nil), projection.Args...),
-			Env:          hostEnvReferences(projection.Env),
-		})
-	}
-	return servers, rejectionSkips(source.primaryPath, rejections), mcpImportContextError(ctx)
+func claudeGlobalCandidates(ctx context.Context, content []byte, admission *mcpProjectionAdmission) error {
+	return mcpcodec.ExtractClaudeGlobalMCPServerProjections(
+		ctx,
+		content,
+		func(projection mcpcodec.ClaudeGlobalMCPServerProjection) error {
+			return admission.admit(
+				mcpcodec.ClaudeGlobalMCPContentPath(projection.ServerID),
+				projection.ServerID,
+				projection.Command,
+				projection.Args,
+				func() map[string]string { return hostEnvReferences(projection.Env) },
+			)
+		},
+		mcpRejectionSink(ctx, admission.skipped, admission.source.primaryPath),
+	)
 }
 
-func openCodeProjectCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	projections, rejections, err := mcpcodec.ExtractOpenCodeProjectMCPServerProjections(ctx, document.content)
-	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
-	}
-	servers := make([]adopt.MCPServer, 0, len(projections))
-	for _, projection := range projections {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		route, err := source.route(mcpcodec.OpenCodeProjectMCPContentPath(projection.ServerID), document, maximumBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		servers = append(servers, adopt.MCPServer{
-			ResourceName: projection.ServerID,
-			Target:       targetpkg.TargetOpenCode,
-			Scope:        targetpkg.ScopeProject,
-			SourceRoute:  route,
-			Command:      projection.Command,
-			Args:         append([]string(nil), projection.Args...),
-			Env:          map[string]string{},
-		})
-	}
-	return servers, rejectionSkips(source.primaryPath, rejections), mcpImportContextError(ctx)
+func openCodeProjectCandidates(ctx context.Context, content []byte, admission *mcpProjectionAdmission) error {
+	return mcpcodec.ExtractOpenCodeProjectMCPServerProjections(
+		ctx,
+		content,
+		func(projection mcpcodec.MCPNoEnvServerProjection) error {
+			return admission.admit(
+				mcpcodec.OpenCodeProjectMCPContentPath(projection.ServerID),
+				projection.ServerID,
+				projection.Command,
+				projection.Args,
+				nil,
+			)
+		},
+		mcpRejectionSink(ctx, admission.skipped, admission.source.primaryPath),
+	)
 }
 
-func openCodeGlobalCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	projections, rejections, err := mcpcodec.ExtractOpenCodeGlobalMCPServerProjections(ctx, document.content)
-	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
-	}
-	servers := make([]adopt.MCPServer, 0, len(projections))
-	for _, projection := range projections {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		route, err := source.route(mcpcodec.OpenCodeGlobalMCPContentPath(projection.ServerID), document, maximumBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		servers = append(servers, adopt.MCPServer{
-			ResourceName: projection.ServerID,
-			Target:       targetpkg.TargetOpenCode,
-			Scope:        targetpkg.ScopeGlobal,
-			SourceRoute:  route,
-			Command:      projection.Command,
-			Args:         append([]string(nil), projection.Args...),
-			Env:          openCodeEnvReferences(projection.Environment),
-		})
-	}
-	return servers, rejectionSkips(source.primaryPath, rejections), mcpImportContextError(ctx)
+func openCodeGlobalCandidates(ctx context.Context, content []byte, admission *mcpProjectionAdmission) error {
+	return mcpcodec.ExtractOpenCodeGlobalMCPServerProjections(
+		ctx,
+		content,
+		func(projection mcpcodec.OpenCodeGlobalMCPServerProjection) error {
+			return admission.admit(
+				mcpcodec.OpenCodeGlobalMCPContentPath(projection.ServerID),
+				projection.ServerID,
+				projection.Command,
+				projection.Args,
+				func() map[string]string { return openCodeEnvReferences(projection.Environment) },
+			)
+		},
+		mcpRejectionSink(ctx, admission.skipped, admission.source.primaryPath),
+	)
 }
 
-func codexProjectCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	projections, rejections, err := mcpcodec.ExtractCodexProjectMCPServerProjections(ctx, document.content)
-	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
-	}
-	servers := make([]adopt.MCPServer, 0, len(projections))
-	for _, projection := range projections {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		route, err := source.route(mcpcodec.CodexProjectMCPContentPath(projection.ServerID), document, maximumBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		servers = append(servers, adopt.MCPServer{
-			ResourceName: projection.ServerID,
-			Target:       targetpkg.TargetCodex,
-			Scope:        targetpkg.ScopeProject,
-			SourceRoute:  route,
-			Command:      projection.Command,
-			Args:         append([]string(nil), projection.Args...),
-			Env:          map[string]string{},
-		})
-	}
-	return servers, rejectionSkips(source.primaryPath, rejections), mcpImportContextError(ctx)
+func codexProjectCandidates(ctx context.Context, content []byte, admission *mcpProjectionAdmission) error {
+	return mcpcodec.ExtractCodexProjectMCPServerProjections(
+		ctx,
+		content,
+		func(projection mcpcodec.MCPNoEnvServerProjection) error {
+			return admission.admit(
+				mcpcodec.CodexProjectMCPContentPath(projection.ServerID),
+				projection.ServerID,
+				projection.Command,
+				projection.Args,
+				nil,
+			)
+		},
+		mcpRejectionSink(ctx, admission.skipped, admission.source.primaryPath),
+	)
 }
 
-func codexGlobalCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	projections, rejections, err := mcpcodec.ExtractCodexGlobalMCPServerProjections(ctx, document.content)
-	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
-	}
-	servers := make([]adopt.MCPServer, 0, len(projections))
-	for _, projection := range projections {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		route, err := source.route(mcpcodec.CodexGlobalMCPContentPath(projection.ServerID), document, maximumBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		servers = append(servers, adopt.MCPServer{
-			ResourceName: projection.ServerID,
-			Target:       targetpkg.TargetCodex,
-			Scope:        targetpkg.ScopeGlobal,
-			SourceRoute:  route,
-			Command:      projection.Command,
-			Args:         append([]string(nil), projection.Args...),
-			Env:          sameNameEnvReferences(projection.EnvVars),
-		})
-	}
-	return servers, rejectionSkips(source.primaryPath, rejections), mcpImportContextError(ctx)
+func codexGlobalCandidates(ctx context.Context, content []byte, admission *mcpProjectionAdmission) error {
+	return mcpcodec.ExtractCodexGlobalMCPServerProjections(
+		ctx,
+		content,
+		func(projection mcpcodec.CodexGlobalMCPServerProjection) error {
+			return admission.admit(
+				mcpcodec.CodexGlobalMCPContentPath(projection.ServerID),
+				projection.ServerID,
+				projection.Command,
+				projection.Args,
+				func() map[string]string { return sameNameEnvReferences(projection.EnvVars) },
+			)
+		},
+		mcpRejectionSink(ctx, admission.skipped, admission.source.primaryPath),
+	)
 }
 
-func antigravityGlobalCandidates(ctx context.Context, source importSource, document importDocument, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	projections, rejections, err := mcpcodec.ExtractAntigravityGlobalMCPServerProjections(ctx, document.content)
-	if err != nil {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
+func antigravityGlobalCandidates(ctx context.Context, content []byte, admission *mcpProjectionAdmission) error {
+	return mcpcodec.ExtractAntigravityGlobalMCPServerProjections(
+		ctx,
+		content,
+		func(projection mcpcodec.AntigravityGlobalMCPServerProjection) error {
+			return admission.admit(
+				mcpcodec.AntigravityGlobalMCPContentPath(projection.ServerID),
+				projection.ServerID,
+				projection.Command,
+				projection.Args,
+				nil,
+			)
+		},
+		mcpRejectionSink(ctx, admission.skipped, admission.source.primaryPath),
+	)
+}
+
+type mcpImportSinkError struct {
+	cause error
+}
+
+func (err *mcpImportSinkError) Error() string {
+	return err.cause.Error()
+}
+
+func (err *mcpImportSinkError) Unwrap() error {
+	return err.cause
+}
+
+func mcpRejectionSink(
+	ctx context.Context,
+	skipped adopt.SkipEmitter,
+	livePath string,
+) mcpcodec.MCPProjectionRejectionSink {
+	return func(rejection mcpcodec.MCPProjectionRejection) error {
+		if err := mcpImportContextError(ctx); err != nil {
+			return &mcpImportSinkError{cause: err}
 		}
-		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
+		if err := skipped.Add(adopt.Skipped{
+			LivePath: livePath + "#" + string(rejection.ContentPath()),
+			Reason:   reasonString(rejection.Reason()),
+		}); err != nil {
+			return &mcpImportSinkError{cause: err}
+		}
+		return nil
 	}
-	servers := make([]adopt.MCPServer, 0, len(projections))
-	for _, projection := range projections {
-		if contextErr := mcpImportContextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
-		}
-		route, err := source.route(mcpcodec.AntigravityGlobalMCPContentPath(projection.ServerID), document, maximumBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		servers = append(servers, adopt.MCPServer{
-			ResourceName: projection.ServerID,
-			Target:       targetpkg.TargetAntigravityCLI,
-			Scope:        targetpkg.ScopeGlobal,
-			SourceRoute:  route,
-			Command:      projection.Command,
-			Args:         append([]string(nil), projection.Args...),
-			Env:          map[string]string{},
-		})
+}
+
+func classifyMCPExtractionError(
+	ctx context.Context,
+	skipped adopt.SkipEmitter,
+	livePath string,
+	err error,
+) error {
+	var emissionError *mcpImportSinkError
+	if errors.As(err, &emissionError) {
+		return emissionError.cause
 	}
-	return servers, rejectionSkips(source.primaryPath, rejections), mcpImportContextError(ctx)
+	if contextErr := mcpImportContextError(ctx); contextErr != nil {
+		return contextErr
+	}
+	return skipped.Add(adopt.Skipped{
+		LivePath: livePath,
+		Reason:   skipReason(err),
+	})
 }
 
 func mcpConfigPath(destination output.Destination, scope targetpkg.Scope) (string, error) {
@@ -564,17 +554,6 @@ func sameNameEnvReferences(names []string) map[string]string {
 	return result
 }
 
-func rejectionSkips(livePath string, rejections []mcpcodec.MCPProjectionRejection) []adopt.Skipped {
-	skipped := make([]adopt.Skipped, 0, len(rejections))
-	for _, rejection := range rejections {
-		skipped = append(skipped, adopt.Skipped{
-			LivePath: livePath + "#" + string(rejection.ContentPath()),
-			Reason:   reasonString(rejection.Reason()),
-		})
-	}
-	return skipped
-}
-
 func skipReason(err error) adopt.SkipReason {
 	reason, ok := mcpcodec.MCPProjectionReasonCodeOf(err)
 	if !ok {
@@ -606,11 +585,4 @@ func reasonString(reason mcpcodec.MCPProjectionReasonCode) adopt.SkipReason {
 	default:
 		return "mcp_projection_unclassified"
 	}
-}
-
-func skipSlice(skip adopt.Skipped) []adopt.Skipped {
-	if skip.Reason == "" {
-		return nil
-	}
-	return []adopt.Skipped{skip}
 }

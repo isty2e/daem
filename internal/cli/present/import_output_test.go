@@ -87,11 +87,11 @@ func presentPiImportPlan(t *testing.T, source string) adoptmodel.Plan {
 	); err != nil {
 		t.Fatal(err)
 	}
-	result, err := adoptextension.Collect(adoptextension.Input{
+	result, err := adoptextension.Collect(t.Context(), adoptextension.Input{
 		ManifestRoot: root,
 		Targets:      []target.Target{target.TargetPi},
 		Scopes:       []target.Scope{target.ScopeProject},
-	})
+	}, func(adoptextension.Skip) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}

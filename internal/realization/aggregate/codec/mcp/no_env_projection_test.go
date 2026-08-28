@@ -127,12 +127,12 @@ func TestMCPNoEnvServerProjectionExtractionOwnsArgs(t *testing.T) {
 		{
 			name:    "OpenCode project",
 			content: []byte(`{"mcp":{"context7":{"type":"local","command":["npx","-y"]}}}`),
-			extract: ExtractOpenCodeProjectMCPServerProjections,
+			extract: collectOpenCodeProjectMCPServerProjections,
 		},
 		{
 			name:    "Codex project",
 			content: []byte("[mcp_servers.context7]\ncommand = \"npx\"\nargs = [\"-y\"]\n"),
-			extract: ExtractCodexProjectMCPServerProjections,
+			extract: collectCodexProjectMCPServerProjections,
 		},
 	}
 	for _, test := range tests {

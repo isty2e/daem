@@ -1,6 +1,7 @@
 package antigravityplugin
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"sort"
@@ -28,11 +29,21 @@ type Inventory struct {
 // ReadInventory reads the host import manifest. A missing manifest is fresh
 // empty evidence; malformed, unstable, symlinked, or unreadable files fail.
 func ReadInventory(paths HostPaths) (Inventory, error) {
+	return ReadInventoryContext(context.Background(), paths)
+}
+
+// ReadInventoryContext reads one bounded host import manifest while preserving
+// caller cancellation through snapshot and structural validation.
+func ReadInventoryContext(ctx context.Context, paths HostPaths) (Inventory, error) {
+	if ctx == nil {
+		return Inventory{}, fmt.Errorf("Antigravity CLI inventory context is required")
+	}
 	manifest := paths.ImportManifestPath()
 	if manifest == "" {
 		return Inventory{}, fmt.Errorf("Antigravity CLI host paths are unresolved")
 	}
-	content, exists, err := filesnapshot.ReadRegularFile(
+	content, exists, err := filesnapshot.ReadRegularFileContext(
+		ctx,
 		manifest,
 		MaximumInventoryBytes,
 	)
@@ -41,10 +52,14 @@ func ReadInventory(paths HostPaths) (Inventory, error) {
 	}
 	imports := []string(nil)
 	if exists {
-		imports, err = decodeImports(content)
+		imports, err = decodeImportsContext(ctx, content)
 		if err != nil {
 			return Inventory{}, fmt.Errorf("decode Antigravity CLI import manifest %q: %w", manifest, err)
 		}
+	}
+	sort.Strings(imports)
+	if err := ctx.Err(); err != nil {
+		return Inventory{}, err
 	}
 	return Inventory{
 		paths:       paths,
@@ -62,31 +77,50 @@ func (inventory Inventory) Equal(other Inventory) bool {
 		inventory.fingerprint == other.fingerprint
 }
 
-// CompletePluginNames returns stable plugin-name diagnostics only when each
-// selected import row has one complete installed bundle. Names carry no source
-// provenance and therefore cannot become extension declarations.
-func (inventory Inventory) CompletePluginNames() ([]string, error) {
-	names := append([]string(nil), inventory.imports...)
-	sort.Strings(names)
-	for index, name := range names {
-		if index > 0 && name == names[index-1] {
-			return nil, fmt.Errorf(
+// VisitCompletePluginNames visits stable plugin-name diagnostics in
+// deterministic order. Each callback occurs immediately after the selected
+// import row is proven to have one complete installed bundle. Names carry no
+// source provenance and therefore cannot become extension declarations.
+func (inventory Inventory) VisitCompletePluginNames(
+	ctx context.Context,
+	visit func(string) error,
+) (int, error) {
+	if ctx == nil {
+		return 0, fmt.Errorf("Antigravity CLI inventory visit context is required")
+	}
+	if visit == nil {
+		return 0, fmt.Errorf("Antigravity CLI plugin-name visitor is required")
+	}
+	visited := 0
+	for index, name := range inventory.imports {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if index > 0 && name == inventory.imports[index-1] {
+			return 0, fmt.Errorf(
 				"Antigravity CLI import manifest contains duplicate plugin %q",
 				name,
 			)
 		}
-		present, err := observePluginBundle(inventory.paths, name, true)
+		present, err := observePluginBundleContext(ctx, inventory.paths, name, true)
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
 		if !present {
-			return nil, fmt.Errorf(
+			return 0, fmt.Errorf(
 				"Antigravity CLI plugin %q has a partial import/bundle relation",
 				name,
 			)
 		}
+		if err := visit(name); err != nil {
+			return 0, err
+		}
+		visited++
 	}
-	return names, nil
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return visited, nil
 }
 
 // CorrelateDesired classifies one desired plugin. The import row and installed

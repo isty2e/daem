@@ -46,12 +46,12 @@ source = { host_source = "npm:existing" }
 [defaults]
 scope = "project"
 `)
-	result, err := adoptextension.Collect(adoptextension.Input{
+	result, err := adoptextension.Collect(t.Context(), adoptextension.Input{
 		ManifestRoot: root,
 		Targets:      []target.Target{target.TargetPi},
 		Scopes:       []target.Scope{target.ScopeProject},
 		Existing:     []desiredextension.Extension{existing},
-	})
+	}, func(adoptextension.Skip) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,12 +245,12 @@ func TestCollectRejectsNativeOrderContradictingExistingManifestOrder(t *testing.
 		desiredextension.SourceKindHostSource,
 		"npm:second",
 	)
-	_, err := adoptextension.Collect(adoptextension.Input{
+	_, err := adoptextension.Collect(t.Context(), adoptextension.Input{
 		ManifestRoot: root,
 		Targets:      []target.Target{target.TargetPi},
 		Scopes:       []target.Scope{target.ScopeProject},
 		Existing:     []desiredextension.Extension{second, first},
-	})
+	}, func(adoptextension.Skip) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "contradicts") {
 		t.Fatalf("Collect error = %v, want existing/native order contradiction", err)
 	}

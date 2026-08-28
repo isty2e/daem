@@ -141,12 +141,14 @@ func (collector *importCollector) collectOpenCode(scope target.Scope) error {
 			)
 			if err != nil {
 				skippedCount++
-				collector.skipped = append(collector.skipped, Skip{
+				if err := collector.addSkip(Skip{
 					LivePath: fmt.Sprintf("%s#plugin[%d]", document.Path(), index),
 					Reason:   reasonSourceNotImportable,
 					Target:   target.TargetOpenCode,
 					Scope:    scope,
-				})
+				}); err != nil {
+					return err
+				}
 			} else {
 				if err := collector.addCandidate(key, loadIdentity); err != nil {
 					return err
@@ -319,28 +321,33 @@ func (collector *importCollector) collectAntigravity() error {
 	if err != nil {
 		return err
 	}
-	inventory, err := observeantigravity.ReadInventory(paths)
+	inventory, err := observeantigravity.ReadInventoryContext(collector.ctx, paths)
 	if err != nil {
+		if contextErr := extensionImportContextError(collector.ctx); contextErr != nil {
+			return contextErr
+		}
 		return err
 	}
-	names, err := inventory.CompletePluginNames()
-	if err != nil {
-		return err
-	}
-	for _, name := range names {
-		collector.skipped = append(collector.skipped, Skip{
+	count, err := inventory.VisitCompletePluginNames(collector.ctx, func(name string) error {
+		return collector.addSkip(Skip{
 			LivePath: paths.ImportManifestPath() + "#plugin=" + name,
 			Reason:   reasonSourceProvenanceUnrecoverable,
 			Target:   target.TargetAntigravityCLI,
 			Scope:    target.ScopeGlobal,
 		})
+	})
+	if err != nil {
+		if contextErr := extensionImportContextError(collector.ctx); contextErr != nil {
+			return contextErr
+		}
+		return err
 	}
 	collector.scans = append(collector.scans, Scan{
 		LivePath:     paths.ImportManifestPath(),
 		Target:       target.TargetAntigravityCLI,
 		Scope:        target.ScopeGlobal,
-		Entries:      len(names),
-		Skipped:      len(names),
+		Entries:      count,
+		Skipped:      count,
 		MaximumBytes: observeantigravity.MaximumInventoryBytes,
 	})
 	return nil

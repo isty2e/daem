@@ -360,16 +360,16 @@ func TestOpenCodeGlobalMCPProjectionOwnsArgsAndEnvironment(t *testing.T) {
 	}
 }
 
-func TestExtractOpenCodeGlobalMCPServerProjectionsOwnsEnvironment(t *testing.T) {
+func TestCollectOpenCodeGlobalMCPServerProjectionsOwnsEnvironment(t *testing.T) {
 	content := []byte(`{"mcp":{"context7":{"type":"local","command":["npx","-y"],"environment":{"CHILD_TOKEN":"{env:SOURCE_TOKEN}"}}}}`)
-	first, rejections, err := ExtractOpenCodeGlobalMCPServerProjections(t.Context(), content)
+	first, rejections, err := collectOpenCodeGlobalMCPServerProjections(t.Context(), content)
 	if err != nil || len(rejections) != 0 || len(first) != 1 {
 		t.Fatalf("first extraction = %#v, rejections = %#v, error = %v", first, rejections, err)
 	}
 	first[0].Args[0] = "caller-mutated"
 	first[0].Environment["CHILD_TOKEN"] = "{env:OTHER_TOKEN}"
 
-	second, rejections, err := ExtractOpenCodeGlobalMCPServerProjections(t.Context(), content)
+	second, rejections, err := collectOpenCodeGlobalMCPServerProjections(t.Context(), content)
 	if err != nil || len(rejections) != 0 || len(second) != 1 {
 		t.Fatalf("second extraction = %#v, rejections = %#v, error = %v", second, rejections, err)
 	}

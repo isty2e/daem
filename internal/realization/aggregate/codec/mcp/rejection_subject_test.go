@@ -50,7 +50,7 @@ func TestMCPProjectionRejectionUsesExactOrCanonicalParentSubject(t *testing.T) {
 }
 
 func TestBulkMCPExtractionUsesParentSubjectForInvalidJSONAndCodexIdentifiers(t *testing.T) {
-	jsonProjections, jsonRejections, err := ExtractClaudeProjectMCPServerProjections(
+	jsonProjections, jsonRejections, err := collectClaudeProjectMCPServerProjections(
 		t.Context(),
 		[]byte(`{"mcpServers":{"token=JSON_SUBJECT_LEAK_CANARY":{"type":"http","command":"node"},"valid":{"type":"stdio","command":"node"}}}`),
 	)
@@ -59,7 +59,7 @@ func TestBulkMCPExtractionUsesParentSubjectForInvalidJSONAndCodexIdentifiers(t *
 	}
 	assertProjectionRejection(t, jsonRejections, "/mcpServers", MCPProjectionReasonProjectionEquivalenceUndefined)
 
-	codexProjections, codexRejections, err := ExtractCodexProjectMCPServerProjections(
+	codexProjections, codexRejections, err := collectCodexProjectMCPServerProjections(
 		t.Context(),
 		[]byte(`[mcp_servers."token=CODEX_SUBJECT_LEAK_CANARY"]
 command = "node"

@@ -35,7 +35,7 @@ func TestCandidatesImportsCodexProjectInstructionBytes(t *testing.T) {
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeProject)
+	sources, skipped, err := collectCandidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestCandidatesImportsOpenCodeProjectInstructionFromSurfaceRows(t *testing.T
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetOpenCode, target.ScopeProject)
+	sources, skipped, err := collectCandidates(context.Background(), sourceDirectory, target.TargetOpenCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestCandidatesFallsBackToDiscoveryInstructionWithoutRenderDestination(t *te
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetOpenCode, target.ScopeProject)
+	sources, skipped, err := collectCandidates(context.Background(), sourceDirectory, target.TargetOpenCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestCandidatesImportsAntigravityAlternatePlacementWithRenderTo(t *testing.T
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeProject)
+	sources, skipped, err := collectCandidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestCandidatesImportsAntigravityDefaultAndAlternatePlacements(t *testing.T)
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeProject)
+	sources, skipped, err := collectCandidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestCandidatesReportsClassifyOnlyRuntimeInstructionWhenPresent(t *testing.T
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetClaudeCode, target.ScopeProject)
+	sources, skipped, err := collectCandidates(context.Background(), sourceDirectory, target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestCandidatesUsesCodexOverridePrecedenceFromSurfacePriority(t *testing.T) 
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeProject)
+	sources, skipped, err := collectCandidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestCandidatesSkipsEmptyCodexOverrideAndFallsBackToDefault(t *testing.T) {
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeProject)
+	sources, skipped, err := collectCandidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestCandidatesUsesCodexHomeForGlobalInstructionRows(t *testing.T) {
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeGlobal)
+	sources, skipped, err := collectCandidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestCandidatesImportsAntigravityGlobalDefaultPlacement(t *testing.T) {
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeGlobal)
+	sources, skipped, err := collectCandidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestCandidatesIgnoresAntigravityConfigInstructionPaths(t *testing.T) {
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeGlobal)
+	sources, skipped, err := collectCandidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,7 +441,7 @@ func TestCandidatesStopsWhenInstructionImportContextIsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	sources, skipped, err := Candidates(
+	sources, skipped, err := collectCandidates(
 		ctx,
 		testSourceDirectory(t, filepath.Join(t.TempDir(), "daem.d")),
 		target.TargetCodex,

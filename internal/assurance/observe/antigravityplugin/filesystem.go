@@ -1,6 +1,7 @@
 package antigravityplugin
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,6 +15,21 @@ func observePluginBundle(
 	plugin string,
 	requireManifest bool,
 ) (bool, error) {
+	return observePluginBundleContext(context.Background(), paths, plugin, requireManifest)
+}
+
+func observePluginBundleContext(
+	ctx context.Context,
+	paths HostPaths,
+	plugin string,
+	requireManifest bool,
+) (bool, error) {
+	if ctx == nil {
+		return false, fmt.Errorf("Antigravity CLI plugin observation context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	directory, err := paths.PluginDirectoryPath(plugin)
 	if err != nil {
 		return false, err
@@ -31,11 +47,15 @@ func observePluginBundle(
 			directory,
 		)
 	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	manifest, err := paths.PluginManifestPath(plugin)
 	if err != nil {
 		return false, err
 	}
-	content, exists, err := filesnapshot.ReadRegularFile(
+	content, exists, err := filesnapshot.ReadRegularFileContext(
+		ctx,
 		manifest,
 		MaximumInventoryBytes,
 	)
@@ -48,8 +68,11 @@ func observePluginBundle(
 		}
 		return false, fmt.Errorf("Antigravity CLI plugin directory %q has no plugin.json", directory)
 	}
-	if err := validatePluginManifest(content, plugin); err != nil {
+	if err := validatePluginManifestContext(ctx, content, plugin); err != nil {
 		return false, fmt.Errorf("decode Antigravity CLI plugin manifest %q: %w", manifest, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 	after, err := os.Lstat(directory)
 	if err != nil ||
@@ -57,6 +80,9 @@ func observePluginBundle(
 		!after.IsDir() ||
 		!os.SameFile(before, after) {
 		return false, fmt.Errorf("Antigravity CLI plugin directory %q changed during observation", directory)
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 	return true, nil
 }

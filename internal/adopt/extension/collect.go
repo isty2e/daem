@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"context"
 	"fmt"
 
 	observepi "github.com/isty2e/daem/internal/assurance/observe/pipackage"
@@ -16,19 +17,34 @@ const (
 	reasonSourceProvenanceUnrecoverable = "source_provenance_unrecoverable"
 )
 
-// Collect reads each selected host inventory once and returns one deterministic
-// exact-extension authoring proposal.
-func Collect(input Input) (Result, error) {
+// Collect reads each selected host inventory once, emits every skipped row at
+// its first amplifying boundary, and returns one deterministic exact-extension
+// authoring proposal.
+func Collect(ctx context.Context, input Input, emitSkip func(Skip) error) (Result, error) {
+	if ctx == nil {
+		return Result{}, fmt.Errorf("extension import context is required")
+	}
+	if err := extensionImportContextError(ctx); err != nil {
+		return Result{}, err
+	}
 	if err := validateInput(input); err != nil {
 		return Result{}, err
 	}
+	if emitSkip == nil {
+		return Result{}, fmt.Errorf("extension import skip emitter is required")
+	}
 	collector := importCollector{
+		ctx:                    ctx,
 		input:                  input,
+		emitSkip:               emitSkip,
 		candidates:             make(map[desiredextension.CarrierKey]candidateFact),
 		openCodeSourcePaths:    make(map[target.Scope]string),
 		existingLoadIdentities: make(map[desiredextension.CarrierKey]hostrelation.HostLoadIdentity),
 	}
 	if err := collector.collectSelected(); err != nil {
+		return Result{}, err
+	}
+	if err := extensionImportContextError(ctx); err != nil {
 		return Result{}, err
 	}
 	if err := collector.loadExistingIdentities(); err != nil {
@@ -60,7 +76,9 @@ func Collect(input Input) (Result, error) {
 }
 
 type importCollector struct {
+	ctx                    context.Context
 	input                  Input
+	emitSkip               func(Skip) error
 	candidates             map[desiredextension.CarrierKey]candidateFact
 	sequences              []sequenceFact
 	scans                  []Scan
@@ -69,20 +87,40 @@ type importCollector struct {
 	existingLoadIdentities map[desiredextension.CarrierKey]hostrelation.HostLoadIdentity
 }
 
+func (collector *importCollector) addSkip(skip Skip) error {
+	if collector == nil || collector.emitSkip == nil {
+		return fmt.Errorf("extension import skip emitter is required")
+	}
+	if err := collector.emitSkip(skip); err != nil {
+		return err
+	}
+	collector.skipped = append(collector.skipped, skip)
+	return nil
+}
+
 func (collector *importCollector) collectSelected() error {
 	if collector.includesTarget(target.TargetClaudeCode) {
+		if err := extensionImportContextError(collector.ctx); err != nil {
+			return err
+		}
 		if err := collector.collectClaude(); err != nil {
 			return err
 		}
 	}
 	if collector.includesTarget(target.TargetCodex) &&
 		collector.includesScope(target.ScopeGlobal) {
+		if err := extensionImportContextError(collector.ctx); err != nil {
+			return err
+		}
 		if err := collector.collectCodex(); err != nil {
 			return err
 		}
 	}
 	if collector.includesTarget(target.TargetOpenCode) {
 		for _, scope := range collector.input.Scopes {
+			if err := extensionImportContextError(collector.ctx); err != nil {
+				return err
+			}
 			if err := collector.collectOpenCode(scope); err != nil {
 				return err
 			}
@@ -90,6 +128,9 @@ func (collector *importCollector) collectSelected() error {
 	}
 	if collector.includesTarget(target.TargetPi) {
 		for _, scope := range collector.input.Scopes {
+			if err := extensionImportContextError(collector.ctx); err != nil {
+				return err
+			}
 			if err := collector.collectPi(scope); err != nil {
 				return err
 			}
@@ -97,9 +138,22 @@ func (collector *importCollector) collectSelected() error {
 	}
 	if collector.includesTarget(target.TargetAntigravityCLI) &&
 		collector.includesScope(target.ScopeGlobal) {
+		if err := extensionImportContextError(collector.ctx); err != nil {
+			return err
+		}
 		if err := collector.collectAntigravity(); err != nil {
 			return err
 		}
+	}
+	return extensionImportContextError(collector.ctx)
+}
+
+func extensionImportContextError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
+		return err
 	}
 	return nil
 }

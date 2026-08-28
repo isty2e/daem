@@ -24,21 +24,88 @@ var ErrSkipObservationLimitExceeded = errors.New("import skip observation limit 
 type SkippedCollector struct {
 	skipped         []Skipped
 	diagnosticBytes int
-	exhausted       bool
+	exhaustion      error
+}
+
+// SkipEmitter synchronously admits exact skipped observations into one active
+// collector transaction. It must not be retained after the producing callback
+// returns.
+type SkipEmitter struct {
+	add func(Skipped) error
 }
 
 // NewSkippedCollector constructs an empty operation-wide skip collector.
 func NewSkippedCollector() *SkippedCollector {
-	return &SkippedCollector{skipped: make([]Skipped, 0)}
+	return &SkippedCollector{}
 }
 
 // Add normalizes and admits one exact skipped observation.
-func (collector *SkippedCollector) Add(skipped Skipped) error {
+func (emitter SkipEmitter) Add(skipped Skipped) error {
+	if emitter.add == nil {
+		return fmt.Errorf("active skip emitter is required")
+	}
+	return emitter.add(skipped)
+}
+
+// WithRoute returns an emitter that attaches one exact target and scope before
+// admission and byte accounting.
+func (emitter SkipEmitter) WithRoute(selected target.Target, scope target.Scope) SkipEmitter {
+	return SkipEmitter{add: func(skipped Skipped) error {
+		skipped.Target = selected
+		skipped.Scope = scope
+		return emitter.Add(skipped)
+	}}
+}
+
+// Collect runs one synchronous producer transaction. Ordinary failures roll
+// back rows emitted by that producer. Observation-budget exhaustion retains
+// the admitted prefix for bounded failure diagnostics.
+func (collector *SkippedCollector) Collect(produce func(SkipEmitter) error) (err error) {
 	if collector == nil {
 		return fmt.Errorf("skipped observation collector is required")
 	}
-	if collector.exhausted {
-		return ErrSkipObservationLimitExceeded
+	if produce == nil {
+		return fmt.Errorf("skipped observation producer is required")
+	}
+	if collector.exhaustion != nil {
+		return collector.exhaustion
+	}
+
+	checkpointSkipped := collector.skipped
+	checkpointRows := len(checkpointSkipped)
+	checkpointBytes := collector.diagnosticBytes
+	active := true
+	retain := false
+	emitter := SkipEmitter{add: func(skipped Skipped) error {
+		if !active {
+			return fmt.Errorf("skip emitter is no longer active")
+		}
+		return collector.add(skipped)
+	}}
+	defer func() {
+		active = false
+		if retain {
+			return
+		}
+		for index := checkpointRows; index < len(collector.skipped); index++ {
+			collector.skipped[index] = Skipped{}
+		}
+		collector.skipped = checkpointSkipped
+		collector.diagnosticBytes = checkpointBytes
+		collector.exhaustion = nil
+	}()
+
+	err = produce(emitter)
+	if err == nil && collector.exhaustion != nil {
+		err = collector.exhaustion
+	}
+	retain = err == nil || errors.Is(err, ErrSkipObservationLimitExceeded)
+	return err
+}
+
+func (collector *SkippedCollector) add(skipped Skipped) error {
+	if collector.exhaustion != nil {
+		return collector.exhaustion
 	}
 	skipped.Detail = boundedSkippedDetail(skipped.Detail)
 	if err := skipped.validate(); err != nil {
@@ -47,22 +114,22 @@ func (collector *SkippedCollector) Add(skipped Skipped) error {
 	remainingBytes := maximumSkippedDiagnosticBytes - collector.diagnosticBytes
 	rowBytes, withinBudget := skippedDiagnosticBytesWithin(skipped, remainingBytes)
 	if len(collector.skipped) >= maximumSkippedObservations {
-		collector.exhausted = true
-		return fmt.Errorf(
+		collector.exhaustion = fmt.Errorf(
 			"%w: rows observed=%d limit=%d",
 			ErrSkipObservationLimitExceeded,
 			len(collector.skipped)+1,
 			maximumSkippedObservations,
 		)
+		return collector.exhaustion
 	}
 	if !withinBudget {
-		collector.exhausted = true
-		return fmt.Errorf(
+		collector.exhaustion = fmt.Errorf(
 			"%w: diagnostic_bytes observed>%d limit=%d",
 			ErrSkipObservationLimitExceeded,
 			maximumSkippedDiagnosticBytes,
 			maximumSkippedDiagnosticBytes,
 		)
+		return collector.exhaustion
 	}
 	collector.skipped = append(collector.skipped, skipped)
 	collector.diagnosticBytes += rowBytes

@@ -215,7 +215,7 @@ func TestClaudeGlobalMCPProjectionRejectsUnsupportedSameNameShapes(t *testing.T)
 	}
 }
 
-func TestExtractClaudeGlobalMCPServerProjectionsSeparatesAdmittedAndRejectedRows(t *testing.T) {
+func TestCollectClaudeGlobalMCPServerProjectionsSeparatesAdmittedAndRejectedRows(t *testing.T) {
 	document := []byte(`{
   "projects": {
     "/repo": {
@@ -230,9 +230,9 @@ func TestExtractClaudeGlobalMCPServerProjectionsSeparatesAdmittedAndRejectedRows
     "secret": {"type": "stdio", "command": "npx", "env": {"TOKEN": "SECRET_CANARY"}}
   }
 }`)
-	projections, rejections, err := ExtractClaudeGlobalMCPServerProjections(t.Context(), document)
+	projections, rejections, err := collectClaudeGlobalMCPServerProjections(t.Context(), document)
 	if err != nil {
-		t.Fatalf("ExtractClaudeGlobalMCPServerProjections returned error: %v", err)
+		t.Fatalf("collectClaudeGlobalMCPServerProjections returned error: %v", err)
 	}
 	if len(projections) != 1 {
 		t.Fatalf("projections = %#v, want one admitted row", projections)
@@ -254,7 +254,7 @@ func TestExtractClaudeGlobalMCPServerProjectionsSeparatesAdmittedAndRejectedRows
 
 	projection.Args[0] = "--mutated"
 	projection.Env["API_TOKEN"] = "${MUTATED_TOKEN}"
-	reextracted, _, err := ExtractClaudeGlobalMCPServerProjections(t.Context(), document)
+	reextracted, _, err := collectClaudeGlobalMCPServerProjections(t.Context(), document)
 	if err != nil {
 		t.Fatalf("re-extract Claude global projections returned error: %v", err)
 	}

@@ -69,47 +69,53 @@ func Candidates(
 	importedDestinations DestinationClaims,
 	sourceIdentities *SourceIdentityCache,
 	searchRoots *SearchRootCache,
-) ([]adopt.Skill, []adopt.Scan, []adopt.Skipped, error) {
+	skipped adopt.SkipEmitter,
+) ([]adopt.Skill, []adopt.Scan, error) {
 	if sourceIdentities == nil {
-		return nil, nil, nil, fmt.Errorf("skill source identity cache is required")
+		return nil, nil, fmt.Errorf("skill source identity cache is required")
 	}
 	if searchRoots == nil {
-		return nil, nil, nil, fmt.Errorf("skill search-root cache is required")
+		return nil, nil, fmt.Errorf("skill search-root cache is required")
 	}
 	locations := profile.Profile(target).DiscoveryLocations(entity.KindSkill, scope)
 	skills := make([]adopt.Skill, 0)
 	scans := make([]adopt.Scan, 0, len(locations))
-	skipped := make([]adopt.Skipped, 0)
 
 	for _, location := range locations {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		liveRoot, err := skillLocationPath(location.Path())
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		if location.ImportPolicy() == profile.ImportPolicyClassify {
 			if exists, err := skillPathExists(liveRoot); err != nil {
-				return nil, nil, nil, fmt.Errorf("inspect skill root %q: %w", liveRoot, err)
+				return nil, nil, fmt.Errorf("inspect skill root %q: %w", liveRoot, err)
 			} else if exists {
 				scans = append(scans, newSkillRootScan(target, scope, liveRoot, importSkillSkipSuppliedRoot, 0, 0, 0))
-				skipped = append(skipped, adopt.Skipped{LivePath: liveRoot, Reason: importSkillSkipSuppliedRoot})
+				if err := skipped.Add(adopt.Skipped{LivePath: liveRoot, Reason: importSkillSkipSuppliedRoot}); err != nil {
+					return nil, nil, err
+				}
 			}
 			continue
 		}
 		rootInfo, err := os.Stat(liveRoot)
 		if os.IsNotExist(err) {
 			scans = append(scans, newSkillRootScan(target, scope, liveRoot, importSkillSkipMissingRoot, 0, 0, 0))
-			skipped = append(skipped, adopt.Skipped{LivePath: liveRoot, Reason: importSkillSkipMissingRoot})
+			if err := skipped.Add(adopt.Skipped{LivePath: liveRoot, Reason: importSkillSkipMissingRoot}); err != nil {
+				return nil, nil, err
+			}
 			continue
 		}
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("read skill root %q: %w", liveRoot, err)
+			return nil, nil, fmt.Errorf("read skill root %q: %w", liveRoot, err)
 		}
 		if !rootInfo.IsDir() {
 			scans = append(scans, newSkillRootScan(target, scope, liveRoot, importSkillSkipNotDirectory, 0, 0, 0))
-			skipped = append(skipped, adopt.Skipped{LivePath: liveRoot, Reason: importSkillSkipNotDirectory})
+			if err := skipped.Add(adopt.Skipped{LivePath: liveRoot, Reason: importSkillSkipNotDirectory}); err != nil {
+				return nil, nil, err
+			}
 			continue
 		}
 
@@ -121,7 +127,7 @@ func Candidates(
 		); admitted && !admission.Default() {
 			installTo = location.Path()
 		}
-		rootSkills, rootScan, rootSkipped, err := importSkillsFromRoot(
+		rootSkills, rootScan, err := importSkillsFromRoot(
 			ctx,
 			sourceDirectory,
 			target,
@@ -131,27 +137,29 @@ func Candidates(
 			importedDestinations,
 			sourceIdentities,
 			searchRoots,
+			skipped,
 		)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		skills = append(skills, rootSkills...)
 		scans = append(scans, rootScan)
-		skipped = append(skipped, rootSkipped...)
 	}
 	for _, location := range profile.Profile(target).RuntimeLocations(entity.KindSkill, scope) {
 		liveRoot, err := skillLocationPath(location.Path())
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		if exists, err := skillPathExists(liveRoot); err != nil {
-			return nil, nil, nil, fmt.Errorf("inspect skill runtime root %q: %w", liveRoot, err)
+			return nil, nil, fmt.Errorf("inspect skill runtime root %q: %w", liveRoot, err)
 		} else if exists {
 			scans = append(scans, newSkillRootScan(target, scope, liveRoot, importSkillSkipSuppliedRoot, 0, 0, 0))
-			skipped = append(skipped, adopt.Skipped{LivePath: liveRoot, Reason: importSkillSkipSuppliedRoot})
+			if err := skipped.Add(adopt.Skipped{LivePath: liveRoot, Reason: importSkillSkipSuppliedRoot}); err != nil {
+				return nil, nil, err
+			}
 		}
 	}
-	return skills, scans, skipped, nil
+	return skills, scans, nil
 }
 
 func skillLocationPath(locationPath string) (string, error) {

@@ -22,17 +22,18 @@ func importSkillsFromRoot(
 	importedDestinations DestinationClaims,
 	sourceIdentities *SourceIdentityCache,
 	searchRoots *SearchRootCache,
-) ([]adopt.Skill, adopt.Scan, []adopt.Skipped, error) {
+	skipped adopt.SkipEmitter,
+) ([]adopt.Skill, adopt.Scan, error) {
 	entries, err := searchRoots.entries(ctx, liveRoot)
 	if err != nil {
-		return nil, adopt.Scan{}, nil, fmt.Errorf("read skill root %q: %w", liveRoot, err)
+		return nil, adopt.Scan{}, fmt.Errorf("read skill root %q: %w", liveRoot, err)
 	}
 
 	skills := make([]adopt.Skill, 0, len(entries.names))
-	skipped := make([]adopt.Skipped, 0)
+	skippedCount := 0
 	for _, name := range entries.names {
 		if err := ctx.Err(); err != nil {
-			return nil, adopt.Scan{}, nil, err
+			return nil, adopt.Scan{}, err
 		}
 		livePath := filepath.Join(liveRoot, name)
 		observedPath := filepath.Join(entries.readRoot, name)
@@ -49,10 +50,13 @@ func importSkillsFromRoot(
 			sourceIdentities,
 		)
 		if err != nil {
-			return nil, adopt.Scan{}, nil, err
+			return nil, adopt.Scan{}, err
 		}
 		if skip.Reason != "" {
-			skipped = append(skipped, skip)
+			if err := skipped.Add(skip); err != nil {
+				return nil, adopt.Scan{}, err
+			}
+			skippedCount++
 			continue
 		}
 		skills = append(skills, skill)
@@ -64,9 +68,9 @@ func importSkillsFromRoot(
 	} else if len(skills) == 0 {
 		scanStatus = importSkillRootScanNoImportableEntries
 	}
-	scan := newSkillRootScan(target, scope, liveRoot, scanStatus, len(entries.names), len(skills), len(skipped))
+	scan := newSkillRootScan(target, scope, liveRoot, scanStatus, len(entries.names), len(skills), skippedCount)
 
-	return skills, scan, skipped, nil
+	return skills, scan, nil
 }
 
 func newSkillRootScan(

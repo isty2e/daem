@@ -83,8 +83,8 @@ func TestClaudeProjectMCPProjectionRejectsUnsupportedShapesWithReasonCodes(t *te
 	}
 }
 
-func TestExtractClaudeProjectMCPServerProjectionsSeparatesAdmittedAndRejectedRows(t *testing.T) {
-	projections, rejections, err := ExtractClaudeProjectMCPServerProjections(t.Context(), []byte(`{
+func TestCollectClaudeProjectMCPServerProjectionsSeparatesAdmittedAndRejectedRows(t *testing.T) {
+	projections, rejections, err := collectClaudeProjectMCPServerProjections(t.Context(), []byte(`{
   "project": "keep",
   "mcpServers": {
     "context7": {"type": "stdio", "command": "npx", "args": ["-y"], "env": {"TOKEN": "${TOKEN}"}},
@@ -93,7 +93,7 @@ func TestExtractClaudeProjectMCPServerProjectionsSeparatesAdmittedAndRejectedRow
   }
 }`))
 	if err != nil {
-		t.Fatalf("ExtractClaudeProjectMCPServerProjections returned error: %v", err)
+		t.Fatalf("collectClaudeProjectMCPServerProjections returned error: %v", err)
 	}
 	if len(projections) != 1 {
 		t.Fatalf("projections = %#v, want one admitted row", projections)
@@ -112,15 +112,15 @@ func TestExtractClaudeProjectMCPServerProjectionsSeparatesAdmittedAndRejectedRow
 	assertProjectionRejection(t, rejections, "/mcpServers/secret", MCPProjectionReasonSecretLiteralForbidden)
 }
 
-func TestExtractOpenCodeProjectMCPServerProjectionsSplitsCommandArray(t *testing.T) {
-	projections, rejections, err := ExtractOpenCodeProjectMCPServerProjections(t.Context(), []byte(`{
+func TestCollectOpenCodeProjectMCPServerProjectionsSplitsCommandArray(t *testing.T) {
+	projections, rejections, err := collectOpenCodeProjectMCPServerProjections(t.Context(), []byte(`{
   "mcp": {
     "context7": {"type": "local", "command": ["npx", "-y", "@upstash/context7-mcp"]},
     "withEnv": {"type": "local", "command": ["npx"], "env": {"TOKEN": "${TOKEN}"}}
   }
 }`))
 	if err != nil {
-		t.Fatalf("ExtractOpenCodeProjectMCPServerProjections returned error: %v", err)
+		t.Fatalf("collectOpenCodeProjectMCPServerProjections returned error: %v", err)
 	}
 	if len(projections) != 1 {
 		t.Fatalf("projections = %#v, want one admitted row", projections)
@@ -131,15 +131,15 @@ func TestExtractOpenCodeProjectMCPServerProjectionsSplitsCommandArray(t *testing
 	assertProjectionRejection(t, rejections, "/mcp/withEnv", MCPProjectionReasonUnsupportedManagedField)
 }
 
-func TestExtractAntigravityGlobalMCPServerProjectionsSeparatesUnsupportedFields(t *testing.T) {
-	projections, rejections, err := ExtractAntigravityGlobalMCPServerProjections(t.Context(), []byte(`{
+func TestCollectAntigravityGlobalMCPServerProjectionsSeparatesUnsupportedFields(t *testing.T) {
+	projections, rejections, err := collectAntigravityGlobalMCPServerProjections(t.Context(), []byte(`{
   "mcpServers": {
     "context7": {"command": "npx", "args": ["-y"]},
     "remote": {"serverUrl": "https://example.invalid/mcp"}
   }
 }`))
 	if err != nil {
-		t.Fatalf("ExtractAntigravityGlobalMCPServerProjections returned error: %v", err)
+		t.Fatalf("collectAntigravityGlobalMCPServerProjections returned error: %v", err)
 	}
 	if len(projections) != 1 || projections[0].ServerID != "context7" || projections[0].Command != "npx" {
 		t.Fatalf("projections = %#v, want context7 npx", projections)
@@ -148,7 +148,7 @@ func TestExtractAntigravityGlobalMCPServerProjectionsSeparatesUnsupportedFields(
 		t.Fatalf("imported environment names = %#v, want no inferred ambient references", projections[0].EnvironmentNames)
 	}
 	projections[0].Args[0] = "mutated"
-	reimported, _, err := ExtractAntigravityGlobalMCPServerProjections(t.Context(), []byte(`{
+	reimported, _, err := collectAntigravityGlobalMCPServerProjections(t.Context(), []byte(`{
   "mcpServers": {
     "context7": {"command": "npx", "args": ["-y"]}
   }

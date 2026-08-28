@@ -17,49 +17,49 @@ func TestBulkMCPExtractionRejectsPreCanceledContextAcrossEveryImportRoute(t *tes
 		{
 			name: "Claude project",
 			extract: func(ctx context.Context) error {
-				_, _, err := ExtractClaudeProjectMCPServerProjections(ctx, []byte(`{"mcpServers":{}}`))
+				_, _, err := collectClaudeProjectMCPServerProjections(ctx, []byte(`{"mcpServers":{}}`))
 				return err
 			},
 		},
 		{
 			name: "Claude global",
 			extract: func(ctx context.Context) error {
-				_, _, err := ExtractClaudeGlobalMCPServerProjections(ctx, []byte(`{"mcpServers":{}}`))
+				_, _, err := collectClaudeGlobalMCPServerProjections(ctx, []byte(`{"mcpServers":{}}`))
 				return err
 			},
 		},
 		{
 			name: "OpenCode project",
 			extract: func(ctx context.Context) error {
-				_, _, err := ExtractOpenCodeProjectMCPServerProjections(ctx, []byte(`{"mcp":{}}`))
+				_, _, err := collectOpenCodeProjectMCPServerProjections(ctx, []byte(`{"mcp":{}}`))
 				return err
 			},
 		},
 		{
 			name: "OpenCode global",
 			extract: func(ctx context.Context) error {
-				_, _, err := ExtractOpenCodeGlobalMCPServerProjections(ctx, []byte(`{"mcp":{}}`))
+				_, _, err := collectOpenCodeGlobalMCPServerProjections(ctx, []byte(`{"mcp":{}}`))
 				return err
 			},
 		},
 		{
 			name: "Codex project",
 			extract: func(ctx context.Context) error {
-				_, _, err := ExtractCodexProjectMCPServerProjections(ctx, []byte("[mcp_servers]\n"))
+				_, _, err := collectCodexProjectMCPServerProjections(ctx, []byte("[mcp_servers]\n"))
 				return err
 			},
 		},
 		{
 			name: "Codex global",
 			extract: func(ctx context.Context) error {
-				_, _, err := ExtractCodexGlobalMCPServerProjections(ctx, []byte("[mcp_servers]\n"))
+				_, _, err := collectCodexGlobalMCPServerProjections(ctx, []byte("[mcp_servers]\n"))
 				return err
 			},
 		},
 		{
 			name: "Antigravity global",
 			extract: func(ctx context.Context) error {
-				_, _, err := ExtractAntigravityGlobalMCPServerProjections(ctx, []byte(`{"mcpServers":{}}`))
+				_, _, err := collectAntigravityGlobalMCPServerProjections(ctx, []byte(`{"mcpServers":{}}`))
 				return err
 			},
 		},
@@ -81,14 +81,14 @@ func TestBulkMCPExtractionPreservesCancellationDuringJSONAndTOMLAdmission(t *tes
 		{
 			name: "JSON",
 			extract: func(ctx context.Context) error {
-				_, _, err := ExtractClaudeProjectMCPServerProjections(ctx, []byte(`{"mcpServers":{"context7":{"type":"stdio","command":"node"}}}`))
+				_, _, err := collectClaudeProjectMCPServerProjections(ctx, []byte(`{"mcpServers":{"context7":{"type":"stdio","command":"node"}}}`))
 				return err
 			},
 		},
 		{
 			name: "TOML",
 			extract: func(ctx context.Context) error {
-				_, _, err := ExtractCodexProjectMCPServerProjections(ctx, []byte("[mcp_servers.context7]\ncommand = \"node\"\n"))
+				_, _, err := collectCodexProjectMCPServerProjections(ctx, []byte("[mcp_servers.context7]\ncommand = \"node\"\n"))
 				return err
 			},
 		},
