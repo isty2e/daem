@@ -26,8 +26,8 @@ var ErrUnsupportedSymlink = errors.New("symbolic link is unsupported")
 var ErrNoFollowTraversalUnavailable = errors.New("descriptor-relative no-follow artifact traversal is unavailable")
 
 // DirectoryListingWitness is an opaque, operation-local observation of one
-// directory inventory's identity. It is valid only for revalidation through
-// the View that produced it.
+// directory inventory's identity and the relative namespace chain that selected
+// it. It is valid only for revalidation through the View that produced it.
 type DirectoryListingWitness struct {
 	identity directoryListingIdentity
 }
@@ -101,11 +101,15 @@ type TreeSink interface {
 	EndDirectory(relativePath string, mode fs.FileMode) error
 }
 
-// View is a copyable, non-owning capability for one local or verified-cache
-// artifact root. It contains no descriptor, mutable cursor, or verified bit.
+// View is a copyable, comparable, non-owning capability for one local or
+// verified-cache artifact root. Its immutable native path-authority witness
+// participates in value equality, so a recaptured replacement is distinct even
+// when path, kind, and content are unchanged. It contains no descriptor,
+// mutable cursor, or verified bit.
 type View struct {
-	root string
-	kind artifact.ArtifactKind
+	root          string
+	kind          artifact.ArtifactKind
+	rootAuthority nativePathWitness
 }
 
 // TraversalLimit bounds one complete artifact hash traversal. The entry count
@@ -148,11 +152,11 @@ func OpenView(root string) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	kind, err := inspectNative(canonicalRoot)
+	kind, rootAuthority, err := inspectNative(canonicalRoot)
 	if err != nil {
 		return View{}, err
 	}
-	view := View{root: canonicalRoot, kind: kind}
+	view := View{root: canonicalRoot, kind: kind, rootAuthority: rootAuthority}
 	if err := view.validate(); err != nil {
 		return View{}, err
 	}
@@ -167,11 +171,11 @@ func OpenNoFollowView(root string) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	kind, err := inspectNative(absoluteRoot)
+	kind, rootAuthority, err := inspectNative(absoluteRoot)
 	if err != nil {
 		return View{}, err
 	}
-	view := View{root: absoluteRoot, kind: kind}
+	view := View{root: absoluteRoot, kind: kind, rootAuthority: rootAuthority}
 	if err := view.validate(); err != nil {
 		return View{}, err
 	}
@@ -189,7 +193,7 @@ func (view View) ReadDirectory(ctx context.Context, relativePath string) ([]Entr
 	if err := validateRelativePath(relativePath); err != nil {
 		return nil, err
 	}
-	return readDirectoryNative(ctx, view.root, view.kind, relativePath)
+	return readDirectoryNative(ctx, view, relativePath)
 }
 
 // VisitDirectory streams no-follow metadata for one directory without
@@ -209,7 +213,7 @@ func (view View) VisitDirectory(
 	if visit == nil {
 		return fmt.Errorf("artifact access directory visitor is required")
 	}
-	return visitDirectoryNative(ctx, view.root, view.kind, relativePath, visit)
+	return visitDirectoryNative(ctx, view, relativePath, visit)
 }
 
 // VisitDirectoryNames streams exact direct-entry names without retaining or
@@ -230,7 +234,7 @@ func (view View) VisitDirectoryNames(
 	if visit == nil {
 		return DirectoryListingWitness{}, fmt.Errorf("artifact access directory-name visitor is required")
 	}
-	return visitDirectoryNamesNative(ctx, view.root, view.kind, relativePath, visit)
+	return visitDirectoryNamesNative(ctx, view, relativePath, visit)
 }
 
 // VerifyDirectoryListing checks that the directory inventory observed for a
@@ -246,7 +250,7 @@ func (view View) VerifyDirectoryListing(
 	if err := validateRelativePath(relativePath); err != nil {
 		return err
 	}
-	return verifyDirectoryListingNative(ctx, view.root, view.kind, relativePath, expected)
+	return verifyDirectoryListingNative(ctx, view, relativePath, expected)
 }
 
 // ReadFile reads one regular file up to maxBytes without following links.
@@ -266,7 +270,7 @@ func (view View) ReadFile(
 	if maxBytes <= 0 {
 		return FileContent{}, fmt.Errorf("artifact access read limit must be positive")
 	}
-	content, mode, err := readFileNative(ctx, view.root, view.kind, relativePath, maxBytes)
+	content, mode, err := readFileNative(ctx, view, relativePath, maxBytes)
 	if err != nil {
 		return FileContent{}, err
 	}
@@ -309,7 +313,7 @@ func (view View) Hash(ctx context.Context) (artifact.ContentHash, error) {
 	if err := view.validateOperation(ctx); err != nil {
 		return "", err
 	}
-	return walkNative(ctx, view.root, view.kind, nil, nil)
+	return walkNative(ctx, view, nil, nil)
 }
 
 // HashDirectoryRequiringRootFile hashes one directory while proving that name
@@ -346,7 +350,7 @@ func (view View) HashDirectoryRequiringRootFile(
 		structureLimit:          &structureLimit,
 		requiredRootRegularFile: name,
 	}
-	contentHash, err := walkNative(ctx, view.root, view.kind, observer, &budget)
+	contentHash, err := walkNative(ctx, view, observer, &budget)
 	measurement := traversalMeasurement(budget)
 	if err != nil {
 		return "", measurement, err
@@ -371,7 +375,7 @@ func (view View) HashWithLimit(
 		return "", TraversalMeasurement{}, err
 	}
 	budget := traversalBudget{limit: limit}
-	contentHash, err := walkNative(ctx, view.root, view.kind, nil, &budget)
+	contentHash, err := walkNative(ctx, view, nil, &budget)
 	if err != nil {
 		return "", TraversalMeasurement{}, err
 	}
@@ -398,7 +402,7 @@ func (view View) HashDirectoryWithLimits(
 		return "", TraversalMeasurement{}, err
 	}
 	budget := traversalBudget{limit: traversalLimit, structureLimit: &structureLimit}
-	contentHash, err := walkNative(ctx, view.root, view.kind, nil, &budget)
+	contentHash, err := walkNative(ctx, view, nil, &budget)
 	if err != nil {
 		return "", TraversalMeasurement{}, err
 	}
@@ -506,7 +510,7 @@ func (view View) copyVerified(
 	if err := view.validateOperation(ctx); err != nil {
 		return err
 	}
-	contentHash, err := walkNative(ctx, view.root, view.kind, sink, budget)
+	contentHash, err := walkNative(ctx, view, sink, budget)
 	if err != nil {
 		return err
 	}
@@ -523,6 +527,9 @@ func (view View) copyVerified(
 func (view View) validate() error {
 	if view.root == "" {
 		return fmt.Errorf("artifact access root is required")
+	}
+	if !view.rootAuthority.valid() {
+		return fmt.Errorf("artifact access root authority is required")
 	}
 	switch view.kind {
 	case artifact.ArtifactKindFile, artifact.ArtifactKindDirectory:

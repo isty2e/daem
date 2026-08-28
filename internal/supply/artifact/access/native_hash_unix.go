@@ -17,12 +17,11 @@ import (
 
 func walkNative(
 	ctx context.Context,
-	root string,
-	expectedKind artifact.ArtifactKind,
+	view View,
 	sink TreeSink,
 	budget *traversalBudget,
 ) (result artifact.ContentHash, resultErr error) {
-	handle, err := openNativeRoot(root, expectedKind)
+	handle, err := openNativeRoot(ctx, view.root, view.kind, view.rootAuthority)
 	if err != nil {
 		return "", err
 	}
@@ -47,7 +46,10 @@ func walkNative(
 	if err != nil {
 		return "", err
 	}
-	if err := handle.verify(); err != nil {
+	if err := handle.verify(ctx); err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	return contentHash, nil

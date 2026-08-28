@@ -3,6 +3,7 @@
 package access
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,47 +12,100 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func openNativeRoot(root string, expectedKind artifact.ArtifactKind) (*nativeRoot, error) {
+const maximumNativePathComponents = 4096
+
+func openNativeRoot(
+	ctx context.Context,
+	root string,
+	expectedKind artifact.ArtifactKind,
+	expectedAuthority nativePathWitness,
+) (*nativeRoot, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("artifact access context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	components, err := nativeAbsolutePathComponents(root)
+	if err != nil {
+		return nil, err
+	}
 	rootFD, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, fmt.Errorf("open artifact filesystem root: %w", err)
 	}
-	if root == "/" {
-		entry, err := openedNativeEntry(rootFD)
-		if err != nil {
-			_ = unix.Close(rootFD)
-			return nil, err
+	rootEntry, err := openedNativeEntry(rootFD)
+	if err != nil {
+		_ = unix.Close(rootFD)
+		return nil, err
+	}
+	rootIdentity, err := nativePathComponentIdentityForFD(rootFD, rootEntry)
+	if err != nil {
+		return nil, errors.Join(err, unix.Close(rootFD))
+	}
+	authorityBuilder := newNativePathWitnessBuilder()
+	authorityBuilder.append(rootIdentity)
+	if len(components) == 0 {
+		currentAuthority := authorityBuilder.finish()
+		handle := &nativeRoot{
+			path:      root,
+			kind:      artifact.ArtifactKindDirectory,
+			parentFD:  -1,
+			entry:     rootEntry,
+			authority: selectedNativePathAuthority(expectedAuthority, currentAuthority),
 		}
-		handle := &nativeRoot{parentFD: -1, entry: entry}
 		if expectedKind != "" {
 			if err := handle.requireKind(expectedKind); err != nil {
-				_ = handle.close()
-				return nil, err
+				return nil, errors.Join(err, handle.close())
 			}
+		}
+		if err := expectedAuthority.require(currentAuthority, "root"); err != nil {
+			return nil, errors.Join(err, handle.close())
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, errors.Join(err, handle.close())
 		}
 		return handle, nil
 	}
 
-	components := strings.Split(strings.TrimPrefix(root, "/"), "/")
 	parentFD := rootFD
 	for index, component := range components {
+		if err := ctx.Err(); err != nil {
+			return nil, errors.Join(err, unix.Close(parentFD))
+		}
 		last := index == len(components)-1
 		entry, err := openNativePathComponent(parentFD, component, last)
 		if err != nil {
-			_ = unix.Close(parentFD)
-			return nil, fmt.Errorf("open artifact root component %q: %w", component, err)
+			return nil, errors.Join(
+				fmt.Errorf("open artifact root component %q: %w", component, err),
+				unix.Close(parentFD),
+			)
 		}
+		identity, err := nativePathComponentIdentityForFD(entry.fd, entry)
+		if err != nil {
+			return nil, errors.Join(err, unix.Close(entry.fd), unix.Close(parentFD))
+		}
+		authorityBuilder.append(identity)
 		if last {
+			currentAuthority := authorityBuilder.finish()
 			handle := &nativeRoot{
-				name:     component,
-				parentFD: parentFD,
-				entry:    entry,
+				path:      root,
+				kind:      artifactKindForNativeEntry(entry),
+				name:      component,
+				parentFD:  parentFD,
+				entry:     entry,
+				authority: selectedNativePathAuthority(expectedAuthority, currentAuthority),
 			}
 			if expectedKind != "" {
 				if err := handle.requireKind(expectedKind); err != nil {
-					_ = handle.close()
-					return nil, err
+					return nil, errors.Join(err, handle.close())
 				}
+			}
+			if err := expectedAuthority.require(currentAuthority, "root"); err != nil {
+				return nil, errors.Join(err, handle.close())
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, errors.Join(err, handle.close())
 			}
 			return handle, nil
 		}
@@ -62,6 +116,9 @@ func openNativeRoot(root string, expectedKind artifact.ArtifactKind) (*nativeRoo
 				unix.Close(parentFD),
 			)
 		}
+		if err := ctx.Err(); err != nil {
+			return nil, errors.Join(err, unix.Close(entry.fd), unix.Close(parentFD))
+		}
 		if closeErr := unix.Close(parentFD); closeErr != nil {
 			return nil, errors.Join(closeErr, unix.Close(entry.fd))
 		}
@@ -69,6 +126,42 @@ func openNativeRoot(root string, expectedKind artifact.ArtifactKind) (*nativeRoo
 	}
 	_ = unix.Close(parentFD)
 	return nil, fmt.Errorf("artifact access root %q has no path components", root)
+}
+
+func selectedNativePathAuthority(
+	expected nativePathWitness,
+	current nativePathWitness,
+) nativePathWitness {
+	if expected.valid() {
+		return expected
+	}
+	return current
+}
+
+func artifactKindForNativeEntry(entry nativeEntry) artifact.ArtifactKind {
+	if entry.kind == nativeKindDirectory {
+		return artifact.ArtifactKindDirectory
+	}
+	return artifact.ArtifactKindFile
+}
+
+func nativeAbsolutePathComponents(root string) ([]string, error) {
+	trimmed := strings.TrimPrefix(root, "/")
+	if trimmed == "" {
+		return nil, nil
+	}
+	return boundedNativePathComponents(trimmed)
+}
+
+func boundedNativePathComponents(value string) ([]string, error) {
+	count := strings.Count(value, "/") + 1
+	if count > maximumNativePathComponents {
+		return nil, fmt.Errorf(
+			"artifact access path exceeds %d components",
+			maximumNativePathComponents,
+		)
+	}
+	return strings.Split(value, "/"), nil
 }
 
 func (root *nativeRoot) requireKind(expected artifact.ArtifactKind) error {
@@ -83,58 +176,119 @@ func (root *nativeRoot) requireKind(expected artifact.ArtifactKind) error {
 }
 
 type relativeNativeEntry struct {
-	parentFD    int
-	parentOwned bool
-	name        string
-	entry       nativeEntry
+	rootFD       int
+	relativePath string
+	parentFD     int
+	parentOwned  bool
+	name         string
+	entry        nativeEntry
+	authority    nativePathWitness
 }
 
-func (root *nativeRoot) openRelative(relativePath string) (*relativeNativeEntry, error) {
+func (root *nativeRoot) openRelative(
+	ctx context.Context,
+	relativePath string,
+) (*relativeNativeEntry, error) {
 	if relativePath == "." {
 		return nil, nil
 	}
 	if root.entry.kind != nativeKindDirectory {
 		return nil, fmt.Errorf("artifact file root has no child path %q", relativePath)
 	}
-	components := strings.Split(relativePath, "/")
-	parentFD := root.entry.fd
+	return openNativeRelative(ctx, root.entry.fd, relativePath, nativePathWitness{})
+}
+
+func openNativeRelative(
+	ctx context.Context,
+	rootFD int,
+	relativePath string,
+	expectedAuthority nativePathWitness,
+) (*relativeNativeEntry, error) {
+	return openNativeRelativeWithExactNameCheck(
+		ctx,
+		rootFD,
+		relativePath,
+		expectedAuthority,
+		verifyNativeExactNameEntry,
+	)
+}
+
+func openNativeRelativeWithExactNameCheck(
+	ctx context.Context,
+	rootFD int,
+	relativePath string,
+	expectedAuthority nativePathWitness,
+	verifyExactName func(context.Context, int, string, nativeEntry) (bool, error),
+) (*relativeNativeEntry, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("artifact access context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	components, err := boundedNativePathComponents(relativePath)
+	if err != nil {
+		return nil, err
+	}
+	parentFD := rootFD
 	parentOwned := false
+	authorityBuilder := newNativePathWitnessBuilder()
 	for index, component := range components {
-		exact, err := nativeDirectoryContainsExactName(parentFD, component)
-		if err != nil {
-			if parentOwned {
-				_ = unix.Close(parentFD)
-			}
-			return nil, err
-		}
-		if !exact {
-			if parentOwned {
-				_ = unix.Close(parentFD)
-			}
-			return nil, fmt.Errorf("artifact access path component %q does not exist with exact casing", component)
+		if err := ctx.Err(); err != nil {
+			return nil, closeRelativeParent(err, parentFD, parentOwned)
 		}
 		entry, err := openNativeChild(parentFD, component)
 		if err != nil {
-			if parentOwned {
-				_ = unix.Close(parentFD)
-			}
-			return nil, err
+			return nil, closeRelativeParent(err, parentFD, parentOwned)
 		}
+		if err := verifyNativeEntryWithExactNameCheck(
+			ctx,
+			parentFD,
+			component,
+			entry,
+			verifyExactName,
+		); err != nil {
+			return nil, errors.Join(
+				err,
+				unix.Close(entry.fd),
+				closeRelativeParent(nil, parentFD, parentOwned),
+			)
+		}
+		identity, err := nativePathComponentIdentityForFD(entry.fd, entry)
+		if err != nil {
+			return nil, errors.Join(
+				err,
+				unix.Close(entry.fd),
+				closeRelativeParent(nil, parentFD, parentOwned),
+			)
+		}
+		authorityBuilder.append(identity)
 		if index == len(components)-1 {
-			return &relativeNativeEntry{
-				parentFD:    parentFD,
-				parentOwned: parentOwned,
-				name:        component,
-				entry:       entry,
-			}, nil
+			currentAuthority := authorityBuilder.finish()
+			result := &relativeNativeEntry{
+				rootFD:       rootFD,
+				relativePath: relativePath,
+				parentFD:     parentFD,
+				parentOwned:  parentOwned,
+				name:         component,
+				entry:        entry,
+				authority:    selectedNativePathAuthority(expectedAuthority, currentAuthority),
+			}
+			if err := expectedAuthority.require(currentAuthority, "relative"); err != nil {
+				return nil, errors.Join(err, result.close())
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, errors.Join(err, result.close())
+			}
+			return result, nil
 		}
 		if entry.kind != nativeKindDirectory {
 			operationErr := fmt.Errorf("artifact access path component %q is not a directory", component)
-			operationErr = errors.Join(operationErr, unix.Close(entry.fd))
-			if parentOwned {
-				operationErr = errors.Join(operationErr, unix.Close(parentFD))
-			}
-			return nil, operationErr
+			return nil, errors.Join(
+				operationErr,
+				unix.Close(entry.fd),
+				closeRelativeParent(nil, parentFD, parentOwned),
+			)
 		}
 		if parentOwned {
 			if closeErr := unix.Close(parentFD); closeErr != nil {
@@ -144,11 +298,32 @@ func (root *nativeRoot) openRelative(relativePath string) (*relativeNativeEntry,
 		parentFD = entry.fd
 		parentOwned = true
 	}
-	return nil, fmt.Errorf("artifact access path %q has no components", relativePath)
+	return nil, closeRelativeParent(
+		fmt.Errorf("artifact access path %q has no components", relativePath),
+		parentFD,
+		parentOwned,
+	)
 }
 
-func (entry *relativeNativeEntry) verify() error {
-	return verifyNativeEntry(entry.parentFD, entry.name, entry.entry)
+func closeRelativeParent(operationErr error, parentFD int, parentOwned bool) error {
+	if !parentOwned {
+		return operationErr
+	}
+	return errors.Join(operationErr, unix.Close(parentFD))
+}
+
+func (entry *relativeNativeEntry) verify(ctx context.Context) error {
+	if err := verifyNativeEntry(ctx, entry.parentFD, entry.name, entry.entry); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	current, err := openNativeRelative(ctx, entry.rootFD, entry.relativePath, entry.authority)
+	if err != nil {
+		return err
+	}
+	return errors.Join(current.close(), ctx.Err())
 }
 
 func (entry *relativeNativeEntry) close() error {
@@ -159,7 +334,13 @@ func (entry *relativeNativeEntry) close() error {
 	return errors.Join(errorsToJoin...)
 }
 
-func (root *nativeRoot) verify() error {
+func (root *nativeRoot) verify(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("artifact access context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var opened unix.Stat_t
 	if err := unix.Fstat(root.entry.fd, &opened); err != nil {
 		return err
@@ -167,17 +348,23 @@ func (root *nativeRoot) verify() error {
 	if !root.entry.identity.equal(nativeIdentityFromStat(&opened)) {
 		return fmt.Errorf("artifact access root changed while open")
 	}
-	if root.parentFD < 0 {
-		return nil
+	if root.parentFD >= 0 {
+		observed, _, err := observeNativeEntry(root.parentFD, root.name)
+		if err != nil {
+			return err
+		}
+		if !root.entry.identity.equal(observed.identity) {
+			return fmt.Errorf("artifact access root binding changed while open")
+		}
 	}
-	observed, _, err := observeNativeEntry(root.parentFD, root.name)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	current, err := openNativeRoot(ctx, root.path, root.kind, root.authority)
 	if err != nil {
 		return err
 	}
-	if !root.entry.identity.equal(observed.identity) {
-		return fmt.Errorf("artifact access root binding changed while open")
-	}
-	return nil
+	return errors.Join(current.close(), ctx.Err())
 }
 
 func (root *nativeRoot) close() error {
@@ -245,18 +432,52 @@ func observeNativeEntry(parentFD int, name string) (nativeEntry, unix.Stat_t, er
 	return nativeEntryFromStat(-1, &stat), stat, nil
 }
 
-func verifyNativeEntry(parentFD int, name string, entry nativeEntry) error {
-	if err := verifyNativeEntryBinding(parentFD, name, entry); err != nil {
-		return err
-	}
-	exact, err := nativeDirectoryContainsExactName(parentFD, name)
+func verifyNativeEntry(
+	ctx context.Context,
+	parentFD int,
+	name string,
+	entry nativeEntry,
+) error {
+	return verifyNativeEntryWithExactNameCheck(
+		ctx,
+		parentFD,
+		name,
+		entry,
+		verifyNativeExactNameEntry,
+	)
+}
+
+func verifyNativeEntryWithExactNameCheck(
+	ctx context.Context,
+	parentFD int,
+	name string,
+	entry nativeEntry,
+	verifyExactName func(context.Context, int, string, nativeEntry) (bool, error),
+) error {
+	exact, err := verifyExactName(ctx, parentFD, name, entry)
 	if err != nil {
 		return err
 	}
 	if !exact {
 		return fmt.Errorf("artifact access entry %q changed exact casing while open", name)
 	}
-	return nil
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := verifyNativeEntryBinding(parentFD, name, entry); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	exact, err = verifyExactName(ctx, parentFD, name, entry)
+	if err != nil {
+		return err
+	}
+	if !exact {
+		return fmt.Errorf("artifact access entry %q changed exact casing while open", name)
+	}
+	return ctx.Err()
 }
 
 func verifyNativeEntryBinding(parentFD int, name string, entry nativeEntry) error {

@@ -15,11 +15,33 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func readNativeDirectoryNames(directoryFD int) ([]string, error) {
-	return readNativeDirectoryNamesUpTo(context.Background(), directoryFD, -1)
+func visitNativeDirectoryNames(directoryFD int, visit func(string) (bool, error)) error {
+	return visitNativeDirectoryNamesWithClose(directoryFD, visit, func(file *os.File) error {
+		return file.Close()
+	})
 }
 
-func visitNativeDirectoryNames(directoryFD int, visit func(string) error) error {
+func visitNativeDirectoryNamesWithClose(
+	directoryFD int,
+	visit func(string) (bool, error),
+	closeFile func(*os.File) error,
+) error {
+	return visitNativeDirectoryNamesWithIO(
+		directoryFD,
+		visit,
+		func(file *os.File, maximum int) ([]string, error) {
+			return file.Readdirnames(maximum)
+		},
+		closeFile,
+	)
+}
+
+func visitNativeDirectoryNamesWithIO(
+	directoryFD int,
+	visit func(string) (bool, error),
+	readNames func(*os.File, int) ([]string, error),
+	closeFile func(*os.File) error,
+) error {
 	readFD, err := unix.Openat(directoryFD, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
@@ -31,17 +53,24 @@ func visitNativeDirectoryNames(directoryFD int, visit func(string) error) error 
 	}
 
 	for {
-		names, readErr := file.Readdirnames(256)
+		names, readErr := readNames(file, 256)
+		stop := false
+		var visitErr error
 		for _, name := range names {
-			if err := visit(name); err != nil {
-				return errors.Join(err, file.Close())
+			stop, visitErr = visit(name)
+			if visitErr != nil || stop {
+				break
 			}
 		}
-		if errors.Is(readErr, io.EOF) {
-			return file.Close()
+		var batchReadErr error
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			batchReadErr = readErr
 		}
-		if readErr != nil {
-			return errors.Join(readErr, file.Close())
+		if visitErr != nil || batchReadErr != nil {
+			return errors.Join(visitErr, batchReadErr, closeFile(file))
+		}
+		if stop || errors.Is(readErr, io.EOF) {
+			return closeFile(file)
 		}
 	}
 }
@@ -152,13 +181,73 @@ func readNativeDirectoryNamesUpTo(
 	return names, nil
 }
 
-func nativeDirectoryContainsExactName(directoryFD int, name string) (bool, error) {
-	names, err := readNativeDirectoryNames(directoryFD)
+func verifyNativeExactNameEntry(
+	ctx context.Context,
+	directoryFD int,
+	name string,
+	entry nativeEntry,
+) (bool, error) {
+	return verifyNativeExactNameEntryWithIO(
+		ctx,
+		directoryFD,
+		name,
+		entry,
+		func(file *os.File, maximum int) ([]string, error) {
+			return file.Readdirnames(maximum)
+		},
+		func(file *os.File) error {
+			return file.Close()
+		},
+	)
+}
+
+func verifyNativeExactNameEntryWithIO(
+	ctx context.Context,
+	directoryFD int,
+	name string,
+	entry nativeEntry,
+	readNames func(*os.File, int) ([]string, error),
+	closeFile func(*os.File) error,
+) (bool, error) {
+	if ctx == nil {
+		return false, fmt.Errorf("artifact access context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	parentBefore, err := openedNativeEntry(directoryFD)
 	if err != nil {
 		return false, err
 	}
-	index := sort.SearchStrings(names, name)
-	return index < len(names) && names[index] == name, nil
+
+	found := false
+	err = visitNativeDirectoryNamesWithIO(directoryFD, func(candidate string) (bool, error) {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		if candidate != name {
+			return false, nil
+		}
+		if err := verifyNativeEntryBinding(directoryFD, candidate, entry); err != nil {
+			return false, err
+		}
+		found = true
+		return true, nil
+	}, readNames, closeFile)
+	if err != nil {
+		return found, err
+	}
+	parentAfter, err := openedNativeEntry(directoryFD)
+	if err != nil {
+		return found, err
+	}
+	if !parentBefore.identity.equal(parentAfter.identity) {
+		return found, fmt.Errorf("artifact access directory changed during exact-name observation")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return found, nil
 }
 
 func verifyNativeDirectoryNames(ctx context.Context, directoryFD int, expected []string) error {
