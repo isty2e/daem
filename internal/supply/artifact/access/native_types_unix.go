@@ -26,6 +26,18 @@ type nativeIdentity struct {
 	size             int64
 }
 
+type directoryListingIdentity struct {
+	native nativeIdentity
+}
+
+func newDirectoryListingWitness(identity nativeIdentity) DirectoryListingWitness {
+	return DirectoryListingWitness{identity: directoryListingIdentity{native: identity}}
+}
+
+func (identity directoryListingIdentity) equal(other directoryListingIdentity) bool {
+	return identity.native.equal(other.native)
+}
+
 func (identity nativeIdentity) equal(other nativeIdentity) bool {
 	return identity.device == other.device &&
 		identity.inode == other.inode &&

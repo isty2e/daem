@@ -68,9 +68,13 @@ func Candidates(
 	scope targetpkg.Scope,
 	importedDestinations DestinationClaims,
 	sourceIdentities *SourceIdentityCache,
+	searchRoots *SearchRootCache,
 ) ([]adopt.Skill, []adopt.Scan, []adopt.Skipped, error) {
 	if sourceIdentities == nil {
 		return nil, nil, nil, fmt.Errorf("skill source identity cache is required")
+	}
+	if searchRoots == nil {
+		return nil, nil, nil, fmt.Errorf("skill search-root cache is required")
 	}
 	locations := profile.Profile(target).DiscoveryLocations(entity.KindSkill, scope)
 	skills := make([]adopt.Skill, 0)
@@ -126,6 +130,7 @@ func Candidates(
 			liveRoot,
 			importedDestinations,
 			sourceIdentities,
+			searchRoots,
 		)
 		if err != nil {
 			return nil, nil, nil, err

@@ -247,6 +247,7 @@ func TestCandidatesPreservesNonDefaultAdmittedSkillRoot(t *testing.T) {
 		targetpkg.ScopeProject,
 		NewDestinationClaims(),
 		NewSourceIdentityCache(skillTreeLimitsForTest(t)),
+		NewSearchRootCache(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -287,14 +288,14 @@ func TestImportSkillChargesDuplicateRouteBeforeClassification(t *testing.T) {
 
 	candidate, skipped, err := importSkillFromEntry(
 		t.Context(), sourceDirectory, targetpkg.TargetCodex, targetpkg.ScopeGlobal,
-		"", first, "review", claims, identities,
+		"", first, first, "review", claims, identities,
 	)
 	if err != nil || candidate.ResourceName != "review" || skipped.Reason != "" {
 		t.Fatalf("first import = (%#v, %#v, %v), want retained candidate", candidate, skipped, err)
 	}
 	candidate, skipped, err = importSkillFromEntry(
 		t.Context(), sourceDirectory, targetpkg.TargetCodex, targetpkg.ScopeGlobal,
-		"", second, "review", claims, identities,
+		"", second, second, "review", claims, identities,
 	)
 	if !errors.Is(err, errSourceIdentityLimitExceeded) || candidate.ResourceName != "" || skipped.Reason != "" {
 		t.Fatalf("duplicate import = (%#v, %#v, %v), want aggregate identity-budget failure before classification", candidate, skipped, err)
@@ -352,14 +353,14 @@ func TestImportSkillClassifiesDuplicateDestinationByContentIdentity(t *testing.T
 
 			candidate, skipped, err := importSkillFromEntry(
 				t.Context(), sourceDirectory, targetpkg.TargetCodex, targetpkg.ScopeGlobal,
-				"", first, "review", claims, identities,
+				"", first, first, "review", claims, identities,
 			)
 			if err != nil || candidate.ResourceName != "review" || skipped.Reason != "" {
 				t.Fatalf("first import = (%#v, %#v, %v), want retained candidate", candidate, skipped, err)
 			}
 			candidate, skipped, err = importSkillFromEntry(
 				t.Context(), sourceDirectory, targetpkg.TargetCodex, targetpkg.ScopeGlobal,
-				"", second, "review", claims, identities,
+				"", second, second, "review", claims, identities,
 			)
 			if err != nil || candidate.ResourceName != "" {
 				t.Fatalf("second import = (%#v, %#v, %v), want skip", candidate, skipped, err)
@@ -414,6 +415,7 @@ func TestImportSkillRequiresRegularSkillDocumentInIdentityObservation(t *testing
 				targetpkg.ScopeProject,
 				"",
 				skillRoot,
+				skillRoot,
 				"review",
 				NewDestinationClaims(),
 				NewSourceIdentityCache(skillTreeLimitsForTest(t)),
@@ -456,6 +458,7 @@ func TestImportSkillSkipsMissingSkillMDBeforeTreeTraversal(t *testing.T) {
 		targetpkg.ScopeProject,
 		"",
 		skillRoot,
+		skillRoot,
 		"review",
 		NewDestinationClaims(),
 		NewSourceIdentityCache(limit),
@@ -497,6 +500,7 @@ func TestImportSkillFailsClosedOnRootBreadthOverflow(t *testing.T) {
 		targetpkg.TargetCodex,
 		targetpkg.ScopeProject,
 		"",
+		skillRoot,
 		skillRoot,
 		"review",
 		NewDestinationClaims(),
@@ -543,6 +547,7 @@ func TestImportSkillSkipsNestedSymlinkFromIdentityTraversal(t *testing.T) {
 		targetpkg.ScopeProject,
 		"",
 		skillRoot,
+		skillRoot,
 		"unsafe",
 		NewDestinationClaims(),
 		NewSourceIdentityCache(skillTreeLimitsForTest(t)),
@@ -588,6 +593,7 @@ func TestImportSkillTreatsSymlinkSkillDocumentAsMissing(t *testing.T) {
 		targetpkg.TargetCodex,
 		targetpkg.ScopeProject,
 		"",
+		skillRoot,
 		skillRoot,
 		"review",
 		NewDestinationClaims(),
@@ -640,6 +646,17 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 		observations++
 		return observeSkillDirectoryIdentity(ctx, readPath, traversalLimit, skillTreeLimitsForTest(t))
 	})
+	rootObservations := 0
+	searchRoots, err := newSearchRootCache(
+		func(ctx context.Context, readRoot string, visit func(string) error) (searchRootObservation, error) {
+			rootObservations++
+			return observeSearchRoot(ctx, readRoot, visit)
+		},
+		defaultSearchRootLimits(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	destinations := NewDestinationClaims()
 	var imported []adopt.Skill
 	for _, selectedTarget := range []targetpkg.Target{targetpkg.TargetCodex, targetpkg.TargetOpenCode} {
@@ -650,6 +667,7 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 			targetpkg.ScopeProject,
 			destinations,
 			sourceIdentities,
+			searchRoots,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -662,6 +680,9 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 
 	if observations != 1 {
 		t.Fatalf("shared skill identity observations = %d, want 1", observations)
+	}
+	if rootObservations != 1 {
+		t.Fatalf("shared search-root observations = %d, want 1", rootObservations)
 	}
 	firstRoute, err := imported[0].PrimarySourceRoute()
 	if err != nil {

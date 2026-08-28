@@ -259,17 +259,17 @@ func TestExtensionImportRefusesInventoryDriftAfterRebuild(t *testing.T) {
 	_, err = executeCommandPlan(
 		t.Context(),
 		planned,
-		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
-			current, buildErr := buildPlanForTest(ctx, request)
+		func(ctx context.Context, request adoptmodel.Request) (observedImportPlan, error) {
+			current, buildErr := buildObservedPlanForTest(ctx, request)
 			if buildErr != nil {
-				return adoptmodel.Plan{}, buildErr
+				return observedImportPlan{}, buildErr
 			}
 			if writeErr := os.WriteFile(
 				settingsPath,
 				[]byte(`{"packages":["npm:@acme/bravo@1.2.3"]}`),
 				0o600,
 			); writeErr != nil {
-				return adoptmodel.Plan{}, writeErr
+				return observedImportPlan{}, writeErr
 			}
 			return current, nil
 		},
@@ -373,8 +373,8 @@ func TestExecuteCommandPlanPreservesTypedNothingToImportFromRevalidation(t *test
 	_, err = executeCommandPlan(
 		t.Context(),
 		planned,
-		func(context.Context, adoptmodel.Request) (adoptmodel.Plan, error) {
-			return adoptmodel.Plan{}, newNothingToImportError(nil, want)
+		func(context.Context, adoptmodel.Request) (observedImportPlan, error) {
+			return observedImportPlan{}, newNothingToImportError(nil, want)
 		},
 		nil,
 	)
@@ -419,13 +419,13 @@ func TestExecuteCommandPlanRejectsInvalidOnlyMCPSourceDriftAfterRebuild(t *testi
 	_, err = executeCommandPlan(
 		t.Context(),
 		planned,
-		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
-			current, buildErr := buildPlanForTest(ctx, request)
+		func(ctx context.Context, request adoptmodel.Request) (observedImportPlan, error) {
+			current, buildErr := buildObservedPlanForTest(ctx, request)
 			if buildErr != nil {
-				return adoptmodel.Plan{}, buildErr
+				return observedImportPlan{}, buildErr
 			}
 			if writeErr := os.WriteFile(aggregate.ClaudeProjectMCPConfigPath, validMCP, 0o600); writeErr != nil {
-				return adoptmodel.Plan{}, writeErr
+				return observedImportPlan{}, writeErr
 			}
 			return current, nil
 		},
@@ -681,16 +681,16 @@ func TestExecuteCommandPlanRejectsMergeTargetSkillRouteDriftAfterRebuild(t *test
 	_, err = executeCommandPlan(
 		t.Context(),
 		planned,
-		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
-			current, buildErr := buildPlanForTest(ctx, request)
+		func(ctx context.Context, request adoptmodel.Request) (observedImportPlan, error) {
+			current, buildErr := buildObservedPlanForTest(ctx, request)
 			if buildErr != nil {
-				return adoptmodel.Plan{}, buildErr
+				return observedImportPlan{}, buildErr
 			}
 			if removeErr := os.Remove(codexLink); removeErr != nil {
-				return adoptmodel.Plan{}, removeErr
+				return observedImportPlan{}, removeErr
 			}
 			if linkErr := os.Symlink(secondSource, codexLink); linkErr != nil {
-				return adoptmodel.Plan{}, linkErr
+				return observedImportPlan{}, linkErr
 			}
 			return current, nil
 		},
@@ -774,13 +774,13 @@ func TestExecuteCommandPlanRejectsSelectorMembershipLockDriftAfterRebuild(t *tes
 	_, err = executeCommandPlan(
 		t.Context(),
 		planned,
-		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
-			current, buildErr := buildPlanForTest(ctx, request)
+		func(ctx context.Context, request adoptmodel.Request) (observedImportPlan, error) {
+			current, buildErr := buildObservedPlanForTest(ctx, request)
 			if buildErr != nil {
-				return adoptmodel.Plan{}, buildErr
+				return observedImportPlan{}, buildErr
 			}
 			if writeErr := os.WriteFile(lockfilePath, []byte("not a lockfile\n"), 0o600); writeErr != nil {
-				return adoptmodel.Plan{}, writeErr
+				return observedImportPlan{}, writeErr
 			}
 			return current, nil
 		},
@@ -803,6 +803,14 @@ func buildPlanForTest(
 	ctx context.Context,
 	request adoptmodel.Request,
 ) (adoptmodel.Plan, error) {
+	observed, err := buildObservedPlanForTest(ctx, request)
+	return observed.plan, err
+}
+
+func buildObservedPlanForTest(
+	ctx context.Context,
+	request adoptmodel.Request,
+) (observedImportPlan, error) {
 	return buildPlan(ctx, request, "", nil)
 }
 

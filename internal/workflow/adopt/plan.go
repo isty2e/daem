@@ -18,20 +18,35 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
+type observedImportPlan struct {
+	plan             adoptmodel.Plan
+	skillSearchRoots *adoptskill.SearchRootCache
+}
+
+func (observed observedImportPlan) validateSkillSearchRoots(ctx context.Context) error {
+	if observed.skillSearchRoots == nil {
+		return nil
+	}
+	if err := observed.skillSearchRoots.Validate(ctx); err != nil {
+		return fmt.Errorf("revalidate Skill search roots: %w", err)
+	}
+	return nil
+}
+
 func buildPlan(
 	ctx context.Context,
 	request adoptmodel.Request,
 	progressPhase ProgressPhase,
 	progressEvents ProgressEventSink,
-) (adoptmodel.Plan, error) {
+) (observedImportPlan, error) {
 	if ctx == nil {
-		return adoptmodel.Plan{}, fmt.Errorf("import context is required")
+		return observedImportPlan{}, fmt.Errorf("import context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return adoptmodel.Plan{}, err
+		return observedImportPlan{}, err
 	}
 	if err := request.Validate(); err != nil {
-		return adoptmodel.Plan{}, err
+		return observedImportPlan{}, err
 	}
 	requestTargets := request.Targets()
 	requestScopes := request.Scopes()
@@ -41,13 +56,13 @@ func buildPlan(
 	merge := request.Merge()
 	outputExists, err := pathExists(output)
 	if err != nil {
-		return adoptmodel.Plan{}, fmt.Errorf("inspect output manifest: %w", err)
+		return observedImportPlan{}, fmt.Errorf("inspect output manifest: %w", err)
 	}
 	if merge && !outputExists {
-		return adoptmodel.Plan{}, fmt.Errorf("merge output manifest does not exist: %s", output)
+		return observedImportPlan{}, fmt.Errorf("merge output manifest does not exist: %s", output)
 	}
 	if !merge && outputExists {
-		return adoptmodel.Plan{}, fmt.Errorf("output manifest already exists: %s", output)
+		return observedImportPlan{}, fmt.Errorf("output manifest already exists: %s", output)
 	}
 
 	var originalContent []byte
@@ -56,11 +71,11 @@ func buildPlan(
 	if merge {
 		originalContent, err = declarationartifact.Read(ctx, output)
 		if err != nil {
-			return adoptmodel.Plan{}, fmt.Errorf("read merge output manifest: %w", err)
+			return observedImportPlan{}, fmt.Errorf("read merge output manifest: %w", err)
 		}
 		existingEnvironment, err = declarationmanifest.Decode(originalContent)
 		if err != nil {
-			return adoptmodel.Plan{}, fmt.Errorf("decode merge output manifest: %w", err)
+			return observedImportPlan{}, fmt.Errorf("decode merge output manifest: %w", err)
 		}
 		existingExtensions = existingEnvironment.Extensions()
 	}
@@ -78,12 +93,12 @@ func buildPlan(
 		Existing:     existingExtensions,
 	})
 	if err != nil {
-		return adoptmodel.Plan{}, fmt.Errorf("import extensions: %w", err)
+		return observedImportPlan{}, fmt.Errorf("import extensions: %w", err)
 	}
 	for _, scan := range extensionResult.Scans() {
 		evidence, err := adoptmodel.NewBoundedFileScanEvidence(scan.MaximumBytes)
 		if err != nil {
-			return adoptmodel.Plan{}, fmt.Errorf("import extension scan evidence: %w", err)
+			return observedImportPlan{}, fmt.Errorf("import extension scan evidence: %w", err)
 		}
 		scans = append(scans, adoptmodel.Scan{
 			ResourceKind: "extension",
@@ -105,16 +120,17 @@ func buildPlan(
 			LivePath: skip.LivePath,
 			Reason:   adoptmodel.SkipReason(skip.Reason),
 		}); err != nil {
-			return adoptmodel.Plan{}, wrapSkippedObservationError(err, skippedCollector)
+			return observedImportPlan{}, wrapSkippedObservationError(err, skippedCollector)
 		}
 	}
 	importedSkillDestinations := adoptskill.NewDestinationClaims()
 	skillSourceIdentities := adoptskill.NewSourceIdentityCache(mutationfs.DefaultTreeTraversalLimits())
+	skillSearchRoots := adoptskill.NewSearchRootCache()
 	completedTargetScopes := 0
 	for _, target := range requestTargets {
 		for _, scope := range requestScopes {
 			if err := ctx.Err(); err != nil {
-				return adoptmodel.Plan{}, err
+				return observedImportPlan{}, err
 			}
 			progressEvents.emit(ProgressEvent{
 				Kind:      ProgressEventTargetScopeStarted,
@@ -131,10 +147,11 @@ func buildPlan(
 				scope,
 				importedSkillDestinations,
 				skillSourceIdentities,
+				skillSearchRoots,
 				skippedCollector,
 			)
 			if err != nil {
-				return adoptmodel.Plan{}, wrapSkippedObservationError(err, skippedCollector)
+				return observedImportPlan{}, wrapSkippedObservationError(err, skippedCollector)
 			}
 			scans = append(scans, observedScans...)
 			sources = append(sources, importedSources...)
@@ -155,11 +172,11 @@ func buildPlan(
 	}
 	skills, err = adoptskill.Finalize(skills)
 	if err != nil {
-		return adoptmodel.Plan{}, err
+		return observedImportPlan{}, err
 	}
 	skills, err = adoptskill.AssignGroupSources(sourceDirectory, skills)
 	if err != nil {
-		return adoptmodel.Plan{}, err
+		return observedImportPlan{}, err
 	}
 
 	skipped := skippedCollector.Skipped()
@@ -174,10 +191,16 @@ func buildPlan(
 		Skipped:              skipped,
 	})
 	if err != nil {
-		return adoptmodel.Plan{}, err
+		return observedImportPlan{}, err
+	}
+	observed := observedImportPlan{
+		skillSearchRoots: skillSearchRoots,
 	}
 	if candidates.ResourceCount() == 0 {
-		return adoptmodel.Plan{}, newNothingToImportError(scans, skipped)
+		if err := observed.validateSkillSearchRoots(ctx); err != nil {
+			return observedImportPlan{}, err
+		}
+		return observedImportPlan{}, newNothingToImportError(scans, skipped)
 	}
 
 	var mergedPlan adoptmodel.Plan
@@ -186,7 +209,7 @@ func buildPlan(
 		if len(skills) != 0 && len(existingEnvironment.SkillSets()) != 0 {
 			paths, resolveErr := daempaths.Resolve(output)
 			if resolveErr != nil {
-				return adoptmodel.Plan{}, resolveErr
+				return observedImportPlan{}, resolveErr
 			}
 			selectorBackedSkills, err = lockedSelectorBackedSkills(
 				ctx,
@@ -194,7 +217,7 @@ func buildPlan(
 				existingEnvironment,
 			)
 			if err != nil {
-				return adoptmodel.Plan{}, err
+				return observedImportPlan{}, err
 			}
 		}
 		mergedPlan, err = adoptmerge.IntoManifest(
@@ -204,10 +227,14 @@ func buildPlan(
 			selectorBackedSkills,
 		)
 		if err != nil {
-			return adoptmodel.Plan{}, err
+			return observedImportPlan{}, err
 		}
 		if mergedPlan.HasMergeConflicts() {
-			return mergedPlan, nil
+			if err := observed.validateSkillSearchRoots(ctx); err != nil {
+				return observedImportPlan{}, err
+			}
+			observed.plan = mergedPlan
+			return observed, nil
 		}
 		sources = mergedPlan.Sources()
 		skills = mergedPlan.Skills()
@@ -220,9 +247,9 @@ func buildPlan(
 		}
 		checkedSources[source.SourcePath] = struct{}{}
 		if exists, err := pathExists(source.SourcePath); err != nil {
-			return adoptmodel.Plan{}, fmt.Errorf("inspect imported Source: %w", err)
+			return observedImportPlan{}, fmt.Errorf("inspect imported Source: %w", err)
 		} else if exists {
-			return adoptmodel.Plan{}, fmt.Errorf("imported source already exists: %s", source.SourcePath)
+			return observedImportPlan{}, fmt.Errorf("imported source already exists: %s", source.SourcePath)
 		}
 	}
 	checkedSkillGroupRoots := make(map[string]struct{}, len(skills))
@@ -231,9 +258,9 @@ func buildPlan(
 			if _, checked := checkedSkillGroupRoots[skill.GroupRoot]; !checked {
 				checkedSkillGroupRoots[skill.GroupRoot] = struct{}{}
 				if exists, err := pathExists(skill.GroupRoot); err != nil {
-					return adoptmodel.Plan{}, fmt.Errorf("inspect imported skill group Source: %w", err)
+					return observedImportPlan{}, fmt.Errorf("inspect imported skill group Source: %w", err)
 				} else if exists {
-					return adoptmodel.Plan{}, fmt.Errorf("imported skill group source already exists: %s", skill.GroupRoot)
+					return observedImportPlan{}, fmt.Errorf("imported skill group source already exists: %s", skill.GroupRoot)
 				}
 			}
 		}
@@ -242,14 +269,18 @@ func buildPlan(
 		}
 		checkedSources[skill.SourcePath] = struct{}{}
 		if exists, err := pathExists(skill.SourcePath); err != nil {
-			return adoptmodel.Plan{}, fmt.Errorf("inspect imported skill Source: %w", err)
+			return observedImportPlan{}, fmt.Errorf("inspect imported skill Source: %w", err)
 		} else if exists {
-			return adoptmodel.Plan{}, fmt.Errorf("imported skill source already exists: %s", skill.SourcePath)
+			return observedImportPlan{}, fmt.Errorf("imported skill source already exists: %s", skill.SourcePath)
 		}
 	}
 
 	if merge {
-		return mergedPlan, nil
+		if err := observed.validateSkillSearchRoots(ctx); err != nil {
+			return observedImportPlan{}, err
+		}
+		observed.plan = mergedPlan
+		return observed, nil
 	}
 	manifestContent, err := adoptmodel.RenderManifestContent(
 		sources,
@@ -259,7 +290,15 @@ func buildPlan(
 		candidates.Extensions(),
 	)
 	if err != nil {
-		return adoptmodel.Plan{}, err
+		return observedImportPlan{}, err
 	}
-	return adoptmodel.NewPlan(request, nil, manifestContent, candidates, nil)
+	plan, err := adoptmodel.NewPlan(request, nil, manifestContent, candidates, nil)
+	if err != nil {
+		return observedImportPlan{}, err
+	}
+	if err := observed.validateSkillSearchRoots(ctx); err != nil {
+		return observedImportPlan{}, err
+	}
+	observed.plan = plan
+	return observed, nil
 }

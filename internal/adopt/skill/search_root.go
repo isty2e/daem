@@ -1,0 +1,373 @@
+package skill
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+
+	"github.com/isty2e/daem/internal/supply/artifact"
+	"github.com/isty2e/daem/internal/supply/artifact/access"
+)
+
+const (
+	maximumSearchRootEntries        = 100_000
+	maximumSearchRootNameBytes      = int64(32 << 20)
+	maximumSearchRootEntryNameBytes = int64(4_096)
+)
+
+// ErrSearchRootLimitExceeded classifies bounded Skill search-root enumeration
+// exhaustion.
+var ErrSearchRootLimitExceeded = errors.New("skill search-root enumeration limit exceeded")
+
+type searchRootLimits struct {
+	maximumEntries        int
+	maximumNameBytes      int64
+	maximumEntryNameBytes int64
+}
+
+func newSearchRootLimits(
+	maximumEntries int,
+	maximumNameBytes int64,
+	maximumEntryNameBytes int64,
+) (searchRootLimits, error) {
+	limits := searchRootLimits{
+		maximumEntries:        maximumEntries,
+		maximumNameBytes:      maximumNameBytes,
+		maximumEntryNameBytes: maximumEntryNameBytes,
+	}
+	if err := limits.validate(); err != nil {
+		return searchRootLimits{}, err
+	}
+	return limits, nil
+}
+
+func defaultSearchRootLimits() searchRootLimits {
+	return searchRootLimits{
+		maximumEntries:        maximumSearchRootEntries,
+		maximumNameBytes:      maximumSearchRootNameBytes,
+		maximumEntryNameBytes: maximumSearchRootEntryNameBytes,
+	}
+}
+
+func (limits searchRootLimits) validate() error {
+	if limits.maximumEntries <= 0 || limits.maximumNameBytes <= 0 || limits.maximumEntryNameBytes <= 0 {
+		return fmt.Errorf("skill search-root limits must be positive")
+	}
+	if limits.maximumEntryNameBytes > limits.maximumNameBytes {
+		return fmt.Errorf("skill search-root entry-name limit exceeds aggregate name-byte limit")
+	}
+	defaults := defaultSearchRootLimits()
+	if limits.maximumEntries > defaults.maximumEntries ||
+		limits.maximumNameBytes > defaults.maximumNameBytes ||
+		limits.maximumEntryNameBytes > defaults.maximumEntryNameBytes {
+		return fmt.Errorf("skill search-root limits must not exceed package defaults")
+	}
+	return nil
+}
+
+type searchRootLimitError struct {
+	limits searchRootLimits
+}
+
+func (err *searchRootLimitError) Error() string {
+	if err == nil {
+		return ErrSearchRootLimitExceeded.Error()
+	}
+	return fmt.Sprintf(
+		"%s (entries=%d name_bytes=%d entry_name_bytes=%d)",
+		ErrSearchRootLimitExceeded,
+		err.limits.maximumEntries,
+		err.limits.maximumNameBytes,
+		err.limits.maximumEntryNameBytes,
+	)
+}
+
+func (err *searchRootLimitError) Unwrap() error { return ErrSearchRootLimitExceeded }
+
+type searchRootBudget struct {
+	limits    searchRootLimits
+	entries   int
+	nameBytes int64
+	exhausted *searchRootLimitError
+}
+
+func newSearchRootBudget(limits searchRootLimits) (*searchRootBudget, error) {
+	if err := limits.validate(); err != nil {
+		return nil, err
+	}
+	return &searchRootBudget{limits: limits}, nil
+}
+
+func (budget *searchRootBudget) admitName(nameBytes int) error {
+	if budget == nil {
+		return fmt.Errorf("skill search-root budget is required")
+	}
+	if nameBytes < 0 {
+		return fmt.Errorf("skill search-root entry-name byte count must not be negative")
+	}
+	if budget.exhausted != nil {
+		return budget.exhausted
+	}
+	observedNameBytes := int64(nameBytes)
+	if observedNameBytes > budget.limits.maximumEntryNameBytes ||
+		budget.entries == budget.limits.maximumEntries ||
+		observedNameBytes > budget.limits.maximumNameBytes-budget.nameBytes {
+		budget.exhausted = &searchRootLimitError{limits: budget.limits}
+		return budget.exhausted
+	}
+	budget.entries++
+	budget.nameBytes += observedNameBytes
+	return nil
+}
+
+type searchRootObserver func(
+	context.Context,
+	string,
+	func(string) error,
+) (searchRootObservation, error)
+
+type searchRootObservation struct {
+	revalidate func(context.Context) error
+}
+
+type searchRootListing struct {
+	names       []string
+	observation searchRootObservation
+}
+
+type searchRootEntries struct {
+	names    []string
+	readRoot string
+}
+
+// SearchRootCache owns one candidate-collection pass's bounded, sorted Skill
+// search-root listings and their live-root-to-read-root bindings. It is
+// intentionally not safe for concurrent use.
+type SearchRootCache struct {
+	listings map[string]searchRootListing
+	bindings map[string]string
+	observe  searchRootObserver
+	budget   *searchRootBudget
+}
+
+// NewSearchRootCache constructs an empty operation-local search-root cache.
+func NewSearchRootCache() *SearchRootCache {
+	cache, err := newSearchRootCache(observeSearchRoot, defaultSearchRootLimits())
+	if err != nil {
+		panic(err)
+	}
+	return cache
+}
+
+func newSearchRootCache(
+	observer searchRootObserver,
+	limits searchRootLimits,
+) (*SearchRootCache, error) {
+	if observer == nil {
+		return nil, fmt.Errorf("skill search-root observer is required")
+	}
+	budget, err := newSearchRootBudget(limits)
+	if err != nil {
+		return nil, err
+	}
+	return &SearchRootCache{
+		listings: make(map[string]searchRootListing),
+		bindings: make(map[string]string),
+		observe:  observer,
+		budget:   budget,
+	}, nil
+}
+
+func (cache *SearchRootCache) entries(ctx context.Context, liveRoot string) (searchRootEntries, error) {
+	if cache == nil || cache.observe == nil || cache.listings == nil || cache.bindings == nil || cache.budget == nil {
+		return searchRootEntries{}, fmt.Errorf("skill search-root cache is required")
+	}
+	if ctx == nil {
+		return searchRootEntries{}, fmt.Errorf("skill search-root context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return searchRootEntries{}, err
+	}
+	liveBinding, err := absoluteImportSkillLivePath(liveRoot)
+	if err != nil {
+		return searchRootEntries{}, fmt.Errorf("resolve skill search-root binding %q: %w", liveRoot, err)
+	}
+	readRoot, err := resolvedImportSkillReadPath(liveBinding)
+	if err != nil {
+		return searchRootEntries{}, fmt.Errorf("resolve skill search root %q: %w", liveRoot, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return searchRootEntries{}, err
+	}
+	if expectedReadRoot, exists := cache.bindings[liveBinding]; exists && expectedReadRoot != readRoot {
+		cache.invalidate(expectedReadRoot)
+		return searchRootEntries{}, searchRootBindingChangedError(liveBinding)
+	}
+	if listing, exists := cache.listings[readRoot]; exists {
+		if err := cache.revalidateBinding(ctx, liveBinding, readRoot); err != nil {
+			cache.invalidate(readRoot)
+			return searchRootEntries{}, err
+		}
+		if err := cache.revalidateListing(ctx, readRoot, listing); err != nil {
+			cache.invalidate(readRoot)
+			return searchRootEntries{}, err
+		}
+		cache.bindings[liveBinding] = readRoot
+		return searchRootEntries{
+			names:    append([]string(nil), listing.names...),
+			readRoot: readRoot,
+		}, nil
+	}
+
+	names := make([]string, 0, min(cache.budget.limits.maximumEntries, 256))
+	observation, err := cache.observe(ctx, readRoot, func(name string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := cache.budget.admitName(len(name)); err != nil {
+			return err
+		}
+		names = append(names, name)
+		return nil
+	})
+	if err != nil {
+		return searchRootEntries{}, err
+	}
+	if observation.revalidate == nil {
+		return searchRootEntries{}, fmt.Errorf("skill search-root observation revalidation is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return searchRootEntries{}, err
+	}
+	slices.Sort(names)
+	if err := ctx.Err(); err != nil {
+		return searchRootEntries{}, err
+	}
+	if err := cache.revalidateBinding(ctx, liveBinding, readRoot); err != nil {
+		return searchRootEntries{}, err
+	}
+	cache.listings[readRoot] = searchRootListing{
+		names:       append([]string(nil), names...),
+		observation: observation,
+	}
+	cache.bindings[liveBinding] = readRoot
+	return searchRootEntries{names: names, readRoot: readRoot}, nil
+}
+
+// Validate revalidates every retained live-root binding and listing observation
+// before a plan result can use cached names.
+func (cache *SearchRootCache) Validate(ctx context.Context) error {
+	if cache == nil || cache.observe == nil || cache.listings == nil || cache.bindings == nil || cache.budget == nil {
+		return fmt.Errorf("skill search-root cache is required")
+	}
+	if ctx == nil {
+		return fmt.Errorf("skill search-root context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	liveRoots := make([]string, 0, len(cache.bindings))
+	for liveRoot := range cache.bindings {
+		liveRoots = append(liveRoots, liveRoot)
+	}
+	slices.Sort(liveRoots)
+	for _, liveRoot := range liveRoots {
+		readRoot := cache.bindings[liveRoot]
+		if err := cache.revalidateBinding(ctx, liveRoot, readRoot); err != nil {
+			cache.invalidate(readRoot)
+			return err
+		}
+	}
+	readRoots := make([]string, 0, len(cache.listings))
+	for readRoot := range cache.listings {
+		readRoots = append(readRoots, readRoot)
+	}
+	slices.Sort(readRoots)
+	for _, readRoot := range readRoots {
+		listing := cache.listings[readRoot]
+		if err := cache.revalidateListing(ctx, readRoot, listing); err != nil {
+			cache.invalidate(readRoot)
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func (cache *SearchRootCache) invalidate(readRoot string) {
+	delete(cache.listings, readRoot)
+	for liveRoot, boundReadRoot := range cache.bindings {
+		if boundReadRoot == readRoot {
+			delete(cache.bindings, liveRoot)
+		}
+	}
+}
+
+func (cache *SearchRootCache) revalidateBinding(
+	ctx context.Context,
+	liveRoot string,
+	expectedReadRoot string,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	currentReadRoot, err := resolvedImportSkillReadPath(liveRoot)
+	if err != nil {
+		return fmt.Errorf("revalidate skill search-root binding %q: %w", liveRoot, err)
+	}
+	if currentReadRoot != expectedReadRoot {
+		return searchRootBindingChangedError(liveRoot)
+	}
+	return ctx.Err()
+}
+
+func searchRootBindingChangedError(liveRoot string) error {
+	return fmt.Errorf("skill search-root binding %q changed after observation", liveRoot)
+}
+
+func (cache *SearchRootCache) revalidateListing(
+	ctx context.Context,
+	readRoot string,
+	listing searchRootListing,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if listing.observation.revalidate == nil {
+		return fmt.Errorf("skill search-root observation revalidation is required")
+	}
+	if err := listing.observation.revalidate(ctx); err != nil {
+		return fmt.Errorf("revalidate skill search root %q: %w", readRoot, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func observeSearchRoot(
+	ctx context.Context,
+	readRoot string,
+	visit func(string) error,
+) (searchRootObservation, error) {
+	if ctx == nil {
+		return searchRootObservation{}, fmt.Errorf("skill search-root context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return searchRootObservation{}, err
+	}
+	view, err := access.OpenNoFollowView(readRoot)
+	if err != nil {
+		return searchRootObservation{}, fmt.Errorf("open skill search root %q: %w", readRoot, err)
+	}
+	if view.Kind() != artifact.ArtifactKindDirectory {
+		return searchRootObservation{}, fmt.Errorf("skill search root %q is not a directory", readRoot)
+	}
+	witness, err := view.VisitDirectoryNames(ctx, ".", visit)
+	if err != nil {
+		return searchRootObservation{}, fmt.Errorf("enumerate skill search root %q: %w", readRoot, err)
+	}
+	return searchRootObservation{revalidate: func(ctx context.Context) error {
+		return view.VerifyDirectoryListing(ctx, ".", witness)
+	}}, nil
+}

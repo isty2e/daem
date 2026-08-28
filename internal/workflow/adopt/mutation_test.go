@@ -45,8 +45,8 @@ func TestExecuteCommandPlanRefusesJournalCleanupCreatedAfterPlanning(t *testing.
 			stableRevisions: stableRevisions,
 			barrier:         barrier,
 		},
-		func(context.Context, adoptmodel.Request) (adoptmodel.Plan, error) {
-			return plan, nil
+		func(context.Context, adoptmodel.Request) (observedImportPlan, error) {
+			return observedImportPlan{plan: plan}, nil
 		},
 		nil,
 	)

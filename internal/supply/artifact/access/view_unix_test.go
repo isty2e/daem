@@ -175,6 +175,54 @@ func TestOpenNoFollowViewRejectsParentSymlink(t *testing.T) {
 	}
 }
 
+func TestVisitDirectoryNamesStopsAtVisitorError(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	for index := range 300 {
+		writeAccessTestFile(t, filepath.Join(root, fmt.Sprintf("entry-%03d", index)), nil)
+	}
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantErr := errors.New("listing admitted prefix complete")
+	visited := 0
+	_, err = view.VisitDirectoryNames(t.Context(), ".", func(string) error {
+		visited++
+		if visited == 17 {
+			return wantErr
+		}
+		return nil
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("VisitDirectoryNames error = %v, want visitor error", err)
+	}
+	if visited != 17 {
+		t.Fatalf("visited names = %d, want 17", visited)
+	}
+}
+
+func TestDirectoryListingWitnessDetectsInventoryChange(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(root, "original"), nil)
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	witness, err := view.VisitDirectoryNames(t.Context(), ".", func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := view.VerifyDirectoryListing(t.Context(), ".", witness); err != nil {
+		t.Fatalf("stable listing verification: %v", err)
+	}
+	writeAccessTestFile(t, filepath.Join(root, "added"), nil)
+	if err := view.VerifyDirectoryListing(t.Context(), ".", witness); err == nil {
+		t.Fatal("directory listing witness accepted an added entry")
+	}
+}
+
 func TestHashWithLimitRejectsEntryAndByteOverflow(t *testing.T) {
 	root := resolvedAccessTestRoot(t)
 	writeAccessTestFile(t, filepath.Join(root, "one"), []byte("1234"))

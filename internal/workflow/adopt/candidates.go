@@ -18,6 +18,7 @@ func importCandidates(
 	scope targetpkg.Scope,
 	importedSkillDestinations adoptskill.DestinationClaims,
 	skillSourceIdentities *adoptskill.SourceIdentityCache,
+	skillSearchRoots *adoptskill.SearchRootCache,
 	skippedCollector *adoptmodel.SkippedCollector,
 ) (
 	[]adoptmodel.Source,
@@ -45,6 +46,7 @@ func importCandidates(
 		scope,
 		importedSkillDestinations,
 		skillSourceIdentities,
+		skillSearchRoots,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err

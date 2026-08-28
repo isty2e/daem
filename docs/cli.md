@@ -353,7 +353,14 @@ reject. The complete import freshness observation also admits at most 400,000
 entries and 16 GiB of regular-file content across all observed trees and cannot
 widen that per-tree publication ceiling. The containing skills root is observed
 as an immediate inventory and does not reduce an individual skill's depth
-allowance. Extension inventory
+allowance. One import planning pass retains at most 100,000 immediate names
+across newly observed distinct resolved skills roots, with at most 32 MiB of
+aggregate name bytes and 4,096 bytes per name. Reused roots do not consume that
+retained-name allowance again, but daem revalidates both the exact directory
+inventory identity and every live-root symlink binding on reuse, after revision
+capture, and before publication. Child reads are derived from the captured
+resolved root rather than re-resolving the mutable live alias. A changed root or
+alias aborts the observation instead of returning an incomplete preview. Extension inventory
 files retain bounded content evidence through publication using each host
 observer's ingress limit. Files are streamed. The `SKILL.md` compatibility
 document retains its 1 MiB limit.
