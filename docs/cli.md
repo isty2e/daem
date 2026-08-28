@@ -588,7 +588,9 @@ Each import `skipped` row contains exact `target`, `scope`, `live_path`, and
 stable `reason` code values plus one stable `category`. Optional `detail`
 contains at most 4,096 bytes of non-authoritative diagnostic context and never
 changes classification. `action_hint` is present only for `action_required`
-rows and is a machine code rather than human next-action prose. MCP canonical
+rows and is a machine code rather than human next-action prose. Codex inline
+Hook snapshot failures retain the same specific symlink, non-regular, size, or
+changed-during-read reason used by standalone Hook snapshots. MCP canonical
 invalidity and provider-lossy documents are actionable repair reasons; unknown
 or untyped MCP projection codes become `mcp_projection_unclassified` and remain
 actionable. Unknown future reason codes default to `action_required` so default

@@ -56,17 +56,35 @@ type importHookHandler struct {
 	StatusMessage string `json:"statusMessage"`
 }
 
+type candidateHooks struct {
+	readRegularFile func(context.Context, string, int64) ([]byte, bool, error)
+}
+
 func Candidates(
 	ctx context.Context,
 	target targetpkg.Target,
 	scope targetpkg.Scope,
 	skipped adopt.SkipEmitter,
 ) ([]adopt.Hook, error) {
+	return candidatesWithHooks(ctx, target, scope, skipped, candidateHooks{})
+}
+
+func candidatesWithHooks(
+	ctx context.Context,
+	target targetpkg.Target,
+	scope targetpkg.Scope,
+	skipped adopt.SkipEmitter,
+	hooks candidateHooks,
+) ([]adopt.Hook, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("hook import context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	readRegularFile := hooks.readRegularFile
+	if readRegularFile == nil {
+		readRegularFile = filesnapshot.ReadRegularFileContext
 	}
 	liveDestination, ok := commandhook.Destination(target, scope)
 	if !ok {
@@ -75,7 +93,7 @@ func Candidates(
 		}
 		return nil, nil
 	}
-	inlineSkipped, err := importCodexInlineHookSkip(ctx, target, scope, liveDestination)
+	inlineSkipped, err := importCodexInlineHookSkip(ctx, target, scope, liveDestination, readRegularFile)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +102,7 @@ func Candidates(
 		return nil, err
 	}
 	liveDestinationValue := liveDestination.String()
-	content, exists, err := filesnapshot.ReadRegularFileContext(
+	content, exists, err := readRegularFile(
 		ctx,
 		livePath,
 		hookdocument.MaximumBytes,
@@ -132,6 +150,7 @@ func importCodexInlineHookSkip(
 	target targetpkg.Target,
 	scope targetpkg.Scope,
 	hookDestination output.Destination,
+	readRegularFile func(context.Context, string, int64) ([]byte, bool, error),
 ) (adopt.Skipped, error) {
 	if target != targetpkg.TargetCodex {
 		return adopt.Skipped{}, nil
@@ -145,10 +164,10 @@ func importCodexInlineHookSkip(
 		return adopt.Skipped{}, err
 	}
 
-	content, exists, err := filesnapshot.ReadRegularFileContext(ctx, configPath, maximumInlineConfigBytes)
+	content, exists, err := readRegularFile(ctx, configPath, maximumInlineConfigBytes)
 	if err != nil {
-		if _, ok := hookSnapshotSkip(configDestination.String(), err); ok {
-			return adopt.Skipped{LivePath: configDestination.String(), Reason: "inline_config_unreadable"}, nil
+		if skip, ok := hookSnapshotSkip(configDestination.String(), err); ok {
+			return skip, nil
 		}
 		return adopt.Skipped{}, fmt.Errorf("read Codex inline hook config %q: %w", configDestination, err)
 	}

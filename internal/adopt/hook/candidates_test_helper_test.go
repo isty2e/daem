@@ -12,12 +12,21 @@ func collectCandidates(
 	selected target.Target,
 	scope target.Scope,
 ) ([]adopt.Hook, []adopt.Skipped, error) {
+	return collectCandidatesWithHooks(ctx, selected, scope, candidateHooks{})
+}
+
+func collectCandidatesWithHooks(
+	ctx context.Context,
+	selected target.Target,
+	scope target.Scope,
+	hooks candidateHooks,
+) ([]adopt.Hook, []adopt.Skipped, error) {
 	collector := adopt.NewSkippedCollector()
-	var hooks []adopt.Hook
+	var imported []adopt.Hook
 	err := collector.Collect(func(skipped adopt.SkipEmitter) error {
 		var err error
-		hooks, err = Candidates(ctx, selected, scope, skipped.WithRoute(selected, scope))
+		imported, err = candidatesWithHooks(ctx, selected, scope, skipped.WithRoute(selected, scope), hooks)
 		return err
 	})
-	return hooks, collector.Skipped(), err
+	return imported, collector.Skipped(), err
 }

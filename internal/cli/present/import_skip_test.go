@@ -126,6 +126,52 @@ func TestImportSkipPresentationShowsConflictRoutesAndStableDetail(t *testing.T) 
 	}
 }
 
+func TestInlineHookSnapshotReasonsKeepSpecificActionsAcrossProjections(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		reason     adoptmodel.SkipReason
+		actionHint string
+		next       string
+	}{
+		{reason: "hook_final_symlink", actionHint: "replace_unsupported_entry", next: "replace the live entry with a supported file or directory"},
+		{reason: "not_regular_file", actionHint: "replace_unsupported_entry", next: "replace the live entry with a supported file or directory"},
+		{reason: "hook_file_too_large", actionHint: "reduce_source", next: "reduce the live source to the supported limits"},
+		{reason: "hook_file_changed_during_read", actionHint: "retry_when_stable", next: "retry after the live source stops changing"},
+	}
+	for _, test := range tests {
+		t.Run(string(test.reason), func(t *testing.T) {
+			t.Parallel()
+			skipped := adoptmodel.Skipped{
+				Target:   target.TargetCodex,
+				Scope:    target.ScopeProject,
+				LivePath: ".codex/config.toml",
+				Reason:   test.reason,
+			}
+
+			var output bytes.Buffer
+			PrintImportSkippedReport(&output, []adoptmodel.Skipped{skipped}, HumanOptions{}, false)
+			if !strings.Contains(output.String(), "reason="+string(test.reason)) ||
+				!strings.Contains(output.String(), test.next) {
+				t.Fatalf("default output = %q, want specific reason/action", output.String())
+			}
+
+			output.Reset()
+			PrintImportSkippedReport(&output, []adoptmodel.Skipped{skipped}, HumanOptions{Verbose: true}, false)
+			if !strings.Contains(output.String(), "reason="+string(test.reason)) ||
+				!strings.Contains(output.String(), "action_hint="+test.actionHint) {
+				t.Fatalf("verbose output = %q, want specific reason/action code", output.String())
+			}
+
+			rows := importPlanJSONSkipped([]adoptmodel.Skipped{skipped})
+			if len(rows) != 1 || rows[0].Reason != string(test.reason) ||
+				rows[0].Category != "action_required" || rows[0].ActionHint != test.actionHint {
+				t.Fatalf("JSON rows = %#v, want specific reason/category/action", rows)
+			}
+		})
+	}
+}
+
 func TestImportFailureSkipReportHonorsVerboseModeAndMarksOverflow(t *testing.T) {
 	t.Parallel()
 
