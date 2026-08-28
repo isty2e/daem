@@ -15,30 +15,33 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func inspectNative(root string) (result artifact.ArtifactKind, resultErr error) {
-	handle, err := openNativeRoot(root, "")
+func inspectNative(root string) (
+	result artifact.ArtifactKind,
+	authority nativePathWitness,
+	resultErr error,
+) {
+	handle, err := openNativeRoot(context.Background(), root, "", nativePathWitness{})
 	if err != nil {
-		return "", err
+		return "", nativePathWitness{}, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, handle.close()) }()
 	switch handle.entry.kind {
 	case nativeKindFile:
-		return artifact.ArtifactKindFile, nil
+		return artifact.ArtifactKindFile, handle.authority, nil
 	case nativeKindDirectory:
-		return artifact.ArtifactKindDirectory, nil
+		return artifact.ArtifactKindDirectory, handle.authority, nil
 	default:
-		return "", fmt.Errorf("artifact access root has unsupported kind")
+		return "", nativePathWitness{}, fmt.Errorf("artifact access root has unsupported kind")
 	}
 }
 
 func readDirectoryNative(
 	ctx context.Context,
-	root string,
-	expectedKind artifact.ArtifactKind,
+	view View,
 	relativePath string,
 ) ([]Entry, error) {
 	entries := make([]Entry, 0)
-	if err := visitDirectoryNative(ctx, root, expectedKind, relativePath, func(entry Entry) error {
+	if err := visitDirectoryNative(ctx, view, relativePath, func(entry Entry) error {
 		entries = append(entries, entry)
 		return nil
 	}); err != nil {
@@ -47,17 +50,19 @@ func readDirectoryNative(
 	sort.Slice(entries, func(left int, right int) bool {
 		return entries[left].name < entries[right].name
 	})
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return entries, nil
 }
 
 func visitDirectoryNative(
 	ctx context.Context,
-	root string,
-	expectedKind artifact.ArtifactKind,
+	view View,
 	relativePath string,
 	visit func(Entry) error,
 ) error {
-	_, err := visitOpenedNativeDirectory(ctx, root, expectedKind, relativePath, func(entry nativeEntry) error {
+	_, err := visitOpenedNativeDirectory(ctx, view, relativePath, func(entry nativeEntry) error {
 		return visitNativeDirectoryNames(entry.fd, func(name string) error {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -78,12 +83,11 @@ func visitDirectoryNative(
 
 func visitDirectoryNamesNative(
 	ctx context.Context,
-	root string,
-	expectedKind artifact.ArtifactKind,
+	view View,
 	relativePath string,
 	visit func(string) error,
 ) (DirectoryListingWitness, error) {
-	return visitOpenedNativeDirectory(ctx, root, expectedKind, relativePath, func(entry nativeEntry) error {
+	return visitOpenedNativeDirectory(ctx, view, relativePath, func(entry nativeEntry) error {
 		return visitNativeDirectoryNames(entry.fd, func(name string) error {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -95,12 +99,11 @@ func visitDirectoryNamesNative(
 
 func verifyDirectoryListingNative(
 	ctx context.Context,
-	root string,
-	expectedKind artifact.ArtifactKind,
+	view View,
 	relativePath string,
 	expected DirectoryListingWitness,
 ) error {
-	current, err := visitOpenedNativeDirectory(ctx, root, expectedKind, relativePath, func(nativeEntry) error {
+	current, err := visitOpenedNativeDirectory(ctx, view, relativePath, func(nativeEntry) error {
 		return nil
 	})
 	if err != nil {
@@ -109,23 +112,22 @@ func verifyDirectoryListingNative(
 	if !current.identity.equal(expected.identity) {
 		return fmt.Errorf("artifact access directory listing %q changed after observation", relativePath)
 	}
-	return nil
+	return ctx.Err()
 }
 
 func visitOpenedNativeDirectory(
 	ctx context.Context,
-	root string,
-	expectedKind artifact.ArtifactKind,
+	view View,
 	relativePath string,
 	visit func(nativeEntry) error,
 ) (result DirectoryListingWitness, resultErr error) {
-	handle, err := openNativeRoot(root, expectedKind)
+	handle, err := openNativeRoot(ctx, view.root, view.kind, view.rootAuthority)
 	if err != nil {
 		return DirectoryListingWitness{}, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, handle.close()) }()
 
-	target, err := handle.openRelative(relativePath)
+	target, err := handle.openRelative(ctx, relativePath)
 	if err != nil {
 		return DirectoryListingWitness{}, err
 	}
@@ -149,11 +151,11 @@ func visitOpenedNativeDirectory(
 		return DirectoryListingWitness{}, err
 	}
 	if target != nil {
-		if err := target.verify(); err != nil {
+		if err := target.verify(ctx); err != nil {
 			return DirectoryListingWitness{}, err
 		}
 	}
-	if err := handle.verify(); err != nil {
+	if err := handle.verify(ctx); err != nil {
 		return DirectoryListingWitness{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -164,18 +166,17 @@ func visitOpenedNativeDirectory(
 
 func readFileNative(
 	ctx context.Context,
-	root string,
-	expectedKind artifact.ArtifactKind,
+	view View,
 	relativePath string,
 	maxBytes int64,
 ) (result []byte, resultMode fs.FileMode, resultErr error) {
-	handle, err := openNativeRoot(root, expectedKind)
+	handle, err := openNativeRoot(ctx, view.root, view.kind, view.rootAuthority)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, handle.close()) }()
 
-	target, err := handle.openRelative(relativePath)
+	target, err := handle.openRelative(ctx, relativePath)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -208,11 +209,14 @@ func readFileNative(
 		return nil, 0, fmt.Errorf("artifact access file %q changed size while reading", relativePath)
 	}
 	if target != nil {
-		if err := target.verify(); err != nil {
+		if err := target.verify(ctx); err != nil {
 			return nil, 0, err
 		}
 	}
-	if err := handle.verify(); err != nil {
+	if err := handle.verify(ctx); err != nil {
+		return nil, 0, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, 0, err
 	}
 	return content, entry.mode, nil

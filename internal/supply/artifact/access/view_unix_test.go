@@ -175,6 +175,138 @@ func TestOpenNoFollowViewRejectsParentSymlink(t *testing.T) {
 	}
 }
 
+func TestViewsRejectNonImmediateRootAncestorReplacementAfterCapture(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		open func(string) (View, error)
+	}{
+		{name: "canonical", open: OpenView},
+		{name: "no-follow", open: OpenNoFollowView},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			base := resolvedAccessTestRoot(t)
+			selectedAncestor := filepath.Join(base, "selected")
+			root := filepath.Join(selectedAncestor, "nested", "artifact")
+			writeAccessTestFile(t, root, []byte("original\n"))
+			view, err := test.open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			movedAncestor := filepath.Join(base, "moved")
+			if err := os.Rename(selectedAncestor, movedAncestor); err != nil {
+				t.Fatalf("move selected ancestor: %v", err)
+			}
+			writeAccessTestFile(t, root, []byte("replacement\n"))
+
+			if _, err := view.Hash(t.Context()); err == nil || !strings.Contains(err.Error(), "root authority changed") {
+				t.Fatalf("Hash after ancestor replacement error = %v, want root-authority rejection", err)
+			}
+		})
+	}
+}
+
+func TestCopyVerifiedRejectsNonImmediateRootAncestorReplacementDuringOperation(t *testing.T) {
+	base := resolvedAccessTestRoot(t)
+	selectedAncestor := filepath.Join(base, "selected")
+	root := filepath.Join(selectedAncestor, "nested", "artifact")
+	writeAccessTestFile(t, root, []byte("original\n"))
+	identity := accessTestIdentity(t, root)
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writer := &accessTestWriter{}
+	sink := accessTestSink{openFile: func(string, fs.FileMode, int64) (io.WriteCloser, error) {
+		movedAncestor := filepath.Join(base, "moved")
+		if err := os.Rename(selectedAncestor, movedAncestor); err != nil {
+			return nil, fmt.Errorf("move selected ancestor: %w", err)
+		}
+		writeAccessTestFile(t, root, []byte("replacement\n"))
+		return writer, nil
+	}}
+
+	err = view.CopyVerified(t.Context(), identity, sink)
+	if err == nil || !strings.Contains(err.Error(), "root authority changed") {
+		t.Fatalf("CopyVerified after ancestor replacement error = %v, want root-authority rejection", err)
+	}
+	if !writer.closed {
+		t.Fatal("CopyVerified did not close the unpublished sink after authority failure")
+	}
+}
+
+func TestVisitDirectoryNamesRejectsNonImmediateRelativeAncestorReplacement(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	selectedAncestor := filepath.Join(root, "one", "two")
+	target := filepath.Join(selectedAncestor, "three")
+	writeAccessTestFile(t, filepath.Join(target, "entry"), nil)
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	visited := 0
+	_, err = view.VisitDirectoryNames(t.Context(), "one/two/three", func(string) error {
+		visited++
+		movedAncestor := filepath.Join(root, "one", "moved")
+		if err := os.Rename(selectedAncestor, movedAncestor); err != nil {
+			return fmt.Errorf("move relative ancestor: %w", err)
+		}
+		writeAccessTestFile(t, filepath.Join(target, "replacement"), nil)
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "relative authority changed") {
+		t.Fatalf("VisitDirectoryNames after relative ancestor replacement error = %v, want relative-authority rejection", err)
+	}
+	if visited != 1 {
+		t.Fatalf("visited names = %d, want one provisional callback", visited)
+	}
+}
+
+func TestViewAllowsUnrelatedAncestorDirectoryMetadataChange(t *testing.T) {
+	base := resolvedAccessTestRoot(t)
+	selectedAncestor := filepath.Join(base, "selected")
+	root := filepath.Join(selectedAncestor, "nested", "artifact")
+	writeAccessTestFile(t, root, []byte("content\n"))
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAccessTestFile(t, filepath.Join(selectedAncestor, "unrelated"), nil)
+
+	if _, err := view.Hash(t.Context()); err != nil {
+		t.Fatalf("Hash rejected stable ancestor binding after unrelated metadata change: %v", err)
+	}
+	recaptured, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view != recaptured {
+		t.Fatal("mutable ancestor metadata changed View authority equality")
+	}
+}
+
+func TestViewAuthorityEqualityIgnoresInPlaceRootContentChange(t *testing.T) {
+	root := filepath.Join(resolvedAccessTestRoot(t), "artifact")
+	writeAccessTestFile(t, root, []byte("before\n"))
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAccessTestFile(t, root, []byte("after\n"))
+	recaptured, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view != recaptured {
+		t.Fatal("in-place content change altered stable root authority equality")
+	}
+	if _, err := view.Hash(t.Context()); err != nil {
+		t.Fatalf("Hash rejected stable root object after in-place content change: %v", err)
+	}
+}
+
 func TestVisitDirectoryNamesStopsAtVisitorError(t *testing.T) {
 	root := resolvedAccessTestRoot(t)
 	for index := range 300 {
@@ -618,10 +750,14 @@ func TestHashDirectoryRequiringRootFileHonorsCancellationDuringRootLookup(t *tes
 		structureLimit:          &limit,
 		requiredRootRegularFile: "SKILL.md",
 	}
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := walkNative(ctx, root, artifact.ArtifactKindDirectory, nil, &budget)
+	_, err = walkNative(ctx, view, nil, &budget)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("walkNative error = %v, want context.Canceled during root lookup", err)
 	}

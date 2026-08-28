@@ -15,10 +15,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func readNativeDirectoryNames(directoryFD int) ([]string, error) {
-	return readNativeDirectoryNamesUpTo(context.Background(), directoryFD, -1)
-}
-
 func visitNativeDirectoryNames(directoryFD int, visit func(string) error) error {
 	readFD, err := unix.Openat(directoryFD, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
@@ -152,13 +148,38 @@ func readNativeDirectoryNamesUpTo(
 	return names, nil
 }
 
-func nativeDirectoryContainsExactName(directoryFD int, name string) (bool, error) {
-	names, err := readNativeDirectoryNames(directoryFD)
+var errNativeExactNameFound = errors.New("exact native directory name found")
+
+func nativeDirectoryContainsExactName(
+	ctx context.Context,
+	directoryFD int,
+	name string,
+) (bool, error) {
+	if ctx == nil {
+		return false, fmt.Errorf("artifact access context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	err := visitNativeDirectoryNames(directoryFD, func(candidate string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if candidate == name {
+			return errNativeExactNameFound
+		}
+		return nil
+	})
+	if errors.Is(err, errNativeExactNameFound) {
+		return true, nil
+	}
 	if err != nil {
 		return false, err
 	}
-	index := sort.SearchStrings(names, name)
-	return index < len(names) && names[index] == name, nil
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func verifyNativeDirectoryNames(ctx context.Context, directoryFD int, expected []string) error {

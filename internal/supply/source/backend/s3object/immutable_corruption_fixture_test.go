@@ -61,8 +61,15 @@ func assertImmutableFallbackRepairs(t *testing.T, fixture immutableCorruptionFix
 	t.Helper()
 	second := mustResolveS3(t, fixture.resolver, fixture.sourceSpec)
 	third := mustResolveS3(t, fixture.resolver, fixture.sourceSpec)
-	if second != fixture.first || third != fixture.first {
-		t.Fatalf("repaired artifacts differ: first=%#v second=%#v third=%#v", fixture.first, second, third)
+	firstPath := s3ResolutionContentPath(fixture.resolver, fixture.first)
+	secondPath := s3ResolutionContentPath(fixture.resolver, second)
+	if !second.Identity().Equal(fixture.first.Identity()) || secondPath != firstPath || third != second {
+		t.Fatalf(
+			"repaired artifact semantics differ or the new authority did not stabilize: first=%#v second=%#v third=%#v",
+			fixture.first,
+			second,
+			third,
+		)
 	}
 	if calls := fixture.client.callCount(); calls != 2 {
 		t.Fatalf("GetObject calls = %d, want initial fetch plus one repair", calls)

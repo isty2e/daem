@@ -14,6 +14,69 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func TestViewRemainsComparableWithImmutableRootAuthority(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	views := map[View]struct{}{view: {}}
+	if _, exists := views[view]; !exists {
+		t.Fatal("comparable View key was not retained")
+	}
+	separatelyCaptured, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view != separatelyCaptured {
+		t.Fatal("separately captured views of one stable root must remain equal")
+	}
+}
+
+func TestNativePathWitnessDistinguishesObjectIncarnationAndMount(t *testing.T) {
+	base := nativePathComponentIdentity{
+		device:          1,
+		inode:           2,
+		kind:            unix.S_IFDIR,
+		generation:      3,
+		birthTimeSecond: 4,
+		birthTimeNano:   5,
+		mount:           nativeMountIdentity{first: 6, second: 7},
+	}
+	for _, mutation := range []func(*nativePathComponentIdentity){
+		func(identity *nativePathComponentIdentity) { identity.device++ },
+		func(identity *nativePathComponentIdentity) { identity.inode++ },
+		func(identity *nativePathComponentIdentity) { identity.kind = unix.S_IFREG },
+		func(identity *nativePathComponentIdentity) { identity.generation++ },
+		func(identity *nativePathComponentIdentity) { identity.birthTimeSecond++ },
+		func(identity *nativePathComponentIdentity) { identity.birthTimeNano++ },
+		func(identity *nativePathComponentIdentity) { identity.mount.first++ },
+		func(identity *nativePathComponentIdentity) { identity.mount.second++ },
+	} {
+		changed := base
+		mutation(&changed)
+		if changed == base {
+			t.Fatal("path witness identity mutation was not observable")
+		}
+	}
+}
+
+func TestBoundedNativePathComponentsAcceptsLimitAndRejectsOverflow(t *testing.T) {
+	atLimit := strings.Repeat("a/", maximumNativePathComponents-1) + "a"
+	components, err := boundedNativePathComponents(atLimit)
+	if err != nil {
+		t.Fatalf("exact component limit: %v", err)
+	}
+	if len(components) != maximumNativePathComponents {
+		t.Fatalf("component count = %d, want %d", len(components), maximumNativePathComponents)
+	}
+	overflow := atLimit + "/a"
+	if _, err := boundedNativePathComponents(overflow); err == nil ||
+		!strings.Contains(err.Error(), "exceeds 4096 components") {
+		t.Fatalf("overflow error = %v, want bounded component rejection", err)
+	}
+}
+
 func TestNativeIdentitySameBindingIgnoresMutableDirectoryMetadata(t *testing.T) {
 	base := nativeIdentity{
 		device:           1,
@@ -62,7 +125,7 @@ func TestVerifyNativeDirectoryNamesDetectsExactNameChange(t *testing.T) {
 		}
 	}()
 
-	names, err := readNativeDirectoryNames(directoryFD)
+	names, err := readNativeDirectoryNamesUpTo(t.Context(), directoryFD, -1)
 	if err != nil {
 		t.Fatalf("read initial names: %v", err)
 	}

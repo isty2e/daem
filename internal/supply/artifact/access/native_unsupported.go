@@ -11,14 +11,17 @@ import (
 
 type directoryListingIdentity struct{}
 
-func inspectNative(_ string) (artifact.ArtifactKind, error) {
-	return "", unavailableTraversal()
+type nativePathWitness struct{}
+
+func (nativePathWitness) valid() bool { return false }
+
+func inspectNative(_ string) (artifact.ArtifactKind, nativePathWitness, error) {
+	return "", nativePathWitness{}, unavailableTraversal()
 }
 
 func readDirectoryNative(
 	_ context.Context,
-	_ string,
-	_ artifact.ArtifactKind,
+	_ View,
 	_ string,
 ) ([]Entry, error) {
 	return nil, unavailableTraversal()
@@ -26,8 +29,7 @@ func readDirectoryNative(
 
 func visitDirectoryNative(
 	_ context.Context,
-	_ string,
-	_ artifact.ArtifactKind,
+	_ View,
 	_ string,
 	_ func(Entry) error,
 ) error {
@@ -36,8 +38,7 @@ func visitDirectoryNative(
 
 func visitDirectoryNamesNative(
 	_ context.Context,
-	_ string,
-	_ artifact.ArtifactKind,
+	_ View,
 	_ string,
 	_ func(string) error,
 ) (DirectoryListingWitness, error) {
@@ -46,8 +47,7 @@ func visitDirectoryNamesNative(
 
 func verifyDirectoryListingNative(
 	_ context.Context,
-	_ string,
-	_ artifact.ArtifactKind,
+	_ View,
 	_ string,
 	_ DirectoryListingWitness,
 ) error {
@@ -56,8 +56,7 @@ func verifyDirectoryListingNative(
 
 func readFileNative(
 	_ context.Context,
-	_ string,
-	_ artifact.ArtifactKind,
+	_ View,
 	_ string,
 	_ int64,
 ) ([]byte, fs.FileMode, error) {
@@ -66,8 +65,7 @@ func readFileNative(
 
 func walkNative(
 	_ context.Context,
-	_ string,
-	_ artifact.ArtifactKind,
+	_ View,
 	_ TreeSink,
 	_ *traversalBudget,
 ) (artifact.ContentHash, error) {
