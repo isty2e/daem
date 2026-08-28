@@ -74,7 +74,7 @@ func TestArtifactTreeWalkerDoesNotRescanParentDirectoryPerChild(t *testing.T) {
 				return true
 			}
 			switch identifier.Name {
-			case "verifyNativeEntry", "observeNativeExactNameBinding":
+			case "verifyNativeEntry", "verifyNativeExactNameEntry":
 				t.Fatalf("verified tree walker calls %s inside the child loop", identifier.Name)
 			}
 			return true

@@ -181,15 +181,17 @@ func readNativeDirectoryNamesUpTo(
 	return names, nil
 }
 
-func observeNativeExactNameBinding(
+func verifyNativeExactNameEntry(
 	ctx context.Context,
 	directoryFD int,
 	name string,
-) (nativeExactNameBinding, bool, error) {
-	return observeNativeExactNameBindingWithIO(
+	entry nativeEntry,
+) (bool, error) {
+	return verifyNativeExactNameEntryWithIO(
 		ctx,
 		directoryFD,
 		name,
+		entry,
 		func(file *os.File, maximum int) ([]string, error) {
 			return file.Readdirnames(maximum)
 		},
@@ -199,25 +201,25 @@ func observeNativeExactNameBinding(
 	)
 }
 
-func observeNativeExactNameBindingWithIO(
+func verifyNativeExactNameEntryWithIO(
 	ctx context.Context,
 	directoryFD int,
 	name string,
+	entry nativeEntry,
 	readNames func(*os.File, int) ([]string, error),
 	closeFile func(*os.File) error,
-) (nativeExactNameBinding, bool, error) {
+) (bool, error) {
 	if ctx == nil {
-		return nativeExactNameBinding{}, false, fmt.Errorf("artifact access context is required")
+		return false, fmt.Errorf("artifact access context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return nativeExactNameBinding{}, false, err
+		return false, err
 	}
 	parentBefore, err := openedNativeEntry(directoryFD)
 	if err != nil {
-		return nativeExactNameBinding{}, false, err
+		return false, err
 	}
 
-	var binding nativeExactNameBinding
 	found := false
 	err = visitNativeDirectoryNamesWithIO(directoryFD, func(candidate string) (bool, error) {
 		if err := ctx.Err(); err != nil {
@@ -226,28 +228,26 @@ func observeNativeExactNameBindingWithIO(
 		if candidate != name {
 			return false, nil
 		}
-		observed, _, err := observeNativeEntry(directoryFD, candidate)
-		if err != nil {
+		if err := verifyNativeEntryBinding(directoryFD, candidate, entry); err != nil {
 			return false, err
 		}
-		binding = nativeExactNameBinding{identity: observed.identity}
 		found = true
 		return true, nil
 	}, readNames, closeFile)
 	if err != nil {
-		return binding, found, err
+		return found, err
 	}
 	parentAfter, err := openedNativeEntry(directoryFD)
 	if err != nil {
-		return binding, found, err
+		return found, err
 	}
 	if !parentBefore.identity.equal(parentAfter.identity) {
-		return binding, found, fmt.Errorf("artifact access directory changed during exact-name observation")
+		return found, fmt.Errorf("artifact access directory changed during exact-name observation")
 	}
 	if err := ctx.Err(); err != nil {
-		return nativeExactNameBinding{}, false, err
+		return false, err
 	}
-	return binding, found, nil
+	return found, nil
 }
 
 func verifyNativeDirectoryNames(ctx context.Context, directoryFD int, expected []string) error {

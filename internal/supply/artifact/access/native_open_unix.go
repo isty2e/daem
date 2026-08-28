@@ -209,7 +209,7 @@ func openNativeRelative(
 		rootFD,
 		relativePath,
 		expectedAuthority,
-		observeNativeExactNameBinding,
+		verifyNativeExactNameEntry,
 	)
 }
 
@@ -218,7 +218,7 @@ func openNativeRelativeWithExactNameCheck(
 	rootFD int,
 	relativePath string,
 	expectedAuthority nativePathWitness,
-	observeExactName func(context.Context, int, string) (nativeExactNameBinding, bool, error),
+	verifyExactName func(context.Context, int, string, nativeEntry) (bool, error),
 ) (*relativeNativeEntry, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("artifact access context is required")
@@ -246,7 +246,7 @@ func openNativeRelativeWithExactNameCheck(
 			parentFD,
 			component,
 			entry,
-			observeExactName,
+			verifyExactName,
 		); err != nil {
 			return nil, errors.Join(
 				err,
@@ -443,7 +443,7 @@ func verifyNativeEntry(
 		parentFD,
 		name,
 		entry,
-		observeNativeExactNameBinding,
+		verifyNativeExactNameEntry,
 	)
 }
 
@@ -452,17 +452,14 @@ func verifyNativeEntryWithExactNameCheck(
 	parentFD int,
 	name string,
 	entry nativeEntry,
-	observeExactName func(context.Context, int, string) (nativeExactNameBinding, bool, error),
+	verifyExactName func(context.Context, int, string, nativeEntry) (bool, error),
 ) error {
-	before, exact, err := observeExactName(ctx, parentFD, name)
+	exact, err := verifyExactName(ctx, parentFD, name, entry)
 	if err != nil {
 		return err
 	}
 	if !exact {
 		return fmt.Errorf("artifact access entry %q changed exact casing while open", name)
-	}
-	if !before.matches(entry) {
-		return fmt.Errorf("artifact access entry %q exact-name binding changed while open", name)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -473,15 +470,12 @@ func verifyNativeEntryWithExactNameCheck(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	after, exact, err := observeExactName(ctx, parentFD, name)
+	exact, err = verifyExactName(ctx, parentFD, name, entry)
 	if err != nil {
 		return err
 	}
 	if !exact {
 		return fmt.Errorf("artifact access entry %q changed exact casing while open", name)
-	}
-	if !before.sameBinding(after) || !after.matches(entry) {
-		return fmt.Errorf("artifact access entry %q exact-name binding changed while open", name)
 	}
 	return ctx.Err()
 }

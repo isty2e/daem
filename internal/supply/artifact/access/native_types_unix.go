@@ -31,18 +31,6 @@ type nativeIdentity struct {
 	size             int64
 }
 
-type nativeExactNameBinding struct {
-	identity nativeIdentity
-}
-
-func (binding nativeExactNameBinding) sameBinding(other nativeExactNameBinding) bool {
-	return binding.identity.sameBinding(other.identity)
-}
-
-func (binding nativeExactNameBinding) matches(entry nativeEntry) bool {
-	return binding.identity.sameBinding(entry.identity)
-}
-
 type nativeMountIdentity struct {
 	first  uint64
 	second uint64
