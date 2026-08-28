@@ -377,11 +377,17 @@ identifies expected discovery or deduplication noise. Every actionable skip in
 an admitted completed result remains visible with a next action. One import
 planning pass retains at most 4,096 skip rows and 256 KiB of aggregate dynamic
 skip diagnostics; one `detail` value is at most 4,096 bytes and a larger value
-is replaced by a whole-value digest and byte count. Exceeding either aggregate
-limit aborts before a plan or write, emits the already-retained rows once plus
-an explicit diagnostic-budget marker on stderr, and emits no JSON result
-envelope. Unsupported and informational skips are compacted by target and
-reason; `--verbose` retains every admitted exact per-path skip in successful and
+is replaced by a whole-value digest and byte count. Every input-scaled producer
+admits a skip synchronously at this boundary before retaining another
+producer-local row. The Hook parser's all-or-one document buffer is separately
+fixed at the same row and diagnostic limits. An ordinary producer failure or
+cancellation rolls back that producer's rows; only aggregate exhaustion retains
+the bounded prefix for diagnostics.
+Exceeding either aggregate limit aborts before a plan or write, emits the
+already-retained rows once plus an explicit diagnostic-budget marker on
+stderr, and emits no JSON result envelope. Unsupported and informational skips
+are compacted by target and reason; `--verbose` retains every admitted exact
+per-path skip in successful and
 no-resource failure output, in addition to individual clean scan, resource, and
 merge rows on successful plans. Write-mode merge conflicts use the same skip
 report before the dry-run conflict hint. JSON retains every admitted typed row with

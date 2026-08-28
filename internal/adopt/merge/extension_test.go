@@ -51,7 +51,7 @@ scope = "project"
 		Targets:      []target.Target{target.TargetPi},
 		Scopes:       []target.Scope{target.ScopeProject},
 		Existing:     []desiredextension.Extension{existing},
-	})
+	}, func(adoptextension.Skip) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestCollectRejectsNativeOrderContradictingExistingManifestOrder(t *testing.
 		Targets:      []target.Target{target.TargetPi},
 		Scopes:       []target.Scope{target.ScopeProject},
 		Existing:     []desiredextension.Extension{second, first},
-	})
+	}, func(adoptextension.Skip) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "contradicts") {
 		t.Fatalf("Collect error = %v, want existing/native order contradiction", err)
 	}

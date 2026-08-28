@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,7 +26,7 @@ func TestCollectImportsClaudeProjectAndGlobalExactSelectors(t *testing.T) {
   }
 }`)
 
-	result, err := Collect(Input{
+	result, err := collectForTest(Input{
 		ManifestRoot: root,
 		Targets:      []target.Target{target.TargetClaudeCode},
 		Scopes:       []target.Scope{target.ScopeProject, target.ScopeGlobal},
@@ -66,7 +67,7 @@ enabled = true
 enabled = false
 `)
 
-	result, err := Collect(Input{
+	result, err := collectForTest(Input{
 		ManifestRoot: root,
 		Targets:      []target.Target{target.TargetCodex},
 		Scopes:       []target.Scope{target.ScopeGlobal},
@@ -93,7 +94,7 @@ func TestCollectPreservesOpenCodePhysicalSequencesAndExactSources(t *testing.T) 
   "plugin": ["other@beta"],
 }`)
 
-	result, err := Collect(Input{
+	result, err := collectForTest(Input{
 		ManifestRoot: root,
 		Targets:      []target.Target{target.TargetOpenCode},
 		Scopes:       []target.Scope{target.ScopeProject},
@@ -143,7 +144,7 @@ func TestCollectRejectsOpenCodeSourcesThatCollapseToOneLoadIdentity(t *testing.T
 		`{"plugin":["@acme/tool@1.2.3","@acme/tool@2.0.0"]}`,
 	)
 
-	_, err := Collect(Input{
+	_, err := collectForTest(Input{
 		ManifestRoot: root,
 		Targets:      []target.Target{target.TargetOpenCode},
 		Scopes:       []target.Scope{target.ScopeProject},
@@ -163,7 +164,7 @@ func TestCollectPreservesPiSourceClassesAndOrder(t *testing.T) {
   "packages": ["npm:@acme/tool@1.2.3", "github:owner/repo", "./local-package"]
 }`)
 
-	result, err := Collect(Input{
+	result, err := collectForTest(Input{
 		ManifestRoot: root,
 		Targets:      []target.Target{target.TargetPi},
 		Scopes:       []target.Scope{target.ScopeProject},
@@ -197,7 +198,7 @@ func TestCollectRejectsOverlongPiSourceAtRawAdmission(t *testing.T) {
 		`{"packages":["`+overlong+`"]}`,
 	)
 
-	_, err := Collect(Input{
+	_, err := collectForTest(Input{
 		ManifestRoot: root,
 		Targets:      []target.Target{target.TargetPi},
 		Scopes:       []target.Scope{target.ScopeProject},
@@ -241,7 +242,7 @@ func TestCollectRejectsPiAliasesThatCollapseToOneLoadIdentity(t *testing.T) {
 				`{"packages":[`+test.packages+`]}`,
 			)
 
-			_, err := Collect(Input{
+			_, err := collectForTest(Input{
 				ManifestRoot: root,
 				Targets:      []target.Target{target.TargetPi},
 				Scopes:       []target.Scope{target.ScopeProject},
@@ -269,10 +270,15 @@ func TestCollectReportsAntigravitySourceProvenanceSkip(t *testing.T) {
 		`{"name":"guidance"}`,
 	)
 
-	result, err := Collect(Input{
+	emitted := make([]Skip, 0, 1)
+	input := Input{
 		ManifestRoot: root,
 		Targets:      []target.Target{target.TargetAntigravityCLI},
 		Scopes:       []target.Scope{target.ScopeGlobal},
+	}
+	result, err := Collect(input, func(skip Skip) error {
+		emitted = append(emitted, skip)
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -286,6 +292,14 @@ func TestCollectReportsAntigravitySourceProvenanceSkip(t *testing.T) {
 		skipped[0].Target != target.TargetAntigravityCLI ||
 		skipped[0].Scope != target.ScopeGlobal {
 		t.Fatalf("skipped = %#v", skipped)
+	}
+	if !slices.Equal(emitted, skipped) {
+		t.Fatalf("emitted = %#v, result skipped = %#v", emitted, skipped)
+	}
+
+	cause := errors.New("skip admission failed")
+	if _, err := Collect(input, func(Skip) error { return cause }); !errors.Is(err, cause) {
+		t.Fatalf("Collect emitter error = %v, want %v", err, cause)
 	}
 }
 

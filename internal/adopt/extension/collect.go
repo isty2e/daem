@@ -16,14 +16,19 @@ const (
 	reasonSourceProvenanceUnrecoverable = "source_provenance_unrecoverable"
 )
 
-// Collect reads each selected host inventory once and returns one deterministic
-// exact-extension authoring proposal.
-func Collect(input Input) (Result, error) {
+// Collect reads each selected host inventory once, emits every skipped row at
+// its first amplifying boundary, and returns one deterministic exact-extension
+// authoring proposal.
+func Collect(input Input, emitSkip func(Skip) error) (Result, error) {
 	if err := validateInput(input); err != nil {
 		return Result{}, err
 	}
+	if emitSkip == nil {
+		return Result{}, fmt.Errorf("extension import skip emitter is required")
+	}
 	collector := importCollector{
 		input:                  input,
+		emitSkip:               emitSkip,
 		candidates:             make(map[desiredextension.CarrierKey]candidateFact),
 		openCodeSourcePaths:    make(map[target.Scope]string),
 		existingLoadIdentities: make(map[desiredextension.CarrierKey]hostrelation.HostLoadIdentity),
@@ -61,12 +66,24 @@ func Collect(input Input) (Result, error) {
 
 type importCollector struct {
 	input                  Input
+	emitSkip               func(Skip) error
 	candidates             map[desiredextension.CarrierKey]candidateFact
 	sequences              []sequenceFact
 	scans                  []Scan
 	skipped                []Skip
 	openCodeSourcePaths    map[target.Scope]string
 	existingLoadIdentities map[desiredextension.CarrierKey]hostrelation.HostLoadIdentity
+}
+
+func (collector *importCollector) addSkip(skip Skip) error {
+	if collector == nil || collector.emitSkip == nil {
+		return fmt.Errorf("extension import skip emitter is required")
+	}
+	if err := collector.emitSkip(skip); err != nil {
+		return err
+	}
+	collector.skipped = append(collector.skipped, skip)
+	return nil
 }
 
 func (collector *importCollector) collectSelected() error {

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,14 +28,14 @@ func TestAdmitMCPArgumentCandidatesClassifiesEveryInvalidArgumentForm(t *testing
 		"bidirectional control": "safe\u202etext",
 	} {
 		t.Run(name, func(t *testing.T) {
-			servers, skipped, err := admitMCPArgumentCandidates(t.Context(), []adopt.MCPServer{{
+			servers, skipped, err := collectAdmittedArguments(t.Context(), []adopt.MCPServer{{
 				ResourceName: "invalid",
 				Target:       target.TargetClaudeCode,
 				Scope:        target.ScopeProject,
 				SourceRoute:  route,
 				Command:      "node",
 				Args:         []string{argument},
-			}}, nil, nil)
+			}}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -44,6 +45,42 @@ func TestAdmitMCPArgumentCandidatesClassifiesEveryInvalidArgumentForm(t *testing
 				t.Fatalf("admission = (%#v, %#v), want one typed skip", servers, skipped)
 			}
 		})
+	}
+}
+
+func TestAdmitMCPArgumentCandidatesStopsAtOperationSkipLimit(t *testing.T) {
+	t.Parallel()
+
+	const maximumOperationSkips = 4096
+	route, err := newImportSource("config.json").route(
+		"/mcp/invalid",
+		importDocument{revision: "test-revision"},
+		1024,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := adopt.MCPServer{
+		ResourceName: "invalid",
+		Target:       target.TargetClaudeCode,
+		Scope:        target.ScopeProject,
+		SourceRoute:  route,
+		Command:      "node",
+		Args:         []string{"bad\x00argument"},
+	}
+	servers := make([]adopt.MCPServer, maximumOperationSkips+100)
+	for index := range servers {
+		servers[index] = server
+	}
+	processed := 0
+	admitted, skipped, err := collectAdmittedArguments(t.Context(), servers, func(int) {
+		processed++
+	})
+	if !errors.Is(err, adopt.ErrSkipObservationLimitExceeded) {
+		t.Fatalf("admission error = %v, want operation skip limit", err)
+	}
+	if len(admitted) != 0 || len(skipped) != maximumOperationSkips || processed != maximumOperationSkips+1 {
+		t.Fatalf("admission = admitted=%d skipped=%d processed=%d, want 0/%d/%d", len(admitted), len(skipped), processed, maximumOperationSkips, maximumOperationSkips+1)
 	}
 }
 
@@ -149,7 +186,7 @@ args = ["server.js"]
 				t.Fatal(err)
 			}
 
-			servers, authorities, skipped, err := Candidates(t.Context(), test.target, test.scope)
+			servers, authorities, skipped, err := collectCandidates(t.Context(), test.target, test.scope)
 			if err != nil {
 				t.Fatal(err)
 			}

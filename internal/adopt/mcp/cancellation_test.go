@@ -17,7 +17,7 @@ func TestCandidatesCancellationAfterSnapshotReturnsNoPartialResult(t *testing.T)
 	cause := errors.New("cancel after MCP snapshot")
 	ctx, cancel := context.WithCancelCause(t.Context())
 
-	servers, authorities, skipped, err := candidatesWithHooks(
+	servers, authorities, skipped, err := collectCandidatesWithHooks(
 		ctx,
 		target.TargetClaudeCode,
 		target.ScopeProject,
@@ -32,7 +32,7 @@ func TestCandidatesCancellationDuringArgumentAdmissionReturnsNoPartialResult(t *
 	cause := errors.New("cancel during MCP argument admission")
 	ctx, cancel := context.WithCancelCause(t.Context())
 
-	servers, authorities, skipped, err := candidatesWithHooks(
+	servers, authorities, skipped, err := collectCandidatesWithHooks(
 		ctx,
 		target.TargetClaudeCode,
 		target.ScopeProject,
@@ -47,7 +47,7 @@ func TestCandidatesCancellationBeforeSuccessReturnsNoPartialResult(t *testing.T)
 	cause := errors.New("cancel before MCP candidate success")
 	ctx, cancel := context.WithCancelCause(t.Context())
 
-	servers, authorities, skipped, err := candidatesWithHooks(
+	servers, authorities, skipped, err := collectCandidatesWithHooks(
 		ctx,
 		target.TargetClaudeCode,
 		target.ScopeProject,

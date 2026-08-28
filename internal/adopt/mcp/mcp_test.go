@@ -27,7 +27,7 @@ func TestCandidatesImportsClaudeProjectMCPAndReportsRejectedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, authorities, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, authorities, skipped, err := collectCandidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestCandidatesImportsClaudeGlobalMCPAndReportsRejectedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeGlobal)
+	servers, _, skipped, err := collectCandidates(t.Context(), target.TargetClaudeCode, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		t.Fatal(err)
 	}
 
-	servers, _, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeProject)
+	servers, _, skipped, err := collectCandidates(t.Context(), target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestCandidatesRejectsUnsupportedSurfacesExplicitly(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			servers, _, skipped, err := Candidates(t.Context(), tc.target, tc.scope)
+			servers, _, skipped, err := collectCandidates(t.Context(), tc.target, tc.scope)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -180,7 +180,7 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		t.Fatal(err)
 	}
 
-	servers, _, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeGlobal)
+	servers, _, skipped, err := collectCandidates(t.Context(), target.TargetCodex, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestCandidatesImportsOpenCodeGlobalMCPAndReportsRejectedRows(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	servers, _, skipped, err := Candidates(t.Context(), target.TargetOpenCode, target.ScopeGlobal)
+	servers, _, skipped, err := collectCandidates(t.Context(), target.TargetOpenCode, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestCandidatesSkipsOpenCodeMCPWhenAlternateConfigExists(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			servers, _, skipped, err := Candidates(t.Context(), target.TargetOpenCode, test.scope)
+			servers, _, skipped, err := collectCandidates(t.Context(), target.TargetOpenCode, test.scope)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -313,7 +313,7 @@ func TestCandidatesReportsMalformedConfigWithoutPartialImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := collectCandidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func TestCandidatesRetainsAuthorityForMalformedAndEmptyDocuments(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			servers, authorities, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+			servers, authorities, skipped, err := collectCandidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -378,7 +378,7 @@ func TestCandidatesRejectsUnpairedSurrogateWithoutPartialImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := collectCandidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +413,7 @@ func TestCandidatesSkipsOversizedMCPDocumentWithoutPartialImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := collectCandidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +428,7 @@ func TestCandidatesStopsWhenMCPImportContextIsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	servers, _, skipped, err := Candidates(ctx, target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := collectCandidates(ctx, target.TargetClaudeCode, target.ScopeProject)
 	if !errors.Is(err, context.Canceled) || servers != nil || skipped != nil {
 		t.Fatalf("Candidates = (%#v, %#v, %v), want context cancellation", servers, skipped, err)
 	}
@@ -448,7 +448,7 @@ func TestCandidatesDoesNotFlattenProviderScopedSiblingMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := collectCandidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +546,7 @@ command = "plugin-owned"
 				t.Fatal(err)
 			}
 
-			servers, _, skipped, err := Candidates(t.Context(), test.target, target.ScopeGlobal)
+			servers, _, skipped, err := collectCandidates(t.Context(), test.target, target.ScopeGlobal)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -611,7 +611,7 @@ func TestCandidatesReportsGlobalMalformedConfigWithoutPartialImport(t *testing.T
 				t.Fatal(err)
 			}
 
-			servers, _, skipped, err := Candidates(t.Context(), test.target, target.ScopeGlobal)
+			servers, _, skipped, err := collectCandidates(t.Context(), test.target, target.ScopeGlobal)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -638,7 +638,7 @@ func TestCandidatesReportsCodexStructureLimitAsMalformedWithoutPartialImport(t *
 		t.Fatal(err)
 	}
 
-	servers, _, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeGlobal)
+	servers, _, skipped, err := collectCandidates(t.Context(), target.TargetCodex, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -660,7 +660,7 @@ func TestCandidatesRejectsDuplicateServerKeysWithoutPartialImport(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := collectCandidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}

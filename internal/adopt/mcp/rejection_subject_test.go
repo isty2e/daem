@@ -59,7 +59,7 @@ command = "node"
 				t.Fatal(err)
 			}
 
-			servers, authorities, skipped, err := Candidates(t.Context(), test.target, test.scope)
+			servers, authorities, skipped, err := collectCandidates(t.Context(), test.target, test.scope)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -48,41 +48,45 @@ func Candidates(
 	sourceDirectory adopt.SourceDirectory,
 	target targetpkg.Target,
 	scope targetpkg.Scope,
-) ([]adopt.Source, []adopt.Skipped, error) {
+	skipped adopt.SkipEmitter,
+) ([]adopt.Source, error) {
 	if ctx == nil {
-		return nil, nil, fmt.Errorf("instruction import context is required")
+		return nil, fmt.Errorf("instruction import context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	locations := profile.Profile(target).DiscoveryLocations(entity.KindInstructions, scope)
 	if len(locations) == 0 {
-		return nil, []adopt.Skipped{unsupportedInstructionImportSkip(target, scope)}, nil
+		if err := skipped.Add(unsupportedInstructionImportSkip(target, scope)); err != nil {
+			return nil, err
+		}
+		return nil, nil
 	}
 
 	defaultSpecs := make([]instructionImportSpec, 0, len(locations))
 	alternatePlacementSpecs := make([]instructionImportSpec, 0)
-	skipped := make([]adopt.Skipped, 0, len(locations))
-
 	for _, location := range locations {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		livePath, err := instructionLocationPath(location.Path())
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		switch location.ImportPolicy() {
 		case profile.ImportPolicyClassify:
 			if skip, ok, err := classifyOnlyInstructionSkip(livePath); err != nil {
-				return nil, nil, err
+				return nil, err
 			} else if ok {
-				skipped = append(skipped, skip)
+				if err := skipped.Add(skip); err != nil {
+					return nil, err
+				}
 			}
 		case profile.ImportPolicyInclude:
 			spec, err := instructionImportSpecForLocation(target, scope, location, livePath)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			admission, isPlacement := profile.Profile(target).PlacementAdmissionAt(
 				entity.KindInstructions,
@@ -95,43 +99,46 @@ func Candidates(
 			}
 			defaultSpecs = append(defaultSpecs, spec)
 		default:
-			return nil, nil, fmt.Errorf("unsupported instruction import policy %q for %s", location.ImportPolicy(), livePath)
+			return nil, fmt.Errorf("unsupported instruction import policy %q for %s", location.ImportPolicy(), livePath)
 		}
 	}
 	for _, location := range profile.Profile(target).RuntimeLocations(entity.KindInstructions, scope) {
 		livePath, err := instructionLocationPath(location.Path())
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if skip, ok, err := classifyOnlyInstructionSkip(livePath); err != nil {
-			return nil, nil, err
+			return nil, err
 		} else if ok {
-			skipped = append(skipped, skip)
+			if err := skipped.Add(skip); err != nil {
+				return nil, err
+			}
 		}
 	}
 
 	sources := make([]adopt.Source, 0, 1+len(alternatePlacementSpecs))
-	source, defaultSkipped, ok, err := firstImportableInstructionSource(ctx, sourceDirectory, defaultSpecs)
+	source, ok, err := firstImportableInstructionSource(ctx, sourceDirectory, defaultSpecs, skipped)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	skipped = append(skipped, defaultSkipped...)
 	if ok {
 		sources = append(sources, source)
 	}
 	for _, spec := range alternatePlacementSpecs {
 		source, skip, err := importInstructionFileCandidate(ctx, sourceDirectory, spec)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if skip.Reason != "" {
-			skipped = append(skipped, skip)
+			if err := skipped.Add(skip); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		sources = append(sources, source)
 	}
 
-	return sources, skipped, nil
+	return sources, nil
 }
 
 func importInstructionFileCandidate(
@@ -151,23 +158,25 @@ func firstImportableInstructionSource(
 	ctx context.Context,
 	sourceDirectory adopt.SourceDirectory,
 	specs []instructionImportSpec,
-) (adopt.Source, []adopt.Skipped, bool, error) {
-	skipped := make([]adopt.Skipped, 0, len(specs))
+	skipped adopt.SkipEmitter,
+) (adopt.Source, bool, error) {
 	for _, spec := range specs {
 		if err := ctx.Err(); err != nil {
-			return adopt.Source{}, nil, false, err
+			return adopt.Source{}, false, err
 		}
 		source, skip, err := importInstructionFileCandidate(ctx, sourceDirectory, spec)
 		if err != nil {
-			return adopt.Source{}, nil, false, err
+			return adopt.Source{}, false, err
 		}
 		if skip.Reason != "" {
-			skipped = append(skipped, skip)
+			if err := skipped.Add(skip); err != nil {
+				return adopt.Source{}, false, err
+			}
 			continue
 		}
-		return source, skipped, true, nil
+		return source, true, nil
 	}
-	return adopt.Source{}, skipped, false, nil
+	return adopt.Source{}, false, nil
 }
 
 func unsupportedInstructionImportSkip(target targetpkg.Target, scope targetpkg.Scope) adopt.Skipped {

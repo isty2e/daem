@@ -240,7 +240,7 @@ func TestCandidatesPreservesNonDefaultAdmittedSkillRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	candidates, _, _, err := Candidates(
+	candidates, _, _, err := collectCandidates(
 		context.Background(),
 		sourceDirectory,
 		targetpkg.TargetOpenCode,
@@ -660,7 +660,7 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 	destinations := NewDestinationClaims()
 	var imported []adopt.Skill
 	for _, selectedTarget := range []targetpkg.Target{targetpkg.TargetCodex, targetpkg.TargetOpenCode} {
-		candidates, _, _, err := Candidates(
+		candidates, _, _, err := collectCandidates(
 			context.Background(),
 			sourceDirectory,
 			selectedTarget,
@@ -697,6 +697,67 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 	}
 	if imported[0].ContentHash != imported[1].ContentHash {
 		t.Fatalf("shared content hashes = %q and %q", imported[0].ContentHash, imported[1].ContentHash)
+	}
+}
+
+func TestImportSkillsFromRootStopsAtOperationSkipLimit(t *testing.T) {
+	t.Parallel()
+
+	const maximumOperationSkips = 4096
+	root := t.TempDir()
+	sourceDirectory, err := adopt.NewSourceDirectory(
+		filepath.Join(root, "daem.toml"),
+		filepath.Join(root, "daem.d"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visited := 0
+	searchRoots, err := newSearchRootCache(
+		func(ctx context.Context, _ string, visit func(string) error) (searchRootObservation, error) {
+			for range maximumOperationSkips + 100 {
+				if err := ctx.Err(); err != nil {
+					return searchRootObservation{}, err
+				}
+				visited++
+				if err := visit("."); err != nil {
+					return searchRootObservation{}, err
+				}
+			}
+			return searchRootObservation{revalidate: func(context.Context) error { return nil }}, nil
+		},
+		defaultSearchRootLimits(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collector := adopt.NewSkippedCollector()
+	err = collector.Collect(func(skipped adopt.SkipEmitter) error {
+		_, _, err := importSkillsFromRoot(
+			t.Context(),
+			sourceDirectory,
+			targetpkg.TargetCodex,
+			targetpkg.ScopeProject,
+			"",
+			root,
+			NewDestinationClaims(),
+			newSourceIdentityCache(func(context.Context, string, access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
+				t.Fatal("invalid names must not reach source identity observation")
+				return "", sourceIdentityMeasurement{}, nil
+			}),
+			searchRoots,
+			skipped.WithRoute(targetpkg.TargetCodex, targetpkg.ScopeProject),
+		)
+		return err
+	})
+	if !errors.Is(err, adopt.ErrSkipObservationLimitExceeded) {
+		t.Fatalf("importSkillsFromRoot error = %v, want operation skip limit", err)
+	}
+	if visited != maximumOperationSkips+100 {
+		t.Fatalf("listed names = %d, want complete bounded root inventory", visited)
+	}
+	if got := collector.Skipped(); len(got) == 0 || len(got) >= maximumOperationSkips+100 {
+		t.Fatalf("retained skips = %d, want a bounded admitted prefix", len(got))
 	}
 }
 

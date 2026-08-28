@@ -91,7 +91,7 @@ func presentPiImportPlan(t *testing.T, source string) adoptmodel.Plan {
 		ManifestRoot: root,
 		Targets:      []target.Target{target.TargetPi},
 		Scopes:       []target.Scope{target.ScopeProject},
-	})
+	}, func(adoptextension.Skip) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}

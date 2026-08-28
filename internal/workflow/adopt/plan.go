@@ -2,6 +2,7 @@ package adopt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -86,13 +87,34 @@ func buildPlan(
 	var mcpAuthorities []adoptmodel.MCPSourceAuthority
 	var scans []adoptmodel.Scan
 	skippedCollector := adoptmodel.NewSkippedCollector()
-	extensionResult, err := adoptextension.Collect(adoptextension.Input{
-		ManifestRoot: filepath.Dir(output),
-		Targets:      requestTargets,
-		Scopes:       requestScopes,
-		Existing:     existingExtensions,
+	var extensionResult adoptextension.Result
+	err = skippedCollector.Collect(func(skipped adoptmodel.SkipEmitter) error {
+		var collectErr error
+		extensionResult, collectErr = adoptextension.Collect(adoptextension.Input{
+			ManifestRoot: filepath.Dir(output),
+			Targets:      requestTargets,
+			Scopes:       requestScopes,
+			Existing:     existingExtensions,
+		}, func(value adoptextension.Skip) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return skipped.Add(adoptmodel.Skipped{
+				Target:   value.Target,
+				Scope:    value.Scope,
+				LivePath: value.LivePath,
+				Reason:   adoptmodel.SkipReason(value.Reason),
+			})
+		})
+		if collectErr != nil {
+			return collectErr
+		}
+		return ctx.Err()
 	})
 	if err != nil {
+		if errors.Is(err, adoptmodel.ErrSkipObservationLimitExceeded) {
+			return observedImportPlan{}, wrapSkippedObservationError(err, skippedCollector)
+		}
 		return observedImportPlan{}, fmt.Errorf("import extensions: %w", err)
 	}
 	for _, scan := range extensionResult.Scans() {
@@ -113,16 +135,6 @@ func buildPlan(
 			Evidence:     evidence,
 		})
 	}
-	for _, skip := range extensionResult.Skipped() {
-		if err := skippedCollector.Add(adoptmodel.Skipped{
-			Target:   skip.Target,
-			Scope:    skip.Scope,
-			LivePath: skip.LivePath,
-			Reason:   adoptmodel.SkipReason(skip.Reason),
-		}); err != nil {
-			return observedImportPlan{}, wrapSkippedObservationError(err, skippedCollector)
-		}
-	}
 	importedSkillDestinations := adoptskill.NewDestinationClaims()
 	skillSourceIdentities := adoptskill.NewSourceIdentityCache(mutationfs.DefaultTreeTraversalLimits())
 	skillSearchRoots := adoptskill.NewSearchRootCache()
@@ -140,16 +152,26 @@ func buildPlan(
 				Completed: completedTargetScopes,
 				Total:     progressTotal,
 			})
-			importedSources, importedSkills, importedHooks, importedMCPServers, observedMCPAuthorities, observedScans, err := importCandidates(
-				ctx,
-				sourceDirectory,
-				target,
-				scope,
-				importedSkillDestinations,
-				skillSourceIdentities,
-				skillSearchRoots,
-				skippedCollector,
-			)
+			var importedSources []adoptmodel.Source
+			var importedSkills []adoptmodel.Skill
+			var importedHooks []adoptmodel.Hook
+			var importedMCPServers []adoptmodel.MCPServer
+			var observedMCPAuthorities []adoptmodel.MCPSourceAuthority
+			var observedScans []adoptmodel.Scan
+			err := skippedCollector.Collect(func(skipped adoptmodel.SkipEmitter) error {
+				var importErr error
+				importedSources, importedSkills, importedHooks, importedMCPServers, observedMCPAuthorities, observedScans, importErr = importCandidates(
+					ctx,
+					sourceDirectory,
+					target,
+					scope,
+					importedSkillDestinations,
+					skillSourceIdentities,
+					skillSearchRoots,
+					skipped.WithRoute(target, scope),
+				)
+				return importErr
+			})
 			if err != nil {
 				return observedImportPlan{}, wrapSkippedObservationError(err, skippedCollector)
 			}

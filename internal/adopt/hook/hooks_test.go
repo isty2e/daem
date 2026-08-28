@@ -38,7 +38,7 @@ func TestCandidatesImportsRepresentableCodexHook(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
+	hooks, skipped, err := collectCandidates(context.Background(), target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestCandidatesSkipsCodexHookShapeThatSurfaceCannotRepresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
+	hooks, skipped, err := collectCandidates(context.Background(), target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestCandidatesRejectsUnsafeHookFileShapes(t *testing.T) {
 
 	assertSkip := func(reason adopt.SkipReason) {
 		t.Helper()
-		hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
+		hooks, skipped, err := collectCandidates(context.Background(), target.TargetCodex, target.ScopeProject)
 		if err != nil {
 			t.Fatalf("Candidates returned error: %v", err)
 		}
@@ -252,7 +252,7 @@ func TestCandidatesClassifiesCodexInlineConfigStructureLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
+	hooks, skipped, err := collectCandidates(context.Background(), target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatalf("Candidates returned error: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestCandidatesStopsWhenHookImportContextIsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	hooks, skipped, err := Candidates(ctx, target.TargetCodex, target.ScopeProject)
+	hooks, skipped, err := collectCandidates(ctx, target.TargetCodex, target.ScopeProject)
 	if !errors.Is(err, context.Canceled) || hooks != nil || skipped != nil {
 		t.Fatalf("Candidates = (%#v, %#v, %v), want context cancellation", hooks, skipped, err)
 	}
