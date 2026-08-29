@@ -8,6 +8,7 @@ import (
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	declarationnormalize "github.com/isty2e/daem/internal/declaration/normalize"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
@@ -92,7 +93,7 @@ func addMCPAuthoringTargets(rawTargets []string) ([]string, error) {
 		return nil, fmt.Errorf("mcp-server authoring accepts exactly one --target")
 	}
 	selectedTarget, err := target.ParseTarget(rawTargets[0])
-	if err != nil || !aggregate.TargetHasImplementedMCPPlacement(selectedTarget) {
+	if err != nil || !catalog.Product().HasMCPTarget(selectedTarget) {
 		return nil, fmt.Errorf("mcp-server authoring supports only %s", mcpAuthoringTargetOptions())
 	}
 	return []string{string(selectedTarget)}, nil
@@ -118,19 +119,19 @@ func normalizedMCPRemoveSelector(rawTargets []string, rawScope string) ([]string
 
 func addMCPAuthoringScope(selectedTarget string, rawScope string) (string, error) {
 	parsedTarget, err := target.ParseTarget(selectedTarget)
-	if err != nil || !aggregate.TargetHasImplementedMCPPlacement(parsedTarget) {
+	if err != nil || !catalog.Product().HasMCPTarget(parsedTarget) {
 		return "", fmt.Errorf("mcp-server authoring supports only %s", mcpAuthoringTargetOptions())
 	}
 	scope := strings.TrimSpace(rawScope)
 	if scope == "" {
-		if _, ok := aggregate.ImplementedMCPPlacement(parsedTarget, target.ScopeProject); ok {
+		if _, ok := catalog.Product().LookupMCP(parsedTarget, target.ScopeProject); ok {
 			return string(target.ScopeProject), nil
 		}
 		return "", fmt.Errorf("mcp-server authoring requires --scope %s for --target %s", target.ScopeGlobal, parsedTarget)
 	}
 	parsedScope, err := target.ParseScope(scope)
 	if err == nil {
-		if _, ok := aggregate.ImplementedMCPPlacement(parsedTarget, parsedScope); ok {
+		if _, ok := catalog.Product().LookupMCP(parsedTarget, parsedScope); ok {
 			return string(parsedScope), nil
 		}
 	}
@@ -150,10 +151,11 @@ func validateAddMCPAuthoringShape(selectedTarget string, selectedScope string, r
 	if err != nil {
 		return err
 	}
-	placement, ok := aggregate.ImplementedMCPPlacement(parsedTarget, parsedScope)
+	view, ok := catalog.Product().LookupMCP(parsedTarget, parsedScope)
 	if !ok {
 		return fmt.Errorf("mcp-server authoring does not implement target/scope %s/%s", parsedTarget, parsedScope)
 	}
+	placement := view.Placement()
 	if len(request.Env) == 0 || placement.EnvReferenceContract().Supported() {
 		return nil
 	}
@@ -185,7 +187,7 @@ func mcpAuthoringTargetOptions() string {
 func mcpAuthoringScopeOptions(selectedTarget target.Target) string {
 	values := make([]string, 0, 2)
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-		if _, ok := aggregate.ImplementedMCPPlacement(selectedTarget, scope); ok {
+		if _, ok := catalog.Product().LookupMCP(selectedTarget, scope); ok {
 			values = append(values, "--scope "+string(scope))
 		}
 	}
@@ -193,8 +195,8 @@ func mcpAuthoringScopeOptions(selectedTarget target.Target) string {
 }
 
 func mcpAuthoringTargetHasEnvPlacement(selectedTarget target.Target) bool {
-	for _, placement := range aggregate.ImplementedMCPPlacements() {
-		if placement.Target() == selectedTarget && placement.EnvReferenceContract().Supported() {
+	for _, view := range catalog.Product().Surfaces() {
+		if view.Key().Target() == selectedTarget && view.Placement().EnvReferenceContract().Supported() {
 			return true
 		}
 	}

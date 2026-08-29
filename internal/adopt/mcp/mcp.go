@@ -12,9 +12,9 @@ import (
 	adopt "github.com/isty2e/daem/internal/adopt"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/filesnapshot"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -133,10 +133,11 @@ func candidatesWithHooks(
 		}
 		return finishCandidates(ctx, hooks, nil, nil)
 	}
-	placement, ok := aggregate.ImplementedMCPPlacement(target, scope)
+	view, ok := catalog.Product().LookupMCP(target, scope)
 	if !ok {
 		return nil, nil, fmt.Errorf("MCP import route %s/%s has no canonical placement", target, scope)
 	}
+	placement := view.Placement()
 	codec, ok := aggregatecodec.Catalog().Lookup(placement.CodecContractID())
 	if !ok {
 		return nil, nil, fmt.Errorf("MCP import route %s/%s has no aggregate codec", target, scope)

@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
@@ -258,7 +259,7 @@ func appendMCPLocations(
 ) error {
 	requestKey := resourceRequestKey{target: selectedTarget, scope: scope, resource: entity.KindMCPServer}
 	requested := selections.resources[requestKey]
-	placement, implemented := aggregate.ImplementedMCPPlacement(selectedTarget, scope)
+	view, implemented := catalog.Product().LookupMCP(selectedTarget, scope)
 	if !implemented {
 		return appendLocationEntry(rows, locationEntryInput{
 			kind: LocationUnsupported, selectedTarget: selectedTarget, scope: scope,
@@ -271,7 +272,7 @@ func appendMCPLocations(
 	return appendLocationEntry(rows, locationEntryInput{
 		kind: LocationPath, selectedTarget: selectedTarget, scope: scope,
 		resourceKind: entity.KindMCPServer, realization: LocationConfigContribution,
-		role: LocationRoleConfig, path: placement.ConfigPath().String(),
+		role: LocationRoleConfig, path: view.Placement().ConfigPath().String(),
 		selected: requested, requested: requested,
 		selectionSource: LocationSelectionNotApplicable, source: LocationSourceAggregate,
 	})

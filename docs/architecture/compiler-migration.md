@@ -388,7 +388,7 @@ cutover; they do not replace the current oracle with prose.
 | MCP placements | `internal/realization/aggregate`: `TestImplementedMCPPlacementsExposeCurrentRowsOnly`, `TestMCPPlacementStaticContractAccessorsAreCanonicalAndDefensive`, catalog duplicate tests | exact rows, paths, codecs, policies, cardinality | compiled MCP views must compare every facet and durable id without copying row literals. |
 | Target/profile views | `internal/realization/profile`: `TestProfilesPreserveCurrentSupportAndRealizationMatrix`, `TestProfileSeparatesPlacementDiscoveryRuntimeAndRoutes`, `TestSharedPlacementsRemainOnePhysicalIdentity`, `TestProfilePreservesMCPPlacementScopeMatrix` | support, placement, discovery/runtime/route separation and shared placement | surface-cutover phase shadows every consumer before cutover. |
 | Probe/order capability | profile probe/order tests | exact independent capability rows and defensive copies | compiled MCP views attach runtime-probe as an optional observation purpose; order capability stays with profile until later families. |
-| MCP compiled host-surface views | `internal/hostsurface` identity tests; `internal/hostsurface/catalog`: `TestProductCatalogMatchesOwnerMCPRows` plus duplicate-key, missing-namespace, many-to-one, and unreferenced-probe fixtures | opaque SurfaceID/SurfaceKey, exact nine-cell parity, invalid seeds, many-to-one placement, optional runtime-probe purpose | surface-cutover phase shadows adopt, readiness, authoring, and status consumers. |
+| MCP compiled host-surface views | `internal/hostsurface` identity tests; `internal/hostsurface/catalog`: `TestProductCatalogMatchesOwnerMCPRows`, `TestLookupMCPMatchesOwnerPlacement`, `TestHasMCPTargetMatchesOwnerCatalog` plus duplicate-key, missing-namespace, many-to-one, and unreferenced-probe fixtures | opaque SurfaceID/SurfaceKey, exact nine-cell parity, LookupMCP/HasMCPTarget owner equality, invalid seeds, many-to-one placement, optional runtime-probe purpose | later cutover waves still own routes/probes, MCPPlacementForSubject consumers, help order, and adopt extractor dispatch. |
 | Architecture separation | `internal/archguard`: dependency-direction, workflow-boundary, effect-boundary, and synthetic near-neighbor tests plus one current-tree baseline | current owner/refusal and import law without prose or symbol-name inference | guard-shadow phase replaces remaining exact current-path classification after implementation. |
 | Apply authority/fingerprint | `internal/workflow/apply`: `TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths`, `TestApplyOperationFingerprintBindsPlanAndDelegateMode`, `TestApplyOperationFingerprintIncludesStatefileSemanticsWitness`, relation/order/carrier fingerprint tests | deterministic sensitivity and current authority coverage | operation-authority phase adds old/new exact equality; no fixed literal digest is required before a second compiler exists. |
 | Refresh authority/fingerprint | refresh timeout/freshness/replan tests including `TestRefreshTimeoutParticipatesInDisclosureAndFingerprint` | operation identity, authority revalidation, persistence subset behavior | operation-authority phase adds shared compiler differential fixtures. |
@@ -404,7 +404,8 @@ cd daem
 GOENV=off GOFLAGS= GOWORK=off HOME="$(mktemp -d)" \
   go test ./internal/topology/mcp ./internal/topology/hook \
     ./internal/realization/aggregate ./internal/realization/profile \
-    ./internal/hostsurface ./internal/hostsurface/catalog
+    ./internal/hostsurface ./internal/hostsurface/catalog \
+    ./internal/adopt/mcp ./internal/workflow/authoring ./internal/workflow/list
 GOENV=off GOFLAGS= GOWORK=off HOME="$(mktemp -d)" \
   go test ./internal/workflow/apply ./internal/workflow/refresh \
     ./internal/workflow/recover ./internal/recoverygate \
@@ -421,7 +422,7 @@ focused commands identify the old-model parity oracles.
 | Phase | Consumes | Must produce | Reset/reopen condition |
 | --- | --- | --- | --- |
 | surface-schema phase | surface cell, owner, compatibility, and fixture rows above | internal identity/schema plus MCP shadow views and exact nine-cell parity | key axes cannot distinguish a current cell, durable id would change, or owner dependency reverses |
-| surface-cutover phase | surface-schema phase views and consumer census | bounded cutover, deletion map, one source per migrated facet | any consumer requires different semantics or facade becomes authority |
+| surface-cutover phase | surface-schema phase views and consumer census | bounded cutover, deletion map, one source per migrated facet. Wave 1 uses compiled LookupMCP/HasMCPTarget for list, authoring, and post-switch adopt placement selection; owner catalogs remain the fact source; help enumeration and MCPPlacementForSubject consumers stay on owner accessors until later waves | any consumer requires different semantics or facade becomes authority |
 | operation-authority phase | operation/transition/compatibility rows | pure fact/domain/revision/fingerprint compiler | exact parity fails because facts are not actually shared |
 | effect-envelope phase | operation-authority phase facts and operation closure | typed effect envelope and derived semantic demand | work cannot be bounded before effects or branch algebra is not closed |
 | state-barrier phase | demand plus State Barrier/caller ledger | canonical authority owner and lower file-set mechanics | public recovery semantics or platform guarantees must change |
