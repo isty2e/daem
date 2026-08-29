@@ -5,7 +5,8 @@ intended behavior, dependencies, and verification evidence remain visible.
 
 ## Start
 
-1. Read the [README](README.md) and the relevant page under [docs](docs/README.md).
+1. Read the [README](README.md), the [architecture contract](ARCHITECTURE.md),
+   and the relevant page under [docs](docs/README.md).
 2. Search existing GitHub issues before opening another.
 3. Keep the change scoped to one behavior or contract.
 
@@ -15,6 +16,9 @@ the responsible user documentation to move together.
 ## Contract Ownership
 
 - Canonical Go models and invariant-bearing tests own executable semantics.
+- [Architecture](ARCHITECTURE.md) owns internal semantic-owner, compiler,
+  transition, dependency-direction, and architecture-migration rules. It does
+  not override narrower executable, persisted, or user-visible contracts.
 - [Manifest](docs/manifest.md), [CLI](docs/cli.md),
   [host integrations](docs/host-integrations.md), and
   [platforms](docs/platforms.md) own their respective user-visible contracts.
