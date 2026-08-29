@@ -8,11 +8,14 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	testscale "github.com/isty2e/daem/test/scale"
 )
 
 const maximumRejectedJSONProducerAllocationBytes = 128 << 10
 
 func TestMCPJSONCanonicalProducerRejectsOversizedInputWithoutExpandedAllocation(t *testing.T) {
+	testscale.Require(t)
+
 	argument := strings.Repeat("a", 8<<20)
 	result := testing.Benchmark(func(b *testing.B) {
 		for b.Loop() {
@@ -38,6 +41,8 @@ func TestMCPJSONCanonicalProducerRejectsOversizedInputWithoutExpandedAllocation(
 }
 
 func TestCanonicalJSONRejectsHostReindentExpansionWithoutExpandedAllocation(t *testing.T) {
+	testscale.Require(t)
+
 	const depth = 32
 	const items = 100_000
 	raw := json.RawMessage(
@@ -62,6 +67,8 @@ func TestCanonicalJSONRejectsHostReindentExpansionWithoutExpandedAllocation(t *t
 }
 
 func TestMCPJSONCanonicalProducerRejectsMinimalHostOverflowWithoutIntermediateAllocation(t *testing.T) {
+	testscale.Require(t)
+
 	expansion := claudeProjectMinimalHostArgumentExpansion(t)
 	projection := validMCPProjection("context7")
 	projection.Args = []string{strings.Repeat("a", expansion+1)}
@@ -89,6 +96,8 @@ func TestMCPJSONCanonicalProducerRejectsMinimalHostOverflowWithoutIntermediateAl
 }
 
 func TestMCPJSONConfigRejectsPreservedSiblingOverflowWithoutServerObjectAllocation(t *testing.T) {
+	testscale.Require(t)
+
 	expansion := claudeProjectMinimalHostArgumentExpansion(t)
 	projection := validMCPProjection("context7")
 	projection.Args = []string{strings.Repeat("a", expansion)}
@@ -131,6 +140,8 @@ func TestMCPJSONConfigRejectsPreservedSiblingOverflowWithoutServerObjectAllocati
 }
 
 func TestMCPJSONMutationPathsRejectCompleteHostOverflowBeforeEntryMaterialization(t *testing.T) {
+	testscale.Require(t)
+
 	expansion := claudeProjectMinimalHostArgumentExpansion(t)
 	projection := validMCPProjection("context7")
 	projection.Args = []string{strings.Repeat("a", expansion)}
@@ -179,6 +190,8 @@ func TestMCPJSONMutationPathsRejectCompleteHostOverflowBeforeEntryMaterializatio
 }
 
 func TestMCPJSONFoldRejectsMultiMutationOverflowBeforeEntryMaterialization(t *testing.T) {
+	testscale.Require(t)
+
 	operations := mustMCPCodecOperations(t, aggregate.MCPPlacementClaudeProject)
 	spec := claudeProjectMCPConfigSpec()
 	first := validMCPProjection("alpha")

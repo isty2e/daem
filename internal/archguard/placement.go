@@ -2,13 +2,7 @@ package archguard
 
 import (
 	"fmt"
-	"path"
 	"strings"
-)
-
-const (
-	rulePackagePlacementMetadata  = "package-placement-metadata"
-	rulePackagePlacementOwnership = "package-placement-ownership"
 )
 
 type semanticAffinity uint8
@@ -194,84 +188,6 @@ func specializedPlacement(
 	}
 }
 
-func validPlacementPackagePath(packagePath string) bool {
-	if strings.TrimSpace(packagePath) != packagePath ||
-		!strings.HasPrefix(packagePath, "internal/") ||
-		strings.Contains(packagePath, "\\") ||
-		strings.ContainsAny(packagePath, "*?[]") ||
-		path.Clean(packagePath) != packagePath {
-		return false
-	}
-	for _, component := range strings.Split(packagePath, "/") {
-		if component == "" || component == "." || component == ".." {
-			return false
-		}
-	}
-	return true
-}
-
-func validatePackagePlacementRows(rows []packagePlacementRow) []GuardrailFinding {
-	var findings []GuardrailFinding
-	seenIDs := make(map[string]struct{}, len(rows))
-	seenPackages := make(map[string]string)
-	for index, row := range rows {
-		rowPath := fmt.Sprintf("placement[%d]", index)
-		if strings.TrimSpace(row.id) == "" || strings.TrimSpace(row.id) != row.id {
-			findings = append(findings, GuardrailFinding{
-				Rule:   rulePackagePlacementMetadata,
-				Path:   rowPath,
-				Detail: "placement row ID must be non-empty and canonical",
-			})
-		} else if _, duplicate := seenIDs[row.id]; duplicate {
-			findings = append(findings, GuardrailFinding{
-				Rule:   rulePackagePlacementMetadata,
-				Path:   row.id,
-				Detail: "placement row ID is duplicated",
-			})
-		} else {
-			seenIDs[row.id] = struct{}{}
-			rowPath = row.id
-		}
-		if err := row.placement.validate(); err != nil {
-			findings = append(findings, GuardrailFinding{
-				Rule:   rulePackagePlacementMetadata,
-				Path:   rowPath,
-				Detail: err.Error(),
-			})
-		}
-		if len(row.packages) == 0 {
-			findings = append(findings, GuardrailFinding{
-				Rule:   rulePackagePlacementMetadata,
-				Path:   rowPath,
-				Detail: "placement row must classify at least one exact package",
-			})
-		}
-		for _, packagePath := range row.packages {
-			switch {
-			case !validPlacementPackagePath(packagePath):
-				findings = append(findings, GuardrailFinding{
-					Rule:   rulePackagePlacementMetadata,
-					Path:   packagePath,
-					Detail: "placement package path must be an exact canonical internal package",
-				})
-			case seenPackages[packagePath] != "":
-				findings = append(findings, GuardrailFinding{
-					Rule: rulePackagePlacementMetadata,
-					Path: packagePath,
-					Detail: fmt.Sprintf(
-						"package is classified by both %q and %q",
-						seenPackages[packagePath],
-						rowPath,
-					),
-				})
-			default:
-				seenPackages[packagePath] = rowPath
-			}
-		}
-	}
-	return sortedViolations(dedupViolations(findings))
-}
-
 func packagePlacementCandidates(
 	rows []packagePlacementRow,
 	packagePath string,
@@ -293,34 +209,4 @@ func packagePlacementFor(packagePath string) (packagePlacement, bool) {
 		return packagePlacement{}, false
 	}
 	return candidates[0], true
-}
-
-func analyzePackagePlacements(records []PackageRecord) []GuardrailFinding {
-	findings := validatePackagePlacementRows(packagePlacementRows)
-	for _, record := range sortedRecords(records) {
-		packagePath, internal := internalPath(record.ImportPath)
-		if !internal {
-			continue
-		}
-		candidates := packagePlacementCandidates(packagePlacementRows, packagePath)
-		detail := ""
-		switch {
-		case len(candidates) == 0:
-			detail = "package has no architecture placement"
-		case len(candidates) > 1:
-			detail = "package has more than one architecture placement"
-		case candidates[0].validate() != nil:
-			detail = "package has an invalid architecture placement"
-		}
-		if detail == "" {
-			continue
-		}
-		findings = append(findings, GuardrailFinding{
-			Rule:        rulePackagePlacementOwnership,
-			PackagePath: packagePath,
-			Path:        packagePath,
-			Detail:      detail,
-		})
-	}
-	return sortedViolations(dedupViolations(findings))
 }

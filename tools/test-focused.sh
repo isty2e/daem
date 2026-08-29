@@ -23,15 +23,17 @@ original_home=${HOME:-}
 export GOENV=off
 unset GOFLAGS
 export GOWORK=off
-go_cache=$(go env GOCACHE)
-go_mod_cache=$(go env GOMODCACHE)
-go_path=$(go env GOPATH)
-go_toolchain=$(go env GOTOOLCHAIN)
-go_proxy=$(go env GOPROXY)
-go_sumdb=$(go env GOSUMDB)
-go_private=$(go env GOPRIVATE)
-go_no_proxy=$(go env GONOPROXY)
-go_no_sumdb=$(go env GONOSUMDB)
+{
+	IFS= read -r go_cache
+	IFS= read -r go_mod_cache
+	IFS= read -r go_path
+	IFS= read -r go_toolchain
+	IFS= read -r go_proxy
+	IFS= read -r go_sumdb
+	IFS= read -r go_private
+	IFS= read -r go_no_proxy
+	IFS= read -r go_no_sumdb
+} < <(go env GOCACHE GOMODCACHE GOPATH GOTOOLCHAIN GOPROXY GOSUMDB GOPRIVATE GONOPROXY GONOSUMDB)
 module_path=$(go list -m -f '{{.Path}}')
 
 package_record=$(go list -f '{{.ImportPath}}|{{if .Module}}{{.Module.Path}}{{end}}|{{len .TestGoFiles}}|{{len .XTestGoFiles}}' "${requested_package}")

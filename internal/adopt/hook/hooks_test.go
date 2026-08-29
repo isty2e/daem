@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
+	testscale "github.com/isty2e/daem/test/scale"
 )
 
 func TestCandidatesImportsRepresentableCodexHook(t *testing.T) {
@@ -362,6 +363,8 @@ func TestParseImportHooksCollapsesAggregateBudgetFailures(t *testing.T) {
 }
 
 func TestScanImportHookStructuralBudgetStopsAtEachLimit(t *testing.T) {
+	testscale.Require(t)
+
 	const entries = 200_000
 	events := make([]string, entries)
 	for index := range events {
@@ -427,6 +430,8 @@ func TestScanImportHookStructuralBudgetAdmitsExactLimits(t *testing.T) {
 }
 
 func TestScanImportHookStructuralBudgetStopsAtDepthLimit(t *testing.T) {
+	testscale.Require(t)
+
 	const excessiveDepth = 500_000
 	nesting := strings.Repeat(`[`, excessiveDepth) + strings.Repeat(`]`, excessiveDepth)
 	var topLevelContent string

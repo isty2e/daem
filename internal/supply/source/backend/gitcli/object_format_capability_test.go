@@ -48,7 +48,7 @@ func TestExplicitObjectFormatSupportPreservesCallerDeadline(t *testing.T) {
 }
 
 func TestExplicitObjectFormatSupportWaitersReceiveLeaderError(t *testing.T) {
-	started, countPath := installFailingGitInitHelpAfterStart(t)
+	started, countPath, releasePath := installFailingGitInitHelpAfterStart(t)
 
 	resolver, err := NewResolver(t.TempDir())
 	if err != nil {
@@ -72,6 +72,9 @@ func TestExplicitObjectFormatSupportWaitersReceiveLeaderError(t *testing.T) {
 		}()
 	}
 	time.Sleep(50 * time.Millisecond)
+	if err := os.WriteFile(releasePath, []byte("release\n"), 0o600); err != nil {
+		t.Fatalf("release capability probe: %v", err)
+	}
 
 	returned := make([]error, 0, waiters+1)
 	select {
@@ -192,7 +195,7 @@ func installStallingGitInitHelp(t *testing.T) string {
 	return started
 }
 
-func installFailingGitInitHelpAfterStart(t *testing.T) (string, string) {
+func installFailingGitInitHelpAfterStart(t *testing.T) (string, string, string) {
 	t.Helper()
 	sleepPath, err := exec.LookPath("sleep")
 	if err != nil {
@@ -204,6 +207,7 @@ func installFailingGitInitHelpAfterStart(t *testing.T) (string, string) {
 
 	started := filepath.Join(t.TempDir(), "started")
 	countPath := filepath.Join(t.TempDir(), "probes")
+	releasePath := filepath.Join(t.TempDir(), "release")
 	binRoot := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(binRoot, 0o700); err != nil {
 		t.Fatalf("MkdirAll returned error: %v", err)
@@ -212,7 +216,7 @@ func installFailingGitInitHelpAfterStart(t *testing.T) (string, string) {
 		"if [ \"$1\" = \"init\" ] && [ \"$2\" = \"-h\" ]; then\n" +
 		"  printf '.\\n' >> " + strconv.Quote(countPath) + "\n" +
 		"  : > " + strconv.Quote(started) + "\n" +
-		"  " + sleepPath + " 2\n" +
+		"  while [ ! -e " + strconv.Quote(releasePath) + " ]; do " + sleepPath + " 0.01; done\n" +
 		"  exit 1\n" +
 		"fi\n" +
 		"exit 1\n"
@@ -220,7 +224,7 @@ func installFailingGitInitHelpAfterStart(t *testing.T) (string, string) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 	t.Setenv("PATH", binRoot+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return started, countPath
+	return started, countPath, releasePath
 }
 
 func countGitHelpProbes(t *testing.T, path string) int {

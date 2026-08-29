@@ -632,78 +632,6 @@ type workflowJob struct {
 	Steps []releaseStep `yaml:"steps"`
 }
 
-func TestPlatformContractsMatchCanonicalRows(t *testing.T) {
-	public := readRepositoryFile(t, "docs/platforms.md")
-
-	for _, admission := range admissionRows {
-		publicRow := "| " + publicOSName(admission.Target()) + " | `" + admission.Target().Arch() + "` | " + publicSupportName(admission.Support()) + " | " + publicVerificationName(admission.Verification()) + " |"
-		if !strings.Contains(public, publicRow) {
-			t.Errorf("public platform matrix is missing %q", publicRow)
-		}
-	}
-	if required := "| Every other target | any | not admitted | unverified |"; !strings.Contains(public, required) {
-		t.Errorf("public platform matrix is missing fallback row %q", required)
-	}
-}
-
-func TestDarwinPathDocumentationSeparatesProvisionalAndExactAuthority(t *testing.T) {
-	public := strings.Join(strings.Fields(readRepositoryFile(t, "docs/platforms.md")), " ")
-	for _, required := range []string{
-		"provisional comparison and exclusion evidence",
-		"does not grant exact path authority",
-		"fails before effects if the captured root directory is replaced",
-		"destination crosses onto a different descendant mount",
-	} {
-		if !strings.Contains(public, required) {
-			t.Errorf("platform documentation is missing Darwin path-authority contract %q", required)
-		}
-	}
-	if strings.Contains(public, "same-batch provisional alias races remain outside") {
-		t.Error("platform documentation retains the superseded provisional-authority exclusion")
-	}
-}
-
-func TestActiveUserDocumentsPointToPlatformAuthority(t *testing.T) {
-	references := map[string]string{
-		"README.md":               "docs/platforms.md",
-		"docs/README.md":          "platforms.md",
-		"docs/getting-started.md": "platforms.md",
-		"docs/cli.md":             "platforms.md",
-		"docs/concepts.md":        "platforms.md",
-		"docs/features.md":        "platforms.md",
-	}
-	for path, reference := range references {
-		if content := readRepositoryFile(t, path); !strings.Contains(content, reference) {
-			t.Errorf("%s does not reference %s", path, reference)
-		}
-	}
-}
-
-func TestActiveUserDocumentsDoNotDuplicateCanonicalPlatformRows(t *testing.T) {
-	for _, path := range []string{
-		"README.md",
-		"docs/README.md",
-		"docs/getting-started.md",
-		"docs/cli.md",
-		"docs/compatibility.md",
-		"docs/concepts.md",
-		"docs/features.md",
-		"docs/manifest.md",
-	} {
-		content := readRepositoryFile(t, path)
-		for _, rowIdentity := range []string{
-			"darwin/arm64",
-			"linux/amd64",
-			"macOS arm64",
-			"Linux amd64",
-		} {
-			if strings.Contains(content, rowIdentity) {
-				t.Errorf("%s duplicates canonical platform row %q", path, rowIdentity)
-			}
-		}
-	}
-}
-
 func workflowPairs(t *testing.T, content string, jobName string) []string {
 	t.Helper()
 	var workflow struct {
@@ -753,40 +681,6 @@ func assertSameStringSet(t *testing.T, name string, got []string, want []string)
 	}
 	if !reflect.DeepEqual(gotSet, wantSet) {
 		t.Fatalf("%s = %#v, want %#v", name, got, want)
-	}
-}
-
-func publicOSName(target Target) string {
-	switch target.OS() {
-	case "darwin":
-		if target.Arch() == "arm64" {
-			return "macOS 26 or newer (`darwin`)"
-		}
-		return "macOS (`darwin`)"
-	case "linux":
-		return "Linux"
-	case "windows":
-		return "Windows"
-	default:
-		return target.OS()
-	}
-}
-
-func publicSupportName(support Support) string {
-	if support == SupportAdmitted {
-		return "admitted"
-	}
-	return "not admitted"
-}
-
-func publicVerificationName(verification Verification) string {
-	switch verification {
-	case VerificationNativeRequired:
-		return "native required"
-	case VerificationCompileOnly:
-		return "compile only"
-	default:
-		return "unverified"
 	}
 }
 

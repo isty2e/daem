@@ -1,6 +1,9 @@
 package archguard
 
-import "path"
+import (
+	"path"
+	"strings"
+)
 
 const (
 	ruleCLIDirectPhaseImport        = "cli-direct-phase-import"
@@ -39,62 +42,90 @@ const (
 	ruleRetiredLifecyclePackage     = "retired-lifecycle-package"
 	ruleRetiredExecutePackage       = "retired-execute-package"
 	ruleCoreTerminalSideEffect      = "core-terminal-side-effect"
-	ruleDensityAdmissionInvalid     = "density-admission-invalid"
-	ruleDensityHardLimit            = "density-hard-limit"
-	ruleDensityReviewRequired       = "density-review-required"
-	ruleDensityWatchpoint           = "density-watchpoint"
-	ruleDensityThreshold            = "density-threshold"
 	ruleFutureMCPPluginMonolith     = "future-mcp-plugin-monolith"
+	ruleProductionTestSupportImport = "production-test-support-import"
 
 	ruleInternalImportsCLI = "internal package imports CLI"
 )
 
-type findingDisposition uint8
-
-const (
-	findingDispositionViolation findingDisposition = iota
-	findingDispositionReviewRequired
-	findingDispositionWatchpoint
-	findingDispositionWarning
-)
-
-type rawFinding struct {
-	finding     GuardrailFinding
-	disposition findingDisposition
-}
-
 // AnalyzeRecords returns semantic topology violations for package records.
-// Use AnalyzeReport when density review requirements, watchpoints, and warnings are relevant.
 func AnalyzeRecords(records []PackageRecord) []GuardrailFinding {
-	report := AnalyzeReport(records)
-	return append([]GuardrailFinding(nil), report.Violations...)
+	return append([]GuardrailFinding(nil), AnalyzeReport(records).Violations...)
 }
 
-// AnalyzeReport returns classified topology guardrail findings for package records.
+// AnalyzeReport returns semantic topology guardrail findings for package records.
 func AnalyzeReport(records []PackageRecord) Report {
-	rawFindings, density := analyzeRawFindings(records)
-	report := classifyFindings(rawFindings)
-	report.PackageDensity = density
-	return report
-}
-
-func analyzeRawFindings(records []PackageRecord) ([]rawFinding, []PackageDensity) {
-	findings := hardFindings(analyzeArchitectureDependencyDirections(records))
+	var findings []GuardrailFinding
+	reachable := productionReachablePackages(records)
+	findings = append(findings, analyzeArchitectureDependencyDirections(records)...)
 	for _, record := range sortedRecords(records) {
+		if reachable[record.ImportPath] {
+			findings = append(findings, analyzeProductionTestSupportImports(record)...)
+		}
+
 		packagePath, ok := internalPath(record.ImportPath)
 		if !ok {
 			continue
 		}
 
-		findings = append(findings, hardFindings(analyzeImports(packagePath, record.Imports))...)
-		findings = append(findings, hardFindings(analyzeForbiddenShapes(packagePath, record))...)
-		findings = append(findings, hardFindings(analyzeCoreTerminalSideEffects(packagePath, record))...)
+		findings = append(findings, analyzeImports(packagePath, record.Imports)...)
+		findings = append(findings, analyzeForbiddenShapes(packagePath, record)...)
+		findings = append(findings, analyzeCoreTerminalSideEffects(packagePath, record)...)
 	}
 
-	densityFindings, density := analyzeDensity(records)
-	findings = append(findings, densityFindings...)
+	return Report{Violations: sortedViolations(dedupViolations(findings))}
+}
 
-	return sortedRawFindings(dedupRawFindings(findings)), density
+func productionReachablePackages(records []PackageRecord) map[string]bool {
+	recordByPath := make(map[string]PackageRecord, len(records))
+	queue := make([]string, 0)
+	for _, record := range records {
+		recordByPath[record.ImportPath] = record
+		if record.Name == "main" {
+			queue = append(queue, record.ImportPath)
+		}
+	}
+
+	reachable := make(map[string]bool, len(records))
+	for index := 0; index < len(queue); index++ {
+		importPath := queue[index]
+		if reachable[importPath] {
+			continue
+		}
+		reachable[importPath] = true
+		for _, imported := range recordByPath[importPath].Imports {
+			if _, exists := recordByPath[imported]; exists && !reachable[imported] {
+				queue = append(queue, imported)
+			}
+		}
+	}
+	return reachable
+}
+
+func analyzeProductionTestSupportImports(record PackageRecord) []GuardrailFinding {
+	packagePath, owned := architecturePath(record.ImportPath)
+	if !owned || strings.HasPrefix(packagePath, "test/") {
+		return nil
+	}
+	modulePrefix := strings.TrimSuffix(record.ImportPath, packagePath)
+
+	var findings []GuardrailFinding
+	for _, importPath := range sortedStrings(record.Imports) {
+		if modulePrefix != "" && !strings.HasPrefix(importPath, modulePrefix) {
+			continue
+		}
+		imported, ownedImport := architecturePath(importPath)
+		if !ownedImport || !isPackageOrChild(imported, "test") {
+			continue
+		}
+		findings = append(findings, GuardrailFinding{
+			Rule:        ruleProductionTestSupportImport,
+			PackagePath: packagePath,
+			ImportPath:  imported,
+			Detail:      "production packages must not depend on test support",
+		})
+	}
+	return findings
 }
 
 func analyzeImports(packagePath string, imports []string) []GuardrailFinding {
@@ -520,15 +551,4 @@ func packageFiles(record PackageRecord) []string {
 	files = append(files, record.TestGoFiles...)
 	files = append(files, record.XTestGoFiles...)
 	return files
-}
-
-func hardFindings(violations []GuardrailFinding) []rawFinding {
-	findings := make([]rawFinding, 0, len(violations))
-	for _, violation := range violations {
-		findings = append(findings, rawFinding{
-			finding:     violation,
-			disposition: findingDispositionViolation,
-		})
-	}
-	return findings
 }

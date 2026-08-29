@@ -10,6 +10,11 @@ safety guarantees remain owned by `docs/`, versioned codecs, and strict public
 consumers. This contract constrains implementation structure; it does not
 replace those narrower authorities.
 
+Tests verify behavior and typed or serialized contracts through executable
+inputs, calls, imports, compile-time interfaces, and produced artifacts. They
+do not infer a contract from documentation prose, declaration names, symbol
+presence or absence, exact package/file catalogues, or numeric density.
+
 ## Product Flow
 
 ```text
@@ -355,8 +360,13 @@ fixtures are recorded in
 - resource-by-target, resource-by-operation, target-by-operation, or
   operation-by-phase package matrices;
 - package, file, LOC, or density reduction as an acceptance criterion; and
-- weakening or deleting an architecture guard before an equivalent or stronger
-  semantic replacement rejects its forbidden cases.
+- documentation-prose, declaration-name, symbol-presence, exact-path-catalogue,
+  or density assertions presented as architecture tests.
+
+Semantic dependency and effect-boundary guards remain executable evidence.
+Removing one requires equivalent or stronger behavioral or graph-level
+coverage of the accepted invariant; deleting a prose or symbol-presence check
+does not require replacing that check with another textual proxy.
 
 ## Perturbation And Acceptance
 

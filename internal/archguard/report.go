@@ -6,35 +6,9 @@ import (
 	"strings"
 )
 
-type findingIdentity struct {
-	Rule        string
-	PackagePath string
-	ImportPath  string
-	Path        string
-}
-
-// FormatAnalysisReport renders a deterministic report with all guardrail classes.
+// FormatAnalysisReport renders a deterministic semantic guardrail report.
 func FormatAnalysisReport(report Report) string {
-	var builder strings.Builder
-	if len(report.Violations) == 0 {
-		builder.WriteString("archguard: no topology violations reported\n")
-	} else {
-		writeFindings(&builder, "topology violation", report.Violations)
-	}
-
-	if len(report.DensityReviewRequirements) != 0 {
-		writeFindings(&builder, "density review required", report.DensityReviewRequirements)
-	}
-
-	if len(report.DensityWatchpoints) != 0 {
-		writeFindings(&builder, "density watchpoint", report.DensityWatchpoints)
-	}
-
-	if len(report.DensityWarnings) != 0 {
-		writeFindings(&builder, "density warning", report.DensityWarnings)
-	}
-
-	return builder.String()
+	return FormatReport(report.Violations)
 }
 
 // FormatReport renders a deterministic text report for test logs and tickets.
@@ -84,37 +58,6 @@ func sortedStrings(values []string) []string {
 	return copied
 }
 
-func dedupRawFindings(findings []rawFinding) []rawFinding {
-	seen := make(map[findingIdentity]bool, len(findings))
-	var deduped []rawFinding
-	for _, finding := range findings {
-		key := findingKey(finding.finding)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		deduped = append(deduped, finding)
-	}
-	return deduped
-}
-
-func findingKey(finding GuardrailFinding) findingIdentity {
-	return findingIdentity{
-		Rule:        finding.Rule,
-		PackagePath: finding.PackagePath,
-		ImportPath:  finding.ImportPath,
-		Path:        finding.Path,
-	}
-}
-
-func sortedRawFindings(findings []rawFinding) []rawFinding {
-	copied := append([]rawFinding(nil), findings...)
-	sort.Slice(copied, func(i int, j int) bool {
-		return lessFinding(copied[i].finding, copied[j].finding)
-	})
-	return copied
-}
-
 func dedupViolations(violations []GuardrailFinding) []GuardrailFinding {
 	return dedupFindings(violations)
 }
@@ -159,12 +102,4 @@ func lessFinding(left GuardrailFinding, right GuardrailFinding) bool {
 	default:
 		return left.Detail < right.Detail
 	}
-}
-
-func sortedPackageDensities(densities []PackageDensity) []PackageDensity {
-	copied := append([]PackageDensity(nil), densities...)
-	sort.Slice(copied, func(i int, j int) bool {
-		return copied[i].PackagePath < copied[j].PackagePath
-	})
-	return copied
 }

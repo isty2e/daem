@@ -51,6 +51,8 @@ jobs:
         run: go mod verify
       - name: Run pre-commit hooks
         run: pre-commit run --all-files --show-diff-on-failure
+      - name: Run resource-scaling contracts
+        run: tools/test.sh scale
 
   compatibility:
     name: Minimum line (Go 1.25.12, Linux amd64)
@@ -78,6 +80,8 @@ jobs:
         run: |
           go mod verify
           tools/test.sh full
+          tools/test.sh tooling
+          tools/test.sh scale
           go build -mod=readonly -trimpath -o "${RUNNER_TEMP}/daem" ./cmd/daem
 
   native:
@@ -116,6 +120,12 @@ jobs:
           uname -a
       - name: Run full native tests
         run: tools/test.sh full
+      - name: Run Darwin test-harness contracts
+        if: matrix.goos == 'darwin'
+        run: tools/test.sh tooling
+      - name: Run Darwin resource-scaling contracts
+        if: matrix.goos == 'darwin'
+        run: tools/test.sh scale
       - name: Build and smoke-test CLI identity and help
         run: |
           go build -mod=readonly -trimpath -o "${RUNNER_TEMP}/daem" ./cmd/daem

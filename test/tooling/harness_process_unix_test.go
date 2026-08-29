@@ -1,6 +1,6 @@
-//go:build darwin || linux
+//go:build unix
 
-package archguard
+package tooling
 
 import (
 	"errors"

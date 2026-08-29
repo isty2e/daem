@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -232,29 +231,6 @@ func TestCommandAdmissionCatalogRoutesEveryRegisteredRoot(t *testing.T) {
 				t.Fatalf("catalog and dispatch disagree: %q", stderr.String())
 			}
 		})
-	}
-}
-
-func TestPlatformDocumentationListsEveryGatedCommandFamily(t *testing.T) {
-	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "platforms.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	families := make([]string, 0, len(commandAdmissionCatalog))
-	for command, policy := range commandAdmissionCatalog {
-		if policy.scope != platformAdmissionBypass {
-			families = append(families, command)
-		}
-	}
-	slices.Sort(families)
-	quoted := make([]string, len(families))
-	for index, family := range families {
-		quoted[index] = "`" + family + "`"
-	}
-	want := strings.Join(quoted[:len(quoted)-1], ", ") + ", and " + quoted[len(quoted)-1]
-	normalized := strings.Join(strings.Fields(string(content)), " ")
-	if !strings.Contains(normalized, "The platform-gated command families "+want) {
-		t.Fatalf("docs/platforms.md does not list canonical gated families %s", want)
 	}
 }
 

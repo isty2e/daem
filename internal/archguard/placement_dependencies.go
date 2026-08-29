@@ -13,7 +13,7 @@ const (
 )
 
 func analyzeArchitectureDependencyDirections(records []PackageRecord) []GuardrailFinding {
-	findings := analyzePackagePlacements(records)
+	var findings []GuardrailFinding
 	for _, record := range sortedRecords(records) {
 		packagePath, internal := internalPath(record.ImportPath)
 		if !internal {
@@ -40,13 +40,6 @@ func analyzeArchitectureDependencyDirections(records []PackageRecord) []Guardrai
 			}
 			importedPlacement, importedPlaced := packagePlacementFor(importedPackage)
 			if !importedPlaced {
-				findings = append(findings, GuardrailFinding{
-					Rule:        rulePackagePlacementOwnership,
-					PackagePath: packagePath,
-					ImportPath:  importedPackage,
-					Path:        importedPackage,
-					Detail:      "imported package has no unique valid architecture placement",
-				})
 				continue
 			}
 			if importedPlacement.role == roleCodec &&
@@ -133,17 +126,6 @@ func analyzeDesiredImports(packagePath string, imports []string) []GuardrailFind
 		if !internal {
 			continue
 		}
-		importedPlacement, placed := packagePlacementFor(importedPackage)
-		if !placed {
-			findings = append(findings, GuardrailFinding{
-				Rule:        rulePackagePlacementOwnership,
-				PackagePath: packagePath,
-				ImportPath:  importedPackage,
-				Path:        importedPackage,
-				Detail:      "imported package has no unique valid architecture placement",
-			})
-			continue
-		}
 		if packagePath == "internal/desired/entity" {
 			findings = append(findings, GuardrailFinding{
 				Rule:        ruleDesiredImportDirection,
@@ -153,11 +135,7 @@ func analyzeDesiredImports(packagePath string, imports []string) []GuardrailFind
 			})
 			continue
 		}
-		if isAllowedDesiredImport(importedPackage) &&
-			!forbiddenRoleDependency(
-				packagePlacement{affinity: affinityDesired, role: roleSemanticKernel},
-				importedPlacement,
-			) {
+		if isAllowedDesiredImport(importedPackage) {
 			continue
 		}
 		findings = append(findings, GuardrailFinding{
@@ -177,23 +155,8 @@ func analyzeTopologyImports(packagePath string, imports []string) []GuardrailFin
 		if !internal {
 			continue
 		}
-		importedPlacement, placed := packagePlacementFor(importedPackage)
-		if !placed {
-			findings = append(findings, GuardrailFinding{
-				Rule:        rulePackagePlacementOwnership,
-				PackagePath: packagePath,
-				ImportPath:  importedPackage,
-				Path:        importedPackage,
-				Detail:      "imported package has no unique valid architecture placement",
-			})
-			continue
-		}
 		if packagePath != "internal/topology" &&
-			isAllowedTopologyImport(packagePath, importedPackage) &&
-			!forbiddenRoleDependency(
-				packagePlacement{affinity: affinityTopology, role: roleSemanticKernel},
-				importedPlacement,
-			) {
+			isAllowedTopologyImport(packagePath, importedPackage) {
 			continue
 		}
 		detail := "Topology root must not import another repository package"

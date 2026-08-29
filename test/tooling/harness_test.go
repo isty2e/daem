@@ -1,4 +1,6 @@
-package archguard
+//go:build unix
+
+package tooling
 
 import (
 	"errors"
@@ -12,7 +14,7 @@ import (
 
 func TestRepositoryGoTestHarnessEnvironment(t *testing.T) {
 	if os.Getenv("DAEM_TEST_HARNESS") != "1" {
-		t.Fatal("repository guards must run through tools/test-go.sh")
+		t.Fatal("tooling tests must run through tools/test-go.sh")
 	}
 
 	testRoot := requireHarnessAbsolutePath(t, "DAEM_TEST_ROOT")
@@ -53,54 +55,6 @@ func TestRepositoryGoTestHarnessEnvironment(t *testing.T) {
 	}
 	if got, present := os.LookupEnv("GOFLAGS"); present {
 		t.Errorf("GOFLAGS = %q, want absent", got)
-	}
-}
-
-func TestRepositoryGoTestEntrypointsUseHarness(t *testing.T) {
-	root := findRepoRoot(t)
-	assertFileContainsExactly(t, filepath.Join(root, ".pre-commit-config.yaml"), "entry: tools/test.sh repository", 1)
-	assertFileContainsExactly(t, filepath.Join(root, ".github", "workflows", "ci.yml"), "tools/test.sh", 3)
-	assertFileContainsExactly(t, filepath.Join(root, ".github", "workflows", "release-artifact.yml"), "tools/test.sh", 1)
-	assertFileContainsExactly(t, filepath.Join(root, "CONTRIBUTING.md"), "tools/test.sh", 6)
-
-	laneInfo, err := os.Stat(filepath.Join(root, "tools", "test.sh"))
-	if err != nil {
-		t.Fatalf("stat test lane owner: %v", err)
-	}
-	if laneInfo.Mode()&0o111 == 0 {
-		t.Fatal("tools/test.sh must be executable")
-	}
-	focusedInfo, err := os.Stat(filepath.Join(root, "tools", "test-focused.sh"))
-	if err != nil {
-		t.Fatalf("stat focused test runner: %v", err)
-	}
-	if focusedInfo.Mode()&0o111 == 0 {
-		t.Fatal("tools/test-focused.sh must be executable")
-	}
-	raceProofInfo, err := os.Stat(filepath.Join(root, "tools", "test-race-proof.sh"))
-	if err != nil {
-		t.Fatalf("stat race detector proof: %v", err)
-	}
-	if raceProofInfo.Mode()&0o111 == 0 {
-		t.Fatal("tools/test-race-proof.sh must be executable")
-	}
-	assertFileContainsExactly(t, filepath.Join(root, "tools", "test.sh"), "tools/test-race-proof.sh", 1)
-	assertFileContainsExactly(t, filepath.Join(root, "tools", "test.sh"), "GORACE=atexit_sleep_ms=0", 1)
-	assertFileContainsExactly(t, filepath.Join(root, "tools", "test-race-proof.sh"), "GORACE=atexit_sleep_ms=0", 1)
-
-	info, err := os.Stat(filepath.Join(root, "tools", "test-go.sh"))
-	if err != nil {
-		t.Fatalf("stat Go test harness: %v", err)
-	}
-	if info.Mode()&0o111 == 0 {
-		t.Fatal("tools/test-go.sh must be executable")
-	}
-	execInfo, err := os.Stat(filepath.Join(root, "tools", "test-exec.sh"))
-	if err != nil {
-		t.Fatalf("stat package test wrapper: %v", err)
-	}
-	if execInfo.Mode()&0o111 == 0 {
-		t.Fatal("tools/test-exec.sh must be executable")
 	}
 }
 
@@ -177,10 +131,10 @@ func TestRepositoryGoTestPackageWrapperPreservesFailureAndCleansRoot(t *testing.
 func TestRepositoryGoTestHarnessRejectsExecOverride(t *testing.T) {
 	root := findRepoRoot(t)
 	for _, arguments := range [][]string{
-		{"-exec=/bin/true", "./internal/archguard"},
-		{"-exec", "/bin/true", "./internal/archguard"},
-		{"--exec=/bin/true", "./internal/archguard"},
-		{"--exec", "/bin/true", "./internal/archguard"},
+		{"-exec=/bin/true", "./test/tooling"},
+		{"-exec", "/bin/true", "./test/tooling"},
+		{"--exec=/bin/true", "./test/tooling"},
+		{"--exec", "/bin/true", "./test/tooling"},
 	} {
 		command := exec.Command(filepath.Join(root, "tools", "test-go.sh"), arguments...)
 		command.Dir = root
@@ -226,7 +180,7 @@ func TestRepositoryGoTestHarnessRejectsHostTestPolicy(t *testing.T) {
 				"-run=^TestRepositoryGoTestHostPolicyProbe$",
 				"-count=1",
 				"-v",
-				"./internal/archguard",
+				"./test/tooling",
 			)
 			command.Dir = root
 			command.Env = append(
@@ -284,31 +238,5 @@ func assertPathDescendsFrom(t *testing.T, name string, value string, root string
 	}
 	if relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		t.Fatalf("%s = %q, want a descendant of %q", name, value, root)
-	}
-}
-
-func withoutEnvironment(environment []string, names ...string) []string {
-	excluded := make(map[string]struct{}, len(names))
-	for _, name := range names {
-		excluded[name] = struct{}{}
-	}
-	filtered := make([]string, 0, len(environment))
-	for _, entry := range environment {
-		name, _, _ := strings.Cut(entry, "=")
-		if _, skip := excluded[name]; !skip {
-			filtered = append(filtered, entry)
-		}
-	}
-	return filtered
-}
-
-func assertFileContainsExactly(t *testing.T, path string, fragment string, want int) {
-	t.Helper()
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	if got := strings.Count(string(content), fragment); got != want {
-		t.Fatalf("%s contains %q %d times, want %d", path, fragment, got, want)
 	}
 }

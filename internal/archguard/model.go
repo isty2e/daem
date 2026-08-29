@@ -1,18 +1,13 @@
 package archguard
 
-// Report classifies topology guardrail findings.
+// Report contains semantic topology guardrail findings.
 type Report struct {
-	Violations                []GuardrailFinding
-	DensityReviewRequirements []GuardrailFinding
-	DensityWatchpoints        []GuardrailFinding
-	DensityWarnings           []GuardrailFinding
-	PackageDensity            []PackageDensity
+	Violations []GuardrailFinding
 }
 
-// HasFailures reports whether semantic violations or unreviewed extreme density
-// should fail the baseline. Ordinary density watchpoints remain non-blocking.
+// HasFailures reports whether semantic topology violations were found.
 func (report Report) HasFailures() bool {
-	return len(report.Violations) != 0 || len(report.DensityReviewRequirements) != 0
+	return len(report.Violations) != 0
 }
 
 // PackageRecord is the subset of go list -json package data used by archguard.
@@ -26,8 +21,7 @@ type PackageRecord struct {
 	TestGoFiles  []string `json:"TestGoFiles"`
 	XTestGoFiles []string `json:"XTestGoFiles"`
 
-	FileLineCounts map[string]int    `json:"-"`
-	FileContents   map[string]string `json:"-"`
+	FileContents map[string]string `json:"-"`
 }
 
 // GuardrailFinding describes one topology guardrail finding.
@@ -38,17 +32,6 @@ type GuardrailFinding struct {
 	Path        string
 	Reason      string
 	Detail      string
-}
-
-// PackageDensity records density inventory for one package.
-type PackageDensity struct {
-	PackagePath        string
-	ProductionFiles    int
-	TestFiles          int
-	MaxProductionPath  string
-	MaxProductionLines int
-	MaxTestPath        string
-	MaxTestLines       int
 }
 
 type importRule struct {
