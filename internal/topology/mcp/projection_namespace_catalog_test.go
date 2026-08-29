@@ -39,4 +39,16 @@ func TestProjectionNamespaceCatalogIsCompleteAndUnique(t *testing.T) {
 		}
 		seenNamespaces[row.namespace] = struct{}{}
 	}
+
+	exported := ImplementedProjectionNamespaces()
+	if len(exported) != len(projectionNamespaceCatalog) {
+		t.Fatalf("exported namespaces = %d want %d", len(exported), len(projectionNamespaceCatalog))
+	}
+	for index, row := range projectionNamespaceCatalog {
+		if exported[index].Target() != row.target ||
+			exported[index].Scope() != row.scope ||
+			exported[index].Namespace() != row.namespace {
+			t.Fatalf("exported row %d = %#v want %#v", index, exported[index], row)
+		}
+	}
 }

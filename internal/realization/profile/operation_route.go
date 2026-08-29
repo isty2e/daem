@@ -103,6 +103,16 @@ var hookAggregateRouteIDs = map[aggregate.HookPlacementID]aggregateRouteIDs{
 	aggregate.HookPlacementClaudeGlobal:  {write: "claude-global-hooks.write_projection", remove: "claude-global-hooks.remove_projection"},
 }
 
+// MCPAggregateRouteIDs returns the write and remove route tokens owned by one
+// implemented MCP placement. Missing IDs are not routes.
+func MCPAggregateRouteIDs(id aggregate.MCPPlacementID) (write string, remove string, ok bool) {
+	ids, ok := mcpAggregateRouteIDs[id]
+	if !ok {
+		return "", "", false
+	}
+	return ids.write, ids.remove, true
+}
+
 var mcpAggregateRouteIDs = map[aggregate.MCPPlacementID]aggregateRouteIDs{
 	aggregate.MCPPlacementClaudeProject:     {write: "claude-project-mcp-stdio.write_projection", remove: "claude-project-mcp-stdio.remove_binding"},
 	aggregate.MCPPlacementClaudeGlobal:      {write: "claude-code-user-mcp-stdio-env.write_projection", remove: "claude-code-user-mcp-stdio-env.remove_binding"},
