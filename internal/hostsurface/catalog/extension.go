@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/hostsurface"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/profile"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	topologyextension "github.com/isty2e/daem/internal/topology/extension"
 )
@@ -331,6 +332,39 @@ func (catalog Catalog) LookupExtensionCell(
 		return ExtensionSurfaceView{}, false
 	}
 	return catalog.LookupExtension(key)
+}
+
+// ExtensionOrderCapability returns the order capability for one exact surface.
+func (catalog Catalog) ExtensionOrderCapability(
+	selectedTarget target.Target,
+	scope target.Scope,
+	carrier desiredextension.Carrier,
+) (profile.ExtensionOrderCapability, bool) {
+	view, ok := catalog.LookupExtensionCell(selectedTarget, scope, carrier)
+	if !ok {
+		return profile.ExtensionOrderCapability{}, false
+	}
+	return view.OrderCapability()
+}
+
+// ExtensionOrderCapabilityForClass returns the single surface capability with
+// the exact physical order class.
+func (catalog Catalog) ExtensionOrderCapabilityForClass(
+	classID hostrelation.OrderClassID,
+) (target.Target, profile.ExtensionOrderCapability, bool) {
+	var selectedTarget target.Target
+	var selected profile.ExtensionOrderCapability
+	count := 0
+	for _, view := range catalog.ExtensionsInOwnerOrder() {
+		capability, ok := view.OrderCapability()
+		if !ok || capability.ClassID() != classID {
+			continue
+		}
+		selectedTarget = view.Key().Target()
+		selected = capability
+		count++
+	}
+	return selectedTarget, selected, count == 1
 }
 
 func (catalog Catalog) LookupExtension(key hostsurface.SurfaceKey) (ExtensionSurfaceView, bool) {

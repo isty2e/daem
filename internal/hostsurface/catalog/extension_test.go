@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/hostsurface"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/profile"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	topologyextension "github.com/isty2e/daem/internal/topology/extension"
 )
 
@@ -105,11 +106,24 @@ func TestProductExtensionSurfacesMatchCarrierRouteNamespaceAndOrderOwners(t *tes
 				gotOrder.RuntimeMeaning() != wantOrder.RuntimeMeaning()) {
 				t.Fatalf("Extension order mismatch for %s", view.ID())
 			}
+			byCellOrder, byCellOrderOK := catalog.ExtensionOrderCapability(selectedTarget, scope, carrier)
+			if byCellOrderOK != gotOrderOK || (gotOrderOK && byCellOrder.ClassID() != gotOrder.ClassID()) {
+				t.Fatalf("Extension order cell lookup mismatch for %s", view.ID())
+			}
+			if gotOrderOK {
+				byClassTarget, byClassOrder, byClassOK := catalog.ExtensionOrderCapabilityForClass(gotOrder.ClassID())
+				if !byClassOK || byClassTarget != selectedTarget || byClassOrder.ClassID() != gotOrder.ClassID() {
+					t.Fatalf("Extension order class lookup mismatch for %s", view.ID())
+				}
+			}
 			if ownerOrder[ownerIndex].ID() != view.ID() {
 				t.Fatalf("Extension owner order[%d] mismatch", ownerIndex)
 			}
 			ownerIndex++
 		}
+	}
+	if _, _, ok := catalog.ExtensionOrderCapabilityForClass(hostrelation.OrderClassID("missing")); ok {
+		t.Fatal("missing Extension order class unexpectedly resolved")
 	}
 }
 

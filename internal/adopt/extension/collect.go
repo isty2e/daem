@@ -6,8 +6,8 @@ import (
 
 	observepi "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
-	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -208,9 +208,10 @@ func (collector *importCollector) addCandidate(
 func (collector *importCollector) loadExistingIdentities() error {
 	for _, value := range collector.input.Existing {
 		key := value.CarrierKey()
-		capability, admitted := profile.Profile(key.Target()).ExtensionOrder(
-			key.Carrier(),
+		capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(
+			key.Target(),
 			key.Scope(),
+			key.Carrier(),
 		)
 		if !admitted || !collector.classObserved(capability.ClassID()) {
 			continue
