@@ -55,10 +55,10 @@ func CanonicalStateDirBounded(
 	return canonicalStateDirBounded(path, maximumPhysicalDepth, budget)
 }
 
-// ObserveClearFence inspects published file-set evidence without retaining
-// StateDir incarnation authority. Identity-bound observation uses
-// recoverygate.RequireFileSetClear.
-func ObserveClearFence(ctx context.Context, stateDir string) error {
+// observeClearFence inspects published file-set evidence without retaining
+// StateDir incarnation authority. Production gates capture identity first and
+// call ObserveClearFenceAt.
+func observeClearFence(ctx context.Context, stateDir string) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
 	}
