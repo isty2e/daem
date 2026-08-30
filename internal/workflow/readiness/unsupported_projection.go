@@ -59,7 +59,7 @@ func SelectedUnsupportedProjections(
 func selectedUnsupportedSkillTargets(targets []target.Target, selection targetselection.Selection) []target.Target {
 	selected := make([]target.Target, 0, len(targets))
 	for _, selectedTarget := range targets {
-		if selection.Includes(selectedTarget) && !profile.Profile(selectedTarget).Supports(entity.KindSkill) {
+		if selection.Includes(selectedTarget) && !profile.TargetSupports(selectedTarget, entity.KindSkill) {
 			selected = append(selected, selectedTarget)
 		}
 	}

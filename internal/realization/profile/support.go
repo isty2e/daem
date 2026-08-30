@@ -75,3 +75,15 @@ func (support Support) Target() target.Target     { return support.selectedTarge
 func (support Support) ResourceKind() entity.Kind { return support.resourceKind }
 func (support Support) Supported() bool           { return support.supported }
 func (support Support) Reason() UnsupportedReason { return support.reason }
+
+// TargetSupports reports whether the target directly admits the resource
+// without assembling TargetProfile. Unknown targets and missing resource
+// facts are unsupported.
+func TargetSupports(selectedTarget target.Target, resourceKind entity.Kind) bool {
+	facts, ok := supportCatalog[selectedTarget]
+	if !ok {
+		return false
+	}
+	support, ok := facts[resourceKind]
+	return ok && support.Supported()
+}

@@ -15,6 +15,14 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
+type extensionOrderObservation struct {
+	selectedTarget target.Target
+	capability     profile.ExtensionOrderCapability
+	constraint     hostrelation.RelationOrderConstraint
+	observation    relationhost.OrderObservation
+	observeErr     error
+}
+
 func observeExtensionOrders(
 	paths daempaths.Paths,
 	locked lock.File,
@@ -22,7 +30,19 @@ func observeExtensionOrders(
 	relationActions []reconcile.RelationAction,
 	absenceActions []carrierabsence.Action,
 ) ([]reconcile.RelationOrderDecision, error) {
-	decisions := make([]reconcile.RelationOrderDecision, 0)
+	facts, err := observeExtensionOrderFacts(paths, locked, selectedTargets)
+	if err != nil {
+		return nil, err
+	}
+	return planExtensionOrderDecisions(facts, relationActions, absenceActions)
+}
+
+func observeExtensionOrderFacts(
+	paths daempaths.Paths,
+	locked lock.File,
+	selectedTargets reconcile.SelectedTargets,
+) ([]extensionOrderObservation, error) {
+	facts := make([]extensionOrderObservation, 0)
 	for _, constraint := range locked.Locked.OrderConstraints() {
 		selectedTarget, capability, admitted := profile.ExtensionOrderCapabilityForClass(
 			constraint.ClassID(),
@@ -36,30 +56,35 @@ func observeExtensionOrders(
 		if !selectedTargets.Contains(selectedTarget) {
 			continue
 		}
-
-		pendingInstalls := pendingOrderInstalls(
-			relationActions,
-			selectedTarget,
-			capability.Scope(),
-			capability.Carrier(),
-		)
-		pendingRemovals := pendingOrderRemovals(
-			absenceActions,
-			selectedTarget,
-			capability.Scope(),
-			capability.Carrier(),
-		)
 		observation, err := relationhost.ObserveOrder(relationhost.OrderInput{
 			Paths:      paths,
 			Lockfile:   locked,
 			Constraint: constraint,
 		})
-		if err != nil {
+		facts = append(facts, extensionOrderObservation{
+			selectedTarget: selectedTarget,
+			capability:     capability,
+			constraint:     constraint,
+			observation:    observation,
+			observeErr:     err,
+		})
+	}
+	return facts, nil
+}
+
+func planExtensionOrderDecisions(
+	facts []extensionOrderObservation,
+	relationActions []reconcile.RelationAction,
+	absenceActions []carrierabsence.Action,
+) ([]reconcile.RelationOrderDecision, error) {
+	decisions := make([]reconcile.RelationOrderDecision, 0)
+	for _, fact := range facts {
+		if fact.observeErr != nil {
 			blocked, blockErr := blockedOrderDecisions(
-				selectedTarget,
-				capability,
-				constraint,
-				err,
+				fact.selectedTarget,
+				fact.capability,
+				fact.constraint,
+				fact.observeErr,
 			)
 			if blockErr != nil {
 				return nil, blockErr
@@ -67,11 +92,23 @@ func observeExtensionOrders(
 			decisions = append(decisions, blocked...)
 			continue
 		}
+		pendingInstalls := pendingOrderInstalls(
+			relationActions,
+			fact.selectedTarget,
+			fact.capability.Scope(),
+			fact.capability.Carrier(),
+		)
+		pendingRemovals := pendingOrderRemovals(
+			absenceActions,
+			fact.selectedTarget,
+			fact.capability.Scope(),
+			fact.capability.Carrier(),
+		)
 		observedDecisions, err := DecideExtensionOrderObservation(
-			selectedTarget,
-			capability,
-			constraint,
-			observation,
+			fact.selectedTarget,
+			fact.capability,
+			fact.constraint,
+			fact.observation,
 			pendingInstalls,
 			pendingRemovals,
 		)
