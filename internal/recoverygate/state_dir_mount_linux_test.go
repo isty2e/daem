@@ -1,6 +1,6 @@
 //go:build linux
 
-package transaction
+package recoverygate
 
 import (
 	"os"

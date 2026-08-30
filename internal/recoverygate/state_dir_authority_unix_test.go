@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package transaction
+package recoverygate
 
 import (
 	"errors"
@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/isty2e/daem/internal/declaration/transaction"
 )
 
 func TestStateDirAuthorityDoesNotAcceptExternalFirstAppearance(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), ".daem")
-	authority, err := CaptureStateDirAuthority(t.Context(), stateDir)
+	authority, err := CaptureStateDir(t.Context(), stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +63,7 @@ func (budget *stateDirRecordingBudget) AdmitPhysicalWork(
 
 func TestStateDirAuthorityCreatesAndBindsOwnedIncarnation(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), ".daem")
-	authority, err := CaptureStateDirAuthority(t.Context(), stateDir)
+	authority, err := CaptureStateDir(t.Context(), stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,18 +87,18 @@ func TestStateDirRequireClearChargesCompleteResidueCensusWork(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(stateDir, "state.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	residueName := fileSetTemporaryPrefix + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	residueName := ".daem-tmp-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	if err := os.Mkdir(filepath.Join(stateDir, residueName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	budget := &stateDirRecordingBudget{limit: 1 << 20}
-	authority, err := CaptureStateDirAuthorityBounded(t.Context(), stateDir, 256, budget)
+	authority, err := CaptureStateDirBounded(t.Context(), stateDir, 256, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
 	beforePathWork := budget.used
 	err = authority.RequireClear(t.Context())
-	if !errors.Is(err, ErrAbandonedFileSetResidue) {
+	if !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
 		t.Fatalf("RequireClear error = %v, want abandoned residue", err)
 	}
 	if budget.physicalCalls == 0 || budget.used <= beforePathWork ||
@@ -111,12 +113,12 @@ func TestStateDirRequireClearChargesCompleteResidueCensusWork(t *testing.T) {
 	}
 }
 
-func TestCaptureStateDirAuthorityBoundedRejectsPathWorkBeforeObservation(t *testing.T) {
+func TestCaptureStateDirBoundedRejectsPathWorkBeforeObservationFromIdentity(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "one", "two", "three", ".daem")
 	budget := &stateDirRecordingBudget{limit: 1}
-	_, err := CaptureStateDirAuthorityBounded(t.Context(), stateDir, 256, budget)
-	if err == nil || !errors.Is(err, ErrFileSetFenceUnprovable) {
-		t.Fatalf("CaptureStateDirAuthorityBounded error = %v, want bounded access refusal", err)
+	_, err := CaptureStateDirBounded(t.Context(), stateDir, 256, budget)
+	if err == nil || !errors.Is(err, transaction.ErrFileSetFenceUnprovable) {
+		t.Fatalf("CaptureStateDirBounded error = %v, want bounded access refusal", err)
 	}
 	if budget.used > budget.limit {
 		t.Fatalf("path budget used = %d, limit = %d", budget.used, budget.limit)

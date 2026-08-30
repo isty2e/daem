@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -21,7 +20,7 @@ import (
 // operation's durable or host effect phases.
 type EffectAuthority struct {
 	paths     daempaths.Paths
-	stateDir  transaction.StateDirAuthority
+	stateDir  StateDirAuthority
 	domains   []mutation.Domain
 	revisions []mutation.RevisionRequest
 }
@@ -53,8 +52,8 @@ func planFromDemand(demand operationplan.Demand) forwardEffectPlan {
 type ForwardEffectAuthority struct {
 	mu                     sync.Mutex
 	authority              EffectAuthority
-	stateDir               *transaction.StateDirExecutionAuthority
-	descendant             *transaction.StateDirDescendantReservation
+	stateDir               *StateDirExecutionAuthority
+	descendant             *StateDirDescendantReservation
 	remainingEnsures       int
 	remainingBarriers      int
 	remainingStateDirCalls int
@@ -190,7 +189,7 @@ func validateBarrier(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if errors.Is(fileSetErr, transaction.ErrStateDirAppeared) {
+	if errors.Is(fileSetErr, ErrStateDirAppeared) {
 		stateErr := normalizeStateDirValidation(fileSetErr)
 		if journalErr != nil {
 			return errors.Join(journalErr, stateErr)
@@ -204,7 +203,7 @@ func validateBarrier(
 }
 
 func normalizeStateDirValidation(err error) error {
-	if errors.Is(err, transaction.ErrStateDirAppeared) {
+	if errors.Is(err, ErrStateDirAppeared) {
 		return errors.Join(mutation.StaleSnapshotError{}, err)
 	}
 	return err
@@ -290,7 +289,7 @@ func (authority EffectAuthority) reservePlan(
 	if err != nil {
 		return nil, err
 	}
-	var descendant *transaction.StateDirDescendantReservation
+	var descendant *StateDirDescendantReservation
 	if plan.DescendantPath != "" {
 		descendant, err = operation.TakeDescendant()
 		if err != nil {
@@ -308,7 +307,7 @@ func (authority EffectAuthority) reservePlan(
 }
 
 // TakeDescendant transfers the one statefile persistence reservation.
-func (authority *ForwardEffectAuthority) TakeDescendant() (*transaction.StateDirDescendantReservation, error) {
+func (authority *ForwardEffectAuthority) TakeDescendant() (*StateDirDescendantReservation, error) {
 	if authority == nil {
 		return nil, fmt.Errorf("forward recovery effect authority is required")
 	}

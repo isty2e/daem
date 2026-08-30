@@ -7,7 +7,6 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
@@ -16,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -116,7 +116,7 @@ type recoveryPathAuthorityFingerprint struct {
 func recoveryOperationFingerprint(
 	paths daempaths.Paths,
 	selection journal.RecoverablePlan,
-	stateDir transaction.StateDirAuthority,
+	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
 ) (mutation.OperationFingerprint, error) {
 	switch selection.AuthorityKind() {
@@ -150,7 +150,7 @@ func recoveryOperationFingerprint(
 func activeRecoveryOperationFingerprint(
 	paths daempaths.Paths,
 	plan recovery.Plan,
-	stateDir transaction.StateDirAuthority,
+	stateDir recoverygate.StateDirAuthority,
 ) (mutation.OperationFingerprint, error) {
 	journalAuthorityFingerprint, err := plan.JournalAuthorityFingerprint()
 	if err != nil {
@@ -255,7 +255,7 @@ func transitionOperationID(transition ownershipmutation.ClaimTransition) string 
 func buildRecoveryAuthorityEvidence(
 	paths daempaths.Paths,
 	selection journal.RecoverablePlan,
-	stateDir transaction.StateDirAuthority,
+	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
 ) (recoveryAuthorityEvidence, error) {
 	switch selection.AuthorityKind() {
@@ -289,7 +289,7 @@ func buildRecoveryAuthorityEvidence(
 func buildActiveRecoveryAuthorityEvidence(
 	paths daempaths.Paths,
 	plan recovery.Plan,
-	stateDir transaction.StateDirAuthority,
+	stateDir recoverygate.StateDirAuthority,
 ) (recoveryAuthorityEvidence, error) {
 	resolvedDestinations, removalPaths, err := resolveRecoveryAuthorityPaths(
 		paths,

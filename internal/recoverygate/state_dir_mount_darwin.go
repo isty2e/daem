@@ -1,6 +1,6 @@
 //go:build darwin
 
-package transaction
+package recoverygate
 
 import (
 	"context"

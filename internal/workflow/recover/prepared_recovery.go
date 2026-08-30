@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 var (
@@ -32,7 +33,7 @@ type recoveryPreparation struct {
 	input              PlanInput
 	operationEvidence  mutation.OperationFingerprint
 	authorityEvidence  recoveryAuthorityEvidence
-	stateDirAuthority  transaction.StateDirAuthority
+	stateDirAuthority  recoverygate.StateDirAuthority
 	activeStateDir     bool
 	fileSetFence       transaction.FileSetFenceKind
 	physicalPathBudget rootedpath.PhysicalTraversalBudget

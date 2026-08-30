@@ -1,9 +1,10 @@
-package transaction
+package recoverygate
 
 import (
 	"fmt"
 	"sync"
 
+	"github.com/isty2e/daem/internal/declaration/transaction"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
@@ -17,10 +18,7 @@ const (
 	defaultStateDirMaximumByteWork          int64 = 16 << 30
 )
 
-type stateDirPhysicalWorkBudget interface {
-	rootedpath.PhysicalTraversalBudget
-	AdmitPhysicalWork(pathComponents int, entries int, bytes int64) error
-}
+type stateDirPhysicalWorkBudget = transaction.PhysicalWorkBudget
 
 type stateDirOperationWorkBudget struct {
 	mu      sync.Mutex

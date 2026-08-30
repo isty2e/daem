@@ -68,7 +68,7 @@ func planRecoveryWithFilesystem(
 		ctx,
 		input,
 		filesystem,
-		func(ctx context.Context, authority transaction.StateDirAuthority) error {
+		func(ctx context.Context, authority recoverygate.StateDirAuthority) error {
 			return authority.RequireClear(ctx)
 		},
 	)
@@ -78,7 +78,7 @@ func planRecoveryWithFilesystemAndFence(
 	ctx context.Context,
 	input PlanInput,
 	filesystem mutationfs.Reader,
-	observeFileSet func(context.Context, transaction.StateDirAuthority) error,
+	observeFileSet func(context.Context, recoverygate.StateDirAuthority) error,
 ) (recoveryPreparation, error) {
 	planningBudget := journalrecovery.NewPhysicalPathBudget()
 	return planRecoveryWithFilesystemFenceAndBudget(
@@ -94,7 +94,7 @@ func planRecoveryWithFilesystemFenceAndBudget(
 	ctx context.Context,
 	input PlanInput,
 	filesystem mutationfs.Reader,
-	observeFileSet func(context.Context, transaction.StateDirAuthority) error,
+	observeFileSet func(context.Context, recoverygate.StateDirAuthority) error,
 	planningBudget rootedpath.PhysicalTraversalBudget,
 ) (recoveryPreparation, error) {
 	if ctx == nil {
@@ -122,7 +122,7 @@ func planRecoveryWithFilesystemFenceAndBudget(
 			paths,
 			input,
 			recoverable,
-			transaction.StateDirAuthority{},
+			recoverygate.StateDirAuthority{},
 			false,
 			transaction.FileSetFenceClear,
 			planningBudget,
@@ -171,7 +171,7 @@ func finishRecoveryPreparation(
 	paths daempaths.Paths,
 	input PlanInput,
 	plan journal.RecoverablePlan,
-	stateDir transaction.StateDirAuthority,
+	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
 	fileSetFence transaction.FileSetFenceKind,
 	physicalPathBudget rootedpath.PhysicalTraversalBudget,
@@ -308,7 +308,7 @@ func Execute(
 		ctx,
 		execution.input,
 		filesystem,
-		func(ctx context.Context, authority transaction.StateDirAuthority) error {
+		func(ctx context.Context, authority recoverygate.StateDirAuthority) error {
 			return authority.RequireClear(ctx)
 		},
 		execution.physicalPathBudget,

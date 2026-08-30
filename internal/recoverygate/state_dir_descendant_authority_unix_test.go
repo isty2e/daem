@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package transaction
+package recoverygate
 
 import (
 	"errors"
@@ -20,7 +20,7 @@ func TestStateDirDescendantReservationChargesBeforeBindingAndConsumesExactly(t *
 		t.Fatal(err)
 	}
 	budget := &stateDirRecordingBudget{limit: 1 << 20}
-	authority, err := CaptureStateDirAuthorityBounded(t.Context(), stateDir, 256, budget)
+	authority, err := CaptureStateDirBounded(t.Context(), stateDir, 256, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestStateDirDescendantReservationRejectsInsufficientOperationBudgetBeforeBi
 		t.Fatal(err)
 	}
 	budget := &stateDirRecordingBudget{limit: 1 << 20}
-	authority, err := CaptureStateDirAuthorityBounded(t.Context(), stateDir, 256, budget)
+	authority, err := CaptureStateDirBounded(t.Context(), stateDir, 256, budget)
 	if err != nil {
 		t.Fatal(err)
 	}

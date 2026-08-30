@@ -179,11 +179,11 @@ func TestCommitPointValidationRejectsAmbiguousPublication(t *testing.T) {
 	})
 }
 
-func TestRequireClearFileSetDistinguishesAbsentAndDamagedEvidence(t *testing.T) {
+func TestObserveClearFenceDistinguishesAbsentAndDamagedEvidence(t *testing.T) {
 	t.Run("absent", func(t *testing.T) {
 		stateDir := mustCanonicalStateDir(t, filepath.Join(t.TempDir(), ".daem"))
-		if err := RequireClearFileSet(context.Background(), stateDir); err != nil {
-			t.Fatalf("RequireClearFileSet returned error: %v", err)
+		if err := ObserveClearFence(context.Background(), stateDir); err != nil {
+			t.Fatalf("ObserveClearFence returned error: %v", err)
 		}
 	})
 
@@ -192,22 +192,22 @@ func TestRequireClearFileSetDistinguishesAbsentAndDamagedEvidence(t *testing.T) 
 		if err := os.MkdirAll(transactionDir(stateDir), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		err := RequireClearFileSet(context.Background(), stateDir)
+		err := ObserveClearFence(context.Background(), stateDir)
 		if err == nil || !errors.Is(err, ErrFileSetEvidenceInvalid) ||
 			FileSetFenceKindOf(err) != FileSetFenceInvalidEvidence ||
 			!strings.Contains(err.Error(), "marker is missing") {
-			t.Fatalf("RequireClearFileSet error = %v, want typed incomplete evidence rejection", err)
+			t.Fatalf("ObserveClearFence error = %v, want typed incomplete evidence rejection", err)
 		}
 	})
 
 	t.Run("non-directory evidence", func(t *testing.T) {
 		stateDir := mustCanonicalStateDir(t, filepath.Join(t.TempDir(), ".daem"))
 		writeFixture(t, transactionDir(stateDir), "not-a-directory", 0o600)
-		err := RequireClearFileSet(context.Background(), stateDir)
+		err := ObserveClearFence(context.Background(), stateDir)
 		if err == nil || !errors.Is(err, ErrFileSetEvidenceInvalid) ||
 			FileSetFenceKindOf(err) != FileSetFenceInvalidEvidence ||
 			!strings.Contains(err.Error(), "is not a directory") {
-			t.Fatalf("RequireClearFileSet error = %v, want typed evidence rejection", err)
+			t.Fatalf("ObserveClearFence error = %v, want typed evidence rejection", err)
 		}
 	})
 
@@ -218,10 +218,10 @@ func TestRequireClearFileSetDistinguishesAbsentAndDamagedEvidence(t *testing.T) 
 		if _, err := prepareMarker(context.Background(), stateDir, []FileTarget{target}); err != nil {
 			t.Fatal(err)
 		}
-		err := RequireClearFileSet(context.Background(), stateDir)
+		err := ObserveClearFence(context.Background(), stateDir)
 		if err == nil || !errors.Is(err, ErrInterruptedFileSetTransaction) ||
 			FileSetFenceKindOf(err) != FileSetFencePublishedTransaction {
-			t.Fatalf("RequireClearFileSet error = %v, want typed interrupted transaction rejection", err)
+			t.Fatalf("ObserveClearFence error = %v, want typed interrupted transaction rejection", err)
 		}
 	})
 }
@@ -252,9 +252,9 @@ func TestCanonicalStateDirWrapsSupportedPathFailures(t *testing.T) {
 			FileSetFenceKindOf(err) != FileSetFenceAccessUnprovable {
 			t.Fatalf("canonicalStateDir error = %v, want typed StateDir access failure", err)
 		}
-		err = RequireClearFileSet(context.Background(), stateDir)
+		err = ObserveClearFence(context.Background(), stateDir)
 		if err == nil || !errors.Is(err, ErrFileSetFenceUnprovable) {
-			t.Fatalf("RequireClearFileSet error = %v, want ErrFileSetFenceUnprovable", err)
+			t.Fatalf("ObserveClearFence error = %v, want ErrFileSetFenceUnprovable", err)
 		}
 		err = RecoverFileSet(context.Background(), stateDir, nil)
 		if err == nil || !errors.Is(err, ErrFileSetFenceUnprovable) {
@@ -342,8 +342,8 @@ func TestFileSetFenceRejectsAbandonedPrivateResidue(t *testing.T) {
 		writeFixture(t, filepath.Join(stateDir, "state.json"), "{}", 0o600)
 		writeFixture(t, filepath.Join(stateDir, fileSetTemporaryPrefix+"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), "stage", 0o600)
 		writeFixture(t, filepath.Join(stateDir, fileSetLegacyStagePrefix+"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), "legacy", 0o600)
-		if err := RequireClearFileSet(context.Background(), stateDir); err != nil {
-			t.Fatalf("RequireClearFileSet returned error: %v", err)
+		if err := ObserveClearFence(context.Background(), stateDir); err != nil {
+			t.Fatalf("ObserveClearFence returned error: %v", err)
 		}
 		if err := RecoverFileSet(context.Background(), stateDir, nil); err != nil {
 			t.Fatalf("RecoverFileSet returned error: %v", err)
@@ -356,8 +356,8 @@ func TestFileSetFenceRejectsAbandonedPrivateResidue(t *testing.T) {
 		if err := os.MkdirAll(nested, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := RequireClearFileSet(context.Background(), stateDir); err != nil {
-			t.Fatalf("RequireClearFileSet returned error: %v", err)
+		if err := ObserveClearFence(context.Background(), stateDir); err != nil {
+			t.Fatalf("ObserveClearFence returned error: %v", err)
 		}
 	})
 
@@ -365,9 +365,9 @@ func TestFileSetFenceRejectsAbandonedPrivateResidue(t *testing.T) {
 		stateDir := mustCanonicalStateDir(t, filepath.Join(t.TempDir(), ".daem"))
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		err := RequireClearFileSet(ctx, stateDir)
+		err := ObserveClearFence(ctx, stateDir)
 		if err == nil || !errors.Is(err, context.Canceled) {
-			t.Fatalf("RequireClearFileSet error = %v, want context.Canceled", err)
+			t.Fatalf("ObserveClearFence error = %v, want context.Canceled", err)
 		}
 	})
 
@@ -429,12 +429,12 @@ func TestFileSetFenceRejectsAbandonedPrivateResidue(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		err := RequireClearFileSet(context.Background(), stateDir)
+		err := ObserveClearFence(context.Background(), stateDir)
 		if err == nil || !errors.Is(err, ErrAbandonedFileSetResidue) {
-			t.Fatalf("RequireClearFileSet error = %v, want ErrAbandonedFileSetResidue", err)
+			t.Fatalf("ObserveClearFence error = %v, want ErrAbandonedFileSetResidue", err)
 		}
 		if !strings.Contains(err.Error(), "first "+earlier) {
-			t.Fatalf("RequireClearFileSet error = %v, want sorted first path %s", err, earlier)
+			t.Fatalf("ObserveClearFence error = %v, want sorted first path %s", err, earlier)
 		}
 	})
 
@@ -479,9 +479,9 @@ func TestFileSetFenceRejectsAbandonedPrivateResidue(t *testing.T) {
 
 func assertFileSetFenceDirty(t *testing.T, stateDir string, residue string) {
 	t.Helper()
-	err := RequireClearFileSet(context.Background(), stateDir)
+	err := ObserveClearFence(context.Background(), stateDir)
 	if err == nil || !errors.Is(err, ErrAbandonedFileSetResidue) || !strings.Contains(err.Error(), residue) {
-		t.Fatalf("RequireClearFileSet error = %v, want residue at %s", err, residue)
+		t.Fatalf("ObserveClearFence error = %v, want residue at %s", err, residue)
 	}
 	err = RecoverFileSet(context.Background(), stateDir, nil)
 	if err == nil || !errors.Is(err, ErrAbandonedFileSetResidue) || !strings.Contains(err.Error(), residue) {

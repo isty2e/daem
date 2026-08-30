@@ -193,13 +193,13 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 
 func lockRequireStateDirClear(
 	ctx context.Context,
-	authority transaction.StateDirAuthority,
+	authority recoverygate.StateDirAuthority,
 ) error {
 	return lockStateDirError(authority.RequireClear(ctx))
 }
 
 func lockStateDirError(err error) error {
-	if errors.Is(err, transaction.ErrStateDirAppeared) {
+	if errors.Is(err, recoverygate.ErrStateDirAppeared) {
 		return errors.Join(mutation.StaleSnapshotError{}, err)
 	}
 	return err

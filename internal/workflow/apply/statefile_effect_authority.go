@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 type statefileEffectPlan struct {
@@ -30,7 +30,7 @@ type statefileEffectReservation interface {
 }
 
 type transactionStatefileEffectReservation struct {
-	reservation *transaction.StateDirDescendantReservation
+	reservation *recoverygate.StateDirDescendantReservation
 }
 
 func (reservation transactionStatefileEffectReservation) Bind(

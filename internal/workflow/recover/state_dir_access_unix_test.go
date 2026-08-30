@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 func TestRecoverPlanBlocksObservedActiveJournalWhenStateDirAccessIsUnprovable(t *testing.T) {
@@ -21,7 +22,7 @@ func TestRecoverPlanBlocksObservedActiveJournalWhenStateDirAccessIsUnprovable(t 
 		t.Context(),
 		fixture.input,
 		storagecommit.Adapter{},
-		func(context.Context, transaction.StateDirAuthority) error {
+		func(context.Context, recoverygate.StateDirAuthority) error {
 			return transaction.ErrFileSetAccessUnprovable
 		},
 	)

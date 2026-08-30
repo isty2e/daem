@@ -1,4 +1,4 @@
-package transaction
+package recoverygate
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/isty2e/daem/internal/declaration/transaction"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -64,10 +65,10 @@ type StateDirAuthority struct {
 	state *stateDirAuthorityState
 }
 
-// CaptureStateDirAuthority captures a no-follow existing namespace ancestor
+// CaptureStateDir captures a no-follow existing namespace ancestor
 // plus the present StateDir object identity. Native handles are not retained.
-func CaptureStateDirAuthority(ctx context.Context, stateDir string) (StateDirAuthority, error) {
-	return CaptureStateDirAuthorityBounded(
+func CaptureStateDir(ctx context.Context, stateDir string) (StateDirAuthority, error) {
+	return CaptureStateDirBounded(
 		ctx,
 		stateDir,
 		defaultStateDirMaximumPhysicalDepth,
@@ -75,17 +76,17 @@ func CaptureStateDirAuthority(ctx context.Context, stateDir string) (StateDirAut
 	)
 }
 
-// CaptureStateDirAuthorityBounded captures StateDir authority while charging
+// CaptureStateDirBounded captures StateDir authority while charging
 // canonicalization, namespace selection, and current-entry observation to one
 // operation-owned physical traversal budget.
-func CaptureStateDirAuthorityBounded(
+func CaptureStateDirBounded(
 	ctx context.Context,
 	stateDir string,
 	maximumPhysicalDepth int,
 	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
 ) (StateDirAuthority, error) {
-	if ctx == nil {
-		return StateDirAuthority{}, fmt.Errorf("file-set transaction context is required")
+	if err := requireBarrierContext(ctx); err != nil {
+		return StateDirAuthority{}, err
 	}
 	if maximumPhysicalDepth <= 0 {
 		return StateDirAuthority{}, fmt.Errorf("file-set state directory maximum physical depth must be positive")
@@ -93,18 +94,15 @@ func CaptureStateDirAuthorityBounded(
 	if physicalWorkBudget == nil {
 		return StateDirAuthority{}, fmt.Errorf("file-set state directory physical work budget is required")
 	}
-	if err := ctx.Err(); err != nil {
-		return StateDirAuthority{}, err
-	}
 	operationBudget := adaptStateDirPhysicalWorkBudget(physicalWorkBudget)
 	selectedPath, err := filepath.Abs(stateDir)
 	if err != nil {
-		return StateDirAuthority{}, wrapFileSetAccessUnprovable(
+		return StateDirAuthority{}, transaction.WrapFileSetAccessUnprovable(
 			fmt.Errorf("resolve selected file-set state directory: %w", err),
 		)
 	}
 	selectedPath = filepath.Clean(selectedPath)
-	canonical, err := canonicalStateDirBounded(stateDir, maximumPhysicalDepth, operationBudget)
+	canonical, err := transaction.CanonicalStateDirBounded(stateDir, maximumPhysicalDepth, operationBudget)
 	if err != nil {
 		return StateDirAuthority{}, err
 	}
@@ -163,7 +161,7 @@ func captureStateDirNamespace(
 		identity, err := storagecommit.ObserveEntryIdentity(ctx, candidate)
 		if err == nil {
 			if identity.Kind() != mutationfs.EntryKindDirectory {
-				return "", storagecommit.EntryIdentity{}, "", "", wrapFileSetAccessUnprovable(
+				return "", storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
 					fmt.Errorf("file-set state directory namespace %q is not a directory", candidate),
 				)
 			}
@@ -172,20 +170,20 @@ func captureStateDirNamespace(
 			}
 			mount, incarnation, platformErr := observeStateDirPlatform(ctx, candidate)
 			if platformErr != nil {
-				return "", storagecommit.EntryIdentity{}, "", "", wrapFileSetAccessUnprovable(
+				return "", storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
 					fmt.Errorf("capture file-set state directory namespace platform identity: %w", platformErr),
 				)
 			}
 			return candidate, identity, mount, incarnation, nil
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
-			return "", storagecommit.EntryIdentity{}, "", "", wrapFileSetAccessUnprovable(
+			return "", storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
 				fmt.Errorf("capture file-set state directory namespace: %w", err),
 			)
 		}
 		parent := filepath.Dir(candidate)
 		if parent == candidate {
-			return "", storagecommit.EntryIdentity{}, "", "", wrapFileSetAccessUnprovable(
+			return "", storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
 				fmt.Errorf("file-set state directory has no observable namespace ancestor"),
 			)
 		}
@@ -308,7 +306,7 @@ func (authority StateDirAuthority) validateWithBudget(
 		return fmt.Errorf("file-set state directory authority is uninitialized")
 	}
 	if ctx == nil {
-		return fmt.Errorf("file-set transaction context is required")
+		return fmt.Errorf("recovery barrier context is required")
 	}
 	if physicalWorkBudget == nil {
 		return fmt.Errorf("file-set state directory physical work budget is required")
@@ -337,7 +335,7 @@ func (authority StateDirAuthority) validateWithBudget(
 		if !present || authority.state.currentMount != observedMount ||
 			authority.state.currentIncarnation != observedIncarnation ||
 			!authority.state.currentIdentity.SameObject(observedIdentity) {
-			return wrapFileSetAccessUnprovable(fmt.Errorf(
+			return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
 				"file-set state directory identity changed after planning",
 			))
 		}
@@ -360,7 +358,7 @@ func validateStateDirNamespace(
 	}
 	current, err := storagecommit.ObserveEntryIdentity(ctx, snapshot.namespacePath)
 	if err != nil {
-		return wrapFileSetAccessUnprovable(
+		return transaction.WrapFileSetAccessUnprovable(
 			fmt.Errorf("recapture file-set state directory namespace: %w", err),
 		)
 	}
@@ -369,7 +367,7 @@ func validateStateDirNamespace(
 	}
 	currentMount, currentIncarnation, err := observeStateDirPlatform(ctx, snapshot.namespacePath)
 	if err != nil {
-		return wrapFileSetAccessUnprovable(
+		return transaction.WrapFileSetAccessUnprovable(
 			fmt.Errorf("recapture file-set state directory namespace platform identity: %w", err),
 		)
 	}
@@ -377,7 +375,7 @@ func validateStateDirNamespace(
 		currentMount != snapshot.namespaceMount ||
 		currentIncarnation != snapshot.namespaceIncarnation ||
 		!snapshot.namespaceIdentity.SameObject(current) {
-		return wrapFileSetAccessUnprovable(fmt.Errorf(
+		return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
 			"file-set state directory namespace changed after planning",
 		))
 	}
@@ -408,7 +406,7 @@ func (authority StateDirAuthority) ensureOwnedIncarnationWithBudget(
 		return false, fmt.Errorf("file-set state directory authority is uninitialized")
 	}
 	if ctx == nil {
-		return false, fmt.Errorf("file-set transaction context is required")
+		return false, fmt.Errorf("recovery barrier context is required")
 	}
 	authority.state.creationMu.Lock()
 	defer authority.state.creationMu.Unlock()
@@ -497,7 +495,7 @@ func (authority StateDirAuthority) acceptCreationWitness(
 		return err
 	}
 	if !present || !witness.identity.SameObject(observedIdentity) {
-		return wrapFileSetAccessUnprovable(fmt.Errorf(
+		return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
 			"file-set state directory creation identity changed before acceptance",
 		))
 	}
@@ -507,7 +505,7 @@ func (authority StateDirAuthority) acceptCreationWitness(
 		if authority.state.currentMount != observedMount ||
 			authority.state.currentIncarnation != observedIncarnation ||
 			!authority.state.currentIdentity.SameObject(observedIdentity) {
-			return wrapFileSetAccessUnprovable(fmt.Errorf(
+			return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
 				"file-set state directory identity changed after planning",
 			))
 		}
@@ -527,7 +525,7 @@ func observeCurrentStateDir(
 	physicalWorkBudget stateDirPhysicalWorkBudget,
 ) (bool, storagecommit.EntryIdentity, string, string, error) {
 	if ctx == nil {
-		return false, storagecommit.EntryIdentity{}, "", "", fmt.Errorf("file-set transaction context is required")
+		return false, storagecommit.EntryIdentity{}, "", "", fmt.Errorf("recovery barrier context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return false, storagecommit.EntryIdentity{}, "", "", err
@@ -540,12 +538,12 @@ func observeCurrentStateDir(
 		return false, storagecommit.EntryIdentity{}, "", "", nil
 	}
 	if err != nil {
-		return false, storagecommit.EntryIdentity{}, "", "", wrapFileSetAccessUnprovable(
+		return false, storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
 			fmt.Errorf("recapture file-set state directory identity: %w", err),
 		)
 	}
 	if observed.Kind() != mutationfs.EntryKindDirectory {
-		return false, storagecommit.EntryIdentity{}, "", "", wrapFileSetAccessUnprovable(
+		return false, storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
 			fmt.Errorf("file-set state directory is not a directory"),
 		)
 	}
@@ -554,7 +552,7 @@ func observeCurrentStateDir(
 	}
 	mount, incarnation, err := observeStateDirPlatform(ctx, path)
 	if err != nil {
-		return false, storagecommit.EntryIdentity{}, "", "", wrapFileSetAccessUnprovable(
+		return false, storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
 			fmt.Errorf("recapture file-set state directory platform identity: %w", err),
 		)
 	}
@@ -570,7 +568,7 @@ func chargeStateDirPath(
 	physicalWorkBudget stateDirPhysicalWorkBudget,
 ) error {
 	if err := rootedpath.ChargeAbsolutePath(path, maximumPhysicalDepth, physicalWorkBudget); err != nil {
-		return wrapFileSetAccessUnprovable(fmt.Errorf(
+		return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
 			"admit file-set state directory path work: %w",
 			err,
 		))
@@ -604,7 +602,7 @@ func (authority StateDirAuthority) requireClearWithBudget(
 	if err := authority.validateWithBudget(ctx, physicalWorkBudget); err != nil {
 		return err
 	}
-	fenceErr := requireClearFileSetAtCanonicalPath(
+	fenceErr := transaction.ObserveClearFenceAt(
 		ctx,
 		snapshot.path,
 		authority.state.maximumPhysicalDepth,
@@ -630,7 +628,7 @@ func (authority StateDirAuthority) requireClearAfterAbsentCapture(
 	if err != nil {
 		return err
 	}
-	fenceErr := requireClearFileSetAtCanonicalPath(
+	fenceErr := transaction.ObserveClearFenceAt(
 		ctx,
 		snapshot.path,
 		authority.state.maximumPhysicalDepth,
@@ -648,7 +646,7 @@ func (authority StateDirAuthority) requireClearAfterAbsentCapture(
 	if beforePresent != afterPresent || beforePresent &&
 		(beforeMount != afterMount || beforeIncarnation != afterIncarnation ||
 			!beforeIdentity.SameObject(afterIdentity)) {
-		return wrapFileSetAccessUnprovable(fmt.Errorf(
+		return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
 			"file-set state directory changed during fence observation",
 		))
 	}

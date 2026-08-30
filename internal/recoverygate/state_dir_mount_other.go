@@ -1,6 +1,6 @@
 //go:build !linux && !darwin
 
-package transaction
+package recoverygate
 
 import "context"
 
