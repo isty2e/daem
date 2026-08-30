@@ -1,4 +1,4 @@
-package transaction
+package fileset
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 
 // PhysicalWorkBudget is the shared operation envelope used by StateDir
 // identity work and file-set fence census. Identity capture lives in
-// recoverygate; this package only charges and inspects fence evidence.
+// recoverygate; this package charges census work and inspects fence evidence.
 type PhysicalWorkBudget interface {
 	rootedpath.PhysicalTraversalBudget
 	AdmitPhysicalWork(pathComponents int, entries int, bytes int64) error

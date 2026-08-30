@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 )
 
@@ -38,7 +38,7 @@ type ExecutionResult struct {
 	disclosure         journal.RecoverablePlan
 	operationID        string
 	executionSucceeded bool
-	fileSetFence       transaction.FileSetFenceObservation
+	fileSetFence       fileset.FileSetFenceObservation
 }
 
 type terminalExecutionFailure struct {
@@ -102,12 +102,12 @@ func (result ExecutionResult) withExecutionFailure() ExecutionResult {
 	return result
 }
 
-func (result ExecutionResult) withFileSetFence(kind transaction.FileSetFenceKind) ExecutionResult {
-	return result.withFileSetFenceObservation(transaction.KnownFileSetFence(kind))
+func (result ExecutionResult) withFileSetFence(kind fileset.FileSetFenceKind) ExecutionResult {
+	return result.withFileSetFenceObservation(fileset.KnownFileSetFence(kind))
 }
 
 func (result ExecutionResult) withFileSetFenceObservation(
-	observation transaction.FileSetFenceObservation,
+	observation fileset.FileSetFenceObservation,
 ) ExecutionResult {
 	result.fileSetFence = observation
 	return result
@@ -115,7 +115,7 @@ func (result ExecutionResult) withFileSetFenceObservation(
 
 // FileSetFenceObservation returns the fresh terminal file-set axis independently
 // of journal authority retirement.
-func (result ExecutionResult) FileSetFenceObservation() transaction.FileSetFenceObservation {
+func (result ExecutionResult) FileSetFenceObservation() fileset.FileSetFenceObservation {
 	return result.fileSetFence
 }
 
@@ -123,7 +123,7 @@ func (result ExecutionResult) FileSetFenceObservation() transaction.FileSetFence
 // terminal file-set fact.
 func (result ExecutionResult) HasNonClearFileSetObservation() bool {
 	return result.fileSetFence.Observed() &&
-		(!result.fileSetFence.Known() || result.fileSetFence.Kind() != transaction.FileSetFenceClear)
+		(!result.fileSetFence.Known() || result.fileSetFence.Kind() != fileset.FileSetFenceClear)
 }
 
 // Phase returns the public post-execution lifecycle projection.

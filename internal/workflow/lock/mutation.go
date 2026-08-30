@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/recoverygate"
@@ -32,7 +32,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		LockfilePath:     outputPath,
 		ExplicitLockfile: input.LockfilePath != "",
 	}
-	metadataTransactionPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	metadataTransactionPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext

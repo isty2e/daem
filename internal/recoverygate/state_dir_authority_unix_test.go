@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 )
 
 func TestStateDirAuthorityDoesNotAcceptExternalFirstAppearance(t *testing.T) {
@@ -98,7 +98,7 @@ func TestStateDirRequireClearChargesCompleteResidueCensusWork(t *testing.T) {
 	}
 	beforePathWork := budget.used
 	err = authority.RequireClear(t.Context())
-	if !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+	if !errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
 		t.Fatalf("RequireClear error = %v, want abandoned residue", err)
 	}
 	if budget.physicalCalls == 0 || budget.used <= beforePathWork ||
@@ -117,7 +117,7 @@ func TestCaptureStateDirBoundedRejectsPathWorkBeforeObservationFromIdentity(t *t
 	stateDir := filepath.Join(t.TempDir(), "one", "two", "three", ".daem")
 	budget := &stateDirRecordingBudget{limit: 1}
 	_, err := CaptureStateDirBounded(t.Context(), stateDir, 256, budget)
-	if err == nil || !errors.Is(err, transaction.ErrFileSetFenceUnprovable) {
+	if err == nil || !errors.Is(err, fileset.ErrFileSetFenceUnprovable) {
 		t.Fatalf("CaptureStateDirBounded error = %v, want bounded access refusal", err)
 	}
 	if budget.used > budget.limit {

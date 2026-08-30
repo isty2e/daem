@@ -15,11 +15,11 @@ import (
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/diagnose"
 	"github.com/isty2e/daem/internal/effect/execute"
 	executedelegate "github.com/isty2e/daem/internal/effect/execute/delegate"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -130,9 +130,9 @@ func classifyFailureReason(err error, executionAttempted bool) FailureReason {
 	}
 	state := recoverygate.StateOf(err)
 	switch state.FileSet() {
-	case transaction.FileSetFenceAccessUnprovable:
+	case fileset.FileSetFenceAccessUnprovable:
 		return FailureReasonFileSetAccessUnprovable
-	case transaction.FileSetFenceInvalidEvidence:
+	case fileset.FileSetFenceInvalidEvidence:
 		return FailureReasonFileSetEvidenceInvalid
 	}
 	if state.JournalKnown() && state.Journal() == journal.InterruptionActiveApply && state.HasContinuingFileSetFence() {
@@ -151,11 +151,11 @@ func classifyFailureReason(err error, executionAttempted bool) FailureReason {
 	}
 	if state.FileSetKnown() {
 		switch state.FileSet() {
-		case transaction.FileSetFencePublishedTransaction:
+		case fileset.FileSetFencePublishedTransaction:
 			return FailureReasonInterruptedFileSetTransaction
-		case transaction.FileSetFenceAbandonedResidue:
+		case fileset.FileSetFenceAbandonedResidue:
 			return FailureReasonAbandonedFileSetResidue
-		case transaction.FileSetFenceCensusLimit:
+		case fileset.FileSetFenceCensusLimit:
 			return FailureReasonFileSetFenceCensusLimit
 		}
 	}

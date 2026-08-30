@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
@@ -83,10 +83,10 @@ func recoverUnmanageFileSetBeforeRead(
 	}
 	state := recoverygate.StateOf(observationErr)
 	if state.Journal() != journal.InterruptionClear ||
-		state.FileSet() != transaction.FileSetFencePublishedTransaction {
+		state.FileSet() != fileset.FileSetFencePublishedTransaction {
 		return observationErr
 	}
-	markerPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	markerPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func recoverUnmanageFileSetBeforeRead(
 	if err := barrier.ValidateFileSetRecovery(ctx); err != nil {
 		return err
 	}
-	if err := transaction.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
+	if err := fileset.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
 		return err
 	}
 	return barrier.Validate(ctx)
@@ -126,7 +126,7 @@ func commitUnmanageCandidate(
 	optimistic unmanageCandidate,
 ) (result UnmanageExtensionResult, returnErr error) {
 	paths := optimistic.document.Paths
-	markerPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	markerPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
@@ -165,7 +165,7 @@ func commitUnmanageCandidate(
 	if err := optimistic.barrier.ValidateFileSetRecovery(ctx); err != nil {
 		return UnmanageExtensionResult{}, err
 	}
-	if err := transaction.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
+	if err := fileset.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
 		return UnmanageExtensionResult{}, err
 	}
 	revisionRequests, err := unmanageRevisionRequests(
@@ -230,7 +230,7 @@ func commitUnmanageCandidate(
 	if err := optimistic.barrier.Validate(ctx); err != nil {
 		return UnmanageExtensionResult{}, err
 	}
-	if err := transaction.CommitFileSet(ctx, transaction.FileSetInput{
+	if err := fileset.CommitFileSet(ctx, fileset.FileSetInput{
 		StateDir: paths.StateDir,
 		Targets:  targets,
 	}); err != nil {
@@ -239,7 +239,7 @@ func commitUnmanageCandidate(
 	return resultFromCandidate(current, true), nil
 }
 
-func fileTargets(current unmanageCandidate) ([]transaction.FileTarget, error) {
+func fileTargets(current unmanageCandidate) ([]fileset.FileTarget, error) {
 	stateContent, err := statefile.Marshal(current.nextState)
 	if err != nil {
 		return nil, fmt.Errorf("marshal unmanage statefile: %w", err)
@@ -266,17 +266,17 @@ func fileTargets(current unmanageCandidate) ([]transaction.FileTarget, error) {
 			current.registryChanged,
 		},
 	}
-	targets := make([]transaction.FileTarget, 0, len(specs))
+	targets := make([]fileset.FileTarget, 0, len(specs))
 	for _, spec := range specs {
-		var target transaction.FileTarget
+		var target fileset.FileTarget
 		var err error
 		switch {
 		case spec.path == current.document.Paths.CarrierClaimRegistryPath && spec.write:
-			target, err = transaction.NewFileCommitPointWrite(spec.path, spec.content)
+			target, err = fileset.NewFileCommitPointWrite(spec.path, spec.content)
 		case spec.write:
-			target, err = transaction.NewFileWrite(spec.path, spec.content)
+			target, err = fileset.NewFileWrite(spec.path, spec.content)
 		default:
-			target, err = transaction.NewFileRetain(spec.path)
+			target, err = fileset.NewFileRetain(spec.path)
 		}
 		if err != nil {
 			return nil, err

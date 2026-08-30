@@ -12,11 +12,11 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -60,7 +60,7 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 			evidence.firstEffectRevisions,
 		)
 	}
-	metadataTransactionPath, err := transaction.FileSetAuthorityPath(planned.context.Paths.StateDir)
+	metadataTransactionPath, err := fileset.FileSetAuthorityPath(planned.context.Paths.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}

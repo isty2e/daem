@@ -7,8 +7,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -124,7 +124,7 @@ func planRecoveryWithFilesystemFenceAndBudget(
 			recoverable,
 			recoverygate.StateDirAuthority{},
 			false,
-			transaction.FileSetFenceClear,
+			fileset.FileSetFenceClear,
 			planningBudget,
 		)
 	}
@@ -145,9 +145,9 @@ func planRecoveryWithFilesystemFenceAndBudget(
 	if err := ctx.Err(); err != nil {
 		return recoveryPreparation{}, err
 	}
-	fenceKind := transaction.FileSetFenceKindOf(fenceErr)
-	blocksRecovery := fenceKind == transaction.FileSetFenceAccessUnprovable ||
-		fenceKind == transaction.FileSetFenceInvalidEvidence
+	fenceKind := fileset.FileSetFenceKindOf(fenceErr)
+	blocksRecovery := fenceKind == fileset.FileSetFenceAccessUnprovable ||
+		fenceKind == fileset.FileSetFenceInvalidEvidence
 	if journalErr != nil {
 		if errors.Is(journalErr, journal.ErrNoRecoverableJournal) && !blocksRecovery {
 			return recoveryPreparation{}, journalErr
@@ -173,7 +173,7 @@ func finishRecoveryPreparation(
 	plan journal.RecoverablePlan,
 	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
-	fileSetFence transaction.FileSetFenceKind,
+	fileSetFence fileset.FileSetFenceKind,
 	physicalPathBudget rootedpath.PhysicalTraversalBudget,
 ) (recoveryPreparation, error) {
 	operationEvidence, err := recoveryOperationFingerprint(paths, plan, stateDir, activeStateDir)
@@ -492,17 +492,17 @@ func classifyPostExecutionAuthority(
 func postExecutionFileSetFence(
 	ctx context.Context,
 	execution recoveryPreparation,
-) (transaction.FileSetFenceObservation, error) {
+) (fileset.FileSetFenceObservation, error) {
 	if !execution.activeStateDir {
-		return transaction.UnobservedFileSetFence(), nil
+		return fileset.UnobservedFileSetFence(), nil
 	}
 	fenceErr := execution.stateDirAuthority.RequireClear(ctx)
-	observation := transaction.ObserveFileSetFence(fenceErr)
+	observation := fileset.ObserveFileSetFence(fenceErr)
 	if observation.Known() {
 		switch observation.Kind() {
-		case transaction.FileSetFencePublishedTransaction,
-			transaction.FileSetFenceAbandonedResidue,
-			transaction.FileSetFenceCensusLimit:
+		case fileset.FileSetFencePublishedTransaction,
+			fileset.FileSetFenceAbandonedResidue,
+			fileset.FileSetFenceCensusLimit:
 			return observation, nil
 		}
 	}

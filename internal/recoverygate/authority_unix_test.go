@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -88,7 +88,7 @@ func TestForwardEffectReservationRejectsCensusWorkBeforeProviderEffect(t *testin
 	if reserveErr == nil {
 		providerEffects++
 	}
-	if !errors.Is(reserveErr, transaction.ErrFileSetAccessUnprovable) {
+	if !errors.Is(reserveErr, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("ReserveForwardEffects error = %v, want census budget refusal", reserveErr)
 	}
 	if providerEffects != 0 {
@@ -142,7 +142,7 @@ func TestForwardEffectReservationRejectsHighCardinalityBeforeProviderEffect(t *t
 		return nil
 	}
 	err = run()
-	if !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+	if !errors.Is(err, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("ReserveForwardEffects error = %v, want operation budget refusal", err)
 	}
 	if providerEffects != 0 {
@@ -175,7 +175,7 @@ func TestEffectAuthorityRejectsStateDirDirectoryReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := authority.Validate(t.Context()); !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+	if err := authority.Validate(t.Context()); !errors.Is(err, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("Validate error = %v, want StateDir identity refusal", err)
 	}
 }
@@ -327,7 +327,7 @@ func TestEffectAuthorityCreatesAndBindsFirstStateDirIncarnation(t *testing.T) {
 	if err := os.Mkdir(stateDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := authority.Validate(t.Context()); !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+	if err := authority.Validate(t.Context()); !errors.Is(err, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("Validate replacement error = %v, want StateDir identity refusal", err)
 	}
 }

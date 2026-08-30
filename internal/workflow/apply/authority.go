@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
@@ -74,7 +74,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	for _, revision := range planned.barrier.RevisionRequests() {
 		builder.AddRevision(revision)
 	}
-	metadataTransactionPath, err := transaction.FileSetAuthorityPath(planned.context.Paths.StateDir)
+	metadataTransactionPath, err := fileset.FileSetAuthorityPath(planned.context.Paths.StateDir)
 	if err != nil {
 		return applyAuthorityEvidence{}, err
 	}

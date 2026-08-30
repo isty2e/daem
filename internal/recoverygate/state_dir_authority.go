@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -97,12 +97,12 @@ func CaptureStateDirBounded(
 	operationBudget := adaptStateDirPhysicalWorkBudget(physicalWorkBudget)
 	selectedPath, err := filepath.Abs(stateDir)
 	if err != nil {
-		return StateDirAuthority{}, transaction.WrapFileSetAccessUnprovable(
+		return StateDirAuthority{}, fileset.WrapFileSetAccessUnprovable(
 			fmt.Errorf("resolve selected file-set state directory: %w", err),
 		)
 	}
 	selectedPath = filepath.Clean(selectedPath)
-	canonical, err := transaction.CanonicalStateDirBounded(stateDir, maximumPhysicalDepth, operationBudget)
+	canonical, err := fileset.CanonicalStateDirBounded(stateDir, maximumPhysicalDepth, operationBudget)
 	if err != nil {
 		return StateDirAuthority{}, err
 	}
@@ -161,7 +161,7 @@ func captureStateDirNamespace(
 		identity, err := storagecommit.ObserveEntryIdentity(ctx, candidate)
 		if err == nil {
 			if identity.Kind() != mutationfs.EntryKindDirectory {
-				return "", storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
+				return "", storagecommit.EntryIdentity{}, "", "", fileset.WrapFileSetAccessUnprovable(
 					fmt.Errorf("file-set state directory namespace %q is not a directory", candidate),
 				)
 			}
@@ -170,20 +170,20 @@ func captureStateDirNamespace(
 			}
 			mount, incarnation, platformErr := observeStateDirPlatform(ctx, candidate)
 			if platformErr != nil {
-				return "", storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
+				return "", storagecommit.EntryIdentity{}, "", "", fileset.WrapFileSetAccessUnprovable(
 					fmt.Errorf("capture file-set state directory namespace platform identity: %w", platformErr),
 				)
 			}
 			return candidate, identity, mount, incarnation, nil
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
-			return "", storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
+			return "", storagecommit.EntryIdentity{}, "", "", fileset.WrapFileSetAccessUnprovable(
 				fmt.Errorf("capture file-set state directory namespace: %w", err),
 			)
 		}
 		parent := filepath.Dir(candidate)
 		if parent == candidate {
-			return "", storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
+			return "", storagecommit.EntryIdentity{}, "", "", fileset.WrapFileSetAccessUnprovable(
 				fmt.Errorf("file-set state directory has no observable namespace ancestor"),
 			)
 		}
@@ -335,7 +335,7 @@ func (authority StateDirAuthority) validateWithBudget(
 		if !present || authority.state.currentMount != observedMount ||
 			authority.state.currentIncarnation != observedIncarnation ||
 			!authority.state.currentIdentity.SameObject(observedIdentity) {
-			return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
+			return fileset.WrapFileSetAccessUnprovable(fmt.Errorf(
 				"file-set state directory identity changed after planning",
 			))
 		}
@@ -358,7 +358,7 @@ func validateStateDirNamespace(
 	}
 	current, err := storagecommit.ObserveEntryIdentity(ctx, snapshot.namespacePath)
 	if err != nil {
-		return transaction.WrapFileSetAccessUnprovable(
+		return fileset.WrapFileSetAccessUnprovable(
 			fmt.Errorf("recapture file-set state directory namespace: %w", err),
 		)
 	}
@@ -367,7 +367,7 @@ func validateStateDirNamespace(
 	}
 	currentMount, currentIncarnation, err := observeStateDirPlatform(ctx, snapshot.namespacePath)
 	if err != nil {
-		return transaction.WrapFileSetAccessUnprovable(
+		return fileset.WrapFileSetAccessUnprovable(
 			fmt.Errorf("recapture file-set state directory namespace platform identity: %w", err),
 		)
 	}
@@ -375,7 +375,7 @@ func validateStateDirNamespace(
 		currentMount != snapshot.namespaceMount ||
 		currentIncarnation != snapshot.namespaceIncarnation ||
 		!snapshot.namespaceIdentity.SameObject(current) {
-		return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
+		return fileset.WrapFileSetAccessUnprovable(fmt.Errorf(
 			"file-set state directory namespace changed after planning",
 		))
 	}
@@ -495,7 +495,7 @@ func (authority StateDirAuthority) acceptCreationWitness(
 		return err
 	}
 	if !present || !witness.identity.SameObject(observedIdentity) {
-		return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
+		return fileset.WrapFileSetAccessUnprovable(fmt.Errorf(
 			"file-set state directory creation identity changed before acceptance",
 		))
 	}
@@ -505,7 +505,7 @@ func (authority StateDirAuthority) acceptCreationWitness(
 		if authority.state.currentMount != observedMount ||
 			authority.state.currentIncarnation != observedIncarnation ||
 			!authority.state.currentIdentity.SameObject(observedIdentity) {
-			return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
+			return fileset.WrapFileSetAccessUnprovable(fmt.Errorf(
 				"file-set state directory identity changed after planning",
 			))
 		}
@@ -538,12 +538,12 @@ func observeCurrentStateDir(
 		return false, storagecommit.EntryIdentity{}, "", "", nil
 	}
 	if err != nil {
-		return false, storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
+		return false, storagecommit.EntryIdentity{}, "", "", fileset.WrapFileSetAccessUnprovable(
 			fmt.Errorf("recapture file-set state directory identity: %w", err),
 		)
 	}
 	if observed.Kind() != mutationfs.EntryKindDirectory {
-		return false, storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
+		return false, storagecommit.EntryIdentity{}, "", "", fileset.WrapFileSetAccessUnprovable(
 			fmt.Errorf("file-set state directory is not a directory"),
 		)
 	}
@@ -552,7 +552,7 @@ func observeCurrentStateDir(
 	}
 	mount, incarnation, err := observeStateDirPlatform(ctx, path)
 	if err != nil {
-		return false, storagecommit.EntryIdentity{}, "", "", transaction.WrapFileSetAccessUnprovable(
+		return false, storagecommit.EntryIdentity{}, "", "", fileset.WrapFileSetAccessUnprovable(
 			fmt.Errorf("recapture file-set state directory platform identity: %w", err),
 		)
 	}
@@ -568,7 +568,7 @@ func chargeStateDirPath(
 	physicalWorkBudget stateDirPhysicalWorkBudget,
 ) error {
 	if err := rootedpath.ChargeAbsolutePath(path, maximumPhysicalDepth, physicalWorkBudget); err != nil {
-		return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
+		return fileset.WrapFileSetAccessUnprovable(fmt.Errorf(
 			"admit file-set state directory path work: %w",
 			err,
 		))
@@ -602,7 +602,7 @@ func (authority StateDirAuthority) requireClearWithBudget(
 	if err := authority.validateWithBudget(ctx, physicalWorkBudget); err != nil {
 		return err
 	}
-	fenceErr := transaction.ObserveClearFenceAt(
+	fenceErr := fileset.ObserveClearFenceAt(
 		ctx,
 		snapshot.path,
 		authority.state.maximumPhysicalDepth,
@@ -628,7 +628,7 @@ func (authority StateDirAuthority) requireClearAfterAbsentCapture(
 	if err != nil {
 		return err
 	}
-	fenceErr := transaction.ObserveClearFenceAt(
+	fenceErr := fileset.ObserveClearFenceAt(
 		ctx,
 		snapshot.path,
 		authority.state.maximumPhysicalDepth,
@@ -646,7 +646,7 @@ func (authority StateDirAuthority) requireClearAfterAbsentCapture(
 	if beforePresent != afterPresent || beforePresent &&
 		(beforeMount != afterMount || beforeIncarnation != afterIncarnation ||
 			!beforeIdentity.SameObject(afterIdentity)) {
-		return transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
+		return fileset.WrapFileSetAccessUnprovable(fmt.Errorf(
 			"file-set state directory changed during fence observation",
 		))
 	}

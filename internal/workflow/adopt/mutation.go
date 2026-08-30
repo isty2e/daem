@@ -8,8 +8,8 @@ import (
 	"strconv"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -432,7 +432,7 @@ func importMutationEvidence(
 			return nil, nil, nil, err
 		}
 	}
-	metadataTransactionPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	metadataTransactionPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		return nil, nil, nil, err
 	}

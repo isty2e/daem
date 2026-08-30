@@ -4,16 +4,16 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 )
 
 func TestExecutionResultPreservesEveryKnownNonClearFileSetFence(t *testing.T) {
-	for _, kind := range []transaction.FileSetFenceKind{
-		transaction.FileSetFencePublishedTransaction,
-		transaction.FileSetFenceInvalidEvidence,
-		transaction.FileSetFenceAbandonedResidue,
-		transaction.FileSetFenceCensusLimit,
-		transaction.FileSetFenceAccessUnprovable,
+	for _, kind := range []fileset.FileSetFenceKind{
+		fileset.FileSetFencePublishedTransaction,
+		fileset.FileSetFenceInvalidEvidence,
+		fileset.FileSetFenceAbandonedResidue,
+		fileset.FileSetFenceCensusLimit,
+		fileset.FileSetFenceAccessUnprovable,
 	} {
 		t.Run(string(kind), func(t *testing.T) {
 			result := retiredExecutionResult("operation", true).withFileSetFence(kind)
@@ -32,7 +32,7 @@ func TestExecutionResultPreservesEveryKnownNonClearFileSetFence(t *testing.T) {
 }
 
 func TestExecutionResultPreservesObservedUnknownFileSetFence(t *testing.T) {
-	observation := transaction.ObserveFileSetFence(errors.New("unclassified file-set observation"))
+	observation := fileset.ObserveFileSetFence(errors.New("unclassified file-set observation"))
 	result := retiredExecutionResult("operation", false).withFileSetFenceObservation(observation)
 	got := result.FileSetFenceObservation()
 	if !got.Observed() || got.Known() {

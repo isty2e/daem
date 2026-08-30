@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -135,7 +135,7 @@ func TestProviderReplanPreservesAbandonedFileSetResidue(t *testing.T) {
 	result, err := ExecuteWithOptions(t.Context(), planned, ExecuteOptions{
 		HostRouteExecutor: executor,
 	})
-	if err == nil || !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+	if err == nil || !errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
 		t.Fatalf("error = %v, want ErrAbandonedFileSetResidue", err)
 	}
 	failure := ClassifyFailure(err, result)

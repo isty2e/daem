@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -23,10 +23,10 @@ func TestRecoverPlanBlocksObservedActiveJournalWhenStateDirAccessIsUnprovable(t 
 		fixture.input,
 		storagecommit.Adapter{},
 		func(context.Context, recoverygate.StateDirAuthority) error {
-			return transaction.ErrFileSetAccessUnprovable
+			return fileset.ErrFileSetAccessUnprovable
 		},
 	)
-	if !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+	if !errors.Is(err, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("Plan error = %v, want StateDir access failure", err)
 	}
 	if !errors.Is(err, journal.ErrInterruptedApply) {
@@ -76,7 +76,7 @@ func TestRecoverExecuteRejectsStateDirReplacementEvenWhenJournalMovesWithIt(t *t
 	}
 
 	_, err = Execute(t.Context(), prepared, ExecuteOptions{})
-	if !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+	if !errors.Is(err, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("Execute error = %v, want StateDir identity failure", err)
 	}
 	if _, statErr := os.Lstat(residue); statErr != nil {
@@ -117,7 +117,7 @@ func TestRecoverExecuteBlocksWhenStateDirIdentityIsLostAfterPlanning(t *testing.
 	})
 
 	_, err = Execute(t.Context(), prepared, ExecuteOptions{})
-	if !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+	if !errors.Is(err, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("Execute error = %v, want StateDir access failure", err)
 	}
 	if _, statErr := os.Lstat(retainedOperation); statErr != nil {

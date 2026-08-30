@@ -10,6 +10,7 @@ import (
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -452,10 +453,10 @@ func recoverMetadataFileSetBeforeRead(
 	}
 	state := recoverygate.StateOf(observationErr)
 	if state.Journal() != journal.InterruptionClear ||
-		state.FileSet() != transaction.FileSetFencePublishedTransaction {
+		state.FileSet() != fileset.FileSetFencePublishedTransaction {
 		return observationErr
 	}
-	markerPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	markerPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		return err
 	}
@@ -485,7 +486,7 @@ func recoverMetadataFileSetBeforeRead(
 	if err := barrier.ValidateFileSetRecovery(ctx); err != nil {
 		return err
 	}
-	if err := transaction.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
+	if err := fileset.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
 		return err
 	}
 	return barrier.Validate(ctx)

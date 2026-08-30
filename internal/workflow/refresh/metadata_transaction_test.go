@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -20,7 +20,7 @@ import (
 func TestRefreshPreservesKnownFenceBesideUnknownJournal(t *testing.T) {
 	cause := recoverygate.Combine(
 		errors.New("recovery inventory inspection failed"),
-		transaction.ErrAbandonedFileSetResidue,
+		fileset.ErrAbandonedFileSetResidue,
 	)
 	planned, err := journalAndFileSetRefusal(CommandResult{Mode: ModeExecute}, cause)
 	if err == nil || planned.result.ReasonCode != ReasonAbandonedFileSetResidue {
@@ -28,7 +28,7 @@ func TestRefreshPreservesKnownFenceBesideUnknownJournal(t *testing.T) {
 	}
 	state := planned.result.RecoveryBarrier
 	if !state.JournalObserved() || state.JournalKnown() ||
-		!state.FileSetKnown() || state.FileSet() != transaction.FileSetFenceAbandonedResidue ||
+		!state.FileSetKnown() || state.FileSet() != fileset.FileSetFenceAbandonedResidue ||
 		!isPreservedReplanCause(err) {
 		t.Fatalf("barrier state = %#v", state)
 	}
@@ -85,7 +85,7 @@ func TestRefreshPlanningFailsClosedOnAbandonedFileSetResidue(t *testing.T) {
 		ManifestPath: manifestPath,
 		ExtensionID:  "formatter",
 	}, PlanOptions{CommandBuilder: syntheticRefreshCommandBuilder(t)})
-	if err == nil || !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+	if err == nil || !errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
 		t.Fatalf("error = %v, want ErrAbandonedFileSetResidue", err)
 	}
 	if result.ReasonCode != ReasonAbandonedFileSetResidue {
@@ -123,7 +123,7 @@ func TestRefreshPlanningFailsClosedOnUnprovableFileSetFence(t *testing.T) {
 		ManifestPath: manifestPath,
 		ExtensionID:  "formatter",
 	}, PlanOptions{CommandBuilder: syntheticRefreshCommandBuilder(t)})
-	if err == nil || !errors.Is(err, transaction.ErrFileSetFenceUnprovable) {
+	if err == nil || !errors.Is(err, fileset.ErrFileSetFenceUnprovable) {
 		t.Fatalf("error = %v, want ErrFileSetFenceUnprovable", err)
 	}
 	if result.ReasonCode != ReasonFileSetFenceCensusLimit {
@@ -161,7 +161,7 @@ func TestRefreshSecondPassPreservesAbandonedFileSetResidue(t *testing.T) {
 		ManifestPath: manifestPath,
 		ExtensionID:  "formatter",
 	}, PlanOptions{CommandBuilder: commandBuilder})
-	if err == nil || !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+	if err == nil || !errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
 		t.Fatalf("error = %v, want ErrAbandonedFileSetResidue", err)
 	}
 	if result.ReasonCode != ReasonAbandonedFileSetResidue {
@@ -190,7 +190,7 @@ func TestRefreshExecutePreservesAbandonedFileSetResidueAfterPlanning(t *testing.
 	plantAbandonedFileSetResidue(t, paths.StateDir)
 
 	result, err := Execute(context.Background(), prepared, ExecuteOptions{})
-	if err == nil || !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+	if err == nil || !errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
 		t.Fatalf("error = %v, want ErrAbandonedFileSetResidue", err)
 	}
 	if result.ReasonCode != ReasonAbandonedFileSetResidue {
@@ -214,7 +214,7 @@ func TestRefreshPlanningFailsClosedOnUncanonicalizableStateDir(t *testing.T) {
 		ManifestPath: manifestPath,
 		ExtensionID:  "formatter",
 	}, PlanOptions{CommandBuilder: syntheticRefreshCommandBuilder(t)})
-	if err == nil || !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+	if err == nil || !errors.Is(err, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("error = %v, want ErrFileSetAccessUnprovable", err)
 	}
 	if result.ReasonCode != ReasonFileSetAccessUnprovable {
@@ -286,25 +286,25 @@ func TestFileSetFenceRefusalClassifiesSentinels(t *testing.T) {
 		},
 		{
 			name:       "abandoned residue",
-			err:        transaction.ErrAbandonedFileSetResidue,
+			err:        fileset.ErrAbandonedFileSetResidue,
 			wantReason: ReasonAbandonedFileSetResidue,
 			forbidden:  "retry the interrupted",
 		},
 		{
 			name:       "census limit",
-			err:        transaction.ErrFileSetFenceCensusLimit,
+			err:        fileset.ErrFileSetFenceCensusLimit,
 			wantReason: ReasonFileSetFenceCensusLimit,
 			forbidden:  "retry the interrupted",
 		},
 		{
 			name:       "access unprovable",
-			err:        transaction.ErrFileSetAccessUnprovable,
+			err:        fileset.ErrFileSetAccessUnprovable,
 			wantReason: ReasonFileSetAccessUnprovable,
 			forbidden:  "recover --dry-run",
 		},
 		{
 			name:       "interrupted marker",
-			err:        transaction.ErrInterruptedFileSetTransaction,
+			err:        fileset.ErrInterruptedFileSetTransaction,
 			wantReason: ReasonInterruptedFileSetTransaction,
 			forbidden:  "preserve the reported residue",
 		},
@@ -330,7 +330,7 @@ func TestFileSetFenceRefusalClassifiesSentinels(t *testing.T) {
 func TestJournalAndFileSetRefusalJointContract(t *testing.T) {
 	t.Parallel()
 	journalErr := fmt.Errorf("%w; run: daem recover --dry-run", journal.ErrInterruptedApply)
-	err := recoverygate.Combine(journalErr, transaction.ErrAbandonedFileSetResidue)
+	err := recoverygate.Combine(journalErr, fileset.ErrAbandonedFileSetResidue)
 	planned, refuseErr := journalAndFileSetRefusal(CommandResult{}, err)
 	if refuseErr == nil {
 		t.Fatal("expected refusal")
@@ -349,7 +349,7 @@ func TestJournalAndFileSetRefusalUnprovableAccessForbidsRecoverFirst(t *testing.
 	t.Parallel()
 	err := recoverygate.Combine(
 		errors.New("recovery inventory inspect failed"),
-		transaction.ErrFileSetAccessUnprovable,
+		fileset.ErrFileSetAccessUnprovable,
 	)
 	planned, refuseErr := journalAndFileSetRefusal(CommandResult{}, err)
 	if refuseErr == nil {
@@ -380,7 +380,7 @@ func TestMapPreservedReplanCauseKeepsJournalAndCancellation(t *testing.T) {
 			name: "joint journal and fence",
 			err: errors.Join(
 				mutation.StalePlanError{},
-				recoverygate.Combine(journal.ErrInterruptedApply, transaction.ErrAbandonedFileSetResidue),
+				recoverygate.Combine(journal.ErrInterruptedApply, fileset.ErrAbandonedFileSetResidue),
 			),
 			wantReason: ReasonInterruptedApplyFileSetFence,
 		},
@@ -414,8 +414,8 @@ func TestMapPreservedReplanCauseKeepsJournalAndCancellation(t *testing.T) {
 func TestStaleBeforeAttemptPreservesFenceSentinels(t *testing.T) {
 	t.Parallel()
 	causes := []error{
-		transaction.ErrAbandonedFileSetResidue,
-		errors.Join(mutation.StalePlanError{}, transaction.ErrFileSetAccessUnprovable),
+		fileset.ErrAbandonedFileSetResidue,
+		errors.Join(mutation.StalePlanError{}, fileset.ErrFileSetAccessUnprovable),
 	}
 	want := []ReasonCode{ReasonAbandonedFileSetResidue, ReasonFileSetAccessUnprovable}
 	for index, cause := range causes {

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 )
 
 type captureStateDirRecordingBudget struct {
@@ -38,7 +38,7 @@ func TestCaptureStateDirBoundedRejectsPathWorkBeforeObservation(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "one", "two", "three", ".daem")
 	budget := &captureStateDirRecordingBudget{limit: 1}
 	_, err := CaptureStateDirBounded(t.Context(), stateDir, 256, budget)
-	if err == nil || !errors.Is(err, transaction.ErrFileSetFenceUnprovable) {
+	if err == nil || !errors.Is(err, fileset.ErrFileSetFenceUnprovable) {
 		t.Fatalf("CaptureStateDirBounded error = %v, want bounded access refusal", err)
 	}
 	if budget.used > budget.limit {

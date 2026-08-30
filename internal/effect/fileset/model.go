@@ -1,6 +1,6 @@
 // Package fileset commits a bounded set of exact files under recoverable
 // before/after evidence. It owns publication mechanics, not file semantics.
-package transaction
+package fileset
 
 import (
 	"fmt"

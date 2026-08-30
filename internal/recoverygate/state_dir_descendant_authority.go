@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
@@ -194,7 +194,7 @@ func (authority StateDirAuthority) ReserveOperation(
 		}
 	}
 	if fileSetCensuses != 0 {
-		census, censusErr := transaction.MaximumFenceCensusWork(
+		census, censusErr := fileset.MaximumFenceCensusWork(
 			snapshot.path,
 			authority.state.maximumPhysicalDepth,
 		)
@@ -241,7 +241,7 @@ func (authority StateDirAuthority) ReserveOperation(
 		total.entries,
 		total.bytes,
 	); err != nil {
-		return nil, transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
+		return nil, fileset.WrapFileSetAccessUnprovable(fmt.Errorf(
 			"reserve complete file-set StateDir operation physical work: %w",
 			err,
 		))
@@ -338,7 +338,7 @@ func (reservation *StateDirDescendantReservation) Bind(
 		reservation.budget,
 	)
 	if err != nil {
-		return nil, transaction.WrapFileSetAccessUnprovable(fmt.Errorf(
+		return nil, fileset.WrapFileSetAccessUnprovable(fmt.Errorf(
 			"capture canonical file-set StateDir root: %w",
 			err,
 		))

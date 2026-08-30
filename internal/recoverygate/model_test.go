@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 )
 
@@ -17,40 +17,40 @@ func TestCombinePreservesOrthogonalRecoveryBarrierState(t *testing.T) {
 		journalErr  error
 		fileSetErr  error
 		wantJournal journal.InterruptionKind
-		wantFileSet transaction.FileSetFenceKind
+		wantFileSet fileset.FileSetFenceKind
 		continuing  bool
 		blocks      bool
 	}{
 		{
 			name:        "active with residue",
 			journalErr:  journal.ErrInterruptedApply,
-			fileSetErr:  transaction.ErrAbandonedFileSetResidue,
+			fileSetErr:  fileset.ErrAbandonedFileSetResidue,
 			wantJournal: journal.InterruptionActiveApply,
-			wantFileSet: transaction.FileSetFenceAbandonedResidue,
+			wantFileSet: fileset.FileSetFenceAbandonedResidue,
 			continuing:  true,
 		},
 		{
 			name:        "cleanup with published transaction",
 			journalErr:  journal.ErrIncompleteJournalCleanup,
-			fileSetErr:  transaction.ErrInterruptedFileSetTransaction,
+			fileSetErr:  fileset.ErrInterruptedFileSetTransaction,
 			wantJournal: journal.InterruptionCleanupOnly,
-			wantFileSet: transaction.FileSetFencePublishedTransaction,
+			wantFileSet: fileset.FileSetFencePublishedTransaction,
 			continuing:  true,
 		},
 		{
 			name:        "active with access failure",
 			journalErr:  journal.ErrInterruptedApply,
-			fileSetErr:  transaction.ErrFileSetAccessUnprovable,
+			fileSetErr:  fileset.ErrFileSetAccessUnprovable,
 			wantJournal: journal.InterruptionActiveApply,
-			wantFileSet: transaction.FileSetFenceAccessUnprovable,
+			wantFileSet: fileset.FileSetFenceAccessUnprovable,
 			blocks:      true,
 		},
 		{
 			name:        "cleanup with invalid evidence",
 			journalErr:  journal.ErrIncompleteJournalCleanup,
-			fileSetErr:  transaction.ErrFileSetEvidenceInvalid,
+			fileSetErr:  fileset.ErrFileSetEvidenceInvalid,
 			wantJournal: journal.InterruptionCleanupOnly,
-			wantFileSet: transaction.FileSetFenceInvalidEvidence,
+			wantFileSet: fileset.FileSetFenceInvalidEvidence,
 			blocks:      true,
 		},
 	}
@@ -81,7 +81,7 @@ func TestCombineCancellationHasHighestPrecedence(t *testing.T) {
 	t.Parallel()
 	for _, err := range []error{
 		Combine(journal.ErrInterruptedApply, context.Canceled),
-		Combine(context.DeadlineExceeded, transaction.ErrAbandonedFileSetResidue),
+		Combine(context.DeadlineExceeded, fileset.ErrAbandonedFileSetResidue),
 	} {
 		if !IsCancellation(err) {
 			t.Fatalf("error = %v, want cancellation", err)
@@ -94,12 +94,12 @@ func TestCombineCancellationHasHighestPrecedence(t *testing.T) {
 
 func TestAccessFailureMessagePrecedesObservedJournalAuthority(t *testing.T) {
 	t.Parallel()
-	err := Combine(journal.ErrInterruptedApply, transaction.ErrFileSetAccessUnprovable)
+	err := Combine(journal.ErrInterruptedApply, fileset.ErrFileSetAccessUnprovable)
 	if err == nil {
 		t.Fatal("expected joint error")
 	}
 	text := err.Error()
-	if !strings.HasPrefix(text, transaction.ErrFileSetAccessUnprovable.Error()) ||
+	if !strings.HasPrefix(text, fileset.ErrFileSetAccessUnprovable.Error()) ||
 		!strings.Contains(text, "cannot be acted on") {
 		t.Fatalf("error = %q, want access-first diagnosis", text)
 	}
@@ -108,7 +108,7 @@ func TestAccessFailureMessagePrecedesObservedJournalAuthority(t *testing.T) {
 func TestUnknownJournalObservationDoesNotRecommendRecovery(t *testing.T) {
 	t.Parallel()
 	journalErr := errors.New("recovery inventory inspection failed")
-	err := Combine(journalErr, transaction.ErrAbandonedFileSetResidue)
+	err := Combine(journalErr, fileset.ErrAbandonedFileSetResidue)
 	if err == nil {
 		t.Fatal("expected joint error")
 	}
@@ -116,7 +116,7 @@ func TestUnknownJournalObservationDoesNotRecommendRecovery(t *testing.T) {
 		t.Fatalf("error = %q, want no recoverable-authority claim", err)
 	}
 	if !errors.Is(err, journalErr) ||
-		!errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+		!errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
 		t.Fatalf("joint error lost a cause: %v", err)
 	}
 }
@@ -130,7 +130,7 @@ func TestCombinePreservesSingleAxisCausesAndPeerKnowledge(t *testing.T) {
 	}
 	journalState := StateOf(journalOnly)
 	if !journalState.JournalObserved() || journalState.JournalKnown() ||
-		!journalState.FileSetKnown() || journalState.FileSet() != transaction.FileSetFenceClear {
+		!journalState.FileSetKnown() || journalState.FileSet() != fileset.FileSetFenceClear {
 		t.Fatalf("journal-only state = %#v", journalState)
 	}
 
@@ -182,10 +182,10 @@ func TestCaptureStateDirBoundedRejectsNilContext(t *testing.T) {
 func TestCombinePreservesKnownPeerBesideUnknownAxis(t *testing.T) {
 	t.Parallel()
 	journalErr := errors.New("recovery inventory inspection failed")
-	err := Combine(journalErr, transaction.ErrAbandonedFileSetResidue)
+	err := Combine(journalErr, fileset.ErrAbandonedFileSetResidue)
 	state := StateOf(err)
 	if !state.JournalObserved() || state.JournalKnown() ||
-		!state.FileSetKnown() || state.FileSet() != transaction.FileSetFenceAbandonedResidue {
+		!state.FileSetKnown() || state.FileSet() != fileset.FileSetFenceAbandonedResidue {
 		t.Fatalf("partial state = %#v", state)
 	}
 	if !state.Observed() || state.JournalKnown() || !state.HasContinuingFileSetFence() {

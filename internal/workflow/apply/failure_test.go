@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/recoverygate"
@@ -70,7 +70,7 @@ func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
 		},
 		{
 			name:    "abandoned file-set residue",
-			err:     fmt.Errorf("wrap: %w", transaction.ErrAbandonedFileSetResidue),
+			err:     fmt.Errorf("wrap: %w", fileset.ErrAbandonedFileSetResidue),
 			reason:  FailureReasonAbandonedFileSetResidue,
 			phase:   FailurePhasePreflight,
 			outcome: FailureOutcomeRefused,
@@ -86,7 +86,7 @@ func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
 			name: "recoverable journal with continuing residue",
 			err: recoverygate.Combine(
 				fmt.Errorf("%w; run: daem recover --dry-run", journal.ErrInterruptedApply),
-				transaction.ErrAbandonedFileSetResidue,
+				fileset.ErrAbandonedFileSetResidue,
 			),
 			reason:  FailureReasonInterruptedApplyFileSetFence,
 			phase:   FailurePhasePreflight,
@@ -96,7 +96,7 @@ func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
 			name: "cleanup journal with continuing residue",
 			err: recoverygate.Combine(
 				fmt.Errorf("%w; run: daem recover --dry-run", journal.ErrIncompleteJournalCleanup),
-				transaction.ErrAbandonedFileSetResidue,
+				fileset.ErrAbandonedFileSetResidue,
 			),
 			reason:  FailureReasonJournalCleanupFileSetFence,
 			phase:   FailurePhasePreflight,
@@ -104,7 +104,7 @@ func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
 		},
 		{
 			name:    "unprovable StateDir access after effects still names the boundary",
-			err:     fmt.Errorf("wrap: %w", transaction.ErrFileSetAccessUnprovable),
+			err:     fmt.Errorf("wrap: %w", fileset.ErrFileSetAccessUnprovable),
 			result:  CommandResult{ExecutionAttempted: true},
 			reason:  FailureReasonFileSetAccessUnprovable,
 			phase:   FailurePhaseExecution,
@@ -114,7 +114,7 @@ func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
 			name: "joined stale plan does not mask abandoned residue",
 			err: errors.Join(
 				mutation.StalePlanError{},
-				transaction.ErrAbandonedFileSetResidue,
+				fileset.ErrAbandonedFileSetResidue,
 			),
 			reason:  FailureReasonAbandonedFileSetResidue,
 			phase:   FailurePhasePreflight,
@@ -124,7 +124,7 @@ func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
 			name: "joined stale snapshot does not mask unprovable access after effects",
 			err: errors.Join(
 				mutation.StaleSnapshotError{},
-				fmt.Errorf("replan after MCP provider prerequisite: %w", transaction.ErrFileSetAccessUnprovable),
+				fmt.Errorf("replan after MCP provider prerequisite: %w", fileset.ErrFileSetAccessUnprovable),
 			),
 			result:  CommandResult{ExecutionAttempted: true},
 			reason:  FailureReasonFileSetAccessUnprovable,
@@ -171,8 +171,8 @@ func TestStaleApplyErrorPreservesCancellation(t *testing.T) {
 func TestStaleApplyErrorPreservesFileSetFenceSentinels(t *testing.T) {
 	t.Parallel()
 	causes := []error{
-		transaction.ErrAbandonedFileSetResidue,
-		fmt.Errorf("inspect file-set state dir: %w", transaction.ErrFileSetAccessUnprovable),
+		fileset.ErrAbandonedFileSetResidue,
+		fmt.Errorf("inspect file-set state dir: %w", fileset.ErrFileSetAccessUnprovable),
 	}
 	for _, disclosed := range []bool{false, true} {
 		for _, cause := range causes {

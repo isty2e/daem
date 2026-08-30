@@ -7,8 +7,8 @@ import (
 	"os"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -92,7 +92,7 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	metadataTransactionPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	metadataTransactionPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		return Plan{}, err
 	}

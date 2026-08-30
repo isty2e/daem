@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/contractversion"
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/recoverygate"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
@@ -69,7 +69,7 @@ func applyMetadataTransactionFixture(t *testing.T) (string, string) {
 
 func writeApplyMetadataTransactionMarker(t *testing.T, stateDir string) {
 	t.Helper()
-	authorityPath, err := transaction.FileSetAuthorityPath(stateDir)
+	authorityPath, err := fileset.FileSetAuthorityPath(stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestApplyPlanningFailsClosedOnAbandonedFileSetResidue(t *testing.T) {
 	}
 
 	_, err := PlanDryRun(context.Background(), CommandInput{ManifestPath: manifestPath})
-	if err == nil || !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+	if err == nil || !errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
 		t.Fatalf("error = %v, want ErrAbandonedFileSetResidue", err)
 	}
 	failure := ClassifyFailure(err, CommandResult{})
@@ -121,7 +121,7 @@ func TestApplyPlanningFailsClosedOnUnprovableFileSetFence(t *testing.T) {
 	}
 
 	_, err := PlanDryRun(context.Background(), CommandInput{ManifestPath: manifestPath})
-	if err == nil || !errors.Is(err, transaction.ErrFileSetFenceUnprovable) {
+	if err == nil || !errors.Is(err, fileset.ErrFileSetFenceUnprovable) {
 		t.Fatalf("error = %v, want ErrFileSetFenceUnprovable", err)
 	}
 	failure := ClassifyFailure(err, CommandResult{})
@@ -138,7 +138,7 @@ func TestApplyPlanningFailsClosedOnUncanonicalizableStateDir(t *testing.T) {
 	replaceStateDirWithFile(t, stateDir)
 
 	_, err := PlanDryRun(context.Background(), CommandInput{ManifestPath: manifestPath})
-	if err == nil || !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+	if err == nil || !errors.Is(err, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("error = %v, want ErrFileSetAccessUnprovable", err)
 	}
 	failure := ClassifyFailure(err, CommandResult{})
@@ -155,7 +155,7 @@ func TestApplyPlanningFailsClosedOnUncanonicalizableStateDir(t *testing.T) {
 func TestClassifyFailureJointJournalAndFileSetFence(t *testing.T) {
 	t.Parallel()
 	journalErr := fmt.Errorf("%w; run: daem recover --dry-run", journal.ErrInterruptedApply)
-	err := recoverygate.Combine(journalErr, transaction.ErrAbandonedFileSetResidue)
+	err := recoverygate.Combine(journalErr, fileset.ErrAbandonedFileSetResidue)
 	failure := ClassifyFailure(err, CommandResult{})
 	if failure.Reason() != FailureReasonInterruptedApplyFileSetFence {
 		t.Fatalf("reason = %q, want %q", failure.Reason(), FailureReasonInterruptedApplyFileSetFence)
@@ -174,7 +174,7 @@ func TestClassifyFailureUnprovableAccessDoesNotRecommendRecover(t *testing.T) {
 	t.Parallel()
 	err := recoverygate.Combine(
 		errors.New("recovery inventory inspect failed"),
-		transaction.ErrFileSetAccessUnprovable,
+		fileset.ErrFileSetAccessUnprovable,
 	)
 	failure := ClassifyFailure(err, CommandResult{})
 	if failure.Reason() != FailureReasonFileSetAccessUnprovable {
@@ -200,7 +200,7 @@ func replaceStateDirWithFile(t *testing.T, stateDir string) {
 
 func assertApplyMetadataTransactionError(t *testing.T, err error) {
 	t.Helper()
-	if err == nil || !errors.Is(err, transaction.ErrInterruptedFileSetTransaction) {
+	if err == nil || !errors.Is(err, fileset.ErrInterruptedFileSetTransaction) {
 		t.Fatalf("error = %v, want interrupted file-set transaction", err)
 	}
 	failure := ClassifyFailure(err, CommandResult{})

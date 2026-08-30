@@ -1,4 +1,4 @@
-package transaction
+package fileset
 
 import (
 	"context"
@@ -398,8 +398,8 @@ const (
 	stateDirFenceEnumerationBatch = 64
 )
 
-// FileSetFenceKind is the closed semantic classification of the declaration
-// file-set boundary.
+// FileSetFenceKind is the closed semantic classification of generic file-set
+// evidence at a StateDir.
 type FileSetFenceKind string
 
 // FileSetFenceObservation preserves whether the file-set axis was observed,
