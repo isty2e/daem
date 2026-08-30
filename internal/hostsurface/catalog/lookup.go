@@ -4,6 +4,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/hostsurface"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 )
 
 // LookupMCP returns the compiled MCP surface for target and scope. Invalid
@@ -39,4 +40,30 @@ func (catalog Catalog) HasMCPProviderAuthoring(selectedTarget target.Target) boo
 		}
 	}
 	return false
+}
+
+// LookupMCPBySubject returns the compiled MCP surface named by a topology
+// projection subject. Invalid, non-projection, and foreign-namespace subjects
+// are missing, matching owner MCPPlacementForSubject not-found semantics.
+func (catalog Catalog) LookupMCPBySubject(subject topology.SubjectID) (SurfaceView, bool) {
+	if subject.Validate() != nil || subject.Kind() != topology.SubjectProjection {
+		return SurfaceView{}, false
+	}
+	for _, view := range catalog.views {
+		if view.namespace == subject.Namespace() {
+			return view, true
+		}
+	}
+	return SurfaceView{}, false
+}
+
+// MCPInOwnerOrder returns compiled MCP views in owner placement-catalog order.
+// Surfaces() remains SurfaceID order; public help and authoring option lists
+// use this projection so CLI order stays exact.
+func (catalog Catalog) MCPInOwnerOrder() []SurfaceView {
+	out := make([]SurfaceView, len(catalog.ownerOrder))
+	for index, viewIndex := range catalog.ownerOrder {
+		out[index] = catalog.views[viewIndex]
+	}
+	return out
 }

@@ -72,9 +72,10 @@ func (view SurfaceView) IsDefaultVariant() bool {
 
 // Catalog is an immutable compiled host-surface snapshot.
 type Catalog struct {
-	views []SurfaceView
-	byID  map[hostsurface.SurfaceID]int
-	byKey map[hostsurface.SurfaceKey]int
+	views      []SurfaceView
+	ownerOrder []int
+	byID       map[hostsurface.SurfaceID]int
+	byKey      map[hostsurface.SurfaceKey]int
 }
 
 // Surfaces returns compiled views in stable key order.

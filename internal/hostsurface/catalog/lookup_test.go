@@ -3,9 +3,12 @@ package catalog
 import (
 	"testing"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
+	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
 
 func TestLookupMCPMatchesOwnerPlacement(t *testing.T) {
@@ -122,4 +125,82 @@ func TestHasMCPProviderAuthoringMatchesOwnerCatalog(t *testing.T) {
 			t.Fatalf("HasMCPProviderAuthoring(%s) = %v want owner catalog", selected, catalog.HasMCPProviderAuthoring(selected))
 		}
 	}
+}
+
+func TestLookupMCPBySubjectMatchesOwnerPlacement(t *testing.T) {
+	t.Parallel()
+
+	catalog := Product()
+	id, err := entity.New(entity.KindMCPServer, "context7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, placement := range aggregate.ImplementedMCPPlacements() {
+		subject, err := topologymcp.ProjectionSubject(placement.Target(), placement.Scope(), id.Name())
+		if err != nil {
+			t.Fatalf("ProjectionSubject(%q, %q) returned error: %v", placement.Target(), placement.Scope(), err)
+		}
+		owner, ownerOK := aggregate.MCPPlacementForSubject(subject)
+		view, ok := catalog.LookupMCPBySubject(subject)
+		if ok != ownerOK {
+			t.Fatalf("LookupMCPBySubject(%s) ok = %v want owner %v", subject, ok, ownerOK)
+		}
+		if !ok {
+			continue
+		}
+		if view.Placement().ID() != owner.ID() {
+			t.Fatalf("LookupMCPBySubject(%s) placement = %q want %q", subject, view.Placement().ID(), owner.ID())
+		}
+	}
+}
+
+func TestLookupMCPBySubjectRejectsForeignSubjects(t *testing.T) {
+	t.Parallel()
+
+	catalog := Product()
+	subjects := []topology.SubjectID{
+		mustLookupSubject(t, topology.SubjectHostRelation, "claude-code.project.mcp-server", "context7"),
+		mustLookupSubject(t, topology.SubjectProjection, "unknown.mcp-server", "context7"),
+		mustLookupSubject(t, topology.SubjectProjection, "antigravity-cli.project.mcp-server", "context7"),
+	}
+	for _, subject := range subjects {
+		if _, ok := catalog.LookupMCPBySubject(subject); ok {
+			t.Fatalf("LookupMCPBySubject(%s) = true", subject)
+		}
+		if _, ok := aggregate.MCPPlacementForSubject(subject); ok {
+			t.Fatalf("owner MCPPlacementForSubject(%s) = true", subject)
+		}
+	}
+}
+
+func TestMCPInOwnerOrderMatchesOwnerPlacementCatalog(t *testing.T) {
+	t.Parallel()
+
+	catalog := Product()
+	owner := aggregate.ImplementedMCPPlacements()
+	ordered := catalog.MCPInOwnerOrder()
+	if len(ordered) != len(owner) {
+		t.Fatalf("MCPInOwnerOrder = %d want %d", len(ordered), len(owner))
+	}
+	for index, view := range ordered {
+		if view.Placement().ID() != owner[index].ID() {
+			t.Fatalf("owner-order[%d] = %q want %q", index, view.Placement().ID(), owner[index].ID())
+		}
+	}
+	identity := catalog.Surfaces()
+	if ordered[0].Placement().ID() != aggregate.MCPPlacementClaudeProject {
+		t.Fatalf("owner-order[0] = %q want Claude project", ordered[0].Placement().ID())
+	}
+	if identity[0].Placement().ID() != aggregate.MCPPlacementAntigravityGlobal {
+		t.Fatalf("SurfaceID-order[0] = %q want Antigravity global", identity[0].Placement().ID())
+	}
+}
+
+func mustLookupSubject(t *testing.T, kind topology.SubjectKind, namespace string, key string) topology.SubjectID {
+	t.Helper()
+	subject, err := topology.NewSubjectID(kind, namespace, key)
+	if err != nil {
+		t.Fatalf("NewSubjectID returned error: %v", err)
+	}
+	return subject
 }

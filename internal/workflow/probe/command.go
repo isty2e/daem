@@ -394,11 +394,7 @@ func validateRuntimeProbeBinding(binding desiredmcp.Binding) error {
 func runtimeProbePlacementCapability(
 	subject topology.SubjectID,
 ) (aggregate.MCPPlacement, profile.MCPRuntimeProbeCapability, bool) {
-	placement, ok := aggregate.MCPPlacementForSubject(subject)
-	if !ok {
-		return aggregate.MCPPlacement{}, profile.MCPRuntimeProbeCapability{}, false
-	}
-	view, ok := catalog.Product().LookupMCP(placement.Target(), placement.Scope())
+	view, ok := catalog.Product().LookupMCPBySubject(subject)
 	if !ok {
 		return aggregate.MCPPlacement{}, profile.MCPRuntimeProbeCapability{}, false
 	}

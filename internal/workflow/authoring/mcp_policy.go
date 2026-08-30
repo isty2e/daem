@@ -168,12 +168,13 @@ func validateAddMCPAuthoringShape(selectedTarget string, selectedScope string, r
 func mcpAuthoringTargetOptions() string {
 	values := make([]string, 0)
 	seen := make(map[target.Target]struct{})
-	for _, placement := range aggregate.ImplementedMCPPlacements() {
-		if _, exists := seen[placement.Target()]; exists {
+	for _, view := range catalog.Product().MCPInOwnerOrder() {
+		selected := view.Key().Target()
+		if _, exists := seen[selected]; exists {
 			continue
 		}
-		seen[placement.Target()] = struct{}{}
-		values = append(values, "--target "+string(placement.Target()))
+		seen[selected] = struct{}{}
+		values = append(values, "--target "+string(selected))
 	}
 	if len(values) == 0 {
 		return ""

@@ -125,9 +125,10 @@ func Compile(seed Seed) (Catalog, error) {
 		return hostsurface.CompareIDs(left.id, right.id)
 	})
 	catalog := Catalog{
-		views: views,
-		byID:  make(map[hostsurface.SurfaceID]int, len(views)),
-		byKey: make(map[hostsurface.SurfaceKey]int, len(views)),
+		views:      views,
+		ownerOrder: make([]int, 0, len(seed.Placements)),
+		byID:       make(map[hostsurface.SurfaceID]int, len(views)),
+		byKey:      make(map[hostsurface.SurfaceKey]int, len(views)),
 	}
 	for index, view := range views {
 		if _, exists := catalog.byID[view.id]; exists {
@@ -135,6 +136,20 @@ func Compile(seed Seed) (Catalog, error) {
 		}
 		catalog.byID[view.id] = index
 		catalog.byKey[view.key] = index
+	}
+	for _, placement := range seed.Placements {
+		key, err := hostsurface.MCPSurfaceKey(placement.Target(), placement.Scope())
+		if err != nil {
+			return Catalog{}, fmt.Errorf("host-surface catalog: owner-order key: %w", err)
+		}
+		index, ok := catalog.byKey[key]
+		if !ok {
+			return Catalog{}, fmt.Errorf(
+				"host-surface catalog: owner placement %q missing compiled view",
+				placement.ID(),
+			)
+		}
+		catalog.ownerOrder = append(catalog.ownerOrder, index)
 	}
 	return catalog, nil
 }

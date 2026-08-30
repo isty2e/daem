@@ -3,6 +3,7 @@ package mcp
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/topology"
@@ -37,7 +38,7 @@ func lockedMCPProjection(
 	contract lock.LockedSubjectContract,
 ) (topology.SubjectID, aggregate.ManagedContribution, error) {
 	subject := contract.SubjectID()
-	if _, ok := aggregate.MCPPlacementForSubject(subject); !ok {
+	if _, ok := catalog.Product().LookupMCPBySubject(subject); !ok {
 		return topology.SubjectID{}, aggregate.ManagedContribution{}, fmt.Errorf(
 			"locked subject %s/%s %q is not an admitted MCP projection",
 			subject.Kind(),
