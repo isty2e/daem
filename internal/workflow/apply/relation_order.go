@@ -13,9 +13,9 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/configrelation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	lock "github.com/isty2e/daem/internal/realization/lock"
-	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
@@ -204,7 +204,7 @@ func runRelationOrderConvergence(
 			continue
 		}
 		matchedClasses++
-		selectedTarget, capability, admitted := profile.ExtensionOrderCapabilityForClass(
+		selectedTarget, capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
 			constraint.ClassID(),
 		)
 		if !admitted {

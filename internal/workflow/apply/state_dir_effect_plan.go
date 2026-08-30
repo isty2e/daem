@@ -5,8 +5,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/execute"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/operationplan"
-	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/target"
@@ -205,7 +205,7 @@ func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, 
 		if _, planned := classes[string(constraint.ClassID())]; !planned {
 			continue
 		}
-		selectedTarget, _, admitted := profile.ExtensionOrderCapabilityForClass(
+		selectedTarget, _, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
 			constraint.ClassID(),
 		)
 		if !admitted {

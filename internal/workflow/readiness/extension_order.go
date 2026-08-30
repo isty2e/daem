@@ -5,6 +5,7 @@ import (
 
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -44,7 +45,7 @@ func observeExtensionOrderFacts(
 ) ([]extensionOrderObservation, error) {
 	facts := make([]extensionOrderObservation, 0)
 	for _, constraint := range locked.Locked.OrderConstraints() {
-		selectedTarget, capability, admitted := profile.ExtensionOrderCapabilityForClass(
+		selectedTarget, capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
 			constraint.ClassID(),
 		)
 		if !admitted {

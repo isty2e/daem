@@ -7,9 +7,9 @@ import (
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
-	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -120,7 +120,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		}
 	}
 	for _, constraint := range planned.context.Lockfile.Locked.OrderConstraints() {
-		selectedTarget, _, admitted := profile.ExtensionOrderCapabilityForClass(
+		selectedTarget, _, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
 			constraint.ClassID(),
 		)
 		if !admitted || !planned.assessment.SelectedTargets.Contains(selectedTarget) {
