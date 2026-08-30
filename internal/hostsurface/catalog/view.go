@@ -81,6 +81,16 @@ type Catalog struct {
 	managedPathOwnerOrder []int
 	managedPathByID       map[hostsurface.SurfaceID]int
 	managedPathByKey      map[hostsurface.SurfaceKey]int
+
+	hookViews      []HookSurfaceView
+	hookOwnerOrder []int
+	hookByID       map[hostsurface.SurfaceID]int
+	hookByKey      map[hostsurface.SurfaceKey]int
+
+	hookAssetViews      []HookAssetSurfaceView
+	hookAssetOwnerOrder []int
+	hookAssetByID       map[hostsurface.SurfaceID]int
+	hookAssetByKey      map[hostsurface.SurfaceKey]int
 }
 
 // Surfaces returns compiled MCP views in stable key order.

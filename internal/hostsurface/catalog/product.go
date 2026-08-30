@@ -18,5 +18,9 @@ func mustProduct() Catalog {
 	if err != nil {
 		panic(err)
 	}
+	catalog, err = catalog.withHookSurfaces(productHookSeed(), productHookAssetSeed())
+	if err != nil {
+		panic(err)
+	}
 	return catalog
 }
