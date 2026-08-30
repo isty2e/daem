@@ -20,28 +20,6 @@ import (
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
-type applyFingerprintFacts struct {
-	ManifestPath        string
-	LockfilePath        string
-	LockfileExplicit    bool
-	Targets             []string
-	ManageUnmanaged     bool
-	DelegateMode        reconcile.OperationContext
-	ManagedPaths        []managedPathFingerprintFacts
-	Aggregates          []aggregateFingerprintFacts
-	MCPProviders        []mcpProviderFingerprintFacts
-	RelationActions     []relationFingerprintFacts
-	RelationOrders      []relationOrderFingerprintFacts
-	CarrierAdoptions    []carrierAdoptionFingerprintFacts
-	CarrierAbsences     []carrierAbsenceFingerprintFacts
-	DelegateActions     []delegateFingerprintFacts
-	Owner               ownershipOwnerFingerprintFacts
-	Ownership           []ownershipObservationFingerprintFacts
-	GlobalCarrierClaims []carrierClaimFingerprintFacts
-	Diagnostics         []diagnosticFingerprintFacts
-	ProjectRoot         *projectRootFingerprintFacts
-}
-
 type mcpProviderFingerprintFacts struct {
 	Contribution  topology.SubjectID
 	Carrier       topology.SubjectID
@@ -241,42 +219,103 @@ func applyOperationFingerprint(
 	for _, selected := range targets {
 		targetValues = append(targetValues, string(selected))
 	}
-	ownershipFacts := ownershipFingerprintFacts(planned.assessment.Ownership)
-	carrierClaims := carrierClaimFingerprintRows(planned.assessment.GlobalCarrierClaims)
-	managedPaths := managedPathFingerprintRows(planned.assessment.Reconciliation.ManagedPaths())
-	aggregates := aggregateFingerprintRows(planned.assessment.Reconciliation.Aggregates())
-	mcpProviders := mcpProviderFingerprintRows(planned.assessment.MCPProviders)
-	diagnostics := diagnosticFingerprintRows(result.Diagnostics)
-	fingerprint, err := operationplan.HashJSON(applyFingerprintFacts{
-		ManifestPath:     result.ManifestPath,
-		LockfilePath:     result.LockfilePath,
-		LockfileExplicit: result.LockfileExplicit,
-		Targets:          targetValues,
-		ManageUnmanaged:  planned.context.ManageUnmanagedMatches,
-		DelegateMode:     operationContext,
-		ManagedPaths:     managedPaths,
-		Aggregates:       aggregates,
-		MCPProviders:     mcpProviders,
-		RelationActions:  relations,
-		RelationOrders:   relationOrders,
-		CarrierAdoptions: carrierAdoptions,
-		CarrierAbsences:  carrierAbsences,
-		DelegateActions:  delegates,
-		Owner: ownershipOwnerFingerprintFacts{
-			StatefileAuthority: pathAuthorityFingerprintFactsFor(
-				planned.assessment.Owner.StatefileAuthority(),
-			),
-			ManifestPath: planned.assessment.Owner.ManifestPath(),
-		},
-		Ownership:           ownershipFacts,
+	owner := ownershipOwnerFingerprintFacts{
+		StatefileAuthority: pathAuthorityFingerprintFactsFor(
+			planned.assessment.Owner.StatefileAuthority(),
+		),
+		ManifestPath: planned.assessment.Owner.ManifestPath(),
+	}
+	managedPaths, err := marshalApplyFingerprintProjection(
+		managedPathFingerprintRows(planned.assessment.Reconciliation.ManagedPaths()),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	aggregates, err := marshalApplyFingerprintProjection(
+		aggregateFingerprintRows(planned.assessment.Reconciliation.Aggregates()),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	mcpProviders, err := marshalApplyFingerprintProjection(
+		mcpProviderFingerprintRows(planned.assessment.MCPProviders),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	relationActions, err := marshalApplyFingerprintProjection(relations)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	relationOrdersJSON, err := marshalApplyFingerprintProjection(relationOrders)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	carrierAdoptionsJSON, err := marshalApplyFingerprintProjection(carrierAdoptions)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	carrierAbsencesJSON, err := marshalApplyFingerprintProjection(carrierAbsences)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	delegateActions, err := marshalApplyFingerprintProjection(delegates)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	ownerJSON, err := marshalApplyFingerprintProjection(owner)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	ownership, err := marshalApplyFingerprintProjection(
+		ownershipFingerprintFacts(planned.assessment.Ownership),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	carrierClaims, err := marshalApplyFingerprintProjection(
+		carrierClaimFingerprintRows(planned.assessment.GlobalCarrierClaims),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	diagnostics, err := marshalApplyFingerprintProjection(diagnosticFingerprintRows(result.Diagnostics))
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	projectRootJSON, err := marshalApplyFingerprintProjection(projectRoot)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	return operationplan.ApplyOperationFingerprint(operationplan.ApplyIdentityInput{
+		ManifestPath:        result.ManifestPath,
+		LockfilePath:        result.LockfilePath,
+		LockfileExplicit:    result.LockfileExplicit,
+		Targets:             targetValues,
+		ManageUnmanaged:     planned.context.ManageUnmanagedMatches,
+		DelegateMode:        string(operationContext),
+		ManagedPaths:        managedPaths,
+		Aggregates:          aggregates,
+		MCPProviders:        mcpProviders,
+		RelationActions:     relationActions,
+		RelationOrders:      relationOrdersJSON,
+		CarrierAdoptions:    carrierAdoptionsJSON,
+		CarrierAbsences:     carrierAbsencesJSON,
+		DelegateActions:     delegateActions,
+		Owner:               ownerJSON,
+		Ownership:           ownership,
 		GlobalCarrierClaims: carrierClaims,
 		Diagnostics:         diagnostics,
-		ProjectRoot:         projectRoot,
+		ProjectRoot:         projectRootJSON,
 	})
+}
+
+func marshalApplyFingerprintProjection[T any](value T) (json.RawMessage, error) {
+	payload, err := json.Marshal(value)
 	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint apply plan: %w", err)
+		return nil, fmt.Errorf("fingerprint apply plan: %w", err)
 	}
-	return fingerprint, nil
+	return json.RawMessage(payload), nil
 }
 
 func pathAuthorityFingerprintFactsFor(
