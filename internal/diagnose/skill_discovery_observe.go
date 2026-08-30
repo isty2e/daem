@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	skillresource "github.com/isty2e/daem/internal/desired/skill"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -121,7 +122,11 @@ func inspectSkillTargetDiscoveries(
 
 	result := make([]skillDiscoveryFinding, 0)
 	observed := make([]fs.FileInfo, 0)
-	for _, location := range profile.Profile(selectedTarget).DiscoveryLocations(entity.KindSkill, skill.Scope()) {
+	for _, location := range hostsurfacecatalog.Product().ManagedPathDiscoveryLocations(
+		selectedTarget,
+		skill.Scope(),
+		entity.KindSkill,
+	) {
 		candidateDestination, err := output.Parse(path.Join(location.Path(), skill.InstallName()))
 		if err != nil {
 			result = append(result, newSkillDiscoveryObservationFailure(
