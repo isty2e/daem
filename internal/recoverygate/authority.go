@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
@@ -25,15 +26,26 @@ type EffectAuthority struct {
 	revisions []mutation.RevisionRequest
 }
 
-// ForwardEffectPlan is the complete predictable StateDir work envelope for one
-// forward operation before its first provider or host effect.
-type ForwardEffectPlan struct {
+// forwardEffectPlan is the State Barrier lowering of compiled semantic demand
+// into countable reservation work. Workflows must not construct this type.
+type forwardEffectPlan struct {
 	EnsureCalls             int
 	BarrierValidationCalls  int
 	StateDirValidationCalls int
 	DescendantPath          string
 	DescendantValidations   int
 	DescendantFileCommits   int
+}
+
+func planFromDemand(demand operationplan.Demand) forwardEffectPlan {
+	return forwardEffectPlan{
+		EnsureCalls:             demand.EnsureCalls(),
+		BarrierValidationCalls:  demand.BarrierValidationCalls(),
+		StateDirValidationCalls: demand.StateDirValidationCalls(),
+		DescendantPath:          demand.DescendantPath(),
+		DescendantValidations:   demand.DescendantValidations(),
+		DescendantFileCommits:   demand.DescendantFileCommits(),
+	}
 }
 
 // ForwardEffectAuthority consumes one atomically reserved forward-operation
@@ -241,7 +253,13 @@ func (authority EffectAuthority) EnsureStateDirForEffect(
 // ReserveForwardEffects atomically reserves all predictable barrier,
 // first-incarnation, and descendant persistence work before forward effects.
 func (authority EffectAuthority) ReserveForwardEffects(
-	plan ForwardEffectPlan,
+	demand operationplan.Demand,
+) (*ForwardEffectAuthority, error) {
+	return authority.reservePlan(planFromDemand(demand))
+}
+
+func (authority EffectAuthority) reservePlan(
+	plan forwardEffectPlan,
 ) (*ForwardEffectAuthority, error) {
 	if err := authority.requireInitialized(); err != nil {
 		return nil, err
@@ -373,7 +391,7 @@ func (authority *ForwardEffectAuthority) consume(remaining *int, label string) e
 
 func forwardStateDirValidationPlan(
 	presentAtCapture bool,
-	plan ForwardEffectPlan,
+	plan forwardEffectPlan,
 ) (int, bool, error) {
 	for _, value := range []struct {
 		label string

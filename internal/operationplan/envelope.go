@@ -126,6 +126,26 @@ func (demand Demand) Empty() bool {
 		demand.descendantFileCommits == 0
 }
 
+// NewDemand reconstructs semantic demand from already-compiled counters.
+// Production workflows must use CompileApply, CompileRefresh, or CompileNone.
+func NewDemand(
+	ensureCalls int,
+	barrierValidationCalls int,
+	stateDirValidationCalls int,
+	descendantPath string,
+	descendantValidations int,
+	descendantFileCommits int,
+) Demand {
+	return Demand{
+		ensureCalls:             ensureCalls,
+		barrierValidationCalls:  barrierValidationCalls,
+		stateDirValidationCalls: stateDirValidationCalls,
+		descendantPath:          descendantPath,
+		descendantValidations:   descendantValidations,
+		descendantFileCommits:   descendantFileCommits,
+	}
+}
+
 // Envelope is the closed ordered obligation set and derived semantic demand
 // for one operation. It grants no capability and executes no effect.
 type Envelope struct {

@@ -146,6 +146,17 @@ func TestCombinePreservesSingleAxisCausesAndPeerKnowledge(t *testing.T) {
 	}
 }
 
+func TestRequireFileSetClearRejectsNilContext(t *testing.T) {
+	t.Parallel()
+	err := RequireFileSetClear(nil, t.TempDir())
+	if err == nil {
+		t.Fatal("expected context error")
+	}
+	if !strings.Contains(err.Error(), "context is required") {
+		t.Fatalf("error = %v, want required context", err)
+	}
+}
+
 func TestCombinePreservesKnownPeerBesideUnknownAxis(t *testing.T) {
 	t.Parallel()
 	journalErr := errors.New("recovery inventory inspection failed")

@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/recoverygate"
@@ -239,13 +240,13 @@ func TestExecuteReservesCompleteStateDirEnvelopeBeforeProviderInvocation(t *test
 	}, executeDependencies{
 		reserveForwardEffects: func(
 			_ recoverygate.EffectAuthority,
-			plan recoverygate.ForwardEffectPlan,
+			demand operationplan.Demand,
 		) (*recoverygate.ForwardEffectAuthority, error) {
 			reservationCalls++
-			if plan.EnsureCalls != 2 || plan.BarrierValidationCalls != 3 ||
-				plan.DescendantPath != planned.assessment.StatePath ||
-				plan.DescendantValidations == 0 || plan.DescendantFileCommits == 0 {
-				t.Fatalf("forward StateDir plan = %#v, want provider and final envelope", plan)
+			if demand.EnsureCalls() != 2 || demand.BarrierValidationCalls() != 3 ||
+				demand.DescendantPath() != planned.assessment.StatePath ||
+				demand.DescendantValidations() == 0 || demand.DescendantFileCommits() == 0 {
+				t.Fatalf("forward StateDir demand = %#v, want provider and final envelope", demand)
 			}
 			return nil, errors.New("injected complete operation capacity refusal")
 		},

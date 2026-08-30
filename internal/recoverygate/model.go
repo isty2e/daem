@@ -228,6 +228,20 @@ func RequireClear(ctx context.Context, paths daempaths.Paths) error {
 	return Observe(ctx, paths)
 }
 
+// RequireFileSetClear observes only the StateDir file-set fence. It does not
+// inspect RecoveryDir journals. Lock planning, init planning, and authoring
+// dry-run retain this compatibility posture; joint journal and file-set
+// refusal uses RequireClear or EffectAuthority.
+func RequireFileSetClear(ctx context.Context, stateDir string) error {
+	if ctx == nil {
+		return fmt.Errorf("recovery barrier context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return transaction.RequireClearFileSet(ctx, stateDir)
+}
+
 // StateOf reconstructs the closed joint state through arbitrary error wrapping.
 func StateOf(err error) State {
 	var combined *jointError

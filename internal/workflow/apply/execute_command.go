@@ -34,7 +34,7 @@ type executeDependencies struct {
 	recoveryProvenancePreflight recoveryProvenancePreflight
 	reserveForwardEffects       func(
 		recoverygate.EffectAuthority,
-		recoverygate.ForwardEffectPlan,
+		operationplan.Demand,
 	) (*recoverygate.ForwardEffectAuthority, error)
 }
 
@@ -240,12 +240,12 @@ func executeWithDependencies(
 	if reserveForwardEffects == nil {
 		reserveForwardEffects = func(
 			authority recoverygate.EffectAuthority,
-			plan recoverygate.ForwardEffectPlan,
+			demand operationplan.Demand,
 		) (*recoverygate.ForwardEffectAuthority, error) {
-			return authority.ReserveForwardEffects(plan)
+			return authority.ReserveForwardEffects(demand)
 		}
 	}
-	forwardAuthority, err := reserveForwardEffects(current.barrier, stateDirPlan.forward)
+	forwardAuthority, err := reserveForwardEffects(current.barrier, stateDirPlan.demand)
 	if err != nil {
 		return disclose(current), err
 	}

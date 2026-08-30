@@ -9,12 +9,11 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
-	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 )
 
 type applyStateDirEffectPlan struct {
-	forward   recoverygate.ForwardEffectPlan
+	demand    operationplan.Demand
 	statefile statefileEffectPlan
 }
 
@@ -85,17 +84,10 @@ func stateDirEffectPlanFor(
 
 func applyPlanFromDemand(demand operationplan.Demand) applyStateDirEffectPlan {
 	return applyStateDirEffectPlan{
+		demand: demand,
 		statefile: statefileEffectPlan{
 			validations: demand.DescendantValidations(),
 			fileCommits: demand.DescendantFileCommits(),
-		},
-		forward: recoverygate.ForwardEffectPlan{
-			EnsureCalls:             demand.EnsureCalls(),
-			BarrierValidationCalls:  demand.BarrierValidationCalls(),
-			StateDirValidationCalls: demand.StateDirValidationCalls(),
-			DescendantPath:          demand.DescendantPath(),
-			DescendantValidations:   demand.DescendantValidations(),
-			DescendantFileCommits:   demand.DescendantFileCommits(),
 		},
 	}
 }

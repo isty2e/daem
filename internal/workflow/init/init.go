@@ -36,7 +36,7 @@ func BuildPlan(ctx context.Context, input Input) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+	if err := recoverygate.RequireFileSetClear(ctx, paths.StateDir); err != nil {
 		return Plan{}, err
 	}
 

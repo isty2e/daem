@@ -228,3 +228,19 @@ func TestCompileApplyOverflowsClosed(t *testing.T) {
 		t.Fatal("expected overflow")
 	}
 }
+
+func TestNewDemandReconstructsCompiledCounters(t *testing.T) {
+	t.Parallel()
+	demand := NewDemand(1, 4, 2, "/state.json", 2, 1)
+	if demand.EnsureCalls() != 1 ||
+		demand.BarrierValidationCalls() != 4 ||
+		demand.StateDirValidationCalls() != 2 ||
+		demand.DescendantPath() != "/state.json" ||
+		demand.DescendantValidations() != 2 ||
+		demand.DescendantFileCommits() != 1 {
+		t.Fatalf("demand = %#v", demand)
+	}
+	if demand.Empty() {
+		t.Fatal("non-empty demand reported empty")
+	}
+}
