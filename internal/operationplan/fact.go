@@ -1,5 +1,6 @@
 // Package operationplan is the I/O-free algebra for operation authority facts,
-// mutation domains, revision roles, and exact fingerprint projections.
+// mutation domains, revision roles, exact fingerprint projections, typed
+// effect envelopes, and semantic reservation demand.
 package operationplan
 
 import (

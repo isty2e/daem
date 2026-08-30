@@ -5,10 +5,12 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/recoverygate"
+	"github.com/isty2e/daem/internal/target"
 )
 
 type applyStateDirEffectPlan struct {
@@ -20,16 +22,6 @@ func stateDirEffectPlanFor(
 	current commandPlan,
 	providerActions []reconcile.RelationAction,
 ) (applyStateDirEffectPlan, error) {
-	nonProviderRelations := nonProviderRelationActions(current)
-	statefilePlan, err := crossPhaseStatefileEffectPlan(
-		current.assessment.CurrentState,
-		current.assessment.Reconciliation,
-		providerActions,
-		nonProviderRelations,
-	)
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
 	managedEffects, err := execute.ManagedPathEffects(
 		current.assessment.Reconciliation.ManagedPaths(),
 	)
@@ -55,181 +47,162 @@ func stateDirEffectPlanFor(
 	if err != nil {
 		return applyStateDirEffectPlan{}, err
 	}
-	coreCalls, err := execute.MaximumForwardEffectValidationCount(execute.ApplyInput{
+	executeGates, err := execute.MaximumForwardEffectValidationCount(execute.ApplyInput{
 		ManagedPathEffects:          managedEffects,
 		AggregateEffects:            aggregateEffects,
 		CurrentState:                current.assessment.CurrentState,
 		GlobalCarrierClaims:         current.assessment.GlobalCarrierClaims,
 		RetiredProjectCarrierClaims: projectRetirements,
 		AdoptedProjectCarrierClaims: projectAdoptions,
-		ConfirmedRelationActions:    nonProviderRelations,
+		ConfirmedRelationActions:    nonProviderRelationActions(current),
 		Owner:                       current.assessment.Owner,
 		Ownership:                   current.assessment.Ownership,
 	})
 	if err != nil {
 		return applyStateDirEffectPlan{}, err
 	}
-
-	finalEffectCalls := coreCalls
-	hostCalls, err := hostRouteEffectValidationCount(
-		current.assessment.CurrentState,
-		nonProviderRelations,
-	)
+	orderClasses, err := admittedOrderClasses(current)
 	if err != nil {
 		return applyStateDirEffectPlan{}, err
 	}
-	finalEffectCalls, err = checkedStatefileEffectCount(finalEffectCalls, hostCalls)
+	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
+		ExecuteGates:    executeGates,
+		ProviderActions: routeWorks(current.assessment.CurrentState, providerActions),
+		FinalRoutes: routeWorks(
+			current.assessment.CurrentState,
+			nonProviderRelationActions(current),
+		),
+		CarrierRemovals: carrierWorks(current.assessment.Reconciliation.CarrierAbsences()),
+		OrderClasses:    orderClasses,
+		Delegates:       delegateWorks(current.assessment.Reconciliation.Delegates()),
+		StatefilePath:   current.assessment.StatePath,
+	})
 	if err != nil {
 		return applyStateDirEffectPlan{}, err
 	}
-	carrierCalls := carrierRemovalEffectValidationCount(
-		current.assessment.Reconciliation.CarrierAbsences(),
-	)
-	finalEffectCalls, err = checkedStatefileEffectCount(finalEffectCalls, carrierCalls)
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
-	orderCalls, err := maximumRelationOrderEffectCount(
-		current,
-		providerActions,
-		nonProviderRelations,
-	)
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
-	finalEffectCalls, err = checkedStatefileEffectCount(finalEffectCalls, orderCalls)
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
-
-	delegateActions := current.assessment.Reconciliation.Delegates()
-	stateDirOnlyCalls := 0
-	if delegateActionsRequireAttemptPersistence(delegateActions) {
-		finalEffectCalls, err = checkedStatefileEffectCount(finalEffectCalls, 1)
-		if err != nil {
-			return applyStateDirEffectPlan{}, err
-		}
-	} else {
-		stateDirOnlyCalls, err = checkedStatefileEffectCount(len(delegateActions), len(delegateActions))
-		if err != nil {
-			return applyStateDirEffectPlan{}, err
-		}
-	}
-
-	providerCalls := len(providerActions)
-	ensureCalls := 0
-	if providerCalls != 0 {
-		ensureCalls++
-	}
-	if finalEffectCalls != 0 {
-		ensureCalls++
-	}
-	stateDirEffectCalls, err := checkedStatefileEffectCount(providerCalls, finalEffectCalls)
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
-	stateDirEffectCalls -= ensureCalls
-	stateDirOnlyCalls, err = checkedStatefileEffectCount(stateDirOnlyCalls, stateDirEffectCalls)
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
-	barrierCalls := 0
-	if providerCalls != 0 {
-		// Post-provider execution performs two barrier-preserving replans plus
-		// one explicit validation after acquiring rebound leases.
-		barrierCalls = 3
-	}
-	descendantPath := ""
-	if !statefilePlan.empty() {
-		descendantPath = current.assessment.StatePath
-	}
-	return applyStateDirEffectPlan{
-		statefile: statefilePlan,
-		forward: recoverygate.ForwardEffectPlan{
-			EnsureCalls:             ensureCalls,
-			BarrierValidationCalls:  barrierCalls,
-			StateDirValidationCalls: stateDirOnlyCalls,
-			DescendantPath:          descendantPath,
-			DescendantValidations:   statefilePlan.validations,
-			DescendantFileCommits:   statefilePlan.fileCommits,
-		},
-	}, nil
+	return applyPlanFromDemand(envelope.Demand()), nil
 }
 
-func crossPhaseStatefileEffectPlan(
+func applyPlanFromDemand(demand operationplan.Demand) applyStateDirEffectPlan {
+	return applyStateDirEffectPlan{
+		statefile: statefileEffectPlan{
+			validations: demand.DescendantValidations(),
+			fileCommits: demand.DescendantFileCommits(),
+		},
+		forward: recoverygate.ForwardEffectPlan{
+			EnsureCalls:             demand.EnsureCalls(),
+			BarrierValidationCalls:  demand.BarrierValidationCalls(),
+			StateDirValidationCalls: demand.StateDirValidationCalls(),
+			DescendantPath:          demand.DescendantPath(),
+			DescendantValidations:   demand.DescendantValidations(),
+			DescendantFileCommits:   demand.DescendantFileCommits(),
+		},
+	}
+}
+
+func statefileEffectPlanFor(
 	current durable.Snapshot,
 	reconciliation reconcile.Result,
-	providerActions []reconcile.RelationAction,
-	finalRelations []reconcile.RelationAction,
 ) (statefileEffectPlan, error) {
-	provider, err := hostRouteStatefileEffectPlan(current, providerActions)
+	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
+		FinalRoutes:     routeWorks(current, reconciliation.Relations()),
+		CarrierRemovals: carrierWorks(reconciliation.CarrierAbsences()),
+		Delegates:       delegateWorks(reconciliation.Delegates()),
+	})
 	if err != nil {
 		return statefileEffectPlan{}, err
 	}
-	finalHost, err := hostRouteStatefileEffectPlan(current, finalRelations)
-	if err != nil {
-		return statefileEffectPlan{}, err
-	}
-	carrier, err := carrierRemovalStatefileEffectPlan(reconciliation.CarrierAbsences())
-	if err != nil {
-		return statefileEffectPlan{}, err
-	}
-	delegate, err := delegateStatefileEffectPlan(reconciliation.Delegates())
-	if err != nil {
-		return statefileEffectPlan{}, err
-	}
-	for _, addition := range []statefileEffectPlan{finalHost, carrier, delegate} {
-		if err := provider.add(addition.validations, addition.fileCommits); err != nil {
-			return statefileEffectPlan{}, err
-		}
-	}
-	return provider, nil
+	return statefilePlanFromDemand(envelope.Demand()), nil
 }
 
-func hostRouteEffectValidationCount(
+func hostRouteStatefileEffectPlan(
 	current durable.Snapshot,
 	actions []reconcile.RelationAction,
-) (int, error) {
-	invocations := 0
-	promotion := false
-	for _, action := range actions {
-		switch {
-		case action.InvokesHostRoute():
-			var err error
-			invocations, err = checkedStatefileEffectCount(invocations, 1)
-			if err != nil {
-				return 0, err
-			}
-		case isGlobalCarrierPromotionCandidate(current, action):
-			promotion = true
-		}
+) (statefileEffectPlan, error) {
+	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
+		FinalRoutes: routeWorks(current, actions),
+	})
+	if err != nil {
+		return statefileEffectPlan{}, err
 	}
-	if promotion {
-		return checkedStatefileEffectCount(invocations, 1)
-	}
-	return invocations, nil
+	return statefilePlanFromDemand(envelope.Demand()), nil
 }
 
-func carrierRemovalEffectValidationCount(actions []carrierabsence.Action) int {
-	count := 0
-	for _, action := range actions {
-		if action.InvokesHostRoute() || action.MutatesDirectProjection() ||
-			action.VerifiesPendingRemoval() {
-			count++
-		}
+func carrierRemovalStatefileEffectPlan(
+	actions []carrierabsence.Action,
+) (statefileEffectPlan, error) {
+	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
+		CarrierRemovals: carrierWorks(actions),
+	})
+	if err != nil {
+		return statefileEffectPlan{}, err
 	}
-	return count
+	return statefilePlanFromDemand(envelope.Demand()), nil
 }
 
-func maximumRelationOrderEffectCount(
-	current commandPlan,
-	providerActions []reconcile.RelationAction,
-	finalRelations []reconcile.RelationAction,
-) (int, error) {
+func delegateStatefileEffectPlan(
+	actions []reconcile.DelegateAction,
+) (statefileEffectPlan, error) {
+	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
+		Delegates: delegateWorks(actions),
+	})
+	if err != nil {
+		return statefileEffectPlan{}, err
+	}
+	return statefilePlanFromDemand(envelope.Demand()), nil
+}
+
+func statefilePlanFromDemand(demand operationplan.Demand) statefileEffectPlan {
+	return statefileEffectPlan{
+		validations: demand.DescendantValidations(),
+		fileCommits: demand.DescendantFileCommits(),
+	}
+}
+
+func routeWorks(
+	current durable.Snapshot,
+	actions []reconcile.RelationAction,
+) []operationplan.RouteWork {
+	works := make([]operationplan.RouteWork, 0, len(actions))
+	for _, action := range actions {
+		works = append(works, operationplan.RouteWork{
+			InvokesHost: action.InvokesHostRoute(),
+			Global:      action.Scope() == target.ScopeGlobal,
+			Promotion:   isGlobalCarrierPromotionCandidate(current, action),
+		})
+	}
+	return works
+}
+
+func carrierWorks(actions []carrierabsence.Action) []operationplan.CarrierWork {
+	works := make([]operationplan.CarrierWork, 0, len(actions))
+	for _, action := range actions {
+		works = append(works, operationplan.CarrierWork{
+			InvokesHost:     action.InvokesHostRoute(),
+			MutatesDirect:   action.MutatesDirectProjection(),
+			VerifiesPending: action.VerifiesPendingRemoval(),
+		})
+	}
+	return works
+}
+
+func delegateWorks(actions []reconcile.DelegateAction) []operationplan.DelegateWork {
+	works := make([]operationplan.DelegateWork, 0, len(actions))
+	for _, action := range actions {
+		works = append(works, operationplan.DelegateWork{
+			SchedulesAttempt: action.SchedulesAttempt(),
+			Blocked:          action.Disposition() == reconcile.DelegateBlocked,
+		})
+	}
+	return works
+}
+
+func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, error) {
 	decisions := current.assessment.Reconciliation.RelationOrders()
-	classes := make(map[string]struct{})
+	classes := make(map[string][]reconcile.RelationOrderDecision)
 	for _, decision := range decisions {
-		classes[string(decision.ClassID())] = struct{}{}
+		key := string(decision.ClassID())
+		classes[key] = append(classes[key], decision)
 	}
 	selected := make(map[string]struct{})
 	for _, selectedTarget := range current.context.Selection.Targets() {
@@ -244,7 +217,7 @@ func maximumRelationOrderEffectCount(
 			constraint.ClassID(),
 		)
 		if !admitted {
-			return 0, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"locked extension order class %q has no unique profile owner",
 				constraint.ClassID(),
 			)
@@ -255,18 +228,54 @@ func maximumRelationOrderEffectCount(
 		matchedClasses++
 	}
 	if matchedClasses != len(classes) {
-		return 0, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"planned extension order matched %d locked classes, want %d",
 			matchedClasses,
 			len(classes),
 		)
 	}
-	mayChange := relationOrderMayReclassifyBeforeExecution(
-		providerActions,
-		finalRelations,
-		current.assessment.Reconciliation.CarrierAbsences(),
-	)
-	return relationOrderValidationCount(decisions, mayChange)
+	works := make([]operationplan.OrderClassWork, 0, len(classes))
+	for _, classDecisions := range classes {
+		works = append(works, operationplan.OrderClassWork{
+			RequiresMutation: relationOrderMutationRequired(classDecisions),
+		})
+	}
+	return works, nil
+}
+
+func orderClassWorks(decisions []reconcile.RelationOrderDecision) []operationplan.OrderClassWork {
+	classes := make(map[string][]reconcile.RelationOrderDecision)
+	for _, decision := range decisions {
+		key := string(decision.ClassID())
+		classes[key] = append(classes[key], decision)
+	}
+	works := make([]operationplan.OrderClassWork, 0, len(classes))
+	for _, classDecisions := range classes {
+		works = append(works, operationplan.OrderClassWork{
+			RequiresMutation: relationOrderMutationRequired(classDecisions),
+		})
+	}
+	return works
+}
+
+func relationOrderValidationCount(
+	decisions []reconcile.RelationOrderDecision,
+	mayChangeBeforeExecution bool,
+) (int, error) {
+	work := operationplan.ApplyWork{OrderClasses: orderClassWorks(decisions)}
+	if mayChangeBeforeExecution {
+		work.CarrierRemovals = []operationplan.CarrierWork{{VerifiesPending: true}}
+	}
+	envelope, err := operationplan.CompileApply(work)
+	if err != nil {
+		return 0, err
+	}
+	for _, obligation := range envelope.Obligations() {
+		if obligation.Kind() == operationplan.ObligationRelationOrderClass {
+			return obligation.Count(), nil
+		}
+	}
+	return 0, nil
 }
 
 func relationOrderMayReclassifyBeforeExecution(
@@ -274,41 +283,9 @@ func relationOrderMayReclassifyBeforeExecution(
 	finalRelations []reconcile.RelationAction,
 	carrierAbsences []carrierabsence.Action,
 ) bool {
-	for _, actions := range [][]reconcile.RelationAction{providerActions, finalRelations} {
-		for _, action := range actions {
-			if action.InvokesHostRoute() {
-				return true
-			}
-		}
-	}
-	for _, action := range carrierAbsences {
-		if action.InvokesHostRoute() || action.MutatesDirectProjection() ||
-			action.VerifiesPendingRemoval() {
-			return true
-		}
-	}
-	return false
-}
-
-func relationOrderValidationCount(
-	decisions []reconcile.RelationOrderDecision,
-	mayChangeBeforeExecution bool,
-) (int, error) {
-	byClass := make(map[string][]reconcile.RelationOrderDecision)
-	for _, decision := range decisions {
-		key := string(decision.ClassID())
-		byClass[key] = append(byClass[key], decision)
-	}
-	count := 0
-	for _, classDecisions := range byClass {
-		if !mayChangeBeforeExecution && !relationOrderMutationRequired(classDecisions) {
-			continue
-		}
-		var err error
-		count, err = checkedStatefileEffectCount(count, 1)
-		if err != nil {
-			return 0, err
-		}
-	}
-	return count, nil
+	return operationplan.ApplyWork{
+		ProviderActions: routeWorks(durable.Snapshot{}, providerActions),
+		FinalRoutes:     routeWorks(durable.Snapshot{}, finalRelations),
+		CarrierRemovals: carrierWorks(carrierAbsences),
+	}.MayReclassifyRelationOrder()
 }

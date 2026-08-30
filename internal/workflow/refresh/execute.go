@@ -12,6 +12,7 @@ import (
 	executeeffect "github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/operationplan"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -164,13 +165,14 @@ func Execute(
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
 	}
 
+	forwardDemand := operationplan.CompileRefresh(current.paths.StatefilePath).Demand()
 	forwardAuthority, err := current.barrier.ReserveForwardEffects(
 		recoverygate.ForwardEffectPlan{
-			EnsureCalls:            1,
-			BarrierValidationCalls: 4,
-			DescendantPath:         current.paths.StatefilePath,
-			DescendantValidations:  2,
-			DescendantFileCommits:  1,
+			EnsureCalls:            forwardDemand.EnsureCalls(),
+			BarrierValidationCalls: forwardDemand.BarrierValidationCalls(),
+			DescendantPath:         forwardDemand.DescendantPath(),
+			DescendantValidations:  forwardDemand.DescendantValidations(),
+			DescendantFileCommits:  forwardDemand.DescendantFileCommits(),
 		},
 	)
 	if err != nil {
