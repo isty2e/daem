@@ -37,7 +37,6 @@ func BuildLocationInventory(
 		for _, scope := range locationInventoryScopes {
 			if err := appendManagedResourceLocations(
 				&rows,
-				selectedProfile,
 				selectedTarget,
 				scope,
 				entity.KindInstructions,
@@ -47,7 +46,6 @@ func BuildLocationInventory(
 			}
 			if err := appendManagedResourceLocations(
 				&rows,
-				selectedProfile,
 				selectedTarget,
 				scope,
 				entity.KindSkill,
@@ -114,7 +112,6 @@ func validateLocationInventoryTargets(
 
 func appendManagedResourceLocations(
 	rows *[]LocationEntry,
-	selectedProfile profile.TargetProfile,
 	selectedTarget target.Target,
 	scope target.Scope,
 	resourceKind entity.Kind,
@@ -122,8 +119,9 @@ func appendManagedResourceLocations(
 ) error {
 	requestKey := resourceRequestKey{target: selectedTarget, scope: scope, resource: resourceKind}
 	requested := selections.resources[requestKey]
-	placements := selectedProfile.Placements(resourceKind, scope)
-	if len(placements) == 0 {
+	compiled := catalog.Product()
+	views := compiled.ManagedPathViews(selectedTarget, scope, resourceKind)
+	if len(views) == 0 {
 		return appendLocationEntry(rows, locationEntryInput{
 			kind: LocationUnsupported, selectedTarget: selectedTarget, scope: scope,
 			resourceKind: resourceKind, realization: LocationUnavailable,
@@ -132,17 +130,9 @@ func appendManagedResourceLocations(
 			reason: "not-implemented",
 		})
 	}
-	for _, placement := range placements {
-		admission, ok := selectedProfile.PlacementAdmissionAt(resourceKind, scope, placement.Root().String())
-		if !ok {
-			return fmt.Errorf(
-				"target %q %s scope %q placement %q lacks admission",
-				selectedTarget,
-				resourceKind,
-				scope,
-				placement.ID(),
-			)
-		}
+	for _, view := range views {
+		placement := view.Placement()
+		admission := view.Admission()
 		selectionSource, selected := selections.selectedPaths[selectedPathKey{
 			resourceRequestKey: requestKey,
 			path:               placement.Root().String(),
@@ -164,7 +154,7 @@ func appendManagedResourceLocations(
 			return err
 		}
 	}
-	for _, location := range selectedProfile.DiscoveryLocations(resourceKind, scope) {
+	for _, location := range compiled.ManagedPathDiscoveryLocations(selectedTarget, scope, resourceKind) {
 		if err := appendLocationEntry(rows, locationEntryInput{
 			kind: LocationPath, selectedTarget: selectedTarget, scope: scope,
 			resourceKind: resourceKind, realization: LocationHostDiscovery,
@@ -174,7 +164,7 @@ func appendManagedResourceLocations(
 			return err
 		}
 	}
-	for _, location := range selectedProfile.RuntimeLocations(resourceKind, scope) {
+	for _, location := range compiled.ManagedPathRuntimeLocations(selectedTarget, scope, resourceKind) {
 		if err := appendLocationEntry(rows, locationEntryInput{
 			kind: LocationPath, selectedTarget: selectedTarget, scope: scope,
 			resourceKind: resourceKind, realization: LocationHostRuntime,

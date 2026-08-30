@@ -132,6 +132,35 @@ func TestProductManagedPathSurfacesMatchOwnerProfiles(t *testing.T) {
 	}
 }
 
+func TestManagedPathGroupQueriesMatchTargetProfileOrder(t *testing.T) {
+	t.Parallel()
+
+	compiled := Product()
+	for _, selectedTarget := range target.SupportedTargets() {
+		owner := profile.Profile(selectedTarget)
+		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+			for _, kind := range []entity.Kind{entity.KindInstructions, entity.KindSkill} {
+				views := compiled.ManagedPathViews(selectedTarget, scope, kind)
+				admissions := owner.PlacementAdmissions(kind, scope)
+				if len(views) != len(admissions) {
+					t.Fatalf("%s/%s/%s views = %d, admissions = %d", selectedTarget, scope, kind, len(views), len(admissions))
+				}
+				for index, admission := range admissions {
+					if views[index].Admission() != admission {
+						t.Fatalf("%s/%s/%s admission[%d] mismatch", selectedTarget, scope, kind, index)
+					}
+				}
+				if got, want := compiled.ManagedPathDiscoveryLocations(selectedTarget, scope, kind), owner.DiscoveryLocations(kind, scope); !slices.Equal(got, want) {
+					t.Fatalf("%s/%s/%s discovery mismatch", selectedTarget, scope, kind)
+				}
+				if got, want := compiled.ManagedPathRuntimeLocations(selectedTarget, scope, kind), owner.RuntimeLocations(kind, scope); !slices.Equal(got, want) {
+					t.Fatalf("%s/%s/%s runtime mismatch", selectedTarget, scope, kind)
+				}
+			}
+		}
+	}
+}
+
 func TestCompileManagedPathSurfacesRejectsInvalidOwnerJoins(t *testing.T) {
 	t.Parallel()
 

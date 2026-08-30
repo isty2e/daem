@@ -368,6 +368,52 @@ func (catalog Catalog) ManagedPathsInOwnerOrder() []ManagedPathSurfaceView {
 	return result
 }
 
+// ManagedPathViews returns one target/scope/family selection in owner admission
+// order. Missing cells are unsupported rather than support=false rows.
+func (catalog Catalog) ManagedPathViews(
+	selectedTarget target.Target,
+	scope target.Scope,
+	kind entity.Kind,
+) []ManagedPathSurfaceView {
+	result := make([]ManagedPathSurfaceView, 0)
+	for _, view := range catalog.ManagedPathsInOwnerOrder() {
+		if view.Key().Target() == selectedTarget &&
+			view.Key().Scope() == scope &&
+			view.Key().Kind() == kind {
+			result = append(result, view)
+		}
+	}
+	return result
+}
+
+// ManagedPathDiscoveryLocations returns the target/scope/family discovery
+// facet in canonical priority/path order.
+func (catalog Catalog) ManagedPathDiscoveryLocations(
+	selectedTarget target.Target,
+	scope target.Scope,
+	kind entity.Kind,
+) []profile.DiscoveryLocation {
+	views := catalog.ManagedPathViews(selectedTarget, scope, kind)
+	if len(views) == 0 {
+		return nil
+	}
+	return views[0].DiscoveryLocations()
+}
+
+// ManagedPathRuntimeLocations returns the target/scope/family runtime facet in
+// canonical path order.
+func (catalog Catalog) ManagedPathRuntimeLocations(
+	selectedTarget target.Target,
+	scope target.Scope,
+	kind entity.Kind,
+) []profile.RuntimeLocation {
+	views := catalog.ManagedPathViews(selectedTarget, scope, kind)
+	if len(views) == 0 {
+		return nil
+	}
+	return views[0].RuntimeLocations()
+}
+
 // ManagedPathSurface returns the shadow view for one managed-path SurfaceID.
 func (catalog Catalog) ManagedPathSurface(id hostsurface.SurfaceID) (ManagedPathSurfaceView, bool) {
 	index, ok := catalog.managedPathByID[id]
