@@ -3,8 +3,8 @@ package catalog
 var productCatalog = mustProduct()
 
 // Product returns the immutable compiled host-surface catalog for current owner
-// catalogs. MCP views are active consumer inputs; managed-path views remain
-// shadow-only until a separately reviewed cutover.
+// catalogs. MCP and reviewed non-MCP views are active consumer inputs; each
+// remaining consumer cuts over only after differential parity.
 func Product() Catalog {
 	return productCatalog
 }

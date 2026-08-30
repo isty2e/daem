@@ -142,13 +142,42 @@ func TestManagedPathGroupQueriesMatchTargetProfileOrder(t *testing.T) {
 			for _, kind := range []entity.Kind{entity.KindInstructions, entity.KindSkill} {
 				views := compiled.ManagedPathViews(selectedTarget, scope, kind)
 				admissions := owner.PlacementAdmissions(kind, scope)
-				if len(views) != len(admissions) {
-					t.Fatalf("%s/%s/%s views = %d, admissions = %d", selectedTarget, scope, kind, len(views), len(admissions))
+				placements := owner.Placements(kind, scope)
+				if len(views) != len(admissions) || len(views) != len(placements) {
+					t.Fatalf(
+						"%s/%s/%s views = %d, admissions = %d, placements = %d",
+						selectedTarget,
+						scope,
+						kind,
+						len(views),
+						len(admissions),
+						len(placements),
+					)
 				}
 				for index, admission := range admissions {
 					if views[index].Admission() != admission {
 						t.Fatalf("%s/%s/%s admission[%d] mismatch", selectedTarget, scope, kind, index)
 					}
+					if views[index].Placement().ID() != placements[index].ID() {
+						t.Fatalf("%s/%s/%s placement[%d] order mismatch", selectedTarget, scope, kind, index)
+					}
+					root := views[index].Placement().Root().String()
+					byRoot, ok := compiled.ManagedPathAt(selectedTarget, scope, kind, root)
+					if !ok || byRoot.ID() != views[index].ID() {
+						t.Fatalf("%s/%s/%s root %q lookup mismatch", selectedTarget, scope, kind, root)
+					}
+				}
+				ownerDefault, ownerDefaultErr := owner.DefaultPlacement(kind, scope)
+				compiledDefault, compiledDefaultOK := compiled.ManagedPathDefault(selectedTarget, scope, kind)
+				if ownerDefaultErr != nil {
+					if compiledDefaultOK {
+						t.Fatalf("%s/%s/%s compiled unexpected default %s", selectedTarget, scope, kind, compiledDefault.ID())
+					}
+				} else if !compiledDefaultOK || compiledDefault.Placement().Root() != ownerDefault.Root() {
+					t.Fatalf("%s/%s/%s default mismatch", selectedTarget, scope, kind)
+				}
+				if _, ok := compiled.ManagedPathAt(selectedTarget, scope, kind, "missing"); ok {
+					t.Fatalf("%s/%s/%s missing root unexpectedly admitted", selectedTarget, scope, kind)
 				}
 				if got, want := compiled.ManagedPathDiscoveryLocations(selectedTarget, scope, kind), owner.DiscoveryLocations(kind, scope); !slices.Equal(got, want) {
 					t.Fatalf("%s/%s/%s discovery mismatch", selectedTarget, scope, kind)

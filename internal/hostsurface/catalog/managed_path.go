@@ -386,6 +386,43 @@ func (catalog Catalog) ManagedPathViews(
 	return result
 }
 
+// ManagedPathDefault returns the single target-relative default placement.
+func (catalog Catalog) ManagedPathDefault(
+	selectedTarget target.Target,
+	scope target.Scope,
+	kind entity.Kind,
+) (ManagedPathSurfaceView, bool) {
+	var selected ManagedPathSurfaceView
+	count := 0
+	for _, view := range catalog.ManagedPathViews(selectedTarget, scope, kind) {
+		if !view.IsDefaultPlacement() {
+			continue
+		}
+		selected = view
+		count++
+	}
+	return selected, count == 1
+}
+
+// ManagedPathAt returns the single admitted placement with the exact root.
+func (catalog Catalog) ManagedPathAt(
+	selectedTarget target.Target,
+	scope target.Scope,
+	kind entity.Kind,
+	root string,
+) (ManagedPathSurfaceView, bool) {
+	var selected ManagedPathSurfaceView
+	count := 0
+	for _, view := range catalog.ManagedPathViews(selectedTarget, scope, kind) {
+		if view.Placement().Root().String() != root {
+			continue
+		}
+		selected = view
+		count++
+	}
+	return selected, count == 1
+}
+
 // ManagedPathDiscoveryLocations returns the target/scope/family discovery
 // facet in canonical priority/path order.
 func (catalog Catalog) ManagedPathDiscoveryLocations(
