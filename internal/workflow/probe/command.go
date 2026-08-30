@@ -11,6 +11,7 @@ import (
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -369,13 +370,18 @@ func delegateEnvBindingSet(values map[string]string) (delegate.EnvBindingSet, er
 }
 
 func validateRuntimeProbeBinding(binding desiredmcp.Binding) error {
-	placement, err := aggregate.MCPPlacementForBinding(binding)
-	if err != nil {
+	if _, err := aggregate.MCPPlacementForBinding(binding); err != nil {
 		return err
 	}
-	if _, ok := profile.Profile(binding.Target()).MCPRuntimeProbeCapability(
-		placement.ID(),
-	); !ok {
+	view, ok := catalog.Product().LookupMCP(binding.Target(), binding.Scope())
+	if !ok {
+		return fmt.Errorf(
+			"target=%s scope=%s is not admitted for runtime probe",
+			binding.Target(),
+			binding.Scope(),
+		)
+	}
+	if _, ok := view.RuntimeProbe(); !ok {
 		return fmt.Errorf(
 			"target=%s scope=%s is not admitted for runtime probe",
 			binding.Target(),
@@ -392,18 +398,31 @@ func runtimeProbePlacementCapability(
 	if !ok {
 		return aggregate.MCPPlacement{}, profile.MCPRuntimeProbeCapability{}, false
 	}
-	capability, ok := profile.Profile(placement.Target()).MCPRuntimeProbeCapability(
-		placement.ID(),
-	)
+	view, ok := catalog.Product().LookupMCP(placement.Target(), placement.Scope())
 	if !ok {
 		return aggregate.MCPPlacement{}, profile.MCPRuntimeProbeCapability{}, false
 	}
-	return placement, capability, true
+	capability, ok := view.RuntimeProbe()
+	if !ok {
+		return aggregate.MCPPlacement{}, profile.MCPRuntimeProbeCapability{}, false
+	}
+	return view.Placement(), capability, true
+}
+
+func compiledRuntimeProbeViews() []catalog.SurfaceView {
+	views := catalog.Product().Surfaces()
+	out := make([]catalog.SurfaceView, 0, len(views))
+	for _, view := range views {
+		if _, ok := view.RuntimeProbe(); ok {
+			out = append(out, view)
+		}
+	}
+	return out
 }
 
 func runtimeProbeTargetSupported(selectedTarget target.Target) bool {
-	for _, capability := range profile.MCPRuntimeProbeCapabilities() {
-		if capability.Placement().Target() == selectedTarget {
+	for _, view := range compiledRuntimeProbeViews() {
+		if view.Key().Target() == selectedTarget {
 			return true
 		}
 	}
@@ -411,8 +430,8 @@ func runtimeProbeTargetSupported(selectedTarget target.Target) bool {
 }
 
 func runtimeProbeScopeSupported(selectedScope target.Scope) bool {
-	for _, capability := range profile.MCPRuntimeProbeCapabilities() {
-		if capability.Placement().Scope() == selectedScope {
+	for _, view := range compiledRuntimeProbeViews() {
+		if view.Key().Scope() == selectedScope {
 			return true
 		}
 	}
@@ -422,8 +441,8 @@ func runtimeProbeScopeSupported(selectedScope target.Scope) bool {
 func runtimeProbeTargetValues() []string {
 	values := make([]string, 0)
 	seen := make(map[target.Target]struct{})
-	for _, capability := range profile.MCPRuntimeProbeCapabilities() {
-		value := capability.Placement().Target()
+	for _, view := range compiledRuntimeProbeViews() {
+		value := view.Key().Target()
 		if _, duplicate := seen[value]; duplicate {
 			continue
 		}
@@ -436,8 +455,8 @@ func runtimeProbeTargetValues() []string {
 func runtimeProbeScopeValues() []string {
 	values := make([]string, 0)
 	seen := make(map[target.Scope]struct{})
-	for _, capability := range profile.MCPRuntimeProbeCapabilities() {
-		value := capability.Placement().Scope()
+	for _, view := range compiledRuntimeProbeViews() {
+		value := view.Key().Scope()
 		if _, duplicate := seen[value]; duplicate {
 			continue
 		}

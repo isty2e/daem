@@ -3,7 +3,9 @@ package catalog
 var productCatalog = mustProduct()
 
 // Product returns the compiled MCP host-surface catalog for current owner
-// catalogs. Production selection still uses those owner catalogs directly.
+// catalogs. Owner catalogs remain the fact source; consumers select compiled
+// cells, runtime-probe purpose, and provider-authoring admission from this
+// snapshot.
 func Product() Catalog {
 	return productCatalog
 }
