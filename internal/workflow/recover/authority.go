@@ -64,45 +64,6 @@ func (occupancy recoveryPhysicalOccupancy) String() string {
 	return fmt.Sprintf("%s:%s (%s)", occupancy.destination.scope, occupancy.destination.destination, kind)
 }
 
-type recoveryFingerprintFacts struct {
-	ManifestRoot                 string
-	StatefilePath                string
-	RecoveryDir                  string
-	OperationID                  string
-	OperationDir                 string
-	Classification               recovery.Classification
-	JournalAuthorityFingerprint  string
-	StateDirAuthorityFingerprint string
-	Actions                      []recovery.Action
-	GuardedActions               []recovery.Action
-	RemovalCleanupObligations    []recoveryCleanupObligationFingerprint
-	StatefileBefore              json.RawMessage
-	ClaimTransitions             []journalClaimTransitionFingerprint
-}
-
-type recoveryCleanupObligationFingerprint struct {
-	Scope       target.Scope
-	Destination output.Destination
-	Action      recovery.RemovalCleanupActionKind
-	Readiness   recovery.RemovalCleanupReadiness
-	Reason      recovery.RemovalCleanupReason
-	Detail      string
-}
-
-type journalClaimTransitionFingerprint struct {
-	Kind                    string
-	PathAuthority           recoveryPathAuthorityFingerprint
-	ContentPath             string
-	OwnerStatefileAuthority recoveryPathAuthorityFingerprint
-	OwnerManifestPath       string
-	OperationID             string
-}
-
-type recoveryPathAuthorityFingerprint struct {
-	Key              string
-	SemanticsWitness string
-}
-
 func recoveryOperationFingerprint(
 	paths daempaths.Paths,
 	selection journal.RecoverablePlan,
@@ -154,9 +115,25 @@ func activeRecoveryOperationFingerprint(
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery statefile before: %w", err)
 	}
-	claimTransitions := make([]journalClaimTransitionFingerprint, 0, len(plan.ClaimTransitions()))
+	actions, err := json.Marshal(plan.Actions())
+	if err != nil {
+		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery plan: %w", err)
+	}
+	guardedActions, err := json.Marshal(plan.GuardedActions())
+	if err != nil {
+		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery plan: %w", err)
+	}
+	cleanupObligations, err := recoveryCleanupObligationFingerprints(plan.RemovalCleanupObligations())
+	if err != nil {
+		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery plan: %w", err)
+	}
+	claimTransitions := make(
+		[]operationplan.ActiveRecoveryClaimTransition,
+		0,
+		len(plan.ClaimTransitions()),
+	)
 	for _, transition := range plan.ClaimTransitions() {
-		claimTransitions = append(claimTransitions, journalClaimTransitionFingerprint{
+		claimTransitions = append(claimTransitions, operationplan.ActiveRecoveryClaimTransition{
 			Kind:                    string(transition.Kind()),
 			PathAuthority:           recoveryPathAuthorityFingerprintFor(transition.Address().PathAuthority()),
 			ContentPath:             transition.Address().ContentPath(),
@@ -165,48 +142,48 @@ func activeRecoveryOperationFingerprint(
 			OperationID:             transitionOperationID(transition),
 		})
 	}
-	fingerprint, err := operationplan.HashJSON(recoveryFingerprintFacts{
+	return operationplan.ActiveRecoveryOperationFingerprint(operationplan.ActiveRecoveryIdentityInput{
 		ManifestRoot:                 paths.ManifestRoot,
 		StatefilePath:                paths.StatefilePath,
 		RecoveryDir:                  paths.RecoveryDir,
 		OperationID:                  plan.OperationID(),
 		OperationDir:                 plan.OperationDir(),
-		Classification:               plan.Classification(),
+		Classification:               string(plan.Classification()),
 		JournalAuthorityFingerprint:  journalAuthorityFingerprint,
 		StateDirAuthorityFingerprint: stateDirFingerprint,
-		Actions:                      plan.Actions(),
-		GuardedActions:               plan.GuardedActions(),
-		RemovalCleanupObligations:    recoveryCleanupObligationFingerprints(plan.RemovalCleanupObligations()),
+		Actions:                      json.RawMessage(actions),
+		GuardedActions:               json.RawMessage(guardedActions),
+		RemovalCleanupObligations:    cleanupObligations,
 		StatefileBefore:              json.RawMessage(statefileBefore),
 		ClaimTransitions:             claimTransitions,
 	})
-	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery plan: %w", err)
-	}
-	return fingerprint, nil
 }
 
 func recoveryCleanupObligationFingerprints(
 	obligations []recovery.RemovalCleanupObligation,
-) []recoveryCleanupObligationFingerprint {
-	result := make([]recoveryCleanupObligationFingerprint, 0, len(obligations))
+) ([]operationplan.ActiveRecoveryCleanupObligation, error) {
+	result := make([]operationplan.ActiveRecoveryCleanupObligation, 0, len(obligations))
 	for _, obligation := range obligations {
-		result = append(result, recoveryCleanupObligationFingerprint{
-			Scope:       obligation.Scope(),
-			Destination: obligation.Destination(),
-			Action:      obligation.Action(),
-			Readiness:   obligation.Readiness(),
-			Reason:      obligation.Reason(),
+		destination, err := json.Marshal(obligation.Destination())
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, operationplan.ActiveRecoveryCleanupObligation{
+			Scope:       string(obligation.Scope()),
+			Destination: json.RawMessage(destination),
+			Action:      string(obligation.Action()),
+			Readiness:   string(obligation.Readiness()),
+			Reason:      string(obligation.Reason()),
 			Detail:      obligation.Detail(),
 		})
 	}
-	return result
+	return result, nil
 }
 
 func recoveryPathAuthorityFingerprintFor(
 	authority pathauthority.Exact,
-) recoveryPathAuthorityFingerprint {
-	return recoveryPathAuthorityFingerprint{
+) operationplan.RecoveryPathAuthorityFingerprint {
+	return operationplan.RecoveryPathAuthorityFingerprint{
 		Key:              authority.Key(),
 		SemanticsWitness: authority.Witness(),
 	}
