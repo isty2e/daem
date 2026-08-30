@@ -2,16 +2,19 @@ package catalog
 
 var productCatalog = mustProduct()
 
-// Product returns the compiled MCP host-surface catalog for current owner
-// catalogs. Owner catalogs remain the fact source; consumers select compiled
-// cells, runtime-probe purpose, provider-authoring admission, subject lookup,
-// and owner-order MCP enumeration from this snapshot.
+// Product returns the immutable compiled host-surface catalog for current owner
+// catalogs. MCP views are active consumer inputs; managed-path views remain
+// shadow-only until a separately reviewed cutover.
 func Product() Catalog {
 	return productCatalog
 }
 
 func mustProduct() Catalog {
 	catalog, err := Compile(productSeed())
+	if err != nil {
+		panic(err)
+	}
+	catalog, err = catalog.withManagedPathSurfaces(productManagedPathSeed())
 	if err != nil {
 		panic(err)
 	}

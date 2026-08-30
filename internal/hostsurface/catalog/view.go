@@ -76,16 +76,21 @@ type Catalog struct {
 	ownerOrder []int
 	byID       map[hostsurface.SurfaceID]int
 	byKey      map[hostsurface.SurfaceKey]int
+
+	managedPathViews      []ManagedPathSurfaceView
+	managedPathOwnerOrder []int
+	managedPathByID       map[hostsurface.SurfaceID]int
+	managedPathByKey      map[hostsurface.SurfaceKey]int
 }
 
-// Surfaces returns compiled views in stable key order.
+// Surfaces returns compiled MCP views in stable key order.
 func (catalog Catalog) Surfaces() []SurfaceView {
 	out := make([]SurfaceView, len(catalog.views))
 	copy(out, catalog.views)
 	return out
 }
 
-// Surface returns the compiled view for an opaque ID.
+// Surface returns the compiled MCP view for an opaque ID.
 func (catalog Catalog) Surface(id hostsurface.SurfaceID) (SurfaceView, bool) {
 	index, ok := catalog.byID[id]
 	if !ok {
@@ -94,7 +99,7 @@ func (catalog Catalog) Surface(id hostsurface.SurfaceID) (SurfaceView, bool) {
 	return catalog.views[index], true
 }
 
-// Lookup returns the compiled view for a semantic key. Missing keys are
+// Lookup returns the compiled MCP view for a semantic key. Missing keys are
 // unsupported, not compiled as support=false rows.
 func (catalog Catalog) Lookup(key hostsurface.SurfaceKey) (SurfaceView, bool) {
 	index, ok := catalog.byKey[key]
