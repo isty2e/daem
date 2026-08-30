@@ -341,10 +341,14 @@ Package movement is last. Logical ownership and dependency direction are fixed
 before a package name; a package is introduced only when it passes the package
 versus file gate and prevents a real reverse edge or change-amplification seam.
 
-This program's MCP cell join, operation-authority compiler, effect-envelope
-demand, and State Barrier protocol have completed that cutover. Instruction,
-Skill, Hook, and Extension surface joins remain owner-local and still follow
-the shadow rule above.
+The current implementation has completed bounded cutovers for the MCP cell
+join, apply/refresh/recover authority subprojections and reservation demand,
+and the State Barrier protocol. The program remains open until Instruction,
+Skill, Hook, HookAsset, and Extension surfaces compile through the canonical
+surface owner; every mutating workflow uses the canonical operation compiler;
+typed effect obligations drive reservation and settlement; and semantic guard
+coverage replaces exact-path classification where it still determines
+blocking enforcement.
 
 Current source, surface, operation, compatibility, transition, verification,
 and closeout locality evidence are recorded in

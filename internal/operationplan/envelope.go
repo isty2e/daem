@@ -126,8 +126,8 @@ func (demand Demand) Empty() bool {
 		demand.descendantFileCommits == 0
 }
 
-// NewDemand reconstructs semantic demand from already-compiled counters.
-// Production workflows must use CompileApply, CompileRefresh, or CompileNone.
+// NewDemand reconstructs semantic demand for direct consumer test fixtures.
+// Production workflows currently use CompileApply or CompileRefresh.
 func NewDemand(
 	ensureCalls int,
 	barrierValidationCalls int,
