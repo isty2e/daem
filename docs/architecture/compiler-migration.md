@@ -1,10 +1,12 @@
 # Compiler Migration Ledger
 
-Status: active implementation-evidence ledger derived from
+Status: closeout-complete implementation-evidence ledger derived from
 [`ARCHITECTURE.md`](../../ARCHITECTURE.md). It records the current source
-layout, compatibility fixtures, and finite migration handoffs. It is not a
-runtime registry, public support matrix, persisted schema, or independent
-architecture authority.
+layout, compatibility fixtures, finite migration handoffs, and the closeout
+census. It is not a runtime registry, public support matrix, persisted schema,
+or independent architecture authority. Migrated MCP/authority/demand/barrier
+paths have one owner each; unmigrated Instruction/Skill/Hook/Extension joins
+remain owner-local.
 
 Current executable behavior remains owned by canonical Go models and tests.
 Current user-visible and persisted contracts remain owned by `docs/`, versioned
@@ -110,15 +112,15 @@ parity evidence
 | ARCH-G07 | guarantee | Several logical surfaces may reference one physical placement while retaining target-relative support and selection. | Current supported behavior; `ARCHITECTURE.md`. | Shared instruction/skill placements and HookAsset placement. | Exact placement ids and physical addresses. | surface-schema phase/surface-cutover phase. | Physical sharing can no longer preserve each surface's independent support or operation contract. |
 | ARCH-G08 | guarantee | Existing placement, topology, codec, route, adapter-contract, lock/state projection, and subject ids are not renumbered or reinterpreted by this migration. | Compatibility authority and user decision. | Current constructors, codecs, tests, persisted artifacts. | Exact parity. | all migration phases. | Separately authorized versioned compatibility migration. |
 | ARCH-G09 | guarantee | Surface compilation is static, deterministic, immutable, and I/O-free; it stores contract references rather than adapter objects or callbacks. | User decision; `ARCHITECTURE.md`. | Current static catalogs and constructor validation. | Internal behavioral parity. | surface-schema phase. | A real external behavior cannot be represented by a stable contract reference and must remain private boundary code. |
-| ARCH-G10 | guarantee | Operation authority facts, canonical ordering, deduplication/conflicts, mutation domains, lifecycle-named revision sets, and operation fingerprints have one pure compiler owner. | User decision; `ARCHITECTURE.md`. | Workflow-local apply/refresh/recover compilers. | Exact domains, revisions, ordering, and fingerprint values. | operation-authority phase. | A parity failure proves two apparently shared facts have different canonical semantics. |
+| ARCH-G10 | guarantee | Operation authority facts, canonical ordering, deduplication/conflicts, mutation domains, lifecycle-named revision sets, and operation fingerprints have one pure compiler owner. | User decision; `ARCHITECTURE.md`. | `internal/operationplan` compiles apply/refresh/recover facts; workflow DTO envelopes hash through `HashJSON`. | Exact domains, revisions, ordering, and fingerprint values. | operation-authority phase. | A parity failure proves two apparently shared facts have different canonical semantics. |
 | ARCH-G11 | guarantee | Operation compilation performs no filesystem, subprocess, persistence, capability acquisition, or presentation work; all flexible boundary facts are normalized before lowering. | User decision; `ARCHITECTURE.md`. | Current workflows mix some observation with compilation. | Behavioral parity. | operation-authority phase/readiness phase. | A required semantic input cannot be observed before compilation without changing the operation contract. |
 | ARCH-G12 | guarantee | Every effectful operation has a typed, ordered effect envelope whose complete demand is admitted before its first external or visibility effect. | User decision; `ARCHITECTURE.md` transaction/recovery contract. | `operationplan.Demand`, recoverygate reservation, effect tests. | Exact refusal timing and effect ordering. | effect-envelope phase. | Supported dynamic work cannot be bounded before effects and the product contract must be reduced or separately changed. |
 | ARCH-G13 | guarantee | Exclusive branches reserve the maximum reachable demand rather than the sum; sequential and repeated obligations preserve exact bounded demand and cannot add work after effects begin. | User decision; `ARCHITECTURE.md`. | Current branch-specific arithmetic. | Behavioral parity and pre-effect refusal parity. | effect-envelope phase. | Runtime evidence proves branches are not closed/exclusive or promotion can create unplanned work. |
 | ARCH-G14 | guarantee | The operation plan describes semantic obligations; the State Barrier alone lowers them with selected paths and platform facts into physical StateDir/RecoveryDir capacity and consumable authority. | User decision; `ARCHITECTURE.md` and current lifecycle contracts. | `operationplan.Demand` consumed by `recoverygate.ReserveForwardEffects`; physical path/entry/byte/census still lowered through `StateDirAuthority.ReserveOperation`. | Behavioral parity. | effect-envelope phase/state-barrier phase. | Physical resource cost cannot be derived without moving operation semantics into the barrier owner. |
 | ARCH-G15 | guarantee | One logical State Barrier owns StateDir/RecoveryDir authority, journal and file-set axes, first-incarnation evidence, reservation consumption, phase revalidation, cancellation precedence, and terminal barrier classification. | User decision; `ARCHITECTURE.md` and recovery contracts. | `recoverygate` owns identity, joint axes, and reservation; workflows sequence only. | Exact failure precedence and visibility classification. | state-barrier phase. | A fact has a different lifecycle/authority and must remain in a lower mechanics owner. |
 | ARCH-G16 | guarantee | Generic file-set marker, snapshot, publication, and recovery mechanics remain below State Barrier policy; storage, journal, execute, and subprocess remain effect mechanisms rather than semantic planners. | User decision; `ARCHITECTURE.md`. | `internal/effect/fileset`, storage/commit, journal, execute. Declaration/transaction is the manifest/lockfile adapter only. | Exact marker/journal/persistence behavior. | state-barrier phase. | Dependency evidence shows the proposed lower mechanics boundary creates a reverse import or public facade. |
-| ARCH-G17 | guarantee | Workflows gather boundary evidence, invoke pure owners, acquire capabilities, sequence effects, and project results; they do not retain competing surface, authority, fingerprint, or capacity grammars. | User decision; `ARCHITECTURE.md`. | Current workflow-local compilers. | Behavioral parity. | surface-cutover phase through readiness phase. | A use case owns a genuinely operation-specific semantic contract not representable by the shared compiler. |
-| ARCH-G18 | guarantee | Old implementation remains authoritative during shadow comparison. A caller flips only after exact required parity, and the old source is deleted after its last consumer moves. | User decision; architecture change rules. | Existing old paths; future parity fixtures. | Exact or behavioral as classified below. | surface-schema phase through closeout phase. | A separately authorized migration requires staged dual-version support. |
+| ARCH-G17 | guarantee | Workflows gather boundary evidence, invoke pure owners, acquire capabilities, sequence effects, and project results; they do not retain competing surface, authority, fingerprint, or capacity grammars. | User decision; `ARCHITECTURE.md`. | Migrated MCP/authority/demand callers invoke `catalog.Product`, `operationplan`, and `recoverygate`. Instruction/Skill/Hook/Extension joins remain owner-local. | Behavioral parity. | surface-cutover phase through readiness phase. | A use case owns a genuinely operation-specific semantic contract not representable by the shared compiler. |
+| ARCH-G18 | guarantee | Old implementation remains authoritative during shadow comparison. A caller flips only after exact required parity, and the old source is deleted after its last consumer moves. | User decision; architecture change rules. | Migrated MCP cell joins and apply/refresh/recover authority/demand/barrier callers have flipped; the old workflow-local compilers are gone. Shadow comparison remains the standing rule for unmigrated families. | Exact or behavioral as classified below. | surface-schema phase through closeout phase. | A separately authorized migration requires staged dual-version support. |
 | ARCH-G19 | guarantee | OS specialization remains at platform admission, physical authority, storage/filesystem, and subprocess boundaries; surface and operation compiler semantics are OS-independent. | `ARCHITECTURE.md`. | Current platform-specialized file census and report-only `compiler-os-specialization` shadow findings. | Behavioral parity. | surface-schema phase through guard-shadow phase. | A supported semantic distinction is proved to depend on OS rather than capability or physical adapter. |
 | ARCH-G20 | guarantee | Architecture policy remains in active contracts; archguard provides semantic dependency/effect-boundary evidence and never becomes runtime or normative authority. Prose, symbol names, exact path catalogues, and density are review evidence only. Report-only compiler-shadow findings never fail the blocking baseline. | `ARCHITECTURE.md`. | Current import-graph and effect-boundary guards plus `Report.Shadow`. | Repository behavior only. | Governance deliberately assigns policy authority to another canonical document. |
 | ARCH-G21 | guarantee | Form-specific transition ownership remains explicit: Reconciliation owns decisions; Effect owns decision-to-effect, journal-before-mutation, outcome, rollback, and durable-successor semantics; State Barrier grants authority but does not reinterpret the transition. | `ARCHITECTURE.md` and current lifecycle contracts. | `reconcile`, `effect/execute`, journal, workflows. | Exact effect/recovery behavior. | effect-envelope phase/state-barrier phase, with existing Effect owner retained. | Evidence shows a transition is currently owned by another canonical model or needs a new form-specific algebra. |
@@ -136,6 +138,7 @@ parity evidence
 | ARCH-N06 | reject | Unify apply, refresh, and recover fingerprint wire projections during this migration. One compiler may own several exact compatibility projections. | Compatibility authority. | Separately authorized fingerprint-version migration. |
 | ARCH-N07 | reject | Immediate Paths, adopt-family, payload, findings, SubjectKind, or persisted DTO overhaul. These require independent owners and compatibility decisions. | User decision; `ARCHITECTURE.md`. | Search finds a distinct active owner or architecture closeout creates one from new evidence. |
 | ARCH-N08 | reject | Use package, file, LOC, or density reduction as acceptance. Numeric changes are evidence only. | `ARCHITECTURE.md` and user decision. | No reopen under current architecture policy. |
+| ARCH-N09 | defer | Named persistence/recovery CI. First-incarnation, residue-retry, and cleanup-only architecture is complete; native job selection and Windows replacement races remain a separate verification owner. | User deferral from the State Barrier phase; closeout. | Named native Linux/Darwin/Windows selectors land without reopening barrier ownership. |
 
 ### Blocking unknowns
 
@@ -276,7 +279,7 @@ absence of a row may not silently acquire a new public meaning.
 | Structural projection namespace | `topology/hook`, `topology/mcp` | aggregate subject classification, lock/refine, workflow tests | Topology view selecting owner-local namespace contract | SubjectID construction and edge legality |
 | Managed path placement | `realization/profile` placement rows | admissions, routes, discovery/runtime, target profiles | Placement/target views | Portable destination and Realization validation |
 | Hook aggregate placement | `realization/aggregate` | topology namespace switch, profile routes, codec catalog | Realization/operation views | Aggregate contract and codec-local behavior |
-| MCP aggregate placement | `realization/aggregate` | topology namespace rows, codec operation registry, profile, adopt/readiness/status | Realization/topology/operation/observation views | Exact placement and codec contract ids |
+| MCP aggregate placement | `realization/aggregate` | owner catalog remains the fact source; `catalog.Product` is the consumer join for list/authoring/adopt/probe/readiness/observe/help; `realization/lock` keeps `MCPPlacementForSubject` because those packages cannot import catalog | Realization/topology/operation/observation views | Exact placement and codec contract ids |
 | Support | `realization/profile` | readiness/help/docs | Target support view | Public product wording and platform capability |
 | Discovery/runtime | `realization/profile` | adopt/list/diagnose | Observation/discovery views | Filesystem observation and import authority |
 | Operation routes | `realization/profile` | effect adapters, apply/refresh, lock | Operation view | Adapter behavior and effect outcomes |
@@ -432,7 +435,7 @@ focused commands identify the old-model parity oracles.
 | state-barrier phase | demand plus State Barrier/caller ledger | Wave 1: recoverygate consumes compiled Demand; `RequireFileSetClear` owns file-set-only lock/init-plan/authoring-dry-run gates without journal blocking. Wave 2: lock mutation and recover active-journal capture use `CaptureStateDir` / `CaptureStateDirBounded` without adding RecoveryDir domains to lock. Wave 3: `StateDirAuthority` and descendant reservation types live in recoverygate. Wave 4: generic file-set marker/census/publication/recovery live in `internal/effect/fileset`; declaration/transaction remains the manifest/lockfile adapter. Closeout census: no mutating sibling bypass remains; identity-free fence observation is package-local; `recoverygate` is not renamed. Fault-injection closeout: unexported `barrierFaultPlan` covers cancellation and replacement before/after first-incarnation witness acceptance; create-without-accept rolls back through `AncestorCleanup.RemoveEmpty`; abandoned residue remains a `RequireClear` fence across retry. storage/commit publication `faultPlan` and fileset marker rollback/recover remain the lower-mechanics oracles. Named persistence/recovery CI stays deferred. | public recovery semantics or platform guarantees must change |
 | readiness phase | active surface views and operation vocabulary | observation shell and pure readiness middle-end. Wave 1: `Assess` and `AssessOutputInventory` remain the observation sequencers; `assembleAssessment` / `planOutputInventory` / `planExtensionOrderDecisions` perform no I/O; Skill support uses owner-local `profile.TargetSupports` rather than `TargetProfile`; compiled `LookupMCPBySubject` remains the MCP cell join; Host-Surface catalog is not expanded beyond MCP; `operationplan` stays in apply/refresh/recover. Observation order and codec `MaximumDocumentBytes` bounds stay exact. | observation order/evidence semantics cannot remain exact |
 | guard-shadow phase | implemented owner graph at Host-Surface, Operation-Safety, State Barrier, and readiness cutovers | report-only Shadow channel on `Report` that never feeds `HasFailures`; prefix roles `internal/hostsurface`, `internal/operationplan`, `internal/recoverygate`; S1–S7 compiler/barrier import and OS-file rules; perturbation fixtures for new OS, extra catalog package, new realization, new observe purpose, and recovery hardening; old-rule disposition table below | proposed rule cannot reject forbidden fixtures and admit near-neighbors, or Shadow findings appear on the current tree |
-| closeout phase | every prior artifact | no duplicate compiler/facade/residue plus final locality report | any duplicate source, bypass, parity drift, or unowned exception remains |
+| closeout phase | every prior artifact | no duplicate compiler/facade/residue for migrated MCP/authority/demand/barrier paths; locality report below; `packagePlacementRows` and `recoverygate` name retained; named persistence/recovery CI deferred | any duplicate source, bypass, parity drift, or unowned exception remains |
 
 ## Plan-Attack Dispositions
 
@@ -464,11 +467,91 @@ None of these rows delete a blocking guard in this phase.
 | Production→test-support, read-only workflow, off-diagonal seams | retain | Behavioral/graph contracts outside compiler I/O. |
 | Storage/journal/CLI presentation boundary rules | retain | Effect and presentation leaves stay blocking. |
 | Exact unplaced-package rejection | demote-to-review | Already removed. Shadow prefix roles close the compiler residual without re-blocking unclassified packages. |
-| `packagePlacementRows` exact lists | defer delete | Still the affinity lookup for placed packages. Shadow does not bless the catalogue as ontology. Closeout may replace after equivalent coverage. |
+| `packagePlacementRows` exact lists | defer delete | Still the affinity lookup for placed packages. Shadow does not bless the catalogue as ontology. Closeout retained the list because Shadow has no equivalent blocking affinity coverage. |
 | Density / LOC / exact path catalogues as tests | already gone | Remain review evidence only (ARCH-G20). |
 | Documentation-prose or source-symbol guards | reject restore | Architecture tests stay executable behavior, typed contracts, import graphs, and produced artifacts. |
 | Move packages before parity fixtures | reject | Package shape is derived from proven owners and dependency direction, not the starting mechanism. |
 | Preserve documentation prose, declaration-name, API-symbol, exact package/file catalogue, or density assertions as migration guards | reject | These mechanisms create brittle reverse authority and high iteration cost. Executable behavior, typed/serialized contracts, import graphs, and produced artifacts are the valid oracles. |
+
+## Closeout census and change locality
+
+Status: closeout complete for the migrated MCP cell join, operation-authority
+compiler, effect-envelope demand, State Barrier protocol, readiness middle-end,
+and report-only compiler-shadow guards. Unmigrated Instruction, Skill, Hook,
+and Extension surface joins remain owner-local and are not deleted as residue.
+
+### Removed dual sources
+
+| Former dual | Disposition | Replacement |
+| --- | --- | --- |
+| Workflow-local apply/refresh/recover authority compilers | deleted after cutover | `internal/operationplan` facts, domains, revisions, and fingerprints |
+| Workflow-constructed `ForwardEffectPlan` | deleted | `operationplan.Demand` consumed by `recoverygate.ReserveForwardEffects` |
+| `transaction.CaptureStateDirAuthority`, `RequireClearFileSet`, `transaction.StateDirAuthority` | deleted | `recoverygate.CaptureStateDir` / `CaptureStateDirBounded` / `StateDirAuthority` |
+| Identity-free production `ObserveClearFence` | unexported | package-local `observeClearFence`; production census is `ObserveClearFenceAt` after capture |
+| Workflow MCP target/scope switches in list, authoring, adopt, probe, readiness, observe, help | deleted | `catalog.Product` lookups; owner catalogs remain the fact source |
+
+### Retained owner-local joins (not residue)
+
+| Surface | Reason |
+| --- | --- |
+| `aggregate.MCPPlacementForSubject` in `realization/lock` | topology/realization must not import catalog |
+| Profile route construction | owner-internal; realization cannot import catalog |
+| Workflow fingerprint DTO envelopes | exact compatibility projections; hashed through `HashJSON` |
+| `operationplan.NewDemand` | test reconstruction only; production uses `CompileApply` / `CompileRefresh` / `CompileNone` |
+| File-set-only `RequireFileSetClear` | lock planning, init BuildPlan, authoring dry-run; no journal blocking |
+| Read-only `RequireClear` | list/status/diagnose/probe and planning without retained `EffectAuthority` |
+| `packagePlacementRows` | blocking affinity lookup for placed packages; Shadow is report-only |
+| `internal/recoverygate` package path | rename would not shorten the import graph |
+
+### Compiler and barrier paths
+
+```text
+owner catalogs
+-> internal/hostsurface/catalog.Product
+-> list, authoring, adopt, probe, readiness, observe, help
+
+normalized apply/refresh/recover facts
+-> internal/operationplan
+-> workflow HashJSON envelopes
+
+CompileApply / CompileRefresh / CompileNone
+-> recoverygate.ReserveForwardEffects
+-> StateDir / RecoveryDir authority
+
+fileset mechanics
+-> declaration/transaction adapter and recoverygate census
+```
+
+### Guard-rule locality
+
+| Rule family | Blocking? | Closeout |
+| --- | --- | --- |
+| Import-direction, effect-boundary, forbidden shapes | yes | retained |
+| `Report.Shadow` compiler prefix roles | no | retained report-only; never feeds `HasFailures` |
+| `packagePlacementRows` exact lists | lookup only | retained; not ontology |
+| Density / prose / symbol-presence | n/a | remain gone |
+
+### Representative change paths
+
+| Perturbation | Expected locality | Evidence |
+| --- | --- | --- |
+| New OS adapter | physical adapters and platform admission | `compiler-os-specialization` shadow fixtures |
+| Extra catalog package | Host-Surface compiler prefix | shadow near-neighbor fixtures |
+| New realization form | Realization plus Reconciliation/Effect variants | forbidden-shape and perturbation fixtures |
+| New observe purpose | Assurance fact plus surface observation binding | shadow perturbation fixtures |
+| Recovery hardening | `recoverygate` and Effect/recovery mechanisms | first-incarnation fault matrix; named CI deferred |
+
+### Residual follow-ups
+
+- Named persistence/recovery CI, including native Windows replacement races.
+- Later Host-Surface compilation of Instruction, Skill, Hook, and Extension
+  families under the same shadow-then-delete rule.
+- Adopt plan identity and remaining ARCH-N07 surfaces stay outside this
+  program.
+
+Numeric package or line-count deltas are evidence only. Success is one primary
+owner per migrated invariant, contained capability surfaces, and exact
+compatible contracts.
 
 No blocking Unknown remains after these dispositions. Material evidence that
 changes one of these decisions reopens the contract-freeze phase and updates

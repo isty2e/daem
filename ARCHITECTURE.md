@@ -341,8 +341,13 @@ Package movement is last. Logical ownership and dependency direction are fixed
 before a package name; a package is introduced only when it passes the package
 versus file gate and prevents a real reverse edge or change-amplification seam.
 
-Current source, surface, operation, compatibility, transition, and verification
-fixtures are recorded in
+This program's MCP cell join, operation-authority compiler, effect-envelope
+demand, and State Barrier protocol have completed that cutover. Instruction,
+Skill, Hook, and Extension surface joins remain owner-local and still follow
+the shadow rule above.
+
+Current source, surface, operation, compatibility, transition, verification,
+and closeout locality evidence are recorded in
 [Compiler Migration Ledger](docs/architecture/compiler-migration.md).
 
 ## Forbidden Shapes
