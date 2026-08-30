@@ -80,16 +80,6 @@ type recoveryFingerprintFacts struct {
 	ClaimTransitions             []journalClaimTransitionFingerprint
 }
 
-type cleanupFingerprintFacts struct {
-	RecoveryDir                 string
-	OperationID                 string
-	Classification              retirement.CleanupClassification
-	Action                      retirement.CleanupActionKind
-	JournalAuthorityFingerprint string
-	Phase                       retirement.Phase
-	ResiduePresent              bool
-}
-
 type recoveryCleanupObligationFingerprint struct {
 	Scope       target.Scope
 	Destination output.Destination
@@ -227,22 +217,17 @@ func cleanupRecoveryOperationFingerprint(
 	plan retirement.CleanupPlan,
 ) (mutation.OperationFingerprint, error) {
 	authority := plan.Authority()
-	fingerprint, err := operationplan.HashJSON(cleanupFingerprintFacts{
-		RecoveryDir:                 paths.RecoveryDir,
-		OperationID:                 authority.OperationID(),
-		Classification:              plan.Classification(),
-		Action:                      plan.Action(),
-		JournalAuthorityFingerprint: authority.JournalAuthorityFingerprint(),
-		Phase:                       authority.Phase(),
-		ResiduePresent:              authority.ResiduePresent(),
-	})
-	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf(
-			"fingerprint journal cleanup plan: %w",
-			err,
-		)
-	}
-	return fingerprint, nil
+	return operationplan.CleanupRecoveryOperationFingerprint(
+		operationplan.CleanupRecoveryIdentityInput{
+			RecoveryDir:                 paths.RecoveryDir,
+			OperationID:                 authority.OperationID(),
+			Classification:              string(plan.Classification()),
+			Action:                      string(plan.Action()),
+			JournalAuthorityFingerprint: authority.JournalAuthorityFingerprint(),
+			Phase:                       string(authority.Phase()),
+			ResiduePresent:              authority.ResiduePresent(),
+		},
+	)
 }
 
 func transitionOperationID(transition ownershipmutation.ClaimTransition) string {
