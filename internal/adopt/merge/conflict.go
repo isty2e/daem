@@ -13,7 +13,7 @@ import (
 	desiredhook "github.com/isty2e/daem/internal/desired/hook"
 	desiredinstructions "github.com/isty2e/daem/internal/desired/instructions"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
-	"github.com/isty2e/daem/internal/realization/profile"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -121,15 +121,19 @@ func sameImportedSkillPlacements(
 		if !containsTarget(existing.Targets(), selectedTarget) {
 			continue
 		}
-		defaultPlacement, err := profile.Profile(selectedTarget).DefaultPlacement(entity.KindSkill, imported.Scope)
-		if err != nil {
+		defaultView, ok := hostsurfacecatalog.Product().ManagedPathDefault(
+			selectedTarget,
+			imported.Scope,
+			entity.KindSkill,
+		)
+		if !ok {
 			return false
 		}
-		expected := defaultPlacement.Root().String()
+		expected := defaultView.Placement().Root().String()
 		if installTo := imported.Placements[selectedTarget]; installTo != "" {
 			expected = installTo
 		}
-		actual := defaultPlacement.Root().String()
+		actual := defaultView.Placement().Root().String()
 		if placement, explicit := existingPlacements[selectedTarget]; explicit {
 			actual = placement.InstallTo()
 		}
