@@ -20,11 +20,11 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
-	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -479,7 +479,7 @@ func relationOrderTestReconciliation(
 ) reconcile.Result {
 	t.Helper()
 	constraint := locked.Locked.OrderConstraints()[0]
-	selectedTarget, capability, admitted := profile.ExtensionOrderCapabilityForClass(
+	selectedTarget, capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
 		constraint.ClassID(),
 	)
 	if !admitted {

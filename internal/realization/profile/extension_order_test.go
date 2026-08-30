@@ -113,36 +113,6 @@ func TestExtensionOrderCapabilityMatrixAdmitsOnlyOpenCodeAndPi(t *testing.T) {
 	}
 }
 
-func TestExtensionOrderCapabilityForClassReturnsUniqueCatalogOwner(t *testing.T) {
-	classID := mustOrderClassID("extension:opencode:project:plugins")
-	selectedTarget, capability, ok := ExtensionOrderCapabilityForClass(classID)
-	if !ok {
-		t.Fatal("ExtensionOrderCapabilityForClass returned no capability")
-	}
-	if selectedTarget != target.TargetOpenCode ||
-		capability.ClassID() != classID ||
-		capability.Scope() != target.ScopeProject ||
-		capability.Carrier() != desiredextension.CarrierOpenCodePlugin {
-		t.Fatalf(
-			"owner=%q capability=%#v",
-			selectedTarget,
-			capability,
-		)
-	}
-
-	unknown := mustOrderClassID("extension:unknown:project:plugins")
-	if selectedTarget, capability, ok := ExtensionOrderCapabilityForClass(unknown); ok ||
-		selectedTarget != "" ||
-		!reflect.DeepEqual(capability, ExtensionOrderCapability{}) {
-		t.Fatalf(
-			"unknown owner=%q capability=%#v ok=%t",
-			selectedTarget,
-			capability,
-			ok,
-		)
-	}
-}
-
 func TestExtensionOrderCapabilityDefensivelyCopiesAndCanonicalizesSequences(t *testing.T) {
 	input := ExtensionOrderCapabilityInput{
 		Carrier:                desiredextension.CarrierOpenCodePlugin,

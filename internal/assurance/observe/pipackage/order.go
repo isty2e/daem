@@ -7,6 +7,7 @@ import (
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -147,9 +148,10 @@ func newOrderSelection(
 	if err := constraint.Validate(); err != nil {
 		return orderSelection{}, fmt.Errorf("Pi package order constraint: %w", err)
 	}
-	capability, admitted := profile.Profile(target.TargetPi).ExtensionOrder(
-		desiredextension.CarrierPiPackage,
+	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(
+		target.TargetPi,
 		scope,
+		desiredextension.CarrierPiPackage,
 	)
 	if !admitted {
 		return orderSelection{}, fmt.Errorf("Pi %s package order is not admitted", scope)

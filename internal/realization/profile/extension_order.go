@@ -277,25 +277,6 @@ func ExtensionOrderAdmissions() []ExtensionOrderAdmission {
 	return result
 }
 
-// ExtensionOrderCapabilityForClass returns the unique target-owned admission
-// for one locked order class. Absence means the class is not admitted.
-func ExtensionOrderCapabilityForClass(
-	classID hostrelation.OrderClassID,
-) (target.Target, ExtensionOrderCapability, bool) {
-	var selectedTarget target.Target
-	var selected ExtensionOrderCapability
-	count := 0
-	for _, row := range extensionOrderCapabilityCatalog {
-		if row.capability.ClassID() != classID {
-			continue
-		}
-		selectedTarget = row.target
-		selected = row.capability
-		count++
-	}
-	return selectedTarget, selected, count == 1
-}
-
 func mustExtensionOrderCapability(
 	input ExtensionOrderCapabilityInput,
 ) ExtensionOrderCapability {
