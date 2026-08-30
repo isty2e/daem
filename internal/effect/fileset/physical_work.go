@@ -9,6 +9,11 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
+const (
+	maximumFileSetOperationEntries       = 400_000
+	maximumFileSetOperationBytes   int64 = 16 << 30
+)
+
 // PhysicalWorkBudget is the shared operation envelope used by StateDir
 // identity work and file-set fence census. Identity capture lives in
 // recoverygate; this package charges census work and inspects fence evidence.
@@ -172,11 +177,17 @@ func (budget *fenceObservationBudget) AdmitPhysicalWork(
 			mutationfs.MaximumPhysicalPathComponentVisits,
 		)
 	}
-	if entries > 400_000-budget.entries {
-		return fmt.Errorf("file-set entry work exceeds operation limit %d", 400_000)
+	if entries > maximumFileSetOperationEntries-budget.entries {
+		return fmt.Errorf(
+			"file-set entry work exceeds operation limit %d",
+			maximumFileSetOperationEntries,
+		)
 	}
-	if bytes > (16<<30)-budget.bytes {
-		return fmt.Errorf("file-set byte work exceeds operation limit %d", 16<<30)
+	if bytes > maximumFileSetOperationBytes-budget.bytes {
+		return fmt.Errorf(
+			"file-set byte work exceeds operation limit %d",
+			maximumFileSetOperationBytes,
+		)
 	}
 	budget.paths += pathComponents
 	budget.entries += entries
