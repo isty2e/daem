@@ -343,10 +343,11 @@ versus file gate and prevents a real reverse edge or change-amplification seam.
 
 The current implementation has completed bounded cutovers for the MCP cell
 join, apply/refresh/recover authority subprojections and reservation demand,
-and the State Barrier protocol. Instruction, Skill, Hook, HookAsset, and
-Extension surfaces also compile as I/O-free views with owner parity, and the
-read-only location inventory now consumes those views. Other production
-consumers still use owner-local projections. The program remains open until
+exact refresh and recovery fingerprints, and the State Barrier protocol.
+Instruction, Skill, Hook, HookAsset, and Extension surfaces also compile as
+I/O-free views with owner parity, and read-only location inventory plus manifest
+location selection consume those views. Other production consumers still use
+owner-local projections. The program remains open until
 those consumers cut over, every mutating workflow uses the
 canonical operation compiler, typed effect obligations drive reservation and
 settlement, and semantic guard coverage replaces exact-path classification
