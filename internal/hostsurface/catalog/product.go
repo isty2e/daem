@@ -22,5 +22,9 @@ func mustProduct() Catalog {
 	if err != nil {
 		panic(err)
 	}
+	catalog, err = catalog.withExtensionSurfaces(productExtensionSeed())
+	if err != nil {
+		panic(err)
+	}
 	return catalog
 }

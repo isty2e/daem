@@ -326,6 +326,12 @@ func (catalog Catalog) rejectCompiledCollision(id hostsurface.SurfaceID, key hos
 	if _, collision := catalog.hookAssetByKey[key]; collision {
 		return fmt.Errorf("host-surface key collides with HookAsset surface %q", id)
 	}
+	if _, collision := catalog.extensionByID[id]; collision {
+		return fmt.Errorf("host-surface ID collides with Extension surface %q", id)
+	}
+	if _, collision := catalog.extensionByKey[key]; collision {
+		return fmt.Errorf("host-surface key collides with Extension surface %q", id)
+	}
 	return nil
 }
 

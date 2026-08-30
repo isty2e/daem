@@ -91,6 +91,11 @@ type Catalog struct {
 	hookAssetOwnerOrder []int
 	hookAssetByID       map[hostsurface.SurfaceID]int
 	hookAssetByKey      map[hostsurface.SurfaceKey]int
+
+	extensionViews      []ExtensionSurfaceView
+	extensionOwnerOrder []int
+	extensionByID       map[hostsurface.SurfaceID]int
+	extensionByKey      map[hostsurface.SurfaceKey]int
 }
 
 // Surfaces returns compiled MCP views in stable key order.

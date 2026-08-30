@@ -178,6 +178,22 @@ func (capability ExtensionOrderCapability) RuntimeMeaning() hostrelation.Runtime
 	return capability.runtimeMeaning
 }
 
+// ExtensionOrderAdmission binds one target to an owner-local order capability.
+type ExtensionOrderAdmission struct {
+	target     target.Target
+	capability ExtensionOrderCapability
+}
+
+func (admission ExtensionOrderAdmission) Target() target.Target { return admission.target }
+func (admission ExtensionOrderAdmission) Capability() ExtensionOrderCapability {
+	capability := admission.capability
+	capability.physicalSequenceIDs = append(
+		[]hostrelation.PhysicalSequenceID(nil),
+		capability.physicalSequenceIDs...,
+	)
+	return capability
+}
+
 type extensionOrderCapabilityRow struct {
 	target     target.Target
 	capability ExtensionOrderCapability
@@ -246,6 +262,19 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 			RuntimeMeaning: hostrelation.RuntimePrecedence,
 		}),
 	},
+}
+
+// ExtensionOrderAdmissions returns the complete target-owned order catalog in
+// stable owner order with independently owned sequence slices.
+func ExtensionOrderAdmissions() []ExtensionOrderAdmission {
+	result := make([]ExtensionOrderAdmission, 0, len(extensionOrderCapabilityCatalog))
+	for _, row := range extensionOrderCapabilityCatalog {
+		result = append(result, ExtensionOrderAdmission{
+			target:     row.target,
+			capability: row.capability,
+		})
+	}
+	return result
 }
 
 // ExtensionOrderCapabilityForClass returns the unique target-owned admission

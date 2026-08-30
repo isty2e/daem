@@ -100,10 +100,9 @@ func IsCarrierRelation(carrier desiredextension.Carrier, subject topology.Subjec
 }
 
 func namespaceFor(carrier desiredextension.Carrier) (string, error) {
-	for _, row := range carrierNamespaceCatalog {
-		if row.carrier == carrier {
-			return row.namespace, nil
-		}
+	namespace, ok := CarrierNamespace(carrier)
+	if !ok {
+		return "", fmt.Errorf("unsupported extension carrier %q", carrier)
 	}
-	return "", fmt.Errorf("unsupported extension carrier %q", carrier)
+	return namespace, nil
 }
