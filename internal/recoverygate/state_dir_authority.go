@@ -401,6 +401,14 @@ func (authority StateDirAuthority) ensureOwnedIncarnationWithBudget(
 	ctx context.Context,
 	physicalWorkBudget stateDirPhysicalWorkBudget,
 ) (bool, error) {
+	return authority.ensureOwnedIncarnationWithFaults(ctx, physicalWorkBudget, barrierFaultPlan{})
+}
+
+func (authority StateDirAuthority) ensureOwnedIncarnationWithFaults(
+	ctx context.Context,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+	faults barrierFaultPlan,
+) (bool, error) {
 	snapshot, ok := authority.snapshot()
 	if !ok {
 		return false, fmt.Errorf("file-set state directory authority is uninitialized")
@@ -425,6 +433,9 @@ func (authority StateDirAuthority) ensureOwnedIncarnationWithBudget(
 	); err != nil {
 		return false, err
 	}
+	if err := faults.check(ctx, barrierPhasePreCreate); err != nil {
+		return false, err
+	}
 	witness, cleanup, err := createStateDirIncarnation(
 		ctx,
 		snapshot.path,
@@ -435,10 +446,26 @@ func (authority StateDirAuthority) ensureOwnedIncarnationWithBudget(
 		return false, err
 	}
 	defer cleanup.Close()
+	if err := faults.check(ctx, barrierPhasePostCreate); err != nil {
+		return false, rollbackCreatedStateDir(cleanup, err)
+	}
 	if err := authority.acceptCreationWitness(ctx, snapshot, witness, physicalWorkBudget); err != nil {
-		return false, err
+		return false, rollbackCreatedStateDir(cleanup, err)
+	}
+	if err := faults.check(ctx, barrierPhasePostAccept); err != nil {
+		return true, err
 	}
 	return true, nil
+}
+
+func rollbackCreatedStateDir(cleanup *storagecommit.AncestorCleanup, cause error) error {
+	if cleanup == nil {
+		return cause
+	}
+	if cleanupErr := cleanup.RemoveEmpty(context.Background()); cleanupErr != nil {
+		return errors.Join(cause, cleanupErr)
+	}
+	return cause
 }
 
 func createStateDirIncarnation(
