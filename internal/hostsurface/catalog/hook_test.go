@@ -43,6 +43,10 @@ func TestProductHookSurfacesMatchAggregateAndProfileOwners(t *testing.T) {
 		if !ok || byID.ID() != view.ID() {
 			t.Fatalf("Hook ID lookup mismatch for %s", view.ID())
 		}
+		byCell, ok := catalog.LookupHookCell(placement.Target(), placement.Scope())
+		if !ok || byCell.ID() != view.ID() {
+			t.Fatalf("Hook cell lookup mismatch for %s", view.ID())
+		}
 		if view.Placement().ID() != placement.ID() ||
 			view.Placement().CodecContractID() != placement.CodecContractID() ||
 			view.Placement().AggregateRoot() != placement.AggregateRoot() {
@@ -114,6 +118,10 @@ func TestProductHookAssetSurfacesPreserveSharedPhysicalPlacement(t *testing.T) {
 			if !ok || byID.ID() != view.ID() {
 				t.Fatalf("HookAsset ID lookup mismatch for %s", view.ID())
 			}
+			byCell, ok := catalog.LookupHookAssetCell(consumer, placement.Scope())
+			if !ok || byCell.ID() != view.ID() {
+				t.Fatalf("HookAsset cell lookup mismatch for %s", view.ID())
+			}
 			if view.Placement().ID() != placement.ID() || view.WriteRoute() != write || view.RemoveRoute() != remove {
 				t.Fatalf("HookAsset owner facts mismatch for %s", view.ID())
 			}
@@ -136,6 +144,9 @@ func TestProductHookAssetSurfacesPreserveSharedPhysicalPlacement(t *testing.T) {
 		}
 	}
 	for _, unsupported := range []target.Target{target.TargetOpenCode, target.TargetPi, target.TargetAntigravityCLI} {
+		if _, ok := catalog.LookupHookCell(unsupported, target.ScopeProject); ok {
+			t.Fatalf("unsupported target %q has Hook surface", unsupported)
+		}
 		for _, placement := range placements {
 			variant, err := hostsurface.ParseVariantID(placement.ID())
 			if err != nil {

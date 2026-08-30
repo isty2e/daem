@@ -46,6 +46,10 @@ func TestProductExtensionSurfacesMatchCarrierRouteNamespaceAndOrderOwners(t *tes
 		if !ok {
 			t.Fatalf("carrier %q has no owner route profile", carrier)
 		}
+		targetViews := catalog.ExtensionViewsForTarget(selectedTarget)
+		if len(targetViews) != len(carrier.AdmittedScopes()) {
+			t.Fatalf("carrier %q target views = %d", carrier, len(targetViews))
+		}
 		variant, err := hostsurface.ParseVariantID(string(carrier))
 		if err != nil {
 			t.Fatal(err)
@@ -67,6 +71,10 @@ func TestProductExtensionSurfacesMatchCarrierRouteNamespaceAndOrderOwners(t *tes
 			byID, ok := catalog.ExtensionSurface(view.ID())
 			if !ok || byID.ID() != view.ID() {
 				t.Fatalf("Extension ID lookup mismatch for %s", view.ID())
+			}
+			byCell, ok := catalog.LookupExtensionCell(selectedTarget, scope, carrier)
+			if !ok || byCell.ID() != view.ID() {
+				t.Fatalf("Extension cell lookup mismatch for %s", view.ID())
 			}
 			if view.Carrier() != carrier || view.RequiredSourceKind() != sourceKind || view.Namespace() != namespace {
 				t.Fatalf("Extension owner facts mismatch for %s", view.ID())

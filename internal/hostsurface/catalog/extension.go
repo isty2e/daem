@@ -298,6 +298,41 @@ func (catalog Catalog) ExtensionSurface(id hostsurface.SurfaceID) (ExtensionSurf
 	return catalog.extensionViews[index], true
 }
 
+// ExtensionViewsForTarget returns admitted carrier/scope cells in owner order.
+func (catalog Catalog) ExtensionViewsForTarget(
+	selectedTarget target.Target,
+) []ExtensionSurfaceView {
+	result := make([]ExtensionSurfaceView, 0)
+	for _, view := range catalog.ExtensionsInOwnerOrder() {
+		if view.Key().Target() == selectedTarget {
+			result = append(result, view)
+		}
+	}
+	return result
+}
+
+// LookupExtensionCell returns one exact target/scope/carrier surface.
+func (catalog Catalog) LookupExtensionCell(
+	selectedTarget target.Target,
+	scope target.Scope,
+	carrier desiredextension.Carrier,
+) (ExtensionSurfaceView, bool) {
+	variant, err := hostsurface.ParseVariantID(string(carrier))
+	if err != nil {
+		return ExtensionSurfaceView{}, false
+	}
+	key, err := hostsurface.NewSurfaceKey(
+		selectedTarget,
+		scope,
+		entity.KindExtension,
+		variant,
+	)
+	if err != nil {
+		return ExtensionSurfaceView{}, false
+	}
+	return catalog.LookupExtension(key)
+}
+
 func (catalog Catalog) LookupExtension(key hostsurface.SurfaceKey) (ExtensionSurfaceView, bool) {
 	index, ok := catalog.extensionByKey[key]
 	if !ok {

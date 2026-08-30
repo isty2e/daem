@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/target"
 )
 
 type hookSeed struct {
@@ -363,6 +364,22 @@ func (catalog Catalog) LookupHook(key hostsurface.SurfaceKey) (HookSurfaceView, 
 	return catalog.hookViews[index], true
 }
 
+// LookupHookCell returns the single compiled Hook surface for target and scope.
+func (catalog Catalog) LookupHookCell(
+	selectedTarget target.Target,
+	scope target.Scope,
+) (HookSurfaceView, bool) {
+	var selected HookSurfaceView
+	count := 0
+	for _, view := range catalog.hookViews {
+		if view.Key().Target() == selectedTarget && view.Key().Scope() == scope {
+			selected = view
+			count++
+		}
+	}
+	return selected, count == 1
+}
+
 func (catalog Catalog) HookAssetSurfaces() []HookAssetSurfaceView {
 	return append([]HookAssetSurfaceView(nil), catalog.hookAssetViews...)
 }
@@ -389,4 +406,21 @@ func (catalog Catalog) LookupHookAsset(key hostsurface.SurfaceKey) (HookAssetSur
 		return HookAssetSurfaceView{}, false
 	}
 	return catalog.hookAssetViews[index], true
+}
+
+// LookupHookAssetCell returns the target-relative view for one shared physical
+// HookAsset placement.
+func (catalog Catalog) LookupHookAssetCell(
+	selectedTarget target.Target,
+	scope target.Scope,
+) (HookAssetSurfaceView, bool) {
+	var selected HookAssetSurfaceView
+	count := 0
+	for _, view := range catalog.hookAssetViews {
+		if view.Key().Target() == selectedTarget && view.Key().Scope() == scope {
+			selected = view
+			count++
+		}
+	}
+	return selected, count == 1
 }
