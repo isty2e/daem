@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 	lockgenerate "github.com/isty2e/daem/internal/workflow/lock/generate"
 )
 
@@ -21,7 +22,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 	if err != nil {
 		return Result{}, err
 	}
-	stateDirAuthority, err := transaction.CaptureStateDirAuthority(ctx, paths.StateDir)
+	stateDirAuthority, err := recoverygate.CaptureStateDir(ctx, paths.StateDir)
 	if err != nil {
 		return Result{}, err
 	}

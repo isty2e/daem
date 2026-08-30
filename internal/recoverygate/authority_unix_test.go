@@ -69,7 +69,7 @@ func TestForwardEffectReservationRejectsCensusWorkBeforeProviderEffect(t *testin
 		entryLimit: 0,
 		byteLimit:  16 << 30,
 	}
-	stateAuthority, err := transaction.CaptureStateDirAuthorityBounded(
+	stateAuthority, err := CaptureStateDirBounded(
 		t.Context(),
 		stateDir,
 		256,
@@ -111,7 +111,7 @@ func TestForwardEffectReservationRejectsHighCardinalityBeforeProviderEffect(t *t
 		entryLimit: 400_000,
 		byteLimit:  16 << 30,
 	}
-	stateAuthority, err := transaction.CaptureStateDirAuthorityBounded(
+	stateAuthority, err := CaptureStateDirBounded(
 		t.Context(),
 		stateDir,
 		256,

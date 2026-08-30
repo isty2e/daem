@@ -71,7 +71,7 @@ type stateDirBarrierAuthority interface {
 // NewEffectAuthority captures the StateDir identity before any recovery
 // barrier observation and constructs the complete peer mutation evidence.
 func NewEffectAuthority(ctx context.Context, paths daempaths.Paths) (EffectAuthority, error) {
-	stateDir, err := transaction.CaptureStateDirAuthority(ctx, paths.StateDir)
+	stateDir, err := CaptureStateDir(ctx, paths.StateDir)
 	if err != nil {
 		return EffectAuthority{}, err
 	}

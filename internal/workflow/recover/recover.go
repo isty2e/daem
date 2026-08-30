@@ -129,7 +129,7 @@ func planRecoveryWithFilesystemFenceAndBudget(
 		)
 	}
 
-	stateDir, stateDirErr := transaction.CaptureStateDirAuthorityBounded(
+	stateDir, stateDirErr := recoverygate.CaptureStateDirBounded(
 		ctx,
 		paths.StateDir,
 		journalrecovery.MaximumPhysicalPathDepth,

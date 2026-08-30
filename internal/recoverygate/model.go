@@ -205,7 +205,7 @@ func Observe(ctx context.Context, paths daempaths.Paths) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	stateDir, stateDirErr := transaction.CaptureStateDirAuthority(ctx, paths.StateDir)
+	stateDir, stateDirErr := CaptureStateDir(ctx, paths.StateDir)
 	if err := ctx.Err(); err != nil {
 		return err
 	}

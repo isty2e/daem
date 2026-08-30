@@ -157,6 +157,28 @@ func TestRequireFileSetClearRejectsNilContext(t *testing.T) {
 	}
 }
 
+func TestCaptureStateDirRejectsNilContext(t *testing.T) {
+	t.Parallel()
+	_, err := CaptureStateDir(nil, t.TempDir())
+	if err == nil {
+		t.Fatal("expected context error")
+	}
+	if !strings.Contains(err.Error(), "context is required") {
+		t.Fatalf("error = %v, want required context", err)
+	}
+}
+
+func TestCaptureStateDirBoundedRejectsNilContext(t *testing.T) {
+	t.Parallel()
+	_, err := CaptureStateDirBounded(nil, t.TempDir(), 256, nil)
+	if err == nil {
+		t.Fatal("expected context error")
+	}
+	if !strings.Contains(err.Error(), "context is required") {
+		t.Fatalf("error = %v, want required context", err)
+	}
+}
+
 func TestCombinePreservesKnownPeerBesideUnknownAxis(t *testing.T) {
 	t.Parallel()
 	journalErr := errors.New("recovery inventory inspection failed")
