@@ -6,9 +6,22 @@ import (
 	"strings"
 )
 
-// FormatAnalysisReport renders a deterministic semantic guardrail report.
+// FormatAnalysisReport renders a deterministic blocking topology report.
+// Shadow findings are omitted so CI failure logs cannot be mistaken for
+// report-only compiler-shadow evidence.
 func FormatAnalysisReport(report Report) string {
 	return FormatReport(report.Violations)
+}
+
+// FormatShadowReport renders deterministic report-only compiler-shadow findings.
+func FormatShadowReport(report Report) string {
+	findings := sortedFindings(report.Shadow)
+	if len(findings) == 0 {
+		return "archguard: no compiler-shadow findings reported\n"
+	}
+	var builder strings.Builder
+	writeFindings(&builder, "compiler-shadow finding", findings)
+	return builder.String()
 }
 
 // FormatReport renders a deterministic text report for test logs and tickets.

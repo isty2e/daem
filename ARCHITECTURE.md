@@ -364,9 +364,11 @@ fixtures are recorded in
   or density assertions presented as architecture tests.
 
 Semantic dependency and effect-boundary guards remain executable evidence.
-Removing one requires equivalent or stronger behavioral or graph-level
-coverage of the accepted invariant; deleting a prose or symbol-presence check
-does not require replacing that check with another textual proxy.
+Report-only compiler and State Barrier shadow findings never fail the
+blocking architecture baseline. Removing one requires equivalent or stronger
+behavioral or graph-level coverage of the accepted invariant; deleting a
+prose or symbol-presence check does not require replacing that check with
+another textual proxy.
 
 ## Perturbation And Acceptance
 

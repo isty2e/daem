@@ -22,7 +22,16 @@ func TestTopologyGuardBaseline(t *testing.T) {
 	if report.HasFailures() {
 		t.Fatalf("archguard baseline has failures:\n%s", FormatAnalysisReport(report))
 	}
-	t.Logf("command: tools/test-go.sh -run TestTopologyGuardBaseline -count=1 -v ./internal/archguard\n%s", FormatAnalysisReport(report))
+	t.Logf("command: tools/test-go.sh -run TestTopologyGuardBaseline -count=1 -v ./internal/archguard\n%s\n%s", FormatAnalysisReport(report), FormatShadowReport(report))
+}
+
+func TestCompilerShadowBaseline(t *testing.T) {
+	records := loadRepoPackageRecords(t)
+	report := AnalyzeReport(records)
+	if report.HasShadowFindings() {
+		t.Fatalf("archguard compiler-shadow baseline has unexplained findings:\n%s", FormatShadowReport(report))
+	}
+	t.Logf("command: tools/test-go.sh -run TestCompilerShadowBaseline -count=1 -v ./internal/archguard\n%s", FormatShadowReport(report))
 }
 
 func loadRepoPackageRecords(t *testing.T) []PackageRecord {

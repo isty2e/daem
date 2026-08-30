@@ -73,7 +73,10 @@ func AnalyzeReport(records []PackageRecord) Report {
 		findings = append(findings, analyzeCoreTerminalSideEffects(packagePath, record)...)
 	}
 
-	return Report{Violations: sortedViolations(dedupViolations(findings))}
+	return Report{
+		Violations: sortedViolations(dedupViolations(findings)),
+		Shadow:     analyzeCompilerShadow(records),
+	}
 }
 
 func productionReachablePackages(records []PackageRecord) map[string]bool {
