@@ -2,7 +2,6 @@ package apply
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -585,7 +585,7 @@ type remainingExecutionFingerprintFacts struct {
 func remainingExecutionFingerprint(
 	reconciliation reconcile.Result,
 ) (mutation.OperationFingerprint, error) {
-	canonical, err := json.Marshal(remainingExecutionFingerprintFacts{
+	fingerprint, err := operationplan.HashJSON(remainingExecutionFingerprintFacts{
 		RelationOrders: relationOrderFingerprintRows(
 			reconciliation.RelationOrders(),
 		),
@@ -599,5 +599,5 @@ func remainingExecutionFingerprint(
 			err,
 		)
 	}
-	return mutation.NewOperationFingerprint(canonical), nil
+	return fingerprint, nil
 }

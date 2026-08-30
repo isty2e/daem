@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/findings"
+	"github.com/isty2e/daem/internal/operationplan"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -246,7 +247,7 @@ func applyOperationFingerprint(
 	aggregates := aggregateFingerprintRows(planned.assessment.Reconciliation.Aggregates())
 	mcpProviders := mcpProviderFingerprintRows(planned.assessment.MCPProviders)
 	diagnostics := diagnosticFingerprintRows(result.Diagnostics)
-	canonical, err := json.Marshal(applyFingerprintFacts{
+	fingerprint, err := operationplan.HashJSON(applyFingerprintFacts{
 		ManifestPath:     result.ManifestPath,
 		LockfilePath:     result.LockfilePath,
 		LockfileExplicit: result.LockfileExplicit,
@@ -275,7 +276,7 @@ func applyOperationFingerprint(
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint apply plan: %w", err)
 	}
-	return mutation.NewOperationFingerprint(canonical), nil
+	return fingerprint, nil
 }
 
 func pathAuthorityFingerprintFactsFor(

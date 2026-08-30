@@ -2,13 +2,13 @@ package apply
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
@@ -117,7 +117,7 @@ func providerStableFingerprint(
 	for _, selected := range targets {
 		targetValues = append(targetValues, string(selected))
 	}
-	canonical, err := json.Marshal(providerStableFingerprintFacts{
+	fingerprint, err := operationplan.HashJSON(providerStableFingerprintFacts{
 		ManifestPath:     planned.result.ManifestPath,
 		LockfilePath:     planned.result.LockfilePath,
 		LockfileExplicit: planned.result.LockfileExplicit,
@@ -156,7 +156,7 @@ func providerStableFingerprint(
 			err,
 		)
 	}
-	return mutation.NewOperationFingerprint(canonical), nil
+	return fingerprint, nil
 }
 
 func nonProviderRelationActions(planned commandPlan) []reconcile.RelationAction {
@@ -347,7 +347,7 @@ func runMCPProviderPrerequisitePhase(
 	if err != nil {
 		return result, fmt.Errorf("derive post-provider apply authority: %w", err)
 	}
-	if !authorityFactsCover(visibleAuthority.facts, refreshedAuthority.facts) {
+	if !operationplan.FactsCover(visibleAuthority.facts, refreshedAuthority.facts) {
 		return result, providerPhaseStale(
 			planWasDisclosed,
 			"MCP provider prerequisite expanded apply authority",

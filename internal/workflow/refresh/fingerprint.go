@@ -1,10 +1,10 @@
 package refresh
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 )
 
@@ -19,7 +19,7 @@ func refreshFingerprint(planned plan) (mutation.OperationFingerprint, error) {
 		TrustActivation lock.TrustActivationRequirement
 		Recovery        lock.OperationRecoveryClass
 	}
-	canonical, err := json.Marshal(struct {
+	fingerprint, err := operationplan.HashJSON(struct {
 		Command       string
 		Mode          Mode
 		ManifestPath  string
@@ -54,5 +54,5 @@ func refreshFingerprint(planned plan) (mutation.OperationFingerprint, error) {
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint refresh plan: %w", err)
 	}
-	return mutation.NewOperationFingerprint(canonical), nil
+	return fingerprint, nil
 }

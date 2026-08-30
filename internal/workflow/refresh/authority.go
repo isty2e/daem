@@ -2,36 +2,19 @@ package refresh
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/operationplan"
 )
 
 type authorityEvidence struct {
 	domains              []mutation.Domain
 	revisions            []mutation.RevisionRequest
 	authorityFingerprint mutation.OperationFingerprint
-}
-
-type authorityFact struct {
-	Kind        string
-	Path        string
-	Access      mutation.AccessMode
-	Effect      mutation.PathEffect
-	Target      string
-	Scope       string
-	Family      string
-	Containment mutation.RouteContainment
-}
-
-type rootFact struct {
-	PhysicalRoot         string
-	AuthorityFingerprint string
 }
 
 func validateRefreshPeerAuthority(
@@ -95,7 +78,7 @@ func buildAuthorityEvidence(
 	if err != nil {
 		return authorityEvidence{}, err
 	}
-	rootIdentity := rootFact{
+	rootIdentity := operationplan.RootIdentity{
 		PhysicalRoot:         authority.PhysicalRoot(),
 		AuthorityFingerprint: fingerprint,
 	}
@@ -104,98 +87,26 @@ func buildAuthorityEvidence(
 		return authorityEvidence{}, err
 	}
 
-	facts := make([]authorityFact, 0)
-	domains := make([]mutation.Domain, 0)
-	revisions := make(map[string]mutation.RevisionRequest)
-	declarationPaths := map[string]struct{}{
-		planned.paths.ManifestPath: {},
-		planned.paths.LockfilePath: {},
-	}
-	addPath := func(
-		kind string,
-		path string,
-		access mutation.AccessMode,
-		effect mutation.PathEffect,
-		targetValue string,
-		scopeValue string,
-	) error {
-		var domain mutation.Domain
-		var err error
-		switch kind {
-		case "logical":
-			domain, err = mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
-				Path: path, Access: access, Effect: effect,
-			})
-		case "physical":
-			domain, err = mutation.NewPhysicalPathDomain(mutation.PhysicalPathRequest{
-				Path: path, Access: access, Effect: effect,
-				Target: targetValue, Scope: scopeValue,
-			})
-		default:
-			return fmt.Errorf("unsupported refresh authority path kind %q", kind)
-		}
-		if err != nil {
-			return err
-		}
-		facts = append(facts, authorityFact{
-			Kind: kind, Path: path, Access: access, Effect: effect,
-			Target: targetValue, Scope: scopeValue,
-		})
-		domains = append(domains, domain)
-		revision := mutation.NewBoundedContentRevisionRequest(path, effect)
-		if _, declaration := declarationPaths[path]; declaration {
-			revision, err = mutation.NewBoundedFileRevisionRequest(
-				declarationartifact.MaximumBytes,
-				path,
-				effect,
-			)
-			if err != nil {
-				return err
-			}
-		}
-		revisions[revisionKey(path, effect)] = revision
-		return nil
-	}
-	addLogicalPair := func(
-		path string,
-		entryAccess mutation.AccessMode,
-		referentAccess mutation.AccessMode,
-	) error {
-		if err := addPath(
-			"logical",
-			path,
-			entryAccess,
-			mutation.PathEffectDirectoryEntry,
-			"",
-			"",
-		); err != nil {
-			return err
-		}
-		return addPath(
-			"logical",
-			path,
-			referentAccess,
-			mutation.PathEffectReferent,
-			"",
-			"",
-		)
-	}
-
-	if err := addLogicalPair(
+	builder := operationplan.NewBuilder(
+		operationplan.RevisionsRefreshFull,
+		[]string{planned.paths.ManifestPath, planned.paths.LockfilePath},
+		declarationartifact.MaximumBytes,
+	)
+	if err := builder.AddLogicalPair(
 		planned.paths.ManifestPath,
 		mutation.AccessShared,
 		mutation.AccessShared,
 	); err != nil {
 		return authorityEvidence{}, err
 	}
-	if err := addLogicalPair(
+	if err := builder.AddLogicalPair(
 		planned.paths.LockfilePath,
 		mutation.AccessShared,
 		mutation.AccessShared,
 	); err != nil {
 		return authorityEvidence{}, err
 	}
-	if err := addLogicalPair(
+	if err := builder.AddLogicalPair(
 		planned.paths.StatefilePath,
 		mutation.AccessExclusive,
 		mutation.AccessShared,
@@ -213,102 +124,52 @@ func buildAuthorityEvidence(
 			mutation.PathEffectDirectoryEntry,
 			mutation.PathEffectReferent,
 		} {
-			facts = append(facts, authorityFact{
-				Kind: "recovery_barrier", Path: path.value,
-				Access: path.access, Effect: effect,
-			})
-		}
-	}
-	domains = append(domains, planned.barrier.Domains()...)
-	for _, revision := range planned.barrier.RevisionRequests() {
-		revisions[revisionKey(revision.Path, revision.Effect)] = revision
-	}
-	for _, observedPath := range planned.authorityPaths {
-		for _, effect := range []mutation.PathEffect{
-			mutation.PathEffectDirectoryEntry,
-			mutation.PathEffectReferent,
-		} {
-			if err := addPath(
-				"physical",
-				observedPath.Path(),
-				mutation.AccessShared,
+			if err := builder.AddFingerprintOnly(
+				operationplan.FactRecoveryBarrier,
+				path.value,
+				path.access,
 				effect,
-				string(observedPath.Target()),
-				string(observedPath.Scope()),
+				"",
 			); err != nil {
 				return authorityEvidence{}, err
 			}
 		}
 	}
-	routeDomain, err := mutation.NewHostRouteDomain(mutation.HostRouteRequest{
-		Target:      string(planned.result.Selection.Target),
-		Scope:       string(planned.result.Selection.Scope),
-		Family:      planned.routeRequest.RouteID(),
-		Containment: mutation.RouteContainmentUnknown,
-	})
+	builder.AddDomains(planned.barrier.Domains())
+	for _, revision := range planned.barrier.RevisionRequests() {
+		builder.AddRevision(revision)
+	}
+	for _, observedPath := range planned.authorityPaths {
+		if err := builder.AddPhysicalPair(
+			observedPath.Path(),
+			mutation.AccessShared,
+			string(observedPath.Target()),
+			string(observedPath.Scope()),
+		); err != nil {
+			return authorityEvidence{}, err
+		}
+	}
+	if err := builder.AddRoute(
+		string(planned.result.Selection.Target),
+		string(planned.result.Selection.Scope),
+		planned.routeRequest.RouteID(),
+		mutation.RouteContainmentUnknown,
+	); err != nil {
+		return authorityEvidence{}, err
+	}
+
+	plan := builder.Compile()
+	authorityFingerprint, err := operationplan.RefreshAuthorityFingerprint(
+		plan,
+		rootIdentity,
+		barrierFingerprint,
+	)
 	if err != nil {
 		return authorityEvidence{}, err
 	}
-	facts = append(facts, authorityFact{
-		Kind:        "route",
-		Target:      string(planned.result.Selection.Target),
-		Scope:       string(planned.result.Selection.Scope),
-		Family:      planned.routeRequest.RouteID(),
-		Containment: mutation.RouteContainmentUnknown,
-	})
-	domains = append(domains, routeDomain)
-
-	sort.Slice(facts, func(left int, right int) bool {
-		return authorityFactKey(facts[left]) < authorityFactKey(facts[right])
-	})
-	canonical, err := json.Marshal(struct {
-		Domains         []authorityFact
-		Root            rootFact
-		RecoveryBarrier string
-	}{
-		Domains:         facts,
-		Root:            rootIdentity,
-		RecoveryBarrier: barrierFingerprint,
-	})
-	if err != nil {
-		return authorityEvidence{}, fmt.Errorf("fingerprint refresh authority: %w", err)
-	}
 	return authorityEvidence{
-		domains:              domains,
-		revisions:            sortedRevisions(revisions),
-		authorityFingerprint: mutation.NewOperationFingerprint(canonical),
+		domains:              plan.Domains(),
+		revisions:            plan.Revisions(),
+		authorityFingerprint: authorityFingerprint,
 	}, nil
-}
-
-func revisionKey(path string, effect mutation.PathEffect) string {
-	return fmt.Sprintf("%d\x00%s", effect, path)
-}
-
-func sortedRevisions(
-	byKey map[string]mutation.RevisionRequest,
-) []mutation.RevisionRequest {
-	keys := make([]string, 0, len(byKey))
-	for key := range byKey {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	revisions := make([]mutation.RevisionRequest, 0, len(keys))
-	for _, key := range keys {
-		revisions = append(revisions, byKey[key])
-	}
-	return revisions
-}
-
-func authorityFactKey(fact authorityFact) string {
-	return fmt.Sprintf(
-		"%s\x00%s\x00%d\x00%d\x00%s\x00%s\x00%s\x00%d",
-		fact.Kind,
-		fact.Path,
-		fact.Access,
-		fact.Effect,
-		fact.Target,
-		fact.Scope,
-		fact.Family,
-		fact.Containment,
-	)
 }

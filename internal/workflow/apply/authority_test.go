@@ -19,6 +19,7 @@ import (
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/findings"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -82,10 +83,10 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 		): false,
 	}
 	for _, fact := range evidence.facts {
-		request := mutation.NewBoundedContentRevisionRequest(fact.Path, fact.Effect)
+		request := mutation.NewBoundedContentRevisionRequest(fact.Path(), fact.Effect())
 		if _, expected := declarationAuthority[request]; expected &&
-			fact.Kind == "logical" &&
-			fact.Access == mutation.AccessShared {
+			fact.Kind() == operationplan.FactLogical &&
+			fact.Access() == mutation.AccessShared {
 			declarationAuthority[request] = true
 		}
 	}
