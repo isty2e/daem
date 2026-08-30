@@ -47,6 +47,11 @@ if ((race)); then
 fi
 
 if [[ $(go env GOOS) == windows ]]; then
-	exec go test "${arguments[@]}" "${packages[@]}"
+	go test "${arguments[@]}" \
+		-run '^(TestFirstIncarnationFaultMatrix|TestEnsureStateDirForEffectFaultMatrix|TestAbandonedResidueFenceSurvivesRetryThenClears)$' \
+		./internal/recoverygate
+	exec go test "${arguments[@]}" \
+		-run '^TestClassifyAdmittedStatesAndCleanupAuthority$' \
+		./internal/effect/journal/retirement
 fi
 exec tools/test-go.sh "${arguments[@]}" "${packages[@]}"
