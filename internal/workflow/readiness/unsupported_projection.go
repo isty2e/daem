@@ -3,7 +3,7 @@ package readiness
 import (
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/realization/profile"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
@@ -59,7 +59,8 @@ func SelectedUnsupportedProjections(
 func selectedUnsupportedSkillTargets(targets []target.Target, selection targetselection.Selection) []target.Target {
 	selected := make([]target.Target, 0, len(targets))
 	for _, selectedTarget := range targets {
-		if selection.Includes(selectedTarget) && !profile.TargetSupports(selectedTarget, entity.KindSkill) {
+		if selection.Includes(selectedTarget) &&
+			!hostsurfacecatalog.Product().HasManagedPathTarget(selectedTarget, entity.KindSkill) {
 			selected = append(selected, selectedTarget)
 		}
 	}

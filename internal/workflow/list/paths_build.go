@@ -8,14 +8,13 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/hostsurface/catalog"
-	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
 var locationInventoryScopes = []target.Scope{target.ScopeProject, target.ScopeGlobal}
 
-// BuildLocationInventory combines immutable profile catalogs with manifest
+// BuildLocationInventory combines immutable compiled surface views with manifest
 // request markers. Manifest facts can select admitted rows but cannot create
 // new path or route authority.
 func BuildLocationInventory(
@@ -181,8 +180,8 @@ func appendHookLocations(
 ) error {
 	requestKey := resourceRequestKey{target: selectedTarget, scope: scope, resource: entity.KindHook}
 	requested := selections.resources[requestKey]
-	support, supportPresent := profile.TargetSupport(selectedTarget, entity.KindHook)
 	compiled := catalog.Product()
+	support, supportPresent := compiled.ResourceSupport(selectedTarget, entity.KindHook)
 	if view, implemented := compiled.LookupHookCell(selectedTarget, scope); implemented {
 		if err := appendLocationEntry(rows, locationEntryInput{
 			kind: LocationPath, selectedTarget: selectedTarget, scope: scope,
