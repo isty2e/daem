@@ -365,9 +365,14 @@ outdated behavior, StateDir first-incarnation authority, cache preparation, and
 publication. Authoring and unmanage delegate metadata-target, marker, local-source,
 and barrier domain/revision order while retaining semantic change construction,
 transaction recovery, StateDir establishment, atomic file-set publication, and
-host-state-retained results. The broader program remains open until every mutating workflow uses the
-canonical operation compiler, typed effect obligations drive reservation and
-settlement, and semantic guard coverage replaces exact-path classification
+host-state-retained results. The shared apply/refresh/recover authority Builder
+now emits only pure path or owner-compiled domain steps; filesystem path
+canonicalization occurs in the owning workflow before lease acquisition. The final production caller census finds no competing workflow-local authority,
+revision-role, or fingerprint grammar: remaining mutation constructors are
+workflow boundary lowering, State Barrier ownership, source-specific freshness,
+or post-effect rollback evidence. The broader program remains open until typed
+effect obligations drive reservation and settlement, and semantic guard
+coverage replaces exact-path classification
 where it still determines blocking enforcement.
 
 Current source, surface, operation, compatibility, transition, verification,
