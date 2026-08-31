@@ -343,7 +343,7 @@ versus file gate and prevents a real reverse edge or change-amplification seam.
 
 The current implementation has completed bounded cutovers for the MCP cell
 join, apply/refresh/recover authority subprojections and reservation demand,
-exact refresh and recovery fingerprints, and the State Barrier protocol.
+exact apply, refresh, and recovery fingerprints, and the State Barrier protocol.
 Instruction, Skill, Hook, HookAsset, and Extension surfaces also compile as
 I/O-free views with owner parity. List inventory and manifest selection,
 Instruction/Skill import and diagnosis, Extension import ordering, and selected
