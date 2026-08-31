@@ -2,6 +2,7 @@ package apply
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -14,25 +15,6 @@ import (
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
-
-type providerStableFingerprintFacts struct {
-	ManifestPath     string
-	LockfilePath     string
-	LockfileExplicit bool
-	StatePath        string
-	Targets          []string
-	ManageUnmanaged  bool
-	DelegateMode     reconcile.OperationContext
-	ManagedPaths     []managedPathFingerprintFacts
-	Aggregates       []aggregateFingerprintFacts
-	RelationActions  []relationFingerprintFacts
-	CarrierAbsences  []carrierAbsenceFingerprintFacts
-	DelegateActions  []delegateFingerprintFacts
-	Owner            ownershipOwnerFingerprintFacts
-	Ownership        []ownershipObservationFingerprintFacts
-	Diagnostics      []diagnosticFingerprintFacts
-	ProjectRoot      *projectRootFingerprintFacts
-}
 
 type providerPhaseExecution struct {
 	attempts                      []durableattempt.HostRouteAttempt
@@ -117,46 +99,87 @@ func providerStableFingerprint(
 	for _, selected := range targets {
 		targetValues = append(targetValues, string(selected))
 	}
-	fingerprint, err := operationplan.HashJSON(providerStableFingerprintFacts{
+	managedPaths, err := marshalProviderStableFingerprintProjection(
+		managedPathFingerprintRows(planned.assessment.Reconciliation.ManagedPaths()),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	aggregates, err := marshalProviderStableFingerprintProjection(
+		aggregateFingerprintRows(planned.assessment.Reconciliation.Aggregates()),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	relationActions, err := marshalProviderStableFingerprintProjection(
+		relationFingerprintRows(nonProviderRelationActions(planned)),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	carrierAbsences, err := marshalProviderStableFingerprintProjection(
+		carrierAbsenceFingerprintRows(nonProviderCarrierAbsences(planned)),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	delegateActions, err := marshalProviderStableFingerprintProjection(
+		delegateFingerprintRows(planned.result.Reconciliation.Delegates()),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	owner, err := marshalProviderStableFingerprintProjection(ownershipOwnerFingerprintFacts{
+		StatefileAuthority: pathAuthorityFingerprintFactsFor(
+			planned.assessment.Owner.StatefileAuthority(),
+		),
+		ManifestPath: planned.assessment.Owner.ManifestPath(),
+	})
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	ownership, err := marshalProviderStableFingerprintProjection(
+		ownershipFingerprintFacts(planned.assessment.Ownership),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	diagnostics, err := marshalProviderStableFingerprintProjection(
+		diagnosticFingerprintRows(planned.result.Diagnostics),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	projectRootJSON, err := marshalProviderStableFingerprintProjection(projectRoot)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	return operationplan.ProviderStableOperationFingerprint(operationplan.ProviderStableIdentityInput{
 		ManifestPath:     planned.result.ManifestPath,
 		LockfilePath:     planned.result.LockfilePath,
 		LockfileExplicit: planned.result.LockfileExplicit,
 		StatePath:        planned.assessment.StatePath,
 		Targets:          targetValues,
 		ManageUnmanaged:  planned.context.ManageUnmanagedMatches,
-		DelegateMode:     operationContext,
-		ManagedPaths: managedPathFingerprintRows(
-			planned.assessment.Reconciliation.ManagedPaths(),
-		),
-		Aggregates: aggregateFingerprintRows(
-			planned.assessment.Reconciliation.Aggregates(),
-		),
-		RelationActions: relationFingerprintRows(
-			nonProviderRelationActions(planned),
-		),
-		CarrierAbsences: carrierAbsenceFingerprintRows(
-			nonProviderCarrierAbsences(planned),
-		),
-		DelegateActions: delegateFingerprintRows(
-			planned.result.Reconciliation.Delegates(),
-		),
-		Owner: ownershipOwnerFingerprintFacts{
-			StatefileAuthority: pathAuthorityFingerprintFactsFor(
-				planned.assessment.Owner.StatefileAuthority(),
-			),
-			ManifestPath: planned.assessment.Owner.ManifestPath(),
-		},
-		Ownership:   ownershipFingerprintFacts(planned.assessment.Ownership),
-		Diagnostics: diagnosticFingerprintRows(planned.result.Diagnostics),
-		ProjectRoot: projectRoot,
+		DelegateMode:     string(operationContext),
+		ManagedPaths:     managedPaths,
+		Aggregates:       aggregates,
+		RelationActions:  relationActions,
+		CarrierAbsences:  carrierAbsences,
+		DelegateActions:  delegateActions,
+		Owner:            owner,
+		Ownership:        ownership,
+		Diagnostics:      diagnostics,
+		ProjectRoot:      projectRootJSON,
 	})
+}
+
+func marshalProviderStableFingerprintProjection[T any](value T) (json.RawMessage, error) {
+	payload, err := json.Marshal(value)
 	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf(
-			"fingerprint post-provider apply plan: %w",
-			err,
-		)
+		return nil, fmt.Errorf("fingerprint post-provider apply plan: %w", err)
 	}
-	return fingerprint, nil
+	return json.RawMessage(payload), nil
 }
 
 func nonProviderRelationActions(planned commandPlan) []reconcile.RelationAction {

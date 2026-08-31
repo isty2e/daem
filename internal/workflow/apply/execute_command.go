@@ -2,6 +2,7 @@ package apply
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -577,27 +578,31 @@ func (guard applyExecutionGuard) requirePlanCurrent(
 	)
 }
 
-type remainingExecutionFingerprintFacts struct {
-	RelationOrders  []relationOrderFingerprintFacts
-	DelegateActions []delegateFingerprintFacts
-}
-
 func remainingExecutionFingerprint(
 	reconciliation reconcile.Result,
 ) (mutation.OperationFingerprint, error) {
-	fingerprint, err := operationplan.HashJSON(remainingExecutionFingerprintFacts{
-		RelationOrders: relationOrderFingerprintRows(
-			reconciliation.RelationOrders(),
-		),
-		DelegateActions: delegateFingerprintRows(
-			reconciliation.Delegates(),
-		),
-	})
+	relationOrders, err := marshalRemainingExecutionFingerprintProjection(
+		relationOrderFingerprintRows(reconciliation.RelationOrders()),
+	)
 	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf(
-			"fingerprint remaining apply execution: %w",
-			err,
-		)
+		return mutation.OperationFingerprint{}, err
 	}
-	return fingerprint, nil
+	delegateActions, err := marshalRemainingExecutionFingerprintProjection(
+		delegateFingerprintRows(reconciliation.Delegates()),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	return operationplan.RemainingApplyOperationFingerprint(operationplan.RemainingApplyIdentityInput{
+		RelationOrders:  relationOrders,
+		DelegateActions: delegateActions,
+	})
+}
+
+func marshalRemainingExecutionFingerprintProjection[T any](value T) (json.RawMessage, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint remaining apply execution: %w", err)
+	}
+	return json.RawMessage(payload), nil
 }

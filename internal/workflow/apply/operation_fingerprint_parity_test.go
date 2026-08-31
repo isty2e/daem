@@ -28,7 +28,55 @@ func TestCompiledApplyFingerprintMatchesLegacyProjection(t *testing.T) {
 		if !compiled.Equal(legacy) {
 			t.Fatalf("compiled %s fingerprint differs from the legacy projection", operationContext)
 		}
+
+		compiledProvider, err := providerStableFingerprint(planned, operationContext)
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacyProvider, err := legacyProviderStableFingerprint(planned, operationContext)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !compiledProvider.Equal(legacyProvider) {
+			t.Fatalf("compiled %s provider-stable fingerprint differs from the legacy projection", operationContext)
+		}
 	}
+
+	compiledRemaining, err := remainingExecutionFingerprint(planned.result.Reconciliation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRemaining, err := legacyRemainingExecutionFingerprint(planned.result.Reconciliation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !compiledRemaining.Equal(legacyRemaining) {
+		t.Fatal("compiled remaining-execution fingerprint differs from the legacy projection")
+	}
+}
+
+type legacyProviderStableFingerprintFacts struct {
+	ManifestPath     string
+	LockfilePath     string
+	LockfileExplicit bool
+	StatePath        string
+	Targets          []string
+	ManageUnmanaged  bool
+	DelegateMode     reconcile.OperationContext
+	ManagedPaths     []managedPathFingerprintFacts
+	Aggregates       []aggregateFingerprintFacts
+	RelationActions  []relationFingerprintFacts
+	CarrierAbsences  []carrierAbsenceFingerprintFacts
+	DelegateActions  []delegateFingerprintFacts
+	Owner            ownershipOwnerFingerprintFacts
+	Ownership        []ownershipObservationFingerprintFacts
+	Diagnostics      []diagnosticFingerprintFacts
+	ProjectRoot      *projectRootFingerprintFacts
+}
+
+type legacyRemainingExecutionFingerprintFacts struct {
+	RelationOrders  []relationOrderFingerprintFacts
+	DelegateActions []delegateFingerprintFacts
 }
 
 type legacyApplyFingerprintFacts struct {
@@ -114,6 +162,71 @@ func legacyApplyOperationFingerprint(
 	})
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint apply plan: %w", err)
+	}
+	return fingerprint, nil
+}
+
+func legacyProviderStableFingerprint(
+	planned commandPlan,
+	operationContext reconcile.OperationContext,
+) (mutation.OperationFingerprint, error) {
+	projectRoot, err := projectRootFingerprint(planned)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	targets := planned.context.Selection.Targets()
+	targetValues := make([]string, 0, len(targets))
+	for _, selected := range targets {
+		targetValues = append(targetValues, string(selected))
+	}
+	fingerprint, err := operationplan.HashJSON(legacyProviderStableFingerprintFacts{
+		ManifestPath:     planned.result.ManifestPath,
+		LockfilePath:     planned.result.LockfilePath,
+		LockfileExplicit: planned.result.LockfileExplicit,
+		StatePath:        planned.assessment.StatePath,
+		Targets:          targetValues,
+		ManageUnmanaged:  planned.context.ManageUnmanagedMatches,
+		DelegateMode:     operationContext,
+		ManagedPaths: managedPathFingerprintRows(
+			planned.assessment.Reconciliation.ManagedPaths(),
+		),
+		Aggregates: aggregateFingerprintRows(
+			planned.assessment.Reconciliation.Aggregates(),
+		),
+		RelationActions: relationFingerprintRows(nonProviderRelationActions(planned)),
+		CarrierAbsences: carrierAbsenceFingerprintRows(nonProviderCarrierAbsences(planned)),
+		DelegateActions: delegateFingerprintRows(planned.result.Reconciliation.Delegates()),
+		Owner: ownershipOwnerFingerprintFacts{
+			StatefileAuthority: pathAuthorityFingerprintFactsFor(
+				planned.assessment.Owner.StatefileAuthority(),
+			),
+			ManifestPath: planned.assessment.Owner.ManifestPath(),
+		},
+		Ownership:   ownershipFingerprintFacts(planned.assessment.Ownership),
+		Diagnostics: diagnosticFingerprintRows(planned.result.Diagnostics),
+		ProjectRoot: projectRoot,
+	})
+	if err != nil {
+		return mutation.OperationFingerprint{}, fmt.Errorf(
+			"fingerprint post-provider apply plan: %w",
+			err,
+		)
+	}
+	return fingerprint, nil
+}
+
+func legacyRemainingExecutionFingerprint(
+	reconciliation reconcile.Result,
+) (mutation.OperationFingerprint, error) {
+	fingerprint, err := operationplan.HashJSON(legacyRemainingExecutionFingerprintFacts{
+		RelationOrders:  relationOrderFingerprintRows(reconciliation.RelationOrders()),
+		DelegateActions: delegateFingerprintRows(reconciliation.Delegates()),
+	})
+	if err != nil {
+		return mutation.OperationFingerprint{}, fmt.Errorf(
+			"fingerprint remaining apply execution: %w",
+			err,
+		)
 	}
 	return fingerprint, nil
 }
