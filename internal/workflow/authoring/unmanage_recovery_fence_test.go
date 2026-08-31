@@ -317,17 +317,18 @@ func TestUnmanageMutationAuthorityConflictsWithRecoveryWriters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	domains, err := unmanageMutationDomains(
-		[]string{
-			paths.ManifestPath,
-			paths.LockfilePath,
-			paths.StatefilePath,
-			paths.CarrierClaimRegistryPath,
-		},
+	barrier, err := recoverygate.NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := compileUnmanageOperationProgram(
+		[]string{paths.ManifestPath, paths.LockfilePath},
+		[]string{paths.StatefilePath, paths.CarrierClaimRegistryPath},
 		markerPath,
 		nil,
-		paths.RecoveryDir,
+		barrier,
 	)
+	domains, err := lowerAuthoringDomainSteps(program.DomainSteps())
 	if err != nil {
 		t.Fatal(err)
 	}

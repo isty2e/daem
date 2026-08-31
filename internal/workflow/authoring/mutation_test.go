@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 )
 
 func TestAuthoringDomainsSerializeReadReferentAndReplacedEntry(t *testing.T) {
@@ -36,12 +37,13 @@ func TestAuthoringDomainsSerializeReadReferentAndReplacedEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	domains, err := authoringMutationDomains(
-		filepath.Join(root, "daem.toml"),
-		currentLockfile,
-		filepath.Join(root, ".daem", "metadata-transaction"),
-		nil,
-	)
+	program := operationplan.CompileAuthoring(operationplan.AuthoringInput{
+		ManifestPath:         filepath.Join(root, "daem.toml"),
+		LockfilePath:         currentLockfile,
+		MarkerPath:           filepath.Join(root, ".daem", "metadata-transaction"),
+		DocumentMaximumBytes: 1024,
+	})
+	domains, err := lowerAuthoringDomainSteps(program.DomainSteps())
 	if err != nil {
 		t.Fatal(err)
 	}
