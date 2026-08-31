@@ -343,8 +343,8 @@ versus file gate and prevents a real reverse edge or change-amplification seam.
 
 The current implementation has completed bounded cutovers for the MCP cell
 join, apply/refresh/recover authority subprojections and reservation demand,
-exact apply, refresh, and recovery fingerprints, adopt/import and init mutation
-domains and revision roles, and the State Barrier protocol.
+exact apply, refresh, and recovery fingerprints, adopt/import, init, and lock
+mutation domains and revision roles, and the State Barrier protocol.
 Instruction, Skill, Hook, HookAsset, and Extension surfaces also compile as
 I/O-free views with owner parity. List inventory and manifest selection,
 Instruction/Skill import and diagnosis, Hook diagnostics and authoring support,
@@ -358,7 +358,10 @@ resolution, authority capture, leases, and publication sequencing while the
 operation compiler owns its normalized domain and full/stable revision grammar.
 Init likewise delegates exact manifest/metadata/barrier domain and revision
 ordering while retaining its file-set-only dry-run gate, re-observation, leases,
-and publication. The broader program remains open until every mutating workflow uses the
+and publication. Lock delegates manifest/lockfile/metadata/local-source/StateDir
+domain and revision ordering while retaining journal-independent dry-run and
+outdated behavior, StateDir first-incarnation authority, cache preparation, and
+publication. The broader program remains open until every mutating workflow uses the
 canonical operation compiler, typed effect obligations drive reservation and
 settlement, and semantic guard coverage replaces exact-path classification
 where it still determines blocking enforcement.
