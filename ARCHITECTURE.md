@@ -349,11 +349,11 @@ I/O-free views with owner parity. List inventory and manifest selection,
 Instruction/Skill import and diagnosis, Hook diagnostics and authoring support,
 HookAsset payload placement, Extension import ordering, host-route command
 selection, and
-selected readiness/apply/presentation order consumers
-use those views. Other production consumers still use owner-local projections.
-The program remains open until
-those consumers cut over, every mutating workflow uses the
-canonical operation compiler, typed effect obligations drive reservation and
+selected readiness/apply/presentation order consumers use those views.
+Remaining profile calls at these boundaries are consumer-local importability or
+owner-local realization, codec, and durable-validation contracts rather than
+fallback surface joins. The broader program remains open until every mutating
+workflow uses the canonical operation compiler, typed effect obligations drive reservation and
 settlement, and semantic guard coverage replaces exact-path classification
 where it still determines blocking enforcement.
 
