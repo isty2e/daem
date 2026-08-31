@@ -326,7 +326,15 @@ func TestLockRevisionRequestsGuardReadReferentAndReplacedEntry(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), "daem.toml")
 	lockfilePath := filepath.Join(t.TempDir(), "daem.lock.toml")
 	metadataTransactionPath := filepath.Join(t.TempDir(), "metadata-transaction")
-	requests, err := lockRevisionRequests(manifestPath, lockfilePath, metadataTransactionPath, nil)
+	program := compileLockOperationProgram(
+		manifestPath,
+		lockfilePath,
+		metadataTransactionPath,
+		nil,
+		filepath.Join(t.TempDir(), ".daem"),
+		true,
+	)
+	requests, err := program.RevisionRequests()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,12 +382,15 @@ func TestLockManifestEntryLeaseConflictsWithSymlinkReplacement(t *testing.T) {
 	}
 	defer holder.Release()
 
-	domains, err := lockMutationDomains(
+	program := compileLockOperationProgram(
 		manifestPath,
 		filepath.Join(root, "daem.lock.toml"),
 		filepath.Join(root, "metadata-transaction"),
 		nil,
+		filepath.Join(root, ".daem"),
+		false,
 	)
+	domains, err := lowerLockDomainSteps(program.DomainSteps())
 	if err != nil {
 		t.Fatal(err)
 	}
