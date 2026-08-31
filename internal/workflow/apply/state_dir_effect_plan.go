@@ -15,48 +15,18 @@ import (
 type applyStateDirEffectPlan struct {
 	demand    operationplan.Demand
 	statefile statefileEffectPlan
+	schedule  applyForwardEffectSchedule
 }
 
 func stateDirEffectPlanFor(
 	current commandPlan,
 	providerActions []reconcile.RelationAction,
 ) (applyStateDirEffectPlan, error) {
-	managedEffects, err := execute.ManagedPathEffects(
-		current.assessment.Reconciliation.ManagedPaths(),
-	)
+	applyInput, err := applyEffectInput(current)
 	if err != nil {
 		return applyStateDirEffectPlan{}, err
 	}
-	aggregateEffects, err := execute.AggregateEffects(
-		current.assessment.Reconciliation.Aggregates(),
-	)
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
-	projectRetirements, _, err := stateOnlyCarrierClaimRetirements(
-		current.assessment.Reconciliation.CarrierAbsences(),
-	)
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
-	projectAdoptions, _, err := stateOnlyCarrierClaimAdoptions(
-		current.assessment.CurrentState,
-		current.assessment.Reconciliation.CarrierAdoptions(),
-	)
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
-	executeGates, err := execute.MaximumForwardEffectValidationCount(execute.ApplyInput{
-		ManagedPathEffects:          managedEffects,
-		AggregateEffects:            aggregateEffects,
-		CurrentState:                current.assessment.CurrentState,
-		GlobalCarrierClaims:         current.assessment.GlobalCarrierClaims,
-		RetiredProjectCarrierClaims: projectRetirements,
-		AdoptedProjectCarrierClaims: projectAdoptions,
-		ConfirmedRelationActions:    nonProviderRelationActions(current),
-		Owner:                       current.assessment.Owner,
-		Ownership:                   current.assessment.Ownership,
-	})
+	executeGates, err := execute.MaximumForwardEffectValidationCount(applyInput)
 	if err != nil {
 		return applyStateDirEffectPlan{}, err
 	}
@@ -79,7 +49,79 @@ func stateDirEffectPlanFor(
 	if err != nil {
 		return applyStateDirEffectPlan{}, err
 	}
-	return applyPlanFromDemand(envelope.Demand()), nil
+	schedule, err := compileApplyForwardEffectSchedule(current, providerActions, applyInput)
+	if err != nil {
+		return applyStateDirEffectPlan{}, err
+	}
+	structuralDemand, err := schedule.full.LegacyDemand()
+	if err != nil {
+		return applyStateDirEffectPlan{}, err
+	}
+	if !sameApplyDemandCounts(structuralDemand, envelope.Demand()) {
+		return applyStateDirEffectPlan{}, fmt.Errorf(
+			"apply forward effect schedule demand does not match the legacy reservation: structural=%d/%d/%d/%d/%d legacy=%d/%d/%d/%d/%d",
+			structuralDemand.EnsureCalls(),
+			structuralDemand.BarrierValidationCalls(),
+			structuralDemand.StateDirValidationCalls(),
+			structuralDemand.DescendantValidations(),
+			structuralDemand.DescendantFileCommits(),
+			envelope.Demand().EnsureCalls(),
+			envelope.Demand().BarrierValidationCalls(),
+			envelope.Demand().StateDirValidationCalls(),
+			envelope.Demand().DescendantValidations(),
+			envelope.Demand().DescendantFileCommits(),
+		)
+	}
+	plan := applyPlanFromDemand(envelope.Demand())
+	plan.schedule = schedule
+	return plan, nil
+}
+
+func applyEffectInput(current commandPlan) (execute.ApplyInput, error) {
+	managedEffects, err := execute.ManagedPathEffects(
+		current.assessment.Reconciliation.ManagedPaths(),
+	)
+	if err != nil {
+		return execute.ApplyInput{}, err
+	}
+	aggregateEffects, err := execute.AggregateEffects(
+		current.assessment.Reconciliation.Aggregates(),
+	)
+	if err != nil {
+		return execute.ApplyInput{}, err
+	}
+	projectRetirements, _, err := stateOnlyCarrierClaimRetirements(
+		current.assessment.Reconciliation.CarrierAbsences(),
+	)
+	if err != nil {
+		return execute.ApplyInput{}, err
+	}
+	projectAdoptions, _, err := stateOnlyCarrierClaimAdoptions(
+		current.assessment.CurrentState,
+		current.assessment.Reconciliation.CarrierAdoptions(),
+	)
+	if err != nil {
+		return execute.ApplyInput{}, err
+	}
+	return execute.ApplyInput{
+		ManagedPathEffects:          managedEffects,
+		AggregateEffects:            aggregateEffects,
+		CurrentState:                current.assessment.CurrentState,
+		GlobalCarrierClaims:         current.assessment.GlobalCarrierClaims,
+		RetiredProjectCarrierClaims: projectRetirements,
+		AdoptedProjectCarrierClaims: projectAdoptions,
+		ConfirmedRelationActions:    nonProviderRelationActions(current),
+		Owner:                       current.assessment.Owner,
+		Ownership:                   current.assessment.Ownership,
+	}, nil
+}
+
+func sameApplyDemandCounts(left operationplan.Demand, right operationplan.Demand) bool {
+	return left.EnsureCalls() == right.EnsureCalls() &&
+		left.BarrierValidationCalls() == right.BarrierValidationCalls() &&
+		left.StateDirValidationCalls() == right.StateDirValidationCalls() &&
+		left.DescendantValidations() == right.DescendantValidations() &&
+		left.DescendantFileCommits() == right.DescendantFileCommits()
 }
 
 func applyPlanFromDemand(demand operationplan.Demand) applyStateDirEffectPlan {
@@ -189,7 +231,29 @@ func delegateWorks(actions []reconcile.DelegateAction) []operationplan.DelegateW
 	return works
 }
 
+type admittedOrderClass struct {
+	target      target.Target
+	scope       target.Scope
+	classID     string
+	fingerprint string
+	decisions   []reconcile.RelationOrderDecision
+}
+
 func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, error) {
+	classes, err := admittedOrderClassFacts(current)
+	if err != nil {
+		return nil, err
+	}
+	works := make([]operationplan.OrderClassWork, 0, len(classes))
+	for _, class := range classes {
+		works = append(works, operationplan.OrderClassWork{
+			RequiresMutation: relationOrderMutationRequired(class.decisions),
+		})
+	}
+	return works, nil
+}
+
+func admittedOrderClassFacts(current commandPlan) ([]admittedOrderClass, error) {
 	decisions := current.assessment.Reconciliation.RelationOrders()
 	classes := make(map[string][]reconcile.RelationOrderDecision)
 	for _, decision := range decisions {
@@ -200,12 +264,14 @@ func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, 
 	for _, selectedTarget := range current.context.Selection.Targets() {
 		selected[string(selectedTarget)] = struct{}{}
 	}
-	matchedClasses := 0
+	result := make([]admittedOrderClass, 0, len(classes))
 	for _, constraint := range current.context.Lockfile.Locked.OrderConstraints() {
-		if _, planned := classes[string(constraint.ClassID())]; !planned {
+		classID := string(constraint.ClassID())
+		classDecisions, planned := classes[classID]
+		if !planned {
 			continue
 		}
-		selectedTarget, _, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
+		selectedTarget, capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
 			constraint.ClassID(),
 		)
 		if !admitted {
@@ -217,22 +283,22 @@ func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, 
 		if _, ok := selected[string(selectedTarget)]; !ok {
 			continue
 		}
-		matchedClasses++
+		result = append(result, admittedOrderClass{
+			target:      selectedTarget,
+			scope:       capability.Scope(),
+			classID:     classID,
+			fingerprint: constraint.Fingerprint(),
+			decisions:   append([]reconcile.RelationOrderDecision(nil), classDecisions...),
+		})
 	}
-	if matchedClasses != len(classes) {
+	if len(result) != len(classes) {
 		return nil, fmt.Errorf(
 			"planned extension order matched %d locked classes, want %d",
-			matchedClasses,
+			len(result),
 			len(classes),
 		)
 	}
-	works := make([]operationplan.OrderClassWork, 0, len(classes))
-	for _, classDecisions := range classes {
-		works = append(works, operationplan.OrderClassWork{
-			RequiresMutation: relationOrderMutationRequired(classDecisions),
-		})
-	}
-	return works, nil
+	return result, nil
 }
 
 func orderClassWorks(decisions []reconcile.RelationOrderDecision) []operationplan.OrderClassWork {

@@ -267,6 +267,7 @@ func runMCPProviderPrerequisitePhase(
 	ctx context.Context,
 	current *commandPlan,
 	providerActions []reconcile.RelationAction,
+	reservedFinalSchedule operationplan.EffectStructure,
 	currentInput CommandInput,
 	execution preparedExecution,
 	visibleAuthority applyAuthorityEvidence,
@@ -375,6 +376,17 @@ func runMCPProviderPrerequisitePhase(
 			planWasDisclosed,
 			"MCP provider prerequisite expanded apply authority",
 			nil,
+		)
+	}
+	if err := requireEquivalentProviderFinalSchedule(
+		reservedFinalSchedule,
+		refreshed,
+		providerActions,
+	); err != nil {
+		return result, providerPhaseStale(
+			planWasDisclosed,
+			"MCP provider prerequisite changed the reserved apply effect schedule",
+			err,
 		)
 	}
 	reboundLeases, err := store.Acquire(ctx, refreshedAuthority.domains...)
@@ -502,6 +514,17 @@ func runMCPProviderPrerequisitePhase(
 		"final MCP provider replan",
 	); err != nil {
 		return result, err
+	}
+	if err := requireEquivalentProviderFinalSchedule(
+		reservedFinalSchedule,
+		underLease,
+		providerActions,
+	); err != nil {
+		return result, providerPhaseStale(
+			planWasDisclosed,
+			"MCP provider prerequisite changed the leased apply effect schedule",
+			err,
+		)
 	}
 	*current = underLease
 	result.leases = reboundLeases

@@ -501,20 +501,26 @@ func carrierClaimFingerprintRows(
 	claims := registry.Claims()
 	rows := make([]carrierClaimFingerprintFacts, 0, len(claims))
 	for _, claim := range claims {
-		identity := claim.Identity()
-		relation := identity.ExpectedRelation()
-		rows = append(rows, carrierClaimFingerprintFacts{
-			StatefileAuthority: pathAuthorityFingerprintFactsFor(claim.Owner().StatefileAuthority()),
-			ManifestPath:       claim.Owner().ManifestPath(),
-			CarrierSubject:     identity.CarrierSubject(),
-			RelationSubject:    identity.RelationSubject(),
-			RelationSubjectKey: string(relation.SubjectKey()),
-			ManagedInstanceKey: string(relation.ManagedInstanceKey()),
-			InstallRequest:     claim.InstallRequest(),
-			Provenance:         claim.Provenance(),
-		})
+		rows = append(rows, carrierClaimFingerprintFact(claim))
 	}
 	return rows
+}
+
+func carrierClaimFingerprintFact(
+	claim durablecarrier.ManagedCarrierClaim,
+) carrierClaimFingerprintFacts {
+	identity := claim.Identity()
+	relation := identity.ExpectedRelation()
+	return carrierClaimFingerprintFacts{
+		StatefileAuthority: pathAuthorityFingerprintFactsFor(claim.Owner().StatefileAuthority()),
+		ManifestPath:       claim.Owner().ManifestPath(),
+		CarrierSubject:     identity.CarrierSubject(),
+		RelationSubject:    identity.RelationSubject(),
+		RelationSubjectKey: string(relation.SubjectKey()),
+		ManagedInstanceKey: string(relation.ManagedInstanceKey()),
+		InstallRequest:     claim.InstallRequest(),
+		Provenance:         claim.Provenance(),
+	}
 }
 
 func ownershipFingerprintFacts(
