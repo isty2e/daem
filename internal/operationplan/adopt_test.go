@@ -299,18 +299,20 @@ func TestAdoptRevisionCompilerRejectsOutOfOrderAndIncompleteConsumption(t *testi
 
 func evaluateAdoptProgram(
 	program AdoptProgram,
-) ([]AdoptDomainRequest, AdoptRevisionPlan, error) {
+) ([]PathDomainRequest, AdoptRevisionPlan, error) {
 	compiler, err := program.NewRevisionCompiler()
 	if err != nil {
 		return nil, AdoptRevisionPlan{}, err
 	}
-	domains := make([]AdoptDomainRequest, 0)
+	domains := make([]PathDomainRequest, 0)
 	for _, step := range program.Steps() {
 		if err := step.Preflight(); err != nil {
 			return nil, AdoptRevisionPlan{}, err
 		}
-		if domain, ok := step.Domain(); ok {
-			domains = append(domains, domain)
+		if domainStep, ok := step.Domain(); ok {
+			if domain, pathRequest := domainStep.Path(); pathRequest {
+				domains = append(domains, domain)
+			}
 		}
 		if err := compiler.ApplyAfterDomain(step); err != nil {
 			return nil, AdoptRevisionPlan{}, err
@@ -323,7 +325,7 @@ func evaluateAdoptProgram(
 	return domains, revisions, nil
 }
 
-func adoptDomainKeys(requests []AdoptDomainRequest) []string {
+func adoptDomainKeys(requests []PathDomainRequest) []string {
 	keys := make([]string, 0, len(requests))
 	for _, request := range requests {
 		if logical, ok := request.Logical(); ok {

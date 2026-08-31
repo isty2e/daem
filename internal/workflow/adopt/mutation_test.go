@@ -1005,8 +1005,12 @@ func assertImportPhysicalDomainRequest(
 ) {
 	t.Helper()
 	for _, step := range steps {
-		request, present := step.Domain()
+		domainStep, present := step.Domain()
 		if !present {
+			continue
+		}
+		request, pathRequest := domainStep.Path()
+		if !pathRequest {
 			continue
 		}
 		physical, ok := request.Physical()

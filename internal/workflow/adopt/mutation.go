@@ -348,13 +348,14 @@ func executeImportOperationProgram(
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	domains := program.BarrierDomains()
-	for _, step := range program.Steps() {
+	steps := program.Steps()
+	domains := make([]mutation.Domain, 0, len(steps))
+	for _, step := range steps {
 		if err := step.Preflight(); err != nil {
 			return nil, nil, nil, err
 		}
-		if request, ok := step.Domain(); ok {
-			domain, err := lowerImportDomainRequest(request)
+		if domainStep, ok := step.Domain(); ok {
+			domain, err := lowerImportDomainStep(domainStep)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -371,13 +372,20 @@ func executeImportOperationProgram(
 	return domains, revisions.Revisions(), revisions.StableRevisions(), nil
 }
 
-func lowerImportDomainRequest(request operationplan.AdoptDomainRequest) (mutation.Domain, error) {
+func lowerImportDomainStep(step operationplan.DomainStep) (mutation.Domain, error) {
+	if domain, ok := step.Compiled(); ok {
+		return domain, nil
+	}
+	request, ok := step.Path()
+	if !ok {
+		return mutation.Domain{}, fmt.Errorf("import operation domain step is invalid")
+	}
 	if logical, ok := request.Logical(); ok {
 		return mutation.NewLogicalPathDomain(logical)
 	}
 	physical, ok := request.Physical()
 	if !ok {
-		return mutation.Domain{}, fmt.Errorf("import operation domain request is invalid")
+		return mutation.Domain{}, fmt.Errorf("import operation path-domain request is invalid")
 	}
 	return mutation.NewPhysicalPathDomain(physical)
 }

@@ -77,38 +77,6 @@ type AdoptInput struct {
 	Scans                   []AdoptScan
 }
 
-type adoptDomainKind uint8
-
-const (
-	adoptDomainLogical adoptDomainKind = iota + 1
-	adoptDomainPhysical
-)
-
-// AdoptDomainRequest is one pure logical-or-physical mutation-domain request.
-// Workflow code lowers it through mutation so path canonicalization and
-// filesystem authority remain outside operationplan.
-type AdoptDomainRequest struct {
-	kind     adoptDomainKind
-	logical  mutation.LogicalPathRequest
-	physical mutation.PhysicalPathRequest
-}
-
-// Logical returns the logical request when this value represents one.
-func (request AdoptDomainRequest) Logical() (mutation.LogicalPathRequest, bool) {
-	if request.kind != adoptDomainLogical {
-		return mutation.LogicalPathRequest{}, false
-	}
-	return request.logical, true
-}
-
-// Physical returns the physical request when this value represents one.
-func (request AdoptDomainRequest) Physical() (mutation.PhysicalPathRequest, bool) {
-	if request.kind != adoptDomainPhysical {
-		return mutation.PhysicalPathRequest{}, false
-	}
-	return request.physical, true
-}
-
 type adoptStepAction uint8
 
 const (
@@ -121,8 +89,7 @@ const (
 // lower Domain when present, then consume the step through AdoptRevisionCompiler.
 type AdoptStep struct {
 	index          int
-	domain         AdoptDomainRequest
-	hasDomain      bool
+	domain         DomainStep
 	preflightErr   error
 	action         adoptStepAction
 	revision       mutation.RevisionRequest
@@ -139,20 +106,14 @@ func (step AdoptStep) Preflight() error {
 }
 
 // Domain returns the domain request lowered before this step is consumed.
-func (step AdoptStep) Domain() (AdoptDomainRequest, bool) {
-	return step.domain, step.hasDomain
+func (step AdoptStep) Domain() (DomainStep, bool) {
+	return step.domain, step.domain.valid()
 }
 
 // AdoptProgram is the immutable ordered import operation-safety program.
 type AdoptProgram struct {
-	barrierDomains   []mutation.Domain
 	barrierRevisions []mutation.RevisionRequest
 	steps            []AdoptStep
-}
-
-// BarrierDomains returns the owner-compiled State Barrier domain prefix.
-func (program AdoptProgram) BarrierDomains() []mutation.Domain {
-	return append([]mutation.Domain(nil), program.barrierDomains...)
 }
 
 // Steps returns compiler transitions in exact historical admission order.
@@ -285,6 +246,9 @@ func (compiler *AdoptRevisionCompiler) Compile() (AdoptRevisionPlan, error) {
 func CompileAdopt(input AdoptInput) AdoptProgram {
 	builder := adoptProgramBuilder{
 		physicalDomainKeys: make(map[string]struct{}),
+	}
+	for _, domain := range input.BarrierDomains {
+		builder.addCompiledDomain(domain)
 	}
 
 	outputRequests, err := mutation.BoundedFileRevisionRequests(
@@ -509,10 +473,13 @@ type adoptProgramBuilder struct {
 
 func (builder *adoptProgramBuilder) program(input AdoptInput) AdoptProgram {
 	return AdoptProgram{
-		barrierDomains:   append([]mutation.Domain(nil), input.BarrierDomains...),
 		barrierRevisions: append([]mutation.RevisionRequest(nil), input.BarrierRevisions...),
 		steps:            append([]AdoptStep(nil), builder.steps...),
 	}
+}
+
+func (builder *adoptProgramBuilder) addCompiledDomain(domain mutation.Domain) {
+	builder.addStep(AdoptStep{domain: newCompiledDomainStep(domain)})
 }
 
 func (builder *adoptProgramBuilder) addLogical(
@@ -521,13 +488,9 @@ func (builder *adoptProgramBuilder) addLogical(
 	effect mutation.PathEffect,
 	step AdoptStep,
 ) {
-	step.domain = AdoptDomainRequest{
-		kind: adoptDomainLogical,
-		logical: mutation.LogicalPathRequest{
-			Path: path, Access: access, Effect: effect,
-		},
-	}
-	step.hasDomain = true
+	step.domain = newPathDomainStep(
+		newLogicalPathDomainRequest(path, access, effect),
+	)
 	builder.addStep(step)
 }
 
@@ -541,14 +504,13 @@ func (builder *adoptProgramBuilder) addPhysical(
 	key := target + "\x00" + scope + "\x00" + adoptRevisionKey(path, effect)
 	if _, exists := builder.physicalDomainKeys[key]; !exists {
 		builder.physicalDomainKeys[key] = struct{}{}
-		step.domain = AdoptDomainRequest{
-			kind: adoptDomainPhysical,
-			physical: mutation.PhysicalPathRequest{
-				Path: path, Access: mutation.AccessShared, Effect: effect,
-				Target: target, Scope: scope,
-			},
-		}
-		step.hasDomain = true
+		step.domain = newPathDomainStep(newPhysicalPathDomainRequest(
+			path,
+			mutation.AccessShared,
+			effect,
+			target,
+			scope,
+		))
 	}
 	builder.addStep(step)
 }
