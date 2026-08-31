@@ -334,6 +334,20 @@ func (catalog Catalog) LookupExtensionCell(
 	return catalog.LookupExtension(key)
 }
 
+// ExtensionRouteProfile returns the owner route profile shared by the admitted
+// scope cells for one target and carrier.
+func (catalog Catalog) ExtensionRouteProfile(
+	selectedTarget target.Target,
+	carrier desiredextension.Carrier,
+) (profile.DelegatedRouteProfile, bool) {
+	for _, view := range catalog.ExtensionViewsForTarget(selectedTarget) {
+		if view.Carrier() == carrier {
+			return view.RouteProfile(), true
+		}
+	}
+	return profile.DelegatedRouteProfile{}, false
+}
+
 // ExtensionOrderCapability returns the order capability for one exact surface.
 func (catalog Catalog) ExtensionOrderCapability(
 	selectedTarget target.Target,

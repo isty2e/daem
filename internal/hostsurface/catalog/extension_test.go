@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
+	"github.com/isty2e/daem/internal/target"
 	topologyextension "github.com/isty2e/daem/internal/topology/extension"
 )
 
@@ -46,6 +47,13 @@ func TestProductExtensionSurfacesMatchCarrierRouteNamespaceAndOrderOwners(t *tes
 		ownerRoute, ok := profile.Profile(selectedTarget).DelegatedRoute(carrier)
 		if !ok {
 			t.Fatalf("carrier %q has no owner route profile", carrier)
+		}
+		compiledRoute, ok := catalog.ExtensionRouteProfile(selectedTarget, carrier)
+		if !ok || compiledRoute.Carrier() != ownerRoute.Carrier() ||
+			compiledRoute.Target() != ownerRoute.Target() ||
+			!slices.Equal(compiledRoute.AdmittedScopes(), ownerRoute.AdmittedScopes()) ||
+			!slices.Equal(compiledRoute.OperationRoutes(), ownerRoute.OperationRoutes()) {
+			t.Fatalf("carrier %q compiled route profile mismatch", carrier)
 		}
 		targetViews := catalog.ExtensionViewsForTarget(selectedTarget)
 		if len(targetViews) != len(carrier.AdmittedScopes()) {
@@ -121,6 +129,12 @@ func TestProductExtensionSurfacesMatchCarrierRouteNamespaceAndOrderOwners(t *tes
 			}
 			ownerIndex++
 		}
+	}
+	if _, ok := catalog.ExtensionRouteProfile(
+		target.TargetCodex,
+		desiredextension.CarrierPiPackage,
+	); ok {
+		t.Fatal("mismatched target/carrier unexpectedly resolved an Extension route profile")
 	}
 	if _, _, ok := catalog.ExtensionOrderCapabilityForClass(hostrelation.OrderClassID("missing")); ok {
 		t.Fatal("missing Extension order class unexpectedly resolved")
