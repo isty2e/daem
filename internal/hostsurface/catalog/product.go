@@ -1,5 +1,7 @@
 package catalog
 
+import "github.com/isty2e/daem/internal/realization/profile"
+
 var productCatalog = mustProduct()
 
 // Product returns the immutable compiled host-surface catalog for current owner
@@ -11,6 +13,10 @@ func Product() Catalog {
 
 func mustProduct() Catalog {
 	catalog, err := Compile(productSeed())
+	if err != nil {
+		panic(err)
+	}
+	catalog, err = catalog.withResourceSupports(profile.ResourceSupportFacts())
 	if err != nil {
 		panic(err)
 	}

@@ -368,8 +368,6 @@ func (catalog Catalog) ManagedPathsInOwnerOrder() []ManagedPathSurfaceView {
 	return result
 }
 
-// ManagedPathViews returns one target/scope/family selection in owner admission
-// order. Missing cells are unsupported rather than support=false rows.
 // HasManagedPathTarget reports whether one target has a compiled managed-path
 // surface for the requested resource family.
 func (catalog Catalog) HasManagedPathTarget(
@@ -384,6 +382,8 @@ func (catalog Catalog) HasManagedPathTarget(
 	return false
 }
 
+// ManagedPathViews returns one target/scope/family selection in owner admission
+// order. Missing cells are unsupported rather than support=false rows.
 func (catalog Catalog) ManagedPathViews(
 	selectedTarget target.Target,
 	scope target.Scope,
