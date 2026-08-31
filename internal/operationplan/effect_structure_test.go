@@ -756,3 +756,176 @@ func mustEffectStep(t *testing.T, id string, kind EffectStepKind) EffectNode {
 	}
 	return step
 }
+
+func TestEffectStructureDemandAlternativesPreserveIncomparableChoices(t *testing.T) {
+	t.Parallel()
+	barrierOne := mustEffectStep(t, "barrier-1", EffectStepValidateBarrier)
+	barrierTwo := mustEffectStep(t, "barrier-2", EffectStepValidateBarrier)
+	barrierThree := mustEffectStep(t, "barrier-3", EffectStepValidateBarrier)
+	commit := mustEffectStep(t, "commit", EffectStepPublishDescendant)
+	choice, err := newEffectChoice(
+		"physical-alternatives",
+		EffectSequence(barrierOne, barrierTwo, barrierThree),
+		commit,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	structure, err := compileEffectStructure(choice)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	alternatives, err := structure.DemandAlternatives()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alternatives) != 2 {
+		t.Fatalf("alternatives = %d, want 2", len(alternatives))
+	}
+	if alternatives[0].BarrierValidationCalls() != 0 ||
+		alternatives[0].DescendantFileCommits() != 1 {
+		t.Fatalf("first alternative = %+v, want one descendant commit", alternatives[0])
+	}
+	if alternatives[1].BarrierValidationCalls() != 3 ||
+		alternatives[1].DescendantFileCommits() != 0 {
+		t.Fatalf("second alternative = %+v, want three barrier validations", alternatives[1])
+	}
+}
+
+func TestEffectStructureDemandAlternativesPruneDominatedForwardChoices(t *testing.T) {
+	t.Parallel()
+	forwardOne := mustEffectStep(t, "forward-1", EffectStepForwardEffect)
+	forwardTwo := mustEffectStep(t, "forward-2", EffectStepForwardEffect)
+	choice, err := newEffectChoice(
+		"forward-alternatives",
+		EffectSequence(),
+		EffectSequence(forwardOne, forwardTwo),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	phase, err := newEffectForwardPhase("forward-phase", choice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	structure, err := compileEffectStructure(phase)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	alternatives, err := structure.DemandAlternatives()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alternatives) != 1 {
+		t.Fatalf("alternatives = %d, want 1 nondominated alternative", len(alternatives))
+	}
+	if alternatives[0].EnsureCalls() != 1 ||
+		alternatives[0].StateDirValidationCalls() != 1 {
+		t.Fatalf("alternative = %+v, want ensure=1 StateDir-validation=1", alternatives[0])
+	}
+}
+
+func TestEffectStructureDemandAlternativesRespectTriggerReachability(t *testing.T) {
+	t.Parallel()
+	triggerOne, err := newEffectTrigger(
+		"ownership",
+		mustEffectStep(t, "trigger-forward-1", EffectStepForwardEffect),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	triggerTwo, err := newEffectTrigger(
+		"ownership",
+		mustEffectStep(t, "trigger-forward-2", EffectStepForwardEffect),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conditional, err := newEffectConditional(
+		"ownership",
+		mustEffectStep(t, "conditional-forward", EffectStepForwardEffect),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstChoice, err := newEffectChoice("first", EffectSequence(), triggerOne)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondChoice, err := newEffectChoice("second", EffectSequence(), triggerTwo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	phase, err := newEffectForwardPhase(
+		"forward-phase",
+		EffectSequence(firstChoice, secondChoice, conditional),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	structure, err := compileEffectStructure(phase)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	alternatives, err := structure.DemandAlternatives()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alternatives) != 1 {
+		t.Fatalf("alternatives = %d, want one nondominated alternative", len(alternatives))
+	}
+	if alternatives[0].EnsureCalls() != 1 ||
+		alternatives[0].StateDirValidationCalls() != 2 {
+		t.Fatalf("alternative = %+v, want three reachable forward effects", alternatives[0])
+	}
+}
+
+func TestEffectStructureDemandAlternativesRejectLateTriggerOnlyPath(t *testing.T) {
+	t.Parallel()
+	conditional, err := newEffectConditional(
+		"ownership",
+		mustEffectStep(t, "conditional", EffectStepValidateBarrier),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trigger, err := newEffectTrigger(
+		"ownership",
+		mustEffectStep(t, "trigger", EffectStepValidateBarrier),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	structure, err := compileEffectStructure(EffectSequence(conditional, trigger))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := structure.DemandAlternatives(); err == nil ||
+		!strings.Contains(err.Error(), "no cursor-reachable") {
+		t.Fatalf("late-trigger alternatives error = %v", err)
+	}
+}
+
+func TestEffectStructureDemandAlternativesBoundNondeterministicRepetition(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	choice := builder.Choice(
+		"repeated-choice",
+		builder.Step("barrier", EffectStepValidateBarrier),
+		builder.Step("commit", EffectStepPublishDescendant),
+	)
+	repeated := builder.Repeat(maximumEffectRepeatIterations+1, choice)
+	structure, err := builder.Compile(repeated)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := structure.DemandAlternatives(); err == nil ||
+		!strings.Contains(err.Error(), "nondeterministic effect repetition") {
+		t.Fatalf("repetition bound error = %v", err)
+	}
+}

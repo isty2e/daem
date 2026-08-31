@@ -240,9 +240,14 @@ func TestExecuteReservesCompleteStateDirEnvelopeBeforeProviderInvocation(t *test
 	}, executeDependencies{
 		reserveForwardEffects: func(
 			_ recoverygate.EffectAuthority,
+			structure operationplan.EffectStructure,
 			demand operationplan.Demand,
 		) (*recoverygate.ForwardEffectAuthority, error) {
 			reservationCalls++
+			alternatives, alternativesErr := structure.DemandAlternatives()
+			if alternativesErr != nil || len(alternatives) == 0 {
+				t.Fatalf("forward effect structure alternatives = %d, %v", len(alternatives), alternativesErr)
+			}
 			if demand.EnsureCalls() != 2 || demand.BarrierValidationCalls() != 3 ||
 				demand.DescendantPath() != planned.assessment.StatePath ||
 				demand.DescendantValidations() == 0 || demand.DescendantFileCommits() == 0 {

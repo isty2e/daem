@@ -263,29 +263,18 @@ func (authority EffectAuthority) reservePlan(
 	if err := authority.requireInitialized(); err != nil {
 		return nil, err
 	}
-	stateValidations, createIfAbsent, err := forwardStateDirValidationPlan(
-		authority.stateDir.PresentAtCapture(),
-		plan,
-	)
+	lowered, err := authority.lowerForwardPlan(plan)
 	if err != nil {
 		return nil, err
 	}
-	fileSetCensuses, err := checkedForwardCount(plan.EnsureCalls, 2)
-	if err != nil {
-		return nil, err
-	}
-	fileSetCensuses, err = checkedForwardAdd(fileSetCensuses, plan.BarrierValidationCalls)
-	if err != nil {
-		return nil, err
-	}
-	operation, err := authority.stateDir.ReserveOperation(
-		stateValidations,
-		fileSetCensuses,
-		createIfAbsent,
-		plan.DescendantPath,
-		plan.DescendantValidations,
-		plan.DescendantFileCommits,
-	)
+	return authority.reserveLoweredPlan(plan, lowered.planned)
+}
+
+func (authority EffectAuthority) reserveLoweredPlan(
+	plan forwardEffectPlan,
+	planned plannedStateDirOperation,
+) (*ForwardEffectAuthority, error) {
+	operation, err := authority.stateDir.reservePlannedOperation(planned)
 	if err != nil {
 		return nil, err
 	}

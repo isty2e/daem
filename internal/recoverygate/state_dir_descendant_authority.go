@@ -50,6 +50,14 @@ type StateDirOperationReservation struct {
 	descendantUsed bool
 }
 
+type plannedStateDirOperation struct {
+	stateWork      stateDirPhysicalWork
+	totalWork      stateDirPhysicalWork
+	relative       rootedpath.RelativeDestination
+	descendantWork int
+	hasDescendant  bool
+}
+
 func (authority StateDirAuthority) planDescendantAuthority(
 	path string,
 	futureValidations int,
@@ -164,82 +172,27 @@ func (authority StateDirAuthority) ReserveOperation(
 	descendantValidations int,
 	descendantFileCommits int,
 ) (*StateDirOperationReservation, error) {
-	snapshot, ok := authority.snapshot()
-	if !ok {
-		return nil, fmt.Errorf("file-set state directory authority is uninitialized")
-	}
-	if stateValidations < 0 {
-		return nil, fmt.Errorf("StateDir validation count must not be negative")
-	}
-	if fileSetCensuses < 0 {
-		return nil, fmt.Errorf("StateDir file-set census count must not be negative")
-	}
-	validationWork, err := stateDirValidationPathWork(snapshot, authority.state.maximumPhysicalDepth)
-	if err != nil {
-		return nil, err
-	}
-	statePathWork, err := checkedStateDirWorkMultiply(validationWork, stateValidations)
-	if err != nil {
-		return nil, err
-	}
-	stateWork := stateDirPhysicalWork{pathComponents: statePathWork}
-	if createIfAbsent && !snapshot.plannedPresent {
-		creationWork, creationErr := stateDirCreationPathWork(snapshot, authority.state.maximumPhysicalDepth)
-		if creationErr != nil {
-			return nil, creationErr
-		}
-		stateWork, err = stateWork.add(stateDirPhysicalWork{pathComponents: creationWork})
-		if err != nil {
-			return nil, err
-		}
-	}
-	if fileSetCensuses != 0 {
-		census, censusErr := fileset.MaximumFenceCensusWork(
-			snapshot.path,
-			authority.state.maximumPhysicalDepth,
-		)
-		if censusErr != nil {
-			return nil, censusErr
-		}
-		censusWork, censusErr := stateDirPhysicalWork{
-			pathComponents: census.PathComponents,
-			entries:        census.Entries,
-			bytes:          census.Bytes,
-		}.multiply(fileSetCensuses)
-		if censusErr != nil {
-			return nil, censusErr
-		}
-		stateWork, err = stateWork.add(censusWork)
-		if err != nil {
-			return nil, err
-		}
-	}
-	var (
-		relative       rootedpath.RelativeDestination
-		descendantWork int
+	planned, err := authority.planOperation(
+		stateValidations,
+		fileSetCensuses,
+		createIfAbsent,
+		descendantPath,
+		descendantValidations,
+		descendantFileCommits,
 	)
-	if descendantPath == "" {
-		if descendantValidations != 0 || descendantFileCommits != 0 {
-			return nil, fmt.Errorf("StateDir descendant path is required for reserved persistence work")
-		}
-	} else {
-		relative, descendantWork, err = authority.planDescendantAuthority(
-			descendantPath,
-			descendantValidations,
-			descendantFileCommits,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-	total, err := stateWork.add(stateDirPhysicalWork{pathComponents: descendantWork})
 	if err != nil {
 		return nil, err
 	}
+	return authority.reservePlannedOperation(planned)
+}
+
+func (authority StateDirAuthority) reservePlannedOperation(
+	planned plannedStateDirOperation,
+) (*StateDirOperationReservation, error) {
 	if err := authority.state.physicalWorkBudget.AdmitPhysicalWork(
-		total.pathComponents,
-		total.entries,
-		total.bytes,
+		planned.totalWork.pathComponents,
+		planned.totalWork.entries,
+		planned.totalWork.bytes,
 	); err != nil {
 		return nil, fileset.WrapFileSetAccessUnprovable(fmt.Errorf(
 			"reserve complete file-set StateDir operation physical work: %w",
@@ -249,13 +202,106 @@ func (authority StateDirAuthority) ReserveOperation(
 	reservation := &StateDirOperationReservation{
 		execution: &StateDirExecutionAuthority{
 			stateDir: authority,
-			budget:   newStateDirReservedWorkBudget(stateWork),
+			budget:   newStateDirReservedWorkBudget(planned.stateWork),
 		},
 	}
-	if descendantPath != "" {
-		reservation.descendant = newStateDirDescendantReservation(authority, relative, descendantWork)
+	if planned.hasDescendant {
+		reservation.descendant = newStateDirDescendantReservation(
+			authority,
+			planned.relative,
+			planned.descendantWork,
+		)
 	}
 	return reservation, nil
+}
+
+func (authority StateDirAuthority) planOperation(
+	stateValidations int,
+	fileSetCensuses int,
+	createIfAbsent bool,
+	descendantPath string,
+	descendantValidations int,
+	descendantFileCommits int,
+) (plannedStateDirOperation, error) {
+	snapshot, ok := authority.snapshot()
+	if !ok {
+		return plannedStateDirOperation{}, fmt.Errorf("file-set state directory authority is uninitialized")
+	}
+	if stateValidations < 0 {
+		return plannedStateDirOperation{}, fmt.Errorf("StateDir validation count must not be negative")
+	}
+	if fileSetCensuses < 0 {
+		return plannedStateDirOperation{}, fmt.Errorf("StateDir file-set census count must not be negative")
+	}
+	validationWork, err := stateDirValidationPathWork(snapshot, authority.state.maximumPhysicalDepth)
+	if err != nil {
+		return plannedStateDirOperation{}, err
+	}
+	statePathWork, err := checkedStateDirWorkMultiply(validationWork, stateValidations)
+	if err != nil {
+		return plannedStateDirOperation{}, err
+	}
+	stateWork := stateDirPhysicalWork{pathComponents: statePathWork}
+	if createIfAbsent && !snapshot.plannedPresent {
+		creationWork, creationErr := stateDirCreationPathWork(snapshot, authority.state.maximumPhysicalDepth)
+		if creationErr != nil {
+			return plannedStateDirOperation{}, creationErr
+		}
+		stateWork, err = stateWork.add(stateDirPhysicalWork{pathComponents: creationWork})
+		if err != nil {
+			return plannedStateDirOperation{}, err
+		}
+	}
+	if fileSetCensuses != 0 {
+		census, censusErr := fileset.MaximumFenceCensusWork(
+			snapshot.path,
+			authority.state.maximumPhysicalDepth,
+		)
+		if censusErr != nil {
+			return plannedStateDirOperation{}, censusErr
+		}
+		censusWork, censusErr := stateDirPhysicalWork{
+			pathComponents: census.PathComponents,
+			entries:        census.Entries,
+			bytes:          census.Bytes,
+		}.multiply(fileSetCensuses)
+		if censusErr != nil {
+			return plannedStateDirOperation{}, censusErr
+		}
+		stateWork, err = stateWork.add(censusWork)
+		if err != nil {
+			return plannedStateDirOperation{}, err
+		}
+	}
+	var (
+		relative       rootedpath.RelativeDestination
+		descendantWork int
+	)
+	if descendantPath == "" {
+		if descendantValidations != 0 || descendantFileCommits != 0 {
+			return plannedStateDirOperation{}, fmt.Errorf("StateDir descendant path is required for reserved persistence work")
+		}
+	} else {
+		relative, descendantWork, err = authority.planDescendantAuthority(
+			descendantPath,
+			descendantValidations,
+			descendantFileCommits,
+		)
+		if err != nil {
+			return plannedStateDirOperation{}, err
+		}
+	}
+	total, err := stateWork.add(stateDirPhysicalWork{pathComponents: descendantWork})
+	if err != nil {
+		return plannedStateDirOperation{}, err
+	}
+	return plannedStateDirOperation{
+		stateWork:      stateWork,
+		totalWork:      total,
+		relative:       relative,
+		descendantWork: descendantWork,
+		hasDescendant:  descendantPath != "",
+	}, nil
 }
 
 // Execution returns the reserved StateDir validation and creation authority.

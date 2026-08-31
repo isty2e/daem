@@ -130,6 +130,20 @@ type stateDirPhysicalWork struct {
 	bytes          int64
 }
 
+func (work stateDirPhysicalWork) maximum(other stateDirPhysicalWork) stateDirPhysicalWork {
+	return stateDirPhysicalWork{
+		pathComponents: max(work.pathComponents, other.pathComponents),
+		entries:        max(work.entries, other.entries),
+		bytes:          max(work.bytes, other.bytes),
+	}
+}
+
+func (work stateDirPhysicalWork) dominates(other stateDirPhysicalWork) bool {
+	return work.pathComponents >= other.pathComponents &&
+		work.entries >= other.entries &&
+		work.bytes >= other.bytes
+}
+
 func (work stateDirPhysicalWork) add(other stateDirPhysicalWork) (stateDirPhysicalWork, error) {
 	paths, err := checkedStateDirWorkAdd(work.pathComponents, other.pathComponents)
 	if err != nil {
