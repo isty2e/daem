@@ -7,19 +7,19 @@ import (
 
 func TestEffectStructureDerivesSequenceChoiceAndRepeatDemand(t *testing.T) {
 	t.Parallel()
-	ensure := mustEffectStep(t, "ensure", effectStepEstablishStateDir)
-	barrierBefore := mustEffectStep(t, "barrier-before", effectStepValidateBarrier)
-	barrierAfter := mustEffectStep(t, "barrier-after", effectStepValidateBarrier)
-	stateDirBranch := mustEffectStep(t, "state-dir-branch", effectStepValidateStateDir)
-	stateDirRepeat := mustEffectStep(t, "state-dir-repeat", effectStepValidateStateDir)
-	validate := mustEffectStep(t, "statefile-validate", effectStepValidateDescendant)
-	commit := mustEffectStep(t, "statefile-commit", effectStepPublishDescendant)
-	observed := mustEffectStep(t, "observe", effectStepObservation)
+	ensure := mustEffectStep(t, "ensure", EffectStepEstablishStateDir)
+	barrierBefore := mustEffectStep(t, "barrier-before", EffectStepValidateBarrier)
+	barrierAfter := mustEffectStep(t, "barrier-after", EffectStepValidateBarrier)
+	stateDirBranch := mustEffectStep(t, "state-dir-branch", EffectStepValidateStateDir)
+	stateDirRepeat := mustEffectStep(t, "state-dir-repeat", EffectStepValidateStateDir)
+	validate := mustEffectStep(t, "statefile-validate", EffectStepValidateDescendant)
+	commit := mustEffectStep(t, "statefile-commit", EffectStepPublishDescendant)
+	observed := mustEffectStep(t, "observe", EffectStepObservation)
 
 	branch, err := newEffectChoice(
 		"persist-or-observe",
-		newEffectSequence(barrierBefore, barrierAfter, validate, commit),
-		newEffectSequence(stateDirBranch, observed),
+		EffectSequence(barrierBefore, barrierAfter, validate, commit),
+		EffectSequence(stateDirBranch, observed),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestEffectStructureDerivesSequenceChoiceAndRepeatDemand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	structure, err := compileEffectStructure(newEffectSequence(ensure, branch, repeated))
+	structure, err := compileEffectStructure(EffectSequence(ensure, branch, repeated))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,18 +51,18 @@ func TestEffectStructureDerivesSequenceChoiceAndRepeatDemand(t *testing.T) {
 
 func TestEffectStructureChoiceUsesComponentwiseMaximum(t *testing.T) {
 	t.Parallel()
-	barrierOne := mustEffectStep(t, "barrier-1", effectStepValidateBarrier)
-	barrierTwo := mustEffectStep(t, "barrier-2", effectStepValidateBarrier)
-	barrierThree := mustEffectStep(t, "barrier-3", effectStepValidateBarrier)
-	validate := mustEffectStep(t, "validate", effectStepValidateDescendant)
-	commit := mustEffectStep(t, "commit", effectStepPublishDescendant)
-	stateDirOne := mustEffectStep(t, "state-dir-1", effectStepValidateStateDir)
-	stateDirTwo := mustEffectStep(t, "state-dir-2", effectStepValidateStateDir)
+	barrierOne := mustEffectStep(t, "barrier-1", EffectStepValidateBarrier)
+	barrierTwo := mustEffectStep(t, "barrier-2", EffectStepValidateBarrier)
+	barrierThree := mustEffectStep(t, "barrier-3", EffectStepValidateBarrier)
+	validate := mustEffectStep(t, "validate", EffectStepValidateDescendant)
+	commit := mustEffectStep(t, "commit", EffectStepPublishDescendant)
+	stateDirOne := mustEffectStep(t, "state-dir-1", EffectStepValidateStateDir)
+	stateDirTwo := mustEffectStep(t, "state-dir-2", EffectStepValidateStateDir)
 
 	choice, err := newEffectChoice(
 		"componentwise",
-		newEffectSequence(barrierOne, barrierTwo, barrierThree, commit),
-		newEffectSequence(stateDirOne, stateDirTwo, validate),
+		EffectSequence(barrierOne, barrierTwo, barrierThree, commit),
+		EffectSequence(stateDirOne, stateDirTwo, validate),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -86,15 +86,269 @@ func TestEffectStructureChoiceUsesComponentwiseMaximum(t *testing.T) {
 	}
 }
 
+func TestEffectForwardPhaseDerivesEstablishmentAndIdentityChecks(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	phase := builder.ForwardPhase(
+		"final",
+		EffectSequence(
+			builder.Step("effect-1", EffectStepForwardEffect),
+			builder.Step("observe", EffectStepObservation),
+			builder.Step("effect-2", EffectStepForwardEffect),
+			builder.Step("effect-3", EffectStepForwardEffect),
+		),
+	)
+	structure, err := builder.Compile(phase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demand, err := structure.LegacyDemand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if demand.EnsureCalls() != 1 || demand.StateDirValidationCalls() != 2 {
+		t.Fatalf(
+			"forward phase ensure/StateDir = %d/%d, want 1/2",
+			demand.EnsureCalls(),
+			demand.StateDirValidationCalls(),
+		)
+	}
+	cursor := structure.Begin()
+	for _, step := range []struct {
+		id   string
+		kind EffectStepKind
+	}{
+		{id: "effect-1", kind: EffectStepForwardEffect},
+		{id: "observe", kind: EffectStepObservation},
+		{id: "effect-2", kind: EffectStepForwardEffect},
+		{id: "effect-3", kind: EffectStepForwardEffect},
+	} {
+		if err := cursor.Consume(step.id, step.kind); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := cursor.FinishSuccess(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEffectForwardPhasePreservesChoiceBeforeLegacyProjection(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	choice := builder.Choice(
+		"mutate-or-noop",
+		builder.Step("noop-terminal", EffectStepTerminal),
+		EffectSequence(
+			builder.Step("mutate-1", EffectStepForwardEffect),
+			builder.Step("mutate-2", EffectStepForwardEffect),
+			builder.Step("mutate-terminal", EffectStepTerminal),
+		),
+	)
+	structure, err := builder.Compile(builder.ForwardPhase("order", choice))
+	if err != nil {
+		t.Fatal(err)
+	}
+	demand, err := structure.LegacyDemand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if demand.EnsureCalls() != 1 || demand.StateDirValidationCalls() != 1 {
+		t.Fatalf(
+			"choice forward phase ensure/StateDir = %d/%d, want 1/1",
+			demand.EnsureCalls(),
+			demand.StateDirValidationCalls(),
+		)
+	}
+}
+
+func TestEffectTriggerActivatesOneSharedFollowUp(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	first := builder.Choice(
+		"promotion-1",
+		builder.Step("promotion-1-noop", EffectStepTerminal),
+		builder.Trigger(
+			"ownership-finalization",
+			builder.Step("promotion-1-effect", EffectStepForwardEffect),
+		),
+	)
+	second := builder.Choice(
+		"promotion-2",
+		builder.Step("promotion-2-noop", EffectStepTerminal),
+		builder.Trigger(
+			"ownership-finalization",
+			builder.Step("promotion-2-effect", EffectStepForwardEffect),
+		),
+	)
+	followUp := builder.Conditional(
+		"ownership-finalization",
+		builder.Step("ownership-finalization-effect", EffectStepForwardEffect),
+	)
+	structure, err := builder.Compile(builder.ForwardPhase(
+		"apply",
+		EffectSequence(first, second, followUp),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	demand, err := structure.LegacyDemand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if demand.EnsureCalls() != 1 || demand.StateDirValidationCalls() != 2 {
+		t.Fatalf(
+			"promotion/follow-up ensure/StateDir = %d/%d, want 1/2",
+			demand.EnsureCalls(),
+			demand.StateDirValidationCalls(),
+		)
+	}
+
+	t.Run("no promotion skips follow-up", func(t *testing.T) {
+		cursor := structure.Begin()
+		if err := cursor.SelectAlternative("promotion-1", 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.Consume("promotion-1-noop", EffectStepTerminal); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.SelectAlternative("promotion-2", 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.Consume("promotion-2-noop", EffectStepTerminal); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.FinishSuccess(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("any promotion requires one follow-up", func(t *testing.T) {
+		cursor := structure.Begin()
+		if err := cursor.SelectAlternative("promotion-1", 1); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.Consume("promotion-1-effect", EffectStepForwardEffect); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.SelectAlternative("promotion-2", 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.Consume("promotion-2-noop", EffectStepTerminal); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.FinishSuccess(); err == nil ||
+			!strings.Contains(err.Error(), "ownership-finalization-effect") {
+			t.Fatalf("missing follow-up error = %v", err)
+		}
+		if err := cursor.Consume(
+			"ownership-finalization-effect",
+			EffectStepForwardEffect,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.FinishSuccess(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestEffectCursorRejectsLateOrUnreachedTriggeredFollowUp(t *testing.T) {
+	t.Parallel()
+
+	t.Run("trigger after conditional", func(t *testing.T) {
+		var builder EffectStructureBuilder
+		structure, err := builder.Compile(EffectSequence(
+			builder.Conditional(
+				"late",
+				builder.Step("late-follow-up", EffectStepObservation),
+			),
+			builder.Trigger(
+				"late",
+				builder.Step("late-trigger", EffectStepObservation),
+			),
+		))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cursor := structure.Begin()
+		if err := cursor.Consume("late-trigger", EffectStepObservation); err == nil ||
+			!strings.Contains(err.Error(), "after its conditional") {
+			t.Fatalf("late trigger error = %v", err)
+		}
+	})
+
+	t.Run("triggered conditional hidden by branch", func(t *testing.T) {
+		var builder EffectStructureBuilder
+		followUpChoice := builder.Choice(
+			"follow-up-location",
+			builder.Step("without-follow-up", EffectStepNoOp),
+			builder.Conditional(
+				"hidden",
+				builder.Step("hidden-follow-up", EffectStepObservation),
+			),
+		)
+		structure, err := builder.Compile(EffectSequence(
+			builder.Trigger(
+				"hidden",
+				builder.Step("hidden-trigger", EffectStepObservation),
+			),
+			followUpChoice,
+		))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cursor := structure.Begin()
+		if err := cursor.Consume("hidden-trigger", EffectStepObservation); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.SelectAlternative("follow-up-location", 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.Consume("without-follow-up", EffectStepNoOp); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.FinishSuccess(); err == nil ||
+			!strings.Contains(err.Error(), "was not reached") {
+			t.Fatalf("hidden follow-up error = %v", err)
+		}
+	})
+}
+
+func TestEffectStructureRejectsUnpairedTriggersAndConditionals(t *testing.T) {
+	t.Parallel()
+	trigger, err := newEffectTrigger(
+		"orphan",
+		mustEffectStep(t, "trigger-body", EffectStepObservation),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compileEffectStructure(trigger); err == nil ||
+		!strings.Contains(err.Error(), "has no conditional follow-up") {
+		t.Fatalf("orphan trigger error = %v", err)
+	}
+	conditional, err := newEffectConditional(
+		"orphan",
+		mustEffectStep(t, "conditional-body", EffectStepObservation),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compileEffectStructure(conditional); err == nil ||
+		!strings.Contains(err.Error(), "has no trigger") {
+		t.Fatalf("orphan conditional error = %v", err)
+	}
+}
+
 func TestEffectStructureLowersEachChoiceBeforeTakingMaximum(t *testing.T) {
 	t.Parallel()
-	barrierOne := mustEffectStep(t, "barrier-1", effectStepValidateBarrier)
-	barrierTwo := mustEffectStep(t, "barrier-2", effectStepValidateBarrier)
-	barrierThree := mustEffectStep(t, "barrier-3", effectStepValidateBarrier)
-	commit := mustEffectStep(t, "commit", effectStepPublishDescendant)
+	barrierOne := mustEffectStep(t, "barrier-1", EffectStepValidateBarrier)
+	barrierTwo := mustEffectStep(t, "barrier-2", EffectStepValidateBarrier)
+	barrierThree := mustEffectStep(t, "barrier-3", EffectStepValidateBarrier)
+	commit := mustEffectStep(t, "commit", EffectStepPublishDescendant)
 	choice, err := newEffectChoice(
 		"physical-alternatives",
-		newEffectSequence(barrierOne, barrierTwo, barrierThree),
+		EffectSequence(barrierOne, barrierTwo, barrierThree),
 		commit,
 	)
 	if err != nil {
@@ -105,11 +359,11 @@ func TestEffectStructureLowersEachChoiceBeforeTakingMaximum(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cost, err := lowerTestEffectCost(structure.root, func(kind effectStepKind) (int, error) {
+	cost, err := lowerTestEffectCost(structure.root, func(kind EffectStepKind) (int, error) {
 		switch kind {
-		case effectStepValidateBarrier:
+		case EffectStepValidateBarrier:
 			return 10, nil
-		case effectStepPublishDescendant:
+		case EffectStepPublishDescendant:
 			return 25, nil
 		default:
 			return 0, nil
@@ -133,23 +387,23 @@ func TestEffectStructureLowersEachChoiceBeforeTakingMaximum(t *testing.T) {
 
 func TestEffectStructureRejectsOverflowAndDuplicateReferences(t *testing.T) {
 	t.Parallel()
-	step := mustEffectStep(t, "shared", effectStepValidateBarrier)
+	step := mustEffectStep(t, "shared", EffectStepValidateBarrier)
 	repeated, err := newEffectRepeat(int(^uint(0)>>1), step)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := compileEffectStructure(newEffectSequence(repeated, step)); err == nil ||
+	if _, err := compileEffectStructure(EffectSequence(repeated, step)); err == nil ||
 		!strings.Contains(err.Error(), "duplicate effect step") {
 		t.Fatalf("duplicate error = %v", err)
 	}
 
-	other := mustEffectStep(t, "other", effectStepValidateBarrier)
+	other := mustEffectStep(t, "other", EffectStepValidateBarrier)
 	overflow, err := newEffectRepeat(int(^uint(0)>>1), other)
 	if err != nil {
 		t.Fatal(err)
 	}
-	last := mustEffectStep(t, "last", effectStepValidateBarrier)
-	overflowStructure, err := compileEffectStructure(newEffectSequence(overflow, last))
+	last := mustEffectStep(t, "last", EffectStepValidateBarrier)
+	overflowStructure, err := compileEffectStructure(EffectSequence(overflow, last))
 	if err != nil {
 		t.Fatalf("canonical structure rejected legacy projection overflow: %v", err)
 	}
@@ -160,21 +414,21 @@ func TestEffectStructureRejectsOverflowAndDuplicateReferences(t *testing.T) {
 
 	left, err := newEffectChoice(
 		"duplicate-choice",
-		mustEffectStep(t, "left-a", effectStepObservation),
-		mustEffectStep(t, "left-b", effectStepObservation),
+		mustEffectStep(t, "left-a", EffectStepObservation),
+		mustEffectStep(t, "left-b", EffectStepObservation),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	right, err := newEffectChoice(
 		"duplicate-choice",
-		mustEffectStep(t, "right-a", effectStepObservation),
-		mustEffectStep(t, "right-b", effectStepObservation),
+		mustEffectStep(t, "right-a", EffectStepObservation),
+		mustEffectStep(t, "right-b", EffectStepObservation),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := compileEffectStructure(newEffectSequence(left, right)); err == nil ||
+	if _, err := compileEffectStructure(EffectSequence(left, right)); err == nil ||
 		!strings.Contains(err.Error(), "duplicate effect choice") {
 		t.Fatalf("choice duplicate error = %v", err)
 	}
@@ -182,11 +436,11 @@ func TestEffectStructureRejectsOverflowAndDuplicateReferences(t *testing.T) {
 
 func TestEffectStructureOwnsInputCopies(t *testing.T) {
 	t.Parallel()
-	first := mustEffectStep(t, "first", effectStepValidateBarrier)
-	second := mustEffectStep(t, "second", effectStepValidateStateDir)
-	parts := []effectNode{first, second}
-	sequence := newEffectSequence(parts...)
-	parts[0] = mustEffectStep(t, "replacement", effectStepPublishDescendant)
+	first := mustEffectStep(t, "first", EffectStepValidateBarrier)
+	second := mustEffectStep(t, "second", EffectStepValidateStateDir)
+	parts := []EffectNode{first, second}
+	sequence := EffectSequence(parts...)
+	parts[0] = mustEffectStep(t, "replacement", EffectStepPublishDescendant)
 
 	structure, err := compileEffectStructure(sequence)
 	if err != nil {
@@ -204,7 +458,7 @@ func TestEffectStructureOwnsInputCopies(t *testing.T) {
 		t.Fatalf("upper bound changed through caller slice: %#v", upperBound)
 	}
 
-	sequence.children[0] = mustEffectStep(t, "mutated", effectStepPublishDescendant)
+	sequence.children[0] = mustEffectStep(t, "mutated", EffectStepPublishDescendant)
 	upperBound, err = structure.legacyUpperBound()
 	if err != nil {
 		t.Fatal(err)
@@ -214,18 +468,53 @@ func TestEffectStructureOwnsInputCopies(t *testing.T) {
 	}
 }
 
+func TestEffectStructureEqualityIsExactAndValueBased(t *testing.T) {
+	t.Parallel()
+	left, err := compileEffectStructure(EffectSequence())
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := compileEffectStructure(EffectSequence())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !left.Equal(right) {
+		t.Fatal("independently compiled equal structures differ")
+	}
+
+	var firstBuilder EffectStructureBuilder
+	first, err := firstBuilder.Compile(firstBuilder.ForwardPhase(
+		"apply",
+		firstBuilder.Step("one", EffectStepForwardEffect),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var secondBuilder EffectStructureBuilder
+	second, err := secondBuilder.Compile(secondBuilder.ForwardPhase(
+		"apply",
+		secondBuilder.Step("two", EffectStepForwardEffect),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Equal(second) {
+		t.Fatal("structures with different step references compare equal")
+	}
+}
+
 func TestEffectCursorConsumesSelectedBranchInOrder(t *testing.T) {
 	t.Parallel()
-	barrier := mustEffectStep(t, "barrier", effectStepValidateBarrier)
-	external := mustEffectStep(t, "external", effectStepExternal)
-	validate := mustEffectStep(t, "validate", effectStepValidateDescendant)
-	persist := mustEffectStep(t, "persist", effectStepPersistence)
-	observe := mustEffectStep(t, "observe", effectStepObservation)
-	terminal := mustEffectStep(t, "terminal", effectStepTerminal)
+	barrier := mustEffectStep(t, "barrier", EffectStepValidateBarrier)
+	external := mustEffectStep(t, "external", EffectStepExternal)
+	validate := mustEffectStep(t, "validate", EffectStepValidateDescendant)
+	persist := mustEffectStep(t, "persist", EffectStepPersistence)
+	observe := mustEffectStep(t, "observe", EffectStepObservation)
+	terminal := mustEffectStep(t, "terminal", EffectStepTerminal)
 	branch, err := newEffectChoice(
 		"attempt-result",
 		external,
-		newEffectSequence(validate, persist),
+		EffectSequence(validate, persist),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -235,78 +524,78 @@ func TestEffectCursorConsumesSelectedBranchInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	structure, err := compileEffectStructure(
-		newEffectSequence(barrier, branch, repeated, terminal),
+		EffectSequence(barrier, branch, repeated, terminal),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cursor := newEffectCursor(structure)
+	cursor := structure.Begin()
 
-	if err := cursor.consume("barrier", effectStepValidateBarrier); err != nil {
+	if err := cursor.Consume("barrier", EffectStepValidateBarrier); err != nil {
 		t.Fatal(err)
 	}
-	if err := cursor.selectAlternative("attempt-result", 1); err != nil {
+	if err := cursor.SelectAlternative("attempt-result", 1); err != nil {
 		t.Fatal(err)
 	}
 	for _, step := range []effectStep{
-		{id: "validate", kind: effectStepValidateDescendant},
-		{id: "persist", kind: effectStepPersistence},
-		{id: "observe", kind: effectStepObservation},
-		{id: "observe", kind: effectStepObservation},
-		{id: "terminal", kind: effectStepTerminal},
+		{id: "validate", kind: EffectStepValidateDescendant},
+		{id: "persist", kind: EffectStepPersistence},
+		{id: "observe", kind: EffectStepObservation},
+		{id: "observe", kind: EffectStepObservation},
+		{id: "terminal", kind: EffectStepTerminal},
 	} {
-		if err := cursor.consume(step.id, step.kind); err != nil {
-			t.Fatalf("consume %#v: %v", step, err)
+		if err := cursor.Consume(step.id, step.kind); err != nil {
+			t.Fatalf("Consume %#v: %v", step, err)
 		}
 	}
-	if err := cursor.finishSuccess(); err != nil {
+	if err := cursor.FinishSuccess(); err != nil {
 		t.Fatal(err)
 	}
-	if err := cursor.finishSuccess(); err == nil || !strings.Contains(err.Error(), "already finished") {
+	if err := cursor.FinishSuccess(); err == nil || !strings.Contains(err.Error(), "already finished") {
 		t.Fatalf("second finish error = %v", err)
 	}
 }
 
 func TestEffectCursorRejectsWrongBranchOrderAndUnderConsumption(t *testing.T) {
 	t.Parallel()
-	first := mustEffectStep(t, "first", effectStepValidateBarrier)
-	left := mustEffectStep(t, "left", effectStepObservation)
-	right := mustEffectStep(t, "right", effectStepObservation)
+	first := mustEffectStep(t, "first", EffectStepValidateBarrier)
+	left := mustEffectStep(t, "left", EffectStepObservation)
+	right := mustEffectStep(t, "right", EffectStepObservation)
 	choice, err := newEffectChoice("branch", left, right)
 	if err != nil {
 		t.Fatal(err)
 	}
-	structure, err := compileEffectStructure(newEffectSequence(first, choice))
+	structure, err := compileEffectStructure(EffectSequence(first, choice))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	cursor := newEffectCursor(structure)
-	if err := cursor.consume("right", effectStepObservation); err == nil ||
+	cursor := structure.Begin()
+	if err := cursor.Consume("right", EffectStepObservation); err == nil ||
 		!strings.Contains(err.Error(), "next effect step") {
 		t.Fatalf("out-of-order error = %v", err)
 	}
-	if err := cursor.consume("first", effectStepValidateBarrier); err != nil {
+	if err := cursor.Consume("first", EffectStepValidateBarrier); err != nil {
 		t.Fatal(err)
 	}
-	if err := cursor.consume("left", effectStepObservation); err == nil ||
+	if err := cursor.Consume("left", EffectStepObservation); err == nil ||
 		!strings.Contains(err.Error(), "must be selected") {
 		t.Fatalf("unselected-branch error = %v", err)
 	}
-	if err := cursor.selectAlternative("other", 0); err == nil ||
+	if err := cursor.SelectAlternative("other", 0); err == nil ||
 		!strings.Contains(err.Error(), "not \"other\"") {
 		t.Fatalf("wrong-choice error = %v", err)
 	}
-	if err := cursor.selectAlternative("branch", 0); err != nil {
+	if err := cursor.SelectAlternative("branch", 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := cursor.finishSuccess(); err == nil || !strings.Contains(err.Error(), "mandatory effect step") {
+	if err := cursor.FinishSuccess(); err == nil || !strings.Contains(err.Error(), "mandatory effect step") {
 		t.Fatalf("under-consumption error = %v", err)
 	}
-	if err := cursor.consume("left", effectStepObservation); err != nil {
+	if err := cursor.Consume("left", EffectStepObservation); err != nil {
 		t.Fatal(err)
 	}
-	if err := cursor.consume("left", effectStepObservation); err == nil ||
+	if err := cursor.Consume("left", EffectStepObservation); err == nil ||
 		!strings.Contains(err.Error(), "no remaining step") {
 		t.Fatalf("duplicate/extra error = %v", err)
 	}
@@ -314,43 +603,73 @@ func TestEffectCursorRejectsWrongBranchOrderAndUnderConsumption(t *testing.T) {
 
 func TestEffectCursorAllowsOnlyPreEffectAbort(t *testing.T) {
 	t.Parallel()
-	barrier := mustEffectStep(t, "barrier", effectStepValidateBarrier)
-	external := mustEffectStep(t, "external", effectStepExternal)
-	structure, err := compileEffectStructure(newEffectSequence(barrier, external))
+	barrier := mustEffectStep(t, "barrier", EffectStepValidateBarrier)
+	external := mustEffectStep(t, "external", EffectStepExternal)
+	structure, err := compileEffectStructure(EffectSequence(barrier, external))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	before := newEffectCursor(structure)
-	if err := before.consume("barrier", effectStepValidateBarrier); err != nil {
+	before := structure.Begin()
+	if err := before.Consume("barrier", EffectStepValidateBarrier); err != nil {
 		t.Fatal(err)
 	}
-	if err := before.abortBeforeEffect(); err != nil {
+	if err := before.AbortBeforeEffect(); err != nil {
 		t.Fatal(err)
 	}
-	if err := before.consume("external", effectStepExternal); err == nil ||
+	if err := before.Consume("external", EffectStepExternal); err == nil ||
 		!strings.Contains(err.Error(), "already aborted") {
-		t.Fatalf("post-abort consume error = %v", err)
+		t.Fatalf("post-abort Consume error = %v", err)
 	}
 
-	after := newEffectCursor(structure)
-	if err := after.consume("barrier", effectStepValidateBarrier); err != nil {
+	after := structure.Begin()
+	if err := after.Consume("barrier", EffectStepValidateBarrier); err != nil {
 		t.Fatal(err)
 	}
-	if err := after.consume("external", effectStepExternal); err != nil {
+	if err := after.Consume("external", EffectStepExternal); err != nil {
 		t.Fatal(err)
 	}
-	if err := after.abortBeforeEffect(); err == nil || !strings.Contains(err.Error(), "after an effect started") {
+	if err := after.AbortBeforeEffect(); err == nil || !strings.Contains(err.Error(), "after an effect started") {
 		t.Fatalf("post-effect abort error = %v", err)
+	}
+}
+
+func TestEffectStructureBuilderRetainsFirstConstructionError(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	invalid := builder.Step(" ", EffectStepExternal)
+	_ = builder.Step("later", EffectStepObservation)
+	if _, err := builder.Compile(EffectSequence(invalid)); err == nil ||
+		!strings.Contains(err.Error(), "reference is empty") {
+		t.Fatalf("builder error = %v", err)
+	}
+
+	var valid EffectStructureBuilder
+	structure, err := valid.Compile(EffectSequence(
+		valid.Step("observe", EffectStepObservation),
+		valid.Step("terminal", EffectStepTerminal),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := structure.Begin()
+	if err := cursor.Consume("observe", EffectStepObservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := cursor.Consume("terminal", EffectStepTerminal); err != nil {
+		t.Fatal(err)
+	}
+	if err := cursor.FinishSuccess(); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestEffectStructureRejectsInvalidReferencesAndChoices(t *testing.T) {
 	t.Parallel()
-	if _, err := newEffectStep(" ", effectStepExternal); err == nil {
+	if _, err := newEffectStep(" ", EffectStepExternal); err == nil {
 		t.Fatal("empty step reference accepted")
 	}
-	if _, err := newEffectStep(" step ", effectStepExternal); err == nil {
+	if _, err := newEffectStep(" step ", EffectStepExternal); err == nil {
 		t.Fatal("non-canonical step reference accepted")
 	}
 	if _, err := newEffectStep("step", 0); err == nil {
@@ -358,18 +677,35 @@ func TestEffectStructureRejectsInvalidReferencesAndChoices(t *testing.T) {
 	}
 	if _, err := newEffectChoice(
 		"single",
-		mustEffectStep(t, "only", effectStepObservation),
+		mustEffectStep(t, "only", EffectStepObservation),
 	); err == nil {
 		t.Fatal("single-alternative choice accepted")
 	}
-	if _, err := newEffectRepeat(-1, mustEffectStep(t, "repeat", effectStepObservation)); err == nil {
+	if _, err := newEffectRepeat(-1, mustEffectStep(t, "repeat", EffectStepObservation)); err == nil {
 		t.Fatal("negative repetition accepted")
+	}
+	forward := mustEffectStep(t, "forward", EffectStepForwardEffect)
+	if _, err := compileEffectStructure(forward); err == nil ||
+		!strings.Contains(err.Error(), "outside a forward phase") {
+		t.Fatalf("unscoped forward effect error = %v", err)
+	}
+	inner, err := newEffectForwardPhase("inner", forward)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer, err := newEffectForwardPhase("outer", inner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compileEffectStructure(outer); err == nil ||
+		!strings.Contains(err.Error(), "must not nest") {
+		t.Fatalf("nested forward phase error = %v", err)
 	}
 }
 
 func lowerTestEffectCost(
-	node effectNode,
-	stepCost func(effectStepKind) (int, error),
+	node EffectNode,
+	stepCost func(EffectStepKind) (int, error),
 ) (int, error) {
 	switch node.kind {
 	case effectNodeEmpty:
@@ -405,12 +741,14 @@ func lowerTestEffectCost(
 			return 0, err
 		}
 		return checkedMul(childCost, node.repetitions)
+	case effectNodeForwardPhase, effectNodeTrigger, effectNodeConditional:
+		return lowerTestEffectCost(node.children[0], stepCost)
 	default:
 		return 0, nil
 	}
 }
 
-func mustEffectStep(t *testing.T, id string, kind effectStepKind) effectNode {
+func mustEffectStep(t *testing.T, id string, kind EffectStepKind) EffectNode {
 	t.Helper()
 	step, err := newEffectStep(id, kind)
 	if err != nil {

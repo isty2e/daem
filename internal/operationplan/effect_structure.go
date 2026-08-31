@@ -5,21 +5,38 @@ import (
 	"strings"
 )
 
-type effectStepKind uint8
+// EffectStepKind is the closed neutral lifecycle and State Barrier vocabulary.
+type EffectStepKind uint8
 
 const (
-	effectStepEstablishStateDir effectStepKind = iota + 1
-	effectStepValidateBarrier
-	effectStepValidateStateDir
-	effectStepValidateDescendant
-	effectStepPublishDescendant
-	effectStepExternal
-	effectStepObservation
-	effectStepPersistence
-	effectStepCompensation
-	effectStepCleanup
-	effectStepRetirement
-	effectStepTerminal
+	// EffectStepEstablishStateDir requests one first-incarnation establishment.
+	EffectStepEstablishStateDir EffectStepKind = iota + 1
+	// EffectStepValidateBarrier requests one joint journal and file-set validation.
+	EffectStepValidateBarrier
+	// EffectStepValidateStateDir requests one StateDir identity validation.
+	EffectStepValidateStateDir
+	// EffectStepForwardEffect marks one StateDir-governed forward effect boundary.
+	EffectStepForwardEffect
+	// EffectStepValidateDescendant requests one bound descendant validation.
+	EffectStepValidateDescendant
+	// EffectStepPublishDescendant requests one bound descendant publication.
+	EffectStepPublishDescendant
+	// EffectStepExternal marks an external or host-visible effect boundary.
+	EffectStepExternal
+	// EffectStepObservation marks a post-effect observation.
+	EffectStepObservation
+	// EffectStepPersistence marks owner-local durable persistence.
+	EffectStepPersistence
+	// EffectStepCompensation marks owner-local compensation.
+	EffectStepCompensation
+	// EffectStepCleanup marks owner-local cleanup.
+	EffectStepCleanup
+	// EffectStepRetirement marks owner-local retirement.
+	EffectStepRetirement
+	// EffectStepNoOp marks an explicit selected branch with no effect.
+	EffectStepNoOp
+	// EffectStepTerminal marks an owner-selected terminal handoff.
+	EffectStepTerminal
 )
 
 type effectNodeKind uint8
@@ -30,164 +47,253 @@ const (
 	effectNodeSequence
 	effectNodeChoice
 	effectNodeRepeat
+	effectNodeForwardPhase
+	effectNodeTrigger
+	effectNodeConditional
 )
 
 type effectStep struct {
 	id   string
-	kind effectStepKind
+	kind EffectStepKind
 }
 
-type effectNode struct {
+// EffectNode is an opaque immutable sequence, choice, repetition, or step input.
+type EffectNode struct {
 	kind        effectNodeKind
 	step        effectStep
-	children    []effectNode
+	children    []EffectNode
 	choiceID    string
+	phaseID     string
+	triggerID   string
 	repetitions int
 }
 
-type effectDemand struct {
-	ensureCalls             int
-	barrierValidationCalls  int
-	stateDirValidationCalls int
-	descendantValidations   int
-	descendantFileCommits   int
+// EffectStructure is one validated, immutable effect obligation structure.
+type EffectStructure struct {
+	root EffectNode
 }
 
-func (demand effectDemand) add(other effectDemand) (effectDemand, error) {
-	var err error
-	demand.ensureCalls, err = checkedAdd(demand.ensureCalls, other.ensureCalls)
-	if err != nil {
-		return effectDemand{}, err
-	}
-	demand.barrierValidationCalls, err = checkedAdd(
-		demand.barrierValidationCalls,
-		other.barrierValidationCalls,
-	)
-	if err != nil {
-		return effectDemand{}, err
-	}
-	demand.stateDirValidationCalls, err = checkedAdd(
-		demand.stateDirValidationCalls,
-		other.stateDirValidationCalls,
-	)
-	if err != nil {
-		return effectDemand{}, err
-	}
-	demand.descendantValidations, err = checkedAdd(
-		demand.descendantValidations,
-		other.descendantValidations,
-	)
-	if err != nil {
-		return effectDemand{}, err
-	}
-	demand.descendantFileCommits, err = checkedAdd(
-		demand.descendantFileCommits,
-		other.descendantFileCommits,
-	)
-	if err != nil {
-		return effectDemand{}, err
-	}
-	return demand, nil
+// EffectStructureBuilder accumulates the first construction error while owner
+// packages assemble one immutable effect structure. Its zero value is ready.
+type EffectStructureBuilder struct {
+	err error
 }
 
-func (demand effectDemand) multiply(count int) (effectDemand, error) {
-	var err error
-	demand.ensureCalls, err = checkedMul(demand.ensureCalls, count)
-	if err != nil {
-		return effectDemand{}, err
+// Step constructs one uniquely identified neutral effect step.
+func (builder *EffectStructureBuilder) Step(id string, kind EffectStepKind) EffectNode {
+	if builder == nil || builder.err != nil {
+		return EffectNode{}
 	}
-	demand.barrierValidationCalls, err = checkedMul(demand.barrierValidationCalls, count)
+	step, err := newEffectStep(id, kind)
 	if err != nil {
-		return effectDemand{}, err
+		builder.err = err
+		return EffectNode{}
 	}
-	demand.stateDirValidationCalls, err = checkedMul(demand.stateDirValidationCalls, count)
-	if err != nil {
-		return effectDemand{}, err
-	}
-	demand.descendantValidations, err = checkedMul(demand.descendantValidations, count)
-	if err != nil {
-		return effectDemand{}, err
-	}
-	demand.descendantFileCommits, err = checkedMul(demand.descendantFileCommits, count)
-	if err != nil {
-		return effectDemand{}, err
-	}
-	return demand, nil
+	return step
 }
 
-func (demand effectDemand) maximum(other effectDemand) effectDemand {
-	return effectDemand{
-		ensureCalls:             max(demand.ensureCalls, other.ensureCalls),
-		barrierValidationCalls:  max(demand.barrierValidationCalls, other.barrierValidationCalls),
-		stateDirValidationCalls: max(demand.stateDirValidationCalls, other.stateDirValidationCalls),
-		descendantValidations:   max(demand.descendantValidations, other.descendantValidations),
-		descendantFileCommits:   max(demand.descendantFileCommits, other.descendantFileCommits),
+// Choice constructs one closed exclusive choice.
+func (builder *EffectStructureBuilder) Choice(
+	id string,
+	alternatives ...EffectNode,
+) EffectNode {
+	if builder == nil || builder.err != nil {
+		return EffectNode{}
 	}
+	choice, err := newEffectChoice(id, alternatives...)
+	if err != nil {
+		builder.err = err
+		return EffectNode{}
+	}
+	return choice
 }
 
-type effectStructure struct {
-	root effectNode
+// Repeat constructs one compact bounded repetition.
+func (builder *EffectStructureBuilder) Repeat(count int, body EffectNode) EffectNode {
+	if builder == nil || builder.err != nil {
+		return EffectNode{}
+	}
+	repeated, err := newEffectRepeat(count, body)
+	if err != nil {
+		builder.err = err
+		return EffectNode{}
+	}
+	return repeated
 }
 
-func newEffectStep(id string, kind effectStepKind) (effectNode, error) {
+// ForwardPhase groups StateDir-governed forward effects so the first effect
+// establishes the incarnation and later effects consume identity checks.
+func (builder *EffectStructureBuilder) ForwardPhase(id string, body EffectNode) EffectNode {
+	if builder == nil || builder.err != nil {
+		return EffectNode{}
+	}
+	phase, err := newEffectForwardPhase(id, body)
+	if err != nil {
+		builder.err = err
+		return EffectNode{}
+	}
+	return phase
+}
+
+// Trigger marks its body as activating one later conditional follow-up.
+func (builder *EffectStructureBuilder) Trigger(id string, body EffectNode) EffectNode {
+	if builder == nil || builder.err != nil {
+		return EffectNode{}
+	}
+	trigger, err := newEffectTrigger(id, body)
+	if err != nil {
+		builder.err = err
+		return EffectNode{}
+	}
+	return trigger
+}
+
+// Conditional executes its body exactly when an earlier matching trigger was selected.
+func (builder *EffectStructureBuilder) Conditional(id string, body EffectNode) EffectNode {
+	if builder == nil || builder.err != nil {
+		return EffectNode{}
+	}
+	conditional, err := newEffectConditional(id, body)
+	if err != nil {
+		builder.err = err
+		return EffectNode{}
+	}
+	return conditional
+}
+
+// Compile returns the first construction error or validates the complete structure.
+func (builder *EffectStructureBuilder) Compile(root EffectNode) (EffectStructure, error) {
+	if builder == nil {
+		return EffectStructure{}, fmt.Errorf("operationplan: effect structure builder is unavailable")
+	}
+	if builder.err != nil {
+		return EffectStructure{}, builder.err
+	}
+	return compileEffectStructure(root)
+}
+
+func newEffectStep(id string, kind EffectStepKind) (EffectNode, error) {
 	if err := validateEffectReference("step", id); err != nil {
-		return effectNode{}, err
+		return EffectNode{}, err
 	}
 	if !kind.valid() {
-		return effectNode{}, fmt.Errorf("operationplan: effect step %q has invalid kind %d", id, kind)
+		return EffectNode{}, fmt.Errorf("operationplan: effect step %q has invalid kind %d", id, kind)
 	}
-	return effectNode{kind: effectNodeStep, step: effectStep{id: id, kind: kind}}, nil
+	return EffectNode{kind: effectNodeStep, step: effectStep{id: id, kind: kind}}, nil
 }
 
-func newEffectSequence(children ...effectNode) effectNode {
+// EffectSequence composes children in mandatory order. No children is no work.
+func EffectSequence(children ...EffectNode) EffectNode {
 	if len(children) == 0 {
-		return effectNode{kind: effectNodeEmpty}
+		return EffectNode{kind: effectNodeEmpty}
 	}
-	return effectNode{kind: effectNodeSequence, children: cloneEffectNodes(children)}
+	return EffectNode{kind: effectNodeSequence, children: cloneEffectNodes(children)}
 }
 
-func newEffectChoice(id string, alternatives ...effectNode) (effectNode, error) {
+func newEffectChoice(id string, alternatives ...EffectNode) (EffectNode, error) {
 	if err := validateEffectReference("choice", id); err != nil {
-		return effectNode{}, err
+		return EffectNode{}, err
 	}
 	if len(alternatives) < 2 {
-		return effectNode{}, fmt.Errorf("operationplan: effect choice %q requires at least two alternatives", id)
+		return EffectNode{}, fmt.Errorf("operationplan: effect choice %q requires at least two alternatives", id)
 	}
-	return effectNode{
+	return EffectNode{
 		kind:     effectNodeChoice,
 		children: cloneEffectNodes(alternatives),
 		choiceID: id,
 	}, nil
 }
 
-func newEffectRepeat(count int, body effectNode) (effectNode, error) {
+func newEffectRepeat(count int, body EffectNode) (EffectNode, error) {
 	if count < 0 {
-		return effectNode{}, fmt.Errorf("operationplan: effect repetition must not be negative")
+		return EffectNode{}, fmt.Errorf("operationplan: effect repetition must not be negative")
 	}
 	if count == 0 {
-		return effectNode{kind: effectNodeEmpty}, nil
+		return EffectNode{kind: effectNodeEmpty}, nil
 	}
-	return effectNode{
+	return EffectNode{
 		kind:        effectNodeRepeat,
-		children:    []effectNode{cloneEffectNode(body)},
+		children:    []EffectNode{cloneEffectNode(body)},
 		repetitions: count,
 	}, nil
 }
 
-func compileEffectStructure(root effectNode) (effectStructure, error) {
-	canonical := cloneEffectNode(root)
-	stepIDs := make(map[string]struct{})
-	choiceIDs := make(map[string]struct{})
-	if err := validateEffectNode(canonical, stepIDs, choiceIDs); err != nil {
-		return effectStructure{}, err
+func newEffectForwardPhase(id string, body EffectNode) (EffectNode, error) {
+	if err := validateEffectReference("forward phase", id); err != nil {
+		return EffectNode{}, err
 	}
-	return effectStructure{root: canonical}, nil
+	return EffectNode{
+		kind:     effectNodeForwardPhase,
+		children: []EffectNode{cloneEffectNode(body)},
+		phaseID:  id,
+	}, nil
+}
+
+func newEffectTrigger(id string, body EffectNode) (EffectNode, error) {
+	if err := validateEffectReference("trigger", id); err != nil {
+		return EffectNode{}, err
+	}
+	return EffectNode{
+		kind:      effectNodeTrigger,
+		children:  []EffectNode{cloneEffectNode(body)},
+		triggerID: id,
+	}, nil
+}
+
+func newEffectConditional(id string, body EffectNode) (EffectNode, error) {
+	if err := validateEffectReference("conditional", id); err != nil {
+		return EffectNode{}, err
+	}
+	return EffectNode{
+		kind:      effectNodeConditional,
+		children:  []EffectNode{cloneEffectNode(body)},
+		triggerID: id,
+	}, nil
+}
+
+type effectValidation struct {
+	stepIDs          map[string]struct{}
+	choiceIDs        map[string]struct{}
+	phaseIDs         map[string]struct{}
+	triggerProducers map[string]int
+	conditionals     map[string]struct{}
+}
+
+func compileEffectStructure(root EffectNode) (EffectStructure, error) {
+	canonical := cloneEffectNode(root)
+	validation := effectValidation{
+		stepIDs:          make(map[string]struct{}),
+		choiceIDs:        make(map[string]struct{}),
+		phaseIDs:         make(map[string]struct{}),
+		triggerProducers: make(map[string]int),
+		conditionals:     make(map[string]struct{}),
+	}
+	if err := validateEffectNode(canonical, &validation, false); err != nil {
+		return EffectStructure{}, err
+	}
+	for id := range validation.conditionals {
+		if validation.triggerProducers[id] == 0 {
+			return EffectStructure{}, fmt.Errorf(
+				"operationplan: effect conditional %q has no trigger",
+				id,
+			)
+		}
+	}
+	for id := range validation.triggerProducers {
+		if _, present := validation.conditionals[id]; !present {
+			return EffectStructure{}, fmt.Errorf(
+				"operationplan: effect trigger %q has no conditional follow-up",
+				id,
+			)
+		}
+	}
+	return EffectStructure{root: canonical}, nil
 }
 
 func validateEffectNode(
-	node effectNode,
-	stepIDs map[string]struct{},
-	choiceIDs map[string]struct{},
+	node EffectNode,
+	validation *effectValidation,
+	insideForwardPhase bool,
 ) error {
 	switch node.kind {
 	case effectNodeEmpty:
@@ -203,17 +309,23 @@ func validateEffectNode(
 				node.step.kind,
 			)
 		}
-		if _, duplicate := stepIDs[node.step.id]; duplicate {
+		if node.step.kind == EffectStepForwardEffect && !insideForwardPhase {
+			return fmt.Errorf(
+				"operationplan: forward effect step %q is outside a forward phase",
+				node.step.id,
+			)
+		}
+		if _, duplicate := validation.stepIDs[node.step.id]; duplicate {
 			return fmt.Errorf("operationplan: duplicate effect step %q", node.step.id)
 		}
-		stepIDs[node.step.id] = struct{}{}
+		validation.stepIDs[node.step.id] = struct{}{}
 		return nil
 	case effectNodeSequence:
 		if len(node.children) == 0 {
 			return fmt.Errorf("operationplan: effect sequence is empty")
 		}
 		for _, child := range node.children {
-			if err := validateEffectNode(child, stepIDs, choiceIDs); err != nil {
+			if err := validateEffectNode(child, validation, insideForwardPhase); err != nil {
 				return err
 			}
 		}
@@ -228,12 +340,12 @@ func validateEffectNode(
 				node.choiceID,
 			)
 		}
-		if _, duplicate := choiceIDs[node.choiceID]; duplicate {
+		if _, duplicate := validation.choiceIDs[node.choiceID]; duplicate {
 			return fmt.Errorf("operationplan: duplicate effect choice %q", node.choiceID)
 		}
-		choiceIDs[node.choiceID] = struct{}{}
+		validation.choiceIDs[node.choiceID] = struct{}{}
 		for _, child := range node.children {
-			if err := validateEffectNode(child, stepIDs, choiceIDs); err != nil {
+			if err := validateEffectNode(child, validation, insideForwardPhase); err != nil {
 				return err
 			}
 		}
@@ -242,97 +354,50 @@ func validateEffectNode(
 		if node.repetitions <= 0 || len(node.children) != 1 {
 			return fmt.Errorf("operationplan: effect repetition is invalid")
 		}
-		return validateEffectNode(node.children[0], stepIDs, choiceIDs)
+		return validateEffectNode(node.children[0], validation, insideForwardPhase)
+	case effectNodeForwardPhase:
+		if insideForwardPhase {
+			return fmt.Errorf("operationplan: forward effect phases must not nest")
+		}
+		if err := validateEffectReference("forward phase", node.phaseID); err != nil {
+			return err
+		}
+		if len(node.children) != 1 {
+			return fmt.Errorf("operationplan: forward effect phase %q is invalid", node.phaseID)
+		}
+		if _, duplicate := validation.phaseIDs[node.phaseID]; duplicate {
+			return fmt.Errorf("operationplan: duplicate forward effect phase %q", node.phaseID)
+		}
+		validation.phaseIDs[node.phaseID] = struct{}{}
+		return validateEffectNode(node.children[0], validation, true)
+	case effectNodeTrigger:
+		if err := validateEffectReference("trigger", node.triggerID); err != nil {
+			return err
+		}
+		if len(node.children) != 1 {
+			return fmt.Errorf("operationplan: effect trigger %q is invalid", node.triggerID)
+		}
+		validation.triggerProducers[node.triggerID]++
+		return validateEffectNode(node.children[0], validation, insideForwardPhase)
+	case effectNodeConditional:
+		if err := validateEffectReference("conditional", node.triggerID); err != nil {
+			return err
+		}
+		if len(node.children) != 1 {
+			return fmt.Errorf("operationplan: effect conditional %q is invalid", node.triggerID)
+		}
+		if _, duplicate := validation.conditionals[node.triggerID]; duplicate {
+			return fmt.Errorf("operationplan: duplicate effect conditional %q", node.triggerID)
+		}
+		validation.conditionals[node.triggerID] = struct{}{}
+		return validateEffectNode(node.children[0], validation, insideForwardPhase)
 	default:
 		return fmt.Errorf("operationplan: effect structure has invalid node kind %d", node.kind)
 	}
 }
 
-// legacyUpperBound reproduces the flat counter projection used by the current
-// reservation seed. It is a shadow projection rather than structure validity:
-// collapsing a choice before physical lowering can combine dimensions that no
-// reachable alternative consumes together.
-func (structure effectStructure) legacyUpperBound() (effectDemand, error) {
-	return legacyUpperBoundDemand(structure.root)
-}
-
-func legacyUpperBoundDemand(node effectNode) (effectDemand, error) {
-	switch node.kind {
-	case effectNodeEmpty:
-		return effectDemand{}, nil
-	case effectNodeStep:
-		return effectStepDemand(node.step.kind), nil
-	case effectNodeSequence:
-		var demand effectDemand
-		for _, child := range node.children {
-			childDemand, err := legacyUpperBoundDemand(child)
-			if err != nil {
-				return effectDemand{}, err
-			}
-			demand, err = demand.add(childDemand)
-			if err != nil {
-				return effectDemand{}, err
-			}
-		}
-		return demand, nil
-	case effectNodeChoice:
-		var demand effectDemand
-		for _, child := range node.children {
-			childDemand, err := legacyUpperBoundDemand(child)
-			if err != nil {
-				return effectDemand{}, err
-			}
-			demand = demand.maximum(childDemand)
-		}
-		return demand, nil
-	case effectNodeRepeat:
-		childDemand, err := legacyUpperBoundDemand(node.children[0])
-		if err != nil {
-			return effectDemand{}, err
-		}
-		return childDemand.multiply(node.repetitions)
-	default:
-		return effectDemand{}, fmt.Errorf(
-			"operationplan: effect structure has invalid node kind %d",
-			node.kind,
-		)
-	}
-}
-
-func effectStepDemand(kind effectStepKind) effectDemand {
-	switch kind {
-	case effectStepEstablishStateDir:
-		return effectDemand{ensureCalls: 1}
-	case effectStepValidateBarrier:
-		return effectDemand{barrierValidationCalls: 1}
-	case effectStepValidateStateDir:
-		return effectDemand{stateDirValidationCalls: 1}
-	case effectStepValidateDescendant:
-		return effectDemand{descendantValidations: 1}
-	case effectStepPublishDescendant:
-		return effectDemand{descendantFileCommits: 1}
-	default:
-		return effectDemand{}
-	}
-}
-
-func (kind effectStepKind) valid() bool {
-	return kind >= effectStepEstablishStateDir && kind <= effectStepTerminal
-}
-
-func (kind effectStepKind) startsEffect() bool {
-	switch kind {
-	case effectStepEstablishStateDir,
-		effectStepPublishDescendant,
-		effectStepExternal,
-		effectStepPersistence,
-		effectStepCompensation,
-		effectStepCleanup,
-		effectStepRetirement:
-		return true
-	default:
-		return false
-	}
+func (kind EffectStepKind) valid() bool {
+	return kind >= EffectStepEstablishStateDir && kind <= EffectStepTerminal
 }
 
 func validateEffectReference(label string, value string) error {
@@ -349,220 +414,39 @@ func validateEffectReference(label string, value string) error {
 	return nil
 }
 
-func cloneEffectNodes(nodes []effectNode) []effectNode {
-	result := make([]effectNode, len(nodes))
+func cloneEffectNodes(nodes []EffectNode) []EffectNode {
+	result := make([]EffectNode, len(nodes))
 	for index, node := range nodes {
 		result[index] = cloneEffectNode(node)
 	}
 	return result
 }
 
-func cloneEffectNode(node effectNode) effectNode {
+func cloneEffectNode(node EffectNode) EffectNode {
 	node.children = cloneEffectNodes(node.children)
 	return node
 }
 
-type effectCursorState uint8
-
-const (
-	effectCursorActive effectCursorState = iota
-	effectCursorFinished
-	effectCursorAborted
-)
-
-type effectCursorFrame struct {
-	node     *effectNode
-	next     int
-	selected int
+// Equal reports exact structural equality, including references, order,
+// alternatives, repetitions, forward phases, and follow-up relations.
+func (structure EffectStructure) Equal(other EffectStructure) bool {
+	return equalEffectNode(structure.root, other.root)
 }
 
-type effectCursor struct {
-	root          effectNode
-	stack         []effectCursorFrame
-	state         effectCursorState
-	effectStarted bool
-}
-
-func newEffectCursor(structure effectStructure) *effectCursor {
-	root := cloneEffectNode(structure.root)
-	cursor := &effectCursor{root: root}
-	cursor.push(&cursor.root)
-	return cursor
-}
-
-func (cursor *effectCursor) selectAlternative(choiceID string, alternative int) error {
-	if err := cursor.requireActive(); err != nil {
-		return err
+func equalEffectNode(left EffectNode, right EffectNode) bool {
+	if left.kind != right.kind ||
+		left.step != right.step ||
+		left.choiceID != right.choiceID ||
+		left.phaseID != right.phaseID ||
+		left.triggerID != right.triggerID ||
+		left.repetitions != right.repetitions ||
+		len(left.children) != len(right.children) {
+		return false
 	}
-	step, choice, done, err := cursor.next()
-	if err != nil {
-		return err
-	}
-	if done || step != nil || choice == nil {
-		return fmt.Errorf("operationplan: no effect choice is pending")
-	}
-	if choice.node.choiceID != choiceID {
-		return fmt.Errorf(
-			"operationplan: pending effect choice is %q, not %q",
-			choice.node.choiceID,
-			choiceID,
-		)
-	}
-	if alternative < 0 || alternative >= len(choice.node.children) {
-		return fmt.Errorf(
-			"operationplan: effect choice %q alternative %d is out of range",
-			choiceID,
-			alternative,
-		)
-	}
-	choice.selected = alternative
-	return nil
-}
-
-func (cursor *effectCursor) consume(stepID string, kind effectStepKind) error {
-	if err := cursor.requireActive(); err != nil {
-		return err
-	}
-	step, choice, done, err := cursor.next()
-	if err != nil {
-		return err
-	}
-	if done {
-		return fmt.Errorf("operationplan: effect structure has no remaining step")
-	}
-	if choice != nil {
-		return fmt.Errorf(
-			"operationplan: effect choice %q must be selected before consumption",
-			choice.node.choiceID,
-		)
-	}
-	if step == nil {
-		return fmt.Errorf("operationplan: effect cursor has no consumable step")
-	}
-	if step.node.step.id != stepID || step.node.step.kind != kind {
-		return fmt.Errorf(
-			"operationplan: next effect step is %q/%d, not %q/%d",
-			step.node.step.id,
-			step.node.step.kind,
-			stepID,
-			kind,
-		)
-	}
-	if kind.startsEffect() {
-		cursor.effectStarted = true
-	}
-	cursor.pop()
-	return nil
-}
-
-func (cursor *effectCursor) finishSuccess() error {
-	if err := cursor.requireActive(); err != nil {
-		return err
-	}
-	step, choice, done, err := cursor.next()
-	if err != nil {
-		return err
-	}
-	if !done {
-		if choice != nil {
-			return fmt.Errorf(
-				"operationplan: effect choice %q remains unselected",
-				choice.node.choiceID,
-			)
-		}
-		if step == nil {
-			return fmt.Errorf("operationplan: effect cursor has no consumable step")
-		}
-		return fmt.Errorf(
-			"operationplan: mandatory effect step %q/%d was not consumed",
-			step.node.step.id,
-			step.node.step.kind,
-		)
-	}
-	cursor.state = effectCursorFinished
-	return nil
-}
-
-func (cursor *effectCursor) abortBeforeEffect() error {
-	if err := cursor.requireActive(); err != nil {
-		return err
-	}
-	if cursor.effectStarted {
-		return fmt.Errorf("operationplan: effect structure cannot abort before effect after an effect started")
-	}
-	cursor.stack = nil
-	cursor.state = effectCursorAborted
-	return nil
-}
-
-func (cursor *effectCursor) requireActive() error {
-	if cursor == nil {
-		return fmt.Errorf("operationplan: effect cursor is unavailable")
-	}
-	switch cursor.state {
-	case effectCursorActive:
-		return nil
-	case effectCursorFinished:
-		return fmt.Errorf("operationplan: effect cursor is already finished")
-	case effectCursorAborted:
-		return fmt.Errorf("operationplan: effect cursor is already aborted")
-	default:
-		return fmt.Errorf("operationplan: effect cursor has invalid state")
-	}
-}
-
-func (cursor *effectCursor) next() (
-	step *effectCursorFrame,
-	choice *effectCursorFrame,
-	done bool,
-	err error,
-) {
-	for len(cursor.stack) != 0 {
-		frame := &cursor.stack[len(cursor.stack)-1]
-		switch frame.node.kind {
-		case effectNodeEmpty:
-			cursor.pop()
-		case effectNodeStep:
-			return frame, nil, false, nil
-		case effectNodeSequence:
-			if frame.next == len(frame.node.children) {
-				cursor.pop()
-				continue
-			}
-			child := &frame.node.children[frame.next]
-			frame.next++
-			cursor.push(child)
-		case effectNodeChoice:
-			if frame.selected < 0 {
-				return nil, frame, false, nil
-			}
-			if frame.next != 0 {
-				cursor.pop()
-				continue
-			}
-			frame.next = 1
-			cursor.push(&frame.node.children[frame.selected])
-		case effectNodeRepeat:
-			if frame.next == frame.node.repetitions {
-				cursor.pop()
-				continue
-			}
-			frame.next++
-			cursor.push(&frame.node.children[0])
-		default:
-			return nil, nil, false, fmt.Errorf(
-				"operationplan: effect cursor found invalid node kind %d",
-				frame.node.kind,
-			)
+	for index := range left.children {
+		if !equalEffectNode(left.children[index], right.children[index]) {
+			return false
 		}
 	}
-	return nil, nil, true, nil
-}
-
-func (cursor *effectCursor) push(node *effectNode) {
-	cursor.stack = append(cursor.stack, effectCursorFrame{node: node, selected: -1})
-}
-
-func (cursor *effectCursor) pop() {
-	cursor.stack = cursor.stack[:len(cursor.stack)-1]
+	return true
 }

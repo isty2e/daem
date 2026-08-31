@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
@@ -47,6 +48,22 @@ func TestProvisionalGlobalOwnershipUsesExactForwardValidationBudget(t *testing.T
 	maximum, err := MaximumForwardEffectValidationCount(input)
 	if err != nil {
 		t.Fatal(err)
+	}
+	segment, err := ApplyEffectSegment(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var builder operationplan.EffectStructureBuilder
+	structure, err := builder.Compile(builder.ForwardPhase("apply", segment))
+	if err != nil {
+		t.Fatal(err)
+	}
+	demand, err := structure.LegacyDemand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := demand.EnsureCalls() + demand.StateDirValidationCalls(); got != maximum {
+		t.Fatalf("typed forward demand = %d, legacy maximum = %d", got, maximum)
 	}
 	remaining := maximum
 	exhausted := errors.New("injected forward validation budget exhausted")
