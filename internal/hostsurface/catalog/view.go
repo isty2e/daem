@@ -82,6 +82,7 @@ type Catalog struct {
 	managedPathByID       map[hostsurface.SurfaceID]int
 	managedPathByKey      map[hostsurface.SurfaceKey]int
 	resourceSupportByKey  map[managedPathSupportKey]profile.Support
+	resourceSupportOrder  []managedPathSupportKey
 
 	hookViews      []HookSurfaceView
 	hookOwnerOrder []int

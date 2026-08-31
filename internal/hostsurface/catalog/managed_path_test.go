@@ -138,6 +138,9 @@ func TestManagedPathGroupQueriesMatchTargetProfileOrder(t *testing.T) {
 	compiled := Product()
 	for _, selectedTarget := range target.SupportedTargets() {
 		owner := profile.Profile(selectedTarget)
+		if got, want := compiled.ResourceSupportsForTarget(selectedTarget), owner.ResourceSupports(); !slices.Equal(got, want) {
+			t.Fatalf("%s resource support owner order mismatch", selectedTarget)
+		}
 		for _, want := range owner.ResourceSupports() {
 			got, ok := compiled.ResourceSupport(selectedTarget, want.ResourceKind())
 			if !ok || got != want {

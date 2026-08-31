@@ -86,8 +86,7 @@ func independentTargetChecks(
 }
 
 func independentSkillRootChecks(projectPlacementAllowed bool, target targetpkg.Target) []findings.Check {
-	targetProfile := profile.Profile(target)
-	if !targetProfile.Supports(entity.KindSkill) {
+	if !hostsurfacecatalog.Product().HasManagedPathTarget(target, entity.KindSkill) {
 		return nil
 	}
 
@@ -111,8 +110,7 @@ func independentSkillRootChecks(projectPlacementAllowed bool, target targetpkg.T
 }
 
 func targetCapabilityChecks(target targetpkg.Target, resourceKinds map[entity.Kind]struct{}) []findings.Check {
-	targetProfile := profile.Profile(target)
-	supports := targetProfile.ResourceSupports()
+	supports := hostsurfacecatalog.Product().ResourceSupportsForTarget(target)
 	checks := make([]findings.Check, 0, len(supports))
 	for _, support := range supports {
 		if !resourceKindSelected(resourceKinds, support.ResourceKind()) {
@@ -190,8 +188,7 @@ func targetSpecFor(homeDirectory string, target targetpkg.Target) doctorTargetSp
 }
 
 func skillRootChecks(homeDirectory string, manifestRoot string, projectPlacementAllowed bool, target targetpkg.Target) []findings.Check {
-	targetProfile := profile.Profile(target)
-	if !targetProfile.Supports(entity.KindSkill) {
+	if !hostsurfacecatalog.Product().HasManagedPathTarget(target, entity.KindSkill) {
 		return nil
 	}
 
