@@ -93,6 +93,13 @@ func TestProductHookAssetSurfacesPreserveSharedPhysicalPlacement(t *testing.T) {
 	}
 	physicalCounts := make(map[string]int)
 	for _, placement := range placements {
+		compiledPlacement, err := catalog.HookAssetPlacementFor(
+			placement.Scope(),
+			placement.ConsumerTargets(),
+		)
+		if err != nil || compiledPlacement.ID() != placement.ID() || compiledPlacement.Root() != placement.Root() {
+			t.Fatalf("HookAsset placement selection mismatch: placement=%+v err=%v", compiledPlacement, err)
+		}
 		variant, err := hostsurface.ParseVariantID(placement.ID())
 		if err != nil {
 			t.Fatal(err)
@@ -147,6 +154,9 @@ func TestProductHookAssetSurfacesPreserveSharedPhysicalPlacement(t *testing.T) {
 		if count != 2 {
 			t.Fatalf("HookAsset placement %q has %d target surfaces", placementID, count)
 		}
+	}
+	if _, err := catalog.HookAssetPlacementFor(target.ScopeProject, nil); err == nil {
+		t.Fatal("empty HookAsset consumers unexpectedly selected a placement")
 	}
 	for _, unsupported := range []target.Target{target.TargetOpenCode, target.TargetPi, target.TargetAntigravityCLI} {
 		if _, ok := catalog.LookupHookCell(unsupported, target.ScopeProject); ok {

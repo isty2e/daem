@@ -418,6 +418,43 @@ func (catalog Catalog) LookupHookAsset(key hostsurface.SurfaceKey) (HookAssetSur
 	return catalog.hookAssetViews[index], true
 }
 
+// HookAssetPlacementFor selects the one shared physical placement admitted by
+// every requested consumer target.
+func (catalog Catalog) HookAssetPlacementFor(
+	scope target.Scope,
+	consumers []target.Target,
+) (profile.HookAssetPlacement, error) {
+	parsedScope, err := target.ParseScope(string(scope))
+	if err != nil {
+		return profile.HookAssetPlacement{}, err
+	}
+	canonicalConsumers, err := target.CanonicalSet(consumers)
+	if err != nil {
+		return profile.HookAssetPlacement{}, fmt.Errorf("hook asset placement consumer targets: %w", err)
+	}
+	if len(canonicalConsumers) == 0 {
+		return profile.HookAssetPlacement{}, fmt.Errorf("hook asset placement requires at least one consumer target")
+	}
+	var selected profile.HookAssetPlacement
+	for index, consumer := range canonicalConsumers {
+		view, ok := catalog.LookupHookAssetCell(consumer, parsedScope)
+		if !ok {
+			return profile.HookAssetPlacement{}, fmt.Errorf(
+				"target %q does not admit HookAsset path projection",
+				consumer,
+			)
+		}
+		placement := view.Placement()
+		if index > 0 && placement.ID() != selected.ID() {
+			return profile.HookAssetPlacement{}, fmt.Errorf(
+				"hook asset placement consumers do not share one physical placement",
+			)
+		}
+		selected = placement
+	}
+	return selected, nil
+}
+
 // LookupHookAssetCell returns the target-relative view for one shared physical
 // HookAsset placement.
 func (catalog Catalog) LookupHookAssetCell(
