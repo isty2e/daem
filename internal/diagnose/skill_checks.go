@@ -7,8 +7,8 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	skillresource "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/findings"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	skillcompat "github.com/isty2e/daem/internal/supply/compat/skill"
@@ -85,7 +85,7 @@ func SelectedSkillTargets(skill skillresource.Skill, selection targetselection.S
 		if !selection.Includes(target) {
 			continue
 		}
-		if !profile.Profile(target).Supports(entity.KindSkill) {
+		if !hostsurfacecatalog.Product().HasManagedPathTarget(target, entity.KindSkill) {
 			continue
 		}
 		targets = append(targets, target)
@@ -122,7 +122,7 @@ func skillTargetChecks(
 	skill skillresource.Skill,
 	target targetpkg.Target,
 ) []findings.Check {
-	if !profile.Profile(target).Supports(entity.KindSkill) {
+	if !hostsurfacecatalog.Product().HasManagedPathTarget(target, entity.KindSkill) {
 		return nil
 	}
 

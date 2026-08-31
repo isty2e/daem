@@ -336,6 +336,16 @@ func (catalog Catalog) rejectCompiledCollision(id hostsurface.SurfaceID, key hos
 	return nil
 }
 
+// HasHookTarget reports whether one target has any compiled Hook surface.
+func (catalog Catalog) HasHookTarget(selectedTarget target.Target) bool {
+	for _, view := range catalog.hookViews {
+		if view.Key().Target() == selectedTarget {
+			return true
+		}
+	}
+	return false
+}
+
 func (catalog Catalog) HookSurfaces() []HookSurfaceView {
 	return append([]HookSurfaceView(nil), catalog.hookViews...)
 }

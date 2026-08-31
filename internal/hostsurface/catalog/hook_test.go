@@ -16,6 +16,11 @@ func TestProductHookSurfacesMatchAggregateAndProfileOwners(t *testing.T) {
 	t.Parallel()
 
 	catalog := Product()
+	for _, selectedTarget := range target.SupportedTargets() {
+		if got, want := catalog.HasHookTarget(selectedTarget), profile.Profile(selectedTarget).Supports(entity.KindHook); got != want {
+			t.Fatalf("%s Hook target support = %t, want %t", selectedTarget, got, want)
+		}
+	}
 	placements := aggregate.ImplementedHookPlacements()
 	views := catalog.HookSurfaces()
 	if len(views) != len(placements) || len(views) != 4 {

@@ -138,6 +138,11 @@ func TestManagedPathGroupQueriesMatchTargetProfileOrder(t *testing.T) {
 	compiled := Product()
 	for _, selectedTarget := range target.SupportedTargets() {
 		owner := profile.Profile(selectedTarget)
+		for _, kind := range []entity.Kind{entity.KindInstructions, entity.KindSkill} {
+			if got, want := compiled.HasManagedPathTarget(selectedTarget, kind), owner.Supports(kind); got != want {
+				t.Fatalf("%s/%s target support = %t, want %t", selectedTarget, kind, got, want)
+			}
+		}
 		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 			for _, kind := range []entity.Kind{entity.KindInstructions, entity.KindSkill} {
 				views := compiled.ManagedPathViews(selectedTarget, scope, kind)
