@@ -343,7 +343,8 @@ versus file gate and prevents a real reverse edge or change-amplification seam.
 
 The current implementation has completed bounded cutovers for the MCP cell
 join, apply/refresh/recover authority subprojections and reservation demand,
-exact apply, refresh, and recovery fingerprints, and the State Barrier protocol.
+exact apply, refresh, and recovery fingerprints, adopt/import mutation domains
+and revision roles, and the State Barrier protocol.
 Instruction, Skill, Hook, HookAsset, and Extension surfaces also compile as
 I/O-free views with owner parity. List inventory and manifest selection,
 Instruction/Skill import and diagnosis, Hook diagnostics and authoring support,
@@ -352,8 +353,11 @@ selection, and
 selected readiness/apply/presentation order consumers use those views.
 Remaining profile calls at these boundaries are consumer-local importability or
 owner-local realization, codec, and durable-validation contracts rather than
-fallback surface joins. The broader program remains open until every mutating
-workflow uses the canonical operation compiler, typed effect obligations drive reservation and
+fallback surface joins. Adopt retains semantic `Plan.IdentityBytes`, path
+resolution, authority capture, leases, and publication sequencing while the
+operation compiler owns its normalized domain and full/stable revision grammar.
+The broader program remains open until every mutating workflow uses the
+canonical operation compiler, typed effect obligations drive reservation and
 settlement, and semantic guard coverage replaces exact-path classification
 where it still determines blocking enforcement.
 
