@@ -346,9 +346,10 @@ join, apply/refresh/recover authority subprojections and reservation demand,
 exact apply, refresh, and recovery fingerprints, and the State Barrier protocol.
 Instruction, Skill, Hook, HookAsset, and Extension surfaces also compile as
 I/O-free views with owner parity. List inventory and manifest selection,
-Instruction/Skill import and diagnosis, Extension import ordering, and selected
-readiness/apply/presentation order consumers use those views. Other production
-consumers still use owner-local projections. The program remains open until
+Instruction/Skill import and diagnosis, Extension import ordering, host-route
+command selection, and selected readiness/apply/presentation order consumers
+use those views. Other production consumers still use owner-local projections.
+The program remains open until
 those consumers cut over, every mutating workflow uses the
 canonical operation compiler, typed effect obligations drive reservation and
 settlement, and semantic guard coverage replaces exact-path classification
