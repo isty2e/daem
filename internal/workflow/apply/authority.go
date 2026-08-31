@@ -301,6 +301,10 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	}
 
 	plan := builder.Compile()
+	domains, err := lowerApplyAuthorityDomainSteps(plan.DomainSteps())
+	if err != nil {
+		return applyAuthorityEvidence{}, err
+	}
 	var root *operationplan.RootIdentity
 	if projectRoot != nil {
 		root = &operationplan.RootIdentity{
@@ -313,9 +317,41 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		return applyAuthorityEvidence{}, err
 	}
 	return applyAuthorityEvidence{
-		domains:              plan.Domains(),
+		domains:              domains,
 		firstEffectRevisions: plan.Revisions(),
 		facts:                plan.Facts(),
 		authorityFingerprint: fingerprint,
 	}, nil
+}
+
+func lowerApplyAuthorityDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
+	domains := make([]mutation.Domain, 0, len(steps))
+	for _, step := range steps {
+		if domain, ok := step.Compiled(); ok {
+			domains = append(domains, domain)
+			continue
+		}
+		request, ok := step.Path()
+		if !ok {
+			return nil, fmt.Errorf("apply authority domain step is invalid")
+		}
+		if logical, logicalPath := request.Logical(); logicalPath {
+			domain, err := mutation.NewLogicalPathDomain(logical)
+			if err != nil {
+				return nil, err
+			}
+			domains = append(domains, domain)
+			continue
+		}
+		physical, physicalPath := request.Physical()
+		if !physicalPath {
+			return nil, fmt.Errorf("apply authority path-domain request is invalid")
+		}
+		domain, err := mutation.NewPhysicalPathDomain(physical)
+		if err != nil {
+			return nil, err
+		}
+		domains = append(domains, domain)
+	}
+	return domains, nil
 }

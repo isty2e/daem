@@ -385,12 +385,16 @@ func buildActiveRecoveryAuthorityEvidence(
 		}
 	}
 	compiled := builder.Compile()
+	domains, err := lowerRecoveryAuthorityDomainSteps(compiled.DomainSteps())
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	fingerprint, err := operationplan.RecoverAuthorityFingerprint(compiled)
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
 	return recoveryAuthorityEvidence{
-		domains:              compiled.Domains(),
+		domains:              domains,
 		authorityFingerprint: fingerprint,
 	}, nil
 }
@@ -423,14 +427,50 @@ func buildCleanupRecoveryAuthorityEvidence(
 		}
 	}
 	compiled := builder.Compile()
+	domains, err := lowerRecoveryAuthorityDomainSteps(compiled.DomainSteps())
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	fingerprint, err := operationplan.RecoverAuthorityFingerprint(compiled)
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
 	return recoveryAuthorityEvidence{
-		domains:              compiled.Domains(),
+		domains:              domains,
 		authorityFingerprint: fingerprint,
 	}, nil
+}
+
+func lowerRecoveryAuthorityDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
+	domains := make([]mutation.Domain, 0, len(steps))
+	for _, step := range steps {
+		if domain, ok := step.Compiled(); ok {
+			domains = append(domains, domain)
+			continue
+		}
+		request, ok := step.Path()
+		if !ok {
+			return nil, fmt.Errorf("recovery authority domain step is invalid")
+		}
+		if logical, logicalPath := request.Logical(); logicalPath {
+			domain, err := mutation.NewLogicalPathDomain(logical)
+			if err != nil {
+				return nil, err
+			}
+			domains = append(domains, domain)
+			continue
+		}
+		physical, physicalPath := request.Physical()
+		if !physicalPath {
+			return nil, fmt.Errorf("recovery authority path-domain request is invalid")
+		}
+		domain, err := mutation.NewPhysicalPathDomain(physical)
+		if err != nil {
+			return nil, err
+		}
+		domains = append(domains, domain)
+	}
+	return domains, nil
 }
 
 func resolveRecoveryAuthorityPaths(

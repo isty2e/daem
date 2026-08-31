@@ -33,8 +33,20 @@ func TestBuilderPreservesDomainAdmissionOrderAndSortsFingerprintFacts(t *testing
 	}
 
 	plan := builder.Compile()
-	if got := len(plan.Domains()); got != 4 {
+	steps := plan.DomainSteps()
+	if got := len(steps); got != 4 {
 		t.Fatalf("domains = %d, want 4 (3 path + 1 route)", got)
+	}
+	first, ok := steps[0].Path()
+	if !ok {
+		t.Fatal("first domain step is not a path request")
+	}
+	logical, ok := first.Logical()
+	if !ok || logical.Path != "/manifest.toml" || logical.Effect != mutation.PathEffectDirectoryEntry {
+		t.Fatalf("first domain request = %#v", first)
+	}
+	if _, ok := steps[3].Compiled(); !ok {
+		t.Fatal("host route domain is not the final compiled step")
 	}
 	if got := len(plan.Facts()); got != 5 {
 		t.Fatalf("facts = %d, want 5", got)
@@ -57,6 +69,35 @@ func TestBuilderPreservesDomainAdmissionOrderAndSortsFingerprintFacts(t *testing
 	}
 	if !fingerprint.Equal(again) {
 		t.Fatal("apply authority fingerprint is not stable")
+	}
+}
+
+func TestRefreshPersistenceRevisionsSelectsOnlyNamedRolePaths(t *testing.T) {
+	t.Parallel()
+
+	builder := NewBuilder(
+		RevisionsRefreshFull,
+		[]string{"/manifest", "/lockfile"},
+		4096,
+	)
+	for _, path := range []string{"/manifest", "/lockfile", "/state", "/other"} {
+		if err := builder.AddLogicalPair(path, mutation.AccessShared, mutation.AccessShared); err != nil {
+			t.Fatal(err)
+		}
+	}
+	selected := RefreshPersistenceRevisions(
+		builder.Compile(),
+		"/manifest",
+		"/lockfile",
+		"/state",
+	)
+	if len(selected) != 6 {
+		t.Fatalf("persistence revisions = %d, want 6", len(selected))
+	}
+	for _, request := range selected {
+		if request.Path == "/other" {
+			t.Fatalf("non-persistence revision selected: %#v", request)
+		}
 	}
 }
 

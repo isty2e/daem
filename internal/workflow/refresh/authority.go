@@ -14,6 +14,7 @@ import (
 type authorityEvidence struct {
 	domains              []mutation.Domain
 	revisions            []mutation.RevisionRequest
+	persistenceRevisions []mutation.RevisionRequest
 	authorityFingerprint mutation.OperationFingerprint
 }
 
@@ -46,18 +47,7 @@ func validateRefreshPeerAuthority(
 func refreshAttemptPersistenceRevisionRequests(
 	current plan,
 ) []mutation.RevisionRequest {
-	selected := map[string]struct{}{
-		current.paths.ManifestPath:  {},
-		current.paths.LockfilePath:  {},
-		current.paths.StatefilePath: {},
-	}
-	requests := make([]mutation.RevisionRequest, 0, len(selected)*2)
-	for _, request := range current.authority.revisions {
-		if _, ok := selected[request.Path]; ok {
-			requests = append(requests, request)
-		}
-	}
-	return requests
+	return append([]mutation.RevisionRequest(nil), current.authority.persistenceRevisions...)
 }
 
 func buildAuthorityEvidence(
@@ -159,6 +149,10 @@ func buildAuthorityEvidence(
 	}
 
 	plan := builder.Compile()
+	domains, err := lowerRefreshAuthorityDomainSteps(plan.DomainSteps())
+	if err != nil {
+		return authorityEvidence{}, err
+	}
 	authorityFingerprint, err := operationplan.RefreshAuthorityFingerprint(
 		plan,
 		rootIdentity,
@@ -168,8 +162,46 @@ func buildAuthorityEvidence(
 		return authorityEvidence{}, err
 	}
 	return authorityEvidence{
-		domains:              plan.Domains(),
-		revisions:            plan.Revisions(),
+		domains:   domains,
+		revisions: plan.Revisions(),
+		persistenceRevisions: operationplan.RefreshPersistenceRevisions(
+			plan,
+			planned.paths.ManifestPath,
+			planned.paths.LockfilePath,
+			planned.paths.StatefilePath,
+		),
 		authorityFingerprint: authorityFingerprint,
 	}, nil
+}
+
+func lowerRefreshAuthorityDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
+	domains := make([]mutation.Domain, 0, len(steps))
+	for _, step := range steps {
+		if domain, ok := step.Compiled(); ok {
+			domains = append(domains, domain)
+			continue
+		}
+		request, ok := step.Path()
+		if !ok {
+			return nil, fmt.Errorf("refresh authority domain step is invalid")
+		}
+		if logical, logicalPath := request.Logical(); logicalPath {
+			domain, err := mutation.NewLogicalPathDomain(logical)
+			if err != nil {
+				return nil, err
+			}
+			domains = append(domains, domain)
+			continue
+		}
+		physical, physicalPath := request.Physical()
+		if !physicalPath {
+			return nil, fmt.Errorf("refresh authority path-domain request is invalid")
+		}
+		domain, err := mutation.NewPhysicalPathDomain(physical)
+		if err != nil {
+			return nil, err
+		}
+		domains = append(domains, domain)
+	}
+	return domains, nil
 }

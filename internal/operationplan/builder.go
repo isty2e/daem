@@ -21,14 +21,14 @@ const (
 	RevisionsRefreshFull
 )
 
-// Builder accumulates authority facts, mutation domains, and revision requests.
+// Builder accumulates authority facts, pure domain steps, and revision requests.
 // Domain order is admission order. Fingerprint marshal sorts a copy.
 type Builder struct {
 	policy             RevisionPolicy
 	declarationFileMax int64
 	declarationPaths   map[string]struct{}
 	facts              []Fact
-	domains            []mutation.Domain
+	domainSteps        []DomainStep
 	revisions          []mutation.RevisionRequest
 	revisionKeys       map[string]int
 	routeKeys          map[string]struct{}
@@ -50,7 +50,7 @@ func NewBuilder(policy RevisionPolicy, declarationPaths []string, declarationFil
 	}
 }
 
-// AddLogical records a logical path fact and exclusive-or-shared domain.
+// AddLogical records a logical path fact and exclusive-or-shared domain step.
 func (builder *Builder) AddLogical(path string, access mutation.AccessMode, effect mutation.PathEffect) error {
 	return builder.addPathFact(FactLogical, path, access, effect, "", "", "", 0, "", true)
 }
@@ -63,7 +63,7 @@ func (builder *Builder) AddLogicalPair(path string, entryAccess, referentAccess 
 	return builder.AddLogical(path, referentAccess, mutation.PathEffectReferent)
 }
 
-// AddPhysical records a physical path fact and domain, including target/scope.
+// AddPhysical records a physical path fact and domain step, including target/scope.
 func (builder *Builder) AddPhysical(
 	path string,
 	access mutation.AccessMode,
@@ -103,8 +103,6 @@ func (builder *Builder) AddRoute(targetName string, scope string, family string,
 	if _, exists := builder.routeKeys[key]; exists {
 		return nil
 	}
-	builder.routeKeys[key] = struct{}{}
-	builder.facts = append(builder.facts, fact)
 	domain, err := mutation.NewHostRouteDomain(mutation.HostRouteRequest{
 		Target:      targetName,
 		Scope:       scope,
@@ -114,7 +112,9 @@ func (builder *Builder) AddRoute(targetName string, scope string, family string,
 	if err != nil {
 		return err
 	}
-	builder.domains = append(builder.domains, domain)
+	builder.routeKeys[key] = struct{}{}
+	builder.facts = append(builder.facts, fact)
+	builder.domainSteps = append(builder.domainSteps, newCompiledDomainStep(domain))
 	return nil
 }
 
@@ -151,10 +151,9 @@ func (builder *Builder) AddRemovalContinuation(path string, effect mutation.Path
 
 // AddDomains appends already constructed domains, preserving admission order.
 func (builder *Builder) AddDomains(domains []mutation.Domain) {
-	if len(domains) == 0 {
-		return
+	for _, domain := range domains {
+		builder.domainSteps = append(builder.domainSteps, newCompiledDomainStep(domain))
 	}
-	builder.domains = append(builder.domains, domains...)
 }
 
 // AddRevision records a revision request, replacing an earlier request with the
@@ -196,40 +195,22 @@ func (builder *Builder) addPathFact(
 		identity:    identity,
 	}
 	builder.facts = append(builder.facts, fact)
-	if withDomain {
-		domain, err := domainFor(kind, path, access, effect, targetName, scope)
-		if err != nil {
-			return err
-		}
-		builder.domains = append(builder.domains, domain)
-		if err := builder.maybeAddRevision(path, effect); err != nil {
-			return err
-		}
+	if !withDomain {
+		return nil
 	}
-	return nil
-}
-
-func domainFor(
-	kind FactKind,
-	path string,
-	access mutation.AccessMode,
-	effect mutation.PathEffect,
-	targetName string,
-	scope string,
-) (mutation.Domain, error) {
 	switch kind {
 	case FactLogical, FactRemovalContinuation:
-		return mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
-			Path: path, Access: access, Effect: effect,
-		})
+		builder.domainSteps = append(builder.domainSteps, newPathDomainStep(
+			newLogicalPathDomainRequest(path, access, effect),
+		))
 	case FactPhysical:
-		return mutation.NewPhysicalPathDomain(mutation.PhysicalPathRequest{
-			Path: path, Access: access, Effect: effect,
-			Target: targetName, Scope: scope,
-		})
+		builder.domainSteps = append(builder.domainSteps, newPathDomainStep(
+			newPhysicalPathDomainRequest(path, access, effect, targetName, scope),
+		))
 	default:
-		return mutation.Domain{}, fmt.Errorf("operationplan: fact %d has no path domain", kind)
+		return fmt.Errorf("operationplan: fact %d has no path domain", kind)
 	}
+	return builder.maybeAddRevision(path, effect)
 }
 
 func (builder *Builder) maybeAddRevision(path string, effect mutation.PathEffect) error {
@@ -277,12 +258,12 @@ func sortedRevisionRequests(requests []mutation.RevisionRequest) []mutation.Revi
 	return out
 }
 
-// Plan is the compiled authority algebra: admission-ordered domains, role-sorted
-// revisions, and the closed fact set used by fingerprint projections.
+// Plan is the compiled authority algebra: admission-ordered domain steps,
+// role-sorted revisions, and the closed fact set used by fingerprint projections.
 type Plan struct {
-	facts     []Fact
-	domains   []mutation.Domain
-	revisions []mutation.RevisionRequest
+	facts       []Fact
+	domainSteps []DomainStep
+	revisions   []mutation.RevisionRequest
 }
 
 // Facts returns a copy of compiled authority facts in admission order.
@@ -290,9 +271,9 @@ func (plan Plan) Facts() []Fact {
 	return append([]Fact(nil), plan.facts...)
 }
 
-// Domains returns mutation domains in admission order.
-func (plan Plan) Domains() []mutation.Domain {
-	return append([]mutation.Domain(nil), plan.domains...)
+// DomainSteps returns mutation-domain lowering steps in admission order.
+func (plan Plan) DomainSteps() []DomainStep {
+	return append([]DomainStep(nil), plan.domainSteps...)
 }
 
 // Revisions returns revision requests sorted by (effect, path).
@@ -315,11 +296,11 @@ func (plan Plan) RevisionsForPaths(selected map[string]struct{}) []mutation.Revi
 	return out
 }
 
-// Compile freezes admission-ordered domains, sorted revisions, and facts.
+// Compile freezes admission-ordered domain steps, sorted revisions, and facts.
 func (builder *Builder) Compile() Plan {
 	return Plan{
-		facts:     append([]Fact(nil), builder.facts...),
-		domains:   append([]mutation.Domain(nil), builder.domains...),
-		revisions: sortedRevisionRequests(builder.revisions),
+		facts:       append([]Fact(nil), builder.facts...),
+		domainSteps: append([]DomainStep(nil), builder.domainSteps...),
+		revisions:   sortedRevisionRequests(builder.revisions),
 	}
 }

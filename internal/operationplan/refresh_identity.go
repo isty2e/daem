@@ -7,6 +7,21 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 )
 
+// RefreshPersistenceRevisions selects the manifest, lockfile, and statefile
+// revision role from one compiled refresh authority plan.
+func RefreshPersistenceRevisions(
+	plan Plan,
+	manifestPath string,
+	lockfilePath string,
+	statefilePath string,
+) []mutation.RevisionRequest {
+	return plan.RevisionsForPaths(map[string]struct{}{
+		manifestPath:  {},
+		lockfilePath:  {},
+		statefilePath: {},
+	})
+}
+
 // RefreshSelection is the canonical selected relation identity projected into
 // the refresh operation fingerprint.
 type RefreshSelection struct {
