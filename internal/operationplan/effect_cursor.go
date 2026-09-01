@@ -35,6 +35,7 @@ type EffectCursor struct {
 	conditionals  map[string]bool
 	state         effectCursorState
 	effectStarted bool
+	terminated    bool
 }
 
 // Begin returns one independent operation-local cursor over the structure.
@@ -154,11 +155,17 @@ func (cursor *EffectCursor) consume(
 		}
 		phase.forwardEffects++
 	}
-	cursor.pop()
+	if kind == EffectStepTerminal {
+		cursor.stack = nil
+		cursor.terminated = true
+	} else {
+		cursor.pop()
+	}
 	return checkpoint, nil
 }
 
-// FinishSuccess requires every selected mandatory step to have been consumed.
+// FinishSuccess requires complete selected-path consumption or an explicit
+// terminal handoff.
 func (cursor *EffectCursor) FinishSuccess() error {
 	if err := cursor.requireActive(); err != nil {
 		return err
@@ -183,12 +190,14 @@ func (cursor *EffectCursor) FinishSuccess() error {
 			step.node.step.kind,
 		)
 	}
-	for id, active := range cursor.triggers {
-		if active && !cursor.conditionals[id] {
-			return fmt.Errorf(
-				"operationplan: triggered effect follow-up %q was not reached",
-				id,
-			)
+	if !cursor.terminated {
+		for id, active := range cursor.triggers {
+			if active && !cursor.conditionals[id] {
+				return fmt.Errorf(
+					"operationplan: triggered effect follow-up %q was not reached",
+					id,
+				)
+			}
 		}
 	}
 	cursor.state = effectCursorFinished
@@ -199,6 +208,9 @@ func (cursor *EffectCursor) FinishSuccess() error {
 func (cursor *EffectCursor) AbortBeforeEffect() error {
 	if err := cursor.requireActive(); err != nil {
 		return err
+	}
+	if cursor.terminated {
+		return fmt.Errorf("operationplan: effect structure already consumed a terminal handoff")
 	}
 	if cursor.effectStarted {
 		return fmt.Errorf("operationplan: effect structure cannot abort before effect after an effect started")

@@ -15,13 +15,15 @@ type effectDemandAlternative struct {
 	demand       effectDemand
 	triggered    uint64
 	conditionals uint64
+	terminated   bool
 }
 
 // DemandAlternatives returns the deterministic nondominated frontier of
-// cursor-reachable semantic demand alternatives. Dominance is valid only for
-// State Barrier lowering that is monotone in every demand dimension. Returned
-// demands carry no descendant path binding; the barrier supplies that boundary
-// fact before taking the physical maximum.
+// cursor-reachable semantic demand alternatives. A terminal step completes its
+// current alternative without traversing later structure. Dominance is valid
+// only for State Barrier lowering that is monotone in every demand dimension.
+// Returned demands carry no descendant path binding; the barrier supplies that
+// boundary fact before taking the physical maximum.
 func (structure EffectStructure) DemandAlternatives() ([]Demand, error) {
 	triggerBits, err := effectTriggerBits(structure.root)
 	if err != nil {
@@ -41,11 +43,12 @@ func (structure EffectStructure) DemandAlternatives() ([]Demand, error) {
 		if alternative.demand.forwardEffectCalls != 0 {
 			return nil, fmt.Errorf("operationplan: unlowered forward effect demand remains")
 		}
-		if alternative.triggered&^alternative.conditionals != 0 {
+		if !alternative.terminated && alternative.triggered&^alternative.conditionals != 0 {
 			continue
 		}
 		alternative.triggered = 0
 		alternative.conditionals = 0
+		alternative.terminated = false
 		reachable = append(reachable, alternative)
 	}
 	if len(reachable) == 0 {
@@ -77,6 +80,22 @@ func advanceEffectDemandAlternatives(
 	input []effectDemandAlternative,
 	triggerBits map[string]uint,
 ) ([]effectDemandAlternative, error) {
+	active, terminated := partitionEffectDemandAlternatives(input)
+	if len(active) == 0 {
+		return cloneEffectDemandAlternatives(input), nil
+	}
+	advanced, err := advanceActiveEffectDemandAlternatives(node, active, triggerBits)
+	if err != nil {
+		return nil, err
+	}
+	return pruneEffectDemandAlternatives(append(advanced, terminated...))
+}
+
+func advanceActiveEffectDemandAlternatives(
+	node EffectNode,
+	input []effectDemandAlternative,
+	triggerBits map[string]uint,
+) ([]effectDemandAlternative, error) {
 	switch node.kind {
 	case effectNodeEmpty:
 		return cloneEffectDemandAlternatives(input), nil
@@ -88,6 +107,9 @@ func advanceEffectDemandAlternatives(
 			result[index].demand, err = result[index].demand.add(delta)
 			if err != nil {
 				return nil, err
+			}
+			if node.step.kind == EffectStepTerminal {
+				result[index].terminated = true
 			}
 		}
 		return pruneEffectDemandAlternatives(result)
@@ -125,6 +147,13 @@ func advanceEffectDemandAlternatives(
 		return result, nil
 	case effectNodeRepeat:
 		if deterministicEffectNode(node.children[0]) {
+			if effectNodeContainsTerminal(node.children[0]) {
+				return advanceEffectDemandAlternatives(
+					node.children[0],
+					input,
+					triggerBits,
+				)
+			}
 			delta, err := legacyUpperBoundDemand(node.children[0])
 			if err != nil {
 				return nil, err
@@ -239,6 +268,33 @@ func advanceEffectDemandAlternatives(
 	}
 }
 
+func partitionEffectDemandAlternatives(
+	input []effectDemandAlternative,
+) (active []effectDemandAlternative, terminated []effectDemandAlternative) {
+	active = make([]effectDemandAlternative, 0, len(input))
+	terminated = make([]effectDemandAlternative, 0, len(input))
+	for _, alternative := range input {
+		if alternative.terminated {
+			terminated = append(terminated, alternative)
+			continue
+		}
+		active = append(active, alternative)
+	}
+	return active, terminated
+}
+
+func effectNodeContainsTerminal(node EffectNode) bool {
+	if node.kind == effectNodeStep && node.step.kind == EffectStepTerminal {
+		return true
+	}
+	for _, child := range node.children {
+		if effectNodeContainsTerminal(child) {
+			return true
+		}
+	}
+	return false
+}
+
 func effectTriggerBits(root EffectNode) (map[string]uint, error) {
 	ids := make(map[string]struct{})
 	collectEffectTriggerIDs(root, ids)
@@ -295,7 +351,8 @@ func pruneEffectDemandAlternatives(
 		for index := 0; index < len(result); {
 			existing := result[index]
 			if candidate.triggered != existing.triggered ||
-				candidate.conditionals != existing.conditionals {
+				candidate.conditionals != existing.conditionals ||
+				candidate.terminated != existing.terminated {
 				index++
 				continue
 			}

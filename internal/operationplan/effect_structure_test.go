@@ -166,7 +166,7 @@ func TestEffectTriggerActivatesOneSharedFollowUp(t *testing.T) {
 	var builder EffectStructureBuilder
 	first := builder.Choice(
 		"promotion-1",
-		builder.Step("promotion-1-noop", EffectStepTerminal),
+		builder.Step("promotion-1-noop", EffectStepNoOp),
 		builder.Trigger(
 			"ownership-finalization",
 			builder.Step("promotion-1-effect", EffectStepForwardEffect),
@@ -174,7 +174,7 @@ func TestEffectTriggerActivatesOneSharedFollowUp(t *testing.T) {
 	)
 	second := builder.Choice(
 		"promotion-2",
-		builder.Step("promotion-2-noop", EffectStepTerminal),
+		builder.Step("promotion-2-noop", EffectStepNoOp),
 		builder.Trigger(
 			"ownership-finalization",
 			builder.Step("promotion-2-effect", EffectStepForwardEffect),
@@ -208,13 +208,13 @@ func TestEffectTriggerActivatesOneSharedFollowUp(t *testing.T) {
 		if err := cursor.SelectAlternative("promotion-1", 0); err != nil {
 			t.Fatal(err)
 		}
-		if err := cursor.Consume("promotion-1-noop", EffectStepTerminal); err != nil {
+		if err := cursor.Consume("promotion-1-noop", EffectStepNoOp); err != nil {
 			t.Fatal(err)
 		}
 		if err := cursor.SelectAlternative("promotion-2", 0); err != nil {
 			t.Fatal(err)
 		}
-		if err := cursor.Consume("promotion-2-noop", EffectStepTerminal); err != nil {
+		if err := cursor.Consume("promotion-2-noop", EffectStepNoOp); err != nil {
 			t.Fatal(err)
 		}
 		if err := cursor.FinishSuccess(); err != nil {
@@ -233,7 +233,7 @@ func TestEffectTriggerActivatesOneSharedFollowUp(t *testing.T) {
 		if err := cursor.SelectAlternative("promotion-2", 0); err != nil {
 			t.Fatal(err)
 		}
-		if err := cursor.Consume("promotion-2-noop", EffectStepTerminal); err != nil {
+		if err := cursor.Consume("promotion-2-noop", EffectStepNoOp); err != nil {
 			t.Fatal(err)
 		}
 		if err := cursor.FinishSuccess(); err == nil ||
@@ -250,6 +250,125 @@ func TestEffectTriggerActivatesOneSharedFollowUp(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func TestEffectCursorTerminalEndsRemainingStructure(t *testing.T) {
+	t.Parallel()
+
+	t.Run("sequence", func(t *testing.T) {
+		var builder EffectStructureBuilder
+		structure, err := builder.Compile(EffectSequence(
+			builder.Step("terminal", EffectStepTerminal),
+			builder.Step("later", EffectStepPersistence),
+		))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cursor := structure.Begin()
+		if err := cursor.Consume("wrong", EffectStepTerminal); err == nil {
+			t.Fatal("wrong terminal ID ended the structure")
+		}
+		if err := cursor.Consume("terminal", EffectStepNoOp); err == nil {
+			t.Fatal("wrong terminal kind ended the structure")
+		}
+		if err := cursor.Consume("terminal", EffectStepTerminal); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.FinishSuccess(); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.Consume("later", EffectStepPersistence); err == nil {
+			t.Fatal("terminal structure admitted a later sequence step")
+		}
+	})
+
+	t.Run("repeat and suffix", func(t *testing.T) {
+		var builder EffectStructureBuilder
+		iteration := builder.Choice(
+			"iteration",
+			builder.Step("continue", EffectStepNoOp),
+			builder.Step("stop", EffectStepTerminal),
+		)
+		structure, err := builder.Compile(EffectSequence(
+			builder.Repeat(3, iteration),
+			builder.Step("suffix", EffectStepPersistence),
+		))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cursor := structure.Begin()
+		if err := cursor.SelectAlternative("iteration", 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.Consume("continue", EffectStepNoOp); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.SelectAlternative("iteration", 1); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.Consume("stop", EffectStepTerminal); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.FinishSuccess(); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.SelectAlternative("iteration", 0); err == nil {
+			t.Fatal("terminal repetition admitted a later iteration")
+		}
+	})
+
+	t.Run("triggered follow-up", func(t *testing.T) {
+		var builder EffectStructureBuilder
+		structure, err := builder.Compile(EffectSequence(
+			builder.Trigger(
+				"follow-up",
+				builder.Step("trigger", EffectStepNoOp),
+			),
+			builder.Step("terminal", EffectStepTerminal),
+			builder.Conditional(
+				"follow-up",
+				builder.Step("follow-up", EffectStepPersistence),
+			),
+		))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cursor := structure.Begin()
+		if err := cursor.Consume("trigger", EffectStepNoOp); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.Consume("terminal", EffectStepTerminal); err != nil {
+			t.Fatal(err)
+		}
+		if err := cursor.FinishSuccess(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestEffectCursorNoOpDoesNotEndStructure(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	structure, err := builder.Compile(EffectSequence(
+		builder.Step("noop", EffectStepNoOp),
+		builder.Step("terminal", EffectStepTerminal),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := structure.Begin()
+	if err := cursor.Consume("noop", EffectStepNoOp); err != nil {
+		t.Fatal(err)
+	}
+	if err := cursor.FinishSuccess(); err == nil || !strings.Contains(err.Error(), "terminal") {
+		t.Fatalf("unfinished no-op structure error = %v", err)
+	}
+	if err := cursor.Consume("terminal", EffectStepTerminal); err != nil {
+		t.Fatal(err)
+	}
+	if err := cursor.FinishSuccess(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestEffectCursorRejectsLateOrUnreachedTriggeredFollowUp(t *testing.T) {
@@ -859,6 +978,116 @@ func TestEffectStructureDemandAlternativesPreserveIncomparableChoices(t *testing
 	if alternatives[1].BarrierValidationCalls() != 3 ||
 		alternatives[1].DescendantFileCommits() != 0 {
 		t.Fatalf("second alternative = %+v, want three barrier validations", alternatives[1])
+	}
+}
+
+func TestEffectStructureDemandAlternativesStopAfterTerminalRepetition(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	iteration := builder.Choice(
+		"iteration",
+		builder.Step("continue", EffectStepValidateDescendant),
+		EffectSequence(
+			builder.Step("failure-barrier", EffectStepValidateBarrier),
+			builder.Step("failure-terminal", EffectStepTerminal),
+		),
+	)
+	structure, err := builder.Compile(EffectSequence(
+		builder.Repeat(3, iteration),
+		builder.Step("success-publication", EffectStepPublishDescendant),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	alternatives, err := structure.DemandAlternatives()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alternatives) != 2 {
+		t.Fatalf("alternatives = %d, want 2", len(alternatives))
+	}
+	if alternatives[0].BarrierValidationCalls() != 0 ||
+		alternatives[0].DescendantValidations() != 3 ||
+		alternatives[0].DescendantFileCommits() != 1 {
+		t.Fatalf("success alternative = %+v", alternatives[0])
+	}
+	if alternatives[1].BarrierValidationCalls() != 1 ||
+		alternatives[1].DescendantValidations() != 2 ||
+		alternatives[1].DescendantFileCommits() != 0 {
+		t.Fatalf("terminal alternative = %+v", alternatives[1])
+	}
+	legacy, err := structure.LegacyDemand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.BarrierValidationCalls() != 3 ||
+		legacy.DescendantValidations() != 3 ||
+		legacy.DescendantFileCommits() != 1 {
+		t.Fatalf("legacy upper bound = %+v", legacy)
+	}
+}
+
+func TestEffectStructureDemandAlternativesKeepDeterministicTerminalRepeatCompact(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	structure, err := builder.Compile(builder.Repeat(
+		maximumEffectRepeatIterations+1,
+		EffectSequence(
+			builder.Step("barrier", EffectStepValidateBarrier),
+			builder.Step("terminal", EffectStepTerminal),
+		),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	alternatives, err := structure.DemandAlternatives()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alternatives) != 1 || alternatives[0].BarrierValidationCalls() != 1 {
+		t.Fatalf("alternatives = %+v, want one first-iteration barrier", alternatives)
+	}
+}
+
+func TestEffectStructureDemandAlternativesStopTerminalForwardPhase(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	phase := builder.ForwardPhase(
+		"phase",
+		EffectSequence(
+			builder.Step("first-forward", EffectStepForwardEffect),
+			builder.Choice(
+				"outcome",
+				EffectSequence(
+					builder.Step("failure-barrier", EffectStepValidateBarrier),
+					builder.Step("failure-terminal", EffectStepTerminal),
+				),
+				builder.Step("second-forward", EffectStepForwardEffect),
+			),
+			builder.Step("third-forward", EffectStepForwardEffect),
+		),
+	)
+	structure, err := builder.Compile(phase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alternatives, err := structure.DemandAlternatives()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alternatives) != 2 {
+		t.Fatalf("alternatives = %d, want 2", len(alternatives))
+	}
+	if alternatives[0].EnsureCalls() != 1 ||
+		alternatives[0].BarrierValidationCalls() != 0 ||
+		alternatives[0].StateDirValidationCalls() != 2 {
+		t.Fatalf("continuing alternative = %+v", alternatives[0])
+	}
+	if alternatives[1].EnsureCalls() != 1 ||
+		alternatives[1].BarrierValidationCalls() != 1 ||
+		alternatives[1].StateDirValidationCalls() != 0 {
+		t.Fatalf("terminal alternative = %+v", alternatives[1])
 	}
 }
 

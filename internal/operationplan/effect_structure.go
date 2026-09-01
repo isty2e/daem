@@ -37,7 +37,8 @@ const (
 	EffectStepRetirement
 	// EffectStepNoOp marks an explicit selected branch with no effect.
 	EffectStepNoOp
-	// EffectStepTerminal marks an owner-selected terminal handoff.
+	// EffectStepTerminal marks an owner-selected terminal handoff that ends the
+	// selected structure without authorizing later obligations.
 	EffectStepTerminal
 )
 
@@ -110,7 +111,8 @@ func (builder *EffectStructureBuilder) Choice(
 	return choice
 }
 
-// Repeat constructs one compact bounded repetition.
+// Repeat constructs one compact positive repetition. A terminal handoff ends
+// the remaining iterations.
 func (builder *EffectStructureBuilder) Repeat(count int, body EffectNode) EffectNode {
 	if builder == nil || builder.err != nil {
 		return EffectNode{}
@@ -137,7 +139,8 @@ func (builder *EffectStructureBuilder) ForwardPhase(id string, body EffectNode) 
 	return phase
 }
 
-// Trigger marks its body as activating one later conditional follow-up.
+// Trigger marks its body as activating a later conditional follow-up when
+// execution reaches it.
 func (builder *EffectStructureBuilder) Trigger(id string, body EffectNode) EffectNode {
 	if builder == nil || builder.err != nil {
 		return EffectNode{}
@@ -150,7 +153,7 @@ func (builder *EffectStructureBuilder) Trigger(id string, body EffectNode) Effec
 	return trigger
 }
 
-// Conditional executes its body exactly when an earlier matching trigger was selected.
+// Conditional executes its body when reached after an earlier matching trigger.
 func (builder *EffectStructureBuilder) Conditional(id string, body EffectNode) EffectNode {
 	if builder == nil || builder.err != nil {
 		return EffectNode{}
@@ -184,7 +187,8 @@ func newEffectStep(id string, kind EffectStepKind) (EffectNode, error) {
 	return EffectNode{kind: effectNodeStep, step: effectStep{id: id, kind: kind}}, nil
 }
 
-// EffectSequence composes children in mandatory order. No children is no work.
+// EffectSequence composes children in order until a terminal handoff. No
+// children is no work.
 func EffectSequence(children ...EffectNode) EffectNode {
 	if len(children) == 0 {
 		return EffectNode{kind: effectNodeEmpty}

@@ -117,8 +117,8 @@ func (structure EffectStructure) legacyUpperBound() (effectDemand, error) {
 }
 
 // LegacyDemand projects the current flat reservation counters for differential
-// migration tests. Choices remain structural in EffectStructure and must be
-// lowered by the State Barrier before production cutover.
+// migration tests. It intentionally ignores terminal control, so later suffixes
+// and repetitions remain part of the conservative legacy bound.
 func (structure EffectStructure) LegacyDemand() (Demand, error) {
 	legacy, err := structure.legacyUpperBound()
 	if err != nil {
