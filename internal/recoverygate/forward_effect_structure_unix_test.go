@@ -3,6 +3,7 @@
 package recoverygate
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -253,6 +254,77 @@ func TestReserveForwardEffectExecutionRequiresExactDescendantBinding(t *testing.
 	); err == nil || !strings.Contains(err.Error(), "at most one is supported") {
 		t.Fatalf("repeated descendant binding error = %v", err)
 	}
+}
+
+func TestReserveForwardEffectExecutionAdmitsReachablePhysicalFrontier(t *testing.T) {
+	t.Parallel()
+	authority, stateDir := newStructuralForwardTestAuthority(t, true)
+	structure := incomparableForwardStructure(t)
+	descendantPath := filepath.Join(stateDir, "state.json")
+	structuralPlan, structuralWork, err := authority.inspectForwardEffectStructure(
+		structure,
+		descendantPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	synthetic, err := authority.lowerForwardPlan(structuralPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if synthetic.planned.totalWork == structuralWork.total {
+		t.Fatal("fixture does not distinguish reachable frontier from synthetic count maximum")
+	}
+	recorder := &boundedRecordingStateDirWorkBudget{limit: structuralWork.total}
+	authority.stateDir.state.physicalWorkBudget = recorder
+	execution, err := authority.ReserveForwardEffectExecution(structure, descendantPath)
+	if err != nil {
+		t.Fatalf("reserve reachable physical frontier: %v", err)
+	}
+	if recorder.calls != 1 || recorder.admitted != structuralWork.total {
+		t.Fatalf(
+			"admitted work = calls=%d work=%+v, want calls=1 work=%+v",
+			recorder.calls,
+			recorder.admitted,
+			structuralWork.total,
+		)
+	}
+	if err := execution.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type boundedRecordingStateDirWorkBudget struct {
+	limit    stateDirPhysicalWork
+	admitted stateDirPhysicalWork
+	calls    int
+}
+
+func (budget *boundedRecordingStateDirWorkBudget) AdmitPathComponents(count int) error {
+	return budget.AdmitPhysicalWork(count, 0, 0)
+}
+
+func (budget *boundedRecordingStateDirWorkBudget) AdmitPhysicalWork(
+	pathComponents int,
+	entries int,
+	bytes int64,
+) error {
+	next, err := budget.admitted.add(stateDirPhysicalWork{
+		pathComponents: pathComponents,
+		entries:        entries,
+		bytes:          bytes,
+	})
+	if err != nil {
+		return err
+	}
+	if next.pathComponents > budget.limit.pathComponents ||
+		next.entries > budget.limit.entries ||
+		next.bytes > budget.limit.bytes {
+		return fmt.Errorf("physical reservation exceeds test frontier")
+	}
+	budget.admitted = next
+	budget.calls++
+	return nil
 }
 
 func incomparableForwardStructure(t *testing.T) operationplan.EffectStructure {

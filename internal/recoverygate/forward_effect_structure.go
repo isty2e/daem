@@ -3,13 +3,16 @@ package recoverygate
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
 type structuralForwardWork struct {
-	state      stateDirPhysicalWork
-	total      stateDirPhysicalWork
-	descendant int
+	state         stateDirPhysicalWork
+	total         stateDirPhysicalWork
+	descendant    int
+	relative      rootedpath.RelativeDestination
+	hasDescendant bool
 }
 
 type loweredForwardPlan struct {
@@ -88,26 +91,24 @@ func (authority EffectAuthority) prepareForwardEffectExecution(
 	structure operationplan.EffectStructure,
 	descendantPath string,
 ) (plannedStateDirOperation, error) {
-	structuralPlan, structuralWork, err := authority.inspectForwardEffectStructure(
+	_, structuralWork, err := authority.inspectForwardEffectStructure(
 		structure,
 		descendantPath,
 	)
 	if err != nil {
 		return plannedStateDirOperation{}, err
 	}
-	lowered, err := authority.lowerForwardPlan(structuralPlan)
-	if err != nil {
-		return plannedStateDirOperation{}, err
-	}
-	if err := requireStructuralWorkDominance(
-		"structural forward reservation",
-		"structural upper bound",
-		lowered.work,
-		structuralWork,
-	); err != nil {
-		return plannedStateDirOperation{}, err
-	}
-	return lowered.planned, nil
+	// The cursor is the only runtime consumer of these independent physical
+	// sub-budgets. It prevents mutually exclusive branches from combining the
+	// StateDir and descendant maxima after the operation-wide frontier maximum
+	// has been admitted.
+	return plannedStateDirOperation{
+		stateWork:      structuralWork.state,
+		totalWork:      structuralWork.total,
+		relative:       structuralWork.relative,
+		descendantWork: structuralWork.descendant,
+		hasDescendant:  structuralWork.hasDescendant,
+	}, nil
 }
 
 func (authority EffectAuthority) inspectForwardEffectStructure(
@@ -242,6 +243,15 @@ func (authority EffectAuthority) lowerStructuralForwardWork(
 		})
 		if err != nil {
 			return structuralForwardWork{}, err
+		}
+		if lowered.planned.hasDescendant {
+			if maximum.hasDescendant && maximum.relative != lowered.planned.relative {
+				return structuralForwardWork{}, fmt.Errorf(
+					"forward effect structure has inconsistent descendant bindings",
+				)
+			}
+			maximum.relative = lowered.planned.relative
+			maximum.hasDescendant = true
 		}
 		maximum.state = maximum.state.maximum(lowered.work.state)
 		maximum.total = maximum.total.maximum(lowered.work.total)
