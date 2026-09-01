@@ -22,13 +22,13 @@ type ForwardEffectExecution struct {
 
 // ReserveForwardEffectExecution reserves the branch-aware structure and
 // returns its operation-local ordered cursor over raw physical authority. The
-// transitional legacy demand is checked during lowering but is not retained as
-// a second runtime semantic counter layer.
+// exact structure supplies semantic counts; descendantPath is the separate
+// selected physical binding lowered by the State Barrier.
 func (authority EffectAuthority) ReserveForwardEffectExecution(
 	structure operationplan.EffectStructure,
-	legacyDemand operationplan.Demand,
+	descendantPath string,
 ) (*ForwardEffectExecution, error) {
-	_, planned, err := authority.prepareForwardEffectStructure(structure, legacyDemand)
+	planned, err := authority.prepareForwardEffectExecution(structure, descendantPath)
 	if err != nil {
 		return nil, err
 	}

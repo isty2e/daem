@@ -137,6 +137,83 @@ func TestReserveForwardEffectStructureRetainsLegacyRuntimeReservation(t *testing
 	}
 }
 
+func TestReserveForwardEffectExecutionDerivesStructuralUpperBound(t *testing.T) {
+	t.Parallel()
+	authority, stateDir := newStructuralForwardTestAuthority(t, true)
+	statefilePath := filepath.Join(stateDir, "state.json")
+	structure := incomparableForwardStructure(t)
+
+	barrierExecution, err := authority.ReserveForwardEffectExecution(
+		structure,
+		statefilePath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := barrierExecution.SelectAlternative("physical-alternatives", 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, stepID := range []string{"barrier-1", "barrier-2", "barrier-3"} {
+		if err := barrierExecution.ValidateBarrier(t.Context(), stepID); err != nil {
+			t.Fatalf("validate %s: %v", stepID, err)
+		}
+	}
+	if err := barrierExecution.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	if err := barrierExecution.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	descendantExecution, err := authority.ReserveForwardEffectExecution(
+		structure,
+		statefilePath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := descendantExecution.SelectAlternative("physical-alternatives", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := descendantExecution.TakeDescendant(); err != nil {
+		t.Fatal(err)
+	}
+	if err := descendantExecution.ConsumeDescendantPublication("commit"); err != nil {
+		t.Fatal(err)
+	}
+	if err := descendantExecution.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	if err := descendantExecution.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReserveForwardEffectExecutionRequiresExactDescendantBinding(t *testing.T) {
+	t.Parallel()
+	authority, stateDir := newStructuralForwardTestAuthority(t, true)
+	if _, err := authority.ReserveForwardEffectExecution(
+		incomparableForwardStructure(t),
+		"",
+	); err == nil || !strings.Contains(err.Error(), "requires a descendant path binding") {
+		t.Fatalf("missing descendant binding error = %v", err)
+	}
+
+	var builder operationplan.EffectStructureBuilder
+	structure, err := builder.Compile(
+		builder.Step("terminal", operationplan.EffectStepTerminal),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authority.ReserveForwardEffectExecution(
+		structure,
+		filepath.Join(stateDir, "state.json"),
+	); err == nil || !strings.Contains(err.Error(), "set without descendant demand") {
+		t.Fatalf("unused descendant binding error = %v", err)
+	}
+}
+
 func incomparableForwardStructure(t *testing.T) operationplan.EffectStructure {
 	t.Helper()
 	var builder operationplan.EffectStructureBuilder

@@ -168,10 +168,9 @@ func Execute(
 	if err != nil {
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
 	}
-	forwardDemand := operationplan.CompileRefresh(current.paths.StatefilePath).Demand()
 	forwardExecution, err := current.barrier.ReserveForwardEffectExecution(
 		forwardStructure,
-		forwardDemand,
+		current.paths.StatefilePath,
 	)
 	if err != nil {
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)

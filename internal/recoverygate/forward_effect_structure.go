@@ -44,19 +44,9 @@ func (authority EffectAuthority) prepareForwardEffectStructure(
 	structure operationplan.EffectStructure,
 	legacyDemand operationplan.Demand,
 ) (forwardEffectPlan, plannedStateDirOperation, error) {
-	if err := authority.requireInitialized(); err != nil {
-		return forwardEffectPlan{}, plannedStateDirOperation{}, err
-	}
-	alternatives, err := structure.DemandAlternatives()
-	if err != nil {
-		return forwardEffectPlan{}, plannedStateDirOperation{}, fmt.Errorf(
-			"lower forward effect structure: %w",
-			err,
-		)
-	}
 	legacyPlan := planFromDemand(legacyDemand)
-	structuralPlan, err := maximumStructuralForwardPlan(
-		alternatives,
+	structuralPlan, structuralWork, err := authority.inspectForwardEffectStructure(
+		structure,
 		legacyPlan.DescendantPath,
 	)
 	if err != nil {
@@ -79,33 +69,99 @@ func (authority EffectAuthority) prepareForwardEffectStructure(
 			legacyPlan.DescendantFileCommits,
 		)
 	}
-	structuralWork, err := authority.lowerStructuralForwardWork(
-		alternatives,
-		legacyPlan.DescendantPath,
-	)
-	if err != nil {
-		return forwardEffectPlan{}, plannedStateDirOperation{}, err
-	}
 	legacyLowered, err := authority.lowerForwardPlan(legacyPlan)
 	if err != nil {
 		return forwardEffectPlan{}, plannedStateDirOperation{}, err
 	}
-	if !legacyLowered.work.state.dominates(structuralWork.state) ||
-		legacyLowered.work.descendant < structuralWork.descendant ||
-		!legacyLowered.work.total.dominates(structuralWork.total) {
-		return forwardEffectPlan{}, plannedStateDirOperation{}, fmt.Errorf(
-			"legacy forward reservation does not dominate structural physical work: "+
-				"structural state=%+v descendant=%d total=%+v "+
-				"legacy state=%+v descendant=%d total=%+v",
-			structuralWork.state,
-			structuralWork.descendant,
-			structuralWork.total,
-			legacyLowered.work.state,
-			legacyLowered.work.descendant,
-			legacyLowered.work.total,
-		)
+	if err := requireStructuralWorkDominance(
+		"legacy forward reservation",
+		"legacy",
+		legacyLowered.work,
+		structuralWork,
+	); err != nil {
+		return forwardEffectPlan{}, plannedStateDirOperation{}, err
 	}
 	return legacyPlan, legacyLowered.planned, nil
+}
+
+func (authority EffectAuthority) prepareForwardEffectExecution(
+	structure operationplan.EffectStructure,
+	descendantPath string,
+) (plannedStateDirOperation, error) {
+	structuralPlan, structuralWork, err := authority.inspectForwardEffectStructure(
+		structure,
+		descendantPath,
+	)
+	if err != nil {
+		return plannedStateDirOperation{}, err
+	}
+	lowered, err := authority.lowerForwardPlan(structuralPlan)
+	if err != nil {
+		return plannedStateDirOperation{}, err
+	}
+	if err := requireStructuralWorkDominance(
+		"structural forward reservation",
+		"structural upper bound",
+		lowered.work,
+		structuralWork,
+	); err != nil {
+		return plannedStateDirOperation{}, err
+	}
+	return lowered.planned, nil
+}
+
+func (authority EffectAuthority) inspectForwardEffectStructure(
+	structure operationplan.EffectStructure,
+	descendantPath string,
+) (forwardEffectPlan, structuralForwardWork, error) {
+	if err := authority.requireInitialized(); err != nil {
+		return forwardEffectPlan{}, structuralForwardWork{}, err
+	}
+	alternatives, err := structure.DemandAlternatives()
+	if err != nil {
+		return forwardEffectPlan{}, structuralForwardWork{}, fmt.Errorf(
+			"lower forward effect structure: %w",
+			err,
+		)
+	}
+	structuralPlan, err := maximumStructuralForwardPlan(alternatives, descendantPath)
+	if err != nil {
+		return forwardEffectPlan{}, structuralForwardWork{}, err
+	}
+	structuralWork, err := authority.lowerStructuralForwardWork(
+		alternatives,
+		descendantPath,
+	)
+	if err != nil {
+		return forwardEffectPlan{}, structuralForwardWork{}, err
+	}
+	return structuralPlan, structuralWork, nil
+}
+
+func requireStructuralWorkDominance(
+	label string,
+	reservedLabel string,
+	reserved structuralForwardWork,
+	structural structuralForwardWork,
+) error {
+	if reserved.state.dominates(structural.state) &&
+		reserved.descendant >= structural.descendant &&
+		reserved.total.dominates(structural.total) {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s does not dominate structural physical work: "+
+			"structural state=%+v descendant=%d total=%+v "+
+			"%s state=%+v descendant=%d total=%+v",
+		label,
+		structural.state,
+		structural.descendant,
+		structural.total,
+		reservedLabel,
+		reserved.state,
+		reserved.descendant,
+		reserved.total,
+	)
 }
 
 func maximumStructuralForwardPlan(

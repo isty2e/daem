@@ -22,12 +22,8 @@ func TestForwardEffectExecutionRejectsCursorMismatchBeforePhysicalConsumption(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	demand, err := structure.LegacyDemand()
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	execution, err := authority.ReserveForwardEffectExecution(structure, demand)
+	execution, err := authority.ReserveForwardEffectExecution(structure, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,13 +47,9 @@ func TestForwardEffectExecutionRejectsCursorMismatchBeforePhysicalConsumption(t 
 func TestForwardEffectExecutionCloseAbortsOnlyBeforeEffect(t *testing.T) {
 	t.Parallel()
 	structure := forwardExecutionExternalStructure(t)
-	demand, err := structure.LegacyDemand()
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	beforeAuthority, _ := newStructuralForwardTestAuthority(t, true)
-	before, err := beforeAuthority.ReserveForwardEffectExecution(structure, demand)
+	before, err := beforeAuthority.ReserveForwardEffectExecution(structure, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +61,7 @@ func TestForwardEffectExecutionCloseAbortsOnlyBeforeEffect(t *testing.T) {
 	}
 
 	afterAuthority, _ := newStructuralForwardTestAuthority(t, true)
-	after, err := afterAuthority.ReserveForwardEffectExecution(structure, demand)
+	after, err := afterAuthority.ReserveForwardEffectExecution(structure, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,11 +91,7 @@ func TestForwardEffectExecutionMapsForwardPhaseToStateDirLifecycle(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	demand, err := structure.LegacyDemand()
-	if err != nil {
-		t.Fatal(err)
-	}
-	execution, err := authority.ReserveForwardEffectExecution(structure, demand)
+	execution, err := authority.ReserveForwardEffectExecution(structure, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +132,7 @@ func TestForwardEffectExecutionMapsForwardPhaseToStateDirLifecycle(t *testing.T)
 	}
 }
 
-func TestForwardEffectExecutionAllowsSelectedShortBranchWithLegacyOverreservation(t *testing.T) {
+func TestForwardEffectExecutionAllowsSelectedShortBranchWithConservativeOverreservation(t *testing.T) {
 	t.Parallel()
 	authority, _ := newStructuralForwardTestAuthority(t, true)
 	var builder operationplan.EffectStructureBuilder
@@ -160,11 +148,7 @@ func TestForwardEffectExecutionAllowsSelectedShortBranchWithLegacyOverreservatio
 	if err != nil {
 		t.Fatal(err)
 	}
-	demand, err := structure.LegacyDemand()
-	if err != nil {
-		t.Fatal(err)
-	}
-	execution, err := authority.ReserveForwardEffectExecution(structure, demand)
+	execution, err := authority.ReserveForwardEffectExecution(structure, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +166,7 @@ func TestForwardEffectExecutionAllowsSelectedShortBranchWithLegacyOverreservatio
 	}
 }
 
-func TestForwardEffectExecutionAllowsSettledFailureAfterEffectWithLegacyOverreservation(
+func TestForwardEffectExecutionAllowsSettledFailureAfterEffectWithConservativeOverreservation(
 	t *testing.T,
 ) {
 	t.Parallel()
@@ -202,11 +186,7 @@ func TestForwardEffectExecutionAllowsSettledFailureAfterEffectWithLegacyOverrese
 	if err != nil {
 		t.Fatal(err)
 	}
-	demand, err := structure.LegacyDemand()
-	if err != nil {
-		t.Fatal(err)
-	}
-	execution, err := authority.ReserveForwardEffectExecution(structure, demand)
+	execution, err := authority.ReserveForwardEffectExecution(structure, "")
 	if err != nil {
 		t.Fatal(err)
 	}
