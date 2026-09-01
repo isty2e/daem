@@ -169,7 +169,15 @@ func maximumStructuralForwardPlan(
 	descendantPath string,
 ) (forwardEffectPlan, error) {
 	plan := forwardEffectPlan{DescendantPath: descendantPath}
+	descendantBindings := 0
 	for _, alternative := range alternatives {
+		if alternative.DescendantBindings() > 1 {
+			return forwardEffectPlan{}, fmt.Errorf(
+				"forward effect structure requires %d descendant bindings; at most one is supported",
+				alternative.DescendantBindings(),
+			)
+		}
+		descendantBindings = max(descendantBindings, alternative.DescendantBindings())
 		plan.EnsureCalls = max(plan.EnsureCalls, alternative.EnsureCalls())
 		plan.BarrierValidationCalls = max(
 			plan.BarrierValidationCalls,
@@ -188,7 +196,9 @@ func maximumStructuralForwardPlan(
 			alternative.DescendantFileCommits(),
 		)
 	}
-	if plan.DescendantValidations != 0 || plan.DescendantFileCommits != 0 {
+	if descendantBindings != 0 ||
+		plan.DescendantValidations != 0 ||
+		plan.DescendantFileCommits != 0 {
 		if descendantPath == "" {
 			return forwardEffectPlan{}, fmt.Errorf(
 				"forward effect structure requires a descendant path binding",
@@ -217,7 +227,8 @@ func (authority EffectAuthority) lowerStructuralForwardWork(
 	var maximum structuralForwardWork
 	for _, alternative := range alternatives {
 		path := descendantPath
-		if alternative.DescendantValidations() == 0 &&
+		if alternative.DescendantBindings() == 0 &&
+			alternative.DescendantValidations() == 0 &&
 			alternative.DescendantFileCommits() == 0 {
 			path = ""
 		}

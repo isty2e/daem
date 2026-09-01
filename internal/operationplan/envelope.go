@@ -94,6 +94,7 @@ type Demand struct {
 	barrierValidationCalls  int
 	stateDirValidationCalls int
 	descendantPath          string
+	descendantBindings      int
 	descendantValidations   int
 	descendantFileCommits   int
 }
@@ -110,6 +111,9 @@ func (demand Demand) StateDirValidationCalls() int { return demand.stateDirValid
 // DescendantPath returns the selected descendant persistence path, if any.
 func (demand Demand) DescendantPath() string { return demand.descendantPath }
 
+// DescendantBindings returns reserved descendant authority bindings.
+func (demand Demand) DescendantBindings() int { return demand.descendantBindings }
+
 // DescendantValidations returns reserved descendant identity validations.
 func (demand Demand) DescendantValidations() int { return demand.descendantValidations }
 
@@ -122,6 +126,7 @@ func (demand Demand) Empty() bool {
 		demand.barrierValidationCalls == 0 &&
 		demand.stateDirValidationCalls == 0 &&
 		demand.descendantPath == "" &&
+		demand.descendantBindings == 0 &&
 		demand.descendantValidations == 0 &&
 		demand.descendantFileCommits == 0
 }
@@ -136,11 +141,16 @@ func NewDemand(
 	descendantValidations int,
 	descendantFileCommits int,
 ) Demand {
+	descendantBindings := 0
+	if descendantPath != "" {
+		descendantBindings = 1
+	}
 	return Demand{
 		ensureCalls:             ensureCalls,
 		barrierValidationCalls:  barrierValidationCalls,
 		stateDirValidationCalls: stateDirValidationCalls,
 		descendantPath:          descendantPath,
+		descendantBindings:      descendantBindings,
 		descendantValidations:   descendantValidations,
 		descendantFileCommits:   descendantFileCommits,
 	}
@@ -274,14 +284,17 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 	}
 
 	descendantPath := ""
+	descendantBindings := 0
 	if !statefile.empty() {
 		descendantPath = work.StatefilePath
+		descendantBindings = 1
 	}
 	builder.demand = Demand{
 		ensureCalls:             ensureCalls,
 		barrierValidationCalls:  barrierCalls,
 		stateDirValidationCalls: stateDirOnlyCalls,
 		descendantPath:          descendantPath,
+		descendantBindings:      descendantBindings,
 		descendantValidations:   statefile.validations,
 		descendantFileCommits:   statefile.commits,
 	}
@@ -299,6 +312,7 @@ func CompileRefresh(statefilePath string) Envelope {
 		ensureCalls:            1,
 		barrierValidationCalls: 4,
 		descendantPath:         statefilePath,
+		descendantBindings:     1,
 		descendantValidations:  2,
 		descendantFileCommits:  1,
 	}

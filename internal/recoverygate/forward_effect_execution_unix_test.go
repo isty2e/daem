@@ -5,9 +5,11 @@ package recoverygate
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
@@ -201,6 +203,74 @@ func TestForwardEffectExecutionAllowsSettledFailureAfterEffectWithConservativeOv
 		operationplan.EffectStepTerminal,
 	); err != nil {
 		t.Fatal(err)
+	}
+	if err := execution.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	if err := execution.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestForwardEffectExecutionCouplesDescendantPhysicalAuthorityToCursor(t *testing.T) {
+	t.Parallel()
+	authority, stateDir := newStructuralForwardTestAuthority(t, true)
+	var builder operationplan.EffectStructureBuilder
+	structure, err := builder.Compile(operationplan.EffectSequence(
+		builder.Step("bind", operationplan.EffectStepBindDescendant),
+		builder.Step("validate", operationplan.EffectStepValidateDescendant),
+		builder.Step("publish", operationplan.EffectStepPublishDescendant),
+		builder.Step("terminal", operationplan.EffectStepTerminal),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := authority.ReserveForwardEffectExecution(
+		structure,
+		filepath.Join(stateDir, "state.json"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := execution.BindDescendant(t.Context(), "wrong"); err == nil {
+		t.Fatal("mismatched bind was accepted")
+	}
+	if err := execution.BindDescendant(t.Context(), "bind"); err != nil {
+		t.Fatalf("bind after mismatch: %v", err)
+	}
+	if err := execution.BindDescendant(t.Context(), "bind"); err == nil {
+		t.Fatal("duplicate bind was accepted")
+	}
+	if err := execution.ValidateDescendant(t.Context(), "validate"); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	if err := execution.PublishDescendant("publish", nil); err == nil {
+		t.Fatal("nil publication callback was accepted")
+	}
+	if err := execution.PublishDescendant(
+		"publish",
+		func(_ *rootedpath.EntryAuthority) error {
+			called = true
+			return nil
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("publication callback was not invoked")
+	}
+	if err := execution.ConsumeLifecycle("terminal", operationplan.EffectStepTerminal); err != nil {
+		t.Fatal(err)
+	}
+	if err := execution.Finish(); err == nil || !strings.Contains(err.Error(), "remains open") {
+		t.Fatalf("finish with open descendant error = %v", err)
+	}
+	if err := execution.CloseDescendant(); err != nil {
+		t.Fatal(err)
+	}
+	if err := execution.CloseDescendant(); err != nil {
+		t.Fatalf("idempotent descendant close: %v", err)
 	}
 	if err := execution.Finish(); err != nil {
 		t.Fatal(err)

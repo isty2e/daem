@@ -64,6 +64,7 @@ func (structure EffectStructure) DemandAlternatives() ([]Demand, error) {
 			ensureCalls:             alternative.demand.ensureCalls,
 			barrierValidationCalls:  alternative.demand.barrierValidationCalls,
 			stateDirValidationCalls: alternative.demand.stateDirValidationCalls,
+			descendantBindings:      alternative.demand.descendantBindings,
 			descendantValidations:   alternative.demand.descendantValidations,
 			descendantFileCommits:   alternative.demand.descendantFileCommits,
 		}
@@ -327,6 +328,7 @@ func effectDemandDominates(left effectDemand, right effectDemand) bool {
 		left.ensureCalls >= right.ensureCalls &&
 		left.barrierValidationCalls >= right.barrierValidationCalls &&
 		left.stateDirValidationCalls >= right.stateDirValidationCalls &&
+		left.descendantBindings >= right.descendantBindings &&
 		left.descendantValidations >= right.descendantValidations &&
 		left.descendantFileCommits >= right.descendantFileCommits
 }
@@ -336,6 +338,7 @@ func effectDemandLess(left effectDemand, right effectDemand) bool {
 		left.ensureCalls,
 		left.barrierValidationCalls,
 		left.stateDirValidationCalls,
+		left.descendantBindings,
 		left.descendantValidations,
 		left.descendantFileCommits,
 	}
@@ -343,6 +346,7 @@ func effectDemandLess(left effectDemand, right effectDemand) bool {
 		right.ensureCalls,
 		right.barrierValidationCalls,
 		right.stateDirValidationCalls,
+		right.descendantBindings,
 		right.descendantValidations,
 		right.descendantFileCommits,
 	}

@@ -20,6 +20,7 @@ func TestRefreshEffectStructureMatchesLegacyReservationDemand(t *testing.T) {
 	if compiled.EnsureCalls() != legacy.EnsureCalls() ||
 		compiled.BarrierValidationCalls() != legacy.BarrierValidationCalls() ||
 		compiled.StateDirValidationCalls() != legacy.StateDirValidationCalls() ||
+		compiled.DescendantBindings() != legacy.DescendantBindings() ||
 		compiled.DescendantValidations() != legacy.DescendantValidations() ||
 		compiled.DescendantFileCommits() != legacy.DescendantFileCommits() {
 		t.Fatalf("compiled demand = %#v, legacy = %#v", compiled, legacy)
@@ -153,6 +154,12 @@ func refreshPersistenceCheckpoints() []refreshPersistenceCheckpoint {
 		{
 			stepID:            refreshStepPersistenceEstablishStateDir,
 			kind:              operationplan.EffectStepEstablishStateDir,
+			choiceID:          refreshPersistenceStateDirChoice,
+			failureTerminalID: refreshStepPersistenceStateDirFailed,
+		},
+		{
+			stepID:            refreshStepPersistenceBindDescendant,
+			kind:              operationplan.EffectStepBindDescendant,
 			choiceID:          refreshPersistenceAuthorityChoice,
 			failureTerminalID: refreshStepPersistenceAuthorityFailed,
 		},

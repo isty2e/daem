@@ -17,6 +17,8 @@ const (
 	EffectStepValidateStateDir
 	// EffectStepForwardEffect marks one StateDir-governed forward effect boundary.
 	EffectStepForwardEffect
+	// EffectStepBindDescendant binds one reserved StateDir descendant authority.
+	EffectStepBindDescendant
 	// EffectStepValidateDescendant requests one bound descendant validation.
 	EffectStepValidateDescendant
 	// EffectStepPublishDescendant requests one bound descendant publication.

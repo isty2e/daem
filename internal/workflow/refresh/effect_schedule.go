@@ -7,6 +7,7 @@ const (
 	refreshNotStartedClassificationChoice      = "refresh-not-started-classification"
 	refreshStartedClassificationChoice         = "refresh-started-classification"
 	refreshPersistenceChoice                   = "refresh-attempt-persistence"
+	refreshPersistenceStateDirChoice           = "refresh-persistence-state-dir"
 	refreshPersistenceAuthorityChoice          = "refresh-persistence-authority"
 	refreshPrePersistenceBarrierChoice         = "refresh-pre-persistence-barrier-result"
 	refreshPrePersistenceDescendantChoice      = "refresh-pre-persistence-descendant-result"
@@ -23,6 +24,8 @@ const (
 	refreshStepStartedClassificationFailed     = "refresh/started-classification-failed"
 	refreshStepUnpersistedTerminal             = "refresh/unpersisted-terminal"
 	refreshStepPersistenceEstablishStateDir    = "refresh/persistence-establish-state-dir"
+	refreshStepPersistenceStateDirFailed       = "refresh/persistence-state-dir-failed"
+	refreshStepPersistenceBindDescendant       = "refresh/persistence-bind-descendant"
 	refreshStepPersistenceAuthorityFailed      = "refresh/persistence-authority-failed"
 	refreshStepPrePersistenceBarrier           = "refresh/pre-persistence-barrier"
 	refreshStepPrePersistenceBarrierFailed     = "refresh/pre-persistence-barrier-failed"
@@ -114,10 +117,10 @@ func compileRefreshEffectStructure() (operationplan.EffectStructure, error) {
 			prePersistenceDescendant,
 		),
 	)
-	persistenceAuthority := operationplan.EffectSequence(
+	persistenceBinding := operationplan.EffectSequence(
 		builder.Step(
-			refreshStepPersistenceEstablishStateDir,
-			operationplan.EffectStepEstablishStateDir,
+			refreshStepPersistenceBindDescendant,
+			operationplan.EffectStepBindDescendant,
 		),
 		builder.Choice(
 			refreshPersistenceAuthorityChoice,
@@ -126,6 +129,20 @@ func compileRefreshEffectStructure() (operationplan.EffectStructure, error) {
 				operationplan.EffectStepTerminal,
 			),
 			prePersistenceBarrier,
+		),
+	)
+	persistenceAuthority := operationplan.EffectSequence(
+		builder.Step(
+			refreshStepPersistenceEstablishStateDir,
+			operationplan.EffectStepEstablishStateDir,
+		),
+		builder.Choice(
+			refreshPersistenceStateDirChoice,
+			builder.Step(
+				refreshStepPersistenceStateDirFailed,
+				operationplan.EffectStepTerminal,
+			),
+			persistenceBinding,
 		),
 	)
 	persistence := builder.Choice(

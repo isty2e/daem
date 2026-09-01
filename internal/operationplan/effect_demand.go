@@ -7,6 +7,7 @@ type effectDemand struct {
 	ensureCalls             int
 	barrierValidationCalls  int
 	stateDirValidationCalls int
+	descendantBindings      int
 	descendantValidations   int
 	descendantFileCommits   int
 }
@@ -34,6 +35,13 @@ func (demand effectDemand) add(other effectDemand) (effectDemand, error) {
 	demand.stateDirValidationCalls, err = checkedAdd(
 		demand.stateDirValidationCalls,
 		other.stateDirValidationCalls,
+	)
+	if err != nil {
+		return effectDemand{}, err
+	}
+	demand.descendantBindings, err = checkedAdd(
+		demand.descendantBindings,
+		other.descendantBindings,
 	)
 	if err != nil {
 		return effectDemand{}, err
@@ -73,6 +81,10 @@ func (demand effectDemand) multiply(count int) (effectDemand, error) {
 	if err != nil {
 		return effectDemand{}, err
 	}
+	demand.descendantBindings, err = checkedMul(demand.descendantBindings, count)
+	if err != nil {
+		return effectDemand{}, err
+	}
 	demand.descendantValidations, err = checkedMul(demand.descendantValidations, count)
 	if err != nil {
 		return effectDemand{}, err
@@ -90,6 +102,7 @@ func (demand effectDemand) maximum(other effectDemand) effectDemand {
 		ensureCalls:             max(demand.ensureCalls, other.ensureCalls),
 		barrierValidationCalls:  max(demand.barrierValidationCalls, other.barrierValidationCalls),
 		stateDirValidationCalls: max(demand.stateDirValidationCalls, other.stateDirValidationCalls),
+		descendantBindings:      max(demand.descendantBindings, other.descendantBindings),
 		descendantValidations:   max(demand.descendantValidations, other.descendantValidations),
 		descendantFileCommits:   max(demand.descendantFileCommits, other.descendantFileCommits),
 	}
@@ -118,6 +131,7 @@ func (structure EffectStructure) LegacyDemand() (Demand, error) {
 		ensureCalls:             legacy.ensureCalls,
 		barrierValidationCalls:  legacy.barrierValidationCalls,
 		stateDirValidationCalls: legacy.stateDirValidationCalls,
+		descendantBindings:      legacy.descendantBindings,
 		descendantValidations:   legacy.descendantValidations,
 		descendantFileCommits:   legacy.descendantFileCommits,
 	}, nil
@@ -199,6 +213,8 @@ func effectStepDemand(kind EffectStepKind) effectDemand {
 		return effectDemand{stateDirValidationCalls: 1}
 	case EffectStepForwardEffect:
 		return effectDemand{forwardEffectCalls: 1}
+	case EffectStepBindDescendant:
+		return effectDemand{descendantBindings: 1}
 	case EffectStepValidateDescendant:
 		return effectDemand{descendantValidations: 1}
 	case EffectStepPublishDescendant:

@@ -2,8 +2,10 @@ package recoverygate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
@@ -12,12 +14,13 @@ import (
 // exact immutable owner schedule that justified the reservation. It validates
 // structure only; callers retain all effect outcome and successor semantics.
 type ForwardEffectExecution struct {
-	cursor      *operationplan.EffectCursor
-	paths       daempaths.Paths
-	stateDir    *StateDirExecutionAuthority
-	reservation *StateDirOperationReservation
-	settled     bool
-	closed      bool
+	cursor                *operationplan.EffectCursor
+	paths                 daempaths.Paths
+	stateDir              *StateDirExecutionAuthority
+	descendantReservation *StateDirDescendantReservation
+	descendant            *StateDirDescendantAuthority
+	settled               bool
+	closed                bool
 }
 
 // ReserveForwardEffectExecution reserves the branch-aware structure and
@@ -36,11 +39,18 @@ func (authority EffectAuthority) ReserveForwardEffectExecution(
 	if err != nil {
 		return nil, err
 	}
+	var descendantReservation *StateDirDescendantReservation
+	if planned.hasDescendant {
+		descendantReservation, err = reservation.TakeDescendant()
+		if err != nil {
+			return nil, err
+		}
+	}
 	return &ForwardEffectExecution{
-		cursor:      structure.Begin(),
-		paths:       authority.paths,
-		stateDir:    reservation.Execution(),
-		reservation: reservation,
+		cursor:                structure.Begin(),
+		paths:                 authority.paths,
+		stateDir:              reservation.Execution(),
+		descendantReservation: descendantReservation,
 	}, nil
 }
 
@@ -129,22 +139,76 @@ func (execution *ForwardEffectExecution) ConsumeForwardEffect(
 	}
 }
 
-// ConsumeDescendantValidation authorizes one exact descendant identity check.
-// The caller immediately performs the check through its retained descendant
-// authority.
-func (execution *ForwardEffectExecution) ConsumeDescendantValidation(
+// BindDescendant consumes the exact binding checkpoint before acquiring the
+// one reserved descendant authority.
+func (execution *ForwardEffectExecution) BindDescendant(
+	ctx context.Context,
 	stepID string,
 ) error {
-	return execution.consume(stepID, operationplan.EffectStepValidateDescendant)
+	if err := execution.consume(stepID, operationplan.EffectStepBindDescendant); err != nil {
+		return err
+	}
+	if execution.descendant != nil {
+		return fmt.Errorf("forward effect descendant authority is already bound")
+	}
+	if execution.descendantReservation == nil {
+		return fmt.Errorf("forward effect descendant reservation is unavailable")
+	}
+	reservation := execution.descendantReservation
+	execution.descendantReservation = nil
+	descendant, err := reservation.Bind(ctx)
+	if err != nil {
+		return err
+	}
+	execution.descendant = descendant
+	return nil
 }
 
-// ConsumeDescendantPublication authorizes one exact descendant publication.
-// The caller immediately performs the publication through its retained entry
-// capability.
-func (execution *ForwardEffectExecution) ConsumeDescendantPublication(
+// ValidateDescendant consumes the exact identity checkpoint before validating
+// the bound descendant authority.
+func (execution *ForwardEffectExecution) ValidateDescendant(
+	ctx context.Context,
 	stepID string,
 ) error {
-	return execution.consume(stepID, operationplan.EffectStepPublishDescendant)
+	if err := execution.consume(stepID, operationplan.EffectStepValidateDescendant); err != nil {
+		return err
+	}
+	if execution.descendant == nil {
+		return fmt.Errorf("forward effect descendant authority is not bound")
+	}
+	return execution.descendant.Validate(ctx)
+}
+
+// PublishDescendant consumes the exact publication checkpoint before lending
+// the bound entry capability to one immediate owner-local publication.
+func (execution *ForwardEffectExecution) PublishDescendant(
+	stepID string,
+	publish func(*rootedpath.EntryAuthority) error,
+) error {
+	if publish == nil {
+		return fmt.Errorf("forward effect descendant publication is required")
+	}
+	if err := execution.consume(stepID, operationplan.EffectStepPublishDescendant); err != nil {
+		return err
+	}
+	if execution.descendant == nil {
+		return fmt.Errorf("forward effect descendant authority is not bound")
+	}
+	entry := execution.descendant.Entry()
+	if entry == nil {
+		return fmt.Errorf("forward effect descendant entry authority is unavailable")
+	}
+	return publish(entry)
+}
+
+// CloseDescendant releases the bound descendant authority exactly once.
+func (execution *ForwardEffectExecution) CloseDescendant() error {
+	if execution == nil || execution.descendant == nil {
+		return nil
+	}
+	descendant := execution.descendant
+	execution.descendant = nil
+	return descendant.Close()
 }
 
 // ConsumeLifecycle consumes one owner-local non-State-Barrier lifecycle step.
@@ -171,22 +235,14 @@ func (execution *ForwardEffectExecution) ConsumeLifecycle(
 	}
 }
 
-// TakeDescendant transfers the one physically reserved descendant envelope.
-func (execution *ForwardEffectExecution) TakeDescendant() (
-	*StateDirDescendantReservation,
-	error,
-) {
-	if err := execution.requireActive(); err != nil {
-		return nil, err
-	}
-	return execution.reservation.TakeDescendant()
-}
-
 // Finish requires the selected structural path to be fully consumed. It does
 // not interpret the owning operation's semantic result.
 func (execution *ForwardEffectExecution) Finish() error {
 	if err := execution.requireActive(); err != nil {
 		return err
+	}
+	if execution.descendant != nil {
+		return fmt.Errorf("forward effect descendant authority remains open")
 	}
 	if err := execution.cursor.FinishSuccess(); err != nil {
 		return err
@@ -202,14 +258,18 @@ func (execution *ForwardEffectExecution) Close() error {
 		return nil
 	}
 	execution.closed = true
+	descendantErr := execution.CloseDescendant()
 	if execution.settled {
-		return nil
+		return descendantErr
 	}
 	if err := execution.cursor.AbortBeforeEffect(); err != nil {
-		return fmt.Errorf("forward effect execution did not settle: %w", err)
+		return errors.Join(
+			descendantErr,
+			fmt.Errorf("forward effect execution did not settle: %w", err),
+		)
 	}
 	execution.settled = true
-	return nil
+	return descendantErr
 }
 
 func (execution *ForwardEffectExecution) consume(
@@ -223,8 +283,7 @@ func (execution *ForwardEffectExecution) consume(
 }
 
 func (execution *ForwardEffectExecution) requireActive() error {
-	if execution == nil || execution.cursor == nil || execution.stateDir == nil ||
-		execution.reservation == nil {
+	if execution == nil || execution.cursor == nil || execution.stateDir == nil {
 		return fmt.Errorf("forward effect execution is required")
 	}
 	if execution.closed {

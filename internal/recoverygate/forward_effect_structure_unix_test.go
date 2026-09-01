@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
@@ -175,10 +176,23 @@ func TestReserveForwardEffectExecutionDerivesStructuralUpperBound(t *testing.T) 
 	if err := descendantExecution.SelectAlternative("physical-alternatives", 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := descendantExecution.TakeDescendant(); err != nil {
+	if err := descendantExecution.BindDescendant(t.Context(), "bind"); err != nil {
 		t.Fatal(err)
 	}
-	if err := descendantExecution.ConsumeDescendantPublication("commit"); err != nil {
+	published := false
+	if err := descendantExecution.PublishDescendant(
+		"commit",
+		func(_ *rootedpath.EntryAuthority) error {
+			published = true
+			return nil
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !published {
+		t.Fatal("descendant publication callback was not invoked")
+	}
+	if err := descendantExecution.CloseDescendant(); err != nil {
 		t.Fatal(err)
 	}
 	if err := descendantExecution.Finish(); err != nil {
@@ -212,6 +226,33 @@ func TestReserveForwardEffectExecutionRequiresExactDescendantBinding(t *testing.
 	); err == nil || !strings.Contains(err.Error(), "set without descendant demand") {
 		t.Fatalf("unused descendant binding error = %v", err)
 	}
+
+	var bindBuilder operationplan.EffectStructureBuilder
+	bindOnly, err := bindBuilder.Compile(
+		bindBuilder.Step("bind", operationplan.EffectStepBindDescendant),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authority.ReserveForwardEffectExecution(bindOnly, ""); err == nil ||
+		!strings.Contains(err.Error(), "requires a descendant path binding") {
+		t.Fatalf("bind-only missing path error = %v", err)
+	}
+
+	var repeatedBuilder operationplan.EffectStructureBuilder
+	repeated, err := repeatedBuilder.Compile(operationplan.EffectSequence(
+		repeatedBuilder.Step("bind-1", operationplan.EffectStepBindDescendant),
+		repeatedBuilder.Step("bind-2", operationplan.EffectStepBindDescendant),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authority.ReserveForwardEffectExecution(
+		repeated,
+		filepath.Join(stateDir, "state.json"),
+	); err == nil || !strings.Contains(err.Error(), "at most one is supported") {
+		t.Fatalf("repeated descendant binding error = %v", err)
+	}
 }
 
 func incomparableForwardStructure(t *testing.T) operationplan.EffectStructure {
@@ -225,7 +266,10 @@ func incomparableForwardStructure(t *testing.T) operationplan.EffectStructure {
 	choice := builder.Choice(
 		"physical-alternatives",
 		barriers,
-		builder.Step("commit", operationplan.EffectStepPublishDescendant),
+		operationplan.EffectSequence(
+			builder.Step("bind", operationplan.EffectStepBindDescendant),
+			builder.Step("commit", operationplan.EffectStepPublishDescendant),
+		),
 	)
 	structure, err := builder.Compile(choice)
 	if err != nil {
