@@ -77,12 +77,10 @@ type retirementBindings struct {
 func executePreparedRetirement(
 	ctx context.Context,
 	prepared *RetirementContinuation,
+	gate RetirementStepGate,
 ) error {
 	if ctx == nil {
 		return fmt.Errorf("journal retirement context is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
 	}
 	if prepared == nil || prepared.retirementContinuationState == nil || !prepared.execution.valid() {
 		return fmt.Errorf("journal retirement execution is uninitialized")
@@ -91,7 +89,20 @@ func executePreparedRetirement(
 	bindings := prepared.bindings
 	filesystem := prepared.filesystem
 	evidence := prepared.evidence
-	if err := requirePreparedRetirementLayout(ctx, prepared); err != nil {
+	finalizing, err := execution.record.Finalizing()
+	if err != nil {
+		return fmt.Errorf("derive finalizing journal retirement record: %w", err)
+	}
+	if err := executeRetirementStep(
+		gate,
+		RetirementStepValidatePreparedLayout,
+		func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return requirePreparedRetirementLayout(ctx, prepared)
+		},
+	); err != nil {
 		return err
 	}
 	if execution.start == retirementStartActive {
@@ -148,96 +159,132 @@ func executePreparedRetirement(
 		}
 	}
 	if execution.advancesPhase() {
-		if err := requireRetirementControl(
-			ctx,
-			filesystem,
-			bindings.control,
-			execution.record,
-			evidence.controlCurrentLimits,
+		if err := executeRetirementStep(
+			gate,
+			RetirementStepValidatePhaseAdvanceLayout,
+			func() error {
+				if err := requireRetirementControl(
+					ctx,
+					filesystem,
+					bindings.control,
+					execution.record,
+					evidence.controlCurrentLimits,
+				); err != nil {
+					return fmt.Errorf("verify prepared journal retirement control: %w", err)
+				}
+				residueEvidence := evidence.residue
+				if execution.start == retirementStartActive {
+					residueEvidence = evidence.active
+				}
+				if err := requireRetirementTreeEvidence(
+					ctx,
+					filesystem,
+					bindings.residue,
+					residueEvidence,
+					residueLimitsForExecution(evidence, execution),
+					false,
+					"journal retirement residue",
+				); err != nil {
+					return fmt.Errorf("verify journal retirement residue before finalizing: %w", err)
+				}
+				return nil
+			},
 		); err != nil {
-			return fmt.Errorf("verify prepared journal retirement control: %w", err)
+			return err
 		}
-		residueEvidence := evidence.residue
-		if execution.start == retirementStartActive {
-			residueEvidence = evidence.active
-		}
-		if err := requireRetirementTreeEvidence(
-			ctx,
-			filesystem,
-			bindings.residue,
-			residueEvidence,
-			residueLimitsForExecution(evidence, execution),
-			false,
-			"journal retirement residue",
+		if err := executeRetirementStep(
+			gate,
+			RetirementStepAdvanceRecord,
+			func() error {
+				return advanceRetirementRecord(ctx, filesystem, execution.record, bindings.record)
+			},
 		); err != nil {
-			return fmt.Errorf("verify journal retirement residue before finalizing: %w", err)
-		}
-		if err := advanceRetirementRecord(ctx, filesystem, execution.record, bindings.record); err != nil {
 			return err
 		}
 	}
-	finalizing, err := execution.record.Finalizing()
-	if err != nil {
-		return fmt.Errorf("derive finalizing journal retirement record: %w", err)
-	}
-	if err := requireRetirementControl(
-		ctx,
-		filesystem,
-		bindings.control,
-		finalizing,
-		evidence.controlFinalLimits,
+	if err := executeRetirementStep(
+		gate,
+		RetirementStepValidateFinalizingLayout,
+		func() error {
+			if err := requireRetirementControl(
+				ctx,
+				filesystem,
+				bindings.control,
+				finalizing,
+				evidence.controlFinalLimits,
+			); err != nil {
+				return fmt.Errorf("verify finalizing journal retirement control: %w", err)
+			}
+			if execution.hasResidue() {
+				residueEvidence := evidence.residue
+				if execution.start == retirementStartActive {
+					residueEvidence = evidence.active
+				}
+				return requireRetirementTreeEvidence(
+					ctx,
+					filesystem,
+					bindings.residue,
+					residueEvidence,
+					residueLimitsForExecution(evidence, execution),
+					false,
+					"journal retirement residue",
+				)
+			}
+			return requireRetirementEntryAbsent(
+				ctx,
+				filesystem,
+				bindings.residue,
+				"journal retirement residue",
+			)
+		},
 	); err != nil {
-		return fmt.Errorf("verify finalizing journal retirement control: %w", err)
+		return err
 	}
 	if execution.hasResidue() {
-		residueEvidence := evidence.residue
-		if execution.start == retirementStartActive {
-			residueEvidence = evidence.active
-		}
 		residueLimits := residueLimitsForExecution(evidence, execution)
-		if err := requireRetirementTreeEvidence(
-			ctx,
-			filesystem,
-			bindings.residue,
-			residueEvidence,
-			residueLimits,
-			false,
-			"journal retirement residue",
+		if err := executeRetirementStep(
+			gate,
+			RetirementStepCleanupResidue,
+			func() error {
+				return cleanupRetirementEntry(
+					ctx,
+					filesystem,
+					bindings.residue,
+					"journal retirement residue",
+					residueLimits,
+				)
+			},
 		); err != nil {
 			return err
 		}
-		if err := cleanupRetirementEntry(
-			ctx,
-			filesystem,
-			bindings.residue,
-			"journal retirement residue",
-			residueLimits,
-		); err != nil {
-			return err
-		}
-	} else if err := requireRetirementEntryAbsent(
-		ctx,
-		filesystem,
-		bindings.residue,
-		"journal retirement residue",
+	}
+	if err := executeRetirementStep(
+		gate,
+		RetirementStepRetireControl,
+		func() error {
+			return renameRetirementControl(
+				ctx,
+				filesystem,
+				bindings.control,
+				execution.record.Identity().GCName(),
+				"journal retirement control",
+			)
+		},
 	); err != nil {
 		return err
 	}
-	if err := renameRetirementControl(
-		ctx,
-		filesystem,
-		bindings.control,
-		execution.record.Identity().GCName(),
-		"journal retirement control",
-	); err != nil {
-		return err
-	}
-	if err := cleanupRetirementEntry(
-		ctx,
-		filesystem,
-		bindings.garbage,
-		"journal retirement GC residue",
-		evidence.controlFinalLimits,
+	if err := executeRetirementStep(
+		gate,
+		RetirementStepCleanupGarbage,
+		func() error {
+			return cleanupRetirementEntry(
+				ctx,
+				filesystem,
+				bindings.garbage,
+				"journal retirement GC residue",
+				evidence.controlFinalLimits,
+			)
+		},
 	); err != nil {
 		return finalizedWithGCResidue(err)
 	}
