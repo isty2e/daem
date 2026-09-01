@@ -271,6 +271,9 @@ func (authority *mutationAuthority) retireActiveJournal(
 		classification != recovery.ClassificationCleanAfter {
 		return fmt.Errorf("recovery journal retirement requires a clean classified plan")
 	}
+	if _, err := compileActiveJournalRetirementStructure(); err != nil {
+		return fmt.Errorf("compile active journal retirement schedule: %w", err)
+	}
 	if err := authority.preparedRetirement.AdvanceActiveBasis(
 		ctx,
 		plan,
