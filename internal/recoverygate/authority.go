@@ -209,14 +209,6 @@ func normalizeStateDirValidation(err error) error {
 	return err
 }
 
-func (authority EffectAuthority) ensureStateDir(ctx context.Context) (bool, error) {
-	if err := authority.requireInitialized(); err != nil {
-		return false, err
-	}
-	created, err := authority.stateDir.EnsureOwnedIncarnation(ctx)
-	return created, normalizeStateDirValidation(err)
-}
-
 // EnsureStateDirForEffect validates peer workflow authority and the recovery
 // barrier before StateDir creation, then revalidates both after that first
 // authorized visibility effect.
@@ -236,14 +228,48 @@ func (authority EffectAuthority) EnsureStateDirForEffect(
 	if err := authority.Validate(ctx); err != nil {
 		return false, err
 	}
-	created, err := authority.ensureStateDir(ctx)
+	created, err := authority.stateDir.EnsureOwnedIncarnation(ctx)
 	if err != nil {
-		return created, err
+		return created, normalizeStateDirValidation(err)
 	}
 	if err := validatePeer(ctx); err != nil {
 		return created, err
 	}
 	if err := authority.Validate(ctx); err != nil {
+		return created, err
+	}
+	return created, nil
+}
+
+func ensureReservedStateDirForEffect(
+	ctx context.Context,
+	paths daempaths.Paths,
+	stateDir *StateDirExecutionAuthority,
+	validatePeer func(context.Context) error,
+) (bool, error) {
+	if ctx == nil {
+		return false, fmt.Errorf("recovery effect context is required")
+	}
+	if stateDir == nil {
+		return false, fmt.Errorf("reserved StateDir execution authority is required")
+	}
+	if validatePeer == nil {
+		return false, fmt.Errorf("recovery effect peer validation is required")
+	}
+	if err := validatePeer(ctx); err != nil {
+		return false, err
+	}
+	if err := validateBarrier(ctx, paths, stateDir); err != nil {
+		return false, err
+	}
+	created, err := stateDir.EnsureOwnedIncarnation(ctx)
+	if err != nil {
+		return created, normalizeStateDirValidation(err)
+	}
+	if err := validatePeer(ctx); err != nil {
+		return created, err
+	}
+	if err := validateBarrier(ctx, paths, stateDir); err != nil {
 		return created, err
 	}
 	return created, nil
@@ -348,23 +374,12 @@ func (authority *ForwardEffectAuthority) EnsureStateDirForEffect(
 	if err := authority.consume(&authority.remainingEnsures, "StateDir effect establishment"); err != nil {
 		return false, err
 	}
-	if err := validatePeer(ctx); err != nil {
-		return false, err
-	}
-	if err := validateBarrier(ctx, authority.authority.paths, authority.stateDir); err != nil {
-		return false, err
-	}
-	created, err := authority.stateDir.EnsureOwnedIncarnation(ctx)
-	if err != nil {
-		return created, normalizeStateDirValidation(err)
-	}
-	if err := validatePeer(ctx); err != nil {
-		return created, err
-	}
-	if err := validateBarrier(ctx, authority.authority.paths, authority.stateDir); err != nil {
-		return created, err
-	}
-	return created, nil
+	return ensureReservedStateDirForEffect(
+		ctx,
+		authority.authority.paths,
+		authority.stateDir,
+		validatePeer,
+	)
 }
 
 func (authority *ForwardEffectAuthority) consume(remaining *int, label string) error {

@@ -30,12 +30,29 @@ func (authority EffectAuthority) reserveForwardEffectStructure(
 	structure operationplan.EffectStructure,
 	legacyDemand operationplan.Demand,
 ) (*ForwardEffectAuthority, error) {
-	if err := authority.requireInitialized(); err != nil {
+	legacyPlan, planned, err := authority.prepareForwardEffectStructure(
+		structure,
+		legacyDemand,
+	)
+	if err != nil {
 		return nil, err
+	}
+	return authority.reserveLoweredPlan(legacyPlan, planned)
+}
+
+func (authority EffectAuthority) prepareForwardEffectStructure(
+	structure operationplan.EffectStructure,
+	legacyDemand operationplan.Demand,
+) (forwardEffectPlan, plannedStateDirOperation, error) {
+	if err := authority.requireInitialized(); err != nil {
+		return forwardEffectPlan{}, plannedStateDirOperation{}, err
 	}
 	alternatives, err := structure.DemandAlternatives()
 	if err != nil {
-		return nil, fmt.Errorf("lower forward effect structure: %w", err)
+		return forwardEffectPlan{}, plannedStateDirOperation{}, fmt.Errorf(
+			"lower forward effect structure: %w",
+			err,
+		)
 	}
 	legacyPlan := planFromDemand(legacyDemand)
 	structuralPlan, err := maximumStructuralForwardPlan(
@@ -43,10 +60,10 @@ func (authority EffectAuthority) reserveForwardEffectStructure(
 		legacyPlan.DescendantPath,
 	)
 	if err != nil {
-		return nil, err
+		return forwardEffectPlan{}, plannedStateDirOperation{}, err
 	}
 	if !sameForwardPlanCounts(structuralPlan, legacyPlan) {
-		return nil, fmt.Errorf(
+		return forwardEffectPlan{}, plannedStateDirOperation{}, fmt.Errorf(
 			"forward effect structure demand differs from legacy demand: "+
 				"structural ensure=%d barrier=%d StateDir=%d descendant-validations=%d descendant-commits=%d "+
 				"legacy ensure=%d barrier=%d StateDir=%d descendant-validations=%d descendant-commits=%d",
@@ -67,16 +84,16 @@ func (authority EffectAuthority) reserveForwardEffectStructure(
 		legacyPlan.DescendantPath,
 	)
 	if err != nil {
-		return nil, err
+		return forwardEffectPlan{}, plannedStateDirOperation{}, err
 	}
 	legacyLowered, err := authority.lowerForwardPlan(legacyPlan)
 	if err != nil {
-		return nil, err
+		return forwardEffectPlan{}, plannedStateDirOperation{}, err
 	}
 	if !legacyLowered.work.state.dominates(structuralWork.state) ||
 		legacyLowered.work.descendant < structuralWork.descendant ||
 		!legacyLowered.work.total.dominates(structuralWork.total) {
-		return nil, fmt.Errorf(
+		return forwardEffectPlan{}, plannedStateDirOperation{}, fmt.Errorf(
 			"legacy forward reservation does not dominate structural physical work: "+
 				"structural state=%+v descendant=%d total=%+v "+
 				"legacy state=%+v descendant=%d total=%+v",
@@ -88,7 +105,7 @@ func (authority EffectAuthority) reserveForwardEffectStructure(
 			legacyLowered.work.total,
 		)
 	}
-	return authority.reserveLoweredPlan(legacyPlan, legacyLowered.planned)
+	return legacyPlan, legacyLowered.planned, nil
 }
 
 func maximumStructuralForwardPlan(

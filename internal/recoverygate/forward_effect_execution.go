@@ -5,31 +5,42 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/operationplan"
+	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
 // ForwardEffectExecution couples one reserved State Barrier authority to the
 // exact immutable owner schedule that justified the reservation. It validates
 // structure only; callers retain all effect outcome and successor semantics.
 type ForwardEffectExecution struct {
-	cursor    *operationplan.EffectCursor
-	authority *ForwardEffectAuthority
-	settled   bool
-	closed    bool
+	cursor      *operationplan.EffectCursor
+	paths       daempaths.Paths
+	stateDir    *StateDirExecutionAuthority
+	reservation *StateDirOperationReservation
+	settled     bool
+	closed      bool
 }
 
 // ReserveForwardEffectExecution reserves the branch-aware structure and
-// returns its operation-local ordered consumption authority.
+// returns its operation-local ordered cursor over raw physical authority. The
+// transitional legacy demand is checked during lowering but is not retained as
+// a second runtime semantic counter layer.
 func (authority EffectAuthority) ReserveForwardEffectExecution(
 	structure operationplan.EffectStructure,
 	legacyDemand operationplan.Demand,
 ) (*ForwardEffectExecution, error) {
-	forward, err := authority.reserveForwardEffectStructure(structure, legacyDemand)
+	_, planned, err := authority.prepareForwardEffectStructure(structure, legacyDemand)
+	if err != nil {
+		return nil, err
+	}
+	reservation, err := authority.stateDir.reservePlannedOperation(planned)
 	if err != nil {
 		return nil, err
 	}
 	return &ForwardEffectExecution{
-		cursor:    structure.Begin(),
-		authority: forward,
+		cursor:      structure.Begin(),
+		paths:       authority.paths,
+		stateDir:    reservation.Execution(),
+		reservation: reservation,
 	}, nil
 }
 
@@ -52,7 +63,7 @@ func (execution *ForwardEffectExecution) ValidateBarrier(
 	if err := execution.consume(stepID, operationplan.EffectStepValidateBarrier); err != nil {
 		return err
 	}
-	return execution.authority.Validate(ctx)
+	return validateBarrier(ctx, execution.paths, execution.stateDir)
 }
 
 // ValidateStateDir consumes the exact retained-incarnation checkpoint before
@@ -64,7 +75,7 @@ func (execution *ForwardEffectExecution) ValidateStateDir(
 	if err := execution.consume(stepID, operationplan.EffectStepValidateStateDir); err != nil {
 		return err
 	}
-	return execution.authority.ValidateStateDir(ctx)
+	return normalizeStateDirValidation(execution.stateDir.Validate(ctx))
 }
 
 // EstablishStateDir consumes an explicit first-incarnation checkpoint before
@@ -77,7 +88,12 @@ func (execution *ForwardEffectExecution) EstablishStateDir(
 	if err := execution.consume(stepID, operationplan.EffectStepEstablishStateDir); err != nil {
 		return false, err
 	}
-	return execution.authority.EnsureStateDirForEffect(ctx, validatePeer)
+	return ensureReservedStateDirForEffect(
+		ctx,
+		execution.paths,
+		execution.stateDir,
+		validatePeer,
+	)
 }
 
 // ConsumeForwardEffect consumes one phase-relative forward obligation and
@@ -96,9 +112,14 @@ func (execution *ForwardEffectExecution) ConsumeForwardEffect(
 	}
 	switch checkpoint {
 	case operationplan.ForwardEffectEstablishStateDir:
-		return execution.authority.EnsureStateDirForEffect(ctx, validatePeer)
+		return ensureReservedStateDirForEffect(
+			ctx,
+			execution.paths,
+			execution.stateDir,
+			validatePeer,
+		)
 	case operationplan.ForwardEffectValidateStateDir:
-		return false, execution.authority.ValidateStateDir(ctx)
+		return false, normalizeStateDirValidation(execution.stateDir.Validate(ctx))
 	default:
 		return false, fmt.Errorf(
 			"forward effect %q has invalid checkpoint %d",
@@ -150,7 +171,7 @@ func (execution *ForwardEffectExecution) ConsumeLifecycle(
 	}
 }
 
-// TakeDescendant transfers the transitional scalar descendant reservation.
+// TakeDescendant transfers the one physically reserved descendant envelope.
 func (execution *ForwardEffectExecution) TakeDescendant() (
 	*StateDirDescendantReservation,
 	error,
@@ -158,7 +179,7 @@ func (execution *ForwardEffectExecution) TakeDescendant() (
 	if err := execution.requireActive(); err != nil {
 		return nil, err
 	}
-	return execution.authority.TakeDescendant()
+	return execution.reservation.TakeDescendant()
 }
 
 // Finish requires the selected structural path to be fully consumed. It does
@@ -202,7 +223,8 @@ func (execution *ForwardEffectExecution) consume(
 }
 
 func (execution *ForwardEffectExecution) requireActive() error {
-	if execution == nil || execution.cursor == nil || execution.authority == nil {
+	if execution == nil || execution.cursor == nil || execution.stateDir == nil ||
+		execution.reservation == nil {
 		return fmt.Errorf("forward effect execution is required")
 	}
 	if execution.closed {

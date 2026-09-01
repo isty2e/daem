@@ -11,7 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
-func TestForwardEffectExecutionRejectsCursorMismatchBeforeScalarConsumption(t *testing.T) {
+func TestForwardEffectExecutionRejectsCursorMismatchBeforePhysicalConsumption(t *testing.T) {
 	t.Parallel()
 	authority, _ := newStructuralForwardTestAuthority(t, true)
 	var builder operationplan.EffectStructureBuilder
