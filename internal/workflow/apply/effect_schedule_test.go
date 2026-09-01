@@ -2,6 +2,7 @@ package apply
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -35,7 +36,7 @@ func TestApplyForwardEffectScheduleMatchesLegacyReservationDemand(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sameApplyDemandCounts(structural, plan.demand) {
+	if !sameApplyDemand(structural, plan.demand) {
 		t.Fatalf("structural demand = %#v, legacy demand = %#v", structural, plan.demand)
 	}
 	if plan.demand.DescendantPath() != planned.assessment.StatePath {
@@ -48,7 +49,7 @@ func TestApplyForwardEffectScheduleMatchesLegacyReservationDemand(t *testing.T) 
 }
 
 func TestProviderFinalEffectScheduleRejectsChangedManagedInput(t *testing.T) {
-	_, manifestPath := writePiProviderMCPFixture(t)
+	root, manifestPath := writePiProviderMCPFixture(t)
 	initial, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
 	if err != nil {
 		t.Fatal(err)
@@ -73,14 +74,11 @@ func TestProviderFinalEffectScheduleRejectsChangedManagedInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	writeApplyFile(t, filepath.Join(root, "instructions.md"), "managed instructions\n")
 	manifest = append(manifest, []byte(`
-[[mcp_server]]
-name = "filesystem"
+[instructions.project]
+source = "instructions.md"
 targets = ["pi"]
-scope = "project"
-transport = "stdio"
-command = "node"
-args = ["filesystem.js"]
 `)...)
 	writeApplyFile(t, manifestPath, string(manifest))
 	if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{

@@ -11,12 +11,15 @@ import (
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/target"
+	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
 func TestExecuteRetiresAlreadyAbsentCarrierClaim(t *testing.T) {
@@ -282,6 +285,92 @@ func TestCommitGlobalCarrierRetirementsRejectsAbsentExactClaim(t *testing.T) {
 	)
 	if err == nil || count != 0 || !registry.Equal(durablecarrier.EmptyGlobalCarrierClaims()) {
 		t.Fatalf("commitGlobalCarrierRetirements = (%#v, %d, %v), want validation failure", registry, count, err)
+	}
+}
+
+func TestPostApplySettlementStopsAtGlobalCarrierRetirementFailure(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	paths, err := daempaths.Resolve(filepath.Join(root, "daem.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := newWorkflowFixture(t, target.ScopeGlobal).claim
+	store, err := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Upsert(t.Context(), claim); err != nil {
+		t.Fatal(err)
+	}
+	attempts := 0
+	_, err = runAfterCarrierClaimRetirements(
+		t.Context(),
+		paths,
+		lock.File{},
+		targetselection.Selection{},
+		execute.ApplyResult{},
+		stateauthority.Authority{},
+		durablecarrier.EmptyGlobalCarrierClaims(),
+		[]durablecarrier.ManagedCarrierClaim{claim},
+		[]durablecarrier.ManagedCarrierClaim{claim},
+		reconcile.Result{},
+		observerelation.Batch{},
+		runOptions{markExecutionAttempted: func() { attempts++ }},
+	)
+	if err == nil {
+		t.Fatal("post-Apply settlement accepted a stale global-retirement basis")
+	}
+	if attempts != 1 {
+		t.Fatalf("registry attempts = %d, want retirement only", attempts)
+	}
+	current, loadErr := store.Load(t.Context())
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if claims := current.Claims(); len(claims) != 1 || !claims[0].ExactEqual(claim) {
+		t.Fatalf("global claims after failed retirement = %#v, want original claim", claims)
+	}
+}
+
+func TestPostApplySettlementRetiresBeforeFinalGlobalAdoption(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	paths, err := daempaths.Resolve(filepath.Join(root, "daem.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := newWorkflowFixture(t, target.ScopeGlobal).claim
+	store, err := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.Upsert(t.Context(), claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runAfterCarrierClaimRetirements(
+		t.Context(),
+		paths,
+		lock.File{},
+		targetselection.Selection{},
+		execute.ApplyResult{StatePath: paths.StatefilePath},
+		stateauthority.Authority{},
+		current,
+		[]durablecarrier.ManagedCarrierClaim{claim},
+		[]durablecarrier.ManagedCarrierClaim{claim},
+		reconcile.Result{},
+		observerelation.Batch{},
+		runOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActionCount != 2 {
+		t.Fatalf("ActionCount = %d, want one retirement and one adoption", result.ActionCount)
+	}
+	if claims := result.GlobalCarrierClaims.Claims(); len(claims) != 1 || !claims[0].ExactEqual(claim) {
+		t.Fatalf("final global claims = %#v, want retired claim readopted last", claims)
 	}
 }
 

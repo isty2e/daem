@@ -26,51 +26,19 @@ func stateDirEffectPlanFor(
 	if err != nil {
 		return applyStateDirEffectPlan{}, err
 	}
-	executeGates, err := execute.MaximumForwardEffectValidationCount(applyInput)
+	envelope, executeGates, err := applyEnvelopeFor(current, providerActions, applyInput)
 	if err != nil {
 		return applyStateDirEffectPlan{}, err
 	}
-	orderClasses, err := admittedOrderClasses(current)
+	schedule, err := compileApplyForwardEffectScheduleWithEnvelope(
+		current,
+		providerActions,
+		applyInput,
+		envelope,
+		executeGates,
+	)
 	if err != nil {
 		return applyStateDirEffectPlan{}, err
-	}
-	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
-		ExecuteGates:    executeGates,
-		ProviderActions: routeWorks(current.assessment.CurrentState, providerActions),
-		FinalRoutes: routeWorks(
-			current.assessment.CurrentState,
-			nonProviderRelationActions(current),
-		),
-		CarrierRemovals: carrierWorks(current.assessment.Reconciliation.CarrierAbsences()),
-		OrderClasses:    orderClasses,
-		Delegates:       delegateWorks(current.assessment.Reconciliation.Delegates()),
-		StatefilePath:   current.assessment.StatePath,
-	})
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
-	schedule, err := compileApplyForwardEffectSchedule(current, providerActions, applyInput)
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
-	structuralDemand, err := schedule.full.LegacyDemand()
-	if err != nil {
-		return applyStateDirEffectPlan{}, err
-	}
-	if !sameApplyDemandCounts(structuralDemand, envelope.Demand()) {
-		return applyStateDirEffectPlan{}, fmt.Errorf(
-			"apply forward effect schedule demand does not match the legacy reservation: structural=%d/%d/%d/%d/%d legacy=%d/%d/%d/%d/%d",
-			structuralDemand.EnsureCalls(),
-			structuralDemand.BarrierValidationCalls(),
-			structuralDemand.StateDirValidationCalls(),
-			structuralDemand.DescendantValidations(),
-			structuralDemand.DescendantFileCommits(),
-			envelope.Demand().EnsureCalls(),
-			envelope.Demand().BarrierValidationCalls(),
-			envelope.Demand().StateDirValidationCalls(),
-			envelope.Demand().DescendantValidations(),
-			envelope.Demand().DescendantFileCommits(),
-		)
 	}
 	plan := applyPlanFromDemand(envelope.Demand())
 	plan.schedule = schedule
@@ -116,12 +84,35 @@ func applyEffectInput(current commandPlan) (execute.ApplyInput, error) {
 	}, nil
 }
 
-func sameApplyDemandCounts(left operationplan.Demand, right operationplan.Demand) bool {
-	return left.EnsureCalls() == right.EnsureCalls() &&
-		left.BarrierValidationCalls() == right.BarrierValidationCalls() &&
-		left.StateDirValidationCalls() == right.StateDirValidationCalls() &&
-		left.DescendantValidations() == right.DescendantValidations() &&
-		left.DescendantFileCommits() == right.DescendantFileCommits()
+func applyEnvelopeFor(
+	current commandPlan,
+	providerActions []reconcile.RelationAction,
+	applyInput execute.ApplyInput,
+) (operationplan.Envelope, int, error) {
+	executeGates, err := execute.MaximumForwardEffectValidationCount(applyInput)
+	if err != nil {
+		return operationplan.Envelope{}, 0, err
+	}
+	orderClasses, err := admittedOrderClasses(current)
+	if err != nil {
+		return operationplan.Envelope{}, 0, err
+	}
+	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
+		ExecuteGates:    executeGates,
+		ProviderActions: routeWorks(current.assessment.CurrentState, providerActions),
+		FinalRoutes: routeWorks(
+			current.assessment.CurrentState,
+			nonProviderRelationActions(current),
+		),
+		CarrierRemovals: carrierWorks(current.assessment.Reconciliation.CarrierAbsences()),
+		OrderClasses:    orderClasses,
+		Delegates:       delegateWorks(current.assessment.Reconciliation.Delegates()),
+		StatefilePath:   current.assessment.StatePath,
+	})
+	if err != nil {
+		return operationplan.Envelope{}, 0, err
+	}
+	return envelope, executeGates, nil
 }
 
 func applyPlanFromDemand(demand operationplan.Demand) applyStateDirEffectPlan {
