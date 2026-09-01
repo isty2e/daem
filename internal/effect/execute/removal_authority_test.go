@@ -843,7 +843,7 @@ func TestExecuteRemovalCleanupCandidateResumesPartialCleanupStage(t *testing.T) 
 		intent: intent, destination: boundRemovalDestinationForTest(t, authority, destination),
 		residuePath: residuePath, cleanupPath: cleanupPath,
 	}, true)
-	obligation, err := authority.executeRemovalCleanupCandidate(t.Context(), candidate)
+	obligation, err := executeRemovalCleanupCandidateForTest(t, authority, candidate)
 	if err != nil {
 		t.Fatalf(
 			"executeRemovalCleanupCandidate: %v; cause=%v; root-cause=%v",
@@ -887,7 +887,7 @@ func TestExecuteRemovalCleanupCandidatePromotesValidatedResidue(t *testing.T) {
 		intent: intent, destination: boundRemovalDestinationForTest(t, authority, destination),
 		residuePath: residuePath, cleanupPath: cleanupPath,
 	}, false)
-	obligation, err := authority.executeRemovalCleanupCandidate(t.Context(), candidate)
+	obligation, err := executeRemovalCleanupCandidateForTest(t, authority, candidate)
 	if err != nil {
 		t.Fatalf(
 			"executeRemovalCleanupCandidate: %v; cause=%v; root-cause=%v",
@@ -930,7 +930,7 @@ func TestExecuteRemovalCleanupCandidatePreservesMismatchedResidue(t *testing.T) 
 		intent: intent, destination: boundRemovalDestinationForTest(t, authority, destination),
 		residuePath: residuePath, cleanupPath: cleanupPath,
 	}, false)
-	_, err = authority.executeRemovalCleanupCandidate(t.Context(), candidate)
+	_, err = executeRemovalCleanupCandidateForTest(t, authority, candidate)
 	var cleanupErr *removalCleanupError
 	if !errors.As(err, &cleanupErr) ||
 		cleanupErr.readiness != recovery.RemovalCleanupBlocked ||
@@ -963,7 +963,7 @@ func TestExecuteRemovalCleanupCandidateDurablyConfirmsBothSlotsAbsent(t *testing
 		intent: intent, destination: boundRemovalDestinationForTest(t, authority, destination),
 		residuePath: residuePath, cleanupPath: cleanupPath,
 	}, false)
-	obligation, err := authority.executeRemovalCleanupCandidate(t.Context(), candidate)
+	obligation, err := executeRemovalCleanupCandidateForTest(t, authority, candidate)
 	if err != nil {
 		t.Fatalf("executeRemovalCleanupCandidate: %v", err)
 	}
@@ -1048,7 +1048,7 @@ func TestExecuteRemovalCleanupCandidateHandlesZeroWorkEntries(t *testing.T) {
 				zero,
 			)
 
-			obligation, err := authority.executeRemovalCleanupCandidate(t.Context(), candidate)
+			obligation, err := executeRemovalCleanupCandidateForTest(t, authority, candidate)
 			if err != nil {
 				t.Fatalf("execute zero-work cleanup candidate: %v", err)
 			}
@@ -1168,7 +1168,7 @@ func TestExecuteRemovalCleanupRejectsGrowthBeyondZeroSemanticWork(t *testing.T) 
 				zero,
 			)
 
-			if _, err := authority.executeRemovalCleanupCandidate(t.Context(), candidate); err == nil {
+			if _, err := executeRemovalCleanupCandidateForTest(t, authority, candidate); err == nil {
 				t.Fatal("cleanup accepted growth beyond zero semantic work")
 			}
 			if filesystem.calls != 1 {
@@ -1179,6 +1179,34 @@ func TestExecuteRemovalCleanupRejectsGrowthBeyondZeroSemanticWork(t *testing.T) 
 			}
 		})
 	}
+}
+
+func executeRemovalCleanupCandidateForTest(
+	t *testing.T,
+	authority *mutationAuthority,
+	candidate removalCleanupCandidate,
+) (recovery.RemovalCleanupObligation, error) {
+	t.Helper()
+	structure, err := compileRemovalCleanupStructure(1)
+	if err != nil {
+		t.Fatalf("compile removal cleanup structure: %v", err)
+	}
+	execution := newRemovalCleanupExecution(structure, 1)
+	obligation, operationErr := authority.executeRemovalCleanupCandidate(
+		t.Context(),
+		candidate,
+		execution,
+	)
+	if operationErr != nil {
+		return recovery.RemovalCleanupObligation{}, execution.finish(operationErr)
+	}
+	if err := execution.admitCompletion(); err != nil {
+		return recovery.RemovalCleanupObligation{}, execution.finish(err)
+	}
+	if err := execution.settleCompletion(true); err != nil {
+		return recovery.RemovalCleanupObligation{}, execution.finish(err)
+	}
+	return obligation, execution.finish(nil)
 }
 
 func preflightRemovalCleanupCandidateForTest(
@@ -1247,6 +1275,7 @@ func TestExecuteRemovalCleanupCandidateRequiresCompleteOperationPreflight(t *tes
 	_, err := authority.executeRemovalCleanupCandidate(
 		t.Context(),
 		removalCleanupCandidate{},
+		nil,
 	)
 	if err == nil || !strings.Contains(err.Error(), "lacks complete operation preflight") {
 		t.Fatalf("unpreflighted cleanup error = %v", err)
