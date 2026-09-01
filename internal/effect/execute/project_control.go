@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/operationplan"
 )
 
 func (authority *mutationAuthority) bindProjectStatefile(
@@ -247,61 +248,155 @@ func commitRootedControlFile(
 func (authority *mutationAuthority) retireActiveJournal(
 	ctx context.Context,
 	plan recovery.Plan,
+	outerExecution *activeRecoveryExecution,
 ) error {
-	if authority == nil || authority.filesystem == nil {
-		return fmt.Errorf("recovery journal retirement authority is unavailable")
+	run := func(step activeRecoveryStep, action func() error) error {
+		if outerExecution == nil {
+			return action()
+		}
+		return outerExecution.runTerminalStep(step, action)
 	}
-	if authority.preparedRetirement == nil {
-		return fmt.Errorf("prepared recovery journal retirement is unavailable")
-	}
-	if err := authority.validateJournalExecutionBasis(
-		ctx,
-		plan,
-		"before removal cleanup",
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/retirement/validate-before-cleanup",
+			kind: operationplan.EffectStepObservation,
+		},
+		func() error {
+			if authority == nil || authority.filesystem == nil {
+				return fmt.Errorf("recovery journal retirement authority is unavailable")
+			}
+			if authority.preparedRetirement == nil {
+				return fmt.Errorf("prepared recovery journal retirement is unavailable")
+			}
+			return authority.validateJournalExecutionBasis(
+				ctx,
+				plan,
+				"before removal cleanup",
+			)
+		},
 	); err != nil {
 		return err
 	}
-	if err := authority.bindRemovalIntents(plan); err != nil {
-		return fmt.Errorf("validate complete removal authority before retirement: %w", err)
-	}
-	if plan.Blocked() || plan.HasErrors() {
-		return fmt.Errorf("recovery journal retirement requires an effect-admissible clean plan")
-	}
-	if classification := plan.Classification(); classification != recovery.ClassificationCleanBefore &&
-		classification != recovery.ClassificationCleanAfter {
-		return fmt.Errorf("recovery journal retirement requires a clean classified plan")
-	}
-	structure, err := compileActiveJournalRetirementStructure()
-	if err != nil {
-		return fmt.Errorf("compile active journal retirement schedule: %w", err)
-	}
-	if err := authority.preparedRetirement.AdvanceActiveBasis(
-		ctx,
-		plan,
-		authority.journalBasis.activeAuthority,
-	); err != nil {
-		return fmt.Errorf("advance prepared journal retirement basis: %w", err)
-	}
-	if _, err := authority.cleanupRemovalResidues(ctx, plan); err != nil {
-		return fmt.Errorf("reconcile journaled removal residues before retirement: %w", err)
-	}
-	if err := authority.validateJournalExecutionBasis(
-		ctx,
-		plan,
-		"before journal retirement",
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/retirement/bind-removal-authority",
+			kind: operationplan.EffectStepObservation,
+		},
+		func() error {
+			if err := authority.bindRemovalIntents(plan); err != nil {
+				return fmt.Errorf("validate complete removal authority before retirement: %w", err)
+			}
+			return nil
+		},
 	); err != nil {
 		return err
 	}
-	if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/retirement/validate-clean-plan",
+			kind: operationplan.EffectStepObservation,
+		},
+		func() error {
+			if plan.Blocked() || plan.HasErrors() {
+				return fmt.Errorf("recovery journal retirement requires an effect-admissible clean plan")
+			}
+			if classification := plan.Classification(); classification != recovery.ClassificationCleanBefore &&
+				classification != recovery.ClassificationCleanAfter {
+				return fmt.Errorf("recovery journal retirement requires a clean classified plan")
+			}
+			return nil
+		},
+	); err != nil {
 		return err
 	}
-	execution := newActiveRetirementExecution(structure)
-	retirementErr := authority.preparedRetirement.ExecuteActiveWithGate(
-		ctx,
-		plan,
-		execution,
+	structure := operationplan.EffectStructure{}
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/retirement/prepare-tail",
+			kind: operationplan.EffectStepObservation,
+		},
+		func() error {
+			var err error
+			structure, err = compileActiveJournalRetirementStructure()
+			if err != nil {
+				return fmt.Errorf("compile active journal retirement schedule: %w", err)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/retirement/advance-basis",
+			kind: operationplan.EffectStepObservation,
+		},
+		func() error {
+			if err := authority.preparedRetirement.AdvanceActiveBasis(
+				ctx,
+				plan,
+				authority.journalBasis.activeAuthority,
+			); err != nil {
+				return fmt.Errorf("advance prepared journal retirement basis: %w", err)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/retirement/removal-cleanup",
+			kind: operationplan.EffectStepCleanup,
+		},
+		func() error {
+			if _, err := authority.cleanupRemovalResidues(ctx, plan); err != nil {
+				return fmt.Errorf("reconcile journaled removal residues before retirement: %w", err)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/retirement/validate-journal",
+			kind: operationplan.EffectStepObservation,
+		},
+		func() error {
+			return authority.validateJournalExecutionBasis(
+				ctx,
+				plan,
+				"before journal retirement",
+			)
+		},
+	); err != nil {
+		return err
+	}
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/retirement/validate-semantics",
+			kind: operationplan.EffectStepObservation,
+		},
+		func() error { return authority.validateRecoverySemanticWitness(ctx) },
+	); err != nil {
+		return err
+	}
+	return run(
+		activeRecoveryStep{
+			id:   "active-recovery/retirement/execute-tail",
+			kind: operationplan.EffectStepRetirement,
+		},
+		func() error {
+			retirementExecution := newActiveRetirementExecution(structure)
+			retirementErr := authority.preparedRetirement.ExecuteActiveWithGate(
+				ctx,
+				plan,
+				retirementExecution,
+			)
+			return retirementExecution.finish(retirementErr)
+		},
 	)
-	return execution.finish(retirementErr)
 }
 
 func (authority *mutationAuthority) prepareActiveJournalRetirement(

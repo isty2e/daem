@@ -259,6 +259,15 @@ func applyRecoveryErrorWithEvents(
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
+	execution, err := newActiveRecoveryExecutionForPlan(
+		plan,
+		activeRecoveryCallerApplySettlement,
+		false,
+	)
+	if err != nil {
+		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		return fmt.Errorf("%w; compile guarded rollback settlement failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
+	}
 	if err := executeRecoveryPlanEffects(recoveryCtx, plan, paths, RecoveryOptions{
 		reloadPlan: func(
 			ctx context.Context,
@@ -280,7 +289,8 @@ func applyRecoveryErrorWithEvents(
 		Codecs:                      codecs,
 		StateCodec:                  stateCodec,
 		Filesystem:                  authority.filesystem,
-	}); err != nil {
+	}, execution); err != nil {
+		err = execution.finish(err, nil)
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; guarded rollback failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
@@ -318,7 +328,12 @@ func applyRecoveryErrorWithEvents(
 		loadRetirementPlan,
 		stateCodec,
 		gate,
+		execution,
 	); err != nil {
+		err = execution.finish(err, nil)
+		return newApplyRollbackError(primary, retirementFailureWithRemediation(err))
+	}
+	if err := execution.finish(nil, nil); err != nil {
 		return newApplyRollbackError(primary, retirementFailureWithRemediation(err))
 	}
 	return newApplyRollbackError(primary, nil)

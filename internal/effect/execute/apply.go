@@ -19,6 +19,7 @@ import (
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/payload"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 )
@@ -382,6 +383,7 @@ func ApplyWithOptions(
 			loadRetirementPlan,
 			input.StateCodec,
 			compensationGate,
+			nil,
 		)
 		if cleanupErr != nil {
 			return ApplyResult{}, fmt.Errorf(
@@ -431,6 +433,7 @@ func ApplyWithOptions(
 			loadRetirementPlan,
 			input.StateCodec,
 			compensationGate,
+			nil,
 		)
 		if cleanupErr != nil {
 			return ApplyResult{}, fmt.Errorf(
@@ -591,6 +594,7 @@ func ApplyWithOptions(
 		loadRetirementPlan,
 		input.StateCodec,
 		visibilityGate,
+		nil,
 	); err != nil {
 		return committedResult, fmt.Errorf(
 			"retire recovery journal: %w",
@@ -696,30 +700,66 @@ func retireRecoveryJournalWithEvents(
 	loadPlan activeRetirementPlanLoader,
 	stateCodec durable.SnapshotCodec,
 	gate visibilityEffectGate,
+	execution *activeRecoveryExecution,
 ) error {
+	run := func(step activeRecoveryStep, action func() error) error {
+		if execution == nil {
+			return action()
+		}
+		return execution.runTerminalStep(step, action)
+	}
 	events.emit(EventJournalCleanupStarted, EventStageJournalCleanup, nil, nil)
 	if loadPlan == nil {
 		err := fmt.Errorf("recovery journal retirement plan loader is required")
 		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
 		return err
 	}
-	if err := authority.validateProjectSelection(paths.ManifestRoot); err != nil {
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/outer/validate-project-before-retirement",
+			kind: operationplan.EffectStepObservation,
+		},
+		func() error { return authority.validateProjectSelection(paths.ManifestRoot) },
+	); err != nil {
 		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
 		return err
 	}
-	if err := gate.validateBefore(ctx); err != nil {
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/outer/validate-visibility-before-retirement",
+			kind: operationplan.EffectStepObservation,
+		},
+		func() error { return gate.validateBefore(ctx) },
+	); err != nil {
 		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
 		return err
 	}
-	plan, err := loadPlan(ctx)
-	if err == nil {
-		err = authority.retireActiveJournal(ctx, plan)
-	}
-	if err != nil {
+	plan := recovery.Plan{}
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/outer/reload-after-effects",
+			kind: operationplan.EffectStepObservation,
+		},
+		func() error {
+			var err error
+			plan, err = loadPlan(ctx)
+			return err
+		},
+	); err != nil {
 		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
 		return err
 	}
-	if err := gate.acceptAfter(ctx); err != nil {
+	if err := authority.retireActiveJournal(ctx, plan, execution); err != nil {
+		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
+		return err
+	}
+	if err := run(
+		activeRecoveryStep{
+			id:   "active-recovery/outer/accept-visibility",
+			kind: operationplan.EffectStepObservation,
+		},
+		func() error { return gate.acceptAfter(ctx) },
+	); err != nil {
 		retired := &journalRetiredFailure{cause: err}
 		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, retired)
 		return retired
