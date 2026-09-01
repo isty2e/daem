@@ -271,7 +271,8 @@ func (authority *mutationAuthority) retireActiveJournal(
 		classification != recovery.ClassificationCleanAfter {
 		return fmt.Errorf("recovery journal retirement requires a clean classified plan")
 	}
-	if _, err := compileActiveJournalRetirementStructure(); err != nil {
+	structure, err := compileActiveJournalRetirementStructure()
+	if err != nil {
 		return fmt.Errorf("compile active journal retirement schedule: %w", err)
 	}
 	if err := authority.preparedRetirement.AdvanceActiveBasis(
@@ -294,7 +295,13 @@ func (authority *mutationAuthority) retireActiveJournal(
 	if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
 		return err
 	}
-	return authority.preparedRetirement.ExecuteActive(ctx, plan)
+	execution := newActiveRetirementExecution(structure)
+	retirementErr := authority.preparedRetirement.ExecuteActiveWithGate(
+		ctx,
+		plan,
+		execution,
+	)
+	return execution.finish(retirementErr)
 }
 
 func (authority *mutationAuthority) prepareActiveJournalRetirement(

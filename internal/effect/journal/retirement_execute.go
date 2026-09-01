@@ -106,54 +106,93 @@ func executePreparedRetirement(
 		return err
 	}
 	if execution.start == retirementStartActive {
-		activeCapability, activeIdentity, err := captureRetirementEntry(
-			ctx,
-			filesystem,
-			bindings.active,
-			"active recovery journal",
-		)
-		if err != nil {
+		var activeCapability rootedpath.CommitCapability
+		var activeIdentity mutationfs.EntryIdentity
+		activeCapabilityOpen := false
+		if err := executeRetirementStep(
+			gate,
+			RetirementStepValidateActiveIdentity,
+			func() error {
+				capability, identity, err := captureRetirementEntry(
+					ctx,
+					filesystem,
+					bindings.active,
+					"active recovery journal",
+				)
+				if err != nil {
+					return err
+				}
+				if !execution.activeAuthority.matches(identity) {
+					return errors.Join(
+						fmt.Errorf("active recovery journal identity changed before retirement"),
+						capability.Close(),
+					)
+				}
+				activeCapability = capability
+				activeIdentity = identity
+				activeCapabilityOpen = true
+				return nil
+			},
+		); err != nil {
+			if activeCapabilityOpen {
+				return errors.Join(err, activeCapability.Close())
+			}
 			return err
 		}
-		if !execution.activeAuthority.matches(activeIdentity) {
-			return errors.Join(
-				fmt.Errorf("active recovery journal identity changed before retirement"),
-				activeCapability.Close(),
-			)
-		}
-		activeCapabilityOpen := true
 		defer func() {
 			if activeCapabilityOpen {
 				_ = activeCapability.Close()
 			}
 		}()
-		if err := ensurePreparedControl(
-			ctx,
-			filesystem,
-			execution.record,
-			bindings,
-			evidence.controlPresent,
+		controlStep := RetirementStepPublishControl
+		if evidence.controlPresent {
+			controlStep = RetirementStepControlPresent
+		}
+		if err := executeRetirementStep(
+			gate,
+			controlStep,
+			func() error {
+				return ensurePreparedControl(
+					ctx,
+					filesystem,
+					execution.record,
+					bindings,
+					evidence.controlPresent,
+				)
+			},
 		); err != nil {
 			return err
 		}
-		if err := requireJournalFingerprint(
-			ctx,
-			filesystem,
-			bindings.activeRecord,
-			execution.journalFingerprint,
-			prepared.stateCodec,
-			"active recovery journal",
+		if err := executeRetirementStep(
+			gate,
+			RetirementStepValidateActiveRecord,
+			func() error {
+				return requireJournalFingerprint(
+					ctx,
+					filesystem,
+					bindings.activeRecord,
+					execution.journalFingerprint,
+					prepared.stateCodec,
+					"active recovery journal",
+				)
+			},
 		); err != nil {
 			return err
 		}
-		activeCapabilityOpen = false
-		if err := renameCapturedRetirementEntry(
-			ctx,
-			filesystem,
-			activeCapability,
-			activeIdentity,
-			execution.record.Identity().ResidueName(),
-			"active recovery journal",
+		if err := executeRetirementStep(
+			gate,
+			RetirementStepRetireActiveJournal,
+			func() error {
+				activeCapabilityOpen = false
+				return renameCapturedRetirementEntry(
+					ctx,
+					filesystem,
+					activeCapability,
+					activeIdentity,
+					execution.record.Identity().ResidueName(),
+					"active recovery journal",
+				)
+			},
 		); err != nil {
 			return err
 		}

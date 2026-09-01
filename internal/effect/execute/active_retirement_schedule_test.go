@@ -1,8 +1,11 @@
 package execute
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
@@ -151,6 +154,133 @@ func TestActiveJournalRetirementStructureIsDeterministicAndHasNoBarrierDemand(t 
 	}
 }
 
+func TestActiveRetirementExecutionUsesSuppliedStructure(t *testing.T) {
+	execution := newActiveRetirementExecution(operationplan.EffectStructure{})
+	if err := execution.AdmitRetirementStep(journal.RetirementStepValidateActivePlan); err == nil {
+		t.Fatal("active retirement recompiled instead of consuming the supplied structure")
+	}
+}
+
+func TestActiveRetirementExecutionConsumesControlAlternatives(t *testing.T) {
+	for _, controlStep := range []journal.RetirementExecutionStep{
+		journal.RetirementStepControlPresent,
+		journal.RetirementStepPublishControl,
+	} {
+		t.Run(activeRetirementControlStepName(controlStep), func(t *testing.T) {
+			structure, err := compileActiveJournalRetirementStructure()
+			if err != nil {
+				t.Fatal(err)
+			}
+			execution := newActiveRetirementExecution(structure)
+			for _, step := range activeRetirementRuntimeSteps(controlStep) {
+				if err := execution.AdmitRetirementStep(step); err != nil {
+					t.Fatalf("AdmitRetirementStep(%d): %v", step, err)
+				}
+				if err := execution.SettleRetirementStep(step, true); err != nil {
+					t.Fatalf("SettleRetirementStep(%d): %v", step, err)
+				}
+			}
+			if err := execution.finish(nil); err != nil {
+				t.Fatalf("finish: %v", err)
+			}
+			if err := execution.AdmitRetirementStep(journal.RetirementStepValidateActivePlan); err == nil {
+				t.Fatal("closed active retirement admitted another step")
+			}
+		})
+	}
+}
+
+func TestActiveRetirementExecutionStopsAfterEverySelectedFailure(t *testing.T) {
+	runtimeSteps := activeRetirementRuntimeSteps(journal.RetirementStepControlPresent)
+	for _, failed := range runtimeSteps {
+		if failed == journal.RetirementStepControlPresent {
+			continue
+		}
+		t.Run(activeRetirementRuntimeStepName(failed), func(t *testing.T) {
+			structure, err := compileActiveJournalRetirementStructure()
+			if err != nil {
+				t.Fatal(err)
+			}
+			execution := newActiveRetirementExecution(structure)
+			for _, step := range runtimeSteps {
+				if err := execution.AdmitRetirementStep(step); err != nil {
+					t.Fatalf("AdmitRetirementStep(%d): %v", step, err)
+				}
+				succeeded := step != failed
+				if err := execution.SettleRetirementStep(step, succeeded); err != nil {
+					t.Fatalf("SettleRetirementStep(%d, %t): %v", step, succeeded, err)
+				}
+				if !succeeded {
+					break
+				}
+			}
+			if err := execution.AdmitRetirementStep(journal.RetirementStepRetireControl); err == nil {
+				t.Fatal("failure branch admitted a later retirement step")
+			}
+			failure := errors.New("retirement failed")
+			if err := execution.finish(failure); !errors.Is(err, failure) {
+				t.Fatalf("finish error = %v, want retirement failure", err)
+			}
+		})
+	}
+}
+
+func TestActiveRetirementExecutionStopsAfterControlPublicationFailure(t *testing.T) {
+	structure, err := compileActiveJournalRetirementStructure()
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution := newActiveRetirementExecution(structure)
+	for _, step := range activeRetirementPreControlSteps {
+		if err := execution.AdmitRetirementStep(step.retirementStep); err != nil {
+			t.Fatal(err)
+		}
+		if err := execution.SettleRetirementStep(step.retirementStep, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := execution.AdmitRetirementStep(journal.RetirementStepPublishControl); err != nil {
+		t.Fatal(err)
+	}
+	if err := execution.SettleRetirementStep(journal.RetirementStepPublishControl, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := execution.AdmitRetirementStep(journal.RetirementStepValidateActiveRecord); err == nil {
+		t.Fatal("control-publication failure admitted active-record validation")
+	}
+	failure := errors.New("publish control failed")
+	if err := execution.finish(failure); err != failure {
+		t.Fatalf("finish error = %v, want original publication failure", err)
+	}
+}
+
+func TestActiveRetirementExecutionMismatchDoesNotConsumeExpectedStep(t *testing.T) {
+	structure, err := compileActiveJournalRetirementStructure()
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution := newActiveRetirementExecution(structure)
+	if err := execution.AdmitRetirementStep(journal.RetirementStepValidatePreparedLayout); err == nil {
+		t.Fatal("mismatched active retirement step was admitted")
+	}
+	first := journal.RetirementStepValidateActivePlan
+	if err := execution.AdmitRetirementStep(first); err != nil {
+		t.Fatalf("admit expected step after mismatch: %v", err)
+	}
+	if err := execution.AdmitRetirementStep(first); err == nil {
+		t.Fatal("active retirement admitted a duplicate pending step")
+	}
+	if err := execution.SettleRetirementStep(journal.RetirementStepValidatePreparedLayout, true); err == nil {
+		t.Fatal("active retirement settled a step that was not admitted")
+	}
+	if err := execution.SettleRetirementStep(first, true); err != nil {
+		t.Fatalf("settle expected step: %v", err)
+	}
+	if err := execution.finish(nil); err == nil {
+		t.Fatal("under-consumed active retirement finished successfully")
+	}
+}
+
 func activeRetirementAllSteps() []activeRetirementStep {
 	steps := make([]activeRetirementStep, 0, len(activeRetirementPreControlSteps)+len(activeRetirementPostControlSteps))
 	steps = append(steps, activeRetirementPreControlSteps[:]...)
@@ -197,4 +327,33 @@ func consumeActiveRetirementStepSuccess(
 	if err := cursor.SelectAlternative(step.id+"/outcome", 1); err != nil {
 		t.Fatalf("settle %s: %v", step.id, err)
 	}
+}
+
+func activeRetirementRuntimeSteps(
+	controlStep journal.RetirementExecutionStep,
+) []journal.RetirementExecutionStep {
+	steps := make(
+		[]journal.RetirementExecutionStep,
+		0,
+		activeRetirementStepCount(),
+	)
+	for _, step := range activeRetirementPreControlSteps {
+		steps = append(steps, step.retirementStep)
+	}
+	steps = append(steps, controlStep)
+	for _, step := range activeRetirementPostControlSteps {
+		steps = append(steps, step.retirementStep)
+	}
+	return steps
+}
+
+func activeRetirementControlStepName(step journal.RetirementExecutionStep) string {
+	if step == journal.RetirementStepControlPresent {
+		return "present"
+	}
+	return "publish"
+}
+
+func activeRetirementRuntimeStepName(step journal.RetirementExecutionStep) string {
+	return fmt.Sprintf("step-%d", step)
 }

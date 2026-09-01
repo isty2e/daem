@@ -15,6 +15,12 @@ const (
 	RetirementStepCleanupResidue
 	RetirementStepRetireControl
 	RetirementStepCleanupGarbage
+	RetirementStepValidateActivePlan
+	RetirementStepValidateActiveIdentity
+	RetirementStepControlPresent
+	RetirementStepPublishControl
+	RetirementStepValidateActiveRecord
+	RetirementStepRetireActiveJournal
 )
 
 // RetirementStepGate admits and settles one exact journal-retirement step.
@@ -38,8 +44,12 @@ func executeRetirementStep(
 	if gate == nil {
 		return actionErr
 	}
-	return errors.Join(
-		actionErr,
-		gate.SettleRetirementStep(step, actionErr == nil),
-	)
+	settlementErr := gate.SettleRetirementStep(step, actionErr == nil)
+	if actionErr == nil {
+		return settlementErr
+	}
+	if settlementErr == nil {
+		return actionErr
+	}
+	return errors.Join(actionErr, settlementErr)
 }
