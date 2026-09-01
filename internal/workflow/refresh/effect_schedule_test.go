@@ -35,24 +35,55 @@ func TestRefreshEffectStructureCoversRuntimeBranches(t *testing.T) {
 
 	t.Run("command not started", func(t *testing.T) {
 		cursor := structure.Begin()
-		consumeRefreshStep(t, cursor, "refresh/pre-attempt-barrier", operationplan.EffectStepValidateBarrier)
-		if err := cursor.SelectAlternative(refreshAttemptStartChoice, 0); err != nil {
+		consumeRefreshAttemptPrefix(t, cursor)
+		if err := cursor.SelectAlternative(refreshAttemptOutcomeChoice, 0); err != nil {
 			t.Fatal(err)
 		}
-		consumeRefreshStep(t, cursor, "refresh/not-started-observation", operationplan.EffectStepObservation)
-		consumeRefreshStep(t, cursor, "refresh/not-started-terminal", operationplan.EffectStepTerminal)
+		consumeRefreshStep(t, cursor, refreshStepNotStartedObservation, operationplan.EffectStepObservation)
+		if err := cursor.SelectAlternative(refreshNotStartedClassificationChoice, 1); err != nil {
+			t.Fatal(err)
+		}
+		consumeRefreshStep(t, cursor, refreshStepNotStartedTerminal, operationplan.EffectStepTerminal)
 		if err := cursor.FinishSuccess(); err != nil {
 			t.Fatal(err)
 		}
 	})
 
-	t.Run("started but unpersisted", func(t *testing.T) {
+	t.Run("command not started and classification failed", func(t *testing.T) {
 		cursor := structure.Begin()
-		consumeRefreshStartedPrefix(t, cursor)
+		consumeRefreshAttemptPrefix(t, cursor)
+		if err := cursor.SelectAlternative(refreshAttemptOutcomeChoice, 0); err != nil {
+			t.Fatal(err)
+		}
+		consumeRefreshStep(t, cursor, refreshStepNotStartedObservation, operationplan.EffectStepObservation)
+		if err := cursor.SelectAlternative(refreshNotStartedClassificationChoice, 0); err != nil {
+			t.Fatal(err)
+		}
+		consumeRefreshStep(t, cursor, refreshStepNotStartedClassificationFailed, operationplan.EffectStepTerminal)
+		if err := cursor.FinishSuccess(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("started and classification failed", func(t *testing.T) {
+		cursor := structure.Begin()
+		consumeRefreshStartedObservation(t, cursor)
+		if err := cursor.SelectAlternative(refreshStartedClassificationChoice, 0); err != nil {
+			t.Fatal(err)
+		}
+		consumeRefreshStep(t, cursor, refreshStepStartedClassificationFailed, operationplan.EffectStepTerminal)
+		if err := cursor.FinishSuccess(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("started but persistence not attempted", func(t *testing.T) {
+		cursor := structure.Begin()
+		consumeRefreshPersistencePrefix(t, cursor)
 		if err := cursor.SelectAlternative(refreshPersistenceChoice, 0); err != nil {
 			t.Fatal(err)
 		}
-		consumeRefreshStep(t, cursor, "refresh/unpersisted-terminal", operationplan.EffectStepTerminal)
+		consumeRefreshStep(t, cursor, refreshStepUnpersistedTerminal, operationplan.EffectStepTerminal)
 		if err := cursor.FinishSuccess(); err != nil {
 			t.Fatal(err)
 		}
@@ -60,40 +91,126 @@ func TestRefreshEffectStructureCoversRuntimeBranches(t *testing.T) {
 
 	t.Run("started and persisted", func(t *testing.T) {
 		cursor := structure.Begin()
-		consumeRefreshStartedPrefix(t, cursor)
+		consumeRefreshPersistencePrefix(t, cursor)
 		if err := cursor.SelectAlternative(refreshPersistenceChoice, 1); err != nil {
 			t.Fatal(err)
 		}
-		for _, step := range []struct {
-			id   string
-			kind operationplan.EffectStepKind
-		}{
-			{id: "refresh/persistence-establish-state-dir", kind: operationplan.EffectStepEstablishStateDir},
-			{id: "refresh/pre-persistence-barrier", kind: operationplan.EffectStepValidateBarrier},
-			{id: "refresh/pre-persistence-descendant", kind: operationplan.EffectStepValidateDescendant},
-			{id: "refresh/publish-attempt", kind: operationplan.EffectStepPublishDescendant},
-			{id: "refresh/post-persistence-descendant", kind: operationplan.EffectStepValidateDescendant},
-			{id: "refresh/post-persistence-barrier", kind: operationplan.EffectStepValidateBarrier},
-			{id: "refresh/persistence-settlement", kind: operationplan.EffectStepPersistence},
-			{id: "refresh/persisted-terminal", kind: operationplan.EffectStepTerminal},
-		} {
-			consumeRefreshStep(t, cursor, step.id, step.kind)
+		for _, checkpoint := range refreshPersistenceCheckpoints() {
+			consumeRefreshStep(t, cursor, checkpoint.stepID, checkpoint.kind)
+			if err := cursor.SelectAlternative(checkpoint.choiceID, 1); err != nil {
+				t.Fatal(err)
+			}
 		}
+		consumeRefreshStep(t, cursor, refreshStepPersistenceSettlement, operationplan.EffectStepPersistence)
+		consumeRefreshStep(t, cursor, refreshStepPersistedTerminal, operationplan.EffectStepTerminal)
 		if err := cursor.FinishSuccess(); err != nil {
 			t.Fatal(err)
 		}
 	})
 }
 
-func consumeRefreshStartedPrefix(t *testing.T, cursor *operationplan.EffectCursor) {
-	t.Helper()
-	consumeRefreshStep(t, cursor, "refresh/pre-attempt-barrier", operationplan.EffectStepValidateBarrier)
-	if err := cursor.SelectAlternative(refreshAttemptStartChoice, 1); err != nil {
+func TestRefreshEffectStructureCoversEveryPersistencePrefixFailure(t *testing.T) {
+	t.Parallel()
+	structure, err := compileRefreshEffectStructure()
+	if err != nil {
 		t.Fatal(err)
 	}
-	consumeRefreshStep(t, cursor, "refresh/started-external", operationplan.EffectStepExternal)
-	consumeRefreshStep(t, cursor, "refresh/post-attempt-barrier", operationplan.EffectStepValidateBarrier)
-	consumeRefreshStep(t, cursor, "refresh/started-observation", operationplan.EffectStepObservation)
+	checkpoints := refreshPersistenceCheckpoints()
+	for failureIndex, failure := range checkpoints {
+		t.Run(failure.choiceID, func(t *testing.T) {
+			cursor := structure.Begin()
+			consumeRefreshPersistencePrefix(t, cursor)
+			if err := cursor.SelectAlternative(refreshPersistenceChoice, 1); err != nil {
+				t.Fatal(err)
+			}
+			for index, checkpoint := range checkpoints[:failureIndex+1] {
+				consumeRefreshStep(t, cursor, checkpoint.stepID, checkpoint.kind)
+				alternative := 1
+				if index == failureIndex {
+					alternative = 0
+				}
+				if err := cursor.SelectAlternative(checkpoint.choiceID, alternative); err != nil {
+					t.Fatal(err)
+				}
+			}
+			consumeRefreshStep(t, cursor, failure.failureTerminalID, operationplan.EffectStepTerminal)
+			if err := cursor.FinishSuccess(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+type refreshPersistenceCheckpoint struct {
+	stepID            string
+	kind              operationplan.EffectStepKind
+	choiceID          string
+	failureTerminalID string
+}
+
+func refreshPersistenceCheckpoints() []refreshPersistenceCheckpoint {
+	return []refreshPersistenceCheckpoint{
+		{
+			stepID:            refreshStepPersistenceEstablishStateDir,
+			kind:              operationplan.EffectStepEstablishStateDir,
+			choiceID:          refreshPersistenceAuthorityChoice,
+			failureTerminalID: refreshStepPersistenceAuthorityFailed,
+		},
+		{
+			stepID:            refreshStepPrePersistenceBarrier,
+			kind:              operationplan.EffectStepValidateBarrier,
+			choiceID:          refreshPrePersistenceBarrierChoice,
+			failureTerminalID: refreshStepPrePersistenceBarrierFailed,
+		},
+		{
+			stepID:            refreshStepPrePersistenceDescendant,
+			kind:              operationplan.EffectStepValidateDescendant,
+			choiceID:          refreshPrePersistenceDescendantChoice,
+			failureTerminalID: refreshStepPrePersistenceDescendantFailed,
+		},
+		{
+			stepID:            refreshStepPublishAttempt,
+			kind:              operationplan.EffectStepPublishDescendant,
+			choiceID:          refreshPublicationChoice,
+			failureTerminalID: refreshStepPublicationFailed,
+		},
+		{
+			stepID:            refreshStepPostPersistenceDescendant,
+			kind:              operationplan.EffectStepValidateDescendant,
+			choiceID:          refreshPostPersistenceDescendantChoice,
+			failureTerminalID: refreshStepPostPersistenceDescendantFailed,
+		},
+		{
+			stepID:            refreshStepPostPersistenceBarrier,
+			kind:              operationplan.EffectStepValidateBarrier,
+			choiceID:          refreshPostPersistenceBarrierChoice,
+			failureTerminalID: refreshStepPostPersistenceBarrierFailed,
+		},
+	}
+}
+
+func consumeRefreshAttemptPrefix(t *testing.T, cursor *operationplan.EffectCursor) {
+	t.Helper()
+	consumeRefreshStep(t, cursor, refreshStepPreAttemptBarrier, operationplan.EffectStepValidateBarrier)
+	consumeRefreshStep(t, cursor, refreshStepInvokeExternal, operationplan.EffectStepExternal)
+}
+
+func consumeRefreshStartedObservation(t *testing.T, cursor *operationplan.EffectCursor) {
+	t.Helper()
+	consumeRefreshAttemptPrefix(t, cursor)
+	if err := cursor.SelectAlternative(refreshAttemptOutcomeChoice, 1); err != nil {
+		t.Fatal(err)
+	}
+	consumeRefreshStep(t, cursor, refreshStepPostAttemptBarrier, operationplan.EffectStepValidateBarrier)
+	consumeRefreshStep(t, cursor, refreshStepStartedObservation, operationplan.EffectStepObservation)
+}
+
+func consumeRefreshPersistencePrefix(t *testing.T, cursor *operationplan.EffectCursor) {
+	t.Helper()
+	consumeRefreshStartedObservation(t, cursor)
+	if err := cursor.SelectAlternative(refreshStartedClassificationChoice, 1); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func consumeRefreshStep(

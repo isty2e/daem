@@ -23,6 +23,13 @@ func (authority EffectAuthority) ReserveForwardEffectStructure(
 	structure operationplan.EffectStructure,
 	legacyDemand operationplan.Demand,
 ) (*ForwardEffectAuthority, error) {
+	return authority.reserveForwardEffectStructure(structure, legacyDemand)
+}
+
+func (authority EffectAuthority) reserveForwardEffectStructure(
+	structure operationplan.EffectStructure,
+	legacyDemand operationplan.Demand,
+) (*ForwardEffectAuthority, error) {
 	if err := authority.requireInitialized(); err != nil {
 		return nil, err
 	}

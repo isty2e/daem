@@ -556,6 +556,75 @@ func TestEffectCursorConsumesSelectedBranchInOrder(t *testing.T) {
 	}
 }
 
+func TestEffectCursorClassifiesForwardEffectsWithinEachPhase(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	structure, err := builder.Compile(EffectSequence(
+		builder.ForwardPhase(
+			"provider",
+			EffectSequence(
+				builder.Step("provider-first", EffectStepForwardEffect),
+				builder.Step("provider-second", EffectStepForwardEffect),
+			),
+		),
+		builder.ForwardPhase(
+			"final",
+			builder.Step("final-first", EffectStepForwardEffect),
+		),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cursor := structure.Begin()
+	for _, test := range []struct {
+		id   string
+		want ForwardEffectCheckpoint
+	}{
+		{id: "provider-first", want: ForwardEffectEstablishStateDir},
+		{id: "provider-second", want: ForwardEffectValidateStateDir},
+		{id: "final-first", want: ForwardEffectEstablishStateDir},
+	} {
+		got, consumeErr := cursor.ConsumeForwardEffect(test.id)
+		if consumeErr != nil {
+			t.Fatalf("ConsumeForwardEffect(%q): %v", test.id, consumeErr)
+		}
+		if got != test.want {
+			t.Fatalf("ConsumeForwardEffect(%q) = %d, want %d", test.id, got, test.want)
+		}
+	}
+	if err := cursor.FinishSuccess(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEffectCursorGenericForwardConsumptionAdvancesPhase(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	structure, err := builder.Compile(builder.ForwardPhase(
+		"apply",
+		EffectSequence(
+			builder.Step("first", EffectStepForwardEffect),
+			builder.Step("second", EffectStepForwardEffect),
+		),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cursor := structure.Begin()
+	if err := cursor.Consume("first", EffectStepForwardEffect); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := cursor.ConsumeForwardEffect("second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint != ForwardEffectValidateStateDir {
+		t.Fatalf("second checkpoint = %d, want StateDir validation", checkpoint)
+	}
+}
+
 func TestEffectCursorRejectsWrongBranchOrderAndUnderConsumption(t *testing.T) {
 	t.Parallel()
 	first := mustEffectStep(t, "first", EffectStepValidateBarrier)

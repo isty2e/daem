@@ -10,10 +10,20 @@ const (
 	effectCursorAborted
 )
 
+// ForwardEffectCheckpoint is the StateDir checkpoint implied by one selected
+// forward effect inside its non-nested phase.
+type ForwardEffectCheckpoint uint8
+
+const (
+	ForwardEffectEstablishStateDir ForwardEffectCheckpoint = iota + 1
+	ForwardEffectValidateStateDir
+)
+
 type effectCursorFrame struct {
-	node     *EffectNode
-	next     int
-	selected int
+	node           *EffectNode
+	next           int
+	selected       int
+	forwardEffects int
 }
 
 // EffectCursor validates branch selection and ordered runtime step consumption.
@@ -71,27 +81,54 @@ func (cursor *EffectCursor) SelectAlternative(choiceID string, alternative int) 
 
 // Consume consumes exactly the next identified step.
 func (cursor *EffectCursor) Consume(stepID string, kind EffectStepKind) error {
+	_, err := cursor.consume(stepID, kind)
+	return err
+}
+
+// ConsumeForwardEffect consumes the next forward-effect step and reports
+// whether its selected phase requires first-incarnation establishment or a
+// later retained-incarnation validation.
+func (cursor *EffectCursor) ConsumeForwardEffect(
+	stepID string,
+) (ForwardEffectCheckpoint, error) {
+	checkpoint, err := cursor.consume(stepID, EffectStepForwardEffect)
+	if err != nil {
+		return 0, err
+	}
+	if checkpoint == 0 {
+		return 0, fmt.Errorf(
+			"operationplan: forward effect %q has no enclosing forward phase",
+			stepID,
+		)
+	}
+	return checkpoint, nil
+}
+
+func (cursor *EffectCursor) consume(
+	stepID string,
+	kind EffectStepKind,
+) (ForwardEffectCheckpoint, error) {
 	if err := cursor.requireActive(); err != nil {
-		return err
+		return 0, err
 	}
 	step, choice, done, err := cursor.next()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if done {
-		return fmt.Errorf("operationplan: effect structure has no remaining step")
+		return 0, fmt.Errorf("operationplan: effect structure has no remaining step")
 	}
 	if choice != nil {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"operationplan: effect choice %q must be selected before consumption",
 			choice.node.choiceID,
 		)
 	}
 	if step == nil {
-		return fmt.Errorf("operationplan: effect cursor has no consumable step")
+		return 0, fmt.Errorf("operationplan: effect cursor has no consumable step")
 	}
 	if step.node.step.id != stepID || step.node.step.kind != kind {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"operationplan: next effect step is %q/%d, not %q/%d",
 			step.node.step.id,
 			step.node.step.kind,
@@ -102,8 +139,23 @@ func (cursor *EffectCursor) Consume(stepID string, kind EffectStepKind) error {
 	if kind.startsEffect() {
 		cursor.effectStarted = true
 	}
+	checkpoint := ForwardEffectCheckpoint(0)
+	if kind == EffectStepForwardEffect {
+		phase := cursor.enclosingForwardPhase()
+		if phase == nil {
+			return 0, fmt.Errorf(
+				"operationplan: forward effect %q has no enclosing forward phase",
+				stepID,
+			)
+		}
+		checkpoint = ForwardEffectValidateStateDir
+		if phase.forwardEffects == 0 {
+			checkpoint = ForwardEffectEstablishStateDir
+		}
+		phase.forwardEffects++
+	}
 	cursor.pop()
-	return nil
+	return checkpoint, nil
 }
 
 // FinishSuccess requires every selected mandatory step to have been consumed.
@@ -259,6 +311,16 @@ func (cursor *EffectCursor) push(node *EffectNode) {
 
 func (cursor *EffectCursor) pop() {
 	cursor.stack = cursor.stack[:len(cursor.stack)-1]
+}
+
+func (cursor *EffectCursor) enclosingForwardPhase() *effectCursorFrame {
+	for index := len(cursor.stack) - 1; index >= 0; index-- {
+		frame := &cursor.stack[index]
+		if frame.node.kind == effectNodeForwardPhase {
+			return frame
+		}
+	}
+	return nil
 }
 
 func (kind EffectStepKind) startsEffect() bool {
