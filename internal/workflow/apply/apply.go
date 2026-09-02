@@ -60,6 +60,7 @@ type runOptions struct {
 	validateStateDir               func(context.Context) error
 	reserveStatefileAuthority      reserveStatefileEffectAuthority
 	statefileAuthority             *statefileEffectAuthority
+	applyEffectPlan                *execute.ApplyEffectPlan
 	acceptVisibilityChanges        func(context.Context) error
 	validateCompensationAuthority  func(context.Context) error
 	acceptCompensationChanges      func(context.Context) error
@@ -150,7 +151,7 @@ func runWithOptions(
 		}()
 	}
 	if len(managedPathEffects) == 0 && len(aggregateEffects) == 0 {
-		stateResult, err := execute.ApplyWithOptions(ctx, execute.ApplyInput{
+		stateResult, err := applyWithPreparedEffectPlan(ctx, options.applyEffectPlan, execute.ApplyInput{
 			Paths:                       executePaths(paths, assessment.StatePath),
 			Resolver:                    destinationResolver(paths).Resolve,
 			CurrentState:                assessment.CurrentState,
@@ -217,7 +218,7 @@ func runWithOptions(
 			resultErr = errors.Join(resultErr, fmt.Errorf("release host payloads: %w", cleanupErr))
 		}
 	}()
-	applyResult, err := execute.ApplyWithOptions(ctx, execute.ApplyInput{
+	applyResult, err := applyWithPreparedEffectPlan(ctx, options.applyEffectPlan, execute.ApplyInput{
 		Paths:                       executePaths(paths, assessment.StatePath),
 		Resolver:                    destinationResolver(paths).Resolve,
 		ManagedPathEffects:          managedPathEffects,
@@ -268,6 +269,18 @@ func runWithOptions(
 		assessment.RelationObservations,
 		options,
 	)
+}
+
+func applyWithPreparedEffectPlan(
+	ctx context.Context,
+	plan *execute.ApplyEffectPlan,
+	input execute.ApplyInput,
+	options execute.ApplyOptions,
+) (execute.ApplyResult, error) {
+	if plan == nil {
+		return execute.ApplyWithOptions(ctx, input, options)
+	}
+	return execute.ApplyWithEffectPlan(ctx, input, *plan, options)
 }
 
 func managedPathPayloadSubjects(effects []execute.ManagedPathEffect) []topology.SubjectID {

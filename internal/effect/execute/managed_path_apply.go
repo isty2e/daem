@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/payload"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
@@ -75,6 +76,7 @@ func applyManagedPathPhaseWithEvents(
 	eventIndexOffset int,
 	events applyEventEmitter,
 	gate visibilityEffectGate,
+	execution *applyEffectExecution,
 	afterMutation func(context.Context, ManagedPathEffect, managedPathPhase) error,
 ) error {
 	operations := schedule.publish
@@ -89,36 +91,45 @@ func applyManagedPathPhaseWithEvents(
 		}
 		var err error
 		mutatesHost := effect.Kind() != ManagedPathEffectRecord
-		if mutatesHost {
-			err = gate.validateBefore(ctx)
-		}
-		if err != nil {
-			events.emit(EventActionFailed, EventStageAction, cloneActionEventFacts(facts), err)
-			return err
-		}
-		switch {
-		case operation.relocation && phase == managedPathPublishPhase:
-			err = applyManagedPathRelocationPublish(ctx, effect, payloads, authority, progress, operation.mutationIndex)
-		case operation.relocation && phase == managedPathRetirePhase:
-			previous, _ := effect.PreviousState()
-			err = applyManagedPathRelocationRetire(ctx, previous, authority, progress, operation.mutationIndex)
-		case effect.Kind() == ManagedPathEffectRecord:
-			destination, resolveErr := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
-			if resolveErr != nil {
-				err = resolveErr
-			} else {
-				err = verifyManagedPathPostcondition(
-					ctx, authority, destination, true, effect.DesiredHash(), effect.ContentKind(), effect.LiveFileMode(),
-				)
-				if err == nil {
-					progress.record(operation.mutationIndex, hostEffectExpectedAfter)
+		prefix := applyManagedPathScheduleReference(phase, operation.effectIndex)
+		if effect.Kind() == ManagedPathEffectRecord {
+			err = execution.runObservation(prefix+"/record", func() error {
+				destination, resolveErr := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
+				if resolveErr != nil {
+					return resolveErr
 				}
+				if verifyErr := verifyManagedPathPostcondition(
+					ctx, authority, destination, true, effect.DesiredHash(), effect.ContentKind(), effect.LiveFileMode(),
+				); verifyErr != nil {
+					return verifyErr
+				}
+				progress.record(operation.mutationIndex, hostEffectExpectedAfter)
+				return nil
+			})
+		} else {
+			operationGate := execution.visibilityGate(gate, prefix, operationplan.EffectStepPersistence)
+			if err = operationGate.validateBefore(ctx); err == nil {
+				err = operationGate.applyEffect(func() error {
+					switch {
+					case operation.relocation && phase == managedPathPublishPhase:
+						return applyManagedPathRelocationPublish(
+							ctx, effect, payloads, authority, progress, operation.mutationIndex,
+						)
+					case operation.relocation && phase == managedPathRetirePhase:
+						previous, _ := effect.PreviousState()
+						return applyManagedPathRelocationRetire(
+							ctx, previous, authority, progress, operation.mutationIndex,
+						)
+					default:
+						return applyManagedPathSingleMutation(
+							ctx, effect, payloads, authority, progress, operation.mutationIndex,
+						)
+					}
+				})
 			}
-		default:
-			err = applyManagedPathSingleMutation(ctx, effect, payloads, authority, progress, operation.mutationIndex)
-		}
-		if err == nil && mutatesHost {
-			err = gate.acceptAfter(ctx)
+			if err == nil {
+				err = operationGate.acceptAfter(ctx)
+			}
 		}
 		if err == nil && mutatesHost && afterMutation != nil {
 			err = afterMutation(ctx, effect, phase)

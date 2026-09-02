@@ -10,11 +10,13 @@ import (
 )
 
 // applyForwardEffectSchedule is the exact Apply-owned structural schedule used
-// for provider-suffix comparison and structural State Barrier lowering. Runtime
-// consumption remains split across later migration units.
+// for provider-suffix comparison and structural State Barrier lowering. The
+// Effect-owned core is consumed here; rollback and outer continuations remain
+// later migration units.
 type applyForwardEffectSchedule struct {
-	full  operationplan.EffectStructure
-	final operationplan.EffectStructure
+	full       operationplan.EffectStructure
+	final      operationplan.EffectStructure
+	effectPlan execute.ApplyEffectPlan
 }
 
 func requireEquivalentProviderFinalSchedule(
@@ -65,22 +67,31 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 	envelope operationplan.Envelope,
 	executeGates int,
 ) (applyForwardEffectSchedule, error) {
+	effectPlan, err := execute.PrepareApplyEffectPlan(applyInput)
+	if err != nil {
+		return applyForwardEffectSchedule{}, err
+	}
 	input, err := applyScheduleInputFor(
 		current,
 		providerActions,
-		applyInput,
+		effectPlan.Segment(),
 		executeGates,
 	)
 	if err != nil {
 		return applyForwardEffectSchedule{}, err
 	}
-	return compileApplySchedule(input, envelope.Demand())
+	schedule, err := compileApplySchedule(input, envelope.Demand())
+	if err != nil {
+		return applyForwardEffectSchedule{}, err
+	}
+	schedule.effectPlan = effectPlan
+	return schedule, nil
 }
 
 func applyScheduleInputFor(
 	current commandPlan,
 	providerActions []reconcile.RelationAction,
-	applyInput execute.ApplyInput,
+	effectSegment operationplan.EffectNode,
 	executeGates int,
 ) (applyScheduleInput, error) {
 	_, globalRetirements, err := stateOnlyCarrierClaimRetirements(
@@ -97,10 +108,6 @@ func applyScheduleInputFor(
 		return applyScheduleInput{}, err
 	}
 	orderClasses, err := admittedOrderClassFacts(current)
-	if err != nil {
-		return applyScheduleInput{}, err
-	}
-	effectSegment, err := execute.ApplyEffectSegment(applyInput)
 	if err != nil {
 		return applyScheduleInput{}, err
 	}

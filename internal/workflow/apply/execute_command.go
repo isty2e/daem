@@ -416,6 +416,7 @@ func executeWithDependencies(
 			return forwardAuthority.ValidateStateDir(ctx)
 		},
 		statefileAuthority:            statefileAuthority,
+		applyEffectPlan:               &stateDirPlan.schedule.effectPlan,
 		acceptVisibilityChanges:       acceptVisibilityChanges,
 		validateCompensationAuthority: validateCompensationAuthority,
 		acceptCompensationChanges:     acceptCompensationChanges,

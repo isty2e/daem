@@ -98,6 +98,26 @@ func ApplyWithOptions(
 	ctx context.Context,
 	input ApplyInput,
 	options ApplyOptions,
+) (ApplyResult, error) {
+	return applyWithOptions(ctx, input, nil, options)
+}
+
+// ApplyWithEffectPlan commits typed executable effects through the exact
+// operation-prepared structural plan.
+func ApplyWithEffectPlan(
+	ctx context.Context,
+	input ApplyInput,
+	plan ApplyEffectPlan,
+	options ApplyOptions,
+) (ApplyResult, error) {
+	return applyWithOptions(ctx, input, &plan, options)
+}
+
+func applyWithOptions(
+	ctx context.Context,
+	input ApplyInput,
+	preparedPlan *ApplyEffectPlan,
+	options ApplyOptions,
 ) (result ApplyResult, resultErr error) {
 	executionAttempted := false
 	defer func() {
@@ -139,6 +159,22 @@ func ApplyWithOptions(
 			transition.adoptedProjectClaimCount,
 	}
 	if !transition.changed {
+		expectedPlan, planErr := compileApplyEffectPlan(
+			transition,
+			managedPathExecutionSchedule{},
+			ownershipMutationState{},
+			nil,
+		)
+		if planErr != nil {
+			return ApplyResult{}, planErr
+		}
+		execution, planErr := beginApplyEffectExecution(preparedPlan, expectedPlan)
+		if planErr != nil {
+			return ApplyResult{}, planErr
+		}
+		if planErr := execution.finish(nil); planErr != nil {
+			return ApplyResult{}, planErr
+		}
 		return ApplyResult{StatePath: input.Paths.StatefilePath, State: input.CurrentState}, nil
 	}
 	if input.StateCodec == nil {
@@ -197,6 +233,24 @@ func ApplyWithOptions(
 	if ownershipState.hasMutations() && input.OwnershipRegistryBinder == nil {
 		return ApplyResult{}, fmt.Errorf("apply ownership registry binder is required")
 	}
+	expectedPlan, err := compileApplyEffectPlan(
+		transition,
+		managedSchedule,
+		ownershipState,
+		input.AggregateEffects,
+	)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	effectExecution, err := beginApplyEffectExecution(preparedPlan, expectedPlan)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	defer func() {
+		if finishErr := effectExecution.finish(resultErr); finishErr != nil {
+			resultErr = errors.Join(resultErr, finishErr)
+		}
+	}()
 	mutationAuthority, err := newMutationAuthorityWithProjectionEffects(
 		input.Paths,
 		input.ManagedPathEffects,
@@ -242,6 +296,11 @@ func ApplyWithOptions(
 		before: options.validateCompensationAuthority,
 		after:  options.acceptCompensationVisibilityChanges,
 	}
+	journalPublicationGate := effectExecution.visibilityGate(
+		visibilityGate,
+		"apply/journal-publication",
+		operationplan.EffectStepPersistence,
+	)
 	if err := mutationAuthority.prepareApplyForwardRemovals(
 		ctx,
 		input.ManagedPathEffects,
@@ -250,109 +309,124 @@ func ApplyWithOptions(
 	); err != nil {
 		return ApplyResult{}, fmt.Errorf("prepare bounded forward removals: %w", err)
 	}
-	if err := visibilityGate.validateBefore(ctx); err != nil {
+	if err := journalPublicationGate.validateBefore(ctx); err != nil {
 		return ApplyResult{}, err
 	}
-	if err := mutationAuthority.bindRecoveryJournal(
-		input.Paths.ManifestRoot,
-		filepath.Join(input.Paths.RecoveryDir, operationID),
-	); err != nil {
+	if err := journalPublicationGate.applyEffect(func() error {
+		if bindErr := mutationAuthority.bindRecoveryJournal(
+			input.Paths.ManifestRoot,
+			filepath.Join(input.Paths.RecoveryDir, operationID),
+		); bindErr != nil {
+			return bindErr
+		}
+		events.emit(EventJournalCaptureStarted, EventStageJournalCapture, nil, nil)
+		executionAttempted = true
+		captureResult, captureErr := journal.CaptureJournalWithOptions(
+			ctx,
+			input.Paths.journalPaths(),
+			operationID,
+			createdAt,
+			input.CurrentState,
+			nextState,
+			journal.CaptureOptions{
+				Filesystem:                input.Filesystem,
+				ClaimTransitions:          ownershipState.transitions,
+				ProvisionalAcquires:       ownershipState.provisional,
+				ManagedPathMutations:      managedMutations,
+				ManagedAggregateMutations: aggregateMutations,
+				ManagedPathEvidence:       input.ManagedPathEvidence,
+				RemovalDemands:            removalDemands,
+				Resolver:                  journalResolver,
+				ManifestRoot:              mutationAuthority.capturedRoot,
+				OperationAuthority:        mutationAuthority.recoveryJournal,
+				RootedCapability:          mutationAuthority.rootedJournalCapability,
+				Codecs:                    input.Codecs,
+				StateCodec:                input.StateCodec,
+			},
+		)
+		if captureErr != nil {
+			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, captureErr)
+			return fmt.Errorf("capture recovery journal: %w", captureErr)
+		}
+		if basisErr := mutationAuthority.captureJournalExecutionBasis(
+			ctx,
+			captureResult.RecordFingerprint,
+		); basisErr != nil {
+			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, basisErr)
+			return basisErr
+		}
+		activePlan, loadErr := loadApplyActivePlanForState(
+			ctx,
+			input.Paths,
+			input.CurrentState,
+			mutationAuthority,
+			input.StateCodec,
+			input.Codecs,
+		)
+		if loadErr != nil {
+			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, loadErr)
+			return fmt.Errorf("bind captured removal authority: %w", loadErr)
+		}
+		if basisErr := mutationAuthority.validateJournalExecutionBasis(
+			ctx,
+			activePlan,
+			"after publication",
+		); basisErr != nil {
+			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, basisErr)
+			return basisErr
+		}
+		if bindErr := mutationAuthority.bindRemovalIntents(activePlan); bindErr != nil {
+			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, bindErr)
+			return fmt.Errorf("bind captured removal authority: %w", bindErr)
+		}
+		if prepareErr := mutationAuthority.prepareActiveJournalRetirement(
+			ctx,
+			input.Paths,
+			activePlan,
+			input.StateCodec,
+		); prepareErr != nil {
+			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, prepareErr)
+			return fmt.Errorf("prepare bounded journal retirement: %w", prepareErr)
+		}
+		return nil
+	}); err != nil {
 		return ApplyResult{}, err
 	}
-	events.emit(EventJournalCaptureStarted, EventStageJournalCapture, nil, nil)
-	executionAttempted = true
-	captureResult, err := journal.CaptureJournalWithOptions(
-		ctx,
-		input.Paths.journalPaths(),
-		operationID,
-		createdAt,
-		input.CurrentState,
-		nextState,
-		journal.CaptureOptions{
-			Filesystem:                input.Filesystem,
-			ClaimTransitions:          ownershipState.transitions,
-			ProvisionalAcquires:       ownershipState.provisional,
-			ManagedPathMutations:      managedMutations,
-			ManagedAggregateMutations: aggregateMutations,
-			ManagedPathEvidence:       input.ManagedPathEvidence,
-			RemovalDemands:            removalDemands,
-			Resolver:                  journalResolver,
-			ManifestRoot:              mutationAuthority.capturedRoot,
-			OperationAuthority:        mutationAuthority.recoveryJournal,
-			RootedCapability:          mutationAuthority.rootedJournalCapability,
-			Codecs:                    input.Codecs,
-			StateCodec:                input.StateCodec,
-		},
-	)
-	if err != nil {
-		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
-		return ApplyResult{}, fmt.Errorf("capture recovery journal: %w", err)
-	}
-	if err := mutationAuthority.captureJournalExecutionBasis(
-		ctx,
-		captureResult.RecordFingerprint,
-	); err != nil {
-		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
-		return ApplyResult{}, err
-	}
-	activePlan, err := loadApplyActivePlanForState(
-		ctx,
-		input.Paths,
-		input.CurrentState,
-		mutationAuthority,
-		input.StateCodec,
-		input.Codecs,
-	)
-	if err != nil {
-		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
-		return ApplyResult{}, fmt.Errorf("bind captured removal authority: %w", err)
-	}
-	if err := mutationAuthority.validateJournalExecutionBasis(
-		ctx,
-		activePlan,
-		"after publication",
-	); err != nil {
-		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
-		return ApplyResult{}, err
-	}
-	if err := mutationAuthority.bindRemovalIntents(activePlan); err != nil {
-		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
-		return ApplyResult{}, fmt.Errorf("bind captured removal authority: %w", err)
-	}
-	if err := mutationAuthority.prepareActiveJournalRetirement(
-		ctx,
-		input.Paths,
-		activePlan,
-		input.StateCodec,
-	); err != nil {
-		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
-		return ApplyResult{}, fmt.Errorf("prepare bounded journal retirement: %w", err)
-	}
-	if err := visibilityGate.acceptAfter(ctx); err != nil {
+	if err := journalPublicationGate.acceptAfter(ctx); err != nil {
 		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
 		return ApplyResult{}, fmt.Errorf(
 			"accept recovery journal visibility: %w; recovery journal retained; run: daem recover --dry-run",
 			err,
 		)
 	}
-	if err := validateCapturedJournalFingerprint(
-		ctx,
-		input.Paths,
-		input.CurrentState,
-		mutationAuthority,
-		input.StateCodec,
-		input.Codecs,
-		"before prepared effects",
+	if err := effectExecution.runObservation(
+		"apply/journal-publication/post-validation",
+		func() error {
+			return validateCapturedJournalFingerprint(
+				ctx,
+				input.Paths,
+				input.CurrentState,
+				mutationAuthority,
+				input.StateCodec,
+				input.Codecs,
+				"before prepared effects",
+			)
+		},
 	); err != nil {
 		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
 		return ApplyResult{}, err
 	}
 	events.emit(EventJournalCaptured, EventStageJournalCapture, nil, nil)
+	ownershipPreparationGate := effectExecution.visibilityGate(
+		visibilityGate,
+		"apply/ownership-preparation",
+		operationplan.EffectStepPersistence,
+	)
 	if err := prepareClaimTransitions(
 		ctx,
 		registryStore,
 		ownershipState.transitions,
-		visibilityGate,
+		ownershipPreparationGate,
 	); err != nil {
 		rollbackErr := rollbackClaimsToBefore(
 			context.WithoutCancel(ctx),
@@ -396,13 +470,18 @@ func ApplyWithOptions(
 	}
 
 	events.emit(EventRollbackStageStarted, EventStageRollbackStage, nil, nil)
-	if err := validateApplyRecoveryPrepared(
-		ctx,
-		input.Paths,
-		input.CurrentState,
-		mutationAuthority,
-		input.StateCodec,
-		input.Codecs,
+	if err := effectExecution.runObservation(
+		"apply/prepared-effects-validation",
+		func() error {
+			return validateApplyRecoveryPrepared(
+				ctx,
+				input.Paths,
+				input.CurrentState,
+				mutationAuthority,
+				input.StateCodec,
+				input.Codecs,
+			)
+		},
 	); err != nil {
 		events.emit(EventRollbackStageFailed, EventStageRollbackStage, nil, err)
 		if claimErr := rollbackClaimsToBefore(
@@ -459,11 +538,12 @@ func ApplyWithOptions(
 			registryStore,
 			input.StateCodec,
 			visibilityGate,
+			effectExecution,
 		)
 	}
 	if err := applyManagedPathPhaseWithEvents(
 		ctx, managedSchedule, managedPathPublishPhase, input.Payloads, mutationAuthority,
-		managedProgress, 0, events, visibilityGate, promoteManagedOwnership,
+		managedProgress, 0, events, visibilityGate, effectExecution, promoteManagedOwnership,
 	); err != nil {
 		progress := combineHostActionProgress(
 			managedProgress, newHostActionProgress(len(aggregateMutations)),
@@ -482,6 +562,7 @@ func ApplyWithOptions(
 		len(input.ManagedPathEffects),
 		events,
 		visibilityGate,
+		effectExecution,
 		func(ctx context.Context, effect AggregateEffect) error {
 			return ownershipState.promoteVisibleAcquires(
 				ctx,
@@ -490,6 +571,7 @@ func ApplyWithOptions(
 				registryStore,
 				input.StateCodec,
 				visibilityGate,
+				effectExecution,
 			)
 		},
 	)
@@ -502,7 +584,7 @@ func ApplyWithOptions(
 	}
 	if err := applyManagedPathPhaseWithEvents(
 		ctx, managedSchedule, managedPathRetirePhase, input.Payloads, mutationAuthority,
-		managedProgress, 0, events, visibilityGate, promoteManagedOwnership,
+		managedProgress, 0, events, visibilityGate, effectExecution, promoteManagedOwnership,
 	); err != nil {
 		progress = combineHostActionProgress(managedProgress, aggregateProgress)
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
@@ -511,40 +593,66 @@ func ApplyWithOptions(
 		)
 	}
 	progress = combineHostActionProgress(managedProgress, aggregateProgress)
-	if err := ctx.Err(); err != nil {
+	if err := effectExecution.runObservation(
+		"apply/statefile-publication/context-validation",
+		func() error { return ctx.Err() },
+	); err != nil {
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
 			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
 		)
 	}
-	if err := mutationAuthority.validateProjectSelection(input.Paths.ManifestRoot); err != nil {
+	if err := effectExecution.runObservation(
+		"apply/statefile-publication/project-validation",
+		func() error {
+			return mutationAuthority.validateProjectSelection(input.Paths.ManifestRoot)
+		},
+	); err != nil {
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
 			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
 		)
 	}
-	if err := visibilityGate.validateBefore(ctx); err != nil {
-		return ApplyResult{}, applyRecoveryErrorWithEvents(
-			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
-			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
-		)
-	}
-	events.emit(EventStatefileWriteStarted, EventStageStatefileWrite, nil, nil)
-	commit := options.statefileCommit(
-		ctx,
-		mutationAuthority,
-		input.Paths.StatefilePath,
-		stateContent,
-		0o600,
+	statefileGate := effectExecution.visibilityGate(
+		visibilityGate,
+		"apply/statefile-publication",
+		operationplan.EffectStepPersistence,
 	)
-	if !commit.committed() {
-		primary := fmt.Errorf("write statefile: %w", commit.failure())
-		events.emit(EventStatefileWriteFailed, EventStageStatefileWrite, nil, primary)
-		if commit.requiresRecovery() {
-			return ApplyResult{}, fmt.Errorf("%w; statefile commit is indeterminate; recovery journal retained; run: daem recover --dry-run", primary)
+	if err := statefileGate.validateBefore(ctx); err != nil {
+		return ApplyResult{}, applyRecoveryErrorWithEvents(
+			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
+			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
+		)
+	}
+	var commit statefileCommitOutcome
+	commitAttempted := false
+	commitErr := statefileGate.applyEffect(func() error {
+		events.emit(EventStatefileWriteStarted, EventStageStatefileWrite, nil, nil)
+		commitAttempted = true
+		commit = options.statefileCommit(
+			ctx,
+			mutationAuthority,
+			input.Paths.StatefilePath,
+			stateContent,
+			0o600,
+		)
+		if commit.committed() {
+			return nil
+		}
+		return fmt.Errorf("write statefile: %w", commit.failure())
+	})
+	if commitErr != nil {
+		if commitAttempted {
+			events.emit(EventStatefileWriteFailed, EventStageStatefileWrite, nil, commitErr)
+			if commit.requiresRecovery() {
+				return ApplyResult{}, fmt.Errorf(
+					"%w; statefile commit is indeterminate; recovery journal retained; run: daem recover --dry-run",
+					commitErr,
+				)
+			}
 		}
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
-			ctx, primary, input.Paths, input.CurrentState, progress, entrySelections,
+			ctx, commitErr, input.Paths, input.CurrentState, progress, entrySelections,
 			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
 		)
 	}
@@ -556,23 +664,41 @@ func ApplyWithOptions(
 		StatePath: input.Paths.StatefilePath,
 		State:     nextState,
 	}
-	if err := visibilityGate.acceptAfter(ctx); err != nil {
+	if err := statefileGate.acceptAfter(ctx); err != nil {
 		return committedResult, fmt.Errorf(
 			"%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run",
 			err,
 		)
 	}
 	events.emit(EventStatefileWritten, EventStageStatefileWrite, nil, nil)
-	if err := mutationAuthority.validateProjectSelection(input.Paths.ManifestRoot); err != nil {
+	if err := effectExecution.runObservation(
+		"apply/post-statefile/project-validation",
+		func() error {
+			return mutationAuthority.validateProjectSelection(input.Paths.ManifestRoot)
+		},
+	); err != nil {
 		return committedResult, fmt.Errorf(
 			"%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run",
 			err,
 		)
 	}
-	if err := ctx.Err(); err != nil {
+	if err := effectExecution.runObservation(
+		"apply/post-statefile/context-validation",
+		func() error { return ctx.Err() },
+	); err != nil {
 		return committedResult, fmt.Errorf("%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run", err)
 	}
-	if err := finalizeClaimTransitions(ctx, registryStore, ownershipState.transitions, visibilityGate); err != nil {
+	ownershipFinalizationGate := effectExecution.visibilityGate(
+		visibilityGate,
+		"apply/ownership-finalization",
+		operationplan.EffectStepPersistence,
+	)
+	if err := finalizeClaimTransitions(
+		ctx,
+		registryStore,
+		ownershipState.transitions,
+		ownershipFinalizationGate,
+	); err != nil {
 		return committedResult, fmt.Errorf("%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run", err)
 	}
 	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
@@ -586,6 +712,11 @@ func ApplyWithOptions(
 			"before successful apply retirement",
 		)
 	}
+	journalRetirementGate := effectExecution.visibilityGate(
+		visibilityGate,
+		"apply/journal-retirement",
+		operationplan.EffectStepRetirement,
+	)
 	if err := retireRecoveryJournalWithEvents(
 		ctx,
 		input.Paths,
@@ -593,7 +724,7 @@ func ApplyWithOptions(
 		events,
 		loadRetirementPlan,
 		input.StateCodec,
-		visibilityGate,
+		journalRetirementGate,
 		nil,
 	); err != nil {
 		return committedResult, fmt.Errorf(
@@ -601,7 +732,12 @@ func ApplyWithOptions(
 			retirementFailureWithRemediation(err),
 		)
 	}
-	if err := mutationAuthority.validateProjectSelection(input.Paths.ManifestRoot); err != nil {
+	if err := effectExecution.runObservation(
+		"apply/journal-retirement/final-project-validation",
+		func() error {
+			return mutationAuthority.validateProjectSelection(input.Paths.ManifestRoot)
+		},
+	); err != nil {
 		return committedResult, fmt.Errorf(
 			"%w; apply effects and statefile committed; recovery journal retired",
 			err,
@@ -719,7 +855,12 @@ func retireRecoveryJournalWithEvents(
 			id:   "active-recovery/outer/validate-project-before-retirement",
 			kind: operationplan.EffectStepObservation,
 		},
-		func() error { return authority.validateProjectSelection(paths.ManifestRoot) },
+		func() error {
+			return gate.observe(
+				"project-validation",
+				func() error { return authority.validateProjectSelection(paths.ManifestRoot) },
+			)
+		},
 	); err != nil {
 		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
 		return err
@@ -741,15 +882,19 @@ func retireRecoveryJournalWithEvents(
 			kind: operationplan.EffectStepObservation,
 		},
 		func() error {
-			var err error
-			plan, err = loadPlan(ctx)
-			return err
+			return gate.observe("reload", func() error {
+				var err error
+				plan, err = loadPlan(ctx)
+				return err
+			})
 		},
 	); err != nil {
 		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
 		return err
 	}
-	if err := authority.retireActiveJournal(ctx, plan, execution); err != nil {
+	if err := gate.applyEffect(func() error {
+		return authority.retireActiveJournal(ctx, plan, execution)
+	}); err != nil {
 		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
 		return err
 	}

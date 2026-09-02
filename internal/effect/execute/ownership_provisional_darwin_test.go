@@ -49,12 +49,12 @@ func TestProvisionalGlobalOwnershipUsesExactForwardValidationBudget(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	segment, err := ApplyEffectSegment(input)
+	plan, err := PrepareApplyEffectPlan(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var builder operationplan.EffectStructureBuilder
-	structure, err := builder.Compile(builder.ForwardPhase("apply", segment))
+	structure, err := builder.Compile(builder.ForwardPhase("apply", plan.Segment()))
 	if err != nil {
 		t.Fatal(err)
 	}

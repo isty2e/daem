@@ -98,6 +98,78 @@ func TestRunWithOptionsPassesExecuteEvents(t *testing.T) {
 	assertWorkflowApplyEventKinds(t, events, execute.EventJournalCaptureStarted, execute.EventActionStarted, execute.EventJournalCleaned)
 }
 
+func TestRunWithOptionsThreadsPreparedEffectPlanThroughBothPayloadBranches(t *testing.T) {
+	t.Parallel()
+
+	t.Run("payload-free", func(t *testing.T) {
+		t.Parallel()
+		tempDir := t.TempDir()
+		paths := isolatedApplyTestPaths(t, tempDir)
+		resources := applyEmptyEnvironment(t, targetpkg.TargetCodex)
+		locked := snapshottest.File(t)
+		selection := applySelection(t, []string{"codex"})
+		assessment := buildManagedApplyAssessment(t, paths, resources, locked, selection, false)
+
+		_, err := runWithOptions(
+			context.Background(),
+			paths,
+			resources,
+			locked,
+			selection,
+			assessment,
+			runOptions{applyEffectPlan: &execute.ApplyEffectPlan{}},
+		)
+		if err == nil {
+			t.Fatal("runWithOptions accepted an unavailable prepared plan")
+		}
+		for _, path := range []string{paths.StatefilePath, paths.RecoveryDir} {
+			if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+				t.Fatalf("pre-effect plan failure created %q: %v", path, statErr)
+			}
+		}
+	})
+
+	t.Run("payload-bearing", func(t *testing.T) {
+		t.Parallel()
+		tempDir := t.TempDir()
+		paths := isolatedApplyTestPaths(t, tempDir)
+		writeApplyFile(t, filepath.Join(tempDir, "instructions", "AGENTS.md"), "shared instructions\n")
+		instructionHash := hashApplyPath(t, filepath.Join(tempDir, "instructions", "AGENTS.md"))
+		resources := applyInstructionConfig(t, "project", "instructions/AGENTS.md", "", targetpkg.TargetCodex)
+		locked := applyInstructionLockfile(
+			t,
+			"project",
+			"local:instructions/AGENTS.md?mode=vendor",
+			instructionHash,
+			targetpkg.TargetCodex,
+		)
+		selection := applySelection(t, []string{"codex"})
+		assessment := buildManagedApplyAssessment(t, paths, resources, locked, selection, false)
+
+		_, err := runWithOptions(
+			context.Background(),
+			paths,
+			resources,
+			locked,
+			selection,
+			assessment,
+			runOptions{applyEffectPlan: &execute.ApplyEffectPlan{}},
+		)
+		if err == nil {
+			t.Fatal("runWithOptions accepted an unavailable prepared plan")
+		}
+		for _, path := range []string{
+			filepath.Join(tempDir, "AGENTS.md"),
+			paths.StatefilePath,
+			paths.RecoveryDir,
+		} {
+			if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+				t.Fatalf("pre-effect plan failure created %q: %v", path, statErr)
+			}
+		}
+	})
+}
+
 func TestRunFinalValidationPrecedesJournalAndHostEffects(t *testing.T) {
 	t.Parallel()
 

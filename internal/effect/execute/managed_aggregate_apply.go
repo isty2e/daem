@@ -8,6 +8,7 @@ import (
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -19,6 +20,7 @@ func applyAggregateEffectsWithEvents(
 	eventIndexOffset int,
 	events applyEventEmitter,
 	gate visibilityEffectGate,
+	execution *applyEffectExecution,
 	afterMutation func(context.Context, AggregateEffect) error,
 ) (hostActionProgress, error) {
 	journaledProjectionCount := 0
@@ -28,7 +30,7 @@ func applyAggregateEffectsWithEvents(
 	progress := newHostActionProgress(journaledProjectionCount)
 	journalProjectionIndex := 0
 	eventIndex := eventIndexOffset
-	for _, effect := range effects {
+	for effectIndex, effect := range effects {
 		subjects := effect.SubjectEffects()
 		for _, subject := range subjects {
 			facts := aggregateEventFacts(eventIndex, subject)
@@ -36,30 +38,46 @@ func applyAggregateEffectsWithEvents(
 			eventIndex++
 		}
 
-		destination, err := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
-		if err == nil {
-			err = verifyAggregateOperationPreconditions(ctx, authority, effect)
+		prefix := applyAggregateScheduleReference(effectIndex)
+		var destination mutationDestination
+		observePreconditions := func() error {
+			resolved, err := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
+			if err != nil {
+				return err
+			}
+			destination = resolved
+			return verifyAggregateOperationPreconditions(ctx, authority, effect)
 		}
 		hostProgress := hostEffectNotStarted
-		if err == nil {
-			if effect.Kind() == AggregateEffectRecord {
-				err = verifyAggregateBefore(ctx, authority, destination, effect, codecs)
-			} else {
-				err = gate.validateBefore(ctx)
-				if err == nil {
+		var err error
+		if effect.Kind() == AggregateEffectRecord {
+			err = execution.runObservation(prefix+"/record", func() error {
+				if observeErr := observePreconditions(); observeErr != nil {
+					return observeErr
+				}
+				return verifyAggregateBefore(ctx, authority, destination, effect, codecs)
+			})
+		} else {
+			err = execution.runObservation(prefix+"/preconditions", observePreconditions)
+			operationGate := execution.visibilityGate(gate, prefix, operationplan.EffectStepPersistence)
+			if err == nil {
+				err = operationGate.validateBefore(ctx)
+			}
+			if err == nil {
+				err = operationGate.applyEffect(func() error {
 					outcome := commitAggregateEffect(ctx, authority, destination, effect, codecs)
-					err = outcome.err
 					hostProgress = hostEffectExpectedAfter
-					if err != nil {
-						hostProgress = progressAfterMutationError(err)
+					if outcome.err != nil {
+						hostProgress = progressAfterMutationError(outcome.err)
 					}
-				}
-				if err == nil {
-					err = gate.acceptAfter(ctx)
-				}
-				if err == nil && afterMutation != nil {
-					err = afterMutation(ctx, effect)
-				}
+					return outcome.err
+				})
+			}
+			if err == nil {
+				err = operationGate.acceptAfter(ctx)
+			}
+			if err == nil && afterMutation != nil {
+				err = afterMutation(ctx, effect)
 			}
 		}
 		for _, projection := range effect.projections {

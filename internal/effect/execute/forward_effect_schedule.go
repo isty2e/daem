@@ -8,21 +8,34 @@ import (
 
 const applyOwnershipPromotionTrigger = "apply/ownership-promotion-finalization"
 
-// ApplyEffectSegment returns Effect-owned apply obligations without assigning a
-// StateDir forward phase. The operation workflow composes this segment with its
-// later carrier, route, order, delegate, and registry obligations before the
-// State Barrier lowers the complete phase.
-func ApplyEffectSegment(input ApplyInput) (operationplan.EffectNode, error) {
+// ApplyEffectPlan retains the immutable Effect-owned Apply segment together
+// with the exact operation-local cursor structure compiled from that segment.
+// It carries no filesystem or mutation authority.
+type ApplyEffectPlan struct {
+	segment          operationplan.EffectNode
+	structure        operationplan.EffectStructure
+	promotionIndexes map[ownershipOutputKey]int
+	changed          bool
+	valid            bool
+}
+
+// PrepareApplyEffectPlan compiles the Effect-owned structural Apply plan.
+func PrepareApplyEffectPlan(input ApplyInput) (ApplyEffectPlan, error) {
 	transition, err := deriveApplyStateTransition(input)
 	if err != nil {
-		return operationplan.EffectNode{}, err
+		return ApplyEffectPlan{}, err
 	}
 	if !transition.changed {
-		return operationplan.EffectSequence(), nil
+		return compileApplyEffectPlan(
+			transition,
+			managedPathExecutionSchedule{},
+			ownershipMutationState{},
+			nil,
+		)
 	}
 	managedSchedule, err := newManagedPathExecutionSchedule(input.ManagedPathEffects)
 	if err != nil {
-		return operationplan.EffectNode{}, err
+		return ApplyEffectPlan{}, err
 	}
 	operationID := forwardEffectPlanningOperationID()
 	managedOwnership, err := ownershipPlanForManagedPathEffects(
@@ -32,7 +45,7 @@ func ApplyEffectSegment(input ApplyInput) (operationplan.EffectNode, error) {
 		operationID,
 	)
 	if err != nil {
-		return operationplan.EffectNode{}, fmt.Errorf(
+		return ApplyEffectPlan{}, fmt.Errorf(
 			"derive managed path ownership effect schedule: %w",
 			err,
 		)
@@ -44,38 +57,85 @@ func ApplyEffectSegment(input ApplyInput) (operationplan.EffectNode, error) {
 		operationID,
 	)
 	if err != nil {
-		return operationplan.EffectNode{}, fmt.Errorf(
+		return ApplyEffectPlan{}, fmt.Errorf(
 			"derive managed aggregate ownership effect schedule: %w",
 			err,
 		)
 	}
-	ownershipState := newOwnershipMutationState(managedOwnership, aggregateOwnership)
+	return compileApplyEffectPlan(
+		transition,
+		managedSchedule,
+		newOwnershipMutationState(managedOwnership, aggregateOwnership),
+		input.AggregateEffects,
+	)
+}
+
+// Segment returns the validated segment for composition into the complete
+// operation-owned Apply schedule.
+func (plan ApplyEffectPlan) Segment() operationplan.EffectNode {
+	return plan.segment
+}
+
+func compileApplyEffectPlan(
+	transition applyStateTransition,
+	managedSchedule managedPathExecutionSchedule,
+	ownershipState ownershipMutationState,
+	aggregateEffects []AggregateEffect,
+) (ApplyEffectPlan, error) {
+	var builder operationplan.EffectStructureBuilder
+	if !transition.changed {
+		segment := operationplan.EffectSequence()
+		structure, err := builder.Compile(segment)
+		if err != nil {
+			return ApplyEffectPlan{}, err
+		}
+		return ApplyEffectPlan{
+			segment:   segment,
+			structure: structure,
+			valid:     true,
+		}, nil
+	}
 	promotions, err := newProvisionalPromotionSchedule(ownershipState)
 	if err != nil {
-		return operationplan.EffectNode{}, err
+		return ApplyEffectPlan{}, err
 	}
 
-	var builder operationplan.EffectStructureBuilder
 	nodes := []operationplan.EffectNode{
 		applyForwardObligation(
 			&builder,
 			"apply/journal-publication",
 			operationplan.EffectStepPersistence,
 		),
+		applyCheckedStep(
+			&builder,
+			"apply/journal-publication/post-validation",
+			operationplan.EffectStepObservation,
+		),
 	}
 	if len(ownershipState.transitions) != 0 {
-		nodes = append(nodes, applyForwardObligation(
+		nodes = append(nodes, applyClaimTransitionObligation(
 			&builder,
 			"apply/ownership-preparation",
-			operationplan.EffectStepPersistence,
 		))
 	}
+	nodes = append(nodes, applyCheckedStep(
+		&builder,
+		"apply/prepared-effects-validation",
+		operationplan.EffectStepObservation,
+	))
 	for _, operation := range managedSchedule.publish {
 		effect := managedSchedule.effects[operation.effectIndex]
-		if effect.Kind() != ManagedPathEffectRecord {
+		prefix := applyManagedPathScheduleReference(managedPathPublishPhase, operation.effectIndex)
+		if effect.Kind() == ManagedPathEffectRecord {
+			nodes = append(nodes, applyCheckedStep(
+				&builder,
+				prefix+"/record",
+				operationplan.EffectStepObservation,
+			))
+		} else {
 			nodes = append(nodes, applyForwardObligation(
 				&builder,
-				fmt.Sprintf("apply/managed-publish/%d", operation.effectIndex),
+				prefix,
 				operationplan.EffectStepPersistence,
 			))
 		}
@@ -87,13 +147,28 @@ func ApplyEffectSegment(input ApplyInput) (operationplan.EffectNode, error) {
 			)...,
 		)
 	}
-	for index, effect := range input.AggregateEffects {
-		if effect.Kind() != AggregateEffectRecord {
-			nodes = append(nodes, applyForwardObligation(
+	for index, effect := range aggregateEffects {
+		prefix := applyAggregateScheduleReference(index)
+		if effect.Kind() == AggregateEffectRecord {
+			nodes = append(nodes, applyCheckedStep(
 				&builder,
-				fmt.Sprintf("apply/aggregate/%d", index),
-				operationplan.EffectStepPersistence,
+				prefix+"/record",
+				operationplan.EffectStepObservation,
 			))
+		} else {
+			nodes = append(
+				nodes,
+				applyCheckedStep(
+					&builder,
+					prefix+"/preconditions",
+					operationplan.EffectStepObservation,
+				),
+				applyForwardObligation(
+					&builder,
+					prefix,
+					operationplan.EffectStepPersistence,
+				),
+			)
 		}
 		nodes = append(
 			nodes,
@@ -109,45 +184,83 @@ func ApplyEffectSegment(input ApplyInput) (operationplan.EffectNode, error) {
 		}
 		nodes = append(nodes, applyForwardObligation(
 			&builder,
-			fmt.Sprintf("apply/managed-retire/%d", operation.effectIndex),
+			applyManagedPathScheduleReference(managedPathRetirePhase, operation.effectIndex),
 			operationplan.EffectStepPersistence,
 		))
 	}
 	if err := promotions.requireComplete(); err != nil {
-		return operationplan.EffectNode{}, err
+		return ApplyEffectPlan{}, err
 	}
-	nodes = append(nodes, applyForwardObligation(
-		&builder,
-		"apply/statefile-publication",
-		operationplan.EffectStepPersistence,
-	))
+	nodes = append(
+		nodes,
+		applyCheckedStep(
+			&builder,
+			"apply/statefile-publication/context-validation",
+			operationplan.EffectStepObservation,
+		),
+		applyCheckedStep(
+			&builder,
+			"apply/statefile-publication/project-validation",
+			operationplan.EffectStepObservation,
+		),
+		applyForwardObligation(
+			&builder,
+			"apply/statefile-publication",
+			operationplan.EffectStepPersistence,
+		),
+		applyCheckedStep(
+			&builder,
+			"apply/post-statefile/project-validation",
+			operationplan.EffectStepObservation,
+		),
+		applyCheckedStep(
+			&builder,
+			"apply/post-statefile/context-validation",
+			operationplan.EffectStepObservation,
+		),
+	)
 	switch {
 	case len(ownershipState.transitions) != 0:
-		nodes = append(nodes, applyForwardObligation(
+		nodes = append(nodes, applyClaimTransitionObligation(
 			&builder,
 			"apply/ownership-finalization",
-			operationplan.EffectStepPersistence,
 		))
 	case len(ownershipState.provisional) != 0:
 		nodes = append(nodes, builder.Conditional(
 			applyOwnershipPromotionTrigger,
-			applyForwardObligation(
+			applyClaimTransitionObligation(
 				&builder,
 				"apply/ownership-finalization",
-				operationplan.EffectStepPersistence,
 			),
 		))
 	}
-	nodes = append(nodes, applyForwardObligation(
-		&builder,
-		"apply/journal-retirement",
-		operationplan.EffectStepRetirement,
-	))
+	nodes = append(nodes, applyJournalRetirementSchedule(&builder)...)
 	segment := operationplan.EffectSequence(nodes...)
-	if _, err := builder.Compile(builder.ForwardPhase("apply-effect-shadow", segment)); err != nil {
-		return operationplan.EffectNode{}, err
+	structure, err := builder.Compile(builder.ForwardPhase("apply-effect/core", segment))
+	if err != nil {
+		return ApplyEffectPlan{}, err
 	}
-	return segment, nil
+	return ApplyEffectPlan{
+		segment:          segment,
+		structure:        structure,
+		promotionIndexes: clonePromotionIndexes(promotions.intentByKey),
+		changed:          true,
+		valid:            true,
+	}, nil
+}
+
+func applyClaimTransitionObligation(
+	builder *operationplan.EffectStructureBuilder,
+	prefix string,
+) operationplan.EffectNode {
+	return operationplan.EffectSequence(
+		applyCheckedStep(
+			builder,
+			prefix+"/transition-plan",
+			operationplan.EffectStepObservation,
+		),
+		applyForwardObligation(builder, prefix, operationplan.EffectStepPersistence),
+	)
 }
 
 func applyForwardObligation(
@@ -156,9 +269,89 @@ func applyForwardObligation(
 	settlement operationplan.EffectStepKind,
 ) operationplan.EffectNode {
 	return operationplan.EffectSequence(
-		builder.Step(id+"/forward", operationplan.EffectStepForwardEffect),
-		builder.Step(id+"/settlement", settlement),
+		applyCheckedStep(builder, id+"/forward", operationplan.EffectStepForwardEffect),
+		applyCheckedStep(builder, id+"/settlement", settlement),
+		applyCheckedStep(builder, id+"/acceptance", operationplan.EffectStepObservation),
 	)
+}
+
+func applyCheckedStep(
+	builder *operationplan.EffectStructureBuilder,
+	id string,
+	kind operationplan.EffectStepKind,
+) operationplan.EffectNode {
+	return operationplan.EffectSequence(
+		builder.Step(id, kind),
+		builder.Choice(
+			id+"/outcome",
+			builder.Step(id+"/outcome/success", operationplan.EffectStepNoOp),
+			builder.Step(id+"/outcome/failure", operationplan.EffectStepTerminal),
+		),
+	)
+}
+
+func applyJournalRetirementSchedule(
+	builder *operationplan.EffectStructureBuilder,
+) []operationplan.EffectNode {
+	return []operationplan.EffectNode{
+		applyCheckedStep(
+			builder,
+			"apply/journal-retirement/project-validation",
+			operationplan.EffectStepObservation,
+		),
+		applyCheckedStep(
+			builder,
+			"apply/journal-retirement/forward",
+			operationplan.EffectStepForwardEffect,
+		),
+		applyCheckedStep(
+			builder,
+			"apply/journal-retirement/reload",
+			operationplan.EffectStepObservation,
+		),
+		applyCheckedStep(
+			builder,
+			"apply/journal-retirement/settlement",
+			operationplan.EffectStepRetirement,
+		),
+		applyCheckedStep(
+			builder,
+			"apply/journal-retirement/acceptance",
+			operationplan.EffectStepObservation,
+		),
+		applyCheckedStep(
+			builder,
+			"apply/journal-retirement/final-project-validation",
+			operationplan.EffectStepObservation,
+		),
+	}
+}
+
+func applyManagedPathScheduleReference(phase managedPathPhase, effectIndex int) string {
+	prefix := "apply/managed-publish"
+	if phase == managedPathRetirePhase {
+		prefix = "apply/managed-retire"
+	}
+	return fmt.Sprintf("%s/%d", prefix, effectIndex)
+}
+
+func applyAggregateScheduleReference(index int) string {
+	return fmt.Sprintf("apply/aggregate/%d", index)
+}
+
+func applyOwnershipPromotionScheduleReference(index int) string {
+	return fmt.Sprintf("apply/ownership-promotion/%d", index)
+}
+
+func clonePromotionIndexes(source map[ownershipOutputKey]int) map[ownershipOutputKey]int {
+	if len(source) == 0 {
+		return nil
+	}
+	result := make(map[ownershipOutputKey]int, len(source))
+	for key, index := range source {
+		result[key] = index
+	}
+	return result
 }
 
 type provisionalPromotionSchedule struct {
@@ -241,7 +434,7 @@ func (schedule *provisionalPromotionSchedule) choice(
 	builder *operationplan.EffectStructureBuilder,
 	index int,
 ) operationplan.EffectNode {
-	prefix := fmt.Sprintf("apply/ownership-promotion/%d", index)
+	prefix := applyOwnershipPromotionScheduleReference(index)
 	active := operationplan.EffectSequence(
 		applyForwardObligation(
 			builder,
@@ -258,7 +451,7 @@ func (schedule *provisionalPromotionSchedule) choice(
 		active = builder.Trigger(applyOwnershipPromotionTrigger, active)
 	}
 	return operationplan.EffectSequence(
-		builder.Step(prefix+"/observation", operationplan.EffectStepObservation),
+		applyCheckedStep(builder, prefix+"/observation", operationplan.EffectStepObservation),
 		builder.Choice(
 			prefix+"/choice",
 			builder.Step(prefix+"/noop", operationplan.EffectStepNoOp),

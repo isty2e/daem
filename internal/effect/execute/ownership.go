@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/target"
@@ -295,6 +296,7 @@ func (state *ownershipMutationState) promoteVisibleAcquires(
 	registryStore ownershipmutation.RegistryStore,
 	stateCodec durable.SnapshotCodec,
 	gate visibilityEffectGate,
+	execution *applyEffectExecution,
 ) error {
 	if state == nil || len(state.provisional) == 0 || len(keys) == 0 {
 		return nil
@@ -320,6 +322,7 @@ func (state *ownershipMutationState) promoteVisibleAcquires(
 			registryStore,
 			stateCodec,
 			gate,
+			execution,
 		)
 		if err != nil {
 			return fmt.Errorf(
@@ -349,113 +352,160 @@ func promoteVisibleAcquire(
 	registryStore ownershipmutation.RegistryStore,
 	stateCodec durable.SnapshotCodec,
 	gate visibilityEffectGate,
+	execution *applyEffectExecution,
 ) (ownershipmutation.ClaimTransition, string, bool, error) {
-	if authority == nil || authority.journalBasis.validate() != nil {
-		return ownershipmutation.ClaimTransition{}, "", false, fmt.Errorf(
-			"recovery journal execution basis is unavailable",
+	key := ownershipOutputKey{
+		destination: intent.Destination(),
+		contentPath: intent.ContentPath(),
+	}
+	prefix, err := execution.promotionReference(key)
+	if err != nil {
+		return ownershipmutation.ClaimTransition{}, "", false, err
+	}
+
+	var transition ownershipmutation.ClaimTransition
+	var journalFingerprint string
+	visible := false
+	if err := execution.runObservation(prefix+"/observation", func() error {
+		if authority == nil || authority.journalBasis.validate() != nil {
+			return fmt.Errorf("recovery journal execution basis is unavailable")
+		}
+		journalFingerprint = authority.journalBasis.recordFingerprint
+		if authority.recoveryJournalRecord == nil {
+			return fmt.Errorf("recovery journal record authority is unavailable")
+		}
+		if registryStore == nil {
+			return fmt.Errorf("ownership registry is unavailable")
+		}
+		if stateCodec == nil {
+			return fmt.Errorf("state codec is unavailable")
+		}
+		destination, resolveErr := authority.resolveBoundDestination(target.ScopeGlobal, intent.Destination())
+		if resolveErr != nil {
+			return resolveErr
+		}
+		observed, observeErr := mutation.ObserveDirectoryEntryAuthorityBounded(
+			destination.hostPath,
+			recovery.MaximumPhysicalPathDepth,
+			authority.generalTraversalPhase,
 		)
-	}
-	journalFingerprint := authority.journalBasis.recordFingerprint
-	if authority == nil || authority.recoveryJournalRecord == nil {
-		return ownershipmutation.ClaimTransition{}, "", false, fmt.Errorf("recovery journal record authority is unavailable")
-	}
-	if registryStore == nil {
-		return ownershipmutation.ClaimTransition{}, "", false, fmt.Errorf("ownership registry is unavailable")
-	}
-	if stateCodec == nil {
-		return ownershipmutation.ClaimTransition{}, "", false, fmt.Errorf("state codec is unavailable")
-	}
-	destination, err := authority.resolveBoundDestination(target.ScopeGlobal, intent.Destination())
-	if err != nil {
-		return ownershipmutation.ClaimTransition{}, "", false, err
-	}
-	observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(
-		destination.hostPath,
-		recovery.MaximumPhysicalPathDepth,
-		authority.generalTraversalPhase,
-	)
-	if err != nil {
-		return ownershipmutation.ClaimTransition{}, "", false, err
-	}
-	exact, visible := observed.Exact()
-	if !visible {
-		if _, provisional := observed.Provisional(); provisional {
-			return ownershipmutation.ClaimTransition{}, journalFingerprint, false, nil
+		if observeErr != nil {
+			return observeErr
 		}
-		return ownershipmutation.ClaimTransition{}, "", false, fmt.Errorf("visible ownership authority observation is empty")
-	}
-	address, err := ownership.NewManagedAddress(exact, string(intent.ContentPath()))
-	if err != nil {
-		return ownershipmutation.ClaimTransition{}, "", false, err
-	}
-	transition, err := ownershipmutation.NewAcquireTransitionFromIntent(intent, address)
-	if err != nil {
-		return ownershipmutation.ClaimTransition{}, "", false, err
-	}
-	registry, err := registryStore.Load(ctx)
-	if err != nil {
-		return ownershipmutation.ClaimTransition{}, "", false, err
-	}
-	if claim, conflict := registry.Conflict(address); conflict {
-		actual, valueErr := ownership.PresentClaim(claim)
-		if valueErr != nil {
-			return ownershipmutation.ClaimTransition{}, "", false, valueErr
+		exact, exactVisible := observed.Exact()
+		if !exactVisible {
+			if _, provisional := observed.Provisional(); provisional {
+				return nil
+			}
+			return fmt.Errorf("visible ownership authority observation is empty")
 		}
-		return ownershipmutation.ClaimTransition{}, "", false, &ownership.StaleClaimError{
-			Address:  address,
-			Expected: ownership.NoClaim(),
-			Actual:   actual,
+		visible = true
+		address, addressErr := ownership.NewManagedAddress(exact, string(intent.ContentPath()))
+		if addressErr != nil {
+			return addressErr
 		}
-	}
-	if err := gate.validateBefore(ctx); err != nil {
-		return ownershipmutation.ClaimTransition{}, "", false, err
-	}
-	promotion, err := journal.PromoteProvisionalAcquire(
-		ctx,
-		authority.filesystem,
-		authority.recoveryJournalRecord,
-		authority.recoveryJournal,
-		authority.journalBasis.activeAuthority,
-		journalFingerprint,
-		intent,
-		transition,
-		stateCodec,
-	)
-	if refreshed, available := promotion.ActiveJournalAuthority(); available {
-		if authority.preparedRetirement != nil {
-			if refreshErr := authority.preparedRetirement.AdvanceActiveAuthority(
-				authority.journalBasis.activeAuthority,
-				refreshed,
-			); refreshErr != nil {
-				err = errors.Join(err, fmt.Errorf("advance prepared journal retirement authority: %w", refreshErr))
+		transition, addressErr = ownershipmutation.NewAcquireTransitionFromIntent(intent, address)
+		if addressErr != nil {
+			return addressErr
+		}
+		registry, loadErr := registryStore.Load(ctx)
+		if loadErr != nil {
+			return loadErr
+		}
+		if claim, conflict := registry.Conflict(address); conflict {
+			actual, valueErr := ownership.PresentClaim(claim)
+			if valueErr != nil {
+				return valueErr
+			}
+			return &ownership.StaleClaimError{
+				Address:  address,
+				Expected: ownership.NoClaim(),
+				Actual:   actual,
 			}
 		}
-		if refreshErr := authority.setJournalExecutionBasis(
-			promotion.RecordFingerprint(),
-			refreshed,
-		); refreshErr != nil {
-			err = errors.Join(err, fmt.Errorf("refresh recovery journal execution basis: %w", refreshErr))
+		return nil
+	}); err != nil {
+		return ownershipmutation.ClaimTransition{}, "", false, err
+	}
+	if err := execution.selectPromotion(key, visible); err != nil {
+		return ownershipmutation.ClaimTransition{}, "", false, err
+	}
+	if !visible {
+		return ownershipmutation.ClaimTransition{}, journalFingerprint, false, nil
+	}
+
+	journalGate := execution.visibilityGate(
+		gate,
+		prefix+"/journal",
+		operationplan.EffectStepPersistence,
+	)
+	if err := journalGate.validateBefore(ctx); err != nil {
+		return ownershipmutation.ClaimTransition{}, "", false, err
+	}
+	var promotion journal.ProvisionalAcquirePromotion
+	if err := journalGate.applyEffect(func() error {
+		var promoteErr error
+		promotion, promoteErr = journal.PromoteProvisionalAcquire(
+			ctx,
+			authority.filesystem,
+			authority.recoveryJournalRecord,
+			authority.recoveryJournal,
+			authority.journalBasis.activeAuthority,
+			journalFingerprint,
+			intent,
+			transition,
+			stateCodec,
+		)
+		if refreshed, available := promotion.ActiveJournalAuthority(); available {
+			if authority.preparedRetirement != nil {
+				if refreshErr := authority.preparedRetirement.AdvanceActiveAuthority(
+					authority.journalBasis.activeAuthority,
+					refreshed,
+				); refreshErr != nil {
+					promoteErr = errors.Join(
+						promoteErr,
+						fmt.Errorf("advance prepared journal retirement authority: %w", refreshErr),
+					)
+				}
+			}
+			if refreshErr := authority.setJournalExecutionBasis(
+				promotion.RecordFingerprint(),
+				refreshed,
+			); refreshErr != nil {
+				promoteErr = errors.Join(
+					promoteErr,
+					fmt.Errorf("refresh recovery journal execution basis: %w", refreshErr),
+				)
+			}
 		}
-	}
-	if err != nil {
+		return promoteErr
+	}); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
-	if err := gate.acceptAfter(ctx); err != nil {
+	if err := journalGate.acceptAfter(ctx); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
-	if err := gate.validateBefore(ctx); err != nil {
+
+	claimGate := execution.visibilityGate(
+		gate,
+		prefix+"/claim",
+		operationplan.EffectStepPersistence,
+	)
+	if err := claimGate.validateBefore(ctx); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
-	if err := convergeClaim(
-		ctx,
-		registryStore,
-		transition.Address(),
-		transition.Before(),
-		transition.Prepared(),
-	); err != nil {
+	if err := claimGate.applyEffect(func() error {
+		return convergeClaim(
+			ctx,
+			registryStore,
+			transition.Address(),
+			transition.Before(),
+			transition.Prepared(),
+		)
+	}); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
-	if err := gate.acceptAfter(ctx); err != nil {
+	if err := claimGate.acceptAfter(ctx); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
 	return transition, promotion.RecordFingerprint(), true, nil
@@ -486,12 +536,15 @@ func prepareClaimTransitions(
 	if len(transitions) == 0 {
 		return nil
 	}
-	set, err := ownershipmutation.NewClaimTransitionSet(transitions)
-	if err != nil {
+	var convergence ownership.ClaimConvergence
+	if err := forwardGate.observe("transition-plan", func() error {
+		set, err := ownershipmutation.NewClaimTransitionSet(transitions)
+		if err != nil {
+			return err
+		}
+		convergence, err = set.Preparation()
 		return err
-	}
-	convergence, err := set.Preparation()
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 	return executeClaimConvergence(
@@ -525,12 +578,15 @@ func finalizeClaimTransitionsWithAcceptance(
 	if len(transitions) == 0 {
 		return nil
 	}
-	set, err := ownershipmutation.NewClaimTransitionSet(transitions)
-	if err != nil {
+	var convergence ownership.ClaimConvergence
+	if err := gate.observe("transition-plan", func() error {
+		set, err := ownershipmutation.NewClaimTransitionSet(transitions)
+		if err != nil {
+			return err
+		}
+		convergence, err = set.Finalization()
 		return err
-	}
-	convergence, err := set.Finalization()
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 	return executeClaimConvergence(
@@ -613,8 +669,12 @@ func executeClaimConvergence(
 	if err := gate.validateBefore(ctx); err != nil {
 		return fmt.Errorf("%s: %w", validateDetail, err)
 	}
-	next, err := registryStore.Converge(ctx, convergence)
-	if err != nil {
+	var next ownership.Registry
+	if err := gate.applyEffect(func() error {
+		var convergeErr error
+		next, convergeErr = registryStore.Converge(ctx, convergence)
+		return convergeErr
+	}); err != nil {
 		return fmt.Errorf("%s: %w", commitDetail, err)
 	}
 	if acceptSuccessor != nil {
