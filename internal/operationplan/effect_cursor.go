@@ -204,6 +204,22 @@ func (cursor *EffectCursor) FinishSuccess() error {
 	return nil
 }
 
+// FinishHandoff requires an explicit terminal handoff and finishes the
+// selected structure before another owner-declared structure begins.
+func (cursor *EffectCursor) FinishHandoff() error {
+	if err := cursor.requireActive(); err != nil {
+		return err
+	}
+	if !cursor.terminated {
+		return fmt.Errorf("operationplan: effect structure did not consume a terminal handoff")
+	}
+	if len(cursor.stack) != 0 {
+		return fmt.Errorf("operationplan: terminal effect structure still has pending work")
+	}
+	cursor.state = effectCursorFinished
+	return nil
+}
+
 // AbortBeforeEffect terminates an unstarted structure after pure validation work.
 func (cursor *EffectCursor) AbortBeforeEffect() error {
 	if err := cursor.requireActive(); err != nil {

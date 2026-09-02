@@ -51,15 +51,28 @@ func applyAggregateEffectsWithEvents(
 		hostProgress := hostEffectNotStarted
 		var err error
 		if effect.Kind() == AggregateEffectRecord {
-			err = execution.runObservation(prefix+"/record", func() error {
-				if observeErr := observePreconditions(); observeErr != nil {
-					return observeErr
-				}
-				return verifyAggregateBefore(ctx, authority, destination, effect, codecs)
-			})
+			err = execution.runObservation(
+				prefix+"/record",
+				applyForwardFailureGuardedRecovery,
+				func() error {
+					if observeErr := observePreconditions(); observeErr != nil {
+						return observeErr
+					}
+					return verifyAggregateBefore(ctx, authority, destination, effect, codecs)
+				},
+			)
 		} else {
-			err = execution.runObservation(prefix+"/preconditions", observePreconditions)
-			operationGate := execution.visibilityGate(gate, prefix, operationplan.EffectStepPersistence)
+			err = execution.runObservation(
+				prefix+"/preconditions",
+				applyForwardFailureGuardedRecovery,
+				observePreconditions,
+			)
+			operationGate := execution.visibilityGate(
+				gate,
+				prefix,
+				operationplan.EffectStepPersistence,
+				applyForwardFailureGuardedRecovery,
+			)
 			if err == nil {
 				err = operationGate.validateBefore(ctx)
 			}

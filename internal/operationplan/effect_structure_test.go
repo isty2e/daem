@@ -675,6 +675,50 @@ func TestEffectCursorConsumesSelectedBranchInOrder(t *testing.T) {
 	}
 }
 
+func TestEffectCursorFinishHandoffRequiresTerminal(t *testing.T) {
+	t.Parallel()
+
+	var builder EffectStructureBuilder
+	structure, err := builder.Compile(EffectSequence(
+		builder.Step("observe", EffectStepObservation),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := structure.Begin()
+	if err := cursor.Consume("observe", EffectStepObservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := cursor.FinishHandoff(); err == nil ||
+		!strings.Contains(err.Error(), "did not consume a terminal handoff") {
+		t.Fatalf("FinishHandoff error = %v, want missing terminal handoff", err)
+	}
+}
+
+func TestEffectCursorFinishHandoffAcceptsTerminal(t *testing.T) {
+	t.Parallel()
+
+	var builder EffectStructureBuilder
+	structure, err := builder.Compile(EffectSequence(
+		builder.Step("terminal", EffectStepTerminal),
+		builder.Step("unreachable", EffectStepPersistence),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := structure.Begin()
+	if err := cursor.Consume("terminal", EffectStepTerminal); err != nil {
+		t.Fatal(err)
+	}
+	if err := cursor.FinishHandoff(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cursor.Consume("unreachable", EffectStepPersistence); err == nil ||
+		!strings.Contains(err.Error(), "already finished") {
+		t.Fatalf("post-handoff consume error = %v, want finished cursor", err)
+	}
+}
+
 func TestEffectCursorClassifiesForwardEffectsWithinEachPhase(t *testing.T) {
 	t.Parallel()
 	var builder EffectStructureBuilder

@@ -51,3 +51,39 @@ func TestMaximumForwardEffectValidationCountMatchesSuccessfulExecution(t *testin
 		t.Fatalf("forward validation calls = %d, maximum plan = %d", validationCalls, maximum)
 	}
 }
+
+func TestApplyFailureSettlementStructureIsZeroDemandAndHostCountIndependent(t *testing.T) {
+	t.Parallel()
+
+	fixture := newApplyEventFixture(t)
+	one, err := PrepareApplyEffectPlan(fixture.input([]applyEventAction{
+		fixture.createAction("create", "CREATE.md", "created\n"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	many, err := PrepareApplyEffectPlan(fixture.input([]applyEventAction{
+		fixture.createAction("first", "FIRST.md", "first\n"),
+		fixture.createAction("second", "SECOND.md", "second\n"),
+		fixture.createAction("third", "THIRD.md", "third\n"),
+		fixture.createAction("fourth", "FOURTH.md", "fourth\n"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !one.failureStructure.Equal(many.failureStructure) {
+		t.Fatal("failure settlement structure changed with host action cardinality")
+	}
+	for _, structure := range []operationplan.EffectStructure{
+		one.failureStructure,
+		many.failureStructure,
+	} {
+		demand, demandErr := structure.LegacyDemand()
+		if demandErr != nil {
+			t.Fatal(demandErr)
+		}
+		if !demand.Empty() {
+			t.Fatalf("failure settlement demand = %+v, want zero", demand)
+		}
+	}
+}

@@ -14,6 +14,7 @@ const applyOwnershipPromotionTrigger = "apply/ownership-promotion-finalization"
 type ApplyEffectPlan struct {
 	segment          operationplan.EffectNode
 	structure        operationplan.EffectStructure
+	failureStructure operationplan.EffectStructure
 	promotionIndexes map[ownershipOutputKey]int
 	changed          bool
 	valid            bool
@@ -90,10 +91,17 @@ func compileApplyEffectPlan(
 			return ApplyEffectPlan{}, err
 		}
 		return ApplyEffectPlan{
-			segment:   segment,
-			structure: structure,
-			valid:     true,
+			segment:          segment,
+			structure:        structure,
+			failureStructure: operationplan.EffectStructure{},
+			valid:            true,
 		}, nil
+	}
+	failureStructure, err := compileApplyFailureSettlementStructure(
+		len(ownershipState.transitions) != 0,
+	)
+	if err != nil {
+		return ApplyEffectPlan{}, err
 	}
 	promotions, err := newProvisionalPromotionSchedule(ownershipState)
 	if err != nil {
@@ -243,6 +251,7 @@ func compileApplyEffectPlan(
 	return ApplyEffectPlan{
 		segment:          segment,
 		structure:        structure,
+		failureStructure: failureStructure,
 		promotionIndexes: clonePromotionIndexes(promotions.intentByKey),
 		changed:          true,
 		valid:            true,
@@ -268,10 +277,11 @@ func applyForwardObligation(
 	id string,
 	settlement operationplan.EffectStepKind,
 ) operationplan.EffectNode {
-	return operationplan.EffectSequence(
-		applyCheckedStep(builder, id+"/forward", operationplan.EffectStepForwardEffect),
-		applyCheckedStep(builder, id+"/settlement", settlement),
-		applyCheckedStep(builder, id+"/acceptance", operationplan.EffectStepObservation),
+	return applyVisibilityObligation(
+		builder,
+		id,
+		operationplan.EffectStepForwardEffect,
+		settlement,
 	)
 }
 

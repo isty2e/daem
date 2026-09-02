@@ -81,6 +81,7 @@ type ApplyOptions struct {
 	// one successful compensating effect and its postcondition.
 	AcceptCompensationVisibilityChanges func(context.Context) error
 	commitStatefile                     statefileCommitter
+	closeMutationAuthority              func(*mutationAuthority) error
 }
 
 // ApplyResult reports the committed mutation count and statefile path.
@@ -264,7 +265,14 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	defer mutationAuthority.close()
+	defer func() {
+		if closeErr := options.closeAuthority(mutationAuthority); closeErr != nil {
+			resultErr = errors.Join(
+				resultErr,
+				fmt.Errorf("close apply mutation authority: %w", closeErr),
+			)
+		}
+	}()
 	if err := mutationAuthority.bindProjectStatefile(
 		input.Paths.ManifestRoot,
 		input.Paths.StatefilePath,
@@ -300,6 +308,7 @@ func applyWithOptions(
 		visibilityGate,
 		"apply/journal-publication",
 		operationplan.EffectStepPersistence,
+		applyForwardFailureNoCompensation,
 	)
 	if err := mutationAuthority.prepareApplyForwardRemovals(
 		ctx,
@@ -310,7 +319,7 @@ func applyWithOptions(
 		return ApplyResult{}, fmt.Errorf("prepare bounded forward removals: %w", err)
 	}
 	if err := journalPublicationGate.validateBefore(ctx); err != nil {
-		return ApplyResult{}, err
+		return ApplyResult{}, effectExecution.settleFailureWithoutCompensation(err)
 	}
 	if err := journalPublicationGate.applyEffect(func() error {
 		if bindErr := mutationAuthority.bindRecoveryJournal(
@@ -390,17 +399,19 @@ func applyWithOptions(
 		}
 		return nil
 	}); err != nil {
-		return ApplyResult{}, err
+		return ApplyResult{}, effectExecution.settleFailureWithoutCompensation(err)
 	}
 	if err := journalPublicationGate.acceptAfter(ctx); err != nil {
 		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
-		return ApplyResult{}, fmt.Errorf(
+		primary := fmt.Errorf(
 			"accept recovery journal visibility: %w; recovery journal retained; run: daem recover --dry-run",
 			err,
 		)
+		return ApplyResult{}, effectExecution.settleFailureWithoutCompensation(primary)
 	}
 	if err := effectExecution.runObservation(
 		"apply/journal-publication/post-validation",
+		applyForwardFailureNoCompensation,
 		func() error {
 			return validateCapturedJournalFingerprint(
 				ctx,
@@ -414,13 +425,14 @@ func applyWithOptions(
 		},
 	); err != nil {
 		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
-		return ApplyResult{}, err
+		return ApplyResult{}, effectExecution.settleFailureWithoutCompensation(err)
 	}
 	events.emit(EventJournalCaptured, EventStageJournalCapture, nil, nil)
 	ownershipPreparationGate := effectExecution.visibilityGate(
 		visibilityGate,
 		"apply/ownership-preparation",
 		operationplan.EffectStepPersistence,
+		applyForwardFailureClaimPreparation,
 	)
 	if err := prepareClaimTransitions(
 		ctx,
@@ -428,50 +440,28 @@ func applyWithOptions(
 		ownershipState.transitions,
 		ownershipPreparationGate,
 	); err != nil {
-		rollbackErr := rollbackClaimsToBefore(
-			context.WithoutCancel(ctx),
+		return ApplyResult{}, settlePreHostApplyFailure(
+			ctx,
+			err,
+			applyFailureSettlementClaimPreparation,
+			"before claim-preparation rollback retirement",
+			input.Paths,
+			input.CurrentState,
+			mutationAuthority,
 			registryStore,
 			ownershipState.transitions,
-			compensationGate,
-		)
-		if rollbackErr != nil {
-			return ApplyResult{}, fmt.Errorf("%w; ownership rollback failed: %v; recovery journal retained; run: daem recover --dry-run", err, rollbackErr)
-		}
-		loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
-			return loadCapturedJournalPlanForStateEntries(
-				ctx,
-				input.Paths,
-				input.CurrentState,
-				[]journal.EntrySelection{},
-				mutationAuthority,
-				input.StateCodec,
-				input.Codecs,
-				"before claim-preparation rollback retirement",
-			)
-		}
-		cleanupErr := retireRecoveryJournalWithEvents(
-			context.WithoutCancel(ctx),
-			input.Paths,
-			mutationAuthority,
 			events,
-			loadRetirementPlan,
 			input.StateCodec,
+			input.Codecs,
 			compensationGate,
-			nil,
+			effectExecution,
 		)
-		if cleanupErr != nil {
-			return ApplyResult{}, fmt.Errorf(
-				"%w; retire recovery journal failed: %v",
-				err,
-				retirementFailureWithRemediation(cleanupErr),
-			)
-		}
-		return ApplyResult{}, err
 	}
 
 	events.emit(EventRollbackStageStarted, EventStageRollbackStage, nil, nil)
 	if err := effectExecution.runObservation(
 		"apply/prepared-effects-validation",
+		applyForwardFailurePreparedEffects,
 		func() error {
 			return validateApplyRecoveryPrepared(
 				ctx,
@@ -484,44 +474,22 @@ func applyWithOptions(
 		},
 	); err != nil {
 		events.emit(EventRollbackStageFailed, EventStageRollbackStage, nil, err)
-		if claimErr := rollbackClaimsToBefore(
-			context.WithoutCancel(ctx),
+		return ApplyResult{}, settlePreHostApplyFailure(
+			ctx,
+			err,
+			applyFailureSettlementPreparedEffects,
+			"before prepared-effect rollback retirement",
+			input.Paths,
+			input.CurrentState,
+			mutationAuthority,
 			registryStore,
 			ownershipState.transitions,
-			compensationGate,
-		); claimErr != nil {
-			return ApplyResult{}, fmt.Errorf("%w; ownership rollback failed: %v; recovery journal retained; run: daem recover --dry-run", err, claimErr)
-		}
-		loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
-			return loadCapturedJournalPlanForStateEntries(
-				ctx,
-				input.Paths,
-				input.CurrentState,
-				[]journal.EntrySelection{},
-				mutationAuthority,
-				input.StateCodec,
-				input.Codecs,
-				"before prepared-effect rollback retirement",
-			)
-		}
-		cleanupErr := retireRecoveryJournalWithEvents(
-			context.WithoutCancel(ctx),
-			input.Paths,
-			mutationAuthority,
 			events,
-			loadRetirementPlan,
 			input.StateCodec,
+			input.Codecs,
 			compensationGate,
-			nil,
+			effectExecution,
 		)
-		if cleanupErr != nil {
-			return ApplyResult{}, fmt.Errorf(
-				"%w; retire recovery journal failed: %v",
-				err,
-				retirementFailureWithRemediation(cleanupErr),
-			)
-		}
-		return ApplyResult{}, err
 	}
 	events.emit(EventRollbackStaged, EventStageRollbackStage, nil, nil)
 
@@ -551,6 +519,7 @@ func applyWithOptions(
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
 			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
+			effectExecution,
 		)
 	}
 
@@ -580,6 +549,7 @@ func applyWithOptions(
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
 			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
+			effectExecution,
 		)
 	}
 	if err := applyManagedPathPhaseWithEvents(
@@ -590,20 +560,24 @@ func applyWithOptions(
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
 			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
+			effectExecution,
 		)
 	}
 	progress = combineHostActionProgress(managedProgress, aggregateProgress)
 	if err := effectExecution.runObservation(
 		"apply/statefile-publication/context-validation",
+		applyForwardFailureGuardedRecovery,
 		func() error { return ctx.Err() },
 	); err != nil {
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
 			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
+			effectExecution,
 		)
 	}
 	if err := effectExecution.runObservation(
 		"apply/statefile-publication/project-validation",
+		applyForwardFailureGuardedRecovery,
 		func() error {
 			return mutationAuthority.validateProjectSelection(input.Paths.ManifestRoot)
 		},
@@ -611,17 +585,15 @@ func applyWithOptions(
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
 			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
+			effectExecution,
 		)
 	}
-	statefileGate := effectExecution.visibilityGate(
-		visibilityGate,
-		"apply/statefile-publication",
-		operationplan.EffectStepPersistence,
-	)
+	statefileGate := effectExecution.statefileVisibilityGate(visibilityGate)
 	if err := statefileGate.validateBefore(ctx); err != nil {
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
 			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
+			effectExecution,
 		)
 	}
 	var commit statefileCommitOutcome
@@ -645,15 +617,17 @@ func applyWithOptions(
 		if commitAttempted {
 			events.emit(EventStatefileWriteFailed, EventStageStatefileWrite, nil, commitErr)
 			if commit.requiresRecovery() {
-				return ApplyResult{}, fmt.Errorf(
+				primary := fmt.Errorf(
 					"%w; statefile commit is indeterminate; recovery journal retained; run: daem recover --dry-run",
 					commitErr,
 				)
+				return ApplyResult{}, effectExecution.settleFailureWithoutCompensation(primary)
 			}
 		}
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, commitErr, input.Paths, input.CurrentState, progress, entrySelections,
 			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
+			effectExecution,
 		)
 	}
 	committedResult := ApplyResult{
@@ -665,33 +639,39 @@ func applyWithOptions(
 		State:     nextState,
 	}
 	if err := statefileGate.acceptAfter(ctx); err != nil {
-		return committedResult, fmt.Errorf(
+		primary := fmt.Errorf(
 			"%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run",
 			err,
 		)
+		return committedResult, effectExecution.settleFailureWithoutCompensation(primary)
 	}
 	events.emit(EventStatefileWritten, EventStageStatefileWrite, nil, nil)
 	if err := effectExecution.runObservation(
 		"apply/post-statefile/project-validation",
+		applyForwardFailureNoCompensation,
 		func() error {
 			return mutationAuthority.validateProjectSelection(input.Paths.ManifestRoot)
 		},
 	); err != nil {
-		return committedResult, fmt.Errorf(
+		primary := fmt.Errorf(
 			"%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run",
 			err,
 		)
+		return committedResult, effectExecution.settleFailureWithoutCompensation(primary)
 	}
 	if err := effectExecution.runObservation(
 		"apply/post-statefile/context-validation",
+		applyForwardFailureNoCompensation,
 		func() error { return ctx.Err() },
 	); err != nil {
-		return committedResult, fmt.Errorf("%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run", err)
+		primary := fmt.Errorf("%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run", err)
+		return committedResult, effectExecution.settleFailureWithoutCompensation(primary)
 	}
 	ownershipFinalizationGate := effectExecution.visibilityGate(
 		visibilityGate,
 		"apply/ownership-finalization",
 		operationplan.EffectStepPersistence,
+		applyForwardFailureNoCompensation,
 	)
 	if err := finalizeClaimTransitions(
 		ctx,
@@ -699,7 +679,8 @@ func applyWithOptions(
 		ownershipState.transitions,
 		ownershipFinalizationGate,
 	); err != nil {
-		return committedResult, fmt.Errorf("%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run", err)
+		primary := fmt.Errorf("%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run", err)
+		return committedResult, effectExecution.settleFailureWithoutCompensation(primary)
 	}
 	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
 		return loadCapturedJournalPlan(
@@ -716,6 +697,7 @@ func applyWithOptions(
 		visibilityGate,
 		"apply/journal-retirement",
 		operationplan.EffectStepRetirement,
+		applyForwardFailureNoCompensation,
 	)
 	if err := retireRecoveryJournalWithEvents(
 		ctx,
@@ -727,24 +709,34 @@ func applyWithOptions(
 		journalRetirementGate,
 		nil,
 	); err != nil {
-		return committedResult, fmt.Errorf(
+		primary := fmt.Errorf(
 			"retire recovery journal: %w",
 			retirementFailureWithRemediation(err),
 		)
+		return committedResult, effectExecution.settleFailureWithoutCompensation(primary)
 	}
 	if err := effectExecution.runObservation(
 		"apply/journal-retirement/final-project-validation",
+		applyForwardFailureNoCompensation,
 		func() error {
 			return mutationAuthority.validateProjectSelection(input.Paths.ManifestRoot)
 		},
 	); err != nil {
-		return committedResult, fmt.Errorf(
+		primary := fmt.Errorf(
 			"%w; apply effects and statefile committed; recovery journal retired",
 			err,
 		)
+		return committedResult, effectExecution.settleFailureWithoutCompensation(primary)
 	}
 
 	return committedResult, nil
+}
+
+func (options ApplyOptions) closeAuthority(authority *mutationAuthority) error {
+	if options.closeMutationAuthority == nil {
+		return authority.close()
+	}
+	return options.closeMutationAuthority(authority)
 }
 
 func (options ApplyOptions) statefileCommit(

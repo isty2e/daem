@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
@@ -82,6 +83,27 @@ func TestApplyEffectExecutionUsesCurrentPromotionMetadataAfterStructuralParity(t
 	}
 }
 
+func TestApplyEffectExecutionRejectsDifferentFailureSettlementStructure(t *testing.T) {
+	t.Parallel()
+
+	fixture := newApplyEventFixture(t)
+	plan, err := PrepareApplyEffectPlan(fixture.input([]applyEventAction{
+		fixture.createAction("create", "CREATE.md", "created\n"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared := plan
+	prepared.failureStructure, err = compileApplyFailureSettlementStructure(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newApplyEffectExecution(prepared, plan); err == nil ||
+		!strings.Contains(err.Error(), "prepared and current apply effect plans differ") {
+		t.Fatalf("newApplyEffectExecution error = %v, want failure-settlement mismatch", err)
+	}
+}
+
 func TestApplyEffectExecutionVisibilityGateRunsInExactOrder(t *testing.T) {
 	t.Parallel()
 
@@ -100,7 +122,7 @@ func TestApplyEffectExecutionVisibilityGateRunsInExactOrder(t *testing.T) {
 			order = append(order, "accept")
 			return nil
 		},
-	}, "apply/test-effect", operationplan.EffectStepPersistence)
+	}, "apply/test-effect", operationplan.EffectStepPersistence, applyForwardFailureNoCompensation)
 	if err := gate.validateBefore(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +159,7 @@ func TestApplyEffectExecutionVisibilityFailuresStopAtExactBoundary(t *testing.T)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			plan := singleApplyVisibilityPlan(t, "apply/test-effect", operationplan.EffectStepPersistence)
+			plan := singleApplyVisibilityPlan(t, "apply/journal-publication", operationplan.EffectStepPersistence)
 			execution, err := newApplyEffectExecution(plan, plan)
 			if err != nil {
 				t.Fatal(err)
@@ -158,7 +180,7 @@ func TestApplyEffectExecutionVisibilityFailuresStopAtExactBoundary(t *testing.T)
 					}
 					return nil
 				},
-			}, "apply/test-effect", operationplan.EffectStepPersistence)
+			}, "apply/journal-publication", operationplan.EffectStepPersistence, applyForwardFailureNoCompensation)
 
 			err = gate.validateBefore(context.Background())
 			if err == nil {
@@ -179,8 +201,8 @@ func TestApplyEffectExecutionVisibilityFailuresStopAtExactBoundary(t *testing.T)
 			if !slices.Equal(order, test.wantOrder) {
 				t.Fatalf("visibility order = %v, want %v", order, test.wantOrder)
 			}
-			if finishErr := execution.finish(wantErr); finishErr != nil {
-				t.Fatalf("finish terminal failure: %v", finishErr)
+			if settled := execution.settleFailureWithoutCompensation(wantErr); !errors.Is(settled, wantErr) {
+				t.Fatalf("settled terminal failure = %v, want injected failure", settled)
 			}
 		})
 	}
@@ -234,6 +256,7 @@ func TestApplyEffectExecutionPromotionBranchesAndFinalization(t *testing.T) {
 			}
 			if err := execution.runObservation(
 				"apply/ownership-promotion/0/observation",
+				applyForwardFailureGuardedRecovery,
 				func() error { return nil },
 			); err != nil {
 				t.Fatal(err)
@@ -255,6 +278,7 @@ func TestApplyEffectExecutionPromotionBranchesAndFinalization(t *testing.T) {
 				}
 				if err := execution.runObservation(
 					"apply/ownership-promotion/finalization/transition-plan",
+					applyForwardFailureGuardedRecovery,
 					func() error { return nil },
 				); err != nil {
 					t.Fatal(err)
@@ -291,6 +315,7 @@ func TestApplyEffectExecutionFailureTerminatesExactPath(t *testing.T) {
 	err = execution.runCheckedStep(
 		"apply/journal-publication/forward",
 		operationplan.EffectStepForwardEffect,
+		applyForwardFailureNoCompensation,
 		func() error {
 			calls++
 			return wantErr
@@ -302,10 +327,18 @@ func TestApplyEffectExecutionFailureTerminatesExactPath(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("action calls = %d, want 1", calls)
 	}
-	if err := execution.finish(err); err != nil {
-		t.Fatalf("finish failed terminal path: %v", err)
+	if finishErr := execution.finish(err); finishErr == nil ||
+		!strings.Contains(finishErr.Error(), "failure settlement was not selected") {
+		t.Fatalf("finish error = %v, want unresolved failure settlement", finishErr)
 	}
-	if err := execution.runObservation("unused", func() error { return nil }); err == nil {
+	if settled := execution.settleFailureWithoutCompensation(err); !errors.Is(settled, wantErr) {
+		t.Fatalf("settled terminal failure = %v, want validation failure", settled)
+	}
+	if err := execution.runObservation(
+		"unused",
+		applyForwardFailureUnavailable,
+		func() error { return nil },
+	); err == nil {
 		t.Fatal("terminal execution accepted another step")
 	}
 }
@@ -319,7 +352,17 @@ func TestApplyEffectExecutionClaimPlanningFailureTerminatesBeforePersistence(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := ApplyEffectPlan{structure: structure, segment: segment, changed: true, valid: true}
+	failureStructure, err := compileApplyFailureSettlementStructure(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := ApplyEffectPlan{
+		structure:        structure,
+		failureStructure: failureStructure,
+		segment:          segment,
+		changed:          true,
+		valid:            true,
+	}
 	execution, err := newApplyEffectExecution(plan, plan)
 	if err != nil {
 		t.Fatal(err)
@@ -327,6 +370,7 @@ func TestApplyEffectExecutionClaimPlanningFailureTerminatesBeforePersistence(t *
 	wantErr := errors.New("invalid ownership transition plan")
 	err = execution.runObservation(
 		"apply/ownership-preparation/transition-plan",
+		applyForwardFailureClaimPreparation,
 		func() error { return wantErr },
 	)
 	if !errors.Is(err, wantErr) {
@@ -337,6 +381,7 @@ func TestApplyEffectExecutionClaimPlanningFailureTerminatesBeforePersistence(t *
 		visibilityEffectGate{},
 		"apply/ownership-preparation",
 		operationplan.EffectStepPersistence,
+		applyForwardFailureClaimPreparation,
 	)
 	if persistenceErr := gate.applyEffect(func() error {
 		persisted = true
@@ -347,8 +392,24 @@ func TestApplyEffectExecutionClaimPlanningFailureTerminatesBeforePersistence(t *
 	if persisted {
 		t.Fatal("ownership persistence ran after transition-plan failure")
 	}
-	if finishErr := execution.finish(wantErr); finishErr != nil {
-		t.Fatalf("finish terminal transition-plan failure: %v", finishErr)
+	if settled := execution.settleFailureWithoutCompensation(wantErr); settled == nil ||
+		!strings.Contains(settled.Error(), "requires an explicit settlement branch") {
+		t.Fatalf("settled transition-plan failure = %v, want required branch", settled)
+	}
+	if _, err := execution.beginFailureSettlement(
+		applyFailureSettlementGuardedRecovery,
+	); err == nil || !strings.Contains(err.Error(), "does not permit settlement") {
+		t.Fatalf("wrong settlement branch error = %v, want branch rejection", err)
+	}
+	if _, err := execution.beginFailureSettlement(
+		applyFailureSettlementClaimPreparation,
+	); err != nil {
+		t.Fatalf("begin claim-preparation settlement: %v", err)
+	}
+	if _, err := execution.beginFailureSettlement(
+		applyFailureSettlementClaimPreparation,
+	); err == nil {
+		t.Fatal("duplicate failure settlement was accepted")
 	}
 }
 
@@ -446,6 +507,69 @@ func TestApplyWithEffectPlanConsumesExactChangedPlan(t *testing.T) {
 	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
 }
 
+func TestApplyWithEffectPlanPreservesMutationAuthorityCloseFailure(t *testing.T) {
+	fixture := newApplyEventFixture(t)
+	input := fixture.input([]applyEventAction{
+		fixture.createAction("create", "CREATE.md", "created\n"),
+	})
+	plan, err := PrepareApplyEffectPlan(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeFailure := errors.New("close mutation authority")
+	result, err := ApplyWithEffectPlan(
+		context.Background(),
+		input,
+		plan,
+		ApplyOptions{closeMutationAuthority: func(authority *mutationAuthority) error {
+			return errors.Join(authority.close(), closeFailure)
+		}},
+	)
+	if !errors.Is(err, closeFailure) {
+		t.Fatalf("ApplyWithEffectPlan error = %v, want mutation-authority close failure", err)
+	}
+	if !result.ExecutionAttempted || result.ActionCount != 1 {
+		t.Fatalf("ApplyWithEffectPlan result = %#v, want committed result", result)
+	}
+	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
+func TestApplyWithEffectPlanJoinsPrimaryAndMutationAuthorityCloseFailures(t *testing.T) {
+	fixture := newApplyEventFixture(t)
+	input := fixture.input([]applyEventAction{
+		fixture.createAction("create", "CREATE.md", "created\n"),
+	})
+	plan, err := PrepareApplyEffectPlan(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary := errors.New("reject forward authority")
+	closeFailure := errors.New("close mutation authority")
+	result, err := ApplyWithEffectPlan(
+		context.Background(),
+		input,
+		plan,
+		ApplyOptions{
+			ValidateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
+				return primary
+			},
+			closeMutationAuthority: func(authority *mutationAuthority) error {
+				return errors.Join(authority.close(), closeFailure)
+			},
+		},
+	)
+	if !errors.Is(err, primary) || !errors.Is(err, closeFailure) {
+		t.Fatalf("ApplyWithEffectPlan error = %v, want primary and close failures", err)
+	}
+	if strings.Contains(err.Error(), "apply effect structure") {
+		t.Fatalf("ApplyWithEffectPlan error leaked cursor settlement failure: %v", err)
+	}
+	if result.ExecutionAttempted {
+		t.Fatalf("ApplyWithEffectPlan result = %#v, want no attempted execution", result)
+	}
+	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
 func TestApplyWithEffectPlanRejectsMismatchBeforeJournalCapture(t *testing.T) {
 	fixture := newApplyEventFixture(t)
 	create := fixture.createAction("create", "CREATE.md", "created\n")
@@ -494,7 +618,12 @@ func settleApplyVisibilityStep(
 	id string,
 	kind operationplan.EffectStepKind,
 ) error {
-	gate := execution.visibilityGate(visibilityEffectGate{}, id, kind)
+	gate := execution.visibilityGate(
+		visibilityEffectGate{},
+		id,
+		kind,
+		applyForwardFailureGuardedRecovery,
+	)
 	if err := gate.validateBefore(context.Background()); err != nil {
 		return err
 	}

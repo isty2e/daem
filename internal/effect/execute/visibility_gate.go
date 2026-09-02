@@ -32,7 +32,11 @@ func (gate visibilityEffectGate) applyEffect(action func() error) error {
 
 func (gate visibilityEffectGate) observe(suffix string, action func() error) error {
 	if gate.schedule != nil {
-		return gate.schedule.execution.runObservation(gate.schedule.id+"/"+suffix, action)
+		return gate.schedule.execution.runObservation(
+			gate.schedule.id+"/"+suffix,
+			gate.schedule.validationFailure,
+			action,
+		)
 	}
 	return action()
 }

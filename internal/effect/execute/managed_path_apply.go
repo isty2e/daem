@@ -93,21 +93,30 @@ func applyManagedPathPhaseWithEvents(
 		mutatesHost := effect.Kind() != ManagedPathEffectRecord
 		prefix := applyManagedPathScheduleReference(phase, operation.effectIndex)
 		if effect.Kind() == ManagedPathEffectRecord {
-			err = execution.runObservation(prefix+"/record", func() error {
-				destination, resolveErr := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
-				if resolveErr != nil {
-					return resolveErr
-				}
-				if verifyErr := verifyManagedPathPostcondition(
-					ctx, authority, destination, true, effect.DesiredHash(), effect.ContentKind(), effect.LiveFileMode(),
-				); verifyErr != nil {
-					return verifyErr
-				}
-				progress.record(operation.mutationIndex, hostEffectExpectedAfter)
-				return nil
-			})
+			err = execution.runObservation(
+				prefix+"/record",
+				applyForwardFailureGuardedRecovery,
+				func() error {
+					destination, resolveErr := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
+					if resolveErr != nil {
+						return resolveErr
+					}
+					if verifyErr := verifyManagedPathPostcondition(
+						ctx, authority, destination, true, effect.DesiredHash(), effect.ContentKind(), effect.LiveFileMode(),
+					); verifyErr != nil {
+						return verifyErr
+					}
+					progress.record(operation.mutationIndex, hostEffectExpectedAfter)
+					return nil
+				},
+			)
 		} else {
-			operationGate := execution.visibilityGate(gate, prefix, operationplan.EffectStepPersistence)
+			operationGate := execution.visibilityGate(
+				gate,
+				prefix,
+				operationplan.EffectStepPersistence,
+				applyForwardFailureGuardedRecovery,
+			)
 			if err = operationGate.validateBefore(ctx); err == nil {
 				err = operationGate.applyEffect(func() error {
 					switch {
