@@ -9,7 +9,7 @@ import (
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 )
 
-func TestApplyForwardEffectScheduleMatchesLegacyReservationDemand(t *testing.T) {
+func TestApplyForwardEffectScheduleFitsLegacyReservationDemand(t *testing.T) {
 	_, manifestPath := writePiProviderMCPFixture(t)
 	prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
 	if err != nil {
@@ -32,12 +32,8 @@ func TestApplyForwardEffectScheduleMatchesLegacyReservationDemand(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	structural, err := plan.schedule.full.LegacyDemand()
-	if err != nil {
+	if err := requireLegacyApplyDemandDominance(plan.schedule.full, plan.demand); err != nil {
 		t.Fatal(err)
-	}
-	if !sameApplyDemand(structural, plan.demand) {
-		t.Fatalf("structural demand = %#v, legacy demand = %#v", structural, plan.demand)
 	}
 	if plan.demand.DescendantPath() != planned.assessment.StatePath {
 		t.Fatalf(

@@ -85,7 +85,7 @@ func TestStructuralForwardLoweringUsesAbsentStateDirBranchCosts(t *testing.T) {
 	}
 }
 
-func TestReserveForwardEffectStructureRejectsLegacyDemandMismatch(t *testing.T) {
+func TestReserveForwardEffectStructureRejectsLegacyDemandUnderrun(t *testing.T) {
 	t.Parallel()
 	authority, stateDir := newStructuralForwardTestAuthority(t, true)
 	_, err := authority.ReserveForwardEffectStructure(
@@ -99,7 +99,7 @@ func TestReserveForwardEffectStructureRejectsLegacyDemandMismatch(t *testing.T) 
 			1,
 		),
 	)
-	if err == nil || !strings.Contains(err.Error(), "differs from legacy demand") {
+	if err == nil || !strings.Contains(err.Error(), "does not dominate structural demand") {
 		t.Fatalf("ReserveForwardEffectStructure error = %v", err)
 	}
 }

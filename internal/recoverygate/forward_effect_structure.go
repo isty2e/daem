@@ -55,9 +55,9 @@ func (authority EffectAuthority) prepareForwardEffectStructure(
 	if err != nil {
 		return forwardEffectPlan{}, plannedStateDirOperation{}, err
 	}
-	if !sameForwardPlanCounts(structuralPlan, legacyPlan) {
+	if !forwardPlanDominates(legacyPlan, structuralPlan) {
 		return forwardEffectPlan{}, plannedStateDirOperation{}, fmt.Errorf(
-			"forward effect structure demand differs from legacy demand: "+
+			"legacy forward effect demand does not dominate structural demand: "+
 				"structural ensure=%d barrier=%d StateDir=%d descendant-validations=%d descendant-commits=%d "+
 				"legacy ensure=%d barrier=%d StateDir=%d descendant-validations=%d descendant-commits=%d",
 			structuralPlan.EnsureCalls,
@@ -213,12 +213,13 @@ func maximumStructuralForwardPlan(
 	return plan, nil
 }
 
-func sameForwardPlanCounts(left forwardEffectPlan, right forwardEffectPlan) bool {
-	return left.EnsureCalls == right.EnsureCalls &&
-		left.BarrierValidationCalls == right.BarrierValidationCalls &&
-		left.StateDirValidationCalls == right.StateDirValidationCalls &&
-		left.DescendantValidations == right.DescendantValidations &&
-		left.DescendantFileCommits == right.DescendantFileCommits
+func forwardPlanDominates(reserved forwardEffectPlan, structural forwardEffectPlan) bool {
+	return reserved.EnsureCalls >= structural.EnsureCalls &&
+		reserved.BarrierValidationCalls >= structural.BarrierValidationCalls &&
+		reserved.StateDirValidationCalls >= structural.StateDirValidationCalls &&
+		reserved.DescendantValidations >= structural.DescendantValidations &&
+		reserved.DescendantFileCommits >= structural.DescendantFileCommits &&
+		reserved.DescendantPath == structural.DescendantPath
 }
 
 func (authority EffectAuthority) lowerStructuralForwardWork(

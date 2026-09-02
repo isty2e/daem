@@ -5,7 +5,9 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/execute"
+	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/operationplan"
+	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 )
 
@@ -14,9 +16,10 @@ import (
 // Effect-owned core is consumed here; rollback and outer continuations remain
 // later migration units.
 type applyForwardEffectSchedule struct {
-	full       operationplan.EffectStructure
-	final      operationplan.EffectStructure
-	effectPlan execute.ApplyEffectPlan
+	full         operationplan.EffectStructure
+	final        operationplan.EffectStructure
+	continuation applyContinuationPlan
+	effectPlan   execute.ApplyEffectPlan
 }
 
 func requireEquivalentProviderFinalSchedule(
@@ -111,16 +114,26 @@ func applyScheduleInputFor(
 	if err != nil {
 		return applyScheduleInput{}, err
 	}
-	providerRoutes := applyRouteScheduleFacts(
+	providerRoutes, err := applyRouteScheduleFacts(
 		"apply/provider/route",
 		current.assessment.CurrentState,
 		providerActions,
+		current.context.Lockfile,
+		current.context.Paths.ManifestRoot,
 	)
-	finalRoutes := applyRouteScheduleFacts(
+	if err != nil {
+		return applyScheduleInput{}, err
+	}
+	finalRoutes, err := applyRouteScheduleFacts(
 		"apply/final/route",
 		current.assessment.CurrentState,
 		nonProviderRelationActions(current),
+		current.context.Lockfile,
+		current.context.Paths.ManifestRoot,
 	)
+	if err != nil {
+		return applyScheduleInput{}, err
+	}
 	carrierRemovals := applyCarrierScheduleFacts(
 		current.assessment.Reconciliation.CarrierAbsences(),
 	)
@@ -150,16 +163,29 @@ func applyRouteScheduleFacts(
 	prefix string,
 	currentState durable.Snapshot,
 	actions []reconcile.RelationAction,
-) []applyRouteScheduleFact {
+	locked lock.File,
+	workDir string,
+) ([]applyRouteScheduleFact, error) {
 	works := routeWorks(currentState, actions)
 	result := make([]applyRouteScheduleFact, 0, len(actions))
 	for index := range actions {
+		preflightRejected := false
+		if works[index].InvokesHost {
+			_, err := executehostroute.BuildCommand(executehostroute.BuildInput{
+				Action:   actions[index],
+				Lockfile: locked,
+				WorkDir:  workDir,
+			})
+			preflightRejected = err != nil
+		}
 		result = append(result, applyRouteScheduleFact{
-			ref:  applyOrdinalScheduleReference(prefix, index),
-			work: works[index],
+			ref:               applyOrdinalScheduleReference(prefix, index),
+			action:            actions[index],
+			work:              works[index],
+			preflightRejected: preflightRejected,
 		})
 	}
-	return result
+	return result, nil
 }
 
 func applyOrderScheduleFacts(classes []admittedOrderClass) []applyOrderScheduleFact {
@@ -167,6 +193,7 @@ func applyOrderScheduleFacts(classes []admittedOrderClass) []applyOrderScheduleF
 	for index, class := range classes {
 		result = append(result, applyOrderScheduleFact{
 			ref:              applyOrdinalScheduleReference("apply/relation-order", index),
+			classID:          class.classID,
 			requiresMutation: relationOrderMutationRequired(class.decisions),
 		})
 	}
@@ -180,8 +207,9 @@ func applyDelegateScheduleFacts(
 	result := make([]applyDelegateScheduleFact, 0, len(actions))
 	for index := range actions {
 		result = append(result, applyDelegateScheduleFact{
-			ref:  applyOrdinalScheduleReference("apply/delegate", index),
-			work: works[index],
+			ref:    applyOrdinalScheduleReference("apply/delegate", index),
+			action: actions[index],
+			work:   works[index],
 		})
 	}
 	return result
