@@ -20,6 +20,7 @@ import (
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
@@ -313,6 +314,131 @@ func TestExecuteWithOptionsPromotesInterruptedGlobalInstallFromFreshPresence(t *
 	state := loadApplyStatefile(t, statePath)
 	assertApplyNoCarrierFact(t, state, record.SubjectID())
 	assertApplyGlobalManagedCarrierClaim(t, root, record)
+}
+
+func TestInterruptedGlobalPromotionRejectsChangedRegistryBaseline(t *testing.T) {
+	root, manifestPath, lockfilePath, _, locked, subject := writeApplyClaudePluginCarrierCommandFixtureForScope(
+		t,
+		target.ScopeGlobal,
+	)
+	record := locked.Locked.Subjects()[0]
+	statePath := filepath.Join(root, ".daem", "state.json")
+	statefileKey, err := mutation.CanonicalDirectoryEntryKey(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := stateauthority.New(mustObservedPathAuthority(t, statefileKey), manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, admitted, err := durablecarrier.ManagedCarrierIdentityFromLockedRecord(record)
+	if err != nil || !admitted {
+		t.Fatalf("ManagedCarrierIdentityFromLockedRecord = (%#v, %t, %v)", identity, admitted, err)
+	}
+	request, err := lock.DelegatedOperationRequest(record, lock.OperationInstall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := durablecarrier.NewPendingCarrierInstall(owner, identity, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := durable.NewSnapshot(durable.SnapshotInput{
+		PendingCarrierInstalls: []durablecarrier.PendingCarrierInstall{pending},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeApplyStatefile(t, statePath, current)
+	present := applyClaudeObservationBatch(t, locked, subject, applyClaudePluginCarrierInventory(
+		t,
+		observeclaudeplugin.InventorySpec{
+			Availability: observerelation.InventorySupported,
+			Freshness:    observerelation.EvidenceFresh,
+			Rows: []observeclaudeplugin.Row{
+				applyClaudePluginCarrierManagedRowWithScope(
+					t,
+					"context7@market",
+					string(subject.ExpectedRelation().ManagedInstanceKey()),
+					observeclaudeplugin.HostScopeUser,
+				),
+			},
+		},
+	))
+	planning, err := PlanWrite(context.Background(), CommandInput{
+		ManifestPath:         manifestPath,
+		LockfilePath:         lockfilePath,
+		TargetValues:         []string{"claude-code"},
+		RelationObservations: &present,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := planning.Reconciliation.Relations()
+	if len(actions) != 1 {
+		t.Fatalf("RelationActions = %#v, want one interrupted promotion", actions)
+	}
+	correlation, presentCorrelation := actions[0].Correlation()
+	if !presentCorrelation {
+		t.Fatal("interrupted promotion action has no current correlation")
+	}
+	registry := durablecarrier.EmptyGlobalCarrierClaims()
+	paths := applyTestPaths(t, root)
+	store, err := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	concurrentClaim := newWorkflowFixture(t, target.ScopeGlobal).claim
+	durableCurrent, err := store.Upsert(t.Context(), concurrentClaim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound := &recordingBoundStatefileAuthority{entry: &rootedpath.EntryAuthority{}}
+	authority, err := newStatefileEffectAuthorityFromReservation(
+		statefileEffectPlan{validations: 1, fileCommits: 1},
+		&recordingStatefileReservation{bound: bound},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authority.Ensure(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := authority.Close(); err != nil {
+			t.Errorf("close statefile authority: %v", err)
+		}
+	})
+	nextState, nextRegistry, err := commitObservedGlobalCarrierClaim(
+		t.Context(),
+		paths,
+		authority,
+		current,
+		registry,
+		actions[0],
+		correlation,
+	)
+	if err == nil || !strings.Contains(err.Error(), "changed since confirmed observation") {
+		t.Fatalf("commitObservedGlobalCarrierClaim error = %v, want stale baseline rejection", err)
+	}
+
+	if len(nextState.PendingCarrierInstalls()) != 1 {
+		t.Fatalf("pending installs = %#v, want original pending fact", nextState.PendingCarrierInstalls())
+	}
+	if !nextRegistry.Equal(registry) {
+		t.Fatalf("returned registry = %#v, want confirmed baseline", nextRegistry.Claims())
+	}
+	actual, loadErr := store.Load(t.Context())
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if !actual.Equal(durableCurrent) {
+		t.Fatalf(
+			"durable registry = %#v, want unchanged %#v",
+			actual.Claims(),
+			durableCurrent.Claims(),
+		)
+	}
 }
 
 func TestExecuteWithOptionsRunsAdmittedCodexHostRouteAndPersistsObservedPresent(t *testing.T) {

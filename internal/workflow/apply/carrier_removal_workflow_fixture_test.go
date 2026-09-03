@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -348,9 +349,15 @@ func (fixture *workflowFixture) input(t *testing.T) carrierRemovalInput {
 		},
 		RemoveGlobalClaim: func(
 			_ context.Context,
+			current durablecarrier.GlobalCarrierClaims,
 			claim durablecarrier.ManagedCarrierClaim,
 		) (durablecarrier.GlobalCarrierClaims, error) {
-			next, changed, err := registry.WithoutClaim(claim)
+			if !registry.Equal(current) {
+				return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf(
+					"registry changed since confirmed observation",
+				)
+			}
+			next, changed, err := current.WithoutClaim(claim)
 			if err != nil {
 				return durablecarrier.GlobalCarrierClaims{}, err
 			}

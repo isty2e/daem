@@ -114,7 +114,11 @@ func commitObservedGlobalCarrierClaim(
 	if err := stateAuthority.Validate(ctx); err != nil {
 		return current, registry, err
 	}
-	nextRegistry, err := store.Upsert(ctx, claim)
+	nextRegistry, err := store.UpsertAllIfCurrent(
+		ctx,
+		registry,
+		[]durablecarrier.ManagedCarrierClaim{claim},
+	)
 	if err != nil {
 		return current, registry, err
 	}

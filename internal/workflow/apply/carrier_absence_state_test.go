@@ -3,6 +3,7 @@ package apply
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -296,40 +297,132 @@ func TestPostApplySettlementStopsAtGlobalCarrierRetirementFailure(t *testing.T) 
 		t.Fatal(err)
 	}
 	claim := newWorkflowFixture(t, target.ScopeGlobal).claim
+	concurrentClaim := newWorkflowFixture(t, target.ScopeGlobal).claim
 	store, err := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Upsert(t.Context(), claim); err != nil {
+	confirmed, err := store.Upsert(t.Context(), claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	durableCurrent, err := store.Upsert(t.Context(), concurrentClaim)
+	if err != nil {
 		t.Fatal(err)
 	}
 	attempts := 0
-	_, err = runAfterCarrierClaimRetirements(
+	result, err := runAfterCarrierClaimRetirements(
 		t.Context(),
 		paths,
 		lock.File{},
 		targetselection.Selection{},
 		execute.ApplyResult{},
 		stateauthority.Authority{},
-		durablecarrier.EmptyGlobalCarrierClaims(),
+		confirmed,
 		[]durablecarrier.ManagedCarrierClaim{claim},
 		[]durablecarrier.ManagedCarrierClaim{claim},
 		reconcile.Result{},
 		observerelation.Batch{},
 		runOptions{markExecutionAttempted: func() { attempts++ }},
 	)
-	if err == nil {
-		t.Fatal("post-Apply settlement accepted a stale global-retirement basis")
+	if err == nil || !strings.Contains(err.Error(), "changed since confirmed observation") {
+		t.Fatalf("post-Apply settlement error = %v, want stale global-retirement basis", err)
 	}
 	if attempts != 1 {
 		t.Fatalf("registry attempts = %d, want retirement only", attempts)
+	}
+	if !result.GlobalCarrierClaims.Equal(confirmed) {
+		t.Fatalf(
+			"failed result global claims = %#v, want confirmed baseline %#v",
+			result.GlobalCarrierClaims.Claims(),
+			confirmed.Claims(),
+		)
 	}
 	current, loadErr := store.Load(t.Context())
 	if loadErr != nil {
 		t.Fatal(loadErr)
 	}
-	if claims := current.Claims(); len(claims) != 1 || !claims[0].ExactEqual(claim) {
-		t.Fatalf("global claims after failed retirement = %#v, want original claim", claims)
+	if !current.Equal(durableCurrent) {
+		t.Fatalf(
+			"global claims after failed retirement = %#v, want unchanged %#v",
+			current.Claims(),
+			durableCurrent.Claims(),
+		)
+	}
+}
+
+func TestPostApplyCarrierRemovalRejectsStaleGlobalRegistryWithoutLosingBaseline(t *testing.T) {
+	fixture := newWorkflowFixture(t, target.ScopeGlobal)
+	concurrentClaim := newWorkflowFixture(t, target.ScopeGlobal).claim
+	t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "data"))
+	paths, err := daempaths.Resolve(filepath.Join(fixture.root, "daem.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	durableCurrent, err := store.UpsertAll(
+		t.Context(),
+		[]durablecarrier.ManagedCarrierClaim{fixture.claim, concurrentClaim},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciliation, err := reconcile.NewResult(reconcile.ResultInput{
+		Context:         reconcile.ContextApply,
+		CarrierAbsences: []carrierabsence.Action{fixture.action},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := fixture.input(t)
+	result, err := runAfterCarrierClaimRetirements(
+		t.Context(),
+		paths,
+		lock.File{},
+		targetselection.Selection{},
+		execute.ApplyResult{StatePath: fixture.statePath, State: fixture.current},
+		stateauthority.Authority{},
+		fixture.globalClaims,
+		nil,
+		nil,
+		reconciliation,
+		observerelation.Batch{},
+		runOptions{
+			HostRouteExecutor:         input.Executor,
+			CarrierRemovalAdapter:     input.Adapter,
+			CarrierRemovalObserver:    input.Observer,
+			validateBeforeEffects:     input.ValidateBeforeEffects,
+			validateStateDir:          input.ValidateStateDir,
+			reserveStatefileAuthority: input.ReserveStatefileAuthority,
+			projectRoot:               input.ProjectRoot,
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "changed since confirmed observation") {
+		t.Fatalf("post-Apply carrier removal error = %v, want stale global registry", err)
+	}
+	if !result.GlobalCarrierClaims.Equal(fixture.globalClaims) {
+		t.Fatalf(
+			"failed result global claims = %#v, want confirmed baseline %#v",
+			result.GlobalCarrierClaims.Claims(),
+			fixture.globalClaims.Claims(),
+		)
+	}
+	if len(result.HostRouteAttempts) != 1 {
+		t.Fatalf("host route attempts = %#v, want one completed removal attempt", result.HostRouteAttempts)
+	}
+	current, loadErr := store.Load(t.Context())
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if !current.Equal(durableCurrent) {
+		t.Fatalf(
+			"global claims after failed removal = %#v, want unchanged %#v",
+			current.Claims(),
+			durableCurrent.Claims(),
+		)
 	}
 }
 

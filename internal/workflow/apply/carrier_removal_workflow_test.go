@@ -370,6 +370,7 @@ func TestRunGlobalRegistryFailureNeverRestoresOrReinvokesHost(t *testing.T) {
 	input := fixture.input(t)
 	input.RemoveGlobalClaim = func(
 		context.Context,
+		durablecarrier.GlobalCarrierClaims,
 		durablecarrier.ManagedCarrierClaim,
 	) (durablecarrier.GlobalCarrierClaims, error) {
 		return durablecarrier.GlobalCarrierClaims{}, errors.New("registry unavailable")

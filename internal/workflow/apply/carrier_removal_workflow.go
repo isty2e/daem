@@ -41,10 +41,11 @@ type CarrierRemovalBaselineObserver func(
 	carrierabsence.Action,
 ) (durablecarrier.EffectBaselineSet, error)
 
-// GlobalClaimRemover retires one exact global claim through its dedicated
-// compare-and-swap registry.
+// GlobalClaimRemover retires one exact global claim only when its dedicated
+// compare-and-swap registry still equals the supplied confirmed baseline.
 type carrierRemovalGlobalClaimRemover func(
 	context.Context,
+	durablecarrier.GlobalCarrierClaims,
 	durablecarrier.ManagedCarrierClaim,
 ) (durablecarrier.GlobalCarrierClaims, error)
 

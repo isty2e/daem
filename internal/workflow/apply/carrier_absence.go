@@ -288,7 +288,7 @@ func retireClaim(
 		if err := authority.Validate(ctx); err != nil {
 			return err
 		}
-		registry, err := input.RemoveGlobalClaim(ctx, action.Claim())
+		registry, err := input.RemoveGlobalClaim(ctx, result.GlobalClaims, action.Claim())
 		if err != nil {
 			return fmt.Errorf("retire global carrier claim: %w", err)
 		}
@@ -325,9 +325,10 @@ func runAfterCarrierClaimRetirements(
 	)
 	if err != nil {
 		return runResult{
-			ActionCount: stateResult.ActionCount + globalRetirementCount,
-			StatePath:   stateResult.StatePath,
-			State:       stateResult.State,
+			ActionCount:         stateResult.ActionCount + globalRetirementCount,
+			StatePath:           stateResult.StatePath,
+			State:               stateResult.State,
+			GlobalCarrierClaims: nextGlobalClaims,
 		}, err
 	}
 	removalResult, err := runCarrierRemovals(ctx, carrierRemovalInput{
@@ -344,13 +345,18 @@ func runAfterCarrierClaimRetirements(
 		BaselineObserver:       options.CarrierRemovalBaselineObserver,
 		RemoveGlobalClaim: func(
 			ctx context.Context,
+			expected durablecarrier.GlobalCarrierClaims,
 			claim durablecarrier.ManagedCarrierClaim,
 		) (durablecarrier.GlobalCarrierClaims, error) {
 			store, storeErr := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
 			if storeErr != nil {
 				return durablecarrier.GlobalCarrierClaims{}, storeErr
 			}
-			return store.Remove(ctx, claim)
+			return store.RetireAllIfCurrent(
+				ctx,
+				expected,
+				[]durablecarrier.ManagedCarrierClaim{claim},
+			)
 		},
 		ValidateBeforeEffects:     options.validateBeforeEffects,
 		ValidateStateDir:          options.validateStateDir,
@@ -360,10 +366,11 @@ func runAfterCarrierClaimRetirements(
 	})
 	if err != nil {
 		return runResult{
-			ActionCount:       stateResult.ActionCount + globalRetirementCount + removalResult.ActionCount,
-			StatePath:         stateResult.StatePath,
-			State:             removalResult.State,
-			HostRouteAttempts: removalResult.Attempts,
+			ActionCount:         stateResult.ActionCount + globalRetirementCount + removalResult.ActionCount,
+			StatePath:           stateResult.StatePath,
+			State:               removalResult.State,
+			GlobalCarrierClaims: removalResult.GlobalClaims,
+			HostRouteAttempts:   removalResult.Attempts,
 		}, err
 	}
 	next, err := runHostRoutesOrderDelegatesAndPersistAttemptRecords(
