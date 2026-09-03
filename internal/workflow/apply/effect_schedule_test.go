@@ -91,7 +91,7 @@ targets = ["pi"]
 			t.Fatal(err)
 		}
 	}()
-	if err := requireEquivalentProviderFinalSchedule(
+	if _, err := equivalentProviderFinalSchedule(
 		plan.schedule.final,
 		changed.lifecycle.planned,
 		providerActions,

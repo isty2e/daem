@@ -50,6 +50,20 @@ func (structure EffectStructure) Begin() *EffectCursor {
 	return cursor
 }
 
+// BeginForwardPhaseContinuation returns a cursor over a root forward-phase
+// segment whose enclosing operation has already consumed an earlier forward
+// effect in the same phase.
+func (structure EffectStructure) BeginForwardPhaseContinuation() (*EffectCursor, error) {
+	cursor := structure.Begin()
+	if cursor.root.kind != effectNodeForwardPhase || len(cursor.stack) != 1 {
+		return nil, fmt.Errorf(
+			"operationplan: effect structure root is not a forward phase",
+		)
+	}
+	cursor.stack[0].forwardEffects = 1
+	return cursor, nil
+}
+
 // SelectAlternative selects the pending closed choice by zero-based alternative index.
 func (cursor *EffectCursor) SelectAlternative(choiceID string, alternative int) error {
 	if err := cursor.requireActive(); err != nil {

@@ -57,6 +57,13 @@ func TestExecuteRetiresAlreadyAbsentCarrierClaim(t *testing.T) {
 						!absences[0].Claim().ExactEqual(claim) {
 						t.Fatalf("carrier absences = %#v, want exact state-only retirement", absences)
 					}
+					facts, err := applyCarrierScheduleFacts(absences)
+					if err != nil {
+						t.Fatalf("applyCarrierScheduleFacts: %v", err)
+					}
+					if len(facts) != 1 || facts[0].mode != applyCarrierScheduleNoOp {
+						t.Fatalf("carrier schedule facts = %#v, want one state-only no-op", facts)
+					}
 
 					result, err := ExecuteWithOptions(context.Background(), prepared, ExecuteOptions{
 						PlanWasDisclosed: true,
@@ -392,6 +399,7 @@ func TestPostApplyCarrierRemovalRejectsStaleGlobalRegistryWithoutLosingBaseline(
 		t.Fatal(err)
 	}
 	input := fixture.input(t)
+	continuation := scheduledCarrierRemovalTestPlan(t, []carrierabsence.Action{fixture.action})
 	result, err := runAfterCarrierClaimRetirements(
 		t.Context(),
 		paths,
@@ -409,9 +417,12 @@ func TestPostApplyCarrierRemovalRejectsStaleGlobalRegistryWithoutLosingBaseline(
 			CarrierRemovalAdapter:     input.Adapter,
 			CarrierRemovalObserver:    input.Observer,
 			validateBeforeEffects:     input.ValidateBeforeEffects,
-			validateStateDir:          input.ValidateStateDir,
+			validateStateDir:          fixture.validateStateDir,
 			reserveStatefileAuthority: input.ReserveStatefileAuthority,
 			projectRoot:               input.ProjectRoot,
+			preparedContinuation:      continuation,
+			currentContinuation:       continuation,
+			requireContinuation:       true,
 		},
 	)
 	if err == nil || !strings.Contains(err.Error(), "changed since confirmed observation") {

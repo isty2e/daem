@@ -22,14 +22,14 @@ type applyForwardEffectSchedule struct {
 	effectPlan   execute.ApplyEffectPlan
 }
 
-func requireEquivalentProviderFinalSchedule(
+func equivalentProviderFinalSchedule(
 	reserved operationplan.EffectStructure,
 	current commandPlan,
 	providerActions []reconcile.RelationAction,
-) error {
+) (applyForwardEffectSchedule, error) {
 	applyInput, err := applyEffectInput(current)
 	if err != nil {
-		return err
+		return applyForwardEffectSchedule{}, err
 	}
 	currentSchedule, err := compileApplyForwardEffectSchedule(
 		current,
@@ -37,12 +37,14 @@ func requireEquivalentProviderFinalSchedule(
 		applyInput,
 	)
 	if err != nil {
-		return err
+		return applyForwardEffectSchedule{}, err
 	}
 	if !reserved.Equal(currentSchedule.final) {
-		return fmt.Errorf("reserved and current final apply effect schedules differ")
+		return applyForwardEffectSchedule{}, fmt.Errorf(
+			"reserved and current final apply effect schedules differ",
+		)
 	}
-	return nil
+	return currentSchedule, nil
 }
 
 func compileApplyForwardEffectSchedule(
@@ -134,9 +136,12 @@ func applyScheduleInputFor(
 	if err != nil {
 		return applyScheduleInput{}, err
 	}
-	carrierRemovals := applyCarrierScheduleFacts(
+	carrierRemovals, err := applyCarrierScheduleFacts(
 		current.assessment.Reconciliation.CarrierAbsences(),
 	)
+	if err != nil {
+		return applyScheduleInput{}, err
+	}
 	orders := applyOrderScheduleFacts(orderClasses)
 	delegates := applyDelegateScheduleFacts(
 		current.assessment.Reconciliation.Delegates(),

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -15,7 +16,11 @@ import (
 	observepostcondition "github.com/isty2e/daem/internal/assurance/observe/postcondition"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
+	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -48,6 +53,170 @@ func TestRunRetiresProjectClaimOnlyAfterVerifiedAbsence(t *testing.T) {
 		)
 	}
 	assertConvergedProjectRemoval(t, fixture.persistedState(t), fixture.claim)
+}
+
+func TestRunScheduledCarrierRemovalsJoinsOwnedStatefileAuthorityCloseFailure(
+	t *testing.T,
+) {
+	fixture := newWorkflowFixture(t, target.ScopeProject)
+	input := fixture.input(t)
+	injected := errors.New("injected statefile authority close failure")
+	input.CloseStatefileAuthority = func(authority *statefileEffectAuthority) error {
+		return errors.Join(authority.Close(), injected)
+	}
+	plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
+
+	result, err := runScheduledCarrierRemovals(
+		t.Context(),
+		input,
+		plan,
+		plan,
+	)
+	if !errors.Is(err, injected) {
+		t.Fatalf("runScheduledCarrierRemovals error = %v, want close failure", err)
+	}
+	if strings.Contains(err.Error(), "effect structure") {
+		t.Fatalf("close failure exposed cursor settlement error: %v", err)
+	}
+	if result.ActionCount != 1 {
+		t.Fatalf("ActionCount = %d, want 1; error = %v", result.ActionCount, err)
+	}
+	assertConvergedProjectRemoval(t, result.State, fixture.claim)
+}
+
+func TestRunScheduledCarrierRemovalsRejectsInputSemanticMismatchBeforeAuthority(
+	t *testing.T,
+) {
+	inputFixture := newWorkflowFixture(t, target.ScopeProject)
+	planFixture := newWorkflowFixture(t, target.ScopeProject)
+	input := inputFixture.input(t)
+	plan := scheduledCarrierRemovalTestPlan(t, planFixture.input(t).Actions)
+	reserve := input.ReserveStatefileAuthority
+	reserveCalls := 0
+	input.ReserveStatefileAuthority = func(
+		path string,
+		plan statefileEffectPlan,
+	) (statefileEffectReservation, error) {
+		reserveCalls++
+		return reserve(path, plan)
+	}
+
+	result, err := runScheduledCarrierRemovals(
+		t.Context(),
+		input,
+		plan,
+		plan,
+	)
+	if err == nil {
+		t.Fatal("semantic plan mismatch returned nil error")
+	}
+	if reserveCalls != 0 {
+		t.Fatalf("statefile authority reservations = %d, want 0", reserveCalls)
+	}
+	if inputFixture.executorCalls != 0 || result.ActionCount != 0 {
+		t.Fatalf(
+			"mismatched plan executed host work: calls=%d actions=%d",
+			inputFixture.executorCalls,
+			result.ActionCount,
+		)
+	}
+	if pending := inputFixture.persistedState(t).PendingCarrierRemovals(); len(pending) != 0 {
+		t.Fatalf("mismatched plan persisted pending removals: %#v", pending)
+	}
+}
+
+func TestRunScheduledCarrierRemovalsRejectsUnavailableProjectRootBeforeBinding(
+	t *testing.T,
+) {
+	fixture := newWorkflowFixture(t, target.ScopeProject)
+	input := fixture.input(t)
+	input.ProjectRoot = nil
+	plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
+
+	result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
+	var failure *rootedpath.Failure
+	if !errors.As(err, &failure) || failure.Kind() != rootedpath.FailureRootUnavailable {
+		t.Fatalf("runScheduledCarrierRemovals error = %v, want unavailable project root", err)
+	}
+	if fixture.executorCalls != 0 || result.ActionCount != 0 {
+		t.Fatalf(
+			"unavailable project root executed removal: calls=%d actions=%d",
+			fixture.executorCalls,
+			result.ActionCount,
+		)
+	}
+}
+
+func TestScheduledCarrierRemovalCallReturnsCursorMismatchWithoutCleanup(
+	t *testing.T,
+) {
+	fixture := newWorkflowFixture(t, target.ScopeProject)
+	plan := scheduledCarrierRemovalTestPlan(t, fixture.input(t).Actions).carrierRemovalPlan()
+	execution, err := newApplyContinuationExecution(plan, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = scheduledCarrierRemovalCallWithFailureCleanup(
+		execution,
+		"apply/carrier-removal/not-scheduled",
+		operationplan.EffectStepObservation,
+		func() error { return nil },
+		nil,
+	)
+	if err == nil {
+		t.Fatal("cursor mismatch returned nil error")
+	}
+}
+
+func TestRunScheduledCarrierRemovalsRejectsUnderConsumedPlan(t *testing.T) {
+	fixture := newWorkflowFixture(t, target.ScopeProject)
+	input := fixture.input(t)
+	plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
+	facts, err := applyCarrierScheduleFacts(input.Actions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var builder operationplan.EffectStructureBuilder
+	statefile := &applyStatefileSchedule{builder: &builder}
+	segment := compileApplyCarrierRemovalSchedules(&builder, statefile, facts)
+	structure, err := builder.Compile(builder.ForwardPhase(
+		"apply/carrier-removals",
+		operationplan.EffectSequence(
+			segment,
+			builder.Step("apply/carrier-removals/unconsumed", operationplan.EffectStepNoOp),
+		),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.carrierRemovalStructure = structure
+
+	result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
+	if err == nil {
+		t.Fatal("under-consumed carrier-removal plan returned nil error")
+	}
+	if result.ActionCount != 1 || fixture.executorCalls != 1 {
+		t.Fatalf(
+			"under-consumed result = actions %d calls %d, want completed action before cursor refusal",
+			result.ActionCount,
+			fixture.executorCalls,
+		)
+	}
+}
+
+func scheduledCarrierRemovalTestPlan(
+	t *testing.T,
+	actions []carrierabsence.Action,
+) applyContinuationPlan {
+	t.Helper()
+	facts, err := applyCarrierScheduleFacts(actions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := syntheticApplyScheduleInput(t, 0)
+	input.carrierRemovals = facts
+	return mustCompileSyntheticApplySchedule(t, input).continuation
 }
 
 func TestRunPersistsCarrierRemovalWithControlBearingStateDir(t *testing.T) {
@@ -192,10 +361,12 @@ func TestRunRetiresCoupledClaimWhenFailedCommandButAllPostconditionsSatisfied(t 
 		HasExitCode: true,
 		ExitCode:    9,
 	}
+	input := fixture.input(t)
+	plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
 
-	result, err := runCarrierRemovals(context.Background(), fixture.input(t))
+	result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
 	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
+		t.Fatalf("runScheduledCarrierRemovals returned error: %v", err)
 	}
 	assertConvergedProjectRemoval(t, result.State, fixture.claim)
 	attempt := result.Attempts[0]
@@ -217,10 +388,12 @@ func TestRunRetiresCoupledClaimWhenFailedCommandButAllPostconditionsSatisfied(t 
 func TestRunRetainsCoupledClaimWhenArtifactPostconditionIsUnsatisfied(t *testing.T) {
 	fixture := newCoupledWorkflowFixture(t, target.ScopeProject)
 	fixture.effectEvidence = observepostcondition.EvidenceUnsatisfied
+	input := fixture.input(t)
+	plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
 
-	result, err := runCarrierRemovals(context.Background(), fixture.input(t))
+	result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
 	if err == nil {
-		t.Fatal("Run returned nil error")
+		t.Fatal("runScheduledCarrierRemovals returned nil error")
 	}
 	assertRetainedRemoval(t, result.State, fixture.claim)
 	attempt := result.Attempts[0]
@@ -305,10 +478,12 @@ func TestRunSettlesPendingRemovalFromFreshCurrentEvidenceWithoutReinvocation(t *
 		t.Run(string(scope), func(t *testing.T) {
 			fixture := newCoupledWorkflowFixture(t, scope)
 			fixture.preparePendingSettlement(t)
+			input := fixture.input(t)
+			plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
 
-			result, err := runCarrierRemovals(context.Background(), fixture.input(t))
+			result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
 			if err != nil {
-				t.Fatalf("Run returned error: %v", err)
+				t.Fatalf("runScheduledCarrierRemovals returned error: %v", err)
 			}
 			if fixture.executorCalls != 0 {
 				t.Fatalf("executor calls = %d, want no host reinvocation", fixture.executorCalls)
@@ -387,6 +562,35 @@ func TestRunGlobalRegistryFailureNeverRestoresOrReinvokesHost(t *testing.T) {
 	}
 	if len(result.State.PendingCarrierRemovals()) != 0 {
 		t.Fatalf("pending removals = %#v, want cleared after verified absence", result.State.PendingCarrierRemovals())
+	}
+}
+
+func TestRunGlobalRegistryIndeterminateFailurePreservesPossibleSuccessor(t *testing.T) {
+	fixture := newWorkflowFixture(t, target.ScopeGlobal)
+	input := fixture.input(t)
+	input.RemoveGlobalClaim = func(
+		context.Context,
+		durablecarrier.GlobalCarrierClaims,
+		durablecarrier.ManagedCarrierClaim,
+	) (durablecarrier.GlobalCarrierClaims, error) {
+		return durablecarrier.GlobalCarrierClaims{}, globalCarrierSettlementClassifiedError{
+			kind: mutationfs.FailureIndeterminateCommit,
+		}
+	}
+	plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
+
+	result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
+	if err == nil {
+		t.Fatal("runScheduledCarrierRemovals returned nil error")
+	}
+	if fixture.executorCalls != 1 {
+		t.Fatalf("executor calls = %d, want 1", fixture.executorCalls)
+	}
+	if claims := result.GlobalClaims.Claims(); len(claims) != 0 {
+		t.Fatalf("global claims = %#v, want possible committed successor", claims)
+	}
+	if pending := result.State.PendingCarrierRemovals(); len(pending) != 0 {
+		t.Fatalf("pending removals = %#v, want cleared after verified absence", pending)
 	}
 }
 

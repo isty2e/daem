@@ -163,6 +163,15 @@ func (authority *statefileEffectAuthority) EntryForCommit() (*rootedpath.EntryAu
 	return entry, nil
 }
 
+func (authority *statefileEffectAuthority) isBound() bool {
+	if authority == nil {
+		return false
+	}
+	authority.mu.Lock()
+	defer authority.mu.Unlock()
+	return !authority.closed && authority.bound != nil
+}
+
 func (authority *statefileEffectAuthority) Close() error {
 	if authority == nil {
 		return nil

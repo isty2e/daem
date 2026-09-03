@@ -20,6 +20,7 @@ type providerPhaseExecution struct {
 	attempts                      []durableattempt.HostRouteAttempt
 	leases                        *mutation.LeaseSet
 	firstEffectRevisions          mutation.RevisionSet
+	currentContinuation           applyContinuationPlan
 	rebound                       bool
 	uncompensatedEffectsAttempted bool
 }
@@ -378,7 +379,7 @@ func runMCPProviderPrerequisitePhase(
 			nil,
 		)
 	}
-	if err := requireEquivalentProviderFinalSchedule(
+	if _, err := equivalentProviderFinalSchedule(
 		reservedFinalSchedule,
 		refreshed,
 		providerActions,
@@ -515,11 +516,12 @@ func runMCPProviderPrerequisitePhase(
 	); err != nil {
 		return result, err
 	}
-	if err := requireEquivalentProviderFinalSchedule(
+	currentSchedule, err := equivalentProviderFinalSchedule(
 		reservedFinalSchedule,
 		underLease,
 		providerActions,
-	); err != nil {
+	)
+	if err != nil {
 		return result, providerPhaseStale(
 			planWasDisclosed,
 			"MCP provider prerequisite changed the leased apply effect schedule",
@@ -527,6 +529,7 @@ func runMCPProviderPrerequisitePhase(
 		)
 	}
 	*current = underLease
+	result.currentContinuation = currentSchedule.continuation
 	result.leases = reboundLeases
 	result.firstEffectRevisions = reboundFirstEffectRevisions
 	releaseRebound = false

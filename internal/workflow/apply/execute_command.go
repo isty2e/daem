@@ -417,6 +417,9 @@ func executeWithDependencies(
 		},
 		statefileAuthority:            statefileAuthority,
 		applyEffectPlan:               &stateDirPlan.schedule.effectPlan,
+		preparedContinuation:          stateDirPlan.schedule.continuation,
+		currentContinuation:           stateDirPlan.schedule.continuation,
+		requireContinuation:           true,
 		acceptVisibilityChanges:       acceptVisibilityChanges,
 		validateCompensationAuthority: validateCompensationAuthority,
 		acceptCompensationChanges:     acceptCompensationChanges,
@@ -450,6 +453,7 @@ func executeWithDependencies(
 		leases = providerPhase.leases
 		firstEffectRevisions = providerPhase.firstEffectRevisions
 		revisionBoundaryValidated = false
+		executionOptions.currentContinuation = providerPhase.currentContinuation
 	}
 
 	runResult, err := runWithOptions(

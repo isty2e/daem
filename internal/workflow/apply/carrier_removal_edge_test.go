@@ -244,7 +244,8 @@ func TestRunRecordsAdapterPreflightFailureWithoutHostEffect(t *testing.T) {
 		return subprocess.CommandAttemptRequest{}, errors.New("unsupported fake route")
 	}
 
-	result, err := runCarrierRemovals(context.Background(), input)
+	plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
+	result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
 	if err == nil || !strings.Contains(err.Error(), "unsupported fake route") {
 		t.Fatalf("error = %v, want adapter preflight failure", err)
 	}
@@ -316,16 +317,18 @@ func TestRunPersistsOnlyBoundedRedactionFactsForHostileOutput(t *testing.T) {
 
 func TestRunStopsAfterFirstRemovalFailure(t *testing.T) {
 	fixture := newWorkflowFixture(t, target.ScopeProject)
+	later := newWorkflowFixture(t, target.ScopeGlobal)
 	fixture.runnerResult = subprocess.CommandResult{
 		Started:  true,
 		TimedOut: true,
 	}
 	input := fixture.input(t)
-	input.Actions = append(input.Actions, fixture.action)
+	input.Actions = append(input.Actions, later.action)
+	plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
 
-	result, err := runCarrierRemovals(context.Background(), input)
+	result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
 	if err == nil {
-		t.Fatal("Run returned nil error")
+		t.Fatal("runScheduledCarrierRemovals returned nil error")
 	}
 	if fixture.executorCalls != 1 {
 		t.Fatalf("executor calls = %d, want fail-fast count 1", fixture.executorCalls)

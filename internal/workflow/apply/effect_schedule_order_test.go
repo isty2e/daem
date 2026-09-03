@@ -55,38 +55,44 @@ func TestApplyScheduleRejectsMissingOrDuplicateFactReferences(t *testing.T) {
 	}
 }
 
-func TestApplyContinuationExecutionUsesCurrentFactsAfterStructuralParity(t *testing.T) {
+func TestApplyContinuationExecutionRejectsCarrierSemanticDriftDespiteStructuralParity(t *testing.T) {
 	preparedAction := newWorkflowFixture(t, target.ScopeProject).action
 	currentAction := newWorkflowFixture(t, target.ScopeProject).action
 
+	preparedFingerprint, err := carrierRemovalScheduleFingerprint(preparedAction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentFingerprint, err := carrierRemovalScheduleFingerprint(currentAction)
+	if err != nil {
+		t.Fatal(err)
+	}
 	preparedInput := syntheticApplyScheduleInput(t, 0)
 	preparedInput.carrierRemovals = []applyCarrierScheduleFact{{
-		ref:    "carrier-removal",
-		action: preparedAction,
-		work:   operationplan.CarrierWork{InvokesHost: true},
-		mode:   applyCarrierScheduleHostRoute,
-		scope:  target.ScopeProject,
+		ref:         "carrier-removal",
+		action:      preparedAction,
+		fingerprint: preparedFingerprint,
+		work:        operationplan.CarrierWork{InvokesHost: true},
+		mode:        applyCarrierScheduleHostRoute,
+		scope:       target.ScopeProject,
 	}}
 	currentInput := syntheticApplyScheduleInput(t, 0)
 	currentInput.carrierRemovals = []applyCarrierScheduleFact{{
-		ref:    "carrier-removal",
-		action: currentAction,
-		work:   operationplan.CarrierWork{InvokesHost: true},
-		mode:   applyCarrierScheduleHostRoute,
-		scope:  target.ScopeProject,
+		ref:         "carrier-removal",
+		action:      currentAction,
+		fingerprint: currentFingerprint,
+		work:        operationplan.CarrierWork{InvokesHost: true},
+		mode:        applyCarrierScheduleHostRoute,
+		scope:       target.ScopeProject,
 	}}
 	prepared := mustCompileSyntheticApplySchedule(t, preparedInput)
 	current := mustCompileSyntheticApplySchedule(t, currentInput)
 
-	execution, err := newApplyContinuationExecution(prepared.continuation, current.continuation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ref, err := execution.carrierRemovalReference(currentAction); err != nil || ref != "carrier-removal" {
-		t.Fatalf("current carrier removal reference = (%q, %v), want current plan fact", ref, err)
-	}
-	if _, err := execution.carrierRemovalReference(preparedAction); err == nil {
-		t.Fatal("prepared semantic fact remained authoritative after current-plan binding")
+	if _, err := newApplyContinuationExecution(
+		prepared.continuation,
+		current.continuation,
+	); err == nil {
+		t.Fatal("newApplyContinuationExecution accepted carrier semantic drift")
 	}
 }
 
@@ -201,11 +207,16 @@ func TestApplyScheduleSuccessfulSettlementOrder(t *testing.T) {
 	cursor.checkedSuccess("carrier-removal/prepared/statefile/pending/publish", operationplan.EffectStepPublishDescendant)
 	cursor.checkedSuccess("carrier-removal/prepared/context-before-host", operationplan.EffectStepObservation)
 	cursor.checkedSuccess("carrier-removal/prepared/statefile/pre-host/validate", operationplan.EffectStepValidateDescendant)
-	cursor.checkedSuccess("carrier-removal/prepared/host", operationplan.EffectStepExternal)
+	cursor.consume("carrier-removal/prepared/host", operationplan.EffectStepExternal)
 	cursor.consume("carrier-removal/prepared/statefile/post-host/validate", operationplan.EffectStepValidateDescendant)
 	cursor.selectAlternative("carrier-removal/prepared/post-host-outcome", 0)
 	cursor.consume("carrier-removal/prepared/post-host-success", operationplan.EffectStepNoOp)
-	cursor.checkedSuccess("carrier-removal/prepared/classify", operationplan.EffectStepObservation)
+	cursor.consume("carrier-removal/prepared/post-host-observation", operationplan.EffectStepObservation)
+	cursor.consume("carrier-removal/prepared/classify", operationplan.EffectStepObservation)
+	cursor.selectAlternative("carrier-removal/prepared/classify-outcome", 0)
+	cursor.consume("carrier-removal/prepared/classify-usable", operationplan.EffectStepNoOp)
+	cursor.consume("carrier-removal/prepared/retained-boundary", operationplan.EffectStepObservation)
+	cursor.checkedSuccess("carrier-removal/prepared/attempt-record", operationplan.EffectStepObservation)
 	cursor.checkedSuccess("carrier-removal/prepared/attempt/pre-persistence/validate", operationplan.EffectStepValidateDescendant)
 	cursor.checkedSuccess("carrier-removal/prepared/attempt/persistence/publish", operationplan.EffectStepPublishDescendant)
 	cursor.checkedSuccess("carrier-removal/prepared/attempt/post-persistence/validate", operationplan.EffectStepValidateDescendant)
@@ -337,11 +348,16 @@ func TestApplyScheduleCarrierFailureStopsLaterSettlement(t *testing.T) {
 	cursor.consume("apply/effect-segment", operationplan.EffectStepNoOp)
 	cursor.consume("apply/effect-segment/no-change", operationplan.EffectStepNoOp)
 	cursor.checkedSuccess("carrier-removal/prepare-direct", operationplan.EffectStepObservation)
+	cursor.checkedSuccess("carrier-removal/bind-direct", operationplan.EffectStepObservation)
 	cursor.checkedSuccess("carrier-removal/forward", operationplan.EffectStepForwardEffect)
 	cursor.checkedInitialStatefileAuthority("carrier-removal/statefile")
+	cursor.checkedSuccess("carrier-removal/effect-baselines", operationplan.EffectStepObservation)
 	cursor.checkedSuccess("carrier-removal/statefile/pending/publish", operationplan.EffectStepPublishDescendant)
 	cursor.checkedSuccess("carrier-removal/statefile/pre-effect/validate", operationplan.EffectStepValidateDescendant)
-	cursor.checkedFailure("carrier-removal/effect", operationplan.EffectStepPersistence)
+	cursor.consume("carrier-removal/effect", operationplan.EffectStepPersistence)
+	cursor.selectAlternative("carrier-removal/effect/outcome", 1)
+	cursor.consume("carrier-removal/effect/outcome/failure-cleanup", operationplan.EffectStepCleanup)
+	cursor.consume("carrier-removal/effect/outcome/failure", operationplan.EffectStepTerminal)
 	cursor.finish()
 	if err := cursor.cursor.Consume(
 		"apply/global-claim-adoptions/persistence",

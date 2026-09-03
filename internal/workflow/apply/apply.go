@@ -61,6 +61,9 @@ type runOptions struct {
 	reserveStatefileAuthority      reserveStatefileEffectAuthority
 	statefileAuthority             *statefileEffectAuthority
 	applyEffectPlan                *execute.ApplyEffectPlan
+	preparedContinuation           applyContinuationPlan
+	currentContinuation            applyContinuationPlan
+	requireContinuation            bool
 	acceptVisibilityChanges        func(context.Context) error
 	validateCompensationAuthority  func(context.Context) error
 	acceptCompensationChanges      func(context.Context) error
@@ -121,6 +124,19 @@ func runWithOptions(
 	)
 	if err != nil {
 		return runResult{}, err
+	}
+	if options.requireContinuation {
+		_, currentRemoval, _, err := bindCarrierRemovalPlans(
+			assessment.Reconciliation.CarrierAbsences(),
+			options.preparedContinuation,
+			options.currentContinuation,
+		)
+		if err != nil {
+			return runResult{}, err
+		}
+		if !currentRemoval.valid() {
+			return runResult{}, fmt.Errorf("scheduled carrier removal plan is unavailable")
+		}
 	}
 	statefileAuthority := options.statefileAuthority
 	ownedStatefileAuthority := false

@@ -788,6 +788,46 @@ func TestEffectCursorGenericForwardConsumptionAdvancesPhase(t *testing.T) {
 	}
 }
 
+func TestEffectCursorBeginsForwardPhaseContinuationWithValidation(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	structure, err := builder.Compile(builder.ForwardPhase(
+		"apply",
+		builder.Step("continued", EffectStepForwardEffect),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cursor, err := structure.BeginForwardPhaseContinuation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := cursor.ConsumeForwardEffect("continued")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint != ForwardEffectValidateStateDir {
+		t.Fatalf("checkpoint = %d, want StateDir validation", checkpoint)
+	}
+}
+
+func TestEffectCursorRejectsForwardPhaseContinuationForNonPhaseRoot(t *testing.T) {
+	t.Parallel()
+	var builder EffectStructureBuilder
+	structure, err := builder.Compile(
+		builder.Step("observation", EffectStepObservation),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := structure.BeginForwardPhaseContinuation(); err == nil ||
+		!strings.Contains(err.Error(), "root is not a forward phase") {
+		t.Fatalf("BeginForwardPhaseContinuation error = %v", err)
+	}
+}
+
 func TestEffectCursorRejectsWrongBranchOrderAndUnderConsumption(t *testing.T) {
 	t.Parallel()
 	first := mustEffectStep(t, "first", EffectStepValidateBarrier)

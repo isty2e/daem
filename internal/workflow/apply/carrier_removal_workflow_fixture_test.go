@@ -34,19 +34,20 @@ import (
 )
 
 type workflowFixture struct {
-	root            string
-	statePath       string
-	projectRoot     *rootedpath.CapturedRoot
-	action          carrierabsence.Action
-	claim           durablecarrier.ManagedCarrierClaim
-	expected        hostrelation.ExpectedRelation
-	current         durable.Snapshot
-	globalClaims    durablecarrier.GlobalCarrierClaims
-	removeRequest   realizationdelegate.Request
-	executorCalls   int
-	runnerResult    subprocess.CommandResult
-	postObservation observerelation.CorrelationResult
-	effectEvidence  observepostcondition.EvidenceState
+	root             string
+	statePath        string
+	projectRoot      *rootedpath.CapturedRoot
+	action           carrierabsence.Action
+	claim            durablecarrier.ManagedCarrierClaim
+	expected         hostrelation.ExpectedRelation
+	current          durable.Snapshot
+	globalClaims     durablecarrier.GlobalCarrierClaims
+	removeRequest    realizationdelegate.Request
+	executorCalls    int
+	runnerResult     subprocess.CommandResult
+	postObservation  observerelation.CorrelationResult
+	effectEvidence   observepostcondition.EvidenceState
+	validateStateDir func(context.Context) error
 }
 
 func newWorkflowFixture(t *testing.T, scope target.Scope) *workflowFixture {
@@ -293,6 +294,7 @@ func (fixture *workflowFixture) input(t *testing.T) carrierRemovalInput {
 		t.Fatalf("capture carrier-removal recovery barrier: %v", err)
 	}
 	effects := &standaloneStatefileEffects{barrier: barrier}
+	fixture.validateStateDir = effects.ValidateStateDir
 	return carrierRemovalInput{
 		StatePath:    fixture.statePath,
 		SelectedRoot: fixture.root,
@@ -368,7 +370,6 @@ func (fixture *workflowFixture) input(t *testing.T) carrierRemovalInput {
 			return registry, nil
 		},
 		ValidateBeforeEffects:     effects.ValidateBefore,
-		ValidateStateDir:          effects.ValidateStateDir,
 		ReserveStatefileAuthority: effects.Reserve,
 		Clock:                     func() time.Time { return time.Unix(123, 0).UTC() },
 	}

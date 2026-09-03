@@ -18,6 +18,7 @@ import (
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	"github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
+	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	targetpkg "github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -168,6 +169,54 @@ func TestRunWithOptionsThreadsPreparedEffectPlanThroughBothPayloadBranches(t *te
 			}
 		}
 	})
+}
+
+func TestRunWithOptionsRejectsCarrierContinuationMismatchBeforeStatefileAuthority(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	paths := isolatedApplyTestPaths(t, tempDir)
+	resources := applyEmptyEnvironment(t, targetpkg.TargetCodex)
+	locked := snapshottest.File(t)
+	selection := applySelection(t, []string{"codex"})
+	assessment := buildManagedApplyAssessment(t, paths, resources, locked, selection, false)
+	fixture := newWorkflowFixture(t, targetpkg.ScopeProject)
+	plan := scheduledCarrierRemovalTestPlan(t, []carrierabsence.Action{fixture.action})
+	reserveCalls := 0
+
+	_, err := runWithOptions(
+		t.Context(),
+		paths,
+		resources,
+		locked,
+		selection,
+		assessment,
+		runOptions{
+			preparedContinuation: plan,
+			currentContinuation:  plan,
+			requireContinuation:  true,
+			reserveStatefileAuthority: func(
+				string,
+				statefileEffectPlan,
+			) (statefileEffectReservation, error) {
+				reserveCalls++
+				return nil, nil
+			},
+		},
+	)
+	if err == nil {
+		t.Fatal("runWithOptions accepted a mismatched carrier continuation")
+	}
+	if reserveCalls != 0 {
+		t.Fatalf("statefile authority reservations = %d, want 0", reserveCalls)
+	}
+	for _, path := range []string{paths.StatefilePath, paths.RecoveryDir} {
+		if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("pre-effect continuation failure created %q: %v", path, statErr)
+		}
+	}
 }
 
 func TestRunFinalValidationPrecedesJournalAndHostEffects(t *testing.T) {

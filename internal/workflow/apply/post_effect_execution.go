@@ -6,12 +6,14 @@ import (
 
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile"
-	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 )
 
 type applyContinuationPlan struct {
 	segment                 operationplan.EffectNode
 	structure               operationplan.EffectStructure
+	phaseEstablished        bool
+	carrierRemovalStructure operationplan.EffectStructure
+	carrierPhaseEstablished bool
 	statefileInitiallyBound bool
 	carrierRemovals         []applyCarrierScheduleFact
 	finalRoutes             []applyRouteScheduleFact
@@ -21,21 +23,63 @@ type applyContinuationPlan struct {
 	available               bool
 }
 
+func (plan applyContinuationPlan) carrierRemovalPlan() applyContinuationPlan {
+	removals := make([]applyCarrierScheduleFact, 0, len(plan.carrierRemovals))
+	for _, removal := range plan.carrierRemovals {
+		if removal.mode != applyCarrierScheduleNone {
+			removals = append(removals, removal)
+		}
+	}
+	return applyContinuationPlan{
+		structure:               plan.carrierRemovalStructure,
+		phaseEstablished:        plan.carrierPhaseEstablished,
+		carrierPhaseEstablished: plan.carrierPhaseEstablished,
+		statefileInitiallyBound: plan.statefileInitiallyBound,
+		carrierRemovals:         removals,
+		available:               plan.available,
+	}
+}
+
 func (plan applyContinuationPlan) valid() bool {
 	return plan.available
 }
 
 func (plan applyContinuationPlan) equal(other applyContinuationPlan) bool {
 	return plan.statefileInitiallyBound == other.statefileInitiallyBound &&
-		plan.structure.Equal(other.structure)
+		plan.phaseEstablished == other.phaseEstablished &&
+		plan.carrierPhaseEstablished == other.carrierPhaseEstablished &&
+		plan.structure.Equal(other.structure) &&
+		carrierRemovalScheduleFactsEqual(plan.carrierRemovals, other.carrierRemovals)
+}
+
+func carrierRemovalScheduleFactsEqual(
+	left []applyCarrierScheduleFact,
+	right []applyCarrierScheduleFact,
+) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		leftFact := left[index]
+		rightFact := right[index]
+		if leftFact.ref != rightFact.ref ||
+			leftFact.action.Compare(rightFact.action) != 0 ||
+			!leftFact.fingerprint.Equal(rightFact.fingerprint) ||
+			leftFact.work != rightFact.work ||
+			leftFact.mode != rightFact.mode ||
+			leftFact.scope != rightFact.scope {
+			return false
+		}
+	}
+	return true
 }
 
 type applyContinuationExecution struct {
-	plan                    applyContinuationPlan
-	cursor                  *operationplan.EffectCursor
-	statefileInitiallyBound bool
-	terminal                bool
-	finished                bool
+	plan           applyContinuationPlan
+	cursor         *operationplan.EffectCursor
+	statefileBound bool
+	terminal       bool
+	finished       bool
 }
 
 func newApplyContinuationExecution(
@@ -48,26 +92,19 @@ func newApplyContinuationExecution(
 	if !prepared.equal(current) {
 		return nil, fmt.Errorf("prepared and current apply continuation plans differ")
 	}
-	return &applyContinuationExecution{
-		plan:                    current,
-		cursor:                  current.structure.Begin(),
-		statefileInitiallyBound: current.statefileInitiallyBound,
-	}, nil
-}
-
-func (execution *applyContinuationExecution) carrierRemovalReference(
-	action carrierabsence.Action,
-) (string, error) {
-	if execution == nil {
-		return "", nil
-	}
-	for _, fact := range execution.plan.carrierRemovals {
-		if fact.action.Claim().ExactEqual(action.Claim()) &&
-			fact.action.Decision() == action.Decision() {
-			return fact.ref, nil
+	cursor := current.structure.Begin()
+	if current.phaseEstablished {
+		var err error
+		cursor, err = current.structure.BeginForwardPhaseContinuation()
+		if err != nil {
+			return nil, err
 		}
 	}
-	return "", fmt.Errorf("apply continuation carrier removal is not scheduled")
+	return &applyContinuationExecution{
+		plan:           current,
+		cursor:         cursor,
+		statefileBound: current.statefileInitiallyBound,
+	}, nil
 }
 
 func (execution *applyContinuationExecution) finalRouteFact(

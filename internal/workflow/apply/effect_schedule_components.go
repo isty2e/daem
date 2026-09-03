@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
@@ -31,17 +32,19 @@ type applyRouteScheduleFact struct {
 }
 
 type applyCarrierScheduleFact struct {
-	ref    string
-	action carrierabsence.Action
-	work   operationplan.CarrierWork
-	mode   applyCarrierScheduleMode
-	scope  target.Scope
+	ref         string
+	action      carrierabsence.Action
+	fingerprint mutation.OperationFingerprint
+	work        operationplan.CarrierWork
+	mode        applyCarrierScheduleMode
+	scope       target.Scope
 }
 
 type applyCarrierScheduleMode uint8
 
 const (
 	applyCarrierScheduleNone applyCarrierScheduleMode = iota
+	applyCarrierScheduleNoOp
 	applyCarrierScheduleVerifyPending
 	applyCarrierScheduleHostRoute
 	applyCarrierScheduleDirectProjection
@@ -158,7 +161,18 @@ func compileApplyContinuationPlan(
 	input applyScheduleInput,
 ) (applyContinuationPlan, error) {
 	initiallyBound := statefile.bound
-	segment := compileApplyContinuationSchedule(builder, statefile, input)
+	segment, carrierRemovalSegment := compileApplyContinuationSchedule(
+		builder,
+		statefile,
+		input,
+	)
+	carrierRemovalStructure, err := builder.Compile(builder.ForwardPhase(
+		"apply/carrier-removals",
+		carrierRemovalSegment,
+	))
+	if err != nil {
+		return applyContinuationPlan{}, err
+	}
 	structure, err := builder.Compile(builder.ForwardPhase(
 		"apply/continuation",
 		segment,
@@ -169,6 +183,9 @@ func compileApplyContinuationPlan(
 	return applyContinuationPlan{
 		segment:                 segment,
 		structure:               structure,
+		phaseEstablished:        input.coreChanged,
+		carrierRemovalStructure: carrierRemovalStructure,
+		carrierPhaseEstablished: input.coreChanged || input.hasGlobalRetirement,
 		statefileInitiallyBound: initiallyBound,
 		carrierRemovals:         append([]applyCarrierScheduleFact(nil), input.carrierRemovals...),
 		finalRoutes:             append([]applyRouteScheduleFact(nil), input.finalRoutes...),
@@ -217,7 +234,7 @@ func compileApplyContinuationSchedule(
 	builder *operationplan.EffectStructureBuilder,
 	statefile *applyStatefileSchedule,
 	input applyScheduleInput,
-) operationplan.EffectNode {
+) (operationplan.EffectNode, operationplan.EffectNode) {
 	nodes := make([]operationplan.EffectNode, 0, 7)
 	if input.hasGlobalRetirement {
 		nodes = append(nodes, compileApplyGlobalCarrierBatchSettlementSchedule(
@@ -225,18 +242,12 @@ func compileApplyContinuationSchedule(
 			"apply/global-claim-retirements",
 		))
 	}
-	for _, removal := range input.carrierRemovals {
-		if !removal.work.InvokesHost &&
-			!removal.work.MutatesDirect &&
-			!removal.work.VerifiesPending {
-			continue
-		}
-		nodes = append(nodes, compileApplyCarrierRemovalSchedule(
-			builder,
-			statefile,
-			removal,
-		))
-	}
+	carrierRemovals := compileApplyCarrierRemovalSchedules(
+		builder,
+		statefile,
+		input.carrierRemovals,
+	)
+	nodes = append(nodes, carrierRemovals)
 	nodes = append(nodes, compileApplyFinalRouteSchedule(
 		builder,
 		statefile,
@@ -270,6 +281,25 @@ func compileApplyContinuationSchedule(
 		nodes = append(nodes, compileApplyGlobalCarrierBatchSettlementSchedule(
 			builder,
 			"apply/global-claim-adoptions",
+		))
+	}
+	return operationplan.EffectSequence(nodes...), carrierRemovals
+}
+
+func compileApplyCarrierRemovalSchedules(
+	builder *operationplan.EffectStructureBuilder,
+	statefile *applyStatefileSchedule,
+	removals []applyCarrierScheduleFact,
+) operationplan.EffectNode {
+	nodes := make([]operationplan.EffectNode, 0, len(removals))
+	for _, removal := range removals {
+		if removal.mode == applyCarrierScheduleNone {
+			continue
+		}
+		nodes = append(nodes, compileApplyCarrierRemovalSchedule(
+			builder,
+			statefile,
+			removal,
 		))
 	}
 	return operationplan.EffectSequence(nodes...)
@@ -674,7 +704,12 @@ func compileApplyCarrierRemovalSchedule(
 				operationplan.EffectStepForwardEffect,
 			),
 			statefile.checkedEnsure(removal.ref+"/statefile"),
-			compileApplyCarrierRetirementSchedule(builder, statefile, removal),
+			compileApplyCarrierRetirementSchedule(
+				builder,
+				statefile,
+				removal,
+				false,
+			),
 		)
 	case applyCarrierScheduleDirectProjection:
 		return operationplan.EffectSequence(
@@ -683,31 +718,55 @@ func compileApplyCarrierRemovalSchedule(
 				removal.ref+"/prepare-direct",
 				operationplan.EffectStepObservation,
 			),
-			compileApplyCheckedStep(
+			compileApplyCheckedStepWithFailureCleanup(
+				builder,
+				removal.ref+"/bind-direct",
+				operationplan.EffectStepObservation,
+			),
+			compileApplyCheckedStepWithFailureCleanup(
 				builder,
 				removal.ref+"/forward",
 				operationplan.EffectStepForwardEffect,
 			),
-			statefile.checkedEnsure(removal.ref+"/statefile"),
-			statefile.checkedPublications(removal.ref+"/statefile/pending", 1),
-			statefile.checkedValidations(removal.ref+"/statefile/pre-effect", 1),
-			compileApplyCheckedStep(
+			statefile.checkedEnsureWithFailureCleanup(removal.ref+"/statefile"),
+			compileApplyCheckedStepWithFailureCleanup(
+				builder,
+				removal.ref+"/effect-baselines",
+				operationplan.EffectStepObservation,
+			),
+			statefile.checkedPublicationsWithFailureCleanup(
+				removal.ref+"/statefile/pending",
+				1,
+			),
+			statefile.checkedValidationsWithFailureCleanup(
+				removal.ref+"/statefile/pre-effect",
+				1,
+			),
+			compileApplyCheckedStepWithFailureCleanup(
 				builder,
 				removal.ref+"/effect",
 				operationplan.EffectStepPersistence,
 			),
-			statefile.checkedValidations(removal.ref+"/statefile/post-effect", 1),
-			compileApplyCheckedStep(
+			statefile.checkedValidationsWithFailureCleanup(
+				removal.ref+"/statefile/post-effect",
+				1,
+			),
+			compileApplyCheckedStepWithFailureCleanup(
 				builder,
 				removal.ref+"/retained-boundary",
 				operationplan.EffectStepObservation,
 			),
-			compileApplyCheckedStep(
+			compileApplyCheckedStepWithFailureCleanup(
 				builder,
 				removal.ref+"/verify-current",
 				operationplan.EffectStepObservation,
 			),
-			compileApplyCarrierRetirementSchedule(builder, statefile, removal),
+			compileApplyCarrierRetirementSchedule(
+				builder,
+				statefile,
+				removal,
+				true,
+			),
 			compileApplyCheckedStep(
 				builder,
 				removal.ref+"/bound-close",
@@ -716,6 +775,8 @@ func compileApplyCarrierRemovalSchedule(
 		)
 	case applyCarrierScheduleHostRoute:
 		return compileApplyCarrierHostRouteSchedule(builder, statefile, removal)
+	case applyCarrierScheduleNoOp:
+		return builder.Step(removal.ref+"/no-op", operationplan.EffectStepNoOp)
 	case applyCarrierScheduleNone:
 		return operationplan.EffectSequence()
 	default:
@@ -734,6 +795,11 @@ func compileApplyCarrierHostRouteSchedule(
 	preflightStatefile := statefile.branch()
 	preflightRef := removal.ref + "/preflight-rejected"
 	preflightRejected := operationplan.EffectSequence(
+		compileApplyCheckedStep(
+			builder,
+			preflightRef+"/record",
+			operationplan.EffectStepObservation,
+		),
 		compileApplyCheckedStep(
 			builder,
 			preflightRef+"/forward",
@@ -796,10 +862,11 @@ func compileApplyCarrierMissingBindingSchedule(
 			operationplan.EffectStepForwardEffect,
 		),
 		statefile.checkedEnsure(ref+"/statefile"),
+		builder.Step(ref+"/host", operationplan.EffectStepExternal),
 		compileApplyCheckedStep(
 			builder,
-			ref+"/host",
-			operationplan.EffectStepExternal,
+			ref+"/classify",
+			operationplan.EffectStepObservation,
 		),
 		compileApplyCarrierAttemptPersistenceSchedule(
 			builder,
@@ -817,29 +884,31 @@ func compileApplyCarrierPreparedHostSchedule(
 ) operationplan.EffectNode {
 	ref := removal.ref + "/prepared"
 	return operationplan.EffectSequence(
-		compileApplyCheckedStep(
+		compileApplyCheckedStepWithFailureCleanup(
 			builder,
 			ref+"/baselines",
 			operationplan.EffectStepObservation,
 		),
-		compileApplyCheckedStep(
+		compileApplyCheckedStepWithFailureCleanup(
 			builder,
 			ref+"/forward",
 			operationplan.EffectStepForwardEffect,
 		),
-		statefile.checkedEnsure(ref+"/statefile"),
-		statefile.checkedPublications(ref+"/statefile/pending", 1),
-		compileApplyCheckedStep(
+		statefile.checkedEnsureWithFailureCleanup(ref+"/statefile"),
+		statefile.checkedPublicationsWithFailureCleanup(
+			ref+"/statefile/pending",
+			1,
+		),
+		compileApplyCheckedStepWithFailureCleanup(
 			builder,
 			ref+"/context-before-host",
 			operationplan.EffectStepObservation,
 		),
-		statefile.checkedValidations(ref+"/statefile/pre-host", 1),
-		compileApplyCheckedStep(
-			builder,
-			ref+"/host",
-			operationplan.EffectStepExternal,
+		statefile.checkedValidationsWithFailureCleanup(
+			ref+"/statefile/pre-host",
+			1,
 		),
+		builder.Step(ref+"/host", operationplan.EffectStepExternal),
 		statefile.validations(ref+"/statefile/post-host", 1),
 		builder.Choice(
 			ref+"/post-host-outcome",
@@ -853,9 +922,20 @@ func compileApplyCarrierPreparedHostSchedule(
 			),
 			builder.Step(ref+"/post-host-canceled", operationplan.EffectStepTerminal),
 		),
+		builder.Step(
+			ref+"/post-host-observation",
+			operationplan.EffectStepObservation,
+		),
+		builder.Step(ref+"/classify", operationplan.EffectStepObservation),
+		builder.Choice(
+			ref+"/classify-outcome",
+			builder.Step(ref+"/classify-usable", operationplan.EffectStepNoOp),
+			builder.Step(ref+"/classify-failure", operationplan.EffectStepTerminal),
+		),
+		builder.Step(ref+"/retained-boundary", operationplan.EffectStepObservation),
 		compileApplyCheckedStep(
 			builder,
-			ref+"/classify",
+			ref+"/attempt-record",
 			operationplan.EffectStepObservation,
 		),
 		compileApplyCarrierAttemptPersistenceSchedule(
@@ -865,7 +945,12 @@ func compileApplyCarrierPreparedHostSchedule(
 		),
 		builder.Choice(
 			ref+"/attempt-outcome",
-			compileApplyCarrierRetirementSchedule(builder, statefile, removal),
+			compileApplyCarrierRetirementSchedule(
+				builder,
+				statefile,
+				removal,
+				false,
+			),
 			builder.Step(
 				ref+"/attempt-failure",
 				operationplan.EffectStepTerminal,
@@ -890,16 +975,27 @@ func compileApplyCarrierRetirementSchedule(
 	builder *operationplan.EffectStructureBuilder,
 	statefile *applyStatefileSchedule,
 	removal applyCarrierScheduleFact,
+	cleanupOnFailure bool,
 ) operationplan.EffectNode {
+	checkedStep := compileApplyCheckedStep
+	if cleanupOnFailure {
+		checkedStep = compileApplyCheckedStepWithFailureCleanup
+	}
+	checkedValidations := statefile.checkedValidations
+	checkedPublications := statefile.checkedPublications
+	if cleanupOnFailure {
+		checkedValidations = statefile.checkedValidationsWithFailureCleanup
+		checkedPublications = statefile.checkedPublicationsWithFailureCleanup
+	}
 	nodes := []operationplan.EffectNode{
-		statefile.checkedValidations(removal.ref+"/statefile/pre-retirement", 1),
-		statefile.checkedPublications(removal.ref+"/statefile/retirement", 1),
-		statefile.checkedValidations(removal.ref+"/statefile/post-retirement", 1),
+		checkedValidations(removal.ref+"/statefile/pre-retirement", 1),
+		checkedPublications(removal.ref+"/statefile/retirement", 1),
+		checkedValidations(removal.ref+"/statefile/post-retirement", 1),
 	}
 	if removal.scope == target.ScopeGlobal {
 		nodes = append(
 			[]operationplan.EffectNode{
-				compileApplyCheckedStep(
+				checkedStep(
 					builder,
 					removal.ref+"/derive-global-retirement",
 					operationplan.EffectStepObservation,
@@ -909,12 +1005,12 @@ func compileApplyCarrierRetirementSchedule(
 		)
 		nodes = append(
 			nodes,
-			compileApplyCheckedStep(
+			checkedStep(
 				builder,
 				removal.ref+"/global-registry-retirement",
 				operationplan.EffectStepPersistence,
 			),
-			statefile.checkedValidations(removal.ref+"/statefile/post-registry", 1),
+			checkedValidations(removal.ref+"/statefile/post-registry", 1),
 		)
 	}
 	return operationplan.EffectSequence(nodes...)
@@ -1114,6 +1210,17 @@ func compileApplyCheckedStep(
 	)
 }
 
+func compileApplyCheckedStepWithFailureCleanup(
+	builder *operationplan.EffectStructureBuilder,
+	ref string,
+	kind operationplan.EffectStepKind,
+) operationplan.EffectNode {
+	return operationplan.EffectSequence(
+		builder.Step(ref, kind),
+		compileApplyFailFastChoiceWithFailureCleanup(builder, ref+"/outcome"),
+	)
+}
+
 func compileApplyFailFastChoice(
 	builder *operationplan.EffectStructureBuilder,
 	ref string,
@@ -1125,6 +1232,20 @@ func compileApplyFailFastChoice(
 	)
 }
 
+func compileApplyFailFastChoiceWithFailureCleanup(
+	builder *operationplan.EffectStructureBuilder,
+	ref string,
+) operationplan.EffectNode {
+	return builder.Choice(
+		ref,
+		builder.Step(ref+"/success", operationplan.EffectStepNoOp),
+		operationplan.EffectSequence(
+			builder.Step(ref+"/failure-cleanup", operationplan.EffectStepCleanup),
+			builder.Step(ref+"/failure", operationplan.EffectStepTerminal),
+		),
+	)
+}
+
 type applyStatefileSchedule struct {
 	builder *operationplan.EffectStructureBuilder
 	bound   bool
@@ -1132,6 +1253,19 @@ type applyStatefileSchedule struct {
 }
 
 func (schedule *applyStatefileSchedule) checkedEnsure(prefix string) operationplan.EffectNode {
+	return schedule.checkedEnsureWithCleanup(prefix, false)
+}
+
+func (schedule *applyStatefileSchedule) checkedEnsureWithFailureCleanup(
+	prefix string,
+) operationplan.EffectNode {
+	return schedule.checkedEnsureWithCleanup(prefix, true)
+}
+
+func (schedule *applyStatefileSchedule) checkedEnsureWithCleanup(
+	prefix string,
+	cleanupOnFailure bool,
+) operationplan.EffectNode {
 	if schedule == nil || schedule.builder == nil {
 		return operationplan.EffectSequence()
 	}
@@ -1155,10 +1289,14 @@ func (schedule *applyStatefileSchedule) checkedEnsure(prefix string) operationpl
 			operationplan.EffectStepValidateDescendant,
 		)
 	}
-	return operationplan.EffectSequence(
-		authority,
-		compileApplyFailFastChoice(schedule.builder, prefix+"/ensure-outcome"),
-	)
+	outcome := compileApplyFailFastChoice(schedule.builder, prefix+"/ensure-outcome")
+	if cleanupOnFailure {
+		outcome = compileApplyFailFastChoiceWithFailureCleanup(
+			schedule.builder,
+			prefix+"/ensure-outcome",
+		)
+	}
+	return operationplan.EffectSequence(authority, outcome)
 }
 
 func (schedule *applyStatefileSchedule) optionalEnsure(prefix string) operationplan.EffectNode {
@@ -1213,6 +1351,21 @@ func (schedule *applyStatefileSchedule) checkedValidations(
 	prefix string,
 	count int,
 ) operationplan.EffectNode {
+	return schedule.checkedValidationsWithCleanup(prefix, count, false)
+}
+
+func (schedule *applyStatefileSchedule) checkedValidationsWithFailureCleanup(
+	prefix string,
+	count int,
+) operationplan.EffectNode {
+	return schedule.checkedValidationsWithCleanup(prefix, count, true)
+}
+
+func (schedule *applyStatefileSchedule) checkedValidationsWithCleanup(
+	prefix string,
+	count int,
+	cleanupOnFailure bool,
+) operationplan.EffectNode {
 	if schedule == nil || schedule.builder == nil {
 		return operationplan.EffectSequence()
 	}
@@ -1222,16 +1375,39 @@ func (schedule *applyStatefileSchedule) checkedValidations(
 		}
 		return operationplan.EffectSequence()
 	}
-	return schedule.builder.Repeat(count, compileApplyCheckedStep(
+	step := compileApplyCheckedStep(
 		schedule.builder,
 		prefix+"/validate",
 		operationplan.EffectStepValidateDescendant,
-	))
+	)
+	if cleanupOnFailure {
+		step = compileApplyCheckedStepWithFailureCleanup(
+			schedule.builder,
+			prefix+"/validate",
+			operationplan.EffectStepValidateDescendant,
+		)
+	}
+	return schedule.builder.Repeat(count, step)
 }
 
 func (schedule *applyStatefileSchedule) checkedPublications(
 	prefix string,
 	count int,
+) operationplan.EffectNode {
+	return schedule.checkedPublicationsWithCleanup(prefix, count, false)
+}
+
+func (schedule *applyStatefileSchedule) checkedPublicationsWithFailureCleanup(
+	prefix string,
+	count int,
+) operationplan.EffectNode {
+	return schedule.checkedPublicationsWithCleanup(prefix, count, true)
+}
+
+func (schedule *applyStatefileSchedule) checkedPublicationsWithCleanup(
+	prefix string,
+	count int,
+	cleanupOnFailure bool,
 ) operationplan.EffectNode {
 	if schedule == nil || schedule.builder == nil {
 		return operationplan.EffectSequence()
@@ -1242,11 +1418,19 @@ func (schedule *applyStatefileSchedule) checkedPublications(
 		}
 		return operationplan.EffectSequence()
 	}
-	return schedule.builder.Repeat(count, compileApplyCheckedStep(
+	step := compileApplyCheckedStep(
 		schedule.builder,
 		prefix+"/publish",
 		operationplan.EffectStepPublishDescendant,
-	))
+	)
+	if cleanupOnFailure {
+		step = compileApplyCheckedStepWithFailureCleanup(
+			schedule.builder,
+			prefix+"/publish",
+			operationplan.EffectStepPublishDescendant,
+		)
+	}
+	return schedule.builder.Repeat(count, step)
 }
 
 func (schedule *applyStatefileSchedule) ensure(prefix string) operationplan.EffectNode {
@@ -1313,12 +1497,14 @@ func (schedule *applyStatefileSchedule) publications(
 
 func applyCarrierScheduleFacts(
 	actions []carrierabsence.Action,
-) []applyCarrierScheduleFact {
+) ([]applyCarrierScheduleFact, error) {
 	works := carrierWorks(actions)
 	result := make([]applyCarrierScheduleFact, 0, len(actions))
 	for index := range actions {
 		mode := applyCarrierScheduleNone
 		switch {
+		case actions[index].StateOnly():
+			mode = applyCarrierScheduleNoOp
 		case actions[index].VerifiesPendingRemoval():
 			mode = applyCarrierScheduleVerifyPending
 		case actions[index].InvokesHostRoute():
@@ -1326,15 +1512,20 @@ func applyCarrierScheduleFacts(
 		case actions[index].MutatesDirectProjection():
 			mode = applyCarrierScheduleDirectProjection
 		}
+		fingerprint, err := carrierRemovalScheduleFingerprint(actions[index])
+		if err != nil {
+			return nil, err
+		}
 		result = append(result, applyCarrierScheduleFact{
-			ref:    applyOrdinalScheduleReference("apply/carrier-removal", index),
-			action: actions[index],
-			work:   works[index],
-			mode:   mode,
-			scope:  actions[index].Scope(),
+			ref:         applyOrdinalScheduleReference("apply/carrier-removal", index),
+			action:      actions[index],
+			fingerprint: fingerprint,
+			work:        works[index],
+			mode:        mode,
+			scope:       actions[index].Scope(),
 		})
 	}
-	return result
+	return result, nil
 }
 
 func requireLegacyApplyDemandDominance(
