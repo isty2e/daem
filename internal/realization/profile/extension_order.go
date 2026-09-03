@@ -178,6 +178,22 @@ func (capability ExtensionOrderCapability) RuntimeMeaning() hostrelation.Runtime
 	return capability.runtimeMeaning
 }
 
+// ExtensionOrderAdmission binds one target to an owner-local order capability.
+type ExtensionOrderAdmission struct {
+	target     target.Target
+	capability ExtensionOrderCapability
+}
+
+func (admission ExtensionOrderAdmission) Target() target.Target { return admission.target }
+func (admission ExtensionOrderAdmission) Capability() ExtensionOrderCapability {
+	capability := admission.capability
+	capability.physicalSequenceIDs = append(
+		[]hostrelation.PhysicalSequenceID(nil),
+		capability.physicalSequenceIDs...,
+	)
+	return capability
+}
+
 type extensionOrderCapabilityRow struct {
 	target     target.Target
 	capability ExtensionOrderCapability
@@ -248,23 +264,17 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 	},
 }
 
-// ExtensionOrderCapabilityForClass returns the unique target-owned admission
-// for one locked order class. Absence means the class is not admitted.
-func ExtensionOrderCapabilityForClass(
-	classID hostrelation.OrderClassID,
-) (target.Target, ExtensionOrderCapability, bool) {
-	var selectedTarget target.Target
-	var selected ExtensionOrderCapability
-	count := 0
+// ExtensionOrderAdmissions returns the complete target-owned order catalog in
+// stable owner order with independently owned sequence slices.
+func ExtensionOrderAdmissions() []ExtensionOrderAdmission {
+	result := make([]ExtensionOrderAdmission, 0, len(extensionOrderCapabilityCatalog))
 	for _, row := range extensionOrderCapabilityCatalog {
-		if row.capability.ClassID() != classID {
-			continue
-		}
-		selectedTarget = row.target
-		selected = row.capability
-		count++
+		result = append(result, ExtensionOrderAdmission{
+			target:     row.target,
+			capability: row.capability,
+		})
 	}
-	return selectedTarget, selected, count == 1
+	return result
 }
 
 func mustExtensionOrderCapability(

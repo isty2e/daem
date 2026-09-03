@@ -14,7 +14,6 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/reconcile"
-	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
@@ -102,49 +101,19 @@ func AssessOutputInventory(
 		return OutputInventoryAssessment{}, err
 	}
 
-	expectations, err := managedPathExpectations(input.Environment, input.Lockfile.Locked)
-	if err != nil {
-		return OutputInventoryAssessment{}, fmt.Errorf("derive output inventory path expectations: %w", err)
-	}
-	managedPaths, err := reconcileprojection.BuildManagedPathInventoryDecisions(
-		reconcileprojection.ManagedPathInventoryInput{
-			Locked:          input.Lockfile.Locked,
-			Expectations:    expectations,
-			SelectedTargets: selectedTargets,
-			States:          managedInputs.states,
-			Evidence:        managedEvidence,
-			Owner:           owner,
-			Ownership:       ownership,
-		},
-	)
-	if err != nil {
-		return OutputInventoryAssessment{}, fmt.Errorf("classify output inventory paths: %w", err)
-	}
-	aggregates, err := reconcileprojection.BuildAggregateDecisions(
-		reconcileprojection.AggregateInput{
-			Locked:               input.Lockfile.Locked,
-			Expected:             aggregateInputs.expected,
-			Desired:              aggregateInputs.desired,
-			States:               aggregateInputs.states,
-			Evidence:             aggregateInputs.evidence,
-			ObservationFailures:  aggregateInputs.failures,
-			PreconditionEvidence: aggregateInputs.preconditions,
-			SelectedTargets:      selectedTargets,
-			Owner:                owner,
-			Ownership:            ownership,
-			Codecs:               input.Codecs,
-		},
-	)
-	if err != nil {
-		return OutputInventoryAssessment{}, fmt.Errorf("classify output inventory aggregates: %w", err)
-	}
-
-	return OutputInventoryAssessment{
-		CurrentState: currentState,
-		Selection:    selection,
-		ManagedPaths: managedPaths,
-		Aggregates:   aggregates,
-	}, nil
+	return planOutputInventory(outputInventoryPlanInput{
+		environment:     input.Environment,
+		locked:          input.Lockfile,
+		selection:       selection,
+		selectedTargets: selectedTargets,
+		currentState:    currentState,
+		managedInputs:   managedInputs,
+		aggregateInputs: aggregateInputs,
+		managedEvidence: managedEvidence,
+		owner:           owner,
+		ownership:       ownership,
+		codecs:          input.Codecs,
+	})
 }
 
 func outputInventoryAvailableTargets(

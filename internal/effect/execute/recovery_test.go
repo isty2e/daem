@@ -236,13 +236,22 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 		t.Fatalf("restore expected-after hook asset: %v", err)
 	}
 
+	options := testRecoveryOptions(paths)
+	visitedHostActions := make([]int, 0, 1)
+	options.beforeHostAction = func(index int) error {
+		visitedHostActions = append(visitedHostActions, index)
+		return nil
+	}
 	if err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		plan,
 		paths,
-		testRecoveryOptions(paths),
+		options,
 	); err != nil {
 		t.Fatalf("ExecuteRecoveryPlan returned error: %v", err)
+	}
+	if len(visitedHostActions) != 1 || visitedHostActions[0] != 0 {
+		t.Fatalf("recovery host action visits = %v, want [0]", visitedHostActions)
 	}
 	content, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
 	if err != nil {

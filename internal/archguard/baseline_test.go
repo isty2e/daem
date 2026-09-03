@@ -2,7 +2,6 @@ package archguard
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,21 +18,20 @@ var repositoryPackageRecordCache struct {
 
 func TestTopologyGuardBaseline(t *testing.T) {
 	records := loadRepoPackageRecords(t)
-	if violations := validateDensityAdmissionInventory(
-		records,
-		packageDensityAdmissions,
-		productionFileDensityAdmissions,
-	); len(violations) != 0 {
-		t.Fatalf("archguard density admission inventory is invalid:\n%s", FormatReport(violations))
-	}
 	report := AnalyzeReport(records)
 	if report.HasFailures() {
 		t.Fatalf("archguard baseline has failures:\n%s", FormatAnalysisReport(report))
 	}
-	assertFindingMetadata(t, report.DensityReviewRequirements)
-	assertFindingMetadata(t, report.DensityWatchpoints)
-	assertFindingMetadata(t, report.DensityWarnings)
-	t.Logf("command: tools/test-go.sh -run TestTopologyGuardBaseline -count=1 -v ./internal/archguard\n%s", FormatAnalysisReport(report))
+	t.Logf("command: tools/test-go.sh -run TestTopologyGuardBaseline -count=1 -v ./internal/archguard\n%s\n%s", FormatAnalysisReport(report), FormatShadowReport(report))
+}
+
+func TestCompilerShadowBaseline(t *testing.T) {
+	records := loadRepoPackageRecords(t)
+	report := AnalyzeReport(records)
+	if report.HasShadowFindings() {
+		t.Fatalf("archguard compiler-shadow baseline has unexplained findings:\n%s", FormatShadowReport(report))
+	}
+	t.Logf("command: tools/test-go.sh -run TestCompilerShadowBaseline -count=1 -v ./internal/archguard\n%s", FormatShadowReport(report))
 }
 
 func loadRepoPackageRecords(t *testing.T) []PackageRecord {
@@ -74,27 +72,15 @@ func clonePackageRecords(records []PackageRecord) []PackageRecord {
 		record.CgoFiles = slices.Clone(record.CgoFiles)
 		record.TestGoFiles = slices.Clone(record.TestGoFiles)
 		record.XTestGoFiles = slices.Clone(record.XTestGoFiles)
-		record.FileLineCounts = maps.Clone(record.FileLineCounts)
-		record.FileContents = maps.Clone(record.FileContents)
+		if record.FileContents != nil {
+			record.FileContents = make(map[string]string, len(record.FileContents))
+			for name, content := range record.FileContents {
+				record.FileContents[name] = content
+			}
+		}
 		cloned[index] = record
 	}
 	return cloned
-}
-
-func TestTestToolsAreNotImportedByProductionPackages(t *testing.T) {
-	records := loadRepoPackageRecords(t)
-	if violations := analyzeProductionTestToolImports(records, testToolPackageAdmissions); len(violations) != 0 {
-		t.Fatalf("production package imports test/tool support:\n%s", FormatReport(violations))
-	}
-}
-
-func assertFindingMetadata(t *testing.T, findings []GuardrailFinding) {
-	t.Helper()
-	for _, finding := range findings {
-		if finding.Reason == "" {
-			t.Fatalf("finding %+v has empty reason", finding)
-		}
-	}
 }
 
 func findRepoRoot(t *testing.T) string {

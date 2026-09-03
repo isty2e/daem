@@ -21,7 +21,6 @@ import (
 
 	"github.com/isty2e/daem/internal/declaration"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/recoverygate"
@@ -305,7 +304,7 @@ func requireClearManifestFileSet(ctx context.Context, manifestPath string) error
 	if err != nil {
 		return err
 	}
-	return transaction.RequireClearFileSet(ctx, paths.StateDir)
+	return recoverygate.RequireFileSetClear(ctx, paths.StateDir)
 }
 
 func recoverAuthoringFileSetBeforeRead(

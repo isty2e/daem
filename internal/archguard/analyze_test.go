@@ -23,6 +23,30 @@ func TestAnalyzeRecordsAllowsStablePrimitiveImports(t *testing.T) {
 	}
 }
 
+func TestAnalyzeRecordsRejectsProductionImportsOfTestSupport(t *testing.T) {
+	report := AnalyzeReport([]PackageRecord{
+		{
+			ImportPath: "example.com/project/cmd/tool",
+			Name:       "main",
+			Imports:    []string{"example.com/project/internal/workflow/apply"},
+		},
+		{
+			ImportPath: "example.com/project/internal/workflow/apply",
+			Imports: []string{
+				"example.com/project/test/testkit",
+				"example.org/library/test/helpers",
+			},
+		},
+		{
+			ImportPath: "example.com/project/test/cli",
+			Imports:    []string{"example.com/project/test/testkit"},
+		},
+	})
+	if countViolationRule(report.Violations, ruleProductionTestSupportImport) != 1 {
+		t.Fatalf("production test-support findings:\n%s", FormatAnalysisReport(report))
+	}
+}
+
 func TestAnalyzeRecordsKeepsJournalRecoveryPureAndWireNeutral(t *testing.T) {
 	allowed := AnalyzeRecords([]PackageRecord{{
 		ImportPath: "example.com/project/internal/effect/journal/recovery",

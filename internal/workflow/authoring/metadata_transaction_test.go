@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
@@ -119,7 +119,7 @@ func TestAuthoringWritesRecoverMatchingEvidenceBeforeReading(t *testing.T) {
 			if err := test.run(context.Background(), paths); err != nil {
 				t.Fatalf("write returned error: %v", err)
 			}
-			authorityPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+			authorityPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -169,7 +169,7 @@ func TestAuthoringWriteRefusesIncompleteEvidenceBeforeManifestRead(t *testing.T)
 	configureUnmanageTestHomes(t, root)
 	paths := unmanageTestPaths(t, root)
 	writeUnmanageFile(t, paths.ManifestPath, []byte("[invalid\n"))
-	authorityPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	authorityPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}

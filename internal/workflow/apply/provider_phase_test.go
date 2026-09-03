@@ -9,11 +9,13 @@ import (
 	"strings"
 	"testing"
 
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/recoverygate"
@@ -134,7 +136,7 @@ func TestProviderReplanPreservesAbandonedFileSetResidue(t *testing.T) {
 	result, err := ExecuteWithOptions(t.Context(), planned, ExecuteOptions{
 		HostRouteExecutor: executor,
 	})
-	if err == nil || !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+	if err == nil || !errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
 		t.Fatalf("error = %v, want ErrAbandonedFileSetResidue", err)
 	}
 	failure := ClassifyFailure(err, result)
@@ -239,13 +241,18 @@ func TestExecuteReservesCompleteStateDirEnvelopeBeforeProviderInvocation(t *test
 	}, executeDependencies{
 		reserveForwardEffects: func(
 			_ recoverygate.EffectAuthority,
-			plan recoverygate.ForwardEffectPlan,
+			structure operationplan.EffectStructure,
+			demand operationplan.Demand,
 		) (*recoverygate.ForwardEffectAuthority, error) {
 			reservationCalls++
-			if plan.EnsureCalls != 2 || plan.BarrierValidationCalls != 3 ||
-				plan.DescendantPath != planned.assessment.StatePath ||
-				plan.DescendantValidations == 0 || plan.DescendantFileCommits == 0 {
-				t.Fatalf("forward StateDir plan = %#v, want provider and final envelope", plan)
+			alternatives, alternativesErr := structure.DemandAlternatives()
+			if alternativesErr != nil || len(alternatives) == 0 {
+				t.Fatalf("forward effect structure alternatives = %d, %v", len(alternatives), alternativesErr)
+			}
+			if demand.EnsureCalls() != 2 || demand.BarrierValidationCalls() != 3 ||
+				demand.DescendantPath() != planned.assessment.StatePath ||
+				demand.DescendantValidations() == 0 || demand.DescendantFileCommits() == 0 {
+				t.Fatalf("forward StateDir demand = %#v, want provider and final envelope", demand)
 			}
 			return nil, errors.New("injected complete operation capacity refusal")
 		},
@@ -805,6 +812,14 @@ func TestExecuteCancellationAfterPiProviderRoutePreventsConfigProjection(t *test
 	}
 	if _, statErr := os.Stat(configPath); statErr != nil {
 		t.Fatalf("Pi MCP config was not projected during recovery retry: %v", statErr)
+	}
+	state = loadApplyStatefile(t, filepath.Join(root, ".daem", "state.json"))
+	if pending := state.PendingCarrierInstalls(); len(pending) != 0 {
+		t.Fatalf("retry pending installs = %#v, want exact pending fact retired", pending)
+	}
+	claims := state.ManagedCarrierClaims()
+	if len(claims) != 1 || claims[0].Provenance() != durablecarrier.ClaimProvenanceInstalledObserved {
+		t.Fatalf("retry project carrier claims = %#v, want one InstalledObserved claim", claims)
 	}
 }
 

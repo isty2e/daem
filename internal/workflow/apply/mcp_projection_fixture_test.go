@@ -13,6 +13,7 @@ import (
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
@@ -53,13 +54,14 @@ func (effects *standaloneStatefileEffects) Reserve(
 	statePath string,
 	plan statefileEffectPlan,
 ) (statefileEffectReservation, error) {
-	forward, err := effects.barrier.ReserveForwardEffects(recoverygate.ForwardEffectPlan{
-		EnsureCalls:             1,
-		StateDirValidationCalls: plan.validations,
-		DescendantPath:          statePath,
-		DescendantValidations:   plan.validations,
-		DescendantFileCommits:   plan.fileCommits,
-	})
+	forward, err := effects.barrier.ReserveForwardEffects(operationplan.NewDemand(
+		1,
+		0,
+		plan.validations,
+		statePath,
+		plan.validations,
+		plan.fileCommits,
+	))
 	if err != nil {
 		return nil, err
 	}
@@ -78,10 +80,7 @@ func (effects *standaloneStatefileEffects) ValidateBefore(
 	if !effects.started {
 		effects.started = true
 		if effects.forward == nil {
-			forward, err := effects.barrier.ReserveForwardEffects(recoverygate.ForwardEffectPlan{
-				EnsureCalls:             1,
-				StateDirValidationCalls: 1_024,
-			})
+			forward, err := effects.barrier.ReserveForwardEffects(operationplan.NewDemand(1, 0, 1_024, "", 0, 0))
 			if err != nil {
 				return err
 			}
@@ -95,9 +94,7 @@ func (effects *standaloneStatefileEffects) ValidateBefore(
 
 func (effects *standaloneStatefileEffects) ValidateStateDir(ctx context.Context) error {
 	if effects.forward == nil {
-		forward, err := effects.barrier.ReserveForwardEffects(recoverygate.ForwardEffectPlan{
-			StateDirValidationCalls: 1_024,
-		})
+		forward, err := effects.barrier.ReserveForwardEffects(operationplan.NewDemand(0, 0, 1_024, "", 0, 0))
 		if err != nil {
 			return err
 		}

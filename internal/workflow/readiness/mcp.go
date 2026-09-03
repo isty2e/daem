@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -143,7 +144,7 @@ func selectedMCPProjectionContracts(
 	contracts := make([]lock.LockedSubjectContract, 0)
 	for _, contract := range locked.Locked.Subjects() {
 		subject := contract.SubjectID()
-		if _, ok := aggregate.MCPPlacementForSubject(subject); !ok {
+		if _, ok := catalog.Product().LookupMCPBySubject(subject); !ok {
 			continue
 		}
 		realization, ok := contract.Realization()

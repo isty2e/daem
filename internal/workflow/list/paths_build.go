@@ -7,15 +7,14 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
 var locationInventoryScopes = []target.Scope{target.ScopeProject, target.ScopeGlobal}
 
-// BuildLocationInventory combines immutable profile catalogs with manifest
+// BuildLocationInventory combines immutable compiled surface views with manifest
 // request markers. Manifest facts can select admitted rows but cannot create
 // new path or route authority.
 func BuildLocationInventory(
@@ -32,11 +31,9 @@ func BuildLocationInventory(
 
 	rows := make([]LocationEntry, 0)
 	for _, selectedTarget := range selection.Targets() {
-		selectedProfile := profile.Profile(selectedTarget)
 		for _, scope := range locationInventoryScopes {
 			if err := appendManagedResourceLocations(
 				&rows,
-				selectedProfile,
 				selectedTarget,
 				scope,
 				entity.KindInstructions,
@@ -46,7 +43,6 @@ func BuildLocationInventory(
 			}
 			if err := appendManagedResourceLocations(
 				&rows,
-				selectedProfile,
 				selectedTarget,
 				scope,
 				entity.KindSkill,
@@ -56,7 +52,6 @@ func BuildLocationInventory(
 			}
 			if err := appendHookLocations(
 				&rows,
-				selectedProfile,
 				selectedTarget,
 				scope,
 				manifestSelections,
@@ -73,7 +68,6 @@ func BuildLocationInventory(
 			}
 			if err := appendExtensionLocations(
 				&rows,
-				selectedProfile,
 				selectedTarget,
 				scope,
 				manifestSelections,
@@ -113,7 +107,6 @@ func validateLocationInventoryTargets(
 
 func appendManagedResourceLocations(
 	rows *[]LocationEntry,
-	selectedProfile profile.TargetProfile,
 	selectedTarget target.Target,
 	scope target.Scope,
 	resourceKind entity.Kind,
@@ -121,8 +114,9 @@ func appendManagedResourceLocations(
 ) error {
 	requestKey := resourceRequestKey{target: selectedTarget, scope: scope, resource: resourceKind}
 	requested := selections.resources[requestKey]
-	placements := selectedProfile.Placements(resourceKind, scope)
-	if len(placements) == 0 {
+	compiled := catalog.Product()
+	views := compiled.ManagedPathViews(selectedTarget, scope, resourceKind)
+	if len(views) == 0 {
 		return appendLocationEntry(rows, locationEntryInput{
 			kind: LocationUnsupported, selectedTarget: selectedTarget, scope: scope,
 			resourceKind: resourceKind, realization: LocationUnavailable,
@@ -131,17 +125,9 @@ func appendManagedResourceLocations(
 			reason: "not-implemented",
 		})
 	}
-	for _, placement := range placements {
-		admission, ok := selectedProfile.PlacementAdmissionAt(resourceKind, scope, placement.Root().String())
-		if !ok {
-			return fmt.Errorf(
-				"target %q %s scope %q placement %q lacks admission",
-				selectedTarget,
-				resourceKind,
-				scope,
-				placement.ID(),
-			)
-		}
+	for _, view := range views {
+		placement := view.Placement()
+		admission := view.Admission()
 		selectionSource, selected := selections.selectedPaths[selectedPathKey{
 			resourceRequestKey: requestKey,
 			path:               placement.Root().String(),
@@ -163,7 +149,7 @@ func appendManagedResourceLocations(
 			return err
 		}
 	}
-	for _, location := range selectedProfile.DiscoveryLocations(resourceKind, scope) {
+	for _, location := range compiled.ManagedPathDiscoveryLocations(selectedTarget, scope, resourceKind) {
 		if err := appendLocationEntry(rows, locationEntryInput{
 			kind: LocationPath, selectedTarget: selectedTarget, scope: scope,
 			resourceKind: resourceKind, realization: LocationHostDiscovery,
@@ -173,7 +159,7 @@ func appendManagedResourceLocations(
 			return err
 		}
 	}
-	for _, location := range selectedProfile.RuntimeLocations(resourceKind, scope) {
+	for _, location := range compiled.ManagedPathRuntimeLocations(selectedTarget, scope, resourceKind) {
 		if err := appendLocationEntry(rows, locationEntryInput{
 			kind: LocationPath, selectedTarget: selectedTarget, scope: scope,
 			resourceKind: resourceKind, realization: LocationHostRuntime,
@@ -188,19 +174,19 @@ func appendManagedResourceLocations(
 
 func appendHookLocations(
 	rows *[]LocationEntry,
-	selectedProfile profile.TargetProfile,
 	selectedTarget target.Target,
 	scope target.Scope,
 	selections manifestLocationSelections,
 ) error {
 	requestKey := resourceRequestKey{target: selectedTarget, scope: scope, resource: entity.KindHook}
 	requested := selections.resources[requestKey]
-	support, supportPresent := selectedProfile.Support(entity.KindHook)
-	if placement, implemented := aggregate.HookPlacementFor(selectedTarget, scope); implemented {
+	compiled := catalog.Product()
+	support, supportPresent := compiled.ResourceSupport(selectedTarget, entity.KindHook)
+	if view, implemented := compiled.LookupHookCell(selectedTarget, scope); implemented {
 		if err := appendLocationEntry(rows, locationEntryInput{
 			kind: LocationPath, selectedTarget: selectedTarget, scope: scope,
 			resourceKind: entity.KindHook, realization: LocationConfigContribution,
-			role: LocationRoleConfig, path: placement.AggregateRoot().String(),
+			role: LocationRoleConfig, path: view.Placement().AggregateRoot().String(),
 			selected: requested, requested: requested,
 			selectionSource: LocationSelectionNotApplicable, source: LocationSourceAggregate,
 		}); err != nil {
@@ -224,15 +210,11 @@ func appendHookLocations(
 
 	assetKey := resourceRequestKey{target: selectedTarget, scope: scope, resource: entity.KindHookAsset}
 	assetRequested := selections.hookAssetResources[assetKey]
-	if supportPresent && support.Supported() {
-		placement, err := profile.HookAssetPlacementFor(scope, []target.Target{selectedTarget})
-		if err != nil {
-			return err
-		}
+	if view, implemented := compiled.LookupHookAssetCell(selectedTarget, scope); implemented {
 		return appendLocationEntry(rows, locationEntryInput{
 			kind: LocationPath, selectedTarget: selectedTarget, scope: scope,
 			resourceKind: entity.KindHookAsset, realization: LocationInternalStore,
-			role: LocationRoleInternal, path: placement.Root().String(),
+			role: LocationRoleInternal, path: view.Placement().Root().String(),
 			selected: assetRequested, requested: assetRequested,
 			selectionSource: LocationSelectionNotApplicable, source: LocationSourceProfile,
 		})
@@ -258,7 +240,7 @@ func appendMCPLocations(
 ) error {
 	requestKey := resourceRequestKey{target: selectedTarget, scope: scope, resource: entity.KindMCPServer}
 	requested := selections.resources[requestKey]
-	placement, implemented := aggregate.ImplementedMCPPlacement(selectedTarget, scope)
+	view, implemented := catalog.Product().LookupMCP(selectedTarget, scope)
 	if !implemented {
 		return appendLocationEntry(rows, locationEntryInput{
 			kind: LocationUnsupported, selectedTarget: selectedTarget, scope: scope,
@@ -271,7 +253,7 @@ func appendMCPLocations(
 	return appendLocationEntry(rows, locationEntryInput{
 		kind: LocationPath, selectedTarget: selectedTarget, scope: scope,
 		resourceKind: entity.KindMCPServer, realization: LocationConfigContribution,
-		role: LocationRoleConfig, path: placement.ConfigPath().String(),
+		role: LocationRoleConfig, path: view.Placement().ConfigPath().String(),
 		selected: requested, requested: requested,
 		selectionSource: LocationSelectionNotApplicable, source: LocationSourceAggregate,
 	})
@@ -279,22 +261,25 @@ func appendMCPLocations(
 
 func appendExtensionLocations(
 	rows *[]LocationEntry,
-	selectedProfile profile.TargetProfile,
 	selectedTarget target.Target,
 	scope target.Scope,
 	selections manifestLocationSelections,
 ) error {
+	compiled := catalog.Product()
 	found := false
-	for _, carrier := range desiredextension.SupportedCarriers() {
-		delegated, admitted := selectedProfile.DelegatedRoute(carrier)
-		if !admitted {
+	seen := make(map[desiredextension.Carrier]struct{})
+	for _, targetView := range compiled.ExtensionViewsForTarget(selectedTarget) {
+		carrier := targetView.Carrier()
+		if _, duplicate := seen[carrier]; duplicate {
 			continue
 		}
+		seen[carrier] = struct{}{}
 		found = true
 		requested := selections.extensionRelations[extensionRequestKey{
 			target: selectedTarget, scope: scope, carrier: carrier,
 		}]
-		if !slices.Contains(carrier.AdmittedScopes(), scope) {
+		view, admitted := compiled.LookupExtensionCell(selectedTarget, scope, carrier)
+		if !admitted {
 			if err := appendLocationEntry(rows, locationEntryInput{
 				kind: LocationUnsupported, selectedTarget: selectedTarget, scope: scope,
 				resourceKind: entity.KindExtension, variant: string(carrier), realization: LocationUnavailable,
@@ -306,7 +291,7 @@ func appendExtensionLocations(
 			}
 			continue
 		}
-		for _, route := range delegated.OperationRoutes() {
+		for _, route := range view.RouteProfile().OperationRoutes() {
 			if err := appendLocationEntry(rows, locationEntryInput{
 				kind: LocationRoute, selectedTarget: selectedTarget, scope: scope,
 				resourceKind: entity.KindExtension, variant: string(carrier), realization: LocationDelegatedRoute,

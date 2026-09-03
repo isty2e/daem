@@ -12,13 +12,14 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/findings"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -59,7 +60,7 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 			evidence.firstEffectRevisions,
 		)
 	}
-	metadataTransactionPath, err := transaction.FileSetAuthorityPath(planned.context.Paths.StateDir)
+	metadataTransactionPath, err := fileset.FileSetAuthorityPath(planned.context.Paths.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,10 +83,10 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 		): false,
 	}
 	for _, fact := range evidence.facts {
-		request := mutation.NewBoundedContentRevisionRequest(fact.Path, fact.Effect)
+		request := mutation.NewBoundedContentRevisionRequest(fact.Path(), fact.Effect())
 		if _, expected := declarationAuthority[request]; expected &&
-			fact.Kind == "logical" &&
-			fact.Access == mutation.AccessShared {
+			fact.Kind() == operationplan.FactLogical &&
+			fact.Access() == mutation.AccessShared {
 			declarationAuthority[request] = true
 		}
 	}

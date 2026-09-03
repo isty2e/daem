@@ -4,46 +4,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"sort"
-	"strconv"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 )
 
 type recoveryAuthorityEvidence struct {
 	domains              []mutation.Domain
 	authorityFingerprint mutation.OperationFingerprint
-}
-
-type recoveryAuthorityFactKind string
-
-const (
-	recoveryAuthorityFactLogical               recoveryAuthorityFactKind = "logical"
-	recoveryAuthorityFactPhysical              recoveryAuthorityFactKind = "physical"
-	recoveryAuthorityFactRecoveryRootIdentity  recoveryAuthorityFactKind = "recovery-root-identity"
-	recoveryAuthorityFactStateDirIdentity      recoveryAuthorityFactKind = "state-dir-identity"
-	recoveryAuthorityFactRemovalContinuation   recoveryAuthorityFactKind = "removal-continuation"
-	recoveryAuthorityFactRemovalParentIdentity recoveryAuthorityFactKind = "removal-parent-identity"
-)
-
-type recoveryAuthorityFact struct {
-	Kind     recoveryAuthorityFactKind
-	Path     string
-	Access   mutation.AccessMode
-	Effect   mutation.PathEffect
-	Target   string
-	Scope    string
-	Identity string
 }
 
 type recoveryDestinationKey struct {
@@ -86,59 +64,10 @@ func (occupancy recoveryPhysicalOccupancy) String() string {
 	return fmt.Sprintf("%s:%s (%s)", occupancy.destination.scope, occupancy.destination.destination, kind)
 }
 
-type recoveryFingerprintFacts struct {
-	ManifestRoot                 string
-	StatefilePath                string
-	RecoveryDir                  string
-	OperationID                  string
-	OperationDir                 string
-	Classification               recovery.Classification
-	JournalAuthorityFingerprint  string
-	StateDirAuthorityFingerprint string
-	Actions                      []recovery.Action
-	GuardedActions               []recovery.Action
-	RemovalCleanupObligations    []recoveryCleanupObligationFingerprint
-	StatefileBefore              json.RawMessage
-	ClaimTransitions             []journalClaimTransitionFingerprint
-}
-
-type cleanupFingerprintFacts struct {
-	RecoveryDir                 string
-	OperationID                 string
-	Classification              retirement.CleanupClassification
-	Action                      retirement.CleanupActionKind
-	JournalAuthorityFingerprint string
-	Phase                       retirement.Phase
-	ResiduePresent              bool
-}
-
-type recoveryCleanupObligationFingerprint struct {
-	Scope       target.Scope
-	Destination output.Destination
-	Action      recovery.RemovalCleanupActionKind
-	Readiness   recovery.RemovalCleanupReadiness
-	Reason      recovery.RemovalCleanupReason
-	Detail      string
-}
-
-type journalClaimTransitionFingerprint struct {
-	Kind                    string
-	PathAuthority           recoveryPathAuthorityFingerprint
-	ContentPath             string
-	OwnerStatefileAuthority recoveryPathAuthorityFingerprint
-	OwnerManifestPath       string
-	OperationID             string
-}
-
-type recoveryPathAuthorityFingerprint struct {
-	Key              string
-	SemanticsWitness string
-}
-
 func recoveryOperationFingerprint(
 	paths daempaths.Paths,
 	selection journal.RecoverablePlan,
-	stateDir transaction.StateDirAuthority,
+	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
 ) (mutation.OperationFingerprint, error) {
 	switch selection.AuthorityKind() {
@@ -172,7 +101,7 @@ func recoveryOperationFingerprint(
 func activeRecoveryOperationFingerprint(
 	paths daempaths.Paths,
 	plan recovery.Plan,
-	stateDir transaction.StateDirAuthority,
+	stateDir recoverygate.StateDirAuthority,
 ) (mutation.OperationFingerprint, error) {
 	journalAuthorityFingerprint, err := plan.JournalAuthorityFingerprint()
 	if err != nil {
@@ -186,9 +115,25 @@ func activeRecoveryOperationFingerprint(
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery statefile before: %w", err)
 	}
-	claimTransitions := make([]journalClaimTransitionFingerprint, 0, len(plan.ClaimTransitions()))
+	actions, err := json.Marshal(plan.Actions())
+	if err != nil {
+		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery plan: %w", err)
+	}
+	guardedActions, err := json.Marshal(plan.GuardedActions())
+	if err != nil {
+		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery plan: %w", err)
+	}
+	cleanupObligations, err := recoveryCleanupObligationFingerprints(plan.RemovalCleanupObligations())
+	if err != nil {
+		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery plan: %w", err)
+	}
+	claimTransitions := make(
+		[]operationplan.ActiveRecoveryClaimTransition,
+		0,
+		len(plan.ClaimTransitions()),
+	)
 	for _, transition := range plan.ClaimTransitions() {
-		claimTransitions = append(claimTransitions, journalClaimTransitionFingerprint{
+		claimTransitions = append(claimTransitions, operationplan.ActiveRecoveryClaimTransition{
 			Kind:                    string(transition.Kind()),
 			PathAuthority:           recoveryPathAuthorityFingerprintFor(transition.Address().PathAuthority()),
 			ContentPath:             transition.Address().ContentPath(),
@@ -197,48 +142,48 @@ func activeRecoveryOperationFingerprint(
 			OperationID:             transitionOperationID(transition),
 		})
 	}
-	canonical, err := json.Marshal(recoveryFingerprintFacts{
+	return operationplan.ActiveRecoveryOperationFingerprint(operationplan.ActiveRecoveryIdentityInput{
 		ManifestRoot:                 paths.ManifestRoot,
 		StatefilePath:                paths.StatefilePath,
 		RecoveryDir:                  paths.RecoveryDir,
 		OperationID:                  plan.OperationID(),
 		OperationDir:                 plan.OperationDir(),
-		Classification:               plan.Classification(),
+		Classification:               string(plan.Classification()),
 		JournalAuthorityFingerprint:  journalAuthorityFingerprint,
 		StateDirAuthorityFingerprint: stateDirFingerprint,
-		Actions:                      plan.Actions(),
-		GuardedActions:               plan.GuardedActions(),
-		RemovalCleanupObligations:    recoveryCleanupObligationFingerprints(plan.RemovalCleanupObligations()),
+		Actions:                      json.RawMessage(actions),
+		GuardedActions:               json.RawMessage(guardedActions),
+		RemovalCleanupObligations:    cleanupObligations,
 		StatefileBefore:              json.RawMessage(statefileBefore),
 		ClaimTransitions:             claimTransitions,
 	})
-	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery plan: %w", err)
-	}
-	return mutation.NewOperationFingerprint(canonical), nil
 }
 
 func recoveryCleanupObligationFingerprints(
 	obligations []recovery.RemovalCleanupObligation,
-) []recoveryCleanupObligationFingerprint {
-	result := make([]recoveryCleanupObligationFingerprint, 0, len(obligations))
+) ([]operationplan.ActiveRecoveryCleanupObligation, error) {
+	result := make([]operationplan.ActiveRecoveryCleanupObligation, 0, len(obligations))
 	for _, obligation := range obligations {
-		result = append(result, recoveryCleanupObligationFingerprint{
-			Scope:       obligation.Scope(),
-			Destination: obligation.Destination(),
-			Action:      obligation.Action(),
-			Readiness:   obligation.Readiness(),
-			Reason:      obligation.Reason(),
+		destination, err := json.Marshal(obligation.Destination())
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, operationplan.ActiveRecoveryCleanupObligation{
+			Scope:       string(obligation.Scope()),
+			Destination: json.RawMessage(destination),
+			Action:      string(obligation.Action()),
+			Readiness:   string(obligation.Readiness()),
+			Reason:      string(obligation.Reason()),
 			Detail:      obligation.Detail(),
 		})
 	}
-	return result
+	return result, nil
 }
 
 func recoveryPathAuthorityFingerprintFor(
 	authority pathauthority.Exact,
-) recoveryPathAuthorityFingerprint {
-	return recoveryPathAuthorityFingerprint{
+) operationplan.RecoveryPathAuthorityFingerprint {
+	return operationplan.RecoveryPathAuthorityFingerprint{
 		Key:              authority.Key(),
 		SemanticsWitness: authority.Witness(),
 	}
@@ -249,22 +194,17 @@ func cleanupRecoveryOperationFingerprint(
 	plan retirement.CleanupPlan,
 ) (mutation.OperationFingerprint, error) {
 	authority := plan.Authority()
-	canonical, err := json.Marshal(cleanupFingerprintFacts{
-		RecoveryDir:                 paths.RecoveryDir,
-		OperationID:                 authority.OperationID(),
-		Classification:              plan.Classification(),
-		Action:                      plan.Action(),
-		JournalAuthorityFingerprint: authority.JournalAuthorityFingerprint(),
-		Phase:                       authority.Phase(),
-		ResiduePresent:              authority.ResiduePresent(),
-	})
-	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf(
-			"fingerprint journal cleanup plan: %w",
-			err,
-		)
-	}
-	return mutation.NewOperationFingerprint(canonical), nil
+	return operationplan.CleanupRecoveryOperationFingerprint(
+		operationplan.CleanupRecoveryIdentityInput{
+			RecoveryDir:                 paths.RecoveryDir,
+			OperationID:                 authority.OperationID(),
+			Classification:              string(plan.Classification()),
+			Action:                      string(plan.Action()),
+			JournalAuthorityFingerprint: authority.JournalAuthorityFingerprint(),
+			Phase:                       string(authority.Phase()),
+			ResiduePresent:              authority.ResiduePresent(),
+		},
+	)
 }
 
 func transitionOperationID(transition ownershipmutation.ClaimTransition) string {
@@ -277,7 +217,7 @@ func transitionOperationID(transition ownershipmutation.ClaimTransition) string 
 func buildRecoveryAuthorityEvidence(
 	paths daempaths.Paths,
 	selection journal.RecoverablePlan,
-	stateDir transaction.StateDirAuthority,
+	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
 ) (recoveryAuthorityEvidence, error) {
 	switch selection.AuthorityKind() {
@@ -311,10 +251,8 @@ func buildRecoveryAuthorityEvidence(
 func buildActiveRecoveryAuthorityEvidence(
 	paths daempaths.Paths,
 	plan recovery.Plan,
-	stateDir transaction.StateDirAuthority,
+	stateDir recoverygate.StateDirAuthority,
 ) (recoveryAuthorityEvidence, error) {
-	facts := make([]recoveryAuthorityFact, 0)
-	domains := make([]mutation.Domain, 0)
 	resolvedDestinations, removalPaths, err := resolveRecoveryAuthorityPaths(
 		paths,
 		plan.GuardedActions(),
@@ -323,84 +261,42 @@ func buildActiveRecoveryAuthorityEvidence(
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	addLogical := func(path string, access mutation.AccessMode, effect mutation.PathEffect) error {
-		domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: path, Access: access, Effect: effect})
-		if err != nil {
-			return err
-		}
-		facts = append(facts, recoveryAuthorityFact{Kind: recoveryAuthorityFactLogical, Path: path, Access: access, Effect: effect})
-		domains = append(domains, domain)
-		return nil
-	}
-	addPhysical := func(path string, target string, scope string, effect mutation.PathEffect) error {
-		domain, err := mutation.NewPhysicalPathDomain(mutation.PhysicalPathRequest{
-			Path: path, Access: mutation.AccessExclusive, Effect: effect, Target: target, Scope: scope,
-		})
-		if err != nil {
-			return err
-		}
-		facts = append(facts, recoveryAuthorityFact{
-			Kind: recoveryAuthorityFactPhysical, Path: path,
-			Access: mutation.AccessExclusive, Effect: effect, Target: target, Scope: scope,
-		})
-		domains = append(domains, domain)
-		return nil
-	}
-	addRemovalContinuation := func(path string, effect mutation.PathEffect) error {
-		// Removal continuation is path-specific but target-neutral: one rooted
-		// relation can be shared by multiple consumers, while cleanup authority
-		// remains operation-scoped rather than target-attributed.
-		domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
-			Path: path, Access: mutation.AccessExclusive, Effect: effect,
-		})
-		if err != nil {
-			return err
-		}
-		facts = append(facts, recoveryAuthorityFact{
-			Kind: recoveryAuthorityFactRemovalContinuation, Path: path,
-			Access: mutation.AccessExclusive, Effect: effect,
-		})
-		domains = append(domains, domain)
-		return nil
-	}
-	addRemovalParentIdentity := func(path string) {
-		facts = append(facts, recoveryAuthorityFact{
-			Kind: recoveryAuthorityFactRemovalParentIdentity, Path: path,
-			Access: mutation.AccessExclusive,
-			Effect: mutation.PathEffectDirectoryEntry,
-		})
-	}
-
+	builder := operationplan.NewBuilder(operationplan.RevisionsOff, nil, 0)
 	for _, effect := range []mutation.PathEffect{
 		mutation.PathEffectDirectoryEntry,
 		mutation.PathEffectReferent,
 	} {
-		if err := addLogical(paths.RecoveryDir, mutation.AccessExclusive, effect); err != nil {
+		if err := builder.AddLogical(paths.RecoveryDir, mutation.AccessExclusive, effect); err != nil {
 			return recoveryAuthorityEvidence{}, err
 		}
 	}
-	facts = append(facts, recoveryAuthorityFact{
-		Kind:   recoveryAuthorityFactRecoveryRootIdentity,
-		Path:   paths.RecoveryDir,
-		Access: mutation.AccessExclusive,
-		Effect: mutation.PathEffectDirectoryEntry,
-	})
+	if err := builder.AddFingerprintOnly(
+		operationplan.FactRecoveryRootIdentity,
+		paths.RecoveryDir,
+		mutation.AccessExclusive,
+		mutation.PathEffectDirectoryEntry,
+		"",
+	); err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	stateDirFingerprint, err := stateDir.IdentityFingerprint()
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	facts = append(facts, recoveryAuthorityFact{
-		Kind:     recoveryAuthorityFactStateDirIdentity,
-		Path:     paths.StateDir,
-		Access:   mutation.AccessShared,
-		Effect:   mutation.PathEffectDirectoryEntry,
-		Identity: stateDirFingerprint,
-	})
+	if err := builder.AddFingerprintOnly(
+		operationplan.FactStateDirIdentity,
+		paths.StateDir,
+		mutation.AccessShared,
+		mutation.PathEffectDirectoryEntry,
+		stateDirFingerprint,
+	); err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	for _, effect := range []mutation.PathEffect{
 		mutation.PathEffectDirectoryEntry,
 		mutation.PathEffectReferent,
 	} {
-		if err := addLogical(paths.StateDir, mutation.AccessShared, effect); err != nil {
+		if err := builder.AddLogical(paths.StateDir, mutation.AccessShared, effect); err != nil {
 			return recoveryAuthorityEvidence{}, err
 		}
 	}
@@ -408,13 +304,13 @@ func buildActiveRecoveryAuthorityEvidence(
 		mutation.PathEffectDirectoryEntry,
 		mutation.PathEffectReferent,
 	} {
-		if err := addLogical(paths.StatefilePath, mutation.AccessExclusive, effect); err != nil {
+		if err := builder.AddLogical(paths.StatefilePath, mutation.AccessExclusive, effect); err != nil {
 			return recoveryAuthorityEvidence{}, err
 		}
 	}
 	if len(plan.ClaimTransitions()) != 0 {
 		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
-			if err := addLogical(paths.OwnershipRegistryPath, mutation.AccessExclusive, effect); err != nil {
+			if err := builder.AddLogical(paths.OwnershipRegistryPath, mutation.AccessExclusive, effect); err != nil {
 				return recoveryAuthorityEvidence{}, err
 			}
 		}
@@ -437,7 +333,13 @@ func buildActiveRecoveryAuthorityEvidence(
 		resolved := resolvedDestinations[recoveryDestinationKey{scope: action.Scope, destination: destination}]
 		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
 			for _, selected := range targets {
-				if err := addPhysical(resolved, string(selected), string(action.Scope), effect); err != nil {
+				if err := builder.AddPhysical(
+					resolved,
+					mutation.AccessExclusive,
+					effect,
+					string(selected),
+					string(action.Scope),
+				); err != nil {
 					return recoveryAuthorityEvidence{}, err
 				}
 			}
@@ -463,7 +365,7 @@ func buildActiveRecoveryAuthorityEvidence(
 				mutation.PathEffectDirectoryEntry,
 				mutation.PathEffectReferent,
 			} {
-				if err := addRemovalContinuation(path, effect); err != nil {
+				if err := builder.AddRemovalContinuation(path, effect); err != nil {
 					return recoveryAuthorityEvidence{}, err
 				}
 			}
@@ -472,18 +374,28 @@ func buildActiveRecoveryAuthorityEvidence(
 		// daem operation that leases their parent as an ancestor. The parent fact
 		// remains in the operation fingerprint, while typed cleanup authority owns
 		// its effect-time identity checks.
-		addRemovalParentIdentity(resolved.parent)
+		if err := builder.AddFingerprintOnly(
+			operationplan.FactRemovalParentIdentity,
+			resolved.parent,
+			mutation.AccessExclusive,
+			mutation.PathEffectDirectoryEntry,
+			"",
+		); err != nil {
+			return recoveryAuthorityEvidence{}, err
+		}
 	}
-	sort.Slice(facts, func(left int, right int) bool {
-		return recoveryAuthorityFactKey(facts[left]) < recoveryAuthorityFactKey(facts[right])
-	})
-	canonical, err := json.Marshal(facts)
+	compiled := builder.Compile()
+	domains, err := lowerRecoveryAuthorityDomainSteps(compiled.DomainSteps())
 	if err != nil {
-		return recoveryAuthorityEvidence{}, fmt.Errorf("fingerprint recovery authority: %w", err)
+		return recoveryAuthorityEvidence{}, err
+	}
+	fingerprint, err := operationplan.RecoverAuthorityFingerprint(compiled)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
 	}
 	return recoveryAuthorityEvidence{
 		domains:              domains,
-		authorityFingerprint: mutation.NewOperationFingerprint(canonical),
+		authorityFingerprint: fingerprint,
 	}, nil
 }
 
@@ -503,45 +415,62 @@ func buildCleanupRecoveryAuthorityEvidence(
 		filepath.Join(paths.RecoveryDir, authority.ResidueName()),
 		filepath.Join(paths.RecoveryDir, authority.GCName()),
 	}
-	facts := make([]recoveryAuthorityFact, 0, len(recoveryPaths)*2)
-	domains := make([]mutation.Domain, 0, len(recoveryPaths)*2)
+	builder := operationplan.NewBuilder(operationplan.RevisionsOff, nil, 0)
 	for _, path := range recoveryPaths {
 		for _, effect := range []mutation.PathEffect{
 			mutation.PathEffectDirectoryEntry,
 			mutation.PathEffectReferent,
 		} {
-			domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
-				Path:   path,
-				Access: mutation.AccessExclusive,
-				Effect: effect,
-			})
-			if err != nil {
+			if err := builder.AddLogical(path, mutation.AccessExclusive, effect); err != nil {
 				return recoveryAuthorityEvidence{}, err
 			}
-			facts = append(facts, recoveryAuthorityFact{
-				Kind:   recoveryAuthorityFactLogical,
-				Path:   path,
-				Access: mutation.AccessExclusive,
-				Effect: effect,
-			})
-			domains = append(domains, domain)
 		}
 	}
-	sort.Slice(facts, func(left int, right int) bool {
-		return recoveryAuthorityFactKey(facts[left]) <
-			recoveryAuthorityFactKey(facts[right])
-	})
-	canonical, err := json.Marshal(facts)
+	compiled := builder.Compile()
+	domains, err := lowerRecoveryAuthorityDomainSteps(compiled.DomainSteps())
 	if err != nil {
-		return recoveryAuthorityEvidence{}, fmt.Errorf(
-			"fingerprint journal cleanup authority: %w",
-			err,
-		)
+		return recoveryAuthorityEvidence{}, err
+	}
+	fingerprint, err := operationplan.RecoverAuthorityFingerprint(compiled)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
 	}
 	return recoveryAuthorityEvidence{
 		domains:              domains,
-		authorityFingerprint: mutation.NewOperationFingerprint(canonical),
+		authorityFingerprint: fingerprint,
 	}, nil
+}
+
+func lowerRecoveryAuthorityDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
+	domains := make([]mutation.Domain, 0, len(steps))
+	for _, step := range steps {
+		if domain, ok := step.Compiled(); ok {
+			domains = append(domains, domain)
+			continue
+		}
+		request, ok := step.Path()
+		if !ok {
+			return nil, fmt.Errorf("recovery authority domain step is invalid")
+		}
+		if logical, logicalPath := request.Logical(); logicalPath {
+			domain, err := mutation.NewLogicalPathDomain(logical)
+			if err != nil {
+				return nil, err
+			}
+			domains = append(domains, domain)
+			continue
+		}
+		physical, physicalPath := request.Physical()
+		if !physicalPath {
+			return nil, fmt.Errorf("recovery authority path-domain request is invalid")
+		}
+		domain, err := mutation.NewPhysicalPathDomain(physical)
+		if err != nil {
+			return nil, err
+		}
+		domains = append(domains, domain)
+	}
+	return domains, nil
 }
 
 func resolveRecoveryAuthorityPaths(
@@ -652,8 +581,4 @@ func resolveRecoveryAuthorityPaths(
 		}
 	}
 	return resolved, removals, nil
-}
-
-func recoveryAuthorityFactKey(fact recoveryAuthorityFact) string {
-	return string(fact.Kind) + "\x00" + fact.Path + "\x00" + strconv.Itoa(int(fact.Access)) + "\x00" + strconv.Itoa(int(fact.Effect)) + "\x00" + fact.Target + "\x00" + fact.Scope + "\x00" + fact.Identity
 }

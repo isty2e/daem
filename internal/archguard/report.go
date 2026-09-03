@@ -6,34 +6,21 @@ import (
 	"strings"
 )
 
-type findingIdentity struct {
-	Rule        string
-	PackagePath string
-	ImportPath  string
-	Path        string
+// FormatAnalysisReport renders a deterministic blocking topology report.
+// Shadow findings are omitted so CI failure logs cannot be mistaken for
+// report-only compiler-shadow evidence.
+func FormatAnalysisReport(report Report) string {
+	return FormatReport(report.Violations)
 }
 
-// FormatAnalysisReport renders a deterministic report with all guardrail classes.
-func FormatAnalysisReport(report Report) string {
+// FormatShadowReport renders deterministic report-only compiler-shadow findings.
+func FormatShadowReport(report Report) string {
+	findings := sortedFindings(report.Shadow)
+	if len(findings) == 0 {
+		return "archguard: no compiler-shadow findings reported\n"
+	}
 	var builder strings.Builder
-	if len(report.Violations) == 0 {
-		builder.WriteString("archguard: no topology violations reported\n")
-	} else {
-		writeFindings(&builder, "topology violation", report.Violations)
-	}
-
-	if len(report.DensityReviewRequirements) != 0 {
-		writeFindings(&builder, "density review required", report.DensityReviewRequirements)
-	}
-
-	if len(report.DensityWatchpoints) != 0 {
-		writeFindings(&builder, "density watchpoint", report.DensityWatchpoints)
-	}
-
-	if len(report.DensityWarnings) != 0 {
-		writeFindings(&builder, "density warning", report.DensityWarnings)
-	}
-
+	writeFindings(&builder, "compiler-shadow finding", findings)
 	return builder.String()
 }
 
@@ -84,37 +71,6 @@ func sortedStrings(values []string) []string {
 	return copied
 }
 
-func dedupRawFindings(findings []rawFinding) []rawFinding {
-	seen := make(map[findingIdentity]bool, len(findings))
-	var deduped []rawFinding
-	for _, finding := range findings {
-		key := findingKey(finding.finding)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		deduped = append(deduped, finding)
-	}
-	return deduped
-}
-
-func findingKey(finding GuardrailFinding) findingIdentity {
-	return findingIdentity{
-		Rule:        finding.Rule,
-		PackagePath: finding.PackagePath,
-		ImportPath:  finding.ImportPath,
-		Path:        finding.Path,
-	}
-}
-
-func sortedRawFindings(findings []rawFinding) []rawFinding {
-	copied := append([]rawFinding(nil), findings...)
-	sort.Slice(copied, func(i int, j int) bool {
-		return lessFinding(copied[i].finding, copied[j].finding)
-	})
-	return copied
-}
-
 func dedupViolations(violations []GuardrailFinding) []GuardrailFinding {
 	return dedupFindings(violations)
 }
@@ -159,12 +115,4 @@ func lessFinding(left GuardrailFinding, right GuardrailFinding) bool {
 	default:
 		return left.Detail < right.Detail
 	}
-}
-
-func sortedPackageDensities(densities []PackageDensity) []PackageDensity {
-	copied := append([]PackageDensity(nil), densities...)
-	sort.Slice(copied, func(i int, j int) bool {
-		return copied[i].PackagePath < copied[j].PackagePath
-	})
-	return copied
 }

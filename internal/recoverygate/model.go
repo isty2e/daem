@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
@@ -14,7 +14,7 @@ import (
 // unclassified observation with an axis that was not observed.
 type State struct {
 	journal         journal.InterruptionKind
-	fileSet         transaction.FileSetFenceKind
+	fileSet         fileset.FileSetFenceKind
 	journalObserved bool
 	journalKnown    bool
 	fileSetObserved bool
@@ -33,7 +33,7 @@ func (state State) JournalObserved() bool { return state.journalObserved }
 func (state State) JournalKnown() bool { return state.journalObserved && state.journalKnown }
 
 // FileSet returns the classified file-set fence axis.
-func (state State) FileSet() transaction.FileSetFenceKind { return state.fileSet }
+func (state State) FileSet() fileset.FileSetFenceKind { return state.fileSet }
 
 // FileSetObserved reports whether the file-set axis participated in this fact.
 func (state State) FileSetObserved() bool { return state.fileSetObserved }
@@ -51,9 +51,9 @@ func (state State) HasContinuingFileSetFence() bool {
 		return false
 	}
 	switch state.fileSet {
-	case transaction.FileSetFencePublishedTransaction,
-		transaction.FileSetFenceAbandonedResidue,
-		transaction.FileSetFenceCensusLimit:
+	case fileset.FileSetFencePublishedTransaction,
+		fileset.FileSetFenceAbandonedResidue,
+		fileset.FileSetFenceCensusLimit:
 		return true
 	default:
 		return false
@@ -64,8 +64,8 @@ func (state State) HasContinuingFileSetFence() bool {
 // with host or cleanup recovery effects.
 func (state State) blocksJournalRecovery() bool {
 	return state.FileSetKnown() &&
-		(state.fileSet == transaction.FileSetFenceAccessUnprovable ||
-			state.fileSet == transaction.FileSetFenceInvalidEvidence)
+		(state.fileSet == fileset.FileSetFenceAccessUnprovable ||
+			state.fileSet == fileset.FileSetFenceInvalidEvidence)
 }
 
 func jointState(journalErr error, fileSetErr error) State {
@@ -79,8 +79,8 @@ func jointState(journalErr error, fileSetErr error) State {
 	if fileSetErr == nil {
 		state.fileSetKnown = true
 	} else {
-		state.fileSet = transaction.FileSetFenceKindOf(fileSetErr)
-		state.fileSetKnown = state.fileSet != transaction.FileSetFenceClear
+		state.fileSet = fileset.FileSetFenceKindOf(fileSetErr)
+		state.fileSetKnown = state.fileSet != fileset.FileSetFenceClear
 	}
 	return state
 }
@@ -95,7 +95,7 @@ func standaloneState(err error) State {
 		state.journalObserved = true
 		state.journalKnown = true
 	}
-	if kind := transaction.FileSetFenceKindOf(err); kind != transaction.FileSetFenceClear {
+	if kind := fileset.FileSetFenceKindOf(err); kind != fileset.FileSetFenceClear {
 		state.fileSet = kind
 		state.fileSetObserved = true
 		state.fileSetKnown = true
@@ -205,7 +205,7 @@ func Observe(ctx context.Context, paths daempaths.Paths) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	stateDir, stateDirErr := transaction.CaptureStateDirAuthority(ctx, paths.StateDir)
+	stateDir, stateDirErr := CaptureStateDir(ctx, paths.StateDir)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -226,6 +226,21 @@ func Observe(ctx context.Context, paths daempaths.Paths) error {
 // RequireClear requires both peer recovery barriers to be clear.
 func RequireClear(ctx context.Context, paths daempaths.Paths) error {
 	return Observe(ctx, paths)
+}
+
+// RequireFileSetClear observes only the StateDir file-set fence. It does not
+// inspect RecoveryDir journals. Lock planning, init planning, and authoring
+// dry-run retain this compatibility posture; joint journal and file-set
+// refusal uses RequireClear or EffectAuthority.
+func RequireFileSetClear(ctx context.Context, stateDir string) error {
+	if err := requireBarrierContext(ctx); err != nil {
+		return err
+	}
+	authority, err := CaptureStateDir(ctx, stateDir)
+	if err != nil {
+		return err
+	}
+	return authority.RequireClear(ctx)
 }
 
 // StateOf reconstructs the closed joint state through arbitrary error wrapping.

@@ -7,8 +7,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -68,7 +68,7 @@ func planRecoveryWithFilesystem(
 		ctx,
 		input,
 		filesystem,
-		func(ctx context.Context, authority transaction.StateDirAuthority) error {
+		func(ctx context.Context, authority recoverygate.StateDirAuthority) error {
 			return authority.RequireClear(ctx)
 		},
 	)
@@ -78,7 +78,7 @@ func planRecoveryWithFilesystemAndFence(
 	ctx context.Context,
 	input PlanInput,
 	filesystem mutationfs.Reader,
-	observeFileSet func(context.Context, transaction.StateDirAuthority) error,
+	observeFileSet func(context.Context, recoverygate.StateDirAuthority) error,
 ) (recoveryPreparation, error) {
 	planningBudget := journalrecovery.NewPhysicalPathBudget()
 	return planRecoveryWithFilesystemFenceAndBudget(
@@ -94,7 +94,7 @@ func planRecoveryWithFilesystemFenceAndBudget(
 	ctx context.Context,
 	input PlanInput,
 	filesystem mutationfs.Reader,
-	observeFileSet func(context.Context, transaction.StateDirAuthority) error,
+	observeFileSet func(context.Context, recoverygate.StateDirAuthority) error,
 	planningBudget rootedpath.PhysicalTraversalBudget,
 ) (recoveryPreparation, error) {
 	if ctx == nil {
@@ -122,14 +122,14 @@ func planRecoveryWithFilesystemFenceAndBudget(
 			paths,
 			input,
 			recoverable,
-			transaction.StateDirAuthority{},
+			recoverygate.StateDirAuthority{},
 			false,
-			transaction.FileSetFenceClear,
+			fileset.FileSetFenceClear,
 			planningBudget,
 		)
 	}
 
-	stateDir, stateDirErr := transaction.CaptureStateDirAuthorityBounded(
+	stateDir, stateDirErr := recoverygate.CaptureStateDirBounded(
 		ctx,
 		paths.StateDir,
 		journalrecovery.MaximumPhysicalPathDepth,
@@ -145,9 +145,9 @@ func planRecoveryWithFilesystemFenceAndBudget(
 	if err := ctx.Err(); err != nil {
 		return recoveryPreparation{}, err
 	}
-	fenceKind := transaction.FileSetFenceKindOf(fenceErr)
-	blocksRecovery := fenceKind == transaction.FileSetFenceAccessUnprovable ||
-		fenceKind == transaction.FileSetFenceInvalidEvidence
+	fenceKind := fileset.FileSetFenceKindOf(fenceErr)
+	blocksRecovery := fenceKind == fileset.FileSetFenceAccessUnprovable ||
+		fenceKind == fileset.FileSetFenceInvalidEvidence
 	if journalErr != nil {
 		if errors.Is(journalErr, journal.ErrNoRecoverableJournal) && !blocksRecovery {
 			return recoveryPreparation{}, journalErr
@@ -171,9 +171,9 @@ func finishRecoveryPreparation(
 	paths daempaths.Paths,
 	input PlanInput,
 	plan journal.RecoverablePlan,
-	stateDir transaction.StateDirAuthority,
+	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
-	fileSetFence transaction.FileSetFenceKind,
+	fileSetFence fileset.FileSetFenceKind,
 	physicalPathBudget rootedpath.PhysicalTraversalBudget,
 ) (recoveryPreparation, error) {
 	operationEvidence, err := recoveryOperationFingerprint(paths, plan, stateDir, activeStateDir)
@@ -308,7 +308,7 @@ func Execute(
 		ctx,
 		execution.input,
 		filesystem,
-		func(ctx context.Context, authority transaction.StateDirAuthority) error {
+		func(ctx context.Context, authority recoverygate.StateDirAuthority) error {
 			return authority.RequireClear(ctx)
 		},
 		execution.physicalPathBudget,
@@ -492,17 +492,17 @@ func classifyPostExecutionAuthority(
 func postExecutionFileSetFence(
 	ctx context.Context,
 	execution recoveryPreparation,
-) (transaction.FileSetFenceObservation, error) {
+) (fileset.FileSetFenceObservation, error) {
 	if !execution.activeStateDir {
-		return transaction.UnobservedFileSetFence(), nil
+		return fileset.UnobservedFileSetFence(), nil
 	}
 	fenceErr := execution.stateDirAuthority.RequireClear(ctx)
-	observation := transaction.ObserveFileSetFence(fenceErr)
+	observation := fileset.ObserveFileSetFence(fenceErr)
 	if observation.Known() {
 		switch observation.Kind() {
-		case transaction.FileSetFencePublishedTransaction,
-			transaction.FileSetFenceAbandonedResidue,
-			transaction.FileSetFenceCensusLimit:
+		case fileset.FileSetFencePublishedTransaction,
+			fileset.FileSetFenceAbandonedResidue,
+			fileset.FileSetFenceCensusLimit:
 			return observation, nil
 		}
 	}

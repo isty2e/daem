@@ -5,6 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -58,7 +59,7 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 	result := make([]LockedProjectionObservation, 0, len(input.Contracts))
 	for _, contract := range input.Contracts {
 		subject := contract.SubjectID()
-		if _, ok := aggregate.MCPPlacementForSubject(subject); !ok {
+		if _, ok := catalog.Product().LookupMCPBySubject(subject); !ok {
 			return nil, fmt.Errorf("subject %q is not an MCP projection", subject)
 		}
 		realization, ok := contract.Realization()

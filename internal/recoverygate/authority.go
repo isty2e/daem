@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
@@ -20,14 +20,14 @@ import (
 // operation's durable or host effect phases.
 type EffectAuthority struct {
 	paths     daempaths.Paths
-	stateDir  transaction.StateDirAuthority
+	stateDir  StateDirAuthority
 	domains   []mutation.Domain
 	revisions []mutation.RevisionRequest
 }
 
-// ForwardEffectPlan is the complete predictable StateDir work envelope for one
-// forward operation before its first provider or host effect.
-type ForwardEffectPlan struct {
+// forwardEffectPlan is the State Barrier lowering of compiled semantic demand
+// into countable reservation work. Workflows must not construct this type.
+type forwardEffectPlan struct {
 	EnsureCalls             int
 	BarrierValidationCalls  int
 	StateDirValidationCalls int
@@ -36,13 +36,24 @@ type ForwardEffectPlan struct {
 	DescendantFileCommits   int
 }
 
+func planFromDemand(demand operationplan.Demand) forwardEffectPlan {
+	return forwardEffectPlan{
+		EnsureCalls:             demand.EnsureCalls(),
+		BarrierValidationCalls:  demand.BarrierValidationCalls(),
+		StateDirValidationCalls: demand.StateDirValidationCalls(),
+		DescendantPath:          demand.DescendantPath(),
+		DescendantValidations:   demand.DescendantValidations(),
+		DescendantFileCommits:   demand.DescendantFileCommits(),
+	}
+}
+
 // ForwardEffectAuthority consumes one atomically reserved forward-operation
 // StateDir envelope and transfers its one descendant persistence reservation.
 type ForwardEffectAuthority struct {
 	mu                     sync.Mutex
 	authority              EffectAuthority
-	stateDir               *transaction.StateDirExecutionAuthority
-	descendant             *transaction.StateDirDescendantReservation
+	stateDir               *StateDirExecutionAuthority
+	descendant             *StateDirDescendantReservation
 	remainingEnsures       int
 	remainingBarriers      int
 	remainingStateDirCalls int
@@ -59,7 +70,7 @@ type stateDirBarrierAuthority interface {
 // NewEffectAuthority captures the StateDir identity before any recovery
 // barrier observation and constructs the complete peer mutation evidence.
 func NewEffectAuthority(ctx context.Context, paths daempaths.Paths) (EffectAuthority, error) {
-	stateDir, err := transaction.CaptureStateDirAuthority(ctx, paths.StateDir)
+	stateDir, err := CaptureStateDir(ctx, paths.StateDir)
 	if err != nil {
 		return EffectAuthority{}, err
 	}
@@ -178,7 +189,7 @@ func validateBarrier(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if errors.Is(fileSetErr, transaction.ErrStateDirAppeared) {
+	if errors.Is(fileSetErr, ErrStateDirAppeared) {
 		stateErr := normalizeStateDirValidation(fileSetErr)
 		if journalErr != nil {
 			return errors.Join(journalErr, stateErr)
@@ -192,18 +203,10 @@ func validateBarrier(
 }
 
 func normalizeStateDirValidation(err error) error {
-	if errors.Is(err, transaction.ErrStateDirAppeared) {
+	if errors.Is(err, ErrStateDirAppeared) {
 		return errors.Join(mutation.StaleSnapshotError{}, err)
 	}
 	return err
-}
-
-func (authority EffectAuthority) ensureStateDir(ctx context.Context) (bool, error) {
-	if err := authority.requireInitialized(); err != nil {
-		return false, err
-	}
-	created, err := authority.stateDir.EnsureOwnedIncarnation(ctx)
-	return created, normalizeStateDirValidation(err)
 }
 
 // EnsureStateDirForEffect validates peer workflow authority and the recovery
@@ -225,9 +228,9 @@ func (authority EffectAuthority) EnsureStateDirForEffect(
 	if err := authority.Validate(ctx); err != nil {
 		return false, err
 	}
-	created, err := authority.ensureStateDir(ctx)
+	created, err := authority.stateDir.EnsureOwnedIncarnation(ctx)
 	if err != nil {
-		return created, err
+		return created, normalizeStateDirValidation(err)
 	}
 	if err := validatePeer(ctx); err != nil {
 		return created, err
@@ -238,41 +241,70 @@ func (authority EffectAuthority) EnsureStateDirForEffect(
 	return created, nil
 }
 
+func ensureReservedStateDirForEffect(
+	ctx context.Context,
+	paths daempaths.Paths,
+	stateDir *StateDirExecutionAuthority,
+	validatePeer func(context.Context) error,
+) (bool, error) {
+	if ctx == nil {
+		return false, fmt.Errorf("recovery effect context is required")
+	}
+	if stateDir == nil {
+		return false, fmt.Errorf("reserved StateDir execution authority is required")
+	}
+	if validatePeer == nil {
+		return false, fmt.Errorf("recovery effect peer validation is required")
+	}
+	if err := validatePeer(ctx); err != nil {
+		return false, err
+	}
+	if err := validateBarrier(ctx, paths, stateDir); err != nil {
+		return false, err
+	}
+	created, err := stateDir.EnsureOwnedIncarnation(ctx)
+	if err != nil {
+		return created, normalizeStateDirValidation(err)
+	}
+	if err := validatePeer(ctx); err != nil {
+		return created, err
+	}
+	if err := validateBarrier(ctx, paths, stateDir); err != nil {
+		return created, err
+	}
+	return created, nil
+}
+
 // ReserveForwardEffects atomically reserves all predictable barrier,
 // first-incarnation, and descendant persistence work before forward effects.
 func (authority EffectAuthority) ReserveForwardEffects(
-	plan ForwardEffectPlan,
+	demand operationplan.Demand,
+) (*ForwardEffectAuthority, error) {
+	return authority.reservePlan(planFromDemand(demand))
+}
+
+func (authority EffectAuthority) reservePlan(
+	plan forwardEffectPlan,
 ) (*ForwardEffectAuthority, error) {
 	if err := authority.requireInitialized(); err != nil {
 		return nil, err
 	}
-	stateValidations, createIfAbsent, err := forwardStateDirValidationPlan(
-		authority.stateDir.PresentAtCapture(),
-		plan,
-	)
+	lowered, err := authority.lowerForwardPlan(plan)
 	if err != nil {
 		return nil, err
 	}
-	fileSetCensuses, err := checkedForwardCount(plan.EnsureCalls, 2)
+	return authority.reserveLoweredPlan(plan, lowered.planned)
+}
+
+func (authority EffectAuthority) reserveLoweredPlan(
+	plan forwardEffectPlan,
+	planned plannedStateDirOperation,
+) (*ForwardEffectAuthority, error) {
+	operation, err := authority.stateDir.reservePlannedOperation(planned)
 	if err != nil {
 		return nil, err
 	}
-	fileSetCensuses, err = checkedForwardAdd(fileSetCensuses, plan.BarrierValidationCalls)
-	if err != nil {
-		return nil, err
-	}
-	operation, err := authority.stateDir.ReserveOperation(
-		stateValidations,
-		fileSetCensuses,
-		createIfAbsent,
-		plan.DescendantPath,
-		plan.DescendantValidations,
-		plan.DescendantFileCommits,
-	)
-	if err != nil {
-		return nil, err
-	}
-	var descendant *transaction.StateDirDescendantReservation
+	var descendant *StateDirDescendantReservation
 	if plan.DescendantPath != "" {
 		descendant, err = operation.TakeDescendant()
 		if err != nil {
@@ -290,7 +322,7 @@ func (authority EffectAuthority) ReserveForwardEffects(
 }
 
 // TakeDescendant transfers the one statefile persistence reservation.
-func (authority *ForwardEffectAuthority) TakeDescendant() (*transaction.StateDirDescendantReservation, error) {
+func (authority *ForwardEffectAuthority) TakeDescendant() (*StateDirDescendantReservation, error) {
 	if authority == nil {
 		return nil, fmt.Errorf("forward recovery effect authority is required")
 	}
@@ -342,23 +374,12 @@ func (authority *ForwardEffectAuthority) EnsureStateDirForEffect(
 	if err := authority.consume(&authority.remainingEnsures, "StateDir effect establishment"); err != nil {
 		return false, err
 	}
-	if err := validatePeer(ctx); err != nil {
-		return false, err
-	}
-	if err := validateBarrier(ctx, authority.authority.paths, authority.stateDir); err != nil {
-		return false, err
-	}
-	created, err := authority.stateDir.EnsureOwnedIncarnation(ctx)
-	if err != nil {
-		return created, normalizeStateDirValidation(err)
-	}
-	if err := validatePeer(ctx); err != nil {
-		return created, err
-	}
-	if err := validateBarrier(ctx, authority.authority.paths, authority.stateDir); err != nil {
-		return created, err
-	}
-	return created, nil
+	return ensureReservedStateDirForEffect(
+		ctx,
+		authority.authority.paths,
+		authority.stateDir,
+		validatePeer,
+	)
 }
 
 func (authority *ForwardEffectAuthority) consume(remaining *int, label string) error {
@@ -373,7 +394,7 @@ func (authority *ForwardEffectAuthority) consume(remaining *int, label string) e
 
 func forwardStateDirValidationPlan(
 	presentAtCapture bool,
-	plan ForwardEffectPlan,
+	plan forwardEffectPlan,
 ) (int, bool, error) {
 	for _, value := range []struct {
 		label string

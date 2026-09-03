@@ -10,8 +10,10 @@ import (
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
@@ -244,16 +246,20 @@ func executeAuthoringMutation(
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
-	domains, err := authoringMutationDomains(
+	program := compileAuthoringOperationProgram(
 		optimistic.change.ManifestPath,
 		lockfilePath,
 		markerPath,
 		optimistic.localPaths,
+		optimistic.barrier,
 	)
+	domains, err := lowerAuthoringDomainSteps(program.DomainSteps())
 	if err != nil {
-		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
+		return OperationResult{}, OperationError{
+			Phase: OperationPhaseCommit,
+			Err:   fmt.Errorf("build authoring mutation domain: %w", err),
+		}
 	}
-	domains = append(domains, optimistic.barrier.Domains()...)
 	store, err := mutation.NewStore(optimistic.document.Paths.DataDir)
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
@@ -284,16 +290,10 @@ func executeAuthoringMutation(
 	); err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
-	revisionRequests, err := authoringRevisionRequests(
-		optimistic.change.ManifestPath,
-		lockfilePath,
-		markerPath,
-		optimistic.localPaths,
-	)
+	revisionRequests, err := program.RevisionRequests()
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
-	revisionRequests = append(revisionRequests, optimistic.barrier.RevisionRequests()...)
 	revisions, err := mutation.CaptureRevisionSet(ctx, revisionRequests...)
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
@@ -373,65 +373,40 @@ func ensureStateDirForAuthoringEffect(
 	return err
 }
 
-func authoringMutationDomains(
+func compileAuthoringOperationProgram(
 	manifestPath string,
 	lockfilePath string,
 	markerPath string,
 	localPaths []string,
-) ([]mutation.Domain, error) {
-	requests := []mutation.LogicalPathRequest{
-		{Path: manifestPath, Access: mutation.AccessExclusive, Effect: mutation.PathEffectDirectoryEntry},
-		{Path: manifestPath, Access: mutation.AccessShared, Effect: mutation.PathEffectReferent},
-		{Path: lockfilePath, Access: mutation.AccessExclusive, Effect: mutation.PathEffectDirectoryEntry},
-		{Path: lockfilePath, Access: mutation.AccessShared, Effect: mutation.PathEffectReferent},
-		{Path: markerPath, Access: mutation.AccessExclusive, Effect: mutation.PathEffectDirectoryEntry},
-	}
-	for _, path := range localPaths {
-		requests = append(requests, mutation.LogicalPathRequest{Path: path, Access: mutation.AccessShared, Effect: mutation.PathEffectReferent})
-	}
-	domains := make([]mutation.Domain, 0, len(requests))
-	for _, request := range requests {
-		domain, err := mutation.NewLogicalPathDomain(request)
-		if err != nil {
-			return nil, fmt.Errorf("build authoring mutation domain: %w", err)
-		}
-		domains = append(domains, domain)
-	}
-	return domains, nil
+	barrier recoverygate.EffectAuthority,
+) operationplan.AuthoringProgram {
+	return operationplan.CompileAuthoring(operationplan.AuthoringInput{
+		ManifestPath:         manifestPath,
+		LockfilePath:         lockfilePath,
+		MarkerPath:           markerPath,
+		LocalPaths:           localPaths,
+		BarrierDomains:       barrier.Domains(),
+		BarrierRevisions:     barrier.RevisionRequests(),
+		DocumentMaximumBytes: declarationartifact.MaximumBytes,
+	})
 }
 
-func metadataMutationDomains(
-	targetPaths []string,
-	markerPath string,
-	localPaths []string,
-) ([]mutation.Domain, error) {
-	requests := make(
-		[]mutation.LogicalPathRequest,
-		0,
-		len(targetPaths)*2+1+len(localPaths),
-	)
-	for _, path := range targetPaths {
-		requests = append(
-			requests,
-			mutation.LogicalPathRequest{
-				Path: path, Access: mutation.AccessExclusive, Effect: mutation.PathEffectDirectoryEntry,
-			},
-			mutation.LogicalPathRequest{
-				Path: path, Access: mutation.AccessShared, Effect: mutation.PathEffectReferent,
-			},
-		)
-	}
-	requests = append(requests, mutation.LogicalPathRequest{
-		Path: markerPath, Access: mutation.AccessExclusive, Effect: mutation.PathEffectDirectoryEntry,
-	})
-	for _, path := range localPaths {
-		requests = append(requests, mutation.LogicalPathRequest{
-			Path: path, Access: mutation.AccessShared, Effect: mutation.PathEffectReferent,
-		})
-	}
-	domains := make([]mutation.Domain, 0, len(requests))
-	for _, request := range requests {
-		domain, err := mutation.NewLogicalPathDomain(request)
+func lowerAuthoringDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
+	domains := make([]mutation.Domain, 0, len(steps))
+	for _, step := range steps {
+		if domain, ok := step.Compiled(); ok {
+			domains = append(domains, domain)
+			continue
+		}
+		request, ok := step.Path()
+		if !ok {
+			return nil, fmt.Errorf("authoring operation domain step is invalid")
+		}
+		logical, logicalPath := request.Logical()
+		if !logicalPath {
+			return nil, fmt.Errorf("authoring operation path-domain request is not logical")
+		}
+		domain, err := mutation.NewLogicalPathDomain(logical)
 		if err != nil {
 			return nil, err
 		}
@@ -452,18 +427,23 @@ func recoverMetadataFileSetBeforeRead(
 	}
 	state := recoverygate.StateOf(observationErr)
 	if state.Journal() != journal.InterruptionClear ||
-		state.FileSet() != transaction.FileSetFencePublishedTransaction {
+		state.FileSet() != fileset.FileSetFencePublishedTransaction {
 		return observationErr
 	}
-	markerPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	markerPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		return err
 	}
-	domains, err := metadataMutationDomains(targetPaths, markerPath, nil)
+	domains, err := lowerAuthoringDomainSteps(operationplan.CompileMetadataDomains(
+		operationplan.MetadataDomainInput{
+			TargetPaths:     targetPaths,
+			MarkerPath:      markerPath,
+			TrailingDomains: barrier.Domains(),
+		},
+	))
 	if err != nil {
 		return err
 	}
-	domains = append(domains, barrier.Domains()...)
 	store, err := mutation.NewStore(paths.DataDir)
 	if err != nil {
 		return err
@@ -485,37 +465,10 @@ func recoverMetadataFileSetBeforeRead(
 	if err := barrier.ValidateFileSetRecovery(ctx); err != nil {
 		return err
 	}
-	if err := transaction.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
+	if err := fileset.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
 		return err
 	}
 	return barrier.Validate(ctx)
-}
-
-func authoringRevisionRequests(
-	manifestPath string,
-	lockfilePath string,
-	markerPath string,
-	localPaths []string,
-) ([]mutation.RevisionRequest, error) {
-	requests, err := mutation.BoundedFileRevisionRequests(
-		declarationartifact.MaximumBytes,
-		manifestPath,
-		lockfilePath,
-	)
-	if err != nil {
-		return nil, err
-	}
-	requests = append(
-		requests,
-		mutation.NewBoundedContentRevisionRequest(markerPath, mutation.PathEffectDirectoryEntry),
-	)
-	for _, path := range localPaths {
-		requests = append(
-			requests,
-			mutation.NewBoundedContentRevisionRequest(path, mutation.PathEffectReferent),
-		)
-	}
-	return requests, nil
 }
 
 func equalAuthoringPathLists(left []string, right []string) bool {

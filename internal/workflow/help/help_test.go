@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -38,6 +39,16 @@ func TestBuildUsageFactsReturnsStaticTargetInventory(t *testing.T) {
 	}
 	if !reflect.DeepEqual(facts.MCPRuntimeProbePlacements, wantProbe) {
 		t.Fatalf("MCPRuntimeProbePlacements = %+v, want %+v", facts.MCPRuntimeProbePlacements, wantProbe)
+	}
+
+	views := catalog.Product().MCPInOwnerOrder()
+	if len(facts.MCPAuthoringPlacements) != len(views) {
+		t.Fatalf("MCPAuthoringPlacements = %d, compiled owner-order = %d", len(facts.MCPAuthoringPlacements), len(views))
+	}
+	for index, fact := range facts.MCPAuthoringPlacements {
+		if fact.Target != views[index].Key().Target() || fact.Scope != views[index].Key().Scope() {
+			t.Fatalf("MCPAuthoringPlacements[%d] = %+v, want compiled %s/%s", index, fact, views[index].Key().Target(), views[index].Key().Scope())
+		}
 	}
 }
 

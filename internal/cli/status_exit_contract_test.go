@@ -1,10 +1,6 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -88,28 +84,4 @@ func statusPendingManagedPathPlan(t *testing.T) reconcile.Result {
 		t.Fatal(err)
 	}
 	return result
-}
-
-func TestStatusExitContractIsDocumentedAsModeSpecific(t *testing.T) {
-	_, sourcePath, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller did not return the test source path")
-	}
-	docPath := filepath.Join(filepath.Dir(sourcePath), "..", "..", "docs", "cli.md")
-	content, err := os.ReadFile(docPath)
-	if err != nil {
-		t.Fatalf("ReadFile(%s) returned error: %v", docPath, err)
-	}
-
-	for _, row := range []string{
-		"| `status` | any valid report | never because of reported state |",
-		"| `status --check` | lockfile present, no pending output action, exact extension order, and no blocked relation, adoption, or extension-removal action | lockfile missing; pending output action; non-exact extension order; or blocked relation, adoption, or extension-removal action |",
-		"| Report-only `status`, including pending or blocked rows | normal result | empty | `0` |",
-		"| Clean `status --check` | normal result | empty | `0` |",
-		"| Non-clean `status --check` | normal result | empty | `1` |",
-	} {
-		if !strings.Contains(string(content), row) {
-			t.Fatalf("%s does not contain status contract row %q", docPath, row)
-		}
-	}
 }

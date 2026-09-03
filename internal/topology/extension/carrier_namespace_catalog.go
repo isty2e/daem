@@ -22,3 +22,14 @@ var carrierNamespaceCatalog = [...]carrierNamespaceRow{
 	{carrier: desiredextension.CarrierPiPackage, namespace: piPackageCarrierSubjectNamespace},
 	{carrier: desiredextension.CarrierAntigravityCLIPlugin, namespace: antigravityPluginCarrierSubjectNamespace},
 }
+
+// CarrierNamespace returns the topology subject namespace owned by one closed
+// carrier. Forged carriers have no namespace.
+func CarrierNamespace(carrier desiredextension.Carrier) (string, bool) {
+	for _, row := range carrierNamespaceCatalog {
+		if row.carrier == carrier {
+			return row.namespace, true
+		}
+	}
+	return "", false
+}

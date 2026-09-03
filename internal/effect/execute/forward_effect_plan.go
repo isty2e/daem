@@ -92,7 +92,7 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 			aggregateMutations++
 		}
 	}
-	operationID := journal.OperationID(time.Unix(0, 0).UTC())
+	operationID := forwardEffectPlanningOperationID()
 	managedOwnership, err := ownershipPlanForManagedPathEffects(
 		input.ManagedPathEffects,
 		input.Owner,
@@ -139,6 +139,10 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 		return 0, err
 	}
 	return addForwardValidationCount(count, provisionalValidations)
+}
+
+func forwardEffectPlanningOperationID() string {
+	return journal.OperationID(time.Unix(0, 0).UTC())
 }
 
 func managedPathValidationCount(schedule managedPathExecutionSchedule) int {

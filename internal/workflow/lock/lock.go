@@ -7,7 +7,6 @@ import (
 	"os"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -16,6 +15,7 @@ import (
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	lockgenerate "github.com/isty2e/daem/internal/workflow/lock/generate"
 )
@@ -137,7 +137,7 @@ func buildCommandResult(
 		LockfilePath:     outputPath,
 		ExplicitLockfile: lockfilePath != "",
 	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+	if err := recoverygate.RequireFileSetClear(ctx, paths.StateDir); err != nil {
 		errorContext.Err = err
 		return commandResult{}, errorContext
 	}

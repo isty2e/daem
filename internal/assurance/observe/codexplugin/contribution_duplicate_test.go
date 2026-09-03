@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	observecontribution "github.com/isty2e/daem/internal/assurance/observe/contribution"
+	testscale "github.com/isty2e/daem/test/scale"
 )
 
 func TestObserveConfiguredPluginContributionsBlocksDuplicatePluginManifestKeys(t *testing.T) {
@@ -146,6 +147,8 @@ func TestObserveConfiguredPluginContributionsBlocksStructuralKeyOverflow(t *test
 }
 
 func TestDecodeInlineHookObjectBoundsUniqueKeyAllocation(t *testing.T) {
+	testscale.Require(t)
+
 	const maximumRejectedAllocationBytes = 4 << 20
 	raw := json.RawMessage(uniqueJSONObject(100_000))
 	var inline bool

@@ -11,9 +11,10 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	executeeffect "github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/operationplan"
 	lock "github.com/isty2e/daem/internal/realization/lock"
-	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
@@ -164,22 +165,26 @@ func Execute(
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
 	}
 
-	forwardAuthority, err := current.barrier.ReserveForwardEffects(
-		recoverygate.ForwardEffectPlan{
-			EnsureCalls:            1,
-			BarrierValidationCalls: 4,
-			DescendantPath:         current.paths.StatefilePath,
-			DescendantValidations:  2,
-			DescendantFileCommits:  1,
-		},
+	forwardStructure, err := compileRefreshEffectStructure()
+	if err != nil {
+		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
+	}
+	forwardExecution, err := current.barrier.ReserveForwardEffectExecution(
+		forwardStructure,
+		current.paths.StatefilePath,
 	)
 	if err != nil {
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
 	}
-	stateReservation, err := forwardAuthority.TakeDescendant()
-	if err != nil {
-		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
-	}
+	defer func() {
+		if closeErr := forwardExecution.Close(); closeErr != nil {
+			result = resultWithCleanupFailure(result, attemptStarted)
+			returnErr = errors.Join(
+				returnErr,
+				fmt.Errorf("close refresh effect execution: %w", closeErr),
+			)
+		}
+	}()
 	if err := validateRefreshPeerAuthority(
 		ctx,
 		execution.root,
@@ -189,7 +194,7 @@ func Execute(
 	); err != nil {
 		return staleBeforeAttempt(result, err)
 	}
-	if err := forwardAuthority.Validate(ctx); err != nil {
+	if err := forwardExecution.ValidateBarrier(ctx, refreshStepPreAttemptBarrier); err != nil {
 		return staleBeforeAttempt(result, err)
 	}
 
@@ -201,6 +206,12 @@ func Execute(
 		commandOptions.OutputLimit = current.command.attempt.OutputLimit
 	}
 	executor := subprocess.NewCommandExecutor(commandOptions)
+	if err := forwardExecution.ConsumeLifecycle(
+		refreshStepInvokeExternal,
+		operationplan.EffectStepExternal,
+	); err != nil {
+		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
+	}
 	attempt := executor.ExecuteInWorkingDirectory(
 		ctx,
 		current.command.attemptRequest(),
@@ -214,6 +225,18 @@ func Execute(
 	result.Attempted = attemptStarted
 	result.ProcessOutcome = processOutcome(attempt)
 	result.AuthorityOutcome = authorityOutcome(attempt)
+	attemptAlternative := 0
+	observationStep := refreshStepNotStartedObservation
+	if attemptStarted {
+		attemptAlternative = 1
+		observationStep = refreshStepStartedObservation
+	}
+	if err := forwardExecution.SelectAlternative(
+		refreshAttemptOutcomeChoice,
+		attemptAlternative,
+	); err != nil {
+		return refreshScheduleFailure(result, attemptStarted, err)
+	}
 
 	var persistenceErr error
 	if attemptStarted {
@@ -221,8 +244,17 @@ func Execute(
 			context.WithoutCancel(ctx),
 			attemptPersistenceTimeout,
 		)
-		persistenceErr = forwardAuthority.Validate(postAttemptCtx)
+		persistenceErr = forwardExecution.ValidateBarrier(
+			postAttemptCtx,
+			refreshStepPostAttemptBarrier,
+		)
 		cancel()
+	}
+	if err := forwardExecution.ConsumeLifecycle(
+		observationStep,
+		operationplan.EffectStepObservation,
+	); err != nil {
+		return refreshScheduleFailure(result, attemptStarted, err)
 	}
 
 	observationFact := assurancehostroute.ObservationUnavailable(
@@ -314,10 +346,51 @@ func Execute(
 				postObservationErr,
 				fmt.Errorf("classify refresh fallback result: %w", classifyErr),
 			)
+			classificationChoice := refreshNotStartedClassificationChoice
+			classificationTerminal := refreshStepNotStartedClassificationFailed
+			if attemptStarted {
+				classificationChoice = refreshStartedClassificationChoice
+				classificationTerminal = refreshStepStartedClassificationFailed
+			}
+			if _, scheduleErr := continueRefreshEffect(
+				forwardExecution,
+				classificationChoice,
+				false,
+				classificationTerminal,
+			); scheduleErr != nil {
+				return refreshScheduleFailure(
+					result,
+					attemptStarted,
+					errors.Join(failure, scheduleErr),
+				)
+			}
 			return result, failure
 		}
 	}
 	result = applyClassification(result, classified, attempt)
+	if attemptStarted {
+		if _, scheduleErr := continueRefreshEffect(
+			forwardExecution,
+			refreshStartedClassificationChoice,
+			true,
+			refreshStepStartedClassificationFailed,
+		); scheduleErr != nil {
+			return refreshScheduleFailure(result, true, scheduleErr)
+		}
+	} else {
+		if err := forwardExecution.SelectAlternative(
+			refreshNotStartedClassificationChoice,
+			1,
+		); err != nil {
+			return refreshScheduleFailure(result, false, err)
+		}
+		if err := finishRefreshEffect(
+			forwardExecution,
+			refreshStepNotStartedTerminal,
+		); err != nil {
+			return refreshScheduleFailure(result, false, err)
+		}
+	}
 
 	if attemptStarted {
 		record, recordErr := assurancehostroute.NewDurableAttempt(
@@ -330,14 +403,29 @@ func Execute(
 		)
 		if recordErr != nil {
 			persistenceErr = errors.Join(persistenceErr, recordErr)
-		} else if persistenceErr == nil {
+		}
+		persistAttempt, scheduleErr := continueRefreshEffect(
+			forwardExecution,
+			refreshPersistenceChoice,
+			persistenceErr == nil,
+			refreshStepUnpersistedTerminal,
+		)
+		if scheduleErr != nil {
+			return refreshScheduleFailure(
+				result,
+				true,
+				errors.Join(persistenceErr, scheduleErr),
+			)
+		}
+		if persistAttempt {
 			persistCtx, cancel := context.WithTimeout(
 				context.WithoutCancel(ctx),
 				attemptPersistenceTimeout,
 			)
-			persistenceErr = func() (returnErr error) {
-				_, err := forwardAuthority.EnsureStateDirForEffect(
+			persistenceErr = func() error {
+				_, err := forwardExecution.EstablishStateDir(
 					persistCtx,
+					refreshStepPersistenceEstablishStateDir,
 					func(ctx context.Context) error {
 						return validateRefreshPeerAuthority(
 							ctx,
@@ -349,36 +437,182 @@ func Execute(
 					},
 				)
 				if err != nil {
-					return err
+					_, scheduleErr := continueRefreshEffect(
+						forwardExecution,
+						refreshPersistenceStateDirChoice,
+						false,
+						refreshStepPersistenceStateDirFailed,
+					)
+					return joinRefreshPersistenceFailure(err, scheduleErr)
 				}
-				stateAuthority, err := stateReservation.Bind(persistCtx)
-				if err != nil {
-					return err
+				if _, scheduleErr := continueRefreshEffect(
+					forwardExecution,
+					refreshPersistenceStateDirChoice,
+					true,
+					refreshStepPersistenceStateDirFailed,
+				); scheduleErr != nil {
+					return scheduleErr
 				}
-				defer func() {
-					returnErr = errors.Join(returnErr, stateAuthority.Close())
-				}()
-				if err := forwardAuthority.Validate(persistCtx); err != nil {
-					return err
-				}
-				if err := stateAuthority.Validate(persistCtx); err != nil {
-					return err
-				}
-				_, err = executeeffect.CommitHostRouteAttempts(
+				if err := forwardExecution.BindDescendant(
 					persistCtx,
-					storagecommit.Adapter{},
-					stateAuthority.Entry(),
-					current.currentState,
-					[]durableattempt.HostRouteAttempt{record},
-					statefile.Codec{},
+					refreshStepPersistenceBindDescendant,
+				); err != nil {
+					_, scheduleErr := continueRefreshEffect(
+						forwardExecution,
+						refreshPersistenceAuthorityChoice,
+						false,
+						refreshStepPersistenceAuthorityFailed,
+					)
+					return joinRefreshPersistenceFailure(err, scheduleErr)
+				}
+				if _, scheduleErr := continueRefreshEffect(
+					forwardExecution,
+					refreshPersistenceAuthorityChoice,
+					true,
+					refreshStepPersistenceAuthorityFailed,
+				); scheduleErr != nil {
+					return errors.Join(scheduleErr, forwardExecution.CloseDescendant())
+				}
+				finishFailure := func(
+					choiceID string,
+					terminalID string,
+					cause error,
+				) error {
+					closeErr := forwardExecution.CloseDescendant()
+					_, scheduleErr := continueRefreshEffect(
+						forwardExecution,
+						choiceID,
+						false,
+						terminalID,
+					)
+					return errors.Join(cause, closeErr, scheduleErr)
+				}
+				continueAfter := func(choiceID string, terminalID string) error {
+					_, scheduleErr := continueRefreshEffect(
+						forwardExecution,
+						choiceID,
+						true,
+						terminalID,
+					)
+					if scheduleErr != nil {
+						return errors.Join(
+							scheduleErr,
+							forwardExecution.CloseDescendant(),
+						)
+					}
+					return nil
+				}
+
+				if err := forwardExecution.ValidateBarrier(
+					persistCtx,
+					refreshStepPrePersistenceBarrier,
+				); err != nil {
+					return finishFailure(
+						refreshPrePersistenceBarrierChoice,
+						refreshStepPrePersistenceBarrierFailed,
+						err,
+					)
+				}
+				if err := continueAfter(
+					refreshPrePersistenceBarrierChoice,
+					refreshStepPrePersistenceBarrierFailed,
+				); err != nil {
+					return err
+				}
+				if err := forwardExecution.ValidateDescendant(
+					persistCtx,
+					refreshStepPrePersistenceDescendant,
+				); err != nil {
+					return finishFailure(
+						refreshPrePersistenceDescendantChoice,
+						refreshStepPrePersistenceDescendantFailed,
+						err,
+					)
+				}
+				if err := continueAfter(
+					refreshPrePersistenceDescendantChoice,
+					refreshStepPrePersistenceDescendantFailed,
+				); err != nil {
+					return err
+				}
+				err = forwardExecution.PublishDescendant(
+					refreshStepPublishAttempt,
+					func(entry *rootedpath.EntryAuthority) error {
+						_, commitErr := executeeffect.CommitHostRouteAttempts(
+							persistCtx,
+							storagecommit.Adapter{},
+							entry,
+							current.currentState,
+							[]durableattempt.HostRouteAttempt{record},
+							statefile.Codec{},
+						)
+						return commitErr
+					},
 				)
 				if err != nil {
+					return finishFailure(
+						refreshPublicationChoice,
+						refreshStepPublicationFailed,
+						err,
+					)
+				}
+				if err := continueAfter(
+					refreshPublicationChoice,
+					refreshStepPublicationFailed,
+				); err != nil {
 					return err
 				}
-				if err := stateAuthority.Validate(persistCtx); err != nil {
+				if err := forwardExecution.ValidateDescendant(
+					persistCtx,
+					refreshStepPostPersistenceDescendant,
+				); err != nil {
+					return finishFailure(
+						refreshPostPersistenceDescendantChoice,
+						refreshStepPostPersistenceDescendantFailed,
+						err,
+					)
+				}
+				if err := continueAfter(
+					refreshPostPersistenceDescendantChoice,
+					refreshStepPostPersistenceDescendantFailed,
+				); err != nil {
 					return err
 				}
-				return forwardAuthority.Validate(persistCtx)
+				postBarrierErr := forwardExecution.ValidateBarrier(
+					persistCtx,
+					refreshStepPostPersistenceBarrier,
+				)
+				postBarrierErr = errors.Join(
+					postBarrierErr,
+					forwardExecution.CloseDescendant(),
+				)
+				if postBarrierErr != nil {
+					_, scheduleErr := continueRefreshEffect(
+						forwardExecution,
+						refreshPostPersistenceBarrierChoice,
+						false,
+						refreshStepPostPersistenceBarrierFailed,
+					)
+					return joinRefreshPersistenceFailure(postBarrierErr, scheduleErr)
+				}
+				if _, scheduleErr := continueRefreshEffect(
+					forwardExecution,
+					refreshPostPersistenceBarrierChoice,
+					true,
+					refreshStepPostPersistenceBarrierFailed,
+				); scheduleErr != nil {
+					return scheduleErr
+				}
+				if err := forwardExecution.ConsumeLifecycle(
+					refreshStepPersistenceSettlement,
+					operationplan.EffectStepPersistence,
+				); err != nil {
+					return err
+				}
+				return finishRefreshEffect(
+					forwardExecution,
+					refreshStepPersistedTerminal,
+				)
 			}()
 			cancel()
 			if persistenceErr == nil {

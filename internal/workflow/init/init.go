@@ -7,10 +7,11 @@ import (
 	"os"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/recoverygate"
 )
@@ -36,7 +37,7 @@ func BuildPlan(ctx context.Context, input Input) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+	if err := recoverygate.RequireFileSetClear(ctx, paths.StateDir); err != nil {
 		return Plan{}, err
 	}
 
@@ -76,31 +77,18 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	entryDomain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
-		Path:   paths.ManifestPath,
-		Access: mutation.AccessExclusive,
-		Effect: mutation.PathEffectDirectoryEntry,
-	})
+	metadataTransactionPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		return Plan{}, err
 	}
-	referentDomain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
-		Path:   paths.ManifestPath,
-		Access: mutation.AccessShared,
-		Effect: mutation.PathEffectReferent,
+	program := operationplan.CompileInit(operationplan.InitInput{
+		ManifestPath:            paths.ManifestPath,
+		ManifestMaximumBytes:    declarationartifact.MaximumBytes,
+		MetadataTransactionPath: metadataTransactionPath,
+		BarrierDomains:          barrier.Domains(),
+		BarrierRevisions:        barrier.RevisionRequests(),
 	})
-	if err != nil {
-		return Plan{}, err
-	}
-	metadataTransactionPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
-	if err != nil {
-		return Plan{}, err
-	}
-	metadataTransactionDomain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
-		Path:   metadataTransactionPath,
-		Access: mutation.AccessExclusive,
-		Effect: mutation.PathEffectDirectoryEntry,
-	})
+	domains, err := lowerInitDomainSteps(program.DomainSteps())
 	if err != nil {
 		return Plan{}, err
 	}
@@ -108,12 +96,6 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	domains := []mutation.Domain{
-		entryDomain,
-		referentDomain,
-		metadataTransactionDomain,
-	}
-	domains = append(domains, barrier.Domains()...)
 	leases, err := store.Acquire(ctx, domains...)
 	if err != nil {
 		return Plan{}, err
@@ -132,21 +114,10 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 		return Plan{}, err
 	}
 
-	manifestRevisionRequests, err := mutation.BoundedFileRevisionRequests(
-		declarationartifact.MaximumBytes,
-		paths.ManifestPath,
-	)
+	revisionRequests, err := program.RevisionRequests()
 	if err != nil {
 		return Plan{}, err
 	}
-	revisionRequests := append(
-		manifestRevisionRequests,
-		mutation.NewBoundedContentRevisionRequest(
-			metadataTransactionPath,
-			mutation.PathEffectDirectoryEntry,
-		),
-	)
-	revisionRequests = append(revisionRequests, barrier.RevisionRequests()...)
 	revisions, err := mutation.CaptureRevisionSet(ctx, revisionRequests...)
 	if err != nil {
 		return Plan{}, err
@@ -174,6 +145,30 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 		return Plan{}, err
 	}
 	return plan, nil
+}
+
+func lowerInitDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
+	domains := make([]mutation.Domain, 0, len(steps))
+	for _, step := range steps {
+		if domain, ok := step.Compiled(); ok {
+			domains = append(domains, domain)
+			continue
+		}
+		request, ok := step.Path()
+		if !ok {
+			return nil, fmt.Errorf("init operation domain step is invalid")
+		}
+		if logical, logicalPath := request.Logical(); logicalPath {
+			domain, err := mutation.NewLogicalPathDomain(logical)
+			if err != nil {
+				return nil, err
+			}
+			domains = append(domains, domain)
+			continue
+		}
+		return nil, fmt.Errorf("init operation path-domain request is not logical")
+	}
+	return domains, nil
 }
 
 func writePlan(ctx context.Context, plan Plan, force bool) error {

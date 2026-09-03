@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/filesnapshot"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/source/directfile"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -56,7 +57,8 @@ func Candidates(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	locations := profile.Profile(target).DiscoveryLocations(entity.KindInstructions, scope)
+	compiled := hostsurfacecatalog.Product()
+	locations := compiled.ManagedPathDiscoveryLocations(target, scope, entity.KindInstructions)
 	if len(locations) == 0 {
 		if err := skipped.Add(unsupportedInstructionImportSkip(target, scope)); err != nil {
 			return nil, err
@@ -88,12 +90,13 @@ func Candidates(
 			if err != nil {
 				return nil, err
 			}
-			admission, isPlacement := profile.Profile(target).PlacementAdmissionAt(
-				entity.KindInstructions,
+			view, isPlacement := compiled.ManagedPathAt(
+				target,
 				scope,
+				entity.KindInstructions,
 				location.Path(),
 			)
-			if isPlacement && !admission.Default() {
+			if isPlacement && !view.IsDefaultPlacement() {
 				alternatePlacementSpecs = append(alternatePlacementSpecs, spec)
 				continue
 			}
@@ -102,7 +105,7 @@ func Candidates(
 			return nil, fmt.Errorf("unsupported instruction import policy %q for %s", location.ImportPolicy(), livePath)
 		}
 	}
-	for _, location := range profile.Profile(target).RuntimeLocations(entity.KindInstructions, scope) {
+	for _, location := range compiled.ManagedPathRuntimeLocations(target, scope, entity.KindInstructions) {
 		livePath, err := instructionLocationPath(location.Path())
 		if err != nil {
 			return nil, err
@@ -254,12 +257,13 @@ func instructionImportSpecForLocation(
 		ResourceName: defaultInstructionResourceName(target, scope),
 		SourcePath:   defaultInstructionSourcePath(target, scope),
 	}
-	admission, isPlacement := profile.Profile(target).PlacementAdmissionAt(
-		entity.KindInstructions,
+	view, isPlacement := hostsurfacecatalog.Product().ManagedPathAt(
+		target,
 		scope,
+		entity.KindInstructions,
 		location.Path(),
 	)
-	if !isPlacement || admission.Default() {
+	if !isPlacement || view.IsDefaultPlacement() {
 		return spec, nil
 	}
 

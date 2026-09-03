@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -34,7 +35,8 @@ type executeDependencies struct {
 	recoveryProvenancePreflight recoveryProvenancePreflight
 	reserveForwardEffects       func(
 		recoverygate.EffectAuthority,
-		recoverygate.ForwardEffectPlan,
+		operationplan.EffectStructure,
+		operationplan.Demand,
 	) (*recoverygate.ForwardEffectAuthority, error)
 }
 
@@ -240,12 +242,17 @@ func executeWithDependencies(
 	if reserveForwardEffects == nil {
 		reserveForwardEffects = func(
 			authority recoverygate.EffectAuthority,
-			plan recoverygate.ForwardEffectPlan,
+			structure operationplan.EffectStructure,
+			demand operationplan.Demand,
 		) (*recoverygate.ForwardEffectAuthority, error) {
-			return authority.ReserveForwardEffects(plan)
+			return authority.ReserveForwardEffectStructure(structure, demand)
 		}
 	}
-	forwardAuthority, err := reserveForwardEffects(current.barrier, stateDirPlan.forward)
+	forwardAuthority, err := reserveForwardEffects(
+		current.barrier,
+		stateDirPlan.schedule.full,
+		stateDirPlan.demand,
+	)
 	if err != nil {
 		return disclose(current), err
 	}
@@ -409,6 +416,10 @@ func executeWithDependencies(
 			return forwardAuthority.ValidateStateDir(ctx)
 		},
 		statefileAuthority:            statefileAuthority,
+		applyEffectPlan:               &stateDirPlan.schedule.effectPlan,
+		preparedContinuation:          stateDirPlan.schedule.continuation,
+		currentContinuation:           stateDirPlan.schedule.continuation,
+		requireContinuation:           true,
 		acceptVisibilityChanges:       acceptVisibilityChanges,
 		validateCompensationAuthority: validateCompensationAuthority,
 		acceptCompensationChanges:     acceptCompensationChanges,
@@ -421,6 +432,7 @@ func executeWithDependencies(
 		ctx,
 		&current,
 		providerActions,
+		stateDirPlan.schedule.finalBinding(),
 		currentInput,
 		execution,
 		execution.authorityEvidence,
@@ -441,6 +453,7 @@ func executeWithDependencies(
 		leases = providerPhase.leases
 		firstEffectRevisions = providerPhase.firstEffectRevisions
 		revisionBoundaryValidated = false
+		executionOptions.currentContinuation = providerPhase.currentContinuation
 	}
 
 	runResult, err := runWithOptions(
@@ -577,27 +590,31 @@ func (guard applyExecutionGuard) requirePlanCurrent(
 	)
 }
 
-type remainingExecutionFingerprintFacts struct {
-	RelationOrders  []relationOrderFingerprintFacts
-	DelegateActions []delegateFingerprintFacts
-}
-
 func remainingExecutionFingerprint(
 	reconciliation reconcile.Result,
 ) (mutation.OperationFingerprint, error) {
-	canonical, err := json.Marshal(remainingExecutionFingerprintFacts{
-		RelationOrders: relationOrderFingerprintRows(
-			reconciliation.RelationOrders(),
-		),
-		DelegateActions: delegateFingerprintRows(
-			reconciliation.Delegates(),
-		),
-	})
+	relationOrders, err := marshalRemainingExecutionFingerprintProjection(
+		relationOrderFingerprintRows(reconciliation.RelationOrders()),
+	)
 	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf(
-			"fingerprint remaining apply execution: %w",
-			err,
-		)
+		return mutation.OperationFingerprint{}, err
 	}
-	return mutation.NewOperationFingerprint(canonical), nil
+	delegateActions, err := marshalRemainingExecutionFingerprintProjection(
+		delegateFingerprintRows(reconciliation.Delegates()),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	return operationplan.RemainingApplyOperationFingerprint(operationplan.RemainingApplyIdentityInput{
+		RelationOrders:  relationOrders,
+		DelegateActions: delegateActions,
+	})
+}
+
+func marshalRemainingExecutionFingerprintProjection[T any](value T) (json.RawMessage, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint remaining apply execution: %w", err)
+	}
+	return json.RawMessage(payload), nil
 }

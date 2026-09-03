@@ -201,16 +201,6 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
-	effectiveConstraints, err := providerEffectiveConstraints(mcpEffective.Current)
-	if err != nil {
-		return Assessment{}, err
-	}
-	effectiveRemovalNotices, err := providerEffectiveRemovalNotices(
-		mcpEffective.Retiring,
-	)
-	if err != nil {
-		return Assessment{}, err
-	}
 	relationObservations, err := resolveCarrierObservations(ctx, relationhost.Input{
 		Paths:                paths,
 		Lockfile:             locked,
@@ -220,148 +210,39 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, fmt.Errorf("inspect carrier relation inventory: %w", err)
 	}
-	relationActions, err := reconcilehostroute.BuildRelationActions(reconcilehostroute.RelationInput{
-		Locked:          locked,
-		SelectedTargets: selectedTargets,
-		Observations:    relationObservations,
-		CurrentOwner:    owner,
-		PendingInstalls: currentState.PendingCarrierInstalls(),
-		ManagedClaims:   allCarrierClaims,
-	})
-	if err != nil {
-		return Assessment{}, newRelationReconciliationError(err)
-	}
 	providerObservations, err := observeMCPProviders(ctx, paths, locked, mcpContracts)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("observe MCP provider versions: %w", err)
 	}
-	providerPrerequisites, err := planMCPProviderPrerequisites(
-		locked,
-		providerObservations,
-		relationActions,
-	)
-	if err != nil {
-		return Assessment{}, fmt.Errorf("plan MCP provider prerequisites: %w", err)
-	}
-	providerConstraints, err := providerPrerequisiteConstraints(providerPrerequisites)
-	if err != nil {
-		return Assessment{}, err
-	}
-	aggregateConstraints := append(effectiveConstraints, providerConstraints...)
-
-	managedPaths, aggregates, err := buildProjectionDecisions(projectionPlanningInput{
-		environment:             environment,
-		locked:                  locked.Locked,
-		selectedTargets:         selectedTargets,
-		supplyObservations:      supplyObservations,
-		managedPathStates:       managedInputs.states,
-		managedPathEvidence:     managedEvidence,
-		aggregateExpected:       aggregateInputs.expected,
-		aggregateDesired:        aggregateInputs.desired,
-		aggregateConstraints:    aggregateConstraints,
-		aggregateRemovalNotices: effectiveRemovalNotices,
-		aggregateStates:         aggregateInputs.states,
-		aggregateEvidence:       aggregateInputs.evidence,
-		aggregateFailures:       aggregateInputs.failures,
-		aggregatePreconditions:  aggregateInputs.preconditions,
-		manageUnmanagedMatches:  manageUnmanagedMatches,
-		owner:                   owner,
-		ownership:               ownershipObservations,
-		codecs:                  codecs,
-	})
-	if err != nil {
-		return Assessment{}, err
-	}
-	carrierAdoptionActions, err := reconcilehostroute.BuildCarrierAdoptionActions(
-		reconcilehostroute.CarrierAdoptionInput{
-			Locked:          locked,
-			SelectedTargets: selectedTargets,
-			Observations:    relationObservations,
-			CurrentOwner:    owner,
-			AllClaims:       allCarrierClaims,
-			ManageExisting:  manageUnmanagedMatches,
-			StoreAvailable:  true,
-		},
-	)
-	if err != nil {
-		return Assessment{}, newRelationReconciliationError(err)
-	}
-	carrierAbsenceActions, err := reconcilehostroute.BuildCarrierAbsenceActions(
-		reconcilehostroute.CarrierAbsenceInput{
-			Locked:          locked,
-			SelectedTargets: selectedTargets,
-			Observations:    relationObservations,
-			CurrentOwner:    owner,
-			AllClaims:       allCarrierClaims,
-			PendingRemovals: currentState.PendingCarrierRemovals(),
-			ResolveRoute:    reconcilehostroute.ResolveCurrentCarrierRemovalRoute,
-		},
-	)
-	if err != nil {
-		return Assessment{}, fmt.Errorf("plan carrier absences: %w", err)
-	}
-	relationOrderDecisions, err := observeExtensionOrders(
-		paths,
-		locked,
-		selectedTargets,
-		relationActions,
-		carrierAbsenceActions,
-	)
+	extensionOrderFacts, err := observeExtensionOrderFacts(paths, locked, selectedTargets)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("plan extension order: %w", err)
 	}
-	delegateActions, err := reconcilehostroute.BuildDelegateActions(reconcilehostroute.DelegateInput{
-		Locked:              locked,
-		SelectedTargets:     selectedTargets,
-		Context:             operationContext,
-		BlockedDependencies: blockedProjectionDependencies(managedPaths, aggregates),
-	})
-	if err != nil {
-		return Assessment{}, fmt.Errorf("plan delegate actions: %w", err)
-	}
-	result, err := reconcile.NewResult(reconcile.ResultInput{
-		Context:          operationContext,
-		ManagedPaths:     managedPaths,
-		Aggregates:       aggregates,
-		Relations:        relationActions,
-		RelationOrders:   relationOrderDecisions,
-		CarrierAdoptions: carrierAdoptionActions,
-		CarrierAbsences:  carrierAbsenceActions,
-		Delegates:        delegateActions,
-	})
-	if err != nil {
-		return Assessment{}, fmt.Errorf("assemble complete reconciliation result: %w", err)
-	}
-	mcpProjections, err := classifyMCPProjections(
-		mcpContracts,
-		currentState,
-		aggregateInputs.evidence,
-		aggregateInputs.failures,
-		aggregateInputs.preconditions,
-		mcpEffective.Current,
-		providerPrerequisites,
-	)
-	if err != nil {
-		return Assessment{}, fmt.Errorf("inspect MCP projection status: %w", err)
-	}
 
-	return Assessment{
-		StatePath:              paths.StatefilePath,
-		CurrentState:           currentState,
-		GlobalCarrierClaims:    globalCarrierClaims,
-		ManagedPathEvidence:    managedEvidence,
-		AggregateEvidence:      aggregateInputs.evidence,
-		AggregateFailures:      aggregateInputs.failures,
-		AggregatePreconditions: aggregateInputs.preconditions,
-		MCPProjections:         mcpProjections,
-		MCPEffective:           mcpEffective.Current,
-		MCPProviders:           providerPrerequisites,
-		Reconciliation:         result,
-		RelationObservations:   relationObservations,
-		Owner:                  owner,
-		Ownership:              ownershipObservations,
-		SelectedTargets:        selectedTargets,
-	}, nil
+	return assembleAssessment(assessmentPlanInput{
+		paths:                  paths,
+		environment:            environment,
+		locked:                 locked,
+		selection:              selection,
+		selectedTargets:        selectedTargets,
+		supplyObservations:     supplyObservations,
+		currentState:           currentState,
+		globalCarrierClaims:    globalCarrierClaims,
+		allCarrierClaims:       allCarrierClaims,
+		manageUnmanagedMatches: manageUnmanagedMatches,
+		codecs:                 codecs,
+		operationContext:       operationContext,
+		managedInputs:          managedInputs,
+		aggregateInputs:        aggregateInputs,
+		managedEvidence:        managedEvidence,
+		owner:                  owner,
+		ownershipObservations:  ownershipObservations,
+		mcpEffective:           mcpEffective,
+		relationObservations:   relationObservations,
+		providerObservations:   providerObservations,
+		extensionOrderFacts:    extensionOrderFacts,
+		mcpContracts:           mcpContracts,
+	})
 }
 
 func blockedProjectionDependencies(

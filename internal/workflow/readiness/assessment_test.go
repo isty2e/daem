@@ -298,6 +298,91 @@ scope = "project"
 	}
 }
 
+func TestAssessResolvesAggregateDocumentsBeforeManagedPathEvidence(t *testing.T) {
+	tempDir := t.TempDir()
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	writeTestFile(t, tempDir, "instructions/project.md", "project instructions\n")
+	writeTestFile(t, tempDir, "hooks/shared.sh", "#!/bin/sh\nexit 0\n")
+	writeTestFile(t, tempDir, "daem.toml", `
+version = 1
+targets = ["codex"]
+
+[instructions.project]
+source = "instructions/project.md"
+targets = ["codex"]
+
+[hook_asset.shared]
+source = "hooks/shared.sh"
+kind = "file"
+scope = "project"
+executable = true
+
+[[hook]]
+name = "shared"
+event = "PreToolUse"
+command = "{hook_file:shared} --check"
+targets = ["codex"]
+scope = "project"
+`)
+	environment := parseTestManifest(t, string(mustReadTestFile(t, manifestPath)))
+	paths := resolveTestPaths(t, manifestPath)
+	sourceResolver, err := sourceresolution.NewResolver(paths)
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+	locked, err := lockbuild.BuildWithOptions(context.Background(), environment, sourceResolver, lockbuild.Options{
+		HookContributionEncoder: hookcodec.CanonicalHookContribution,
+		MCPContributionEncoder:  mcpcodec.CanonicalMCPBindingContribution,
+	})
+	if err != nil {
+		t.Fatalf("BuildWithOptions returned error: %v", err)
+	}
+	selection := testSelection(t, environment, "codex")
+	var order []string
+	base := testDestinationResolver(tempDir)
+	resolver := func(destination output.Destination) (string, error) {
+		order = append(order, destination.String())
+		return base(destination)
+	}
+
+	if _, err := Assess(context.Background(), Input{
+		Context:                 reconcile.ContextInspect,
+		Paths:                   paths,
+		Resolver:                resolver,
+		Environment:             environment,
+		Lockfile:                locked,
+		Selection:               selection,
+		Codecs:                  aggregatecodec.Catalog(),
+		HookContributionEncoder: hookcodec.CanonicalHookContribution,
+		MCPContributionEncoder:  mcpcodec.CanonicalMCPBindingContribution,
+	}); err != nil {
+		t.Fatalf("Assess returned error: %v", err)
+	}
+
+	documentIndex := firstDestinationIndex(order, ".codex/hooks.json")
+	instructionIndex := firstDestinationIndex(order, "AGENTS.md")
+	if documentIndex < 0 || instructionIndex < 0 {
+		t.Fatalf("resolve order = %#v, want .codex/hooks.json before AGENTS.md", order)
+	}
+	if documentIndex >= instructionIndex {
+		t.Fatalf(
+			"aggregate document resolved at %d after managed path %d: %#v",
+			documentIndex,
+			instructionIndex,
+			order,
+		)
+	}
+}
+
+func firstDestinationIndex(order []string, destination string) int {
+	for index, observed := range order {
+		if observed == destination {
+			return index
+		}
+	}
+	return -1
+}
+
 func TestBuildProjectionDecisionsReportsMissingManagedPathLock(t *testing.T) {
 	environment := parseTestManifest(t, `
 version = 1

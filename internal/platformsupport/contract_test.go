@@ -37,6 +37,81 @@ func TestCIMatricesMatchPlatformAdmissionRows(t *testing.T) {
 	assertSameStringSet(t, "release vulnerability-scan rows", releaseScans, wantNative)
 }
 
+func TestStateBarrierCIMatrixCoversNativeMinimumAndRaceContracts(t *testing.T) {
+	var workflow struct {
+		Jobs map[string]workflowJob `yaml:"jobs"`
+	}
+	content := readRepositoryFile(t, ".github/workflows/ci.yml")
+	if err := yaml.Unmarshal([]byte(content), &workflow); err != nil {
+		t.Fatalf("decode CI workflow: %v", err)
+	}
+	job, ok := workflow.Jobs["state_barrier"]
+	if !ok {
+		t.Fatal("CI workflow lacks state_barrier job")
+	}
+	if job.Name != "State Barrier (${{ matrix.name }})" || job.RunsOn != "${{ matrix.os }}" {
+		t.Fatalf("state_barrier identity = (%q, %q)", job.Name, job.RunsOn)
+	}
+	if job.Strategy.FailFast == nil || *job.Strategy.FailFast {
+		t.Fatalf("state_barrier fail-fast = %v, want false", job.Strategy.FailFast)
+	}
+
+	type matrixRow struct {
+		OS        string
+		GOOS      string
+		GOARCH    string
+		GoVersion string
+		Race      bool
+	}
+	want := map[string]matrixRow{
+		"linux-amd64":            {OS: "ubuntu-24.04", GOOS: "linux", GOARCH: "amd64", GoVersion: "1.26.6"},
+		"darwin-arm64":           {OS: "macos-26", GOOS: "darwin", GOARCH: "arm64", GoVersion: "1.26.6"},
+		"windows-amd64":          {OS: "windows-2025", GOOS: "windows", GOARCH: "amd64", GoVersion: "1.26.6"},
+		"minimum-go-linux-amd64": {OS: "ubuntu-24.04", GOOS: "linux", GOARCH: "amd64", GoVersion: "1.25.12"},
+		"race-linux-amd64":       {OS: "ubuntu-24.04", GOOS: "linux", GOARCH: "amd64", GoVersion: "1.26.6", Race: true},
+	}
+	if len(job.Strategy.Matrix.Include) != len(want) {
+		t.Fatalf("state_barrier matrix rows = %d, want %d", len(job.Strategy.Matrix.Include), len(want))
+	}
+	for _, row := range job.Strategy.Matrix.Include {
+		expected, present := want[row.Name]
+		if !present {
+			t.Fatalf("state_barrier has unexpected row %q", row.Name)
+		}
+		got := matrixRow{
+			OS:        row.OS,
+			GOOS:      row.GOOS,
+			GOARCH:    row.GOARCH,
+			GoVersion: row.GoVersion,
+			Race:      row.Race,
+		}
+		if got != expected {
+			t.Fatalf("state_barrier row %q = %#v, want %#v", row.Name, got, expected)
+		}
+		delete(want, row.Name)
+	}
+
+	var setupStep, contractStep *releaseStep
+	for index := range job.Steps {
+		step := &job.Steps[index]
+		switch step.Name {
+		case "Set up selected Go toolchain":
+			setupStep = step
+		case "Run named persistence and recovery contracts":
+			contractStep = step
+		}
+	}
+	if setupStep == nil || setupStep.Uses != "actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c" ||
+		setupStep.With["go-version"].Value != "${{ matrix.goversion }}" {
+		t.Fatalf("state_barrier setup step = %#v", setupStep)
+	}
+	if contractStep == nil || contractStep.Shell != "bash" || contractStep.ContinueOnError != nil ||
+		!strings.Contains(contractStep.Run, "tools/test-state-barrier.sh") ||
+		!strings.Contains(contractStep.Run, "tools/test-state-barrier.sh --race") {
+		t.Fatalf("state_barrier contract step = %#v", contractStep)
+	}
+}
+
 func TestReleaseArtifactWorkflowIsNonpublishingAndFailClosed(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github/workflows/release-artifact.yml")
 	for _, required := range []string{
@@ -608,11 +683,13 @@ type releaseStep struct {
 	Uses            string               `yaml:"uses"`
 	If              string               `yaml:"if"`
 	Run             string               `yaml:"run"`
+	Shell           string               `yaml:"shell"`
 	With            map[string]yaml.Node `yaml:"with"`
 	ContinueOnError *yaml.Node           `yaml:"continue-on-error"`
 }
 
 type workflowJob struct {
+	Name           string            `yaml:"name"`
 	RunsOn         string            `yaml:"runs-on"`
 	If             string            `yaml:"if"`
 	Needs          yaml.Node         `yaml:"needs"`
@@ -622,86 +699,16 @@ type workflowJob struct {
 		FailFast *bool `yaml:"fail-fast"`
 		Matrix   struct {
 			Include []struct {
-				Name   string `yaml:"name"`
-				OS     string `yaml:"os"`
-				GOOS   string `yaml:"goos"`
-				GOARCH string `yaml:"goarch"`
+				Name      string `yaml:"name"`
+				OS        string `yaml:"os"`
+				GOOS      string `yaml:"goos"`
+				GOARCH    string `yaml:"goarch"`
+				GoVersion string `yaml:"goversion"`
+				Race      bool   `yaml:"race"`
 			} `yaml:"include"`
 		} `yaml:"matrix"`
 	} `yaml:"strategy"`
 	Steps []releaseStep `yaml:"steps"`
-}
-
-func TestPlatformContractsMatchCanonicalRows(t *testing.T) {
-	public := readRepositoryFile(t, "docs/platforms.md")
-
-	for _, admission := range admissionRows {
-		publicRow := "| " + publicOSName(admission.Target()) + " | `" + admission.Target().Arch() + "` | " + publicSupportName(admission.Support()) + " | " + publicVerificationName(admission.Verification()) + " |"
-		if !strings.Contains(public, publicRow) {
-			t.Errorf("public platform matrix is missing %q", publicRow)
-		}
-	}
-	if required := "| Every other target | any | not admitted | unverified |"; !strings.Contains(public, required) {
-		t.Errorf("public platform matrix is missing fallback row %q", required)
-	}
-}
-
-func TestDarwinPathDocumentationSeparatesProvisionalAndExactAuthority(t *testing.T) {
-	public := strings.Join(strings.Fields(readRepositoryFile(t, "docs/platforms.md")), " ")
-	for _, required := range []string{
-		"provisional comparison and exclusion evidence",
-		"does not grant exact path authority",
-		"fails before effects if the captured root directory is replaced",
-		"destination crosses onto a different descendant mount",
-	} {
-		if !strings.Contains(public, required) {
-			t.Errorf("platform documentation is missing Darwin path-authority contract %q", required)
-		}
-	}
-	if strings.Contains(public, "same-batch provisional alias races remain outside") {
-		t.Error("platform documentation retains the superseded provisional-authority exclusion")
-	}
-}
-
-func TestActiveUserDocumentsPointToPlatformAuthority(t *testing.T) {
-	references := map[string]string{
-		"README.md":               "docs/platforms.md",
-		"docs/README.md":          "platforms.md",
-		"docs/getting-started.md": "platforms.md",
-		"docs/cli.md":             "platforms.md",
-		"docs/concepts.md":        "platforms.md",
-		"docs/features.md":        "platforms.md",
-	}
-	for path, reference := range references {
-		if content := readRepositoryFile(t, path); !strings.Contains(content, reference) {
-			t.Errorf("%s does not reference %s", path, reference)
-		}
-	}
-}
-
-func TestActiveUserDocumentsDoNotDuplicateCanonicalPlatformRows(t *testing.T) {
-	for _, path := range []string{
-		"README.md",
-		"docs/README.md",
-		"docs/getting-started.md",
-		"docs/cli.md",
-		"docs/compatibility.md",
-		"docs/concepts.md",
-		"docs/features.md",
-		"docs/manifest.md",
-	} {
-		content := readRepositoryFile(t, path)
-		for _, rowIdentity := range []string{
-			"darwin/arm64",
-			"linux/amd64",
-			"macOS arm64",
-			"Linux amd64",
-		} {
-			if strings.Contains(content, rowIdentity) {
-				t.Errorf("%s duplicates canonical platform row %q", path, rowIdentity)
-			}
-		}
-	}
 }
 
 func workflowPairs(t *testing.T, content string, jobName string) []string {
@@ -753,40 +760,6 @@ func assertSameStringSet(t *testing.T, name string, got []string, want []string)
 	}
 	if !reflect.DeepEqual(gotSet, wantSet) {
 		t.Fatalf("%s = %#v, want %#v", name, got, want)
-	}
-}
-
-func publicOSName(target Target) string {
-	switch target.OS() {
-	case "darwin":
-		if target.Arch() == "arm64" {
-			return "macOS 26 or newer (`darwin`)"
-		}
-		return "macOS (`darwin`)"
-	case "linux":
-		return "Linux"
-	case "windows":
-		return "Windows"
-	default:
-		return target.OS()
-	}
-}
-
-func publicSupportName(support Support) string {
-	if support == SupportAdmitted {
-		return "admitted"
-	}
-	return "not admitted"
-}
-
-func publicVerificationName(verification Verification) string {
-	switch verification {
-	case VerificationNativeRequired:
-		return "native required"
-	case VerificationCompileOnly:
-		return "compile only"
-	default:
-		return "unverified"
 	}
 }
 

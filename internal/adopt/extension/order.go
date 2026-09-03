@@ -7,9 +7,9 @@ import (
 
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
-	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
@@ -134,7 +134,7 @@ func planOrder(
 	}
 
 	for _, fact := range sequenceFacts {
-		capability, admitted := profileCapabilityForClass(fact.classID)
+		capability, admitted := compiledCapabilityForClass(fact.classID)
 		if !admitted {
 			return nil, nil, nil, nil, nil, fmt.Errorf(
 				"extension order class %q is not admitted by any target profile",
@@ -144,9 +144,10 @@ func planOrder(
 		touchedClasses[fact.classID] = capability
 	}
 	for key := range extensionsByKey {
-		capability, admitted := profile.Profile(key.Target()).ExtensionOrder(
-			key.Carrier(),
+		capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(
+			key.Target(),
 			key.Scope(),
+			key.Carrier(),
 		)
 		if !admitted {
 			continue
@@ -174,9 +175,10 @@ func planOrder(
 		capability := touchedClasses[classID]
 		members := make([]hostrelation.RelationOrderMember, 0)
 		for _, key := range ordered {
-			selected, admitted := profile.Profile(key.Target()).ExtensionOrder(
-				key.Carrier(),
+			selected, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(
+				key.Target(),
 				key.Scope(),
+				key.Carrier(),
 			)
 			if !admitted || selected.ClassID() != classID {
 				continue
@@ -282,29 +284,9 @@ func stableTopologicalOrder(
 	return ordered, nil
 }
 
-func profileCapabilityForClass(
+func compiledCapabilityForClass(
 	classID hostrelation.OrderClassID,
 ) (profile.ExtensionOrderCapability, bool) {
-	var selected profile.ExtensionOrderCapability
-	count := 0
-	for _, selectedTarget := range target.SupportedTargets() {
-		targetProfile := profile.Profile(selectedTarget)
-		for _, carrier := range desiredextension.SupportedCarriers() {
-			for _, scope := range carrier.AdmittedScopes() {
-				capability, ok := targetProfile.ExtensionOrder(
-					carrier,
-					scope,
-				)
-				if !ok || capability.ClassID() != classID {
-					continue
-				}
-				selected = capability
-				count++
-			}
-		}
-	}
-	if count != 1 {
-		return profile.ExtensionOrderCapability{}, false
-	}
-	return selected, true
+	_, capability, ok := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(classID)
+	return capability, ok
 }

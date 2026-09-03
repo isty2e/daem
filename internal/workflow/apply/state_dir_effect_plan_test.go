@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/operationplan"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
@@ -49,24 +50,38 @@ func TestRelationOrderValidationCountUsesClassLevelMutation(t *testing.T) {
 		))
 	}
 
-	assertRelationOrderValidationCount(t, exact, false, 0)
-	assertRelationOrderValidationCount(t, exact, true, 1)
-	assertRelationOrderValidationCount(t, mutating, false, 1)
+	assertRelationOrderClassCount(t, exact, false, 0)
+	assertRelationOrderClassCount(t, exact, true, 1)
+	assertRelationOrderClassCount(t, mutating, false, 1)
 }
 
-func assertRelationOrderValidationCount(
+func assertRelationOrderClassCount(
 	t testing.TB,
 	decisions []reconcile.RelationOrderDecision,
 	mayChangeBeforeExecution bool,
 	want int,
 ) {
 	t.Helper()
-	got, err := relationOrderValidationCount(decisions, mayChangeBeforeExecution)
+	work := operationplan.ApplyWork{
+		OrderClasses: []operationplan.OrderClassWork{{
+			RequiresMutation: relationOrderMutationRequired(decisions),
+		}},
+	}
+	if mayChangeBeforeExecution {
+		work.CarrierRemovals = []operationplan.CarrierWork{{VerifiesPending: true}}
+	}
+	envelope, err := operationplan.CompileApply(work)
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := 0
+	for _, obligation := range envelope.Obligations() {
+		if obligation.Kind() == operationplan.ObligationRelationOrderClass {
+			got = obligation.Count()
+		}
+	}
 	if got != want {
-		t.Fatalf("relation-order validation count = %d, want %d", got, want)
+		t.Fatalf("relation-order class count = %d, want %d", got, want)
 	}
 }
 

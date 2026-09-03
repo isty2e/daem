@@ -628,6 +628,441 @@ func TestFinalizeJournalCleanupResumesEveryCleanupPhase(t *testing.T) {
 	}
 }
 
+func TestExecuteRetirementStepPreservesActionErrorWhenSettlementSucceeds(t *testing.T) {
+	actionErr := errors.New("action failed")
+	gate := &retirementRecordingStepGate{}
+	got := executeRetirementStep(
+		gate,
+		RetirementStepValidateActivePlan,
+		func() error { return actionErr },
+	)
+	if got != actionErr {
+		t.Fatalf("executeRetirementStep error = %v, want original action error", got)
+	}
+}
+
+func TestExecuteActiveWithGateRequiresAdvancedBasis(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	_, _ = captureInventoryJournal(t, recoveryRoot, "active-gate-basis")
+	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+	plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
+	authority, err := activeJournalAuthorityForTest(t.Context(), plan, filesystem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareActiveJournalRetirement(
+		t.Context(),
+		plan,
+		authority,
+		recoveryRoot,
+		recovery.MaximumPhysicalPathDepth,
+		retirementTestBudget(t),
+		filesystem,
+		testStateCodec(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	gate := &retirementRecordingStepGate{}
+
+	err = prepared.ExecuteActiveWithGate(t.Context(), plan, gate)
+	if err == nil || !strings.Contains(err.Error(), "requires an advanced basis") {
+		t.Fatalf("ExecuteActiveWithGate error = %v, want advanced-basis refusal", err)
+	}
+	if len(gate.events) != 0 {
+		t.Fatalf("gate events = %#v, want none", gate.events)
+	}
+	if len(filesystem.operations) != 0 {
+		t.Fatalf("operations = %v, want none", filesystem.operations)
+	}
+}
+
+func TestRetireActiveJournalGatesExactSelectedSteps(t *testing.T) {
+	tests := []struct {
+		name            string
+		preparedControl bool
+		controlStep     RetirementExecutionStep
+	}{
+		{
+			name:        "publish control",
+			controlStep: RetirementStepPublishControl,
+		},
+		{
+			name:            "present control",
+			preparedControl: true,
+			controlStep:     RetirementStepControlPresent,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+			identity, _ := captureInventoryJournal(t, recoveryRoot, "active-gate")
+			if test.preparedControl {
+				writeInventoryControl(t, recoveryRoot, identity, retirement.PhasePrepared)
+			}
+			filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+			plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
+			authority, err := activeJournalAuthorityForTest(t.Context(), plan, filesystem)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := captureRetirementTestRoot(t, recoveryRoot)
+			gate := &retirementRecordingStepGate{}
+
+			if err := retireActiveJournalWithAuthorityAndGateForTest(
+				t.Context(),
+				plan,
+				authority,
+				root,
+				recovery.MaximumPhysicalPathDepth,
+				retirementTestBudget(t),
+				filesystem,
+				testStateCodec(),
+				gate,
+			); err != nil {
+				t.Fatalf("RetireActiveJournal: %v", err)
+			}
+			wantSteps := []RetirementExecutionStep{
+				RetirementStepValidateActivePlan,
+				RetirementStepValidatePreparedLayout,
+				RetirementStepValidateActiveIdentity,
+				test.controlStep,
+				RetirementStepValidateActiveRecord,
+				RetirementStepRetireActiveJournal,
+				RetirementStepValidatePhaseAdvanceLayout,
+				RetirementStepAdvanceRecord,
+				RetirementStepValidateFinalizingLayout,
+				RetirementStepCleanupResidue,
+				RetirementStepRetireControl,
+				RetirementStepCleanupGarbage,
+			}
+			wantEvents := successfulRetirementGateEvents(wantSteps)
+			if !slices.Equal(gate.events, wantEvents) {
+				t.Fatalf("gate events = %#v, want %#v", gate.events, wantEvents)
+			}
+			assertRetirementState(t, recoveryRoot, retirement.StateClean)
+		})
+	}
+}
+
+func TestRetireActiveJournalGateRejectsBeforeSelectedMutation(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		rejectStep     RetirementExecutionStep
+		wantOperations []string
+		wantState      retirement.State
+	}{
+		{
+			name:       "control publication",
+			rejectStep: RetirementStepPublishControl,
+			wantState:  retirement.StateActive,
+		},
+		{
+			name:           "active journal retirement",
+			rejectStep:     RetirementStepRetireActiveJournal,
+			wantOperations: []string{"publish_control"},
+			wantState:      retirement.StatePrepared,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+			_, result := captureInventoryJournal(t, recoveryRoot, "active-gate-reject")
+			filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+			plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
+			authority, err := activeJournalAuthorityForTest(t.Context(), plan, filesystem)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := captureRetirementTestRoot(t, recoveryRoot)
+			rejection := errors.New("reject active retirement step")
+			gate := &retirementRecordingStepGate{
+				rejectStep: test.rejectStep,
+				rejectErr:  rejection,
+			}
+
+			err = retireActiveJournalWithAuthorityAndGateForTest(
+				t.Context(),
+				plan,
+				authority,
+				root,
+				recovery.MaximumPhysicalPathDepth,
+				retirementTestBudget(t),
+				filesystem,
+				testStateCodec(),
+				gate,
+			)
+			if !errors.Is(err, rejection) {
+				t.Fatalf("RetireActiveJournal error = %v, want gate rejection", err)
+			}
+			if !slices.Equal(filesystem.operations, test.wantOperations) {
+				t.Fatalf("operations = %v, want %v", filesystem.operations, test.wantOperations)
+			}
+			if _, err := os.Lstat(result.JournalPath); err != nil {
+				t.Fatalf("active journal changed after gate rejection: %v", err)
+			}
+			assertRetirementState(t, recoveryRoot, test.wantState)
+		})
+	}
+}
+
+func TestRetireActiveJournalGateSettlesGarbageFailureAsFinalized(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	_, _ = captureInventoryJournal(t, recoveryRoot, "active-gate-garbage-failure")
+	filesystem := &retirementRecordingFilesystem{
+		Store:      journalTestFilesystem(),
+		failBefore: "cleanup_gc",
+	}
+	plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
+	authority, err := activeJournalAuthorityForTest(t.Context(), plan, filesystem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := captureRetirementTestRoot(t, recoveryRoot)
+	gate := &retirementRecordingStepGate{}
+
+	err = retireActiveJournalWithAuthorityAndGateForTest(
+		t.Context(),
+		plan,
+		authority,
+		root,
+		recovery.MaximumPhysicalPathDepth,
+		retirementTestBudget(t),
+		filesystem,
+		testStateCodec(),
+		gate,
+	)
+	if !IsRetirementFinalizedWithGCResidue(err) {
+		t.Fatalf("RetireActiveJournal error = %v, want finalized GC residue", err)
+	}
+	last := gate.events[len(gate.events)-1]
+	if last != (retirementStepGateEvent{
+		step:    RetirementStepCleanupGarbage,
+		settled: true,
+	}) {
+		t.Fatalf("last gate event = %#v, want failed garbage settlement", last)
+	}
+	assertRetirementState(t, recoveryRoot, retirement.StateFinalized)
+}
+
+func TestFinalizeJournalCleanupGatesExactSelectedSteps(t *testing.T) {
+	tests := []struct {
+		name      string
+		setup     func(*testing.T, string)
+		wantSteps []RetirementExecutionStep
+	}{
+		{
+			name: "prepared residue",
+			setup: func(t *testing.T, recoveryRoot string) {
+				identity, result := captureInventoryJournal(t, recoveryRoot, "cleanup-gate-prepared")
+				writeInventoryControl(t, recoveryRoot, identity, retirement.PhasePrepared)
+				renameInventoryJournalToResidue(t, result, identity)
+			},
+			wantSteps: []RetirementExecutionStep{
+				RetirementStepValidateCleanupAuthority,
+				RetirementStepValidatePreparedLayout,
+				RetirementStepValidatePhaseAdvanceLayout,
+				RetirementStepAdvanceRecord,
+				RetirementStepValidateFinalizingLayout,
+				RetirementStepCleanupResidue,
+				RetirementStepRetireControl,
+				RetirementStepCleanupGarbage,
+			},
+		},
+		{
+			name: "finalizing residue",
+			setup: func(t *testing.T, recoveryRoot string) {
+				identity, result := captureInventoryJournal(t, recoveryRoot, "cleanup-gate-finalizing-residue")
+				writeInventoryControl(t, recoveryRoot, identity, retirement.PhaseFinalizing)
+				renameInventoryJournalToResidue(t, result, identity)
+			},
+			wantSteps: []RetirementExecutionStep{
+				RetirementStepValidateCleanupAuthority,
+				RetirementStepValidatePreparedLayout,
+				RetirementStepValidateFinalizingLayout,
+				RetirementStepCleanupResidue,
+				RetirementStepRetireControl,
+				RetirementStepCleanupGarbage,
+			},
+		},
+		{
+			name: "finalizing without residue",
+			setup: func(t *testing.T, recoveryRoot string) {
+				identity, result := captureInventoryJournal(t, recoveryRoot, "cleanup-gate-finalizing-empty")
+				writeInventoryControl(t, recoveryRoot, identity, retirement.PhaseFinalizing)
+				if err := os.RemoveAll(result.Directory); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantSteps: []RetirementExecutionStep{
+				RetirementStepValidateCleanupAuthority,
+				RetirementStepValidatePreparedLayout,
+				RetirementStepValidateFinalizingLayout,
+				RetirementStepRetireControl,
+				RetirementStepCleanupGarbage,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+			test.setup(t, recoveryRoot)
+			filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+			plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
+			root := captureRetirementTestRoot(t, recoveryRoot)
+			gate := &retirementRecordingStepGate{}
+
+			if err := finalizeJournalCleanupWithGateForTest(
+				t.Context(),
+				plan,
+				root,
+				recovery.MaximumPhysicalPathDepth,
+				retirementTestBudget(t),
+				filesystem,
+				gate,
+			); err != nil {
+				t.Fatalf("FinalizeJournalCleanup: %v", err)
+			}
+			wantEvents := make([]retirementStepGateEvent, 0, len(test.wantSteps)*2)
+			for _, step := range test.wantSteps {
+				wantEvents = append(
+					wantEvents,
+					retirementStepGateEvent{step: step},
+					retirementStepGateEvent{step: step, settled: true, succeeded: true},
+				)
+			}
+			if !slices.Equal(gate.events, wantEvents) {
+				t.Fatalf("gate events = %#v, want %#v", gate.events, wantEvents)
+			}
+		})
+	}
+}
+
+func TestFinalizeJournalCleanupSettlesPostAdvanceValidationFailure(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	identity, result := captureInventoryJournal(t, recoveryRoot, "cleanup-gate-post-advance")
+	writeInventoryControl(t, recoveryRoot, identity, retirement.PhasePrepared)
+	renameInventoryJournalToResidue(t, result, identity)
+	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+	filesystem.afterOperation = func(operation string) {
+		if operation != "advance_record" {
+			return
+		}
+		if err := os.WriteFile(
+			filepath.Join(recoveryRoot, identity.ControlName(), "foreign"),
+			[]byte("foreign\n"),
+			retirement.RecordMode,
+		); err != nil {
+			t.Fatalf("write foreign control child: %v", err)
+		}
+	}
+	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
+	root := captureRetirementTestRoot(t, recoveryRoot)
+	gate := &retirementRecordingStepGate{}
+
+	err := finalizeJournalCleanupWithGateForTest(
+		t.Context(),
+		plan,
+		root,
+		recovery.MaximumPhysicalPathDepth,
+		retirementTestBudget(t),
+		filesystem,
+		gate,
+	)
+	if err == nil {
+		t.Fatal("FinalizeJournalCleanup succeeded after finalizing-layout drift")
+	}
+	wantEvents := []retirementStepGateEvent{
+		{step: RetirementStepValidateCleanupAuthority},
+		{step: RetirementStepValidateCleanupAuthority, settled: true, succeeded: true},
+		{step: RetirementStepValidatePreparedLayout},
+		{step: RetirementStepValidatePreparedLayout, settled: true, succeeded: true},
+		{step: RetirementStepValidatePhaseAdvanceLayout},
+		{step: RetirementStepValidatePhaseAdvanceLayout, settled: true, succeeded: true},
+		{step: RetirementStepAdvanceRecord},
+		{step: RetirementStepAdvanceRecord, settled: true, succeeded: true},
+		{step: RetirementStepValidateFinalizingLayout},
+		{step: RetirementStepValidateFinalizingLayout, settled: true},
+	}
+	if !slices.Equal(gate.events, wantEvents) {
+		t.Fatalf("gate events = %#v, want %#v", gate.events, wantEvents)
+	}
+	if !slices.Equal(filesystem.operations, []string{"advance_record"}) {
+		t.Fatalf("operations = %v, want only phase advance", filesystem.operations)
+	}
+}
+
+func TestFinalizeJournalCleanupGateRejectsBeforeRetirementMutation(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	identity, result := captureInventoryJournal(t, recoveryRoot, "cleanup-gate-reject-retire")
+	writeInventoryControl(t, recoveryRoot, identity, retirement.PhaseFinalizing)
+	if err := os.RemoveAll(result.Directory); err != nil {
+		t.Fatal(err)
+	}
+	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
+	root := captureRetirementTestRoot(t, recoveryRoot)
+	rejection := errors.New("reject retirement step")
+	gate := &retirementRecordingStepGate{
+		rejectStep: RetirementStepRetireControl,
+		rejectErr:  rejection,
+	}
+
+	err := finalizeJournalCleanupWithGateForTest(
+		t.Context(),
+		plan,
+		root,
+		recovery.MaximumPhysicalPathDepth,
+		retirementTestBudget(t),
+		filesystem,
+		gate,
+	)
+	if !errors.Is(err, rejection) {
+		t.Fatalf("FinalizeJournalCleanup error = %v, want gate rejection", err)
+	}
+	if slices.Contains(filesystem.operations, "rename_control") {
+		t.Fatalf("operations = %v, must not retire control after gate rejection", filesystem.operations)
+	}
+	assertRetirementState(t, recoveryRoot, retirement.StateFinalizing)
+}
+
+func TestFinalizeJournalCleanupSettlesGarbageFailureAsFinalized(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	identity, result := captureInventoryJournal(t, recoveryRoot, "cleanup-gate-garbage-failure")
+	writeInventoryControl(t, recoveryRoot, identity, retirement.PhaseFinalizing)
+	renameInventoryJournalToResidue(t, result, identity)
+	filesystem := &retirementRecordingFilesystem{
+		Store:      journalTestFilesystem(),
+		failBefore: "cleanup_gc",
+	}
+	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
+	root := captureRetirementTestRoot(t, recoveryRoot)
+	gate := &retirementRecordingStepGate{}
+
+	err := finalizeJournalCleanupWithGateForTest(
+		t.Context(),
+		plan,
+		root,
+		recovery.MaximumPhysicalPathDepth,
+		retirementTestBudget(t),
+		filesystem,
+		gate,
+	)
+	if !IsRetirementFinalizedWithGCResidue(err) {
+		t.Fatalf("FinalizeJournalCleanup error = %v, want finalized GC residue", err)
+	}
+	last := gate.events[len(gate.events)-1]
+	if last != (retirementStepGateEvent{
+		step:    RetirementStepCleanupGarbage,
+		settled: true,
+	}) {
+		t.Fatalf("last gate event = %#v, want failed garbage settlement", last)
+	}
+	assertRetirementState(t, recoveryRoot, retirement.StateFinalized)
+}
+
 func TestRetirementDoesNotCleanGCAfterControlRenameReportsFailure(t *testing.T) {
 	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
 	_, _ = captureInventoryJournal(t, recoveryRoot, "retire-gc-failure")
@@ -877,6 +1312,30 @@ func retireActiveJournalWithAuthorityForTest(
 	filesystem mutationfs.RootedStore,
 	stateCodec durable.SnapshotCodec,
 ) error {
+	return retireActiveJournalWithAuthorityAndGateForTest(
+		ctx,
+		plan,
+		authority,
+		root,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		filesystem,
+		stateCodec,
+		nil,
+	)
+}
+
+func retireActiveJournalWithAuthorityAndGateForTest(
+	ctx context.Context,
+	plan recovery.Plan,
+	authority ActiveJournalAuthority,
+	root *rootedpath.CapturedRoot,
+	maximumPhysicalDepth int,
+	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
+	filesystem mutationfs.RootedStore,
+	stateCodec durable.SnapshotCodec,
+	gate RetirementStepGate,
+) error {
 	budget, ok := physicalWorkBudget.(*recovery.PhysicalWorkBudget)
 	if !ok {
 		return fmt.Errorf("test retirement requires the canonical physical work budget")
@@ -899,7 +1358,13 @@ func retireActiveJournalWithAuthorityForTest(
 		return err
 	}
 	defer prepared.Close()
-	return prepared.ExecuteActive(ctx, plan)
+	if gate == nil {
+		return prepared.ExecuteActive(ctx, plan)
+	}
+	if err := prepared.AdvanceActiveBasis(ctx, plan, authority); err != nil {
+		return err
+	}
+	return prepared.ExecuteActiveWithGate(ctx, plan, gate)
 }
 
 func finalizeJournalCleanupForTest(
@@ -909,6 +1374,26 @@ func finalizeJournalCleanupForTest(
 	maximumPhysicalDepth int,
 	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
 	filesystem mutationfs.RootedStore,
+) error {
+	return finalizeJournalCleanupWithGateForTest(
+		ctx,
+		plan,
+		root,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		filesystem,
+		nil,
+	)
+}
+
+func finalizeJournalCleanupWithGateForTest(
+	ctx context.Context,
+	plan retirement.CleanupPlan,
+	root *rootedpath.CapturedRoot,
+	maximumPhysicalDepth int,
+	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
+	filesystem mutationfs.RootedStore,
+	gate RetirementStepGate,
 ) error {
 	budget, ok := physicalWorkBudget.(*recovery.PhysicalWorkBudget)
 	if !ok {
@@ -930,7 +1415,7 @@ func finalizeJournalCleanupForTest(
 		return err
 	}
 	defer prepared.Close()
-	return prepared.ExecuteCleanup(ctx, plan)
+	return prepared.ExecuteCleanupWithGate(ctx, plan, gate)
 }
 
 func retirementTestBudget(t *testing.T) *recovery.PhysicalWorkBudget {
@@ -1023,6 +1508,54 @@ func assertRetirementState(t *testing.T, recoveryRoot string, want retirement.St
 			want,
 		)
 	}
+}
+
+type retirementStepGateEvent struct {
+	step      RetirementExecutionStep
+	settled   bool
+	succeeded bool
+}
+
+func successfulRetirementGateEvents(
+	steps []RetirementExecutionStep,
+) []retirementStepGateEvent {
+	events := make([]retirementStepGateEvent, 0, len(steps)*2)
+	for _, step := range steps {
+		events = append(
+			events,
+			retirementStepGateEvent{step: step},
+			retirementStepGateEvent{step: step, settled: true, succeeded: true},
+		)
+	}
+	return events
+}
+
+type retirementRecordingStepGate struct {
+	events     []retirementStepGateEvent
+	rejectStep RetirementExecutionStep
+	rejectErr  error
+}
+
+func (gate *retirementRecordingStepGate) AdmitRetirementStep(
+	step RetirementExecutionStep,
+) error {
+	gate.events = append(gate.events, retirementStepGateEvent{step: step})
+	if step == gate.rejectStep {
+		return gate.rejectErr
+	}
+	return nil
+}
+
+func (gate *retirementRecordingStepGate) SettleRetirementStep(
+	step RetirementExecutionStep,
+	succeeded bool,
+) error {
+	gate.events = append(gate.events, retirementStepGateEvent{
+		step:      step,
+		settled:   true,
+		succeeded: succeeded,
+	})
+	return nil
 }
 
 type retirementRecordingFilesystem struct {

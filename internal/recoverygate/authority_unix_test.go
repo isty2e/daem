@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
@@ -32,13 +33,13 @@ func TestAbsentStateDirBarrierUsesTransferredCensusAuthority(t *testing.T) {
 func TestAbsentStateDirForwardWorkMatchesBarrierAndEnsurePasses(t *testing.T) {
 	tests := []struct {
 		name        string
-		plan        ForwardEffectPlan
+		plan        forwardEffectPlan
 		validations int
 		create      bool
 	}{
-		{name: "barrier", plan: ForwardEffectPlan{BarrierValidationCalls: 1}, validations: 3},
-		{name: "first ensure", plan: ForwardEffectPlan{EnsureCalls: 1}, validations: 6, create: true},
-		{name: "later ensure", plan: ForwardEffectPlan{EnsureCalls: 2}, validations: 13, create: true},
+		{name: "barrier", plan: forwardEffectPlan{BarrierValidationCalls: 1}, validations: 3},
+		{name: "first ensure", plan: forwardEffectPlan{EnsureCalls: 1}, validations: 6, create: true},
+		{name: "later ensure", plan: forwardEffectPlan{EnsureCalls: 2}, validations: 13, create: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -68,7 +69,7 @@ func TestForwardEffectReservationRejectsCensusWorkBeforeProviderEffect(t *testin
 		entryLimit: 0,
 		byteLimit:  16 << 30,
 	}
-	stateAuthority, err := transaction.CaptureStateDirAuthorityBounded(
+	stateAuthority, err := CaptureStateDirBounded(
 		t.Context(),
 		stateDir,
 		256,
@@ -83,13 +84,11 @@ func TestForwardEffectReservationRejectsCensusWorkBeforeProviderEffect(t *testin
 	}
 	authority.stateDir = stateAuthority
 	providerEffects := 0
-	_, reserveErr := authority.ReserveForwardEffects(ForwardEffectPlan{
-		BarrierValidationCalls: 1,
-	})
+	_, reserveErr := authority.ReserveForwardEffects(operationplan.NewDemand(0, 1, 0, "", 0, 0))
 	if reserveErr == nil {
 		providerEffects++
 	}
-	if !errors.Is(reserveErr, transaction.ErrFileSetAccessUnprovable) {
+	if !errors.Is(reserveErr, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("ReserveForwardEffects error = %v, want census budget refusal", reserveErr)
 	}
 	if providerEffects != 0 {
@@ -112,7 +111,7 @@ func TestForwardEffectReservationRejectsHighCardinalityBeforeProviderEffect(t *t
 		entryLimit: 400_000,
 		byteLimit:  16 << 30,
 	}
-	stateAuthority, err := transaction.CaptureStateDirAuthorityBounded(
+	stateAuthority, err := CaptureStateDirBounded(
 		t.Context(),
 		stateDir,
 		256,
@@ -128,14 +127,14 @@ func TestForwardEffectReservationRejectsHighCardinalityBeforeProviderEffect(t *t
 	authority.stateDir = stateAuthority
 	providerEffects := 0
 	run := func() error {
-		_, reserveErr := authority.ReserveForwardEffects(ForwardEffectPlan{
-			EnsureCalls:             2,
-			BarrierValidationCalls:  3,
-			StateDirValidationCalls: 20_000,
-			DescendantPath:          filepath.Join(stateDir, "state.json"),
-			DescendantValidations:   20_000,
-			DescendantFileCommits:   5_000,
-		})
+		_, reserveErr := authority.ReserveForwardEffects(operationplan.NewDemand(
+			2,
+			3,
+			20_000,
+			filepath.Join(stateDir, "state.json"),
+			20_000,
+			5_000,
+		))
 		if reserveErr != nil {
 			return reserveErr
 		}
@@ -143,7 +142,7 @@ func TestForwardEffectReservationRejectsHighCardinalityBeforeProviderEffect(t *t
 		return nil
 	}
 	err = run()
-	if !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+	if !errors.Is(err, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("ReserveForwardEffects error = %v, want operation budget refusal", err)
 	}
 	if providerEffects != 0 {
@@ -176,7 +175,7 @@ func TestEffectAuthorityRejectsStateDirDirectoryReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := authority.Validate(t.Context()); !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+	if err := authority.Validate(t.Context()); !errors.Is(err, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("Validate error = %v, want StateDir identity refusal", err)
 	}
 }
@@ -328,7 +327,7 @@ func TestEffectAuthorityCreatesAndBindsFirstStateDirIncarnation(t *testing.T) {
 	if err := os.Mkdir(stateDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := authority.Validate(t.Context()); !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+	if err := authority.Validate(t.Context()); !errors.Is(err, fileset.ErrFileSetAccessUnprovable) {
 		t.Fatalf("Validate replacement error = %v, want StateDir identity refusal", err)
 	}
 }

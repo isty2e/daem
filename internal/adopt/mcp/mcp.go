@@ -12,6 +12,7 @@ import (
 	adopt "github.com/isty2e/daem/internal/adopt"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/filesnapshot"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -111,32 +112,15 @@ func candidatesWithHooks(
 	if err := mcpImportContextError(ctx); err != nil {
 		return nil, nil, err
 	}
-	var importConfig func(context.Context, []byte, *mcpProjectionAdmission) error
-	switch {
-	case target == targetpkg.TargetClaudeCode && scope == targetpkg.ScopeProject:
-		importConfig = claudeProjectCandidates
-	case target == targetpkg.TargetClaudeCode && scope == targetpkg.ScopeGlobal:
-		importConfig = claudeGlobalCandidates
-	case target == targetpkg.TargetOpenCode && scope == targetpkg.ScopeProject:
-		importConfig = openCodeProjectCandidates
-	case target == targetpkg.TargetOpenCode && scope == targetpkg.ScopeGlobal:
-		importConfig = openCodeGlobalCandidates
-	case target == targetpkg.TargetCodex && scope == targetpkg.ScopeProject:
-		importConfig = codexProjectCandidates
-	case target == targetpkg.TargetCodex && scope == targetpkg.ScopeGlobal:
-		importConfig = codexGlobalCandidates
-	case target == targetpkg.TargetAntigravityCLI && scope == targetpkg.ScopeGlobal:
-		importConfig = antigravityGlobalCandidates
-	default:
-		if err := skipped.Add(adopt.UnsupportedSurfaceSkip(target, scope, "mcp_server")); err != nil {
-			return nil, nil, err
-		}
-		return finishCandidates(ctx, hooks, nil, nil)
-	}
-	placement, ok := aggregate.ImplementedMCPPlacement(target, scope)
+	view, ok := catalog.Product().LookupMCP(target, scope)
 	if !ok {
-		return nil, nil, fmt.Errorf("MCP import route %s/%s has no canonical placement", target, scope)
+		return unsupportedMCPSurface(ctx, target, scope, skipped, hooks)
 	}
+	importConfig, ok := mcpImportExtractor(view.Placement().ID())
+	if !ok {
+		return unsupportedMCPSurface(ctx, target, scope, skipped, hooks)
+	}
+	placement := view.Placement()
 	codec, ok := aggregatecodec.Catalog().Lookup(placement.CodecContractID())
 	if !ok {
 		return nil, nil, fmt.Errorf("MCP import route %s/%s has no aggregate codec", target, scope)
@@ -254,6 +238,38 @@ func (admission *mcpProjectionAdmission) admit(
 	server.Env = environment()
 	admission.servers = append(admission.servers, server)
 	return nil
+}
+
+type mcpImportConfig func(context.Context, []byte, *mcpProjectionAdmission) error
+
+func mcpImportExtractor(id aggregate.MCPPlacementID) (mcpImportConfig, bool) {
+	fn, ok := mcpImportExtractors()[id]
+	return fn, ok
+}
+
+func mcpImportExtractors() map[aggregate.MCPPlacementID]mcpImportConfig {
+	return map[aggregate.MCPPlacementID]mcpImportConfig{
+		aggregate.MCPPlacementClaudeProject:     claudeProjectCandidates,
+		aggregate.MCPPlacementClaudeGlobal:      claudeGlobalCandidates,
+		aggregate.MCPPlacementOpenCodeProject:   openCodeProjectCandidates,
+		aggregate.MCPPlacementOpenCodeGlobal:    openCodeGlobalCandidates,
+		aggregate.MCPPlacementCodexProject:      codexProjectCandidates,
+		aggregate.MCPPlacementCodexGlobal:       codexGlobalCandidates,
+		aggregate.MCPPlacementAntigravityGlobal: antigravityGlobalCandidates,
+	}
+}
+
+func unsupportedMCPSurface(
+	ctx context.Context,
+	target targetpkg.Target,
+	scope targetpkg.Scope,
+	skipped adopt.SkipEmitter,
+	hooks candidateHooks,
+) ([]adopt.MCPServer, []adopt.MCPSourceAuthority, error) {
+	if err := skipped.Add(adopt.UnsupportedSurfaceSkip(target, scope, "mcp_server")); err != nil {
+		return nil, nil, err
+	}
+	return finishCandidates(ctx, hooks, nil, nil)
 }
 
 func finishCandidates(

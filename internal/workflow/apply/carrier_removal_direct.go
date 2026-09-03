@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute"
 	executeconfigrelation "github.com/isty2e/daem/internal/effect/execute/configrelation"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -66,80 +67,209 @@ func runDirectProjectionRemoval(
 	input carrierRemovalInput,
 	action carrierabsence.Action,
 	result *carrierRemovalResult,
+	execution *applyContinuationExecution,
+	ref string,
 ) (resultErr error) {
-	removal, err := executeconfigrelation.NewRemovalPlan(
-		executeconfigrelation.RemovalInput{
-			Target:         action.Target(),
-			Scope:          action.Scope(),
-			Carrier:        action.Claim().Identity().Carrier().Family(),
-			Source:         string(action.Claim().Identity().ExpectedRelation().SubjectKey()),
-			AuthorityPaths: input.RelationAuthorityPaths,
+	var removal executeconfigrelation.RemovalPlan
+	var physicalAuthority mutation.PhysicalAuthoritySet
+	if err := scheduledContinuationCall(
+		execution,
+		ref+"/prepare-direct",
+		operationplan.EffectStepObservation,
+		func() error {
+			var err error
+			removal, err = executeconfigrelation.NewRemovalPlan(
+				executeconfigrelation.RemovalInput{
+					Target:         action.Target(),
+					Scope:          action.Scope(),
+					Carrier:        action.Claim().Identity().Carrier().Family(),
+					Source:         string(action.Claim().Identity().ExpectedRelation().SubjectKey()),
+					AuthorityPaths: input.RelationAuthorityPaths,
+				},
+			)
+			if err != nil {
+				return err
+			}
+			physicalAuthority, err = removal.PhysicalAuthority()
+			return err
 		},
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
-	physicalAuthority, err := removal.PhysicalAuthority()
-	if err != nil {
-		return err
+	var boundRemoval *executeconfigrelation.BoundRemoval
+	boundClosed := false
+	closeBound := func() error {
+		if boundClosed || boundRemoval == nil {
+			return nil
+		}
+		boundClosed = true
+		return input.closeBoundRemoval(boundRemoval)
 	}
-	boundRemoval, err := removal.Bind(input.ProjectRoot, input.SelectedRoot)
-	if err != nil {
+	if err := scheduledCarrierRemovalCallWithFailureCleanup(
+		execution,
+		ref+"/bind-direct",
+		operationplan.EffectStepObservation,
+		func() error {
+			var err error
+			boundRemoval, err = removal.Bind(input.ProjectRoot, input.SelectedRoot)
+			return err
+		},
+		closeBound,
+	); err != nil {
 		return err
 	}
 	defer func() {
-		resultErr = errors.Join(resultErr, boundRemoval.Close())
+		resultErr = errors.Join(resultErr, closeBound())
 	}()
-	if err := validateBeforeRemovalEffects(ctx, input, physicalAuthority); err != nil {
+	if err := scheduledCarrierRemovalForward(
+		execution,
+		ref+"/forward",
+		func() error {
+			return validateBeforeRemovalEffects(ctx, input, physicalAuthority)
+		},
+		closeBound,
+	); err != nil {
 		return err
 	}
 	stateAuthority := input.StatefileAuthority
 	if stateAuthority == nil {
-		return fmt.Errorf("carrier removal statefile authority is required")
+		return errors.Join(
+			fmt.Errorf("carrier removal statefile authority is required"),
+			closeBound(),
+		)
 	}
-	if err := stateAuthority.Ensure(ctx); err != nil {
-		return err
-	}
-	baselines, err := durablecarrier.NewEffectBaselineSet(nil)
-	if err != nil {
-		return err
-	}
-	entry, err := stateAuthority.EntryForCommit()
-	if err != nil {
-		return err
-	}
-	input.markAttempted()
-	next, pending, err := execute.CommitPendingCarrierRemoval(
+	if err := scheduledCarrierRemovalEnsure(
 		ctx,
-		filesystem(input),
-		entry,
-		result.State,
-		result.GlobalClaims,
-		action,
-		baselines,
-		statefile.Codec{},
-	)
-	if err != nil {
+		execution,
+		ref+"/statefile",
+		stateAuthority,
+		closeBound,
+	); err != nil {
 		return err
 	}
-	result.State = next
-
-	if err := stateAuthority.Validate(ctx); err != nil {
+	var baselines durablecarrier.EffectBaselineSet
+	if err := scheduledCarrierRemovalCallWithFailureCleanup(
+		execution,
+		ref+"/effect-baselines",
+		operationplan.EffectStepObservation,
+		func() error {
+			var err error
+			baselines, err = durablecarrier.NewEffectBaselineSet(nil)
+			return err
+		},
+		closeBound,
+	); err != nil {
+		return err
+	}
+	var pending durablecarrier.PendingCarrierRemoval
+	if err := scheduledCarrierRemovalStatefilePublication(
+		execution,
+		ref+"/statefile/pending",
+		func() error {
+			entry, err := stateAuthority.EntryForCommit()
+			if err != nil {
+				return err
+			}
+			input.markAttempted()
+			next, nextPending, err := execute.CommitPendingCarrierRemoval(
+				ctx,
+				filesystem(input),
+				entry,
+				result.State,
+				result.GlobalClaims,
+				action,
+				baselines,
+				statefile.Codec{},
+			)
+			if err != nil {
+				return err
+			}
+			result.State = next
+			pending = nextPending
+			return nil
+		},
+		closeBound,
+	); err != nil {
+		return err
+	}
+	if err := scheduledCarrierRemovalStatefileValidation(
+		ctx,
+		execution,
+		ref+"/statefile/pre-effect",
+		stateAuthority,
+		closeBound,
+	); err != nil {
 		return fmt.Errorf("validate StateDir before direct carrier removal: %w", err)
 	}
-	if _, err := boundRemoval.Execute(ctx, filesystem(input)); err != nil {
-		return fmt.Errorf("execute direct config relation removal: %w", err)
-	}
-	if err := stateAuthority.Validate(ctx); err != nil {
+	if err := scheduledCarrierRemovalCallWithFailureCleanup(
+		execution,
+		ref+"/effect",
+		operationplan.EffectStepPersistence,
+		func() error {
+			_, err := boundRemoval.Execute(ctx, filesystem(input))
+			if err != nil {
+				return fmt.Errorf("execute direct config relation removal: %w", err)
+			}
+			return nil
+		},
+		closeBound,
+	); err != nil {
 		return err
 	}
-	if err := validateRetainedRemovalBoundary(ctx, input); err != nil {
+	if err := scheduledCarrierRemovalStatefileValidation(
+		ctx,
+		execution,
+		ref+"/statefile/post-effect",
+		stateAuthority,
+		closeBound,
+	); err != nil {
 		return err
 	}
-	if err := verifyCurrentRemovalPostconditions(ctx, input, action, pending, result); err != nil {
+	if err := scheduledCarrierRemovalCallWithFailureCleanup(
+		execution,
+		ref+"/retained-boundary",
+		operationplan.EffectStepObservation,
+		func() error { return validateRetainedRemovalBoundary(ctx, input) },
+		closeBound,
+	); err != nil {
 		return err
 	}
-	return retireClaim(ctx, input, action, pending, stateAuthority, result)
+	if err := scheduledCarrierRemovalCallWithFailureCleanup(
+		execution,
+		ref+"/verify-current",
+		operationplan.EffectStepObservation,
+		func() error {
+			return verifyCurrentRemovalPostconditions(
+				ctx,
+				input,
+				action,
+				pending,
+				result,
+			)
+		},
+		closeBound,
+	); err != nil {
+		return err
+	}
+	if err := retireClaim(
+		ctx,
+		input,
+		action,
+		pending,
+		stateAuthority,
+		result,
+		execution,
+		ref,
+		closeBound,
+	); err != nil {
+		return err
+	}
+	return scheduledContinuationCall(
+		execution,
+		ref+"/bound-close",
+		operationplan.EffectStepCleanup,
+		closeBound,
+	)
 }
 
 func verifyCurrentRemovalPostconditions(

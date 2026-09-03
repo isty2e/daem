@@ -13,8 +13,8 @@ import (
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
-	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
@@ -112,9 +112,10 @@ func (collector *importCollector) collectOpenCode(scope target.Scope) error {
 		inventory.Directory(),
 		"opencode.json",
 	)
-	capability, admitted := profile.Profile(target.TargetOpenCode).ExtensionOrder(
-		desiredextension.CarrierOpenCodePlugin,
+	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(
+		target.TargetOpenCode,
 		scope,
+		desiredextension.CarrierOpenCodePlugin,
 	)
 	if !admitted {
 		return fmt.Errorf("OpenCode %s extension order capability is absent", scope)
@@ -227,9 +228,10 @@ func (collector *importCollector) collectPi(scope target.Scope) error {
 	if err != nil {
 		return err
 	}
-	capability, admitted := profile.Profile(target.TargetPi).ExtensionOrder(
-		desiredextension.CarrierPiPackage,
+	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(
+		target.TargetPi,
 		scope,
+		desiredextension.CarrierPiPackage,
 	)
 	if !admitted {
 		return fmt.Errorf("Pi %s extension order capability is absent", scope)

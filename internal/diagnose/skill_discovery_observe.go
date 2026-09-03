@@ -9,14 +9,15 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	skillresource "github.com/isty2e/daem/internal/desired/skill"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -121,7 +122,11 @@ func inspectSkillTargetDiscoveries(
 
 	result := make([]skillDiscoveryFinding, 0)
 	observed := make([]fs.FileInfo, 0)
-	for _, location := range profile.Profile(selectedTarget).DiscoveryLocations(entity.KindSkill, skill.Scope()) {
+	for _, location := range hostsurfacecatalog.Product().ManagedPathDiscoveryLocations(
+		selectedTarget,
+		skill.Scope(),
+		entity.KindSkill,
+	) {
 		candidateDestination, err := output.Parse(path.Join(location.Path(), skill.InstallName()))
 		if err != nil {
 			result = append(result, newSkillDiscoveryObservationFailure(
@@ -201,28 +206,41 @@ func selectedSkillDestination(
 	skill skillresource.Skill,
 	selectedTarget target.Target,
 ) (output.Destination, error) {
-	requestedRoots := make(map[target.Target]string)
-	if requested, ok := skill.TargetPlacements()[selectedTarget]; ok {
-		requestedRoots[selectedTarget] = requested.InstallTo()
-	}
-	placements, err := profile.ManagedPathPlacementsForSelections(
-		entity.KindSkill,
-		skill.Scope(),
-		[]target.Target{selectedTarget},
-		requestedRoots,
-	)
-	if err != nil {
-		return output.Destination{}, err
-	}
-	if len(placements) != 1 {
+	compiled := hostsurfacecatalog.Product()
+	selected, ok := compiled.ManagedPathDefault(selectedTarget, skill.Scope(), entity.KindSkill)
+	if !ok {
 		return output.Destination{}, fmt.Errorf(
-			"skill %q target %q selected %d write placements",
-			skill.ID().Name(),
+			"%s target %q scope %q has no default placement",
+			entity.KindSkill,
 			selectedTarget,
-			len(placements),
+			skill.Scope(),
 		)
 	}
-	return placements[0].ChildDestination(skill.InstallName())
+	if requested, explicit := skill.TargetPlacements()[selectedTarget]; explicit {
+		requestedRoot := requested.InstallTo()
+		selected, ok = compiled.ManagedPathAt(
+			selectedTarget,
+			skill.Scope(),
+			entity.KindSkill,
+			requestedRoot,
+		)
+		if !ok {
+			views := compiled.ManagedPathViews(selectedTarget, skill.Scope(), entity.KindSkill)
+			roots := make([]string, 0, len(views))
+			for _, view := range views {
+				roots = append(roots, view.Placement().Root().String())
+			}
+			return output.Destination{}, fmt.Errorf(
+				"%s target %q scope %q placement %q is not admitted; admitted roots: %s",
+				entity.KindSkill,
+				selectedTarget,
+				skill.Scope(),
+				requestedRoot,
+				strings.Join(roots, ", "),
+			)
+		}
+	}
+	return selected.Placement().ChildDestination(skill.InstallName())
 }
 
 func skillDiscoveryPhysicallyCovered(

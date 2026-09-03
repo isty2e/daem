@@ -9,6 +9,7 @@ import (
 	observeopencode "github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -83,7 +84,7 @@ func OrderAuthorityPaths(input OrderInput) ([]OrderAuthorityPath, error) {
 	if err := input.Constraint.Validate(); err != nil {
 		return nil, fmt.Errorf("extension order constraint: %w", err)
 	}
-	selectedTarget, capability, admitted := profile.ExtensionOrderCapabilityForClass(
+	selectedTarget, capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
 		input.Constraint.ClassID(),
 	)
 	if !admitted {
@@ -140,7 +141,7 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 	if err := relationobserve.ValidateOrderConstraintBudget(input.Constraint); err != nil {
 		return OrderObservation{}, err
 	}
-	selectedTarget, capability, admitted := profile.ExtensionOrderCapabilityForClass(
+	selectedTarget, capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
 		input.Constraint.ClassID(),
 	)
 	if !admitted {
