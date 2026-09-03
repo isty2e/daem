@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/fileset"
@@ -811,6 +812,14 @@ func TestExecuteCancellationAfterPiProviderRoutePreventsConfigProjection(t *test
 	}
 	if _, statErr := os.Stat(configPath); statErr != nil {
 		t.Fatalf("Pi MCP config was not projected during recovery retry: %v", statErr)
+	}
+	state = loadApplyStatefile(t, filepath.Join(root, ".daem", "state.json"))
+	if pending := state.PendingCarrierInstalls(); len(pending) != 0 {
+		t.Fatalf("retry pending installs = %#v, want exact pending fact retired", pending)
+	}
+	claims := state.ManagedCarrierClaims()
+	if len(claims) != 1 || claims[0].Provenance() != durablecarrier.ClaimProvenanceInstalledObserved {
+		t.Fatalf("retry project carrier claims = %#v, want one InstalledObserved claim", claims)
 	}
 }
 

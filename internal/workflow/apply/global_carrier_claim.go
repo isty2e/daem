@@ -20,19 +20,12 @@ func isGlobalCarrierPromotionCandidate(
 	current durable.Snapshot,
 	action reconciliation.RelationAction,
 ) bool {
-	if action.Kind() != reconciliation.ActionNoOp || action.Scope() != target.ScopeGlobal {
-		return false
-	}
-	if _, present := action.Correlation(); !present {
-		return false
-	}
-	for _, pending := range current.PendingCarrierInstalls() {
-		if pending.Identity().ExactEqual(action.CarrierIdentity()) &&
-			pending.InstallRequest().Equal(action.RouteRequest()) {
-			return true
-		}
-	}
-	return false
+	_, _, matched := execute.MatchPendingCarrierInstallCompletion(
+		current,
+		action,
+		target.ScopeGlobal,
+	)
+	return matched
 }
 
 func commitInterruptedGlobalCarrierClaims(
@@ -85,27 +78,17 @@ func commitObservedGlobalCarrierClaim(
 	if action.Scope() != target.ScopeGlobal {
 		return current, registry, nil
 	}
-	var claim durablecarrier.ManagedCarrierClaim
-	found := false
-	for _, pending := range current.PendingCarrierInstalls() {
-		if !pending.Identity().ExactEqual(action.CarrierIdentity()) ||
-			!pending.InstallRequest().Equal(action.RouteRequest()) {
-			continue
-		}
-		promoted, err := durablecarrier.ClaimAfterObservedInstall(
-			pending,
-			observation,
-			registry.Claims(),
-		)
-		if err != nil {
-			return current, registry, fmt.Errorf("promote observed global carrier claim: %w", err)
-		}
-		claim = promoted
-		found = true
-		break
-	}
-	if !found {
+	pending, matched := execute.MatchPendingCarrierInstall(current, action, target.ScopeGlobal)
+	if !matched {
 		return current, registry, nil
+	}
+	claim, err := durablecarrier.ClaimAfterObservedInstall(
+		pending,
+		observation,
+		registry.Claims(),
+	)
+	if err != nil {
+		return current, registry, fmt.Errorf("promote observed global carrier claim: %w", err)
 	}
 	store, err := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
 	if err != nil {
