@@ -645,6 +645,91 @@ func TestExecuteWithOptionsReportsIndeterminateRouteWorkDirWithoutWritingReplace
 	}
 }
 
+func TestRunHostRoutesPersistsAndRetiresActionAttemptPendingInstall(t *testing.T) {
+	_, manifestPath, lockfilePath, missingInventory, _, _ := writeApplyAntigravityCLIPluginCarrierCommandFixture(t)
+	planning, err := PlanDryRun(t.Context(), CommandInput{
+		ManifestPath:         manifestPath,
+		LockfilePath:         lockfilePath,
+		TargetValues:         []string{"antigravity-cli"},
+		RelationObservations: &missingInventory,
+	})
+	if err != nil {
+		t.Fatalf("PlanDryRun returned error: %v", err)
+	}
+	seed := planning.Reconciliation.Relations()
+	if len(seed) != 1 {
+		t.Fatalf("RelationActions = %#v, want one seed action", seed)
+	}
+	admission, err := reconciliation.NewRelationRouteAdmissionDecision(
+		reconciliation.RelationRouteAdmissionSpec{
+			Row:               reconciliation.RouteAdmissionRowInstallCarrier,
+			RequestedOutcome:  reconciliation.AdmissionOutcomeOrdinaryMutation,
+			SelectedOutcome:   reconciliation.AdmissionOutcomeHostDelegated,
+			ObservationPolicy: reconciliation.ObservationAttemptWhenUnsupported,
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewRelationRouteAdmissionDecision returned error: %v", err)
+	}
+	action, err := reconciliation.NewRelationAction(reconciliation.RelationActionInput{
+		CarrierIdentity: seed[0].CarrierIdentity(),
+		RouteRequest:    seed[0].RouteRequest(),
+		Correlation: observerelation.Correlate(
+			seed[0].ExpectedRelation(),
+			observerelation.UnsupportedInventory(),
+		),
+		RouteAdmission: admission,
+	})
+	if err != nil {
+		t.Fatalf("NewRelationAction returned error: %v", err)
+	}
+	if action.Kind() != reconciliation.ActionAttempt || !action.InvokesHostRoute() {
+		t.Fatalf("RelationAction = %#v, want invoking ActionAttempt", action)
+	}
+
+	paths := planning.planned.context.Paths
+	pendingObserved := false
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Clock: fixedApplyHostRouteClock,
+		Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+			state := loadApplyStatefile(t, paths.StatefilePath)
+			pending := state.PendingCarrierInstalls()
+			pendingObserved = len(pending) == 1 &&
+				pending[0].Identity().ExactEqual(action.CarrierIdentity()) &&
+				pending[0].InstallRequest().Equal(action.RouteRequest())
+			return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+		},
+	})
+	options := applyDelegateRunOptions(t, paths, runOptions{HostRouteExecutor: executor})
+	current := planning.planned.assessment.CurrentState
+	next, _, records, err := runHostRoutesAndPersistAttemptRecords(
+		t.Context(),
+		paths,
+		planning.planned.context.Lockfile,
+		planning.planned.assessment.StatePath,
+		current,
+		planning.planned.assessment.Owner,
+		planning.planned.assessment.GlobalCarrierClaims,
+		[]reconciliation.RelationAction{action},
+		options,
+	)
+	if err != nil {
+		t.Fatalf("runHostRoutesAndPersistAttemptRecords returned error: %v", err)
+	}
+	if !pendingObserved {
+		t.Fatal("host invocation did not observe its exact pending-install write-ahead")
+	}
+	if len(records) != 1 {
+		t.Fatalf("host route records = %#v, want one ActionAttempt record", records)
+	}
+	if pending := next.PendingCarrierInstalls(); len(pending) != 0 {
+		t.Fatalf("returned pending installs = %#v, want ordinary completion retired", pending)
+	}
+	if pending := loadApplyStatefile(t, paths.StatefilePath).PendingCarrierInstalls(); len(pending) != 0 {
+		t.Fatalf("persisted pending installs = %#v, want ordinary completion retired", pending)
+	}
+}
+
 func TestExecuteWithOptionsRunsAdmittedHostSourceRoutesAndPersistsAttemptedUnverified(t *testing.T) {
 	tests := []struct {
 		name          string
