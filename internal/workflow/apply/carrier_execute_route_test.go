@@ -409,6 +409,16 @@ func TestInterruptedGlobalPromotionRejectsChangedRegistryBaseline(t *testing.T) 
 			t.Errorf("close statefile authority: %v", err)
 		}
 	})
+	plan, err := prepareGlobalCarrierPromotionSettlementPlan(
+		paths.CarrierClaimRegistryPath,
+		current,
+		registry,
+		actions[0],
+		correlation,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	nextState, nextRegistry, err := commitObservedGlobalCarrierClaim(
 		t.Context(),
 		paths,
@@ -417,6 +427,8 @@ func TestInterruptedGlobalPromotionRejectsChangedRegistryBaseline(t *testing.T) 
 		registry,
 		actions[0],
 		correlation,
+		plan,
+		testGlobalCarrierSettlementOptions(t, paths),
 	)
 	if err == nil || !strings.Contains(err.Error(), "changed since confirmed observation") {
 		t.Fatalf("commitObservedGlobalCarrierClaim error = %v, want stale baseline rejection", err)

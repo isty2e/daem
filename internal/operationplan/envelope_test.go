@@ -63,6 +63,46 @@ func TestCompileApplyProviderActionsReserveBarrierEnvelope(t *testing.T) {
 	}
 }
 
+func TestCompileApplyGlobalCarrierSettlementReservesStateDirEffects(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		work ApplyWork
+	}{
+		{name: "retirement", work: ApplyWork{GlobalCarrierRetirement: true}},
+		{name: "adoption", work: ApplyWork{GlobalCarrierAdoption: true}},
+		{name: "retirement-and-adoption", work: ApplyWork{
+			GlobalCarrierRetirement: true,
+			GlobalCarrierAdoption:   true,
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			envelope, err := CompileApply(test.work)
+			if err != nil {
+				t.Fatal(err)
+			}
+			demand := envelope.Demand()
+			wantValidations := 1
+			if test.work.GlobalCarrierRetirement && test.work.GlobalCarrierAdoption {
+				wantValidations = 3
+			}
+			if demand.EnsureCalls() != 1 || demand.StateDirValidationCalls() != wantValidations {
+				t.Fatalf(
+					"ensure/StateDir = %d/%d, want 1/%d",
+					demand.EnsureCalls(),
+					demand.StateDirValidationCalls(),
+					wantValidations,
+				)
+			}
+			if demand.DescendantPath() != "" || demand.DescendantBindings() != 0 ||
+				demand.DescendantValidations() != 0 || demand.DescendantFileCommits() != 0 {
+				t.Fatalf("global-only settlement reserved descendant work: %#v", demand)
+			}
+		})
+	}
+}
+
 func TestCompileApplyProviderAndFinalEffectsReserveTwoEnsures(t *testing.T) {
 	t.Parallel()
 	envelope, err := CompileApply(ApplyWork{

@@ -97,6 +97,19 @@ func applyEnvelopeFor(
 	if err != nil {
 		return operationplan.Envelope{}, 0, err
 	}
+	_, globalRetirements, err := stateOnlyCarrierClaimRetirements(
+		current.assessment.Reconciliation.CarrierAbsences(),
+	)
+	if err != nil {
+		return operationplan.Envelope{}, 0, err
+	}
+	_, globalAdoptions, err := stateOnlyCarrierClaimAdoptions(
+		current.assessment.CurrentState,
+		current.assessment.Reconciliation.CarrierAdoptions(),
+	)
+	if err != nil {
+		return operationplan.Envelope{}, 0, err
+	}
 	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
 		ExecuteGates:    executeGates,
 		ProviderActions: routeWorks(current.assessment.CurrentState, providerActions),
@@ -104,10 +117,12 @@ func applyEnvelopeFor(
 			current.assessment.CurrentState,
 			nonProviderRelationActions(current),
 		),
-		CarrierRemovals: carrierWorks(current.assessment.Reconciliation.CarrierAbsences()),
-		OrderClasses:    orderClasses,
-		Delegates:       delegateWorks(current.assessment.Reconciliation.Delegates()),
-		StatefilePath:   current.assessment.StatePath,
+		CarrierRemovals:         carrierWorks(current.assessment.Reconciliation.CarrierAbsences()),
+		GlobalCarrierRetirement: len(globalRetirements) != 0,
+		GlobalCarrierAdoption:   len(globalAdoptions) != 0,
+		OrderClasses:            orderClasses,
+		Delegates:               delegateWorks(current.assessment.Reconciliation.Delegates()),
+		StatefilePath:           current.assessment.StatePath,
 	})
 	if err != nil {
 		return operationplan.Envelope{}, 0, err

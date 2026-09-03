@@ -220,10 +220,9 @@ func compileApplyContinuationSchedule(
 ) operationplan.EffectNode {
 	nodes := make([]operationplan.EffectNode, 0, 7)
 	if input.hasGlobalRetirement {
-		nodes = append(nodes, compileApplyCheckedStep(
+		nodes = append(nodes, compileApplyGlobalCarrierBatchSettlementSchedule(
 			builder,
-			"apply/global-claim-retirements/persistence",
-			operationplan.EffectStepPersistence,
+			"apply/global-claim-retirements",
 		))
 	}
 	for _, removal := range input.carrierRemovals {
@@ -268,13 +267,35 @@ func compileApplyContinuationSchedule(
 		))
 	}
 	if input.hasGlobalAdoption {
-		nodes = append(nodes, compileApplyCheckedStep(
+		nodes = append(nodes, compileApplyGlobalCarrierBatchSettlementSchedule(
 			builder,
-			"apply/global-claim-adoptions/persistence",
-			operationplan.EffectStepPersistence,
+			"apply/global-claim-adoptions",
 		))
 	}
 	return operationplan.EffectSequence(nodes...)
+}
+
+func compileApplyGlobalCarrierBatchSettlementSchedule(
+	builder *operationplan.EffectStructureBuilder,
+	ref string,
+) operationplan.EffectNode {
+	return operationplan.EffectSequence(
+		compileApplyCheckedStep(
+			builder,
+			ref+"/pre-registry",
+			operationplan.EffectStepForwardEffect,
+		),
+		compileApplyCheckedStep(
+			builder,
+			ref+"/persistence",
+			operationplan.EffectStepPersistence,
+		),
+		compileApplyCheckedStep(
+			builder,
+			ref+"/post-registry",
+			operationplan.EffectStepForwardEffect,
+		),
+	)
 }
 
 func compileApplyFinalRouteSchedule(
@@ -359,19 +380,62 @@ func compileApplyRoutePromotionSchedule(
 	statefile *applyStatefileSchedule,
 	route applyRouteScheduleFact,
 ) operationplan.EffectNode {
-	return operationplan.EffectSequence(
+	return compileApplyGlobalCarrierPromotionSettlementSchedule(
+		builder,
+		route.ref,
 		statefile.checkedValidations(route.ref+"/statefile/pre-registry", 1),
-		compileApplyCheckedStep(
-			builder,
-			route.ref+"/global-registry",
-			operationplan.EffectStepPersistence,
-		),
 		statefile.checkedValidations(route.ref+"/statefile/post-registry", 1),
 		statefile.checkedPublications(route.ref+"/statefile/project-claim", 1),
 		statefile.checkedValidations(route.ref+"/statefile/post-claim", 1),
+	)
+}
+
+func compileApplyGlobalCarrierPromotionSettlementSchedule(
+	builder *operationplan.EffectStructureBuilder,
+	ref string,
+	preRegistryValidation operationplan.EffectNode,
+	postRegistryValidation operationplan.EffectNode,
+	claimPublication operationplan.EffectNode,
+	postClaimValidation operationplan.EffectNode,
+) operationplan.EffectNode {
+	return operationplan.EffectSequence(
 		compileApplyCheckedStep(
 			builder,
-			route.ref+"/project-root",
+			ref+"/declarations-before-registry",
+			operationplan.EffectStepObservation,
+		),
+		compileApplyCheckedStep(
+			builder,
+			ref+"/project-root-before-registry",
+			operationplan.EffectStepObservation,
+		),
+		preRegistryValidation,
+		compileApplyCheckedStep(
+			builder,
+			ref+"/global-registry",
+			operationplan.EffectStepPersistence,
+		),
+		postRegistryValidation,
+		compileApplyCheckedStep(
+			builder,
+			ref+"/registry-visibility",
+			operationplan.EffectStepObservation,
+		),
+		claimPublication,
+		postClaimValidation,
+		compileApplyCheckedStep(
+			builder,
+			ref+"/statefile-visibility",
+			operationplan.EffectStepObservation,
+		),
+		compileApplyCheckedStep(
+			builder,
+			ref+"/project-root-after-claim",
+			operationplan.EffectStepObservation,
+		),
+		compileApplyCheckedStep(
+			builder,
+			ref+"/declarations-after-claim",
 			operationplan.EffectStepObservation,
 		),
 	)
@@ -482,15 +546,14 @@ func compileApplyObservedRouteClaimSchedule(
 	if route.work.Global {
 		return operationplan.EffectSequence(
 			statefile.checkedValidations(route.ref+"/statefile/pre-global-claim", 1),
-			statefile.checkedValidations(route.ref+"/statefile/pre-global-registry", 1),
-			compileApplyCheckedStep(
+			compileApplyGlobalCarrierPromotionSettlementSchedule(
 				builder,
-				route.ref+"/global-registry-claim",
-				operationplan.EffectStepPersistence,
+				route.ref+"/observed-global-claim",
+				statefile.checkedValidations(route.ref+"/statefile/pre-global-registry", 1),
+				statefile.checkedValidations(route.ref+"/statefile/post-global-registry", 1),
+				statefile.checkedPublications(route.ref+"/statefile/global-claim", 1),
+				statefile.checkedValidations(route.ref+"/statefile/post-global-claim", 1),
 			),
-			statefile.checkedValidations(route.ref+"/statefile/post-global-registry", 1),
-			statefile.checkedPublications(route.ref+"/statefile/global-claim", 1),
-			statefile.checkedValidations(route.ref+"/statefile/post-global-claim", 1),
 		)
 	}
 	return operationplan.EffectSequence(

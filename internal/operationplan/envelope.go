@@ -31,6 +31,7 @@ const (
 	ObligationBarrierValidation
 	ObligationStatefileValidation
 	ObligationStatefileCommit
+	ObligationGlobalCarrierSettlement
 )
 
 // Obligation is one typed, bounded unit of authorized work.
@@ -78,13 +79,15 @@ type DelegateWork struct {
 // ApplyWork is the I/O-free apply envelope input. ExecuteGates is Effect-owned
 // visibility-gate demand; remaining slices are workflow-normalized facts.
 type ApplyWork struct {
-	ExecuteGates    int
-	ProviderActions []RouteWork
-	FinalRoutes     []RouteWork
-	CarrierRemovals []CarrierWork
-	OrderClasses    []OrderClassWork
-	Delegates       []DelegateWork
-	StatefilePath   string
+	ExecuteGates            int
+	ProviderActions         []RouteWork
+	FinalRoutes             []RouteWork
+	CarrierRemovals         []CarrierWork
+	GlobalCarrierRetirement bool
+	GlobalCarrierAdoption   bool
+	OrderClasses            []OrderClassWork
+	Delegates               []DelegateWork
+	StatefilePath           string
 }
 
 // Demand is the multidimensional semantic reservation projection. The State
@@ -212,6 +215,23 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 	if err != nil {
 		return Envelope{}, err
 	}
+	globalSettlementCalls := 0
+	if work.GlobalCarrierRetirement {
+		globalSettlementCalls, err = checkedAdd(globalSettlementCalls, 2)
+		if err != nil {
+			return Envelope{}, err
+		}
+	}
+	if work.GlobalCarrierAdoption {
+		globalSettlementCalls, err = checkedAdd(globalSettlementCalls, 2)
+		if err != nil {
+			return Envelope{}, err
+		}
+	}
+	finalEffectCalls, err = checkedAdd(finalEffectCalls, globalSettlementCalls)
+	if err != nil {
+		return Envelope{}, err
+	}
 
 	extraStateDir := 0
 	if persistDelegates {
@@ -237,6 +257,9 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 	}
 	if carrierCalls != 0 {
 		builder.add(ObligationCarrierRemoval, carrierCalls)
+	}
+	if globalSettlementCalls != 0 {
+		builder.add(ObligationGlobalCarrierSettlement, globalSettlementCalls/2)
 	}
 	if orderCalls != 0 {
 		builder.add(ObligationRelationOrderClass, orderCalls)

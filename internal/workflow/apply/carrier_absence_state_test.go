@@ -277,12 +277,24 @@ func TestStateOnlyCarrierClaimRetirementsRejectsInvalidAction(t *testing.T) {
 
 func TestCommitGlobalCarrierRetirementsRejectsAbsentExactClaim(t *testing.T) {
 	root := t.TempDir()
+	registryPath := filepath.Join(root, "carrier-claims.json")
+	claims := []durablecarrier.ManagedCarrierClaim{{}}
+	plan, err := newGlobalCarrierBatchSettlementPlan(
+		globalCarrierSettlementRetirement,
+		registryPath,
+		durablecarrier.EmptyGlobalCarrierClaims(),
+		claims,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	registry, count, err := commitGlobalCarrierRetirements(
 		context.Background(),
-		filepath.Join(root, "carrier-claims.json"),
+		registryPath,
 		durablecarrier.EmptyGlobalCarrierClaims(),
-		[]durablecarrier.ManagedCarrierClaim{{}},
-		nil,
+		claims,
+		plan,
+		testGlobalCarrierSettlementOptions(t, applyTestPaths(t, root)),
 	)
 	if err == nil || count != 0 || !registry.Equal(durablecarrier.EmptyGlobalCarrierClaims()) {
 		t.Fatalf("commitGlobalCarrierRetirements = (%#v, %d, %v), want validation failure", registry, count, err)
@@ -311,6 +323,8 @@ func TestPostApplySettlementStopsAtGlobalCarrierRetirementFailure(t *testing.T) 
 		t.Fatal(err)
 	}
 	attempts := 0
+	options := testGlobalCarrierSettlementOptions(t, paths)
+	options.markExecutionAttempted = func() { attempts++ }
 	result, err := runAfterCarrierClaimRetirements(
 		t.Context(),
 		paths,
@@ -323,7 +337,7 @@ func TestPostApplySettlementStopsAtGlobalCarrierRetirementFailure(t *testing.T) 
 		[]durablecarrier.ManagedCarrierClaim{claim},
 		reconcile.Result{},
 		observerelation.Batch{},
-		runOptions{markExecutionAttempted: func() { attempts++ }},
+		options,
 	)
 	if err == nil || !strings.Contains(err.Error(), "changed since confirmed observation") {
 		t.Fatalf("post-Apply settlement error = %v, want stale global-retirement basis", err)
@@ -442,6 +456,7 @@ func TestPostApplySettlementRetiresBeforeFinalGlobalAdoption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	options := testGlobalCarrierSettlementOptions(t, paths)
 	result, err := runAfterCarrierClaimRetirements(
 		t.Context(),
 		paths,
@@ -454,7 +469,7 @@ func TestPostApplySettlementRetiresBeforeFinalGlobalAdoption(t *testing.T) {
 		[]durablecarrier.ManagedCarrierClaim{claim},
 		reconcile.Result{},
 		observerelation.Batch{},
-		runOptions{},
+		options,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -489,7 +504,19 @@ func TestCommitGlobalCarrierRetirementsCommitsOneExactStateOnlyBatch(t *testing.
 		registryPath,
 		current,
 		[]durablecarrier.ManagedCarrierClaim{first, second},
-		nil,
+		func() globalCarrierSettlementPlan {
+			plan, planErr := newGlobalCarrierBatchSettlementPlan(
+				globalCarrierSettlementRetirement,
+				registryPath,
+				current,
+				[]durablecarrier.ManagedCarrierClaim{first, second},
+			)
+			if planErr != nil {
+				t.Fatal(planErr)
+			}
+			return plan
+		}(),
+		testGlobalCarrierSettlementOptions(t, applyTestPaths(t, root)),
 	)
 	if err != nil {
 		t.Fatal(err)

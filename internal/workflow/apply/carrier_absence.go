@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
@@ -316,12 +317,26 @@ func runAfterCarrierClaimRetirements(
 	relationObservations observerelation.Batch,
 	options runOptions,
 ) (runResult, error) {
+	retirementPlan := globalCarrierSettlementPlan{}
+	if len(globalRetirements) != 0 {
+		var err error
+		retirementPlan, err = newGlobalCarrierBatchSettlementPlan(
+			globalCarrierSettlementRetirement,
+			paths.CarrierClaimRegistryPath,
+			globalClaims,
+			globalRetirements,
+		)
+		if err != nil {
+			return runResult{}, err
+		}
+	}
 	nextGlobalClaims, globalRetirementCount, err := commitGlobalCarrierRetirements(
 		ctx,
 		paths.CarrierClaimRegistryPath,
 		globalClaims,
 		globalRetirements,
-		options.markExecutionAttempted,
+		retirementPlan,
+		options,
 	)
 	if err != nil {
 		return runResult{
@@ -390,12 +405,25 @@ func runAfterCarrierClaimRetirements(
 	if err != nil {
 		return next, err
 	}
+	adoptionPlan := globalCarrierSettlementPlan{}
+	if len(globalAdoptions) != 0 {
+		adoptionPlan, err = newGlobalCarrierBatchSettlementPlan(
+			globalCarrierSettlementAdoption,
+			paths.CarrierClaimRegistryPath,
+			next.GlobalCarrierClaims,
+			globalAdoptions,
+		)
+		if err != nil {
+			return next, err
+		}
+	}
 	nextGlobalClaims, adoptionCount, err := commitGlobalCarrierAdoptions(
 		ctx,
 		paths.CarrierClaimRegistryPath,
 		next.GlobalCarrierClaims,
 		globalAdoptions,
-		options.markExecutionAttempted,
+		adoptionPlan,
+		options,
 	)
 	next.GlobalCarrierClaims = nextGlobalClaims
 	next.ActionCount += adoptionCount
@@ -407,21 +435,57 @@ func commitGlobalCarrierRetirements(
 	registryPath string,
 	current durablecarrier.GlobalCarrierClaims,
 	claims []durablecarrier.ManagedCarrierClaim,
-	markExecutionAttempted func(),
+	plan globalCarrierSettlementPlan,
+	options runOptions,
 ) (durablecarrier.GlobalCarrierClaims, int, error) {
-	if len(claims) == 0 {
-		return current, 0, nil
-	}
-	store, err := carrierclaimstore.New(registryPath)
-	if err != nil {
-		return current, 0, err
-	}
-	if markExecutionAttempted != nil {
-		markExecutionAttempted()
-	}
-	next, err := store.RetireAllIfCurrent(ctx, current, claims)
-	if err != nil {
-		return current, 0, fmt.Errorf("commit global carrier retirements: %w", err)
-	}
-	return next, len(claims), nil
+	return executeGlobalCarrierBatchSettlement(
+		ctx,
+		plan,
+		globalCarrierSettlementRetirement,
+		registryPath,
+		claims,
+		current,
+		globalCarrierBatchSettlementCallbacks{
+			validateBefore: func() error {
+				if options.validateBeforeEffects == nil {
+					return fmt.Errorf("global carrier settlement effect validation is required")
+				}
+				return options.validateBeforeEffects(ctx, mutation.PhysicalAuthoritySet{})
+			},
+			persist: func() (durablecarrier.GlobalCarrierClaims, int, error) {
+				successor, err := current.RetireClaims(claims)
+				if err != nil {
+					return current, 0, err
+				}
+				if err := ctx.Err(); err != nil {
+					return current, 0, err
+				}
+				options.markAttempted()
+				store, err := carrierclaimstore.New(registryPath)
+				if err != nil {
+					return current, 0, err
+				}
+				observed, persistErr := store.RetireAllIfCurrent(ctx, current, claims)
+				next, persistErr := globalCarrierClaimsAfterPersistence(
+					current,
+					successor,
+					observed,
+					persistErr,
+				)
+				if persistErr != nil {
+					return next, 0, fmt.Errorf("commit global carrier retirements: %w", persistErr)
+				}
+				return next, len(claims), nil
+			},
+			validateAfter: func() error {
+				if options.validateStateDir == nil || options.acceptVisibilityChanges == nil {
+					return fmt.Errorf("global carrier settlement post-commit validation is required")
+				}
+				if err := options.validateStateDir(ctx); err != nil {
+					return err
+				}
+				return options.acceptVisibilityChanges(ctx)
+			},
+		},
+	)
 }

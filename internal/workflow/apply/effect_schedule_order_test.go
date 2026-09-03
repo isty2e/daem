@@ -187,7 +187,9 @@ func TestApplyScheduleSuccessfulSettlementOrder(t *testing.T) {
 	cursor.consume("apply/effect-segment", operationplan.EffectStepNoOp)
 	cursor.consume("apply/effect-segment/forward", operationplan.EffectStepForwardEffect)
 	cursor.consume("apply/effect-segment/settlement", operationplan.EffectStepPersistence)
+	cursor.checkedSuccess("apply/global-claim-retirements/pre-registry", operationplan.EffectStepForwardEffect)
 	cursor.checkedSuccess("apply/global-claim-retirements/persistence", operationplan.EffectStepPersistence)
+	cursor.checkedSuccess("apply/global-claim-retirements/post-registry", operationplan.EffectStepForwardEffect)
 
 	cursor.consume("carrier-removal/preflight", operationplan.EffectStepObservation)
 	cursor.selectAlternative("carrier-removal/preflight-outcome", 1)
@@ -268,7 +270,9 @@ func TestApplyScheduleSuccessfulSettlementOrder(t *testing.T) {
 	cursor.optional("apply/delegates/statefile/post-persistence/validate", operationplan.EffectStepValidateDescendant)
 	cursor.optional("apply/delegates/project-root", operationplan.EffectStepObservation)
 	cursor.failFastChoice("apply/delegates/outcome")
+	cursor.checkedSuccess("apply/global-claim-adoptions/pre-registry", operationplan.EffectStepForwardEffect)
 	cursor.checkedSuccess("apply/global-claim-adoptions/persistence", operationplan.EffectStepPersistence)
+	cursor.checkedSuccess("apply/global-claim-adoptions/post-registry", operationplan.EffectStepForwardEffect)
 	cursor.finish()
 }
 
@@ -574,8 +578,10 @@ func mustCompileSyntheticApplySchedule(
 ) applyForwardEffectSchedule {
 	t.Helper()
 	work := operationplan.ApplyWork{
-		ExecuteGates:  0,
-		StatefilePath: "state.json",
+		ExecuteGates:            0,
+		GlobalCarrierRetirement: input.hasGlobalRetirement,
+		GlobalCarrierAdoption:   input.hasGlobalAdoption,
+		StatefilePath:           "state.json",
 	}
 	if input.coreChanged {
 		work.ExecuteGates = 1

@@ -155,9 +155,6 @@ func runHostRoutesAndPersistAttemptRecords(
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
 		}
 	}
-	if len(globalPromotions) != 0 {
-		options.markAttempted()
-	}
 	nextState, globalCarrierClaims, err = commitInterruptedGlobalCarrierClaims(
 		ctx,
 		paths,
@@ -459,6 +456,20 @@ func runHostRoutesAndPersistAttemptRecords(
 				)
 			}
 			if item.action.Scope() == target.ScopeGlobal {
+				plan, planErr := prepareGlobalCarrierPromotionSettlementPlan(
+					paths.CarrierClaimRegistryPath,
+					nextState,
+					globalCarrierClaims,
+					item.action,
+					correlation,
+				)
+				if planErr != nil {
+					return nextState, globalCarrierClaims, records, errors.Join(
+						hostRouteFailuresError(failures),
+						planErr,
+						bindingReleaseErr,
+					)
+				}
 				nextState, globalCarrierClaims, err = commitObservedGlobalCarrierClaim(
 					ctx,
 					paths,
@@ -467,6 +478,8 @@ func runHostRoutesAndPersistAttemptRecords(
 					globalCarrierClaims,
 					item.action,
 					correlation,
+					plan,
+					options,
 				)
 			} else {
 				entry, entryErr := stateAuthority.EntryForCommit()
@@ -488,8 +501,16 @@ func runHostRoutesAndPersistAttemptRecords(
 				)
 			}
 			if err != nil {
+				record, recordErr := durableAttemptFromHostRouteResult(item.action, result, false)
+				if recordErr == nil {
+					records = append(records, record)
+					if hostRouteResultFailed(result) {
+						failures = append(failures, record)
+					}
+				}
 				return nextState, globalCarrierClaims, records, errors.Join(
 					hostRouteFailuresError(failures),
+					recordErr,
 					fmt.Errorf("persist observed carrier claim: %w", err),
 					bindingReleaseErr,
 				)
