@@ -126,6 +126,12 @@ func runWithOptions(
 		return runResult{}, err
 	}
 	if options.requireContinuation {
+		if err := bindApplyFinalRoutePlans(
+			options.preparedContinuation,
+			options.currentContinuation,
+		); err != nil {
+			return runResult{}, err
+		}
 		_, currentRemoval, _, err := bindCarrierRemovalPlans(
 			assessment.Reconciliation.CarrierAbsences(),
 			options.preparedContinuation,

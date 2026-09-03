@@ -432,7 +432,7 @@ func executeWithDependencies(
 		ctx,
 		&current,
 		providerActions,
-		stateDirPlan.schedule.final,
+		stateDirPlan.schedule.finalBinding(),
 		currentInput,
 		execution,
 		execution.authorityEvidence,

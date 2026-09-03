@@ -268,7 +268,7 @@ func runMCPProviderPrerequisitePhase(
 	ctx context.Context,
 	current *commandPlan,
 	providerActions []reconcile.RelationAction,
-	reservedFinalSchedule operationplan.EffectStructure,
+	reservedFinalSchedule applyFinalScheduleBinding,
 	currentInput CommandInput,
 	execution preparedExecution,
 	visibleAuthority applyAuthorityEvidence,

@@ -16,7 +16,7 @@ type applyContinuationPlan struct {
 	carrierPhaseEstablished bool
 	statefileInitiallyBound bool
 	carrierRemovals         []applyCarrierScheduleFact
-	finalRoutes             []applyRouteScheduleFact
+	finalRoutePlan          applyFinalRoutePlan
 	orderClasses            []applyOrderScheduleFact
 	mayReclassifyOrder      bool
 	delegates               []applyDelegateScheduleFact
@@ -49,7 +49,8 @@ func (plan applyContinuationPlan) equal(other applyContinuationPlan) bool {
 		plan.phaseEstablished == other.phaseEstablished &&
 		plan.carrierPhaseEstablished == other.carrierPhaseEstablished &&
 		plan.structure.Equal(other.structure) &&
-		carrierRemovalScheduleFactsEqual(plan.carrierRemovals, other.carrierRemovals)
+		carrierRemovalScheduleFactsEqual(plan.carrierRemovals, other.carrierRemovals) &&
+		plan.finalRoutePlan.equal(other.finalRoutePlan)
 }
 
 func carrierRemovalScheduleFactsEqual(
@@ -113,12 +114,7 @@ func (execution *applyContinuationExecution) finalRouteFact(
 	if execution == nil {
 		return applyRouteScheduleFact{}, nil
 	}
-	for _, fact := range execution.plan.finalRoutes {
-		if fact.action.Compare(action) == 0 {
-			return fact, nil
-		}
-	}
-	return applyRouteScheduleFact{}, fmt.Errorf("apply continuation final route is not scheduled")
+	return execution.plan.finalRoutePlan.routeFor(action)
 }
 
 func (execution *applyContinuationExecution) orderClassFact(

@@ -92,7 +92,7 @@ targets = ["pi"]
 		}
 	}()
 	if _, err := equivalentProviderFinalSchedule(
-		plan.schedule.final,
+		plan.schedule.finalBinding(),
 		changed.lifecycle.planned,
 		providerActions,
 	); err == nil {
@@ -131,8 +131,10 @@ func TestApplyForwardEffectScheduleIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !first.full.Equal(second.full) || !first.final.Equal(second.final) {
-		t.Fatal("identical apply facts produced different effect schedules")
+	if !first.full.Equal(second.full) ||
+		!first.final.Equal(second.final) ||
+		!first.continuation.finalRoutePlan.equal(second.continuation.finalRoutePlan) {
+		t.Fatal("identical apply facts produced different effect plans")
 	}
 }
 

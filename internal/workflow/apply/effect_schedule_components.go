@@ -25,10 +25,10 @@ type applyScheduleInput struct {
 }
 
 type applyRouteScheduleFact struct {
-	ref               string
-	action            reconcile.RelationAction
-	work              operationplan.RouteWork
-	preflightRejected bool
+	ref       string
+	action    reconcile.RelationAction
+	work      operationplan.RouteWork
+	preflight applyRoutePreflight
 }
 
 type applyCarrierScheduleFact struct {
@@ -161,6 +161,14 @@ func compileApplyContinuationPlan(
 	input applyScheduleInput,
 ) (applyContinuationPlan, error) {
 	initiallyBound := statefile.bound
+	finalRoutePlan, err := compileApplyFinalRoutePlan(
+		input.finalRoutes,
+		input.coreChanged,
+		initiallyBound,
+	)
+	if err != nil {
+		return applyContinuationPlan{}, err
+	}
 	segment, carrierRemovalSegment := compileApplyContinuationSchedule(
 		builder,
 		statefile,
@@ -188,7 +196,7 @@ func compileApplyContinuationPlan(
 		carrierPhaseEstablished: input.coreChanged || input.hasGlobalRetirement,
 		statefileInitiallyBound: initiallyBound,
 		carrierRemovals:         append([]applyCarrierScheduleFact(nil), input.carrierRemovals...),
-		finalRoutes:             append([]applyRouteScheduleFact(nil), input.finalRoutes...),
+		finalRoutePlan:          finalRoutePlan,
 		orderClasses:            append([]applyOrderScheduleFact(nil), input.orderClasses...),
 		mayReclassifyOrder:      input.mayReclassifyOrder,
 		delegates:               append([]applyDelegateScheduleFact(nil), input.delegates...),
@@ -349,7 +357,7 @@ func compileApplyFinalRouteSchedule(
 			))
 		}
 		switch {
-		case route.work.InvokesHost && route.preflightRejected:
+		case route.work.InvokesHost && route.preflight.rejected():
 			preflightRejected = true
 		case route.work.InvokesHost:
 			prepared = append(prepared, route)

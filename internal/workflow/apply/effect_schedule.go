@@ -22,8 +22,20 @@ type applyForwardEffectSchedule struct {
 	effectPlan   execute.ApplyEffectPlan
 }
 
+type applyFinalScheduleBinding struct {
+	structure operationplan.EffectStructure
+	routes    applyFinalRoutePlan
+}
+
+func (schedule applyForwardEffectSchedule) finalBinding() applyFinalScheduleBinding {
+	return applyFinalScheduleBinding{
+		structure: schedule.final,
+		routes:    schedule.continuation.finalRoutePlan,
+	}
+}
+
 func equivalentProviderFinalSchedule(
-	reserved operationplan.EffectStructure,
+	reserved applyFinalScheduleBinding,
 	current commandPlan,
 	providerActions []reconcile.RelationAction,
 ) (applyForwardEffectSchedule, error) {
@@ -39,9 +51,10 @@ func equivalentProviderFinalSchedule(
 	if err != nil {
 		return applyForwardEffectSchedule{}, err
 	}
-	if !reserved.Equal(currentSchedule.final) {
+	if !reserved.structure.Equal(currentSchedule.final) ||
+		!reserved.routes.equal(currentSchedule.continuation.finalRoutePlan) {
 		return applyForwardEffectSchedule{}, fmt.Errorf(
-			"reserved and current final apply effect schedules differ",
+			"reserved and current final apply effect plans differ",
 		)
 	}
 	return currentSchedule, nil
@@ -174,20 +187,24 @@ func applyRouteScheduleFacts(
 	works := routeWorks(currentState, actions)
 	result := make([]applyRouteScheduleFact, 0, len(actions))
 	for index := range actions {
-		preflightRejected := false
+		preflight := applyRoutePreflight{}
 		if works[index].InvokesHost {
-			_, err := executehostroute.BuildCommand(executehostroute.BuildInput{
+			command, err := executehostroute.BuildCommand(executehostroute.BuildInput{
 				Action:   actions[index],
 				Lockfile: locked,
 				WorkDir:  workDir,
 			})
-			preflightRejected = err != nil
+			if err != nil {
+				preflight = rejectedApplyRoutePreflight(err)
+			} else {
+				preflight = acceptedApplyRoutePreflight(command)
+			}
 		}
 		result = append(result, applyRouteScheduleFact{
-			ref:               applyOrdinalScheduleReference(prefix, index),
-			action:            actions[index],
-			work:              works[index],
-			preflightRejected: preflightRejected,
+			ref:       applyOrdinalScheduleReference(prefix, index),
+			action:    actions[index],
+			work:      works[index],
+			preflight: preflight,
 		})
 	}
 	return result, nil

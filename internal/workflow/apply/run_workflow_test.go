@@ -171,6 +171,60 @@ func TestRunWithOptionsThreadsPreparedEffectPlanThroughBothPayloadBranches(t *te
 	})
 }
 
+func TestRunWithOptionsRejectsFinalRoutePlanMismatchBeforeStatefileAuthority(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	paths := isolatedApplyTestPaths(t, tempDir)
+	resources := applyEmptyEnvironment(t, targetpkg.TargetCodex)
+	locked := snapshottest.File(t)
+	selection := applySelection(t, []string{"codex"})
+	assessment := buildManagedApplyAssessment(t, paths, resources, locked, selection, false)
+	preparedRoutes, err := compileApplyFinalRoutePlan(nil, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentRoutes, err := compileApplyFinalRoutePlan(nil, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reserveCalls := 0
+
+	_, err = runWithOptions(
+		t.Context(),
+		paths,
+		resources,
+		locked,
+		selection,
+		assessment,
+		runOptions{
+			preparedContinuation: applyContinuationPlan{finalRoutePlan: preparedRoutes},
+			currentContinuation:  applyContinuationPlan{finalRoutePlan: currentRoutes},
+			requireContinuation:  true,
+			reserveStatefileAuthority: func(
+				string,
+				statefileEffectPlan,
+			) (statefileEffectReservation, error) {
+				reserveCalls++
+				return nil, nil
+			},
+		},
+	)
+	if err == nil {
+		t.Fatal("runWithOptions accepted a mismatched final route plan")
+	}
+	if reserveCalls != 0 {
+		t.Fatalf("statefile authority reservations = %d, want 0", reserveCalls)
+	}
+	for _, path := range []string{paths.StatefilePath, paths.RecoveryDir} {
+		if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("pre-effect route-plan failure created %q: %v", path, statErr)
+		}
+	}
+}
+
 func TestRunWithOptionsRejectsCarrierContinuationMismatchBeforeStatefileAuthority(
 	t *testing.T,
 ) {
