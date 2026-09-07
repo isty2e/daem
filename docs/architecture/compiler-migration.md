@@ -137,17 +137,31 @@ Rejected guarantee-expansion proposals are recorded as such, not as fixes.
   discovery roots and ineligible children is a NON-GOAL, not unfinished
   compiler work. Existing source, inventory, alias and merge freshness remain
   required.
+- Darwin identity: the [platform contract](../platforms.md) owns the deferred
+  blanket nonzero-admission proposal. A native zero-tuple construction and
+  StateDir replacement probe did not establish a contract violation; it does
+  not certify every filesystem or inode-reuse scenario. The artifact-view
+  admission rule does not independently impose mutation/recovery policy.
 - Delegate persistence: `delegateActionsRequireAttemptPersistence` includes
   blocked actions, whereas planning's project-root retention currently tests
-  scheduled project actions. Public `CommandInput` has no passive runner
-  readiness input, and missing readiness defaults to `RunnerUnknown`. A
-  supported public PlanWrite/Execute reproduction is still needed; this is
-  neither a verified fix nor proof that the mismatch is harmless. Resolve it
-  before enabling a new blocked-delegate planning path.
+  scheduled project actions. A public Claude Code project MCP probe produced
+  one scheduled delegate for a clean input and one blocked delegate after an
+  unmanaged `.mcp.json` conflict. `PlanWrite` rejected the aggregate blocker
+  before returning an executable plan, so that supported path did not reach
+  the alleged missing-root persistence failure. Public `CommandInput` has no
+  passive runner-readiness input. New blocked-delegate readiness or persistence
+  modes remain deferred; resolve their authority requirements before enabling
+  them, or reopen on a supported public execution failure. This is not a fix
+  or a proof about every possible blocked input.
 - Provider replanning: continuation rebinding and both final-schedule checks
-  are present; core `ApplyEffectPlan` rejects prepared/current structural
-  disagreement. A proposed core-plan rebinding change needs a supported
-  reproduction distinguishing required rejection from avoidable refusal.
+  are present, including core structure; `ApplyEffectPlan` rejects
+  prepared/current structural disagreement. The public provider-install
+  fixture accepts post-install replanning and projects config afterward. A
+  separate fixture accepts an already installed, in-range provider without
+  replaying its route; that is not a mid-execution version-change test. No
+  avoidable core-binding refusal was reproduced. Rebinding changes remain
+  deferred pending a supported reproduction distinguishing required rejection
+  from avoidable refusal.
 - Structural-size policy, whole-continuation coverage, scalar removal and
   classifier replacement require independently justified scopes. Their old
   task dependency chains do not create release requirements.
