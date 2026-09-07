@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/contractversion"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -18,7 +18,7 @@ import (
 func PrintRecoverPlanWithFenceOptions(
 	output io.Writer,
 	disclosure journal.RecoverablePlan,
-	fileSetFence transaction.FileSetFenceKind,
+	fileSetFence fileset.FileSetFenceKind,
 	options HumanOptions,
 ) {
 	if plan, ok := journal.ActiveRecoveryPlan(disclosure); ok {
@@ -37,8 +37,8 @@ func PrintRecoverPlanWithFenceOptions(
 	fmt.Fprintln(output, "recover: invalid")
 }
 
-func printContinuingFileSetFence(output io.Writer, kind transaction.FileSetFenceKind) {
-	if kind == transaction.FileSetFenceClear {
+func printContinuingFileSetFence(output io.Writer, kind fileset.FileSetFenceKind) {
+	if kind == fileset.FileSetFenceClear {
 		return
 	}
 	fmt.Fprintf(
@@ -49,14 +49,14 @@ func printContinuingFileSetFence(output io.Writer, kind transaction.FileSetFence
 	)
 }
 
-func continuingFileSetFenceValue(kind transaction.FileSetFenceKind) string {
-	if kind == transaction.FileSetFenceClear {
+func continuingFileSetFenceValue(kind fileset.FileSetFenceKind) string {
+	if kind == fileset.FileSetFenceClear {
 		return ""
 	}
 	return string(kind)
 }
 
-func fileSetFenceObservationValue(observation transaction.FileSetFenceObservation) string {
+func fileSetFenceObservationValue(observation fileset.FileSetFenceObservation) string {
 	if !observation.Observed() {
 		return ""
 	}
@@ -66,20 +66,20 @@ func fileSetFenceObservationValue(observation transaction.FileSetFenceObservatio
 	return continuingFileSetFenceValue(observation.Kind())
 }
 
-func fileSetFenceRemediation(kind transaction.FileSetFenceKind, known bool) string {
+func fileSetFenceRemediation(kind fileset.FileSetFenceKind, known bool) string {
 	if !known {
 		return "preserve recovery and file-set evidence, then inspect the StateDir boundary again"
 	}
 	switch kind {
-	case transaction.FileSetFenceAccessUnprovable:
+	case fileset.FileSetFenceAccessUnprovable:
 		return "restore StateDir search/read access and preserve recovery evidence before retrying"
-	case transaction.FileSetFenceInvalidEvidence:
+	case fileset.FileSetFenceInvalidEvidence:
 		return "preserve and inspect the invalid file-set evidence before continuing"
-	case transaction.FileSetFenceAbandonedResidue:
+	case fileset.FileSetFenceAbandonedResidue:
 		return "preserve the residue for inspection; do not delete reserved names by prefix"
-	case transaction.FileSetFenceCensusLimit:
+	case fileset.FileSetFenceCensusLimit:
 		return "inspect the bounded StateDir inventory before continuing"
-	case transaction.FileSetFencePublishedTransaction:
+	case fileset.FileSetFencePublishedTransaction:
 		return "finish or inspect the published file-set transaction separately"
 	default:
 		return "preserve recovery and file-set evidence, then inspect again"
@@ -90,7 +90,7 @@ func fileSetFenceRemediation(kind transaction.FileSetFenceKind, known bool) stri
 // path-neutral remediation independently of journal completion.
 func PrintRecoverExecutionFence(output io.Writer, execution recoverworkflow.ExecutionResult) {
 	observation := execution.FileSetFenceObservation()
-	if !observation.Observed() || observation.Known() && observation.Kind() == transaction.FileSetFenceClear {
+	if !observation.Observed() || observation.Known() && observation.Kind() == fileset.FileSetFenceClear {
 		return
 	}
 	fmt.Fprintf(
@@ -247,7 +247,7 @@ func PrintRecoverResultJSONWithFence(
 	output io.Writer,
 	mode string,
 	disclosure journal.RecoverablePlan,
-	fileSetFence transaction.FileSetFenceKind,
+	fileSetFence fileset.FileSetFenceKind,
 	execution *recoverworkflow.ExecutionResult,
 	resultErr error,
 ) error {
@@ -279,7 +279,7 @@ func RecoverResultError(
 	if execution != nil {
 		projected := execution.SemanticError(resultErr)
 		observation := execution.FileSetFenceObservation()
-		if !observation.Observed() || observation.Known() && observation.Kind() == transaction.FileSetFenceClear {
+		if !observation.Observed() || observation.Known() && observation.Kind() == fileset.FileSetFenceClear {
 			return projected
 		}
 		return fmt.Errorf(
@@ -298,7 +298,7 @@ func RecoverResultError(
 func recoveryJSONPayload(
 	mode string,
 	disclosure journal.RecoverablePlan,
-	fileSetFence transaction.FileSetFenceKind,
+	fileSetFence fileset.FileSetFenceKind,
 	execution *recoverworkflow.ExecutionResult,
 ) (recoveryPlanJSONOutput, error) {
 	phase := "planned"

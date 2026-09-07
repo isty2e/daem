@@ -42,15 +42,15 @@ repos:
         language: system
         pass_filenames: false
         files: '(^|/)([^/]+\.go|go\.(mod|sum))$'
-      - id: productive-api
-        name: productive exported API reachability
-        entry: tools/verify-productive-api.sh
-        language: system
-        pass_filenames: false
-        files: '(^|/)([^/]+\.go|go\.(mod|sum)|tools/verify-productive-api\.sh)$'
       - id: archguard
-        name: architecture and documentation guards
+        name: semantic architecture guards
         entry: tools/test.sh repository
         language: system
         pass_filenames: false
-        files: '(^|/)([^/]+\.go|go\.(mod|sum)|README\.md|CONTRIBUTING\.md|docs/.*\.md|\.github/.*\.ya?ml)$'
+        files: '(^|/)([^/]+\.go|go\.(mod|sum))$'
+      - id: test-tooling
+        name: test harness lifecycle contracts
+        entry: tools/test.sh tooling
+        language: system
+        pass_filenames: false
+        files: '^(tools/test(-[^/]+)?\.sh|test/tooling/.*|\.pre-commit-config\.yaml)$'

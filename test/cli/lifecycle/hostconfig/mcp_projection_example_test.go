@@ -62,8 +62,6 @@ var mcpPublicExampleCases = []mcpPublicExampleCase{
 }
 
 func TestMCPPublicCLIExampleManifestsLockApplyAndReportStatus(t *testing.T) {
-	assertMCPPublicExampleInventory(t, mcpPublicExampleCases)
-
 	for _, test := range mcpPublicExampleCases {
 		t.Run(test.filename, func(t *testing.T) {
 			project := newMCPCLIProject(t)

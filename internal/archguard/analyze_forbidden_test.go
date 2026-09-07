@@ -145,9 +145,8 @@ func TestAnalyzeRecordsRejectsStorageCommitEffectContractDescendants(t *testing.
 			"github.com/isty2e/daem/internal/effect/mutation/rootedpath/private",
 		},
 	}})
-	if countViolationRule(report.Violations, ruleStorageCommitImport) != 2 ||
-		countViolationRule(report.Violations, rulePackagePlacementOwnership) != 2 {
-		t.Fatalf("storage Effect-contract descendant violations = %v, want two storage and two placement findings", report.Violations)
+	if countViolationRule(report.Violations, ruleStorageCommitImport) != 2 {
+		t.Fatalf("storage Effect-contract descendant violations = %v, want two storage findings", report.Violations)
 	}
 }
 

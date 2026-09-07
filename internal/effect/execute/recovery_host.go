@@ -37,6 +37,13 @@ type recoveryAggregateActionGroup struct {
 	destination mutationDestination
 }
 
+type recoveryHostExecutionPlan struct {
+	resolvedDestinations []mutationDestination
+	aggregateGroups      map[int]recoveryAggregateActionGroup
+	aggregateMembers     map[int]struct{}
+	visitOrder           []activeRecoveryHostVisit
+}
+
 func recoveryDestination(scope target.Scope, value string) (output.Destination, error) {
 	destination, err := output.Parse(value)
 	if err != nil {
@@ -194,21 +201,42 @@ func executeRecoveryHostActions(
 	if len(actions) != len(staged) {
 		return fmt.Errorf("recovery action count %d does not match staged precondition count %d", len(actions), len(staged))
 	}
+	plan, err := prepareRecoveryHostExecutionPlan(authority, actions)
+	if err != nil {
+		return err
+	}
+	return executeRecoveryHostActionPlan(
+		ctx,
+		authority,
+		actions,
+		staged,
+		plan,
+		beforeAction,
+		ownershipGuard,
+		codecs,
+		gate,
+	)
+}
+
+func prepareRecoveryHostExecutionPlan(
+	authority *mutationAuthority,
+	actions []recoveryHostAction,
+) (recoveryHostExecutionPlan, error) {
 	resolvedDestinations := make([]mutationDestination, len(actions))
 	aggregateGroups := make(map[int]recoveryAggregateActionGroup)
 	aggregateGroupByDestination := make(map[string]int)
-	aggregateMember := make(map[int]struct{})
+	aggregateMembers := make(map[int]struct{})
 	for index, action := range actions {
 		if err := action.validateAggregateCorrelation(); err != nil {
-			return fmt.Errorf("recovery action %d: %w", index, err)
+			return recoveryHostExecutionPlan{}, fmt.Errorf("recovery action %d: %w", index, err)
 		}
 		logical, err := recoveryDestination(action.Scope, action.Destination)
 		if err != nil {
-			return err
+			return recoveryHostExecutionPlan{}, err
 		}
 		destination, err := authority.resolveBoundDestination(action.Scope, logical)
 		if err != nil {
-			return err
+			return recoveryHostExecutionPlan{}, err
 		}
 		resolvedDestinations[index] = destination
 		if action.ContentPath == "" {
@@ -224,10 +252,45 @@ func executeRecoveryHostActions(
 		group := aggregateGroups[firstIndex]
 		group.indexes = append(group.indexes, index)
 		aggregateGroups[firstIndex] = group
-		aggregateMember[index] = struct{}{}
+		aggregateMembers[index] = struct{}{}
+	}
+	visitOrder := make([]activeRecoveryHostVisit, 0, len(actions))
+	for index := range actions {
+		if group, present := aggregateGroups[index]; present {
+			for _, memberIndex := range group.indexes {
+				visitOrder = append(visitOrder, activeRecoveryHostVisit{index: memberIndex})
+			}
+			continue
+		}
+		if _, grouped := aggregateMembers[index]; grouped {
+			continue
+		}
+		visitOrder = append(visitOrder, activeRecoveryHostVisit{index: index})
+	}
+	return recoveryHostExecutionPlan{
+		resolvedDestinations: resolvedDestinations,
+		aggregateGroups:      aggregateGroups,
+		aggregateMembers:     aggregateMembers,
+		visitOrder:           visitOrder,
+	}, nil
+}
+
+func executeRecoveryHostActionPlan(
+	ctx context.Context,
+	authority *mutationAuthority,
+	actions []recoveryHostAction,
+	staged []hostRollbackEntry,
+	plan recoveryHostExecutionPlan,
+	beforeAction func(int) error,
+	ownershipGuard recoveryHostOwnershipGuard,
+	codecs aggregate.CodecCatalog,
+	gate visibilityEffectGate,
+) error {
+	if len(actions) != len(staged) {
+		return fmt.Errorf("recovery action count %d does not match staged precondition count %d", len(actions), len(staged))
 	}
 	for index, action := range actions {
-		if group, present := aggregateGroups[index]; present {
+		if group, present := plan.aggregateGroups[index]; present {
 			_, err := executeRecoveryAggregateActionGroup(
 				ctx,
 				authority,
@@ -244,7 +307,7 @@ func executeRecoveryHostActions(
 			}
 			continue
 		}
-		if _, grouped := aggregateMember[index]; grouped {
+		if _, grouped := plan.aggregateMembers[index]; grouped {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -259,7 +322,7 @@ func executeRecoveryHostActions(
 			return fmt.Errorf("validate recovery host action %d authority: %w", index, err)
 		}
 
-		destination := resolvedDestinations[index]
+		destination := plan.resolvedDestinations[index]
 		if ownershipGuard != nil {
 			if err := ownershipGuard(ctx, action, destination); err != nil {
 				return fmt.Errorf("validate recovery host action %d ownership: %w", index, err)

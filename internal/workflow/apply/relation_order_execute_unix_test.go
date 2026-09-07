@@ -13,6 +13,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -20,11 +21,11 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
-	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -375,17 +376,22 @@ func TestRelationOrderObservationFailureSuppressesLaterDelegate(t *testing.T) {
 		t.Fatal(err)
 	}
 	runnerCalled := false
-	_, err = runHostRoutesOrderDelegatesAndPersistAttemptRecords(
+	registryAttempts := 0
+	_, err = runAfterCarrierClaimRetirements(
 		t.Context(),
 		paths,
 		combined,
 		applyMCPSelection(t),
-		paths.StatefilePath,
-		durable.EmptySnapshot(),
+		execute.ApplyResult{
+			StatePath: paths.StatefilePath,
+			State:     durable.EmptySnapshot(),
+		},
 		owner,
 		durablecarrier.EmptyGlobalCarrierClaims(),
-		0,
+		nil,
+		[]durablecarrier.ManagedCarrierClaim{newWorkflowFixture(t, target.ScopeGlobal).claim},
 		reconciliation,
+		observerelation.Batch{},
 		runOptions{
 			orderRiskBaseline: newRelationOrderRiskBaseline(reconciliation.RelationOrders()),
 			DelegateExecutor: delegate.NewExecutor(delegate.Options{
@@ -394,6 +400,7 @@ func TestRelationOrderObservationFailureSuppressesLaterDelegate(t *testing.T) {
 					return subprocess.CommandResult{Started: true, HasExitCode: true}
 				},
 			}),
+			markExecutionAttempted: func() { registryAttempts++ },
 		},
 	)
 	if !errors.Is(err, ErrRelationOrderBlock) {
@@ -401,6 +408,9 @@ func TestRelationOrderObservationFailureSuppressesLaterDelegate(t *testing.T) {
 	}
 	if runnerCalled {
 		t.Fatal("delegate runner was called after relation-order observation failure")
+	}
+	if registryAttempts != 0 {
+		t.Fatalf("global adoption attempts = %d, want none after relation-order failure", registryAttempts)
 	}
 }
 
@@ -479,7 +489,7 @@ func relationOrderTestReconciliation(
 ) reconcile.Result {
 	t.Helper()
 	constraint := locked.Locked.OrderConstraints()[0]
-	selectedTarget, capability, admitted := profile.ExtensionOrderCapabilityForClass(
+	selectedTarget, capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
 		constraint.ClassID(),
 	)
 	if !admitted {

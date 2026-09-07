@@ -75,3 +75,36 @@ func (support Support) Target() target.Target     { return support.selectedTarge
 func (support Support) ResourceKind() entity.Kind { return support.resourceKind }
 func (support Support) Supported() bool           { return support.supported }
 func (support Support) Reason() UnsupportedReason { return support.reason }
+
+// TargetSupport returns the owner-local support fact without assembling
+// TargetProfile. Unknown targets and missing resource facts are absent.
+func TargetSupport(selectedTarget target.Target, resourceKind entity.Kind) (Support, bool) {
+	facts, ok := supportCatalog[selectedTarget]
+	if !ok {
+		return Support{}, false
+	}
+	support, ok := facts[resourceKind]
+	return support, ok
+}
+
+// ResourceSupportFacts returns all direct support facts in stable target and
+// resource catalog order.
+func ResourceSupportFacts() []Support {
+	result := make([]Support, 0, len(target.SupportedTargets())*len(resourceKinds))
+	for _, selectedTarget := range target.SupportedTargets() {
+		for _, resourceKind := range resourceKinds {
+			if support, ok := TargetSupport(selectedTarget, resourceKind); ok {
+				result = append(result, support)
+			}
+		}
+	}
+	return result
+}
+
+// TargetSupports reports whether the target directly admits the resource
+// without assembling TargetProfile. Unknown targets and missing resource
+// facts are unsupported.
+func TargetSupports(selectedTarget target.Target, resourceKind entity.Kind) bool {
+	support, ok := TargetSupport(selectedTarget, resourceKind)
+	return ok && support.Supported()
+}

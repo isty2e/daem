@@ -6,6 +6,7 @@ import (
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
@@ -23,9 +24,15 @@ func planMCPProviderAuthoring(
 	selectedTarget target.Target,
 	selectedScope target.Scope,
 ) (mcpProviderAuthoringPlan, error) {
+	if !catalog.Product().HasMCPProviderAuthoring(selectedTarget) {
+		return mcpProviderAuthoringPlan{}, nil
+	}
 	authoringProfile, supported := profile.MCPProviderAuthoringProfileForTarget(selectedTarget)
 	if !supported {
-		return mcpProviderAuthoringPlan{}, nil
+		return mcpProviderAuthoringPlan{}, fmt.Errorf(
+			"mcp-server authoring compiled provider admission for %s has no owner profile",
+			selectedTarget,
+		)
 	}
 
 	candidates, err := declaredMCPProviderContributions(content, header, authoringProfile)

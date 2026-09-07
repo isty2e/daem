@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 )
 
 func TestMaximumForwardEffectValidationCountMatchesSuccessfulExecution(t *testing.T) {
@@ -20,6 +21,22 @@ func TestMaximumForwardEffectValidationCountMatchesSuccessfulExecution(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	plan, err := PrepareApplyEffectPlan(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var builder operationplan.EffectStructureBuilder
+	structure, err := builder.Compile(builder.ForwardPhase("apply", plan.Segment()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	demand, err := structure.LegacyDemand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := demand.EnsureCalls() + demand.StateDirValidationCalls(); got != maximum {
+		t.Fatalf("typed forward demand = %d, legacy maximum = %d", got, maximum)
+	}
 	validationCalls := 0
 	_, err = ApplyWithOptions(context.Background(), input, ApplyOptions{
 		ValidateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
@@ -32,5 +49,41 @@ func TestMaximumForwardEffectValidationCountMatchesSuccessfulExecution(t *testin
 	}
 	if validationCalls != maximum {
 		t.Fatalf("forward validation calls = %d, maximum plan = %d", validationCalls, maximum)
+	}
+}
+
+func TestApplyFailureSettlementStructureIsZeroDemandAndHostCountIndependent(t *testing.T) {
+	t.Parallel()
+
+	fixture := newApplyEventFixture(t)
+	one, err := PrepareApplyEffectPlan(fixture.input([]applyEventAction{
+		fixture.createAction("create", "CREATE.md", "created\n"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	many, err := PrepareApplyEffectPlan(fixture.input([]applyEventAction{
+		fixture.createAction("first", "FIRST.md", "first\n"),
+		fixture.createAction("second", "SECOND.md", "second\n"),
+		fixture.createAction("third", "THIRD.md", "third\n"),
+		fixture.createAction("fourth", "FOURTH.md", "fourth\n"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !one.failureStructure.Equal(many.failureStructure) {
+		t.Fatal("failure settlement structure changed with host action cardinality")
+	}
+	for _, structure := range []operationplan.EffectStructure{
+		one.failureStructure,
+		many.failureStructure,
+	} {
+		demand, demandErr := structure.LegacyDemand()
+		if demandErr != nil {
+			t.Fatal(demandErr)
+		}
+		if !demand.Empty() {
+			t.Fatalf("failure settlement demand = %+v, want zero", demand)
+		}
 	}
 }

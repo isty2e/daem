@@ -7,6 +7,7 @@ import (
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	mcpeffectivehost "github.com/isty2e/daem/internal/assurance/observe/mcp/effective/host"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -58,7 +59,7 @@ func retiringMCPProjections(
 		if _, stillDesired := currentSubjects[state.Subject()]; stillDesired {
 			continue
 		}
-		if _, admitted := aggregate.MCPPlacementForSubject(state.Subject()); !admitted {
+		if _, admitted := catalog.Product().LookupMCPBySubject(state.Subject()); !admitted {
 			continue
 		}
 		projection, err := aggregate.NewSubjectContribution(

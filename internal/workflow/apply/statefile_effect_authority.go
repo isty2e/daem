@@ -6,12 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/reconcile"
-	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
-	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 type statefileEffectPlan struct {
@@ -21,26 +17,6 @@ type statefileEffectPlan struct {
 
 func (plan statefileEffectPlan) empty() bool {
 	return plan.validations == 0 && plan.fileCommits == 0
-}
-
-func (plan *statefileEffectPlan) add(validations int, fileCommits int) error {
-	if plan == nil {
-		return fmt.Errorf("statefile effect plan is required")
-	}
-	var err error
-	plan.validations, err = checkedStatefileEffectCount(plan.validations, validations)
-	if err != nil {
-		return err
-	}
-	plan.fileCommits, err = checkedStatefileEffectCount(plan.fileCommits, fileCommits)
-	return err
-}
-
-func checkedStatefileEffectCount(current int, added int) (int, error) {
-	if current < 0 || added < 0 || current > int(^uint(0)>>1)-added {
-		return 0, fmt.Errorf("statefile effect count overflows")
-	}
-	return current + added, nil
 }
 
 type boundStatefileEffectAuthority interface {
@@ -54,7 +30,7 @@ type statefileEffectReservation interface {
 }
 
 type transactionStatefileEffectReservation struct {
-	reservation *transaction.StateDirDescendantReservation
+	reservation *recoverygate.StateDirDescendantReservation
 }
 
 func (reservation transactionStatefileEffectReservation) Bind(
@@ -187,6 +163,15 @@ func (authority *statefileEffectAuthority) EntryForCommit() (*rootedpath.EntryAu
 	return entry, nil
 }
 
+func (authority *statefileEffectAuthority) isBound() bool {
+	if authority == nil {
+		return false
+	}
+	authority.mu.Lock()
+	defer authority.mu.Unlock()
+	return !authority.closed && authority.bound != nil
+}
+
 func (authority *statefileEffectAuthority) Close() error {
 	if authority == nil {
 		return nil
@@ -205,94 +190,4 @@ func (authority *statefileEffectAuthority) Close() error {
 	authority.bound = nil
 	authority.reservation = nil
 	return err
-}
-
-func statefileEffectPlanFor(
-	current durable.Snapshot,
-	reconciliation reconcile.Result,
-) (statefileEffectPlan, error) {
-	host, err := hostRouteStatefileEffectPlan(current, reconciliation.Relations())
-	if err != nil {
-		return statefileEffectPlan{}, err
-	}
-	carrier, err := carrierRemovalStatefileEffectPlan(reconciliation.CarrierAbsences())
-	if err != nil {
-		return statefileEffectPlan{}, err
-	}
-	delegate, err := delegateStatefileEffectPlan(reconciliation.Delegates())
-	if err != nil {
-		return statefileEffectPlan{}, err
-	}
-	if err := host.add(carrier.validations, carrier.fileCommits); err != nil {
-		return statefileEffectPlan{}, err
-	}
-	if err := host.add(delegate.validations, delegate.fileCommits); err != nil {
-		return statefileEffectPlan{}, err
-	}
-	return host, nil
-}
-
-// hostRouteStatefileEffectPlan reserves the maximum branch envelope before
-// host effects. Project routes need seven validations and four statefile
-// commits; global routes add three validations around registry convergence.
-func hostRouteStatefileEffectPlan(
-	current durable.Snapshot,
-	actions []reconcile.RelationAction,
-) (statefileEffectPlan, error) {
-	var plan statefileEffectPlan
-	for _, action := range actions {
-		switch {
-		case action.InvokesHostRoute():
-			validations := 7
-			if action.Scope() == target.ScopeGlobal {
-				validations = 10
-			}
-			if err := plan.add(validations, 4); err != nil {
-				return statefileEffectPlan{}, err
-			}
-		case isGlobalCarrierPromotionCandidate(current, action):
-			if err := plan.add(4, 1); err != nil {
-				return statefileEffectPlan{}, err
-			}
-		}
-	}
-	return plan, nil
-}
-
-// carrierRemovalStatefileEffectPlan uses the global delegated-removal maximum:
-// batch binding, pre/post command checks, attempt persistence, and three
-// registry-retirement checks around at most three statefile commits.
-func carrierRemovalStatefileEffectPlan(
-	actions []carrierabsence.Action,
-) (statefileEffectPlan, error) {
-	var plan statefileEffectPlan
-	for _, action := range actions {
-		if !action.InvokesHostRoute() && !action.MutatesDirectProjection() &&
-			!action.VerifiesPendingRemoval() {
-			continue
-		}
-		if err := plan.add(8, 3); err != nil {
-			return statefileEffectPlan{}, err
-		}
-	}
-	return plan, nil
-}
-
-// delegateStatefileEffectPlan reserves one pre- and post-invocation validation
-// per delegate, one batch binding check, and two final persistence checks.
-func delegateStatefileEffectPlan(
-	actions []reconcile.DelegateAction,
-) (statefileEffectPlan, error) {
-	if !delegateActionsRequireAttemptPersistence(actions) {
-		return statefileEffectPlan{}, nil
-	}
-	validations, err := checkedStatefileEffectCount(len(actions), len(actions))
-	if err != nil {
-		return statefileEffectPlan{}, err
-	}
-	validations, err = checkedStatefileEffectCount(validations, 3)
-	if err != nil {
-		return statefileEffectPlan{}, err
-	}
-	return statefileEffectPlan{validations: validations, fileCommits: 1}, nil
 }

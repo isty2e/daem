@@ -6,10 +6,12 @@ import (
 	"fmt"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 	lockgenerate "github.com/isty2e/daem/internal/workflow/lock/generate"
 )
 
@@ -21,7 +23,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 	if err != nil {
 		return Result{}, err
 	}
-	stateDirAuthority, err := transaction.CaptureStateDirAuthority(ctx, paths.StateDir)
+	stateDirAuthority, err := recoverygate.CaptureStateDir(ctx, paths.StateDir)
 	if err != nil {
 		return Result{}, err
 	}
@@ -31,7 +33,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		LockfilePath:     outputPath,
 		ExplicitLockfile: input.LockfilePath != "",
 	}
-	metadataTransactionPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	metadataTransactionPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
@@ -45,25 +47,19 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	domains, err := lockMutationDomains(
+	program := compileLockOperationProgram(
 		paths.ManifestPath,
 		outputPath,
 		metadataTransactionPath,
 		optimisticLocalPaths,
-	)
-	if err != nil {
-		errorContext.Err = err
-		return Result{}, errorContext
-	}
-	stateDirDomains, err := lockStateDirDomains(
 		paths.StateDir,
 		stateDirAuthority.PresentAtCapture(),
 	)
+	domains, err := lowerLockDomainSteps(program.DomainSteps())
 	if err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	domains = append(domains, stateDirDomains...)
 	store, err := mutation.NewStore(paths.DataDir)
 	if err != nil {
 		errorContext.Err = err
@@ -91,12 +87,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		return Result{}, errorContext
 	}
 
-	revisionRequests, err := lockRevisionRequests(
-		paths.ManifestPath,
-		outputPath,
-		metadataTransactionPath,
-		optimisticLocalPaths,
-	)
+	revisionRequests, err := program.RevisionRequests()
 	if err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
@@ -192,13 +183,13 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 
 func lockRequireStateDirClear(
 	ctx context.Context,
-	authority transaction.StateDirAuthority,
+	authority recoverygate.StateDirAuthority,
 ) error {
 	return lockStateDirError(authority.RequireClear(ctx))
 }
 
 func lockStateDirError(err error) error {
-	if errors.Is(err, transaction.ErrStateDirAppeared) {
+	if errors.Is(err, recoverygate.ErrStateDirAppeared) {
 		return errors.Join(mutation.StaleSnapshotError{}, err)
 	}
 	return err
@@ -215,82 +206,43 @@ func commandLocalPaths(ctx context.Context, paths daempaths.Paths) ([]string, er
 	})
 }
 
-func lockStateDirDomains(stateDir string, present bool) ([]mutation.Domain, error) {
-	access := mutation.AccessShared
-	if !present {
-		access = mutation.AccessExclusive
-	}
-	domains := make([]mutation.Domain, 0, 2)
-	for _, effect := range []mutation.PathEffect{
-		mutation.PathEffectDirectoryEntry,
-		mutation.PathEffectReferent,
-	} {
-		domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
-			Path: stateDir, Access: access, Effect: effect,
-		})
+func compileLockOperationProgram(
+	manifestPath string,
+	lockfilePath string,
+	metadataTransactionPath string,
+	localPaths []string,
+	stateDirPath string,
+	stateDirPresent bool,
+) operationplan.LockProgram {
+	return operationplan.CompileLock(operationplan.LockInput{
+		ManifestPath:            manifestPath,
+		LockfilePath:            lockfilePath,
+		MetadataTransactionPath: metadataTransactionPath,
+		LocalPaths:              localPaths,
+		StateDirPath:            stateDirPath,
+		StateDirPresent:         stateDirPresent,
+		DocumentMaximumBytes:    declarationartifact.MaximumBytes,
+	})
+}
+
+func lowerLockDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
+	domains := make([]mutation.Domain, 0, len(steps))
+	for _, step := range steps {
+		request, ok := step.Path()
+		if !ok {
+			return nil, fmt.Errorf("lock operation domain step is not a path request")
+		}
+		logical, logicalPath := request.Logical()
+		if !logicalPath {
+			return nil, fmt.Errorf("lock operation path-domain request is not logical")
+		}
+		domain, err := mutation.NewLogicalPathDomain(logical)
 		if err != nil {
 			return nil, err
 		}
 		domains = append(domains, domain)
 	}
 	return domains, nil
-}
-
-func lockMutationDomains(
-	manifestPath string,
-	lockfilePath string,
-	metadataTransactionPath string,
-	localPaths []string,
-) ([]mutation.Domain, error) {
-	requests := []mutation.LogicalPathRequest{
-		{Path: manifestPath, Access: mutation.AccessShared, Effect: mutation.PathEffectDirectoryEntry},
-		{Path: manifestPath, Access: mutation.AccessShared, Effect: mutation.PathEffectReferent},
-		{Path: lockfilePath, Access: mutation.AccessExclusive, Effect: mutation.PathEffectDirectoryEntry},
-		{Path: lockfilePath, Access: mutation.AccessShared, Effect: mutation.PathEffectReferent},
-		{Path: metadataTransactionPath, Access: mutation.AccessExclusive, Effect: mutation.PathEffectDirectoryEntry},
-	}
-	for _, path := range localPaths {
-		requests = append(requests, mutation.LogicalPathRequest{Path: path, Access: mutation.AccessShared, Effect: mutation.PathEffectReferent})
-	}
-	domains := make([]mutation.Domain, 0, len(requests))
-	for _, request := range requests {
-		domain, err := mutation.NewLogicalPathDomain(request)
-		if err != nil {
-			return nil, err
-		}
-		domains = append(domains, domain)
-	}
-	return domains, nil
-}
-
-func lockRevisionRequests(
-	manifestPath string,
-	lockfilePath string,
-	metadataTransactionPath string,
-	localPaths []string,
-) ([]mutation.RevisionRequest, error) {
-	requests, err := mutation.BoundedFileRevisionRequests(
-		declarationartifact.MaximumBytes,
-		manifestPath,
-		lockfilePath,
-	)
-	if err != nil {
-		return nil, err
-	}
-	requests = append(
-		requests,
-		mutation.NewBoundedContentRevisionRequest(
-			metadataTransactionPath,
-			mutation.PathEffectDirectoryEntry,
-		),
-	)
-	for _, path := range localPaths {
-		requests = append(
-			requests,
-			mutation.NewBoundedContentRevisionRequest(path, mutation.PathEffectReferent),
-		)
-	}
-	return requests, nil
 }
 
 func equalPathLists(left []string, right []string) bool {

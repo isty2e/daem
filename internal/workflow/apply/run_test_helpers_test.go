@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
@@ -121,6 +122,35 @@ func testApplyExecutionGuard(
 		t.Fatalf("capture test apply execution guard: %v", err)
 	}
 	return newApplyExecutionGuard(revisions, false)
+}
+
+func testGlobalCarrierSettlementOptions(
+	t *testing.T,
+	paths daempaths.Paths,
+) runOptions {
+	t.Helper()
+	projectRoot, err := captureProjectRootAuthorityBeforeLoad(paths)
+	if err != nil {
+		t.Fatalf("capture test project root: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := projectRoot.Close(); err != nil {
+			t.Errorf("close test project root: %v", err)
+		}
+	})
+	return runOptions{
+		executionGuard: testApplyExecutionGuard(t, paths),
+		projectRoot:    projectRoot,
+		validateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
+			return nil
+		},
+		validateStateDir: func(context.Context) error {
+			return nil
+		},
+		acceptVisibilityChanges: func(context.Context) error {
+			return nil
+		},
+	}
 }
 
 func applyTestPaths(t *testing.T, root string) daempaths.Paths {

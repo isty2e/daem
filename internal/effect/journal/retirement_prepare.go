@@ -703,6 +703,24 @@ func (prepared *RetirementContinuation) ExecuteActive(
 	ctx context.Context,
 	plan recovery.Plan,
 ) error {
+	return prepared.executeActive(ctx, plan, nil)
+}
+
+// ExecuteActiveWithGate consumes an already rebased active-journal
+// continuation while admitting and settling each exact retirement step.
+func (prepared *RetirementContinuation) ExecuteActiveWithGate(
+	ctx context.Context,
+	plan recovery.Plan,
+	gate RetirementStepGate,
+) error {
+	return prepared.executeActive(ctx, plan, gate)
+}
+
+func (prepared *RetirementContinuation) executeActive(
+	ctx context.Context,
+	plan recovery.Plan,
+	gate RetirementStepGate,
+) error {
 	if prepared == nil || prepared.retirementContinuationState == nil {
 		return fmt.Errorf("prepared journal retirement is required")
 	}
@@ -715,6 +733,9 @@ func (prepared *RetirementContinuation) ExecuteActive(
 		return fmt.Errorf("prepared journal retirement does not own an active journal")
 	}
 	if !prepared.rebased {
+		if gate != nil {
+			return fmt.Errorf("gated active journal retirement requires an advanced basis")
+		}
 		if err := prepared.advanceActiveBasisLocked(
 			ctx,
 			plan,
@@ -723,17 +744,33 @@ func (prepared *RetirementContinuation) ExecuteActive(
 			return err
 		}
 	}
-	if err := validateActiveRetirementPlan(plan, prepared.execution); err != nil {
+	if err := executeRetirementStep(
+		gate,
+		RetirementStepValidateActivePlan,
+		func() error {
+			return validateActiveRetirementPlan(plan, prepared.execution)
+		},
+	); err != nil {
 		return err
 	}
 	prepared.consumed = true
-	return executePreparedRetirement(ctx, prepared)
+	return executePreparedRetirement(ctx, prepared, gate)
 }
 
 // ExecuteCleanup consumes this continuation for the same cleanup-only plan.
 func (prepared *RetirementContinuation) ExecuteCleanup(
 	ctx context.Context,
 	plan retirement.CleanupPlan,
+) error {
+	return prepared.ExecuteCleanupWithGate(ctx, plan, nil)
+}
+
+// ExecuteCleanupWithGate consumes this continuation while admitting and
+// settling each exact journal-retirement step through gate.
+func (prepared *RetirementContinuation) ExecuteCleanupWithGate(
+	ctx context.Context,
+	plan retirement.CleanupPlan,
+	gate RetirementStepGate,
 ) error {
 	if prepared == nil || prepared.retirementContinuationState == nil {
 		return fmt.Errorf("prepared journal cleanup is required")
@@ -743,17 +780,26 @@ func (prepared *RetirementContinuation) ExecuteCleanup(
 	if prepared.closed || prepared.consumed {
 		return fmt.Errorf("prepared journal cleanup was already consumed")
 	}
-	authority := plan.Authority()
-	record, err := authority.CurrentRecord()
-	if err != nil {
+	if err := executeRetirementStep(
+		gate,
+		RetirementStepValidateCleanupAuthority,
+		func() error {
+			authority := plan.Authority()
+			record, err := authority.CurrentRecord()
+			if err != nil {
+				return err
+			}
+			if !record.Equal(prepared.execution.record) ||
+				authority.ResiduePresent() != prepared.evidence.residuePresent {
+				return fmt.Errorf("journal cleanup authority changed after preparation")
+			}
+			return nil
+		},
+	); err != nil {
 		return err
 	}
-	if !record.Equal(prepared.execution.record) ||
-		authority.ResiduePresent() != prepared.evidence.residuePresent {
-		return fmt.Errorf("journal cleanup authority changed after preparation")
-	}
 	prepared.consumed = true
-	return executePreparedRetirement(ctx, prepared)
+	return executePreparedRetirement(ctx, prepared, gate)
 }
 
 func validateActiveRetirementPlan(plan recovery.Plan, execution retirementExecution) error {

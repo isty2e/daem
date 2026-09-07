@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/filesnapshot"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/recoverygate"
@@ -627,6 +628,28 @@ func TestWritePlanRollbackPreservesReplacedCreatedParent(t *testing.T) {
 	}
 }
 
+func TestImportPlanFingerprintPreservesCanonicalPlanIdentity(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	plan := testAdoptPlan(t, filepath.Join(root, "daem.toml"), []adoptmodel.Source{{
+		SourcePath: filepath.Join(root, "source.md"),
+		Content:    []byte("content"),
+	}}, nil)
+	canonical, err := plan.IdentityBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := mutation.NewOperationFingerprint(canonical)
+	got, err := importPlanFingerprint(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(want) {
+		t.Fatal("import operation fingerprint changed from canonical Plan.IdentityBytes")
+	}
+}
+
 func TestImportMutationEvidenceGuardsSkillEntryAndReferent(t *testing.T) {
 	root := t.TempDir()
 	live := filepath.Join(root, "codex-live")
@@ -642,7 +665,17 @@ func TestImportMutationEvidenceGuardsSkillEntryAndReferent(t *testing.T) {
 		},
 		SourcePath: filepath.Join(root, "sources", "skill"),
 	}})
-	_, requests, stable, err := importMutationEvidence(plan, mustImportBarrier(t, plan))
+	barrier := mustImportBarrier(t, plan)
+	program, err := compileImportOperationProgram(plan, barrier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertImportPhysicalDomainRequest(t, program.Steps(), live, target.TargetCodex, target.ScopeGlobal, mutation.PathEffectDirectoryEntry)
+	assertImportPhysicalDomainRequest(t, program.Steps(), read, target.TargetCodex, target.ScopeGlobal, mutation.PathEffectReferent)
+	assertImportPhysicalDomainRequest(t, program.Steps(), otherLive, target.TargetClaudeCode, target.ScopeGlobal, mutation.PathEffectDirectoryEntry)
+	assertImportPhysicalDomainRequest(t, program.Steps(), otherRead, target.TargetClaudeCode, target.ScopeGlobal, mutation.PathEffectReferent)
+
+	_, requests, stable, err := importMutationEvidence(plan, barrier)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -735,7 +768,15 @@ func TestImportMutationEvidenceGuardsMCPPhysicalConfigInsteadOfProjectionPath(t 
 		t.Fatal(err)
 	}
 
-	domains, requests, stableRequests, err := importMutationEvidence(plan, mustImportBarrier(t, plan))
+	barrier := mustImportBarrier(t, plan)
+	program, err := compileImportOperationProgram(plan, barrier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertImportPhysicalDomainRequest(t, program.Steps(), configPath, target.TargetCodex, target.ScopeProject, mutation.PathEffectReferent)
+	assertImportPhysicalDomainRequest(t, program.Steps(), alternatePath, target.TargetCodex, target.ScopeProject, mutation.PathEffectDirectoryEntry)
+
+	domains, requests, stableRequests, err := importMutationEvidence(plan, barrier)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -952,6 +993,40 @@ func testAdoptPlan(
 		t.Fatal(err)
 	}
 	return plan
+}
+
+func assertImportPhysicalDomainRequest(
+	t *testing.T,
+	steps []operationplan.AdoptStep,
+	path string,
+	selectedTarget target.Target,
+	scope target.Scope,
+	effect mutation.PathEffect,
+) {
+	t.Helper()
+	for _, step := range steps {
+		domainStep, present := step.Domain()
+		if !present {
+			continue
+		}
+		request, pathRequest := domainStep.Path()
+		if !pathRequest {
+			continue
+		}
+		physical, ok := request.Physical()
+		if ok && physical.Path == path && physical.Target == string(selectedTarget) &&
+			physical.Scope == string(scope) && physical.Effect == effect {
+			return
+		}
+	}
+	t.Fatalf(
+		"physical domain request %q/%s/%s/%d missing from %#v",
+		path,
+		selectedTarget,
+		scope,
+		effect,
+		steps,
+	)
 }
 
 func assertImportRevisionRequest(t *testing.T, requests []mutation.RevisionRequest, path string, effect mutation.PathEffect) {

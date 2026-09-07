@@ -1,58 +1,65 @@
 package refresh
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/isty2e/daem/internal/effect/mutation"
-	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/operationplan"
 )
 
 func refreshFingerprint(planned plan) (mutation.OperationFingerprint, error) {
-	type operationFacts struct {
-		Actuation       lock.ActuationKind
-		Authority       lock.AuthorityKind
-		Preconditions   []string
-		EffectEnvelope  lock.EffectEnvelopeClass
-		Idempotency     lock.IdempotencyContract
-		Verification    lock.VerificationContract
-		TrustActivation lock.TrustActivationRequirement
-		Recovery        lock.OperationRecoveryClass
-	}
-	canonical, err := json.Marshal(struct {
-		Command       string
-		Mode          Mode
-		ManifestPath  string
-		LockfilePath  string
-		StatefilePath string
-		Selection     Selection
-		Route         Route
-		Disclosure    Disclosure
-		Observation   *Observation
-		Operation     operationFacts
-	}{
-		Command:       "refresh extension",
-		Mode:          planned.result.Mode,
+	return operationplan.RefreshOperationFingerprint(operationplan.RefreshIdentityInput{
+		Mode:          string(planned.result.Mode),
 		ManifestPath:  planned.result.ManifestPath,
 		LockfilePath:  planned.result.LockfilePath,
 		StatefilePath: planned.result.StatefilePath,
-		Selection:     planned.result.Selection,
-		Route:         planned.result.Route,
-		Disclosure:    planned.result.Disclosure,
-		Observation:   cloneObservation(planned.result.Observation),
-		Operation: operationFacts{
-			Actuation:       planned.operationContract.Actuation(),
-			Authority:       planned.operationContract.Authority(),
+		Selection: operationplan.RefreshSelection{
+			ID:      planned.result.Selection.ID,
+			Target:  string(planned.result.Selection.Target),
+			Scope:   string(planned.result.Selection.Scope),
+			Carrier: planned.result.Selection.Carrier,
+		},
+		Route: operationplan.RefreshRoute{
+			Operation:              string(planned.result.Route.Operation),
+			RouteID:                planned.result.Route.RouteID,
+			AdapterContractVersion: planned.result.Route.AdapterContractVersion,
+			RequestHash:            planned.result.Route.RequestHash,
+			ExecutionSubject:       planned.result.Route.ExecutionSubject,
+			ObservationPosture:     string(planned.result.Route.ObservationPosture),
+		},
+		Disclosure: operationplan.RefreshDisclosure{
+			Invocation: operationplan.RefreshInvocation{
+				Kind:           planned.result.Disclosure.Invocation.Kind,
+				Command:        planned.result.Disclosure.Invocation.Command,
+				Args:           planned.result.Disclosure.Invocation.Args,
+				EnvNames:       planned.result.Disclosure.Invocation.EnvNames,
+				CWDPolicy:      planned.result.Disclosure.Invocation.CWDPolicy,
+				TimeoutSeconds: planned.result.Disclosure.Invocation.TimeoutSeconds,
+			},
+			EffectClasses:         planned.result.Disclosure.EffectClasses,
+			RetainedEffectClasses: planned.result.Disclosure.RetainedEffectClasses,
+			NonClaims:             planned.result.Disclosure.NonClaims,
+		},
+		Observation: refreshOperationObservation(planned.result.Observation),
+		Operation: operationplan.RefreshOperationContract{
+			Actuation:       string(planned.operationContract.Actuation()),
+			Authority:       string(planned.operationContract.Authority()),
 			Preconditions:   planned.operationContract.Preconditions(),
-			EffectEnvelope:  planned.operationContract.EffectEnvelope(),
-			Idempotency:     planned.operationContract.Idempotency(),
-			Verification:    planned.operationContract.Verification(),
-			TrustActivation: planned.operationContract.TrustActivation(),
-			Recovery:        planned.operationContract.Recovery(),
+			EffectEnvelope:  string(planned.operationContract.EffectEnvelope()),
+			Idempotency:     string(planned.operationContract.Idempotency()),
+			Verification:    string(planned.operationContract.Verification()),
+			TrustActivation: string(planned.operationContract.TrustActivation()),
+			Recovery:        string(planned.operationContract.Recovery()),
 		},
 	})
-	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint refresh plan: %w", err)
+}
+
+func refreshOperationObservation(observation *Observation) *operationplan.RefreshObservation {
+	if observation == nil {
+		return nil
 	}
-	return mutation.NewOperationFingerprint(canonical), nil
+	return &operationplan.RefreshObservation{
+		State:        string(observation.State),
+		Reason:       string(observation.Reason),
+		Availability: string(observation.Availability),
+		Freshness:    string(observation.Freshness),
+	}
 }

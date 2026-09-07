@@ -9,6 +9,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -214,6 +216,80 @@ func loadApplyActivePlanForStateEntries(
 	)
 }
 
+func settlePreHostApplyFailure(
+	ctx context.Context,
+	primary error,
+	kind applyFailureSettlementKind,
+	retirementPhase string,
+	paths Paths,
+	currentState durable.Snapshot,
+	authority *mutationAuthority,
+	registryStore ownershipmutation.RegistryStore,
+	transitions []ownershipmutation.ClaimTransition,
+	events applyEventEmitter,
+	stateCodec durable.SnapshotCodec,
+	codecs aggregate.CodecCatalog,
+	gate visibilityEffectGate,
+	effectExecution *applyEffectExecution,
+) error {
+	settlementPrefix, settlementErr := effectExecution.beginFailureSettlement(kind)
+	if settlementErr != nil {
+		return errors.Join(primary, settlementErr)
+	}
+	if rollbackErr := rollbackClaimsToBefore(
+		context.WithoutCancel(ctx),
+		registryStore,
+		transitions,
+		effectExecution.compensationVisibilityGate(
+			gate,
+			settlementPrefix+"/ownership-rollback",
+			operationplan.EffectStepCompensation,
+		),
+	); rollbackErr != nil {
+		return fmt.Errorf(
+			"%w; ownership rollback failed: %v; recovery journal retained; run: daem recover --dry-run",
+			primary,
+			rollbackErr,
+		)
+	}
+	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
+		return loadCapturedJournalPlanForStateEntries(
+			ctx,
+			paths,
+			currentState,
+			[]journal.EntrySelection{},
+			authority,
+			stateCodec,
+			codecs,
+			retirementPhase,
+		)
+	}
+	if cleanupErr := retireRecoveryJournalWithEvents(
+		context.WithoutCancel(ctx),
+		paths,
+		authority,
+		events,
+		loadRetirementPlan,
+		stateCodec,
+		effectExecution.compensationVisibilityGate(
+			gate,
+			settlementPrefix+"/journal-retirement",
+			operationplan.EffectStepRetirement,
+		),
+		nil,
+	); cleanupErr != nil {
+		return fmt.Errorf(
+			"%w; retire recovery journal failed: %v",
+			primary,
+			retirementFailureWithRemediation(cleanupErr),
+		)
+	}
+	if settlementErr := effectExecution.completeFailureSettlement(kind); settlementErr != nil {
+		return errors.Join(primary, settlementErr)
+	}
+	return primary
+}
+
 func applyRecoveryErrorWithEvents(
 	ctx context.Context,
 	primary error,
@@ -226,38 +302,102 @@ func applyRecoveryErrorWithEvents(
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
 	gate visibilityEffectGate,
+	effectExecution *applyEffectExecution,
 ) error {
+	settlementPrefix, settlementErr := effectExecution.beginFailureSettlement(
+		applyFailureSettlementGuardedRecovery,
+	)
+	if settlementErr != nil {
+		return errors.Join(primary, settlementErr)
+	}
 	events.emit(EventRollbackRestoreStarted, EventStageRollbackRestore, nil, nil)
-	if progress.requiresRecovery() {
-		recoveryErr := fmt.Errorf("host effect outcome is indeterminate")
+	if err := effectExecution.runObservation(
+		settlementPrefix+"/progress-classification",
+		applyForwardFailureUnavailable,
+		func() error {
+			if progress.requiresRecovery() {
+				return fmt.Errorf("host effect outcome is indeterminate")
+			}
+			return nil
+		},
+	); err != nil {
+		recoveryErr := err
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, recoveryErr)
 		return fmt.Errorf("%w; %v; recovery journal retained; run: daem recover --dry-run", primary, recoveryErr)
 	}
 
 	recoveryCtx := context.WithoutCancel(ctx)
-	rollbackEntries, err := progress.rollbackEntries(selections)
+	var rollbackEntries []journal.EntrySelection
+	err := effectExecution.runObservation(
+		settlementPrefix+"/rollback-selection",
+		applyForwardFailureUnavailable,
+		func() error {
+			var selectErr error
+			rollbackEntries, selectErr = progress.rollbackEntries(selections)
+			return selectErr
+		},
+	)
 	if err != nil {
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; select guarded rollback entries failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
-	plan, err := loadCapturedJournalPlanForStateEntries(
-		recoveryCtx,
-		paths,
-		currentState,
-		rollbackEntries,
-		authority,
-		stateCodec,
-		codecs,
-		"before guarded rollback",
+	var plan recovery.Plan
+	err = effectExecution.runObservation(
+		settlementPrefix+"/journal-load",
+		applyForwardFailureUnavailable,
+		func() error {
+			var loadErr error
+			plan, loadErr = loadCapturedJournalPlanForStateEntries(
+				recoveryCtx,
+				paths,
+				currentState,
+				rollbackEntries,
+				authority,
+				stateCodec,
+				codecs,
+				"before guarded rollback",
+			)
+			return loadErr
+		},
 	)
 	if err != nil {
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; load guarded rollback plan failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
-	if plan.HasErrors() {
-		err := fmt.Errorf("guarded rollback is blocked by current evidence")
+	if err := effectExecution.runObservation(
+		settlementPrefix+"/journal-validation",
+		applyForwardFailureUnavailable,
+		func() error {
+			if plan.HasErrors() {
+				return fmt.Errorf("guarded rollback is blocked by current evidence")
+			}
+			return nil
+		},
+	); err != nil {
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; %v; recovery journal retained; run: daem recover --dry-run", primary, err)
+	}
+	var execution *activeRecoveryExecution
+	err = effectExecution.runObservation(
+		settlementPrefix+"/execution-compile",
+		applyForwardFailureUnavailable,
+		func() error {
+			var compileErr error
+			execution, compileErr = newActiveRecoveryExecutionForPlan(
+				plan,
+				activeRecoveryCallerApplySettlement,
+				false,
+			)
+			return compileErr
+		},
+	)
+	if err != nil {
+		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		return fmt.Errorf("%w; compile guarded rollback settlement failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
+	}
+	if err := effectExecution.handoffGuardedRecovery(); err != nil {
+		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		return fmt.Errorf("%w; handoff guarded rollback settlement failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	if err := executeRecoveryPlanEffects(recoveryCtx, plan, paths, RecoveryOptions{
 		reloadPlan: func(
@@ -280,7 +420,8 @@ func applyRecoveryErrorWithEvents(
 		Codecs:                      codecs,
 		StateCodec:                  stateCodec,
 		Filesystem:                  authority.filesystem,
-	}); err != nil {
+	}, execution); err != nil {
+		err = execution.finish(err, nil)
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; guarded rollback failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
@@ -318,7 +459,12 @@ func applyRecoveryErrorWithEvents(
 		loadRetirementPlan,
 		stateCodec,
 		gate,
+		execution,
 	); err != nil {
+		err = execution.finish(err, nil)
+		return newApplyRollbackError(primary, retirementFailureWithRemediation(err))
+	}
+	if err := execution.finish(nil, nil); err != nil {
 		return newApplyRollbackError(primary, retirementFailureWithRemediation(err))
 	}
 	return newApplyRollbackError(primary, nil)

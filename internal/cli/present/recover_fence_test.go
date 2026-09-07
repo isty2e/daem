@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 )
 
 func TestPrintContinuingFileSetFenceIsPathNeutralAndExplicit(t *testing.T) {
 	var output bytes.Buffer
-	printContinuingFileSetFence(&output, transaction.FileSetFenceAbandonedResidue)
+	printContinuingFileSetFence(&output, fileset.FileSetFenceAbandonedResidue)
 	text := output.String()
 	if !strings.Contains(text, "continuing file-set fence: abandoned_residue") ||
 		!strings.Contains(text, "journal recovery does not clear this fence") ||
@@ -21,7 +21,7 @@ func TestPrintContinuingFileSetFenceIsPathNeutralAndExplicit(t *testing.T) {
 }
 
 func TestFileSetFenceObservationProjectionPreservesAccessAndUnknown(t *testing.T) {
-	access := transaction.KnownFileSetFence(transaction.FileSetFenceAccessUnprovable)
+	access := fileset.KnownFileSetFence(fileset.FileSetFenceAccessUnprovable)
 	if got := fileSetFenceObservationValue(access); got != "access_unprovable" {
 		t.Fatalf("access observation = %q", got)
 	}
@@ -29,7 +29,7 @@ func TestFileSetFenceObservationProjectionPreservesAccessAndUnknown(t *testing.T
 		t.Fatalf("access guidance = %q", guidance)
 	}
 
-	unknown := transaction.ObserveFileSetFence(errors.New("unclassified"))
+	unknown := fileset.ObserveFileSetFence(errors.New("unclassified"))
 	if got := fileSetFenceObservationValue(unknown); got != "unknown" {
 		t.Fatalf("unknown observation = %q", got)
 	}

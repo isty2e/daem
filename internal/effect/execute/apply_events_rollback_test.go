@@ -3,11 +3,41 @@ package execute
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"runtime"
 	"strings"
 	"testing"
+
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
+
+type indeterminateCreateFilesystem struct {
+	mutationfs.Store
+	target  string
+	failure error
+}
+
+func (filesystem indeterminateCreateFilesystem) CreateRootedFile(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	content []byte,
+	mode fs.FileMode,
+) error {
+	if capability.Destination().Relative().Path() != filesystem.target {
+		return filesystem.Store.CreateRootedFile(ctx, capability, content, mode)
+	}
+	if err := filesystem.Store.CreateRootedFile(
+		ctx,
+		capability,
+		[]byte("indeterminate\n"),
+		mode,
+	); err != nil {
+		return err
+	}
+	return filesystem.failure
+}
 
 func TestApplyWithOptionsRollbackStageFailureEmitsCleanupEvents(t *testing.T) {
 	fixture := newApplyEventFixture(t)
@@ -39,6 +69,39 @@ func TestApplyWithOptionsRollbackStageFailureEmitsCleanupEvents(t *testing.T) {
 	}
 }
 
+func TestApplyPreparedEffectRollbackRetirementFailurePreservesPrimary(t *testing.T) {
+	fixture := newApplyEventFixture(t)
+	action := fixture.createAction("create", "CREATE.md", "created\n")
+	retirement := errors.New("injected prepared-effect retirement acceptance failure")
+
+	var events []Event
+	_, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
+		Events: func(event Event) {
+			events = append(events, event)
+			if event.Kind == EventRollbackStageStarted {
+				writeApplyEventFile(t, fixture.hostPath("CREATE.md"), "external\n")
+			}
+		},
+		AcceptCompensationVisibilityChanges: func(context.Context) error {
+			return retirement
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "captured recovery journal is blocked") ||
+		!strings.Contains(err.Error(), retirement.Error()) {
+		t.Fatalf("ApplyWithOptions error = %v, want primary and retirement failures", err)
+	}
+	assertEventKinds(t, events, []EventKind{
+		EventJournalCaptureStarted,
+		EventJournalCaptured,
+		EventRollbackStageStarted,
+		EventRollbackStageFailed,
+		EventJournalCleanupStarted,
+		EventJournalCleanupFailed,
+	})
+	assertHostFileContent(t, fixture.hostPath("CREATE.md"), "external\n")
+	assertNoActiveRecoveryOperation(t, fixture.paths.RecoveryDir)
+}
+
 func TestApplyWithOptionsActionFailureEmitsRollbackAndCleanup(t *testing.T) {
 	fixture := newApplyEventFixture(t)
 	action := fixture.createAction("create", "CREATE.md", "created\n")
@@ -48,6 +111,10 @@ func TestApplyWithOptionsActionFailureEmitsRollbackAndCleanup(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "host payload hash") {
 		t.Fatalf("error = %v, want payload hash failure", err)
+	}
+	if strings.Contains(err.Error(), "failure settlement") ||
+		strings.Contains(err.Error(), "effect structure") {
+		t.Fatalf("guarded rollback exposed cursor failure: %v", err)
 	}
 	assertEventKinds(t, events, []EventKind{
 		EventJournalCaptureStarted,
@@ -62,6 +129,139 @@ func TestApplyWithOptionsActionFailureEmitsRollbackAndCleanup(t *testing.T) {
 		EventJournalCleaned,
 	})
 	assertHostMissing(t, fixture.hostPath("CREATE.md"))
+}
+
+func TestApplyWithEffectPlanIndeterminateHostOutcomeRetainsJournal(t *testing.T) {
+	fixture := newApplyEventFixture(t)
+	action := fixture.createAction("create", "CREATE.md", "created\n")
+	input := fixture.input([]applyEventAction{action})
+	wantErr := errors.New("injected indeterminate create failure")
+	input.Filesystem = indeterminateCreateFilesystem{
+		Store:   input.Filesystem,
+		target:  action.Destination.String(),
+		failure: wantErr,
+	}
+	plan, err := PrepareApplyEffectPlan(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []Event
+	_, err = ApplyWithEffectPlan(context.Background(), input, plan, ApplyOptions{
+		Events: func(event Event) {
+			events = append(events, event)
+		},
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("ApplyWithEffectPlan error = %v, want injected failure", err)
+	}
+	if !strings.Contains(err.Error(), "outcome is indeterminate") ||
+		!strings.Contains(err.Error(), "recovery journal retained") {
+		t.Fatalf("ApplyWithEffectPlan error = %v, want indeterminate recovery guidance", err)
+	}
+	if ApplyHostChangesRolledBack(err) {
+		t.Fatalf("ApplyWithEffectPlan error = %v, want no rollback claim", err)
+	}
+	assertEventKinds(t, events, []EventKind{
+		EventJournalCaptureStarted,
+		EventJournalCaptured,
+		EventRollbackStageStarted,
+		EventRollbackStaged,
+		EventActionStarted,
+		EventActionFailed,
+		EventRollbackRestoreStarted,
+		EventRollbackRestoreFailed,
+	})
+	assertNoEventKind(t, events, EventJournalCleanupStarted)
+	assertHostFileContent(t, fixture.hostPath("CREATE.md"), "indeterminate\n")
+	assertActiveRecoveryOperation(t, fixture.paths.RecoveryDir)
+}
+
+func TestApplyWithEffectPlanGuardedRollbackRetirementFailurePreservesErrors(t *testing.T) {
+	fixture := newApplyEventFixture(t)
+	action := fixture.createAction("create", "CREATE.md", "created\n")
+	input := fixture.input([]applyEventAction{action})
+	plan, err := PrepareApplyEffectPlan(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary := errors.New("injected forward visibility rejection")
+	retirement := errors.New("injected rollback retirement acceptance failure")
+	forwardAccepts := 0
+	compensationAccepts := 0
+	_, err = ApplyWithEffectPlan(context.Background(), input, plan, ApplyOptions{
+		AcceptVisibilityChanges: func(context.Context) error {
+			forwardAccepts++
+			if forwardAccepts == 2 {
+				return primary
+			}
+			return nil
+		},
+		AcceptCompensationVisibilityChanges: func(context.Context) error {
+			compensationAccepts++
+			if compensationAccepts == 2 {
+				return retirement
+			}
+			return nil
+		},
+	})
+	if !errors.Is(err, primary) || !errors.Is(err, retirement) {
+		t.Fatalf("ApplyWithEffectPlan error = %v, want primary and retirement failures", err)
+	}
+	if !ApplyHostChangesRolledBack(err) {
+		t.Fatalf("ApplyWithEffectPlan error = %v, want rolled-back classification", err)
+	}
+	if forwardAccepts != 2 {
+		t.Fatalf("forward acceptance calls = %d, want 2", forwardAccepts)
+	}
+	if compensationAccepts != 2 {
+		t.Fatalf("compensation acceptance calls = %d, want 2", compensationAccepts)
+	}
+	assertHostMissing(t, fixture.hostPath("CREATE.md"))
+	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
+func TestApplyWithEffectPlanGuardedRollbackJoinsMutationAuthorityCloseFailure(t *testing.T) {
+	fixture := newApplyEventFixture(t)
+	action := fixture.createAction("create", "CREATE.md", "created\n")
+	input := fixture.input([]applyEventAction{action})
+	plan, err := PrepareApplyEffectPlan(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary := errors.New("injected forward visibility rejection")
+	closeFailure := errors.New("injected mutation-authority close failure")
+	forwardAccepts := 0
+	_, err = ApplyWithEffectPlan(context.Background(), input, plan, ApplyOptions{
+		AcceptVisibilityChanges: func(context.Context) error {
+			forwardAccepts++
+			if forwardAccepts == 2 {
+				return primary
+			}
+			return nil
+		},
+		closeMutationAuthority: func(authority *mutationAuthority) error {
+			return errors.Join(authority.close(), closeFailure)
+		},
+	})
+	if !errors.Is(err, primary) || !errors.Is(err, closeFailure) {
+		t.Fatalf("ApplyWithEffectPlan error = %v, want primary and close failures", err)
+	}
+	if !ApplyHostChangesRolledBack(err) {
+		t.Fatalf("ApplyWithEffectPlan error = %v, want rolled-back classification", err)
+	}
+	assertHostMissing(t, fixture.hostPath("CREATE.md"))
+	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
+func assertActiveRecoveryOperation(t *testing.T, recoveryDir string) {
+	t.Helper()
+	entries, err := os.ReadDir(recoveryDir)
+	if err != nil {
+		t.Fatalf("read recovery directory: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("recovery entries = %d, want 1", len(entries))
+	}
 }
 
 func TestApplyWithOptionsCompensatesAfterForwardVisibilityRejection(t *testing.T) {

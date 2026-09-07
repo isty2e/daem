@@ -63,9 +63,16 @@ func ExecuteJournalCleanupWithOptions(
 	if options.Filesystem == nil {
 		return fmt.Errorf("journal cleanup filesystem is required")
 	}
+	execution, err := newJournalCleanupExecution(plan)
+	if err != nil {
+		return fmt.Errorf("compile journal cleanup effect structure: %w", err)
+	}
 	physicalWorkBudget, err := recovery.NewPhysicalWorkBudget(0)
 	if err != nil {
-		return fmt.Errorf("construct journal cleanup physical work budget: %w", err)
+		return errors.Join(
+			fmt.Errorf("construct journal cleanup physical work budget: %w", err),
+			execution.abortBeforePreparation(),
+		)
 	}
 	prepared, err := journal.PrepareJournalCleanup(
 		ctx,
@@ -76,15 +83,27 @@ func ExecuteJournalCleanupWithOptions(
 		options.Filesystem,
 	)
 	if err != nil {
-		return fmt.Errorf("prepare bounded journal cleanup: %w", err)
+		return errors.Join(
+			fmt.Errorf("prepare bounded journal cleanup: %w", err),
+			execution.abortBeforePreparation(),
+		)
 	}
+	preparedClosed := false
 	defer func() {
-		returnErr = errors.Join(returnErr, prepared.Close())
-	}()
-	if options.ValidateBeforeEffects != nil {
-		if err := options.ValidateBeforeEffects(ctx); err != nil {
-			return err
+		if !preparedClosed {
+			returnErr = errors.Join(returnErr, prepared.Close())
 		}
+	}()
+	executionErr := execution.validateBeforeEffects(func() error {
+		if options.ValidateBeforeEffects == nil {
+			return nil
+		}
+		return options.ValidateBeforeEffects(ctx)
+	})
+	if executionErr == nil {
+		executionErr = prepared.ExecuteCleanupWithGate(ctx, plan, execution)
 	}
-	return prepared.ExecuteCleanup(ctx, plan)
+	closeErr := execution.close(prepared.Close)
+	preparedClosed = true
+	return errors.Join(executionErr, closeErr)
 }

@@ -19,11 +19,14 @@ import (
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 	"github.com/isty2e/daem/internal/target"
+	testscale "github.com/isty2e/daem/test/scale"
 )
 
 const maximumRejectedLockfileStructureAllocationBytes = 256 << 10
 
 func TestCurrentLockfileRejectsOverLimitTOMLStructure(t *testing.T) {
+	testscale.Require(t)
+
 	tests := []struct {
 		name    string
 		content []byte
@@ -104,16 +107,22 @@ func TestVersionEnvelopeScanHonorsCancellationWithinLeadingComment(t *testing.T)
 }
 
 func TestCurrentLockfileRejectsDeepTOMLBeforeDecoderAllocation(t *testing.T) {
+	testscale.Require(t)
+
 	content := currentLockfileWithNestedInlineTables(256)
 	assertRejectedLockfileAllocationBound(t, content, tomlstrict.ErrMaximumDepthExceeded)
 }
 
 func TestCurrentLockfileRejectsDenseWorkBeforeDecoderAllocation(t *testing.T) {
+	testscale.Require(t)
+
 	content := currentLockfileWithDenseArrayValues(250_000)
 	assertRejectedLockfileAllocationBound(t, content, tomlstrict.ErrMaximumWorkExceeded)
 }
 
 func TestCurrentLockfileTriviaDoesNotExpandStructureBudget(t *testing.T) {
+	testscale.Require(t)
+
 	unpadded := currentLockfileWithDenseUnknownEntries(t, 16_000, 0)
 	padded := currentLockfileWithDenseUnknownEntries(t, 16_000, 600<<10)
 	for _, test := range []struct {
@@ -155,6 +164,8 @@ func assertRejectedLockfileAllocationBound(t *testing.T, content []byte, want er
 }
 
 func TestMaximumSelectorSkillsAcrossAllTargetsMarshal(t *testing.T) {
+	testscale.Require(t)
+
 	const skillCount = 4_096
 	root := sourcetest.Local(t, "skills", source.LocalSourceModeVendor)
 	supportedTargets := target.SupportedTargets()
@@ -186,6 +197,8 @@ func TestMaximumSelectorSkillsAcrossAllTargetsMarshal(t *testing.T) {
 }
 
 func TestMarshalRejectsImpossibleLargeSnapshotBeforeEncoding(t *testing.T) {
+	testscale.Require(t)
+
 	const subjectCount = 1_024
 	subjects := make([]lock.LockedSubjectContract, 0, subjectCount)
 	for index := range subjectCount {
@@ -211,6 +224,8 @@ func TestMarshalRejectsImpossibleLargeSnapshotBeforeEncoding(t *testing.T) {
 }
 
 func TestLoadAndRelockPreAdmissionLargeCurrentLockfile(t *testing.T) {
+	testscale.Require(t)
+
 	const subjectCount = 1_024
 	subjects := make([]lock.LockedSubjectContract, 0, subjectCount)
 	for index := range subjectCount {

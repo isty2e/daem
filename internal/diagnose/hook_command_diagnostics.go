@@ -6,10 +6,9 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/hook"
 	"github.com/isty2e/daem/internal/findings"
-	"github.com/isty2e/daem/internal/realization/profile"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	targetpkg "github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
@@ -26,7 +25,7 @@ func HookCommandDiagnostics(hooks []hook.Hook, selection targetselection.Selecti
 	diagnostics := make([]findings.Diagnostic, 0)
 	for _, hook := range hooks {
 		for _, target := range hook.Targets() {
-			if !selection.Includes(target) || !profile.Profile(target).Supports(entity.KindHook) {
+			if !selection.Includes(target) || !hostsurfacecatalog.Product().HasHookTarget(target) {
 				continue
 			}
 			diagnostics = append(diagnostics, diagnosticsForHookTarget(hook, target)...)

@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	"github.com/isty2e/daem/internal/desired/entity"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
@@ -225,7 +226,7 @@ func validateHookTargetOverrides(hook declaration.Hook, targets []string) error 
 			return fmt.Errorf("hook %q target_override target %q is not declared for hook", hook.Name, override.Target)
 		}
 		selectedTarget := target.Target(override.Target)
-		support, ok := profile.Profile(selectedTarget).Support(entity.KindHook)
+		support, ok := hostsurfacecatalog.Product().ResourceSupport(selectedTarget, entity.KindHook)
 		if !ok || !support.Supported() {
 			return fmt.Errorf(
 				"hook %q target %q: target_override is not supported because %s",
@@ -298,7 +299,7 @@ func (failure CommandHookAdmissionError) Reason() profile.UnsupportedReason { re
 func (failure CommandHookAdmissionError) Detail() string { return failure.detail }
 
 func admitCommandHookAuthoring(name string, selectedTarget target.Target) (string, error) {
-	support, ok := profile.Profile(selectedTarget).Support(entity.KindHook)
+	support, ok := hostsurfacecatalog.Product().ResourceSupport(selectedTarget, entity.KindHook)
 	if ok && support.Supported() {
 		return "", nil
 	}

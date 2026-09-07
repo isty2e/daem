@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 	refreshworkflow "github.com/isty2e/daem/internal/workflow/refresh"
@@ -16,7 +16,7 @@ import (
 func TestRefreshJSONPreservesKnownFenceBesideUnknownJournal(t *testing.T) {
 	cause := recoverygate.Combine(
 		errors.New("recovery inventory inspection failed"),
-		transaction.ErrAbandonedFileSetResidue,
+		fileset.ErrAbandonedFileSetResidue,
 	)
 	result := refreshworkflow.CommandResult{
 		Mode:            refreshworkflow.ModeExecute,

@@ -526,6 +526,10 @@ func (authority *mutationAuthority) cleanupRemovalResidues(
 			return nil, newRemovalCleanupError(candidate.obligation, nil)
 		}
 	}
+	structure, err := compileRemovalCleanupStructure(len(candidates))
+	if err != nil {
+		return nil, fmt.Errorf("compile removal cleanup schedule: %w", err)
+	}
 	executionBudget, err := budget.BeginReservedExecution()
 	if err != nil {
 		return nil, err
@@ -533,17 +537,32 @@ func (authority *mutationAuthority) cleanupRemovalResidues(
 	for index := range candidates {
 		candidates[index].budget = executionBudget
 	}
+	execution := newRemovalCleanupExecution(structure, len(candidates))
 
 	discharged := make([]recovery.RemovalCleanupObligation, 0, len(candidates))
 	for index, candidate := range candidates {
-		obligation, err := authority.executeRemovalCleanupCandidate(ctx, candidate)
+		obligation, err := authority.executeRemovalCleanupCandidate(ctx, candidate, execution)
 		if err != nil {
-			return nil, fmt.Errorf("reconcile removal intent[%d]: %w", index, err)
+			failure := fmt.Errorf("reconcile removal intent[%d]: %w", index, err)
+			return nil, execution.finish(failure)
 		}
 		discharged = append(discharged, obligation)
 	}
+	if err := execution.admitCompletion(); err != nil {
+		return nil, execution.finish(err)
+	}
+	var completionErr error
 	if !plan.RetirementReady(discharged) {
-		return nil, fmt.Errorf("complete removal cleanup authority was not discharged")
+		completionErr = fmt.Errorf("complete removal cleanup authority was not discharged")
+	}
+	if err := execution.settleCompletion(completionErr == nil); err != nil {
+		completionErr = joinRemovalCleanupExecutionError(completionErr, err)
+	}
+	if completionErr != nil {
+		return nil, execution.finish(completionErr)
+	}
+	if err := execution.finish(nil); err != nil {
+		return nil, err
 	}
 	return discharged, nil
 }
@@ -699,15 +718,54 @@ func newRemovalCleanupErrorWithOutcome(
 func (authority *mutationAuthority) executeRemovalCleanupCandidate(
 	ctx context.Context,
 	candidate removalCleanupCandidate,
+	execution *removalCleanupExecution,
 ) (recovery.RemovalCleanupObligation, error) {
 	if candidate.budget == nil || !candidate.executionPreflighted {
 		return recovery.RemovalCleanupObligation{}, fmt.Errorf(
 			"removal cleanup candidate lacks complete operation preflight",
 		)
 	}
+	if err := execution.admitObservation(); err != nil {
+		return recovery.RemovalCleanupObligation{}, err
+	}
+	obligation, residue, cleanup, observationErr := authority.observeRemovalCleanupCandidate(
+		ctx,
+		candidate,
+	)
+	if err := execution.settleObservation(observationErr == nil); err != nil {
+		observationErr = joinRemovalCleanupExecutionError(observationErr, err)
+	}
+	if observationErr != nil {
+		return recovery.RemovalCleanupObligation{}, observationErr
+	}
+	if err := execution.admitAction(obligation.Action()); err != nil {
+		return recovery.RemovalCleanupObligation{}, err
+	}
+	discharged, actionErr := authority.executeRemovalCleanupAction(
+		ctx,
+		candidate,
+		obligation,
+		residue,
+		cleanup,
+	)
+	if err := execution.settleAction(obligation.Action(), actionErr == nil); err != nil {
+		actionErr = joinRemovalCleanupExecutionError(actionErr, err)
+	}
+	return discharged, actionErr
+}
+
+func (authority *mutationAuthority) observeRemovalCleanupCandidate(
+	ctx context.Context,
+	candidate removalCleanupCandidate,
+) (
+	recovery.RemovalCleanupObligation,
+	removalSlotObservation,
+	removalSlotObservation,
+	error,
+) {
 	budget := candidate.budget
 	if err := budget.AdmitObservation(); err != nil {
-		return recovery.RemovalCleanupObligation{}, err
+		return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{}, err
 	}
 	namespace, err := journal.ObserveRemovalNamespace(
 		ctx,
@@ -717,21 +775,19 @@ func (authority *mutationAuthority) executeRemovalCleanupCandidate(
 		budget,
 	)
 	if err != nil {
-		return recovery.RemovalCleanupObligation{}, err
+		return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{}, err
 	}
 	if namespace.Status() != recovery.RemovalNamespaceMatched {
 		entries, entriesErr := unavailableRemovalSlots()
 		if entriesErr != nil {
-			return recovery.RemovalCleanupObligation{}, entriesErr
+			return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{}, entriesErr
 		}
-		obligation, obligationErr := candidate.intent.AssessCleanup(
-			namespace,
-			entries,
-		)
+		obligation, obligationErr := candidate.intent.AssessCleanup(namespace, entries)
 		if obligationErr != nil {
-			return recovery.RemovalCleanupObligation{}, obligationErr
+			return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{}, obligationErr
 		}
-		return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, nil)
+		return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{},
+			newRemovalCleanupError(obligation, nil)
 	}
 	residue, err := authority.observeRemovalSlot(
 		ctx,
@@ -742,7 +798,7 @@ func (authority *mutationAuthority) executeRemovalCleanupCandidate(
 		candidate.residueWork,
 	)
 	if err != nil {
-		return recovery.RemovalCleanupObligation{}, err
+		return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{}, err
 	}
 	cleanup, err := authority.observeRemovalSlot(
 		ctx,
@@ -753,23 +809,34 @@ func (authority *mutationAuthority) executeRemovalCleanupCandidate(
 		candidate.cleanupSlotWork,
 	)
 	if err != nil {
-		return recovery.RemovalCleanupObligation{}, err
+		return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{}, err
 	}
 	obligation, err := candidate.intent.AssessCleanup(
 		namespace,
 		recovery.NewRemovalResidueObservation(residue.entry, cleanup.entry),
 	)
 	if err != nil {
-		return recovery.RemovalCleanupObligation{}, err
+		return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{}, err
 	}
 	switch obligation.Readiness() {
 	case recovery.RemovalCleanupBlocked, recovery.RemovalCleanupRetry:
-		return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, nil)
+		return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{},
+			newRemovalCleanupError(obligation, nil)
 	case recovery.RemovalCleanupReady:
+		return obligation, residue, cleanup, nil
 	default:
-		return recovery.RemovalCleanupObligation{}, fmt.Errorf("removal cleanup candidate is not actionable")
+		return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{},
+			fmt.Errorf("removal cleanup candidate is not actionable")
 	}
+}
 
+func (authority *mutationAuthority) executeRemovalCleanupAction(
+	ctx context.Context,
+	candidate removalCleanupCandidate,
+	obligation recovery.RemovalCleanupObligation,
+	residue removalSlotObservation,
+	cleanup removalSlotObservation,
+) (recovery.RemovalCleanupObligation, error) {
 	switch obligation.Action() {
 	case recovery.RemovalCleanupActionConfirmAbsence:
 		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {

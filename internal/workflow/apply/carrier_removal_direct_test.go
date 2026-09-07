@@ -14,8 +14,10 @@ import (
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	executeconfigrelation "github.com/isty2e/daem/internal/effect/execute/configrelation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/operationplan"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -30,6 +32,77 @@ type openCodeDirectWorkflowFixture struct {
 	*workflowFixture
 	configPaths    []string
 	authorityPaths []observerelation.AuthorityPath
+}
+
+func TestRunScheduledCarrierRemovalsDirectProjectionConverges(t *testing.T) {
+	fixture := newOpenCodeDirectWorkflowFixture(t, target.ScopeProject)
+	input := fixture.directInput(t)
+	closeCalls := 0
+	input.CloseBoundRemoval = func(removal *executeconfigrelation.BoundRemoval) error {
+		closeCalls++
+		return removal.Close()
+	}
+	plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
+
+	result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
+	if err != nil {
+		t.Fatalf("runScheduledCarrierRemovals: %v", err)
+	}
+	if closeCalls != 1 {
+		t.Fatalf("bound removal close calls = %d, want 1", closeCalls)
+	}
+	if result.ActionCount != 1 ||
+		len(result.State.PendingCarrierRemovals()) != 0 ||
+		len(result.State.ManagedCarrierClaims()) != 0 {
+		t.Fatalf(
+			"scheduled direct removal = actions:%d pending:%#v claims:%#v",
+			result.ActionCount,
+			result.State.PendingCarrierRemovals(),
+			result.State.ManagedCarrierClaims(),
+		)
+	}
+}
+
+func TestRunScheduledCarrierRemovalsClosesDirectBindingOnCursorMismatch(t *testing.T) {
+	fixture := newOpenCodeDirectWorkflowFixture(t, target.ScopeProject)
+	input := fixture.directInput(t)
+	plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
+	carrierPlan := plan.carrierRemovalPlan()
+	ref := carrierPlan.carrierRemovals[0].ref
+
+	var builder operationplan.EffectStructureBuilder
+	mismatched, err := builder.Compile(builder.ForwardPhase(
+		"apply/carrier-removals",
+		operationplan.EffectSequence(
+			compileApplyCheckedStep(
+				&builder,
+				ref+"/prepare-direct",
+				operationplan.EffectStepObservation,
+			),
+			builder.Step(ref+"/bind-direct", operationplan.EffectStepObservation),
+			builder.Step(ref+"/unexpected", operationplan.EffectStepNoOp),
+		),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.carrierRemovalStructure = mismatched
+
+	closeCalls := 0
+	input.CloseBoundRemoval = func(removal *executeconfigrelation.BoundRemoval) error {
+		closeCalls++
+		return removal.Close()
+	}
+	result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
+	if err == nil {
+		t.Fatal("cursor mismatch returned nil error")
+	}
+	if closeCalls != 1 {
+		t.Fatalf("bound removal close calls = %d, want 1", closeCalls)
+	}
+	if result.ActionCount != 0 {
+		t.Fatalf("ActionCount = %d, want 0", result.ActionCount)
+	}
 }
 
 func TestPendingRemovalVerificationMayReclassifyRelationOrder(t *testing.T) {
@@ -437,7 +510,8 @@ func TestRunDirectOpenCodeRemovalRetriesAfterPartialMultiFileFailure(t *testing.
 	fixture.current = first.State
 	fixture.action = fixture.pendingDirectAction(t, pending[0])
 	retry := fixture.directInput(t)
-	second, err := runCarrierRemovals(t.Context(), retry)
+	plan := scheduledCarrierRemovalTestPlan(t, retry.Actions)
+	second, err := runScheduledCarrierRemovals(t.Context(), retry, plan, plan)
 	if err != nil {
 		t.Fatalf("retry run: %v", err)
 	}

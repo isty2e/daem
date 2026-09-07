@@ -5,21 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strconv"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/filesnapshot"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/recoverygate"
 )
-
-type importObservedPath struct {
-	request       mutation.RevisionRequest
-	authoritative bool
-}
 
 // ExecuteCommandPlan revalidates and writes an import candidate under one complete lease set.
 func ExecuteCommandPlan(
@@ -248,318 +243,151 @@ func importPlanFingerprint(plan adoptmodel.Plan) (mutation.OperationFingerprint,
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint import plan: %w", err)
 	}
-	return mutation.NewOperationFingerprint(canonical), nil
+	return operationplan.HashCanonical(canonical), nil
 }
 
 func importMutationEvidence(
 	plan adoptmodel.Plan,
 	barrier recoverygate.EffectAuthority,
 ) ([]mutation.Domain, []mutation.RevisionRequest, []mutation.RevisionRequest, error) {
-	if err := plan.Validate(); err != nil {
-		return nil, nil, nil, err
-	}
-	domains := barrier.Domains()
-	observed := make(map[string]importObservedPath)
-	stableObserved := make(map[string]importObservedPath)
-	physicalDomains := make(map[string]struct{})
-	externallyValidated := make(map[string]struct{})
-	addObserved := func(
-		destination map[string]importObservedPath,
-		key string,
-		request mutation.RevisionRequest,
-		authoritative bool,
-	) error {
-		if existing, exists := destination[key]; exists {
-			switch {
-			case existing.request.Equal(request):
-				return nil
-			case existing.authoritative && !authoritative:
-				return nil
-			case !existing.authoritative && authoritative:
-				destination[key] = importObservedPath{request: request, authoritative: true}
-				return nil
-			default:
-				return fmt.Errorf("import path %q carries conflicting revision semantics", request.Path)
-			}
-		}
-		destination[key] = importObservedPath{request: request, authoritative: authoritative}
-		return nil
-	}
-	addLogicalDomain := func(path string, access mutation.AccessMode, effect mutation.PathEffect) error {
-		domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: path, Access: access, Effect: effect})
-		if err != nil {
-			return err
-		}
-		domains = append(domains, domain)
-		return nil
-	}
-	addLogicalRevision := func(
-		path string,
-		access mutation.AccessMode,
-		effect mutation.PathEffect,
-		stable bool,
-		request mutation.RevisionRequest,
-	) error {
-		if err := addLogicalDomain(path, access, effect); err != nil {
-			return err
-		}
-		key := importObservedPathKey(path, effect)
-		if err := addObserved(observed, key, request, false); err != nil {
-			return err
-		}
-		if stable {
-			if err := addObserved(stableObserved, key, request, false); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	addLogical := func(path string, access mutation.AccessMode, effect mutation.PathEffect, stable bool) error {
-		return addLogicalRevision(
-			path,
-			access,
-			effect,
-			stable,
-			mutation.NewBoundedContentRevisionRequest(path, effect),
-		)
-	}
-	ensurePhysicalDomain := func(
-		path string,
-		target string,
-		scope string,
-		effect mutation.PathEffect,
-	) error {
-		key := target + "\x00" + scope + "\x00" + importObservedPathKey(path, effect)
-		if _, exists := physicalDomains[key]; exists {
-			return nil
-		}
-		domain, err := mutation.NewPhysicalPathDomain(mutation.PhysicalPathRequest{
-			Path: path, Access: mutation.AccessShared, Effect: effect, Target: target, Scope: scope,
-		})
-		if err != nil {
-			return err
-		}
-		physicalDomains[key] = struct{}{}
-		domains = append(domains, domain)
-		return nil
-	}
-	addPhysicalRevision := func(
-		path string,
-		target string,
-		scope string,
-		effect mutation.PathEffect,
-		revisionKey string,
-		request mutation.RevisionRequest,
-		authoritative bool,
-	) error {
-		if err := ensurePhysicalDomain(path, target, scope, effect); err != nil {
-			return err
-		}
-		if err := addObserved(observed, revisionKey, request, authoritative); err != nil {
-			return err
-		}
-		if err := addObserved(stableObserved, revisionKey, request, authoritative); err != nil {
-			return err
-		}
-		return nil
-	}
-	addPhysical := func(path string, target string, scope string, effect mutation.PathEffect) error {
-		request := mutation.NewBoundedContentRevisionRequest(path, effect)
-		return addPhysicalRevision(
-			path,
-			target,
-			scope,
-			effect,
-			importObservedPathKey(path, effect),
-			request,
-			false,
-		)
-	}
-
-	for _, request := range barrier.RevisionRequests() {
-		key := importObservedPathKey(request.Path, request.Effect)
-		if err := addObserved(observed, key, request, false); err != nil {
-			return nil, nil, nil, err
-		}
-		if err := addObserved(stableObserved, key, request, false); err != nil {
-			return nil, nil, nil, err
-		}
-	}
-
-	outputRequests, err := mutation.BoundedFileRevisionRequests(
-		declarationartifact.MaximumBytes,
-		plan.Output(),
-	)
+	program, err := compileImportOperationProgram(plan, barrier)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	for _, request := range outputRequests {
-		access := mutation.AccessShared
-		if request.Effect == mutation.PathEffectDirectoryEntry {
-			access = mutation.AccessExclusive
-		}
-		if err := addLogicalRevision(
-			plan.Output(),
-			access,
-			request.Effect,
-			true,
-			request,
-		); err != nil {
-			return nil, nil, nil, err
-		}
+	return executeImportOperationProgram(program)
+}
+
+func compileImportOperationProgram(
+	plan adoptmodel.Plan,
+	barrier recoverygate.EffectAuthority,
+) (operationplan.AdoptProgram, error) {
+	if err := plan.Validate(); err != nil {
+		return operationplan.AdoptProgram{}, err
 	}
 	paths, err := daempaths.Resolve(plan.Output())
 	if err != nil {
-		return nil, nil, nil, err
+		return operationplan.AdoptProgram{}, err
 	}
 	_, selectorMembershipRequired, err := selectorSkillMergeEnvironment(plan)
 	if err != nil {
-		return nil, nil, nil, err
+		return operationplan.AdoptProgram{}, err
+	}
+	metadataTransactionPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
+	if err != nil {
+		return operationplan.AdoptProgram{}, err
+	}
+	input := operationplan.AdoptInput{
+		BarrierDomains:          barrier.Domains(),
+		BarrierRevisions:        barrier.RevisionRequests(),
+		OutputPath:              plan.Output(),
+		OutputMaximumBytes:      declarationartifact.MaximumBytes,
+		MetadataTransactionPath: metadataTransactionPath,
 	}
 	if selectorMembershipRequired {
-		if err := addLogicalDomain(
-			paths.LockfilePath,
-			mutation.AccessShared,
-			mutation.PathEffectDirectoryEntry,
-		); err != nil {
-			return nil, nil, nil, err
-		}
-		if err := addLogicalDomain(
-			paths.LockfilePath,
-			mutation.AccessShared,
-			mutation.PathEffectReferent,
-		); err != nil {
-			return nil, nil, nil, err
-		}
-	}
-	metadataTransactionPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if err := addLogical(
-		metadataTransactionPath,
-		mutation.AccessExclusive,
-		mutation.PathEffectDirectoryEntry,
-		true,
-	); err != nil {
-		return nil, nil, nil, err
+		input.SelectorLockfilePath = paths.LockfilePath
 	}
 	for _, source := range plan.Sources() {
-		if err := addLogical(source.SourcePath, mutation.AccessExclusive, mutation.PathEffectDirectoryEntry, false); err != nil {
-			return nil, nil, nil, err
-		}
-		if err := addPhysical(source.LivePath, string(source.Target), string(source.Scope), mutation.PathEffectReferent); err != nil {
-			return nil, nil, nil, err
-		}
+		input.Sources = append(input.Sources, operationplan.AdoptSource{
+			SourcePath: source.SourcePath,
+			LivePath:   source.LivePath,
+			Target:     string(source.Target),
+			Scope:      string(source.Scope),
+		})
 	}
 	for _, skill := range plan.Skills() {
-		if err := addLogical(skill.SourcePath, mutation.AccessExclusive, mutation.PathEffectDirectoryEntry, false); err != nil {
-			return nil, nil, nil, err
-		}
+		input.SkillSourcePaths = append(input.SkillSourcePaths, skill.SourcePath)
 	}
 	for _, authority := range plan.SkillSourceAuthorities() {
 		for _, route := range authority.Routes {
-			if err := addPhysical(route.LivePath, string(route.Target), string(authority.Scope), mutation.PathEffectDirectoryEntry); err != nil {
-				return nil, nil, nil, err
-			}
-			if err := addPhysical(route.ReadPath, string(route.Target), string(authority.Scope), mutation.PathEffectReferent); err != nil {
-				return nil, nil, nil, err
-			}
+			input.SkillRoutes = append(input.SkillRoutes, operationplan.AdoptSkillRoute{
+				LivePath: route.LivePath,
+				ReadPath: route.ReadPath,
+				Target:   string(route.Target),
+				Scope:    string(authority.Scope),
+			})
 		}
 	}
 	for _, hook := range plan.Hooks() {
-		if err := addPhysical(hook.LivePath, string(hook.Target), string(hook.Scope), mutation.PathEffectReferent); err != nil {
-			return nil, nil, nil, err
-		}
+		input.Hooks = append(input.Hooks, operationplan.AdoptPhysicalPath{
+			Path:   hook.LivePath,
+			Target: string(hook.Target),
+			Scope:  string(hook.Scope),
+		})
 	}
 	for _, authority := range plan.MCPSourceAuthorities() {
-		if err := ensurePhysicalDomain(
-			authority.PrimaryPath,
-			string(authority.Target),
-			string(authority.Scope),
-			mutation.PathEffectReferent,
-		); err != nil {
-			return nil, nil, nil, err
-		}
-		externallyValidated[importObservedPathKey(
-			authority.PrimaryPath,
-			mutation.PathEffectReferent,
-		)] = struct{}{}
-		for _, requiredAbsentPath := range authority.RequiredAbsentPaths {
-			if err := addPhysicalRevision(
-				requiredAbsentPath,
-				string(authority.Target),
-				string(authority.Scope),
-				mutation.PathEffectDirectoryEntry,
-				importObservedPathKey(requiredAbsentPath, mutation.PathEffectDirectoryEntry),
-				mutation.NewRequiredAbsentRevisionRequest(requiredAbsentPath),
-				true,
-			); err != nil {
-				return nil, nil, nil, err
-			}
-		}
+		input.MCPSources = append(input.MCPSources, operationplan.AdoptMCPSource{
+			PrimaryPath:         authority.PrimaryPath,
+			Target:              string(authority.Target),
+			Scope:               string(authority.Scope),
+			RequiredAbsentPaths: append([]string(nil), authority.RequiredAbsentPaths...),
+		})
 	}
 	for _, scan := range plan.Scans() {
-		requests, err := importScanRevisionRequests(scan)
-		if err != nil {
+		kind := operationplan.AdoptScanKind(scan.Evidence.Kind)
+		switch scan.Evidence.Kind {
+		case adoptmodel.ScanEvidenceBoundedFile:
+			kind = operationplan.AdoptScanBoundedFile
+		case adoptmodel.ScanEvidenceDirectoryListing:
+			kind = operationplan.AdoptScanDirectoryListing
+		}
+		input.Scans = append(input.Scans, operationplan.AdoptScan{
+			Path:         scan.LivePath,
+			Target:       string(scan.Target),
+			Scope:        string(scan.Scope),
+			Kind:         kind,
+			MaximumBytes: scan.Evidence.MaximumBytes,
+		})
+	}
+	return operationplan.CompileAdopt(input), nil
+}
+
+func executeImportOperationProgram(
+	program operationplan.AdoptProgram,
+) ([]mutation.Domain, []mutation.RevisionRequest, []mutation.RevisionRequest, error) {
+	compiler, err := program.NewRevisionCompiler()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	steps := program.Steps()
+	domains := make([]mutation.Domain, 0, len(steps))
+	for _, step := range steps {
+		if err := step.Preflight(); err != nil {
 			return nil, nil, nil, err
 		}
-		for _, request := range requests {
-			if err := addPhysicalRevision(
-				scan.LivePath,
-				string(scan.Target),
-				string(scan.Scope),
-				request.Effect,
-				importObservedPathKey(scan.LivePath, request.Effect),
-				request,
-				true,
-			); err != nil {
+		if domainStep, ok := step.Domain(); ok {
+			domain, err := lowerImportDomainStep(domainStep)
+			if err != nil {
 				return nil, nil, nil, err
 			}
+			domains = append(domains, domain)
+		}
+		if err := compiler.ApplyAfterDomain(step); err != nil {
+			return nil, nil, nil, err
 		}
 	}
-	for key := range externallyValidated {
-		delete(observed, key)
-		delete(stableObserved, key)
+	revisions, err := compiler.Compile()
+	if err != nil {
+		return nil, nil, nil, err
 	}
-	return domains, sortedImportRevisionRequests(observed), sortedImportRevisionRequests(stableObserved), nil
+	return domains, revisions.Revisions(), revisions.StableRevisions(), nil
 }
 
-func importScanRevisionRequests(scan adoptmodel.Scan) ([]mutation.RevisionRequest, error) {
-	switch scan.Evidence.Kind {
-	case adoptmodel.ScanEvidenceBoundedFile:
-		return mutation.BoundedFileRevisionRequests(
-			scan.Evidence.MaximumBytes,
-			scan.LivePath,
-		)
-	case adoptmodel.ScanEvidenceDirectoryListing:
-		return []mutation.RevisionRequest{
-			mutation.NewBoundedDirectoryListingRevisionRequest(scan.LivePath),
-		}, nil
-	default:
-		return nil, fmt.Errorf(
-			"import scan %q has unsupported evidence kind %q",
-			scan.LivePath,
-			scan.Evidence.Kind,
-		)
+func lowerImportDomainStep(step operationplan.DomainStep) (mutation.Domain, error) {
+	if domain, ok := step.Compiled(); ok {
+		return domain, nil
 	}
-}
-
-func sortedImportRevisionRequests(observed map[string]importObservedPath) []mutation.RevisionRequest {
-	keys := make([]string, 0, len(observed))
-	for key := range observed {
-		keys = append(keys, key)
+	request, ok := step.Path()
+	if !ok {
+		return mutation.Domain{}, fmt.Errorf("import operation domain step is invalid")
 	}
-	sort.Strings(keys)
-	revisions := make([]mutation.RevisionRequest, 0, len(keys))
-	for _, key := range keys {
-		revisions = append(revisions, observed[key].request)
+	if logical, ok := request.Logical(); ok {
+		return mutation.NewLogicalPathDomain(logical)
 	}
-	return revisions
-}
-
-func importObservedPathKey(path string, effect mutation.PathEffect) string {
-	return strconv.Itoa(int(effect)) + ":" + path
+	physical, ok := request.Physical()
+	if !ok {
+		return mutation.Domain{}, fmt.Errorf("import operation path-domain request is invalid")
+	}
+	return mutation.NewPhysicalPathDomain(physical)
 }
 
 func equalImportRevisionRequests(left []mutation.RevisionRequest, right []mutation.RevisionRequest) bool {

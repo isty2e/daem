@@ -1,11 +1,15 @@
 package listworkflow
 
 import (
+	"fmt"
+
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredinstructions "github.com/isty2e/daem/internal/desired/instructions"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
+	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -107,12 +111,17 @@ func collectManifestLocationSelections(environment desired.Environment) (manifes
 }
 
 func (selections *manifestLocationSelections) selectManagedDefault(key resourceRequestKey) error {
-	placement, err := profile.Profile(key.target).DefaultPlacement(key.resource, key.scope)
-	if err != nil {
-		return err
+	view, ok := hostsurfacecatalog.Product().ManagedPathDefault(key.target, key.scope, key.resource)
+	if !ok {
+		return fmt.Errorf(
+			"%s target %q scope %q has no default placement",
+			key.resource,
+			key.target,
+			key.scope,
+		)
 	}
 	selections.recordSelectedPath(
-		selectedPathKey{resourceRequestKey: key, path: placement.Root().String()},
+		selectedPathKey{resourceRequestKey: key, path: view.Placement().Root().String()},
 		LocationSelectionManifestDefault,
 	)
 	return nil
@@ -137,10 +146,19 @@ func (selections *manifestLocationSelections) selectInstructions(
 			}
 			continue
 		}
-		placement, err := profile.ManagedFilePlacementForRelativePath(
-			entity.KindInstructions,
-			selectedTarget,
+		compiled := hostsurfacecatalog.Product()
+		defaultView, ok := compiled.ManagedPathDefault(selectedTarget, scope, entity.KindInstructions)
+		if !ok {
+			return fmt.Errorf(
+				"%s target %q scope %q has no default placement",
+				entity.KindInstructions,
+				selectedTarget,
+				scope,
+			)
+		}
+		destination, err := profile.ResolveManagedFileRelativePath(
 			scope,
+			defaultView.Placement().Root(),
 			renderTo,
 		)
 		if err != nil {
@@ -149,8 +167,20 @@ func (selections *manifestLocationSelections) selectInstructions(
 			}] = struct{}{}
 			continue
 		}
+		view, admitted := compiled.ManagedPathAt(
+			selectedTarget,
+			scope,
+			entity.KindInstructions,
+			destination.String(),
+		)
+		if !admitted || view.Placement().ContentKind() != realization.PathProjectionFile {
+			selections.unadmittedPlacements[requestedPlacement{
+				target: selectedTarget, scope: scope, resource: entity.KindInstructions, path: renderTo,
+			}] = struct{}{}
+			continue
+		}
 		selections.recordSelectedPath(
-			selectedPathKey{resourceRequestKey: key, path: placement.Root().String()},
+			selectedPathKey{resourceRequestKey: key, path: view.Placement().Root().String()},
 			LocationSelectionManifestExplicit,
 		)
 	}
@@ -173,7 +203,12 @@ func (selections *manifestLocationSelections) selectSkill(
 			continue
 		}
 		requestedRoot := override.InstallTo()
-		if _, admitted := profile.Profile(selectedTarget).PlacementAt(entity.KindSkill, scope, requestedRoot); !admitted {
+		if _, admitted := hostsurfacecatalog.Product().ManagedPathAt(
+			selectedTarget,
+			scope,
+			entity.KindSkill,
+			requestedRoot,
+		); !admitted {
 			selections.unadmittedPlacements[requestedPlacement{
 				target: selectedTarget, scope: scope, resource: entity.KindSkill, path: requestedRoot,
 			}] = struct{}{}

@@ -7,9 +7,9 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	hookassetresource "github.com/isty2e/daem/internal/desired/hookasset"
 	"github.com/isty2e/daem/internal/effect/payload"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
-	"github.com/isty2e/daem/internal/realization/profile"
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -89,7 +89,10 @@ func buildHookAssetPayload(
 	if err != nil {
 		return payload.Payload{}, fmt.Errorf("hook_asset %q: %w", asset.ID().Name(), err)
 	}
-	placement, err := profile.HookAssetPlacementFor(projection.Scope(), projection.ConsumerTargets())
+	placement, err := hostsurfacecatalog.Product().HookAssetPlacementFor(
+		projection.Scope(),
+		projection.ConsumerTargets(),
+	)
 	if err != nil {
 		return payload.Payload{}, fmt.Errorf("hook_asset %q: select path placement: %w", asset.ID().Name(), err)
 	}

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -290,11 +291,11 @@ func mustCommandAdapterProfile(
 	selectedTarget target.Target,
 	carrier desiredextension.Carrier,
 ) profile.DelegatedRouteProfile {
-	profile, ok := profile.Profile(selectedTarget).DelegatedRoute(carrier)
+	routeProfile, ok := hostsurfacecatalog.Product().ExtensionRouteProfile(selectedTarget, carrier)
 	if !ok {
 		panic(fmt.Sprintf("target profile %q is missing delegated command route %q", selectedTarget, carrier))
 	}
-	return profile
+	return routeProfile
 }
 
 func buildClaudePluginCarrierCommand(input commandAdapterInput) (subprocess.CommandAttemptRequest, error) {

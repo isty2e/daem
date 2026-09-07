@@ -4,11 +4,12 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 var (
@@ -32,9 +33,9 @@ type recoveryPreparation struct {
 	input              PlanInput
 	operationEvidence  mutation.OperationFingerprint
 	authorityEvidence  recoveryAuthorityEvidence
-	stateDirAuthority  transaction.StateDirAuthority
+	stateDirAuthority  recoverygate.StateDirAuthority
 	activeStateDir     bool
-	fileSetFence       transaction.FileSetFenceKind
+	fileSetFence       fileset.FileSetFenceKind
 	physicalPathBudget rootedpath.PhysicalTraversalBudget
 }
 
@@ -44,7 +45,7 @@ type recoveryPreparation struct {
 // shared lifecycle and cannot duplicate execution authority.
 type PreparedRecovery struct {
 	disclosure   journal.RecoverablePlan
-	fileSetFence transaction.FileSetFenceKind
+	fileSetFence fileset.FileSetFenceKind
 	lifecycle    *preparedRecoveryLifecycle
 }
 
@@ -69,17 +70,17 @@ func newPreparedRecovery(planned recoveryPreparation) *PreparedRecovery {
 // It grants no authority to execute the disclosed actions.
 // ContinuingFileSetFence returns the separate file-set fence that active
 // journal recovery does not clear.
-func (prepared *PreparedRecovery) ContinuingFileSetFence() (transaction.FileSetFenceKind, bool) {
+func (prepared *PreparedRecovery) ContinuingFileSetFence() (fileset.FileSetFenceKind, bool) {
 	if prepared == nil {
-		return transaction.FileSetFenceClear, false
+		return fileset.FileSetFenceClear, false
 	}
 	switch prepared.fileSetFence {
-	case transaction.FileSetFencePublishedTransaction,
-		transaction.FileSetFenceAbandonedResidue,
-		transaction.FileSetFenceCensusLimit:
+	case fileset.FileSetFencePublishedTransaction,
+		fileset.FileSetFenceAbandonedResidue,
+		fileset.FileSetFenceCensusLimit:
 		return prepared.fileSetFence, true
 	default:
-		return transaction.FileSetFenceClear, false
+		return fileset.FileSetFenceClear, false
 	}
 }
 

@@ -405,7 +405,7 @@ func TestProbeRequestRejectsClaudeProjectionWithoutLockedLaunchIdentity(t *testi
 	}
 }
 
-func TestRuntimeProbeAdmissionIsDerivedFromProfileCapabilities(t *testing.T) {
+func TestRuntimeProbeAdmissionIsDerivedFromCompiledCatalog(t *testing.T) {
 	if got := runtimeProbeTargetValues(); !stringSlicesEqual(got, []string{"claude-code", "opencode"}) {
 		t.Fatalf("runtime-probe targets = %#v", got)
 	}

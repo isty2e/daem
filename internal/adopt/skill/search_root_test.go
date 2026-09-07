@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	testscale "github.com/isty2e/daem/test/scale"
 )
 
 func TestSearchRootCacheAcceptsExactEntryAndNameLimits(t *testing.T) {
@@ -303,6 +305,8 @@ func TestSearchRootCacheDoesNotCacheOperationalFailure(t *testing.T) {
 }
 
 func TestSearchRootCacheDoesNotMaterializeGeneratedOverflowRemainder(t *testing.T) {
+	testscale.Require(t)
+
 	root := t.TempDir()
 	const generatedEntries = 1_000_000
 	const admittedEntries = 1_024

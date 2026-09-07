@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/contractversion"
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/recoverygate"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
@@ -66,7 +66,7 @@ func TestPrintApplyResultJSONProjectsTypedPathNeutralFailure(t *testing.T) {
 
 func TestPrintApplyResultJSONProjectsAbandonedFileSetResidue(t *testing.T) {
 	failure := applyworkflow.ClassifyFailure(
-		fmt.Errorf("private path %s: %w", "/Users/alice/.daem-tmp-secret", transaction.ErrAbandonedFileSetResidue),
+		fmt.Errorf("private path %s: %w", "/Users/alice/.daem-tmp-secret", fileset.ErrAbandonedFileSetResidue),
 		applyworkflow.CommandResult{},
 	)
 	var output bytes.Buffer
@@ -93,7 +93,7 @@ func TestPrintApplyResultJSONProjectsAbandonedFileSetResidue(t *testing.T) {
 
 func TestPrintApplyResultJSONProjectsUnprovableFileSetFence(t *testing.T) {
 	failure := applyworkflow.ClassifyFailure(
-		fmt.Errorf("inspect file-set state dir: %w", transaction.ErrFileSetAccessUnprovable),
+		fmt.Errorf("inspect file-set state dir: %w", fileset.ErrFileSetAccessUnprovable),
 		applyworkflow.CommandResult{},
 	)
 	var output bytes.Buffer
@@ -144,7 +144,7 @@ func TestPrintApplyResultJSONPreservesKnownFenceBesideUnknownJournal(t *testing.
 	failure := applyworkflow.ClassifyFailure(
 		recoverygate.Combine(
 			errors.New("recovery inventory inspection failed"),
-			transaction.ErrAbandonedFileSetResidue,
+			fileset.ErrAbandonedFileSetResidue,
 		),
 		applyworkflow.CommandResult{},
 	)
@@ -181,7 +181,7 @@ func TestPrintApplyResultJSONProjectsInterruptedApplyFileSetFence(t *testing.T) 
 	failure := applyworkflow.ClassifyFailure(
 		recoverygate.Combine(
 			fmt.Errorf("%w; run: daem recover --dry-run", journal.ErrInterruptedApply),
-			transaction.ErrAbandonedFileSetResidue,
+			fileset.ErrAbandonedFileSetResidue,
 		),
 		applyworkflow.CommandResult{},
 	)

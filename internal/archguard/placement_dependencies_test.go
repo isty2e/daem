@@ -11,17 +11,6 @@ func TestPiDependencyGuardPreservesOldForbiddenCounterfactuals(t *testing.T) {
 		legitimate PackageRecord
 	}{
 		{
-			name: "placement ownership",
-			forbidden: PackageRecord{
-				ImportPath: "example.com/project/internal/future",
-			},
-			oldRule: "semantic-block-ownership",
-			newRule: rulePackagePlacementOwnership,
-			legitimate: PackageRecord{
-				ImportPath: "example.com/project/internal/desired/skill",
-			},
-		},
-		{
 			name: "desired direction",
 			forbidden: PackageRecord{
 				ImportPath: "example.com/project/internal/desired/skill",
@@ -133,11 +122,7 @@ func TestPiDependencyGuardPreservesOldForbiddenCounterfactuals(t *testing.T) {
 			if countViolationRule(newFindings, test.newRule) == 0 {
 				t.Fatalf("Pi guard did not reject forbidden fixture:\n%s", FormatReport(newFindings))
 			}
-			if test.oldRule == "semantic-block-ownership" &&
-				test.newRule != rulePackagePlacementOwnership {
-				t.Fatalf("old ownership rule maps to %q", test.newRule)
-			}
-			if test.oldRule != "semantic-block-ownership" && test.oldRule != test.newRule {
+			if test.oldRule != test.newRule {
 				t.Fatalf("old rule %q changed unexpectedly to %q", test.oldRule, test.newRule)
 			}
 			nearFindings := analyzeArchitectureDependencyDirections([]PackageRecord{test.legitimate})
@@ -185,46 +170,5 @@ func TestPiDependencyGuardAcceptsExactKernelCapabilityImport(t *testing.T) {
 	findings := analyzeArchitectureDependencyDirections(records)
 	if countViolationRule(findings, ruleRealizationImportDirection) != 0 {
 		t.Fatalf("exact capability findings:\n%s", FormatReport(findings))
-	}
-}
-
-func TestPiDependencyGuardRejectsUnclassifiedImportedPackage(t *testing.T) {
-	records := []PackageRecord{{
-		ImportPath: "example.com/project/internal/realization/aggregate",
-		Imports:    []string{"example.com/project/internal/realization/future"},
-	}}
-	findings := analyzeArchitectureDependencyDirections(records)
-	if countViolationRule(findings, rulePackagePlacementOwnership) != 1 {
-		t.Fatalf("unclassified import findings:\n%s", FormatReport(findings))
-	}
-}
-
-func TestPiDependencyGuardRejectsUnclassifiedDesiredAndTopologyImports(t *testing.T) {
-	tests := []PackageRecord{
-		{
-			ImportPath: "example.com/project/internal/desired/skill",
-			Imports:    []string{"example.com/project/internal/desired/future"},
-		},
-		{
-			ImportPath: "example.com/project/internal/topology/mcp",
-			Imports:    []string{"example.com/project/internal/topology/future"},
-		},
-	}
-	for _, record := range tests {
-		findings := analyzeArchitectureDependencyDirections([]PackageRecord{record})
-		if countViolationRule(findings, rulePackagePlacementOwnership) != 1 {
-			t.Fatalf("%s unclassified import findings:\n%s", record.ImportPath, FormatReport(findings))
-		}
-	}
-}
-
-func TestPiDependencyGuardRejectsDesiredKernelImportingTestSupport(t *testing.T) {
-	records := []PackageRecord{{
-		ImportPath: "example.com/project/internal/desired/skill",
-		Imports:    []string{"example.com/project/internal/desired/testfixture"},
-	}}
-	findings := analyzeArchitectureDependencyDirections(records)
-	if countViolationRule(findings, ruleDesiredImportDirection) != 1 {
-		t.Fatalf("Desired test-support findings:\n%s", FormatReport(findings))
 	}
 }

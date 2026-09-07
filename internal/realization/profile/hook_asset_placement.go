@@ -48,8 +48,7 @@ func HookAssetPlacementFor(scope target.Scope, consumers []target.Target) (HookA
 		return HookAssetPlacement{}, fmt.Errorf("hook asset placement requires at least one consumer target")
 	}
 	for _, consumer := range canonicalConsumers {
-		selected, admitted := Profile(consumer).RealizationKind(entity.KindHookAsset)
-		if !admitted || selected != realization.RealizationManagedPathProjection {
+		if !TargetSupports(consumer, entity.KindHook) {
 			return HookAssetPlacement{}, fmt.Errorf("target %q does not admit HookAsset path projection", consumer)
 		}
 	}
@@ -71,6 +70,26 @@ func HookAssetPlacementFor(scope target.Scope, consumers []target.Target) (HookA
 		return HookAssetPlacement{}, err
 	}
 	return placement, nil
+}
+
+// ImplementedHookAssetPlacements returns project and global physical placement
+// facts with the complete canonical set of direct Hook consumer targets.
+func ImplementedHookAssetPlacements() []HookAssetPlacement {
+	consumers := make([]target.Target, 0)
+	for _, selectedTarget := range target.SupportedTargets() {
+		if TargetSupports(selectedTarget, entity.KindHook) {
+			consumers = append(consumers, selectedTarget)
+		}
+	}
+	result := make([]HookAssetPlacement, 0, 2)
+	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		placement, err := HookAssetPlacementFor(scope, consumers)
+		if err != nil {
+			panic(err)
+		}
+		result = append(result, placement)
+	}
+	return result
 }
 
 // Validate rejects forged or partially initialized placement values.

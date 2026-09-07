@@ -13,7 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -152,7 +152,7 @@ func TestUnmanageDryRunReportsRecoverableJournalWithContinuingResidue(t *testing
 	if !strings.Contains(err.Error(), "interrupted apply operation found") {
 		t.Fatalf("error = %v, want recoverable journal", err)
 	}
-	if !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+	if !errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
 		t.Fatalf("error = %v, want continuing residue", err)
 	}
 	if !strings.Contains(err.Error(), "does not clear the continuing file-set fence") {
@@ -258,7 +258,7 @@ func TestCommitUnmanageCandidateRejectsJournalAppearingAfterOptimisticPlan(t *te
 	if after := captureUnmanageTree(t, paths.RecoveryDir); !reflect.DeepEqual(after, recoveryBefore) {
 		t.Fatalf("recovery evidence changed:\nbefore=%#v\nafter=%#v", recoveryBefore, after)
 	}
-	markerPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	markerPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,21 +313,22 @@ func TestUnmanageMutationAuthorityConflictsWithRecoveryWriters(t *testing.T) {
 	root := t.TempDir()
 	configureUnmanageTestHomes(t, root)
 	paths := unmanageTestPaths(t, root)
-	markerPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	markerPath, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	domains, err := unmanageMutationDomains(
-		[]string{
-			paths.ManifestPath,
-			paths.LockfilePath,
-			paths.StatefilePath,
-			paths.CarrierClaimRegistryPath,
-		},
+	barrier, err := recoverygate.NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := compileUnmanageOperationProgram(
+		[]string{paths.ManifestPath, paths.LockfilePath},
+		[]string{paths.StatefilePath, paths.CarrierClaimRegistryPath},
 		markerPath,
 		nil,
-		paths.RecoveryDir,
+		barrier,
 	)
+	domains, err := lowerAuthoringDomainSteps(program.DomainSteps())
 	if err != nil {
 		t.Fatal(err)
 	}

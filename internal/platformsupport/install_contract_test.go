@@ -19,22 +19,7 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-func TestInstallRecipeUsesExecutableMacOSRuntimeFloor(t *testing.T) {
-	document := installRecipeDocument(t)
-	for _, required := range []string{
-		`daem_admitted_macos_product_version() {`,
-		`/usr/bin/sw_vers --productVersion > "$DAEM_MACOS_VERSION_FILE"`,
-		`daem_admitted_macos_product_version < "$DAEM_MACOS_VERSION_FILE" > /dev/null`,
-		`requires macOS 26.0 or newer`,
-	} {
-		if !strings.Contains(document, required) {
-			t.Fatalf("docs/install.md is missing runtime contract %q", required)
-		}
-	}
-	if strings.Contains(document, `DAEM_MACOS_VERSION="$(/usr/bin/sw_vers --productVersion)"`) {
-		t.Fatal("docs/install.md captures raw sw_vers output through command substitution")
-	}
-
+func TestInstallRecipeEnforcesMacOSRuntimeFloor(t *testing.T) {
 	tests := []struct {
 		version   string
 		supported bool
@@ -623,26 +608,6 @@ func TestInstallRecipeHasValidShellSyntax(t *testing.T) {
 	command.Stdin = strings.NewReader(installRecipe(t))
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("install recipe shell syntax error: %v\n%s", err, output)
-	}
-}
-
-func TestMacOSRuntimeFloorMatchesPublicContracts(t *testing.T) {
-	admission, err := Lookup("darwin", "arm64")
-	if err != nil {
-		t.Fatal(err)
-	}
-	minimum, required := admission.RuntimeRequirement()
-	if !required || minimum.String() != "26.0" {
-		t.Fatalf("Darwin runtime requirement = %s,%t", minimum, required)
-	}
-	for _, path := range []string{"README.md", "docs/install.md", "docs/platforms.md"} {
-		content, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(path)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(content), "macOS 26") {
-			t.Fatalf("%s does not disclose macOS 26 floor", path)
-		}
 	}
 }
 

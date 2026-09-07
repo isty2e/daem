@@ -248,6 +248,61 @@ func TestGlobalOwnershipCancellationAfterReservationRestoresAbsentClaim(t *testi
 	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
 }
 
+func TestGlobalOwnershipPreparationFailureSettlesClaimAndJournal(t *testing.T) {
+	fixture, input := globalOwnershipCreateInput(t)
+	wantErr := errors.New("injected ownership preparation validation failure")
+	validationCalls := 0
+
+	_, err := ApplyWithOptions(context.Background(), input, ApplyOptions{
+		ValidateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
+			validationCalls++
+			if validationCalls == 2 {
+				return wantErr
+			}
+			return nil
+		},
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("ApplyWithOptions error = %v, want ownership preparation failure", err)
+	}
+	if strings.Contains(err.Error(), "failure settlement") {
+		t.Fatalf("ApplyWithOptions error exposed cursor settlement failure: %v", err)
+	}
+	assertOwnershipRegistryClaimCount(t, input.Paths.OwnershipRegistryPath, 0)
+	assertHostMissing(t, fixture.hostConfigPath)
+	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
+func TestGlobalOwnershipPreparationRollbackFailureRetainsJournalAndPrimaryError(t *testing.T) {
+	fixture, input := globalOwnershipCreateInput(t)
+	primary := errors.New("injected ownership preparation validation failure")
+	rollback := errors.New("injected ownership rollback validation failure")
+	validationCalls := 0
+
+	_, err := ApplyWithOptions(context.Background(), input, ApplyOptions{
+		ValidateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
+			validationCalls++
+			if validationCalls == 2 {
+				return primary
+			}
+			return nil
+		},
+		ValidateCompensationAuthority: func(context.Context) error {
+			return rollback
+		},
+	})
+	if !errors.Is(err, primary) {
+		t.Fatalf("ApplyWithOptions error = %v, want primary preparation failure", err)
+	}
+	if !strings.Contains(err.Error(), rollback.Error()) ||
+		!strings.Contains(err.Error(), "recovery journal retained") {
+		t.Fatalf("ApplyWithOptions error = %v, want rollback failure and recovery guidance", err)
+	}
+	assertOwnershipRegistryClaimCount(t, input.Paths.OwnershipRegistryPath, 0)
+	assertHostMissing(t, fixture.hostConfigPath)
+	assertActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
 func TestGlobalOwnershipCancellationAfterHostActionRollsBackHostAndClaim(t *testing.T) {
 	fixture, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())

@@ -12,9 +12,9 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/credentialtext"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
-	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -92,7 +92,7 @@ func hostLoadIdentityDisclosureFor(
 	value string,
 ) identityDisclosure {
 	disclosure := identityDisclosureFor(value)
-	profileTarget, capability, admitted := profile.ExtensionOrderCapabilityForClass(classID)
+	profileTarget, capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(classID)
 	if disclosure.Redacted() ||
 		(admitted && profileTarget == selectedTarget &&
 			extensiontopology.HostLoadIdentityPrivacy(capability.Carrier(), value) ==
@@ -106,7 +106,7 @@ func lockHostLoadIdentityDisclosureFor(
 	classID hostrelation.OrderClassID,
 	value string,
 ) identityDisclosure {
-	selectedTarget, _, admitted := profile.ExtensionOrderCapabilityForClass(classID)
+	selectedTarget, _, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(classID)
 	if !admitted {
 		return redactedIdentityDisclosure(value)
 	}

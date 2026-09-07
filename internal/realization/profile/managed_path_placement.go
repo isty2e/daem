@@ -97,6 +97,9 @@ func (admission PlacementAdmission) Validate() error {
 	return validateProfileToken("placement admission id", admission.placementID)
 }
 
+// Validate rejects a zero or malformed placement fact.
+func (placement ManagedPathPlacement) Validate() error { return placement.validate() }
+
 // ID returns the stable physical placement identity.
 func (placement ManagedPathPlacement) ID() string { return placement.id }
 

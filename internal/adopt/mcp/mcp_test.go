@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -141,6 +142,7 @@ func TestCandidatesRejectsUnsupportedSurfacesExplicitly(t *testing.T) {
 	}{
 		{name: "antigravity project", target: target.TargetAntigravityCLI, scope: target.ScopeProject, want: "antigravity-cli:project:mcp_server"},
 		{name: "pi project", target: target.TargetPi, scope: target.ScopeProject, want: "pi:project:mcp_server"},
+		{name: "pi global", target: target.TargetPi, scope: target.ScopeGlobal, want: "pi:global:mcp_server"},
 	}
 
 	for _, tc := range cases {
@@ -156,6 +158,52 @@ func TestCandidatesRejectsUnsupportedSurfacesExplicitly(t *testing.T) {
 				t.Fatalf("skipped = %#v, want unsupported surface %q", skipped, tc.want)
 			}
 		})
+	}
+}
+
+func TestMCPImportExtractorsCoverNonPiCompiledCells(t *testing.T) {
+	t.Parallel()
+
+	extractors := mcpImportExtractors()
+	if len(extractors) != 7 {
+		t.Fatalf("import extractors = %d, want 7", len(extractors))
+	}
+
+	compiled := catalog.Product().Surfaces()
+	importable := 0
+	for _, view := range compiled {
+		_, ok := extractors[view.Placement().ID()]
+		if view.Key().Target() == target.TargetPi {
+			if ok {
+				t.Fatalf("Pi %s/%s must remain adopt-local non-importable", view.Key().Target(), view.Key().Scope())
+			}
+			continue
+		}
+		if !ok {
+			t.Fatalf("compiled %s/%s placement %q has no import extractor", view.Key().Target(), view.Key().Scope(), view.Placement().ID())
+		}
+		importable++
+	}
+	if importable != len(extractors) {
+		t.Fatalf("compiled importable cells = %d, want %d", importable, len(extractors))
+	}
+	for id := range extractors {
+		found := false
+		for _, view := range compiled {
+			if view.Placement().ID() == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("extractor %q is not a compiled MCP placement", id)
+		}
+	}
+	if _, ok := catalog.Product().LookupMCP(target.TargetAntigravityCLI, target.ScopeProject); ok {
+		t.Fatal("Antigravity project must remain uncompiled")
+	}
+	if _, ok := mcpImportExtractor(aggregate.MCPPlacementPiProject); ok {
+		t.Fatal("Pi project must not register an import extractor")
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	"github.com/isty2e/daem/internal/filesnapshot"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
@@ -37,10 +38,15 @@ type PiAdapterInput struct {
 // admitted projection. Shared and imported files remain passive evidence only.
 func ObservePiAdapter(input PiAdapterInput) (mcpeffective.Observation, error) {
 	subject := input.Projection.SubjectID()
-	placement, ok := aggregate.MCPPlacementForSubject(subject)
-	if !ok ||
-		(placement.ID() != aggregate.MCPPlacementPiProject &&
-			placement.ID() != aggregate.MCPPlacementPiGlobal) {
+	view, ok := catalog.Product().LookupMCPBySubject(subject)
+	if !ok {
+		return mcpeffective.Observation{}, fmt.Errorf(
+			"effective Pi MCP observation requires a Pi adapter projection",
+		)
+	}
+	placement := view.Placement()
+	if placement.ID() != aggregate.MCPPlacementPiProject &&
+		placement.ID() != aggregate.MCPPlacementPiGlobal {
 		return mcpeffective.Observation{}, fmt.Errorf(
 			"effective Pi MCP observation requires a Pi adapter projection",
 		)

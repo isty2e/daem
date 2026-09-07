@@ -127,3 +127,77 @@ func TestRecoveryResultReportsJournalRetiredAfterAcceptanceFailure(t *testing.T)
 		t.Fatalf("retired recovery journal stat error = %v, want absent", statErr)
 	}
 }
+
+func TestRecoveryResultPreservesOwnedAuthorityCloseFailureAfterRetirement(t *testing.T) {
+	fixture := newProjectPathRecoveryFixture(t, projectInstructionRecoverySpec(
+		"codex-project",
+		target.TargetCodex,
+		"AGENTS.md",
+	))
+	closeFailure := errors.New("injected retained-authority close failure")
+
+	err := executeRecoveryPlanWithOptionsForTest(
+		t.Context(),
+		fixture.plan,
+		fixture.paths,
+		RecoveryOptions{
+			Resolver:    destinationResolver(fixture.paths),
+			StateCodec:  testStateCodec(),
+			StateReader: testStateReader(fixture.paths.StatefilePath),
+			Filesystem:  testFilesystem(),
+			afterAuthorityClose: func() error {
+				return closeFailure
+			},
+		},
+	)
+	if !errors.Is(err, closeFailure) {
+		t.Fatalf("ExecuteRecoveryPlanWithOptions error = %v, want close failure", err)
+	}
+	assertRecoveryTestContent(
+		t,
+		filepath.Join(fixture.projectRoot, "AGENTS.md"),
+		[]byte("before:AGENTS.md\n"),
+	)
+	if _, statErr := os.Stat(fixture.plan.OperationDir()); !os.IsNotExist(statErr) {
+		t.Fatalf("retired recovery journal stat error = %v, want absent", statErr)
+	}
+}
+
+func TestRecoveryResultJoinsPrimaryAndOwnedAuthorityCloseFailures(t *testing.T) {
+	fixture := newProjectPathRecoveryFixture(t, projectInstructionRecoverySpec(
+		"codex-project",
+		target.TargetCodex,
+		"AGENTS.md",
+	))
+	primary := errors.New("injected before-retirement failure")
+	closeFailure := errors.New("injected retained-authority close failure")
+
+	err := executeRecoveryPlanWithOptionsForTest(
+		t.Context(),
+		fixture.plan,
+		fixture.paths,
+		RecoveryOptions{
+			Resolver:    destinationResolver(fixture.paths),
+			StateCodec:  testStateCodec(),
+			StateReader: testStateReader(fixture.paths.StatefilePath),
+			Filesystem:  testFilesystem(),
+			beforeRetirement: func() error {
+				return primary
+			},
+			afterAuthorityClose: func() error {
+				return closeFailure
+			},
+		},
+	)
+	if !errors.Is(err, primary) || !errors.Is(err, closeFailure) {
+		t.Fatalf("ExecuteRecoveryPlanWithOptions error = %v, want primary and close failures", err)
+	}
+	assertRecoveryTestContent(
+		t,
+		filepath.Join(fixture.projectRoot, "AGENTS.md"),
+		[]byte("before:AGENTS.md\n"),
+	)
+	if _, statErr := os.Stat(fixture.plan.OperationDir()); statErr != nil {
+		t.Fatalf("retained recovery journal stat error = %v, want present", statErr)
+	}
+}

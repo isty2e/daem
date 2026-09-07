@@ -1,8 +1,8 @@
 package help
 
 import (
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -23,29 +23,35 @@ type MCPPlacementFact struct {
 
 // BuildUsageFacts returns static target facts needed by command help.
 func BuildUsageFacts() UsageFacts {
+	views := catalog.Product().MCPInOwnerOrder()
 	return UsageFacts{
 		SupportedTargets:          target.SupportedTargets(),
 		ImportTargets:             profile.ImportableTargets(),
-		MCPAuthoringPlacements:    mcpPlacementFacts(aggregate.ImplementedMCPPlacements()),
-		MCPRuntimeProbePlacements: mcpRuntimeProbePlacementFacts(),
+		MCPAuthoringPlacements:    mcpPlacementFacts(views),
+		MCPRuntimeProbePlacements: mcpRuntimeProbePlacementFacts(views),
 	}
 }
 
-func mcpRuntimeProbePlacementFacts() []MCPPlacementFact {
-	capabilities := profile.MCPRuntimeProbeCapabilities()
-	placements := make([]aggregate.MCPPlacement, 0, len(capabilities))
-	for _, capability := range capabilities {
-		placements = append(placements, capability.Placement())
-	}
-	return mcpPlacementFacts(placements)
-}
-
-func mcpPlacementFacts(placements []aggregate.MCPPlacement) []MCPPlacementFact {
-	facts := make([]MCPPlacementFact, 0, len(placements))
-	for _, placement := range placements {
+func mcpRuntimeProbePlacementFacts(views []catalog.SurfaceView) []MCPPlacementFact {
+	facts := make([]MCPPlacementFact, 0)
+	for _, view := range views {
+		if _, ok := view.RuntimeProbe(); !ok {
+			continue
+		}
 		facts = append(facts, MCPPlacementFact{
-			Target: placement.Target(),
-			Scope:  placement.Scope(),
+			Target: view.Key().Target(),
+			Scope:  view.Key().Scope(),
+		})
+	}
+	return facts
+}
+
+func mcpPlacementFacts(views []catalog.SurfaceView) []MCPPlacementFact {
+	facts := make([]MCPPlacementFact, 0, len(views))
+	for _, view := range views {
+		facts = append(facts, MCPPlacementFact{
+			Target: view.Key().Target(),
+			Scope:  view.Key().Scope(),
 		})
 	}
 	return facts

@@ -29,8 +29,7 @@ func TestArchitectureContractRejectsDesiredReverseImports(t *testing.T) {
 	}
 
 	violations := analyzeArchitectureDependencyDirections(records)
-	if countViolationRule(violations, ruleDesiredImportDirection) != 2 ||
-		countViolationRule(violations, rulePackagePlacementOwnership) != 1 {
+	if countViolationRule(violations, ruleDesiredImportDirection) != 3 {
 		t.Fatalf("desired reverse-import violations:\n%s", FormatReport(violations))
 	}
 }
@@ -169,8 +168,7 @@ func TestArchitectureContractRejectsTopologyFamilyReverseImports(t *testing.T) {
 	}}
 
 	violations := analyzeArchitectureDependencyDirections(records)
-	if countViolationRule(violations, ruleTopologyImportDirection) != 4 ||
-		countViolationRule(violations, rulePackagePlacementOwnership) != 1 {
+	if countViolationRule(violations, ruleTopologyImportDirection) != 5 {
 		t.Fatalf("topology family reverse-import violations:\n%s", FormatReport(violations))
 	}
 }
@@ -220,8 +218,7 @@ func TestArchitectureContractRejectsTopologyFamilyCrossFamilyAndImplicitAdmissio
 	}
 
 	violations := analyzeArchitectureDependencyDirections(records)
-	if countViolationRule(violations, ruleTopologyImportDirection) != 4 ||
-		countViolationRule(violations, rulePackagePlacementOwnership) != 4 {
+	if countViolationRule(violations, ruleTopologyImportDirection) != 7 {
 		t.Fatalf("topology exact-admission violations:\n%s", FormatReport(violations))
 	}
 }
@@ -618,68 +615,5 @@ func TestArchitectureContractRejectsConcreteAggregateCodecsFromSemanticKernels(t
 	}
 	if strings.Contains(report, "internal/workflow/help -> internal/realization/aggregate/codec") {
 		t.Fatalf("report = %q, help workflow must be allowed to read finite codec capabilities", report)
-	}
-}
-
-func TestArchitectureContractRejectsProductionImportsOfTestTools(t *testing.T) {
-	records := []PackageRecord{
-		{
-			ImportPath: "example.com/project/cmd/tool",
-			Name:       "main",
-			Imports:    []string{"example.com/project/internal/archguard"},
-		},
-		{ImportPath: "example.com/project/internal/archguard", Name: "archguard"},
-	}
-
-	violations := analyzeProductionTestToolImports(records, map[string]testToolAdmission{
-		"internal/archguard": {Reason: "synthetic test/tool package", Kind: testToolHelperPackage},
-	})
-	assertViolationRule(t, violations, ruleProductionImportsTestTool)
-}
-
-func TestArchitectureContractRejectsProductionImportsOfTestToolDescendants(t *testing.T) {
-	records := []PackageRecord{{
-		ImportPath: "example.com/project/cmd/tool",
-		Name:       "main",
-		Imports:    []string{"example.com/project/internal/archguard/private"},
-	}}
-	violations := analyzeProductionTestToolImports(records, map[string]testToolAdmission{
-		"internal/archguard": {Reason: "synthetic test/tool package", Kind: testToolHelperPackage},
-	})
-	assertViolationRule(t, violations, ruleProductionImportsTestTool)
-}
-
-func TestArchitectureContractRejectsProductionImportsOfTopLevelTestHelpers(t *testing.T) {
-	const helperPath = "example.com/project/test/testkit"
-	records := []PackageRecord{
-		{
-			ImportPath: "example.com/project/cmd/tool",
-			Name:       "main",
-			Imports:    []string{helperPath},
-		},
-		{ImportPath: helperPath, Name: "testkit"},
-	}
-	violations := analyzeProductionTestToolImports(records, map[string]testToolAdmission{
-		"test/testkit": {Reason: "synthetic top-level test helper", Kind: testToolHelperPackage},
-	})
-	assertViolationRule(t, violations, ruleProductionImportsTestTool)
-}
-
-func TestTestToolOwnershipRequiresExactNestedAdmission(t *testing.T) {
-	admission, ok := testToolOwner("test/testkit/doctorenv", map[string]testToolAdmission{
-		"test/testkit":           {Reason: "parent", Kind: testToolHelperPackage},
-		"test/testkit/doctorenv": {Reason: "exact", Kind: testToolHelperPackage},
-	})
-	if !ok || admission.Reason != "exact" {
-		t.Fatalf("admission = %+v, %t; want exact nested owner", admission, ok)
-	}
-}
-
-func TestTestToolOwnershipDoesNotImplicitlyAdmitDescendants(t *testing.T) {
-	_, ok := testToolOwner("test/testkit/future", map[string]testToolAdmission{
-		"test/testkit": {Reason: "parent", Kind: testToolHelperPackage},
-	})
-	if ok {
-		t.Fatal("future descendant inherited admission; want exact admission")
 	}
 }

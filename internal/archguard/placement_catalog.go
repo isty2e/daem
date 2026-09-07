@@ -353,6 +353,7 @@ var packagePlacementRows = []packagePlacementRow{
 		placement: plainPlacement(affinityEffect, roleTransactionRecovery),
 		packages: []string{
 			"internal/effect/execute",
+			"internal/effect/fileset",
 			"internal/effect/journal",
 			"internal/effect/journal/recovery",
 			"internal/effect/journal/retirement",

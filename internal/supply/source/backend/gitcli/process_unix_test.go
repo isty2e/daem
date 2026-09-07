@@ -166,6 +166,7 @@ func TestRunGitOutputCancelWithStderrPreservesCause(t *testing.T) {
 	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "pids")
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	command := gitProcessHelperCommand(t, ctx, "stderr-hang-parent", pidFile)
 
 	result := make(chan error, 1)
@@ -301,6 +302,12 @@ func TestGitProcessHelper(t *testing.T) {
 }
 
 func runGitProcessHelper(stage string, pidFile string) error {
+	if stage == "stderr-hang-parent" {
+		if _, err := io.WriteString(os.Stderr, "fatal: cancel-stderr-marker\n"); err != nil {
+			return err
+		}
+	}
+
 	if err := appendGitHelperPID(pidFile, os.Getpid()); err != nil {
 		return err
 	}
@@ -339,7 +346,6 @@ func runGitProcessHelper(stage string, pidFile string) error {
 		_, _ = io.WriteString(os.Stderr, "fatal: complete-stderr-marker-xyz\n")
 		return fmt.Errorf("forced helper failure")
 	case "stderr-hang-parent":
-		_, _ = io.WriteString(os.Stderr, "fatal: cancel-stderr-marker\n")
 		for {
 			time.Sleep(time.Hour)
 		}

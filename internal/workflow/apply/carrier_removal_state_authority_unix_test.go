@@ -32,12 +32,13 @@ func TestCarrierRemovalRejectsStateDirReplacementBeforePostAttemptPersistence(t 
 		},
 	})
 
-	result, err := runCarrierRemovals(t.Context(), input)
+	plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
+	result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
 	if fixture.executorCalls != 1 {
 		t.Fatalf("carrier removal runner calls = %d, want 1: %v", fixture.executorCalls, err)
 	}
 	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) {
-		t.Fatalf("runCarrierRemovals error = %v, want %s", err, rootedpath.FailureRootReplaced)
+		t.Fatalf("runScheduledCarrierRemovals error = %v, want %s", err, rootedpath.FailureRootReplaced)
 	}
 	if len(result.Attempts) != 1 {
 		t.Fatalf("carrier removal attempts = %#v, want one observed attempt", result.Attempts)

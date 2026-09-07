@@ -14,12 +14,12 @@ import (
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	lockbuild "github.com/isty2e/daem/internal/realization/lock/build"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -116,7 +116,7 @@ func testHostRouteRejectsStateDirReplacement(t *testing.T, replaceDuringCommand 
 		t.Fatalf("host route runner was not called: %v", err)
 	}
 	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) ||
-		!errors.Is(err, transaction.ErrFileSetFenceUnprovable) {
+		!errors.Is(err, fileset.ErrFileSetFenceUnprovable) {
 		t.Fatalf("ExecuteWithOptions error = %v, want rooted replacement and file-set fence failure", err)
 	}
 	if _, statErr := os.Stat(statePath); !os.IsNotExist(statErr) {

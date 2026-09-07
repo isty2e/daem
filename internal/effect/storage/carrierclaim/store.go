@@ -242,7 +242,8 @@ func (store Store) Remove(
 
 // RetireAllIfCurrent commits one strict retirement batch only when the durable
 // registry still equals the caller's confirmed baseline. The caller remains
-// responsible for proving state-only retirement authority for every claim.
+// responsible for proving transition-specific retirement authority for every
+// claim before requesting persistence.
 func (store Store) RetireAllIfCurrent(
 	ctx context.Context,
 	expected durablecarrier.GlobalCarrierClaims,

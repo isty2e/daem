@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output"
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -55,13 +56,14 @@ func Observe(input Input) (ObservationSet, error) {
 			)
 		}
 		seen[subject] = struct{}{}
-		placement, ok := aggregate.MCPPlacementForSubject(subject)
+		view, ok := catalog.Product().LookupMCPBySubject(subject)
 		if !ok {
 			return mcpeffective.Observation{}, fmt.Errorf(
 				"provider-mediated subject %q is not an MCP projection",
 				subject,
 			)
 		}
+		placement := view.Placement()
 		switch placement.ID() {
 		case aggregate.MCPPlacementPiProject, aggregate.MCPPlacementPiGlobal:
 			if !piResolved {
@@ -140,14 +142,14 @@ func Observe(input Input) (ObservationSet, error) {
 		result.Current = append(result.Current, observation)
 	}
 	for _, projection := range input.Retiring {
-		placement, ok := aggregate.MCPPlacementForSubject(projection.SubjectID())
+		view, ok := catalog.Product().LookupMCPBySubject(projection.SubjectID())
 		if !ok {
 			return ObservationSet{}, fmt.Errorf(
 				"retiring provider-effective subject %q is not an MCP projection",
 				projection.SubjectID(),
 			)
 		}
-		switch placement.ID() {
+		switch view.Placement().ID() {
 		case aggregate.MCPPlacementPiProject, aggregate.MCPPlacementPiGlobal:
 		default:
 			continue

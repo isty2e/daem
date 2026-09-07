@@ -417,6 +417,40 @@ func ManagedFilePlacementFor(
 	return placement, nil
 }
 
+// ResolveManagedFileRelativePath interprets one authored scope-relative file
+// path against an already selected default placement root.
+func ResolveManagedFileRelativePath(
+	scope target.Scope,
+	defaultRoot output.Destination,
+	relativePath string,
+) (output.Destination, error) {
+	if _, err := target.ParseScope(string(scope)); err != nil {
+		return output.Destination{}, err
+	}
+	if err := defaultRoot.ValidateScope(scope); err != nil {
+		return output.Destination{}, err
+	}
+	if relativePath == "" {
+		return defaultRoot, nil
+	}
+	trimmed := strings.TrimSpace(relativePath)
+	if trimmed == "" || trimmed != relativePath {
+		return output.Destination{}, fmt.Errorf("relative file path must be non-empty and trimmed")
+	}
+	if strings.Contains(trimmed, "\\") || strings.HasPrefix(trimmed, "~") || path.IsAbs(trimmed) {
+		return output.Destination{}, fmt.Errorf("relative file path %q must be slash-separated and relative to the target scope root", relativePath)
+	}
+	cleaned := path.Clean(trimmed)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || cleaned != trimmed {
+		return output.Destination{}, fmt.Errorf("relative file path %q must be canonical and stay inside the target scope root", relativePath)
+	}
+	value := cleaned
+	if scope == target.ScopeGlobal {
+		value = path.Join(path.Dir(defaultRoot.String()), cleaned)
+	}
+	return output.Parse(value)
+}
+
 // ManagedFilePlacementForRelativePath resolves one authored scope-relative
 // file path and selects its exact admitted placement.
 func ManagedFilePlacementForRelativePath(
@@ -429,25 +463,7 @@ func ManagedFilePlacementForRelativePath(
 	if err != nil {
 		return SelectedManagedPathPlacement{}, err
 	}
-	if relativePath == "" {
-		return defaultPlacement, nil
-	}
-	trimmed := strings.TrimSpace(relativePath)
-	if trimmed == "" || trimmed != relativePath {
-		return SelectedManagedPathPlacement{}, fmt.Errorf("relative file path must be non-empty and trimmed")
-	}
-	if strings.Contains(trimmed, "\\") || strings.HasPrefix(trimmed, "~") || path.IsAbs(trimmed) {
-		return SelectedManagedPathPlacement{}, fmt.Errorf("relative file path %q must be slash-separated and relative to the target scope root", relativePath)
-	}
-	cleaned := path.Clean(trimmed)
-	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || cleaned != trimmed {
-		return SelectedManagedPathPlacement{}, fmt.Errorf("relative file path %q must be canonical and stay inside the target scope root", relativePath)
-	}
-	value := cleaned
-	if scope == target.ScopeGlobal {
-		value = path.Join(path.Dir(defaultPlacement.Root().String()), cleaned)
-	}
-	destination, err := output.Parse(value)
+	destination, err := ResolveManagedFileRelativePath(scope, defaultPlacement.Root(), relativePath)
 	if err != nil {
 		return SelectedManagedPathPlacement{}, err
 	}

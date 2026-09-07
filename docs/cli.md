@@ -359,11 +359,27 @@ aggregate name bytes and 4,096 bytes per name. Reused roots do not consume that
 retained-name allowance again, but daem revalidates both the exact directory
 inventory identity and every live-root symlink binding on reuse, after revision
 capture, and before publication. Child reads are derived from the captured
-resolved root rather than re-resolving the mutable live alias. A changed root or
-alias aborts the observation instead of returning an incomplete preview. Extension inventory
-files retain bounded content evidence through publication using each host
-observer's ingress limit. Files are streamed. The `SKILL.md` compatibility
-document retains its 1 MiB limit.
+resolved root rather than re-resolving the mutable live alias. A changed captured
+root or retained alias aborts the observation instead of returning an incomplete
+preview. Extension inventory files retain bounded content evidence through
+publication using each host observer's ingress limit. Files are streamed. The
+`SKILL.md` compatibility document retains its 1 MiB limit.
+
+**Skill exclusion freshness — NON-GOAL.** A missing or non-directory discovery
+root, or a child excluded by eligibility checks such as a missing regular
+`SKILL.md` or a nested symlink, records the classification observed during that
+pass. Import does not promise that these excluded inputs remain absent or
+ineligible until preview completion or manifest publication, nor that discovery
+is an atomic snapshot of all configured roots. Rerun import to reconsider
+inputs that became eligible. Such exclusions grant no publication authority.
+
+This boundary does not relax freshness for imported sources, contributing
+routes, captured root inventories and alias bindings, or evidence retained for
+merge decisions, including merge no-ops. Existing limits, cancellation,
+operational-error handling and skip diagnostics also remain unchanged. The
+maintainer has selected this boundary rather than universal exclusion
+freshness; reopen it only if the owning product contract changes or an excluded
+fact is used as authority for publication or a merge decision.
 
 Import refuses preview and write modes while an interrupted apply journal is
 active, before scanning live agent files. Run `daem recover --dry-run` first.

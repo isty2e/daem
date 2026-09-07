@@ -11,6 +11,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
+	testscale "github.com/isty2e/daem/test/scale"
 )
 
 func skillTreeLimitsForTest(t *testing.T) mutationfs.TreeTraversalLimits {
@@ -329,6 +330,8 @@ func TestSourceIdentityCacheAcceptsExactTreeBytesAndRejectsOverflow(t *testing.T
 }
 
 func TestSourceIdentityCacheRejectsOversizeTreeBeforePayloadHash(t *testing.T) {
+	testscale.Require(t)
+
 	root := filepath.Join(t.TempDir(), "skill")
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)

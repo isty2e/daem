@@ -103,6 +103,26 @@ var hookAggregateRouteIDs = map[aggregate.HookPlacementID]aggregateRouteIDs{
 	aggregate.HookPlacementClaudeGlobal:  {write: "claude-global-hooks.write_projection", remove: "claude-global-hooks.remove_projection"},
 }
 
+// HookAggregateRouteIDs returns the write and remove route tokens owned by one
+// implemented Hook placement. Missing IDs are not routes.
+func HookAggregateRouteIDs(id aggregate.HookPlacementID) (write string, remove string, ok bool) {
+	ids, ok := hookAggregateRouteIDs[id]
+	if !ok {
+		return "", "", false
+	}
+	return ids.write, ids.remove, true
+}
+
+// MCPAggregateRouteIDs returns the write and remove route tokens owned by one
+// implemented MCP placement. Missing IDs are not routes.
+func MCPAggregateRouteIDs(id aggregate.MCPPlacementID) (write string, remove string, ok bool) {
+	ids, ok := mcpAggregateRouteIDs[id]
+	if !ok {
+		return "", "", false
+	}
+	return ids.write, ids.remove, true
+}
+
 var mcpAggregateRouteIDs = map[aggregate.MCPPlacementID]aggregateRouteIDs{
 	aggregate.MCPPlacementClaudeProject:     {write: "claude-project-mcp-stdio.write_projection", remove: "claude-project-mcp-stdio.remove_binding"},
 	aggregate.MCPPlacementClaudeGlobal:      {write: "claude-code-user-mcp-stdio-env.write_projection", remove: "claude-code-user-mcp-stdio-env.remove_binding"},
@@ -210,30 +230,36 @@ func ManagedPathOperationRoute(
 	return selected, nil
 }
 
-// HookAssetOperationRoute resolves one route independently from HookAsset placement data.
+// HookAssetOperationRoute resolves one route independently from HookAsset
+// placement data and target-derived compatibility views.
 func HookAssetOperationRoute(placement HookAssetPlacement, operation Operation) (OperationRoute, error) {
 	if err := placement.Validate(); err != nil {
 		return OperationRoute{}, err
 	}
-	var selected OperationRoute
-	for index, consumer := range placement.ConsumerTargets() {
-		route, ok := Profile(consumer).OperationRoute(entity.KindHookAsset, placement.ID(), operation)
-		if !ok {
+	for _, consumer := range placement.ConsumerTargets() {
+		if !TargetSupports(consumer, entity.KindHook) {
 			return OperationRoute{}, fmt.Errorf(
-				"target %q has no unique %s route for HookAsset placement %q",
+				"target %q does not admit HookAsset placement %q",
 				consumer,
-				operation,
 				placement.ID(),
 			)
 		}
-		if index > 0 && route != selected {
-			return OperationRoute{}, fmt.Errorf(
-				"HookAsset placement %q consumers select conflicting %s routes",
-				placement.ID(),
-				operation,
-			)
+	}
+	var selected OperationRoute
+	count := 0
+	for _, route := range hookAssetOperationRoutes() {
+		if route.Correlates(entity.KindHookAsset, placement.ID(), operation) {
+			selected = route
+			count++
 		}
-		selected = route
+	}
+	if count != 1 {
+		return OperationRoute{}, fmt.Errorf(
+			"HookAsset placement %q has %d %s routes",
+			placement.ID(),
+			count,
+			operation,
+		)
 	}
 	return selected, nil
 }

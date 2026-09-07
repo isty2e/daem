@@ -6,6 +6,7 @@ import (
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
 	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -65,9 +66,10 @@ func newOrderSelection(
 	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
 		return orderSelection{}, fmt.Errorf("OpenCode plugin order directory is not canonical")
 	}
-	capability, admitted := profile.Profile(target.TargetOpenCode).ExtensionOrder(
-		desiredextension.CarrierOpenCodePlugin,
+	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(
+		target.TargetOpenCode,
 		scope,
+		desiredextension.CarrierOpenCodePlugin,
 	)
 	if !admitted {
 		return orderSelection{}, fmt.Errorf("OpenCode %s plugin order is not admitted", scope)

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/contractversion"
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 )
@@ -38,7 +38,7 @@ func TestStatusFailsClosedOnInterruptedMetadataTransaction(t *testing.T) {
 
 func writeStatusMetadataTransactionMarker(t *testing.T, stateDir string) {
 	t.Helper()
-	authorityPath, err := transaction.FileSetAuthorityPath(stateDir)
+	authorityPath, err := fileset.FileSetAuthorityPath(stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	testscale "github.com/isty2e/daem/test/scale"
 )
 
 func TestHookCodecFoldsSubjectSortedContributionsAndPreservesSiblings(t *testing.T) {
@@ -181,6 +182,8 @@ func TestHookCodecObservesContributionOccupancyWithoutInventingIdentity(t *testi
 }
 
 func TestHookCodecOccupancyDoesNotDuplicateSharedMatcherAllocation(t *testing.T) {
+	testscale.Require(t)
+
 	placement, codec, selection := hookCodecFixture(t)
 	matcher := strings.Repeat("m", 64<<10)
 	const handlerCount = 1024

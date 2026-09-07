@@ -7,7 +7,7 @@ import (
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/contractversion"
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -44,17 +44,17 @@ func recoveryBarrierJSONFor(state recoverygate.State) *recoveryBarrierJSON {
 		result.FileSet = "unknown"
 		if state.FileSetKnown() {
 			switch state.FileSet() {
-			case transaction.FileSetFenceClear:
+			case fileset.FileSetFenceClear:
 				result.FileSet = "clear"
-			case transaction.FileSetFencePublishedTransaction:
+			case fileset.FileSetFencePublishedTransaction:
 				result.FileSet = "published_transaction"
-			case transaction.FileSetFenceInvalidEvidence:
+			case fileset.FileSetFenceInvalidEvidence:
 				result.FileSet = "invalid_evidence"
-			case transaction.FileSetFenceAbandonedResidue:
+			case fileset.FileSetFenceAbandonedResidue:
 				result.FileSet = "abandoned_residue"
-			case transaction.FileSetFenceCensusLimit:
+			case fileset.FileSetFenceCensusLimit:
 				result.FileSet = "census_limit"
-			case transaction.FileSetFenceAccessUnprovable:
+			case fileset.FileSetFenceAccessUnprovable:
 				result.FileSet = "access_unprovable"
 			}
 		}

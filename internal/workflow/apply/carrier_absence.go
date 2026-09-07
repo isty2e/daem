@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
@@ -172,6 +175,18 @@ func carrierAbsenceFingerprintRows(
 	return rows
 }
 
+func carrierRemovalScheduleFingerprint(
+	action carrierabsence.Action,
+) (mutation.OperationFingerprint, error) {
+	projection, err := marshalApplyFingerprintProjection(
+		carrierAbsenceFingerprintRows([]carrierabsence.Action{action}),
+	)
+	if err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	return mutation.NewOperationFingerprint(projection), nil
+}
+
 func carrierConsumerFingerprintRows(
 	consumers []durablecarrier.CarrierConsumer,
 ) []carrierConsumerFingerprintFacts {
@@ -230,76 +245,138 @@ func retireClaim(
 	pending durablecarrier.PendingCarrierRemoval,
 	authority *statefileEffectAuthority,
 	result *carrierRemovalResult,
+	execution *applyContinuationExecution,
+	ref string,
+	failureCleanup func() error,
 ) error {
-	switch action.Scope() {
-	case target.ScopeProject:
-		if err := authority.Validate(ctx); err != nil {
-			return err
-		}
-		entry, err := authority.EntryForCommit()
-		if err != nil {
-			return err
-		}
-		input.markAttempted()
-		next, err := execute.CommitRetiredProjectCarrierRemoval(
-			ctx,
-			filesystem(input),
-			entry,
-			result.State,
-			pending,
-			statefile.Codec{},
-		)
-		if err != nil {
-			return err
-		}
-		result.State = next
-		return authority.Validate(ctx)
-	case target.ScopeGlobal:
-		if input.RemoveGlobalClaim == nil {
-			return fmt.Errorf("global carrier removal registry capability is required")
-		}
-		expected, changed, err := result.GlobalClaims.WithoutClaim(action.Claim())
-		if err != nil {
-			return fmt.Errorf("derive retired global carrier registry: %w", err)
-		}
-		if !changed {
-			return fmt.Errorf("derive retired global carrier registry: exact claim is absent")
-		}
-		if err := authority.Validate(ctx); err != nil {
-			return err
-		}
-		entry, err := authority.EntryForCommit()
-		if err != nil {
-			return err
-		}
-		input.markAttempted()
-		next, err := execute.CommitClearedGlobalCarrierRemovalPending(
-			ctx,
-			filesystem(input),
-			entry,
-			result.State,
-			pending,
-			statefile.Codec{},
-		)
-		if err != nil {
-			return err
-		}
-		result.State = next
-		if err := authority.Validate(ctx); err != nil {
-			return err
-		}
-		registry, err := input.RemoveGlobalClaim(ctx, action.Claim())
-		if err != nil {
-			return fmt.Errorf("retire global carrier claim: %w", err)
-		}
-		if !registry.Equal(expected) {
-			return fmt.Errorf("retire global carrier claim: registry returned an inexact successor")
-		}
-		result.GlobalClaims = registry
-		return authority.Validate(ctx)
-	default:
+	if action.Scope() != target.ScopeProject && action.Scope() != target.ScopeGlobal {
 		return fmt.Errorf("carrier removal scope %q is unsupported", action.Scope())
 	}
+	var expected durablecarrier.GlobalCarrierClaims
+	if action.Scope() == target.ScopeGlobal {
+		if err := scheduledCarrierRemovalCallWithFailureCleanup(
+			execution,
+			ref+"/derive-global-retirement",
+			operationplan.EffectStepObservation,
+			func() error {
+				if input.RemoveGlobalClaim == nil {
+					return fmt.Errorf("global carrier removal registry capability is required")
+				}
+				var changed bool
+				var err error
+				expected, changed, err = result.GlobalClaims.WithoutClaim(action.Claim())
+				if err != nil {
+					return fmt.Errorf("derive retired global carrier registry: %w", err)
+				}
+				if !changed {
+					return fmt.Errorf("derive retired global carrier registry: exact claim is absent")
+				}
+				return nil
+			},
+			failureCleanup,
+		); err != nil {
+			return err
+		}
+	}
+	if err := scheduledCarrierRemovalStatefileValidation(
+		ctx,
+		execution,
+		ref+"/statefile/pre-retirement",
+		authority,
+		failureCleanup,
+	); err != nil {
+		return err
+	}
+	if err := scheduledCarrierRemovalStatefilePublication(
+		execution,
+		ref+"/statefile/retirement",
+		func() error {
+			entry, err := authority.EntryForCommit()
+			if err != nil {
+				return err
+			}
+			input.markAttempted()
+			var next durable.Snapshot
+			if action.Scope() == target.ScopeProject {
+				next, err = execute.CommitRetiredProjectCarrierRemoval(
+					ctx,
+					filesystem(input),
+					entry,
+					result.State,
+					pending,
+					statefile.Codec{},
+				)
+			} else {
+				next, err = execute.CommitClearedGlobalCarrierRemovalPending(
+					ctx,
+					filesystem(input),
+					entry,
+					result.State,
+					pending,
+					statefile.Codec{},
+				)
+			}
+			if err != nil {
+				return err
+			}
+			result.State = next
+			return nil
+		},
+		failureCleanup,
+	); err != nil {
+		return err
+	}
+	if err := scheduledCarrierRemovalStatefileValidation(
+		ctx,
+		execution,
+		ref+"/statefile/post-retirement",
+		authority,
+		failureCleanup,
+	); err != nil {
+		return err
+	}
+	if action.Scope() == target.ScopeProject {
+		return nil
+	}
+	if err := scheduledCarrierRemovalCallWithFailureCleanup(
+		execution,
+		ref+"/global-registry-retirement",
+		operationplan.EffectStepPersistence,
+		func() error {
+			current := result.GlobalClaims
+			registry, err := input.RemoveGlobalClaim(
+				ctx,
+				current,
+				action.Claim(),
+			)
+			if err != nil {
+				result.GlobalClaims, err = globalCarrierClaimsAfterPersistence(
+					current,
+					expected,
+					registry,
+					err,
+				)
+				return fmt.Errorf("retire global carrier claim: %w", err)
+			}
+			if !registry.Equal(expected) {
+				return fmt.Errorf(
+					"retire global carrier claim: registry returned an inexact successor",
+				)
+			}
+			result.GlobalClaims = registry
+			return nil
+		},
+		failureCleanup,
+	); err != nil {
+		return err
+	}
+	return scheduledCarrierRemovalStatefileValidation(
+		ctx,
+		execution,
+		ref+"/statefile/post-registry",
+		authority,
+		failureCleanup,
+	)
 }
 
 func runAfterCarrierClaimRetirements(
@@ -316,21 +393,36 @@ func runAfterCarrierClaimRetirements(
 	relationObservations observerelation.Batch,
 	options runOptions,
 ) (runResult, error) {
+	retirementPlan := globalCarrierSettlementPlan{}
+	if len(globalRetirements) != 0 {
+		var err error
+		retirementPlan, err = newGlobalCarrierBatchSettlementPlan(
+			globalCarrierSettlementRetirement,
+			paths.CarrierClaimRegistryPath,
+			globalClaims,
+			globalRetirements,
+		)
+		if err != nil {
+			return runResult{}, err
+		}
+	}
 	nextGlobalClaims, globalRetirementCount, err := commitGlobalCarrierRetirements(
 		ctx,
 		paths.CarrierClaimRegistryPath,
 		globalClaims,
 		globalRetirements,
-		options.markExecutionAttempted,
+		retirementPlan,
+		options,
 	)
 	if err != nil {
 		return runResult{
-			ActionCount: stateResult.ActionCount + globalRetirementCount,
-			StatePath:   stateResult.StatePath,
-			State:       stateResult.State,
+			ActionCount:         stateResult.ActionCount + globalRetirementCount,
+			StatePath:           stateResult.StatePath,
+			State:               stateResult.State,
+			GlobalCarrierClaims: nextGlobalClaims,
 		}, err
 	}
-	removalResult, err := runCarrierRemovals(ctx, carrierRemovalInput{
+	removalInput := carrierRemovalInput{
 		StatePath:              stateResult.StatePath,
 		SelectedRoot:           paths.ManifestRoot,
 		Current:                stateResult.State,
@@ -344,26 +436,42 @@ func runAfterCarrierClaimRetirements(
 		BaselineObserver:       options.CarrierRemovalBaselineObserver,
 		RemoveGlobalClaim: func(
 			ctx context.Context,
+			expected durablecarrier.GlobalCarrierClaims,
 			claim durablecarrier.ManagedCarrierClaim,
 		) (durablecarrier.GlobalCarrierClaims, error) {
 			store, storeErr := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
 			if storeErr != nil {
 				return durablecarrier.GlobalCarrierClaims{}, storeErr
 			}
-			return store.Remove(ctx, claim)
+			return store.RetireAllIfCurrent(
+				ctx,
+				expected,
+				[]durablecarrier.ManagedCarrierClaim{claim},
+			)
 		},
 		ValidateBeforeEffects:     options.validateBeforeEffects,
-		ValidateStateDir:          options.validateStateDir,
 		ReserveStatefileAuthority: options.reserveStatefileAuthority,
 		StatefileAuthority:        options.statefileAuthority,
 		MarkExecutionAttempted:    options.markExecutionAttempted,
-	})
+	}
+	var removalResult carrierRemovalResult
+	if options.requireContinuation {
+		removalResult, err = runScheduledCarrierRemovals(
+			ctx,
+			removalInput,
+			options.preparedContinuation,
+			options.currentContinuation,
+		)
+	} else {
+		removalResult, err = runCarrierRemovals(ctx, removalInput)
+	}
 	if err != nil {
 		return runResult{
-			ActionCount:       stateResult.ActionCount + globalRetirementCount + removalResult.ActionCount,
-			StatePath:         stateResult.StatePath,
-			State:             removalResult.State,
-			HostRouteAttempts: removalResult.Attempts,
+			ActionCount:         stateResult.ActionCount + globalRetirementCount + removalResult.ActionCount,
+			StatePath:           stateResult.StatePath,
+			State:               removalResult.State,
+			GlobalCarrierClaims: removalResult.GlobalClaims,
+			HostRouteAttempts:   removalResult.Attempts,
 		}, err
 	}
 	next, err := runHostRoutesOrderDelegatesAndPersistAttemptRecords(
@@ -383,12 +491,25 @@ func runAfterCarrierClaimRetirements(
 	if err != nil {
 		return next, err
 	}
+	adoptionPlan := globalCarrierSettlementPlan{}
+	if len(globalAdoptions) != 0 {
+		adoptionPlan, err = newGlobalCarrierBatchSettlementPlan(
+			globalCarrierSettlementAdoption,
+			paths.CarrierClaimRegistryPath,
+			next.GlobalCarrierClaims,
+			globalAdoptions,
+		)
+		if err != nil {
+			return next, err
+		}
+	}
 	nextGlobalClaims, adoptionCount, err := commitGlobalCarrierAdoptions(
 		ctx,
 		paths.CarrierClaimRegistryPath,
 		next.GlobalCarrierClaims,
 		globalAdoptions,
-		options.markExecutionAttempted,
+		adoptionPlan,
+		options,
 	)
 	next.GlobalCarrierClaims = nextGlobalClaims
 	next.ActionCount += adoptionCount
@@ -400,21 +521,57 @@ func commitGlobalCarrierRetirements(
 	registryPath string,
 	current durablecarrier.GlobalCarrierClaims,
 	claims []durablecarrier.ManagedCarrierClaim,
-	markExecutionAttempted func(),
+	plan globalCarrierSettlementPlan,
+	options runOptions,
 ) (durablecarrier.GlobalCarrierClaims, int, error) {
-	if len(claims) == 0 {
-		return current, 0, nil
-	}
-	store, err := carrierclaimstore.New(registryPath)
-	if err != nil {
-		return current, 0, err
-	}
-	if markExecutionAttempted != nil {
-		markExecutionAttempted()
-	}
-	next, err := store.RetireAllIfCurrent(ctx, current, claims)
-	if err != nil {
-		return current, 0, fmt.Errorf("commit global carrier retirements: %w", err)
-	}
-	return next, len(claims), nil
+	return executeGlobalCarrierBatchSettlement(
+		ctx,
+		plan,
+		globalCarrierSettlementRetirement,
+		registryPath,
+		claims,
+		current,
+		globalCarrierBatchSettlementCallbacks{
+			validateBefore: func() error {
+				if options.validateBeforeEffects == nil {
+					return fmt.Errorf("global carrier settlement effect validation is required")
+				}
+				return options.validateBeforeEffects(ctx, mutation.PhysicalAuthoritySet{})
+			},
+			persist: func() (durablecarrier.GlobalCarrierClaims, int, error) {
+				successor, err := current.RetireClaims(claims)
+				if err != nil {
+					return current, 0, err
+				}
+				if err := ctx.Err(); err != nil {
+					return current, 0, err
+				}
+				options.markAttempted()
+				store, err := carrierclaimstore.New(registryPath)
+				if err != nil {
+					return current, 0, err
+				}
+				observed, persistErr := store.RetireAllIfCurrent(ctx, current, claims)
+				next, persistErr := globalCarrierClaimsAfterPersistence(
+					current,
+					successor,
+					observed,
+					persistErr,
+				)
+				if persistErr != nil {
+					return next, 0, fmt.Errorf("commit global carrier retirements: %w", persistErr)
+				}
+				return next, len(claims), nil
+			},
+			validateAfter: func() error {
+				if options.validateStateDir == nil || options.acceptVisibilityChanges == nil {
+					return fmt.Errorf("global carrier settlement post-commit validation is required")
+				}
+				if err := options.validateStateDir(ctx); err != nil {
+					return err
+				}
+				return options.acceptVisibilityChanges(ctx)
+			},
+		},
+	)
 }

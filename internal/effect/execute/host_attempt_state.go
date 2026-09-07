@@ -20,7 +20,7 @@ import (
 type snapshotCommitter func(context.Context, []byte, os.FileMode) error
 
 // CommitPendingCarrierInstalls records exact write-ahead correlation
-// eligibility before admitted create commands are launched.
+// eligibility before admitted host invocations are launched.
 func CommitPendingCarrierInstalls(
 	ctx context.Context,
 	filesystem mutationfs.RootedStore,
@@ -87,27 +87,17 @@ func CommitObservedProjectCarrierClaim(
 	if action.Scope() != target.ScopeProject {
 		return current, nil
 	}
-	var promotion durablecarrier.ManagedCarrierClaim
-	found := false
-	for _, pending := range current.PendingCarrierInstalls() {
-		if !pending.Identity().ExactEqual(action.CarrierIdentity()) ||
-			!pending.InstallRequest().Equal(action.RouteRequest()) {
-			continue
-		}
-		claim, err := durablecarrier.ClaimAfterObservedInstall(
-			pending,
-			observation,
-			current.ManagedCarrierClaims(),
-		)
-		if err != nil {
-			return durable.Snapshot{}, fmt.Errorf("promote observed project carrier claim: %w", err)
-		}
-		promotion = claim
-		found = true
-		break
-	}
-	if !found {
+	pending, matched := MatchPendingCarrierInstall(current, action, target.ScopeProject)
+	if !matched {
 		return current, nil
+	}
+	promotion, err := durablecarrier.ClaimAfterObservedInstall(
+		pending,
+		observation,
+		current.ManagedCarrierClaims(),
+	)
+	if err != nil {
+		return durable.Snapshot{}, fmt.Errorf("promote observed project carrier claim: %w", err)
 	}
 	next, changed, err := current.WithPromotedCarrierClaims(
 		[]durablecarrier.ManagedCarrierClaim{promotion},
@@ -173,16 +163,30 @@ func CommitRetiredPendingCarrierInstall(
 	action reconciliation.RelationAction,
 	stateEncoder durable.SnapshotEncoder,
 ) (durable.Snapshot, error) {
-	if action.Kind() != reconciliation.ActionCreate {
-		return current, nil
-	}
-	pending, err := durablecarrier.NewPendingCarrierInstall(
+	return commitRetiredPendingCarrierInstall(
+		ctx,
+		rootedSnapshotCommitter(filesystem, authority),
+		current,
 		owner,
-		action.CarrierIdentity(),
-		action.RouteRequest(),
+		action,
+		stateEncoder,
 	)
+}
+
+func commitRetiredPendingCarrierInstall(
+	ctx context.Context,
+	commit snapshotCommitter,
+	current durable.Snapshot,
+	owner stateauthority.Authority,
+	action reconciliation.RelationAction,
+	stateEncoder durable.SnapshotEncoder,
+) (durable.Snapshot, error) {
+	pending, selected, err := pendingCarrierInstallForInvocation(owner, action)
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("derive completed carrier install: %w", err)
+	}
+	if !selected {
+		return current, nil
 	}
 	next, changed, err := current.WithoutPendingCarrierInstall(pending)
 	if err != nil {
@@ -198,7 +202,7 @@ func CommitRetiredPendingCarrierInstall(
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("marshal completed carrier install: %w", err)
 	}
-	if err := rootedSnapshotCommitter(filesystem, authority)(ctx, content, 0o600); err != nil {
+	if err := commit(ctx, content, 0o600); err != nil {
 		return durable.Snapshot{}, fmt.Errorf("write completed carrier install: %w", err)
 	}
 	return next, nil
@@ -429,20 +433,72 @@ func pendingCarrierInstalls(
 ) ([]durablecarrier.PendingCarrierInstall, error) {
 	pending := make([]durablecarrier.PendingCarrierInstall, 0, len(actions))
 	for _, action := range actions {
-		if action.Kind() != reconciliation.ActionCreate {
-			continue
-		}
-		value, err := durablecarrier.NewPendingCarrierInstall(
-			owner,
-			action.CarrierIdentity(),
-			action.RouteRequest(),
-		)
+		value, selected, err := pendingCarrierInstallForInvocation(owner, action)
 		if err != nil {
 			return nil, err
 		}
-		pending = append(pending, value)
+		if selected {
+			pending = append(pending, value)
+		}
 	}
 	return pending, nil
+}
+
+func pendingCarrierInstallForInvocation(
+	owner stateauthority.Authority,
+	action reconciliation.RelationAction,
+) (durablecarrier.PendingCarrierInstall, bool, error) {
+	if !action.InvokesHostRoute() {
+		return durablecarrier.PendingCarrierInstall{}, false, nil
+	}
+	pending, err := durablecarrier.NewPendingCarrierInstall(
+		owner,
+		action.CarrierIdentity(),
+		action.RouteRequest(),
+	)
+	if err != nil {
+		return durablecarrier.PendingCarrierInstall{}, false, err
+	}
+	return pending, true, nil
+}
+
+// MatchPendingCarrierInstall resolves one exact pending fact for an action and scope.
+func MatchPendingCarrierInstall(
+	current durable.Snapshot,
+	action reconciliation.RelationAction,
+	scope target.Scope,
+) (durablecarrier.PendingCarrierInstall, bool) {
+	if action.Scope() != scope {
+		return durablecarrier.PendingCarrierInstall{}, false
+	}
+	for _, pending := range current.PendingCarrierInstalls() {
+		if pending.Identity().ExactEqual(action.CarrierIdentity()) &&
+			pending.InstallRequest().Equal(action.RouteRequest()) {
+			return pending, true
+		}
+	}
+	return durablecarrier.PendingCarrierInstall{}, false
+}
+
+// MatchPendingCarrierInstallCompletion resolves one exact no-invocation
+// completion fact for the requested scope.
+func MatchPendingCarrierInstallCompletion(
+	current durable.Snapshot,
+	action reconciliation.RelationAction,
+	scope target.Scope,
+) (durablecarrier.PendingCarrierInstall, observerelation.CorrelationResult, bool) {
+	if action.Kind() != reconciliation.ActionNoOp || action.Scope() != scope {
+		return durablecarrier.PendingCarrierInstall{}, observerelation.CorrelationResult{}, false
+	}
+	correlation, present := action.Correlation()
+	if !present {
+		return durablecarrier.PendingCarrierInstall{}, observerelation.CorrelationResult{}, false
+	}
+	pending, matched := MatchPendingCarrierInstall(current, action, scope)
+	if !matched {
+		return durablecarrier.PendingCarrierInstall{}, observerelation.CorrelationResult{}, false
+	}
+	return pending, correlation, true
 }
 
 func promotedProjectCarrierClaims(
@@ -451,29 +507,23 @@ func promotedProjectCarrierClaims(
 ) ([]durablecarrier.ManagedCarrierClaim, error) {
 	claims := make([]durablecarrier.ManagedCarrierClaim, 0, len(actions))
 	for _, action := range actions {
-		if action.Kind() != reconciliation.ActionNoOp ||
-			action.Scope() != target.ScopeProject {
+		pending, correlation, matched := MatchPendingCarrierInstallCompletion(
+			current,
+			action,
+			target.ScopeProject,
+		)
+		if !matched {
 			continue
 		}
-		correlation, present := action.Correlation()
-		if !present {
-			continue
+		claim, err := durablecarrier.ClaimAfterObservedInstall(
+			pending,
+			correlation,
+			current.ManagedCarrierClaims(),
+		)
+		if err != nil {
+			return nil, err
 		}
-		for _, pending := range current.PendingCarrierInstalls() {
-			if !pending.Identity().ExactEqual(action.CarrierIdentity()) ||
-				!pending.InstallRequest().Equal(action.RouteRequest()) {
-				continue
-			}
-			claim, err := durablecarrier.ClaimAfterObservedInstall(
-				pending,
-				correlation,
-				current.ManagedCarrierClaims(),
-			)
-			if err != nil {
-				return nil, err
-			}
-			claims = append(claims, claim)
-		}
+		claims = append(claims, claim)
 	}
 	return claims, nil
 }

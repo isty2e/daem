@@ -2,8 +2,6 @@ package apply
 
 import (
 	"fmt"
-	"sort"
-	"strconv"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
@@ -64,45 +62,4 @@ func (index physicalOccupancyIndex) register(path string, occupancy physicalOccu
 	}
 	index[key] = occupancy
 	return nil
-}
-
-func revisionRequestKey(path string, effect mutation.PathEffect) string {
-	return strconv.Itoa(int(effect)) + ":" + path
-}
-
-func sortedRevisionRequests(requests map[string]mutation.RevisionRequest) []mutation.RevisionRequest {
-	keys := make([]string, 0, len(requests))
-	for key := range requests {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	result := make([]mutation.RevisionRequest, 0, len(keys))
-	for _, key := range keys {
-		result = append(result, requests[key])
-	}
-	return result
-}
-
-func applyAuthorityFactKey(fact applyAuthorityFact) string {
-	return fact.Kind + "\x00" + fact.Path + "\x00" +
-		strconv.Itoa(int(fact.Access)) + "\x00" +
-		strconv.Itoa(int(fact.Effect)) + "\x00" +
-		fact.Target + "\x00" + fact.Scope + "\x00" + fact.Family + "\x00" +
-		strconv.Itoa(int(fact.Containment))
-}
-
-func authorityFactsCover(
-	available []applyAuthorityFact,
-	required []applyAuthorityFact,
-) bool {
-	index := make(map[string]struct{}, len(available))
-	for _, fact := range available {
-		index[applyAuthorityFactKey(fact)] = struct{}{}
-	}
-	for _, fact := range required {
-		if _, present := index[applyAuthorityFactKey(fact)]; !present {
-			return false
-		}
-	}
-	return true
 }

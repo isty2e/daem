@@ -75,6 +75,30 @@ targets = ["codex"]
 	}
 }
 
+func TestRunLockWriteSucceedsWhenRecoveryDirCannotBeInventoried(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tempDir, "data"))
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	writeWorkflowTestFile(t, tempDir, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
+	paths, err := daempaths.Resolve(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(paths.StateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.RecoveryDir, []byte("not-a-recovery-directory\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := RunLock(context.Background(), LockInput{ManifestPath: manifestPath}); err != nil {
+		t.Fatalf("RunLock error = %v, want success without journal inspection", err)
+	}
+	if _, err := os.Lstat(filepath.Join(tempDir, "daem.lock.toml")); err != nil {
+		t.Fatalf("written lockfile: %v", err)
+	}
+}
+
 func TestRunLockDryRunDoesNotWriteExplicitLockfile(t *testing.T) {
 	tempDir := t.TempDir()
 	dataRoot := filepath.Join(tempDir, "data")
@@ -302,7 +326,15 @@ func TestLockRevisionRequestsGuardReadReferentAndReplacedEntry(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), "daem.toml")
 	lockfilePath := filepath.Join(t.TempDir(), "daem.lock.toml")
 	metadataTransactionPath := filepath.Join(t.TempDir(), "metadata-transaction")
-	requests, err := lockRevisionRequests(manifestPath, lockfilePath, metadataTransactionPath, nil)
+	program := compileLockOperationProgram(
+		manifestPath,
+		lockfilePath,
+		metadataTransactionPath,
+		nil,
+		filepath.Join(t.TempDir(), ".daem"),
+		true,
+	)
+	requests, err := program.RevisionRequests()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,12 +382,15 @@ func TestLockManifestEntryLeaseConflictsWithSymlinkReplacement(t *testing.T) {
 	}
 	defer holder.Release()
 
-	domains, err := lockMutationDomains(
+	program := compileLockOperationProgram(
 		manifestPath,
 		filepath.Join(root, "daem.lock.toml"),
 		filepath.Join(root, "metadata-transaction"),
 		nil,
+		filepath.Join(root, ".daem"),
+		false,
 	)
+	domains, err := lowerLockDomainSteps(program.DomainSteps())
 	if err != nil {
 		t.Fatal(err)
 	}

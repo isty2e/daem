@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -28,7 +28,7 @@ func TestRecoverNoJournalDoesNotHijackFileSetFence(t *testing.T) {
 		if !errors.Is(err, journal.ErrNoRecoverableJournal) {
 			t.Fatalf("error = %v, want ErrNoRecoverableJournal", err)
 		}
-		if errors.Is(err, transaction.ErrAbandonedFileSetResidue) ||
+		if errors.Is(err, fileset.ErrAbandonedFileSetResidue) ||
 			strings.Contains(err.Error(), "interrupted file-set transaction") {
 			t.Fatalf("error = %v, must not replace missing journal with file-set fence", err)
 		}
@@ -52,7 +52,7 @@ func TestRecoverNoJournalDoesNotHijackFileSetFence(t *testing.T) {
 		if !errors.Is(err, journal.ErrNoRecoverableJournal) {
 			t.Fatalf("error = %v, want ErrNoRecoverableJournal", err)
 		}
-		if errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+		if errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
 			t.Fatalf("error = %v, must not hijack missing journal with residue", err)
 		}
 		if _, statErr := os.Lstat(residue); statErr != nil {
@@ -80,7 +80,7 @@ func TestRecoverPlansActiveJournalBesideAbandonedResidue(t *testing.T) {
 		t.Fatalf("authority kind = %q, want active journal", got)
 	}
 	if fence, present := prepared.ContinuingFileSetFence(); !present ||
-		fence != transaction.FileSetFenceAbandonedResidue {
+		fence != fileset.FileSetFenceAbandonedResidue {
 		t.Fatalf("planned continuing fence = (%q, %t)", fence, present)
 	}
 	execution, err := Execute(t.Context(), prepared, ExecuteOptions{})
@@ -89,7 +89,7 @@ func TestRecoverPlansActiveJournalBesideAbandonedResidue(t *testing.T) {
 	}
 	terminalFence := execution.FileSetFenceObservation()
 	if !terminalFence.Observed() || !terminalFence.Known() ||
-		terminalFence.Kind() != transaction.FileSetFenceAbandonedResidue {
+		terminalFence.Kind() != fileset.FileSetFenceAbandonedResidue {
 		t.Fatalf(
 			"terminal continuing fence = observed:%t known:%t kind:%q",
 			terminalFence.Observed(),
@@ -116,7 +116,7 @@ func TestRecoverUnprovableStateDirDoesNotRecommendRecover(t *testing.T) {
 	}
 
 	_, err = Plan(context.Background(), PlanInput{ManifestPath: manifestPath})
-	if err == nil || !errors.Is(err, transaction.ErrFileSetFenceUnprovable) {
+	if err == nil || !errors.Is(err, fileset.ErrFileSetFenceUnprovable) {
 		t.Fatalf("error = %v, want ErrFileSetFenceUnprovable", err)
 	}
 	if strings.Contains(err.Error(), "run: daem recover") &&

@@ -7,11 +7,14 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	testscale "github.com/isty2e/daem/test/scale"
 )
 
 const maximumRejectedManifestStructureAllocationBytes = 256 << 10
 
 func TestManifestDecodersRejectOverLimitTOMLStructure(t *testing.T) {
+	testscale.Require(t)
+
 	tests := []struct {
 		name    string
 		content []byte
@@ -69,6 +72,8 @@ func TestManifestDecodersAcceptExactTOMLDepthBeforeSemanticValidation(t *testing
 }
 
 func TestDecodeManifestRejectsDeepTOMLBeforeDecoderAllocation(t *testing.T) {
+	testscale.Require(t)
+
 	content := manifestWithNestedInlineTables(256)
 	result := testing.Benchmark(func(b *testing.B) {
 		for b.Loop() {

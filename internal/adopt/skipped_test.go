@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/target"
+	testscale "github.com/isty2e/daem/test/scale"
 )
 
 func TestSkippedClassificationIsTotalAndFailVisible(t *testing.T) {
@@ -222,6 +223,8 @@ func TestSkippedCollectorRetainsBoundedPrefixOnlyOnExhaustion(t *testing.T) {
 }
 
 func TestSkippedCollectorProducerAllocationsDoNotScalePastLimit(t *testing.T) {
+	testscale.Require(t)
+
 	measure := func(total int) float64 {
 		return testing.AllocsPerRun(5, func() {
 			collector := NewSkippedCollector()

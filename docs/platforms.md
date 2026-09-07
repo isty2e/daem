@@ -58,6 +58,20 @@ and `STATX_BTIME` for each component. An unavailable mount or incarnation
 identity fails the affected artifact operation rather than falling back to
 reusable inode or pathname facts.
 
+**Deferred Darwin admission policy:** blanket nonzero generation/birth-time
+admission for mutation roots, durable root provenance, and StateDir witnesses
+is not required by the artifact-view rule above. A native macOS 26.6.2 probe
+set a temporary directory's `ATTR_CMN_CRTIME` to epoch zero and observed zero
+generation and birth time. Rooted capture, provenance construction, and
+StateDir capture accepted it; StateDir revalidation rejected a
+rename-and-recreate replacement.
+The zero tuple alone therefore does not establish unavailable identity. This
+probe does not establish safety against inode reuse or every filesystem's
+missing-metadata behavior. The maintainer defers a blanket zero-tuple refusal
+while retaining the [root and StateDir identity contracts](concepts.md#recovery-journal).
+Revisit on a supported reproduction of unavailable incarnation evidence or
+missed replacement, or an explicit decision to require nonzero admission.
+
 The admitted Darwin target has a macOS 26 runtime floor. Earlier macOS releases
 are outside the support contract because their directory rename semantics can
 reject write-disabled trees before daem's atomic publication or logical-removal

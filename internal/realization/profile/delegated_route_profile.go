@@ -82,6 +82,22 @@ type DelegatedRelationProfileInput struct {
 func (profile DelegatedRouteProfile) Carrier() desiredextension.Carrier { return profile.carrier }
 func (profile DelegatedRouteProfile) Target() target.Target             { return profile.target }
 
+// AdmittedScopes returns the complete carrier scope set in canonical order.
+func (profile DelegatedRouteProfile) AdmittedScopes() []target.Scope {
+	return append([]target.Scope(nil), profile.allowedScopes...)
+}
+
+// PartialRemovalCoverage reports whether the removal dossier intentionally
+// covers only a bounded subset of the carrier relation.
+func (profile DelegatedRouteProfile) PartialRemovalCoverage() bool {
+	return profile.partialRemovalCoverage
+}
+
+// VerifiedRelationFields returns canonical postcondition field identities.
+func (profile DelegatedRouteProfile) VerifiedRelationFields() []string {
+	return append([]string(nil), profile.verifiedRelationFields...)
+}
+
 // OperationRoute returns the unique route for one operation.
 func (profile DelegatedRouteProfile) OperationRoute(operation Operation) (OperationRoute, bool) {
 	var selected OperationRoute
@@ -207,6 +223,16 @@ func (profile DelegatedRouteProfile) validate() error {
 		return err
 	}
 	return validateStringSet(profile.verifiedRelationFields, "delegated route verified field")
+}
+
+// DelegatedRouteProfiles returns the complete static carrier route catalog in
+// append-only carrier order with independently owned nested slices.
+func DelegatedRouteProfiles() []DelegatedRouteProfile {
+	result := make([]DelegatedRouteProfile, 0, len(delegatedRouteProfiles))
+	for _, routeProfile := range delegatedRouteProfiles {
+		result = append(result, cloneDelegatedRouteProfile(routeProfile))
+	}
+	return result
 }
 
 func profileDelegatedRoutes(selectedTarget target.Target) []DelegatedRouteProfile {

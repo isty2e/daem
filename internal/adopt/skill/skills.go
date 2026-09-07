@@ -9,6 +9,7 @@ import (
 
 	"github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/desired/entity"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -77,7 +78,8 @@ func Candidates(
 	if searchRoots == nil {
 		return nil, nil, fmt.Errorf("skill search-root cache is required")
 	}
-	locations := profile.Profile(target).DiscoveryLocations(entity.KindSkill, scope)
+	compiled := hostsurfacecatalog.Product()
+	locations := compiled.ManagedPathDiscoveryLocations(target, scope, entity.KindSkill)
 	skills := make([]adopt.Skill, 0)
 	scans := make([]adopt.Scan, 0, len(locations))
 
@@ -120,11 +122,12 @@ func Candidates(
 		}
 
 		installTo := ""
-		if admission, admitted := profile.Profile(target).PlacementAdmissionAt(
-			entity.KindSkill,
+		if view, admitted := compiled.ManagedPathAt(
+			target,
 			scope,
+			entity.KindSkill,
 			location.Path(),
-		); admitted && !admission.Default() {
+		); admitted && !view.IsDefaultPlacement() {
 			installTo = location.Path()
 		}
 		rootSkills, rootScan, err := importSkillsFromRoot(
@@ -145,7 +148,7 @@ func Candidates(
 		skills = append(skills, rootSkills...)
 		scans = append(scans, rootScan)
 	}
-	for _, location := range profile.Profile(target).RuntimeLocations(entity.KindSkill, scope) {
+	for _, location := range compiled.ManagedPathRuntimeLocations(target, scope, entity.KindSkill) {
 		liveRoot, err := skillLocationPath(location.Path())
 		if err != nil {
 			return nil, nil, err

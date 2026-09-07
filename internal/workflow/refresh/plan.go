@@ -9,8 +9,8 @@ import (
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -430,14 +430,14 @@ func journalAndFileSetRefusal(result CommandResult, err error) (plan, error) {
 	}
 	state := recoverygate.StateOf(err)
 	switch state.FileSet() {
-	case transaction.FileSetFenceAccessUnprovable:
+	case fileset.FileSetFenceAccessUnprovable:
 		return refusedPlan(
 			result,
 			ReasonFileSetAccessUnprovable,
 			err,
 			"restore StateDir access and identity before retrying or running daem recover",
 		)
-	case transaction.FileSetFenceInvalidEvidence:
+	case fileset.FileSetFenceInvalidEvidence:
 		return refusedPlan(
 			result,
 			ReasonFileSetEvidenceInvalid,
@@ -471,21 +471,21 @@ func journalAndFileSetRefusal(result CommandResult, err error) (plan, error) {
 	}
 	if state.FileSetKnown() {
 		switch state.FileSet() {
-		case transaction.FileSetFencePublishedTransaction:
+		case fileset.FileSetFencePublishedTransaction:
 			return refusedPlan(
 				result,
 				ReasonInterruptedFileSetTransaction,
 				err,
 				"retry the interrupted authoring or unmanage operation before refreshing a carrier",
 			)
-		case transaction.FileSetFenceAbandonedResidue:
+		case fileset.FileSetFenceAbandonedResidue:
 			return refusedPlan(
 				result,
 				ReasonAbandonedFileSetResidue,
 				err,
 				"preserve the reported residue for analysis; do not delete it from its name prefix; current daem cannot recover markerless file-set residue",
 			)
-		case transaction.FileSetFenceCensusLimit:
+		case fileset.FileSetFenceCensusLimit:
 			return refusedPlan(
 				result,
 				ReasonFileSetFenceCensusLimit,

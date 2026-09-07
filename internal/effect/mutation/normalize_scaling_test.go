@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+
+	testscale "github.com/isty2e/daem/test/scale"
 )
 
 func TestNormalizeDomainsWideAllocationGrowthIsSubquadratic(t *testing.T) {
+	testscale.Require(t)
+
 	const (
 		wideMultiplier            = 4
 		smallDomainCount          = 128

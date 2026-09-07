@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/findings"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/profile"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
@@ -85,14 +86,13 @@ func independentTargetChecks(
 }
 
 func independentSkillRootChecks(projectPlacementAllowed bool, target targetpkg.Target) []findings.Check {
-	targetProfile := profile.Profile(target)
-	if !targetProfile.Supports(entity.KindSkill) {
+	if !hostsurfacecatalog.Product().HasManagedPathTarget(target, entity.KindSkill) {
 		return nil
 	}
 
-	rootSpecs := skillRootSpecs(targetProfile, targetpkg.ScopeGlobal)
+	rootSpecs := skillRootSpecs(target, targetpkg.ScopeGlobal)
 	if projectPlacementAllowed {
-		rootSpecs = append(rootSpecs, skillRootSpecs(targetProfile, targetpkg.ScopeProject)...)
+		rootSpecs = append(rootSpecs, skillRootSpecs(target, targetpkg.ScopeProject)...)
 	}
 
 	checks := make([]findings.Check, 0, len(rootSpecs))
@@ -110,15 +110,14 @@ func independentSkillRootChecks(projectPlacementAllowed bool, target targetpkg.T
 }
 
 func targetCapabilityChecks(target targetpkg.Target, resourceKinds map[entity.Kind]struct{}) []findings.Check {
-	targetProfile := profile.Profile(target)
-	supports := targetProfile.ResourceSupports()
+	supports := hostsurfacecatalog.Product().ResourceSupportsForTarget(target)
 	checks := make([]findings.Check, 0, len(supports))
 	for _, support := range supports {
 		if !resourceKindSelected(resourceKinds, support.ResourceKind()) {
 			continue
 		}
 		name := fmt.Sprintf("target=%s capability=%s", support.Target(), support.ResourceKind())
-		detail := targetSupportDetail(targetProfile, support)
+		detail := targetSupportDetail(support)
 		if support.Supported() {
 			checks = append(checks, okCheck(name, detail))
 			continue
@@ -189,14 +188,13 @@ func targetSpecFor(homeDirectory string, target targetpkg.Target) doctorTargetSp
 }
 
 func skillRootChecks(homeDirectory string, manifestRoot string, projectPlacementAllowed bool, target targetpkg.Target) []findings.Check {
-	targetProfile := profile.Profile(target)
-	if !targetProfile.Supports(entity.KindSkill) {
+	if !hostsurfacecatalog.Product().HasManagedPathTarget(target, entity.KindSkill) {
 		return nil
 	}
 
-	rootSpecs := skillRootSpecs(targetProfile, targetpkg.ScopeGlobal)
+	rootSpecs := skillRootSpecs(target, targetpkg.ScopeGlobal)
 	if projectPlacementAllowed {
-		rootSpecs = append(rootSpecs, skillRootSpecs(targetProfile, targetpkg.ScopeProject)...)
+		rootSpecs = append(rootSpecs, skillRootSpecs(target, targetpkg.ScopeProject)...)
 	}
 
 	checks := make([]findings.Check, 0, len(rootSpecs))
@@ -213,19 +211,22 @@ func skillRootChecks(homeDirectory string, manifestRoot string, projectPlacement
 	return checks
 }
 
-func skillRootSpecs(targetProfile profile.TargetProfile, scope targetpkg.Scope) []doctorSkillRootSpec {
+func skillRootSpecs(selectedTarget targetpkg.Target, scope targetpkg.Scope) []doctorSkillRootSpec {
+	compiled := hostsurfacecatalog.Product()
 	result := make([]doctorSkillRootSpec, 0)
-	defaultPlacement, err := targetProfile.DefaultPlacement(entity.KindSkill, scope)
-	if err == nil {
-		result = append(result, doctorSkillRootSpec{Scope: scope, Role: "preferred", Index: -1, Root: defaultPlacement.Root().String()})
+	if defaultView, ok := compiled.ManagedPathDefault(selectedTarget, scope, entity.KindSkill); ok {
+		result = append(result, doctorSkillRootSpec{
+			Scope: scope, Role: "preferred", Index: -1, Root: defaultView.Placement().Root().String(),
+		})
 	}
 	compatibleIndex := 0
-	for _, location := range targetProfile.DiscoveryLocations(entity.KindSkill, scope) {
-		if admission, admitted := targetProfile.PlacementAdmissionAt(
-			entity.KindSkill,
+	for _, location := range compiled.ManagedPathDiscoveryLocations(selectedTarget, scope, entity.KindSkill) {
+		if view, admitted := compiled.ManagedPathAt(
+			selectedTarget,
 			scope,
+			entity.KindSkill,
 			location.Path(),
-		); admitted && admission.Default() {
+		); admitted && view.IsDefaultPlacement() {
 			continue
 		}
 		result = append(result, doctorSkillRootSpec{
@@ -236,11 +237,11 @@ func skillRootSpecs(targetProfile profile.TargetProfile, scope targetpkg.Scope) 
 	return result
 }
 
-func targetSupportDetail(targetProfile profile.TargetProfile, support profile.Support) string {
+func targetSupportDetail(support profile.Support) string {
 	action := resourceAction(support.ResourceKind())
 	if support.Supported() {
 		if support.ResourceKind() == entity.KindInstructions {
-			scopes := defaultPlacementScopes(targetProfile, entity.KindInstructions)
+			scopes := defaultPlacementScopes(support.Target(), entity.KindInstructions)
 			switch len(scopes) {
 			case 0:
 				return fmt.Sprintf("%s has no default placement scope", action)
@@ -258,10 +259,11 @@ func targetSupportDetail(targetProfile profile.TargetProfile, support profile.Su
 	}
 }
 
-func defaultPlacementScopes(targetProfile profile.TargetProfile, resourceKind entity.Kind) []targetpkg.Scope {
+func defaultPlacementScopes(selectedTarget targetpkg.Target, resourceKind entity.Kind) []targetpkg.Scope {
+	compiled := hostsurfacecatalog.Product()
 	scopes := make([]targetpkg.Scope, 0, 2)
 	for _, scope := range []targetpkg.Scope{targetpkg.ScopeProject, targetpkg.ScopeGlobal} {
-		if _, err := targetProfile.DefaultPlacement(resourceKind, scope); err == nil {
+		if _, ok := compiled.ManagedPathDefault(selectedTarget, scope, resourceKind); ok {
 			scopes = append(scopes, scope)
 		}
 	}

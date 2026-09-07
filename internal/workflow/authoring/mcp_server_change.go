@@ -9,8 +9,8 @@ import (
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
+	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
@@ -271,10 +271,11 @@ func mcpServerAuthoringKeyFor(server declarationcodec.MCPServer, header declarat
 	if err != nil {
 		return mcpServerAuthoringKey{}, fmt.Errorf("%s.scope: %w", context, err)
 	}
-	placement, ok := aggregate.ImplementedMCPPlacement(selectedTarget, selectedScope)
+	view, ok := catalog.Product().LookupMCP(selectedTarget, selectedScope)
 	if !ok {
 		return mcpServerAuthoringKey{}, fmt.Errorf("%s: unsupported MCP target/scope %s/%s", context, selectedTarget, selectedScope)
 	}
+	placement := view.Placement()
 	return mcpServerAuthoringKey{target: placement.Target(), scope: placement.Scope(), name: name}, nil
 }
 
