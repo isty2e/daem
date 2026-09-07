@@ -823,6 +823,117 @@ func TestExecuteCancellationAfterPiProviderRoutePreventsConfigProjection(t *test
 	}
 }
 
+func TestExecuteSettlesPendingPiProviderWithoutReplayingConvergedEffects(t *testing.T) {
+	root, manifestPath := writePiProviderMCPFixture(t)
+	configPath := filepath.Join(root, aggregate.PiProjectMCPConfigPath)
+	initial, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("initial PlanWrite returned error: %v", err)
+	}
+	_, err = ExecuteWithOptions(t.Context(), initial, ExecuteOptions{
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(_ context.Context, _ subprocess.CommandRequest) subprocess.CommandResult {
+				writePiProviderInstallation(t, root, "2.15.0")
+				return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+			},
+		}),
+	})
+	if err != nil {
+		t.Fatalf("initial ExecuteWithOptions returned error: %v", err)
+	}
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read converged config: %v", err)
+	}
+	if err := os.RemoveAll(piProviderPackagePath(root)); err != nil {
+		t.Fatalf("remove provider installation: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	interrupted, err := PlanWrite(ctx, CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("interrupted PlanWrite returned error: %v", err)
+	}
+	_, err = ExecuteWithOptions(ctx, interrupted, ExecuteOptions{
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(_ context.Context, _ subprocess.CommandRequest) subprocess.CommandResult {
+				writePiProviderInstallation(t, root, "2.15.0")
+				cancel()
+				return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+			},
+		}),
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("interrupted ExecuteWithOptions error = %v, want context cancellation", err)
+	}
+	if got, readErr := os.ReadFile(configPath); readErr != nil || string(got) != string(before) {
+		t.Fatalf("interrupted config changed: read error=%v equal=%t", readErr, string(got) == string(before))
+	}
+	interruptedState := loadApplyStatefile(t, filepath.Join(root, ".daem", "state.json"))
+	if pending := interruptedState.PendingCarrierInstalls(); len(pending) != 1 {
+		t.Fatalf("interrupted pending installs = %#v, want one", pending)
+	}
+
+	retry, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("retry PlanWrite returned error: %v", err)
+	}
+	if effects, err := execute.ManagedPathEffects(retry.Reconciliation.ManagedPaths()); err != nil || len(effects) != 0 {
+		t.Fatalf("retry managed path effects = %#v, error = %v, want none", effects, err)
+	}
+	if effects, err := execute.AggregateEffects(retry.Reconciliation.Aggregates()); err != nil || len(effects) != 0 {
+		t.Fatalf("retry aggregate effects = %#v, error = %v, want none", effects, err)
+	}
+	retryCalls := 0
+	result, err := ExecuteWithOptions(t.Context(), retry, ExecuteOptions{
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(_ context.Context, _ subprocess.CommandRequest) subprocess.CommandResult {
+				retryCalls++
+				return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+			},
+		}),
+	})
+	if err != nil {
+		t.Fatalf("retry ExecuteWithOptions returned error: %v", err)
+	}
+	if retryCalls != 0 || len(result.HostRouteAttempts) != 0 {
+		t.Fatalf("retry provider calls=%d attempts=%#v, want no provider replay", retryCalls, result.HostRouteAttempts)
+	}
+	if got, err := os.ReadFile(configPath); err != nil || string(got) != string(before) {
+		t.Fatalf("retry config changed: read error=%v equal=%t", err, string(got) == string(before))
+	}
+	state := loadApplyStatefile(t, filepath.Join(root, ".daem", "state.json"))
+	if pending := state.PendingCarrierInstalls(); len(pending) != 0 {
+		t.Fatalf("retry pending installs = %#v, want none", pending)
+	}
+	claims := state.ManagedCarrierClaims()
+	if len(claims) != 1 || claims[0].Provenance() != durablecarrier.ClaimProvenanceInstalledObserved {
+		t.Fatalf("retry project carrier claims = %#v, want one InstalledObserved claim", claims)
+	}
+
+	subsequent, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("subsequent PlanWrite returned error: %v", err)
+	}
+	subsequentCalls := 0
+	subsequentResult, err := ExecuteWithOptions(t.Context(), subsequent, ExecuteOptions{
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(_ context.Context, _ subprocess.CommandRequest) subprocess.CommandResult {
+				subsequentCalls++
+				return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+			},
+		}),
+	})
+	if err != nil {
+		t.Fatalf("subsequent ExecuteWithOptions returned error: %v", err)
+	}
+	if subsequentCalls != 0 || subsequentResult.ExecutionAttempted {
+		t.Fatalf("subsequent provider calls = %d, execution attempted = %t, want no-op", subsequentCalls, subsequentResult.ExecutionAttempted)
+	}
+}
+
 func TestPlanWriteBlocksUnobservablePiProviderBeforeConfigMutation(t *testing.T) {
 	tests := []struct {
 		name    string

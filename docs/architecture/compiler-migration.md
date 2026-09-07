@@ -157,11 +157,20 @@ Rejected guarantee-expansion proposals are recorded as such, not as fixes.
   are present, including core structure; `ApplyEffectPlan` rejects
   prepared/current structural disagreement. The public provider-install
   fixture accepts post-install replanning and projects config afterward. A
-  separate fixture accepts an already installed, in-range provider without
-  replaying its route; that is not a mid-execution version-change test. No
-  avoidable core-binding refusal was reproduced. Rebinding changes remain
-  deferred pending a supported reproduction distinguishing required rejection
-  from avoidable refusal.
+  pending-only retry after an interrupted reinstall with already-converged Pi
+  config exposed an avoidable refusal: planning omitted provider NoOp relation
+  facts needed for project claim settlement. Planning now passes the same full
+  relation facts as execution to the existing state-transition owner. The
+  regression settles the exact pending project claim without replaying the
+  provider route or rewriting config; a subsequent retry performs no effects.
+  A separate fixture accepts an already installed, in-range provider without
+  replaying its route; that is not a mid-execution version-change test. Broader
+  core rebinding remains deferred pending a supported reproduction that needs
+  it. The pre-existing global-provider missing-reservation sibling is outside
+  this project-only correction, as explicitly selected in the maintainer's
+  bounded review scope. It remains deferred, not fixed or certified here;
+  maintainers own follow-up when separate global reservation/lifecycle work is
+  authorized or its owning contract changes.
 - Structural-size policy, whole-continuation coverage, scalar removal and
   classifier replacement require independently justified scopes. Their old
   task dependency chains do not create release requirements.

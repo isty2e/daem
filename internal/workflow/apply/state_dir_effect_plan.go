@@ -78,7 +78,7 @@ func applyEffectInput(current commandPlan) (execute.ApplyInput, error) {
 		GlobalCarrierClaims:         current.assessment.GlobalCarrierClaims,
 		RetiredProjectCarrierClaims: projectRetirements,
 		AdoptedProjectCarrierClaims: projectAdoptions,
-		ConfirmedRelationActions:    nonProviderRelationActions(current),
+		ConfirmedRelationActions:    current.assessment.Reconciliation.Relations(),
 		Owner:                       current.assessment.Owner,
 		Ownership:                   current.assessment.Ownership,
 	}, nil
