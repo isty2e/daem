@@ -166,11 +166,20 @@ Rejected guarantee-expansion proposals are recorded as such, not as fixes.
   A separate fixture accepts an already installed, in-range provider without
   replaying its route; that is not a mid-execution version-change test. Broader
   core rebinding remains deferred pending a supported reproduction that needs
-  it. The pre-existing global-provider missing-reservation sibling is outside
-  this project-only correction, as explicitly selected in the maintainer's
-  bounded review scope. It remains deferred, not fixed or certified here;
-  maintainers own follow-up when separate global reservation/lifecycle work is
-  authorized or its owning contract changes.
+  it.
+- Global provider settlement: a scheduled empty descendant reservation no
+  longer triggers legacy demand reconstruction from pre-core relations. The
+  existing core clears exact pending installs backed by committed registry
+  claims. A shared final-action projection retains only global promotions
+  still requiring registry/statefile work, including provider NoOps, in both
+  the envelope and structural schedule. Public regressions cover interrupted
+  reinstalls, an accompanying project-provider install, and an interrupted
+  first global install without a committed claim. They verify no global route
+  replay, pending cleanup and subsequent no-op execution; a capacity-refusal
+  checkpoint precedes config or registry publication. Full pre-effect
+  reservation, prepared/current comparisons, registry-first CAS and cleanup
+  remain in their existing owners. This follow-up does not establish a missing
+  ordinary registry lease or expand the deferred compiler scope.
 - Structural-size policy, whole-continuation coverage, scalar removal and
   classifier replacement require independently justified scopes. Their old
   task dependency chains do not create release requirements.

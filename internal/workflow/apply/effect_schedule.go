@@ -139,10 +139,14 @@ func applyScheduleInputFor(
 	if err != nil {
 		return applyScheduleInput{}, err
 	}
+	finalRelations, err := finalRelationActions(current)
+	if err != nil {
+		return applyScheduleInput{}, err
+	}
 	finalRoutes, err := applyRouteScheduleFacts(
 		"apply/final/route",
 		current.assessment.CurrentState,
-		nonProviderRelationActions(current),
+		finalRelations,
 		current.context.Lockfile,
 		current.context.Paths.ManifestRoot,
 	)
@@ -169,7 +173,7 @@ func applyScheduleInputFor(
 		orderClasses:        orders,
 		mayReclassifyOrder: relationOrderMayReclassifyBeforeExecution(
 			providerActions,
-			nonProviderRelationActions(current),
+			finalRelations,
 			current.assessment.Reconciliation.CarrierAbsences(),
 		),
 		delegates:         delegates,

@@ -146,7 +146,9 @@ func runWithOptions(
 	}
 	statefileAuthority := options.statefileAuthority
 	ownedStatefileAuthority := false
-	if statefileAuthority == nil {
+	// Scheduled execution has already reserved its statefile demand, including
+	// an empty plan. Only legacy execution derives authority here.
+	if statefileAuthority == nil && !options.requireContinuation {
 		statefilePlan, planErr := statefileEffectPlanFor(
 			assessment.CurrentState,
 			assessment.Reconciliation,

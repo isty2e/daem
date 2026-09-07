@@ -195,6 +195,30 @@ func nonProviderRelationActions(planned commandPlan) []reconcile.RelationAction 
 	return result
 }
 
+func finalRelationActions(planned commandPlan) ([]reconcile.RelationAction, error) {
+	current := planned.assessment.CurrentState
+	converged, _, err := current.WithConvergedGlobalCarrierClaims(planned.assessment.GlobalCarrierClaims)
+	if err != nil {
+		return nil, fmt.Errorf("derive final relation state: %w", err)
+	}
+	providerCarriers := providerCarrierSubjects(planned)
+	result := make([]reconcile.RelationAction, 0)
+	for _, action := range planned.assessment.Reconciliation.Relations() {
+		if isGlobalCarrierPromotionCandidate(current, action) {
+			// Committed global claims settle in the core; only outstanding
+			// promotions need final registry and statefile work.
+			if isGlobalCarrierPromotionCandidate(converged, action) {
+				result = append(result, action)
+			}
+			continue
+		}
+		if _, provider := providerCarriers[action.CarrierIdentity().CarrierSubject().String()]; !provider {
+			result = append(result, action)
+		}
+	}
+	return result, nil
+}
+
 func nonProviderCarrierAbsences(planned commandPlan) []carrierabsence.Action {
 	providerCarriers := providerCarrierSubjects(planned)
 	result := make([]carrierabsence.Action, 0)

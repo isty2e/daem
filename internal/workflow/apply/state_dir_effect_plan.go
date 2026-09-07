@@ -110,12 +110,16 @@ func applyEnvelopeFor(
 	if err != nil {
 		return operationplan.Envelope{}, 0, err
 	}
+	finalRelations, err := finalRelationActions(current)
+	if err != nil {
+		return operationplan.Envelope{}, 0, err
+	}
 	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
 		ExecuteGates:    executeGates,
 		ProviderActions: routeWorks(current.assessment.CurrentState, providerActions),
 		FinalRoutes: routeWorks(
 			current.assessment.CurrentState,
-			nonProviderRelationActions(current),
+			finalRelations,
 		),
 		CarrierRemovals:         carrierWorks(current.assessment.Reconciliation.CarrierAbsences()),
 		GlobalCarrierRetirement: len(globalRetirements) != 0,
