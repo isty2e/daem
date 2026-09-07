@@ -119,7 +119,7 @@ func TestApplyForwardEffectScheduleIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applyInput, err := applyEffectInput(planned)
+	applyInput, err := applyEffectInput(planned, providerActions)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -39,7 +39,7 @@ func equivalentProviderFinalSchedule(
 	current commandPlan,
 	providerActions []reconcile.RelationAction,
 ) (applyForwardEffectSchedule, error) {
-	applyInput, err := applyEffectInput(current)
+	applyInput, err := applyEffectInput(current, providerActions)
 	if err != nil {
 		return applyForwardEffectSchedule{}, err
 	}
@@ -92,6 +92,7 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 	input, err := applyScheduleInputFor(
 		current,
 		providerActions,
+		applyInput.CurrentState,
 		effectPlan.Segment(),
 		executeGates,
 	)
@@ -109,6 +110,7 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 func applyScheduleInputFor(
 	current commandPlan,
 	providerActions []reconcile.RelationAction,
+	postProviderState durable.Snapshot,
 	effectSegment operationplan.EffectNode,
 	executeGates int,
 ) (applyScheduleInput, error) {
@@ -139,13 +141,13 @@ func applyScheduleInputFor(
 	if err != nil {
 		return applyScheduleInput{}, err
 	}
-	finalRelations, err := finalRelationActions(current)
+	finalRelations, err := finalRelationActions(current, postProviderState)
 	if err != nil {
 		return applyScheduleInput{}, err
 	}
 	finalRoutes, err := applyRouteScheduleFacts(
 		"apply/final/route",
-		current.assessment.CurrentState,
+		postProviderState,
 		finalRelations,
 		current.context.Lockfile,
 		current.context.Paths.ManifestRoot,

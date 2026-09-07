@@ -83,7 +83,7 @@ func TestApplyFinalRoutePlanBindsExactAcceptedCommand(t *testing.T) {
 	}
 
 	planned := prepared.lifecycle.planned
-	applyInput, err := applyEffectInput(planned)
+	applyInput, err := applyEffectInput(planned, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

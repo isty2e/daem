@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -195,8 +196,33 @@ func nonProviderRelationActions(planned commandPlan) []reconcile.RelationAction 
 	return result
 }
 
-func finalRelationActions(planned commandPlan) ([]reconcile.RelationAction, error) {
-	current := planned.assessment.CurrentState
+func postProviderPlanningState(
+	current durable.Snapshot,
+	providerActions []reconcile.RelationAction,
+) (durable.Snapshot, error) {
+	// Scheduled invocations own their pending completion. This projection only
+	// plans the later phases; observed claims and durable settlement stay in execution.
+	for _, action := range providerActions {
+		if !action.InvokesHostRoute() {
+			continue
+		}
+		pending, matched := execute.MatchPendingCarrierInstall(current, action, action.Scope())
+		if !matched {
+			continue
+		}
+		next, _, err := current.WithoutPendingCarrierInstall(pending)
+		if err != nil {
+			return durable.Snapshot{}, fmt.Errorf("derive post-provider pending state: %w", err)
+		}
+		current = next
+	}
+	return current, nil
+}
+
+func finalRelationActions(
+	planned commandPlan,
+	current durable.Snapshot,
+) ([]reconcile.RelationAction, error) {
 	converged, _, err := current.WithConvergedGlobalCarrierClaims(planned.assessment.GlobalCarrierClaims)
 	if err != nil {
 		return nil, fmt.Errorf("derive final relation state: %w", err)

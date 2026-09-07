@@ -164,9 +164,10 @@ Rejected guarantee-expansion proposals are recorded as such, not as fixes.
   regression settles the exact pending project claim without replaying the
   provider route or rewriting config; a subsequent retry performs no effects.
   A separate fixture accepts an already installed, in-range provider without
-  replaying its route; that is not a mid-execution version-change test. Broader
-  core rebinding remains deferred pending a supported reproduction that needs
-  it.
+  replaying its route; that is not a mid-execution version-change test. The
+  replay-owned pending-completion case below has a supported reproduction and
+  a bounded correction. Broader core rebinding remains deferred pending a
+  supported reproduction that needs it.
 - Global provider settlement: a scheduled empty descendant reservation no
   longer triggers legacy demand reconstruction from pre-core relations. The
   existing core clears exact pending installs backed by committed registry
@@ -180,6 +181,18 @@ Rejected guarantee-expansion proposals are recorded as such, not as fixes.
   reservation, prepared/current comparisons, registry-first CAS and cleanup
   remain in their existing owners. This follow-up does not establish a missing
   ordinary registry lease or expand the deferred compiler scope.
+- Provider replay ownership: pending install plus existing relation/settings
+  does not imply the provider artifact is available. When readiness schedules
+  replay, a shared planning-only snapshot removes that exact completion from
+  both core and final-promotion demand. Actual provider execution still owns
+  claim observation and durable settlement; no-replay pending facts remain
+  available to their existing owners. This follows the
+  [single-phase ownership contract](../../ARCHITECTURE.md#transition-ownership).
+  Public regressions cover first installs and reinstalls at both scopes,
+  cancellation during replay, and mixed replay/no-replay pending completions
+  in both directions. They verify one provider invocation, exact claims,
+  remaining config projection and subsequent no-op execution. Both final
+  schedule comparisons and the prepared/current core check remain strict.
 - Structural-size policy, whole-continuation coverage, scalar removal and
   classifier replacement require independently justified scopes. Their old
   task dependency chains do not create release requirements.

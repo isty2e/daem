@@ -275,6 +275,7 @@ func finalRoutePrefixMixedPlan(t *testing.T) (commandPlan, applyContinuationPlan
 	input, err := applyScheduleInputFor(
 		planned,
 		nil,
+		planned.assessment.CurrentState,
 		operationplan.EffectSequence(),
 		0,
 	)
