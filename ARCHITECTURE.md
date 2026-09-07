@@ -53,7 +53,7 @@ These owners are conceptual contracts, not instructions to create one package
 per row. Package creation still requires an independent invariant, boundary,
 lifecycle, volatility seam, caller set, and test surface.
 
-## The Missing Compilation Boundaries
+## Compilation Boundaries
 
 Daem retains the owners above but makes two cross-owner compilations explicit.
 They are orthogonal and must not be combined into one framework or IR.
@@ -84,7 +84,7 @@ Goals:
   and barrier invariant;
 - replace repeated joins and workflow-local compilers with deterministic
   compiled views and plans;
-- derive complete operation demand before effects;
+- admit a safe bounded operation demand before effects;
 - reduce change amplification while retaining existing semantic cores and
   effect protocols; and
 - preserve every classified public, persisted, recovery, security, and
@@ -99,6 +99,37 @@ Non-goals:
   overhaul;
 - no package move before ownership and parity are proven; and
 - no package, file, LOC, or density reduction target.
+
+## Bounded Delivery And Deferred Work
+
+The maintainer-authorized delivery reset separates the implemented compiler
+and State Barrier boundaries from a universal execution-framework migration.
+PR #91 delivers the implemented boundaries and bounded cursor segments; its
+completion does not require converting every remaining operation or internal
+checkpoint to one cursor. Neither does release 0.2.0.
+
+Delivery requires consistent ownership documentation, retained compatibility
+and safety checks, correction of demonstrated in-scope defects, applicable
+verification, and final PR review. It does not assert that all architectural
+follow-ups are complete. A reproduced violation of an accepted product or
+safety contract remains a blocker; calling work deferred cannot waive it.
+
+The following are explicit **NON-GOALS** for this delivery. They are deferred,
+not implemented or proven unnecessary. The repository maintainer owns each
+revisit. This section is their canonical disposition; task plans and the
+migration ledger derive from it.
+
+| Deferred work | Rationale and retained boundary | Reopen condition |
+| --- | --- | --- |
+| Whole-operation fine-grained cursor coverage, including prepared-host settlement, relation order and delegates | Explicit authority, visibility, persistence and recovery boundaries remain required; a generic IR for every observation, no-op and cleanup step is not. Existing cursor segments stay enabled. | A reproduced supported-path ordering/authority defect, or an approved feature with a bounded design showing why a cursor is preferable to owner-local enforcement. |
+| Universal scalar removal and exact-frontier admission | Apply retains its structural checks and conservative scalar reservation; Refresh retains its structural frontier and cursor-backed authority. Completing one universal representation is not a product guarantee. | Measured avoidable refusal or maintenance cost, or a reproduced reservation defect, with a lifecycle-local cutover that actually retires the competing representation. |
+| Semantic package-classifier replacement | Existing blocking import/effect guards stay enabled. Exact placement classification has limited coverage; shadow diagnostics are not equivalent blocking coverage. No universal classification proof is claimed. | A concrete uncovered forbidden dependency or a separately approved bounded classifier replacement with forbidden and legitimate-neighbor evidence. |
+| Universal effect-structure size policy | Existing document, action, repetition and demand-frontier limits remain. A new global structure cap needs a supported workload and its own admission decision. | A supported workload demonstrates excessive structural retention or a new operation materially changes construction bounds. |
+| Remaining migration-residue removal and package renaming | A live compatibility path is not dead residue. Do not remove authority, parity evidence or owner-local APIs merely to finish a checklist. | Last-consumer evidence makes a concrete deletion possible without weakening a contract, or a changed dependency graph justifies relocation. |
+
+Linux cross-boot recovery admission, public/durable formats, product support,
+and fingerprint compatibility are not changed by this reset. Reconsidering
+one requires a separate product or compatibility decision.
 
 ## Host-Surface Compiler
 
@@ -192,7 +223,7 @@ ordering, deduplication, and conflicts
 logical/physical/route mutation domains
 lifecycle-named revision sets
 exact operation-specific fingerprint projections
-typed and ordered effect envelope
+typed effect obligations for migrated lifecycles
 semantic reservation demand
 ```
 
@@ -215,7 +246,8 @@ uses it, until a separately authorized change removes it.
 
 ### Effect envelopes
 
-An effect envelope is typed and ordered. It preserves:
+Where an effect envelope is used, it is typed and ordered. It preserves the
+operation's relevant distinctions:
 
 ```text
 sequence
@@ -229,12 +261,19 @@ rollback and compensation
 cleanup and retirement
 ```
 
-Sequential work composes. A proven exclusive branch reserves the maximum
-reachable demand rather than the sum. No callback, replan, or workflow may add
-unreserved work after the first external or visibility effect.
+All supported work must fit a safe bounded reservation admitted before the
+first external or visibility effect. No callback, replan, or workflow may add
+unreserved work afterward. A proven exclusive branch may use its maximum
+reachable demand instead of summing impossible paths. Exact frontier precision
+is a lifecycle-specific implementation choice, not a universal completion
+requirement; this amendment does not change any current admission limit or
+refusal behavior.
 
-Dry-run and no-op operations have explicit no-effect envelopes and do not
-create StateDir merely because they were planned.
+A typed envelope or cursor is not required for every internal checkpoint.
+Unmigrated segments retain their owner-local order, validation, persistence and
+recovery protocols. Existing envelope/cursor checks must not be bypassed.
+Dry-run and no-op operations do not create StateDir merely because they were
+planned, whether represented by an envelope or an owner-local no-effect path.
 
 ### Transition ownership
 
@@ -294,8 +333,11 @@ Workflows may:
 - assemble operation results for presentation.
 
 Workflows must not define a second surface matrix, authority fact grammar,
-fingerprint format, reservation algebra, host syntax model, or StateDir
-protocol. Workflows do not import other workflows.
+fingerprint format, physical reservation algebra, host syntax model, or StateDir
+protocol. Operation-specific semantic count projections may remain at the
+workflow boundary under the explicit retained compatibility seam; physical
+lowering and capability consumption remain State Barrier-owned. Workflows do
+not import other workflows.
 
 ## Compatibility Classes
 
@@ -334,8 +376,13 @@ proved from the same inputs. The superseded row, switch, workflow-local
 compiler, raw reservation arithmetic, fallback, or facade is removed after its
 last consumer moves.
 
-There is no long-lived dual writable source of truth. A parity failure is
-evidence to classify, not permission to normalize the old result away.
+There is no second writable authority for canonical surface or operation
+identity. Retained structural/scalar reservation representations are an
+explicit compatibility seam, not two alternative sources of mutation
+permission: current structural checks and physical reservation must both pass.
+Removal requires a verified lifecycle-local replacement, not completion of all
+other proposed migrations. A parity failure is evidence to classify, not
+permission to normalize the old result away.
 
 Package movement is last. Logical ownership and dependency direction are fixed
 before a package name; a package is introduced only when it passes the package
@@ -370,10 +417,9 @@ now emits only pure path or owner-compiled domain steps; filesystem path
 canonicalization occurs in the owning workflow before lease acquisition. The final production caller census finds no competing workflow-local authority,
 revision-role, or fingerprint grammar: remaining mutation constructors are
 workflow boundary lowering, State Barrier ownership, source-specific freshness,
-or post-effect rollback evidence. The broader program remains open until typed
-effect obligations drive reservation and settlement, and semantic guard
-coverage replaces exact-path classification
-where it still determines blocking enforcement.
+or post-effect rollback evidence. Remaining effect-envelope expansion, scalar
+removal and semantic guard replacement follow the explicit deferred-work
+policy above; their incomplete status does not prevent bounded delivery.
 
 Current source, surface, operation, compatibility, transition, verification,
 and closeout locality evidence are recorded in
@@ -421,5 +467,6 @@ The architecture must survive these changes with the expected locality:
 
 Completion is based on one primary owner per invariant, reduced mechanism
 duplication and change amplification, contained capabilities, exact compatible
-behavior, and removal of migration residue. Numeric graph changes are evidence,
-not success criteria.
+behavior, and a truthful disposition of retained compatibility seams and
+follow-ups. Removal of all migration residue is not a delivery prerequisite.
+Numeric graph changes are evidence, not success criteria.
