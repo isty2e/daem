@@ -181,7 +181,7 @@ func hostSurfaceForbiddenImport(imported string) bool {
 }
 
 func operationPlanForbiddenImport(imported string) bool {
-	if isPackageOrChild(imported, "internal/effect/mutation") {
+	if imported == "internal/effect/mutation" {
 		return false
 	}
 	for _, prefix := range []string{

@@ -97,6 +97,14 @@ func TestCompilerShadowRejectsForbiddenFixtures(t *testing.T) {
 			want: "compiler-operationplan-forbidden-import: internal/operationplan -> internal/effect/execute",
 		},
 		{
+			name: "operationplan imports mutation descendant",
+			record: PackageRecord{
+				ImportPath: "example.com/project/internal/operationplan",
+				Imports:    []string{"example.com/project/internal/effect/mutation/rootedpath"},
+			},
+			want: "compiler-operationplan-forbidden-import: internal/operationplan -> internal/effect/mutation/rootedpath",
+		},
+		{
 			name: "topology imports hostsurface",
 			record: PackageRecord{
 				ImportPath: "example.com/project/internal/topology/mcp",
