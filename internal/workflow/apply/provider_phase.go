@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -193,6 +194,55 @@ func nonProviderRelationActions(planned commandPlan) []reconcile.RelationAction 
 		result = append(result, action)
 	}
 	return result
+}
+
+func postProviderPlanningState(
+	current durable.Snapshot,
+	providerActions []reconcile.RelationAction,
+) (durable.Snapshot, error) {
+	// Scheduled invocations own their pending completion. This projection only
+	// plans the later phases; observed claims and durable settlement stay in execution.
+	for _, action := range providerActions {
+		if !action.InvokesHostRoute() {
+			continue
+		}
+		pending, matched := execute.MatchPendingCarrierInstall(current, action, action.Scope())
+		if !matched {
+			continue
+		}
+		next, _, err := current.WithoutPendingCarrierInstall(pending)
+		if err != nil {
+			return durable.Snapshot{}, fmt.Errorf("derive post-provider pending state: %w", err)
+		}
+		current = next
+	}
+	return current, nil
+}
+
+func finalRelationActions(
+	planned commandPlan,
+	current durable.Snapshot,
+) ([]reconcile.RelationAction, error) {
+	converged, _, err := current.WithConvergedGlobalCarrierClaims(planned.assessment.GlobalCarrierClaims)
+	if err != nil {
+		return nil, fmt.Errorf("derive final relation state: %w", err)
+	}
+	providerCarriers := providerCarrierSubjects(planned)
+	result := make([]reconcile.RelationAction, 0)
+	for _, action := range planned.assessment.Reconciliation.Relations() {
+		if isGlobalCarrierPromotionCandidate(current, action) {
+			// Committed global claims settle in the core; only outstanding
+			// promotions need final registry and statefile work.
+			if isGlobalCarrierPromotionCandidate(converged, action) {
+				result = append(result, action)
+			}
+			continue
+		}
+		if _, provider := providerCarriers[action.CarrierIdentity().CarrierSubject().String()]; !provider {
+			result = append(result, action)
+		}
+	}
+	return result, nil
 }
 
 func nonProviderCarrierAbsences(planned commandPlan) []carrierabsence.Action {

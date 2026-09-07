@@ -291,6 +291,13 @@ The compiler makes obligations and projections explicit but does not take
 Effect's semantic transition authority. Form-specific decision-to-effect,
 journal, rollback, and durable-successor semantics remain with Effect.
 
+Each pending carrier completion has one execution-phase owner. A scheduled
+provider invocation owns its exact matching completion; the later core and
+final promotion must not plan that completion again. Planning may project
+remaining pending work, but must not publish predicted state or replace
+observed claim settlement. Completions without a scheduled invocation retain
+their existing core or final-promotion owner.
+
 ## State Barrier
 
 The logical State Barrier lowers semantic operation demand with selected path

@@ -22,7 +22,7 @@ func stateDirEffectPlanFor(
 	current commandPlan,
 	providerActions []reconcile.RelationAction,
 ) (applyStateDirEffectPlan, error) {
-	applyInput, err := applyEffectInput(current)
+	applyInput, err := applyEffectInput(current, providerActions)
 	if err != nil {
 		return applyStateDirEffectPlan{}, err
 	}
@@ -45,7 +45,14 @@ func stateDirEffectPlanFor(
 	return plan, nil
 }
 
-func applyEffectInput(current commandPlan) (execute.ApplyInput, error) {
+func applyEffectInput(
+	current commandPlan,
+	providerActions []reconcile.RelationAction,
+) (execute.ApplyInput, error) {
+	postProviderState, err := postProviderPlanningState(current.assessment.CurrentState, providerActions)
+	if err != nil {
+		return execute.ApplyInput{}, err
+	}
 	managedEffects, err := execute.ManagedPathEffects(
 		current.assessment.Reconciliation.ManagedPaths(),
 	)
@@ -74,7 +81,7 @@ func applyEffectInput(current commandPlan) (execute.ApplyInput, error) {
 	return execute.ApplyInput{
 		ManagedPathEffects:          managedEffects,
 		AggregateEffects:            aggregateEffects,
-		CurrentState:                current.assessment.CurrentState,
+		CurrentState:                postProviderState,
 		GlobalCarrierClaims:         current.assessment.GlobalCarrierClaims,
 		RetiredProjectCarrierClaims: projectRetirements,
 		AdoptedProjectCarrierClaims: projectAdoptions,
@@ -110,12 +117,16 @@ func applyEnvelopeFor(
 	if err != nil {
 		return operationplan.Envelope{}, 0, err
 	}
+	finalRelations, err := finalRelationActions(current, applyInput.CurrentState)
+	if err != nil {
+		return operationplan.Envelope{}, 0, err
+	}
 	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
 		ExecuteGates:    executeGates,
 		ProviderActions: routeWorks(current.assessment.CurrentState, providerActions),
 		FinalRoutes: routeWorks(
-			current.assessment.CurrentState,
-			nonProviderRelationActions(current),
+			applyInput.CurrentState,
+			finalRelations,
 		),
 		CarrierRemovals:         carrierWorks(current.assessment.Reconciliation.CarrierAbsences()),
 		GlobalCarrierRetirement: len(globalRetirements) != 0,

@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -931,6 +932,303 @@ func TestExecuteSettlesPendingPiProviderWithoutReplayingConvergedEffects(t *test
 	}
 	if subsequentCalls != 0 || subsequentResult.ExecutionAttempted {
 		t.Fatalf("subsequent provider calls = %d, execution attempted = %t, want no-op", subsequentCalls, subsequentResult.ExecutionAttempted)
+	}
+}
+
+func TestExecuteSettlesPendingGlobalPiProviderWithoutReplay(t *testing.T) {
+	for _, withProjectProvider := range []bool{false, true} {
+		name := "pending-only"
+		if withProjectProvider {
+			name = "with-project-provider-install"
+		}
+		t.Run(name, func(t *testing.T) {
+			root, agentRoot, manifestPath := writeGlobalPiProviderMCPFixture(t)
+			configPath := filepath.Join(agentRoot, "mcp.json")
+			packagePath := filepath.Join(agentRoot, "npm", "node_modules", "pi-mcp-adapter")
+			installGlobalProvider := func() {
+				writeApplyFile(t, filepath.Join(agentRoot, "settings.json"), `{"packages":["`+piProviderSource+`"]}`)
+				writeApplyFile(t, filepath.Join(packagePath, "package.json"), `{"name":"pi-mcp-adapter","version":"2.15.0"}`)
+			}
+			initial, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			initialCalls := 0
+			_, err = ExecuteWithOptions(t.Context(), initial, ExecuteOptions{
+				HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+					Runner: func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+						initialCalls++
+						if request.Command != "pi" || !slices.Equal(request.Args, []string{"install", piProviderSource}) {
+							t.Fatalf("global provider request = %#v", request)
+						}
+						installGlobalProvider()
+						return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+					},
+				}),
+			})
+			if err != nil || initialCalls != 1 {
+				t.Fatalf("initial global install calls=%d error=%v", initialCalls, err)
+			}
+			beforeConfig, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			beforeInfo, err := os.Stat(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			registryPath := isolatedApplyCarrierRegistryPath(t, root)
+			store, err := carrierclaimstore.New(registryPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			initialRegistry, err := store.Load(t.Context())
+			if err != nil || len(initialRegistry.Claims()) != 1 {
+				t.Fatalf("initial global registry=%#v error=%v", initialRegistry.Claims(), err)
+			}
+			if err := os.RemoveAll(packagePath); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			interrupted, err := PlanWrite(ctx, CommandInput{ManifestPath: manifestPath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			interruptedCalls := 0
+			_, err = ExecuteWithOptions(ctx, interrupted, ExecuteOptions{
+				HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+					Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+						interruptedCalls++
+						installGlobalProvider()
+						cancel()
+						return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+					},
+				}),
+			})
+			if !errors.Is(err, context.Canceled) || interruptedCalls != 1 {
+				t.Fatalf("interrupted global reinstall calls=%d error=%v", interruptedCalls, err)
+			}
+			statePath := filepath.Join(root, ".daem", "state.json")
+			if pending := loadApplyStatefile(t, statePath).PendingCarrierInstalls(); len(pending) != 1 {
+				t.Fatalf("interrupted pending installs=%#v, want one", pending)
+			}
+			if withProjectProvider {
+				manifest, err := os.ReadFile(manifestPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeApplyFile(t, manifestPath, string(manifest)+`
+[[extension]]
+id = "pi-mcp-adapter-project"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "npm:pi-mcp-adapter@^2.13.0" }
+
+[[mcp_server]]
+name = "project-context"
+targets = ["pi"]
+scope = "project"
+transport = "stdio"
+command = "node"
+args = ["project.js"]
+`)
+				if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{ManifestPath: manifestPath}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			retry, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !withProjectProvider {
+				if effects, err := execute.ManagedPathEffects(retry.Reconciliation.ManagedPaths()); err != nil || len(effects) != 0 {
+					t.Fatalf("pending-only managed effects=%#v error=%v", effects, err)
+				}
+				if effects, err := execute.AggregateEffects(retry.Reconciliation.Aggregates()); err != nil || len(effects) != 0 {
+					t.Fatalf("pending-only aggregate effects=%#v error=%v", effects, err)
+				}
+			}
+			retryCalls := 0
+			result, err := ExecuteWithOptions(t.Context(), retry, ExecuteOptions{
+				HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+					Runner: func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+						retryCalls++
+						if !withProjectProvider || request.Command != "pi" || !slices.Equal(request.Args, []string{"install", piProviderSource, "-l"}) {
+							t.Fatalf("unexpected provider replay: %#v", request)
+						}
+						writePiProviderInstallation(t, root, "2.15.0")
+						return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+					},
+				}),
+			})
+			if err != nil {
+				t.Fatalf("global pending settlement returned error: %v", err)
+			}
+			wantCalls := 0
+			if withProjectProvider {
+				wantCalls = 1
+				if _, err := os.Stat(filepath.Join(root, aggregate.PiProjectMCPConfigPath)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if retryCalls != wantCalls || len(result.HostRouteAttempts) != wantCalls || !result.ExecutionAttempted {
+				t.Fatalf("retry calls=%d attempts=%d execution=%t", retryCalls, len(result.HostRouteAttempts), result.ExecutionAttempted)
+			}
+			if pending := loadApplyStatefile(t, statePath).PendingCarrierInstalls(); len(pending) != 0 {
+				t.Fatalf("retry pending installs=%#v, want none", pending)
+			}
+			registry, err := store.Load(t.Context())
+			if err != nil || len(registry.Claims()) != 1 ||
+				!registry.Claims()[0].SameAcquisition(initialRegistry.Claims()[0]) ||
+				registry.Claims()[0].Provenance() != durablecarrier.ClaimProvenanceInstalledObserved {
+				t.Fatalf("settled global registry=%#v error=%v", registry.Claims(), err)
+			}
+			settledFiles := make(map[string][]byte)
+			for _, path := range []string{statePath, registryPath} {
+				settledFiles[path], err = os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			subsequent, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err = ExecuteWithOptions(t.Context(), subsequent, ExecuteOptions{
+				HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+					Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+						t.Fatal("settled execution replayed a provider")
+						return subprocess.CommandResult{}
+					},
+				}),
+			})
+			if err != nil || result.ExecutionAttempted {
+				t.Fatalf("settled execution attempted=%t error=%v", result.ExecutionAttempted, err)
+			}
+			for path, before := range settledFiles {
+				if after, err := os.ReadFile(path); err != nil || string(after) != string(before) {
+					t.Fatalf("settled execution changed %q: %v", path, err)
+				}
+			}
+			afterConfig, err := os.ReadFile(configPath)
+			if err != nil || string(afterConfig) != string(beforeConfig) {
+				t.Fatalf("converged global config changed: %v", err)
+			}
+			afterInfo, err := os.Stat(configPath)
+			if err != nil || !os.SameFile(beforeInfo, afterInfo) || !beforeInfo.ModTime().Equal(afterInfo.ModTime()) {
+				t.Fatalf("converged global config was rewritten: %v", err)
+			}
+		})
+	}
+}
+
+func TestExecuteCompletesInterruptedFirstGlobalPiProviderInstall(t *testing.T) {
+	root, agentRoot, manifestPath := writeGlobalPiProviderMCPFixture(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	prepared, err := PlanWrite(ctx, CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	_, err = ExecuteWithOptions(ctx, prepared, ExecuteOptions{
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+				calls++
+				writeApplyFile(t, filepath.Join(agentRoot, "settings.json"), `{"packages":["`+piProviderSource+`"]}`)
+				writeApplyFile(t, filepath.Join(agentRoot, "npm", "node_modules", "pi-mcp-adapter", "package.json"), `{"name":"pi-mcp-adapter","version":"2.15.0"}`)
+				cancel()
+				return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+			},
+		}),
+	})
+	if !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Fatalf("interrupted first global install calls=%d error=%v", calls, err)
+	}
+	statePath := filepath.Join(root, ".daem", "state.json")
+	if pending := loadApplyStatefile(t, statePath).PendingCarrierInstalls(); len(pending) != 1 {
+		t.Fatalf("interrupted pending installs=%#v, want one", pending)
+	}
+	registryPath := isolatedApplyCarrierRegistryPath(t, root)
+	configPath := filepath.Join(agentRoot, "mcp.json")
+	for _, path := range []string{registryPath, configPath} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("interrupted install published %q: %v", path, err)
+		}
+	}
+	retry, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noReplay := ExecuteOptions{
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+				t.Fatal("retry replayed the installed global provider")
+				return subprocess.CommandResult{}
+			},
+		}),
+	}
+	beforeState, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capacityErr := errors.New("injected pending settlement capacity refusal")
+	reservationCalls := 0
+	result, err := executeWithDependencies(t.Context(), retry, noReplay, executeDependencies{
+		reserveForwardEffects: func(
+			_ recoverygate.EffectAuthority,
+			_ operationplan.EffectStructure,
+			demand operationplan.Demand,
+		) (*recoverygate.ForwardEffectAuthority, error) {
+			reservationCalls++
+			if demand.DescendantPath() != statePath || demand.DescendantValidations() == 0 || demand.DescendantFileCommits() == 0 {
+				t.Fatalf("pending promotion demand=%#v, want reserved statefile work", demand)
+			}
+			return nil, capacityErr
+		},
+	})
+	if !errors.Is(err, capacityErr) || reservationCalls != 1 || result.ExecutionAttempted {
+		t.Fatalf("capacity refusal calls=%d attempted=%t error=%v", reservationCalls, result.ExecutionAttempted, err)
+	}
+	if after, err := os.ReadFile(statePath); err != nil || string(after) != string(beforeState) {
+		t.Fatalf("capacity refusal changed pending state: %v", err)
+	}
+	for _, path := range []string{registryPath, configPath} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("capacity refusal published %q: %v", path, err)
+		}
+	}
+	retry, err = PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = ExecuteWithOptions(t.Context(), retry, noReplay)
+	if err != nil || !result.ExecutionAttempted || len(result.HostRouteAttempts) != 0 {
+		t.Fatalf("retry execution=%t attempts=%d error=%v", result.ExecutionAttempted, len(result.HostRouteAttempts), err)
+	}
+	if pending := loadApplyStatefile(t, statePath).PendingCarrierInstalls(); len(pending) != 0 {
+		t.Fatalf("retry pending installs=%#v, want none", pending)
+	}
+	store, err := carrierclaimstore.New(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := store.Load(t.Context())
+	if err != nil || len(registry.Claims()) != 1 || registry.Claims()[0].Provenance() != durablecarrier.ClaimProvenanceInstalledObserved {
+		t.Fatalf("retry global registry=%#v error=%v", registry.Claims(), err)
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatal(err)
+	}
+	subsequent, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = ExecuteWithOptions(t.Context(), subsequent, noReplay)
+	if err != nil || result.ExecutionAttempted {
+		t.Fatalf("settled execution attempted=%t error=%v", result.ExecutionAttempted, err)
 	}
 }
 
