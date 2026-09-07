@@ -126,10 +126,17 @@ rule or its test.
 
 ## Follow-Up Triage
 
-All follow-ups use the maintainer and reopen conditions in the
+Architecture follow-ups use the maintainer and reopen conditions in the
 [canonical disposition](../../ARCHITECTURE.md#bounded-delivery-and-deferred-work).
-Private issue plans remain open rather than being marked implemented.
+Narrower product decisions stay with their owning contracts.
+Deferred implementation plans remain open rather than being marked implemented.
+Rejected guarantee-expansion proposals are recorded as such, not as fixes.
 
+- Skill import: the maintainer-selected exclusion-freshness boundary is owned
+  by the [import contract](../cli.md#import). Universal freshness for excluded
+  discovery roots and ineligible children is a NON-GOAL, not unfinished
+  compiler work. Existing source, inventory, alias and merge freshness remain
+  required.
 - Delegate persistence: `delegateActionsRequireAttemptPersistence` includes
   blocked actions, whereas planning's project-root retention currently tests
   scheduled project actions. Public `CommandInput` has no passive runner
