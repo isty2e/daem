@@ -148,6 +148,54 @@ func TestCompileRejectsDuplicateSurfaceKey(t *testing.T) {
 	}
 }
 
+func TestCompileValidatesBindingPlacement(t *testing.T) {
+	t.Parallel()
+
+	variant, err := hostsurface.ParseVariantID("additional")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name           string
+		selectedTarget target.Target
+		scope          target.Scope
+		kind           entity.Kind
+		wantError      bool
+	}{
+		{"coherent variant", target.TargetClaudeCode, target.ScopeProject, entity.KindMCPServer, false},
+		{"wrong kind", target.TargetClaudeCode, target.ScopeProject, entity.KindSkill, true},
+		{"wrong target", target.TargetCodex, target.ScopeProject, entity.KindMCPServer, true},
+		{"wrong scope", target.TargetClaudeCode, target.ScopeGlobal, entity.KindMCPServer, true},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			key, err := hostsurface.NewSurfaceKey(testCase.selectedTarget, testCase.scope, testCase.kind, variant)
+			if err != nil {
+				t.Fatal(err)
+			}
+			seed := productSeed()
+			seed.Bindings = append(derivedBindings(t, seed), SurfaceBinding{
+				Key:         key,
+				PlacementID: aggregate.MCPPlacementClaudeProject,
+			})
+			compiled, err := Compile(seed)
+			if testCase.wantError {
+				if err == nil {
+					t.Fatal("compiled an incoherent binding")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("compile coherent variant: %v", err)
+			}
+			view, ok := compiled.Lookup(key)
+			if !ok || view.Placement().ID() != aggregate.MCPPlacementClaudeProject {
+				t.Fatalf("coherent variant lookup = %#v, %t", view, ok)
+			}
+		})
+	}
+}
+
 func TestCompileRejectsMissingNamespace(t *testing.T) {
 	t.Parallel()
 

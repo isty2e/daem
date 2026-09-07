@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/hostsurface"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -58,6 +59,19 @@ func Compile(seed Seed) (Catalog, error) {
 				binding.Key.Target(),
 				binding.Key.Scope(),
 				binding.PlacementID,
+			)
+		}
+		if binding.Key.Kind() != entity.KindMCPServer ||
+			binding.Key.Target() != placement.Target() ||
+			binding.Key.Scope() != placement.Scope() {
+			return Catalog{}, fmt.Errorf(
+				"host-surface catalog: binding %s/%s/%s does not match MCP placement %q at %s/%s",
+				binding.Key.Target(),
+				binding.Key.Scope(),
+				binding.Key.Kind(),
+				binding.PlacementID,
+				placement.Target(),
+				placement.Scope(),
 			)
 		}
 		namespaceKey := targetScope{target: binding.Key.Target(), scope: binding.Key.Scope()}
