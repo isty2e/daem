@@ -11,7 +11,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
-	"github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/topology"
@@ -63,6 +62,33 @@ func rejectedApplyRoutePreflight(err error) applyRoutePreflight {
 func (preflight applyRoutePreflight) rejected() bool {
 	return preflight.kind == applyRoutePreflightRejected ||
 		preflight.kind == applyRoutePreflightOperationalFailure
+}
+
+func (preflight applyRoutePreflight) attemptError() error {
+	switch preflight.kind {
+	case applyRoutePreflightRejected:
+		if preflight.rejection != nil {
+			return preflight.rejection
+		}
+	case applyRoutePreflightOperationalFailure:
+		return applyRouteOperationalPreflightError{
+			typeName:   preflight.operationalType,
+			diagnostic: preflight.operationalDiagnostic,
+		}
+	}
+	return fmt.Errorf("final host route preflight outcome %d has no failure", preflight.kind)
+}
+
+type applyRouteOperationalPreflightError struct {
+	typeName   string
+	diagnostic string
+}
+
+func (err applyRouteOperationalPreflightError) Error() string {
+	if err.diagnostic == "" {
+		return fmt.Sprintf("host route preflight failed (%s)", err.typeName)
+	}
+	return fmt.Sprintf("host route preflight failed (%s): %s", err.typeName, err.diagnostic)
 }
 
 func (preflight applyRoutePreflight) equal(other applyRoutePreflight) bool {
@@ -149,6 +175,14 @@ func (plan applyFinalRoutePlan) equal(other applyFinalRoutePlan) bool {
 		}
 	}
 	return true
+}
+
+func (plan applyFinalRoutePlan) routeWorks() []operationplan.RouteWork {
+	works := make([]operationplan.RouteWork, 0, len(plan.routes))
+	for _, route := range plan.routes {
+		works = append(works, route.work)
+	}
+	return works
 }
 
 func bindApplyFinalRoutePlans(
@@ -242,9 +276,15 @@ type applyRoutePreflightFingerprint struct {
 
 type applyHostRouteCommandFacts struct {
 	Subject      topology.SubjectID               `json:"subject"`
-	RouteRequest delegate.Request                 `json:"route_request"`
+	RouteRequest applyDelegateRouteRequestFacts   `json:"route_request"`
 	Attempt      subprocess.CommandAttemptRequest `json:"attempt"`
 	Disclosure   *applyHostRouteDisclosureFacts   `json:"disclosure,omitempty"`
+}
+
+type applyDelegateRouteRequestFacts struct {
+	RouteID              string `json:"route_id"`
+	ContractVersion      string `json:"contract_version"`
+	CanonicalRequestHash string `json:"canonical_request_hash"`
 }
 
 type applyHostRouteDisclosureFacts struct {
@@ -324,10 +364,15 @@ func applyRoutePreflightFingerprintFor(
 }
 
 func applyHostRouteCommandFingerprint(command hostroute.Command) applyHostRouteCommandFacts {
+	routeRequest := command.RouteRequest()
 	result := applyHostRouteCommandFacts{
-		Subject:      command.Subject(),
-		RouteRequest: command.RouteRequest(),
-		Attempt:      command.AttemptRequest(),
+		Subject: command.Subject(),
+		RouteRequest: applyDelegateRouteRequestFacts{
+			RouteID:              routeRequest.RouteID(),
+			ContractVersion:      routeRequest.ContractVersion(),
+			CanonicalRequestHash: routeRequest.CanonicalRequestHash(),
+		},
+		Attempt: command.AttemptRequest(),
 	}
 	if disclosure, present := command.Disclosure(); present {
 		facts := applyHostRouteDisclosureFingerprint(disclosure)

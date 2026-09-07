@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
@@ -28,18 +29,20 @@ func isGlobalCarrierPromotionCandidate(
 	return matched
 }
 
-func commitInterruptedGlobalCarrierClaims(
+func commitPreparedGlobalCarrierPromotions(
 	ctx context.Context,
 	paths daempaths.Paths,
 	stateAuthority *statefileEffectAuthority,
 	current durable.Snapshot,
 	registry durablecarrier.GlobalCarrierClaims,
-	actions []reconciliation.RelationAction,
+	promotions []preparedGlobalCarrierPromotion,
 	options runOptions,
+	execution *applyContinuationExecution,
 ) (durable.Snapshot, durablecarrier.GlobalCarrierClaims, error) {
 	nextState := current
 	nextRegistry := registry
-	for _, action := range actions {
+	for _, promotion := range promotions {
+		action := promotion.action
 		correlation, present := action.Correlation()
 		if !present {
 			return nextState, nextRegistry, fmt.Errorf(
@@ -56,7 +59,7 @@ func commitInterruptedGlobalCarrierClaims(
 		if err != nil {
 			return nextState, nextRegistry, err
 		}
-		nextState, nextRegistry, err = commitObservedGlobalCarrierClaim(
+		nextState, nextRegistry, err = commitObservedGlobalCarrierClaimWithContinuation(
 			ctx,
 			paths,
 			stateAuthority,
@@ -66,6 +69,8 @@ func commitInterruptedGlobalCarrierClaims(
 			correlation,
 			plan,
 			options,
+			execution,
+			promotion.ref,
 		)
 		if err != nil {
 			return nextState, nextRegistry, err
@@ -85,6 +90,34 @@ func commitObservedGlobalCarrierClaim(
 	plan globalCarrierSettlementPlan,
 	options runOptions,
 ) (durable.Snapshot, durablecarrier.GlobalCarrierClaims, error) {
+	return commitObservedGlobalCarrierClaimWithContinuation(
+		ctx,
+		paths,
+		stateAuthority,
+		current,
+		registry,
+		action,
+		observation,
+		plan,
+		options,
+		nil,
+		"",
+	)
+}
+
+func commitObservedGlobalCarrierClaimWithContinuation(
+	ctx context.Context,
+	paths daempaths.Paths,
+	stateAuthority *statefileEffectAuthority,
+	current durable.Snapshot,
+	registry durablecarrier.GlobalCarrierClaims,
+	action reconciliation.RelationAction,
+	observation observerelation.CorrelationResult,
+	plan globalCarrierSettlementPlan,
+	options runOptions,
+	execution *applyContinuationExecution,
+	ref string,
+) (durable.Snapshot, durablecarrier.GlobalCarrierClaims, error) {
 	claim, matched, err := globalCarrierPromotionClaim(current, registry, action, observation)
 	if err != nil {
 		return current, registry, fmt.Errorf("promote observed global carrier claim: %w", err)
@@ -102,84 +135,160 @@ func commitObservedGlobalCarrierClaim(
 		registry,
 		globalCarrierPromotionSettlementCallbacks{
 			validateDeclarationsBefore: func() error {
-				return options.executionGuard.requireDeclarationsCurrent(
-					ctx,
-					"global carrier promotion before registry persistence",
+				return scheduledContinuationCall(
+					execution,
+					ref+"/declarations-before-registry",
+					operationplan.EffectStepObservation,
+					func() error {
+						return options.executionGuard.requireDeclarationsCurrent(
+							ctx,
+							"global carrier promotion before registry persistence",
+						)
+					},
 				)
 			},
 			validateProjectRootBefore: func() error {
-				return validateHostRouteProjectRoot(options, paths.ManifestRoot)
+				return scheduledContinuationCall(
+					execution,
+					ref+"/project-root-before-registry",
+					operationplan.EffectStepObservation,
+					func() error { return validateHostRouteProjectRoot(options, paths.ManifestRoot) },
+				)
 			},
 			validateStatefileBefore: func() error {
 				if stateAuthority == nil {
 					return fmt.Errorf("global carrier promotion statefile authority is required")
 				}
-				return stateAuthority.Validate(ctx)
+				return scheduledCarrierRemovalStatefileValidation(
+					ctx,
+					execution,
+					ref+"/statefile/pre-registry",
+					stateAuthority,
+					nil,
+				)
 			},
 			persistRegistry: func() (durablecarrier.GlobalCarrierClaims, error) {
-				successor, _, err := registry.WithClaim(claim)
-				if err != nil {
-					return registry, err
-				}
-				if err := ctx.Err(); err != nil {
-					return registry, err
-				}
-				options.markAttempted()
-				store, err := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
-				if err != nil {
-					return registry, err
-				}
-				observed, persistErr := store.UpsertAllIfCurrent(
-					ctx,
-					registry,
-					[]durablecarrier.ManagedCarrierClaim{claim},
+				result := registry
+				err := scheduledContinuationCall(
+					execution,
+					ref+"/global-registry",
+					operationplan.EffectStepPersistence,
+					func() error {
+						successor, _, claimErr := registry.WithClaim(claim)
+						if claimErr != nil {
+							return claimErr
+						}
+						if contextErr := ctx.Err(); contextErr != nil {
+							return contextErr
+						}
+						options.markAttempted()
+						store, storeErr := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
+						if storeErr != nil {
+							return storeErr
+						}
+						observed, persistErr := store.UpsertAllIfCurrent(
+							ctx,
+							registry,
+							[]durablecarrier.ManagedCarrierClaim{claim},
+						)
+						result, persistErr = globalCarrierClaimsAfterPersistence(
+							registry,
+							successor,
+							observed,
+							persistErr,
+						)
+						return persistErr
+					},
 				)
-				return globalCarrierClaimsAfterPersistence(
-					registry,
-					successor,
-					observed,
-					persistErr,
-				)
+				return result, err
 			},
 			validateStatefileAfter: func() error {
-				return stateAuthority.Validate(ctx)
-			},
-			acceptRegistryVisibility: func() error {
-				if options.acceptVisibilityChanges == nil {
-					return fmt.Errorf("global carrier promotion registry acceptance is required")
-				}
-				return options.acceptVisibilityChanges(ctx)
-			},
-			publishStatefile: func(nextRegistry durablecarrier.GlobalCarrierClaims) (durable.Snapshot, error) {
-				entry, err := stateAuthority.EntryForCommit()
-				if err != nil {
-					return current, err
-				}
-				return execute.CommitConvergedGlobalCarrierClaims(
+				return scheduledCarrierRemovalStatefileValidation(
 					ctx,
-					storagecommit.Adapter{},
-					entry,
-					current,
-					nextRegistry,
-					statefile.Codec{},
+					execution,
+					ref+"/statefile/post-registry",
+					stateAuthority,
+					nil,
 				)
 			},
+			acceptRegistryVisibility: func() error {
+				return scheduledContinuationCall(
+					execution,
+					ref+"/registry-visibility",
+					operationplan.EffectStepObservation,
+					func() error {
+						if options.acceptVisibilityChanges == nil {
+							return fmt.Errorf("global carrier promotion registry acceptance is required")
+						}
+						return options.acceptVisibilityChanges(ctx)
+					},
+				)
+			},
+			publishStatefile: func(nextRegistry durablecarrier.GlobalCarrierClaims) (durable.Snapshot, error) {
+				next := current
+				err := scheduledCarrierRemovalStatefilePublication(
+					execution,
+					ref+"/statefile/project-claim",
+					func() error {
+						entry, entryErr := stateAuthority.EntryForCommit()
+						if entryErr != nil {
+							return entryErr
+						}
+						next, entryErr = execute.CommitConvergedGlobalCarrierClaims(
+							ctx,
+							storagecommit.Adapter{},
+							entry,
+							current,
+							nextRegistry,
+							statefile.Codec{},
+						)
+						return entryErr
+					},
+					nil,
+				)
+				return next, err
+			},
 			validateStatefileFinal: func() error {
-				return stateAuthority.Validate(ctx)
+				return scheduledCarrierRemovalStatefileValidation(
+					ctx,
+					execution,
+					ref+"/statefile/post-claim",
+					stateAuthority,
+					nil,
+				)
 			},
 			acceptStatefileVisibility: func() error {
-				if options.acceptVisibilityChanges == nil {
-					return fmt.Errorf("global carrier promotion statefile acceptance is required")
-				}
-				return options.acceptVisibilityChanges(ctx)
+				return scheduledContinuationCall(
+					execution,
+					ref+"/statefile-visibility",
+					operationplan.EffectStepObservation,
+					func() error {
+						if options.acceptVisibilityChanges == nil {
+							return fmt.Errorf("global carrier promotion statefile acceptance is required")
+						}
+						return options.acceptVisibilityChanges(ctx)
+					},
+				)
 			},
 			validateProjectRootAfter: func() error {
-				return validateHostRouteProjectRoot(options, paths.ManifestRoot)
+				return scheduledContinuationCall(
+					execution,
+					ref+"/project-root-after-claim",
+					operationplan.EffectStepObservation,
+					func() error { return validateHostRouteProjectRoot(options, paths.ManifestRoot) },
+				)
 			},
 			validateDeclarationsAfter: func() error {
-				return options.executionGuard.requireDeclarationsCurrent(
-					ctx,
-					"global carrier promotion after statefile persistence",
+				return scheduledContinuationCall(
+					execution,
+					ref+"/declarations-after-claim",
+					operationplan.EffectStepObservation,
+					func() error {
+						return options.executionGuard.requireDeclarationsCurrent(
+							ctx,
+							"global carrier promotion after statefile persistence",
+						)
+					},
 				)
 			},
 		},

@@ -9,18 +9,21 @@ import (
 )
 
 type applyContinuationPlan struct {
-	segment                 operationplan.EffectNode
-	structure               operationplan.EffectStructure
-	phaseEstablished        bool
-	carrierRemovalStructure operationplan.EffectStructure
-	carrierPhaseEstablished bool
-	statefileInitiallyBound bool
-	carrierRemovals         []applyCarrierScheduleFact
-	finalRoutePlan          applyFinalRoutePlan
-	orderClasses            []applyOrderScheduleFact
-	mayReclassifyOrder      bool
-	delegates               []applyDelegateScheduleFact
-	available               bool
+	segment                                 operationplan.EffectNode
+	structure                               operationplan.EffectStructure
+	phaseEstablished                        bool
+	carrierRemovalStructure                 operationplan.EffectStructure
+	carrierPhaseEstablished                 bool
+	finalRoutePrefixStructure               operationplan.EffectStructure
+	finalRoutePrefixPhaseEstablished        bool
+	finalRoutePrefixStatefileInitiallyBound bool
+	statefileInitiallyBound                 bool
+	carrierRemovals                         []applyCarrierScheduleFact
+	finalRoutePlan                          applyFinalRoutePlan
+	orderClasses                            []applyOrderScheduleFact
+	mayReclassifyOrder                      bool
+	delegates                               []applyDelegateScheduleFact
+	available                               bool
 }
 
 func (plan applyContinuationPlan) carrierRemovalPlan() applyContinuationPlan {
@@ -40,6 +43,16 @@ func (plan applyContinuationPlan) carrierRemovalPlan() applyContinuationPlan {
 	}
 }
 
+func (plan applyContinuationPlan) finalRoutePrefixPlan() applyContinuationPlan {
+	return applyContinuationPlan{
+		structure:               plan.finalRoutePrefixStructure,
+		phaseEstablished:        plan.finalRoutePrefixPhaseEstablished,
+		statefileInitiallyBound: plan.finalRoutePrefixStatefileInitiallyBound,
+		finalRoutePlan:          plan.finalRoutePlan,
+		available:               plan.available,
+	}
+}
+
 func (plan applyContinuationPlan) valid() bool {
 	return plan.available
 }
@@ -48,7 +61,10 @@ func (plan applyContinuationPlan) equal(other applyContinuationPlan) bool {
 	return plan.statefileInitiallyBound == other.statefileInitiallyBound &&
 		plan.phaseEstablished == other.phaseEstablished &&
 		plan.carrierPhaseEstablished == other.carrierPhaseEstablished &&
+		plan.finalRoutePrefixPhaseEstablished == other.finalRoutePrefixPhaseEstablished &&
+		plan.finalRoutePrefixStatefileInitiallyBound == other.finalRoutePrefixStatefileInitiallyBound &&
 		plan.structure.Equal(other.structure) &&
+		plan.finalRoutePrefixStructure.Equal(other.finalRoutePrefixStructure) &&
 		carrierRemovalScheduleFactsEqual(plan.carrierRemovals, other.carrierRemovals) &&
 		plan.finalRoutePlan.equal(other.finalRoutePlan)
 }
@@ -81,6 +97,19 @@ type applyContinuationExecution struct {
 	statefileBound bool
 	terminal       bool
 	finished       bool
+}
+
+func newApplyFinalRoutePrefixExecution(
+	prepared applyContinuationPlan,
+	current applyContinuationPlan,
+) (*applyContinuationExecution, error) {
+	if err := bindApplyFinalRoutePlans(prepared, current); err != nil {
+		return nil, err
+	}
+	return newApplyContinuationExecution(
+		prepared.finalRoutePrefixPlan(),
+		current.finalRoutePrefixPlan(),
+	)
 }
 
 func newApplyContinuationExecution(

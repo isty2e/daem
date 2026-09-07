@@ -161,47 +161,71 @@ func compileApplyContinuationPlan(
 	input applyScheduleInput,
 ) (applyContinuationPlan, error) {
 	initiallyBound := statefile.bound
-	finalRoutePlan, err := compileApplyFinalRoutePlan(
-		input.finalRoutes,
-		input.coreChanged,
-		initiallyBound,
-	)
-	if err != nil {
-		return applyContinuationPlan{}, err
-	}
-	segment, carrierRemovalSegment := compileApplyContinuationSchedule(
+	schedule := compileApplyContinuationSchedule(
 		builder,
 		statefile,
 		input,
 	)
+	finalRoutePlan, err := compileApplyFinalRoutePlan(
+		input.finalRoutes,
+		schedule.finalRoutePhaseEstablished,
+		schedule.finalRoutePrefixStatefileInitiallyBound,
+	)
+	if err != nil {
+		return applyContinuationPlan{}, err
+	}
 	carrierRemovalStructure, err := builder.Compile(builder.ForwardPhase(
 		"apply/carrier-removals",
-		carrierRemovalSegment,
+		schedule.carrierRemovals,
 	))
+	if err != nil {
+		return applyContinuationPlan{}, err
+	}
+	finalRoutePrefix := schedule.finalRoutePrefix
+	if schedule.finalRoutePrefixHasForward {
+		finalRoutePrefix = builder.ForwardPhase(
+			"apply/final-routes/pre-host-prefix",
+			finalRoutePrefix,
+		)
+	}
+	finalRoutePrefixStructure, err := builder.Compile(finalRoutePrefix)
 	if err != nil {
 		return applyContinuationPlan{}, err
 	}
 	structure, err := builder.Compile(builder.ForwardPhase(
 		"apply/continuation",
-		segment,
+		schedule.segment,
 	))
 	if err != nil {
 		return applyContinuationPlan{}, err
 	}
 	return applyContinuationPlan{
-		segment:                 segment,
-		structure:               structure,
-		phaseEstablished:        input.coreChanged,
-		carrierRemovalStructure: carrierRemovalStructure,
-		carrierPhaseEstablished: input.coreChanged || input.hasGlobalRetirement,
-		statefileInitiallyBound: initiallyBound,
-		carrierRemovals:         append([]applyCarrierScheduleFact(nil), input.carrierRemovals...),
-		finalRoutePlan:          finalRoutePlan,
-		orderClasses:            append([]applyOrderScheduleFact(nil), input.orderClasses...),
-		mayReclassifyOrder:      input.mayReclassifyOrder,
-		delegates:               append([]applyDelegateScheduleFact(nil), input.delegates...),
-		available:               true,
+		segment:                                 schedule.segment,
+		structure:                               structure,
+		phaseEstablished:                        input.coreChanged,
+		carrierRemovalStructure:                 carrierRemovalStructure,
+		carrierPhaseEstablished:                 input.coreChanged || input.hasGlobalRetirement,
+		finalRoutePrefixStructure:               finalRoutePrefixStructure,
+		finalRoutePrefixPhaseEstablished:        schedule.finalRoutePrefixPhaseEstablished,
+		finalRoutePrefixStatefileInitiallyBound: schedule.finalRoutePrefixStatefileInitiallyBound,
+		statefileInitiallyBound:                 initiallyBound,
+		carrierRemovals:                         append([]applyCarrierScheduleFact(nil), input.carrierRemovals...),
+		finalRoutePlan:                          finalRoutePlan,
+		orderClasses:                            append([]applyOrderScheduleFact(nil), input.orderClasses...),
+		mayReclassifyOrder:                      input.mayReclassifyOrder,
+		delegates:                               append([]applyDelegateScheduleFact(nil), input.delegates...),
+		available:                               true,
 	}, nil
+}
+
+type compiledApplyContinuationSchedule struct {
+	segment                                 operationplan.EffectNode
+	carrierRemovals                         operationplan.EffectNode
+	finalRoutePrefix                        operationplan.EffectNode
+	finalRoutePrefixHasForward              bool
+	finalRoutePhaseEstablished              bool
+	finalRoutePrefixPhaseEstablished        bool
+	finalRoutePrefixStatefileInitiallyBound bool
 }
 
 func compileApplyProviderSchedule(
@@ -242,7 +266,7 @@ func compileApplyContinuationSchedule(
 	builder *operationplan.EffectStructureBuilder,
 	statefile *applyStatefileSchedule,
 	input applyScheduleInput,
-) (operationplan.EffectNode, operationplan.EffectNode) {
+) compiledApplyContinuationSchedule {
 	nodes := make([]operationplan.EffectNode, 0, 7)
 	if input.hasGlobalRetirement {
 		nodes = append(nodes, compileApplyGlobalCarrierBatchSettlementSchedule(
@@ -256,11 +280,16 @@ func compileApplyContinuationSchedule(
 		input.carrierRemovals,
 	)
 	nodes = append(nodes, carrierRemovals)
-	nodes = append(nodes, compileApplyFinalRouteSchedule(
+	finalRoutePhaseEstablished := input.coreChanged ||
+		input.hasGlobalRetirement ||
+		applyCarrierRemovalScheduleHasForward(input.carrierRemovals)
+	finalRouteStatefileInitiallyBound := statefile.bound
+	finalRoutes := compileApplyFinalRouteSchedule(
 		builder,
 		statefile,
 		input.finalRoutes,
-	)...)
+	)
+	nodes = append(nodes, finalRoutes.whole...)
 	if len(input.orderClasses) != 0 {
 		nodes = append(
 			nodes,
@@ -291,7 +320,27 @@ func compileApplyContinuationSchedule(
 			"apply/global-claim-adoptions",
 		))
 	}
-	return operationplan.EffectSequence(nodes...), carrierRemovals
+	return compiledApplyContinuationSchedule{
+		segment:                                 operationplan.EffectSequence(nodes...),
+		carrierRemovals:                         carrierRemovals,
+		finalRoutePrefix:                        operationplan.EffectSequence(finalRoutes.prefix...),
+		finalRoutePrefixHasForward:              finalRoutes.hasForward,
+		finalRoutePhaseEstablished:              finalRoutePhaseEstablished,
+		finalRoutePrefixPhaseEstablished:        finalRoutes.hasForward && finalRoutePhaseEstablished,
+		finalRoutePrefixStatefileInitiallyBound: finalRouteStatefileInitiallyBound,
+	}
+}
+
+func applyCarrierRemovalScheduleHasForward(removals []applyCarrierScheduleFact) bool {
+	for _, removal := range removals {
+		switch removal.mode {
+		case applyCarrierScheduleVerifyPending,
+			applyCarrierScheduleHostRoute,
+			applyCarrierScheduleDirectProjection:
+			return true
+		}
+	}
+	return false
 }
 
 func compileApplyCarrierRemovalSchedules(
@@ -336,11 +385,17 @@ func compileApplyGlobalCarrierBatchSettlementSchedule(
 	)
 }
 
+type compiledApplyFinalRouteSchedule struct {
+	whole      []operationplan.EffectNode
+	prefix     []operationplan.EffectNode
+	hasForward bool
+}
+
 func compileApplyFinalRouteSchedule(
 	builder *operationplan.EffectStructureBuilder,
 	statefile *applyStatefileSchedule,
 	routes []applyRouteScheduleFact,
-) []operationplan.EffectNode {
+) compiledApplyFinalRouteSchedule {
 	preflightRejected := false
 	preflightNodes := make([]operationplan.EffectNode, 0, len(routes))
 	promotions := make([]applyRouteScheduleFact, 0, len(routes))
@@ -366,19 +421,21 @@ func compileApplyFinalRouteSchedule(
 		}
 	}
 	if !preflightRejected && len(promotions) == 0 && len(prepared) == 0 {
-		return nil
+		return compiledApplyFinalRouteSchedule{}
 	}
 
-	nodes := make([]operationplan.EffectNode, 0, len(preflightNodes)+len(promotions)+len(prepared)+5)
-	nodes = append(nodes, preflightNodes...)
-	nodes = append(nodes, compileApplyCheckedStep(
+	prefix := make([]operationplan.EffectNode, 0, len(preflightNodes)+len(promotions)+5)
+	prefix = append(prefix, preflightNodes...)
+	prefix = append(prefix, compileApplyCheckedStep(
 		builder,
 		"apply/final-routes/initial-project-root",
 		operationplan.EffectStepObservation,
 	))
+	hasForward := false
 	if preflightRejected || len(promotions) != 0 {
-		nodes = append(
-			nodes,
+		hasForward = true
+		prefix = append(
+			prefix,
 			compileApplyCheckedStep(
 				builder,
 				"apply/final-routes/preflight-state/forward",
@@ -388,10 +445,15 @@ func compileApplyFinalRouteSchedule(
 		)
 	}
 	if preflightRejected {
-		nodes = append(
-			nodes,
+		prefix = append(
+			prefix,
 			statefile.checkedPublications("apply/final-routes/preflight-records", 1),
 			statefile.checkedValidations("apply/final-routes/preflight-records", 1),
+			compileApplyCheckedStep(
+				builder,
+				"apply/final-routes/preflight-declarations",
+				operationplan.EffectStepObservation,
+			),
 			compileApplyCheckedStep(
 				builder,
 				"apply/final-routes/preflight-project-root",
@@ -400,8 +462,9 @@ func compileApplyFinalRouteSchedule(
 		)
 	}
 	for _, route := range promotions {
-		nodes = append(nodes, compileApplyRoutePromotionSchedule(builder, statefile, route))
+		prefix = append(prefix, compileApplyRoutePromotionSchedule(builder, statefile, route))
 	}
+	nodes := append([]operationplan.EffectNode(nil), prefix...)
 	for _, route := range prepared {
 		nodes = append(nodes, compileApplyPreparedRouteSchedule(builder, statefile, route))
 	}
@@ -410,7 +473,11 @@ func compileApplyFinalRouteSchedule(
 		builder.Step("apply/final-routes/success", operationplan.EffectStepNoOp),
 		builder.Step("apply/final-routes/failure", operationplan.EffectStepTerminal),
 	))
-	return nodes
+	return compiledApplyFinalRouteSchedule{
+		whole:      nodes,
+		prefix:     prefix,
+		hasForward: hasForward,
+	}
 }
 
 func compileApplyRoutePromotionSchedule(

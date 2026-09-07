@@ -18,6 +18,16 @@ and requires explicit disposition rather than a ledger-only update.
 
 Baseline: `main` at `c0fd11f937c27936e175fb955168fdef3e539e37`.
 
+Final host-route pre-host admission now consumes a prefix derived from the
+same immutable route facts and nodes as the full continuation. Prepared/current
+binding precedes authority setup; the prefix settles rejection-attempt
+publication, declaration/project-root checks, and interrupted global promotions
+before prepared host commands. Global settlement retains exact-baseline CAS,
+registry-first split-write outcomes, and successor-claim preservation. The
+provider-prerequisite caller remains on its existing path. Prepared-host
+execution and post-host settlement are not yet governed by this prefix cursor;
+whole-continuation integration remains open.
+
 ## Program Boundary
 
 Two orthogonal compilation problems are in scope:

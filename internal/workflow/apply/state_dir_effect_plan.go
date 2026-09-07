@@ -159,8 +159,14 @@ func hostRouteStatefileEffectPlan(
 	current durable.Snapshot,
 	actions []reconcile.RelationAction,
 ) (statefileEffectPlan, error) {
+	return hostRouteStatefileEffectPlanForWorks(routeWorks(current, actions))
+}
+
+func hostRouteStatefileEffectPlanForWorks(
+	works []operationplan.RouteWork,
+) (statefileEffectPlan, error) {
 	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
-		FinalRoutes: routeWorks(current, actions),
+		FinalRoutes: works,
 	})
 	if err != nil {
 		return statefileEffectPlan{}, err

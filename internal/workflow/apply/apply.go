@@ -328,17 +328,36 @@ func runHostRoutesOrderDelegatesAndPersistAttemptRecords(
 	reconciliation reconcile.Result,
 	options runOptions,
 ) (runResult, error) {
-	nextState, nextGlobalClaims, hostRouteAttempts, hostRouteErr := runHostRoutesAndPersistAttemptRecords(
-		ctx,
-		paths,
-		locked,
-		statePath,
-		current,
-		carrierOwner,
-		globalCarrierClaims,
-		reconciliation.Relations(),
-		options,
-	)
+	var nextState durable.Snapshot
+	var nextGlobalClaims durablecarrier.GlobalCarrierClaims
+	var hostRouteAttempts []durableattempt.HostRouteAttempt
+	var hostRouteErr error
+	if options.requireContinuation {
+		nextState, nextGlobalClaims, hostRouteAttempts, hostRouteErr = runScheduledHostRoutesAndPersistAttemptRecords(
+			ctx,
+			paths,
+			locked,
+			statePath,
+			current,
+			carrierOwner,
+			globalCarrierClaims,
+			options,
+			options.preparedContinuation,
+			options.currentContinuation,
+		)
+	} else {
+		nextState, nextGlobalClaims, hostRouteAttempts, hostRouteErr = runHostRoutesAndPersistAttemptRecords(
+			ctx,
+			paths,
+			locked,
+			statePath,
+			current,
+			carrierOwner,
+			globalCarrierClaims,
+			reconciliation.Relations(),
+			options,
+		)
+	}
 	result := runResult{
 		ActionCount:         actionCount,
 		StatePath:           statePath,

@@ -18,6 +18,7 @@ import (
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
@@ -41,6 +42,72 @@ func runHostRoutesAndPersistAttemptRecords(
 	resultRecords []durableattempt.HostRouteAttempt,
 	returnErr error,
 ) {
+	return runHostRoutesAndPersistAttemptRecordsWithPrefix(
+		ctx,
+		paths,
+		locked,
+		statePath,
+		current,
+		owner,
+		globalCarrierClaims,
+		relationActions,
+		options,
+		nil,
+	)
+}
+
+func runScheduledHostRoutesAndPersistAttemptRecords(
+	ctx context.Context,
+	paths daempaths.Paths,
+	locked lock.File,
+	statePath string,
+	current durable.Snapshot,
+	owner stateauthority.Authority,
+	globalCarrierClaims durablecarrier.GlobalCarrierClaims,
+	options runOptions,
+	prepared applyContinuationPlan,
+	currentPlan applyContinuationPlan,
+) (
+	resultState durable.Snapshot,
+	resultClaims durablecarrier.GlobalCarrierClaims,
+	resultRecords []durableattempt.HostRouteAttempt,
+	returnErr error,
+) {
+	execution, err := newApplyFinalRoutePrefixExecution(prepared, currentPlan)
+	if err != nil {
+		return current, globalCarrierClaims, nil, err
+	}
+	return runHostRoutesAndPersistAttemptRecordsWithPrefix(
+		ctx,
+		paths,
+		locked,
+		statePath,
+		current,
+		owner,
+		globalCarrierClaims,
+		nil,
+		options,
+		execution,
+	)
+}
+
+func runHostRoutesAndPersistAttemptRecordsWithPrefix(
+	ctx context.Context,
+	paths daempaths.Paths,
+	locked lock.File,
+	statePath string,
+	current durable.Snapshot,
+	owner stateauthority.Authority,
+	globalCarrierClaims durablecarrier.GlobalCarrierClaims,
+	relationActions []reconciliation.RelationAction,
+	options runOptions,
+	prefixExecution *applyContinuationExecution,
+) (
+	resultState durable.Snapshot,
+	resultClaims durablecarrier.GlobalCarrierClaims,
+	resultRecords []durableattempt.HostRouteAttempt,
+	returnErr error,
+) {
 	attemptedPhase := ""
 	defer func() {
 		if attemptedPhase == "" {
@@ -54,33 +121,80 @@ func runHostRoutesAndPersistAttemptRecords(
 			),
 		)
 	}()
+	defer func() {
+		if prefixExecution != nil {
+			returnErr = prefixExecution.finish(returnErr)
+		}
+	}()
 
 	records := make([]durableattempt.HostRouteAttempt, 0)
 	failures := make([]durableattempt.HostRouteAttempt, 0)
 	prepared := make([]preparedHostRoute, 0)
-	globalPromotions := make([]reconciliation.RelationAction, 0)
-	for _, action := range relationActions {
-		if isGlobalCarrierPromotionCandidate(current, action) {
-			globalPromotions = append(globalPromotions, action)
-		}
-		if !action.InvokesHostRoute() {
-			continue
-		}
-		command, err := executehostroute.BuildCommand(executehostroute.BuildInput{
-			Action:   action,
-			Lockfile: locked,
-			WorkDir:  paths.ManifestRoot,
-		})
-		if err != nil {
-			record, recordErr := durableAttemptFromHostRoutePreflight(action, err, time.Now().UTC())
-			if recordErr != nil {
-				return current, globalCarrierClaims, records, fmt.Errorf("compose host route preflight attempt: %w", recordErr)
+	globalPromotions := make([]preparedGlobalCarrierPromotion, 0)
+	if prefixExecution != nil {
+		for _, route := range prefixExecution.plan.finalRoutePlan.routes {
+			if route.work.InvokesHost {
+				if err := consumeApplyRoutePreflight(prefixExecution, route); err != nil {
+					return current, globalCarrierClaims, records, err
+				}
 			}
-			records = append(records, record)
-			failures = append(failures, record)
-			continue
+			if route.work.Promotion {
+				globalPromotions = append(globalPromotions, preparedGlobalCarrierPromotion{
+					ref:    route.ref,
+					action: route.action,
+				})
+			}
+			if !route.work.InvokesHost {
+				continue
+			}
+			if route.preflight.rejected() {
+				record, recordErr := durableAttemptFromHostRoutePreflight(
+					route.action,
+					route.preflight.attemptError(),
+					time.Now().UTC(),
+				)
+				if recordErr != nil {
+					return current, globalCarrierClaims, records, fmt.Errorf(
+						"compose host route preflight attempt: %w",
+						recordErr,
+					)
+				}
+				records = append(records, record)
+				failures = append(failures, record)
+				continue
+			}
+			prepared = append(prepared, preparedHostRoute{
+				action:  route.action,
+				command: route.preflight.command,
+			})
 		}
-		prepared = append(prepared, preparedHostRoute{action: action, command: command})
+	} else {
+		for _, action := range relationActions {
+			if isGlobalCarrierPromotionCandidate(current, action) {
+				globalPromotions = append(globalPromotions, preparedGlobalCarrierPromotion{action: action})
+			}
+			if !action.InvokesHostRoute() {
+				continue
+			}
+			command, err := executehostroute.BuildCommand(executehostroute.BuildInput{
+				Action:   action,
+				Lockfile: locked,
+				WorkDir:  paths.ManifestRoot,
+			})
+			if err != nil {
+				record, recordErr := durableAttemptFromHostRoutePreflight(action, err, time.Now().UTC())
+				if recordErr != nil {
+					return current, globalCarrierClaims, records, fmt.Errorf(
+						"compose host route preflight attempt: %w",
+						recordErr,
+					)
+				}
+				records = append(records, record)
+				failures = append(failures, record)
+				continue
+			}
+			prepared = append(prepared, preparedHostRoute{action: action, command: command})
+		}
 	}
 
 	nextState := current
@@ -93,7 +207,15 @@ func runHostRoutesAndPersistAttemptRecords(
 			)
 		}
 		if stateAuthority == nil {
-			plan, planErr := hostRouteStatefileEffectPlan(current, relationActions)
+			var plan statefileEffectPlan
+			var planErr error
+			if prefixExecution != nil {
+				plan, planErr = hostRouteStatefileEffectPlanForWorks(
+					prefixExecution.plan.finalRoutePlan.routeWorks(),
+				)
+			} else {
+				plan, planErr = hostRouteStatefileEffectPlan(current, relationActions)
+			}
 			if planErr != nil {
 				return current, globalCarrierClaims, records, planErr
 			}
@@ -107,13 +229,18 @@ func runHostRoutesAndPersistAttemptRecords(
 			}
 			ownedStateAuthority = true
 		}
-		if err := validateHostRouteProjectRoot(options, paths.ManifestRoot); err != nil {
-			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
-		}
 		if ownedStateAuthority {
 			defer func() {
 				returnErr = errors.Join(returnErr, stateAuthority.Close())
 			}()
+		}
+		if err := scheduledContinuationCall(
+			prefixExecution,
+			"apply/final-routes/initial-project-root",
+			operationplan.EffectStepObservation,
+			func() error { return validateHostRouteProjectRoot(options, paths.ManifestRoot) },
+		); err != nil {
+			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
 		}
 	}
 	ensureStateAuthority := func(ctx context.Context) error {
@@ -123,7 +250,32 @@ func runHostRoutesAndPersistAttemptRecords(
 		return stateAuthority.Ensure(ctx)
 	}
 	if len(records) != 0 || len(globalPromotions) != 0 {
-		if err := ensureStateAuthority(ctx); err != nil {
+		if prefixExecution != nil {
+			if err := scheduledContinuationForwardCall(
+				prefixExecution,
+				"apply/final-routes/preflight-state/forward",
+				func() error {
+					return options.validateBeforeEffects(ctx, mutation.PhysicalAuthoritySet{})
+				},
+			); err != nil {
+				return current, globalCarrierClaims, records, fmt.Errorf(
+					"validate host-route preflight state effect: %w",
+					err,
+				)
+			}
+			if err := scheduledCarrierRemovalEnsure(
+				ctx,
+				prefixExecution,
+				"apply/final-routes/preflight-state/statefile",
+				stateAuthority,
+				nil,
+			); err != nil {
+				return current, globalCarrierClaims, records, fmt.Errorf(
+					"validate host-route preflight state effect: %w",
+					err,
+				)
+			}
+		} else if err := ensureStateAuthority(ctx); err != nil {
 			return current, globalCarrierClaims, records, fmt.Errorf(
 				"validate host-route preflight state effect: %w",
 				err,
@@ -132,30 +284,77 @@ func runHostRoutesAndPersistAttemptRecords(
 	}
 	var err error
 	if len(records) != 0 {
-		entry, entryErr := stateAuthority.EntryForCommit()
-		if entryErr != nil {
-			return nextState, globalCarrierClaims, records, entryErr
+		persistRecords := func() error {
+			entry, entryErr := stateAuthority.EntryForCommit()
+			if entryErr != nil {
+				return entryErr
+			}
+			options.markAttempted()
+			nextState, err = execute.CommitHostRouteAttempts(
+				ctx,
+				storagecommit.Adapter{},
+				entry,
+				nextState,
+				records,
+				statefile.Codec{},
+			)
+			return err
 		}
-		options.markAttempted()
-		nextState, err = execute.CommitHostRouteAttempts(
-			ctx,
-			storagecommit.Adapter{},
-			entry,
-			nextState,
-			records,
-			statefile.Codec{},
-		)
+		if prefixExecution != nil {
+			err = scheduledCarrierRemovalStatefilePublication(
+				prefixExecution,
+				"apply/final-routes/preflight-records",
+				persistRecords,
+				nil,
+			)
+		} else {
+			err = persistRecords()
+		}
 		if err != nil {
 			return nextState, globalCarrierClaims, records, fmt.Errorf("persist host route preflight record: %w", err)
 		}
-		if err := stateAuthority.Validate(ctx); err != nil {
-			return nextState, globalCarrierClaims, records, fmt.Errorf("validate StateDir after host route preflight persistence: %w", err)
+		if prefixExecution != nil {
+			err = scheduledCarrierRemovalStatefileValidation(
+				ctx,
+				prefixExecution,
+				"apply/final-routes/preflight-records",
+				stateAuthority,
+				nil,
+			)
+		} else {
+			err = stateAuthority.Validate(ctx)
 		}
-		if err := validateHostRouteProjectRoot(options, paths.ManifestRoot); err != nil {
+		if err != nil {
+			return nextState, globalCarrierClaims, records, fmt.Errorf(
+				"validate StateDir after host route preflight persistence: %w",
+				err,
+			)
+		}
+		if prefixExecution != nil {
+			if err := scheduledContinuationCall(
+				prefixExecution,
+				"apply/final-routes/preflight-declarations",
+				operationplan.EffectStepObservation,
+				func() error {
+					return options.executionGuard.requireDeclarationsCurrent(
+						ctx,
+						"after host route preflight persistence",
+					)
+				},
+			); err != nil {
+				return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
+			}
+		}
+		if err := scheduledContinuationCall(
+			prefixExecution,
+			"apply/final-routes/preflight-project-root",
+			operationplan.EffectStepObservation,
+			func() error { return validateHostRouteProjectRoot(options, paths.ManifestRoot) },
+		); err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
 		}
 	}
-	nextState, globalCarrierClaims, err = commitInterruptedGlobalCarrierClaims(
+	nextState, globalCarrierClaims, err = commitPreparedGlobalCarrierPromotions(
 		ctx,
 		paths,
 		stateAuthority,
@@ -163,12 +362,19 @@ func runHostRoutesAndPersistAttemptRecords(
 		globalCarrierClaims,
 		globalPromotions,
 		options,
+		prefixExecution,
 	)
 	if err != nil {
 		return nextState, globalCarrierClaims, records, fmt.Errorf(
 			"promote interrupted global carrier install: %w",
 			err,
 		)
+	}
+	if prefixExecution != nil {
+		if err := prefixExecution.finish(nil); err != nil {
+			return nextState, globalCarrierClaims, records, err
+		}
+		prefixExecution = nil
 	}
 
 	for index, item := range prepared {

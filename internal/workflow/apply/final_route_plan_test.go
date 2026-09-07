@@ -43,6 +43,12 @@ func TestApplyFinalRoutePlanBindsExactAcceptedCommand(t *testing.T) {
 	if facts[0].preflight.kind != applyRoutePreflightAccepted {
 		t.Fatalf("preflight kind = %d, want accepted", facts[0].preflight.kind)
 	}
+	commandFacts := applyHostRouteCommandFingerprint(facts[0].preflight.command)
+	if commandFacts.RouteRequest.RouteID == "" ||
+		commandFacts.RouteRequest.ContractVersion == "" ||
+		commandFacts.RouteRequest.CanonicalRequestHash == "" {
+		t.Fatalf("route request fingerprint facts = %#v, want complete identity", commandFacts.RouteRequest)
+	}
 
 	matched, err := plan.routeFor(actions[0])
 	if err != nil {

@@ -3,6 +3,7 @@ package apply
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +16,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
+	"github.com/isty2e/daem/internal/operationplan"
+	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -548,9 +551,6 @@ func TestCommitInterruptedGlobalCarrierClaimsSettlesMultiplePromotions(t *testin
 	options := applyDelegateRunOptions(t, paths, runOptions{
 		acceptVisibilityChanges: func(context.Context) error { return nil },
 	})
-	if err := options.validateBeforeEffects(t.Context(), mutation.PhysicalAuthoritySet{}); err != nil {
-		t.Fatal(err)
-	}
 	authority, err := newStatefileEffectAuthority(
 		paths.StatefilePath,
 		statefileEffectPlan{validations: 6, fileCommits: 2},
@@ -559,25 +559,45 @@ func TestCommitInterruptedGlobalCarrierClaimsSettlesMultiplePromotions(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := authority.Ensure(t.Context()); err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(func() {
 		if err := authority.Close(); err != nil {
 			t.Errorf("close statefile authority: %v", err)
 		}
 	})
-	nextState, nextRegistry, err := commitInterruptedGlobalCarrierClaims(
+	routes := make([]applyRouteScheduleFact, 0, len(actions))
+	for index, action := range actions {
+		routes = append(routes, applyRouteScheduleFact{
+			ref:    fmt.Sprintf("apply/final/route/%d", index),
+			action: action,
+			work: operationplan.RouteWork{
+				Global:    true,
+				Promotion: true,
+			},
+		})
+	}
+	plan := compileTestApplyContinuationPlan(
+		t,
+		applyScheduleInput{finalRoutes: routes},
+		false,
+	)
+	options.statefileAuthority = authority
+	nextState, nextRegistry, records, err := runScheduledHostRoutesAndPersistAttemptRecords(
 		t.Context(),
 		paths,
-		authority,
+		lock.File{},
+		paths.StatefilePath,
 		current,
+		owner,
 		durablecarrier.EmptyGlobalCarrierClaims(),
-		actions,
 		options,
+		plan,
+		plan,
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("promotion host-route records = %#v, want none", records)
 	}
 	if len(nextState.PendingCarrierInstalls()) != 0 || len(nextRegistry.Claims()) != 2 {
 		t.Fatalf(
