@@ -16,8 +16,10 @@ const (
 	// MaximumPhysicalPathDepth bounds one rooted or no-follow path traversal.
 	MaximumPhysicalPathDepth = 256
 	// MaximumPhysicalPathComponentVisits bounds aggregate physical namespace
-	// work across one planning or effect operation.
-	MaximumPhysicalPathComponentVisits = 524_288
+	// work across one planning or effect operation. Repeated validation, staging,
+	// and recovery of multi-target trees need more capacity than their entry count.
+	// This fixed ceiling does not multiply with resource cardinality.
+	MaximumPhysicalPathComponentVisits = 64 << 20
 )
 
 // PathReader performs bounded, no-follow reads of operation-selected paths.
