@@ -18,7 +18,7 @@ func TestProfileRoutesMatchCompleteCatalogSelection(t *testing.T) {
 	for _, selectedTarget := range append(target.SupportedTargets(), target.Target("future-agent"), target.Target("")) {
 		t.Run(string(selectedTarget), func(t *testing.T) {
 			selected := Profile(selectedTarget)
-			want := aggregateOperationRoutesForTarget(selectedTarget)
+			want := aggregateOperationRoutesForTarget(selectedTarget, aggregate.ImplementedMCPPlacements())
 			for _, route := range catalog {
 				switch route.ResourceKind() {
 				case entity.KindInstructions, entity.KindSkill:

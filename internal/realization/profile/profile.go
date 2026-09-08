@@ -33,7 +33,7 @@ type TargetProfile struct {
 // produce an empty profile whose queries conservatively return no admission.
 func Profile(selectedTarget target.Target) TargetProfile {
 	supports := profileSupports(selectedTarget)
-	mcpPlacements := profileMCPPlacements(selectedTarget)
+	mcpPlacements := aggregate.MCPPlacementsForTarget(selectedTarget)
 	delegatedRoutes := profileDelegatedRoutes(selectedTarget)
 	admissions := profilePlacementAdmissions(selectedTarget)
 	profile := TargetProfile{
@@ -43,7 +43,7 @@ func Profile(selectedTarget target.Target) TargetProfile {
 		admissions:       admissions,
 		discoveries:      profileDiscoveries(selectedTarget),
 		runtime:          profileRuntimeLocations(selectedTarget),
-		operationRoutes:  profileRoutes(selectedTarget, admissions, delegatedRoutes),
+		operationRoutes:  profileRoutes(selectedTarget, admissions, mcpPlacements, delegatedRoutes),
 		mcpPlacements:    mcpPlacements,
 		mcpRuntimeProbes: profileMCPRuntimeProbeCapabilities(selectedTarget),
 		delegatedRoutes:  delegatedRoutes,
@@ -379,9 +379,10 @@ func profileRuntimeLocations(selectedTarget target.Target) []RuntimeLocation {
 func profileRoutes(
 	selectedTarget target.Target,
 	admissions []PlacementAdmission,
+	mcpPlacements []aggregate.MCPPlacement,
 	delegated []DelegatedRouteProfile,
 ) []OperationRoute {
-	result := aggregateOperationRoutesForTarget(selectedTarget)
+	result := aggregateOperationRoutesForTarget(selectedTarget, mcpPlacements)
 	for _, routes := range [...][]OperationRoute{instructionOperationRoutes(), skillOperationRoutes()} {
 		for _, route := range routes {
 			if profileHasPlacement(admissions, route.ResourceKind(), route.CorrelationID()) {
@@ -410,16 +411,6 @@ func profileHasPlacement(admissions []PlacementAdmission, resourceKind entity.Ki
 		}
 	}
 	return false
-}
-
-func profileMCPPlacements(selectedTarget target.Target) []aggregate.MCPPlacement {
-	placements := make([]aggregate.MCPPlacement, 0)
-	for _, placement := range aggregate.ImplementedMCPPlacements() {
-		if placement.Target() == selectedTarget {
-			placements = append(placements, placement)
-		}
-	}
-	return placements
 }
 
 func placementByID(placementID string) (ManagedPathPlacement, bool) {

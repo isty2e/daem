@@ -135,7 +135,7 @@ var mcpAggregateRouteIDs = map[aggregate.MCPPlacementID]aggregateRouteIDs{
 	aggregate.MCPPlacementPiGlobal:          {write: "pi-mcp-adapter-stdio.global.write_projection", remove: "pi-mcp-adapter-stdio.global.remove_binding"},
 }
 
-func aggregateOperationRoutesForTarget(selectedTarget target.Target) []OperationRoute {
+func aggregateOperationRoutesForTarget(selectedTarget target.Target, mcpPlacements []aggregate.MCPPlacement) []OperationRoute {
 	routes := make([]OperationRoute, 0)
 	for _, placement := range aggregate.ImplementedHookPlacements() {
 		if placement.Target() != selectedTarget {
@@ -147,7 +147,7 @@ func aggregateOperationRoutesForTarget(selectedTarget target.Target) []Operation
 		}
 		routes = appendAggregateOperationRoutes(routes, entity.KindHook, string(placement.ID()), string(placement.CodecContractID()), ids)
 	}
-	for _, placement := range aggregate.ImplementedMCPPlacements() {
+	for _, placement := range mcpPlacements {
 		if placement.Target() != selectedTarget {
 			continue
 		}

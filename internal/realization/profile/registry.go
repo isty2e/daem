@@ -5,6 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -162,8 +163,9 @@ func mustOperationRoute(
 func profileOperationRoutes() []OperationRoute {
 	routes := append(instructionOperationRoutes(), skillOperationRoutes()...)
 	routes = append(routes, hookAssetOperationRoutes()...)
+	mcpPlacements := aggregate.ImplementedMCPPlacements()
 	for _, selectedTarget := range target.SupportedTargets() {
-		routes = append(routes, aggregateOperationRoutesForTarget(selectedTarget)...)
+		routes = append(routes, aggregateOperationRoutesForTarget(selectedTarget, mcpPlacements)...)
 	}
 	for _, delegated := range delegatedRouteProfiles {
 		routes = append(routes, delegated.OperationRoutes()...)
