@@ -301,27 +301,9 @@ jobs:
             ./internal/workflow/probe
 
   bsd_observation_compile:
-    name: BSD observation compile (${{ matrix.goos }}/${{ matrix.goarch }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goos: freebsd
-            goarch: amd64
-          - goos: freebsd
-            goarch: "386"
-          - goos: freebsd
-            goarch: arm
-          - goos: netbsd
-            goarch: amd64
-          - goos: netbsd
-            goarch: "386"
-          - goos: netbsd
-            goarch: arm
-          - goos: openbsd
-            goarch: amd64
+    name: BSD observation compile
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -334,17 +316,25 @@ jobs:
           cache-dependency-path: go.sum
       - name: Compile retained-directory snapshot tests without runtime claims
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
           test "$(go env GOVERSION)" = "go1.26.6"
-          go test -c \
-            -o "${RUNNER_TEMP}/filesnapshot-${GOOS}-${GOARCH}.test" \
-            ./internal/filesnapshot
-          go test -c \
-            -o "${RUNNER_TEMP}/codexplugin-${GOOS}-${GOARCH}.test" \
-            ./internal/assurance/observe/codexplugin
+          compile_status=0
+          for target in freebsd/amd64 freebsd/386 freebsd/arm \
+            netbsd/amd64 netbsd/386 netbsd/arm openbsd/amd64; do
+            export GOOS="${target%/*}" GOARCH="${target#*/}"
+            for package in ./internal/filesnapshot ./internal/assurance/observe/codexplugin; do
+              echo "::group::Compile ${package} for ${target}"
+              if ! go test -c \
+                -o "${RUNNER_TEMP}/${package##*/}-${GOOS}-${GOARCH}.test" \
+                "${package}"; then
+                echo "::error::Compile failed: ${package} for ${target}"
+                compile_status=1
+              fi
+              echo "::endgroup::"
+            done
+          done
+          exit "${compile_status}"
 
   compile_only:
     name: Compile only (${{ matrix.goos }}/${{ matrix.goarch }})
