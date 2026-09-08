@@ -3,102 +3,248 @@ package diagnose
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/subprocess"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/test/testkit/doctorenv"
 )
 
-func TestGitCheckClassifiesSuccessAndFailuresWithoutCallingThemUnavailable(t *testing.T) {
+func TestGitEnvironmentCheckClassifiesAttempts(t *testing.T) {
+	version := subprocess.CommandResult{Started: true, HasExitCode: true, Stdout: "git version test"}
 	cases := []struct {
-		name       string
-		version    func(context.Context) (string, error)
-		want       findings.CheckStatus
-		wantDetail string
+		name         string
+		version      subprocess.CommandResult
+		help         subprocess.CommandResult
+		want         findings.CheckStatus
+		wantDetail   string
+		wantAttempts int
 	}{
 		{
-			name: "success",
-			version: func(context.Context) (string, error) {
-				return "git version test", nil
-			},
-			want:       findings.CheckOK,
-			wantDetail: "git version test",
+			name: "success", version: version,
+			help:         subprocess.CommandResult{Started: true, HasExitCode: true, Stdout: "usage: git init"},
+			want:         findings.CheckOK,
+			wantDetail:   "git version test; object-format sha1",
+			wantAttempts: 2,
 		},
 		{
-			name: "missing executable",
-			version: func(context.Context) (string, error) {
-				return "", fmt.Errorf("locate: %w", exec.ErrNotFound)
+			name: "usage exit", version: version,
+			help: subprocess.CommandResult{
+				Started: true, HasExitCode: true, ExitCode: 129,
+				Stderr: "usage: git init", Err: errors.New("exit status 129"),
 			},
-			want:       findings.CheckError,
-			wantDetail: "git executable was not found in PATH",
+			want:         findings.CheckOK,
+			wantDetail:   "git version test; object-format sha1",
+			wantAttempts: 2,
 		},
 		{
-			name: "command failure",
-			version: func(context.Context) (string, error) {
-				return "", errors.New("exit status 7")
+			name: "sha256 capability", version: version,
+			help: subprocess.CommandResult{
+				Started: true, HasExitCode: true, ExitCode: 129,
+				Stderr: "usage: git init [--object-format=<format>]", Err: errors.New("exit status 129"),
 			},
-			want:       findings.CheckError,
-			wantDetail: "git --version failed: exit status 7",
+			want:         findings.CheckOK,
+			wantDetail:   "git version test; object-format sha1,sha256",
+			wantAttempts: 2,
 		},
 		{
-			name: "empty output",
-			version: func(context.Context) (string, error) {
-				return "", nil
+			name: "unrelated help exit", version: version,
+			help: subprocess.CommandResult{
+				Started: true, HasExitCode: true, ExitCode: 127,
+				Stderr: "sleep: not found", Err: errors.New("exit status 127"),
 			},
-			want:       findings.CheckError,
-			wantDetail: "git --version returned empty output",
+			want:         findings.CheckError,
+			wantDetail:   "git init -h failed: exit status 127",
+			wantAttempts: 2,
+		},
+		{
+			name: "empty help", version: version,
+			help:         subprocess.CommandResult{Started: true, HasExitCode: true},
+			want:         findings.CheckError,
+			wantDetail:   "git init -h returned empty output",
+			wantAttempts: 2,
+		},
+		{
+			name:         "missing executable",
+			version:      subprocess.CommandResult{MissingRunner: true, Err: exec.ErrNotFound},
+			want:         findings.CheckError,
+			wantDetail:   "git executable was not found in PATH",
+			wantAttempts: 1,
+		},
+		{
+			name: "version failure",
+			version: subprocess.CommandResult{
+				Started: true, HasExitCode: true, ExitCode: 7, Err: errors.New("exit status 7"),
+			},
+			want:         findings.CheckError,
+			wantDetail:   "git --version failed: exit status 7",
+			wantAttempts: 1,
+		},
+		{
+			name:         "empty version",
+			version:      subprocess.CommandResult{Started: true, HasExitCode: true},
+			want:         findings.CheckError,
+			wantDetail:   "git --version returned empty output",
+			wantAttempts: 1,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			check := gitCheckWithTimeout(context.Background(), time.Second, tc.version)
-			if check.Name != "git" || check.Status != tc.want || check.Detail != tc.wantDetail {
-				t.Fatalf("check = %#v, want name=git severity=%s detail=%q", check, tc.want, tc.wantDetail)
-			}
-			if strings.Contains(check.Detail, "git is unavailable") {
-				t.Fatalf("check retained ambiguous unavailable classification: %#v", check)
-			}
+			synctest.Test(t, func(t *testing.T) {
+				attempts := 0
+				runner := func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+					attempts++
+					switch attempts {
+					case 1:
+						assertGitCheckRequest(t, request, "--version")
+						return tc.version
+					case 2:
+						assertGitCheckRequest(t, request, "init", "-h")
+						return tc.help
+					default:
+						t.Fatalf("unexpected attempt %d", attempts)
+						return subprocess.CommandResult{}
+					}
+				}
+
+				check := gitEnvironmentCheck(nil, 5*time.Second, runner)
+				if check.Name != "git" || check.Status != tc.want || check.Detail != tc.wantDetail {
+					t.Fatalf("check = %#v, want git %s %q", check, tc.want, tc.wantDetail)
+				}
+				if attempts != tc.wantAttempts {
+					t.Fatalf("attempts = %d, want %d", attempts, tc.wantAttempts)
+				}
+			})
 		})
 	}
 }
 
+func TestGitEnvironmentCheckTimesOutStallingObjectFormatHelp(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		started := time.Now()
+		attempts := 0
+		runner := func(ctx context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+			attempts++
+			deadline, ok := ctx.Deadline()
+			if !ok || !deadline.Equal(started.Add(5*time.Second)) {
+				t.Fatalf("attempt %d deadline = %v/%t, want one shared five-second budget", attempts, deadline, ok)
+			}
+			switch attempts {
+			case 1:
+				assertGitCheckRequest(t, request, "--version")
+				time.Sleep(4 * time.Second)
+				return subprocess.CommandResult{Started: true, HasExitCode: true, Stdout: "git version test"}
+			case 2:
+				assertGitCheckRequest(t, request, "init", "-h")
+				if remaining := time.Until(deadline); remaining != time.Second {
+					t.Fatalf("help remaining budget = %s, want 1s", remaining)
+				}
+				<-ctx.Done()
+				return subprocess.CommandResult{Started: true, TimedOut: true, Err: ctx.Err()}
+			default:
+				t.Fatalf("unexpected attempt %d", attempts)
+				return subprocess.CommandResult{}
+			}
+		}
+
+		check := gitEnvironmentCheck(t.Context(), 5*time.Second, runner)
+		if attempts != 2 || check.Name != "git" || check.Status != findings.CheckError ||
+			check.Detail != "git check timed out after 5s" {
+			t.Fatalf("attempts/check = %d/%#v, want help attempt timeout", attempts, check)
+		}
+		if elapsed := time.Since(started); elapsed != 5*time.Second {
+			t.Fatalf("assessment elapsed = %s, want total shared budget 5s", elapsed)
+		}
+	})
+}
+
 func TestGitCheckSeparatesOwnTimeoutFromCallerCancellation(t *testing.T) {
-	waitForCancellation := func(ctx context.Context) (string, error) {
-		<-ctx.Done()
-		return "", ctx.Err()
+	for _, phase := range []string{"version", "help"} {
+		for _, callerCancel := range []bool{false, true} {
+			name := phase + "/timeout"
+			if callerCancel {
+				name = phase + "/caller cancellation"
+			}
+			t.Run(name, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					ctx, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					if callerCancel {
+						time.AfterFunc(time.Second, cancel)
+					}
+					attempts := 0
+					runner := func(ctx context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+						attempts++
+						if attempts == 1 {
+							assertGitCheckRequest(t, request, "--version")
+							if phase == "help" {
+								return subprocess.CommandResult{Started: true, HasExitCode: true, Stdout: "git version test"}
+							}
+						} else {
+							assertGitCheckRequest(t, request, "init", "-h")
+						}
+						<-ctx.Done()
+						return subprocess.CommandResult{
+							Started: true, Err: ctx.Err(),
+							TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded),
+							Canceled: errors.Is(ctx.Err(), context.Canceled),
+						}
+					}
+
+					check := gitEnvironmentCheck(ctx, 5*time.Second, runner)
+					wantAttempts := 1
+					if phase == "help" {
+						wantAttempts = 2
+					}
+					wantDetail := "git check timed out after 5s"
+					if callerCancel {
+						wantDetail = "git check stopped by caller context: context canceled"
+					}
+					if attempts != wantAttempts || check.Name != "git" || check.Status != findings.CheckError || check.Detail != wantDetail {
+						t.Fatalf("attempts/check = %d/%#v, want %d attempts and %q", attempts, check, wantAttempts, wantDetail)
+					}
+				})
+			})
+		}
+	}
+}
+
+func TestGitEnvironmentCheckPreservesPreCanceledCaller(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	attempts := 0
+	runner := func(ctx context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+		attempts++
+		assertGitCheckRequest(t, request, "--version")
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			t.Fatal("runner did not receive caller cancellation")
+		}
+		return subprocess.CommandResult{Err: ctx.Err()}
 	}
 
-	t.Run("check timeout", func(t *testing.T) {
-		check := gitCheckWithTimeout(context.Background(), 10*time.Millisecond, waitForCancellation)
-		if check.Status != findings.CheckError ||
-			check.Detail != "git version check timed out after 10ms" {
-			t.Fatalf("check = %#v, want internal timeout", check)
-		}
-	})
+	check := gitEnvironmentCheck(ctx, 5*time.Second, runner)
+	if attempts != 1 || check.Status != findings.CheckError ||
+		check.Detail != "git check stopped by caller context: context canceled" {
+		t.Fatalf("attempts/check = %d/%#v, want caller cancellation without help", attempts, check)
+	}
+}
 
-	t.Run("caller cancellation", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		check := gitCheckWithTimeout(ctx, time.Second, waitForCancellation)
-		if check.Status != findings.CheckError ||
-			check.Detail != "git check stopped by caller context: context canceled" {
-			t.Fatalf("check = %#v, want caller cancellation", check)
-		}
-		if strings.Contains(check.Detail, "timed out") {
-			t.Fatalf("caller cancellation was mislabeled as timeout: %#v", check)
-		}
-	})
+func assertGitCheckRequest(t *testing.T, request subprocess.CommandRequest, args ...string) {
+	t.Helper()
+	if request.Command != "git" || !slices.Equal(request.Args, args) {
+		t.Fatalf("command/args = %q/%q, want git %q", request.Command, request.Args, args)
+	}
 }
 
 func TestGitObjectFormatCapabilityLabel(t *testing.T) {
@@ -109,82 +255,6 @@ func TestGitObjectFormatCapabilityLabel(t *testing.T) {
 	}
 	if got := gitObjectFormatCapabilityLabel("usage: git init"); got != "object-format sha1" {
 		t.Fatalf("legacy git label = %q", got)
-	}
-}
-
-func TestGitEnvironmentCheckTimesOutStallingObjectFormatHelp(t *testing.T) {
-	sleepPath, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Skipf("sleep helper is unavailable: %v", err)
-	}
-	if strings.ContainsAny(sleepPath, " \t\n'\"$") {
-		t.Fatalf("sleep helper path is not shell-safe: %q", sleepPath)
-	}
-
-	binDir := t.TempDir()
-	script := "#!/bin/sh\n" +
-		"if [ \"$1\" = \"--version\" ]; then\n" +
-		"  printf '%s\\n' \"git version stall-test\"\n" +
-		"  exit 0\n" +
-		"fi\n" +
-		sleepPath + " 30\n"
-	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o700); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	check := gitEnvironmentCheck(context.Background(), 80*time.Millisecond)
-	if check.Name != "git" || check.Status != findings.CheckError {
-		t.Fatalf("check = %#v, want git error", check)
-	}
-	if !strings.Contains(check.Detail, "timed out") {
-		t.Fatalf("check = %#v, want complete git assessment timeout", check)
-	}
-}
-
-func TestGitEnvironmentCheckRejectsUnrelatedHelpExit(t *testing.T) {
-	binDir := t.TempDir()
-	script := "#!/bin/sh\n" +
-		"if [ \"$1\" = \"--version\" ]; then\n" +
-		"  printf '%s\\n' \"git version stall-test\"\n" +
-		"  exit 0\n" +
-		"fi\n" +
-		"printf '%s\\n' \"sleep: not found\" >&2\n" +
-		"exit 127\n"
-	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o700); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	check := gitEnvironmentCheck(context.Background(), 5*time.Second)
-	if check.Name != "git" || check.Status != findings.CheckError {
-		t.Fatalf("check = %#v, want git error", check)
-	}
-	if strings.Contains(check.Detail, "object-format sha1") {
-		t.Fatalf("check = %#v, want unrelated help exit rejected", check)
-	}
-}
-
-func TestGitEnvironmentCheckAcceptsGitHelpUsageExit(t *testing.T) {
-	binDir := t.TempDir()
-	script := "#!/bin/sh\n" +
-		"if [ \"$1\" = \"--version\" ]; then\n" +
-		"  printf '%s\\n' \"git version stall-test\"\n" +
-		"  exit 0\n" +
-		"fi\n" +
-		"printf '%s\\n' \"usage: git init\" >&2\n" +
-		"exit 129\n"
-	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o700); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	check := gitEnvironmentCheck(context.Background(), 5*time.Second)
-	if check.Name != "git" || check.Status != findings.CheckOK {
-		t.Fatalf("check = %#v, want git ok", check)
-	}
-	if !strings.Contains(check.Detail, "object-format sha1") {
-		t.Fatalf("check = %#v, want sha1 capability label", check)
 	}
 }
 
