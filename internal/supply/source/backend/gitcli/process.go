@@ -185,7 +185,7 @@ waited:
 }
 
 func gitFrozenNonContextConsumer(err error) bool {
-	return err != nil && gitAttemptContextErr(err, gitProcessResult{}) == nil
+	return err != nil && !gitOutputDrainOnly(err) && gitAttemptContextErr(err, gitProcessResult{}) == nil
 }
 
 func gitAttemptContextErr(consumeErr error, result gitProcessResult) error {
@@ -195,7 +195,7 @@ func gitAttemptContextErr(consumeErr error, result gitProcessResult) error {
 	if errors.Is(consumeErr, context.Canceled) {
 		return context.Canceled
 	}
-	if consumeErr != nil {
+	if consumeErr != nil && !gitOutputDrainOnly(consumeErr) {
 		return nil
 	}
 	if errors.Is(result.commandErr, context.DeadlineExceeded) {

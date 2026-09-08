@@ -50,6 +50,9 @@ func (reader *gitOutputReader) Read(buffer []byte) (int, error) {
 		// Pipe grace exhaustion is not a caller context deadline.
 		err = &os.PathError{Op: "read", Path: reader.file.Name(), Err: os.ErrClosed}
 	}
+	if reader.incomplete && errors.Is(err, os.ErrClosed) {
+		err = &gitOutputDrainError{cause: err}
+	}
 	return count, err
 }
 
@@ -90,4 +93,40 @@ func (reader *gitOutputReader) Incomplete() bool {
 
 func (reader *gitOutputReader) Close() error {
 	return reader.file.Close()
+}
+
+// A drain cutoff is a transport failure, not an independent consumer rejection.
+type gitOutputDrainError struct {
+	cause error
+}
+
+func (err *gitOutputDrainError) Error() string {
+	return err.cause.Error()
+}
+
+func (err *gitOutputDrainError) Unwrap() error {
+	return err.cause
+}
+
+func gitOutputDrainOnly(err error) bool {
+	switch wrapped := err.(type) {
+	case *gitOutputDrainError:
+		return true
+	case interface{ Unwrap() error }:
+		return gitOutputDrainOnly(wrapped.Unwrap())
+	case interface{ Unwrap() []error }:
+		causes := wrapped.Unwrap()
+		if len(causes) == 0 {
+			return false
+		}
+		// Joined cleanup or validation failures still require consumer precedence.
+		for _, cause := range causes {
+			if !gitOutputDrainOnly(cause) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
