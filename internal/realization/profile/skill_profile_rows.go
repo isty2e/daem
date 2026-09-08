@@ -1,6 +1,8 @@
 package profile
 
 import (
+	"iter"
+
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
@@ -99,7 +101,7 @@ var skillRuntimeLocations = []RuntimeLocation{
 	mustRuntimeLocation(target.TargetCodex, entity.KindSkill, target.ScopeGlobal, "/etc/codex/skills"),
 }
 
-func skillOperationRoutes() []OperationRoute {
+func skillOperationRoutes() iter.Seq[OperationRoute] {
 	return managedPathOperationRoutes(
 		skillPlacements,
 		managedDirectoryWriteRoute,

@@ -1,6 +1,8 @@
 package profile
 
 import (
+	"iter"
+
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
@@ -85,7 +87,7 @@ var instructionRuntimeLocations = []RuntimeLocation{
 	mustRuntimeLocation(target.TargetClaudeCode, entity.KindInstructions, target.ScopeProject, "CLAUDE.local.md"),
 }
 
-func instructionOperationRoutes() []OperationRoute {
+func instructionOperationRoutes() iter.Seq[OperationRoute] {
 	return managedPathOperationRoutes(
 		instructionPlacements,
 		managedInstructionWriteRoute,

@@ -383,11 +383,14 @@ func profileRoutes(
 	delegated []DelegatedRouteProfile,
 ) []OperationRoute {
 	result := aggregateOperationRoutesForTarget(selectedTarget, mcpPlacements)
-	for _, routes := range [...][]OperationRoute{instructionOperationRoutes(), skillOperationRoutes()} {
-		for _, route := range routes {
-			if profileHasPlacement(admissions, route.ResourceKind(), route.CorrelationID()) {
-				result = append(result, route)
-			}
+	for route := range instructionOperationRoutes() {
+		if profileHasPlacement(admissions, route.ResourceKind(), route.CorrelationID()) {
+			result = append(result, route)
+		}
+	}
+	for route := range skillOperationRoutes() {
+		if profileHasPlacement(admissions, route.ResourceKind(), route.CorrelationID()) {
+			result = append(result, route)
 		}
 	}
 	if TargetSupports(selectedTarget, entity.KindHook) {
