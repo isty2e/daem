@@ -39,6 +39,26 @@ func TestStaticManagedPathFacetsPreserveOwnerCatalogs(t *testing.T) {
 	}
 }
 
+func TestPlacementLookupMatchesCatalogWithoutAllocating(t *testing.T) {
+	placements := StaticManagedPathFacets().Placements()
+	placements = append(placements, ManagedPathPlacement{})
+	for _, expected := range placements {
+		t.Run(expected.ID(), func(t *testing.T) {
+			var actual ManagedPathPlacement
+			var found bool
+			allocations := testing.AllocsPerRun(100, func() {
+				actual, found = placementByID(expected.ID())
+			})
+			if actual != expected || found != (expected.ID() != "") {
+				t.Fatalf("lookup %q = %#v/%t, want %#v", expected.ID(), actual, found, expected)
+			}
+			if allocations != 0 {
+				t.Fatalf("lookup %q allocates %g times, want no catalog reconstruction", expected.ID(), allocations)
+			}
+		})
+	}
+}
+
 func TestResourceSupportFactsMatchDirectOwnerQueries(t *testing.T) {
 	t.Parallel()
 

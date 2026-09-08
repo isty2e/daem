@@ -400,9 +400,13 @@ func profileRoutes(selectedTarget target.Target, delegated []DelegatedRouteProfi
 }
 
 func profileHasPlacement(selectedTarget target.Target, resourceKind entity.Kind, placementID string) bool {
+	placement, ok := placementByID(placementID)
+	if !ok || placement.ResourceKind() != resourceKind {
+		return false
+	}
+
 	for _, admission := range profilePlacementAdmissions(selectedTarget) {
-		placement, ok := placementByID(placementID)
-		if ok && admission.PlacementID() == placementID && placement.ResourceKind() == resourceKind {
+		if admission.PlacementID() == placementID {
 			return true
 		}
 	}
@@ -420,9 +424,11 @@ func profileMCPPlacements(selectedTarget target.Target) []aggregate.MCPPlacement
 }
 
 func placementByID(placementID string) (ManagedPathPlacement, bool) {
-	for _, placement := range append(append([]ManagedPathPlacement(nil), instructionPlacements...), skillPlacements...) {
-		if placement.ID() == placementID {
-			return placement, true
+	for _, placements := range [...][]ManagedPathPlacement{instructionPlacements, skillPlacements} {
+		for _, placement := range placements {
+			if placement.ID() == placementID {
+				return placement, true
+			}
 		}
 	}
 	return ManagedPathPlacement{}, false
