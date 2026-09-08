@@ -317,7 +317,7 @@ func runGitProcessHelper(stage string, pidFile string) error {
 		return runGitProcessHelperChild("chain-child", pidFile, true)
 	case "chain-child":
 		return runGitProcessHelperChild("chain-grandchild", pidFile, true)
-	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child", "listing-overflow-child", "setsid-child", "setsid-inherit-child", "setsid-stdout-child":
+	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child", "listing-overflow-child", "setsid-child", "setsid-inherit-child", "setsid-stdout-child", "setsid-stderr-child":
 		for {
 			time.Sleep(time.Hour)
 		}
@@ -336,12 +336,20 @@ func runGitProcessHelper(stage string, pidFile string) error {
 			return err
 		}
 		return waitForGitHelperPIDCount(pidFile, 2, 3*time.Second)
-	case "setsid-stdout-fail-parent":
+	case "setsid-stderr-parent":
+		if err := startGitProcessHelperChild("setsid-stderr-child", pidFile); err != nil {
+			return err
+		}
+		return waitForGitHelperPIDCount(pidFile, 2, 3*time.Second)
+	case "setsid-stdout-parent", "setsid-stdout-fail-parent":
 		if err := startGitProcessHelperChild("setsid-stdout-child", pidFile); err != nil {
 			return err
 		}
 		if err := waitForGitHelperPIDCount(pidFile, 2, 3*time.Second); err != nil {
 			return err
+		}
+		if stage == "setsid-stdout-parent" {
+			return nil
 		}
 		_, _ = io.WriteString(os.Stderr, "fatal: complete-stderr-marker-xyz\n")
 		return fmt.Errorf("forced helper failure")
@@ -349,6 +357,8 @@ func runGitProcessHelper(stage string, pidFile string) error {
 		for {
 			time.Sleep(time.Hour)
 		}
+	case "archive-only":
+		return writeGitHelperArchive(os.Stdout)
 	case "archive-parent":
 		if err := startGitProcessHelperChild("archive-child", pidFile); err != nil {
 			return err
@@ -444,6 +454,10 @@ func newGitProcessHelperChild(stage string, pidFile string) (*exec.Cmd, error) {
 		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		command.Stdout = os.Stdout
 		command.Stderr = io.Discard
+	} else if stage == "setsid-stderr-child" {
+		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		command.Stdout = io.Discard
+		command.Stderr = os.Stderr
 	} else if stage == "residual-child" || stage == "archive-child" || stage == "archive-invalid-child" {
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
