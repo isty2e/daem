@@ -685,17 +685,19 @@ type releaseStep struct {
 	Run             string               `yaml:"run"`
 	Shell           string               `yaml:"shell"`
 	With            map[string]yaml.Node `yaml:"with"`
+	Env             map[string]string    `yaml:"env"`
 	ContinueOnError *yaml.Node           `yaml:"continue-on-error"`
 }
 
 type workflowJob struct {
-	Name           string            `yaml:"name"`
-	RunsOn         string            `yaml:"runs-on"`
-	If             string            `yaml:"if"`
-	Needs          yaml.Node         `yaml:"needs"`
-	TimeoutMinutes int               `yaml:"timeout-minutes"`
-	Outputs        map[string]string `yaml:"outputs"`
-	Strategy       struct {
+	Name            string            `yaml:"name"`
+	RunsOn          string            `yaml:"runs-on"`
+	If              string            `yaml:"if"`
+	Needs           yaml.Node         `yaml:"needs"`
+	TimeoutMinutes  int               `yaml:"timeout-minutes"`
+	ContinueOnError *yaml.Node        `yaml:"continue-on-error"`
+	Outputs         map[string]string `yaml:"outputs"`
+	Strategy        struct {
 		FailFast *bool `yaml:"fail-fast"`
 		Matrix   struct {
 			Include []struct {

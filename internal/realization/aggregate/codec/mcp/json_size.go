@@ -310,6 +310,25 @@ func (counter *boundedCanonicalJSONSize) addRawJSON(content []byte, depth int) e
 	for index := 0; index < len(content); {
 		character := content[index]
 		if inString {
+			if !escaped {
+				end := index + int(min(int64(len(content)-index), maximumDocumentBytes-counter.bytes+1))
+				plainEnd := index
+			plainString:
+				for plainEnd < end {
+					switch content[plainEnd] {
+					case '\\', '"', '<', '>', '&', 0xe2:
+						break plainString
+					}
+					plainEnd++
+				}
+				if plainEnd > index {
+					if err := counter.addBytes(int64(plainEnd - index)); err != nil {
+						return err
+					}
+					index = plainEnd
+					continue
+				}
+			}
 			switch {
 			case escaped:
 				escaped = false

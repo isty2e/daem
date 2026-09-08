@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -126,10 +125,10 @@ func environmentChecks(
 }
 
 func gitCheck(ctx context.Context) findings.Check {
-	return gitEnvironmentCheck(ctx, 5*time.Second)
+	return gitEnvironmentCheck(ctx, 5*time.Second, nil)
 }
 
-func gitEnvironmentCheck(ctx context.Context, timeout time.Duration) findings.Check {
+func gitEnvironmentCheck(ctx context.Context, timeout time.Duration, runner subprocess.CommandRunner) findings.Check {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -138,6 +137,7 @@ func gitEnvironmentCheck(ctx context.Context, timeout time.Duration) findings.Ch
 	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
 		Timeout:     timeout,
 		OutputLimit: subprocess.DefaultCommandOutputLimit,
+		Runner:      runner,
 	})
 
 	version := executor.Execute(checkContext, subprocess.CommandAttemptRequest{
@@ -206,34 +206,6 @@ func classifyGitVersionAttempt(
 	}
 
 	value := strings.TrimSpace(result.Stdout())
-	if value == "" {
-		return errorCheck("git", "git --version returned empty output")
-	}
-	return okCheck("git", value)
-}
-
-func gitCheckWithTimeout(
-	ctx context.Context,
-	timeout time.Duration,
-	version func(context.Context) (string, error),
-) findings.Check {
-	checkContext, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	value, err := version(checkContext)
-	if err != nil {
-		switch {
-		case ctx.Err() != nil:
-			return errorCheck("git", fmt.Sprintf("git check stopped by caller context: %v", ctx.Err()))
-		case errors.Is(checkContext.Err(), context.DeadlineExceeded):
-			return errorCheck("git", fmt.Sprintf("git version check timed out after %s", timeout))
-		case errors.Is(err, exec.ErrNotFound):
-			return errorCheck("git", "git executable was not found in PATH")
-		default:
-			return errorCheck("git", fmt.Sprintf("git --version failed: %v", err))
-		}
-	}
-
 	if value == "" {
 		return errorCheck("git", "git --version returned empty output")
 	}
