@@ -302,7 +302,7 @@ func TestGitProcessHelper(t *testing.T) {
 }
 
 func runGitProcessHelper(stage string, pidFile string) error {
-	if stage == "stderr-hang-parent" {
+	if stage == "stderr-hang-parent" || stage == "setsid-stdout-hang-parent" || stage == "setsid-stderr-hang-parent" {
 		if _, err := io.WriteString(os.Stderr, "fatal: cancel-stderr-marker\n"); err != nil {
 			return err
 		}
@@ -353,6 +353,14 @@ func runGitProcessHelper(stage string, pidFile string) error {
 		}
 		_, _ = io.WriteString(os.Stderr, "fatal: complete-stderr-marker-xyz\n")
 		return fmt.Errorf("forced helper failure")
+	case "setsid-stdout-hang-parent", "setsid-stderr-hang-parent":
+		childStage := strings.TrimSuffix(stage, "-hang-parent") + "-child"
+		if err := startGitProcessHelperChild(childStage, pidFile); err != nil {
+			return err
+		}
+		for {
+			time.Sleep(time.Hour)
+		}
 	case "stderr-hang-parent":
 		for {
 			time.Sleep(time.Hour)
