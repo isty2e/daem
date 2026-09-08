@@ -7,14 +7,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"time"
 
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
 type gitProcess struct {
-	stdout           *os.File
-	stderr           *os.File
+	stdout           *gitOutputReader
+	stderr           *gitOutputReader
 	group            *subprocess.ProcessGroup
 	stderrDone       chan error
 	diagnostic       gitDiagnosticBuffer
@@ -63,6 +62,16 @@ func startGitProcess(command *exec.Cmd) (*gitProcess, error) {
 		closePipes()
 		return nil, fmt.Errorf("supervise git process group: %w", err)
 	}
+	stdout, err := newGitOutputReader(stdoutReader)
+	if err != nil {
+		closePipes()
+		return nil, fmt.Errorf("configure git stdout pipe deadline: %w", err)
+	}
+	stderr, err := newGitOutputReader(stderrReader)
+	if err != nil {
+		closePipes()
+		return nil, fmt.Errorf("configure git stderr pipe deadline: %w", err)
+	}
 	if err := command.Start(); err != nil {
 		closePipes()
 		return nil, err
@@ -71,8 +80,8 @@ func startGitProcess(command *exec.Cmd) (*gitProcess, error) {
 	_ = stderrWriter.Close()
 
 	process := &gitProcess{
-		stdout:           stdoutReader,
-		stderr:           stderrReader,
+		stdout:           stdout,
+		stderr:           stderr,
 		group:            group,
 		stderrDone:       make(chan error, 1),
 		diagnosticPolicy: diagnosticPolicy,
@@ -93,22 +102,16 @@ func (process *gitProcess) Terminate() (subprocess.ProcessTermination, error) {
 	return process.group.Terminate()
 }
 
-func (process *gitProcess) closeOutputReaders() {
-	_ = process.stdout.Close()
-	_ = process.stderr.Close()
+func (process *gitProcess) beginOutputDrain() {
+	process.stdout.BeginDrain()
+	process.stderr.BeginDrain()
 }
 
 func (process *gitProcess) finishStderr() (error, bool) {
-	timer := time.NewTimer(subprocess.InheritedOutputCloseWait)
-	defer timer.Stop()
-	select {
-	case err := <-process.stderrDone:
-		_ = process.stderr.Close()
-		return err, false
-	case <-timer.C:
-		_ = process.stderr.Close()
-		return <-process.stderrDone, true
-	}
+	process.stderr.BeginDrain()
+	err := <-process.stderrDone
+	_ = process.stderr.Close()
+	return err, process.stderr.Incomplete()
 }
 
 func completeGitProcess(
@@ -124,30 +127,14 @@ func completeGitProcess(
 		consumeDone <- consume(process.Stdout())
 	}()
 
-	var drainTimer *time.Timer
-	var drain <-chan time.Time
-	startDrain := func() {
-		if drain != nil {
-			return
-		}
-		drainTimer = time.NewTimer(subprocess.InheritedOutputCloseWait)
-		drain = drainTimer.C
-	}
-	defer func() {
-		if drainTimer != nil {
-			drainTimer.Stop()
-		}
-	}()
-
 	ctxDone := ctx.Done()
 	waitDone := process.group.WaitDone()
 	var consumeErr error
-	incomplete := false
 	leaderExited := false
 	for {
 		select {
 		case consumeErr = <-consumeDone:
-			if consumeErr != nil {
+			if consumeErr != nil && !process.stdout.Incomplete() {
 				_, _ = process.Terminate()
 			}
 			if ctx.Err() == nil && waitAlreadyDone(waitDone) {
@@ -157,20 +144,15 @@ func completeGitProcess(
 			goto waited
 		case <-ctxDone:
 			_, _ = process.Terminate()
-			startDrain()
+			process.beginOutputDrain()
 			ctxDone = nil
 		case <-waitDone:
 			if ctx.Err() == nil {
 				leaderExited = true
 			}
-			startDrain()
+			process.beginOutputDrain()
 			waitDone = nil
 			invokeAfterGitLeaderWait()
-		case <-drain:
-			process.closeOutputReaders()
-			consumeErr = <-consumeDone
-			incomplete = consumeErr != nil
-			goto waited
 		}
 	}
 
@@ -183,7 +165,7 @@ waited:
 	termination, terminationErr := process.group.ReapAfterLeaderExit()
 	stderrReadErr, stderrIncomplete := process.finishStderr()
 	_ = process.stdout.Close()
-	outputIncomplete := incomplete || stderrIncomplete || errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned)
+	outputIncomplete := process.stdout.Incomplete() || stderrIncomplete || errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned)
 	stderrTruncated := process.diagnostic.Truncated() || stderrIncomplete
 	if waitErr != nil {
 		waitErr = gitCommandErrorWithCapture(
@@ -243,8 +225,8 @@ func gitObservedLifecycleError(consumeErr error, result gitProcessResult) error 
 	}
 }
 
-// afterGitLeaderWait is a test hook invoked after WaitDone is observed and
-// before completeGitProcess drains inherited output and Awaits cleanup.
+// afterGitLeaderWait is a test hook invoked after WaitDone is observed,
+// before completeGitProcess Awaits cleanup.
 var afterGitLeaderWait func()
 
 func invokeAfterGitLeaderWait() {
