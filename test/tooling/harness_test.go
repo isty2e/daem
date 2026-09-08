@@ -3,10 +3,13 @@
 package tooling
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -64,8 +67,10 @@ func TestRepositoryGoTestPackageWrapperUsesDistinctRoots(t *testing.T) {
 	testRoot := t.TempDir()
 
 	type result struct {
-		output string
-		err    error
+		output     []byte
+		stderr     string
+		wrapperPID int
+		err        error
 	}
 	results := make(chan result, 2)
 	var started sync.WaitGroup
@@ -74,30 +79,47 @@ func TestRepositoryGoTestPackageWrapperUsesDistinctRoots(t *testing.T) {
 		go func() {
 			started.Done()
 			started.Wait()
-			command := exec.Command(wrapper, "sh", "-c", `printf '%s\n%s\n' "$HOME" "$XDG_STATE_HOME"`)
+			command := exec.Command(wrapper, os.Args[0], packageWrapperProbeArgument)
 			command.Env = append(
-				withoutEnvironment(os.Environ(), "DAEM_TEST_ROOT"),
+				withoutEnvironment(os.Environ(), "DAEM_TEST_ROOT", "LC_ALL"),
 				"DAEM_TEST_HARNESS=1",
 				"DAEM_TEST_ROOT="+testRoot,
+				"LC_ALL=C",
 			)
-			output, err := command.CombinedOutput()
-			results <- result{output: string(output), err: err}
+			var stderr bytes.Buffer
+			command.Stderr = &stderr
+			output, err := command.Output()
+			wrapperPID := 0
+			if command.Process != nil {
+				wrapperPID = command.Process.Pid
+			}
+			results <- result{output: output, stderr: stderr.String(), wrapperPID: wrapperPID, err: err}
 		}()
 	}
 
+	var completed [2]result
+	for index := range completed {
+		completed[index] = <-results
+	}
+
 	homes := make(map[string]struct{}, 2)
-	for range 2 {
-		result := <-results
+	for _, result := range completed {
 		if result.err != nil {
-			t.Fatalf("package wrapper failed: %v\n%s", result.err, result.output)
+			t.Fatalf("package wrapper failed: %v\nstdout: %s\nstderr: %s", result.err, result.output, result.stderr)
 		}
-		lines := strings.Split(strings.TrimSpace(result.output), "\n")
-		if len(lines) != 2 {
-			t.Fatalf("package wrapper output = %q, want HOME and XDG state root", result.output)
+		var probe packageWrapperProbe
+		if err := json.Unmarshal(result.output, &probe); err != nil {
+			t.Fatalf("decode package wrapper probe: %v\nstdout: %s\nstderr: %s", err, result.output, result.stderr)
 		}
-		assertPathDescendsFrom(t, "wrapper HOME", lines[0], testRoot)
-		assertPathDescendsFrom(t, "wrapper XDG_STATE_HOME", lines[1], testRoot)
-		homes[lines[0]] = struct{}{}
+		if err := probe.validateProcess(wrapper, result.wrapperPID, runtime.GOOS, result.stderr); err != nil {
+			t.Fatalf("package wrapper process: %v\nstdout: %s\nstderr: %s", err, result.output, result.stderr)
+		}
+		if result.stderr != "" {
+			t.Logf("verified child process group despite Darwin diagnostic: %s", result.stderr)
+		}
+		assertPathDescendsFrom(t, "wrapper HOME", probe.Home, testRoot)
+		assertPathDescendsFrom(t, "wrapper XDG_STATE_HOME", probe.StateHome, testRoot)
+		homes[probe.Home] = struct{}{}
 	}
 	if len(homes) != 2 {
 		t.Fatalf("concurrent package wrappers shared HOME: %v", homes)
