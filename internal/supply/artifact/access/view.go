@@ -145,8 +145,9 @@ func NewTraversalLimit(maxEntries uint64, maxBytes int64) (TraversalLimit, error
 	return limit, nil
 }
 
-// OpenView validates and captures a canonical root locator without retaining
-// an open descriptor. Every later operation reopens and revalidates the root.
+// OpenView resolves parent symbolic links and captures a root locator without
+// retaining an open descriptor. Every later operation reopens and revalidates
+// the root. The Unix root-spelling contract is defined in docs/platforms.md.
 func OpenView(root string) (View, error) {
 	canonicalRoot, err := canonicalizeRoot(root)
 	if err != nil {

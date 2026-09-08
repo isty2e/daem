@@ -42,9 +42,9 @@ durable recovery authority.
 
 On admitted Darwin and Linux targets, descriptor-relative artifact views seal the
 complete selected root-component chain with object-incarnation and
-operation-local mount evidence. `OpenView` first resolves its permitted parent
-aliases; `OpenNoFollowView` rejects every alias component. Each read, listing,
-hash, measurement, and verified copy validates that chain before observation
+operation-local mount evidence. `OpenView` first resolves parent symbolic
+links; `OpenNoFollowView` rejects every symbolic-link component. Each read,
+listing, hash, measurement, and verified copy validates that chain before observation
 and again before success. Nested relative selections receive the same
 operation-local ancestor validation. Under stable parent-directory observations,
 their exact stored spelling must remain bound to the original opened entry's
@@ -57,6 +57,21 @@ a nonzero birth time or generation number. Linux requires both `STATX_MNT_ID`
 and `STATX_BTIME` for each component. An unavailable mount or incarnation
 identity fails the affected artifact operation rather than falling back to
 reusable inode or pathname facts.
+
+For these Unix artifact views, absolute-root components use the backing
+filesystem's native name lookup. A case variant can select the same object in
+a case-insensitive parent namespace; an absent spelling in a case-sensitive
+namespace remains absent. This is not symbolic-link traversal and is not
+disabled by `OpenNoFollowView`. Nested relative selections still require exact
+stored spelling as described above, even when the filesystem would resolve a
+case variant. Neither spelling rule replaces the object and mount checks.
+
+Universal exact-input-spelling rejection for absolute artifact roots is outside
+this contract: a root is an input locator, not a required inventory-entry name.
+Adding that refusal would require a separate compatibility decision. These
+read-only locators and process-local witnesses do not grant the mutation,
+lease, or durable-comparison authority described under
+[Path Descriptions](#path-descriptions).
 
 **Deferred Darwin admission policy:** blanket nonzero generation/birth-time
 admission for mutation roots, durable root provenance, and StateDir witnesses
@@ -149,9 +164,10 @@ cross-process exclusion guarantees as a tested local filesystem even on an
 admitted OS/architecture row. The same caveat applies to journal-retirement
 control publication, residue cleanup, and control-to-GC finalization.
 
-On Darwin, path authority follows the backing filesystem rather than a single
-macOS-wide rule. Daem obtains stored spelling for existing components and asks
-each parent directory namespace whether names are case-sensitive. Mixed mount
+On Darwin, mutation, lease, and durable-comparison path authority follows the
+backing filesystem rather than a single macOS-wide rule. Daem obtains stored
+spelling for existing components and asks each parent directory namespace
+whether names are case-sensitive. Mixed mount
 paths are evaluated component by component; a missing suffix inherits the
 deepest existing directory's case behavior. An unavailable or contradictory
 capability is an error, not a case-insensitive fallback. Directory-entry

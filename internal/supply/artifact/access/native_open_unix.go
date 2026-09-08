@@ -68,6 +68,8 @@ func openNativeRoot(
 		return handle, nil
 	}
 
+	// Absolute roots use native name lookup, not the exact-spelling check for
+	// nested relative selections. See the artifact contract in docs/platforms.md.
 	parentFD := rootFD
 	for index, component := range components {
 		if err := ctx.Err(); err != nil {

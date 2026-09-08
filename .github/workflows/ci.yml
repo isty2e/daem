@@ -120,6 +120,11 @@ jobs:
           uname -a
       - name: Run full native tests
         run: tools/test.sh full
+      - name: Run artifact root-spelling contracts
+        run: |
+          tools/test-go.sh -mod=readonly -count=1 -v \
+            -run '^TestViews(FollowFilesystemCaseLookupForAbsoluteRoots|KeepCaseDistinctAbsoluteRootsSeparate)$' \
+            ./internal/supply/artifact/access
       - name: Run Darwin test-harness contracts
         if: matrix.goos == 'darwin'
         run: tools/test.sh tooling
