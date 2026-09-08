@@ -2,9 +2,12 @@ package profile
 
 import (
 	"fmt"
+	"iter"
+	"slices"
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -121,28 +124,21 @@ func managedPathOperationRoutes(
 	writeRouteID string,
 	removeRouteID string,
 	adapterContractVersion string,
-) []OperationRoute {
-	routes := make([]OperationRoute, 0, len(placements)*2)
-	for _, placement := range placements {
-		routes = append(
-			routes,
-			mustOperationRoute(
-				placement.ResourceKind(),
-				OperationWrite,
-				placement.ID(),
-				writeRouteID,
-				adapterContractVersion,
-			),
-			mustOperationRoute(
-				placement.ResourceKind(),
-				OperationRemove,
-				placement.ID(),
-				removeRouteID,
-				adapterContractVersion,
-			),
-		)
+) iter.Seq[OperationRoute] {
+	return func(yield func(OperationRoute) bool) {
+		for _, placement := range placements {
+			if !yield(mustOperationRoute(
+				placement.ResourceKind(), OperationWrite, placement.ID(), writeRouteID, adapterContractVersion,
+			)) {
+				return
+			}
+			if !yield(mustOperationRoute(
+				placement.ResourceKind(), OperationRemove, placement.ID(), removeRouteID, adapterContractVersion,
+			)) {
+				return
+			}
+		}
 	}
-	return routes
 }
 
 func mustOperationRoute(
@@ -160,10 +156,11 @@ func mustOperationRoute(
 }
 
 func profileOperationRoutes() []OperationRoute {
-	routes := append(instructionOperationRoutes(), skillOperationRoutes()...)
+	routes := slices.AppendSeq(slices.Collect(instructionOperationRoutes()), skillOperationRoutes())
 	routes = append(routes, hookAssetOperationRoutes()...)
+	mcpPlacements := aggregate.ImplementedMCPPlacements()
 	for _, selectedTarget := range target.SupportedTargets() {
-		routes = append(routes, aggregateOperationRoutesForTarget(selectedTarget)...)
+		routes = append(routes, aggregateOperationRoutesForTarget(selectedTarget, mcpPlacements)...)
 	}
 	for _, delegated := range delegatedRouteProfiles {
 		routes = append(routes, delegated.OperationRoutes()...)

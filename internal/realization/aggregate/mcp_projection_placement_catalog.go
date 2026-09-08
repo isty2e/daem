@@ -14,6 +14,18 @@ func ImplementedMCPPlacements() []MCPPlacement {
 	return append([]MCPPlacement(nil), implementedMCPPlacements...)
 }
 
+// MCPPlacementsForTarget returns caller-owned placement values in catalog order.
+// Unknown targets have no placements.
+func MCPPlacementsForTarget(selectedTarget target.Target) []MCPPlacement {
+	placements := make([]MCPPlacement, 0)
+	for _, placement := range implementedMCPPlacements {
+		if placement.target == selectedTarget {
+			placements = append(placements, placement)
+		}
+	}
+	return placements
+}
+
 // MCPPlacementForSubject returns the implemented placement named by a topology
 // projection subject. Unknown namespaces and non-projection subjects are not
 // placements.

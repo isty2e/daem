@@ -175,7 +175,7 @@ func validateSkillTargetPolicies(
 	value skill.Skill,
 ) error {
 	for _, selectedTarget := range value.Targets() {
-		if !profile.Profile(selectedTarget).Supports(entity.KindSkill) {
+		if !profile.TargetSupports(selectedTarget, entity.KindSkill) {
 			continue
 		}
 		if err := skillcompat.Validate(ctx, view, sourceID, value.InstallName(), selectedTarget); err != nil {

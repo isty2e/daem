@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,6 +11,47 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestProfileRoutesMatchCompleteCatalogSelection(t *testing.T) {
+	catalog := profileOperationRoutes()
+	delegated := DelegatedRouteProfiles()
+	for _, selectedTarget := range append(target.SupportedTargets(), target.Target("future-agent"), target.Target("")) {
+		t.Run(string(selectedTarget), func(t *testing.T) {
+			selected := Profile(selectedTarget)
+			want := aggregateOperationRoutesForTarget(selectedTarget, aggregate.ImplementedMCPPlacements())
+			for _, route := range catalog {
+				switch route.ResourceKind() {
+				case entity.KindInstructions, entity.KindSkill:
+					if profileHasPlacement(selected.admissions, route.ResourceKind(), route.CorrelationID()) {
+						want = append(want, route)
+					}
+				case entity.KindHookAsset:
+					if TargetSupports(selectedTarget, entity.KindHook) {
+						want = append(want, route)
+					}
+				case entity.KindExtension:
+					for _, owner := range delegated {
+						if owner.Target() != selectedTarget {
+							continue
+						}
+						if admitted, ok := owner.OperationRoute(route.Operation()); ok && admitted == route {
+							want = append(want, route)
+						}
+					}
+				}
+			}
+			if !slices.Equal(selected.operationRoutes, want) {
+				t.Fatalf("profile routes = %#v, want ordered complete-catalog selection %#v", selected.operationRoutes, want)
+			}
+			for _, route := range catalog {
+				got, ok := selected.OperationRoute(route.ResourceKind(), route.CorrelationID(), route.Operation())
+				if admitted := slices.Contains(want, route); ok != admitted || (ok && got != route) {
+					t.Fatalf("lookup %#v = %#v/%t, want admitted=%t", route, got, ok, admitted)
+				}
+			}
+		})
+	}
+}
 
 func TestHookAssetPlacementRequiresCorrelatedRoute(t *testing.T) {
 	placement, err := HookAssetPlacementFor(target.ScopeProject, []target.Target{target.TargetCodex})

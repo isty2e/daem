@@ -1,5 +1,7 @@
 package profile
 
+import "slices"
+
 // ManagedPathFacetCatalog is the immutable owner-local catalog for managed-path
 // placement, target admission, discovery, runtime, and operation-route facts.
 // It is not a target projection and carries no desired or observed state.
@@ -31,7 +33,7 @@ func StaticManagedPathFacets() ManagedPathFacetCatalog {
 			append([]RuntimeLocation(nil), instructionRuntimeLocations...),
 			skillRuntimeLocations...,
 		),
-		routes: append(instructionOperationRoutes(), skillOperationRoutes()...),
+		routes: slices.AppendSeq(slices.Collect(instructionOperationRoutes()), skillOperationRoutes()),
 	}
 }
 

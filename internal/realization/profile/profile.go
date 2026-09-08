@@ -33,16 +33,17 @@ type TargetProfile struct {
 // produce an empty profile whose queries conservatively return no admission.
 func Profile(selectedTarget target.Target) TargetProfile {
 	supports := profileSupports(selectedTarget)
-	mcpPlacements := profileMCPPlacements(selectedTarget)
+	mcpPlacements := aggregate.MCPPlacementsForTarget(selectedTarget)
 	delegatedRoutes := profileDelegatedRoutes(selectedTarget)
+	admissions := profilePlacementAdmissions(selectedTarget)
 	profile := TargetProfile{
 		selectedTarget:   selectedTarget,
 		supports:         supports,
-		placements:       profilePlacements(selectedTarget),
-		admissions:       profilePlacementAdmissions(selectedTarget),
+		placements:       profilePlacements(admissions),
+		admissions:       admissions,
 		discoveries:      profileDiscoveries(selectedTarget),
 		runtime:          profileRuntimeLocations(selectedTarget),
-		operationRoutes:  profileRoutes(selectedTarget, delegatedRoutes),
+		operationRoutes:  profileRoutes(selectedTarget, admissions, mcpPlacements, delegatedRoutes),
 		mcpPlacements:    mcpPlacements,
 		mcpRuntimeProbes: profileMCPRuntimeProbeCapabilities(selectedTarget),
 		delegatedRoutes:  delegatedRoutes,
@@ -144,8 +145,8 @@ func (profile TargetProfile) PlacementAt(
 ) (SelectedManagedPathPlacement, bool) {
 	var selected ManagedPathPlacement
 	count := 0
-	for _, placement := range profile.Placements(resourceKind, scope) {
-		if placement.Root().String() == path {
+	for _, placement := range profile.placements {
+		if placement.ResourceKind() == resourceKind && placement.Scope() == scope && placement.Root().String() == path {
 			selected = placement
 			count++
 		}
@@ -180,9 +181,9 @@ func (profile TargetProfile) PlacementAdmissionAt(
 	scope target.Scope,
 	path string,
 ) (PlacementAdmission, bool) {
-	for _, admission := range profile.PlacementAdmissions(resourceKind, scope) {
+	for _, admission := range profile.admissions {
 		placement, ok := profile.placement(admission.PlacementID())
-		if ok && placement.Root().String() == path {
+		if ok && placement.ResourceKind() == resourceKind && placement.Scope() == scope && placement.Root().String() == path {
 			return admission, true
 		}
 	}
@@ -323,104 +324,96 @@ func profileSupports(selectedTarget target.Target) map[entity.Kind]Support {
 	return result
 }
 
-func profilePlacements(selectedTarget target.Target) []ManagedPathPlacement {
-	all := append(append([]ManagedPathPlacement(nil), instructionPlacements...), skillPlacements...)
+func profilePlacements(admissions []PlacementAdmission) []ManagedPathPlacement {
 	admitted := make(map[string]struct{})
-	for _, admission := range profilePlacementAdmissions(selectedTarget) {
+	for _, admission := range admissions {
 		admitted[admission.PlacementID()] = struct{}{}
 	}
 	result := make([]ManagedPathPlacement, 0)
-	for _, placement := range all {
-		if _, ok := admitted[placement.ID()]; ok {
-			result = append(result, placement)
+	for _, placements := range [...][]ManagedPathPlacement{instructionPlacements, skillPlacements} {
+		for _, placement := range placements {
+			if _, ok := admitted[placement.ID()]; ok {
+				result = append(result, placement)
+			}
 		}
 	}
 	return result
 }
 
 func profilePlacementAdmissions(selectedTarget target.Target) []PlacementAdmission {
-	all := append(
-		append([]PlacementAdmission(nil), instructionPlacementAdmissions...),
-		skillPlacementAdmissions...,
-	)
 	result := make([]PlacementAdmission, 0)
-	for _, admission := range all {
-		if admission.Target() == selectedTarget {
-			result = append(result, admission)
+	for _, admissions := range [...][]PlacementAdmission{instructionPlacementAdmissions, skillPlacementAdmissions} {
+		for _, admission := range admissions {
+			if admission.Target() == selectedTarget {
+				result = append(result, admission)
+			}
 		}
 	}
 	return result
 }
 
 func profileDiscoveries(selectedTarget target.Target) []DiscoveryLocation {
-	all := append(append([]DiscoveryLocation(nil), instructionDiscoveries...), skillDiscoveries...)
 	result := make([]DiscoveryLocation, 0)
-	for _, location := range all {
-		if location.Target() == selectedTarget {
-			result = append(result, location)
+	for _, locations := range [...][]DiscoveryLocation{instructionDiscoveries, skillDiscoveries} {
+		for _, location := range locations {
+			if location.Target() == selectedTarget {
+				result = append(result, location)
+			}
 		}
 	}
 	return result
 }
 
 func profileRuntimeLocations(selectedTarget target.Target) []RuntimeLocation {
-	all := append(append([]RuntimeLocation(nil), instructionRuntimeLocations...), skillRuntimeLocations...)
 	result := make([]RuntimeLocation, 0)
-	for _, location := range all {
-		if location.Target() == selectedTarget {
-			result = append(result, location)
-		}
-	}
-	return result
-}
-
-func profileRoutes(selectedTarget target.Target, delegated []DelegatedRouteProfile) []OperationRoute {
-	result := aggregateOperationRoutesForTarget(selectedTarget)
-	for _, route := range profileOperationRoutes() {
-		switch route.ResourceKind() {
-		case entity.KindInstructions, entity.KindSkill:
-			if profileHasPlacement(selectedTarget, route.ResourceKind(), route.CorrelationID()) {
-				result = append(result, route)
-			}
-		case entity.KindHookAsset:
-			if supportCatalog[selectedTarget][entity.KindHook].Supported() {
-				result = append(result, route)
-			}
-		case entity.KindExtension:
-			for _, delegatedRoute := range delegated {
-				for _, operationRoute := range delegatedRoute.OperationRoutes() {
-					if operationRoute == route {
-						result = append(result, route)
-					}
-				}
+	for _, locations := range [...][]RuntimeLocation{instructionRuntimeLocations, skillRuntimeLocations} {
+		for _, location := range locations {
+			if location.Target() == selectedTarget {
+				result = append(result, location)
 			}
 		}
 	}
 	return result
 }
 
-func profileHasPlacement(selectedTarget target.Target, resourceKind entity.Kind, placementID string) bool {
+func profileRoutes(
+	selectedTarget target.Target,
+	admissions []PlacementAdmission,
+	mcpPlacements []aggregate.MCPPlacement,
+	delegated []DelegatedRouteProfile,
+) []OperationRoute {
+	result := aggregateOperationRoutesForTarget(selectedTarget, mcpPlacements)
+	for route := range instructionOperationRoutes() {
+		if profileHasPlacement(admissions, route.ResourceKind(), route.CorrelationID()) {
+			result = append(result, route)
+		}
+	}
+	for route := range skillOperationRoutes() {
+		if profileHasPlacement(admissions, route.ResourceKind(), route.CorrelationID()) {
+			result = append(result, route)
+		}
+	}
+	if TargetSupports(selectedTarget, entity.KindHook) {
+		result = append(result, hookAssetOperationRoutes()...)
+	}
+	for _, delegatedRoute := range delegated {
+		result = append(result, delegatedRoute.OperationRoutes()...)
+	}
+	return result
+}
+
+func profileHasPlacement(admissions []PlacementAdmission, resourceKind entity.Kind, placementID string) bool {
 	placement, ok := placementByID(placementID)
 	if !ok || placement.ResourceKind() != resourceKind {
 		return false
 	}
 
-	for _, admission := range profilePlacementAdmissions(selectedTarget) {
+	for _, admission := range admissions {
 		if admission.PlacementID() == placementID {
 			return true
 		}
 	}
 	return false
-}
-
-func profileMCPPlacements(selectedTarget target.Target) []aggregate.MCPPlacement {
-	placements := make([]aggregate.MCPPlacement, 0)
-	for _, placement := range aggregate.ImplementedMCPPlacements() {
-		if placement.Target() == selectedTarget {
-			placements = append(placements, placement)
-		}
-	}
-	return placements
 }
 
 func placementByID(placementID string) (ManagedPathPlacement, bool) {
