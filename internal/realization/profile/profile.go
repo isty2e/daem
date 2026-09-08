@@ -145,8 +145,8 @@ func (profile TargetProfile) PlacementAt(
 ) (SelectedManagedPathPlacement, bool) {
 	var selected ManagedPathPlacement
 	count := 0
-	for _, placement := range profile.Placements(resourceKind, scope) {
-		if placement.Root().String() == path {
+	for _, placement := range profile.placements {
+		if placement.ResourceKind() == resourceKind && placement.Scope() == scope && placement.Root().String() == path {
 			selected = placement
 			count++
 		}
@@ -181,9 +181,9 @@ func (profile TargetProfile) PlacementAdmissionAt(
 	scope target.Scope,
 	path string,
 ) (PlacementAdmission, bool) {
-	for _, admission := range profile.PlacementAdmissions(resourceKind, scope) {
+	for _, admission := range profile.admissions {
 		placement, ok := profile.placement(admission.PlacementID())
-		if ok && placement.Root().String() == path {
+		if ok && placement.ResourceKind() == resourceKind && placement.Scope() == scope && placement.Root().String() == path {
 			return admission, true
 		}
 	}
