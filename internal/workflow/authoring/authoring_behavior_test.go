@@ -48,12 +48,13 @@ source = { path = "skills/inherited", mode = "vendor" }
 		t.Fatalf("duplicate id err = %v, want duplicate skill id", err)
 	}
 
-	if _, _, err := ApplyAddSkillToManifest(original, declarationcodec.Skill{
+	unchanged, kind, err := ApplyAddSkillToManifest(original, declarationcodec.Skill{
 		Name:    "inherited",
 		Source:  declarationcodec.SkillSource{Path: "skills/inherited", Mode: "vendor"},
 		Targets: []string{"codex"},
-	}); err == nil || !strings.Contains(err.Error(), "inherits manifest targets") {
-		t.Fatalf("inherited target err = %v, want inherited target diagnostic", err)
+	})
+	if err != nil || kind != "unchanged" || string(unchanged) != string(original) {
+		t.Fatalf("inherited target result = %q, %q, %v", unchanged, kind, err)
 	}
 }
 
@@ -192,13 +193,16 @@ func TestCodecOwnedDeclarationTypesRenderBoundaryFields(t *testing.T) {
 	requireContains(t, string(skillContent), `source = { git = "https://github.com/owner/repo.git", path = "skills/review", ref = "main" }`)
 	requireContains(t, string(skillContent), `portable = false`)
 
-	groupContent := ApplyAddSkillGroupToManifest(original, declarationcodec.SkillGroup{
+	groupContent, _, err := ApplyAddSkillGroupToManifest(original, declarationcodec.SkillGroup{
 		Names:    []string{"oracle", "review"},
 		Source:   declarationcodec.SkillSource{Git: "https://github.com/owner/repo.git", Path: "skills", Ref: "main"},
 		Targets:  []string{"codex"},
 		Scope:    "global",
 		Portable: &portable,
 	})
+	if err != nil {
+		t.Fatalf("ApplyAddSkillGroupToManifest returned error: %v", err)
+	}
 	requireContains(t, string(groupContent), `names = ["oracle", "review"]`)
 	requireContains(t, string(groupContent), `source = { git = "https://github.com/owner/repo.git", path = "skills", ref = "main" }`)
 	requireContains(t, string(groupContent), `portable = false`)

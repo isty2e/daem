@@ -55,14 +55,23 @@ func parseHookBlock(content []byte, start int, end int) (HookBlock, error) {
 
 // sameHookIdentity reports whether two hook declarations may share one block while
 // differing only in their explicit target sets and target overrides.
-func sameHookIdentity(left declaration.Hook, right declaration.Hook) bool {
+func sameHookIdentity(left declaration.Hook, right declaration.Hook, header declaration.ManifestHeader) bool {
+	existingTargets := header.EffectiveTargets(left.Targets)
+	existingOverrides := HookOverridesByTarget(left.TargetOverrides)
+	for _, incoming := range right.TargetOverrides {
+		for _, selectedTarget := range existingTargets {
+			if selectedTarget == incoming.Target && existingOverrides[selectedTarget] != incoming {
+				return false
+			}
+		}
+	}
 	return strings.TrimSpace(left.Event) == strings.TrimSpace(right.Event) &&
 		strings.TrimSpace(left.Matcher) == strings.TrimSpace(right.Matcher) &&
 		effectiveHookType(left.Type) == effectiveHookType(right.Type) &&
 		strings.TrimSpace(left.Command) == strings.TrimSpace(right.Command) &&
 		left.TimeoutSeconds == right.TimeoutSeconds &&
 		strings.TrimSpace(left.StatusMessage) == strings.TrimSpace(right.StatusMessage) &&
-		strings.TrimSpace(left.Scope) == strings.TrimSpace(right.Scope)
+		header.EffectiveScope(left.Scope) == header.EffectiveScope(right.Scope)
 }
 
 // HookOverridesByTarget indexes declaration-local target overrides.
@@ -90,9 +99,9 @@ func FilterHookOverrides(overrides []declaration.HookTargetOverride, targets []s
 	return result
 }
 
-// ApplyHookAdd appends a hook declaration or merges its explicit target set while
-// preserving unrelated manifest bytes. The caller retains target admission
-// policy through mergeTargets.
+// ApplyHookAdd retains a satisfied hook, appends a new declaration, or merges
+// explicit targets while preserving unrelated manifest bytes. The caller retains
+// target admission policy for merges through mergeTargets.
 func ApplyHookAdd(
 	original []byte,
 	header declaration.ManifestHeader,
@@ -115,8 +124,8 @@ func ApplyHookAdd(
 			ExplicitTargets: func(value declaration.Hook) declaration.Targets {
 				return declaration.Targets(value.Targets)
 			},
-			SameIdentity: func(existing declaration.Hook, incoming declaration.Hook, _ declaration.ManifestHeader) bool {
-				return sameHookIdentity(existing, incoming)
+			SameIdentity: func(existing declaration.Hook, incoming declaration.Hook, header declaration.ManifestHeader) bool {
+				return sameHookIdentity(existing, incoming, header)
 			},
 			RenderBlock: RenderHookBlock,
 			RenderBlockWithTargets: func(originalBlock string, existing declaration.Hook, incoming declaration.Hook, mergedTargetsValue declaration.Targets, header declaration.ManifestHeader) (string, error) {
@@ -129,14 +138,8 @@ func ApplyHookAdd(
 			DuplicateError: func(key declaration.Key) error {
 				return fmt.Errorf("duplicate hook name %q", key.Name)
 			},
-			AlreadyExistsError: func(key declaration.Key) error {
-				return fmt.Errorf("hook %q already exists", key.Name)
-			},
 			InheritsTargetsError: func(key declaration.Key) error {
 				return fmt.Errorf("hook %q inherits manifest targets; edit the manifest manually to change target inheritance", key.Name)
-			},
-			AlreadyHasTargetsError: func(key declaration.Key) error {
-				return fmt.Errorf("hook %q already has the selected targets", key.Name)
 			},
 		},
 	})

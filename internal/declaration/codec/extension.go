@@ -9,27 +9,6 @@ import (
 	"github.com/isty2e/daem/internal/declaration"
 )
 
-// SameExtensionRelation reports whether two extension declarations describe the same
-// document-local relation independently of their declaration IDs.
-func SameExtensionRelation(left declaration.Extension, right declaration.Extension) bool {
-	return left.Carrier == right.Carrier &&
-		left.Scope == right.Scope &&
-		equalExtensionStringValues(left.Targets, right.Targets) &&
-		left.Source == right.Source
-}
-
-func equalExtensionStringValues(left []string, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
 type ExtensionBlock struct {
 	Start     int
 	End       int

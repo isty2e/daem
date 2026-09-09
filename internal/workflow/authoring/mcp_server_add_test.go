@@ -161,7 +161,7 @@ args = ["-y", "@upstash/context7-mcp"]
 		t.Fatalf("err = %v, want duplicate conflict", err)
 	}
 
-	_, _, err = ApplyAddMCPServerToManifest(original, declarationcodec.MCPServer{
+	unchanged, kind, err := ApplyAddMCPServerToManifest(original, declarationcodec.MCPServer{
 		Name:      "context7",
 		Targets:   []string{"claude-code"},
 		Scope:     "project",
@@ -170,8 +170,8 @@ args = ["-y", "@upstash/context7-mcp"]
 		Args:      []string{"-y", "@upstash/context7-mcp"},
 		Env:       map[string]declarationcodec.MCPEnvReference{},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
-	if err == nil || !strings.Contains(err.Error(), `already has the selected targets`) {
-		t.Fatalf("err = %v, want already-present diagnostic", err)
+	if err != nil || kind != "unchanged" || string(unchanged) != string(original) {
+		t.Fatalf("satisfied result = %q, %q, %v", unchanged, kind, err)
 	}
 }
 
@@ -200,7 +200,7 @@ args = ["-y", "@upstash/context7-mcp@1.2.3"]
 		t.Fatalf("err = %v, want OpenCode duplicate conflict", err)
 	}
 
-	_, _, err = ApplyAddMCPServerToManifest(original, declarationcodec.MCPServer{
+	unchanged, kind, err := ApplyAddMCPServerToManifest(original, declarationcodec.MCPServer{
 		Name:      "context7",
 		Targets:   []string{"opencode"},
 		Scope:     "project",
@@ -208,8 +208,8 @@ args = ["-y", "@upstash/context7-mcp@1.2.3"]
 		Command:   declaration.NewMCPAmbientCommand("npx"),
 		Args:      []string{"-y", "@upstash/context7-mcp@1.2.3"},
 	}, declaration.ManifestHeader{Targets: []string{"opencode"}})
-	if err == nil || !strings.Contains(err.Error(), `already has the selected targets`) {
-		t.Fatalf("err = %v, want OpenCode already-present diagnostic", err)
+	if err != nil || kind != "unchanged" || string(unchanged) != string(original) {
+		t.Fatalf("OpenCode satisfied result = %q, %q, %v", unchanged, kind, err)
 	}
 }
 
@@ -248,7 +248,7 @@ args = ["-y", "@upstash/context7-mcp"]
 	}
 }
 
-func TestMCPServerAddBehaviorRejectsInheritedTargets(t *testing.T) {
+func TestMCPServerAddBehaviorAcceptsSatisfiedInheritedTargets(t *testing.T) {
 	original := []byte(`version = 1
 targets = ["claude-code"]
 
@@ -268,7 +268,7 @@ args = ["-y", "@upstash/context7-mcp"]
 		Command:   declaration.NewMCPAmbientCommand("npx"),
 		Args:      []string{"-y", "@upstash/context7-mcp"},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
-	if err == nil || !strings.Contains(err.Error(), `inherits manifest targets`) {
-		t.Fatalf("err = %v, want inherited target diagnostic", err)
+	if err != nil {
+		t.Fatalf("satisfied inherited target error = %v", err)
 	}
 }

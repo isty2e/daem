@@ -55,6 +55,17 @@ func mergeSkillTargetTables(
 	return builder.String()
 }
 
+func skillCoveredTargetSettingsMatch(existing, incoming map[string]declaration.SkillTarget, targets []string) bool {
+	for _, selectedTarget := range targets {
+		if requested, present := incoming[selectedTarget]; present {
+			if current, exists := existing[selectedTarget]; !exists || current != requested {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func skillTargetMapsCompatible(
 	left map[string]declaration.SkillTarget,
 	right map[string]declaration.SkillTarget,

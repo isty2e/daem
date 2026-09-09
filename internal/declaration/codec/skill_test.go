@@ -77,7 +77,7 @@ func TestSkillResourceIDAndIdentityAreDocumentLocal(t *testing.T) {
 	if got := left.ResourceID(); got != "id" {
 		t.Fatalf("ResourceID = %q, want id", got)
 	}
-	if !sameSkillIdentity(left, right) {
+	if !sameSkillIdentity(left, right, declaration.ManifestHeader{}) {
 		t.Fatal("declaration ID incorrectly participated in merge identity")
 	}
 }

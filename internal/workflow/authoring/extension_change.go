@@ -122,8 +122,8 @@ func ApplyAddExtensionToManifest(original []byte, extension declaration.Extensio
 			return nil, "", err
 		}
 		if existing.ID == extension.ID {
-			if declarationcodec.SameExtensionRelation(existing, extension) {
-				return nil, "", fmt.Errorf("extension %q already exists", extension.ID)
+			if existing.Carrier == extension.Carrier && existingSubject == incomingSubject {
+				return original, "unchanged", nil
 			}
 			return nil, "", fmt.Errorf("duplicate extension id %q", extension.ID)
 		}
@@ -156,7 +156,11 @@ func ApplyRemoveExtensionToManifest(original []byte, request RemoveExtensionRequ
 	}
 	matches := filterRemoveExtensionCandidates(candidates, request)
 	if len(matches) == 0 {
-		return nil, "", fmt.Errorf("extension resource %q not found", request.ID)
+		available := make([]ResourceSelection, 0, len(candidates))
+		for _, candidate := range candidates {
+			available = append(available, ResourceSelection{Name: candidate.id, Scope: candidate.scope, Targets: candidate.targets})
+		}
+		return nil, "", missingResourceSelection("extension", request.ID, available)
 	}
 	if len(matches) > 1 {
 		return nil, "", fmt.Errorf("extension resource %q is ambiguous; narrow with --target/--scope", request.ID)

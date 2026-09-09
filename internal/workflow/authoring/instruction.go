@@ -109,7 +109,11 @@ func ApplyRemoveInstructionToManifest(original []byte, request RemoveInstruction
 	}
 	matches := filterRemoveInstructionCandidates(candidates, request)
 	if len(matches) == 0 {
-		return nil, "", fmt.Errorf("instruction resource %q not found", request.ResourceName)
+		available := make([]ResourceSelection, 0, len(candidates))
+		for _, candidate := range candidates {
+			available = append(available, ResourceSelection{Name: candidate.resourceName, Scope: candidate.scope, Targets: candidate.targets})
+		}
+		return nil, "", missingResourceSelection("instruction", request.ResourceName, available)
 	}
 	if len(matches) > 1 {
 		return nil, "", fmt.Errorf("instruction resource key %q is ambiguous; narrow with --target/--scope", request.ResourceName)

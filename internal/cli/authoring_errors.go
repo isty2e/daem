@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/workflow/authoring"
 )
 
@@ -23,6 +24,31 @@ func printAuthoringOperationError(output io.Writer, command string, manifestPath
 	fmt.Fprintf(output, "%s failed: %s\n", command, humanDiagnosticError(err))
 	if authoringManifestInitHintApplies(err) {
 		printMissingManifestInitHint(output, manifestPath, err)
+	}
+	printMissingResourceSelectionHint(output, manifestPath, err)
+}
+
+func printMissingResourceSelectionHint(output io.Writer, manifestPath string, err error) {
+	var missing *authoring.ResourceSelectionNotFoundError
+	if !errors.As(err, &missing) {
+		return
+	}
+	kind := map[string]string{
+		"instructions": "instruction", "mcp_server": "mcp-server",
+		"skill": "skill", "hook": "hook", "extension": "extension",
+	}[missing.Kind]
+	if kind == "" {
+		kind = missing.Kind
+	}
+	for _, selection := range missing.AvailableSelections() {
+		args := []string{"daem", "remove", kind, selection.Name, "--manifest", manifestPath}
+		for _, target := range selection.Targets {
+			args = append(args, "--target", target)
+		}
+		if selection.Scope != "" {
+			args = append(args, "--scope", selection.Scope)
+		}
+		clipresent.PrintShellCommand(output, "hint: available selection: ", args...)
 	}
 }
 

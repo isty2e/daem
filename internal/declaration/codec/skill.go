@@ -99,18 +99,25 @@ func (skill Skill) ResourceID() string {
 
 // sameSkillIdentity reports whether two skill declarations may share one block
 // while differing only in their explicit target sets.
-func sameSkillIdentity(left Skill, right Skill) bool {
-	return strings.TrimSpace(left.Name) == strings.TrimSpace(right.Name) &&
-		strings.TrimSpace(left.Scope) == strings.TrimSpace(right.Scope) &&
-		left.Source == right.Source &&
-		skillTargetMapsCompatible(left.Target, right.Target)
+func sameSkillIdentity(left Skill, right Skill, header declaration.ManifestHeader) bool {
+	if strings.TrimSpace(left.Name) != strings.TrimSpace(right.Name) ||
+		header.EffectiveScope(left.Scope) != header.EffectiveScope(right.Scope) ||
+		left.Source != right.Source || !skillTargetMapsCompatible(left.Target, right.Target) {
+		return false
+	}
+	return skillCoveredTargetSettingsMatch(left.Target, right.Target, header.EffectiveTargets(left.Targets))
 }
 
-// ApplySkillAdd appends a skill declaration or merges its explicit target set while
-// preserving unrelated manifest bytes.
+// ApplySkillAdd retains a satisfied skill, appends a new declaration, or merges
+// explicit targets while preserving unrelated manifest bytes.
 func ApplySkillAdd(original []byte, skill Skill) (declaration.EditResult, error) {
+	header, err := declaration.DecodeManifestHeader(original)
+	if err != nil {
+		return declaration.EditResult{}, err
+	}
 	return declaration.ApplyAddDeclaration(declaration.AddEditInput[Skill]{
 		Original:    original,
+		Header:      header,
 		Declaration: skill,
 		Codec: declaration.AddEditContract[Skill]{
 			Kind: declaration.KindSkill,
@@ -121,8 +128,8 @@ func ApplySkillAdd(original []byte, skill Skill) (declaration.EditResult, error)
 			ExplicitTargets: func(value Skill) declaration.Targets {
 				return declaration.Targets(value.Targets)
 			},
-			SameIdentity: func(existing Skill, incoming Skill, _ declaration.ManifestHeader) bool {
-				return sameSkillIdentity(existing, incoming)
+			SameIdentity: func(existing Skill, incoming Skill, header declaration.ManifestHeader) bool {
+				return sameSkillIdentity(existing, incoming, header)
 			},
 			RenderBlock: RenderSkillBlock,
 			RenderBlockWithTargets: func(originalBlock string, existing Skill, incoming Skill, mergedTargets declaration.Targets, _ declaration.ManifestHeader) (string, error) {
@@ -131,14 +138,8 @@ func ApplySkillAdd(original []byte, skill Skill) (declaration.EditResult, error)
 			DuplicateError: func(key declaration.Key) error {
 				return fmt.Errorf("duplicate skill id %q", key.Name)
 			},
-			AlreadyExistsError: func(key declaration.Key) error {
-				return fmt.Errorf("skill %q already exists", key.Name)
-			},
 			InheritsTargetsError: func(key declaration.Key) error {
 				return fmt.Errorf("skill %q inherits manifest targets; edit the manifest manually to change target inheritance", key.Name)
-			},
-			AlreadyHasTargetsError: func(key declaration.Key) error {
-				return fmt.Errorf("skill %q already has the selected targets", key.Name)
 			},
 		},
 	})

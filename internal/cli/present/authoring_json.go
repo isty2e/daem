@@ -28,6 +28,7 @@ type ManifestAuthoringJSONOutput struct {
 	ChangeCount   int                            `json:"change_count"`
 	HasErrors     bool                           `json:"has_errors"`
 	Changes       []ManifestAuthoringJSONChange  `json:"changes"`
+	Unchanged     []AuthoringJSONResourceObject  `json:"unchanged,omitempty"`
 	Management    *UnmanageManagementJSON        `json:"management,omitempty"`
 	Host          *UnmanageHostJSON              `json:"host,omitempty"`
 	Warnings      []string                       `json:"warnings,omitempty"`
@@ -131,6 +132,7 @@ type ManifestAuthoringResourceJSONInput struct {
 	ChangeKind    string
 	ManifestBlock string
 	Warnings      []string
+	Unchanged     bool
 }
 
 type ImportManifestAuthoringJSONInput struct {
@@ -179,7 +181,7 @@ func manifestAuthoringJSONChanges(changes []ManifestAuthoringJSONChange) []Manif
 }
 
 func ManifestAuthoringResourceJSON(input ManifestAuthoringResourceJSONInput) ManifestAuthoringJSONOutput {
-	return ManifestAuthoringJSONOutput{
+	result := ManifestAuthoringJSONOutput{
 		Command:       input.Command,
 		Mode:          input.Mode,
 		Operation:     input.Operation,
@@ -196,6 +198,11 @@ func ManifestAuthoringResourceJSON(input ManifestAuthoringResourceJSONInput) Man
 		}},
 		Warnings: append([]string(nil), input.Warnings...),
 	}
+	if input.Unchanged {
+		result.Changes = []ManifestAuthoringJSONChange{}
+		result.Unchanged = []AuthoringJSONResourceObject{authoringJSONResource(input.ResourceKind, input.ResourceName)}
+	}
+	return result
 }
 
 // UnmanageExtensionJSONFrom projects one host-preserving unmanage result into

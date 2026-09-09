@@ -225,7 +225,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | --- | --- | ---: |
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
-| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `5` |
+| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `6` |
 | `lock`, `outdated` | Lock comparison | `4` |
 | `list resources` | Resource inventory | `2` |
 | `list outputs` | Output inventory | `4` |
@@ -447,6 +447,22 @@ Every leaf accepts `--manifest`, repeated `--target`, applicable `--scope`,
 builds and validates a prospective manifest and lockfile, then commits both
 together. On failure, neither file advances.
 
+Repeating an already-satisfied add succeeds without an extra flag. It reports
+`change: unchanged`, not a duplicate warning. The declaration identity and
+requested settings must match, and its effective targets must cover the
+request. Scope defaults keep their resource-specific rules; omitted targets
+use manifest targets. An unchanged result retains all declaration bytes,
+including manifest-only settings. A different source, identity, or conflicting requested setting
+remains an error, not an overwrite request.
+Adding targets to a matching explicit target list remains a real change.
+Broadening inherited targets still requires a manual manifest edit.
+
+An unchanged declaration still goes through full prospective lock validation.
+Write mode may rewrite equal manifest bytes and create or refresh the lockfile;
+`unchanged` is not a promise of no I/O, no source resolution, or an already-fresh
+lock. Unavailable sources and other validation or transaction failures still
+fail the command. Dry-run does not write either file or persistent source cache.
+
 Common authoring is intentionally curated:
 
 | Resource | CLI owns | Manifest owns |
@@ -482,12 +498,16 @@ ontologies. Global carrier mutation always requires explicit global scope.
 Skill Git refs accept a strict branch, tag, or full 40/64-hex object id. Root
 skills may omit `--path` or use `.`. Skill groups list exact direct children
 with repeated `--member`; discovery selectors and regex/glob behavior remain
-manifest-only.
+manifest-only. A named group's authoring identity is its exact member set,
+independent of member order. Repeating that group can be unchanged or merge
+explicit targets. Add does not split overlapping groups, regroup direct skill
+declarations, or edit selector-backed membership; those edits remain manual.
 
 Default output names the semantic resource change plus manifest and lock
-outcomes. It omits the full prospective TOML, unchanged lock rows, and source
-internals. `--verbose` adds bounded normalized and lock evidence; `--diff` owns
-the exact manifest delta.
+outcomes, including an unchanged lockfile. It omits the full prospective TOML
+and source internals. `--verbose` adds bounded normalized and lock evidence; `--diff` owns
+the exact manifest delta. An empty delta is reported as
+`manifest diff: unchanged` rather than a context-only diff.
 
 ## `remove`
 
@@ -501,7 +521,11 @@ daem remove skill <resource-key> [options]
 
 Every leaf accepts the same shared authoring options as add. Remove writes by
 default and transactionally refreshes the lockfile. Use keys from
-`daem list resources`.
+`daem list resources`. A missing resource or a selection matching no declaration
+is an error, including repeated removal. When the manifest supplies an exact
+name under other selectors, a case variant, or a name one character edit away,
+stderr includes up to three available-selection command hints. Hints use actual declaration keys and
+scope/target values; they do not change or execute the removal request.
 
 Omitted target and scope selectors remove one unambiguous whole resource.
 Selectors narrow or disambiguate; they do not inherit add defaults. Removing
@@ -557,8 +581,8 @@ The default human result must always include `host: retained` plus manifest,
 lockfile, and management-state outcomes. Verbose output may add the exact
 claim and route identities but may not imply current host usability.
 
-Structured output uses authoring schema `5` without changing existing
-add/remove rows:
+Structured output uses authoring schema `6`; its unmanage rows retain their
+existing shape:
 
 - `command` and `operation` are `unmanage`;
 - the single change has manifest `change_kind =
@@ -592,7 +616,7 @@ recovery journals and does not consume this marker.
 
 ## Authoring JSON
 
-Init uses schema `1`. Add, remove, import, and unmanage use schema `5` with
+Init uses schema `1`. Add, remove, import, and unmanage use schema `6` with
 these common fields:
 
 | Field | Meaning |
@@ -600,10 +624,20 @@ these common fields:
 | `command`, `mode`, `operation` | operation identity and dry-run/write mode |
 | `manifest_path`, optional `source_dir` | selected durable destinations |
 | optional `lockfile` | adjacent lock path and would-write/written/unchanged status |
-| `resource_count`, `change_count`, `changes` | typed affected resources and manifest blocks |
+| `resource_count`, `change_count`, `changes` | addressed resources, change-row count, and typed change rows |
+| add `unchanged` | optional array of already-satisfied `{kind, name}` resource identities |
 | `has_errors`, optional `warnings` | result classification |
 | unmanage `management`, `host` | exact management-state outcome and retained-host projection |
 | import `summary`, `scans`, `skipped`, `merge_results` | exhaustive observation and merge rows |
+
+For an already-satisfied add, `resource_count` is `1`, `change_count` is `0`,
+`changes` is `[]`, and `unchanged` contains the addressed resource. It has no
+prospective manifest block and does not generate a duplicate warning. Its
+`lockfile.status` independently reports `would_write`, `written`, or
+`unchanged`. If add must insert a missing Pi MCP provider, that insertion is
+still a change even when the requested server is already declared. Changed
+add/remove, import, and unmanage row shapes are otherwise unchanged from
+schema `5`; consumers must explicitly accept schema `6`.
 
 Each import `skipped` row contains exact `target`, `scope`, `live_path`, and
 stable `reason` code values plus one stable `category`. Optional `detail`
@@ -631,7 +665,7 @@ Projection-specific import merge rows include a canonical `subject_id` in
 `resource_id`, such as project and global MCP projections with the same server
 name. Aggregate-level merge rows omit `subject_id`.
 
-Human next-command prose is deliberately absent from schema `5`. CLI misuse or
+Human next-command prose is deliberately absent from schema `6`. CLI misuse or
 a failure before a result envelope exists goes to stderr and produces no JSON.
 An import conflict has a valid result envelope, so it emits JSON with
 `has_errors: true` and exits `1`.

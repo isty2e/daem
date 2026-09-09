@@ -133,7 +133,11 @@ func ApplyRemoveHookToManifest(original []byte, request RemoveHookRequest) ([]by
 	}
 	matches := filterRemoveHookCandidates(candidates, request)
 	if len(matches) == 0 {
-		return nil, "", fmt.Errorf("hook resource %q not found", request.ResourceName)
+		available := make([]ResourceSelection, 0, len(candidates))
+		for _, candidate := range candidates {
+			available = append(available, ResourceSelection{Name: candidate.resourceName, Scope: candidate.scope, Targets: candidate.targets})
+		}
+		return nil, "", missingResourceSelection("hook", request.ResourceName, available)
 	}
 	if len(matches) > 1 {
 		return nil, "", fmt.Errorf("hook resource key %q is ambiguous; narrow with --target/--scope", request.ResourceName)
@@ -340,8 +344,11 @@ func mergeHookTargets(existing declaration.Hook, addition declaration.Hook, merg
 	result.Targets = mergedTargets
 	overrideByTarget := declarationcodec.HookOverridesByTarget(existing.TargetOverrides)
 	for _, override := range addition.TargetOverrides {
-		if _, exists := overrideByTarget[override.Target]; exists {
-			return declaration.Hook{}, fmt.Errorf("hook %q already has target_override for target %q", existing.Name, override.Target)
+		if current, exists := overrideByTarget[override.Target]; exists {
+			if current != override {
+				return declaration.Hook{}, fmt.Errorf("hook %q already has a different target_override for target %q", existing.Name, override.Target)
+			}
+			continue
 		}
 		result.TargetOverrides = append(result.TargetOverrides, override)
 	}

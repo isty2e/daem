@@ -79,6 +79,7 @@ func ManifestAuthoringJSONFrom(
 		ChangeKind:    result.ChangeKind,
 		ManifestBlock: manifestBlock,
 		Warnings:      warnings,
+		Unchanged:     !result.ManifestChanged(),
 	})
 }
 
@@ -96,7 +97,11 @@ func authoringAddedContent(
 	if operation != AuthoringOperationAdd {
 		return "", nil
 	}
-	return result.ManifestBlock, append([]string(nil), result.Warnings...)
+	warnings := append([]string(nil), result.Warnings...)
+	if !result.ManifestChanged() {
+		return "", warnings
+	}
+	return result.ManifestBlock, warnings
 }
 
 func authoringNextStepNote(operation AuthoringOperation, resourceKind AuthoringResourceKind) string {

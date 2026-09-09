@@ -9,6 +9,7 @@ import (
 type EditOutcome string
 
 const (
+	EditOutcomeUnchanged     EditOutcome = "unchanged"
 	EditOutcomeAppend        EditOutcome = "append"
 	EditOutcomeMergeTargets  EditOutcome = "target_merge"
 	EditOutcomeRemove        EditOutcome = "remove"
@@ -37,9 +38,7 @@ type AddEditContract[T any] struct {
 	RenderBlock            func(T) string
 	RenderBlockWithTargets func(originalBlock string, existing T, incoming T, mergedTargets Targets, header ManifestHeader) (string, error)
 	DuplicateError         func(Key) error
-	AlreadyExistsError     func(Key) error
 	InheritsTargetsError   func(Key) error
-	AlreadyHasTargetsError func(Key) error
 }
 
 // AddEditInput describes one add-or-merge declaration edit.
@@ -50,7 +49,8 @@ type AddEditInput[T any] struct {
 	Codec       AddEditContract[T]
 }
 
-// ApplyAddDeclaration appends a declaration or merges explicit target values into a matching block.
+// ApplyAddDeclaration retains a satisfied declaration, appends a new declaration,
+// or merges explicit target values into a matching block.
 func ApplyAddDeclaration[T any](input AddEditInput[T]) (EditResult, error) {
 	if input.Codec.Scan == nil || input.Codec.Key == nil || input.Codec.ExplicitTargets == nil ||
 		input.Codec.SameIdentity == nil || input.Codec.RenderBlock == nil || input.Codec.RenderBlockWithTargets == nil {
@@ -78,18 +78,15 @@ func ApplyAddDeclaration[T any](input AddEditInput[T]) (EditResult, error) {
 			return EditResult{}, declarationError(input.Codec.DuplicateError, incomingKey, "duplicate declaration %s %q")
 		}
 
-		incomingTargets := input.Codec.ExplicitTargets(input.Declaration).Values()
-		if len(incomingTargets) == 0 {
-			return EditResult{}, declarationError(input.Codec.AlreadyExistsError, incomingKey, "%s %q already exists")
-		}
-		existingTargets := input.Codec.ExplicitTargets(block.Value).Values()
-		if len(existingTargets) == 0 {
-			return EditResult{}, declarationError(input.Codec.InheritsTargetsError, incomingKey, "%s %q inherits manifest targets")
-		}
-
+		incomingTargets := input.Header.EffectiveTargets(input.Codec.ExplicitTargets(input.Declaration).Values())
+		explicitExisting := input.Codec.ExplicitTargets(block.Value).Values()
+		existingTargets := input.Header.EffectiveTargets(explicitExisting)
 		mergedTargets := Targets(mergeStringValues(existingTargets, incomingTargets))
 		if slices.Equal(existingTargets, mergedTargets.Values()) {
-			return EditResult{}, declarationError(input.Codec.AlreadyHasTargetsError, incomingKey, "%s %q already has the selected targets")
+			return EditResult{Content: input.Original, Outcome: EditOutcomeUnchanged}, nil
+		}
+		if len(explicitExisting) == 0 {
+			return EditResult{}, declarationError(input.Codec.InheritsTargetsError, incomingKey, "%s %q inherits manifest targets")
 		}
 
 		updatedBlock, err := input.Codec.RenderBlockWithTargets(

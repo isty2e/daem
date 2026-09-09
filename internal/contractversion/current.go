@@ -16,7 +16,7 @@ const MetadataTransaction = 3
 const (
 	VersionJSON            = 1
 	InitJSON               = 1
-	ManifestAuthoringJSON  = 5
+	ManifestAuthoringJSON  = 6
 	LockComparisonJSON     = 4
 	ResourceInventoryJSON  = 2
 	OutputInventoryJSON    = 4
