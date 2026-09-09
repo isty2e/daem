@@ -26,6 +26,7 @@ func printAuthoringOperationError(output io.Writer, command string, manifestPath
 		printMissingManifestInitHint(output, manifestPath, err)
 	}
 	printMissingResourceSelectionHint(output, manifestPath, err)
+	clipresent.PrintMissingSourceHint(output, err)
 }
 
 func printMissingResourceSelectionHint(output io.Writer, manifestPath string, err error) {

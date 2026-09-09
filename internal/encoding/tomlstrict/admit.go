@@ -187,7 +187,7 @@ func AdmitWithUsage(ctx context.Context, content []byte, limits Limits) (Structu
 		scanner.index = 3
 	}
 	if err := scanner.document(); err != nil {
-		return StructureUsage{}, err
+		return StructureUsage{}, positionError(content, scanner.index, err)
 	}
 	usage := StructureUsage{
 		containers: scanner.containers,

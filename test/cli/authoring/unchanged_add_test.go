@@ -131,7 +131,7 @@ func TestUnchangedAddStillCreatesRefreshesAndValidatesLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := testkit.RunCLI(args, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "lock prospective manifest") {
+	if code := testkit.RunCLI(args, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), `validate skill "other"`) {
 		t.Fatalf("missing unrelated source: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if !bytes.Equal(original, readAuthoringFile(t, manifest)) || !bytes.Equal(oldLock, readAuthoringFile(t, lock)) {

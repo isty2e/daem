@@ -11,6 +11,14 @@ import (
 // CurrentManifestVersion is the manifest schema version emitted and accepted by daem.
 const CurrentManifestVersion int64 = contractversion.ManifestSchema
 
+// UnknownManifestKeyError identifies a key outside the manifest schema.
+type UnknownManifestKeyError struct {
+	cause error
+}
+
+func (err UnknownManifestKeyError) Error() string { return err.cause.Error() }
+func (err UnknownManifestKeyError) Unwrap() error { return err.cause }
+
 func DecodeManifest(content []byte) (Manifest, error) {
 	if err := admitManifestStructure(content); err != nil {
 		return Manifest{}, err
@@ -23,7 +31,7 @@ func DecodeManifest(content []byte) (Manifest, error) {
 	}
 
 	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
-		return Manifest{}, fmt.Errorf("unknown manifest key %q", undecoded[0].String())
+		return Manifest{}, UnknownManifestKeyError{cause: fmt.Errorf("unknown manifest key %q", undecoded[0].String())}
 	}
 
 	return manifest, nil

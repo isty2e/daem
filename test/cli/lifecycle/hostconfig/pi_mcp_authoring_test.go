@@ -299,7 +299,7 @@ targets = ["pi"]
 		"--arg", "server.js",
 	}, &stdout, &stderr)
 	if exitCode == 0 ||
-		!strings.Contains(stderr.String(), "add failed: lock prospective manifest") {
+		!strings.Contains(stderr.String(), "add failed: read lockfile:") {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q, want prospective lock failure", exitCode, stderr.String(), stdout.String())
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)

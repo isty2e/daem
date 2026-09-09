@@ -181,6 +181,19 @@ interrupts a blocked terminal read and cannot authorize effects.
 - `--check` exists only on `outdated` and `status`. It preserves normal output
   but returns non-zero when that command's clean predicate is false.
 
+### Input Error Guidance
+
+TOML syntax errors include a one-based line and column when available. This is
+where parsing stopped, which may be the end of the document rather than the
+opening bracket or quote. Unknown keys link to the [manifest reference](manifest.md).
+
+Missing local sources include path-correction advice. Git skill and skill-group
+sources require an explicit branch, tag, or commit through `--ref`; local paths
+do not need a remote reference. When a SKILL error offers `compat_repair = true`,
+set it in the manifest to opt into mechanical repair. Other reported source
+issues may need manual correction. Advice does not perform repairs or retry the
+failed command.
+
 ### Command Flag Inventory
 
 This table is the exhaustive long-form flag inventory for leaf commands.

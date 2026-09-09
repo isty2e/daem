@@ -99,25 +99,6 @@ func printImportNothingToImportHint(output io.Writer, manifestPath string, merge
 	clipresent.PrintShellCommand(output, "next: run ", "daem", "init", "--manifest", manifestPath, "--dry-run")
 }
 
-func printLockMissingSourceHint(output io.Writer, manifestPath string, err error) {
-	if !isMissingSourcePathError(err) {
-		return
-	}
-	fmt.Fprintln(output, "next: create the missing source file or directory, edit the manifest source path, or remove the resource declaration")
-	clipresent.PrintShellCommand(output, "next: run ", "daem", "lock", "--manifest", manifestPath, "--dry-run")
-}
-
-func isMissingSourcePathError(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := err.Error()
-	if strings.Contains(message, "git source path ") {
-		return false
-	}
-	return strings.Contains(message, "source path \"") && strings.Contains(message, "\" does not exist")
-}
-
 func printSkillGroupPartialTargetRemovalHint(output io.Writer, resourceKey string, remainingTargets []string) {
 	targets := "<remaining-targets>"
 	if len(remainingTargets) != 0 {

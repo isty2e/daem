@@ -285,7 +285,7 @@ targets = ["opencode"]
 		"remove", "extension", "formatter",
 		"--manifest", manifestPath,
 	}, &stdout, &stderr)
-	if exitCode != 1 || !strings.Contains(stderr.String(), "remove failed: lock prospective manifest") {
+	if exitCode != 1 || !strings.Contains(stderr.String(), "remove failed: read lockfile:") {
 		t.Fatalf("exitCode=%d stdout=%q stderr=%q, want prospective lock failure", exitCode, stdout.String(), stderr.String())
 	}
 	testkit.AssertFileContent(t, manifestPath, originalManifest)

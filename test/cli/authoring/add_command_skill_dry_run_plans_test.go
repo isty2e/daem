@@ -269,7 +269,7 @@ func TestRunAddSkillRejectsRepairableIncompatibilityUntilManifestPolicyIsDeclare
 		t.Fatalf("exitCode = %d, want 1; stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"add failed: lock prospective manifest:",
+		"add failed:",
 		`validate skill "oracle": skill source "local:skills/oracle?mode=vendor" is missing SKILL.md`,
 	} {
 		if !strings.Contains(stderr.String(), want) {

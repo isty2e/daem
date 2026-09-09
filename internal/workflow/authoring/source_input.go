@@ -1,6 +1,7 @@
 package authoring
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -11,6 +12,9 @@ import (
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/target"
 )
+
+// ErrMissingGitRef identifies Git authoring input without an explicit ref.
+var ErrMissingGitRef = errors.New("--ref is required for git sources")
 
 func DefaultLocalSourceMode() string {
 	return string(sourcepkg.LocalSourceModeVendor)
@@ -31,7 +35,7 @@ func gitSkillSource(request AddSkillRequest) (declarationcodec.SkillSource, stri
 		return declarationcodec.SkillSource{}, "", fmt.Errorf("--mode is only valid for local sources")
 	}
 	if request.Ref == "" {
-		return declarationcodec.SkillSource{}, "", fmt.Errorf("--ref is required for git sources")
+		return declarationcodec.SkillSource{}, "", ErrMissingGitRef
 	}
 
 	gitURL := request.SourceArg
@@ -169,7 +173,7 @@ func gitSkillGroupSource(request AddSkillGroupRequest) (declarationcodec.SkillSo
 		return declarationcodec.SkillSource{}, fmt.Errorf("--mode is only valid for local sources")
 	}
 	if request.Ref == "" {
-		return declarationcodec.SkillSource{}, fmt.Errorf("--ref is required for git sources")
+		return declarationcodec.SkillSource{}, ErrMissingGitRef
 	}
 
 	gitURL := request.SourceArg

@@ -231,10 +231,14 @@ func writeErrorEvidenceLeaf(
 }
 
 // Error renders err for human output without allowing its dynamic text to
-// introduce terminal controls. A nil error renders as an empty string.
+// introduce terminal controls. Only presenter-owned guidance adds new lines.
+// A nil error renders as an empty string.
 func Error(err error) string {
 	if err == nil {
 		return ""
+	}
+	if operation, ok := err.(authoring.OperationError); ok && operation.Phase == authoring.OperationPhaseBuildLockfile && operation.Err != nil {
+		return Error(operation.Err)
 	}
 	var admissionFailure authoring.CommandHookAdmissionError
 	if errors.As(err, &admissionFailure) {
@@ -264,5 +268,5 @@ func Error(err error) string {
 			message.adapterShape,
 		))
 	}
-	return Escape(err.Error())
+	return inputError(err)
 }

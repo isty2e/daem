@@ -3,7 +3,6 @@ package build
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/skill"
@@ -150,22 +149,7 @@ func skillRepairGuidanceError(
 		return cause
 	}
 
-	switch classification.Repairability() {
-	case skillrepair.RepairabilityMechanical:
-		return fmt.Errorf(
-			"%w; repairability=mechanical; next: set compat_repair = true on this manifest resource and rerun daem lock; repair actions: %s",
-			cause,
-			strings.Join(classification.Actions(), "; "),
-		)
-	case skillrepair.RepairabilityManual:
-		return fmt.Errorf(
-			"%w; repairability=manual; manual edit required: %s",
-			cause,
-			strings.Join(classification.ManualReasons(), "; "),
-		)
-	default:
-		return cause
-	}
+	return skillrepair.WithGuidance(cause, classification)
 }
 
 func validateSkillTargetPolicies(
