@@ -58,19 +58,7 @@ func Repair(
 	installName string,
 	targets []target.Target,
 ) (Result, error) {
-	if ctx == nil {
-		return Result{}, fmt.Errorf("skill repair context is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return Result{}, err
-	}
-	if err := input.Validate(); err != nil {
-		return Result{}, fmt.Errorf("skill repair input: %w", err)
-	}
-	if input.Kind() != artifact.ArtifactKindDirectory || view.Kind() != artifact.ArtifactKindDirectory {
-		return Result{}, ManualError{reasons: []string{"skill source must resolve to a directory"}}
-	}
-	if err := validateInstallName(installName); err != nil {
+	if err := validateRepairInput(ctx, input, view, installName); err != nil {
 		return Result{}, err
 	}
 
@@ -232,6 +220,27 @@ func planAndApply(
 		return err
 	}
 	return ctx.Err()
+}
+
+func validateRepairInput(
+	ctx context.Context,
+	input artifact.ExactIdentity,
+	view access.View,
+	installName string,
+) error {
+	if ctx == nil {
+		return fmt.Errorf("skill repair context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := input.Validate(); err != nil {
+		return fmt.Errorf("skill repair input: %w", err)
+	}
+	if input.Kind() != artifact.ArtifactKindDirectory || view.Kind() != artifact.ArtifactKindDirectory {
+		return ManualError{reasons: []string{"skill source must resolve to a directory"}}
+	}
+	return validateInstallName(installName)
 }
 
 func unchangedResult(identity artifact.ExactIdentity, view access.View) (Result, error) {

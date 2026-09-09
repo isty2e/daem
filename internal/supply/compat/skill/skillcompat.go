@@ -37,13 +37,7 @@ func Diagnostics(
 ) []Diagnostic {
 	profile, ok := profileForTarget(target)
 	if !ok {
-		return []Diagnostic{errorDiagnostic(
-			AxisDiscovery,
-			"missing-profile",
-			"skill source %q target %q: skill compatibility profile is not defined",
-			sourceID,
-			target,
-		)}
+		return missingProfileDiagnostics(sourceID, target)
 	}
 
 	frontmatter, err := LoadSkillFrontmatter(ctx, view, sourceID)
@@ -71,4 +65,29 @@ func Diagnostics(
 	}
 
 	return frontmatterDiagnostics(sourceID, installName, profile, frontmatter)
+}
+
+// FrontmatterDiagnostics reports target-specific findings from parsed metadata.
+// It does not verify the source artifact's identity or SKILL.md filename.
+func FrontmatterDiagnostics(
+	sourceID artifact.SourceID,
+	installName string,
+	target target.Target,
+	frontmatter SkillFrontmatter,
+) []Diagnostic {
+	profile, ok := profileForTarget(target)
+	if !ok {
+		return missingProfileDiagnostics(sourceID, target)
+	}
+	return frontmatterDiagnostics(sourceID, installName, profile, frontmatter)
+}
+
+func missingProfileDiagnostics(sourceID artifact.SourceID, target target.Target) []Diagnostic {
+	return []Diagnostic{errorDiagnostic(
+		AxisDiscovery,
+		"missing-profile",
+		"skill source %q target %q: skill compatibility profile is not defined",
+		sourceID,
+		target,
+	)}
 }

@@ -17,6 +17,7 @@ scale_packages=(
 	./internal/realization/aggregate/codec/hook
 	./internal/realization/aggregate/codec/mcp
 	./internal/realization/lockfile
+	./test/cli/lifecycle/capacity
 )
 
 product_package_paths() {

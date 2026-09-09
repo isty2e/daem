@@ -160,6 +160,10 @@ func NewLogicalPathDomain(request LogicalPathRequest) (Domain, error) {
 
 // NewPhysicalPathDomain validates and canonicalizes a target-visible path request.
 func NewPhysicalPathDomain(request PhysicalPathRequest) (Domain, error) {
+	return newPhysicalPathDomain(request, canonicalPathIdentity)
+}
+
+func newPhysicalPathDomain(request PhysicalPathRequest, observe pathIdentityObserver) (Domain, error) {
 	if err := request.Access.validate(); err != nil {
 		return Domain{}, err
 	}
@@ -169,7 +173,7 @@ func NewPhysicalPathDomain(request PhysicalPathRequest) (Domain, error) {
 	if err := validateRouteFact("scope", request.Scope); err != nil {
 		return Domain{}, err
 	}
-	identity, err := canonicalPathIdentity(request.Path, request.Effect)
+	identity, err := observe(request.Path, request.Effect)
 	if err != nil {
 		return Domain{}, err
 	}
@@ -193,13 +197,17 @@ func NewPhysicalPathDomain(request PhysicalPathRequest) (Domain, error) {
 // NewPhysicalAuthoritySet constructs exact directory-entry and referent
 // authority for every effect-bound physical destination.
 func NewPhysicalAuthoritySet(requests ...PhysicalAuthorityRequest) (PhysicalAuthoritySet, error) {
+	return newPhysicalAuthoritySet(newPathIdentityObserver(), requests...)
+}
+
+func newPhysicalAuthoritySet(observe pathIdentityObserver, requests ...PhysicalAuthorityRequest) (PhysicalAuthoritySet, error) {
 	domains := make([]Domain, 0, len(requests)*2)
 	for index, request := range requests {
 		for _, effect := range []PathEffect{PathEffectDirectoryEntry, PathEffectReferent} {
-			domain, err := NewPhysicalPathDomain(PhysicalPathRequest{
+			domain, err := newPhysicalPathDomain(PhysicalPathRequest{
 				Path: request.Path, Access: AccessExclusive, Effect: effect,
 				Target: request.Target, Scope: request.Scope,
-			})
+			}, observe)
 			if err != nil {
 				return PhysicalAuthoritySet{}, fmt.Errorf("physical authority request[%d]: %w", index, err)
 			}
@@ -253,7 +261,7 @@ func (set *LeaseSet) CoversPhysicalAuthority(authority PhysicalAuthoritySet) (bo
 	return true, nil
 }
 
-func (domain Domain) matchesCurrentPath() (bool, error) {
+func (domain Domain) matchesCurrentPath(observe pathIdentityObserver) (bool, error) {
 	switch domain.kind {
 	case domainLogicalPath, domainPhysicalPath:
 		if !domain.namespaceLease.isZero() {
@@ -262,7 +270,7 @@ func (domain Domain) matchesCurrentPath() (bool, error) {
 				return matches, err
 			}
 		}
-		identity, err := canonicalPathIdentity(domain.requestedPath, domain.effect)
+		identity, err := observe(domain.requestedPath, domain.effect)
 		if err != nil {
 			return false, err
 		}
@@ -274,13 +282,13 @@ func (domain Domain) matchesCurrentPath() (bool, error) {
 	}
 }
 
-func (domain Domain) visibilityAuthorityMatchesCurrent() (bool, error) {
+func (domain Domain) visibilityAuthorityMatchesCurrent(observe pathIdentityObserver) (bool, error) {
 	switch domain.kind {
 	case domainLogicalPath, domainPhysicalPath:
 		if !domain.namespaceLease.isZero() {
 			return domain.namespaceLease.matchesCurrent()
 		}
-		return domain.matchesCurrentPath()
+		return domain.matchesCurrentPath(observe)
 	case domainHostRoute:
 		return true, nil
 	default:

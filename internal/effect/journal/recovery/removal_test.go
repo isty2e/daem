@@ -728,6 +728,9 @@ func TestForwardRemovalCapacityBoundsRecursiveCleanupNamespaceWork(t *testing.T)
 	if err != nil {
 		t.Fatalf("construct removal work budget: %v", err)
 	}
+	// Keep path work, rather than the independent entry limit, decisive here.
+	const namespaceLimit = 524_288
+	budget.pathComponentLimit = namespaceLimit
 	maximum, err := NewArtifactWork(37_447, 0)
 	if err != nil {
 		t.Fatalf("construct namespace-bounded work: %v", err)
@@ -740,6 +743,7 @@ func TestForwardRemovalCapacityBoundsRecursiveCleanupNamespaceWork(t *testing.T)
 	if err != nil {
 		t.Fatalf("construct overflow work budget: %v", err)
 	}
+	overflowBudget.pathComponentLimit = namespaceLimit
 	overflow, err := NewArtifactWork(37_448, 0)
 	if err != nil {
 		t.Fatalf("construct namespace overflow work: %v", err)

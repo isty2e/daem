@@ -32,6 +32,48 @@ func platformCanonicalPath(selection pathSelection, effect PathEffect) (canonica
 	})
 }
 
+func newPlatformPathObservation() func(pathSelection, PathEffect) (canonicalPath, error) {
+	observation := darwinPathObservation{
+		descriptorPath: darwinDescriptorPath,
+		directoryCase:  darwinDirectoryCaseSemantics,
+	}.shared()
+	return func(selection pathSelection, effect PathEffect) (canonicalPath, error) {
+		return canonicalDarwinPath(selection, effect, observation)
+	}
+}
+
+func (observation darwinPathObservation) shared() darwinPathObservation {
+	type descriptorRequest struct {
+		path     string
+		noFollow bool
+	}
+	descriptors := make(map[descriptorRequest]string)
+	cases := make(map[string]pathCaseSemantics)
+	return darwinPathObservation{
+		descriptorPath: func(path string, noFollow bool) (string, error) {
+			request := descriptorRequest{path: path, noFollow: noFollow}
+			if stored, ok := descriptors[request]; ok {
+				return stored, nil
+			}
+			stored, err := observation.descriptorPath(path, noFollow)
+			if err == nil {
+				descriptors[request] = stored
+			}
+			return stored, err
+		},
+		directoryCase: func(path string) (pathCaseSemantics, error) {
+			if mode, ok := cases[path]; ok {
+				return mode, nil
+			}
+			mode, err := observation.directoryCase(path)
+			if err == nil {
+				cases[path] = mode
+			}
+			return mode, err
+		},
+	}
+}
+
 func platformCanonicalPathBounded(
 	selection pathSelection,
 	effect PathEffect,
