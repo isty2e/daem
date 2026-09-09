@@ -468,7 +468,7 @@ targets = ["claude-code"]
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1; stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "add failed: lock prospective manifest") {
+	if !strings.Contains(stderr.String(), "add failed: read lockfile:") {
 		t.Fatalf("stderr = %q, want prospective lock failure", stderr.String())
 	}
 	testkit.AssertFileContent(t, manifestPath, originalManifest)

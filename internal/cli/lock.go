@@ -101,7 +101,7 @@ func printLockWorkflowHints(output io.Writer, manifestPath string, err error) {
 	printMissingManifestInitHint(output, manifestPath, err)
 
 	var commandError workflowlock.CommandError
-	if errors.As(err, &commandError) {
-		printLockMissingSourceHint(output, commandError.ManifestPath, err)
+	if errors.As(err, &commandError) && clipresent.PrintMissingSourceHint(output, err) {
+		clipresent.PrintShellCommand(output, "next: run ", "daem", "lock", "--manifest", commandError.ManifestPath, "--dry-run")
 	}
 }

@@ -109,7 +109,7 @@ source = { path = "missing.md", mode = "vendor" }
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1; stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "add failed: lock prospective manifest: resolve instructions \"project\" source") {
+	if !strings.Contains(stderr.String(), "add failed: resolve instructions \"project\" source") {
 		t.Fatalf("stderr = %q, want lock failure", stderr.String())
 	}
 	testkit.AssertFileContent(t, manifestPath, original)
@@ -187,7 +187,7 @@ func TestRunAddSkillDryRunFailsForMissingLocalSource(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "add failed: lock prospective manifest: resolve skill \"missing\"") {
+	if !strings.Contains(stderr.String(), "add failed: resolve skill \"missing\"") {
 		t.Fatalf("stderr = %q, want lock preflight diagnostic", stderr.String())
 	}
 	testkit.AssertFileContent(t, manifestPath, original)
@@ -214,7 +214,7 @@ func TestRunAddSkillYesFailsForMissingLocalSource(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "add failed: lock prospective manifest: resolve skill \"missing\"") {
+	if !strings.Contains(stderr.String(), "add failed: resolve skill \"missing\"") {
 		t.Fatalf("stderr = %q, want lock preflight diagnostic", stderr.String())
 	}
 	testkit.AssertFileContent(t, manifestPath, original)
@@ -283,7 +283,7 @@ func TestRunAddSkillRejectsProjectScopeFromUserDefaultManifest(t *testing.T) {
 		t.Fatalf("exitCode = %d, want 1; stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"add failed: lock prospective manifest",
+		"add failed: invalid prospective manifest",
 		"project-scoped skill \"oracle\" requires a project manifest",
 		"use --manifest ./daem.toml or set scope = \"global\"",
 	} {

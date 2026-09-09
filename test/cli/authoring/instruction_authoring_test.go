@@ -298,7 +298,7 @@ func TestRunAddInstructionDryRunFailsForMissingLocalSource(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), `add failed: lock prospective manifest: resolve instructions "project" source`) {
+	if !strings.Contains(stderr.String(), `add failed: resolve instructions "project" source`) {
 		t.Fatalf("stderr = %q, want lock preflight diagnostic", stderr.String())
 	}
 	if strings.Contains(stderr.String(), "next: run daem init") {
@@ -393,7 +393,7 @@ render_to = "CLAUDE.md"
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 	for _, want := range []string{
-		`add failed: lock prospective manifest: instructions "project" target "codex"`,
+		`add failed: instructions "project" target "codex"`,
 		`render_to "CLAUDE.md" for target "codex" scope "project"`,
 		`not an admitted instruction placement destination`,
 	} {

@@ -645,7 +645,7 @@ targets = ["claude-code"]
 	if exitCode == 0 {
 		t.Fatalf("exitCode = 0, stdout = %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "remove failed: lock prospective manifest") {
+	if !strings.Contains(stderr.String(), "remove failed: read lockfile:") {
 		t.Fatalf("stderr = %q, want prospective lock failure", stderr.String())
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
@@ -679,7 +679,7 @@ targets = ["antigravity-cli"]
 	if exitCode == 0 {
 		t.Fatalf("exitCode = 0, stdout = %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "remove failed: lock prospective manifest") {
+	if !strings.Contains(stderr.String(), "remove failed: read lockfile:") {
 		t.Fatalf("stderr = %q, want prospective lock failure", stderr.String())
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)

@@ -74,7 +74,7 @@ targets = ["codex"]
 	}
 	for _, want := range []string{
 		`source path "` + filepath.Join(tempDir, "instructions", "missing.md") + `" does not exist`,
-		"next: create the missing source file or directory, edit the manifest source path, or remove the resource declaration",
+		"next: check that the source exists at this path; correct the source argument or the manifest source path",
 		"next: run " + testkit.ExpectedShellCommand(t, "daem", "lock", "--manifest", manifestPath, "--dry-run"),
 	} {
 		if !strings.Contains(stderr.String(), want) {
