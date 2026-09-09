@@ -93,6 +93,16 @@ func Classify(
 	installName string,
 	targets []target.Target,
 ) (Classification, error) {
+	if validateRepairInput(ctx, input, view, installName) == nil {
+		unchanged, err := classifyUnchanged(ctx, input, view, installName, targets)
+		if err != nil {
+			return Classification{}, err
+		}
+		if unchanged {
+			return Classification{repairability: RepairabilityNone}, nil
+		}
+	}
+
 	result, err := Repair(ctx, input, view, installName, targets)
 	if err != nil {
 		manual, ok := err.(ManualError)
