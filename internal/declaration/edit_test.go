@@ -58,7 +58,7 @@ func TestApplyAddDeclarationReturnsStructuralOutcomes(t *testing.T) {
 	}
 }
 
-func TestApplyAddDeclarationRejectsDuplicateInheritedAndUnchangedValues(t *testing.T) {
+func TestApplyAddDeclarationRejectsConflictsButAcceptsUnchangedValues(t *testing.T) {
 	original := []byte("version = 1\n\n[[widget]]\nname = \"lint\"\nsignature = \"same\"\ntargets = [\"codex\"]\n\n[[widget]]\nname = \"inherited\"\nsignature = \"same\"\n")
 	codec := fakeDeclarationCodec()
 
@@ -86,7 +86,7 @@ func TestApplyAddDeclarationRejectsDuplicateInheritedAndUnchangedValues(t *testi
 		t.Fatalf("inherited err = %v, want inherited diagnostic", err)
 	}
 
-	if _, err := ApplyAddDeclaration(AddEditInput[fakeDeclaration]{
+	unchanged, err := ApplyAddDeclaration(AddEditInput[fakeDeclaration]{
 		Original: original,
 		Declaration: fakeDeclaration{
 			name:      "lint",
@@ -94,8 +94,9 @@ func TestApplyAddDeclarationRejectsDuplicateInheritedAndUnchangedValues(t *testi
 			targets:   []string{"codex"},
 		},
 		Codec: codec,
-	}); err == nil || !strings.Contains(err.Error(), `widget "lint" already has selected values`) {
-		t.Fatalf("unchanged err = %v, want unchanged diagnostic", err)
+	})
+	if err != nil || unchanged.Outcome != EditOutcomeUnchanged || string(unchanged.Content) != string(original) {
+		t.Fatalf("unchanged result = %#v, err = %v", unchanged, err)
 	}
 }
 
@@ -341,14 +342,8 @@ func fakeDeclarationCodec() AddEditContract[fakeDeclaration] {
 		DuplicateError: func(key Key) error {
 			return fmt.Errorf("duplicate %s %q", key.Kind, key.Name)
 		},
-		AlreadyExistsError: func(key Key) error {
-			return fmt.Errorf("%s %q already exists", key.Kind, key.Name)
-		},
 		InheritsTargetsError: func(key Key) error {
 			return fmt.Errorf("%s %q inherits defaults", key.Kind, key.Name)
-		},
-		AlreadyHasTargetsError: func(key Key) error {
-			return fmt.Errorf("%s %q already has selected values", key.Kind, key.Name)
 		},
 	}
 }

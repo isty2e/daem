@@ -98,15 +98,15 @@ source = { marketplace = "context7@market" }
 		t.Fatalf("err = %v, want duplicate subject", err)
 	}
 
-	_, _, err = ApplyAddExtensionToManifest(original, declaration.Extension{
+	unchanged, kind, err := ApplyAddExtensionToManifest(original, declaration.Extension{
 		ID:      "context7-managed",
 		Carrier: "claude-code-plugin",
 		Targets: []string{"claude-code"},
 		Scope:   "project",
 		Source:  declaration.ExtensionSource{Marketplace: "context7@market"},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
-	if err == nil || !strings.Contains(err.Error(), `extension "context7-managed" already exists`) {
-		t.Fatalf("err = %v, want already exists", err)
+	if err != nil || kind != "unchanged" || string(unchanged) != string(original) {
+		t.Fatalf("satisfied extension result = %q, %q, %v", unchanged, kind, err)
 	}
 
 	_, _, err = ApplyAddExtensionToManifest(original, declaration.Extension{

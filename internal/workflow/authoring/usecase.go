@@ -16,6 +16,7 @@
 package authoring
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -100,6 +101,8 @@ func (document ManifestDocument) validateResult(content []byte) error {
 
 func addDeclarationChangeKind(outcome declaration.EditOutcome, appendChangeKind string, mergeChangeKind string) (string, error) {
 	switch outcome {
+	case declaration.EditOutcomeUnchanged:
+		return "unchanged", nil
 	case declaration.EditOutcomeAppend:
 		return appendChangeKind, nil
 	case declaration.EditOutcomeMergeTargets:
@@ -131,6 +134,12 @@ type OperationResult struct {
 	Warnings      []string
 	Lockfile      LockfileChange
 	Mode          AuthoringMode
+}
+
+// ManifestChanged reports a declaration-byte change, independently of lockfile
+// regeneration or physical writes performed by the authoring transaction.
+func (result OperationResult) ManifestChanged() bool {
+	return !bytes.Equal(result.Original, result.Content)
 }
 
 // OperationPhase identifies which phase of an authoring operation failed.

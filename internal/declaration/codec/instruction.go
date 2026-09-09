@@ -146,8 +146,8 @@ func sameInstructionIdentity(name string, left Instruction, right Instruction, h
 		InstructionEffectiveScope(name, left.Scope, header) == InstructionEffectiveScope(name, right.Scope, header)
 }
 
-// ApplyInstructionAdd appends an instruction declaration or merges its explicit target
-// set while preserving unrelated manifest bytes.
+// ApplyInstructionAdd retains a satisfied instruction, appends a new declaration,
+// or merges explicit targets while preserving unrelated manifest bytes.
 func ApplyInstructionAdd(original []byte, header declaration.ManifestHeader, name string, instruction Instruction) (declaration.EditResult, error) {
 	value := instructionEditDeclaration{Name: name, Instruction: instruction}
 	return declaration.ApplyAddDeclaration(declaration.AddEditInput[instructionEditDeclaration]{
@@ -175,14 +175,8 @@ func ApplyInstructionAdd(original []byte, header declaration.ManifestHeader, nam
 			DuplicateError: func(key declaration.Key) error {
 				return fmt.Errorf("duplicate instruction name %q", key.Name)
 			},
-			AlreadyExistsError: func(key declaration.Key) error {
-				return fmt.Errorf("instruction %q already exists", key.Name)
-			},
 			InheritsTargetsError: func(key declaration.Key) error {
 				return fmt.Errorf("instruction %q inherits manifest targets; edit the manifest manually to change target inheritance", key.Name)
-			},
-			AlreadyHasTargetsError: func(key declaration.Key) error {
-				return fmt.Errorf("instruction %q already has the selected targets", key.Name)
 			},
 		},
 	})

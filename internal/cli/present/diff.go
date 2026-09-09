@@ -214,6 +214,10 @@ func inlineDiffMatrixWithinBudget(currentLines int, desiredLines int) bool {
 }
 
 func PrintManifestDiff(output io.Writer, currentLabel string, currentContent []byte, desiredLabel string, desiredContent []byte) {
+	if bytes.Equal(currentContent, desiredContent) {
+		fmt.Fprintln(output, "manifest diff: unchanged")
+		return
+	}
 	fmt.Fprintln(output, "manifest diff:")
 	for _, line := range FormatTextDiff(currentLabel, currentContent, desiredLabel, desiredContent) {
 		fmt.Fprintln(output, line)

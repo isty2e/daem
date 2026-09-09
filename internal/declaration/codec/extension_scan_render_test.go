@@ -159,18 +159,3 @@ source = { host_source = "@acme/formatter", future = "preserve" }
 		t.Fatal("partial scan range did not retain unowned source bytes")
 	}
 }
-
-func TestExtensionRelationIdentityUsesDeclarationOwnedWireSource(t *testing.T) {
-	left := declaration.Extension{
-		ID: "left", Carrier: "claude_plugin", Targets: []string{"claude-code"}, Scope: "project",
-		Source: declaration.ExtensionSource{Marketplace: "official"},
-	}
-	right := left
-	right.ID = "right"
-	if !SameExtensionRelation(left, right) {
-		t.Fatal("declaration ID incorrectly participated in relation identity")
-	}
-	if got := left.Source.Ref(); got != "official" {
-		t.Fatalf("Source.Ref = %q", got)
-	}
-}

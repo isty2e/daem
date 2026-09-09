@@ -1,6 +1,7 @@
 package authoring
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -62,12 +63,16 @@ func BuildAddMCPServerChange(document ManifestDocument, request AddMCPServerRequ
 		)
 		changeKind = "append extension and mcp_server resources"
 	}
+	beforeServer := content
 	content, mcpChangeKind, err := ApplyAddMCPServerToManifest(content, server, header)
 	if err != nil {
 		return Change{}, err
 	}
+	serverChanged := !bytes.Equal(beforeServer, content)
 	if changeKind == "" {
 		changeKind = mcpChangeKind
+	} else if !serverChanged {
+		changeKind = "append extension resource"
 	}
 	if err := document.validateResult(content); err != nil {
 		return Change{}, err
@@ -77,10 +82,12 @@ func BuildAddMCPServerChange(document ManifestDocument, request AddMCPServerRequ
 		return Change{}, err
 	}
 	warnings = append(warnings, providerPlan.warnings...)
-	manifestBlocks = append(
-		manifestBlocks,
-		strings.TrimRight(declarationcodec.RenderMCPServerBlock(server), "\n"),
-	)
+	if serverChanged {
+		manifestBlocks = append(
+			manifestBlocks,
+			strings.TrimRight(declarationcodec.RenderMCPServerBlock(server), "\n"),
+		)
+	}
 
 	return Change{
 		ManifestPath:  document.Path,
@@ -199,13 +206,7 @@ func ApplyAddMCPServerToManifest(original []byte, server declarationcodec.MCPSer
 				server.Name,
 			)
 		}
-		if len(server.Targets) == 0 {
-			return nil, "", fmt.Errorf("mcp_server %q already exists", server.Name)
-		}
-		if len(existing.Targets) == 0 {
-			return nil, "", fmt.Errorf("mcp_server %q inherits manifest targets; edit the manifest manually to change target inheritance", server.Name)
-		}
-		return nil, "", fmt.Errorf("mcp_server %q already has the selected targets", server.Name)
+		return original, "unchanged", nil
 	}
 
 	return declaration.AppendDocumentBlock(original, declarationcodec.RenderMCPServerBlock(server)), "append mcp_server resource", nil
@@ -238,7 +239,11 @@ func ApplyRemoveMCPServerToManifest(original []byte, request RemoveMCPServerRequ
 	}
 	matches := filterRemoveMCPServerCandidates(candidates, request)
 	if len(matches) == 0 {
-		return nil, "", fmt.Errorf("mcp_server resource %q not found", request.Name)
+		available := make([]ResourceSelection, 0, len(candidates))
+		for _, candidate := range candidates {
+			available = append(available, ResourceSelection{Name: candidate.name, Scope: candidate.scope, Targets: candidate.targets})
+		}
+		return nil, "", missingResourceSelection("mcp_server", request.Name, available)
 	}
 	if len(matches) > 1 {
 		return nil, "", fmt.Errorf("mcp_server resource %q is ambiguous; narrow with --target/--scope", request.Name)

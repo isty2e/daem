@@ -14,7 +14,7 @@ func TestHookSameIdentityTreatsImplicitCommandTypeAsCanonicalDefault(t *testing.
 	right.Event = "before"
 	right.Command = "run"
 	right.Scope = "project"
-	if !sameHookIdentity(left, right) {
+	if !sameHookIdentity(left, right, declaration.ManifestHeader{}) {
 		t.Fatal("implicit command type did not match explicit canonical type")
 	}
 }

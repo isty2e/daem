@@ -107,10 +107,17 @@ func ApplyRemoveSkillToManifest(original []byte, request RemoveSkillRequest) ([]
 	}
 	matches := filterRemoveSkillCandidates(candidates, request)
 	if len(matches) == 0 {
-		if selectorBackedSkillGroupsExist(candidates) {
-			return nil, "", fmt.Errorf("skill resource %q not found in direct skill declarations or explicit skill_group names; selector-backed skill_group children are not edited by remove skill; edit include/exclude selectors manually and run daem lock", request.ResourceKey)
+		available := make([]ResourceSelection, 0, len(candidates))
+		for _, candidate := range candidates {
+			if candidate.resourceID != "" {
+				available = append(available, ResourceSelection{Name: candidate.resourceID, Alias: candidate.installName, Scope: candidate.scope, Targets: candidate.targets})
+			}
 		}
-		return nil, "", fmt.Errorf("skill resource %q not found", request.ResourceKey)
+		missing := missingResourceSelection("skill", request.ResourceKey, available)
+		if selectorBackedSkillGroupsExist(candidates) {
+			return nil, "", fmt.Errorf("%w in direct skill declarations or explicit skill_group names; selector-backed skill_group children are not edited by remove skill; edit include/exclude selectors manually and run daem lock", missing)
+		}
+		return nil, "", missing
 	}
 	if len(matches) > 1 {
 		return nil, "", fmt.Errorf("skill resource key %q is ambiguous; use a unique id or narrow with --target/--scope", request.ResourceKey)
@@ -128,7 +135,10 @@ func BuildAddSkillGroupChange(document ManifestDocument, request AddSkillGroupRe
 		return Change{}, err
 	}
 
-	content := ApplyAddSkillGroupToManifest(document.Content, group)
+	content, changeKind, err := ApplyAddSkillGroupToManifest(document.Content, group)
+	if err != nil {
+		return Change{}, err
+	}
 	if err := document.validateResult(content); err != nil {
 		return Change{}, err
 	}
@@ -138,7 +148,7 @@ func BuildAddSkillGroupChange(document ManifestDocument, request AddSkillGroupRe
 		Original:      document.Content,
 		Content:       content,
 		ResourceID:    strings.Join(group.Names, ","),
-		ChangeKind:    "append skill_group resource",
+		ChangeKind:    changeKind,
 		ManifestBlock: strings.TrimRight(declarationcodec.RenderSkillGroupBlock(group), "\n"),
 		Warnings:      skillGroupWarnings(group, document.Root),
 	}, nil
@@ -167,8 +177,16 @@ func SkillGroupFromAddRequest(request AddSkillGroupRequest, manifestRoot string)
 	return group, nil
 }
 
-func ApplyAddSkillGroupToManifest(original []byte, group declarationcodec.SkillGroup) []byte {
-	return declaration.AppendDocumentBlock(original, declarationcodec.RenderSkillGroupBlock(group))
+func ApplyAddSkillGroupToManifest(original []byte, group declarationcodec.SkillGroup) ([]byte, string, error) {
+	change, err := declarationcodec.ApplySkillGroupAdd(original, group)
+	if err != nil {
+		return nil, "", err
+	}
+	changeKind, err := addDeclarationChangeKind(change.Outcome, "append skill_group resource", "update skill_group targets")
+	if err != nil {
+		return nil, "", err
+	}
+	return change.Content, changeKind, nil
 }
 
 type removeSkillCandidate struct {

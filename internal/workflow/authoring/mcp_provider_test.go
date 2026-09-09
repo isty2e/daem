@@ -195,7 +195,7 @@ func TestPiMCPAuthoringRejectsInvalidExplicitProviderSources(t *testing.T) {
 	}
 }
 
-func TestPiMCPAuthoringRejectsDuplicateBindingWithoutAddingProvider(t *testing.T) {
+func TestPiMCPAuthoringKeepsSatisfiedBindingAndProvider(t *testing.T) {
 	original := []byte("version = 1\ntargets = [\"pi\"]\n\n" +
 		piProviderExtensionBlock(
 			"pi-mcp-adapter-project",
@@ -210,16 +210,15 @@ transport = "stdio"
 command = "node"
 args = ["server.js"]
 `)
-	_, err := BuildAddMCPServerChange(
+	change, err := BuildAddMCPServerChange(
 		ManifestDocument{Content: original},
 		AddMCPServerRequest{
 			Name: "context7", Command: "node", Args: []string{"server.js"},
 			Targets: []string{"pi"}, Scope: "project",
 		},
 	)
-	if err == nil ||
-		!strings.Contains(err.Error(), `mcp_server "context7" already has the selected targets`) {
-		t.Fatalf("error = %v, want duplicate Pi binding rejection", err)
+	if err != nil || change.ChangeKind != "unchanged" || string(change.Content) != string(original) {
+		t.Fatalf("satisfied Pi result = %#v, error = %v", change, err)
 	}
 }
 
