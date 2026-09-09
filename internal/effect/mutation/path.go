@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -236,6 +237,14 @@ func validateCanonicalPathIdentity(
 }
 
 func selectPath(path string, effect PathEffect) (pathSelection, error) {
+	return selectPathWithResolver(path, effect, resolveDeepestExisting)
+}
+
+func selectPathWithResolver(
+	path string,
+	effect PathEffect,
+	resolve func(string) (pathSelection, error),
+) (pathSelection, error) {
 	if err := effect.validate(); err != nil {
 		return pathSelection{}, err
 	}
@@ -251,11 +260,11 @@ func selectPath(path string, effect PathEffect) (pathSelection, error) {
 	}
 
 	if effect == PathEffectDirectoryEntry && filepath.Dir(absolutePath) != absolutePath {
-		parent, err := resolveDeepestExisting(filepath.Dir(absolutePath))
+		parent, err := resolve(filepath.Dir(absolutePath))
 		if err != nil {
 			return pathSelection{}, fmt.Errorf("canonicalize mutation path %q: %w", path, err)
 		}
-		missing := append(parent.missingComponents, filepath.Base(absolutePath))
+		missing := append(slices.Clone(parent.missingComponents), filepath.Base(absolutePath))
 		return pathSelection{
 			anchorPath:         parent.anchorPath,
 			missingComponents:  missing,
@@ -263,7 +272,7 @@ func selectPath(path string, effect PathEffect) (pathSelection, error) {
 		}, nil
 	}
 
-	selection, err := resolveDeepestExisting(absolutePath)
+	selection, err := resolve(absolutePath)
 	if err != nil {
 		return pathSelection{}, fmt.Errorf("canonicalize mutation path %q: %w", path, err)
 	}
