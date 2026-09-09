@@ -1,21 +1,13 @@
 package mutation
 
+import "path/filepath"
+
 type pathIdentityObserver func(string, PathEffect) (canonicalPath, error)
 
 // newPathIdentityObserver shares successful observations within one read-only
 // pass. It must not survive a visibility effect or another validation call.
 func newPathIdentityObserver() pathIdentityObserver {
-	resolved := make(map[string]pathSelection)
-	resolve := func(path string) (pathSelection, error) {
-		if selection, ok := resolved[path]; ok {
-			return selection, nil
-		}
-		selection, err := resolveDeepestExisting(path)
-		if err == nil {
-			resolved[path] = selection
-		}
-		return selection, err
-	}
+	resolve := newPathSelectionResolver(filepath.EvalSymlinks, requireDirectoryAncestor)
 	observe := newPlatformPathObservation()
 	return func(path string, effect PathEffect) (canonicalPath, error) {
 		selection, err := selectPathWithResolver(path, effect, resolve)
@@ -24,5 +16,46 @@ func newPathIdentityObserver() pathIdentityObserver {
 		}
 		identity, err := observe(selection, effect)
 		return validateCanonicalPathIdentity(path, identity, err)
+	}
+}
+
+func newPathSelectionResolver(
+	resolveSymlinks func(string) (string, error),
+	requireDirectory func(string) error,
+) func(string) (pathSelection, error) {
+	symlinks := make(map[string]string)
+	resolveExisting := func(path string) (string, error) {
+		if resolved, ok := symlinks[path]; ok {
+			return resolved, nil
+		}
+		resolved, err := resolveSymlinks(path)
+		if err == nil {
+			symlinks[path] = resolved
+		}
+		return resolved, err
+	}
+
+	directories := make(map[string]struct{})
+	requireExistingDirectory := func(path string) error {
+		if _, ok := directories[path]; ok {
+			return nil
+		}
+		if err := requireDirectory(path); err != nil {
+			return err
+		}
+		directories[path] = struct{}{}
+		return nil
+	}
+
+	resolved := make(map[string]pathSelection)
+	return func(path string) (pathSelection, error) {
+		if selection, ok := resolved[path]; ok {
+			return selection, nil
+		}
+		selection, err := resolveDeepestExistingWith(path, resolveExisting, requireExistingDirectory)
+		if err == nil {
+			resolved[path] = selection
+		}
+		return selection, err
 	}
 }
