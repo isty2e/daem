@@ -71,6 +71,10 @@ type ApplyOptions struct {
 	// ValidateBeforeEffects runs after all rooted effect authority is bound and
 	// immediately before each forward visibility-changing effect.
 	ValidateBeforeEffects func(context.Context, mutation.PhysicalAuthoritySet) error
+	// ValidatePhysicalAuthorityRequests is an alternative to ValidateBeforeEffects
+	// for observing bound requests together with current leases. The callbacks are
+	// mutually exclusive; each invocation receives its own request slice.
+	ValidatePhysicalAuthorityRequests func(context.Context, []mutation.PhysicalAuthorityRequest) error
 	// AcceptVisibilityChanges re-observes and accepts path identity transitions
 	// after one successful visibility-changing effect and its postcondition.
 	AcceptVisibilityChanges func(context.Context) error
@@ -292,11 +296,7 @@ func applyWithOptions(
 	}
 	visibilityGate := visibilityEffectGate{
 		before: func(ctx context.Context) error {
-			physicalAuthority, err := mutationAuthority.physicalAuthority()
-			if err != nil {
-				return err
-			}
-			return options.validateBeforeEffects(ctx, physicalAuthority)
+			return options.validatePhysicalAuthority(ctx, mutationAuthority)
 		},
 		after: options.acceptVisibilityChanges,
 	}
@@ -750,6 +750,24 @@ func (options ApplyOptions) statefileCommit(
 		return authority.commitProjectStatefile(ctx, content, mode)
 	}
 	return options.commitStatefile(ctx, path, content, mode)
+}
+
+func (options ApplyOptions) validatePhysicalAuthority(ctx context.Context, authority *mutationAuthority) error {
+	if authority == nil {
+		return fmt.Errorf("mutation authority is required")
+	}
+	if options.ValidatePhysicalAuthorityRequests != nil {
+		if options.ValidateBeforeEffects != nil {
+			return fmt.Errorf("apply physical authority validators are mutually exclusive")
+		}
+		requests := append([]mutation.PhysicalAuthorityRequest(nil), authority.physicalAuthorityRequests...)
+		return options.ValidatePhysicalAuthorityRequests(ctx, requests)
+	}
+	physicalAuthority, err := authority.physicalAuthority()
+	if err != nil {
+		return err
+	}
+	return options.validateBeforeEffects(ctx, physicalAuthority)
 }
 
 func (options ApplyOptions) validateBeforeEffects(

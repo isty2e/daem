@@ -283,7 +283,7 @@ func executeWithDependencies(
 	revisionBoundaryValidated := false
 	validatePeerAuthority := func(
 		ctx context.Context,
-		authority mutation.PhysicalAuthoritySet,
+		validateLeases func(context.Context) (bool, error),
 	) error {
 		if err := executionGuard.requireDeclarationsCurrent(
 			ctx,
@@ -300,18 +300,11 @@ func executeWithDependencies(
 				return staleApplyError(options.PlanWasDisclosed, nil)
 			}
 		}
-		matches, err := leases.DomainsMatchCurrent(ctx)
+		matches, err := validateLeases(ctx)
 		if err != nil {
 			return err
 		}
 		if !matches {
-			return staleApplyError(options.PlanWasDisclosed, nil)
-		}
-		covered, err := leases.CoversPhysicalAuthority(authority)
-		if err != nil {
-			return err
-		}
-		if !covered {
 			return staleApplyError(options.PlanWasDisclosed, nil)
 		}
 		if _, err := projectRootFingerprint(current); err != nil {
@@ -319,9 +312,9 @@ func executeWithDependencies(
 		}
 		return nil
 	}
-	validateBeforeEffects := func(ctx context.Context, authority mutation.PhysicalAuthoritySet) error {
+	validateBeforeEffectsWith := func(ctx context.Context, validateLeases func(context.Context) (bool, error)) error {
 		if revisionBoundaryValidated {
-			if err := validatePeerAuthority(ctx, authority); err != nil {
+			if err := validatePeerAuthority(ctx, validateLeases); err != nil {
 				return err
 			}
 			return forwardAuthority.ValidateStateDir(ctx)
@@ -329,7 +322,7 @@ func executeWithDependencies(
 		created, err := forwardAuthority.EnsureStateDirForEffect(
 			ctx,
 			func(ctx context.Context) error {
-				return validatePeerAuthority(ctx, authority)
+				return validatePeerAuthority(ctx, validateLeases)
 			},
 		)
 		if created {
@@ -340,6 +333,20 @@ func executeWithDependencies(
 		}
 		revisionBoundaryValidated = true
 		return nil
+	}
+	validateBeforeEffects := func(ctx context.Context, authority mutation.PhysicalAuthoritySet) error {
+		return validateBeforeEffectsWith(ctx, func(ctx context.Context) (bool, error) {
+			matches, err := leases.DomainsMatchCurrent(ctx)
+			if err != nil || !matches {
+				return matches, err
+			}
+			return leases.CoversPhysicalAuthority(authority)
+		})
+	}
+	validatePhysicalAuthorityRequests := func(ctx context.Context, requests []mutation.PhysicalAuthorityRequest) error {
+		return validateBeforeEffectsWith(ctx, func(ctx context.Context) (bool, error) {
+			return leases.MatchCurrentPhysicalRequests(ctx, requests...)
+		})
 	}
 	validateCompensationAuthority := func(ctx context.Context) error {
 		matches, err := leases.VisibilityAuthorityMatchesCurrent(ctx)
@@ -409,9 +416,10 @@ func executeWithDependencies(
 		orderRiskBaseline: newRelationOrderRiskBaseline(
 			planned.assessment.Reconciliation.RelationOrders(),
 		),
-		executionGuard:          executionGuard,
-		validateBeforeEffects:   validateBeforeEffects,
-		validateRecoveryBarrier: forwardAuthority.Validate,
+		executionGuard:                    executionGuard,
+		validateBeforeEffects:             validateBeforeEffects,
+		validatePhysicalAuthorityRequests: validatePhysicalAuthorityRequests,
+		validateRecoveryBarrier:           forwardAuthority.Validate,
 		validateStateDir: func(ctx context.Context) error {
 			return forwardAuthority.ValidateStateDir(ctx)
 		},

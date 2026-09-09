@@ -179,6 +179,25 @@ func (store Store) Acquire(ctx context.Context, domains ...Domain) (*LeaseSet, e
 
 // DomainsMatchCurrent reports whether path identities still match the domains actually acquired.
 func (set *LeaseSet) DomainsMatchCurrent(ctx context.Context) (bool, error) {
+	return set.domainsMatchCurrent(ctx, newPathIdentityObserver())
+}
+
+// MatchCurrentPhysicalRequests checks all held domains and exact exclusive
+// coverage of every requested destination using one fresh observation pass.
+func (set *LeaseSet) MatchCurrentPhysicalRequests(ctx context.Context, requests ...PhysicalAuthorityRequest) (bool, error) {
+	observe := cachePathIdentities(newPathIdentityObserver())
+	authority, err := newPhysicalAuthoritySet(observe, requests...)
+	if err != nil {
+		return false, err
+	}
+	matches, err := set.domainsMatchCurrent(ctx, observe)
+	if err != nil || !matches {
+		return matches, err
+	}
+	return set.CoversPhysicalAuthority(authority)
+}
+
+func (set *LeaseSet) domainsMatchCurrent(ctx context.Context, observe pathIdentityObserver) (bool, error) {
 	if ctx == nil {
 		return false, fmt.Errorf("mutation lease context is required")
 	}
@@ -196,7 +215,6 @@ func (set *LeaseSet) DomainsMatchCurrent(ctx context.Context) (bool, error) {
 	if err := set.namespace.ValidateCurrent(); err != nil {
 		return false, fmt.Errorf("validate mutation lease namespace: %w", err)
 	}
-	observe := newPathIdentityObserver()
 	for _, domain := range set.domains {
 		if err := ctx.Err(); err != nil {
 			return false, err

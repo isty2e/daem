@@ -45,31 +45,32 @@ type runResult struct {
 }
 
 type runOptions struct {
-	ExecuteEvents                  execute.EventSink
-	HostRouteExecutor              subprocess.CommandExecutor
-	HostRouteObserver              HostRouteObserver
-	CarrierRemovalAdapter          executehostroute.RemovalAdapter
-	CarrierRemovalObserver         CarrierRemovalObserver
-	CarrierRemovalBaselineObserver CarrierRemovalBaselineObserver
-	DelegateExecutor               delegate.Executor
-	RelationOrderRiskAuthorizer    RelationOrderRiskAuthorizer
-	orderRiskBaseline              relationOrderRiskBaseline
-	executionGuard                 applyExecutionGuard
-	validateBeforeEffects          func(context.Context, mutation.PhysicalAuthoritySet) error
-	validateRecoveryBarrier        func(context.Context) error
-	validateStateDir               func(context.Context) error
-	reserveStatefileAuthority      reserveStatefileEffectAuthority
-	statefileAuthority             *statefileEffectAuthority
-	applyEffectPlan                *execute.ApplyEffectPlan
-	preparedContinuation           applyContinuationPlan
-	currentContinuation            applyContinuationPlan
-	requireContinuation            bool
-	acceptVisibilityChanges        func(context.Context) error
-	validateCompensationAuthority  func(context.Context) error
-	acceptCompensationChanges      func(context.Context) error
-	projectRoot                    *rootedpath.CapturedRoot
-	markExecutionAttempted         func()
-	recoveryProvenancePreflight    recoveryProvenancePreflight
+	ExecuteEvents                     execute.EventSink
+	HostRouteExecutor                 subprocess.CommandExecutor
+	HostRouteObserver                 HostRouteObserver
+	CarrierRemovalAdapter             executehostroute.RemovalAdapter
+	CarrierRemovalObserver            CarrierRemovalObserver
+	CarrierRemovalBaselineObserver    CarrierRemovalBaselineObserver
+	DelegateExecutor                  delegate.Executor
+	RelationOrderRiskAuthorizer       RelationOrderRiskAuthorizer
+	orderRiskBaseline                 relationOrderRiskBaseline
+	executionGuard                    applyExecutionGuard
+	validateBeforeEffects             func(context.Context, mutation.PhysicalAuthoritySet) error
+	validatePhysicalAuthorityRequests func(context.Context, []mutation.PhysicalAuthorityRequest) error
+	validateRecoveryBarrier           func(context.Context) error
+	validateStateDir                  func(context.Context) error
+	reserveStatefileAuthority         reserveStatefileEffectAuthority
+	statefileAuthority                *statefileEffectAuthority
+	applyEffectPlan                   *execute.ApplyEffectPlan
+	preparedContinuation              applyContinuationPlan
+	currentContinuation               applyContinuationPlan
+	requireContinuation               bool
+	acceptVisibilityChanges           func(context.Context) error
+	validateCompensationAuthority     func(context.Context) error
+	acceptCompensationChanges         func(context.Context) error
+	projectRoot                       *rootedpath.CapturedRoot
+	markExecutionAttempted            func()
+	recoveryProvenancePreflight       recoveryProvenancePreflight
 }
 
 func (options runOptions) markAttempted() {
@@ -99,6 +100,10 @@ func runWithOptions(
 	options runOptions,
 ) (result runResult, resultErr error) {
 	filesystem := storagecommit.Adapter{}
+	validateBeforeEffects := options.validateBeforeEffects
+	if options.validatePhysicalAuthorityRequests != nil {
+		validateBeforeEffects = nil
+	}
 	if err := execute.RejectUnsupportedActions(assessment.Reconciliation); err != nil {
 		return runResult{}, err
 	}
@@ -195,7 +200,8 @@ func runWithOptions(
 			Filesystem:                  filesystem,
 		}, execute.ApplyOptions{
 			Events:                              options.ExecuteEvents,
-			ValidateBeforeEffects:               options.validateBeforeEffects,
+			ValidateBeforeEffects:               validateBeforeEffects,
+			ValidatePhysicalAuthorityRequests:   options.validatePhysicalAuthorityRequests,
 			AcceptVisibilityChanges:             options.acceptVisibilityChanges,
 			ValidateCompensationAuthority:       options.validateCompensationAuthority,
 			AcceptCompensationVisibilityChanges: options.acceptCompensationChanges,
@@ -263,7 +269,8 @@ func runWithOptions(
 		Filesystem:                  filesystem,
 	}, execute.ApplyOptions{
 		Events:                              options.ExecuteEvents,
-		ValidateBeforeEffects:               options.validateBeforeEffects,
+		ValidateBeforeEffects:               validateBeforeEffects,
+		ValidatePhysicalAuthorityRequests:   options.validatePhysicalAuthorityRequests,
 		AcceptVisibilityChanges:             options.acceptVisibilityChanges,
 		ValidateCompensationAuthority:       options.validateCompensationAuthority,
 		AcceptCompensationVisibilityChanges: options.acceptCompensationChanges,

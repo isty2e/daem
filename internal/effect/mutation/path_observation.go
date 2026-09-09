@@ -59,3 +59,24 @@ func newPathSelectionResolver(
 		return selection, err
 	}
 }
+
+// cachePathIdentities retains complete successful values within one read-only pass.
+// Its lifetime must end before any effect or another validation invocation.
+func cachePathIdentities(observe pathIdentityObserver) pathIdentityObserver {
+	type observationKey struct {
+		path   string
+		effect PathEffect
+	}
+	observed := make(map[observationKey]canonicalPath)
+	return func(path string, effect PathEffect) (canonicalPath, error) {
+		key := observationKey{path: path, effect: effect}
+		if identity, exists := observed[key]; exists {
+			return identity, nil
+		}
+		identity, err := observe(path, effect)
+		if err == nil {
+			observed[key] = identity
+		}
+		return identity, err
+	}
+}

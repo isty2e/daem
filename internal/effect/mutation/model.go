@@ -197,8 +197,11 @@ func newPhysicalPathDomain(request PhysicalPathRequest, observe pathIdentityObse
 // NewPhysicalAuthoritySet constructs exact directory-entry and referent
 // authority for every effect-bound physical destination.
 func NewPhysicalAuthoritySet(requests ...PhysicalAuthorityRequest) (PhysicalAuthoritySet, error) {
+	return newPhysicalAuthoritySet(newPathIdentityObserver(), requests...)
+}
+
+func newPhysicalAuthoritySet(observe pathIdentityObserver, requests ...PhysicalAuthorityRequest) (PhysicalAuthoritySet, error) {
 	domains := make([]Domain, 0, len(requests)*2)
-	observe := newPathIdentityObserver()
 	for index, request := range requests {
 		for _, effect := range []PathEffect{PathEffectDirectoryEntry, PathEffectReferent} {
 			domain, err := newPhysicalPathDomain(PhysicalPathRequest{
