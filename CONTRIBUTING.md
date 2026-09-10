@@ -10,8 +10,8 @@ intended behavior, dependencies, and verification evidence remain visible.
 2. Search existing GitHub issues before opening another.
 3. Keep the change scoped to one behavior or contract.
 
-Keep changes scoped. Public behavior changes require implementation, tests, and
-the responsible user documentation to move together.
+Public behavior changes require implementation, tests, and the responsible
+user documentation to move together.
 
 ## Contract Ownership
 
@@ -32,6 +32,19 @@ the responsible user documentation to move together.
 If implementation and documentation disagree, treat the mismatch as drift.
 Determine which side is wrong, then update implementation, tests, and the
 responsible public document together.
+
+## Build From Source
+
+Install the Go toolchain specified in `go.mod`, then build from the repository
+root:
+
+```bash
+go build -mod=readonly -o ./bin/daem ./cmd/daem
+./bin/daem version
+```
+
+A source build is useful for development; it is not native release-verification
+evidence. See [installation from source](docs/install.md#build-from-source) for details.
 
 ## Verify
 

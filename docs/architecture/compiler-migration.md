@@ -1,21 +1,10 @@
-# Compiler Migration Ledger
+# Compiler Implementation
 
-Status: implementation evidence for the **bounded PR #91 delivery**. This
-ledger derives from [`ARCHITECTURE.md`](../../ARCHITECTURE.md), especially its
-[delivery boundary and deferred-work policy](../../ARCHITECTURE.md#bounded-delivery-and-deferred-work).
-It is not a runtime registry, product support matrix, or independent authority.
-
-The earlier all-or-nothing migration roadmap is superseded. Universal cursor
-coverage, scalar-free execution and semantic package-classifier replacement
-are not prerequisites for this PR or 0.2.0. They remain unfinished follow-ups;
-their disposition does not waive a reproduced product or safety defect.
-
-Baseline: `main` at `c0fd11f937c27936e175fb955168fdef3e539e37`.
-Implemented runtime checkpoint: `8c67407a4df9294e3dd4e414ddeb003799f4fb7b`.
-The bounded closeout changes architecture documentation and shadow reporting,
-not production runtime behavior or persisted formats. Earlier inventory and
-phase snapshots remain available in Git history rather than competing with
-current owner catalogs.
+This contributor reference maps the implemented compiler and State Barrier
+boundaries to their consumers and retained compatibility seams. Policy belongs
+to [Architecture](../../ARCHITECTURE.md), especially its
+[deferred-work decisions](../../ARCHITECTURE.md#bounded-delivery-and-deferred-work).
+This page is not a runtime registry or product support matrix.
 
 ## Delivered Boundaries
 
@@ -51,41 +40,8 @@ current inventory.
 The continuation's existing order remains core Apply, global retirement,
 carrier removal, final routes, relation order, delegates and terminal-last
 global adoption. Provider final-schedule comparison remains at both replan
-gates. This ledger does not claim that every intermediate operation is
-interpreted by a single cursor or that all reservation representations agree
-by construction.
-
-## Property Traceability
-
-These identifiers retain continuity with earlier reviews. Their authority is
-the linked architecture contract and narrower product/compatibility contracts,
-not the existence of a test or mechanism. The delivery reset re-derives
-ARCH-G12–G14 and the completion-related constraints in ARCH-G17–G18; it does not
-silently alter public behavior.
-
-| IDs | Retained contract and owner | Evidence surface |
-| --- | --- | --- |
-| ARCH-G01, ARCH-G04, ARCH-G21 | Semantic cores and three realization forms retain ownership; Reconciliation decides, Effect executes/transitions, State Barrier authorizes. | Owner APIs, import/effect-boundary fixtures, journal and recovery tests. |
-| ARCH-G02, ARCH-G03, ARCH-G06, ARCH-G07, ARCH-G09 | Host-Surface owns logical-key and cross-facet coherence; facts stay local; purpose/dispatch cardinality and physical sharing stay distinct; compilation is immutable and I/O-free. | `internal/hostsurface`, `internal/hostsurface/catalog`, topology and profile owner-parity/negative-seed fixtures. |
-| ARCH-G05 | Product support does not manufacture runtime capability, nor does missing capability imply unsupported product. | Profile, platform-support and readiness contracts. |
-| ARCH-G08, ARCH-G22 | Stable IDs and independently versioned public/durable artifacts remain exact. | Versioned codecs, owner identity tests and strict CLI consumers. |
-| ARCH-G10, ARCH-G11 | Pure operation authority/domain/revision/fingerprint compilation; effectful path lowering remains outside it. | `internal/operationplan` plus workflow parity and freshness fixtures. |
-| ARCH-G12 | Supported work must be bounded and admitted before effects; existing typed/cursor segments remain enforced, without requiring a universal cursor. | Apply/Refresh reservation and execution tests; owner-local continuation and Recovery tests. |
-| ARCH-G13 | No runtime branch adds unreserved work. Exact frontier precision is lifecycle-specific; current admission behavior is unchanged. | Effect frontier/terminal tests; Apply dominance checks and Refresh structural reservation tests. |
-| ARCH-G14, ARCH-G15 | Physical lowering, retained identity, capacity and revalidation stay State Barrier-owned; semantic obligations grant no filesystem authority. | `internal/recoverygate` and named State Barrier CI. |
-| ARCH-G16 | File-set mechanics remain below barrier policy; storage/journal/subprocess retain their mechanisms. | `internal/effect/fileset`, declaration transaction and storage tests. |
-| ARCH-G17 | Workflows orchestrate without duplicating canonical static/authority/identity grammars; retained semantic count projections do not own physical lowering. | Compiled consumers and current workflow/State Barrier handoffs. |
-| ARCH-G18 | A replacement moves consumers only after required parity. Live compatibility seams stay until their replacement is verified; universal migration is not a release gate. | Differential fixtures, caller-specific cutovers and explicit retained seams above. |
-| ARCH-G19 | OS specialization stays at physical/platform boundaries, not compiler semantics. | Platform adapters and compiler-shadow perturbation fixtures. |
-| ARCH-G20 | Policy is external to archguard; blocking violations and report-only shadow findings remain distinct. | `Report.HasFailures`, `TestHasFailuresIgnoresShadow`, blocking baseline and shadow fixtures. |
-
-Earlier NON-GOAL identifiers remain traceable: ARCH-N01–N03 prohibit persisted
-Surface IDs, mega-contract/registry IR and a fourth actuation realization;
-ARCH-N06–N08 exclude fingerprint unification, unrelated broad model redesign
-and numeric reduction targets. These follow the architecture's identity,
-compatibility and forbidden-shape rules. ARCH-N04 private naming and ARCH-N05
-`recoverygate` renaming follow its deferred-work policy. ARCH-N09 records named
-State Barrier verification, not a runtime support expansion.
+gates. Not every intermediate operation uses a single cursor, and reservation
+representations do not all agree by construction.
 
 ## Retained Compatibility Boundaries
 
@@ -109,6 +65,31 @@ State Barrier verification, not a runtime support expansion.
 | Cleanup-only Recovery | Uses retained RecoveryDir authority without StateDir census. |
 | Probe barrier use | Observation-only subprocess authority, not durable readiness or a new operation fingerprint. |
 
+## Provider Completion Ownership
+
+Pending installation, existing relation/settings, and provider artifact
+availability are separate facts. When readiness schedules provider replay, a
+shared planning-only snapshot removes that exact completion from both core and
+final-promotion demand. Actual provider execution owns claim observation and
+durable settlement; no-replay pending facts remain with their existing owners.
+The snapshot must not become persistent predicted state. See
+[Transition Ownership](../../ARCHITECTURE.md#transition-ownership).
+
+Planning and execution pass the same full relation facts to the state-transition
+owner, including NoOp facts needed to settle a pending project claim. An empty
+scheduled descendant reservation does not trigger reconstruction from pre-core
+relations. The core clears exact pending global installs backed by committed
+registry claims; the shared final-action projection retains only promotions
+still needing registry/statefile work.
+
+Regressions cover first installs and reinstalls at both scopes, cancellation
+during replay, mixed replay/no-replay completions in both directions, and retry
+after settlement. They check provider invocation count, exact claims, remaining
+config projection, and subsequent no-op execution. Full pre-effect reservation,
+registry-first CAS, both final-schedule comparisons, and prepared/current core
+checks remain required. These cases do not establish a general mid-execution
+provider-version-change guarantee.
+
 ## Guard Coverage And Limitations
 
 | Mechanism | Disposition |
@@ -118,117 +99,49 @@ State Barrier verification, not a runtime support expansion.
 | `packagePlacementRows` | Retained classifier for some blocking affinity/role rules. Missing, duplicate or invalid placement can leave a package unclassified; those rules skip unplaced nodes. This is a coverage limitation, not a complete semantic proof. |
 | Exact unclassified-package admission, prose, symbol-presence and density gates | Do not restore as substitutes for behavioral/import evidence. |
 
-Semantic classifier replacement is deferred under the canonical policy, not
-accomplished by demoting shadow output. Removing a real blocking rule still
-requires equivalent or stronger coverage of its accepted invariant. The
-shadow baseline correction removes an accidental gate, not a blocking import
-rule or its test.
+Removing a blocking rule requires equivalent or stronger coverage of its
+accepted invariant. Report-only shadow output does not prove complete semantic
+classification. Do not turn prose, package-name, or symbol-presence checks into
+substitutes for behavioral or import-graph evidence.
 
-## Follow-Up Triage
+## Deferred Work
 
-Architecture follow-ups use the maintainer and reopen conditions in the
-[canonical disposition](../../ARCHITECTURE.md#bounded-delivery-and-deferred-work).
-Narrower product decisions stay with their owning contracts.
-Deferred implementation plans remain open rather than being marked implemented.
-Rejected guarantee-expansion proposals are recorded as such, not as fixes.
+The maintainer owns the reopen conditions in the
+[canonical architecture disposition](../../ARCHITECTURE.md#bounded-delivery-and-deferred-work).
+Universal cursor coverage, scalar-free execution, classifier replacement,
+structural-size policy, and remaining renames are not completed merely because
+the implemented boundaries work. Nor does their deferral waive a reproduced
+violation of an accepted contract.
 
-- Skill import: the maintainer-selected exclusion-freshness boundary is owned
-  by the [import contract](../cli.md#import). Universal freshness for excluded
-  discovery roots and ineligible children is a NON-GOAL, not unfinished
-  compiler work. Existing source, inventory, alias and merge freshness remain
-  required.
-- Darwin identity: the [platform contract](../platforms.md) owns the deferred
-  blanket nonzero-admission proposal. A native zero-tuple construction and
-  StateDir replacement probe did not establish a contract violation; it does
-  not certify every filesystem or inode-reuse scenario. The artifact-view
-  admission rule does not independently impose mutation/recovery policy.
-- Delegate persistence: `delegateActionsRequireAttemptPersistence` includes
-  blocked actions, whereas planning's project-root retention currently tests
-  scheduled project actions. A public Claude Code project MCP probe produced
-  one scheduled delegate for a clean input and one blocked delegate after an
-  unmanaged `.mcp.json` conflict. `PlanWrite` rejected the aggregate blocker
-  before returning an executable plan, so that supported path did not reach
-  the alleged missing-root persistence failure. Public `CommandInput` has no
-  passive runner-readiness input. New blocked-delegate readiness or persistence
-  modes remain deferred; resolve their authority requirements before enabling
-  them, or reopen on a supported public execution failure. This is not a fix
-  or a proof about every possible blocked input.
-- Provider replanning: continuation rebinding and both final-schedule checks
-  are present, including core structure; `ApplyEffectPlan` rejects
-  prepared/current structural disagreement. The public provider-install
-  fixture accepts post-install replanning and projects config afterward. A
-  pending-only retry after an interrupted reinstall with already-converged Pi
-  config exposed an avoidable refusal: planning omitted provider NoOp relation
-  facts needed for project claim settlement. Planning now passes the same full
-  relation facts as execution to the existing state-transition owner. The
-  regression settles the exact pending project claim without replaying the
-  provider route or rewriting config; a subsequent retry performs no effects.
-  A separate fixture accepts an already installed, in-range provider without
-  replaying its route; that is not a mid-execution version-change test. The
-  replay-owned pending-completion case below has a supported reproduction and
-  a bounded correction. Broader core rebinding remains deferred pending a
-  supported reproduction that needs it.
-- Global provider settlement: a scheduled empty descendant reservation no
-  longer triggers legacy demand reconstruction from pre-core relations. The
-  existing core clears exact pending installs backed by committed registry
-  claims. A shared final-action projection retains only global promotions
-  still requiring registry/statefile work, including provider NoOps, in both
-  the envelope and structural schedule. Public regressions cover interrupted
-  reinstalls, an accompanying project-provider install, and an interrupted
-  first global install without a committed claim. They verify no global route
-  replay, pending cleanup and subsequent no-op execution; a capacity-refusal
-  checkpoint precedes config or registry publication. Full pre-effect
-  reservation, prepared/current comparisons, registry-first CAS and cleanup
-  remain in their existing owners. This follow-up does not establish a missing
-  ordinary registry lease or expand the deferred compiler scope.
-- Provider replay ownership: pending install plus existing relation/settings
-  does not imply the provider artifact is available. When readiness schedules
-  replay, a shared planning-only snapshot removes that exact completion from
-  both core and final-promotion demand. Actual provider execution still owns
-  claim observation and durable settlement; no-replay pending facts remain
-  available to their existing owners. This follows the
-  [single-phase ownership contract](../../ARCHITECTURE.md#transition-ownership).
-  Public regressions cover first installs and reinstalls at both scopes,
-  cancellation during replay, and mixed replay/no-replay pending completions
-  in both directions. They verify one provider invocation, exact claims,
-  remaining config projection and subsequent no-op execution. Both final
-  schedule comparisons and the prepared/current core check remain strict.
-- Structural-size policy, whole-continuation coverage, scalar removal and
-  classifier replacement require independently justified scopes. Their old
-  task dependency chains do not create release requirements.
-- Linux pre-reboot journal refusal remains the documented product contract.
-  It is not weakened as an implementation simplification.
+Narrower decisions stay at their owning surfaces:
 
-The prior delegated architecture/value review did not complete its aggregate
-gate. Its parent-only assessment was advisory; it is not final PR correctness
-certification. Newly reproduced contract violations must be addressed before
-merge, regardless of the deferred architecture work.
+- [Import](../cli.md#import) owns the explicit NON-GOAL for freshness of excluded
+  discovery roots and ineligible children. Imported-source, inventory, alias,
+  and merge evidence keep their existing freshness requirements.
+- [Platform Support](../platforms.md) owns the deferred blanket Darwin
+  nonzero-admission proposal. Its rationale and reopen conditions are not
+  replaced by artifact-view admission rules.
+- New blocked-delegate readiness or persistence modes remain deferred. The
+  maintainer must resolve their authority requirements before enabling them;
+  reopen on a supported public execution failure. Existing aggregate-blocker
+  rejection does not prove every blocked input is unreachable.
+- Broader provider core rebinding remains deferred pending a supported
+  reproduction that needs it; current prepared/current and final-schedule
+  checks remain strict.
+- Linux pre-reboot journal refusal remains the documented product contract,
+  not a simplification to remove during compiler work.
 
-## Verification And Handoff
+## Verification
 
-Use [CONTRIBUTING.md](../../CONTRIBUTING.md#verify) for scoped checks.
-Relevant executable evidence includes catalog owner-parity/negative-seed tests,
-operation fingerprint and revision tests, Apply/Refresh/Recovery reservation
-and settlement regressions, file-set/StateDir replacement and retry tests,
-strict CLI consumers and archguard forbidden/near-neighbor fixtures.
+Use [Contributing](../../CONTRIBUTING.md#verify) to select checks. Relevant
+surfaces include catalog owner-parity and negative-seed tests, operation
+fingerprint and revision tests, Apply/Refresh/Recovery reservation and
+settlement regressions, file-set and StateDir retry tests, strict CLI
+consumers, and archguard forbidden/near-neighbor fixtures.
 
-For this documentation and test-reporting closeout:
-
-```sh
-tools/test-go.sh -run 'Test(HasFailuresIgnoresShadow|CompilerShadow|TopologyGuardBaseline)' -count=1 -v ./internal/archguard
-tools/test.sh repository
-git diff --check
-```
-
-Exercise the shadow baseline with a temporary forbidden compiler import to
-verify that it reports a finding without a nonzero exit; remove the fixture
-before committing. Existing blocking-violation tests must still pass. Review
-document links directly rather than asserting prose in tests. Commit hooks
-remain installed and enabled.
-
-The published runtime checkpoint's 24 GitHub checks were observed passing,
-including full native, minimum-Go, race, State Barrier, vulnerability and
-compile-only cells. That observation is revision-specific, not evidence for
-a later head or an instruction to rerun every platform locally for a Markdown
-edit. Final PR-head checks and independent PR review remain separate merge
-requirements. No release or exhaustive architecture-completion claim is made.
+A shadow-guard change needs evidence that a forbidden compiler dependency is
+reported without turning the diagnostic channel into a failing gate; existing
+blocking-violation tests must still fail for their forbidden cases. Review
+public links and document changes directly, not through prose assertions.
+Native platform claims still require their named native lanes; documentation
+edits do not inherit an earlier revision's CI result.

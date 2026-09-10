@@ -102,11 +102,11 @@ Non-goals:
 
 ## Bounded Delivery And Deferred Work
 
-The maintainer-authorized delivery reset separates the implemented compiler
-and State Barrier boundaries from a universal execution-framework migration.
-PR #91 delivers the implemented boundaries and bounded cursor segments; its
-completion does not require converting every remaining operation or internal
-checkpoint to one cursor. Neither does release 0.2.0.
+The maintainer-selected scope separates the implemented compiler and State
+Barrier boundaries from a universal execution framework. The implemented
+boundaries and bounded cursor segments do not require converting every
+remaining operation or internal checkpoint to one cursor. Neither does
+release 0.2.0.
 
 Delivery requires consistent ownership documentation, retained compatibility
 and safety checks, correction of demonstrated in-scope defects, applicable
@@ -117,7 +117,7 @@ safety contract remains a blocker; calling work deferred cannot waive it.
 The following are explicit **NON-GOALS** for this delivery. They are deferred,
 not implemented or proven unnecessary. The repository maintainer owns each
 revisit. This section is their canonical disposition; task plans and the
-migration ledger derive from it.
+compiler implementation guide derive from it.
 
 | Deferred work | Rationale and retained boundary | Reopen condition |
 | --- | --- | --- |
@@ -128,7 +128,7 @@ migration ledger derive from it.
 | Remaining migration-residue removal and package renaming | A live compatibility path is not dead residue. Do not remove authority, parity evidence or owner-local APIs merely to finish a checklist. | Last-consumer evidence makes a concrete deletion possible without weakening a contract, or a changed dependency graph justifies relocation. |
 
 Linux cross-boot recovery admission, public/durable formats, product support,
-and fingerprint compatibility are not changed by this reset. Reconsidering
+and fingerprint compatibility are not changed by these deferrals. Reconsidering
 one requires a separate product or compatibility decision.
 
 ## Host-Surface Compiler
@@ -428,9 +428,8 @@ or post-effect rollback evidence. Remaining effect-envelope expansion, scalar
 removal and semantic guard replacement follow the explicit deferred-work
 policy above; their incomplete status does not prevent bounded delivery.
 
-Current source, surface, operation, compatibility, transition, verification,
-and closeout locality evidence are recorded in
-[Compiler Migration Ledger](docs/architecture/compiler-migration.md).
+[Compiler Implementation](docs/architecture/compiler-migration.md) maps current
+consumers, retained compatibility seams, and verification surfaces.
 
 ## Forbidden Shapes
 
