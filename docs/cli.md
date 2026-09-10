@@ -919,7 +919,7 @@ display-normalized spellings.
 Status and apply-dry-run JSON use plan schema version `12`. The document contains
 the derived lockfile status, lock-only resources, typed actions, delegated
 actions, relation actions, physical extension-order actions, carrier-adoption
-actions, carrier-absence actions, host-route attempt history, diagnostics, MCP
+actions, carrier-absence actions, `host_route_attempts` history, diagnostics, MCP
 status dimensions, and `has_errors`. Each `relation_order_actions` row names
 one independently mutable physical sequence, its logical class, desired and
 observed managed members, foreign-row count, current revision, runtime meaning,
@@ -971,13 +971,17 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "state_only"` for already-absent claim retirement.
 
 `apply --yes --json` uses result schema version `19`: executed action count,
-statefile path, bounded delegated/host-route attempts, typed errors,
+statefile path, bounded delegated attempts and `host_route_attempts`, typed errors,
 carrier-adoption transitions and final claim provenance, carrier-absence
 outcomes, physical `relation_order_results`, and `has_errors`. Each order result
 gives target, scope, class, physical sequence, `exact` / `converged` / `failed`
 / `not_attempted`, whether changed, and failure detail when present. Earlier
 document success may survive later failure: no cross-document rollback is
 promised. Retry reobserves every selected sequence and continues idempotently.
+
+In plan and confirmed-apply JSON, `host_route_attempts` is omitted when empty.
+Its bounded records are history-only diagnostics, not proof of current
+convergence or permission to skip a future apply.
 
 Known mutation codes include `stale_snapshot`, `stale_plan`, `mutation_contended`,
 `mutation_cancelled`, `interrupted_apply`, `interrupted_apply_file_set_fence`,
