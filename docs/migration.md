@@ -136,12 +136,10 @@ lockfile, not the host files. Continue with `daem apply --dry-run --diff`, then
 confirm `daem apply` if the plan is acceptable. For an existing exact matching
 output, use the [registration step above](#lock-and-review-ownership).
 
-Project-local paths are relative to the manifest directory. They do not need
-`--ref`. Global local sources must be absolute. Local source `mode` and skill
-`install_mode` are different fields: selecting a local source does not enable
-symlink installation. Only copy placement is currently executable. See
-[Sources](manifest.md#sources) and [Skills](manifest.md#skills) for the exact
-options.
+Project-local paths are relative to the manifest; global local paths must be
+absolute. Neither needs `--ref`. Source `mode` differs from `install_mode`;
+only copy placement can execute. See [Sources](manifest.md#sources) and
+[Skills](manifest.md#skills).
 
 ## Use A Local Git Source
 

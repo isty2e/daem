@@ -1,540 +1,348 @@
 # Host Integration Contract
 
-This advanced reference records the exact target, scope, native command,
-observation, and cleanup boundaries behind daem's host integrations. Most
-users should start with [Feature Support](features.md).
-
-This contract is implementation and test input. Use the
-[Manifest Reference](manifest.md) for public syntax, the
-[CLI Reference](cli.md) for commands, [Platform Support](platforms.md) for
-operating-system and architecture coverage, and the [Glossary](glossary.md)
-for daem-specific terms.
+Use this reference to check which native operations daem runs, what it can
+verify and what remains afterward. Start with [Feature Support](features.md)
+for host selection; [Manifest](manifest.md) owns syntax, [CLI](cli.md) owns
+commands and [Platform Support](platforms.md) owns OS/architecture coverage.
 
 ## Product Status Labels
 
-The matrix uses these public status labels:
-
-- `supported`: `lock`, `status`, and `apply` can reconcile the declared
-  resource for that target, or the named operation works for its scoped row,
-  subject to normal lock/state safety checks.
-- `authoring-only`: `add` or `remove` can edit the manifest and lockfile, but
-  host state changes still require `apply`.
-- `explicit`: the operation runs only through an explicit opt-in flag and keeps
-  its guarantees separate from normal reconciliation.
-- `diagnostic`: daem can report a typed fact, warning, or blocker, but does not
-  mutate that surface.
-- `deferred`: not current product syntax or behavior.
-- `unsupported`: known not to be reconciled by the current product.
-- `blocked`: evidence or authority exists for discussion, but a required gate
-  prevents product support or mutation.
-
-## Non-Status Vocabulary
-
-These terms may explain a row but are not additional product statuses:
-
-- `not-modeled`: the product ontology does not currently represent the surface.
-- `host-unavailable`: the host does not expose the required operation or scope.
-- `bridge-required`: support requires a plugin or extension bridge.
-- `observe-only`: policy permits observation but not mutation.
-- `rejected`: ingress refuses the declaration or request.
-- `out-of-coverage`: the carrier engineering state is outside the reviewed row.
-
-Their relation to a status is row-specific rather than a global conversion
-rule.
-
-## Roadmap Posture
-
-Plugin, extension, package, and executable lifecycle support is added one
-target, scope, and operation at a time. For host-delegated installation, daem
-locks the host request, shows it in dry-run, executes it only after normal apply
-confirmation, and reports the attempt at the evidence strength the host makes
-available. A row remains blocked only when that bounded contract cannot be
-implemented honestly or safely.
+| Label | Meaning |
+| --- | --- |
+| `supported` | The exact resource or operation row works, subject to lock/state checks. |
+| `authoring-only` | Edits manifest/lock; host effects still need apply. |
+| `explicit` | Requires a separate opt-in; not normal reconciliation. |
+| `diagnostic` | Reports facts or blockers without mutating the surface. |
+| `deferred` | Not current syntax or behavior. |
+| `unsupported` | Not reconciled by this product. |
+| `blocked` | A required gate prevents support or mutation. |
 
 ## Target Surface And Operation Matrix
 
 | Surface | Codex | Claude Code | OpenCode | Pi | Antigravity CLI |
 | --- | --- | --- | --- | --- | --- |
 | Instructions | `supported` | `supported` | `supported` | `supported` | `supported` |
-| Skills | `supported` | `supported` | `supported` | `supported` | `supported` |
-| Skill groups | `supported` | `supported` | `supported` | `supported` | `supported` |
+| Skills and skill groups | `supported` | `supported` | `supported` | `supported` | `supported` |
 | Command hooks | `supported` | `supported` | `diagnostic` | `diagnostic` | `unsupported` |
-| MCP server config | `supported` project/global | `supported` project/global | `supported` project/global | `supported` project/global via explicit provider | `supported` global |
-| Delegated executable execution | `deferred` | `supported` project MCP | `deferred` | `deferred` | `deferred` |
-| Carrier declaration and relation diagnostics | `supported` global | `supported` project/global | `supported` project/global | `supported` project/global | `supported` global |
-| Passive carrier observation | `supported` global config | `supported` project/global | `supported` config project/global | `supported` package project/global | `supported` global selector |
-| Provider-scoped contribution diagnostics | `diagnostic` cache | `deferred` | `deferred` | `supported` for admitted MCP provider | `deferred` |
-| Host-delegated carrier lifecycle routes | `supported` global | `supported` project/global | `supported` project/global | `supported` project/global | `supported` global |
-| Carrier destructive cleanup and prune | `blocked` | `blocked` | `blocked` | `blocked` | `blocked` |
-| Runtime probes | `deferred` | `explicit` project MCP | `explicit` project MCP | `deferred` | `deferred` |
+| MCP config | project/global | project/global | project/global | project/global via explicit provider | global |
+| Delegated executable execution | `deferred` | project MCP | `deferred` | `deferred` | `deferred` |
+| Carrier declaration, observation and lifecycle | global | project/global | project/global | project/global package | global; observation/removal require selector |
+| Provider contribution diagnostics | cache diagnostics | `deferred` | `deferred` | admitted MCP provider only | `deferred` |
+| Destructive cleanup/prune | `blocked` | `blocked` | `blocked` | `blocked` | `blocked` |
+| Runtime probes | `deferred` | explicit project MCP | explicit project MCP | `deferred` | `deferred` |
 
 ### Explicit Carrier Refresh
 
-| Host | Declared scope | Native command | Success evidence | Known broader effects |
-| --- | --- | --- | --- | --- |
-| Claude Code | project/global | `claude plugin update <plugin>@<marketplace> --scope project/user` | observed relation | cache, dependencies, restart |
-| Codex | global | `codex plugin marketplace upgrade <marketplace> --json` | attempted, unverified | marketplace and sibling caches |
-| OpenCode | project/global | `opencode plugin <source> --force [--global]` | attempted, unverified | package, config, cache |
-| Pi | project/global | `pi update --extension <source>` | attempted, unverified | matching cross-scope packages |
-| Antigravity CLI | global | `agy plugin install <source>` | attempted, unverified | bundle and import registry |
+`refresh extension` selects one extension explicitly; ordinary apply does not
+select refresh routes. Where no observer is admitted, ordinary apply instead
+retries its locked install/create route on every run, which may repair or update
+host-selected artifacts. Neither path grants bulk refresh, prune, contribution
+control, rollback or runtime-readiness guarantees. Exact commands are in the
+host summaries below.
 
-Every row is an explicit single-selection operation. Ordinary apply never
-selects a refresh route. For carrier rows without an admitted observer,
-however, mutating apply
-retries the separately locked install/create route on every run; the host may
-repair or update host-selected artifacts as a retained effect of that install
-attempt. Refresh still does not enable bulk refresh, uninstall, prune,
-contribution control, rollback, or runtime-readiness claims. Target-specific
-details and retained effects are listed below.
+Refresh bounds only the child process: default `10m`, or `--timeout` from `1s`
+through `1h` in whole seconds, disclosed and fingerprinted before authorization.
+Planning, confirmation, observation, history persistence and cleanup are outside
+that timeout. Timeout after start may leave partial host state.
 
-Destructive route behavior was last checked against Claude Code `2.1.216`,
-Codex `0.144.5`, OpenCode `1.18.4`, Pi `0.80.10`, and Antigravity CLI `1.1.4`.
-A 2026-07-29 non-destructive local smoke check used Claude Code `2.1.220`,
-Codex `0.145.0`, OpenCode `1.18.7`, Pi `0.82.1`, and Antigravity CLI `1.1.8`;
-their expected default config paths remained available.
+### Checked Host Versions
 
-The newer local version is not automatically unsupported, but config-path
-compatibility is not proof of destructive lifecycle behavior. Exercise
-install, refresh, and managed removal one target at a time until that target
-has matching-version operation evidence. Incompatible command syntax or
-behavior is reported as a failed attempt rather than silently reinterpreted.
+| Host | Destructive lifecycle checked | Later config-path-only smoke check (2026-07-29) |
+| --- | --- | --- |
+| Claude Code | `2.1.216` | `2.1.220` |
+| Codex | `0.144.5` | `0.145.0` |
+| OpenCode | `1.18.4` | `1.18.7` |
+| Pi | `0.80.10` | `0.82.1` |
+| Antigravity CLI | `1.1.4` | `1.1.8` |
+
+A newer host is not automatically unsupported, but path compatibility is not
+lifecycle verification. Verify install, refresh and removal for that host/version;
+incompatible behavior is a failed attempt, not permission to substitute a route.
 
 ## How To Read The Matrix
 
-`supported` means the exact row works; it does not widen the claim to another
-scope, source form, operation, or provider-bundled contribution. `admitted` is
-reserved for a route or platform shape accepted by its governing contract. An
-admitted row may still be diagnostic, deferred, unsupported, or blocked at the
-product level.
+Support applies only to the named target, scope, source and operation.
+`admitted` means accepted by a governing route/platform contract, not necessarily
+supported product behavior. Config management, host execution, runtime probing,
+relation removal and prune are separate operations.
 
-The following boundaries apply throughout this page:
-
-- managed config projection, delegated lifecycle execution, runtime probing,
-  relation removal, and destructive cleanup are independent operations;
-- MCP `command` and `args` describe a launch vector, not package installation;
-- project declarations do not delete global state, and global declarations
-  affect only their managed binding or relation;
-- a prior delegated attempt is diagnostic history, not current convergence or
-  authority to skip a later attempt; and
-- removing a declaration does not remove packages, caches, credentials, trust,
-  sessions, logs, or other retained host state unless a separate row says so.
+- MCP command/args are a launch vector, not executable provisioning.
+- Project declarations do not authorize deleting global state.
+- Historical attempts do not prove current convergence or justify skipping work.
+- Removal retains packages, caches, credentials, trust, sessions, logs and other
+  host state except for the exact coupled effects named in a removal row.
 
 ### Instructions
 
-Daem renders locked instruction sources to the documented project or global
-instruction file. OpenCode and Pi support project and global defaults.
-Antigravity CLI uses project `AGENTS.md` by default, allows project `GEMINI.md`
-as an explicit alternate, and uses global `~/.gemini/GEMINI.md` by default.
-This does not claim runtime reload, effective host memory, arbitrary instruction
-directories, or plugin-provided rules.
+Locked sources render to supported project/global files. Antigravity CLI uses
+project `AGENTS.md` by default, optionally project `GEMINI.md`, and global
+`~/.gemini/GEMINI.md`. This does not cover runtime reload, effective host memory,
+arbitrary instruction directories or plugin rules. See [placements](manifest.md#instructions).
 
 ### Skills And Skill Groups
 
-Skills install locked Agent Skills-compatible directories into the target's
-default placement root or one explicitly selected compatible root from the
-static target catalog. `[[skill_group]]` expands one source root into separately
-locked child skills and inherits the same per-target root selection. The
-selection does not register arbitrary paths or grant authority over other
-discovery roots. System, builtin, administrator, and plugin-supplied roots
-remain outside ownership, as do marketplace discovery, markdown slash-command
-files, and host-specific execution success.
+Skills install locked Agent Skills directories at a cataloged default or
+compatible `install_to` root. Groups lock children separately with the same root
+selection. Other discovery, system, builtin, admin and plugin roots are not
+owned. Marketplace discovery, Markdown slash commands and host execution success
+are outside directory-skill support.
 
 ### Command Hooks
 
-Codex and Claude Code support managed native command-hook aggregates and
-same-scope file assets referenced by `{hook_file:<name>}`. OpenCode and Pi are
-diagnostic because their current hook surfaces require extension code.
-Antigravity CLI direct hooks are unsupported. Daem does not infer or install
-undeclared scripts, directories, standalone tools, trust approval, or
-plugin-bundled hooks.
+Codex/Claude Code manage native command-hook aggregates and same-scope
+`{hook_file:<name>}` assets. OpenCode/Pi hook surfaces need extension code;
+Antigravity direct hooks are unsupported. Daem does not infer or install
+undeclared scripts, directories, tools, trust approval or bundled hooks.
 
 ### MCP Server Config
 
-Supported rows manage one bounded stdio entry while preserving unrelated host
-configuration. Codex supports command/args project rows and explicit-global
-rows with optional same-name `env_vars`; Claude Code supports project rows with
-structured environment references and explicit-global rows with exact aliased
-`${SOURCE}` environment references.
-OpenCode supports project command rows and explicit-global rows with exact
-aliased `{env:SOURCE}` environment references. Antigravity CLI supports an
-explicit-global command row with optional same-name ambient environment
-requirements. Pi supports project and explicit-global rows through an explicit
-admitted `pi-mcp-adapter` package relation; this is provider-mediated support,
-not a Pi core-native config surface. `import` can author observable
-command/args facts for the core-native rows, but does not infer Pi's package
-relation. `apply --manage-existing` can register exact matching projections.
+Supported stdio rows manage one entry and preserve unrelated configuration.
+The [MCP schema](manifest.md#mcp-servers) defines exact destinations, fields and
+rejections. Import covers core-native rows, not inferred Pi provider relations;
+`apply --manage-existing` may register exact matching projections.
 
-These rows do not own the executable, package, cache, credentials, trust,
-session, runtime health, effective merged host state, remote transports, or
-plugin-bundled MCP. The explicit Pi provider relation is the narrow exception:
-its separate extension subject owns one delegated Pi package relation, while
-the MCP subject still owns only one config contribution. Removing a Pi MCP row
-reconciles only that contribution and retains the provider declaration.
-Target-specific paths and rejected fields are listed in the
-[Manifest Reference](manifest.md#mcp-servers).
+| Host/scope | Environment references |
+| --- | --- |
+| Codex project | None; command/args only. |
+| Codex global | Same-name references rendered as `env_vars`. |
+| Claude Code project/global | Child/source aliases; global values render as `${SOURCE}`. |
+| OpenCode project | None; command/args only. |
+| OpenCode global | Aliases rendered as `{env:SOURCE}` in strict `opencode.json`. |
+| Antigravity CLI global | Same-name ambient requirements; no native `env` is written. |
+| Pi project/global | Aliases rendered as `${SOURCE}` in provider config. |
 
-Codex global environment support is limited to names that are identical in the
-manifest and host environment. Lock stores names only; normal apply checks
-fresh presence before mutation, and Codex resolves values when it later starts
-the server. Aliases, literal values, remote sources, and Codex project
-environment references are rejected.
+Lock and durable state retain names, never values. Apply checks fresh source
+presence before selected mutation; an empty present value is valid. Values are
+resolved later by the host/provider. Antigravity inherits its own process
+environment, which daem cannot establish for a future independent invocation;
+import cannot infer ambient names. Native Antigravity interpolation is rejected
+because it is passed literally, not expanded. Claude's own handling of an absent
+source is not a substitute for daem's presence check.
 
-Claude Code global environment support accepts exact child-to-source aliases.
-Daem renders each accepted mapping as `"CHILD": "${SOURCE}"` in the top-level
-user MCP entry. Lock stores names only, and normal apply checks every source
-for fresh presence before mutation; an empty but present value is valid. Claude
-Code resolves the value when it starts the server. Literal values, defaults,
-compound templates, `user_config` interpolation, and malformed names are
-rejected. Claude Code 2.1.220 was observed to warn but still launch a server
-with an unexpanded placeholder when a source is absent, so the daem preflight
-is deliberately authoritative rather than relying on host rejection.
+These projections do not own the executable, package/cache, credentials, trust,
+session, runtime health, effective merged state, remote transports or bundled
+MCP. Pi's explicit provider has its own extension relation; removing an MCP row
+removes only its config contribution and retains the provider declaration.
 
-OpenCode global environment support accepts exact child-to-source aliases.
-Daem renders each accepted mapping as `"CHILD": "{env:SOURCE}"` in the strict
-default-user `opencode.json` entry. Lock stores names only, and normal apply
-checks every source for fresh presence before mutation; an empty but present
-value is valid. OpenCode resolves the value when it loads the config. Literal
-values, shell-style `$NAME` or `${NAME}` forms, file interpolation, compound
-templates, malformed names, project-scope environment references, and JSONC
-authority are rejected.
+#### Pi Provider
 
-Antigravity CLI global environment support accepts only same-name references.
-Daem stores the source names in the lockfile and checks their current presence
-before any selected mutation; an empty but present value is valid. The native
-`~/.gemini/config/mcp_config.json` entry deliberately contains only `command`
-and `args`: an Antigravity-launched server inherits same-name values from the
-Antigravity CLI process environment. Native `env` values, including
-`${SOURCE}`, `$SOURCE`, and `{env:SOURCE}`, are rejected because Antigravity CLI
-1.1.7 delivered those forms literally in an isolated launch probe. Import
-cannot infer ambient intent from command/args-only native state, so it imports
-no environment references. Apply verifies the environment of its own process;
-it cannot prove the environment of a future independently launched
-Antigravity CLI process.
+The admitted npm package is `pi-mcp-adapter`, with a canonical exact or
+caret-bounded stable selector in `>=2.13.0` and `<3.0.0`. `2.13.0` is the
+verified profile floor; inspected `2.15.0` is not a ceiling. Apply observes the
+installed stable in-range `2.x` version. Source tags, registry integrity,
+`gitHead`, dependency resolution and installed version are distinct evidence.
+Provider installation/version and effective config are observed separately.
 
-Pi environment support accepts exact child-to-source aliases and renders
-`${SOURCE}` references into the selected provider config. Lock and durable
-state contain names only, while normal apply requires current source presence
-before any selected mutation. Pi project config is `.pi/mcp.json`; global
-config is `mcp.json` under the current Pi agent root. The provider also reads,
-in ascending precedence, `~/.config/mcp/mcp.json`, `~/.agents/mcp.json`,
-`~/.agents/mcp/mcp.json`, the agent-root `mcp.json`, project `.mcp.json`, and
-project `.pi/mcp.json`. Daem observes all active layers and explicit imports
-for same-name equivalence, shadowing, and lower fallback, but writes only the
-selected Pi-owned file. Host-config discovery is observed when enabled and is
-never silently enabled by daem.
+Project config is `.pi/mcp.json`; global config is the Pi agent-root `mcp.json`.
+The provider reads these layers in ascending precedence:
 
-The admitted provider source is the npm package `pi-mcp-adapter` with a
-canonical exact or caret-bounded stable selector in `>=2.13.0` and `<3.0.0`.
-Version `2.13.0` is the verified profile floor. Version `2.15.0` is the deeply
-inspected source and registry artifact and was still the current stable release
-on 2026-07-29; it is not a hard ceiling. Apply observes the exact installed
-package version and maps any current in-range stable `2.x` version to this
-profile. Source tag, registry integrity, registry `gitHead`, dependency
-resolution, and installed version remain separate evidence.
+1. `~/.config/mcp/mcp.json`
+2. `~/.agents/mcp.json`
+3. `~/.agents/mcp/mcp.json`
+4. `<Pi agent root>/mcp.json`
+5. Project `.mcp.json`
+6. Project `.pi/mcp.json`
 
-A 2026-07-29 disposable `pi 0.82.1` probe confirmed a material trust boundary:
-a project-scoped package is ignored under `--no-approve`, but an installed
-global `pi-mcp-adapter` still reads project MCP layers. An unowned project
-server marked `lifecycle = "eager"` executed its command before project trust
-even under `--no-approve`. Daem therefore warns when authoring a global
-provider, does not create eager entries, and never claims that Pi trust guards
-project MCP files from a global provider. Review unowned project MCP files
-before using the global package.
+Daem observes active layers and explicit imports for equivalence, shadowing and
+fallback, but writes only the selected Pi-owned file. It observes host-config
+discovery when enabled and never enables it silently.
+
+A project provider is ignored without project trust, but a global provider can
+read project MCP files and execute unowned eager entries before trust, even
+under `--no-approve`. Daem authors only lazy entries and warns on global-provider
+sharing. Review unowned project MCP files before using it; daem neither owns nor
+sanitizes them. Config convergence proves neither trust, activation, connectivity,
+authentication, runtime health nor tools.
 
 ### Delegated Executable Execution
 
-Claude Code project MCP rows can disclose and execute the exact locked command
-during confirmed apply, then retain sanitized attempt diagnostics and a bounded
-post-attempt projection observation. This does not establish package/cache
-convergence, runtime or auth readiness, host trust, tool inventory, or future
-skip authority. The other target rows remain deferred.
+Only Claude Code project MCP can execute its exact locked server command during
+confirmed apply, with sanitized attempt diagnostics and bounded post-observation.
+That does not establish package/cache convergence, runtime/auth readiness, trust,
+tools or future skip authority. Other rows remain deferred.
 
 ### Carrier Declaration And Relation Diagnostics
 
-`[[extension]]` represents the currently supported host-native plugin or
-package relation rows. `add extension` and `remove extension` edit the manifest
-and lockfile without host effects. Codex, Claude Code, OpenCode, and Pi package
-rows have current exact-relation observers. Antigravity CLI
-`PLUGIN@MARKETPLACE` sources have a bounded global relation observer; other
-Antigravity host-source forms retain the disclosed no-observer posture. Exact
-artifact identity, enabled or trusted state, runtime readiness, refresh,
-managed removal, unmanage, and prune are separate rows.
-Extension rows have no `on_absent` field: removing a row is desired relation
-absence, while the supported `unmanage extension` operation explicitly
-preserves host state and releases only daem management.
+`[[extension]]` describes a plugin/package relation, not its store.
+`add`/`remove extension` edit manifest and lock only. Omission means desired
+relation absence; `unmanage extension` instead releases management and retains
+host state. There is no extension `on_absent` field.
 
 ### Passive Carrier Observation
 
-Claude Code can correlate selected project and explicit-global plugin rows with
-fresh version-2 installed-relation data. Codex can correlate an exact
-explicit-global `PLUGIN@MARKETPLACE` row from
-`$CODEX_HOME/config.toml` `[plugins]`; it never uses marketplace availability,
-plugin cache presence, or `codex plugin list` as relation authority. Malformed,
-ambiguous, wrong-scope, or unsupported selected data blocks rather than
-becoming evidence of absence. Codex doctor also reports observe-only plugin
-config diagnostics, while marketplace observation remains deferred.
-Pi can correlate exact project or global package rows from the selected
-scope's settings file using source-kind-aware npm, Git, and local-path
-identity. OpenCode can correlate exact project or default-global host-source
-rows across every existing server and TUI JSON and JSONC candidate. When one
-config kind has no file, its default JSON candidate remains an observed absent
-path rather than a mutation destination. Antigravity
-CLI can correlate a selector-shaped global source by plugin name across
-`~/.gemini/config/import_manifest.json` and the matching
-`~/.gemini/config/plugins/<plugin>/plugin.json`. Both must be consistently
-present for desired-state convergence; malformed, duplicated, mismatched,
-partial, unstable, or symlinked selected state fails closed. The host does not
-retain marketplace provenance in those files, so source provenance, artifact
-version, bundled contributions, trust, and runtime readiness remain unproved.
-Lock rejects two distinct Antigravity structural sources that collapse to the
-same host-visible plugin name; identical shared carriers remain valid.
+Each host summary names the selected current evidence. Malformed, ambiguous,
+wrong-scope or unavailable selected state is not absence. Relation presence
+alone proves neither ownership, exact artifact/version, enablement, trust,
+readiness nor contribution inventory.
 
 ### Provider-Scoped Contribution Diagnostics
 
-Codex doctor can report safely enumerated, source-declared contributions from
-bounded configured plugin cache manifests. Each row retains `provided_by`,
-kind and key, `source_artifact_inspection` provenance,
-`current = non-current`, `freshness = fresh`, artifact identity, and a stable
-source or blocker reason. Current contribution inventory and
-standalone `[[mcp_server]]`, `[[skill]]`, `[[hook]]`, or instruction ownership
-are not claimed, and the diagnostic grants no install, readiness, removal, or
-apply-skip authority.
+Codex `doctor` can inspect bounded configured plugin cache manifests, producing
+one row per safely enumerated contribution with `provided_by`, kind/key,
+`source_artifact_inspection`, `current = non-current`, `freshness = fresh`,
+artifact identity and a stable source/blocker reason. Blockers remain provider
+rows. This is source-declared information, not current contribution inventory
+or standalone resource ownership, and grants no install/readiness/removal/skip
+authority.
+
+Pi's admitted provider exposes only the correlated `mcp-client/default`
+capability. Other Pi and OpenCode package contributions, and Claude/Antigravity
+bundled contributions, remain deferred.
 
 ### Host-Delegated Carrier Lifecycle Routes
 
-Confirmed apply can invoke the supported host-native install/create command.
-Codex, Claude Code, OpenCode, and Pi do so after fresh observed absence and
-create removal authority only after fresh exact presence. Antigravity CLI
-selector-shaped sources instead combine the exact pending install identity
-with fresh bounded plugin-name/import/bundle presence; that passive evidence
-remains source-inexact. Opaque or local Antigravity sources retain a locked
-attempt route and retry because a successful command alone does not prove
-current presence. The target route summaries below list exact commands,
-scopes, evidence, and retained effects.
+For observed rows, confirmed apply runs only the locked supported install route
+after fresh absence. A managed claim requires its fresh postcondition; command success
+alone is insufficient. Selector-shaped Antigravity additionally needs the exact
+pending install identity because its passive inventory lacks source provenance.
+Other Antigravity source forms retain no-observer retries and history-only
+`attempted_unverified` results.
 
 ### Managed Carrier Absence
 
-Manifest omission and `remove extension` have the same desired-state meaning.
-Managed-claim persistence, generic removal planning and recovery sequencing,
-and host-preserving `unmanage extension` are implemented. Codex plugins admit
-exact explicit-global managed removal; Claude Code and Pi package rows admit
-exact project and global host-route removal; OpenCode plugin rows admit exact
-project and global direct config-relation removal; selector-shaped Antigravity
-CLI rows admit exact explicit-global host-route removal. Other target-specific
-removal plans block before host invocation until their corresponding operation
-row is implemented.
+Removal requires exact managed authority, fresh selected evidence and no
+remaining daem-known shared consumer. Only the listed removal rows may run;
+others block before invocation. Partial or uncertain outcomes retain the claim
+and pending state for fresh retry. Ambient non-daem consumers are not discoverable.
 
 ### Carrier Residue Prune
 
-All targets are blocked. External-store prune, unrelated dependency/cache
-cleanup, credential or trust cleanup, contribution disablement, and
-retained-state deletion require independent authority and recovery behavior.
-An admitted host-native managed-relation removal may include necessarily
-coupled selected artifact deletion, but that exact route envelope does not
-admit residue prune.
+Prune is blocked for every target. Coupled artifact deletion in one exact
+managed-removal route does not authorize external-store prune, unrelated
+package/dependency/cache cleanup, credential/trust cleanup, contribution
+disablement or retained-state deletion.
 
 ### Runtime Probes
 
-`probe mcp-server` is explicit for locked Claude Code and OpenCode project stdio
-rows. Dry-run discloses the launch; `--yes` attempts MCP initialization under
-timeout, cleanup, and redaction rules. Ordinary `lock`, `status`, `doctor`, and
-`apply` do not probe. Endpoint health is not applicable to the current stdio
-slice; authentication and tool inventory are unsupported.
-
-Explicit extension refresh uses one host-agnostic child-process timeout:
-`10m` by default and configurable with `--timeout` from `1s` through `1h` in
-whole seconds. The selected value is disclosed and fingerprinted before
-authorization. It does not bound planning, confirmation, observation,
-history persistence, or cleanup. A timeout after process start is potentially
-partial host state and never proves rollback or absence of effects.
+`probe mcp-server` explicitly attempts stdio launch and MCP initialization for
+locked Claude Code/OpenCode project rows. Dry-run discloses the launch; `--yes`
+uses timeout, cleanup and redaction rules without changing manifest, lock, state
+or host config. Ordinary lock/status/doctor/apply do not probe. Endpoint health
+is inapplicable to stdio; authentication and tool inventory remain unsupported.
 
 ### External Carrier Adoption
 
-`apply --manage-existing` can acquire one state-only claim for an already
-declared, locked, source-exact external carrier relation. Current support covers
-Claude Code project/global, Codex global, OpenCode project/global, and exact
-stored-source Pi project/global rows. Adoption requires fresh exact correlation,
-no conflicting claim, an available scope-selected claim store, and complete
-install/removal lifecycle contracts. It invokes no host route.
+`apply --manage-existing` may record a state-only claim for a declared, locked,
+source-exact relation: Claude Code project/global, Codex global, OpenCode
+project/global or exact stored-source Pi project/global. It invokes no host
+route. Fresh correlation, no conflicting claim, an available scope-selected
+claim store and complete install/removal contracts are required.
 
-Plain status/apply reports an eligible exact row as `present_unclaimed` and
-suggests a manage-existing dry-run. A lifecycle-incomplete row is
-`present_unclaimed_ineligible` and reports its blocker without suggesting
-adoption. Name-only, normalized-equivalent, shadowed, ambiguous, stale, and
-source-inexact rows cannot acquire a claim. Antigravity CLI remains in that
-last category because its installed state does not retain the declared
-marketplace source.
+Eligible rows report `present_unclaimed` and suggest a manage-existing preview;
+lifecycle-incomplete rows report `present_unclaimed_ineligible` with a blocker.
+Name-only, normalized-equivalent, shadowed, ambiguous, stale or source-inexact
+rows cannot be adopted. Antigravity lacks recoverable marketplace provenance
+and remains ineligible, even though install-created claims support removal.
 
 ## Codex Plugin Carrier Route Summary
 
-Codex plugin carrier work admits one narrow host-delegated install/create row,
-one explicit marketplace-wide refresh row, and exact managed removal for the
-explicit-global relation. It does not admit exact plugin artifact convergence,
-ordinary update, marketplace prune, runtime readiness, or contribution
-ownership. Project-scoped Codex plugin install is product `unsupported` with
-reason `host-unavailable`: the current Codex plugin route has no native project
-scope.
+Only explicit-global `codex-plugin` marketplace selectors are supported.
+Project scope is `unsupported` (`host-unavailable`); defaults do not authorize
+global mutation. Observation reads only the exact
+`$CODEX_HOME/config.toml` `[plugins."<plugin>@<marketplace>"]` table, not cache,
+marketplace visibility or `plugin list`. Missing exact config is fresh absence;
+malformed selected data blocks. An external exact row needs explicit adoption.
 
-| Route family | Current product state | What that means |
+| Operation | Native route | Verification and remaining effects |
 | --- | --- | --- |
-| Carrier declaration and relation diagnostics | `supported` for explicit global `[[extension]]` marketplace selector rows | `carrier = "codex-plugin"` is accepted only with target `codex`, explicit `scope = "global"`, and `source.marketplace = "<plugin>@<marketplace>"`. Defaults do not authorize this global host mutation. `scope = "project"` is product `unsupported` with reason `host-unavailable` for the currently observed native Codex plugin host route, not merely unimplemented in daem. |
-| Passive carrier observation | `supported` for the exact explicit-global config relation; `diagnostic` for doctor config entries | `status` and `apply` parse `$CODEX_HOME/config.toml` and select only the exact `[plugins."<plugin>@<marketplace>"]` table. A missing exact row is fresh absence. Exact config correlation is independent of pending installs and claims. Reconciliation separately requires a matching pending install or claim for no-op; an exact external row is `present_unclaimed` until explicit manage-existing acquires its claim. Malformed selected data blocks. Observation never invokes `codex`, treats cache or marketplace visibility as relation presence, or uses `plugin list`; doctor and bounded cache-manifest diagnostics remain separate observe-only surfaces. |
-| External carrier adoption | `supported` for the exact explicit-global config relation | `apply --manage-existing --dry-run` discloses the exact claim, selected global claim store, later managed-removal envelope, retained effects, and ambient-consumer limit. Confirmed apply revalidates the same facts and records `explicitly_adopted_observed` provenance without invoking `codex`. |
-| Host-delegated carrier lifecycle routes: install/create | `supported` for the explicit global marketplace selector row | Fresh exact config absence selects `codex plugin add <plugin>@<marketplace> --json`. Apply records write-ahead pending authority and creates an exact managed claim only after fresh post-observation sees the selected config row. A converged later apply is a no-op. Command success alone grants no claim, cache convergence, readiness, or contribution ownership. |
-| Host-delegated carrier lifecycle routes: explicit refresh | `supported` for the explicit global marketplace selector row | `daem refresh extension <id>` derives the selected marketplace from the validated `PLUGIN@MARKETPLACE` source and invokes `codex plugin marketplace upgrade <marketplace> --json`. The selected relation remains visible separately from the marketplace execution subject. The host may replace the marketplace snapshot and refresh configured installed sibling caches from that root; no-new-revision and changed-revision successes are both `attempted_unverified`. A non-upgrade-capable marketplace, such as a local non-Git source, is a reported host failure rather than a fallback. Partial snapshot/cache effects are retained host state. Daem never follows with plugin add or substitutes another marketplace. |
-| Provider-scoped contribution diagnostics | `diagnostic` for doctor-only source-inspected, source-declared, non-current diagnostics from configured plugin cache manifests; current inventory remains `deferred` | `doctor --target codex` may statically inspect bounded `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/.codex-plugin/plugin.json` artifacts for configured plugins and report provider-scoped source-inspected, source-declared, non-current contribution diagnostics. Each safely enumerated contribution is its own diagnostic row with `provided_by`, kind/key, source marker, `source_artifact_inspection` provenance, `current = non-current`, and `freshness = fresh`; blockers remain provider-level rows with stable reasons. Plugin-bundled MCP, skills, hooks, apps, tools, and commands remain provider-scoped contributions; current Codex passive contribution collection is not admitted. |
-| Host-delegated carrier lifecycle routes: managed removal | `supported` for the explicit global marketplace selector row | After exact managed authority and zero remaining daem-known consumers, confirmed apply invokes `codex plugin remove <plugin>@<marketplace> --json`. Convergence requires fresh absence of both the exact config relation and `$CODEX_HOME/plugins/cache/<marketplace>/<plugin>`; exit status or JSON alone is insufficient. Codex removes cache before config, so partial effects retain claim and pending authority. Exact config absence before any pending attempt retires the claim without invocation and intentionally leaves an orphan cache outside implicit prune authority. Marketplace registration/snapshot, same-name plugins from other marketplaces, sibling relations and caches, credentials, trust/session state, unrelated config, and external stores are retained. Ambient non-daem consumers are not discoverable. |
-| Host-delegated carrier lifecycle routes: ordinary update | `blocked` by operation | Explicit marketplace refresh does not become ordinary apply reconciliation or exact selected-plugin convergence. |
-| Carrier residue cleanup and prune | `blocked` for ordinary mutation | The exact managed-removal envelope does not grant external-store prune, unrelated package/cache cleanup, credential cleanup, trust/session cleanup, or retained-state deletion authority. |
-| Runtime readiness and trust | `deferred` | Runtime probes require separate route dossiers; plugin relation or contribution visibility is not runtime health. |
+| Install | `codex plugin add <plugin>@<marketplace> --json` | Fresh exact config presence establishes the claim; a later converged apply is a no-op. No exact cache/artifact or contribution claim. |
+| Refresh | `codex plugin marketplace upgrade <marketplace> --json` | Marketplace-wide, not plugin-local: may replace its Git snapshot and refresh sibling caches. Changed and unchanged revisions both return `attempted_unverified`. Non-upgrade-capable marketplaces fail; no plugin-add follow-up or alternate marketplace. Partial snapshot/cache changes remain. |
+| Managed removal | `codex plugin remove <plugin>@<marketplace> --json` | Requires fresh absence of both the exact config relation and `$CODEX_HOME/plugins/cache/<marketplace>/<plugin>`. Cache removal precedes config removal; partial effects stay retryable. Config already absent before a pending attempt retires the claim without invocation, deliberately retaining orphan cache. |
+
+Removal retains marketplace registration/snapshot, other marketplaces' same-name
+plugins, siblings/caches, credentials, trust/sessions, unrelated config and
+external stores. Ordinary update, contribution disablement, prune, exact artifact
+convergence and runtime readiness remain unsupported/deferred. Doctor's cache
+inspection uses configured
+`~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/.codex-plugin/plugin.json`
+and is separate from relation authority.
 
 ## Claude Code Plugin Carrier Route Summary
 
-Claude Code marketplace `[[extension]]` declarations are implemented for the
-project and explicit-global host-delegated install, explicit-refresh, and exact
-managed-removal slices.
-The public authoring rows remain narrow: `carrier = "claude-code-plugin"`,
-target `claude-code`, scope `project` or explicit `scope = "global"`, and
-`source.marketplace`. The explicit-global Claude Code plugin row is public daem
-`scope = "global"` and projects to host `--scope user` only inside the admitted
-delegated lifecycle route. Public `scope = "user"` remains rejected as leaked
-host vocabulary. Claude Code `local` plugin scope is product `deferred` with
-reason `not-modeled`.
+`claude-code-plugin` marketplace rows support project and explicit global scope.
+Daem global maps to host `--scope user`; public `scope = "user"` is rejected.
+Claude `local` scope is deferred (`not-modeled`). Observation reads selected
+version-2 `plugins/installed_plugins.json` rows without invoking Claude. Project
+rows require a canonical-path match to the selected manifest root; global rows
+correlate only host user scope. Unselected schema drift and history do not
+block or authorize the selected relation. Project claims use the statefile;
+global claims use the shared registry.
 
-| Route family | Current product state | What that means |
+| Operation | Native route | Verification and remaining effects |
 | --- | --- | --- |
-| Carrier declaration and relation diagnostics | `supported` for project or explicit-global marketplace rows | `lock`, `status`, and `apply --dry-run` can represent the locked delegated host relation, passive correlation state, replay boundary, retained effects, and non-claims for project and explicit-global rows. Fresh source-exact observations with matching claims are no-op. Source-inexact, shadowed, ambiguous, stale, wrong-scope, or unsupported observations remain blocked or observe-only according to their row. |
-| Passive carrier observation | `supported` for selected project or explicit-global installed relations | Status and apply read only selected canonical `PLUGIN@MARKETPLACE` rows from Claude's version-2 `plugins/installed_plugins.json` without invoking Claude. Project rows must carry a canonical-path match for the selected manifest root; explicit-global daem rows correlate only with host `scope = "user"`. Exact factual correlation is independent of pending installs and claims. Reconciliation separately requires a matching pending install or managed carrier claim for no-op; an exact external row is `present_unclaimed` until explicit manage-existing acquires its claim. Project claims live in that manifest's statefile; global claims live in the shared global registry. Unselected row schema drift and attempt history do not block or authorize the selected relation. |
-| External carrier adoption | `supported` for source-exact project or explicit-global rows | Manage-existing revalidates the exact selector, host scope, and selected project path where applicable, then records only the project-state or global-registry claim. It invokes no Claude command and does not claim packages, caches, runtime readiness, or ambient exclusivity. |
-| Host-delegated carrier lifecycle routes: install/create | `supported` for project or explicit-global marketplace rows; `deferred` for local | When fresh current observation says the locked relation is missing, mutating `apply --yes` delegates to `claude plugin install <plugin>@<marketplace> --scope project` for project rows or `claude plugin install <plugin>@<marketplace> --scope user` for explicit-global rows. Before host execution, daem durably records one exact lock-bound pending carrier install. Fresh exact observed presence promotes it to a managed carrier claim; project claims live in the statefile and global claims in the shared registry. A normally completed invocation that does not establish a claim retires its pending fact, including failed, absent, and attempted-unverified outcomes. Pending may survive an interrupted invocation or lost state authority, but never grants destructive authority by itself. Every later run rereads current host state, and fresh absence retries the route. `host_route_attempts` remain history-only. Exact artifact convergence is not claimed. Local scope carries reason `not-modeled`. |
-| Host-delegated carrier lifecycle routes: update/repeat | `supported` for explicit project or global refresh | `daem refresh extension <id>` invokes `claude plugin update <plugin>@<marketplace> --scope project` for project scope or `--scope user` for public daem global scope. Fresh passive evidence must first prove the one exact selected relation present; this may be daem-managed or an exact external relation. The same observer runs afterward, so success means the selected relation is observed present, not that an exact version or artifact converged. Marketplace access, selected version/cache, retained old cache, dependencies, and restart/reload effects remain host-owned and are disclosed before confirmation. |
-| Host-delegated carrier lifecycle routes: managed removal | `supported` for project or explicit-global marketplace rows | After exact managed authority, fresh selected-relation presence, and zero daem-known shared consumers are established, confirmed apply invokes `claude plugin uninstall <plugin>@<marketplace> --scope project --keep-data` for project scope or `--scope user --keep-data` for public daem global scope. Completion requires fresh exact relation absence; exit status alone is not convergence. Wrong-scope, failed, and timed-out attempts are re-observed, so an already achieved absence can settle without blind reinvocation while ambiguous evidence retains the claim and pending boundary. Marketplace declarations, versioned or orphaned caches, host metadata, plugin data, dependencies, credentials, trust/session state, sibling relations, and unrelated resources are retained. Daem does not prune, delete individual bundled contributions, prove ambient global consumers, or claim runtime unload/readiness. |
-| Provider-scoped contribution diagnostics and bundled MCP/skills/hooks/tools/apps/commands | `deferred` | Plugin-bundled contributions remain provider-scoped future facts and are not imported as standalone `[[mcp_server]]`, `[[skill]]`, `[[hook]]`, or instruction resources. |
-| Carrier residue cleanup and prune | `blocked` for ordinary mutation | The scoped host removal envelope does not grant external-store prune, unrelated package/cache cleanup, credential cleanup, trust/session cleanup, or retained-state deletion authority. |
-| Runtime readiness and trust | `deferred` | Plugin relation observation or install attempt diagnostics do not prove runtime health, trust approval, command availability, or contribution activation. |
+| Install | `claude plugin install <plugin>@<marketplace> --scope project` or `--scope user` | Fresh exact presence establishes a claim. Normal completion without a claim retires pending installation, including failed, absent or unverified outcomes; interruption/authority loss may retain it. Pending alone never grants destructive authority. Fresh absence retries. |
+| Refresh | `claude plugin update <plugin>@<marketplace> --scope project` or `--scope user` | Requires exact presence before execution, managed or external, and observes the same relation afterward. Success proves relation presence, not exact version/artifact. Marketplace access, version/cache, old cache, dependencies and restart/reload remain host-owned. |
+| Managed removal | `claude plugin uninstall <plugin>@<marketplace> --scope project --keep-data` or `--scope user --keep-data` | Requires fresh exact absence, not exit status. Re-observation can settle absence after a failed/timed-out/wrong-scope attempt without blind reinvocation; ambiguity retains pending state. |
+
+Removal retains marketplace declarations, versioned/orphaned caches, host
+metadata, plugin data, dependencies, credentials, trust/sessions, siblings and
+unrelated resources. It does not prove runtime unload or approve trust. Bundled
+contributions, ordinary update reconciliation, prune and runtime readiness remain
+deferred or blocked.
 
 ## OpenCode/Pi Plugin-Package Route Summary
 
-OpenCode and Pi plugin/package carrier work admits two narrow host-delegated
-install/create rows: OpenCode `opencode-plugin` and Pi `pi-package`. OpenCode
-also admits explicit project and global refresh through its force/reinstall
-route plus direct exact-relation removal from selected config. Pi admits
-explicit project and global package refresh through one cross-scope
-selected-source route. Pi direct extension remains deferred.
+`opencode-plugin` and `pi-package` use `source.host_source` for project or
+explicit-global scope. `pi-extension` is a rejected future candidate, not syntax.
 
-| Route family | Current product state | What that means |
+| Host/operation | Native route | Verification and remaining effects |
 | --- | --- | --- |
-| Carrier declaration and relation diagnostics | `supported` for `opencode-plugin` and `pi-package`; `deferred` for `pi-extension` | `carrier = "opencode-plugin"` is accepted only with target `opencode`, project or explicit-global scope, and `source.host_source`. `carrier = "pi-package"` is accepted only with target `pi`, project or explicit-global scope, and `source.host_source`. Defaults do not authorize global host mutation. `carrier = "pi-extension"` remains a document-only future candidate and current parser behavior rejects it. |
-| Host-delegated carrier lifecycle routes: install/create | `supported` for the OpenCode plugin and Pi package rows | Both rows require fresh exact selected-scope absence before invocation and fresh exact presence before creating removal authority. OpenCode invokes `opencode plugin <host-source>` with `--global` only for explicit global scope. Pi invokes `pi install <host-source>` with `-l` only for project scope. `pi -e`, `pi update`, OpenCode `--force`, trust flags, and prompt-policy flags are separate rows. |
-| Host-delegated carrier lifecycle routes: explicit refresh | `supported` for OpenCode and Pi project/global host-source rows | OpenCode invokes `opencode plugin <host-source> --force` and adds `--global` only for explicit daem global scope. Pi invokes `pi update --extension <host-source>` for either public scope because the host has no update scope flag; it may inspect and update matching user and trusted-project package rows with the same identity. Neither host has an admitted refresh-specific outcome or version observer, so exit zero is reported only as `attempted_unverified`; Pi's selected-scope relation observer does not prove refresh convergence. History never suppresses a later explicit retry. Pi pins may remain fixed, local paths have no scheduled updater, Git updates may reset/clean and install dependencies, and trust refusal/no match remains a host failure. Ordinary apply/install never uses either refresh route. |
-| Passive carrier observation | `supported` for OpenCode plugin and Pi package relations; `deferred` for Pi direct extensions | OpenCode reads every existing `.json` and `.jsonc` server/TUI candidate in the selected project or default-global layer and correlates the exact host-source row across them. It observes all four candidate paths, so later candidate creation cannot hide outside mutation authority. Pi reads only the selected project or global settings layer and correlates the exact npm, Git, or local package source. Authored Pi local-path aliases collapse before lock, while external settings still require the exact adapter-derived stored spelling. Malformed, ambiguous, wrong-scope, unsafe, or unreadable state is unavailable, never absence. Visibility alone is not ownership, trust, readiness, contribution inventory, or broad package/cache/store convergence. |
-| External carrier adoption | `supported` for OpenCode project/global exact source rows and Pi project/global exact stored-source rows | Manage-existing records a state-only claim only after the current source spelling, target, scope, claim store, and full future removal route remain eligible. Equivalent package names, Git identities, or external local-path spellings that differ from the expected stored row remain inexact and cannot be adopted. No OpenCode or Pi host command runs for claim acquisition. |
-| Provider-scoped contribution diagnostics and bundled MCP | `supported` only for the admitted Pi MCP provider; otherwise `deferred` | The Pi `pi-mcp-adapter` package contributes one exact `mcp-client/default` capability correlated with each provider-mediated MCP lock subject. Current package version and provider-effective config are observed separately. OpenCode package-bundled MCP and every other Pi package contribution remain deferred and are not flattened into standalone resources. |
-| Carrier lifecycle routes: managed removal | `supported` for OpenCode and Pi project/global rows | OpenCode performs no host command: after exact managed authority and last-daem-consumer checks, it removes only the exact source row from every existing server/TUI JSON and JSONC candidate through per-file compare-and-swap. All four candidate paths are held as authority; missing candidates remain no-ops and are never created. Partial multi-file success retains durable pending state and retries remaining rows; claim retirement requires fresh absence from every loaded candidate. Pi invokes its selected-scope remove route and verifies relation plus source-kind-specific effects. The other scope, package/cache stores, local source directories, credentials, trust/session/runtime state, unrelated rows, and ambient global consumers remain outside the guarantee. |
-| Host-delegated carrier lifecycle routes: disable and ordinary update | `blocked` for ordinary mutation | Explicit refresh does not become ordinary apply update, and no per-contribution disable route is admitted. `opencode uninstall` targets the host program rather than one managed plugin relation. |
-| Carrier destructive cleanup and prune | `blocked` for ordinary mutation | Desired absence does not grant external-store prune, unrelated package/cache/store cleanup, trust/session deletion, or retained-state deletion. |
-| Runtime readiness and trust | `deferred` | Startup, extension/plugin execution, project trust, auth, tool inventory, and MCP readiness require explicit route/probe dossiers. |
+| OpenCode install | `opencode plugin <host-source>`; add `--global` only globally | Fresh exact selected-scope absence before invocation and presence before claim creation. |
+| Pi install | `pi install <host-source>`; add `-l` only for project | Same absence/presence requirement; no implicit `pi -e`, trust or prompt-policy flags. |
+| OpenCode refresh | `opencode plugin <host-source> --force`; add `--global` only globally | `attempted_unverified`: relation observation does not prove package/version/refresh convergence. Package resolution, caches, same-family replacement/deduplication, multi-target config, dependencies and activation remain host-owned. |
+| Pi refresh | `pi update --extension <host-source>` for either scope | No update scope flag: may update matching user and trusted-project rows. `attempted_unverified`; pins may stay fixed, local paths have no updater, Git may reset/clean and install dependencies. Trust refusal/no match is a host failure. No approval, self-update, model-update or bulk flags. |
+| OpenCode removal | Direct config edit; no `opencode uninstall` | Remove only the exact source row from every existing server/TUI JSON/JSONC candidate. Missing candidates are not created; all four paths remain guarded. Partial per-file success stays pending until fresh absence from every loaded candidate. |
+| Pi removal | Selected-scope package remove route | Verify relation absence plus source-kind-specific coupled effects; do not infer broad package/cache/store cleanup. |
+
+OpenCode observes all four selected project/default-global server/TUI JSON and
+JSONC candidate paths, including absent default JSON candidates. Pi observes
+only the selected settings layer with npm/Git/local-source identity. Authored
+local aliases normalize before lock, but external settings still need exact
+adapter-derived stored spelling for adoption; equivalent package names, Git
+identities or local spellings are insufficient.
+
+OpenCode removal preserves comments, whitespace, tuple options, siblings,
+unknown fields, empty arrays and files. Other scope, installed artifacts,
+caches, local sources, credentials, trust/sessions/runtime and unrelated rows
+remain outside that removal. Pi retains other-scope state and unrelated stores;
+its selected source-kind effects do not grant prune. Neither explicit refresh
+becomes ordinary apply update, and no per-contribution disable is supported.
 
 ## Antigravity CLI Plugin Carrier Route Summary
 
-Antigravity CLI plugin carrier work supports narrow host-delegated
-install/create and explicit repeat-install refresh rows for explicit-global
-host-source declarations. Selector-shaped `PLUGIN@MARKETPLACE` sources also
-support passive relation observation and exact managed removal. There is still
-no Antigravity IDE coverage, project-scope support, import/link support,
-dedicated host update command, prune, runtime readiness, or bundled
-contribution ownership.
+Only explicit-global `antigravity-cli-plugin` host-source rows are supported.
+For safe `PLUGIN@MARKETPLACE` selectors, observation correlates plugin name in
+`~/.gemini/config/import_manifest.json` with matching
+`~/.gemini/config/plugins/<plugin>/plugin.json`. Complete identity-matching
+presence is required; missing state is absence, while malformed, duplicated,
+partial, unstable or symlinked state blocks. Different structural sources that
+collapse to one host-visible name are rejected; identical shared carriers remain
+valid. These files do not prove marketplace provenance, version or freshness.
 
-| Route family | Current product state | What that means |
+| Operation | Native route | Verification and remaining effects |
 | --- | --- | --- |
-| Carrier declaration and relation diagnostics | `supported` for the explicit-global host-source row | `carrier = "antigravity-cli-plugin"` is accepted only with target `antigravity-cli`, explicit `scope = "global"`, and `source.host_source`. Defaults do not authorize this global host mutation. |
-| Passive carrier observation | `supported` for selector-shaped explicit-global sources; otherwise unsupported | Daem reads the selected plugin name from the import manifest and matching installed `plugin.json` under `~/.gemini/config`. Desired presence requires a complete, identity-matching pair. Missing state is fresh absence; malformed, duplicated, partial, unstable, or symlinked selected state blocks. Marketplace provenance, artifact freshness, contributions, trust, readiness, and ambient consumers are not observed. |
-| External carrier adoption | `blocked` for current Antigravity CLI rows | Complete name/import/bundle evidence does not reconstruct the declared marketplace source. Manage-existing therefore reports source-inexact evidence and never acquires an external claim. Install-created claims and managed removal remain separate supported paths. |
-| Provider-scoped contribution diagnostics and bundled MCP/hooks/skills/rules | `deferred` / design state | Plugin-bundled capabilities are provider-scoped contributions with `provided_by` provenance; they are not standalone `[[mcp_server]]`, `[[hook]]`, `[[skill]]`, or `[[skill_group]]` support, and no current command enumerates them. |
-| Host-delegated carrier lifecycle routes: install/create | `supported` for the explicit-global host-source row only | Mutating apply invokes `agy plugin install <host-source>`. Selector-shaped sources run only after fresh pair absence. The exact pending install identity plus fresh complete-pair presence creates the managed claim without pretending that the passive pair proves source provenance; later converged apply combines that claim with the same bounded evidence for a no-op. Other source forms preserve unsupported observation, record history-only `attempted_unverified`, and retry. `agy plugin import` and `agy plugin link` remain separate source/provenance setup rows and are not invoked. |
-| Host-delegated carrier lifecycle routes: explicit refresh | `supported` for the explicit-global host-source row only | `daem refresh extension <id>` repeats the exact locked `agy plugin install <host-source>` route as an explicit reinstall. Bounded local-source evidence shows selected-bundle replacement without duplicate import rows and malformed-manifest rejection before prior-bundle replacement; other source and failure stages remain host-owned. Relation presence does not prove selected version or bundle freshness, so success remains `attempted_unverified`. |
-| Host-delegated carrier lifecycle routes: enable/disable/ordinary update | `blocked` / `unsupported` for ordinary mutation | Enable/disable is whole-carrier activation pressure, not per-contribution control. Explicit repeat-install refresh does not become a dedicated host update command, ordinary apply update, import/link setup, uninstall, or contribution control. |
-| Host-delegated carrier lifecycle routes: managed removal | `supported` for selector-shaped explicit-global sources | After an exact managed claim, fresh bounded plugin-name/import/bundle evidence, and zero remaining daem-known consumers, confirmed apply invokes `agy plugin uninstall <plugin>`. The passive evidence remains source-inexact; the claim and locked route dossier provide the separate authority and source identity. Daem never passes the marketplace selector or trusts success prose. Convergence requires both the selected import row and plugin directory to be absent; partial, failed, or uncertain outcomes retain claim and pending authority for retry. Already-absent state retires authority without invocation. Sibling plugins and import rows, credentials, trust/session state, unrelated stores, and IDE state are retained. Marketplace provenance and ambient consumers remain non-claims. |
-| Carrier residue prune | `blocked` for ordinary mutation | Desired absence does not prune retained state or delete plugin-bundled contributions; no external-store-prune authority is admitted. |
-| Runtime readiness and trust | `deferred` | Plugin-loaded MCP, slash commands, hooks, agents, rules, workflows, auth, trust, and running-session behavior require explicit route/probe dossiers. |
+| Install | `agy plugin install <host-source>` | Selectors require fresh pair absence, then exact pending source identity plus fresh complete-pair presence for a claim. Other forms retry with unsupported observation and `attempted_unverified`. No `import` or `link` setup. |
+| Refresh | Repeat locked `agy plugin install <host-source>` | Explicit reinstall, not a dedicated update. Local-source evidence covers bundle replacement without duplicate import rows and malformed `plugin.json` rejection before replacement; other sources/failure stages remain host-owned. Success is `attempted_unverified`. |
+| Managed removal | `agy plugin uninstall <plugin>` | Selectors only; pass plugin name, never marketplace selector. Verify absence of both import row and plugin directory. Partial/uncertain outcomes stay pending; already-absent pairs retire without invocation. |
 
-## Operation Matrix
-
-| Operation | Current product status |
-| --- | --- |
-| `init` | Supported for creating a starter manifest. |
-| `add instruction`, `remove instruction` | Authoring helpers that update manifest and lockfile together. |
-| `add skill`, `remove skill` | Authoring helpers for direct `[[skill]]` declarations. |
-| `add skill-group` | Authoring helper for current `[[skill_group]]` declarations. |
-| `add hook`, `remove hook` | Authoring helpers for command-hook declarations; they do not infer hook scripts. `add hook` rejects Antigravity CLI hooks; `remove hook` can clean existing Antigravity CLI hook declarations from the manifest/lockfile without host mutation. |
-| `add mcp-server`, `remove mcp-server` | Authoring helpers for supported stdio `[[mcp_server]]` rows. Target omission succeeds only when manifest inheritance and row compatibility identify one supported row. Explicit target/scope forms cover Claude Code project/global, Codex project/global, OpenCode project/global, Pi project/global, and Antigravity CLI global rows; defaults never authorize global MCP. Pi add also authors one explicit admitted provider package when needed, while Pi remove retains it. They update manifest and lockfile only; host config and package effects still require `apply`, and command/args authoring is not executable provisioning. |
-| `add extension`, `remove extension` | Authoring helpers for all five supported carrier rows. Add accepts one opaque carrier-native source operand and validates it against target/scope; remove selects the globally unique id with optional safety filters. Both update manifest and lockfile only. Remove expresses desired relation absence; manual row omission plus lock is equivalent. A later confirmed apply executes only removal rows admitted above, currently Codex and selector-shaped Antigravity explicit-global plus Claude Code, OpenCode, and Pi project/global removal. |
-| `unmanage extension` | Supported for one exact extension id with optional target/scope safety filters. It atomically removes the declaration/current lock entry and exact daem claim while retaining host state; it supports dry-run/diff/JSON/verbose and has no per-host flags or `--yes`. |
-| `lock` | Resolves declared sources and writes current exact lockfile identities. The same floating declaration may resolve differently later; lock does not refresh host carrier state. |
-| `outdated` | Read-only source freshness check. |
-| `status` | Passive convergence/status reporting for selected locked subjects; runtime readiness remains separate and requires the explicit `probe mcp-server` surface. |
-| `apply` | Reconciles supported files/directories/config projections, with rollback/recovery safeguards and state ownership checks. For supported Codex, Claude Code, OpenCode, Pi, and Antigravity CLI extension rows, mutating apply may run the host-delegated install/create route and persist bounded attempt diagnostics. Managed absence is planned generically; Codex and selector-shaped Antigravity rows admit exact explicit-global host-route removal, Claude Code and Pi admit exact project/global host-route removal, and OpenCode admits exact project/global direct config-relation removal with verified claim retirement. |
-| `probe mcp-server` | Explicit runtime-readiness command for supported Claude Code project stdio and OpenCode project local-command stdio launch+initialize slices; no state, lock, or host config mutation. |
-| `refresh extension` | Explicit single-extension host-refresh workflow with immutable disclosure, confirmation, stale revalidation, bounded attempt history, and no manifest/lock rewrite. Codex explicit-global marketplace, Claude Code project/global marketplace, OpenCode project/global host-source, Pi project/global package, and Antigravity CLI explicit-global host-source relations are supported; every other target/scope/source row remains unavailable until its exact refresh adapter is listed as supported above. |
-| `apply --manage-existing` | Registers exact-match state ownership for supported managed outputs and MCP projections; mode-sensitive outputs such as hook assets must also match their required file mode. It also acquires a state-only external carrier claim for the seven source-exact Claude Code, Codex, OpenCode, and Pi rows described above after full lifecycle revalidation. |
-| `doctor` | Capability, environment, and passive prerequisite diagnostics; no runtime probes or host mutation. |
-| `import` | Imports modeled target-visible roots, supported standalone MCP rows, and source-exact extension rows into manifest-owned declarations without creating host ownership. Extension import covers Codex global plus Claude Code, OpenCode, and Pi project/global rows; Antigravity rows are skipped because installed state lacks recoverable source provenance. External carrier adoption remains a separate `apply --manage-existing` path after lock. |
-| `recover` | Active-operation recovery or exact retained journal cleanup. |
+Removal retains siblings/import rows, credentials, trust/sessions, unrelated
+stores, marketplace/source setup and IDE state. Opaque/local-source removal,
+project plugins, import/link, enable/disable, dedicated or ordinary update,
+prune, bundled contribution ownership and runtime readiness are not supported.
 
 ## Deferred Product Surfaces
 
-- Public `[[extension]]` parser, lock, status, and apply support outside the
-  supported Codex global marketplace-selector, Claude Code project or
-  explicit-global marketplace, OpenCode host-source, Pi package host-source,
-  and Antigravity CLI explicit-global host-source install/diagnostic slices. The
-  `carrier = "pi-extension"` shape remains a document-only future candidate,
-  and Antigravity CLI project-scope/import/link/IDE shapes remain future
-  candidates, not current parser behavior.
-- Codex plugin carrier support outside explicit-global `PLUGIN@MARKETPLACE`
-  install/create and explicit marketplace refresh, including ordinary update,
-  contribution-disable, prune, runtime-readiness routes, exact-artifact
-  convergence, or cleanup authority. Exact explicit-global managed removal is
-  current but does not widen into those adjacent operations.
-- Claude Code plugin refresh outside the explicit `refresh extension` project
-  or global marketplace rows, plus contribution disablement and prune. The
-  current install/create, refresh, and exact managed-relation removal support
-  does not become ordinary upgrade reconciliation, residue-prune authority,
-  runtime readiness, exact artifact convergence, or contribution import.
-- Future OpenCode/Pi plugin/package/extension surfaces outside the supported
-  OpenCode `opencode-plugin` host-source install/create and explicit-refresh
-  rows and Pi `pi-package` host-source install/create, explicit-refresh,
-  passive relation observation, and managed-removal rows, including Pi direct
-  extension, contribution inventory, ordinary update, prune, runtime
-  readiness, trust, and exact artifact/package-store ownership.
-- Antigravity CLI surfaces beyond Agent Skills-compatible directory packages,
-  the explicit-global command/args plus same-name ambient standalone MCP
-  projection, and
-  the explicit-global host-source plugin install/create and repeat-install
-  refresh rows, including markdown slash-command skills, hooks, project-local
-  MCP, remote MCP, plugin-bundled MCP, import/link/project-scope plugin rows,
-  rules, workflows, settings, runtime readiness, removal for opaque or local
-  host sources, and residue prune. Exact managed removal is current only for
-  safe selector-shaped explicit-global sources. Antigravity IDE remains
-  outside current product coverage.
-- Cross-target MCP config projection beyond the Codex project command/args
-  slice and explicit-global command/args plus same-name environment-reference
-  slice, Claude project stdio and explicit-global command/args plus exact
-  aliased environment-reference slices,
-  OpenCode project command/args and explicit-global command/args plus exact
-  aliased environment-reference slices, Pi project and explicit-global
-  provider-mediated stdio slices, and the Antigravity CLI
-  explicit-global command/args plus same-name ambient slice.
-- MCP runtime probes beyond the supported Claude Code project stdio and OpenCode
-  project local-command stdio launch+initialize slices and their stdio
-  endpoint/auth/tool-inventory support classification, including active OAuth
-  flows, HTTP endpoint health checks, and tools/list inventory payload checks.
-- Manifest-authored executable lifecycle declaration families such as
-  `[[local_parameter]]`, `[[package_runner]]`, `[[executable_artifact]]`, and
-  command-object MCP references. These are rejected before Desired
-  normalization and remain design-only until an exact
-  route/admission row implements parser, normalization, lock, status, apply,
-  add/remove scope, docs, and tests for one operation. Current `command` and
-  `args` remain launch-vector data, not provisioning or package/cache
-  ownership.
-- Hook asset directory payloads, plugin-bundled hook installation, standalone
-  executable installation, and implicit command path inference.
+The supported rows above do not extend to other targets, scopes, sources or
+operations. In particular:
+
+- Remote/bundled MCP, active OAuth, HTTP health checks and tools/list checks are
+  not part of the supported stdio config/probe slices.
+- Pi direct extensions and non-admitted bundled contributions remain deferred;
+  global provider use does not confer ownership of unowned project config.
+- Antigravity IDE, Markdown slash-command skills, direct hooks, project/remote
+  MCP, rules, workflows and settings as separate resources remain unsupported.
+- `[[local_parameter]]`, `[[package_runner]]`, `[[executable_artifact]]` and
+  command-object MCP references are design-only and rejected before normalization.
+  Adding one requires its own parser, lock, status, apply, authoring, docs and tests.
+- Hook-asset directories, implicit command-path inference, bundled-hook and
+  standalone executable installation remain outside current support.

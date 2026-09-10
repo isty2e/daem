@@ -13,7 +13,7 @@ Use `daem` as the authority for declared agent-environment changes: translate us
 - Before relying on a leaf command, run `daem help <command>` or `daem help <command> <resource>`. The installed executable owns current target, scope, source, and capability support—not this skill.
 - Preserve the user's explicit `--manifest`; otherwise omit it. Existing-workspace commands select `./daem.toml`, then the user manifest. `init` and non-merge `import` instead create `./daem.toml`; `import --merge` uses existing-workspace selection. Never search parent directories or invent a workspace.
 - Add target/scope selectors only if requested or required by daem to resolve ambiguity; omission may preserve manifest inheritance.
-- Never write agent installation directories or host configuration directly, or invoke a host-native plugin installer as an unreported fallback.
+- Never write agent installation directories or host configuration directly. Do not silently fall back to direct file writes or host-native commands, including plugin installers.
 - Do not hardcode agent paths, host commands, or a capability matrix. Report daem's diagnostics for unsupported or ambiguous routes.
 
 ## Safety Gates
@@ -23,7 +23,6 @@ Use `daem` as the authority for declared agent-environment changes: translate us
 - Obtain additional approval before adopting existing state with `--manage-existing`, deleting shared/global state not named in the request, or accepting a materially different destructive plan.
 - Never use `--yes` to bypass a blocker, stale state, failed validation, or unsupported capability.
 - Do not infer current installation, ownership, runtime readiness, or removal success from historical command evidence.
-- Do not silently fall back to direct file writes or host-native commands.
 
 ## Perform A Change
 

@@ -77,11 +77,9 @@ daem apply --dry-run --diff
 daem apply
 ```
 
-Bare `apply` asks for confirmation when all three streams are terminals.
-Non-interactive execution requires `--yes`. Applying global resources affects
-the selected agent's user-level configuration, not just the current project.
-Removing a declaration does not by itself erase host package caches,
-credentials, or shared plugin data; review the planned removal.
+Bare `apply` asks for confirmation when all three streams are terminals;
+non-interactive execution requires `--yes`. Global resources affect user-level
+configuration across projects. Review removal plans and [retained host state](docs/host-integrations.md#managed-carrier-absence).
 
 ## Documentation
 
@@ -94,8 +92,7 @@ credentials, or shared plugin data; review the planned removal.
 - [Host Integrations](docs/host-integrations.md) and [Platform Support](docs/platforms.md)
   — supported operations and their limits.
 
-For source builds and development checks, see [Contributing](CONTRIBUTING.md)
-and [installation from source](docs/install.md#build-from-source).
+For source builds and development checks, see [Contributing](CONTRIBUTING.md).
 
 ## License
 

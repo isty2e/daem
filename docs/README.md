@@ -16,7 +16,7 @@
 
 - [Concepts](concepts.md) — how manifests, locks, sources, ownership, and apply
   fit together.
-- [Glossary](glossary.md) — short definitions with links to the owning reference.
+- [Glossary](glossary.md) — look up unfamiliar output terms.
 
 ## Look Up A Contract
 
@@ -28,10 +28,7 @@
 | [Host Integrations](host-integrations.md) | Which native operations run, and what may they leave behind? |
 | [Platform Support](platforms.md) | Which OS/architecture pairs are supported, and what runtime limits apply? |
 | [Skill Compatibility](compatibility.md) | Which skill formats and loading locations does each host support? |
-| [State And Recovery](state-and-recovery.md) | What do durable records authorize, and what can recovery do? |
-
-The manifest, CLI, host, and platform references own their contracts. Feature
-Support and the glossary summarize them; they do not add syntax or support.
+| [State And Recovery](state-and-recovery.md) | What is stored, what can recovery do, and which limits apply? |
 
 ## Examples
 
@@ -47,7 +44,4 @@ Support and the glossary summarize them; they do not add syntax or support.
 
 ## Contribute
 
-Start with [Contributing](../CONTRIBUTING.md) for setup and verification,
-[Architecture](../ARCHITECTURE.md) for implementation ownership, and the
-[compiler implementation guide](architecture/compiler-migration.md) for current
-boundaries and retained compatibility seams.
+See [Contributing](../CONTRIBUTING.md) for setup and change-specific verification.

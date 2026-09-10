@@ -15,9 +15,6 @@ daem version
 daem --help
 ```
 
-The supported binary targets are macOS 26 or newer on Apple silicon and Linux
-on x86-64. See [Platform Support](platforms.md) for runtime requirements.
-
 ## Create A Project
 
 Use a new directory so the example does not overwrite existing files:

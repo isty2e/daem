@@ -43,29 +43,19 @@ daem --help
 
 ### What The Installer Checks
 
-Platform and runtime checks run before network access or destination changes.
-On macOS, a translated x86-64 shell selects the Apple-silicon binary only when
-macOS reports `sysctl.proc_translated=1`; Intel Macs remain unsupported. The
-binary also enforces its own runtime-floor decision for supported workflows.
+Platform/runtime checks precede network access and destination changes. A
+translated x86-64 macOS shell selects Apple silicon only with
+`sysctl.proc_translated=1`; Intel Macs remain unsupported. The binary also
+checks its runtime floor.
 
-Latest-release discovery resolves once to an exact stable tag. The installer
-resolves that tag to a commit, reads its committer timestamp, and reads the Go
-toolchain from that commit's `go.mod`. It then downloads the exact tag/target
-archive and checksum sidecar. No release values need to be copied from this
-page, including when installing `v0.1.0`.
+The installer verifies checksum, archive shape and executable release identity
+before replacement. Download, validation or preparation failure preserves both
+current and previous executables. It attempts to clean its temporary staging
+on exit and handled interruption.
 
-Before replacing an executable, the installer checks the exact checksum entry,
-requires one regular executable named `daem` in the archive, and checks the
-staged executable's version, commit, commit time, toolchain, native target,
-Git VCS metadata, and clean source state. Failed download, validation, or
-preparation leaves the current and previous executables unchanged. Cleanup of
-invocation-owned temporary staging is attempted on exit and handled interruption.
-
-These checks detect transfer errors and release-assembly mismatches. The
-archive, checksum, and tag metadata share GitHub's release authority; they do
-not prove publisher identity, provenance, or post-publication immutability.
-Confirm that downloads and metadata come from the expected repository and
-HTTPS endpoints.
+These checks detect transfer/assembly errors, not publisher provenance or
+immutability: archive, checksum and metadata share GitHub's authority. Verify
+the expected repository and HTTPS endpoints.
 
 ## Upgrade
 
@@ -81,11 +71,10 @@ The replaced executable is retained as `daem.previous` in the same directory.
 Reinstalling identical executable bytes leaves that backup alone. If you used
 `--bin-dir`, pass the same directory when upgrading or rolling back.
 
-The new executable and backup are prepared before either is published. Their
-two replacements are not one atomic transaction: if final replacement fails
-after backup publication, the current executable remains, but
-`daem.previous` may have been refreshed to that same executable. Avoid running
-multiple installers against the same directory at once.
+Executable and backup replacement is not one atomic transaction. If final
+replacement fails after backup publication, the current executable remains but
+`daem.previous` may now contain that same executable. Do not run concurrent
+installers against one directory.
 
 Before running a mutating command with the new binary:
 
@@ -107,9 +96,8 @@ Restore `daem.previous` without network access:
 sh daem-install.sh --rollback
 ```
 
-Rollback stages a copy of the previous executable and requires its
-`version --json` command to succeed before replacing the current executable.
-A prior source build can also be restored. `--rollback` cannot be combined with `--version`.
+The previous executable must pass `version --json`, including when it is a
+source build. `--rollback` cannot be combined with `--version`.
 
 This does not roll back manifests, lockfiles, statefiles, recovery journals,
 or host mutations. If the previous executable rejects data written by the
@@ -119,11 +107,9 @@ interrupted apply operations; it is not a binary or schema downgrade command.
 
 ## Release Mutability
 
-Release `v0.1.0` was published while GitHub release immutability was disabled
-and remains a mutable GitHub release. Daem does not guarantee that a published
-tag or attached asset cannot be changed or deleted after publication. An exact
-version and its co-published checksum are not historical immutability evidence.
-Latest is a discovery aid, not an artifact identity.
+`v0.1.0` remains mutable. Published tags/assets may change or disappear; an
+exact version and co-published checksum do not prove historical immutability.
+Latest is discovery, not artifact identity.
 
 ## Diagnostics
 
@@ -132,21 +118,10 @@ then retry. If latest discovery fails, `--version` selects an exact release
 without that discovery step; it still needs the selected release's metadata
 and assets.
 
-Record these facts when reporting an installation problem:
-
-```sh
-daem version --json
-daem doctor --all-targets
-```
-
-For one selected workspace, also include:
-
-```sh
-daem status --json
-daem list paths
-```
-
-Review output for local paths or other machine-specific data before sharing it.
+Start an installation report with `daem version --json` and platform details
+from `daem doctor --all-targets`. For workspace problems, use
+[Troubleshooting](troubleshooting.md). Review local paths and machine-specific
+information before sharing diagnostics.
 
 ## Build From Source
 
