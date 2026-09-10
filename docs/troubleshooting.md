@@ -12,8 +12,36 @@ daem apply --dry-run --diff
 ```
 
 `doctor` checks passive prerequisites. It does not run MCP servers or mutate
-host state. See the [CLI Reference](cli.md) for JSON output and exact exit-code
-behavior.
+host state. `status --check` returns nonzero when the environment is not up to
+date; inspect its findings rather than treating that exit alone as a crash.
+See the [CLI Reference](cli.md) for JSON output and exact exit-code behavior.
+
+## Find Your Symptom
+
+- Setup: [unsupported platform](#unsupported-platform),
+  [missing or stale lockfile](#lockfile-is-missing-or-stale),
+  [skipped import](#import-skipped-an-instruction-hook-or-mcp-file).
+- Ownership: [`ownership_conflict`](#ownership_conflict),
+  [`unmanaged_output_exists`](#unmanaged_output_exists),
+  [drift](#a-managed-output-drifted),
+  [same-name skills at several paths](#same-skill-name-at-multiple-agent-paths).
+- MCP: [missing environment sources](#missing-mcp-environment-sources),
+  [Pi provider or config mismatch](#pi-mcp-provider-or-config-is-not-current).
+- Extensions: [unclaimed carrier](#external-carrier-is-present-but-unclaimed),
+  [order change](#extension-order-changed-after-carrier-updates),
+  [refresh failure](#extension-refresh-was-refused-or-failed),
+  [Pi removal not converged](#pi-package-removal-did-not-converge).
+- Interrupted work: [apply](#apply-was-interrupted),
+  [manifest metadata update](#manifest-metadata-update-was-interrupted),
+  [journal from an earlier boot](#recovery-journal-from-an-earlier-boot).
+- Other limits: [old durable schemas](#pre-10-durable-authority-schemas),
+  [skill-group expansion](#lock-or-doctor-exceeded-the-skill-group-expansion-limit),
+  [NFS](#nfs-backed-home-or-workspace).
+- [Collect a diagnostic report](#collecting-a-diagnostic-report).
+
+For a planned migration rather than a failure, see
+[Use An Existing Environment](migration.md). Durable record formats and limits
+are described in [State And Recovery](state-and-recovery.md).
 
 ## Unsupported Platform
 

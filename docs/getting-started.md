@@ -1,183 +1,103 @@
 # Getting Started
 
-This guide takes a project from no manifest to one reconciled Codex instruction
-file. It also shows the alternate import path and interrupted-operation
-recovery. Target-specific MCP, hook, extension, skill-group, and advanced source
-configuration belongs in the [Manifest Reference](manifest.md).
+Create a project with one Codex instruction file, using a local source. This
+example needs neither a remote repository nor an existing agent configuration.
+If you already have files to keep, start with
+[Use An Existing Environment](migration.md) instead.
 
-## 1. Install
+## Install Daem
 
-Install the checksum-verified `v0.1.0` artifact for the current supported
-platform by following [Install, Upgrade, And Roll Back](install.md). Return
-here after these commands report the expected release identity and help:
+Follow [Install, Upgrade, And Roll Back](install.md), including its PATH step.
+Then check that the executable is available:
 
 ```bash
 daem version
 daem --help
 ```
 
-`daem version` reports the executable's embedded module version, full source
-revision, clean/modified/unknown source state, Go toolchain, and build target.
-The authoritative platform rows and native evidence requirements are in
-[Platform Support](platforms.md).
+The supported binary targets are macOS 26 or newer on Apple silicon and Linux
+on x86-64. See [Platform Support](platforms.md) for runtime requirements.
 
-## 2. Start A Project
+## Create A Project
 
-Change to the project you want to manage. The following creates a standalone
-example project:
+Use a new directory so the example does not overwrite existing files:
 
 ```bash
-mkdir -p ~/daem-example
-cd ~/daem-example
+mkdir ~/daem-example && cd ~/daem-example
 ```
 
-Create `./daem.toml`:
+If that directory already exists, choose another name. Preview and create
+`daem.toml`:
 
 ```bash
 daem init --dry-run
 daem init
 ```
 
-`init` writes by default. It never creates a lockfile, statefile, cache,
-recovery journal, or host file. Use `--manifest <path>` to select another
-destination.
+`init` writes only the starter manifest. It does not create a lockfile or touch
+agent files. Run the remaining commands from this directory; daem does not
+search parent directories for a manifest.
 
-To start from existing host configuration instead, use import and skip the
-`init` command:
+## Add Instructions
 
-```bash
-daem import --target codex --dry-run --diff
-daem import --target codex
-```
-
-Import also writes by default. Repeat `--target` for more hosts; comma lists are
-not accepted. Use `--merge` only when importing into an existing selected
-manifest. Import writes desired-state files but does not lock or manage the
-live files it observed.
-
-## 3. Add One Resource
-
-Create one instruction source:
+Create the source file:
 
 ```bash
-mkdir -p instructions
+mkdir instructions
 printf '%s\n' '# Project instructions' 'Use concise, direct answers.' > instructions/project.md
 ```
 
-Preview and then author the instruction:
+Preview the declaration, then write it:
 
 ```bash
-daem add instruction project ./instructions/project.md --target codex --dry-run
+daem add instruction project ./instructions/project.md --target codex --dry-run --diff
 daem add instruction project ./instructions/project.md --target codex
 ```
 
-The write updates `daem.toml` and `daem.lock.toml` together. It does not touch
-`AGENTS.md` or any other host file. Use `--diff` with `--dry-run` for the exact
-manifest delta, `--verbose` for bounded causal evidence, or `--json` for one
-schema-versioned automation result.
+The second command updates `daem.toml` and creates the adjacent
+`daem.lock.toml`. Your source stays in `instructions/project.md`; the Codex
+output, `AGENTS.md`, does not exist yet. There is no separate lock step after a
+successful `add`.
 
-## 4. Lock Manual Changes
+## Apply And Check
 
-Skip this step when the preceding `add` write succeeded: authoring already
-refreshed the lockfile. Run it after hand-editing `daem.toml` or after import:
-
-```bash
-daem outdated --check
-daem lock --dry-run
-daem lock
-```
-
-`outdated` is read-only. `lock` writes by default and always uses
-`daem.lock.toml` beside the selected manifest. Default output reports changed
-identities; `lock --dry-run --verbose` also shows unchanged identities and
-bounded resolution evidence.
-
-## 5. Inspect And Apply
-
-Inspect convergence and the exact pending effects:
+Inspect the pending change:
 
 ```bash
 daem status
 daem apply --dry-run --diff
 ```
 
-If the plan is acceptable, reconcile non-interactively:
+The plan should create the project's `AGENTS.md` from your instruction source.
+If it reports a conflict or a different destination, stop and check the
+[troubleshooting guide](troubleshooting.md) before continuing.
+
+Apply the change:
 
 ```bash
-daem apply --yes
+daem apply
 daem status --check
 ```
 
-Bare `apply` is also available when stdin, stdout, and stderr are all terminals:
-it writes the selected effects completely to stdout, then asks once on stderr
-before execution. Redirected output, piped or closed input, and other
-non-interactive invocations require `--yes`.
+Bare `apply` displays the effects and asks for confirmation. Answer `yes` only
+if they match your intent. All three streams must be terminals; in a script,
+use `daem apply --yes` after reviewing the preview. `status --check` returns
+zero when the selected environment is up to date.
 
-If an existing `AGENTS.md` exactly matches the rendered desired content, review
-and register that ownership explicitly instead of overwriting it:
+Keep these roles separate:
 
-```bash
-daem apply --manage-existing --dry-run
-daem apply --manage-existing --yes
-```
+| File | Your next use |
+| --- | --- |
+| `instructions/project.md` | Edit the instruction content here. |
+| `daem.toml` | Change which resources and targets daem manages. |
+| `AGENTS.md` | Let daem update this output; direct edits are reported as drift. |
 
-`--manage-existing` does not import content. It records exact matching output as
-managed, which gives later reconciliation deletion authority for that output.
+## Continue From Here
 
-The same flow can manage a supported plugin or package that is already installed
-outside daem. First declare it with `daem add extension` or edit the manifest
-and run `daem lock`, then inspect `daem status`. Continue only when status
-reports `carrier adoption available` and the dry-run says it would record the
-exact source, target, and scope:
-
-```bash
-daem apply --manage-existing --dry-run
-daem apply --manage-existing --yes
-daem status --check
-```
-
-Carrier adoption invokes no host install command, but the new claim grants the
-bounded future removal authority shown by dry-run. A reported lifecycle blocker
-or source-inexact relation is not adoptable.
-
-## 6. Diagnose A Failure
-
-`doctor` checks passive local prerequisites and never launches host CLIs,
-package managers, MCP servers, credential helpers, or network probes:
-
-```bash
-daem doctor
-daem doctor --target codex --verbose
-```
-
-Use `--json` for automation. Warnings do not fail doctor; errors do.
-
-## 7. Recover An Interrupted Apply
-
-When apply leaves interrupted recovery evidence, inspect it first:
-
-```bash
-daem recover --dry-run
-```
-
-Then either confirm interactively with bare `daem recover`, or execute
-non-interactively:
-
-```bash
-daem recover --yes
-```
-
-Recovery revalidates the active operation before writing. It is interrupted
-operation cleanup, not historical restore. `recover --yes --json` emits one
-schema-versioned execution result when automation needs the final status.
-
-## Next References
-
-- [CLI Reference](cli.md): exact grammar, output layers, JSON, streams, and exit
-  behavior.
-- [Manifest Reference](manifest.md): advanced fields and target-specific
-  resource configuration.
-- [Feature Support](features.md): current target and resource support.
-- [Host Integration Contract](host-integrations.md): exact host operations and
-  safety limits.
-- [Concepts](concepts.md): manifest, lock, state ownership, and recovery model.
+- After changing a source or editing TOML directly, preview `daem lock --dry-run`,
+  write with `daem lock`, then preview and apply again.
+- [Use local skills or import existing configuration](migration.md).
+- [Choose resources for another host](features.md). Repeat `--target` to select
+  multiple hosts; do not use comma-separated values.
+- [Read the manifest fields](manifest.md) or [browse complete examples](README.md#examples).
+- [Diagnose a problem or recover an interrupted apply](troubleshooting.md).

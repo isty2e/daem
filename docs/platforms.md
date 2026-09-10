@@ -83,7 +83,7 @@ rename-and-recreate replacement.
 The zero tuple alone therefore does not establish unavailable identity. This
 probe does not establish safety against inode reuse or every filesystem's
 missing-metadata behavior. The maintainer defers a blanket zero-tuple refusal
-while retaining the [root and StateDir identity contracts](concepts.md#recovery-journal).
+while retaining the [root and StateDir identity contracts](state-and-recovery.md#recovery-journal).
 Revisit on a supported reproduction of unavailable incarnation evidence or
 missed replacement, or an explicit decision to require nonzero admission.
 

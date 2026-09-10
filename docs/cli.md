@@ -6,6 +6,26 @@ This document is the public command, flag, output, stream, and exit contract for
 [Feature Support](features.md), while operating-system and architecture support
 belongs in [Platform Support](platforms.md).
 
+For a command sequence rather than a lookup, use [Getting Started](getting-started.md)
+or [Use An Existing Environment](migration.md).
+
+## Contents
+
+- [Command lifecycle](#command-lifecycle)
+- [Platform support](#platform-support)
+- [Workspace selection and storage roots](#workspace-selection)
+- [Target and scope selection](#shared-selection)
+- [Preview, write, and confirmation modes](#execution-modes)
+- [Output flags, flag inventory, and JSON versions](#presentation-flags)
+- Commands: [`version`](#version), [`init`](#init), [`import`](#import),
+  [`add`](#add), [`remove`](#remove), [`unmanage extension`](#unmanage-extension),
+  [`lock`](#lock), [`outdated`](#outdated), [`list`](#list), [`status`](#status),
+  [`apply`](#apply), [`recover`](#recover), [`doctor`](#doctor),
+  [`probe mcp-server`](#probe-mcp-server), [`refresh extension`](#refresh-extension)
+- [Authoring JSON](#authoring-json), [progress](#progress),
+  [streams and exit codes](#streams-and-exit-codes),
+  [deferred command names](#deferred-command-names)
+
 ## Command Lifecycle
 
 | Stage | Command | Responsibility |

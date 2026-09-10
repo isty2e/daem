@@ -1,20 +1,31 @@
 # Skill Compatibility
 
-`daem` treats agent skills as declarative artifacts that must be valid before
-they are locked and applied. Compatibility checks are intentionally stricter
-than a best-effort copy: a skill that is likely not loadable by a selected
-target should fail during lock/apply instead of being installed silently.
+Daem checks a skill's directory structure and target-specific metadata before
+locking or applying it. A compatibility failure is reported rather than
+silently installing content that the selected target is unlikely to load.
 
-This page is based on official target documentation checked on 2026-06-22 and
-local Antigravity CLI runtime evidence checked on 2026-07-02:
+Host references, checked on 2026-06-22:
 
 - [Codex Agent Skills](https://developers.openai.com/codex/skills)
 - [Claude Code Skills](https://code.claude.com/docs/en/skills)
 - [OpenCode Agent Skills](https://opencode.ai/docs/skills/)
 - [Pi Skills](https://pi.dev/docs/latest/skills)
 - [Agent Skills specification](https://agentskills.io/specification)
-- Antigravity CLI registered skill catalog under
-  `~/.gemini/antigravity-cli/brain/.../registered_skills_list.md`
+
+The Antigravity CLI row reflects registered-directory behavior observed on
+2026-07-02. These dates describe the evidence behind the profiles, not a
+continuous check of newer host versions.
+
+## Contents
+
+- [Diagnostic layers](#diagnostic-layers)
+- [Skill document size limit](#skill-document-resource-boundary)
+- [Compatibility axes](#compatibility-axes) and [target matrix](#target-matrix)
+- [YAML parsing](#yaml-parsing-contract)
+- [Repair scope](#repair-scope), [replay contract](#replayable-repair-contract),
+  [lockfile entries](#lockfile-repair-entries),
+  [repair operations](#initial-repair-operations), and
+  [command responsibilities](#command-responsibilities)
 
 ## Diagnostic Layers
 
@@ -68,7 +79,7 @@ The internal compatibility profile for each target covers these axes:
 | Claude Code | `.claude/skills` in project or `$HOME/.claude/skills`. | YAML frontmatter between `---` markers is required; all listed fields are optional; `description` is recommended. | The directory name is the command name; `name` is an optional display label. | `description` is recommended, and Claude can fall back to the first paragraph if absent. | Recognized fields include standard optional fields plus Claude fields such as `when_to_use`, `argument-hint`, `arguments`, `disable-model-invocation`, `user-invocable`, `allowed-tools`, `model`, `effort`, `context`, `agent`, `hooks`, `paths`, and `shell`. | Collision behavior follows Claude Code scope and command-name resolution. |
 | OpenCode | `.opencode/skills`, `$HOME/.config/opencode/skills`, plus compatible `.claude/skills` and `.agents/skills` roots. | `name` and `description` are required; `description` must be 1-1024 characters. | `name` must be 1-64 lowercase alphanumeric/hyphen characters and must match the directory containing `SKILL.md`. | `description` is required for correct selection. | Recognized fields are `name`, `description`, `license`, `compatibility`, and `metadata`; unknown fields are ignored by the target and warned by daem. | Skill names must be unique enough for deterministic discovery. |
 | Pi | `.pi/skills`, `$HOME/.pi/agent/skills`, and compatible `.agents/skills`; Pi roots also support recursive discovery, and native Pi roots support root `.md` skills outside daem's current directory-skill artifact shape. | `name` and `description` are required; missing `description` is not loaded. | Pi warns about invalid names but remains lenient, and explicitly allows `name` to differ from the parent directory. | `description` determines when the skill loads. | Recognized fields include `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`, and `disable-model-invocation`; unknown fields are ignored. | Name collisions warn and keep the first discovered skill. |
-| Antigravity CLI | `.agents/skills` for project directory packages and `$HOME/.gemini/config/skills` for global directory packages. Builtin `~/.gemini/antigravity-cli/builtin/skills` and plugin `~/.gemini/config/plugins/<plugin>/skills` roots are target-visible but not daem placement roots. | `name` and `description` are required for registered directory packages. | The registered catalog addresses skills by frontmatter name; the local builtin `antigravity_guide` directory contains `name: antigravity-guide`, so directory/name mismatch is allowed. | `description` appears in the registered catalog and drives skill selection. | Standard Agent Skills fields are accepted by daem; unknown managed-skill fields are warned but non-blocking. | Collision behavior is target-defined by the registered skill catalog; daem manages only declared placement outputs. |
+| Antigravity CLI | `.agents/skills` for project directory packages and `$HOME/.gemini/config/skills` for global directory packages. Builtin `~/.gemini/antigravity-cli/builtin/skills` and plugin `~/.gemini/config/plugins/<plugin>/skills` roots are target-visible but not daem placement roots. | `name` and `description` are required for registered directory packages. | The registered catalog addresses skills by frontmatter name; directory/name mismatch is allowed. | `description` appears in the registered catalog and drives skill selection. | Standard Agent Skills fields are accepted by daem; unknown managed-skill fields are warned but non-blocking. | Collision behavior is target-defined by the registered skill catalog; daem manages only declared placement outputs. |
 
 ## YAML Parsing Contract
 

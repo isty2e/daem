@@ -1,16 +1,13 @@
 # Manifest Schema
 
-`daem.toml` is the desired-state boundary for managed agent environment resources. The parser is strict: unknown TOML keys are rejected, and every resource is normalized before lock or apply logic sees it.
+`daem.toml` declares the resources daem should manage. This is the authoritative
+public schema reference; the current schema version is `1`. Unknown TOML keys
+are rejected, and declarations are normalized before lock or apply planning.
 
-This file is the authoritative public reference for the current implemented
-manifest schema.
-
-The current schema version is `1`.
-
-For a minimal first-run starting point, see the
-[example manifest](../examples/daem.toml).
-For a larger local-source example, see the
-[representative project manifest](../examples/representative-project.toml).
+For setup steps, use [Getting Started](getting-started.md) or
+[Use An Existing Environment](migration.md). For complete inputs, see the
+[minimal example](../examples/daem.toml) and
+[representative local project](../examples/representative-project.toml).
 
 ## Contents
 
@@ -28,11 +25,6 @@ For a larger local-source example, see the
 - [Complete Example](#complete-example)
 - [Extension Carriers](#extension-carriers)
 - [Current Non-Goals](#current-non-goals)
-
-```toml
-version = 1
-targets = ["codex", "claude-code"]
-```
 
 Minimal valid manifest:
 
@@ -635,8 +627,7 @@ For skills, the key is `id` when present and otherwise `name`.
 
 For a same-name skill that has different content per target, keep the
 agent-visible install name stable and give each declaration a distinct `id` in
-TOML. Explicit resource ids are manifest-only because choosing long-lived
-identity is not common CLI authoring:
+TOML. Set explicit resource ids in the manifest; the authoring CLI has no id flag:
 
 ```toml
 [[skill]]
@@ -676,7 +667,7 @@ daem add skill-group acme/agent-skills \
   --dry-run --diff
 ```
 
-This writes one compact group:
+The preview proposes one group; omit `--dry-run --diff` to write it:
 
 ```toml
 [[skill_group]]
