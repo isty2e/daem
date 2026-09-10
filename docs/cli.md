@@ -6,6 +6,26 @@ This document is the public command, flag, output, stream, and exit contract for
 [Feature Support](features.md), while operating-system and architecture support
 belongs in [Platform Support](platforms.md).
 
+For a command sequence rather than a lookup, use [Getting Started](getting-started.md)
+or [Use An Existing Environment](migration.md).
+
+## Contents
+
+- [Command lifecycle](#command-lifecycle)
+- [Platform support](#platform-support)
+- [Workspace selection and storage roots](#workspace-selection)
+- [Target and scope selection](#shared-selection)
+- [Preview, write, and confirmation modes](#execution-modes)
+- [Output flags, flag inventory, and JSON versions](#presentation-flags)
+- Commands: [`version`](#version), [`init`](#init), [`import`](#import),
+  [`add`](#add), [`remove`](#remove), [`unmanage extension`](#unmanage-extension),
+  [`lock`](#lock), [`outdated`](#outdated), [`list`](#list), [`status`](#status),
+  [`apply`](#apply), [`recover`](#recover), [`doctor`](#doctor),
+  [`probe mcp-server`](#probe-mcp-server), [`refresh extension`](#refresh-extension)
+- [Authoring JSON](#authoring-json), [progress](#progress),
+  [streams and exit codes](#streams-and-exit-codes),
+  [deferred command names](#deferred-command-names)
+
 ## Command Lifecycle
 
 | Stage | Command | Responsibility |
@@ -36,17 +56,14 @@ additional arguments and there is no `-v` alias.
 The exact supported platforms and their verification requirements are
 authoritative in [Platform Support](platforms.md).
 
-On an unsupported platform, all help and version routes remain available and
-`doctor` reports the platform error in human or JSON form. Commands identified
-as platform-gated in [Platform Support](platforms.md) fail before path
-resolution or effects, including in dry-run mode. Their normal command errors
-use stderr; `doctor --json` is the structured platform diagnostic. Doctor
-resolves its selected manifest path. After successful path resolution on a
-not-admitted platform, doctor keeps the platform error and continues with
-checks whose success meaning is unchanged. Capability-bound remaining checks
-are named `unsupported` or `skipped` rather than `ok`. A storage abort must not
-erase the platform finding. Path-resolution errors are reported alongside the
-platform error.
+On an unsupported platform, help and version remain available and `doctor`
+reports the platform error in human or JSON form. Platform-gated commands fail
+before path resolution or effects, including dry-run; normal errors use stderr
+and `doctor --json` is the structured diagnostic. Doctor resolves its selected
+manifest and reports platform and path-resolution errors together. Remaining
+capability-bound checks are `unsupported` or `skipped`, not `ok`, and storage
+failure does not erase the platform finding. See [Platform
+Support](platforms.md) for the authoritative platform rules.
 
 ## Workspace Selection
 
@@ -341,42 +358,26 @@ corresponding managed document. Files that violate an import boundary are
 reported with a stable skip reason; no partial resource is produced from the
 rejected file.
 
-Skill import may resolve the selected top-level skill directory through a
-symlink, but records the resulting absolute route and does not follow any
-symlink within the skill tree. Daem proves that the root `SKILL.md` is regular
-in the same descriptor-bound traversal that hashes the tree. It hashes each
-shared resolved route once per planning pass. Every distinct route observed for
-same-name duplicate or conflict classification is charged to the same
-400,000-entry/16-GiB source-identity observation budget even when that route is
-later skipped and therefore does not become publication freshness authority.
-A classified nested-symlink exit still charges every listed name the traversal
-had already materialized but had not yet consumed, including remaining names in
-ancestor directories, so listing work cannot bypass that envelope.
-When identical content from several target routes becomes one multi-target
-declaration, every contributing route remains freshness evidence and the
-representative target's canonical route supplies the bytes. Daem then streams
-that exact planned directory
-identity into private staging. Any identity-changing replacement or mutation,
-including an entry, executable-mode, or entry-kind change during copying,
-fails before manifest publication. Import planning and private staging both
-accept at most 100,000 entries, 64 descendant-directory levels, and 4 GiB of
-regular-file bytes, matching the cleanup traversal that owns failed stages. A
-dry run therefore never recommends writing a skill tree that staging would
-reject. The complete import freshness observation also admits at most 400,000
-entries and 16 GiB of regular-file content across all observed trees and cannot
-widen that per-tree publication ceiling. The containing skills root is observed
-as an immediate inventory and does not reduce an individual skill's depth
-allowance. One import planning pass retains at most 100,000 immediate names
-across newly observed distinct resolved skills roots, with at most 32 MiB of
-aggregate name bytes and 4,096 bytes per name. Reused roots do not consume that
-retained-name allowance again, but daem revalidates both the exact directory
-inventory identity and every live-root symlink binding on reuse, after revision
-capture, and before publication. Child reads are derived from the captured
-resolved root rather than re-resolving the mutable live alias. A changed captured
-root or retained alias aborts the observation instead of returning an incomplete
-preview. Extension inventory files retain bounded content evidence through
-publication using each host observer's ingress limit. Files are streamed. The
-`SKILL.md` compatibility document retains its 1 MiB limit.
+Skill import may resolve a top-level directory symlink, records its absolute
+route, and rejects nested symlinks; root `SKILL.md` must be regular. Each tree
+admits at most 100,000 entries, 64 descendant-directory levels and 4 GiB of
+regular-file bytes in planning and staging. The containing skills root does not
+consume a tree depth level. Source-identity observation and final freshness
+checks each admit at most 400,000 entries and 16 GiB; neither widens per-tree
+limits. Distinct duplicate/conflict routes count toward observation even when
+later skipped; listed names still count on a nested-symlink exit. Shared routes
+are hashed once.
+
+A planning pass retains at most 100,000 immediate names across new distinct
+resolved roots, 32 MiB of aggregate name bytes and 4,096 bytes per name. Reuse
+does not recharge those names but revalidates exact inventory and live-root
+bindings on reuse, after revision capture and before publication. Root/alias
+changes abort, not return a partial preview. Every route contributing to a
+merged import remains freshness evidence; the representative route supplies
+bytes. Entry, kind, executable-mode or other identity changes during copying
+prevent publication. Files are streamed; `SKILL.md` remains limited to 1 MiB and
+extension inventories retain their host observer's bounded evidence through
+publication.
 
 **Skill exclusion freshness — NON-GOAL.** A missing or non-directory discovery
 root, or a child excluded by eligibility checks such as a missing regular
@@ -397,40 +398,24 @@ fact is used as authority for publication or a merge decision.
 Import refuses preview and write modes while an interrupted apply journal is
 active, before scanning live agent files. Run `daem recover --dry-run` first.
 
-Default human output contains target/scope totals, resource counts, skip counts
-by `action_required`, `unsupported`, and `informational` category, the
-destination, and nearest next commands. `action_required` identifies a live
-source or explicit authoring decision the user can resolve; `unsupported`
-identifies a surface this daem version cannot manage; `informational`
-identifies expected discovery or deduplication noise. Every actionable skip in
-an admitted completed result remains visible with a next action. One import
-planning pass retains at most 4,096 skip rows and 256 KiB of aggregate dynamic
-skip diagnostics; one `detail` value is at most 4,096 bytes and a larger value
-is replaced by a whole-value digest and byte count. Every input-scaled producer
-admits a skip synchronously at this boundary before retaining another
-producer-local row. MCP codecs synchronously admit each sorted server
-classification: rejected rows emit their typed skip immediately, while projected
-rows are converted and argument-validated before either emitting an invalid-argument
-skip or retaining a candidate. Any admission error stops before the next server.
-Antigravity extension inventory admits each proven complete import/bundle pair
-before observing the next plugin. The Hook parser's
-all-or-one document buffer is separately fixed at the same row and diagnostic
-limits. An ordinary producer failure or cancellation rolls back that producer's
-rows; only aggregate exhaustion retains the bounded prefix for diagnostics.
-Exceeding either aggregate limit aborts before a plan or write, emits the
-already-retained rows once plus an explicit diagnostic-budget marker on
-stderr, and emits no JSON result envelope. Unsupported and informational skips
-are compacted by target and reason; `--verbose` retains every admitted exact
-per-path skip in successful and
-no-resource failure output, in addition to individual clean scan, resource, and
-merge rows on successful plans. Write-mode merge conflicts use the same skip
-report before the dry-run conflict hint. JSON retains every admitted typed row with
-target, scope, category, and an optional stable action hint. After a
-successful write with imported resources, human output points to lock preview
-and then to
-`apply --manage-existing --dry-run` after the lockfile is written. The latter
-only previews registration of eligible exact matching live outputs; import does
-not register them and never recommends `--yes`.
+Default output shows target/scope totals, resources, destination, next commands
+and skip counts: `action_required` needs a live-source or authoring decision,
+`unsupported` is outside this version's support, and `informational` is expected
+discovery/deduplication noise. Every admitted actionable skip has a next action.
+One planning pass admits at most 4,096 skip rows and 256 KiB of aggregate
+dynamic diagnostics; a `detail` over 4,096 bytes becomes a whole-value digest
+and byte count. Ordinary producer failure/cancellation discards that producer's
+rows. Aggregate exhaustion instead aborts before plan/write, prints the bounded
+retained rows once with a diagnostic-budget marker on stderr, and emits no JSON
+envelope.
+
+Unsupported/informational skips are compacted by target/reason. `--verbose`
+shows every admitted per-path skip in success and no-resource failure, plus
+clean scan/resource/merge rows for successful plans. Write-mode merge conflicts
+print the same skips before the dry-run hint. JSON retains all admitted typed
+rows with target, scope, category and optional stable action hint. Successful
+import writes point to lock preview, then `apply --manage-existing --dry-run`
+after lock: import itself never registers outputs or recommends `--yes`.
 
 Extension import covers Codex global, Claude Code project/global, OpenCode
 project/global, and Pi project/global exact source rows. Generated ids are
@@ -612,20 +597,17 @@ is a successful claim no-op only when a selected declaration was removed in
 the same transaction; if both declaration and claim are absent, no result
 envelope is created and the command exits `1`.
 
-Both dry-run and write refuse before reading selected metadata while an active
-apply recovery or incomplete journal cleanup remains. Write mode checks the
-same recovery fence again under mutation authority before recovering a
-metadata transaction, rebuilding the candidate, or committing. Run
-`daem recover --dry-run` first when recover can produce a plan; markerless
-residue and published metadata-transaction markers remain after recover and
-are not cleared by it. If the state directory cannot be inspected, restore
-access first instead of running recover.
+`unmanage extension` refuses both dry-run and write before reading selected
+metadata while apply recovery or incomplete journal cleanup remains. Run `daem
+recover --dry-run` first when it can produce a plan; markerless residue and
+published metadata-transaction markers remain afterward. If the state directory
+cannot be inspected, restore access before recovery.
 
-An interrupted write leaves a recoverable metadata transaction marker. Other
-manifest/lock/state consumers fail closed while it exists; rerunning the exact
-`unmanage extension` write recovers under the same complete authority set
-before revalidating and committing. `daem recover` is reserved for apply
-recovery journals and does not consume this marker.
+An interrupted `unmanage extension` write leaves a recoverable
+metadata-transaction marker and other consumers fail closed while it remains.
+Rerun the exact write to recover under the same authority set before
+revalidation and commit. `daem recover` is reserved for apply-recovery journals
+and does not consume this marker.
 
 ## Authoring JSON
 
@@ -914,33 +896,25 @@ shadowed, stale, unavailable, ambiguous, or conflicting rows cannot acquire a
 claim. Antigravity CLI external rows remain source-inexact because current host
 state does not retain their declared marketplace source.
 
-`apply --dry-run --diff` emits one diff per physical managed file. A file with
-one consumer reports singular `target`; a shared file reports the complete
-canonical `targets` set and never invents a primary consumer. Diff collection
-retains at most 4 MiB across the current and desired payload for one file and
-16 MiB across the operation. It inspects at most 4,096 managed-path decisions
-and reports the remaining decision count as one operation-level omission. A
-file or operation that exceeds a content limit is reported with an explicit
-omission instead of materializing an unbounded diff. Cancellation is checked
-before each admitted decision and content read. Line cardinality is checked
-before line arrays are allocated, and line content is canonicalized once before
-the bounded LCS pass. Rendering admits at most 250,000 LCS cells per file and
-16,000,000 cells across the report, checks cancellation between files, and
-reports one aggregate count for textual diffs omitted after that work budget is
-exhausted.
+`apply --dry-run --diff` emits one diff per physical file: singular `target` for
+one consumer, complete canonical `targets` for a shared file, never a primary
+consumer. Collection allows 4 MiB total current-plus-desired payload per file,
+16 MiB per operation and 4,096 managed-path decisions. Content overflow is an
+explicit omission; remaining decisions are one operation-level omission count.
+Cancellation is checked before each decision/content read and between rendered
+files. Rendering admits 250,000 LCS cells per file and 16,000,000 per report;
+exhaustion produces one aggregate textual-diff omission count.
 
 Apply also rejects any host mutation path that equals, contains, or is contained
 by a local source consumed by the same manifest. Such an operation would mutate
 its own locked input and could not remain reproducible on the next run.
 
-Successful default output contains counts, up to three executed-subject
-examples per successful action kind, every attempted-but-unverified or retained
-residue class, failures, and a next action only when more work is needed.
-`--verbose` adds state/content paths, reason codes, selected source/ref, and
-bounded evidence. Raw subprocess output and secret values are never printed.
-Diagnostic redaction observes both the captured spelling and the final
-display-normalized spelling, so format or whitespace normalization cannot
-create a newly visible credential form after inspection.
+Successful default output contains counts, up to three examples per successful
+action kind, every attempted-but-unverified and retained residue class,
+failures, and a next action only when needed. `--verbose` adds bounded paths,
+reason codes, selected source/ref, and evidence. Raw subprocess output and
+secret values are never printed. Redaction checks both captured and
+display-normalized spellings.
 
 Status and apply-dry-run JSON use plan schema version `12`. The document contains
 the derived lockfile status, lock-only resources, typed actions, delegated
@@ -954,19 +928,14 @@ order only; Pi rows describe runtime precedence. A carrier install or removal
 that must settle first is reported as `conditional_after_carrier_change`
 instead of an executable order mutation.
 
-Relation-order `detail` fields contain path-neutral prose derived from their
-typed reason or outcome; raw observation and execution evidence is available
-only in verbose human output. Relation source namespaces, source references,
-subject keys, order-member load identities, carrier source namespaces, and
-carrier relation-subject keys that carry local or opaque host provenance are
-replaced by deterministic
-`redacted:sha256:<digest>` labels. Their corresponding `*_redacted` field is
-set to `true` in JSON. Credential-free non-local source identities remain
-exact only when the selected carrier grammar proves their package, marketplace,
-or remote identity. A source-derived `carrier_subject.name` uses the same
-projection and sets `name_redacted = true`; normalized project-relative sources
-do not become public merely because their leading `./` was removed at
-declaration ingress.
+Relation-order `detail` is path-neutral prose derived from typed reasons or
+outcomes; raw evidence is verbose-only. Local or opaque source namespaces,
+references, subject keys, order identities, and carrier keys use deterministic
+`redacted:sha256:<digest>` labels with corresponding `*_redacted=true` JSON
+fields. Credential-free non-local identities remain exact only when the carrier
+grammar proves their identity. Source-derived `carrier_subject.name` follows the
+same projection and sets `name_redacted=true`; removing `./` does not make a
+project-relative source public.
 
 Each delegated action exposes `packages` as the canonical package inputs daem
 can derive from the preserved runner argv. The set can be partial when argv
@@ -1001,65 +970,55 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "observation_only"` for pending settlement, and
 `execution = "state_only"` for already-absent claim retirement.
 
-`apply --yes --json` uses result schema version `19`. It adds executed action
-count, statefile path, bounded delegated and host-route attempt results, typed
-errors, carrier-adoption transitions and final claim provenance,
-carrier-absence outcomes, physical `relation_order_results`, and final
-`has_errors`. Each order result reports target, scope, class, physical sequence,
-`exact` / `converged` / `failed` / `not_attempted`, whether that sequence
-changed, and a failure detail when present. An earlier OpenCode
-document may remain converged when a later document fails; apply makes no
-cross-document rollback claim. Retry reobserves every selected sequence and
-continues idempotently from current files. Known mutation codes include
-`stale_snapshot`, `stale_plan`, `mutation_contended`,
-`mutation_cancelled`, `interrupted_apply`,
-`interrupted_apply_file_set_fence`, `journal_cleanup_incomplete`,
-`journal_cleanup_file_set_fence`, `interrupted_file_set_transaction`,
-`file_set_evidence_invalid`, `abandoned_file_set_residue`,
-`file_set_fence_census_limit`, and `file_set_access_unprovable`. A typed
-`recovery_barrier` object on an apply error preserves each observed journal and
-file-set axis independently; an unclassified peer is `unknown` rather than
-hiding a known actionable axis. Active apply recovery and cleanup-only journal
-authority remain distinct. A valid published
-marker, markerless residue, and a bounded census limit are continuing file-set
-fences; invalid evidence or unprovable StateDir access requires repair or
-restore-access before apply or recover. These states are not `apply_refused`
-and must not be repaired by deleting reserved names by prefix. Each error also
-reports a closed `phase` and `outcome`;
-its bounded message is derived only from those typed facts and never from an
-internal error string. Outcomes distinguish work refused before effects,
-incomplete effects, and effects that were fully rolled back before returning.
-`rolled_back` applies only when every attempted apply effect is covered by the
-completed compensation. A retained provider prerequisite or other effect
-outside the managed journal keeps the operation `incomplete`, even when the
-managed path portion was restored.
-Default human output uses the same typed detail.
-`--verbose` may add separately bounded and credential-sanitized causal
-evidence. Planning, projection, diff, confirmation, diagnostics, and output
-failures use the same closed apply boundary before an execution envelope exists.
-Default remediation commands use a `<manifest>` placeholder; `--verbose` may
-show the selected manifest path and exact bounded command evidence.
+`apply --yes --json` uses result schema version `19`: executed action count,
+statefile path, bounded delegated/host-route attempts, typed errors,
+carrier-adoption transitions and final claim provenance, carrier-absence
+outcomes, physical `relation_order_results`, and `has_errors`. Each order result
+gives target, scope, class, physical sequence, `exact` / `converged` / `failed`
+/ `not_attempted`, whether changed, and failure detail when present. Earlier
+document success may survive later failure: no cross-document rollback is
+promised. Retry reobserves every selected sequence and continues idempotently.
+
+Known mutation codes include `stale_snapshot`, `stale_plan`, `mutation_contended`,
+`mutation_cancelled`, `interrupted_apply`, `interrupted_apply_file_set_fence`,
+`journal_cleanup_incomplete`, `journal_cleanup_file_set_fence`,
+`interrupted_file_set_transaction`, `file_set_evidence_invalid`,
+`abandoned_file_set_residue`, `file_set_fence_census_limit`, and
+`file_set_access_unprovable`. Typed `recovery_barrier` preserves journal and
+file-set axes independently, with `unknown` for an unclassified peer. Active
+recovery differs from cleanup-only authority. Published markers, markerless
+residue and census overflow are continuing fences; invalid evidence or
+unprovable StateDir access needs repair/restored access before apply or recover.
+These are not `apply_refused`; never delete reserved names to bypass them.
+
+Closed `phase` and `outcome` distinguish pre-effect refusal, incomplete effects
+and complete compensation. Messages come only from typed facts, not internal
+error strings. `rolled_back` requires compensation for every attempted effect; a
+retained provider prerequisite or any effect outside the journal keeps the
+result `incomplete`. Human output uses the same detail; verbose evidence is
+bounded and sanitized. Planning, projection, diff, confirmation, diagnostic and
+output failures use this boundary before any execution envelope. Default
+remediation uses `<manifest>`; verbose output may include the selected path and
+bounded exact command evidence.
 
 Host-route attempt rows include the exact operation and bounded
-`effect_postconditions` requirement/state summaries when the locked route
-couples additional removal effects. They contain no raw host output, secret,
+`effect_postconditions` requirement/state summaries when the route couples
+additional removal effects. They contain no raw host output, secret,
 machine-local path, or current authority.
 
-Attempt records are historical diagnostics only. Process success does not prove
-exact artifact identity, package/cache convergence, runtime readiness, trust,
-contribution ownership, cleanup authority, or future skip authority.
-For project-selected host routes, `workdir_authority` means the selected path no
-longer named the retained physical project root around the attempt. The route
-is never redirected to the replacement cwd, but it may already have started
-from the captured root; apply therefore reports failure, makes no convergence
-claim, and refuses to write the final attempt record through the replacement
-root. Mechanical process facts remain independent: a timed-out command followed
-by authority loss retains `timed_out = true` and `attempt_reason = "timeout"`
-while the overall result reason is `workdir_authority`. This cwd binding is not
-a sandbox for other host-command effects.
-Delegate attempt rows use the same partition through `process_reason` and
-`workdir_authority_failed`; timeout, cancellation, signal, and exit facts are
-not overwritten by a later cwd-authority failure.
+Attempts are historical diagnostics, not proof of artifact identity,
+package/cache convergence, readiness, trust, contribution ownership, cleanup
+authority or future skip authority. `workdir_authority` means the selected
+project path no longer names the retained root around an attempt. The route
+never redirects to a replacement cwd, but may already have started from the
+captured root; apply fails without convergence or a final attempt write through
+the replacement. This is not a sandbox for other host effects.
+
+Process facts remain independent: timeout followed by authority loss retains
+`timed_out = true` and `attempt_reason = "timeout"` with overall reason
+`workdir_authority`. Delegate rows use `process_reason` and
+`workdir_authority_failed`; later authority failure never overwrites timeout,
+cancellation, signal or exit facts.
 
 ## `recover`
 
@@ -1087,38 +1046,30 @@ not recoverable by retry; preserve it for analysis as described in
 | `retained_cleanup_residue` | The active journal is already retired; only its exact correlated retirement residue and control remain to be finalized. |
 | `blocked` | Current evidence cannot be safely reconciled with either legal operation state. |
 
-Active-journal recovery validates guarded host and statefile observations,
-backup identity, candidate fingerprint, and the full lease set again before
-writing. Cleanup-only recovery acquires and revalidates only the selected
-recovery root, retirement control, residue, and final GC name; it does not read
-or mutate host destinations, the statefile, ownership registry, manifest, or
-lockfile. Both forms replan after acquiring authority. A prior dry-run grants
-no execution authority. Blocked or stale recovery keeps the current evidence
-and writes nothing.
+Active-journal recovery revalidates guarded observations, backup identity,
+candidate fingerprint, and the complete lease set before writing. Cleanup-only
+recovery acquires and revalidates only its recovery root, retirement control,
+residue, and final GC name; it does not inspect or mutate host destinations,
+statefile, ownership registry, manifest, or lockfile. Both forms replan after
+authority; a prior dry-run grants no execution authority. Blocked or stale
+recovery retains evidence and writes nothing.
 
-Before any active journal is retired, the retirement gate reconciles every
-persisted removal intent, including intents for entries outside a selected
-recovery subset. The gate reports the logical destination and a typed
-namespace, residue, cleanup-stage, or durability reason when reconciliation is
-blocked or must be retried; it never exposes either private sibling path. A
-clean visible classification alone is not a retirement guarantee. A retained
-cleanup-stage directory may contain only the unremoved part of its original
-tree; its exact preselected name records cleanup progress, while the original
-whole-state hash remains mandatory before residue promotion.
-An attempted promotion, cleanup, or absence confirmation that does not finish
-is reported as `cleanup_action_failed` together with the selected action; raw
-filesystem error text and private sibling paths remain internal.
+Before an active journal is retired, recovery reconciles every persisted removal
+intent, including entries outside a selected subset. If blocked, it reports the
+logical destination and typed namespace, residue, cleanup-stage, or durability
+reason without private sibling paths. Incomplete promotion, cleanup, or absence
+confirmation is `cleanup_action_failed` with the selected action; raw filesystem
+errors remain internal.
 
-For active recovery, default output shows classification, operation identity,
-every action, destination/content subject, blocker, and recovery limitation.
-It omits backup paths/hashes and journal layout; `--verbose` adds operation
-directory, backup facts, reasons, and action detail. Cleanup-only output shows
-`retained_cleanup_residue` with `finalize_journal_cleanup`, plus the operation
-identity and no-host/state/ownership limitation. The disclosed cleanup plan and
-action payload do not expose private control, residue, or GC paths, including
-in verbose mode. Pre-1.0 `.daem-tombstone-<32 lowercase hex>` evidence is
-blocked before a plan is disclosed; current daem does not inspect or migrate
-it. Other names in that reserved namespace are blocked as malformed.
+Active recovery output shows classification, operation identity, every action,
+destination/content subject, blocker and limitation. Default output omits backup
+paths/hashes and journal layout; `--verbose` adds operation directory, backup
+facts, reasons and action detail. Cleanup-only output shows
+`retained_cleanup_residue`, `finalize_journal_cleanup`, operation identity and
+the no-host/state/ownership limitation, never private control/residue/GC paths
+even in verbose mode. Pre-1.0 `.daem-tombstone-<32 lowercase hex>` evidence is
+blocked before plan disclosure, neither inspected nor migrated; other
+reserved-namespace names are blocked as malformed.
 
 Recovery JSON schema version is `9` for both `--dry-run --json` and
 `--yes --json`. Every result declares one `phase`. Dry-run results and write
@@ -1173,14 +1124,12 @@ content, backup, and detail fields instead of emitting synthetic empty
 active-plan placeholders. Terminal cleanup output follows the common terminal
 shape described above.
 
-Cleanup execution failures use the same path-neutral semantic error in human
-and JSON output. While fresh cleanup authority remains, the error names the
-cleanup action and `phase=execution`; it does not include retirement paths or
-wrapped filesystem errors. A garbage-collection failure occurs after semantic
-retirement has committed, so its terminal error reports retired authority and
-hidden GC residue without naming the former cleanup action. It remains a
-command failure and JSON reports `phase = "authority_retired"`, but no recovery
-action remains and later commands are not blocked by the private GC residue.
+Cleanup failures use the same path-neutral semantic error in human/JSON output.
+While fresh authority remains, the error names the action and `phase=execution`,
+not retirement paths or wrapped filesystem errors. After semantic retirement, GC
+failure reports hidden residue and `phase = "authority_retired"` without the
+former action name. It remains a command failure, but no recovery action remains
+and later commands are not blocked.
 
 ## `doctor`
 
@@ -1296,66 +1245,46 @@ only that the exact relation remains observable after the host update; the
 host-selected version, cache, dependencies, restart, activation, and runtime
 readiness remain outside the claim.
 
-Codex supports only explicit-global marketplace relations. The selected
-`PLUGIN@MARKETPLACE` relation authorizes
-`codex plugin marketplace upgrade <marketplace> --json`, but the execution
-subject is the marketplace, not the one plugin: the host may replace the Git
-marketplace snapshot and refresh every configured installed sibling cache
-sourced from it. The exact config-relation observer does not prove marketplace
-snapshot or cache refresh convergence, so no-new-revision and changed-revision
-successes are both `attempted_unverified`. Snapshot replacement and per-plugin
-cache refresh may partially diverge; daem does not append `codex plugin add`,
-substitute another marketplace, parse host JSON as convergence evidence, or
-claim rollback. The host upgrade route applies only when the named marketplace
-is upgrade-capable; for example, a local non-Git marketplace may produce a
-started failed attempt. Daem reports that host refusal and does not reinterpret
-it as another route.
+Codex refresh supports only explicit-global marketplace relations and acts on
+the marketplace, so the host may replace its Git snapshot and refresh sibling
+caches. Observation does not prove convergence; both unchanged- and
+changed-revision successes are `attempted_unverified`. Partial divergence is
+possible, and daem does not add another marketplace, claim rollback, or
+reinterpret host refusal. See [host integrations](host-integrations.md) for
+route details.
 
-OpenCode supports project and explicit-global host-source relations. It invokes
-`opencode plugin <host-source> --force` from the selected project and appends
-`--global` only for explicit global scope. The selected-config relation
-observer does not prove package, version, or refresh convergence, so success is
-only `attempted_unverified`. Package resolution, package/cache writes,
-same-family config replacement and deduplication, multi-target config writes,
-dependencies, activation, and runtime readiness remain host-owned. Ordinary
-`apply` continues to use install/create without `--force`.
+OpenCode refresh supports project and explicit-global relations; scope controls
+whether `--global` is appended, and success remains `attempted_unverified`
+because observation does not prove package, version, or refresh convergence.
+Host-owned package, cache, config, dependency, activation, and readiness effects
+remain outside that claim. Ordinary `apply` does not use `--force`. See [host
+integrations](host-integrations.md) for route details.
 
-Pi supports project and explicit-global package relations, but both selections
-invoke the same `pi update --extension <host-source>` command from the selected
-project. Pi has no update scope flag: the host may inspect and update matching
-user and trusted-project package rows with the same identity, so the selected
-daem scope does not narrow the host mutation envelope. The selected-scope
-relation observer does not prove package, version, or refresh convergence, so
-success is `attempted_unverified`. Pinned npm sources may remain fixed,
-local-path sources are live references with no scheduled updater, and Git
-updates may reset and clean their checkout and install dependencies. Trust
-refusal or no match remains a host failure. Daem never adds Pi approval,
-self-update, model-update, or bulk update flags.
+Pi refresh supports project and explicit-global package relations but has no
+update scope flag: both invoke the same host update, which may inspect and
+update matching user and trusted-project rows. Success remains
+`attempted_unverified`; pinned, local-path, and Git-source behavior remains
+host-owned, and trust refusal or no match is a host failure. Daem adds no
+approval, self-update, model-update, or bulk-update flags. See [host
+integrations](host-integrations.md) for route details.
 
-Antigravity CLI supports explicit-global plugin host-source relations by
-repeating the exact locked `agy plugin install <host-source>` route. This is an
-explicit repeat-install refresh, not a dedicated host update command. Bounded
-local-source evidence shows bundle replacement without duplicate import rows
-and rejection of malformed `plugin.json` before replacing the prior valid
-bundle; remote and marketplace source resolution remains host-owned. There is
-a passive global relation observer for safe `PLUGIN@MARKETPLACE` sources, but
-it proves only the selected import row and matching installed bundle identity,
-not version or bundle freshness. Explicit refresh success therefore remains
-`attempted_unverified`. Other source forms retain unsupported observation.
-Daem does not add import, link, enable, disable, project-scope, or Antigravity
-IDE behavior, and it does not claim exact artifact freshness, rollback,
-contribution inventory, or runtime readiness.
+Antigravity explicit-global refresh repeats the locked install route rather than
+using a dedicated update command. Local evidence can show bundle replacement and
+malformed `plugin.json` rejection; remote and marketplace resolution remains
+host-owned. Passive global observation proves only the selected import row and
+matching bundle identity, not version or freshness, so explicit success is
+`attempted_unverified`; other source forms retain unsupported observation. Daem adds no
+import/link/enable/disable/project-scope or IDE behavior and makes no freshness,
+rollback, ownership, or readiness claim. See [host
+integrations](host-integrations.md) for route details.
 
-Ordinary confirmed apply can remove a daem-managed selector-shaped
-Antigravity relation after fresh residual-state correlation and the
-last-daem-known-consumer check. It invokes
-`agy plugin uninstall <plugin>`, never the marketplace selector, and settles
-only when both the selected import row and plugin directory are freshly absent.
-Exit zero and success prose are not evidence. Partial or uncertain outcomes
-retain claim and pending state for retry; already-absent state retires without
-invocation. Opaque/local sources, marketplace/source setup, sibling plugins,
-credentials, trust/session state, unrelated stores, IDE state, and ambient
-non-daem consumers remain outside this guarantee.
+Confirmed apply may remove a daem-managed selector-shaped Antigravity relation
+only after fresh residual correlation and the last-daem-known-consumer check. It
+invokes `agy plugin uninstall <plugin>`, never the marketplace selector, and
+settles only when both the selected import row and plugin directory are freshly
+absent. Partial or uncertain outcomes retain claim and pending state for retry;
+already-absent state retires without invocation. See [host
+integrations](host-integrations.md) for the remaining scope and non-claims.
 
 The result classes are:
 
@@ -1384,31 +1313,27 @@ Refresh JSON schema version is `4` and has exactly these top-level fields:
 schema_version command mode selection route disclosure result has_errors
 ```
 
-The nested disclosure contains deterministic command/args, environment names
-without values, selected-root cwd policy, timeout, effect and retained-effect
-classes, and non-claims. `result.detail` is empty on success. For an error
-class, it is derived only from the closed `reason_code`, process-outcome, and
-relation-observation values already present in the result. It is never built by
-sanitizing an underlying parser, filesystem, subprocess, or adapter error
-string; those errors remain internal causes. Active apply recovery uses
-`interrupted_apply`; cleanup-only authority uses `journal_cleanup_incomplete`.
-Their joint continuing-fence forms use `interrupted_apply_file_set_fence` and
-`journal_cleanup_file_set_fence`. A valid published marker uses
-`interrupted_file_set_transaction`, markerless residue uses
-`abandoned_file_set_residue`, bounded census exhaustion uses
-`file_set_fence_census_limit`, and StateDir access or identity loss uses
-`file_set_access_unprovable`. Invalid or incomplete published evidence uses
-`file_set_evidence_invalid`. Cancellation outranks all of these during replan.
-None is flattened to `stale_plan` or generic `mutation_authority`. Process and observation summaries
-contain no subprocess output, raw errors, secret values, protocol payloads, or
-machine-local paths. When recovery-barrier observation is relevant,
-`result.recovery_barrier` preserves each observed journal and file-set axis;
-an unclassified peer is `unknown` while the known peer continues to determine
-the actionable `reason_code`. Human refresh failures use the same typed detail
-instead of printing the underlying error.
-`process_outcome.reason` describes only the mechanical command result.
-`authority_outcome.workdir_failed` independently reports a failed post-attempt
-cwd-authority check.
+Disclosure includes deterministic command/args, environment names without
+values, selected-root cwd policy, timeout, effects, retained effects and
+non-claims. Success has empty `result.detail`; failure detail derives only from
+closed `reason_code`, process and relation-observation facts, never underlying
+error strings.
+
+Active recovery is `interrupted_apply`; cleanup-only authority is
+`journal_cleanup_incomplete`. Their continuing-fence forms are
+`interrupted_apply_file_set_fence` and `journal_cleanup_file_set_fence`.
+Published markers use `interrupted_file_set_transaction`, markerless residue
+`abandoned_file_set_residue`, census overflow `file_set_fence_census_limit`,
+StateDir access/identity loss `file_set_access_unprovable`, and
+invalid/incomplete evidence `file_set_evidence_invalid`. Cancellation outranks
+these during replan; none becomes `stale_plan` or generic `mutation_authority`.
+
+`result.recovery_barrier` preserves both observed axes, with `unknown` for an
+unclassified peer; the known peer still determines the actionable code. Human
+failures use the same detail. `process_outcome.reason` and
+`authority_outcome.workdir_failed` independently report mechanical outcome and
+cwd-authority loss. Summaries exclude subprocess output, raw errors, secrets,
+protocol payloads and local paths.
 
 After a refresh result JSON document has been written to stdout, daem does not
 append failure prose to stderr. Dry-run and pre-execution planning failures
@@ -1429,15 +1354,12 @@ Progress is automatic only for human output when stderr is a TTY and the
 workflow exposes a meaningful long-running phase. It is suppressed for JSON,
 non-TTY stderr, help, CLI misuse, and before interactive confirmation.
 
-Current progress-capable workflows are lock/outdated source resolution, apply
-execution, import discovery, and the delegated host-process phase of
-`refresh extension`. Import dry runs report discovery; write mode also reports
-freshness revalidation and publication. They render at most one ephemeral
-stderr line, escape untrusted labels, and clear
-the line before stable output or diagnostics. Refresh reports only the selected
-extension and authorized timeout; it does not invent percentages or host
-progress that the child process does not expose. Duplicate completion events
-do not advance counts twice.
+Progress covers lock/outdated source resolution, apply execution, import
+discovery and `refresh extension` host processing. Import writes also report
+freshness revalidation/publication. At most one ephemeral stderr line is shown,
+with escaped labels and clearing before stable output/diagnostics. Refresh
+reports the selected extension and authorized timeout, not invented host
+percentages. Duplicate completions never advance counts twice.
 
 A progress write failure disables later progress but does not fail an otherwise
 valid operation. A stable disclosure or confirmation-prompt write failure
@@ -1470,16 +1392,13 @@ a valid result stay on stdout. Raw subprocess/protocol output, auth material,
 headers, secret values, and unredacted credentials are prohibited from every
 output mode.
 
-The first `SIGINT` or `SIGTERM` records the process exit identity and cancels
-the root operation. A subsequent signal arms a bounded emergency-exit deadline
-while preserving the first signal's exit code; it does not bypass the
-TERM-to-KILL window already cleaning daem-owned process groups. If normal
-cancellation finishes first, daem returns immediately. Internal composition or
-tests that cancel `RunWithOptions` through a context do not acquire an OS-signal
-exit identity. To enable interactive authorization, those internal callers must
-supply stdin, stdout, stderr, all three terminal facts, and a context-aware
-`ReadConfirmationLine` capability. An invocation without those capabilities is
-non-interactive.
+First `SIGINT`/`SIGTERM` records exit identity and cancels the operation. A
+later signal arms a bounded emergency exit, preserving the first exit code and
+ongoing TERM-to-KILL cleanup window; completed cancellation returns immediately.
+Context cancellation without an OS signal supplies no signal exit identity.
+Internally supplied interactive authorization requires stdin/stdout/stderr, all
+three terminal facts and context-aware confirmation reading; otherwise execution
+is non-interactive.
 
 ## Deferred Command Names
 

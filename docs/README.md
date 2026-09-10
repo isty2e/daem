@@ -1,40 +1,47 @@
-# User Documentation
+# Documentation
 
-This directory contains user-facing documentation for configuring and running
-`daem` (Declarative Agent Environment Manager).
+## Set Up And Make Changes
 
-Start here:
+- [Install, Upgrade, And Roll Back](install.md) — install the executable, set
+  PATH, choose a version, or restore the previous binary.
+- [Getting Started](getting-started.md) — create and apply one project
+  instruction file from a local source.
+- [Use An Existing Environment](migration.md) — import live configuration,
+  declare local sources, and decide which matching outputs to register.
+- [Use Daem From Your Agent](../skills/daem/README.md) — install the daem skill.
+- [Troubleshooting](troubleshooting.md) — respond to conflicts, drift, skipped
+  imports, and interrupted operations.
 
-- [Getting Started](getting-started.md): executable first-project and import
-  paths through authoring, lock, status, apply, diagnosis, and recovery.
-- [Install, Upgrade, And Roll Back](install.md): canonical release artifacts,
-  checksum verification, PATH setup, executable replacement, rollback, and
-  diagnostics.
-- [Feature Support](features.md): what users can currently manage for each
-  agent CLI.
-- [Host Integration Contract](host-integrations.md): exact native commands,
-  evidence, retained effects, and safety limits for target integrations.
-- [Platform Support](platforms.md): supported operating-system/architecture
-  rows, verification lanes, and unsupported-build behavior.
-- [Concepts](concepts.md): manifest, lockfile, statefile, targets, scopes,
-  source types, managed ownership, and recovery model.
-- [Glossary](glossary.md): short definitions and links for daem-specific terms.
-- [CLI Reference](cli.md): command and flag contract.
-- [Manifest Reference](manifest.md): `daem.toml` schema and examples.
-- [Troubleshooting](troubleshooting.md): safe responses to common conflicts,
-  drift, interrupted operations, and NFS caveats.
-- [Skill Compatibility](compatibility.md): supported agent skill loading rules
-  and diagnostics for Codex, Claude Code, OpenCode, Pi, and Antigravity CLI.
-- [Example Manifest](../examples/daem.toml): minimal Codex and Claude Code
-  project setup.
-- [Representative Project](../examples/representative-project.toml):
-  instruction, local skill, managed hook asset, hook, and MCP declarations in
-  one lock-validated manifest.
-- [Skill Placement](../examples/skill-placement.toml): Codex's project default
-  and supported OpenCode/Pi compatible-root selection in one lock-validated
-  manifest.
+## Understand The Model
 
-These documents are self-contained for public commands, schema, product support,
-and safety guarantees. Implementation and invariant-bearing tests enforce those
-contracts; contributors should start with
-[Contributing](../CONTRIBUTING.md).
+- [Concepts](concepts.md) — how manifests, locks, sources, ownership, and apply
+  fit together.
+- [Glossary](glossary.md) — look up unfamiliar output terms.
+
+## Look Up A Contract
+
+| Reference | Questions it answers |
+| --- | --- |
+| [CLI](cli.md) | Which commands and flags exist? What do output and exit codes mean? |
+| [Manifest](manifest.md) | Which TOML fields, source forms, and resource settings are accepted? |
+| [Feature Support](features.md) | What can daem manage for each host? |
+| [Host Integrations](host-integrations.md) | Which native operations run, and what may they leave behind? |
+| [Platform Support](platforms.md) | Which OS/architecture pairs are supported, and what runtime limits apply? |
+| [Skill Compatibility](compatibility.md) | Which skill formats and loading locations does each host support? |
+| [State And Recovery](state-and-recovery.md) | What is stored, what can recovery do, and which limits apply? |
+
+## Examples
+
+- [Minimal manifest](../examples/daem.toml).
+- [Representative project](../examples/representative-project.toml) — local
+  instructions, skill, hook asset, hook, and MCP declarations.
+- [Skill placement](../examples/skill-placement.toml) — default and supported
+  alternative roots.
+- [Extension order](../examples/extension-order.toml).
+- Pi MCP: [project](../examples/pi-project-mcp-stdio.toml) and
+  [global](../examples/pi-global-mcp-stdio.toml) configurations using an explicit
+  provider package.
+
+## Contribute
+
+See [Contributing](../CONTRIBUTING.md) for setup and change-specific verification.

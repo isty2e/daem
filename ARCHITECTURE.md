@@ -1,19 +1,10 @@
 # Daem Architecture Contract
 
-Status: authoritative internal architecture contract for semantic ownership,
-compiler boundaries, transition ownership, dependency direction, and
-behavior-preserving architecture migration.
-
-Current executable behavior remains owned by canonical Go models and
-invariant-bearing tests. Current user-visible syntax, operations, support, and
-safety guarantees remain owned by `docs/`, versioned codecs, and strict public
-consumers. This contract constrains implementation structure; it does not
-replace those narrower authorities.
-
-Tests verify behavior and typed or serialized contracts through executable
-inputs, calls, imports, compile-time interfaces, and produced artifacts. They
-do not infer a contract from documentation prose, declaration names, symbol
-presence or absence, exact package/file catalogues, or numeric density.
+This contract governs internal ownership, compiler boundaries, transitions and
+dependency direction. Public syntax and behavior remain governed by `docs/`,
+versioned codecs and their strict consumers; canonical Go models implement them.
+Verify contracts through executable inputs, calls, interfaces and artifacts,
+not assertions about prose, symbol names, file catalogues or numeric density.
 
 ## Product Flow
 
@@ -76,48 +67,17 @@ operation semantic demand + current journal/file-set/StateDir facts
 -> physical reservation + single-operation authority
 ```
 
-## Goals And Non-Goals
-
-Goals:
-
-- establish one primary owner for every surface-selection, operation-safety,
-  and barrier invariant;
-- replace repeated joins and workflow-local compilers with deterministic
-  compiled views and plans;
-- admit a safe bounded operation demand before effects;
-- reduce change amplification while retaining existing semantic cores and
-  effect protocols; and
-- preserve every classified public, persisted, recovery, security, and
-  platform contract during cutover.
-
-Non-goals:
-
-- no product feature, support, platform-admission, CLI, or wire redesign;
-- no persisted Surface id or compiler IR;
-- no giant profile, surface, resource, adapter, or operation framework;
-- no immediate SubjectID, Paths, adopt-family, payload, findings, or DTO
-  overhaul;
-- no package move before ownership and parity are proven; and
-- no package, file, LOC, or density reduction target.
-
 ## Bounded Delivery And Deferred Work
 
-The maintainer-authorized delivery reset separates the implemented compiler
-and State Barrier boundaries from a universal execution-framework migration.
-PR #91 delivers the implemented boundaries and bounded cursor segments; its
-completion does not require converting every remaining operation or internal
-checkpoint to one cursor. Neither does release 0.2.0.
-
-Delivery requires consistent ownership documentation, retained compatibility
-and safety checks, correction of demonstrated in-scope defects, applicable
-verification, and final PR review. It does not assert that all architectural
-follow-ups are complete. A reproduced violation of an accepted product or
-safety contract remains a blocker; calling work deferred cannot waive it.
+Compiler and State Barrier work does not authorize product, support, CLI or
+wire redesign, or an overhaul of SubjectID, Paths, adopt families, payloads,
+findings or DTOs. It does not require a universal execution framework or
+converting every remaining operation/checkpoint to one cursor, including for
+release 0.2.0. Deferral never waives a demonstrated violation of an accepted contract.
 
 The following are explicit **NON-GOALS** for this delivery. They are deferred,
 not implemented or proven unnecessary. The repository maintainer owns each
-revisit. This section is their canonical disposition; task plans and the
-migration ledger derive from it.
+revisit. This section is their canonical disposition; task plans derive from it.
 
 | Deferred work | Rationale and retained boundary | Reopen condition |
 | --- | --- | --- |
@@ -126,10 +86,31 @@ migration ledger derive from it.
 | Semantic package-classifier replacement | Existing blocking import/effect guards stay enabled. Exact placement classification has limited coverage; shadow diagnostics are not equivalent blocking coverage. No universal classification proof is claimed. | A concrete uncovered forbidden dependency or a separately approved bounded classifier replacement with forbidden and legitimate-neighbor evidence. |
 | Universal effect-structure size policy | Existing document, action, repetition and demand-frontier limits remain. A new global structure cap needs a supported workload and its own admission decision. | A supported workload demonstrates excessive structural retention or a new operation materially changes construction bounds. |
 | Remaining migration-residue removal and package renaming | A live compatibility path is not dead residue. Do not remove authority, parity evidence or owner-local APIs merely to finish a checklist. | Last-consumer evidence makes a concrete deletion possible without weakening a contract, or a changed dependency graph justifies relocation. |
+| New blocked-delegate readiness or persistence modes | Aggregate-blocker rejection does not prove every blocked input unreachable; authority requirements must be resolved before enabling new modes. | A supported public execution failure requiring a maintainer decision on those requirements. |
+| Broader provider core rebinding | Current prepared/current and both final-schedule checks remain strict; no general mid-execution provider-version-change guarantee. | A supported reproduction that requires broader rebinding. |
 
 Linux cross-boot recovery admission, public/durable formats, product support,
-and fingerprint compatibility are not changed by this reset. Reconsidering
+and fingerprint compatibility are not changed by these deferrals. Reconsidering
 one requires a separate product or compatibility decision.
+
+### Platform Maintenance Decisions
+
+**Deferred Darwin admission policy (NON-GOAL):** the maintainer defers blanket
+nonzero generation/birth-time admission for mutation roots, durable provenance
+and StateDir witnesses. A macOS 26.6.2 probe set `ATTR_CMN_CRTIME` to epoch zero:
+root/provenance/StateDir capture accepted the zero tuple, while StateDir
+revalidation rejected rename-and-recreate. That tuple alone does not establish
+unavailable identity; the probe proves neither inode-reuse safety nor every
+filesystem's missing-metadata behavior. Existing root/StateDir identity contracts
+remain. Reopen on a supported unavailable-incarnation or missed-replacement
+reproduction, or an explicit nonzero-admission decision. This does not change
+[artifact-view admission](docs/platforms.md#artifact-paths).
+
+Platform contributors must distinguish capability tests from product admission:
+Windows has native retained-root, observation and handle-relative storage
+publication/removal jobs; FreeBSD, NetBSD and OpenBSD filesnapshot/Codex
+observation jobs are compile-only, not native execution. Neither changes the
+public support matrix.
 
 ## Host-Surface Compiler
 
@@ -151,28 +132,11 @@ placement, codec, route, adapter-contract, lock, or state identity.
 
 ### Normalized facets
 
-Static variation remains split into owner-local typed facets:
-
-```text
-surface identity
-representation form
-Topology namespace contract
-physical/logical placement
-codec contract
-observation purpose
-operation and dispatch binding
-discovery and runtime location
-selection/default policy
-product support
-runtime/platform capability
-```
-
-This is not one optional-field `SurfaceContract`. Topology continues to own
-structural identity; Realization owns its three forms and placement contracts;
-codecs own syntax and preservation; observation owners own evidence; route and
-capability owners own their local facts. The Host-Surface compiler owns only
-cross-facet referential integrity, required/forbidden cardinality, and immutable
-derived views.
+Static facets stay typed and owner-local: identity, representation, namespace,
+placement, codec, observation purpose, operation/dispatch, discovery/runtime
+location, selection/defaults, support and capability. They are not an
+optional-field `SurfaceContract`. The compiler owns only cross-facet
+referential integrity, required/forbidden cardinality and immutable derived views.
 
 ### Cardinality and pressure cases
 
@@ -233,16 +197,11 @@ confirmation, or presentation.
 
 ### Authority and compatibility
 
-Apply, refresh, recover, and other operations may retain different exact
-fingerprint projections while sharing one fact algebra and compiler. Existing
-fingerprint values, revision subsets, ordering, and stale/currentness
-precedence remain exact compatibility contracts during this migration.
-Unifying those projections requires a separate versioned compatibility
-decision.
-
-A field already included in a current fingerprint remains identity-bearing for
-that operation, including diagnostic detail where the current implementation
-uses it, until a separately authorized change removes it.
+Operations share the fact algebra, not fingerprint projections: full Apply,
+provider-stable and remaining Apply, Refresh, and active/cleanup Recovery stay
+distinct. [Exact parity](#exact-parity) includes every currently identity-bearing field,
+even diagnostic detail. Unifying or removing projections requires a separate
+versioned compatibility decision.
 
 ### Effect envelopes
 
@@ -298,6 +257,48 @@ remaining pending work, but must not publish predicted state or replace
 observed claim settlement. Completions without a scheduled invocation retain
 their existing core or final-promotion owner.
 
+Preserve continuation order: core Apply, global retirement, carrier removal,
+final routes, relation order, delegates, then terminal-last global adoption.
+Both provider replan gates compare final schedules. Planning and execution
+pass full relation facts, including NoOp facts needed for pending project
+claims. Never rebuild an empty scheduled descendant reservation from pre-core
+relations. Core clears exact pending global installs backed by committed
+registry claims; final promotion includes only remaining registry/statefile work.
+
+Keep the bounded core/failure-settlement, carrier settlement/removal, final
+host-route prefix and recovery cursor segments. The final prefix ends before
+prepared host commands; provider prerequisites have a separate entrypoint.
+These segments do not replace owner-local exact-baseline CAS, registry-first
+split writes, retry or successor preservation. Prepared/current core plans,
+full pre-effect reservation and both final-schedule comparisons remain required.
+Apply checks structural demand against its conservative scalar reservation;
+Refresh couples its structural frontier to StateDir/descendant execution.
+Cleanup-only Recovery keeps RecoveryDir-only budgets, independent of StateDir
+census; active Recovery retains journal/Effect transition and budget authority.
+
+## Stored Skill Repair Contract
+
+User opt-in and replay behavior are documented in
+[Skill Compatibility](docs/compatibility.md). For generated lock codec changes:
+
+- A repaired Skill's `locked.subject.exact_supply` is the exact output for
+  apply/status. Original input remains distinct in both
+  `derivation.deterministic_transform.input_identity` and `repair_recipe.input`.
+- The deterministic transform records `recipe_hash`,
+  `algorithm_id = "compat.skill.repair"`, `algorithm_version = "v1"` and
+  `execution_domain = "daem:compat/skill/repair"`. Its
+  `expected_output_identity` and `repair_recipe.output` must equal `exact_supply`;
+  both input identities must agree. Each exact identity includes `source_id`,
+  `resolved_ref`, `kind` and `content_hash`.
+- `repair_recipe.version = 1`; recompute its `recipe_hash` from the canonical
+  ordered `[[locked.subject.repair_recipe.operation]]` records. Paths are
+  normalized slash-separated artifact-relative paths; old/new bytes use base64
+  and file modes use decimal integers (for example, 420 for 0644).
+- Reject recipes on non-Skill subjects, missing/mismatched identities,
+  unsupported operations, fields belonging to a different operation, unsafe
+  paths, malformed base64 or absent preconditions. Apply never substitutes
+  output identity for original input or reruns compatibility inference.
+
 ## State Barrier
 
 The logical State Barrier lowers semantic operation demand with selected path
@@ -329,22 +330,15 @@ effect capability or make lock operations inherit an unrelated recovery block.
 
 ## Workflow Role
 
-Workflows may:
+Workflows select context/paths, gather evidence, invoke compilers, acquire
+leases/capabilities, sequence authorized effects, coordinate confirmation and
+cancellation, and assemble results. They do not import other workflows or
+redefine surface matrices, authority grammar, fingerprints, host syntax,
+physical reservation or StateDir protocols.
 
-- select command context and paths;
-- collect or request boundary evidence;
-- invoke canonical pure compilers;
-- acquire leases and retained capabilities;
-- sequence already-authorized effects;
-- coordinate confirmation and cancellation; and
-- assemble operation results for presentation.
-
-Workflows must not define a second surface matrix, authority fact grammar,
-fingerprint format, physical reservation algebra, host syntax model, or StateDir
-protocol. Operation-specific semantic count projections may remain at the
-workflow boundary under the explicit retained compatibility seam; physical
-lowering and capability consumption remain State Barrier-owned. Workflows do
-not import other workflows.
+Operation-specific semantic count projections may remain workflow-owned under
+the retained compatibility seam. Physical lowering and capability consumption
+remain State Barrier-owned.
 
 ## Compatibility Classes
 
@@ -377,103 +371,59 @@ unit and requires an explicit compatibility decision.
 
 ## Migration Rule
 
-The current implementation remains authoritative while a replacement runs in
-shadow. A caller moves only after the required exact or behavioral parity is
-proved from the same inputs. The superseded row, switch, workflow-local
-compiler, raw reservation arithmetic, fallback, or facade is removed after its
-last consumer moves.
+Keep the current implementation authoritative during shadow evaluation. Move
+callers only after same-input parity is proved; remove the superseded mechanism
+after its last consumer moves. Never normalize away a parity failure or retain
+a second writable surface/operation authority.
 
-There is no second writable authority for canonical surface or operation
-identity. Retained structural/scalar reservation representations are an
-explicit compatibility seam, not two alternative sources of mutation
-permission: current structural checks and physical reservation must both pass.
-Removal requires a verified lifecycle-local replacement, not completion of all
-other proposed migrations. A parity failure is evidence to classify, not
-permission to normalize the old result away.
+Structural checks and scalar physical reservation must both pass; neither is
+an alternative permission source. Replace this seam lifecycle by lifecycle.
+Move packages only after ownership and parity are established, and create one
+only for a real dependency or change-amplification boundary.
 
-Package movement is last. Logical ownership and dependency direction are fixed
-before a package name; a package is introduced only when it passes the package
-versus file gate and prevents a real reverse edge or change-amplification seam.
+### Implementation Map
 
-The current implementation has completed bounded cutovers for the MCP cell
-join, apply/refresh/recover authority subprojections and reservation demand,
-exact apply, refresh, and recovery fingerprints, adopt/import, init, lock,
-authoring, and unmanage mutation domains and revision roles, and the State
-Barrier protocol.
-Instruction, Skill, Hook, HookAsset, and Extension surfaces also compile as
-I/O-free views with owner parity. List inventory and manifest selection,
-Instruction/Skill import and diagnosis, Hook diagnostics and authoring support,
-HookAsset payload placement, Extension import ordering, host-route command
-selection, and
-selected readiness/apply/presentation order consumers use those views.
-Remaining profile calls at these boundaries are consumer-local importability or
-owner-local realization, codec, and durable-validation contracts rather than
-fallback surface joins. Adopt retains semantic `Plan.IdentityBytes`, path
-resolution, authority capture, leases, and publication sequencing while the
-operation compiler owns its normalized domain and full/stable revision grammar.
-Init likewise delegates exact manifest/metadata/barrier domain and revision
-ordering while retaining its file-set-only dry-run gate, re-observation, leases,
-and publication. Lock delegates manifest/lockfile/metadata/local-source/StateDir
-domain and revision ordering while retaining journal-independent dry-run and
-outdated behavior, StateDir first-incarnation authority, cache preparation, and
-publication. Authoring and unmanage delegate metadata-target, marker, local-source,
-and barrier domain/revision order while retaining semantic change construction,
-transaction recovery, StateDir establishment, atomic file-set publication, and
-host-state-retained results. The shared apply/refresh/recover authority Builder
-now emits only pure path or owner-compiled domain steps; filesystem path
-canonicalization occurs in the owning workflow before lease acquisition. The final production caller census finds no competing workflow-local authority,
-revision-role, or fingerprint grammar: remaining mutation constructors are
-workflow boundary lowering, State Barrier ownership, source-specific freshness,
-or post-effect rollback evidence. Remaining effect-envelope expansion, scalar
-removal and semantic guard replacement follow the explicit deferred-work
-policy above; their incomplete status does not prevent bounded delivery.
-
-Current source, surface, operation, compatibility, transition, verification,
-and closeout locality evidence are recorded in
-[Compiler Migration Ledger](docs/architecture/compiler-migration.md).
+| Boundary | Location | Keep outside the compiler |
+| --- | --- | --- |
+| Host-Surface | `internal/hostsurface/catalog` | Topology/Realization validity, codecs and consumer-local importability; owner-internal `aggregate.MCPPlacementForSubject` must not reverse-import the catalog. |
+| Operation authority | `internal/operationplan` | Workflow path observation/lowering before leases, source freshness, rollback evidence and Adopt's `Plan.IdentityBytes`; do not invent fingerprints for operations without them. |
+| State Barrier | `internal/recoverygate` | Generic `internal/effect/fileset`, journal, storage and subprocess protocols. Preserve file-set-only lock/init/authoring checks, read-only joint refusal without effect authority, and RecoveryDir-only cleanup. |
+| Readiness | `internal/workflow/readiness` | Effectful observations remain separate from pure assessment/inventory/order; probe authority proves neither durable readiness nor a new fingerprint. |
 
 ## Forbidden Shapes
 
-- giant `AgentProfile`, mega `SurfaceContract`, universal Resource, or generic
-  HostAdapter;
-- `map[string]any`, reflection, callback registries, or service locators as IR;
-- a fourth realization variant for delegates, observation, or exact Supply;
-- central ownership of all topology, codec, observation, and route facts merely
-  because they share a Surface key;
-- I/O or capability acquisition inside either compiler;
-- operation demand added after effects begin;
-- State Barrier reinterpretation of Reconciliation or Effect semantics;
+In addition to the owner boundaries above, do not introduce:
+
+- giant `AgentProfile`/`SurfaceContract`, universal Resource or generic HostAdapter;
+- `map[string]any`, reflection, callback registries or service locators as IR;
 - persisted compiler IR or new unversioned identity;
-- resource-by-target, resource-by-operation, target-by-operation, or
+- resource-by-target, resource-by-operation, target-by-operation or
   operation-by-phase package matrices;
-- package, file, LOC, or density reduction as an acceptance criterion; and
-- documentation-prose, declaration-name, symbol-presence, exact-path-catalogue,
-  or density assertions presented as architecture tests.
+- package, file, LOC or density reduction as acceptance criteria.
 
 Semantic dependency and effect-boundary guards remain executable evidence.
 Report-only compiler and State Barrier shadow findings never fail the
-blocking architecture baseline. Removing one requires equivalent or stronger
-behavioral or graph-level coverage of the accepted invariant; deleting a
+blocking architecture baseline. Removing a blocking rule requires equivalent
+or stronger behavioral or graph-level coverage of its accepted invariant; deleting a
 prose or symbol-presence check does not require replacing that check with
 another textual proxy.
 
+`packagePlacementRows` can leave missing, duplicate or invalid placements
+unclassified; affinity/role rules skip those nodes. This is not complete
+semantic coverage. `Report.Shadow` findings remain diagnostic, while analysis
+or load errors still fail. A guard change must exercise forbidden and
+legitimate-neighbor imports without making shadow findings block the baseline.
+
 ## Perturbation And Acceptance
 
-The architecture must survive these changes with the expected locality:
+| Change | Expected owner/locality |
+| --- | --- |
+| New OS | Physical adapters and platform admission, not semantic owners, surface semantics or recovery policy. |
+| New target using an existing format | Static surface rows, required private adapters, tests and docs. |
+| New realization form | Canonical variant and matching Reconciliation/Effect variants, not unrelated host workflows. |
+| New observation purpose | Assurance fact and observation binding, not placement identity. |
+| Recovery hardening | State Barrier and Effect/recovery, not artifact families or target-profile algorithms. |
 
-- a new OS changes physical adapters and platform admission, not Desired,
-  Topology, Realization, surface semantics, or recovery policy;
-- a new target using an existing format primarily adds static surface rows,
-  required private adapters, tests, and documentation;
-- a new realization form changes its canonical variant plus corresponding
-  Reconciliation/Effect variants, not unrelated host workflows;
-- a new observation purpose adds an Assurance fact and surface observation
-  binding without changing placement identity;
-- recovery hardening changes State Barrier and Effect/recovery mechanisms, not
-  artifact family or target-profile algorithms.
-
-Completion is based on one primary owner per invariant, reduced mechanism
-duplication and change amplification, contained capabilities, exact compatible
-behavior, and a truthful disposition of retained compatibility seams and
-follow-ups. Removal of all migration residue is not a delivery prerequisite.
-Numeric graph changes are evidence, not success criteria.
+Review one owner per invariant, mechanism duplication, change locality,
+capability containment, exact compatibility and retained-seam dispositions.
+See [Contributing](CONTRIBUTING.md#verify) for verification entrypoints.

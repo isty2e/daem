@@ -1,16 +1,13 @@
 # Manifest Schema
 
-`daem.toml` is the desired-state boundary for managed agent environment resources. The parser is strict: unknown TOML keys are rejected, and every resource is normalized before lock or apply logic sees it.
+`daem.toml` declares the resources daem should manage. This is the authoritative
+public schema reference; the current schema version is `1`. Unknown TOML keys
+are rejected, and declarations are normalized before lock or apply planning.
 
-This file is the authoritative public reference for the current implemented
-manifest schema.
-
-The current schema version is `1`.
-
-For a minimal first-run starting point, see the
-[example manifest](../examples/daem.toml).
-For a larger local-source example, see the
-[representative project manifest](../examples/representative-project.toml).
+For setup steps, use [Getting Started](getting-started.md) or
+[Use An Existing Environment](migration.md). For complete inputs, see the
+[minimal example](../examples/daem.toml) and
+[representative local project](../examples/representative-project.toml).
 
 ## Contents
 
@@ -28,11 +25,6 @@ For a larger local-source example, see the
 - [Complete Example](#complete-example)
 - [Extension Carriers](#extension-carriers)
 - [Current Non-Goals](#current-non-goals)
-
-```toml
-version = 1
-targets = ["codex", "claude-code"]
-```
 
 Minimal valid manifest:
 
@@ -53,8 +45,8 @@ targets = ["codex"]
 | `skill_group` | array of tables | no | Explicit or selector-backed skill groups under one source root. |
 | `hook` | array of tables | no | Hook resources. |
 | `hook_asset` | table of tables | no | Source-backed executable file assets referenced explicitly from supported Codex and Claude Code hook commands. |
-| `mcp_server` | array of tables | no | Narrow stdio MCP server relations for supported target/scope slices: Codex project command/args scope or explicit-global command/args plus same-name environment references, Claude Code project or explicit-global scope with structured environment references, OpenCode strict project command/args scope or explicit-global `type = "local"` command/args plus aliased environment references, Pi project or explicit-global scope mediated by an explicit admitted `pi-mcp-adapter` package, and Antigravity CLI explicit-global command/args plus same-name ambient environment requirements. |
-| `extension` | array of tables | no | Narrow host plugin/package carrier declaration for supported Codex explicit-global marketplace-selector rows, Claude Code project and explicit-global marketplace rows, OpenCode project/global host-source rows, Pi project/global package host-source rows, and Antigravity CLI explicit-global host-source rows. Codex project plugin scope is product `unsupported` with reason `host-unavailable` in the current native host route. Claude Code explicit-global plugin scope is public daem `scope = "global"` and projects to host `--scope user` only inside the supported delegated host route. Claude Code local plugin scope is product `deferred` with reason `not-modeled`. `add extension` and `remove extension` cover all five supported rows and update manifest plus lock only; `unmanage extension` releases exact daem management while retaining host state. Mutating `apply` may run only lifecycle routes supported for the exact target/scope/operation row. |
+| `mcp_server` | array of tables | no | Supported MCP exact-projection relations; see [MCP Servers](#mcp-servers). |
+| `extension` | array of tables | no | Supported host plugin/package carrier declarations; see [Extension Carriers](#extension-carriers). |
 
 Unimplemented executable lifecycle declaration families such as `[[local_parameter]]`,
 `[[package_runner]]`, `[[executable_artifact]]`, and
@@ -73,44 +65,26 @@ Supported target identifiers:
 - `pi`
 - `antigravity-cli`
 
-`antigravity-cli` currently supports project and global instruction file
-rendering, Agent Skills-compatible directory packages through `[[skill]]` and
-`[[skill_group]]`, plus explicit-global standalone stdio MCP config projection
-through `[[mcp_server]]` with command/args and optional same-name ambient
-environment requirements.
-Markdown slash-command skills, hooks, project-local MCP, remote MCP,
-plugin-bundled MCP, plugin rows outside the explicit-global host-source carrier
-slice, rules/workflows as separate surfaces, settings, runtime readiness, and
-Antigravity IDE remain outside current product support. See
-[Instructions](#instructions), [MCP Servers](#mcp-servers), and the
-[Feature Support](features.md) for the supported slices.
+`antigravity-cli` supports project/global instructions and Agent
+Skills-compatible `[[skill]]`/`[[skill_group]]`, plus explicit-global stdio MCP
+command/args and optional same-name ambient environment requirements. Markdown
+slash-command skills, hooks, project/remote/plugin-bundled MCP, other plugin
+rows, separate rules/workflows, settings, readiness and the IDE remain
+unsupported. See [Instructions](#instructions), [MCP Servers](#mcp-servers) and
+[Feature Support](features.md).
 
-For current target and resource coverage, see
-[Feature Support](features.md). That page is a derived view of the current typed
-target/resource surface registry. Future target support must extend that
-registry and its invariant-bearing tests rather than adding a separate boolean
-support matrix.
+For current target and resource coverage, see [Feature Support](features.md),
+the derived view of the typed target/resource surface.
 
-OpenCode, Pi, and Antigravity CLI are valid target identifiers. Their skill
-resources reconcile through the shared Agent Skills directory surface.
-Instruction rendering is supported for OpenCode project/global, Pi
-project/global, and Antigravity CLI project/global scope as documented under
-[Instructions](#instructions).
-Antigravity CLI global instructions render to `~/.gemini/GEMINI.md` by default.
-Command hook
-configuration for OpenCode, Pi, and Antigravity CLI remains unavailable until
-the relevant host schema, validation, discovery, ownership semantics, and
-implementation gates are complete. Manually declared hook resources for
-unsupported hook targets remain lock-only diagnostics; they do not create
-managed hook projections, path-state ownership, or host mutations. `add hook`
-rejects `antigravity-cli` because Antigravity CLI direct hooks are not supported
-as a native command-hook surface. Codex and Claude Code command hook
-configuration reconciliation is supported. Source-backed hook executable file
-payloads are supported only through explicit `[hook_asset.<name>]`
-declarations and same-scope `{hook_file:<name>}` placeholders for supported
-Codex and Claude Code hooks.
-`doctor` reports the same registry-derived target/resource capability matrix
-as `target=<target> capability=<resource-kind>` checks.
+OpenCode, Pi, and Antigravity CLI are valid targets; their skills use the shared
+Agent Skills directory surface, and their supported instruction scopes are
+documented under [Instructions](#instructions). Command hooks remain unavailable
+for these targets; unsupported hook declarations are lock-only diagnostics, and
+`add hook` rejects `antigravity-cli`. Codex and Claude Code command hooks and
+explicitly declared source-backed hook assets remain supported. `doctor` reports
+registry-derived capability checks; see [Feature Support](features.md). Hook
+assets require `[hook_asset.<name>]` and same-scope `{hook_file:<name>}`
+placeholders. Doctor labels checks `target=<target> capability=<resource-kind>`.
 
 Duplicate targets are rejected.
 
@@ -390,17 +364,13 @@ Validation rules:
   rather than a lock-blocking error because Claude Code documents the field as
   optional but important for automatic selection.
 
-`daem add skill` can append a Git or local skill declaration, or merge new
-targets into an existing matching `[[skill]]`. It updates the manifest and
-selected lockfile together, but does not install payloads, apply host changes,
-or mutate state. See the [CLI Reference](cli.md#add) and
-[Manifest Authoring Scenarios](#manifest-authoring-scenarios).
-`daem add skill-group` can append a compact `[[skill_group]]` when several
-explicit skill names share one Git or local source root, target set, and scope.
-`daem remove skill` removes a skill declaration, removes a `[[skill_group]]`
-member, or removes selected targets from a skill declaration, then refreshes the
-lockfile from the prospective manifest. Host deletion still requires explicit
-`apply`.
+`daem add skill` appends or merges a `[[skill]]`, updating manifest and selected
+lockfile without installing payloads or applying host changes. `add skill-group`
+creates a compact group for shared source/targets/scope. `remove skill` removes
+a declaration, group member, or selected targets and refreshes the prospective
+lockfile; host deletion requires explicit `apply`. See [CLI
+Reference](cli.md#add) and [Manifest Authoring
+Scenarios](#manifest-authoring-scenarios).
 
 Current skill-root catalog:
 
@@ -423,19 +393,13 @@ Codex's documented Agent Skills authoring roots are `.agents/skills` and
 alternative, not the default. OpenCode and Pi also load the compatible roots
 listed above while retaining their native defaults.
 
-During `daem import`, modeled placement and discovery roots may both be
-scanned, but only imported content becomes manifest-owned. Direct `.agent/skills`
-source-pool scans are intentionally skipped; a symlinked skill reached through
-a modeled agent-visible root is copied as a vendored local source. Supplied,
-system, plugin, admin, and runtime roots are reported as skipped instead of
-being converted into user-owned manifest resources.
-When multiple imported skills have distinct names, no explicit `id`, the same
-normalized target set, and the same scope, import may emit one `[[skill_group]]`
-with a content-addressed local source root under `daem.d/skill-groups/<hash>`.
-The copied group root contains one direct child directory per skill name, so
-normal `skill_group` expansion still locks each skill separately. Divergent
-same-name imports remain individual `[[skill]]` entries with explicit `id`
-values.
+Import scans modeled placement/discovery roots, not direct `.agent/skills`
+source pools; supplied/system/plugin/admin/runtime roots are skipped. Modeled
+symlinked skills become vendored local sources, not managed live outputs.
+Distinct names with no explicit `id`, the same normalized targets and the same
+scope may form one `[[skill_group]]` under `daem.d/skill-groups/<hash>`, one
+direct child per name, each locked separately. Divergent same-name imports
+remain individual `[[skill]]` entries with explicit ids.
 
 `daem` copies the full skill directory to the direct child named by manifest
 `skill.name`. The lockfile uses `skill.id` when present and otherwise
@@ -444,14 +408,11 @@ target, such as Claude Code tool-permission fields, are not lock-blocking for
 other targets, but `doctor` reports that they may be ignored by targets whose
 skill metadata model does not recognize them.
 
-This `name`/`id` split preserves practical same-name cases. If Codex and Claude
-Code expose the same skill name with identical content, import emits one
-multi-target `[[skill]]` with no explicit `id`. Every physical route that
-contributed to that merged import remains freshness evidence until publication;
-the merge does not discard nonrepresentative target routes. If they expose the
-same skill name with different content, import emits entries such as
-`id = "codex_global_review", name = "review"` and
-`id = "claude_code_global_review", name = "review"`.
+Import merges same-name Codex/Claude Code skills only for identical content,
+into one multi-target `[[skill]]` without `id`. Every contributing route remains
+freshness evidence through publication. Different content stays separate, for
+example `id = "codex_global_review", name = "review"` and `id =
+"claude_code_global_review", name = "review"`.
 
 ## Skill Groups
 
@@ -593,20 +554,15 @@ and expansion phase, across all groups in a `lock`, `outdated`, or local
 | Matcher work (pattern bytes x (child-name bytes + 1)) | 134,217,728 units |
 | Newly selected skills | 4,096 |
 
-Git and local sources use the same limits. Repeated groups that reference the
-same canonical source root share one listing and count that root once, but each
-declaration still counts toward the operation-wide skill-group ceiling. Every
-direct entry consumes the source budget, including files and links that cannot
-become selected skill directories. Includes consume selection budget when they
-first select a name; later exclusions do not refund work already performed. An
-exact limit is accepted, while the first unit beyond it fails the whole lock
-operation with no partial lockfile. `doctor` reports the overflow as an error
-and omits selector-expanded skill checks rather than reporting a partial group
-view; direct skill checks still run. Matcher work conservatively charges each
-pattern byte against every child-name byte the matcher may scan, plus one unit
-for pattern-only work on an empty name. The charge is applied before matching,
-and cancellation is checked before and after every evaluation. These limits
-are package policy rather than manifest fields.
+Git/local sources share these limits. Canonical roots are listed and counted once, but
+every declaration counts toward the group ceiling and every direct entry,
+including files/links, consumes source budget. First selection charges a name;
+later exclusion never refunds it. Matcher work charges every pattern byte
+against each potentially scanned child-name byte plus one pattern-only unit for
+an empty name, before matching; cancellation is checked around each evaluation.
+Exact limits pass; one unit over fails the whole lock without partial output.
+Doctor reports overflow and omits selector-expanded checks, while direct checks
+still run. These limits are package policy, not manifest fields.
 - Expanded lockfile entries are ordered deterministically by skill resource
   name, then source identity.
 
@@ -635,8 +591,7 @@ For skills, the key is `id` when present and otherwise `name`.
 
 For a same-name skill that has different content per target, keep the
 agent-visible install name stable and give each declaration a distinct `id` in
-TOML. Explicit resource ids are manifest-only because choosing long-lived
-identity is not common CLI authoring:
+TOML. Set explicit resource ids in the manifest; the authoring CLI has no id flag:
 
 ```toml
 [[skill]]
@@ -676,7 +631,7 @@ daem add skill-group acme/agent-skills \
   --dry-run --diff
 ```
 
-This writes one compact group:
+The preview proposes one group; omit `--dry-run --diff` to write it:
 
 ```toml
 [[skill_group]]
@@ -818,165 +773,112 @@ verified contract floor, while `2.15.0` is the deeply inspected artifact and
 not an exact-version ceiling. Unbounded selectors, tags, prereleases,
 below-floor versions, and the next major are rejected before mutation.
 
-The provider relation and MCP projection remain separate lock subjects. Apply
-first establishes and freshly observes the selected Pi package relation and
-its exact installed package version, then writes only the selected
-`mcpServers/<name>` contribution. Project bindings select `.pi/mcp.json`;
-global bindings select `<Pi agent root>/mcp.json`. The provider may also read
-other shared, Pi-owned, and imported config layers documented in the
-[Host Integration Contract](host-integrations.md#mcp-server-config); daem
-observes those sources for same-name collision and fallback diagnostics but
-writes none of them.
+For Pi MCP, the provider relation and MCP projection remain separate. Apply
+establishes and observes the selected `pi-mcp-adapter` package/version, then
+writes only the selected `mcpServers/<name>` contribution to `.pi/mcp.json`
+(project) or `<Pi agent root>/mcp.json` (global). Other Pi-owned/imported layers
+may be observed for collision/fallback diagnostics but are not written. See
+[Host Integration Contract](host-integrations.md#mcp-server-config).
 
 Pi entries accept canonical `command`, ordered `args`, exact child-to-source
-`${SOURCE}` environment aliases, `lifecycle = "lazy"`, and `disabled = false`.
-Those two semantic defaults may be omitted. Daem also accepts the provider's
-`mcp-servers` alias when it is unambiguous, parses JSONC, and rejects malformed,
-duplicate, conflicting-alias, credential-bearing, or unsupported managed
-fields. Environment values remain runtime-local. Config convergence does not
-prove Pi project trust, provider activation, server connectivity,
-authentication, runtime health, or discovered tools.
+`${SOURCE}` aliases, `lifecycle = "lazy"`, and `disabled = false`; the two
+semantic defaults may be omitted. The unambiguous `mcp-servers` alias and JSONC
+are accepted. Malformed, duplicate, conflicting-alias, credential-bearing, or
+unsupported managed fields are rejected, and environment values remain
+runtime-local. Convergence does not prove Pi trust, provider activation,
+connectivity, authentication, runtime health, or discovered tools. See [Host
+Integration Contract](host-integrations.md#mcp-server-config).
 
-Pi trust does not fully guard this provider boundary. A project-scoped package
-is ignored when the project is untrusted, but an installed global provider can
-still read project `.mcp.json` and `.pi/mcp.json`; eager entries there may
-execute before trust even under `pi --no-approve`. Daem authors only lazy
-entries and warns about the global sharing consequence, but it does not own or
-sanitize unowned project MCP files.
+Pi project-scoped provider packages are ignored when the project is untrusted,
+but an installed global provider may still read project `.mcp.json` and
+`.pi/mcp.json`; eager entries can execute before trust, including under `pi
+--no-approve`. Daem authors only lazy entries and warns about the sharing
+consequence; it does not own or sanitize unowned project MCP files. See [Host
+Integration Contract](host-integrations.md#mcp-server-config).
 
-This admission does not flatten arbitrary package-bundled MCP, skills, hooks,
-instructions, apps, commands, or rules into standalone declarations. Those
-contributions remain provider-scoped unless an exact profile separately admits
-their ownership.
+Provider admission does not flatten package-bundled MCP, skills, hooks,
+instructions, apps, commands, or rules into standalone declarations; those
+contributions remain provider-scoped unless an exact profile admits ownership.
 
-`daem import` may generate `[[mcp_server]]` declarations only for supported
-core-native config rows. It does not infer the explicit package relation needed
-for provider-mediated Pi MCP. Import preserves accepted child-to-host env
-bindings as references, skips unsupported or credential-bearing shapes, creates no source
-files, and never edits host MCP config, starts servers, probes runtime
-readiness, installs packages, or flattens plugin-bundled MCP contributions into
-standalone resources.
+`daem import` may create `[[mcp_server]]` only for supported core-native rows.
+It preserves accepted child-to-host environment references, skips unsupported or
+credential-bearing shapes, creates no source files, and never edits host MCP
+config, starts servers, probes readiness, installs packages, or flattens
+plugin-bundled MCP. Provider-mediated Pi MCP requires its explicit package
+relation and is not inferred. See [Host Integration
+Contract](host-integrations.md#mcp-server-config).
 
-OpenCode MCP requires effective `targets = ["opencode"]` and either effective
-project scope or explicit global scope. `daem add mcp-server --target opencode`
-writes an explicit project-scoped row; `--scope global` is required for the
-default user config row. The OpenCode adapter writes only strict
-`opencode.json` entries under `/mcp/<name>` as `type = "local"` with command
-plus ordered args. Project rows reject `env`. Explicit-global rows accept
-child/source aliases such as
-`env = { CHILD_TOKEN = { from_env = "SOURCE_TOKEN" } }` and render them as
-`"environment": {"CHILD_TOKEN": "{env:SOURCE_TOKEN}"}`. Import recognizes only
-that exact whole-value form. Literal values, `$NAME`, `${NAME}`, file
-interpolation, compound templates, malformed names, custom/JSONC/remote config
-authority, `cwd`, `enabled`, `timeout`, auth/session fields, tool-policy fields,
-and unknown managed-entry fields are rejected rather than silently preserved
-inside the managed entry. Import also checks the cataloged `opencode.jsonc`
-alternate for the selected scope. When that file exists, the strict
-`opencode.json` MCP document is skipped as unsupported and no MCP declaration
-is generated. When it is absent, its directory entry remains part of the
-import plan's freshness evidence, so appearance before manifest publication
-invalidates the plan without reading the appeared entry's contents. The exact
-regular-file content and object read during planning remain authoritative
-through publication. This also applies to source routes reported as merge
-no-ops; filtering a declaration from the write set does not discard the
-evidence that justified its merge result.
+OpenCode MCP requires effective `targets = ["opencode"]` with project or
+explicit global scope. The add helper writes an explicit project row unless
+`--scope global` is supplied. Strict `opencode.json` `/mcp/<name>` entries use
+`type = "local"`, command and ordered args. Project rows reject `env`; global
+aliases such as `env = { CHILD_TOKEN = { from_env = "SOURCE_TOKEN" } }` render
+as `"environment": {"CHILD_TOKEN": "{env:SOURCE_TOKEN}"}`. Import accepts only
+that exact whole-value form. Literals, `$NAME`, `${NAME}`, file interpolation,
+compound/malformed forms, custom/JSONC/remote authority, `cwd`, `enabled`,
+`timeout`, auth/session/tool-policy and unknown fields are rejected.
 
-Codex MCP requires effective `targets = ["codex"]` and either effective project
-scope or explicit row-local `scope = "global"`. `daem add mcp-server --target
-codex` writes an explicit project-scoped row; `daem add mcp-server --target
-codex --scope global` writes an explicit-global row. The Codex adapter writes
-project `.codex/config.toml` entries with `command` and `args` only. The
-explicit-global row also accepts only same-name references such as
-`env = { CODEX_TOKEN = { from_env = "CODEX_TOKEN" } }` and renders their
-sorted, deduplicated names as `env_vars = ["CODEX_TOKEN"]`. Import treats a
-native string name, `{ name = "CODEX_TOKEN" }`, and
-`{ name = "CODEX_TOKEN", source = "local" }` as equivalent. Codex project
-environment references, child/source aliases, native literal `env`, remote
-sources, unknown environment-object keys, custom config roots, `cwd`, remote
-HTTP config, auth/session fields, tool-policy fields, and plugin-provided MCP
-remain unsupported.
+An existing cataloged `opencode.jsonc` alternate skips the strict MCP document
+without declarations. If absent, its appearance invalidates import without
+reading its contents. Primary file content/object identity also remains
+authoritative through publication, including merge no-ops. See [Host
+Integrations](host-integrations.md#mcp-server-config).
 
-Claude Code MCP requires effective `targets = ["claude-code"]` and either
-effective project scope or explicit row-local `scope = "global"`.
-Project-scoped rows render into project `.mcp.json` and may carry structured
-`env` references. Explicit-global rows render only the top-level
-`~/.claude.json` `/mcpServers/<name>` entry with `command`, `args`, and
-structured references lowered to exact `"CHILD": "${SOURCE}"` strings.
-`daem add mcp-server --target claude-code --scope global` writes the
-explicit-global command/args row. Add environment references by editing the
-manifest directly or importing an accepted native entry. The Claude global
-adapter accepts only exact `${VALID_NAME}` native values. It rejects literals,
-defaults such as `${NAME:-default}`, compound templates, `user_config`
-interpolation, malformed names, local/project scope state,
-OAuth/session/trust fields inside the managed entry, HTTP/remote transport
-fields, headers, `cwd`, timeout/tool-policy fields, and unknown managed-entry
-fields rather than silently preserving them inside the managed entry.
-Unrelated top-level user config, project-local `projects` entries,
-OAuth/session/trust siblings, and same-name project shadows are preserved but
-not owned by the global row.
+Codex MCP requires effective `targets = ["codex"]` and project or explicit
+row-local `scope = "global"`. Add writes a project row unless `--scope global`
+is supplied. Project `.codex/config.toml` uses command/args only. Global
+same-name references such as `env = { CODEX_TOKEN = { from_env = "CODEX_TOKEN" }
+}` become sorted, deduplicated `env_vars`. Native string names, `{ name =
+"CODEX_TOKEN" }` and `{ name = "CODEX_TOKEN", source = "local" }` import
+equivalently. Project env, aliases, literal env, remote sources, unknown
+env-object keys, custom roots, `cwd`, HTTP/auth/session/tool-policy and plugin
+MCP are unsupported.
 
-Antigravity CLI MCP requires `targets = ["antigravity-cli"]` and an explicit
-`scope = "global"` on the `[[mcp_server]]` block. The Antigravity adapter
-accepts only same-name manifest references such as
-`env = { TOKEN = { from_env = "TOKEN" } }`. Daem locks the source names and
-checks their current presence before mutation, but writes no native `env`
-field: the child inherits from the Antigravity CLI process environment.
-Aliases are rejected. Native `env` is also rejected in every form, including
-literal values, `${TOKEN}`, `$TOKEN`, and `{env:TOKEN}`, because those values
-are passed literally rather than expanded. Import cannot infer an ambient
-requirement from a command/args-only native entry and therefore imports no
-environment references. `serverUrl`, `url`, `headers`, `oauth`,
-`authProviderType`, `disabled`, `disabledTools`, `enabledTools`, `tools`,
-`cwd`, and unknown managed-entry fields are rejected rather than silently
-preserved inside the managed entry.
+Claude Code MCP requires effective `targets = ["claude-code"]` and project or
+explicit row-local global scope. Project `.mcp.json` accepts structured env
+references; global top-level `~/.claude.json` `/mcpServers/<name>` uses
+command/args and exact `"CHILD": "${SOURCE}"`. The global add helper needs
+`--scope global`; add env references by manifest edit or accepted native import.
+Global native values must be exact `${VALID_NAME}`. Literals,
+`${NAME:-default}`, compounds, `user_config` interpolation, malformed names,
+local/project state, OAuth/session/trust, HTTP/remote, headers, `cwd`,
+timeout/tool-policy and unknown managed fields are rejected. Unrelated top-level
+config, `projects`, OAuth/session/trust siblings and same-name project shadows
+are preserved, not owned.
 
-`daem add mcp-server` and `daem remove mcp-server` are authoring helpers for the
-supported Codex project row, Codex explicit-global row, Claude Code project row,
-Claude Code explicit-global row, OpenCode project row, OpenCode explicit-global
-row, Pi project row, Pi explicit-global row, and Antigravity CLI explicit-global
-row. Omitted target/scope succeeds only
-when manifest inheritance and supported-row compatibility identify one row.
-Claude global authoring requires
-`--target claude-code --scope global` because defaults do not authorize global
-MCP. The helper creates a command/args row; add global environment references
-by editing the manifest directly or importing an accepted native entry. Codex
-authoring requires `--target codex`; global authoring additionally requires
-`--scope global` because defaults do not authorize global MCP. The authoring
-helper creates command/args-only Codex rows. Add same-name global environment
-references by editing the manifest directly or by importing an accepted native
-entry. OpenCode authoring requires
-`--target opencode`, permits project scope or explicit `--scope global`, and
-creates a command/args row. Add global environment references by editing the
-manifest directly or importing an accepted native entry; project rows reject
-them. Custom/JSONC/remote/auth/tool-policy fields remain rejected. Antigravity
-authoring requires `--target antigravity-cli --scope global` because defaults
-do not authorize global MCP. The helper creates a command/args row; add
-same-name environment references by editing the manifest directly. Import
-cannot infer them. Aliases and all remote/auth/tool-policy fields are rejected.
-Pi authoring requires `--target pi`, permits project scope or explicit
-`--scope global`, and creates both the MCP row and an explicit scoped
-`pi-mcp-adapter` package declaration when no compatible provider exists. A
-project binding prefers a project provider and may reuse one unambiguous
-explicit-global provider; a global binding requires a global provider.
-Ambiguous or incompatible providers fail before either manifest or lockfile
-changes. Removing the Pi MCP row retains its provider declaration so package
-lifecycle remains an explicit separate extension decision.
-Authoring helpers update the manifest and adjacent lockfile together;
-they do not write host config, start a server, install packages, remove
-credentials, or change approval/trust state.
-`remove mcp-server` removes the whole selected declaration block, and a later
-explicit `apply` reconciles only the managed MCP projection. It does not delete
-project executables, package-manager caches, daem store objects, credentials,
-trust records, sessions, logs, or runtime state. `doctor` may passively report
-executable prerequisite diagnostics for selected supported MCP declarations by
-checking ambient command tokens through `PATH`, explicit absolute commands at
-their exact path, and modeled host-source env names only. It does not execute
-the command or prove package/cache/runtime convergence. Claude Code project
-rows additionally lock a delegated executable plan identity with each exact
-child/source pair. Claude global rows lock only the exact child/source mapping
-rendered as `${SOURCE}` placeholders. Codex global rows lock only the canonical
-same-name `env_vars` names as part of their config projection. Values remain
-runtime-only and are never locked.
+Antigravity MCP requires `targets = ["antigravity-cli"]` and explicit `scope =
+"global"`. Only same-name references such as `env = { TOKEN = { from_env =
+"TOKEN" } }` are accepted: names are locked and checked before mutation, but no
+native env is written; the child inherits the CLI environment. Aliases and every
+native `env` form are rejected, including literals, `${TOKEN}`, `$TOKEN` and
+`{env:TOKEN}`. Import infers no ambient references. Rejected managed fields
+include `serverUrl`, `url`, `headers`, `oauth`, `authProviderType`, `disabled`,
+`disabledTools`, `enabledTools`, `tools`, `cwd` and unknown fields.
+
+Add/remove MCP helpers author the nine supported rows. Omitted target/scope
+works only when inheritance and supported-row compatibility select one row.
+Claude global needs `--target claude-code --scope global`; Codex needs `--target
+codex` and explicit global scope; OpenCode/Pi need their target and project or
+explicit global scope; Antigravity needs `--target antigravity-cli --scope
+global`. Defaults do not authorize global MCP. Helpers author command/args: add
+supported env references manually or through accepted import (Antigravity only
+manually; project OpenCode rejects them).
+
+Pi add creates/reuses an explicit scoped `pi-mcp-adapter`: project prefers
+project provider, otherwise one unambiguous explicit-global provider; global
+requires global provider. Ambiguous/incompatible providers fail before
+manifest/lock changes. MCP removal retains the provider declaration. Helpers
+update manifest/adjacent lock together, never host config, server execution,
+package installation, credentials or trust/approval. Remove deletes the whole
+declaration; later apply removes only its managed projection, retaining
+executables, caches/stores, credentials, trust, sessions, logs and runtime
+state.
+
+Doctor passively checks ambient commands through `PATH`, absolute commands at
+their exact path and modeled env names, without executing or proving
+convergence. Claude project locks delegated executable identity with
+child/source pairs; Claude global locks `${SOURCE}` mapping; Codex global locks
+canonical `env_vars` names. Values remain runtime-only, never locked.
 
 Lock and dry-run validate only symbolic names and supported mappings; they do
 not require those names to be present in the current process environment.
@@ -1349,7 +1251,11 @@ edits and imports still use `daem lock` as the explicit lock refresh step.
 Current lock behavior:
 
 - Project-scoped local skill and instruction sources are resolved relative to the manifest directory unless their paths are absolute. Global local skill and instruction sources must already be absolute.
-- Git sources are resolved through the user's system `git`. SHA-1 repositories stay compatible with Git that lacks `--object-format`; SHA-256 requires that capability. Capable Git always receives an explicit `--object-format`, and `GIT_DEFAULT_HASH` is never inherited, so it is never the product default. Network format observation contacts only the declared locator from a rooted observation repository, so enclosing-repository `url.*.insteadOf` cannot redirect `ls-remote`.
+- Git uses the system `git`; SHA-1 works without `--object-format`, SHA-256
+  requires it. Capable Git always gets explicit `--object-format`;
+  `GIT_DEFAULT_HASH` is not inherited. Network format observation contacts only
+  the declared locator from a rooted repository, so enclosing `url.*.insteadOf`
+  cannot redirect `ls-remote`.
 - Git refs are resolved to immutable commits and stored as `resolved_ref`.
 - Individual Git skill source `path` values may name a skill directory or `path = "."` when the repository root itself is the skill artifact and contains exact `SKILL.md`. Git `[[skill_group]]` source roots may also use `path = "."`, but there it means the root whose selected direct children are locked as separate skill artifacts.
 - Git repository paths are exported from the resolved commit. Archive entries that escape the artifact directory or resolve to links are rejected.
@@ -1358,95 +1264,74 @@ Current lock behavior:
 - S3 VersionId is stored as `resolved_ref` when the service returns one. The
   materialized artifact `content_hash` remains the integrity check whether or
   not bucket versioning is enabled.
-- An S3 source with an explicit `version_id` may reuse a persistent cache entry
-  before AWS client creation only after both its exact source/version lookup
-  record and referenced artifact bytes pass local cache verification. A source
-  without `version_id` is fetched again on each sequential resolution; an ETag
-  never grants immutable-cache identity.
+- Explicit S3 `version_id` permits cache reuse before AWS client creation only
+  after exact source/version record and artifact-byte verification. Unversioned
+  sources refetch each sequential resolution; ETags do not confer immutable
+  identity.
 - S3 archive extraction rejects path traversal, symlinks, hardlinks, and special
   files. S3 prefix directory sources are unsupported.
 - Skill sources are validated as directories with a regular `SKILL.md`.
-- Supported command-only Hook declarations do not lock a source artifact. Each
-  admitted target instead locks one canonical managed-aggregate contribution.
-  Schema version 6 admits a contribution only when the Hook codec can fold it
-  into a structurally valid host document within the same byte, depth, event,
-  group, and handler bounds enforced during rendering. Rendered host aggregate
-  content remains planned and state-tracked separately from source resolution.
+- Command-only supported Hooks lock no source artifact; each admitted target
+  locks one canonical managed-aggregate contribution. Schema version 6 admits it
+  only when the Hook codec can produce a structurally valid host document within
+  enforced byte, depth, event, group, and handler bounds; rendered aggregate
+  content is tracked separately.
 - Instruction sources are locked as file sources and must resolve to regular files.
 - Selector-backed `[[skill_group]]` entries are expanded during lock. The
   generated dry-run delta reports selected child additions, removals, and
   content changes as ordinary per-skill lockfile entry changes.
-- Every lockable resource is encoded as a canonical `[[locked.subject]]` row
-  ordered by `entity_id` and `subject_id`. Selector-backed Skill children carry
-  `skill_set_member.declaration_identity`; direct Skills carry no declaration
-  provenance facet.
-- Extension order is encoded separately as collection-owned
-  `[[locked.order_constraint]]` rows. Each row records one profile-defined
-  `class_id`, its host-load-identity `contract_version`, its
-  `runtime_meaning`, and ordered `member` rows containing the exact extension
-  relation `subject_id` plus canonical `host_load_identity`. Constraint rows
-  are sorted by class id; member rows preserve manifest order and are never
-  sorted by declaration id.
-- An order class is omitted when it has fewer than two locked members. A
-  persisted class must contain every locked member of that admitted class
-  exactly once. Duplicate host-load identities, dangling subjects,
-  cross-class members, and profile contract or runtime drift are rejected.
-  OpenCode currently locks configuration order; Pi locks runtime precedence.
-  Locking order does not record current host sequence, mutate host config, or
-  change extension subject or route identity.
-- Confirmed apply settles selected carrier install/removal routes before
-  reobserving each locked order class. It then converges Pi's package sequence
-  or each loaded OpenCode server/TUI JSON and JSONC plugin sequence
-  independently. A newly
-  observed managed/foreign precedence change requires renewed interactive
-  confirmation; non-interactive apply stops. Partial multi-document success is
-  reported without rollback claims, and retry always derives work from fresh
-  host files rather than prior success evidence.
+- Each lockable resource is a canonical `[[locked.subject]]` row ordered by
+  `entity_id` then `subject_id`; selector-backed Skill children carry
+  `skill_set_member.declaration_identity`, while direct Skills carry no
+  declaration provenance facet.
+- Collection-owned `[[locked.order_constraint]]` rows store profile `class_id`,
+  host-load-identity `contract_version`, `runtime_meaning` and ordered `member`
+  rows with exact `subject_id` and canonical `host_load_identity`. Rows sort by
+  class id; members retain manifest order, never declaration-id order.
+- Classes below two locked members are omitted. Persisted classes must contain
+  all admitted members exactly once; duplicate host identities,
+  dangling/cross-class members and profile contract/runtime drift are rejected.
+  OpenCode locks config order, Pi runtime precedence. This neither records
+  current host sequence nor mutates config, subject identity or route identity.
+- Confirmed apply settles selected carrier install/removal before rereading each
+  order class, then converges Pi package or OpenCode server/TUI sequences
+  independently. Newly observed precedence changes require renewed confirmation;
+  non-interactive apply stops. Partial multi-document success is reported
+  without rollback claims, and retry derives work from fresh host files.
 - Commands that consume a lock as current authority rederive every persisted
   host-load identity from the locked carrier source and the selected manifest
   context. A mismatch blocks `status`, `apply`, `refresh`, and `probe` until
   `daem lock` regenerates the snapshot. `lock` and `outdated` deliberately
   treat the previous snapshot as comparison input, so they can repair stale
   path context rather than being blocked by it.
-- Each Skill locks one exact-Supply resource subject and one managed-path
-  projection subject per distinct physical placement. Targets sharing the same
-  profile placement coalesce into one projection with canonical
-  `consumer_targets`; the projection also records scope, portable destination,
-  content kind, placement mode, permission policy, the explicit complete
-  permission bits when that policy is `exact`, and adapter contract version.
-  An explicit exact mode `0000` is distinct from an absent mode. The projection
-  does not record a primary target, current filesystem state, or
-  machine-expanded path.
-- Each Instructions resource locks one exact-Supply resource subject with an
-  exact non-executable file-use contract and deterministic file materialization,
-  plus one managed-file projection subject per distinct supported placement.
-  Targets sharing a physical file coalesce into one canonical consumer set.
-  A schema-v6 Instructions Supply without at least one structurally valid file
-  projection is rejected; apply/status additionally require the lock projection
-  set to equal the current manifest/profile refinement.
+- Skills lock one exact-Supply subject and one managed-path projection per
+  physical placement. Shared placements coalesce with canonical
+  `consumer_targets`, scope, portable destination, content kind, placement mode,
+  permission policy, full permission bits when `exact`, and adapter version.
+  Exact `0000` differs from omission. No primary target, current filesystem
+  state or machine-expanded path is recorded.
+- Each Instructions resource locks one exact Supply subject with a
+  non-executable file-use contract and deterministic materialization, plus one
+  managed-file projection per supported placement. Shared files coalesce into
+  one consumer set. Schema-v6 Supply without a structurally valid file
+  projection is rejected; apply/status require the projection set to match the
+  manifest/profile refinement.
 - Existing lockfile entries that are no longer declared by the manifest are removed by normal lockfile regeneration.
-- Lockfile rows are sorted by canonical `entity_id`, then `subject_id`.
-- Lockfile readers accept only schema version 6 and reject unsupported versions,
-  invalid UTF-8, unknown keys, incompatible TOML table shapes, duplicate subject
-  identities, zero-facet subjects, unknown realization variants, invalid
-  cross-facet correlation, unsupported exact-Supply family shapes, malformed
-  exact identities or operation contracts, an `exact` managed-path projection
-  without `exact_permission_mode`, and persisted values that would need
-  trimming, sorting, or deduplication to become canonical. Legacy schema
-  versions 3 through 5 are not interpreted: `status`, `apply`, and `outdated`
-  direct the user to regenerate them, while `daem lock` and transactional
-  manifest authoring may atomically replace them from the selected manifest
-  without treating old rows as current authority. Schema 3 is the lock format
-  published by daem v0.1.0. Earlier unknown schemas and future schemas are not
-  replacement-authorized; a future schema requires a newer daem.
+- Lock readers accept only schema version 6 and reject unsupported versions,
+  invalid UTF-8, unknown keys/shapes, duplicate or zero-facet subjects, unknown
+  realizations, invalid correlations, unsupported exact-Supply forms, malformed
+  identities/contracts, missing `exact_permission_mode` for exact projections,
+  and noncanonical persisted values. Schemas 3–5 are not interpreted: `status`,
+  `apply`, and `outdated` require regeneration; `daem lock` and transactional
+  authoring may atomically replace them. Schema 3 was published by daem v0.1.0;
+  earlier unknown and future schemas are not replacement-authorized, and future
+  schemas require newer daem.
 - Schema version 6 does not admit `generated_at`; readers reject it as an
   unknown key rather than treating timestamp metadata as lock authority.
-- The v6 change records the canonical delegated package inputs recognized from
-  argv and an ecosystem-derived aggregate `pin_policy`. Legacy rows are not
-  interpreted because version-like container tags, package ranges, or
-  unmodeled additional package inputs may carry an overstrong `pinned` label.
-  The public manifest remains schema version 1 and requires no authoring
-  migration.
+- Schema v6 records canonical delegated package inputs recognized from argv and
+  an ecosystem-derived `pin_policy`. Legacy rows are not interpreted because
+  version-like tags, ranges, or unmodeled inputs can overstate `pinned`; the
+  public manifest remains schema version 1 and needs no migration.
 - Existing lockfiles are not replaced when lock generation fails.
 - Resolver cache artifacts live under the selected source cache, but cache paths are not serialized into the lockfile.
 
@@ -1576,177 +1461,99 @@ source = { host_source = "modern-web-guidance@google" }
 | `scope` | string | no | carrier-specific | Must be `project` or explicit `global` for `claude-code-plugin` in the current implementation. Public `scope = "global"` projects to host `--scope user` only inside the supported delegated host route; public `scope = "user"` is rejected, and Claude Code `local` is product `deferred` with reason `not-modeled`. Defaults do not authorize Claude Code global host mutation. Must be explicit `global` for `codex-plugin` and `antigravity-cli-plugin`; Codex project plugin scope is product `unsupported` with reason `host-unavailable` for the current native host route. Must be `project` or explicit `global` for `opencode-plugin` and `pi-package`; defaults do not authorize global host mutation. Other carrier scopes are unsupported. |
 | `source` | table | yes | none | Must be `{ marketplace = "<plugin>@<marketplace>" }` for Claude Code and Codex, or `{ host_source = "<host-native-source>" }` for OpenCode/Pi/Antigravity CLI. Claude uses this canonical selector as both host argv and the installed-inventory key; bare plugin names are rejected. The selected value is passed as one structured argv element and must not begin with `-`; marketplace and host_source are mutually exclusive. The selected source grammar determines punctuation semantics: marketplace `:` and `@` bytes remain selector data, while a scheme-less password-bearing Git or host locator, including an optional host port, is credential userinfo only in a host-source. URL passwords, HTTP userinfo, all query fields, assignment-style fragments, credential-shaped key/value fields, other inline secrets, and raw host config are rejected before lock creation. Inert source fragments such as `#v1` remain valid. |
 
-Credential inspection uses the raw source and its bounded canonical decoded form.
-A marketplace source gains selector authority only when both forms retain the
-same single `plugin@marketplace` partition; encoding cannot introduce another
-delimiter or URL userinfo.
+Credential inspection uses raw and bounded canonical source forms; a marketplace
+source gains selector authority only when both retain one `plugin@marketplace`
+partition, with no extra delimiter or URL userinfo. See [Host Integration
+Contract](host-integrations.md) for source grammar.
 
-Pi local package sources are context-resolved before lock creation without
-requiring the path to exist and without following symlinks. Native paths,
-`file://` URLs, dot segments, and `~` therefore collapse to one lexical path
-identity. Project scope records the clean manifest-root-relative spelling;
-global scope records the clean absolute spelling so two manifests cannot claim
-the same global local package through different aliases. Two same-scope
-declarations that collapse to one identity are rejected. This lock
-normalization does not make a differently stored external Pi settings row
-source-exact or adoptable.
+Pi local package sources are context-resolved without requiring existence or
+following symlinks. Native paths, `file://`, dot segments, and `~` collapse to
+one lexical identity; project scope stores clean manifest-root-relative spelling
+and global scope clean absolute spelling. Same-scope collisions are rejected.
+Normalization does not make an external settings row source-exact or adoptable.
 
-Pi npm package sources preserve credential-free local, remote, and opaque
-package arguments for the host. Only direct registry specs and npm registry
-aliases establish public package identity; the outer package or alias name is
-the relation identity. Git source classification includes `git+http://`,
-`git+https://`, and `git+ssh://` transports and any non-empty repository path
-under a valid host. Percent-encoded `@` bytes in that path remain repository
-data rather than ref delimiters. These sources use the Git checkout identity
-and Git removal postcondition, not local-source semantics.
+Pi npm sources preserve credential-free local, remote, and opaque package
+arguments. Only direct registry specs and npm aliases establish public package
+identity; the outer name is the relation identity. Git sources include
+`git+http`, `git+https`, and `git+ssh` with a valid host and non-empty
+repository path; percent-encoded `@` in that path remains repository data. These
+use Git checkout identity and removal semantics, not local-source semantics.
 
-During lock, the admitted row lowers to a `host_relation` lock subject with a
-delegated host plugin carrier route request identity and operation contracts.
-`status` and `apply --dry-run` report plugin carrier relation facts from
-selected locked subjects. Those rows disclose the locked subject, target, scope,
-route request identity, route-admission row, passive relation evidence
-source/availability/freshness, replay boundary, retained effects, and explicit
-non-claims. For selected Claude Code rows, status and apply obtain current
-relation evidence by statically reading version-2
+Lock stores a `host_relation` subject with route identity and operation
+contracts. Status/apply preview disclose subject, target/scope, route/admission,
+evidence source/availability/freshness, replay boundary, retained effects and
+non-claims. Claude observations read version-2
 `<CLAUDE_CONFIG_DIR>/plugins/installed_plugins.json`, falling back to
-`~/.claude/plugins/installed_plugins.json`. Project rows are filtered by the
-canonical selected manifest root and host `projectPath`; explicit-global rows
-correlate only with host `scope = "user"`. Missing inventory is fresh empty
-evidence, while malformed, unsupported-version, ambiguous, or invalid selected
-rows fail closed. The observer does not inspect plugin bundles, enabled settings,
-trust, readiness, or contributions and never invokes `claude`.
+`~/.claude/plugins/installed_plugins.json`. Project rows match canonical
+manifest root/`projectPath`; global rows match host `scope = "user"`. Missing
+inventory is fresh empty evidence; malformed/unsupported/ambiguous/invalid
+selected rows fail closed. The observer never invokes Claude or inspects
+bundles, enabled settings, trust, readiness or contributions.
 
-Mutating `apply --yes` may invoke the supported host-delegated
-install/create route. Claude Code requires fresh observed absence and then runs
-`claude plugin install <plugin>@<marketplace> --scope project` for project rows,
-`claude plugin install <plugin>@<marketplace> --scope user` for Claude Code
-explicit-global rows, `codex plugin add <plugin>@<marketplace> --json` for
-Codex, `opencode plugin <host-source>` with
-`--global` only for global OpenCode scope, `pi install <host-source>` with `-l`
-only for project Pi scope, or `agy plugin install <host-source>` for Antigravity
-CLI explicit-global scope. Codex, Claude Code, OpenCode, and Pi require fresh
-exact selected-scope absence before invoking their install route and create
-removal authority only after fresh exact presence. Selector-shaped
-`PLUGIN@MARKETPLACE` Antigravity sources require fresh complete-pair absence
-before invocation, then combine the exact pending install identity with fresh
-bounded plugin-name/import/bundle presence. The Antigravity evidence remains
-source-inexact and does not independently establish marketplace provenance.
-Codex correlates the exact
-`[plugins."PLUGIN@MARKETPLACE"]` row in `$CODEX_HOME/config.toml`; cache and
-marketplace visibility are not relation evidence. OpenCode correlates the exact
-host-source row across every existing server and TUI JSON and JSONC candidate
-in the selected layer. All four candidate paths remain observation and mutation
-authority even when some are absent. For selector-shaped
-Antigravity sources, daem correlates the plugin name across
-`~/.gemini/config/import_manifest.json` and
-`~/.gemini/config/plugins/<plugin>/plugin.json`; both must be consistently
-present and identity-matching. Malformed, duplicated, mismatched, partial,
-unstable, or symlinked selected state blocks. Other Antigravity source forms
-retain the no-observer attempt posture: status/dry-run preserve unsupported
-evidence rather than calling it missing, and mutating apply retries the route.
-Because the host drops marketplace provenance, lock rejects distinct
-Antigravity structural sources that collapse to the same host-visible plugin
-name; declarations sharing one identical structural carrier remain valid.
-Attempt records remain
-history-only diagnostics and never grant future skip authority. Before an
-supported host command runs, apply durably records one exact lock-bound pending
-carrier install. Fresh exact observed presence promotes it to a managed carrier
-claim for source-exact hosts. Selector-shaped Antigravity rows instead require
-fresh bounded complete-pair presence, with the exact pending fact retaining the
-source and route identity that passive evidence cannot prove. Project claims
-live in that manifest's statefile; global claims commit first to the shared
-global registry and then retire the project-state pending fact. A normally
-completed invocation that does not establish a claim retires its pending fact,
-including failed, observed-absent, and attempted-unverified outcomes. Pending
-may survive an interrupted invocation or lost state authority; a later fresh
-route-supported presence observation can complete that interrupted correlation.
-Rows with supported observers later reread current host inventory; a no-observer
-row retries while observation remains unsupported. Pending state alone never
-skips or grants destructive authority. Managed carrier claims are created from
-daem install transitions with the required current postcondition evidence, or
-from explicit state-only adoption of an already present source-exact relation
-through `apply --manage-existing`.
-Either claim kind records relation provenance, not exact artifact state, and
-does not prove enabled, trusted, ready, exact convergence, package/cache, or
-contribution-inventory state. The Antigravity observer cannot recover
-marketplace provenance from host state and does not claim it, artifact
-freshness, bundled contributions, trust, runtime readiness, or ambient
-non-daem consumers.
-Mutating apply holds one complete cross-process
-lease set across logical inputs, state/recovery paths, shared destinations, and
-conservative host-route surfaces. It rebuilds and revalidates the candidate
-plan under those leases before any state, journal, host, route, or delegate
-effect, so shared routes and destinations also serialize across different
-manifests.
-Explicit `refresh extension` uses its own locked operation contract and is
-never selected by ordinary apply. Managed-relation removal, unmanage, prune,
-runtime probes, and plugin-bundled contribution import remain separate
-operation rows. Unmanage is executable and host preserving; target-specific
-host removal routes remain governed by the feature matrix.
+Confirmed apply may execute the exact host/scope install route in [Host
+Integrations](host-integrations.md#host-delegated-carrier-lifecycle-routes):
+Claude `claude plugin install ... --scope project|user`, Codex `codex plugin add
+... --json`, OpenCode `opencode plugin` (`--global` only globally), Pi `pi
+install` (`-l` only for project), Antigravity `agy plugin install`.
+Codex/Claude/OpenCode/Pi require fresh exact selected-scope absence before
+invocation and fresh exact presence for a managed claim. Antigravity selectors
+instead require complete-pair absence, then bounded matching import/bundle
+presence correlated with the exact pending source/route identity; passive
+evidence cannot prove marketplace provenance. Malformed, duplicated, mismatched,
+partial, unstable or symlinked selected Antigravity state blocks. Distinct
+structural sources collapsing to one plugin name are rejected; identical shared
+carriers remain valid.
 
-For Claude Code project and explicit-global rows, exact desired absence backed
-by a durable managed claim may invoke
-`claude plugin uninstall <plugin>@<marketplace> --scope project --keep-data` or
-the corresponding `--scope user --keep-data` host route. Apply first requires
-fresh exact selected-relation presence and no remaining daem-known consumer of
-the structural carrier. It retires removal authority only after a fresh
-observation proves that exact relation absent. Command success, failure, or
-timeout alone is not convergence. The route retains marketplace declarations,
-versioned or orphaned caches, host metadata, plugin data, dependencies,
-credentials, trust/session state, siblings, and unrelated resources; it does
-not prune residue, remove individual bundled contributions, prove ambient
-global consumers, or claim runtime unload/readiness.
+Attempts and pending facts alone never authorize skip/removal. Interrupted
+installs may complete correlation from fresh route-supported evidence; normally
+finished attempts without a claim retire pending state. No-observer Antigravity
+forms remain unsupported, not missing, and apply retries. Explicit
+`--manage-existing` requires source-exact existing relations. Claims record
+relation provenance, not artifact/version/cache convergence, enablement, trust,
+readiness or contributions. Complete leases serialize shared routes/destinations
+across manifests; plans rebuild and revalidate before any effect. Refresh,
+removal, host-preserving unmanage, unsupported prune, probes and
+bundled-contribution import are separate operations. [State And
+Recovery](state-and-recovery.md) describes pending/global claim commits.
 
-For the Codex explicit-global row, exact desired absence backed by a durable
-managed claim may invoke
-`codex plugin remove <plugin>@<marketplace> --json`. Apply requires zero
-remaining daem-known consumers and verifies two separate current facts after
-execution: the exact selected config relation is absent and
-`$CODEX_HOME/plugins/cache/<marketplace>/<plugin>` is absent. Codex removes the
-cache before rewriting config, so partial or uncertain outcomes retain the
-claim and write-ahead pending removal until fresh observation proves both
-facts. A present config relation with a missing cache still invokes the exact
-route. If the config relation is already absent before a pending removal is
-created, apply retires the eligible claim without invocation and leaves any
-orphan cache outside implicit prune authority. Marketplace declarations and
-snapshots, sibling and same-name-other-marketplace relations and caches,
-credentials, trust/session state, unrelated config, and external stores are
-retained. Daem does not prove ambient non-daem consumers or runtime
-unload/readiness.
+For Claude Code project/global rows, exact desired absence with a durable
+managed claim may invoke `claude plugin uninstall <plugin>@<marketplace> --scope
+project|user --keep-data`. Apply requires fresh exact presence and no remaining
+daem-known consumer, and retires authority only after fresh absence; command
+result alone is insufficient. The route retains marketplace declarations, caches, metadata,
+data, dependencies, credentials, trust/session state, siblings, and unrelated
+resources; it does not prune residue, bundled contributions, ambient consumers,
+or runtime state.
 
-For OpenCode project and explicit-global rows, exact desired absence backed by
-a durable managed claim removes only the exact host-source row from every
-existing server and TUI JSON and JSONC candidate. This is direct structured-config
-actuation, not an `opencode` host command: `opencode uninstall` would remove the
-host program. All four candidate paths are held as mutation authority; missing
-candidates are no-ops and are never created. Each existing file uses bounded
-JSONC parsing, retained-root
-authority, and compare-and-swap replacement while preserving comments,
-whitespace, tuple options, sibling rows, unknown fields, empty arrays, and the
-config file itself. A partial multi-file success retains durable pending state;
-retry treats already-absent rows as no-ops and continues the remaining files.
-The managed claim retires only after fresh absence from every loaded candidate.
-The other scope, package-manager installations, `node_modules`,
-lockfiles, caches, local source directories, data, credentials, sessions,
-runtime activation, and unrelated config remain untouched. Default-global
-removal cannot prove ambient non-daem consumers, and custom
-`OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR`, managed/remote layers, and non-selected
-shadow files are outside this route.
+For Codex explicit-global desired absence with a durable claim and zero
+remaining daem-known consumers, apply may invoke `codex plugin remove
+<plugin>@<marketplace> --json`. Both selected config relation and
+`$CODEX_HOME/plugins/cache/<marketplace>/<plugin>` must be freshly absent.
+Partial/uncertain results retain claim and pending removal; present config still
+invokes with missing cache. Only config already absent before pending removal
+allows no-invocation retirement, leaving orphan cache outside prune authority.
+Marketplace declarations/snapshots, siblings and other-marketplace
+relations/caches, credentials, trust/sessions, unrelated config and external
+stores remain. No ambient-consumer or runtime unload/readiness claim is made.
 
-For an Antigravity CLI explicit-global row whose locked
-`source.host_source` is a safe `PLUGIN@MARKETPLACE` selector, exact desired
-absence backed by a durable managed claim may invoke
-`agy plugin uninstall <plugin>`. Apply requires fresh selected residual-state
-correlation and zero remaining daem-known consumers. It passes the host-visible
-plugin name, never the marketplace selector, and does not trust exit zero or
-success prose. Claim and write-ahead pending authority retire only after fresh
-observation proves both the selected import-manifest row and
-`~/.gemini/config/plugins/<plugin>` absent. Partial state remains live for
-retry; an already-absent pair retires eligible authority without invocation.
-Sibling plugins and import rows, credentials, trust/session state, unrelated
-stores, marketplace/source setup, and Antigravity IDE state are retained.
-Marketplace provenance and ambient non-daem consumers remain non-claims.
-Opaque and local Antigravity host sources do not receive removal authority.
+For OpenCode project/global rows, exact desired absence with a durable claim
+removes only the exact host-source row from every existing server/TUI JSON or
+JSONC candidate; it does not run `opencode uninstall`. Missing candidates are
+no-ops and are not created. Bounded structured edits preserve comments,
+whitespace, tuples, siblings, unknown fields, empty arrays, and files; partial
+success remains retryable until fresh absence from every candidate. Other
+scopes, installations, caches, sources, data, credentials, sessions, runtime
+activation, unrelated config, and non-selected layers remain untouched.
+
+For a safe Antigravity explicit-global `PLUGIN@MARKETPLACE`, desired absence
+with a durable claim, fresh residual correlation and zero remaining daem-known
+consumers may invoke `agy plugin uninstall <plugin>`—the name, not selector.
+Exit zero is insufficient: claim/pending authority retires only after fresh
+absence of both import-manifest row and plugin directory. Partial results remain
+retryable; already-absent pairs retire without invocation. Siblings,
+credentials, trust/sessions, stores, source setup and IDE state remain;
+marketplace provenance and ambient consumers are not proven. Opaque/local
+sources receive no removal authority.
 
 `daem add extension <id> <source>` and `daem remove extension <id>` are
 authoring helpers for all five supported rows. Add accepts one opaque
@@ -1795,89 +1602,31 @@ bundled contribution import remain independently matrix-controlled.
 
 ## Current Non-Goals
 
-The manifest schema already models targets, scopes, instructions, skills,
-hooks, and the supported MCP exact-projection relations, but
-some product surfaces and downstream actions are intentionally not implemented
-yet:
+The manifest models targets, scopes, instructions, skills, hooks, and supported
+MCP exact-projection relations; intentionally unimplemented surfaces are
+summarized in [Feature Support](features.md) and the owning host contracts.
 
-- MCP server declarations beyond the supported Codex project command/args slice
-  and explicit-global command/args plus same-name environment-reference slice,
-  Claude Code project stdio and explicit-global command/args plus exact aliased
-  environment-reference slices, OpenCode project command/args and
-  explicit-global command/args plus exact aliased environment-reference slices,
-  Pi project and explicit-global provider-mediated command/args plus exact
-  aliased environment-reference slices,
-  and Antigravity CLI explicit-global command/args plus same-name ambient
-  environment-reference slice. The
-  Claude slice renders one standalone server relation into the project
-  `.mcp.json` config, locks its delegated executable plan identity, and reports
-  config convergence,
-  passive MCP executable prerequisite diagnostics, and last delegate attempt
-  diagnostics as separate dimensions. The Claude global slice renders one
-  standalone server relation into top-level `~/.claude.json`, locks the
-  command/args and symbolic child/source environment mapping, may report
-  passive executable
-  prerequisites, and has no delegated executable or runtime readiness claim.
-  The Codex slices render one standalone
-  server relation into project `.codex/config.toml` or default user
-  `~/.codex/config.toml`, lock the project command/args projection or global
-  command/args plus same-name environment names, may report passive executable
-  prerequisites, and have no delegated executable or runtime readiness claim.
-  The OpenCode slices render one standalone server relation into project
-  `opencode.json` or default user `~/.config/opencode/opencode.json`, lock the
-  command/args config projection, may report passive executable
-  prerequisites, and have no delegated executable claim. Runtime probe support
-  remains limited to the separate explicit project-scope
-  `probe mcp-server --target opencode --scope project` launch+initialize check
-  with no state, lock, or host config mutation. The Antigravity slice renders
-  one standalone server relation into
-  `~/.gemini/config/mcp_config.json`, locks command/args plus symbolic source
-  names while omitting native `env`, may report passive executable
-  prerequisites, and has no delegated executable or runtime readiness claim.
-  The Pi slices require one explicit admitted `pi-mcp-adapter` provider, render
-  into project `.pi/mcp.json` or the current agent-root `mcp.json`, observe the
-  provider's effective six-layer config for collision and fallback, and keep
-  provider version, config convergence, project trust, and runtime readiness as
-  separate evidence.
-  Import does not infer ambient names. Runtime startup, package/cache
-  ownership, credential availability, approval/trust state, endpoint health,
-  tool inventory, tool policy, and broader host config ownership remain outside
-  the managed aggregate contribution contract.
-Minimal manifests are available at
-[`examples/claude-project-mcp-stdio.toml`](../examples/claude-project-mcp-stdio.toml),
-[`examples/claude-global-mcp-stdio.toml`](../examples/claude-global-mcp-stdio.toml),
-[`examples/codex-project-mcp-stdio.toml`](../examples/codex-project-mcp-stdio.toml),
-[`examples/codex-global-mcp-stdio.toml`](../examples/codex-global-mcp-stdio.toml),
-[`examples/opencode-project-mcp-stdio.toml`](../examples/opencode-project-mcp-stdio.toml),
-[`examples/opencode-global-mcp-stdio.toml`](../examples/opencode-global-mcp-stdio.toml),
-[`examples/pi-project-mcp-stdio.toml`](../examples/pi-project-mcp-stdio.toml),
-[`examples/pi-global-mcp-stdio.toml`](../examples/pi-global-mcp-stdio.toml),
-and
-[`examples/antigravity-global-mcp-stdio.toml`](../examples/antigravity-global-mcp-stdio.toml).
+- MCP remains limited to the supported Codex, Claude Code, OpenCode, Pi, and
+  Antigravity CLI stdio slices and their documented project/global destinations,
+  environment-reference rules, and rejection conditions. Pi requires an explicit
+  admitted `pi-mcp-adapter`; import does not infer ambient names. Config
+  convergence, provider version, trust, approval, runtime readiness, endpoint
+  health, tool inventory/policy, credentials, package/cache ownership, and
+  broader host ownership remain separate or unsupported concerns. See the [MCP
+  Servers](#mcp-servers) table, [Host Integration
+  Contract](host-integrations.md#mcp-server-config), and the linked examples.
 
 - Hook asset directory payloads, plugin-bundled hook installation, standalone
   executable installation, and command path rewriting. [Hook Assets](#hook-assets)
   documents the narrower supported regular-file payload boundary.
-- Public `[[extension]]` carrier declarations outside the supported Codex global
-  marketplace-selector, Claude Code project or explicit-global marketplace,
-  OpenCode host-source, Pi package host-source, and Antigravity CLI explicit-global host-source
-  slices. Codex currently admits only
-  `carrier = "codex-plugin"`, target `codex`, explicit `scope = "global"`,
-  and `source.marketplace = "<plugin>@<marketplace>"`; Codex project plugin
-  scope is product `unsupported` with reason `host-unavailable` in the current
-  native route. Claude Code currently
-  admits only `carrier = "claude-code-plugin"`, target `claude-code`, project
-  or explicit-global scope, and `source.marketplace`; public explicit-global
-  Claude rows map to host `--scope user`, while public `scope = "user"` is
-  rejected and Claude `local` remains product `deferred` with reason
-  `not-modeled`. OpenCode
-  currently admits only `carrier = "opencode-plugin"`, target `opencode`,
-  project or explicit-global scope, and `source.host_source`; Pi currently admits only
-  `carrier = "pi-package"`, target `pi`, project or explicit-global scope, and
-  `source.host_source`; Antigravity CLI currently admits only
-  `carrier = "antigravity-cli-plugin"`, target `antigravity-cli`, explicit
-  `scope = "global"`, and `source.host_source`. Pi direct extension
-  `carrier = "pi-extension"`, Antigravity project-scope plugin rows, and
-  Antigravity import/link source-provenance rows are not public manifest syntax.
+- Public `[[extension]]` carriers are limited to Codex global marketplace
+  selectors, Claude Code project/global marketplace rows, OpenCode host-source
+  rows, Pi package host-source rows, and Antigravity CLI explicit-global
+  host-source rows. Codex project scope is `unsupported` (`host-unavailable`);
+  Claude public global maps to host `--scope user`, public `scope = "user"` is
+  rejected, and Claude `local` is `deferred` (`not-modeled`). Pi direct
+  `pi-extension`, Antigravity project scope, and Antigravity import/link
+  provenance rows are not public syntax. See [Extension
+  Carriers](#extension-carriers).
 - Symlink placement in mutating apply.
 - OpenCode, Pi, or Antigravity CLI hook rendering semantics.

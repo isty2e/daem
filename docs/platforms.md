@@ -1,8 +1,7 @@
 # Platform Support
 
-This page is the public authority for operating-system and architecture support
-in `daem`. Agent and resource coverage is a separate axis documented in
-[Feature Support](features.md).
+This page owns operating-system and architecture support. Agent/resource
+coverage is separate: see [Feature Support](features.md).
 
 ## Current Matrix
 
@@ -16,147 +15,79 @@ in `daem`. Agent and resource coverage is a separate axis documented in
 | Windows | `amd64` | not admitted | compile only |
 | Every other target | any | not admitted | unverified |
 
-Product support and verification are different facts. An admitted row is a
-target the product is designed to run on. `native required` means a release may
-claim that support only after the repository's native test, CLI smoke, and
-artifact-reproducibility lane passes for the row in the release run. A declared
-workflow or another row's result is not that evidence. This does not claim that
-every filesystem, distribution, kernel, host CLI version, or machine
-configuration has been exercised.
+An admitted row is a supported design target, not a test result. Release claims
+require that row's native tests, CLI smoke and artifact-reproducibility lane in
+the release run. This does not cover every filesystem, distribution, kernel,
+host CLI or machine configuration. Compile-only builds detect portability
+failures; they do not establish native behavior or promote support.
 
-Linux rooted-path authority has two levels. Operation-local checks use the
-ordinary mount identity retained with the selected root. A journal-bearing
-mutation additionally requires `STATX_MNT_ID_UNIQUE` and a canonical boot UUID
-from the verified procfs `kernel/random/boot_id` entry. This evidence is stored
-only as recovery provenance; it is not part of the manifest, lockfile, or
-ordinary operation fingerprint. Every journal records the selected manifest
-root provenance, including a state-only journal with no host entries. A clean
-invocation therefore is not rejected merely because the machine rebooted. An
-active journal is different: recovery after a reboot fails closed before
-effects because the persisted mount authority belonged to the earlier boot. If
-the running Linux kernel cannot provide the unique mount identity, daem rejects
-the durable-provenance preflight before provider-prerequisite state publication
-or delegated provider installation. Final journal capture validates that
-provenance again before its covered host mutations rather than weakening
-durable recovery authority.
+### Linux Recovery
 
-On admitted Darwin and Linux targets, descriptor-relative artifact views seal the
-complete selected root-component chain with object-incarnation and
-operation-local mount evidence. `OpenView` first resolves parent symbolic
-links; `OpenNoFollowView` rejects every symbolic-link component. Each read,
-listing, hash, measurement, and verified copy validates that chain before observation
-and again before success. Nested relative selections receive the same
-operation-local ancestor validation. Under stable parent-directory observations,
-their exact stored spelling must remain bound to the original opened entry's
-full per-operation identity, including change time, mode, and size, across final
-binding validation. Nested directory-listing witnesses retain that relative
-chain for later inventory revalidation. The witness is
-immutable and process-local: it grants no mutation or durable recovery
-authority. Darwin requires at least one reported non-reusable incarnation fact:
-a nonzero birth time or generation number. Linux requires both `STATX_MNT_ID`
-and `STATX_BTIME` for each component. An unavailable mount or incarnation
-identity fails the affected artifact operation rather than falling back to
-reusable inode or pathname facts.
+Journal-bearing mutation requires `STATX_MNT_ID_UNIQUE` and a canonical boot
+UUID from verified procfs `kernel/random/boot_id`. Without that evidence, daem
+refuses before provider-prerequisite state publication or delegated provider
+installation, and validates provenance again before journal-covered host writes.
+This applies even to state-only journals with no host entries.
 
-For these Unix artifact views, absolute-root components use the backing
-filesystem's native name lookup. A case variant can select the same object in
-a case-insensitive parent namespace; an absent spelling in a case-sensitive
-namespace remains absent. This is not symbolic-link traversal and is not
-disabled by `OpenNoFollowView`. Nested relative selections still require exact
-stored spelling as described above, even when the filesystem would resolve a
-case variant. Neither spelling rule replaces the object and mount checks.
+An active journal from an earlier boot is refused before recovery effects.
+The boot identity is recovery provenance, not part of a manifest, lockfile or
+ordinary operation fingerprint; reboot alone does not invalidate a clean new
+invocation. Operation-local rooted checks need not establish durable recovery
+provenance. On admitted rows, platform-scoped stable-storage publication
+preserves durable evidence across an OS crash or power loss, subject to the
+filesystem caveats below; it does not make post-reboot recovery executable.
+
+### Artifact Paths
+
+On admitted Darwin/Linux targets, artifact reads, listings, hashes and copies
+require stable root/ancestor object and mount identity through completion.
+Darwin requires nonzero birth time or generation for artifact views; Linux
+requires `STATX_MNT_ID` and `STATX_BTIME` on each component. Missing identity
+fails the affected operation rather than falling back to inode or pathname
+alone. Read-only locators and process-local witnesses grant no mutation, lease,
+durable-comparison or durable recovery authority.
+
+Absolute artifact-root components use native filesystem lookup: a case variant
+may resolve on a case-insensitive filesystem, while an absent spelling remains
+absent on a case-sensitive one. Nested relative selections require exact stored
+spelling and stable full identity, including change time, mode and size.
+Ordinary views resolve parent symlinks; no-follow views reject every symlink
+component, but do not impose case-sensitive lookup on absolute roots.
 
 Universal exact-input-spelling rejection for absolute artifact roots is outside
 this contract: a root is an input locator, not a required inventory-entry name.
-Adding that refusal would require a separate compatibility decision. These
-read-only locators and process-local witnesses do not grant the mutation,
-lease, or durable-comparison authority described under
-[Path Descriptions](#path-descriptions).
+Adding that refusal requires a separate compatibility decision. The distinct
+[deferred Darwin mutation-root policy](../ARCHITECTURE.md#platform-maintenance-decisions)
+does not weaken the artifact-view rule.
 
-**Deferred Darwin admission policy:** blanket nonzero generation/birth-time
-admission for mutation roots, durable root provenance, and StateDir witnesses
-is not required by the artifact-view rule above. A native macOS 26.6.2 probe
-set a temporary directory's `ATTR_CMN_CRTIME` to epoch zero and observed zero
-generation and birth time. Rooted capture, provenance construction, and
-StateDir capture accepted it; StateDir revalidation rejected a
-rename-and-recreate replacement.
-The zero tuple alone therefore does not establish unavailable identity. This
-probe does not establish safety against inode reuse or every filesystem's
-missing-metadata behavior. The maintainer defers a blanket zero-tuple refusal
-while retaining the [root and StateDir identity contracts](concepts.md#recovery-journal).
-Revisit on a supported reproduction of unavailable incarnation evidence or
-missed replacement, or an explicit decision to require nonzero admission.
+### macOS Runtime Floor
 
-The admitted Darwin target has a macOS 26 runtime floor. Earlier macOS releases
-are outside the support contract because their directory rename semantics can
-reject write-disabled trees before daem's atomic publication or logical-removal
-visibility point. The target-level `darwin/arm64` admission identity does not
-claim support for an older Darwin runtime.
-
-Daem reads `/usr/bin/sw_vers --productVersion` through a bounded, timed
-observation and requires a canonical product version at or above `26.0`. For a
-platform-gated command, a lower version, malformed output, command failure, or
-timeout fails closed before workspace, source, storage, or host effects.
-`doctor` performs the same observation but retains its diagnostic path
-resolution exception; after path resolution it reports the running target,
-observed runtime or failure reason, required floor, verification lane, and next
-step, then continues with independent remaining checks and named
-`unsupported`/`skipped` coverage instead of treating the rest of doctor as one
-atomic cut. Target admission and runtime observation remain separate facts.
-
-`compile only` means the source is cross-built to detect portability failures.
-It does not establish native execution, durable filesystem behavior, host
-integration, or product support. A successful local build on an unlisted target
-does not promote that target.
-
-Narrow capability jobs do not promote a target either. CI executes the Windows
-retained-root, filesystem-observation, and handle-relative storage
-publication/removal packages on a native Windows runner, while FreeBSD, NetBSD,
-and OpenBSD filesnapshot and Codex observation test packages are cross-compiled
-only. Those jobs verify only the named capability adapters; they do not change
-the product-support or verification rows above. No native BSD execution is
-claimed.
+macOS 26 is required because earlier releases can reject write-disabled
+directory renames before atomic publication or logical removal. Daem checks
+`/usr/bin/sw_vers --productVersion`; a version below `26.0`, malformed output,
+command failure or timeout blocks platform-gated commands before workspace,
+source, storage or host effects. `doctor` retains the diagnostic exceptions below.
 
 ## Unsupported Builds
 
-Cross-built binaries keep help, executable identity, and diagnostics available.
-`daem --help`, `daem help <command>`, command-specific help, `daem version`, and
-`daem --version` do not require an admitted platform. Version reads embedded
-build facts only; it does not turn a compile-only build into a supported
-product. `daem doctor` reports the exact running `GOOS/GOARCH`, its verification
-class, and the admitted targets; it exits nonzero on a not-admitted platform.
-Doctor validates target selection and resolves the selected manifest path so
-that path errors remain actionable. After successful path resolution on a
-not-admitted platform, it keeps the platform error, runs only checks whose
-success meaning is unchanged, and emits named `unsupported` or `skipped`
-results for capability-bound remaining checks. It does not execute Git, search
-PATH for MCP executables, or invoke durable file-set or recovery inventory
-adapters, so a storage abort cannot erase the platform finding. Host config
-grammar checks read a bounded regular-file snapshot and admit TOML/JSON
-structure before decoding. If path
-resolution itself fails, the platform and path
-findings are both reported and remaining checks are not invented. This
-diagnostic exception grants no storage or mutation capability.
+| Command | Behavior on a not-admitted platform |
+| --- | --- |
+| `--help`, `help <command>`, command-specific help, `version`, `--version` | Available; version uses embedded build facts only. |
+| `doctor` | Nonzero with running `GOOS/GOARCH`, runtime/failure where applicable, required floor, verification class, admitted targets and next step. Resolves target/manifest selection to report path errors as well. |
+| `add`, `apply`, `import`, `init`, `lock`, `outdated`, `recover`, `refresh`, `remove`, `unmanage` | Refused before path resolution, manifest/cache access, confirmation, host/delegated effects or durable metadata publication. Dry-run uses the same gate. |
+| `list`, `status`, explicit `probe` | Not a partial unsupported-platform mode; required storage, project-root, process or host capabilities still fail closed. |
 
-The platform-gated command families `add`, `apply`, `import`, `init`, `lock`,
-`outdated`, `recover`, `refresh`, `remove`, and `unmanage` reject a
-not-admitted platform before path resolution, manifest or cache access,
-confirmation, host writes, delegated command execution, or durable metadata
-publication. `outdated` remains read-only with respect to desired and host
-state, but it consumes the same path and source-cache semantics. Dry-run forms
-use the same gate because planning depends on the same platform contracts.
-
-`list`, `status`, and explicit `probe` behavior are not a partial unsupported-
-platform product mode. Their existing lower-level adapters continue to fail
-closed when a required storage, project-root, process, or host guarantee is not
-available.
+After successful path resolution, `doctor` retains the platform finding and
+runs only checks whose meaning is unchanged. Capability-bound checks report
+`unsupported` or `skipped`, never `ok`; path-resolution failure reports both
+findings without inventing remaining results. On not-admitted platforms it
+does not run Git, search PATH for MCP executables, or invoke durable file-set
+or recovery-inventory adapters. Bounded host-config grammar checks remain
+available. Storage failure cannot erase the platform finding, and diagnostics
+grant no mutation capability. `outdated` is read-only for desired/host state but
+still requires supported path and source-cache behavior.
 
 ## Path Descriptions
-
-Some path-resolution code can describe roots for a not-admitted platform, such
-as Windows user configuration directories. That allows deterministic parsing,
-cross-building, and diagnostics. It does not make the platform supported and
-does not authorize durable mutation there.
 
 Platform admission does not weaken filesystem-specific caveats. In particular,
 network filesystems such as NFS may not provide the same crash-durability and
@@ -164,22 +95,15 @@ cross-process exclusion guarantees as a tested local filesystem even on an
 admitted OS/architecture row. The same caveat applies to journal-retirement
 control publication, residue cleanup, and control-to-GC finalization.
 
-On Darwin, mutation, lease, and durable-comparison path authority follows the
-backing filesystem rather than a single macOS-wide rule. Daem obtains stored
-spelling for existing components and asks each parent directory namespace
-whether names are case-sensitive. Mixed mount
-paths are evaluated component by component; a missing suffix inherits the
-deepest existing directory's case behavior. An unavailable or contradictory
-capability is an error, not a case-insensitive fallback. Directory-entry
-authority keeps the final symlink itself, while referent authority follows it.
+Darwin mutation, lease and durable-comparison authority follows each parent
+namespace's case behavior, including mixed mounts; a missing suffix inherits
+the deepest existing parent's behavior. Unavailable or contradictory evidence
+is an error, not a case-insensitive fallback. Entry authority keeps the final
+symlink itself; referent authority follows it.
 
-This does not emulate APFS or HFS+ Unicode normalization in user space or infer
-that two spellings are equivalent. Existing entries use the stored spelling
-reported by the operating system. For an absent, normalization-sensitive
-Darwin destination, daem records the selected spelling and its exact existing
-parent namespace as provisional comparison and exclusion evidence. That record
-does not grant exact path authority. After creation, daem accepts only a fresh
-observation inside the same namespace, at the same depth, with the same
-filesystem semantics. Recovery also fails before effects if the captured root
-directory is replaced or the destination crosses onto a different descendant
-mount.
+Daem uses OS-reported stored spelling, not user-space APFS/HFS+ Unicode
+normalization. An absent normalization-sensitive destination provides only
+provisional comparison/exclusion evidence, not exact path authority. After
+creation it must be observed afresh in the same namespace, depth and filesystem
+semantics. Recovery refuses root replacement or a different descendant mount
+before effects.

@@ -12,52 +12,62 @@ daem apply --dry-run --diff
 ```
 
 `doctor` checks passive prerequisites. It does not run MCP servers or mutate
-host state. See the [CLI Reference](cli.md) for JSON output and exact exit-code
-behavior.
+host state. `status --check` returns nonzero when the environment is not up to
+date; inspect its findings rather than treating that exit alone as a crash.
+See the [CLI Reference](cli.md) for JSON output and exact exit-code behavior.
+
+## Find Your Symptom
+
+- Setup: [unsupported platform](#unsupported-platform),
+  [missing or stale lockfile](#lockfile-is-missing-or-stale),
+  [skipped import](#import-skipped-an-instruction-hook-or-mcp-file).
+- Ownership: [`ownership_conflict`](#ownership_conflict),
+  [`unmanaged_output_exists`](#unmanaged_output_exists),
+  [drift](#a-managed-output-drifted),
+  [same-name skills at several paths](#same-skill-name-at-multiple-agent-paths).
+- MCP: [missing environment sources](#missing-mcp-environment-sources),
+  [Pi provider or config mismatch](#pi-mcp-provider-or-config-is-not-current).
+- Extensions: [unclaimed carrier](#external-carrier-is-present-but-unclaimed),
+  [order change](#extension-order-changed-after-carrier-updates),
+  [refresh failure](#extension-refresh-was-refused-or-failed),
+  [Pi removal not converged](#pi-package-removal-did-not-converge).
+- Interrupted work: [apply](#apply-was-interrupted),
+  [manifest metadata update](#manifest-metadata-update-was-interrupted),
+  [journal from an earlier boot](#recovery-journal-from-an-earlier-boot).
+- Other limits: [old durable schemas](#pre-10-durable-authority-schemas),
+  [skill-group expansion](#lock-or-doctor-exceeded-the-skill-group-expansion-limit),
+  [NFS](#nfs-backed-home-or-workspace).
+- [Collect a diagnostic report](#collecting-a-diagnostic-report).
+
+For a planned migration rather than a failure, see
+[Use An Existing Environment](migration.md). Durable record formats and limits
+are described in [State And Recovery](state-and-recovery.md).
 
 ## Unsupported Platform
 
-On a not-admitted operating-system/architecture pair, use `daem doctor` or
-`daem doctor --json` for the platform diagnosis. Doctor resolves the selected
-manifest path, keeps the platform error, and continues with independent
-remaining checks. Capability-bound work is named `unsupported` or `skipped`
-instead of `ok`. Durable file-set and recovery inventory adapters are not
-invoked. A path-resolution failure is reported alongside the platform error.
-This does not make apply, recovery, or other storage-backed workflows
-available; run those commands on a target admitted by
-[Platform Support](platforms.md).
+On an unsupported platform, `daem doctor` or `daem doctor --json` reports the
+platform error alongside path-resolution errors and any independent checks.
+Capability-bound checks are `unsupported`/`skipped`, not `ok`; durable
+file-set/recovery inventory is not invoked. Storage-backed commands remain
+unavailable; use an admitted [platform](platforms.md).
 
 ## Pre-1.0 Durable Authority Schemas
 
-Current daem persists each filesystem authority as a canonical key plus the
-versioned filesystem-semantics witness used to derive it. Early statefile v7,
-shared ownership registry v1, carrier claim registry v1, and recovery journal
-v7 stored only path strings. Current daem does not guess whether an old
-lowercase path came from a case-sensitive, case-insensitive, or Unicode
-normalization-equivalent namespace.
+Old statefile v7, ownership/carrier registry v1 and journal v7 recorded path
+strings without current filesystem witnesses. Daem cannot infer their case or
+Unicode namespace semantics.
 
-There is one narrow retirement exception. An exact v7 statefile whose seven
-fact-family arrays are all present and empty, or an exact v1 ownership/carrier
-registry whose `claims` array is present and empty, contains no remaining path
-authority. Current daem reads that artifact as canonical empty state. Read-only
-commands do not rewrite or delete it; the next ordinary guarded write that
-changes that state records the current schema. Missing, null, populated, or
-unknown fields are not an empty retirement artifact and remain blocked. Field
-names in versioned durable files use exact ASCII `lower_snake_case` spelling;
-case variants such as `CLAIMS` are rejected rather than treated as aliases.
-Every pre-v13 recovery journal is blocked because its presence may represent
-interrupted effects. Journal v12 does not persist the transition-derived
-removal demand needed to prove exact coverage by its cleanup intents, so the
-current binary cannot safely infer or add that authority during reload.
-Journal v10 persists a reusable Linux mount ID that cannot
-establish durable mount identity after unmount/remount cycles or ID reuse.
-Journal v9 does not carry the exact ownership-transition foreign key or the
-capture-time global destination binding, including root object and mount
-provenance, required by the current recovery contract. Journal v8 already
-carried path witnesses, but it used an older transaction contract. None of
-these versions is rewritten or adopted by the current binary; recover it with
-the daem version that wrote it before upgrading, subject to the v10 exception
-below.
+Only exact empty artifacts can retire automatically: v7 state with all seven
+fact arrays present/empty, or v1 registries with present/empty `claims`. Reads
+do not rewrite/delete them; the next state-changing guarded write uses current
+schema. Missing, null, populated or unknown fields remain blocked. Fields
+require exact ASCII `lower_snake_case`; `CLAIMS` is not an alias.
+
+Every pre-v13 journal is blocked, never rewritten or adopted. These journals
+lack current recovery authority: v12 removal-demand coverage, v10 durable Linux
+mount identity, v9 transition foreign key/global-root binding, or v8's current
+transaction contract. Ordinarily recover with the writer before upgrading, but
+**v10 requires the continuity check below**.
 
 Do not unconditionally open a v10 journal with its old writer. That writer can
 authorize Linux recovery with the reusable mount witness that current daem
@@ -105,16 +115,12 @@ diagnostics for manual analysis rather than deleting authority evidence.
 
 ## Recovery Journal From An Earlier Boot
 
-On Linux, recovery journals bind the unique mount identity to the boot in which
-the journal was captured. This includes state-only journals with no host-entry
-actions: every journal binds the selected manifest root. If the machine reboots
-while a journal is active, current daem refuses recovery before host, state,
-ownership, or cleanup effects.
-This does not alter the manifest or lockfile, and it does not prevent ordinary
-work in a clean workspace with no active journal. Preserve the journal and its
-backups for manual analysis; do not delete or edit them to bypass the refusal.
-Daem does not currently claim automatic recovery across an operating-system
-reboot.
+Linux journals, including state-only journals, bind the selected manifest root
+to the capture boot. After reboot, recovery refuses before
+host/state/ownership/cleanup effects. Preserve the journal/backups for manual
+analysis; never edit/delete them to bypass refusal. This changes neither
+manifest nor lock and does not block a clean workspace. Automatic cross-boot
+recovery is unsupported.
 
 ## `ownership_conflict`
 
@@ -147,10 +153,9 @@ target and scope.
 4. If the retained copy is obsolete, remove it manually only after confirming
    that no other workspace or target needs it.
 
-The warning is passive and does not block apply by itself. Daem does not infer
-host precedence, adopt the retained copy, or delete it. The check examines
-only exact cataloged same-name paths and is a point-in-time preflight:
-filesystem state can still change after the warning is produced.
+This passive, point-in-time warning does not itself block apply. Daem checks
+exact cataloged paths, not host precedence, and neither adopts nor deletes
+retained copies; files may change afterward.
 
 ## `unmanaged_output_exists`
 
@@ -260,22 +265,14 @@ when the resulting exact relation is eligible and intended.
 
 ## Lock Or Doctor Exceeded The Skill-Group Expansion Limit
 
-Selector-backed skill groups enumerate only direct children, but a source root
-or selector set can still demand excessive memory or matcher work. Daem rejects
-the complete lock operation when its source-root or selector-expansion budget
-is exceeded. `doctor` reports the same overflow as an error and omits all
-selector-expanded skill checks for that run. Neither command keeps the subset
-observed before the error.
+Skill-group source/selector overflow rejects the whole lock without a partial
+lockfile. Doctor reports an error and omits all selector-expanded checks, not
+just the overflowing subset.
 
-Reduce the number of skill-group declarations or source roots, split an
-unusually broad repository root into narrower roots, or replace broad
-selectors with smaller explicit groups.
-Files and links at a source root still count as observed entries even though
-only direct child directories can become skills. Excluding a name later does
-not erase work already spent matching or selecting it. Reusing one source root
-deduplicates listing I/O but does not make additional group declarations free.
-The exact ceilings are listed under Skill Groups in `docs/manifest.md`; they
-are not configurable from the manifest or CLI.
+Use fewer declarations/roots, narrower repository roots or smaller explicit
+groups, then retry. Files/links count as entries; exclusions do not refund
+selection work, and shared listings do not make extra declarations free. [Skill
+Groups](manifest.md#skill-groups) lists the fixed, non-configurable ceilings.
 
 ## Import Skipped An Instruction, Hook, Or MCP File
 
@@ -285,89 +282,58 @@ skipped when its final path is a symlink, it is not a regular file, it exceeds
 regular-file copy only when that is the desired source of truth; do not point
 import at a FIFO, socket, device, or directory.
 
-Hook JSON is skipped when the file has the same unsafe filesystem shape,
-exceeds 4 MiB, contains duplicate object keys, exceeds 64 levels of nesting,
-contains more than 256 events, 4,096 groups, or 4,096 handlers, uses an event
-name longer than 256 bytes, or is not one complete UTF-8 JSON value. JSON
-comments are not accepted for hook documents. Daem enforces the same byte,
-depth, and structural limits while checking, applying, and recovering managed
-hook files. It also rejects a rendered or restored candidate that would exceed
-those limits before writing it.
+Hook JSON skips unsafe files, documents over 4 MiB, duplicate keys, depth over
+64, more than 256 events/4,096 groups/4,096 handlers, event names over 256
+bytes, and input other than one complete UTF-8 JSON value. Comments are
+rejected. Check/apply/recover use the same limits and reject oversized
+rendered/restored output before writing.
 
-Standalone MCP config is skipped as one document when its final path has the
-same unsafe filesystem shape, changes during the read, or exceeds the selected
-MCP codec's 4 MiB limit. Daem applies that codec-owned limit before reading the
-document and produces no partial MCP server import from a rejected file.
-OpenCode MCP import also skips the strict `opencode.json` document when the
-cataloged `opencode.jsonc` alternate exists for the same scope. Remove or move
-the alternate only when strict JSON should become the host source of truth,
-then rerun the import preview. Daem watches the alternate's absence through
-manifest publication and does not edit either host file. An appeared alternate
-is rejected from its directory entry alone; Daem does not traverse a directory
-or read a file placed at that path. Replacing or rewriting the primary MCP
-config after preview also makes the preview stale, even when the selected MCP
-rows are unchanged or the replacement bytes are identical.
+MCP import skips the whole document for unsafe final-path shape, changes during
+read or the codec's 4 MiB limit; no partial servers are imported. OpenCode also
+skips strict `opencode.json` when the cataloged `opencode.jsonc` alternate
+exists. Move/remove the alternate only if strict JSON should be authoritative,
+then preview again. Daem never edits either host file. An alternate appearing
+before publication or a rewritten/replaced primary makes the plan stale—even for
+identical bytes or unchanged selected rows. The appeared alternate is not
+traversed/read.
 
-If import fails while writing an imported skill source, verify that the
-resolved skill directory stopped changing and contains only directories and
-regular files, including an exact root-level regular `SKILL.md`. Its presence
-and kind are checked in the same traversal that establishes the planned tree
-identity. A top-level skill symlink is allowed because daem resolves it before
-planning; nested symlinks are not. For a merged multi-target import, every
-contributing source route must remain stable even though the representative
-target's canonical route supplies the copied bytes. Imported skill planning and
-staging are both limited to 100,000 entries, 64 descendant-directory levels,
-and 4 GiB of regular-file bytes so a preview admits only trees that private
-staging can create and clean up.
-This is the per-tree publication contract. The containing skills root
-contributes only its immediate inventory; it does not consume a level from an
-individual skill's supported depth. A complete planning pass separately admits
-at most 100,000 immediate root entries, 32 MiB of aggregate entry-name bytes,
-and 4,096 bytes for one entry name across newly observed distinct resolved
-roots. If this inventory boundary is exceeded, remove or move unrelated root
-entries, shorten an over-limit name, or select fewer target/scope roots before
-rerunning the preview. Reused roots retain one listing, but daem revalidates the
-observed directory and each live-root symlink binding on reuse, after revision
-capture, and before publication. Child reads stay under the captured resolved
-root. If the root or alias changed, let it become stable and rerun rather than
-relying on a partial preview. The complete import
-freshness pass is additionally limited to 400,000 entries and 16 GiB of
-regular-file content across all observed trees and cannot widen the per-tree
-ceiling. Rerun `daem import --target <target> --dry-run` after the tree is stable
-and within those bounds.
-Daem does not publish the generated manifest or a partial vendored skill when
-the copied tree differs from the planned content identity.
+For a failed skill-source write, stabilize every contributing route and ensure
+an exact regular root `SKILL.md`, only regular files/directories and no nested
+symlinks. A resolved top-level symlink is allowed. Merged imports require all
+routes to remain stable; the representative route supplies copied bytes.
+Planning/staging limits are 100,000 entries, 64 descendant-directory levels and
+4 GiB per tree; the containing inventory does not reduce tree depth. Aggregate
+freshness allows 400,000 entries/16 GiB, without widening per-tree limits.
 
-Hook import additionally accepts at most 4,096 skipped entries, and all skip
-diagnostics together may contain at most 256 KiB. Exceeding a shared Hook
-document limit produces one `hook_import_budget_exceeded` skip and no partial
-import. Fix the reported live file and rerun
-`daem import --target <target> --dry-run`. Daem does not import the
-valid-looking subset of an ambiguous or over-budget hook document.
+Root inventory allows 100,000 immediate entries, 32 MiB total name bytes and
+4,096 bytes per name across new distinct resolved roots. Reduce unrelated
+entries, shorten names or select fewer roots if exceeded. Reused inventories and
+live-root bindings are revalidated on reuse, after revision capture and before
+publication; child reads stay under the captured root. Changed roots/aliases or
+copied identity prevent manifest/partial-skill publication. Retry `daem import
+--target <target> --dry-run` only once stable and within bounds.
 
-Each imported Hook candidate must also satisfy the canonical Hook model before
-it is written to the manifest. Invalid UTF-8, control or bidirectional-control
-text, and other desired-model violations are skipped rather than producing a
-manifest that daem cannot load again. Existing valid event-based resource names
-remain unchanged so a merge continues to correlate with earlier imports.
+Hook import allows 4,096 skipped entries and 256 KiB total skip diagnostics.
+Document overflow yields one `hook_import_budget_exceeded` skip, never a
+valid-looking subset. Fix the live file and retry `daem import --target <target>
+--dry-run`.
 
-On macOS and Linux, the final file is opened without following symlinks and in
-nonblocking mode before its regular-file identity is checked. Cancellation is
-checked between filesystem operations; it cannot interrupt a filesystem call
-that the operating system has already entered.
+Imported hooks must satisfy the desired model: invalid UTF-8,
+control/bidirectional-control text and other model violations are skipped. Valid
+event-based names stay unchanged so later merge still correlates them.
+
+On macOS/Linux the final file is checked as regular without following symlinks
+or blocking on a special file. Cancellation occurs between filesystem
+operations, not inside an OS call already entered.
 
 ## Extension Order Changed After Carrier Updates
 
-Pi package installation and OpenCode plugin edits can reveal an order that was
-not observable during the original apply preview. Daem re-reads those files
-after carrier work. If the new order introduces previously undisclosed
-managed/foreign precedence changes, interactive apply prints only that new risk
-delta and asks `Proceed with updated apply plan?`. Each disclosed risk
-names the managed relation, the foreign host-load identity, and the managed
-row's before-to-after or after-to-before movement relative to that foreign row.
-Unsafe or machine-local identities appear as deterministic
-`redacted:sha256:<digest>` labels; the label still correlates repeated risks
-without printing credentials, query material, or local paths.
+Pi install/OpenCode edits can reveal new order risks. After carrier work,
+interactive apply discloses only the newly observed managed/foreign precedence
+changes and asks `Proceed with updated apply plan?`. Each risk identifies the
+relation, foreign load identity and before-to-after/after-to-before movement.
+Unsafe/local identities use stable `redacted:sha256:<digest>` labels, not
+credentials, query material or local paths.
 
 Non-interactive `apply --yes` stops instead. Inspect `daem apply --dry-run`,
 then rerun interactively if the revised precedence is acceptable. Do not infer
@@ -430,75 +396,26 @@ solely from its name.
 
 ## Manifest Metadata Update Was Interrupted
 
-An interrupted `add`, `remove`, or `unmanage` write may leave a recoverable
-metadata transaction marker. While that published marker exists, commands that
-read or mutate the selected manifest, lockfile, project state, or shared
-carrier claims fail closed with an `interrupted file-set transaction`
-diagnostic.
+An interrupted `add`, `remove` or `unmanage` can leave a published metadata
+marker. Manifest/lock/state/shared-carrier consumers then fail with `interrupted
+file-set transaction`. Choose the action by the evidence:
 
-Retry the exact interrupted write against the same manifest and selectors only
-when that published marker is present. The write reacquires the complete
-authority set, restores or finalizes the recorded
-manifest/lock/state/registry file set, revalidates current input, and then
-continues from the recovered state. If every after-image was already committed,
-the retry may only remove completed evidence and then report that the selected
-declaration or management fact is already absent. A preview command does not
-recover persisted evidence.
+| Evidence | Action |
+| --- | --- |
+| Active journal (`interrupted_apply`) or retained cleanup (`journal_cleanup_incomplete`) | Start with `daem recover --dry-run`. Finish authorized journal work before metadata retry; joint file-set fences remain. |
+| Valid published `metadata-transaction` marker | Retry the exact interrupted write with the same manifest/selectors. It restores/finalizes the recorded files under complete authority, revalidates, then continues. Fully committed after-images may yield only cleanup and an already-absent result. Preview and `daem recover` do not consume this marker. |
+| Marker version 1 or 2 | Current code preserves it; retry with its writer before upgrading. Current marker version 3 enforces bounded recovery. |
+| Invalid/incomplete evidence, out-of-authority target or unclassifiable before/after image | Preserve diagnostics/state for manual inspection; repair before journal recovery. Never edit recorded files independently or delete the marker. |
+| StateDir access/identity cannot be established | Restore it before recovery, even if a journal was observed. An accessible RecoveryDir child is insufficient. Do not retry a write as if a marker existed. |
+| Bounded census overflow with accessible StateDir | Journal recovery may proceed if RecoveryDir is readable, but the census fence remains. This is neither a marker nor named residue; do not infer a retry or prefix-deletion remedy. |
 
-This marker is separate from the apply recovery journal: `daem recover` does
-not consume it. If the exact retry reports that a target is outside its current
-recovery authority or cannot be classified as a recorded before/after image,
-do not delete the reported `metadata-transaction` directory or edit the
-recorded files independently. Preserve the diagnostic and the selected project
-state for manual inspection.
-
-If active apply recovery is also present, `interrupted_apply` identifies host
-recovery; retained/finalizing journal cleanup instead reports
-`journal_cleanup_incomplete`. With a valid published marker, markerless residue,
-or bounded census exhaustion, their joint reasons report a continuing file-set
-fence. Run `daem recover --dry-run` first for the journal authority; recover does
-not consume the metadata marker, reserved residue, or census-limit fence.
-
-StateDir access/identity loss is different from census exhaustion. If StateDir
-cannot be canonicalized, opened, or enumerated, or its identity changed, recover
-is blocked even when an active journal was already observed. Restore StateDir
-access and identity first; do not perform host/recovery mutation through a
-RecoveryDir child whose parent boundary is unprovable. A census limit means the
-directory boundary was accessible but the bounded sibling classification did
-not finish; journal recovery may proceed while that census fence remains.
-Invalid or incomplete published evidence likewise requires repair before
-journal recovery. An `unmanage` retry will not inspect or repair the metadata
-transaction until journal authority is clear.
-
-Metadata transaction marker version 3 enforces bounded declaration recovery.
-Versions 1 and 2 predate that contract, so current daem versions preserve but
-do not reinterpret them. Use the daem version that wrote the marker to retry
-the exact interrupted write before upgrading. Do not delete the
-`metadata-transaction` directory to bypass this refusal; it can contain the
-only before-images for an interrupted metadata update.
-
-Markerless private residue is a different fence. Unpublished `.daem-tmp-*`,
-legacy `.metadata-stage-*`, `.daem-tombstone-*`, or `.daem-cleanup-*`
-directories beside the state directory mean the published marker is gone and
-the interrupted write cannot restore the fence. Retrying the authoring or
-`unmanage` command, refreshing a carrier, or running `daem recover` will not
-remove that residue: a name prefix is not deletion authority. Preserve the
-reported directory for analysis. Do not delete, rename, or empty it merely
-because it matches a reserved prefix. If a recoverable apply journal is also
-present, finish `daem recover` first; the residue remains afterward and still
-blocks later commands. If a published `metadata-transaction` marker is also
-present, retry the exact interrupted write after the journal is clear;
-leftover siblings still block later commands until they are independently
-resolved.
-
-When the state directory cannot be inspected or exceeds the fence proof
-limit, daem also fails closed: it cannot prove the fence clean. Overflow of
-the state-directory census is still a fence, but recover can plan if the
-recovery root itself remains readable. When the state directory identity or
-access cannot be proven, restore access first and do not run recover until
-the directory can be inspected. That is not a published interrupted marker
-and not named residue. Do not retry an interrupted write, and do not delete
-entries because they match a reserved prefix.
+Markerless `.daem-tmp-*`, legacy `.metadata-stage-*`, `.daem-tombstone-*` or
+`.daem-cleanup-*` residue is a separate fence. Authoring/unmanage retry, refresh
+and recover do not remove it. Preserve it; never delete, rename or empty by
+prefix. If a recoverable journal exists, resolve it first; if a valid marker
+also exists, then retry that write. Leftover siblings still block until
+independently resolved. `unmanage` does not inspect/repair metadata transactions
+while journal authority remains.
 
 ## Lockfile Is Missing Or Stale
 
