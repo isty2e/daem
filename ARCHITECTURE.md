@@ -351,9 +351,10 @@ The migration preserves exactly:
 - SubjectID and current placement, codec, route, adapter-contract, lock/state
   projection ids;
 - operation and authority fingerprint values for identical inputs;
-- mutation domains, revision membership/roles, and deterministic ordering;
+- mutation domains, their conflict meaning, revision membership/roles and
+  lifecycle subsets, and deterministic ordering;
 - effect ordering, visibility classifications, cancellation and stale-state
-  precedence; and
+  precedence, split-write partial results and recovery semantics; and
 - current target/scope support and unsupported outcomes.
 
 ### Behavioral parity
@@ -413,6 +414,9 @@ unclassified; affinity/role rules skip those nodes. This is not complete
 semantic coverage. `Report.Shadow` findings remain diagnostic, while analysis
 or load errors still fail. A guard change must exercise forbidden and
 legitimate-neighbor imports without making shadow findings block the baseline.
+
+**NON-GOAL:** do not use exact unclassified-package admission as a substitute
+for behavioral or import-graph evidence.
 
 ## Perturbation And Acceptance
 

@@ -48,10 +48,18 @@ translated x86-64 macOS shell selects Apple silicon only with
 `sysctl.proc_translated=1`; Intel Macs remain unsupported. The binary also
 checks its runtime floor.
 
-The installer verifies checksum, archive shape and executable release identity
-before replacement. Download, validation or preparation failure preserves both
-current and previous executables. It attempts to clean its temporary staging
-on exit and handled interruption.
+Before replacing an executable, the installer checks:
+
+- The downloaded archive matches its exact SHA-256 checksum entry.
+- The archive has exactly one entry: a regular executable named `daem`.
+- The staged executable's [`version --json`](cli.md#version) matches the selected
+  release tag and its resolved commit, that commit's committer timestamp and
+  `go.mod` toolchain, and the native OS/architecture. It must report
+  `vcs = "git"` and `source_state = "clean"`.
+
+Download, validation or preparation failure preserves both current and previous
+executables. The installer attempts to clean its temporary staging on exit and
+handled interruption.
 
 These checks detect transfer/assembly errors, not publisher provenance or
 immutability: archive, checksum and metadata share GitHub's authority. Verify
