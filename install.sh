@@ -1,7 +1,7 @@
 #!/bin/sh
 
 daem_admitted_release_version_token() {
-  printf '%s\n' "$1" | /usr/bin/awk '
+  printf '%s\n' "$1" | awk '
     function canonical_number(value) {
       return value ~ /^(0|[1-9][0-9]*)$/
     }
@@ -55,7 +55,7 @@ daem_admitted_release_version_token() {
 }
 
 daem_admitted_release_revision() {
-  printf '%s\n' "$1" | /usr/bin/awk '
+  printf '%s\n' "$1" | awk '
     NR == 1 {
       if (length($0) == 40 && $0 !~ /[^0-9a-f]/) valid = 1
       next
@@ -66,7 +66,7 @@ daem_admitted_release_revision() {
 }
 
 daem_admitted_release_timestamp() {
-  printf '%s\n' "$1" | /usr/bin/awk '
+  printf '%s\n' "$1" | awk '
     function digits(value) { return value != "" && value !~ /[^0-9]/ }
     function leap_year(year) { return year % 400 == 0 || (year % 4 == 0 && year % 100 != 0) }
     BEGIN { valid = 0 }
@@ -115,7 +115,7 @@ daem_admitted_release_timestamp() {
 }
 
 daem_admitted_release_go_version() {
-  printf '%s\n' "$1" | /usr/bin/awk '
+  printf '%s\n' "$1" | awk '
     function canonical_number(value) { return value ~ /^(0|[1-9][0-9]*)$/ }
     BEGIN { valid = 0 }
     NR == 1 {
@@ -147,7 +147,7 @@ daem_release_target() {
 }
 
 daem_admitted_macos_product_version() {
-  /usr/bin/awk -F. '
+  awk -F. '
     BEGIN { valid = 1 }
     NR > 1 { valid = 0; next }
     NF < 2 || NF > 3 { valid = 0; next }
@@ -172,7 +172,7 @@ daem_verify_archive_checksum() {
     Linux) sha256sum < "$1" > "$2.actual" || return 1 ;;
     *) return 1 ;;
   esac
-  actual="$(/usr/bin/awk '
+  actual="$(awk '
     BEGIN { valid = 0 }
     NR == 1 {
       if (length($1) == 64 && $1 !~ /[^0-9a-f]/) {
@@ -207,7 +207,7 @@ daem_release_binary_matches() {
     linux_amd64) expected_goos=linux; expected_goarch=amd64 ;;
     *) return 1 ;;
   esac
-  /usr/bin/awk -v expected_version="$2" -v expected_revision="$3" \
+  awk -v expected_version="$2" -v expected_revision="$3" \
     -v expected_revision_time="$4" -v expected_go_version="$5" \
     -v expected_goos="$expected_goos" -v expected_goarch="$expected_goarch" '
     function compact_json(input, output, position, character, quoted) {
@@ -287,16 +287,16 @@ daem_resolve_release_revision() {
     "${DAEM_ORIGIN_API}/commits/refs/tags/$1"; then
     return 1
   fi
-  daem_metadata_bytes="$(/usr/bin/wc -c < "$daem_metadata_revision")"
+  daem_metadata_bytes="$(wc -c < "$daem_metadata_revision")"
   [ "$daem_metadata_bytes" -eq 40 ] || return 1
-  daem_revision="$(/bin/cat "$daem_metadata_revision")"
+  daem_revision="$(cat "$daem_metadata_revision")"
   daem_admitted_release_revision "$daem_revision" || return 1
   printf '%s\n' "$daem_revision"
 }
 
 daem_commit_revision_time() {
-  [ "$(/usr/bin/wc -c < "$1")" -le 65536 ] || return 1
-  daem_commit_time="$(/usr/bin/awk -v expected_sha="$2" '
+  [ "$(wc -c < "$1")" -le 65536 ] || return 1
+  daem_commit_time="$(awk -v expected_sha="$2" '
     function fail() { exit 1 }
     function whitespace() {
       while (substr(document, position, 1) ~ /^[ \t\r\n]$/) position++
@@ -396,8 +396,8 @@ daem_commit_revision_time() {
 }
 
 daem_release_toolchain() {
-  [ "$(/usr/bin/wc -c < "$1")" -le 65536 ] || return 1
-  daem_toolchain="$(/usr/bin/awk '
+  [ "$(wc -c < "$1")" -le 65536 ] || return 1
+  daem_toolchain="$(awk '
     $1 == "toolchain" {
       if (seen++) exit 1
       directive = $0
