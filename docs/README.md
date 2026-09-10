@@ -8,7 +8,7 @@
   instruction file from a local source.
 - [Use An Existing Environment](migration.md) — import live configuration,
   declare local sources, and decide which matching outputs to register.
-- [Use Daem From Your Agent](agent-skill.md) — install the daem skill.
+- [Use Daem From Your Agent](../skills/daem/README.md) — install the daem skill.
 - [Troubleshooting](troubleshooting.md) — respond to conflicts, drift, skipped
   imports, and interrupted operations.
 

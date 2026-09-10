@@ -1,8 +1,8 @@
 # Use Daem From Your Agent
 
-The repository's portable [daem skill](../skills/daem/SKILL.md) guides an agent
-through manifest edits, locking, previews, and apply. Install it after
-[installing daem](install.md).
+The portable [daem skill](SKILL.md) guides an agent through manifest edits,
+locking, previews, and apply. Install it after
+[installing daem](https://github.com/isty2e/daem/blob/main/docs/install.md).
 
 This example installs the skill globally for Codex. It affects that agent's
 user-level skill directory, so it is available across projects.

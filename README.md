@@ -36,7 +36,7 @@ your executable.
   explains importing live configuration, using local files, and registering
   matching outputs. You do not need a hosted Git repository.
 - **Let your agent manage the manifest:** install the repository's
-  [daem skill](docs/agent-skill.md).
+  [daem skill](skills/daem/README.md).
 
 ## A Local Project Manifest
 
