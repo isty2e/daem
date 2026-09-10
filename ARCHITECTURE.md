@@ -108,8 +108,9 @@ reproduction, or an explicit nonzero-admission decision. This does not change
 
 Platform contributors must distinguish capability tests from product admission:
 Windows has native retained-root, observation and handle-relative storage
-publication/removal jobs; BSD filesnapshot/Codex observation jobs are compile-only,
-not native execution. Neither changes the public support matrix.
+publication/removal jobs; FreeBSD, NetBSD and OpenBSD filesnapshot/Codex
+observation jobs are compile-only, not native execution. Neither changes the
+public support matrix.
 
 ## Host-Surface Compiler
 

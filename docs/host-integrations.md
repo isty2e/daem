@@ -36,8 +36,8 @@ commands and [Platform Support](platforms.md) owns OS/architecture coverage.
 `refresh extension` selects one extension explicitly; ordinary apply does not
 select refresh routes. Where no observer is admitted, ordinary apply instead
 retries its locked install/create route on every run, which may repair or update
-host-selected artifacts. Neither path grants bulk refresh, prune, contribution
-control, rollback or runtime-readiness guarantees. Exact commands are in the
+host-selected artifacts. Neither path grants bulk refresh, uninstall, prune,
+contribution control, rollback or runtime-readiness guarantees. Exact commands are in the
 host summaries below.
 
 Refresh bounds only the child process: default `10m`, or `--timeout` from `1s`

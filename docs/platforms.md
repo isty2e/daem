@@ -44,7 +44,8 @@ require stable root/ancestor object and mount identity through completion.
 Darwin requires nonzero birth time or generation for artifact views; Linux
 requires `STATX_MNT_ID` and `STATX_BTIME` on each component. Missing identity
 fails the affected operation rather than falling back to inode or pathname
-alone. Read-only witnesses grant no mutation or durable recovery authority.
+alone. Read-only locators and process-local witnesses grant no mutation, lease,
+durable-comparison or durable recovery authority.
 
 Absolute artifact-root components use native filesystem lookup: a case variant
 may resolve on a case-insensitive filesystem, while an absent spelling remains
