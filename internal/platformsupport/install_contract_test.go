@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -449,36 +448,6 @@ func TestInstallRecipeRequiresExactReleaseBinaryIdentity(t *testing.T) {
 	}
 }
 
-func TestInstallRecipeUsesExactPublishedReleaseRequirement(t *testing.T) {
-	recipe := installRecipe(t)
-	for _, fact := range []string{
-		"DAEM_VERSION=v0.1.0",
-		"DAEM_REVISION_TIME=2026-07-28T02:19:30Z",
-		"DAEM_GO_VERSION=go1.26.5",
-		`DAEM_ORIGIN_API="https://api.github.com/repos/isty2e/daem"`,
-		`daem_resolve_release_revision() {`,
-		`"${DAEM_ORIGIN_API}/commits/refs/tags/$1"`,
-		`Accept: application/vnd.github.sha`,
-		`X-GitHub-Api-Version: 2022-11-28`,
-		"--max-time 60",
-		"--max-filesize 64",
-	} {
-		if !strings.Contains(recipe, fact) {
-			t.Fatalf("install recipe is missing exact published release fact %q", fact)
-		}
-	}
-	if literalRevision := regexp.MustCompile(`(?m)^DAEM_REVISION=[0-9a-f]{40}$`); literalRevision.MatchString(recipe) {
-		t.Fatal("install recipe pins a literal release revision that cannot equal its own tag")
-	}
-	if !goversion.IsValid("go1.26.5") {
-		t.Fatal("documented release toolchain is not a valid Go version")
-	}
-	revisionTime, err := time.Parse(time.RFC3339, "2026-07-28T02:19:30Z")
-	if err != nil || revisionTime.Format(time.RFC3339Nano) != "2026-07-28T02:19:30Z" {
-		t.Fatalf("documented revision time is not canonical: %v", err)
-	}
-}
-
 func TestInstallRecipeResolvesReleaseRevisionFromBoundedSHAResponse(t *testing.T) {
 	const (
 		releaseTag         = "v0.1.0"
@@ -592,17 +561,6 @@ cp "$DAEM_FIXTURE_PATH" "$output"
 	}
 }
 
-func TestInstallRecipeVerifiesBeforeReplacingExecutable(t *testing.T) {
-	recipe := installRecipe(t)
-	assertInstallRecipeOrder(t, recipe, `daem_admitted_release_requirement`, `curl --fail --location`)
-	assertInstallRecipeOrder(t, recipe, `daem_release_target "$DAEM_SYSTEM" "$DAEM_MACHINE" "$DAEM_TRANSLATED"`, `daem_resolve_release_revision "$DAEM_VERSION" "$DAEM_STAGE"`)
-	assertInstallRecipeOrder(t, recipe, `daem_resolve_release_revision "$DAEM_VERSION" "$DAEM_STAGE"`, `DAEM_ARCHIVE="daem_`)
-	assertInstallRecipeOrder(t, recipe, `daem_release_target "$DAEM_SYSTEM" "$DAEM_MACHINE" "$DAEM_TRANSLATED"`, `curl --fail --location`)
-	assertInstallRecipeOrder(t, recipe, `daem_verify_archive_checksum`, `daem_extract_release_binary`)
-	assertInstallRecipeOrder(t, recipe, `daem_extract_release_binary`, `daem_release_binary_matches`)
-	assertInstallRecipeOrder(t, recipe, `daem_release_binary_matches`, `DAEM_BIN="$HOME/.local/bin/daem"`)
-}
-
 func TestInstallRecipeHasValidShellSyntax(t *testing.T) {
 	command := exec.Command("/bin/sh", "-n")
 	command.Stdin = strings.NewReader(installRecipe(t))
@@ -619,39 +577,26 @@ type installArchiveEntry struct {
 	body     []byte
 }
 
-func installRecipeDocument(t *testing.T) string {
+func installRecipe(t *testing.T) string {
 	t.Helper()
-	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "install.md"))
+	path := os.Getenv("DAEM_TEST_INSTALL_SCRIPT")
+	if path == "" {
+		path = filepath.Join("..", "..", "install.sh")
+	}
+	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return string(content)
 }
 
-func installRecipe(t *testing.T) string {
-	t.Helper()
-	document := installRecipeDocument(t)
-	const opening = "```bash\n"
-	start := strings.Index(document, opening)
-	if start < 0 {
-		t.Fatal("docs/install.md has no bash install recipe")
-	}
-	start += len(opening)
-	end := strings.Index(document[start:], "\n```")
-	if end < 0 {
-		t.Fatal("docs/install.md has an unterminated bash install recipe")
-	}
-	return document[start : start+end]
-}
-
 func installRecipeFunctions(t *testing.T) string {
 	t.Helper()
-	recipe := installRecipe(t)
-	end := strings.Index(recipe, "\nDAEM_VERSION=")
-	if end < 0 {
-		t.Fatal("docs/install.md install recipe does not separate functions from execution")
+	functions, isolated := strings.CutSuffix(installRecipe(t), "daem_install_main \"$@\"\n")
+	if !isolated {
+		t.Fatal("cannot isolate installer functions from the entrypoint")
 	}
-	return recipe[:end]
+	return functions
 }
 
 func runInstallShell(functions string, invocation string, environment []string, arguments ...string) error {
@@ -710,14 +655,5 @@ func writeInstallArchive(t *testing.T, path string, entries []installArchiveEntr
 	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func assertInstallRecipeOrder(t *testing.T, recipe string, before string, after string) {
-	t.Helper()
-	beforeIndex := strings.LastIndex(recipe, before)
-	afterIndex := strings.LastIndex(recipe, after)
-	if beforeIndex < 0 || afterIndex < 0 || beforeIndex >= afterIndex {
-		t.Fatalf("install recipe order %q before %q is not enforced", before, after)
 	}
 }

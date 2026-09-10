@@ -75,18 +75,21 @@ jobs:
           ' go.mod)"
           printf '%s\n' "${release_toolchain}" | grep -E -x 'go[0-9]+\.[0-9]+\.[0-9]+'
 
-          documented_toolchain="$(awk -F= '
-            /^DAEM_GO_VERSION=/ {
-              if (seen++) exit 1
-              value = $2
-            }
-            END {
-              if (seen > 1 || (seen == 1 && value == "")) exit 1
-              if (seen == 1) print value
-            }
-          ' docs/install.md)"
-          if [ -n "${documented_toolchain}" ]; then
-            test "${documented_toolchain}" = "${release_toolchain}"
+          if [ ! -e install.sh ] && [ ! -L install.sh ]; then
+            # Historical tags carry their installer in the tagged documentation.
+            documented_toolchain="$(awk -F= '
+              /^DAEM_GO_VERSION=/ {
+                if (seen++) exit 1
+                value = $2
+              }
+              END {
+                if (seen > 1 || (seen == 1 && value == "")) exit 1
+                if (seen == 1) print value
+              }
+            ' docs/install.md)"
+            if [ -n "${documented_toolchain}" ]; then
+              test "${documented_toolchain}" = "${release_toolchain}"
+            fi
           fi
 
           setup_go_version="${release_toolchain#go}"
@@ -273,13 +276,19 @@ jobs:
               assert_installer_requirement "$1" "$2"
             fi
           }
-          assert_installer_requirement DAEM_VERSION "${RELEASE_TAG}"
-          # The tagged docs cannot state their own tag commit hash
-          # (self-referential), so docs revision equality is not asserted;
-          # the binary-vs-tag revision binding above is authoritative, and
-          # the documented recipe resolves the commit from release metadata.
-          assert_installer_requirement_if_present DAEM_REVISION_TIME "${revision_time}"
-          assert_installer_requirement_if_present DAEM_GO_VERSION "${RELEASE_GO_VERSION}"
+          commit_seconds="$(git show -s --format=%ct "${RELEASE_COMMIT}")"
+          if [ "${RELEASE_GOOS}" = darwin ]; then
+            commit_time="$(date -u -r "${commit_seconds}" '+%Y-%m-%dT%H:%M:%SZ')"
+          else
+            commit_time="$(date -u -d "@${commit_seconds}" '+%Y-%m-%dT%H:%M:%SZ')"
+          fi
+          test "${revision_time}" = "${commit_time}"
+          printf 'RELEASE_REVISION_TIME=%s\n' "${commit_time}" >> "${GITHUB_ENV}"
+          if [ ! -e install.sh ] && [ ! -L install.sh ]; then
+            assert_installer_requirement DAEM_VERSION "${RELEASE_TAG}"
+            assert_installer_requirement_if_present DAEM_REVISION_TIME "${revision_time}"
+            assert_installer_requirement_if_present DAEM_GO_VERSION "${RELEASE_GO_VERSION}"
+          fi
       - name: Smoke-test native CLI artifact
         shell: bash
         run: |
@@ -372,6 +381,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -e install.sh ] || [ -L install.sh ]; then
+            DAEM_TEST_INSTALL_SCRIPT="${PWD}/install.sh" \
+            DAEM_TEST_RELEASE_DIR="${RUNNER_TEMP}/artifact-1" \
+            DAEM_TEST_RELEASE_VERSION="${RELEASE_TAG}" \
+            DAEM_TEST_RELEASE_REVISION="${RELEASE_REVISION}" \
+            DAEM_TEST_RELEASE_TIME="${RELEASE_REVISION_TIME}" \
+            DAEM_TEST_RELEASE_TOOLCHAIN="${RELEASE_GO_VERSION}" \
+            DAEM_TEST_RELEASE_TARGET="${RELEASE_GOOS}_${RELEASE_GOARCH}" \
+            DAEM_TEST_DEVELOPMENT_BINARY="${RUNNER_TEMP}/development-daem" \
+              tools/test-go.sh -mod=readonly -count=1 -v \
+                -run '^TestInstallerNativeRelease$' ./test/install
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+            exit 0
+          fi
+
+          # Only tags predating install.sh use the historical Markdown recipe.
           archive_name="daem_${RELEASE_TAG#v}_${RELEASE_GOOS}_${RELEASE_GOARCH}.tar.gz"
           installer_port=18080
           installer_server_pid=""
@@ -533,6 +558,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -e install.sh ] || [ -L install.sh ]; then
+            echo 'Install, source upgrade and rollback exercised through tagged install.sh above.'
+            exit 0
+          fi
           release_binary="${RUNNER_TEMP}/extracted/daem"
           fresh_bin="${RUNNER_TEMP}/fresh-home/.local/bin/daem"
           upgrade_bin="${RUNNER_TEMP}/upgrade-home/.local/bin/daem"
