@@ -44,6 +44,7 @@ core_package_paths() {
 		while IFS= read -r package_path; do
 			case "${package_path}" in
 			"${module_path}/internal/supply/source/backend/gitcli" | \
+				"${module_path}/test/install" | \
 				"${module_path}/test/cli" | \
 				"${module_path}/test/cli/"*)
 				continue

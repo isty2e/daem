@@ -543,6 +543,20 @@ func TestReleaseArtifactToolchainResolutionContract(t *testing.T) {
 		})
 	}
 
+	t.Run("standalone installer needs no documentation literals or execution", func(t *testing.T) {
+		directory := t.TempDir()
+		if err := os.WriteFile(filepath.Join(directory, "go.mod"), goMod, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "install.sh"), []byte("#!/bin/sh\nexit 99\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		output, err := runToolchain(t, directory)
+		if err != nil || output != expected {
+			t.Fatalf("standalone installer toolchain output = %q, error=%v, want %q", output, err, expected)
+		}
+	})
+
 	t.Run("missing tag toolchain authority", func(t *testing.T) {
 		directory := t.TempDir()
 		if err := os.WriteFile(filepath.Join(directory, "go.mod"), []byte("module github.com/isty2e/daem\n\ngo 1.25.0\n"), 0o600); err != nil {

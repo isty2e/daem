@@ -80,12 +80,18 @@ managed hook assets, and project-scoped resources.
 
 ## Install
 
-Published binaries come from
-[GitHub Releases](https://github.com/isty2e/daem/releases). Release `v0.1.0`
-provides checksum-verified native artifacts for macOS 26 or newer on Apple
-silicon and Linux on x86-64. Follow
-[Install, Upgrade, And Roll Back](docs/install.md) for exact download,
-verification, PATH, upgrade, rollback, and diagnostic steps.
+Install the latest stable binary for macOS 26 or newer on Apple silicon or
+Linux on x86-64:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/isty2e/daem/main/install.sh -o daem-install.sh &&
+  sh daem-install.sh
+```
+
+The installer verifies the selected [GitHub Release](https://github.com/isty2e/daem/releases)
+and installs it at `~/.local/bin/daem`. It does not edit `PATH` or shell profiles.
+See [Install, Upgrade, And Roll Back](docs/install.md) for version selection,
+custom directories, PATH setup, upgrades, and executable rollback.
 
 Source builds remain available for contributor and unreleased development
 testing, but they do not substitute for a supported native release lane.
