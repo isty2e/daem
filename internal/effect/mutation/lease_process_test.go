@@ -57,9 +57,10 @@ func TestCrossProcessAliasContentionAndHolderDeathRelease(t *testing.T) {
 	holder := startMutationLeaseHelper(t, dataDir, "exclusive", 10*time.Second, realPath)
 
 	store := mutationTestStoreAt(t, dataDir)
-	store.maximum = 150 * time.Millisecond
+	contentionProbe := store
+	contentionProbe.maximum = 150 * time.Millisecond
 	aliasDomain := mutationTestLogicalDomain(t, aliasPath, AccessExclusive)
-	_, err := store.Acquire(context.Background(), aliasDomain)
+	_, err := contentionProbe.Acquire(context.Background(), aliasDomain)
 	var contention ContentionError
 	if !errors.As(err, &contention) {
 		t.Fatalf("alias contention error = %v", err)
