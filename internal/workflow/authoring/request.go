@@ -36,10 +36,12 @@ type AddSkillGroupRequest struct {
 }
 
 type AddInstructionRequest struct {
-	Name      string
-	SourceArg string
-	Targets   []string
-	Scope     string
+	Name       string
+	SourceArg  string
+	SourcePath string
+	Ref        string
+	Targets    []string
+	Scope      string
 }
 
 type RemoveInstructionRequest struct {

@@ -50,7 +50,7 @@ func InstructionFromAddRequest(request AddInstructionRequest, manifestRoot strin
 		return declarationcodec.Instruction{}, err
 	}
 	effectiveScope := declarationcodec.InstructionEffectiveScope(name, request.Scope, header)
-	source, err := localInstructionSource(request.SourceArg, manifestRoot, effectiveScope)
+	source, err := instructionSource(request, manifestRoot, effectiveScope)
 	if err != nil {
 		return declarationcodec.Instruction{}, err
 	}

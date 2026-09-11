@@ -127,9 +127,6 @@ func validateSource(value source.Source, scope target.Scope) error {
 	if _, err := source.SourceIDFor(value); err != nil {
 		return err
 	}
-	if _, ok := value.Git(); ok {
-		return fmt.Errorf("git instruction sources are not supported")
-	}
 	if local, ok := value.Local(); ok {
 		if local.Mode() != source.LocalSourceModeVendor {
 			return fmt.Errorf("instruction local sources must use vendor mode")

@@ -28,6 +28,8 @@ func runAddInstruction(ctx context.Context, args []string, stdout io.Writer, std
 	var targetValues targetFlagValues
 	var scopeValues scopeFlagValues
 	manifestPath := flags.String("manifest", "", "path to daem.toml")
+	sourcePath := flags.String("path", "", "instruction file path within the Git repository")
+	ref := flags.String("ref", "", "Git branch, tag, or commit")
 	dryRun := flags.Bool("dry-run", false, "preview manifest change without writing")
 	showDiff := flags.Bool("diff", false, "show manifest diff with --dry-run")
 	jsonOutput := flags.Bool("json", false, "emit structured JSON output")
@@ -59,10 +61,12 @@ func runAddInstruction(ctx context.Context, args []string, stdout io.Writer, std
 	}
 
 	result, err := authoring.AddInstruction(ctx, authoringExecutionOptions(*manifestPath, *dryRun), authoring.AddInstructionRequest{
-		Name:      name,
-		SourceArg: sourceArg,
-		Targets:   targets,
-		Scope:     scope,
+		Name:       name,
+		SourceArg:  sourceArg,
+		SourcePath: *sourcePath,
+		Ref:        *ref,
+		Targets:    targets,
+		Scope:      scope,
 	})
 	if err != nil {
 		printAuthoringOperationError(stderr, "add", *manifestPath, err)
@@ -114,7 +118,7 @@ func splitAddInstructionArgs(args []string) (string, string, []string, error) {
 
 func instructionAuthoringFlagTakesValue(name string) bool {
 	switch name {
-	case "manifest", "target", "scope":
+	case "manifest", "target", "scope", "path", "ref":
 		return true
 	default:
 		return false

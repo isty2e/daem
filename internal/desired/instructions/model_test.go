@@ -46,6 +46,21 @@ func TestInstructionsConstructorOwnsRenderingAndDefensiveStorage(t *testing.T) {
 	}
 }
 
+func TestInstructionsConstructorAcceptsGitSource(t *testing.T) {
+	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		t.Run(string(scope), func(t *testing.T) {
+			source := mustGitSource(t)
+			value, err := New(Spec{Name: "guidance", Source: source, Targets: []target.Target{target.TargetPi}, Scope: scope})
+			if err != nil {
+				t.Fatalf("New returned error: %v", err)
+			}
+			if value.Source() != source || value.Validate() != nil {
+				t.Fatal("Git source or instruction validity changed")
+			}
+		})
+	}
+}
+
 func TestInstructionsConstructorRejectsInvalidAxesAndZero(t *testing.T) {
 	copyRendering, _ := NewRendering("AGENTS.md", RenderModeCopy)
 	base := Spec{
@@ -61,9 +76,6 @@ func TestInstructionsConstructorRejectsInvalidAxesAndZero(t *testing.T) {
 		want string
 	}{
 		{name: "empty name", edit: func(spec *Spec) { spec.Name = " " }, want: "name is required"},
-		{name: "git source", edit: func(spec *Spec) {
-			spec.Source = mustGitSource(t)
-		}, want: "git instruction"},
 		{name: "local link", edit: func(spec *Spec) { spec.Source = sourcetest.Local(t, "AGENTS.md", source.LocalSourceModeLink) }, want: "vendor mode"},
 		{name: "archive s3", edit: func(spec *Spec) {
 			spec.Source = sourcetest.S3(t, "s3://bucket/AGENTS.tar", "", "", source.S3ObjectFormatTar)

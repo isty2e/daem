@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired"
@@ -24,6 +25,7 @@ func TestBuildRejectsOversizedDirectFileFamiliesWithoutLockPublication(t *testin
 	tests := []struct {
 		name        string
 		sourcePath  string
+		gitSource   bool
 		environment func(*testing.T, source.Source) desired.Environment
 	}{
 		{
@@ -35,6 +37,16 @@ func TestBuildRejectsOversizedDirectFileFamiliesWithoutLockPublication(t *testin
 						projectInstructions(t, "project", sourceSpec, []target.Target{target.TargetCodex}),
 					},
 				})
+			},
+		},
+		{
+			name:       "git instructions",
+			sourcePath: "instructions/AGENTS.md",
+			gitSource:  true,
+			environment: func(t *testing.T, sourceSpec source.Source) desired.Environment {
+				return lockEnvironment(t, desired.Spec{Instructions: []instructions.Instructions{
+					projectInstructions(t, "project", sourceSpec, []target.Target{target.TargetCodex}),
+				}})
 			},
 		},
 		{
@@ -76,6 +88,12 @@ func TestBuildRejectsOversizedDirectFileFamiliesWithoutLockPublication(t *testin
 			}
 
 			sourceSpec := sourcetest.Local(t, test.sourcePath, source.LocalSourceModeVendor)
+			if test.gitSource {
+				sourceSpec, err = source.NewGitSource("https://example.test/guidance.git", test.sourcePath, strings.Repeat("a", 40))
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			resolution := oversizedFileResolution(t, sourceSpec, path)
 			lockfile, err := buildWithTestOptions(
 				context.Background(),
@@ -120,9 +138,13 @@ func oversizedFileResolution(
 	if err != nil {
 		t.Fatal(err)
 	}
+	var resolvedRef artifact.ResolvedRef
+	if _, ok := sourceSpec.Git(); ok {
+		resolvedRef = artifact.ResolvedRef(strings.Repeat("a", 40))
+	}
 	identity, err := artifact.NewExactIdentity(
 		sourceID,
-		"",
+		resolvedRef,
 		artifact.ArtifactKindFile,
 		artifact.HashFileContent(nil),
 	)

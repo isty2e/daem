@@ -204,8 +204,8 @@ TOML syntax errors include a one-based line and column when available. This is
 where parsing stopped, which may be the end of the document rather than the
 opening bracket or quote. Unknown keys link to the [manifest reference](manifest.md).
 
-Missing local sources include path-correction advice. Git skill and skill-group
-sources require an explicit branch, tag, or commit through `--ref`; local paths
+Missing local sources include path-correction advice. Git instruction, skill,
+and skill-group sources require an explicit branch, tag, or commit through `--ref`; local paths
 do not need a remote reference. When a SKILL error offers `compat_repair = true`,
 set it in the manifest to opt into mechanical repair. Other reported source
 issues may need manual correction. Advice does not perform repairs or retry the
@@ -221,7 +221,7 @@ flags.
 | --- | --- |
 | `add extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `add hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--matcher`, `--scope`, `--target`, `--timeout`, `--verbose` |
-| `add instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `add instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
 | `add mcp-server` | `--arg`, `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `add skill` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--name`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
 | `add skill-group` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--member`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
@@ -466,11 +466,22 @@ Common authoring is intentionally curated:
 | Resource | CLI owns | Manifest owns |
 | --- | --- | --- |
 | Extension | id, one opaque carrier-native source, target, scope | carrier spelling and lifecycle/contribution policy |
-| Instruction | name, local source, target, scope | remote source and target-specific placement |
+| Instruction | name, local/Git source, Git file path/ref, target, scope | S3 source and target-specific placement |
 | Hook | name, event, command, matcher, timeout, target, scope | status text, target overrides, assets, non-command handlers |
 | MCP server | name, portable command, ordered args, target, scope | exact absolute command path, env refs, remote transport, auth, cwd, tool policy |
 | Skill | source, Git path/ref, installed name, target, scope | resource id, install mode, repair and source policy |
 | Skill group | source root, exact members, Git path/ref, target, scope | selectors, install mode, repair and per-member policy |
+
+Git instructions require an explicit `--ref` and a repository file path:
+
+```bash
+daem add instruction project acme/guidance --path instructions/AGENTS.md --ref main
+```
+
+`acme/guidance/instructions/AGENTS.md --ref main` is equivalent shorthand; do
+not combine an embedded path with `--path`. Without Git options, ordinary paths
+remain local file sources. Directory and link sources are rejected during lock
+preflight. S3 instruction sources remain manifest-only.
 
 Hook `<command>` is one opaque shell-command string. Hook timeout is a positive
 duration such as `30s` or `2m` and must be exactly representable as whole

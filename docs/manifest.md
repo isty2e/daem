@@ -1151,7 +1151,15 @@ render_to = "CLAUDE.md"
 mode = "copy"
 ```
 
-S3 file object instructions use a structured source:
+Git instruction files use the same repository locator and explicit ref as skills:
+
+```toml
+[instructions.project]
+source = { git = "https://github.com/acme/guidance.git", path = "instructions/AGENTS.md", ref = "main" }
+```
+
+The path must resolve to a regular file at the locked commit, not a directory or
+link. S3 file object instructions also use a structured source:
 
 ```toml
 [instructions.project]
@@ -1161,7 +1169,7 @@ targets = ["codex"]
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `source` | string or source object | yes | none | Local source instruction file path, local source object, or S3 file object source. |
+| `source` | string or source object | yes | none | Local instruction file path, local source object, Git file source, or S3 file object source. |
 | `targets` | array of strings | no | top-level `targets` | Target hosts for this instruction resource. |
 | `scope` | string | no | see below | Install scope. |
 | `target` | table of tables | no | none | Target-specific rendering options. |
@@ -1221,17 +1229,19 @@ implemented together.
 Validation rules:
 
 - `source` is required.
-- Git instruction sources are not supported in the current product surface.
+- Git instruction sources require a repository-relative file path and an explicit ref; locking records the resolved commit.
 - Structured local instruction sources must use `mode = "vendor"`.
 - S3 instruction sources must use `format = "file"` or omit `format`.
 - `targets`, if present, must contain supported target values and no duplicates.
 - `[instructions.<name>.target.<target>]` must reference a target declared for that instruction resource.
 
-`daem add instruction` can append a local file instruction declaration or merge
+`daem add instruction` can append a local or Git file instruction declaration or merge
 new targets into an existing matching `[instructions.<name>]`. The authoring
 command updates the manifest and selected lockfile together, but does not render
-host instruction files, apply host changes, or mutate state. It accepts local
-file sources only; S3 instruction file objects remain explicit manifest edits.
+host instruction files, apply host changes, or mutate state. For Git, supply
+`--ref` and a file path through `--path` or `owner/repo/path` shorthand.
+Bare paths without Git options retain local-file interpretation. S3 instruction
+file objects remain explicit manifest edits.
 OpenCode, Pi, and Antigravity CLI project/global default instruction placements
 can be selected through `--target`. Not-yet-implemented target/scope
 combinations fail during prospective lock preflight before writing either file.
