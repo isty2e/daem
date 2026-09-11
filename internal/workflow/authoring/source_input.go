@@ -222,6 +222,9 @@ func skillSourceLooksGit(source string, explicitPath string, ref string) bool {
 }
 
 func splitGitHubSourceShorthand(source string) (string, string, string, bool) {
+	if _, err := sourcepkg.ParseGitLocator(source); err == nil {
+		return "", "", "", false
+	}
 	if strings.HasPrefix(source, ".") || strings.HasPrefix(source, "~") || filepath.IsAbs(source) {
 		return "", "", "", false
 	}
