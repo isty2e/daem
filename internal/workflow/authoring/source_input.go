@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/target"
@@ -34,44 +35,16 @@ func gitSkillSource(request AddSkillRequest) (declarationcodec.SkillSource, stri
 	if request.Mode != "" && request.Mode != string(sourcepkg.LocalSourceModeVendor) {
 		return declarationcodec.SkillSource{}, "", fmt.Errorf("--mode is only valid for local sources")
 	}
-	if request.Ref == "" {
-		return declarationcodec.SkillSource{}, "", ErrMissingGitRef
-	}
-
-	gitURL := request.SourceArg
-	sourcePath := request.SourcePath
-	if owner, repo, embeddedPath, ok := splitGitHubSkillShorthand(request.SourceArg); ok {
-		if embeddedPath != "" && sourcePath != "" {
-			return declarationcodec.SkillSource{}, "", fmt.Errorf("do not combine owner/repo/path shorthand with --path; use owner/repo --path %s", sourcePath)
-		}
-		gitURL = "https://github.com/" + owner + "/" + repo + ".git"
-		if sourcePath == "" {
-			sourcePath = embeddedPath
-		}
-	}
-	if sourcePath == "" {
-		sourcePath = "."
-	}
-	canonicalSource, err := sourcepkg.NewGitSource(gitURL, sourcePath, request.Ref)
+	source, err := gitSourceDeclaration(request.SourceArg, request.SourcePath, request.Ref)
 	if err != nil {
 		return declarationcodec.SkillSource{}, "", err
 	}
-	gitSource, ok := canonicalSource.Git()
-	if !ok {
-		return declarationcodec.SkillSource{}, "", fmt.Errorf("canonical git source is unavailable")
+	inferredName := path.Base(source.Path)
+	if source.Path == "." {
+		inferredName = gitRootSkillName(source.Git)
 	}
 
-	canonicalPath := gitSource.RepositoryPath().String()
-	inferredName := path.Base(canonicalPath)
-	if canonicalPath == "." {
-		inferredName = gitRootSkillName(gitSource.Locator().String())
-	}
-
-	return declarationcodec.SkillSource{
-		Git:  gitSource.Locator().String(),
-		Path: canonicalPath,
-		Ref:  gitSource.Ref().String(),
-	}, inferredName, nil
+	return declarationcodec.SkillSource{Git: source.Git, Path: source.Path, Ref: source.Ref}, inferredName, nil
 }
 
 func localSkillSource(request AddSkillRequest, manifestRoot string) (declarationcodec.SkillSource, string, error) {
@@ -106,10 +79,33 @@ func localSkillSource(request AddSkillRequest, manifestRoot string) (declaration
 	}, filepath.Base(absoluteSource), nil
 }
 
-func localInstructionSource(sourceArg string, manifestRoot string, effectiveScope string) (declarationcodec.InstructionSource, error) {
-	if strings.Contains(sourceArg, "://") || strings.HasPrefix(sourceArg, "git@") {
-		return declarationcodec.InstructionSource{}, fmt.Errorf("add instruction supports local file sources only; edit the manifest for S3 instruction sources")
+func instructionSource(request AddInstructionRequest, manifestRoot string, effectiveScope string) (declarationcodec.InstructionSource, error) {
+	if strings.HasPrefix(request.SourceArg, "s3://") {
+		return declarationcodec.InstructionSource{}, fmt.Errorf("add instruction supports local and Git file sources; edit the manifest for S3 instruction sources")
 	}
+	gitInput := request.SourcePath != "" || request.Ref != "" || strings.Contains(request.SourceArg, "://")
+	if !gitInput {
+		if exists, err := pathExists(request.SourceArg); err == nil && exists {
+			return localInstructionSource(request.SourceArg, manifestRoot, effectiveScope)
+		}
+		if locator, err := sourcepkg.ParseGitLocator(request.SourceArg); err == nil && !locator.IsNativeLocal() {
+			gitInput = true
+		}
+	}
+	if gitInput {
+		source, err := gitSourceDeclaration(request.SourceArg, request.SourcePath, request.Ref)
+		if err != nil {
+			return declarationcodec.InstructionSource{}, err
+		}
+		if source.Path == "." {
+			return declarationcodec.InstructionSource{}, fmt.Errorf("git instruction sources require a file path: use --path or owner/repo/path shorthand")
+		}
+		return declarationcodec.InstructionSource(source), nil
+	}
+	return localInstructionSource(request.SourceArg, manifestRoot, effectiveScope)
+}
+
+func localInstructionSource(sourceArg string, manifestRoot string, effectiveScope string) (declarationcodec.InstructionSource, error) {
 	absoluteSource, err := filepath.Abs(sourceArg)
 	if err != nil {
 		return declarationcodec.InstructionSource{}, fmt.Errorf("resolve local source: %w", err)
@@ -164,7 +160,7 @@ func skillGroupSourceLooksGit(source string, explicitPath string, ref string) bo
 	if locator, err := sourcepkg.ParseGitLocator(source); err == nil {
 		return !locator.IsNativeLocal()
 	}
-	owner, repo, _, ok := splitGitHubSkillShorthand(source)
+	owner, repo, _, ok := splitGitHubSourceShorthand(source)
 	return ok && owner != "" && repo != ""
 }
 
@@ -172,15 +168,18 @@ func gitSkillGroupSource(request AddSkillGroupRequest) (declarationcodec.SkillSo
 	if request.Mode != "" && request.Mode != string(sourcepkg.LocalSourceModeVendor) {
 		return declarationcodec.SkillSource{}, fmt.Errorf("--mode is only valid for local sources")
 	}
-	if request.Ref == "" {
-		return declarationcodec.SkillSource{}, ErrMissingGitRef
-	}
+	source, err := gitSourceDeclaration(request.SourceArg, request.SourcePath, request.Ref)
+	return declarationcodec.SkillSource{Git: source.Git, Path: source.Path, Ref: source.Ref}, err
+}
 
-	gitURL := request.SourceArg
-	sourcePath := request.SourcePath
-	if owner, repo, embeddedPath, ok := splitGitHubSkillShorthand(request.SourceArg); ok {
+func gitSourceDeclaration(sourceArg string, sourcePath string, ref string) (declaration.Source, error) {
+	if ref == "" {
+		return declaration.Source{}, ErrMissingGitRef
+	}
+	gitURL := sourceArg
+	if owner, repo, embeddedPath, ok := splitGitHubSourceShorthand(sourceArg); ok {
 		if embeddedPath != "" && sourcePath != "" {
-			return declarationcodec.SkillSource{}, fmt.Errorf("do not combine owner/repo/path shorthand with --path; use owner/repo --path %s", sourcePath)
+			return declaration.Source{}, fmt.Errorf("do not combine owner/repo/path shorthand with --path; use owner/repo --path %s", sourcePath)
 		}
 		gitURL = "https://github.com/" + owner + "/" + repo + ".git"
 		if sourcePath == "" {
@@ -190,16 +189,15 @@ func gitSkillGroupSource(request AddSkillGroupRequest) (declarationcodec.SkillSo
 	if sourcePath == "" {
 		sourcePath = "."
 	}
-	canonicalSource, err := sourcepkg.NewGitSource(gitURL, sourcePath, request.Ref)
+	canonicalSource, err := sourcepkg.NewGitSource(gitURL, sourcePath, ref)
 	if err != nil {
-		return declarationcodec.SkillSource{}, err
+		return declaration.Source{}, err
 	}
 	gitSource, ok := canonicalSource.Git()
 	if !ok {
-		return declarationcodec.SkillSource{}, fmt.Errorf("canonical git source is unavailable")
+		return declaration.Source{}, fmt.Errorf("canonical git source is unavailable")
 	}
-
-	return declarationcodec.SkillSource{
+	return declaration.Source{
 		Git:  gitSource.Locator().String(),
 		Path: gitSource.RepositoryPath().String(),
 		Ref:  gitSource.Ref().String(),
@@ -219,11 +217,11 @@ func skillSourceLooksGit(source string, explicitPath string, ref string) bool {
 	if locator, err := sourcepkg.ParseGitLocator(source); err == nil {
 		return !locator.IsNativeLocal()
 	}
-	_, _, _, ok := splitGitHubSkillShorthand(source)
+	_, _, _, ok := splitGitHubSourceShorthand(source)
 	return ok
 }
 
-func splitGitHubSkillShorthand(source string) (string, string, string, bool) {
+func splitGitHubSourceShorthand(source string) (string, string, string, bool) {
 	if strings.HasPrefix(source, ".") || strings.HasPrefix(source, "~") || filepath.IsAbs(source) {
 		return "", "", "", false
 	}

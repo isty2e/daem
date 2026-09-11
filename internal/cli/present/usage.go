@@ -348,9 +348,9 @@ func addAuthoringPages(pages map[string]helpPage, workspace helpRow, target help
 		[]helpRow{{"", "Target omission succeeds only when manifest targets and source compatibility identify one admitted row."}, {"", "Writes by default. Source registries and host-specific policy remain manifest-only."}},
 		[]string{"daem add extension context7 context7@market --target claude-code", "daem add extension formatter @acme/formatter --target opencode --dry-run --diff"}, reference)
 	pages["add instruction"] = leaf("daem add instruction", "daem add instruction <name> <source> [options]", "add an instruction and refresh the lockfile",
-		[]helpRow{{"<name>", "Stable instruction name."}, {"<source>", "Local source path accepted by common authoring."}}, common,
-		[]helpRow{{"", "Omitted target and scope preserve manifest inheritance."}, {"", "Non-local and target-specific rendering fields are manifest-only. Writes by default."}},
-		[]string{"daem add instruction project ./instructions/AGENTS.md", "daem add instruction project ./AGENTS.md --target codex --dry-run"}, reference)
+		[]helpRow{{"<name>", "Stable instruction name."}, {"<source>", "Local file path or Git repository locator."}}, append([]helpRow{{"--path <repo-path>", "Instruction file within a Git repository."}, {"--ref <git-ref>", "Required for Git: strict branch, tag, or full object id."}}, common...),
+		[]helpRow{{"", "Omitted target and scope preserve manifest inheritance."}, {"", "Git requires a file path via --path or owner/repo/path shorthand with --ref."}, {"", "S3 sources and target-specific rendering fields are manifest-only. Writes by default."}},
+		[]string{"daem add instruction project ./instructions/AGENTS.md", "daem add instruction project acme/guidance --path AGENTS.md --ref main --dry-run"}, reference)
 	pages["add hook"] = leaf("daem add hook", "daem add hook <name> <event> <command> [--matcher <matcher>] [--timeout <duration>] [options]", "add a lifecycle hook and refresh the lockfile",
 		[]helpRow{{"<name>", "Stable hook name."}, {"<event>", "Canonical hook lifecycle event."}, {"<command>", "One opaque shell-command string."}}, append([]helpRow{{"--matcher <matcher>", "Optional hook matcher."}, {"--timeout <duration>", "Positive duration; must be representable as whole seconds."}}, common...),
 		[]helpRow{{"", "Omitted target and scope preserve manifest inheritance."}, {"", "Status messages and target overrides are manifest-only. Writes by default."}},

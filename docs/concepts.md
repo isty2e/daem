@@ -40,9 +40,9 @@ Sources supply the content daem locks:
 
 - **Local files and directories** need no remote repository. Project paths may
   be relative to the manifest; global local paths must be absolute.
-- **Git repositories** supply committed skill or skill-group content. A branch,
-  tag, or full commit id is required, and locking records the resolved commit.
-  The repository can be local. Git-backed instructions are not supported.
+- **Git repositories** supply committed instruction files, skills, or skill-group
+  content. A branch, tag, or full commit id is required, and locking records the
+  resolved commit. The repository can be local.
 - **S3 objects** supply supported file or archive content. Credentials remain
   outside the manifest and lockfile.
 

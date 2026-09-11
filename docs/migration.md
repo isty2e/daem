@@ -143,7 +143,7 @@ only copy placement can execute. See [Sources](manifest.md#sources) and
 
 ## Use A Local Git Source
 
-Skills and skill groups can use a local Git repository through an absolute
+Instruction files, skills, and skill groups can use a local Git repository through an absolute
 repository path or `file:///` URL. A ref is still required because this locks
 committed content, not your uncommitted working files. For example, in a
 project-scoped manifest:
@@ -157,8 +157,9 @@ source = { git = "/absolute/path/to/agent-skills", path = "skills/review", ref =
 Replace the repository path, artifact path, and ref with ones that exist, then
 run `daem lock --dry-run` and `daem lock`. The locked source records the resolved
 commit. No remote hosting is needed. For live local files instead, use a local
-source as above. Git-backed instruction sources are not supported; use a local
-instruction file or a supported S3 file source.
+source as above. For an instruction file, use the same Git source object under
+`[instructions.<name>]`, with `path` naming the committed file rather than a
+skill directory.
 
 ## Import Global Configuration
 
