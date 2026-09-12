@@ -6,15 +6,71 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	"golang.org/x/sys/unix"
 )
+
+type ancestorParentIdentity struct {
+	device uint64
+	inode  uint64
+}
+
+type ancestorPublicationLock struct {
+	mu    sync.Mutex
+	users int
+}
+
+var ancestorPublicationLocks = struct {
+	mu       sync.Mutex
+	byParent map[ancestorParentIdentity]*ancestorPublicationLock
+}{byParent: make(map[ancestorParentIdentity]*ancestorPublicationLock)}
+
+// Retained parent descriptors pin these object identities for every holder and
+// waiter. Mutable ctime must not split coordination after a sibling is created.
+func lockAncestorPublication(parent openedDirectory) func() {
+	key := ancestorParentIdentity{
+		device: parent.identity.platform.device,
+		inode:  parent.identity.platform.inode,
+	}
+	ancestorPublicationLocks.mu.Lock()
+	lock := ancestorPublicationLocks.byParent[key]
+	if lock == nil {
+		lock = &ancestorPublicationLock{}
+		ancestorPublicationLocks.byParent[key] = lock
+	}
+	lock.users++
+	ancestorPublicationLocks.mu.Unlock()
+	lock.mu.Lock()
+
+	return func() {
+		lock.mu.Unlock()
+		ancestorPublicationLocks.mu.Lock()
+		lock.users--
+		if lock.users == 0 {
+			delete(ancestorPublicationLocks.byParent, key)
+		}
+		ancestorPublicationLocks.mu.Unlock()
+	}
+}
 
 func (anchor *anchoredParent) createAndPublishChildDirectory(
 	parent openedDirectory,
 	name string,
 ) error {
+	unlock := lockAncestorPublication(parent)
+	defer unlock()
+
 	path := filepath.Join(parent.path, name)
+	var current unix.Stat_t
+	inspectErr := unix.Fstatat(parent.fd, name, &current, unix.AT_SYMLINK_NOFOLLOW)
+	if inspectErr == nil {
+		return anchor.openObservedChildDirectory(parent, name, &current, false)
+	}
+	if !errors.Is(inspectErr, unix.ENOENT) {
+		return fmt.Errorf("reinspect ancestor %q: %w", path, inspectErr)
+	}
+
 	stageName, stageFD, identity, err := anchor.createStagedChildDirectory(parent, path)
 	if err != nil {
 		return fmt.Errorf("create staged ancestor for %q: %w", path, err)

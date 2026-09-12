@@ -4,8 +4,11 @@ package cli_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -13,7 +16,8 @@ import (
 	"github.com/isty2e/daem/test/testkit"
 )
 
-func TestNFSSingleClientLifecycle(t *testing.T) {
+func newNFSCLIEnvironment(t *testing.T) (string, string) {
+	t.Helper()
 	base := os.Getenv("DAEM_TEST_NFS_ROOT")
 	if base == "" {
 		t.Skip("set DAEM_TEST_NFS_ROOT to a writable NFS directory")
@@ -44,7 +48,69 @@ func TestNFSSingleClientLifecycle(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	return root, home
+}
 
+func TestNFSConcurrentGitCacheBootstrap(t *testing.T) {
+	root, home := newNFSCLIEnvironment(t)
+	testkit.RequireGit(t)
+	first := testkit.InitGitRepository(t, filepath.Join(root, "first"))
+	second := testkit.InitGitRepository(t, filepath.Join(root, "second"))
+	firstContent := "---\nname: first\ndescription: first source\n---\nfirst\n"
+	secondContent := "---\nname: second\ndescription: second source\n---\nsecond\n"
+	testkit.WriteFile(t, first, "SKILL.md", firstContent)
+	testkit.WriteFile(t, second, "SKILL.md", secondContent)
+	testkit.CommitRepository(t, first, "test: first source")
+	testkit.CommitRepository(t, second, "test: second source")
+
+	workspace := filepath.Join(root, "workspace")
+	manifest := filepath.Join(workspace, "daem.toml")
+	testkit.WriteFile(t, workspace, "daem.toml", fmt.Sprintf(`version = 1
+ targets = ["codex"]
+ [defaults]
+ scope = "global"
+ install_mode = "copy"
+ [[skill]]
+ name = "first"
+ source = { git = %q, path = ".", ref = "main" }
+ [[skill]]
+ name = "second"
+ source = { git = %q, path = ".", ref = "main" }
+`, first, second))
+
+	for _, command := range [][]string{
+		{"lock"},
+		{"doctor", "--json"},
+		{"apply", "--dry-run"},
+		{"apply", "--yes"},
+		{"status", "--check"},
+		{"lock"},
+		{"apply", "--yes"},
+		{"doctor", "--json"},
+	} {
+		args := append(command, "--manifest", manifest)
+		exit, stdout, stderr := runOwnershipCLI(args...)
+		if exit != 0 {
+			t.Fatalf("%v: exit=%d stdout=%q stderr=%q", args, exit, stdout, stderr)
+		}
+	}
+	testkit.AssertFileContent(t, filepath.Join(home, ".agents", "skills", "first", "SKILL.md"), firstContent)
+	testkit.AssertFileContent(t, filepath.Join(home, ".agents", "skills", "second", "SKILL.md"), secondContent)
+	if err := filepath.WalkDir(filepath.Join(workspace, ".daem"), func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.HasPrefix(entry.Name(), ".daem-tmp-") {
+			return fmt.Errorf("reserved publication residue remains at %s", path)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNFSSingleClientLifecycle(t *testing.T) {
+	root, home := newNFSCLIEnvironment(t)
 	run := func(args ...string) string {
 		t.Helper()
 		exit, stdout, stderr := runOwnershipCLI(args...)

@@ -86,12 +86,14 @@ Native platform and release claims require the lanes in
 Cross-compilation is not native execution evidence, and an unexecuted workflow
 does not prove that a lane passed.
 
-For the Linux single-client NFS lifecycle regression, select a writable NFS
-scratch directory. The test creates and removes an isolated home/workspace
-there; it skips when the variable is unset:
+For the Linux single-client NFS lifecycle and concurrent Git-cache bootstrap
+regressions, select a writable NFS scratch directory. Each test creates and
+removes an isolated home/workspace there; both skip when the variable is unset.
+The Git regression uses two local repositories and requires Git, not network
+access:
 
 ```bash
-DAEM_TEST_NFS_ROOT=/path/on/nfs tools/test-go.sh -mod=readonly -count=1 ./test/cli -run '^TestNFSSingleClientLifecycle$'
+DAEM_TEST_NFS_ROOT=/path/on/nfs tools/test-go.sh -mod=readonly -count=1 ./test/cli -run '^TestNFS'
 ```
 
 Use `tools/test-go.sh` for uncached custom Go test invocations; it supplies the

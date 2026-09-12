@@ -512,6 +512,12 @@ If an NFS-backed operation appears stuck:
 4. Use a single local-filesystem host and workspace for daem mutations when
    cross-node exclusion or crash-durability guarantees are required.
 
+If an earlier concurrent Git-cache bootstrap left markerless `.daem-tmp-*`
+residue, preventing new bootstrap collisions does not make that old residue
+recoverable. Automatic removal without a published ownership marker remains
+unsupported. Preserve the residue and error output for manual analysis; do not
+remove internal paths merely because their names look temporary.
+
 See [NFS-Backed Homes](concepts.md#nfs-backed-homes) for the exact boundary.
 
 ## Collecting A Diagnostic Report

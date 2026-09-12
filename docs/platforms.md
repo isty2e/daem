@@ -101,6 +101,8 @@ but still requires supported path and source-cache behavior.
 Linux amd64 NFSv3 supports ordinary unprivileged single-client `lock`, `apply`,
 and same-boot interruption/recovery, including on kernel 5.15. Run one writer
 at a time against a manifest or destination, on trusted user-controlled paths.
+Multiple Git sources may share a fresh cache within one command; internal
+workers coordinate shared ancestor publication within the process.
 Where NFS lacks atomic no-replace rename, daem checks destination absence and
 uses ordinary rename. Atomic exclusion of a concurrent external writer is
 outside this NFS contract; native no-replace publication remains in use where
