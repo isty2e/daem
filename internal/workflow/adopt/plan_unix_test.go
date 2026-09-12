@@ -11,6 +11,8 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestBuildCommandPlanRejectsSkillRootGrowthBeforeNothingToImport(t *testing.T) {
@@ -31,6 +33,7 @@ func TestBuildCommandPlanRejectsSkillRootGrowthBeforeNothingToImport(t *testing.
 				return
 			}
 			mutated = true
+			fsclock.WaitForTick(t, skillsRoot)
 			skillRoot := filepath.Join(skillsRoot, "review")
 			if mkdirErr := os.Mkdir(skillRoot, 0o700); mkdirErr != nil {
 				t.Fatalf("create late skill root: %v", mkdirErr)
@@ -77,6 +80,7 @@ func TestBuildCommandPlanRejectsSkillRootGrowthBeforeNonemptyPlan(t *testing.T) 
 			if event.Kind != ProgressEventTargetScopeCompleted {
 				return
 			}
+			fsclock.WaitForTick(t, skillsRoot)
 			lateRoot := filepath.Join(skillsRoot, "late")
 			if mkdirErr := os.Mkdir(lateRoot, 0o700); mkdirErr != nil {
 				t.Fatalf("create late skill root: %v", mkdirErr)

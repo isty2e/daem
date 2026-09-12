@@ -18,6 +18,8 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 type cleanupWorkRecordingBudget struct {
@@ -284,6 +286,7 @@ func TestRootedEntryRenameRejectsDestinationAndSourceDrift(t *testing.T) {
 		if err != nil {
 			t.Fatalf("capture source identity: %v", err)
 		}
+		fsclock.WaitForTick(t, source)
 		if err := os.Chmod(source, 0o755); err != nil {
 			t.Fatalf("change source mode: %v", err)
 		}
@@ -369,7 +372,7 @@ func TestRootedEntryRenameClassifiesBetweenCheckRaces(t *testing.T) {
 		var actionErr error
 		faults := faultPlan{actions: map[phase]func(){
 			phaseCommitEntry: func() {
-				if err := os.Remove(source); err != nil {
+				if err := os.Rename(source, filepath.Join(t.TempDir(), "original")); err != nil {
 					actionErr = err
 					return
 				}
@@ -1152,7 +1155,7 @@ func TestRootedEntryCleanupRejectsDescendantReplacementFromSnapshot(t *testing.T
 				writeTestFile(t, path, "planned", 0o600)
 			},
 			replace: func(t *testing.T, path string) {
-				if err := os.Remove(path); err != nil {
+				if err := os.Rename(path, filepath.Join(t.TempDir(), "original")); err != nil {
 					t.Fatal(err)
 				}
 				writeTestFile(t, path, "replacement", 0o640)
@@ -1169,7 +1172,7 @@ func TestRootedEntryCleanupRejectsDescendantReplacementFromSnapshot(t *testing.T
 				}
 			},
 			replace: func(t *testing.T, path string) {
-				if err := os.Remove(path); err != nil {
+				if err := os.Rename(path, filepath.Join(t.TempDir(), "original")); err != nil {
 					t.Fatal(err)
 				}
 				if err := os.Mkdir(path, 0o700); err != nil {
@@ -1189,7 +1192,7 @@ func TestRootedEntryCleanupRejectsDescendantReplacementFromSnapshot(t *testing.T
 				}
 			},
 			replace: func(t *testing.T, path string) {
-				if err := os.Remove(path); err != nil {
+				if err := os.Rename(path, filepath.Join(t.TempDir(), "original")); err != nil {
 					t.Fatal(err)
 				}
 				if err := os.Symlink("replacement", path); err != nil {
@@ -1227,7 +1230,10 @@ func TestRootedEntryCleanupRejectsDescendantReplacementFromSnapshot(t *testing.T
 			outcome, err := commitRootedEntryCleanupWithFaults(t.Context(), request, faultPlan{
 				actions: map[phase]func(){
 					phaseCleanupEntry: func() {
-						replace.Do(func() { test.replace(t, victim) })
+						replace.Do(func() {
+							fsclock.WaitForTick(t, residue)
+							test.replace(t, victim)
+						})
 					},
 				},
 			})
@@ -1465,7 +1471,10 @@ func TestRootedEntryCleanupRejectsNamespaceAndContentDriftBeforeUnlink(t *testin
 			outcome, err := commitRootedEntryCleanupWithFaults(t.Context(), request, faultPlan{
 				actions: map[phase]func(){
 					phaseCleanupEntry: func() {
-						drift.Do(func() { test.drift(t, residue) })
+						drift.Do(func() {
+							fsclock.WaitForTick(t, filepath.Join(residue, "victim"))
+							test.drift(t, residue)
+						})
 					},
 				},
 			})
@@ -1502,6 +1511,7 @@ func TestRootedEntryCleanupSealsDeepContentBeforeFirstUnlink(t *testing.T) {
 	outcome, err := commitRootedEntryCleanupWithFaults(t.Context(), request, faultPlan{
 		actions: map[phase]func(){
 			phaseRevalidateCleanup: func() {
+				fsclock.WaitForTick(t, victim)
 				writeTestFile(t, victim, "changed", 0o600)
 			},
 		},
@@ -1538,6 +1548,7 @@ func TestRootedEntryCleanupDoesNotChmodReplacementDirectory(t *testing.T) {
 		actions: map[phase]func(){
 			phaseApplyMode: func() {
 				replace.Do(func() {
+					fsclock.WaitForTick(t, residue)
 					if renameErr := os.Rename(victim, moved); renameErr != nil {
 						t.Fatal(renameErr)
 					}
@@ -1932,8 +1943,8 @@ func TestRootedEntryCleanupRejectsReplacementSymlinkAndSpecialEntry(t *testing.T
 		if err != nil {
 			t.Fatalf("capture residue identity: %v", err)
 		}
-		if err := os.Remove(residue); err != nil {
-			t.Fatalf("remove original residue: %v", err)
+		if err := os.Rename(residue, filepath.Join(t.TempDir(), "original")); err != nil {
+			t.Fatalf("displace original residue: %v", err)
 		}
 		if err := os.Mkdir(residue, 0o700); err != nil {
 			t.Fatalf("create replacement residue: %v", err)

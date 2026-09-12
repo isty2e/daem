@@ -17,6 +17,8 @@ import (
 
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"golang.org/x/sys/unix"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestCopiedViewsReverifyConcurrentOperations(t *testing.T) {
@@ -371,6 +373,7 @@ func TestDirectoryListingWitnessDetectsInventoryChange(t *testing.T) {
 	if err := view.VerifyDirectoryListing(t.Context(), ".", witness); err != nil {
 		t.Fatalf("stable listing verification: %v", err)
 	}
+	fsclock.WaitForTick(t, root)
 	writeAccessTestFile(t, filepath.Join(root, "added"), nil)
 	if err := view.VerifyDirectoryListing(t.Context(), ".", witness); err == nil {
 		t.Fatal("directory listing witness accepted an added entry")

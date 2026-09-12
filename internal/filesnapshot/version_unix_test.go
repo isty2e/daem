@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestReadRegularFileContextRejectsRewriteWithRestoredMtime(t *testing.T) {
@@ -28,6 +30,7 @@ func TestReadRegularFileContextRejectsRewriteWithRestoredMtime(t *testing.T) {
 
 	_, _, err = readRegularFileContext(context.Background(), path, 64, readHooks{
 		afterOpen: func() {
+			fsclock.WaitForTick(t, path)
 			if writeErr := os.WriteFile(path, []byte("after!"), 0o600); writeErr != nil {
 				t.Fatalf("rewrite observed file: %v", writeErr)
 			}

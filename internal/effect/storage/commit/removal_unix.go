@@ -4,6 +4,7 @@ package commit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -94,6 +95,9 @@ func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval,
 		return renameNoReplace(anchor.parentFD(), anchor.base, anchor.parentFD(), tombstoneName)
 	})
 	if err != nil {
+		if errors.Is(err, errRenameIndeterminate) {
+			return newFailure(failureIndeterminateCommit, phaseCommitTombstone, request.path, err, tombstonePath)
+		}
 		return failureBeforeVisibility(phaseCommitTombstone, request.path, err)
 	}
 	err = faults.run(ctx, phaseVerifyEntry, func() error {
@@ -131,6 +135,9 @@ func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval,
 			return renameNoReplace(anchor.parentFD(), tombstoneName, anchor.parentFD(), cleanupName)
 		})
 		if err != nil {
+			if errors.Is(err, errRenameIndeterminate) {
+				return newFailure(failureIndeterminateCommit, phasePromoteCleanup, request.path, err, tombstonePath, cleanupPath)
+			}
 			return newFailure(failureRetainedResidue, phasePromoteCleanup, request.path, err, tombstonePath)
 		}
 		err = faults.run(ctx, phaseVerifyEntry, func() error {

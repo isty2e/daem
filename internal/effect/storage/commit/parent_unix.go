@@ -190,7 +190,7 @@ func prepareCommitParentWithFaults(
 	if err := faults.check(ctx, phaseCreateAncestors); err != nil {
 		return newFailure(failureUncommitted, phaseCreateAncestors, path, err)
 	}
-	hooks := ancestorPublicationHooks{}
+	hooks := ancestorPublicationHooks{completionError: faults.afterEffectFailures[phasePublishAncestor]}
 	if action := faults.actions[phaseCommitEntry]; action != nil {
 		hooks.before = func(string) { action() }
 	}

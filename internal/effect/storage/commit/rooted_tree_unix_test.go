@@ -16,6 +16,8 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestPreparedTreeMetadataFactsDistinguishXattrValues(t *testing.T) {
@@ -555,6 +557,7 @@ func TestPreparedRootedTreeRejectsStageMutationAfterPreparation(t *testing.T) {
 
 func TestPreparedRootedTreeRejectsNestedFileContentMutationAfterPreparation(t *testing.T) {
 	root, prepared, capability := prepareNestedRootedTreeForMutationTest(t)
+	fsclock.WaitForTick(t, filepath.Join(prepared.stagePath, "nested", "entry"))
 	if err := os.WriteFile(
 		filepath.Join(prepared.stagePath, "nested", "entry"),
 		[]byte("changed"),
@@ -573,6 +576,7 @@ func TestPreparedRootedTreeRejectsNestedFileContentMutationAfterPreparation(t *t
 
 func TestPreparedRootedTreeRejectsNestedFileModeMutationAfterPreparation(t *testing.T) {
 	root, prepared, capability := prepareNestedRootedTreeForMutationTest(t)
+	fsclock.WaitForTick(t, filepath.Join(prepared.stagePath, "nested", "entry"))
 	if err := os.Chmod(filepath.Join(prepared.stagePath, "nested", "entry"), 0o400); err != nil {
 		t.Fatalf("mutate nested file mode: %v", err)
 	}
@@ -592,6 +596,7 @@ func TestPreparedRootedTreeRejectsNestedFileMetadataMutationAfterPreparation(t *
 		xattrName = "com.daem.rooted-tree-test"
 	}
 	entry := filepath.Join(prepared.stagePath, "nested", "entry")
+	fsclock.WaitForTick(t, entry)
 	if err := unix.Setxattr(entry, xattrName, []byte("changed"), 0); err != nil {
 		if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EOPNOTSUPP) {
 			t.Skipf("extended attributes unavailable: %v", err)
@@ -624,6 +629,7 @@ func TestPreparedRootedTreeRejectsNestedFileMutationAcrossCommitPhases(t *testin
 			entry := filepath.Join(prepared.stagePath, "nested", "entry")
 			faults := faultPlan{actions: map[phase]func(){
 				test.phase: func() {
+					fsclock.WaitForTick(t, entry)
 					if err := os.WriteFile(entry, []byte("changed"), 0o600); err != nil {
 						t.Fatalf("mutate nested file: %v", err)
 					}
@@ -724,6 +730,13 @@ func TestPreparedRootedTreeCleansRestrictiveStageAfterModeTransitionFailure(t *t
 		t.Fatalf("PrepareRootedTree returned error: %v", err)
 	}
 	stagePath := prepared.stagePath
+	t.Cleanup(func() {
+		_ = os.Chmod(stagePath, 0o700)
+		_ = os.Chmod(filepath.Join(stagePath, "nested"), 0o700)
+		if err := os.RemoveAll(stagePath); err != nil {
+			t.Error(err)
+		}
+	})
 	prepared.mu.Lock()
 	if err := prepared.applyTreeModesLocked(t.Context()); err != nil {
 		prepared.mu.Unlock()

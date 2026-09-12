@@ -256,14 +256,14 @@ func commitPreparedRootedTreeWithFaults(
 		return prepared.failBeforeVisibilityLocked(phaseCommitEntry, err, faults)
 	}
 
-	err := renameNoReplace(
+	err := faults.effectResult(phaseCommitEntry, renameNoReplace(
 		prepared.anchor.parentFD(),
 		prepared.stageName,
 		prepared.anchor.parentFD(),
 		prepared.anchor.base,
-	)
+	))
 	if err != nil {
-		if errors.Is(err, fs.ErrExist) || errors.Is(err, unix.EEXIST) {
+		if !errors.Is(err, errRenameIndeterminate) && errors.Is(err, fs.ErrExist) {
 			if destinationErr := prepared.requireDestinationAbsentLocked(); destinationErr != nil {
 				err = destinationErr
 			}
@@ -361,6 +361,11 @@ func (prepared *PreparedRootedTree) failBeforeVisibilityLocked(
 	cause error,
 	faults faultPlan,
 ) error {
+	if errors.Is(cause, errRenameIndeterminate) {
+		residue := append(prepared.anchor.publicationResidue(), prepared.stagePath)
+		prepared.releaseLocked()
+		return newFailure(failureIndeterminateCommit, failedPhase, prepared.destination, cause, residue...)
+	}
 	if err := prepared.anchor.verifyChain(); err != nil {
 		prepared.releaseLocked()
 		return newFailure(

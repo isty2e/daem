@@ -180,7 +180,9 @@ and recovering retain their own validation and refusal rules. See
 
 ### NFS-Backed Homes
 
-Single-host NFS use is best effort. Leases do not guarantee cross-node exclusion,
-and final revalidation cannot prevent a later competing write. Outage/reconnect
-behavior and stable-storage durability are outside the guarantee. See
+Linux NFSv3 supports ordinary single-client use with one writer at a time and
+same-boot recovery without remounting. Leases do not guarantee cross-node
+exclusion, and final revalidation cannot prevent a later competing write.
+Outage/reconnect behavior and stable-storage durability are outside the
+guarantee. See
 [Platform Support](platforms.md) and [NFS troubleshooting](troubleshooting.md#nfs-backed-home-or-workspace).

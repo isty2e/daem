@@ -70,10 +70,10 @@ transaction contract. Ordinarily recover with the writer before upgrading, but
 **v10 requires the continuity check below**.
 
 Do not unconditionally open a v10 journal with its old writer. That writer can
-authorize Linux recovery with the reusable mount witness that current daem
-rejects. Use it only after independently establishing that the journal was
-created in the current boot and that no relevant filesystem was unmounted or
-remounted since capture. If either fact is unknown, stop: preserve the journal,
+authorize Linux recovery with a reusable mount witness that lacks the current
+boot-bound evidence. Use it only after independently establishing that the
+journal was created in the current boot and that no relevant filesystem was
+unmounted or remounted since capture. If either fact is unknown, stop: preserve the journal,
 its backups, and the affected filesystem state for manual analysis. Do not run
 the old writer merely to bypass the current refusal.
 
@@ -493,18 +493,22 @@ Do not use `--manage-existing` to convert mismatched content into ownership.
 
 ## NFS-Backed Home Or Workspace
 
-Ordinary single-host use is expected to work, but NFS locking, caching, outage,
-and durability behavior varies by deployment. Do not run daem concurrently on
-multiple nodes against the same manifest or shared destination, and do not rely
-on daem leases for cross-node mutual exclusion.
+Linux amd64 NFSv3 supports ordinary unprivileged single-client use, including
+kernel 5.15. Run one writer at a time against the same manifest or destination;
+do not rely on daem leases for cross-node mutual exclusion. `daem doctor`
+exercises scratch storage publication and artifact access on selected paths,
+but cannot certify server durability or concurrent-writer exclusion.
 
 If an NFS-backed operation appears stuck:
 
 1. Confirm no daem process is still using the same manifest or destination on
    any node available to you.
 2. If the original operation was interrupted, run `daem recover --dry-run` on
-   the same host and manifest before another mutation.
-3. Do not remove internal lease, journal, state, or ownership files manually.
+   the same host and manifest, within the same boot and without remounting the
+   affected filesystems, before another mutation.
+3. A failed NFS rename may already have taken effect. Preserve retained stages,
+   journals, and backups if recovery refuses or reports an unknown outcome;
+   do not assume nothing changed or delete internal metadata to bypass refusal.
 4. Use a single local-filesystem host and workspace for daem mutations when
    cross-node exclusion or crash-durability guarantees are required.
 

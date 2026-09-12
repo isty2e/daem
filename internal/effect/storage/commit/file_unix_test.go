@@ -57,8 +57,8 @@ func TestCommitFileRejectsExistingAndStaleEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileReplacement returned error: %v", err)
 	}
-	if err := os.Remove(target); err != nil {
-		t.Fatalf("Remove returned error: %v", err)
+	if err := os.Rename(target, filepath.Join(t.TempDir(), "original")); err != nil {
+		t.Fatalf("displace original file: %v", err)
 	}
 	writeTestFile(t, target, "external", 0o600)
 	assertFailure(t, CommitFile(context.Background(), replace), failureUncommitted, phaseValidate)

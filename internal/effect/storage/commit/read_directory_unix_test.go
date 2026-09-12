@@ -140,7 +140,7 @@ func TestSnapshotDirectoryRejectsConcurrentEntryIdentityChange(t *testing.T) {
 	var actionErr error
 	_, err := snapshotDirectoryWithFaults(t.Context(), root, 16, faultPlan{actions: map[phase]func(){
 		phaseRevalidateEntry: func() {
-			actionErr = os.Remove(path)
+			actionErr = os.Rename(path, filepath.Join(t.TempDir(), "original"))
 			if actionErr == nil {
 				actionErr = os.WriteFile(path, []byte("after"), 0o600)
 			}

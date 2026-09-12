@@ -15,6 +15,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/target"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestBoundRemovalRemovesSourceFromEveryLoadedCandidate(t *testing.T) {
@@ -257,6 +259,7 @@ func TestRemoveExactSourceRefusesConcurrentReplacement(t *testing.T) {
 	store := concurrentReplaceStore{
 		RootedStore: storagecommit.Adapter{},
 		beforeReplace: func() {
+			fsclock.WaitForTick(t, path)
 			if err := os.WriteFile(path, concurrent, 0o600); err != nil {
 				t.Fatal(err)
 			}

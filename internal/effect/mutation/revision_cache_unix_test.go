@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestBoundedRevisionCacheRejectsAliasedRewriteWithRestoredMtime(t *testing.T) {
@@ -54,6 +56,7 @@ func TestBoundedRevisionCacheRejectsAliasedRewriteWithRestoredMtime(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	fsclock.WaitForTick(t, path)
 	if err := os.WriteFile(path, []byte("after!"), 0o600); err != nil {
 		t.Fatal(err)
 	}

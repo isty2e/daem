@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestSearchRootCachePreservesFinalRootSymlinkCompatibility(t *testing.T) {
@@ -60,6 +62,7 @@ func TestSearchRootCacheRejectsChangedSharedResolvedRoot(t *testing.T) {
 	if entries, err := cache.entries(t.Context(), firstAlias); err != nil || len(entries.names) != 0 {
 		t.Fatalf("initial entries = %#v, error = %v, want empty", entries.names, err)
 	}
+	fsclock.WaitForTick(t, physical)
 	if err := os.Mkdir(filepath.Join(physical, "review"), 0o700); err != nil {
 		t.Fatal(err)
 	}

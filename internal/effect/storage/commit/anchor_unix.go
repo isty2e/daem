@@ -22,8 +22,9 @@ type openedDirectory struct {
 }
 
 type ancestorPublicationHooks struct {
-	before func(string)
-	after  func(string)
+	before          func(string)
+	after           func(string)
+	completionError error
 }
 
 type anchoredParent struct {

@@ -399,8 +399,12 @@ func TestRecoveryRollbackCleanupRejectsScratchGrowth(t *testing.T) {
 	beginGeneralRecoveryExecutionForTest(t, authority)
 
 	err = rollback.cleanup(t.Context(), authority)
-	if err == nil || !strings.Contains(err.Error(), "changed before cleanup") {
-		t.Fatalf("rollback cleanup error = %v, want scratch-identity rejection", err)
+	if err == nil || (!strings.Contains(err.Error(), "changed before cleanup") &&
+		!strings.Contains(err.Error(), "exceeds 1 entries")) {
+		t.Fatalf("rollback cleanup error = %v, want scratch-growth rejection", err)
+	}
+	if _, err := os.Stat(filepath.Join(rollback.dir, "unexpected")); err != nil {
+		t.Fatalf("unexpected entry changed after rejected cleanup: %v", err)
 	}
 	if _, err := os.Stat(rollback.dir); err != nil {
 		t.Fatalf("scratch changed after rejected cleanup: %v", err)

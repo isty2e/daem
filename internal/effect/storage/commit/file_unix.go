@@ -325,7 +325,7 @@ func commitFileWithFaultsAndParentRefresh(
 		case filePolicyMustBeAbsent:
 			return renameNoReplace(anchor.parentFD(), temporaryName, anchor.parentFD(), anchor.base)
 		case filePolicyReplaceExpected:
-			return unix.Renameat(anchor.parentFD(), temporaryName, anchor.parentFD(), anchor.base)
+			return renameReplace(anchor.parentFD(), temporaryName, anchor.parentFD(), anchor.base)
 		default:
 			return fmt.Errorf("invalid file commit policy")
 		}

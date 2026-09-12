@@ -118,7 +118,7 @@ type FileCommit struct {
 	capability     rootedpath.CommitCapability
 }
 
-// NewRootedFileCreate constructs an exclusive file-creation request bound to
+// NewRootedFileCreate constructs an absent-destination file request bound to
 // one physical rooted-path capability. On success, CommitFile owns and
 // consumes the capability; on error, the caller retains ownership.
 func NewRootedFileCreate(
@@ -138,7 +138,7 @@ func NewRootedFileCreate(
 	return request, nil
 }
 
-// NewFileCreate constructs an exclusive file-creation request.
+// NewFileCreate constructs an absent-destination file request.
 func NewFileCreate(path string, payload []byte, mode fs.FileMode) (FileCommit, error) {
 	if err := validateCommitPath(path); err != nil {
 		return FileCommit{}, err

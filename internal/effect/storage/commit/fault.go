@@ -41,6 +41,7 @@ const (
 
 type faultPlan struct {
 	failures                  map[phase]error
+	afterEffectFailures       map[phase]error
 	actions                   map[phase]func()
 	payloadWrite              func(context.Context, io.Writer, []byte) error
 	afterCleanupDirectoryRead func()
@@ -61,7 +62,14 @@ func (plan faultPlan) run(ctx context.Context, current phase, effect func() erro
 	if err := plan.check(ctx, current); err != nil {
 		return err
 	}
-	return effect()
+	return plan.effectResult(current, effect())
+}
+
+func (plan faultPlan) effectResult(current phase, err error) error {
+	if err != nil {
+		return err
+	}
+	return plan.afterEffectFailures[current]
 }
 
 func (plan faultPlan) finishCleanupDirectoryRead() {

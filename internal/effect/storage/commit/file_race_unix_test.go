@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestCommitFileDoesNotFollowSymlinkAncestor(t *testing.T) {
@@ -157,7 +159,7 @@ func TestCommitFileReplacementRejectsChangeBeforeFinalRevalidation(t *testing.T)
 	var actionErr error
 	faults := faultPlan{actions: map[phase]func(){
 		phaseRevalidateEntry: func() {
-			if err := os.Remove(target); err != nil {
+			if err := os.Rename(target, filepath.Join(t.TempDir(), "original")); err != nil {
 				actionErr = err
 				return
 			}
@@ -178,6 +180,7 @@ func TestCommitFileReplacementRejectsInPlaceChangeAfterIdentityCapture(t *testin
 	target := filepath.Join(root, "state.json")
 	writeTestFile(t, target, "before", 0o600)
 	expected := captureIdentity(t, target)
+	fsclock.WaitForTick(t, target)
 	if err := os.WriteFile(target, []byte("external"), 0o600); err != nil {
 		t.Fatalf("external in-place write returned error: %v", err)
 	}

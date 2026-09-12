@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestViewRemainsComparableWithImmutableRootAuthority(t *testing.T) {
@@ -342,6 +344,7 @@ func TestVerifyNativeEntryRejectsMutationDuringFinalExactNameObservation(t *test
 						names, readErr := file.Readdirnames(maximum)
 						if !mutated {
 							mutated = true
+							fsclock.WaitForTick(t, selected)
 							if err := test.mutate(selected); err != nil {
 								return nil, err
 							}

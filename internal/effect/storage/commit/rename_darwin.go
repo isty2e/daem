@@ -8,3 +8,7 @@ func renameNoReplace(fromFD int, from string, toFD int, to string) error {
 	err := unix.RenameatxNp(fromFD, from, toFD, to, unix.RENAME_EXCL)
 	return unsupportedOperationError("no-replace rename is unavailable", err)
 }
+
+func renameReplace(fromFD int, from string, toFD int, to string) error {
+	return unix.Renameat(fromFD, from, toFD, to)
+}

@@ -7,4 +7,8 @@
 // a descriptor-backed snapshot sink. It does not own payload-source traversal,
 // serialization, workflow recovery, retries, mutation authority, or user-facing
 // diagnostics.
+//
+// Linux NFS publication follows the single-writer support envelope in
+// docs/platforms.md. No-replace fallback checks absence without atomic external
+// writer exclusion; an uncertain rename retains evidence instead of cleaning it.
 package commit
