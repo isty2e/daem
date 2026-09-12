@@ -291,32 +291,9 @@ func (set *LeaseSet) AcceptVisibilityChanges(ctx context.Context) (bool, error) 
 		return false, fmt.Errorf("validate mutation lease namespace: %w", err)
 	}
 
-	observed := make([]canonicalPath, len(set.domains))
-	observe := newPathIdentityObserver()
-	for index, domain := range set.domains {
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
-		switch domain.kind {
-		case domainLogicalPath, domainPhysicalPath:
-			if !domain.namespaceLease.isZero() {
-				matches, err := domain.namespaceLease.matchesCurrent()
-				if err != nil {
-					return false, err
-				}
-				if !matches {
-					return false, nil
-				}
-			}
-			identity, err := observe(domain.requestedPath, domain.effect)
-			if err != nil {
-				return false, err
-			}
-			observed[index] = identity
-		case domainHostRoute:
-		default:
-			return false, fmt.Errorf("mutation domain is not initialized")
-		}
+	observed, matches, err := observeVisibilityDomains(ctx, set.domains, newPathIdentityObserver)
+	if err != nil || !matches {
+		return matches, err
 	}
 
 	accepted, ok, err := acceptVisibilityDomains(set.domains, observed)
