@@ -3,6 +3,7 @@
 package commit
 
 import (
+	"errors"
 	"fmt"
 
 	"golang.org/x/sys/unix"
@@ -54,7 +55,7 @@ func syncDirectory(fd int) error {
 }
 
 func capturePreservedMetadata(fd int, _ *unix.Stat_t) (preservedMetadata, error) {
-	flags, err := unix.IoctlGetInt(fd, unix.FS_IOC_GETFLAGS)
+	flags, err := linuxFileFlags(fd)
 	if err != nil {
 		return preservedMetadata{}, unsupported("file flags cannot be inspected", err)
 	}
@@ -82,7 +83,7 @@ func applyPreservedMetadata(fd int, metadata preservedMetadata) error {
 }
 
 func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
-	flags, err := unix.IoctlGetInt(fd, unix.FS_IOC_GETFLAGS)
+	flags, err := linuxFileFlags(fd)
 	if err != nil {
 		return unsupported("file flags cannot be inspected", err)
 	}
@@ -102,7 +103,7 @@ func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 }
 
 func capturePreparedTreePlatformMetadataFacts(fd int, path string, _ *unix.Stat_t) (uint64, error) {
-	flags, err := unix.IoctlGetInt(fd, unix.FS_IOC_GETFLAGS)
+	flags, err := linuxFileFlags(fd)
 	if err != nil {
 		return 0, unsupported("prepared tree file flags cannot be inspected", err)
 	}
@@ -128,4 +129,24 @@ func isAllowedPreparedTreeXattr(name string) bool {
 
 func isLinuxACL(name string) bool {
 	return name == "system.posix_acl_access" || name == "system.posix_acl_default"
+}
+
+func linuxFileFlags(fd int) (int, error) {
+	flags, err := unix.IoctlGetInt(fd, unix.FS_IOC_GETFLAGS)
+	if err == nil {
+		return flags, nil
+	}
+	var filesystem unix.Statfs_t
+	if statErr := unix.Fstatfs(fd, &filesystem); statErr != nil {
+		return 0, errors.Join(err, statErr)
+	}
+	if linuxNFSFlagsUnavailable(int64(filesystem.Type), err) {
+		return 0, nil
+	}
+	return 0, err
+}
+
+func linuxNFSFlagsUnavailable(filesystemType int64, err error) bool {
+	return filesystemType == unix.NFS_SUPER_MAGIC &&
+		(errors.Is(err, unix.ENOTTY) || errors.Is(err, unix.EOPNOTSUPP))
 }

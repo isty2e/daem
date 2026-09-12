@@ -31,6 +31,16 @@ func hasCreatedAncestors(anchor *anchoredParent) bool {
 	return false
 }
 
+func (anchor *anchoredParent) publicationResidue() []string {
+	residue := append([]string(nil), anchor.unpublishedResidue...)
+	for _, directory := range anchor.directories {
+		if directory.created {
+			residue = append(residue, directory.path)
+		}
+	}
+	return residue
+}
+
 func failFileBeforeVisibility(
 	path string,
 	failedPhase phase,
@@ -41,6 +51,15 @@ func failFileBeforeVisibility(
 	faults faultPlan,
 ) error {
 	var residue []string
+	if errors.Is(cause, errRenameIndeterminate) {
+		if anchor != nil {
+			residue = anchor.publicationResidue()
+			if temporaryName != "" {
+				residue = append(residue, filepath.Join(filepath.Dir(path), temporaryName))
+			}
+		}
+		return newFailure(failureIndeterminateCommit, failedPhase, path, cause, residue...)
+	}
 	if anchor != nil {
 		residue = append(residue, anchor.unpublishedResidue...)
 		if temporaryName != "" {

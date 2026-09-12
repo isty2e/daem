@@ -23,11 +23,18 @@ failures; they do not establish native behavior or promote support.
 
 ### Linux Recovery
 
-Journal-bearing mutation requires `STATX_MNT_ID_UNIQUE` and a canonical boot
-UUID from verified procfs `kernel/random/boot_id`. Without that evidence, daem
-refuses before provider-prerequisite state publication or delegated provider
-installation, and validates provenance again before journal-covered host writes.
-This applies even to state-only journals with no host entries.
+Journal-bearing mutation binds mount identity to the canonical boot UUID from
+verified procfs `kernel/random/boot_id`. Linux uses `STATX_MNT_ID_UNIQUE` when
+available. Older kernels, including 5.15, use a separately tagged
+`STATX_MNT_ID` witness. This fallback supports recovery within the same boot
+without unmounting or remounting the affected filesystems; it does not guarantee
+rejection of a reused legacy mount ID after remount.
+
+Missing mount or boot evidence still blocks journal-bearing mutation, including
+state-only journals. Provenance is validated again before journal-covered host
+writes. Existing unique-ID journal tokens retain their meaning; recovery refuses
+rather than converts a token from a different mount-identity scheme. Finish
+pending recovery before reboot, remount, or a kernel transition.
 
 An active journal from an earlier boot is refused before recovery effects.
 The boot identity is recovery provenance, not part of a manifest, lockfile or
@@ -41,10 +48,12 @@ filesystem caveats below; it does not make post-reboot recovery executable.
 
 On admitted Darwin/Linux targets, artifact reads, listings, hashes and copies
 require stable root/ancestor object and mount identity through completion.
-Darwin requires nonzero birth time or generation for artifact views; Linux
-requires `STATX_MNT_ID` and `STATX_BTIME` on each component. Missing identity
-fails the affected operation rather than falling back to inode or pathname
-alone. Read-only locators and process-local witnesses grant no mutation, lease,
+Darwin requires nonzero birth time or generation for artifact views. Linux
+requires `STATX_MNT_ID` and either `STATX_BTIME` or an opaque file handle from
+`name_to_handle_at` on each component. Handle comparison does not require the
+privilege to reopen by handle. Missing both incarnation mechanisms fails the
+affected operation rather than falling back to inode or pathname alone.
+Read-only locators and process-local witnesses grant no mutation, lease,
 durable-comparison or durable recovery authority.
 
 Absolute artifact-root components use native filesystem lookup: a case variant
@@ -83,17 +92,46 @@ runs only checks whose meaning is unchanged. Capability-bound checks report
 findings without inventing remaining results. On not-admitted platforms it
 does not run Git, search PATH for MCP executables, or invoke durable file-set
 or recovery-inventory adapters. Bounded host-config grammar checks remain
-available. Storage failure cannot erase the platform finding, and diagnostics
-grant no mutation capability. `outdated` is read-only for desired/host state but
-still requires supported path and source-cache behavior.
+available. Storage failure cannot erase the platform finding, and diagnostic
+findings never authorize an apply. `outdated` is read-only for desired/host state
+but still requires supported path and source-cache behavior.
 
 ## Path Descriptions
 
-Platform admission does not weaken filesystem-specific caveats. In particular,
-network filesystems such as NFS may not provide the same crash-durability and
-cross-process exclusion guarantees as a tested local filesystem even on an
-admitted OS/architecture row. The same caveat applies to journal-retirement
-control publication, residue cleanup, and control-to-GC finalization.
+Linux amd64 NFSv3 supports ordinary unprivileged single-client `lock`, `apply`,
+and same-boot interruption/recovery, including on kernel 5.15. Run one writer
+at a time against a manifest or destination, on trusted user-controlled paths.
+Where NFS lacks atomic no-replace rename, daem checks destination absence and
+uses ordinary rename. Atomic exclusion of a concurrent external writer is
+outside this NFS contract; native no-replace publication remains in use where
+supported. Namespace revalidation remains a useful check, not a promise to
+exclude hostile interference.
+
+An NFS rename error can follow a completed server-side rename. Daem reports an
+indeterminate outcome and retains candidate staging/recovery artifacts rather
+than treating the operation as uncommitted and cleaning them automatically.
+Recovery may require manual analysis; automatic rollback of every uncertain
+result is not guaranteed. Multi-node exclusion and server-outage, reconnect,
+or power-loss durability guarantees are outside this support envelope, including
+journal retirement and residue cleanup. These are support boundaries, not
+promised future capabilities.
+
+Metadata preservation covers mode, ownership, and supported metadata exposed
+through the client. Unsupported NFS file-flag ioctls do not block ordinary
+operations; other inspection failures still do. Server-only ACLs or other
+metadata invisible to the client are not inspected or reproduced.
+
+Metadata-based revalidation compares filesystem-reported identities and
+attributes, not a universal revision counter. Rapid in-place changes can share
+one timestamp; unlink/recreation can reuse an inode before timestamps advance.
+These limits apply to local filesystems too. Keep observed inputs and namespaces
+stable during a command; revalidation detects observable drift but does not
+promise to detect every competing write or inode-reuse cycle.
+
+On Linux, cleanup of private files and directories with restrictive modes uses
+retained descriptors and verified procfs rather than requiring newer flagged
+`fchmodat` support. Missing descriptor/procfs evidence still leaves an error and
+retained residue rather than permitting unchecked pathname chmod.
 
 Darwin mutation, lease and durable-comparison authority follows each parent
 namespace's case behavior, including mixed mounts; a missing suffix inherits

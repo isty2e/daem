@@ -286,12 +286,7 @@ func normalizePreparedTreeDirectoryForCleanup(
 			cleanupMode = preparedTreePrivateDirectoryMode
 		}
 		if fs.FileMode(stat.Mode).Perm() != cleanupMode {
-			if err := unix.Fchmodat(
-				directoryFD,
-				name,
-				uint32(cleanupMode),
-				unix.AT_SYMLINK_NOFOLLOW,
-			); err != nil {
+			if err := chmodPreparedTreeEntryForCleanup(directoryFD, name, identity, uint32(cleanupMode)); err != nil {
 				return err
 			}
 			identity, stat, err = observeAnyAt(directoryFD, name, childPath)

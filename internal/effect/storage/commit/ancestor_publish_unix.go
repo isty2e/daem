@@ -31,6 +31,14 @@ func (anchor *anchoredParent) createAndPublishChildDirectory(
 		anchor.ancestorPublicationHooks.before(path)
 	}
 	err = renameNoReplace(parent.fd, stageName, parent.fd, name)
+	if err == nil {
+		err = anchor.ancestorPublicationHooks.completionError
+	}
+	if errors.Is(err, errRenameIndeterminate) {
+		anchor.rememberUnpublishedResidue(stagePath)
+		anchor.rememberUnpublishedResidue(path)
+		return fmt.Errorf("publish ancestor %q: %w", path, err)
+	}
 	if errors.Is(err, unix.EEXIST) {
 		if cleanupErr := cleanupStagedDirectory(parent, stageName, stagePath, identity); cleanupErr != nil {
 			anchor.rememberUnpublishedResidue(stagePath)

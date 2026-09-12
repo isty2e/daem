@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestRecoveryRootInventoryClassifiesClosedPhysicalStates(t *testing.T) {
@@ -532,6 +534,9 @@ func TestRecoveryRootInventoryRejectsJournalIdentityReplacement(t *testing.T) {
 	filesystem := replacingAfterReadFilesystem{
 		Store: journalTestFilesystem(),
 		replace: func() {
+			if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+				fsclock.WaitForTick(t, filepath.Dir(result.JournalPath))
+			}
 			temporary := result.JournalPath + ".replacement"
 			replacementErr = os.WriteFile(temporary, []byte(`{"invalid":true}`), 0o600)
 			if replacementErr == nil {

@@ -99,6 +99,9 @@ func commitRootedEntryRenameWithFaults(
 		)
 	})
 	if err != nil {
+		if errors.Is(err, errRenameIndeterminate) {
+			return fail(newFailure(failureIndeterminateCommit, phaseCommitEntry, request.sourcePath, err, destinationPath))
+		}
 		return fail(failureBeforeVisibility(phaseCommitEntry, request.sourcePath, err))
 	}
 	verifyMoved := func() error {

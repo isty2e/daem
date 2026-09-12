@@ -144,9 +144,13 @@ func deduplicateStrings(values []string) []string {
 	return result
 }
 
+var errRenameIndeterminate = errors.New("rename outcome is unknown")
+
 func failureBeforeVisibility(failedPhase phase, path string, cause error) error {
 	kind := failureUncommitted
-	if isUnsupported(cause) {
+	if errors.Is(cause, errRenameIndeterminate) {
+		kind = failureIndeterminateCommit
+	} else if isUnsupported(cause) {
 		kind = failureUnsupportedGuarantee
 	}
 	return newFailure(kind, failedPhase, path, cause)

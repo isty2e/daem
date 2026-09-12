@@ -381,7 +381,7 @@ func repairRemovalSnapshotDirectory(
 	}
 
 	mode := uint32(entry.mode.Perm()) | 0o700
-	if err := chmodRestrictiveRemovalDirectory(parentFD, entry.name, directoryFD, mode); err != nil {
+	if err := chmodRestrictiveCleanupEntry(parentFD, entry.name, directoryFD, mode); err != nil {
 		return atPhase(phaseApplyMode, fmt.Errorf("make retired directory removable at %q: %w", path, err))
 	}
 	state.changed = true

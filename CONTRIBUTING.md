@@ -85,3 +85,21 @@ Native platform and release claims require the lanes in
 [Platform Support](docs/platforms.md) and the checked-in GitHub workflows.
 Cross-compilation is not native execution evidence, and an unexecuted workflow
 does not prove that a lane passed.
+
+For the Linux single-client NFS lifecycle regression, select a writable NFS
+scratch directory. The test creates and removes an isolated home/workspace
+there; it skips when the variable is unset:
+
+```bash
+DAEM_TEST_NFS_ROOT=/path/on/nfs tools/test-go.sh -mod=readonly -count=1 ./test/cli -run '^TestNFSSingleClientLifecycle$'
+```
+
+Use `tools/test-go.sh` for uncached custom Go test invocations; it supplies the
+same isolated roots and deterministic umask as the full lanes.
+On Linux and Darwin, timestamp-dependent mutation tests use
+`test/testkit/fsclock` to observe a native filesystem clock tick before injecting
+a change. The probe lives outside
+the observed fixture and must share its filesystem. A non-progressing probe
+skips only the dependent test with a reason; failed application assertions do
+not trigger skips. Replacement tests retain the previous object while creating
+its successor instead of assuming inode numbers cannot be reused.

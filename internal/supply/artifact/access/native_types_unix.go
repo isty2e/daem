@@ -43,6 +43,7 @@ type nativePathComponentIdentity struct {
 	generation      uint64
 	birthTimeSecond int64
 	birthTimeNano   int64
+	fileHandle      [sha256.Size]byte
 	mount           nativeMountIdentity
 }
 
@@ -89,6 +90,7 @@ func (builder *nativePathWitnessBuilder) append(identity nativePathComponentIden
 		binary.BigEndian.PutUint64(encoded[:], value)
 		_, _ = builder.hash.Write(encoded[:])
 	}
+	_, _ = builder.hash.Write(identity.fileHandle[:])
 	builder.components++
 }
 

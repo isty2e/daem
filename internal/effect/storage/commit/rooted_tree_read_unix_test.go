@@ -16,6 +16,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestSnapshotRootedDirectoryStreamsStableCanonicalTree(t *testing.T) {
@@ -136,6 +138,7 @@ func TestSnapshotRootedDirectoryRejectsPartialConsumerAndInPlaceMutation(t *test
 		root, capability := rootedTreeReadFixture(t, "payload")
 		defer capability.Close()
 		sink := &mutatingRootedTreeSink{path: filepath.Join(root, ".agents", "tree", "entry")}
+		fsclock.WaitForTick(t, sink.path)
 		_, err := SnapshotRootedDirectory(
 			context.Background(),
 			capability,

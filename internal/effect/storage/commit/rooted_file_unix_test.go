@@ -12,6 +12,8 @@ import (
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+
+	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
 func TestCaptureWorkingDirectoryIdentityUsesRetainedRoot(t *testing.T) {
@@ -316,6 +318,7 @@ func TestRootedFileReplacementRefreshesOnlyExpectedParentIdentity(t *testing.T) 
 	assertFileContent(t, recordPath, "after")
 
 	staleParent := currentParent
+	fsclock.WaitForTick(t, parentPath)
 	if err := os.WriteFile(filepath.Join(parentPath, "foreign"), []byte("foreign"), 0o600); err != nil {
 		t.Fatal(err)
 	}

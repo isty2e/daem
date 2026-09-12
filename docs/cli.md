@@ -1160,7 +1160,12 @@ diagnostics. `--all-targets` is mutually exclusive with `--target`.
 Doctor is passive. It never launches host CLIs, package managers, plugins, MCP
 servers, credential helpers, or network probes. It checks modeled paths,
 permissions, executable discovery, capability support, local skill
-compatibility, and available passive readiness facts.
+compatibility, and available passive readiness facts. On admitted platforms,
+disposable scratch files and trees exercise publication, replacement, removal,
+artifact access, and recovery-provenance capture in selected cache, workspace,
+state, data, and target directories (or their nearest existing parents).
+Existing files and managed state are not changed. These checks do not certify
+server durability or concurrent-writer exclusion.
 
 On a not-admitted platform, doctor keeps the platform error after successful
 path resolution. It still runs checks whose success meaning is unchanged, such

@@ -71,10 +71,9 @@ func nativeMountTokenAt(parentFD int, name string) (identityToken, error) {
 
 func nativeRecoveryMountToken(fd int) (identityToken, error) {
 	stat, err := statxDescriptor(fd, unix.STATX_MNT_ID_UNIQUE)
-	if err != nil {
-		return identityToken{}, err
+	if errors.Is(err, errMountIdentityUnsupported) || (err == nil && stat.Mask&unix.STATX_MNT_ID_UNIQUE == 0) {
+		stat, err = statxDescriptor(fd, unix.STATX_MNT_ID)
 	}
-	mountID, err := linuxUniqueMountID(stat)
 	if err != nil {
 		return identityToken{}, err
 	}
@@ -82,14 +81,24 @@ func nativeRecoveryMountToken(fd int) (identityToken, error) {
 	if err != nil {
 		return identityToken{}, fmt.Errorf("observe Linux boot identity: %w", err)
 	}
-	return linuxRecoveryMountToken(mountID, bootID), nil
+	return linuxRecoveryMountTokenFromStatx(stat, bootID)
 }
 
-func linuxUniqueMountID(stat unix.Statx_t) (uint64, error) {
-	if stat.Mask&unix.STATX_MNT_ID_UNIQUE == 0 {
-		return 0, errMountIdentityUnsupported
+func linuxRecoveryMountTokenFromStatx(stat unix.Statx_t, bootID linuxBootID) (identityToken, error) {
+	if stat.Mask&unix.STATX_MNT_ID_UNIQUE != 0 {
+		return linuxRecoveryMountToken(stat.Mnt_id, bootID), nil
 	}
-	return stat.Mnt_id, nil
+	if stat.Mask&unix.STATX_MNT_ID == 0 {
+		return identityToken{}, errMountIdentityUnsupported
+	}
+	// Legacy mount IDs are reusable after unmount. Keep this same-boot fallback
+	// distinct from unique-ID evidence so recovery never reinterprets a token.
+	return identityTokenFromValues(
+		"linux-rooted-path-recovery-mount-legacy-v1",
+		stat.Mnt_id,
+		bootID.high,
+		bootID.low,
+	), nil
 }
 
 func linuxRecoveryMountToken(mountID uint64, bootID linuxBootID) identityToken {

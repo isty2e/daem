@@ -88,6 +88,23 @@ func environmentChecks(
 	} else {
 		checks = append(checks, gitCheck(ctx), cacheCheck(paths.CacheDir), symlinkCheck())
 	}
+	for _, storage := range []struct{ name, path string }{
+		{"workspace_storage", paths.ManifestRoot},
+		{"state_storage", paths.StateDir},
+		{"data_storage", paths.DataDir},
+	} {
+		if storage.path == "" {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return checks
+		}
+		if observation == hostObservationIndependent {
+			checks = append(checks, unsupportedCheck(storage.name, "storage readiness cannot be honored on this platform"))
+		} else {
+			checks = append(checks, directoryCheck(storage.name, storage.path))
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return checks
 	}

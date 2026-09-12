@@ -15,8 +15,9 @@ type fileObjectIdentity struct {
 	inode  uint64
 }
 
-// RegularFileVersion is strong metadata evidence for reusing one regular-file
-// content observation without reading the content again.
+// RegularFileVersion records filesystem-reported metadata for reusing a
+// regular-file content observation. Equal metadata cannot exclude writes within
+// one filesystem timestamp tick; see docs/platforms.md for observation limits.
 type RegularFileVersion struct {
 	identity         fileObjectIdentity
 	mode             os.FileMode
@@ -27,7 +28,7 @@ type RegularFileVersion struct {
 	valid            bool
 }
 
-// RegularFileVersionOf derives a strong cache witness from info. Platforms
+// RegularFileVersionOf derives a metadata cache witness from info. Platforms
 // without object identity or change-version evidence return ok=false.
 func RegularFileVersionOf(info os.FileInfo) (version RegularFileVersion, ok bool) {
 	if info == nil || !info.Mode().IsRegular() {
@@ -49,8 +50,7 @@ func RegularFileVersionOf(info os.FileInfo) (version RegularFileVersion, ok bool
 	}, true
 }
 
-// Equal reports whether two complete witnesses describe the same unchanged
-// regular-file object and metadata version.
+// Equal compares the recorded object identity and metadata, not file content.
 func (version RegularFileVersion) Equal(other RegularFileVersion) bool {
 	return version.valid && other.valid && version == other
 }

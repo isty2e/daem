@@ -1,5 +1,5 @@
-// Package filesnapshot reads bounded regular files without accepting an
-// identity change during the read.
+// Package filesnapshot reads bounded regular files and rejects observed identity
+// changes during the read. Filesystem observation limits are in docs/platforms.md.
 package filesnapshot
 
 import (
@@ -64,7 +64,7 @@ func (snapshot Snapshot) Mode() os.FileMode { return snapshot.mode }
 // from the same stable file descriptor as Content.
 func (snapshot Snapshot) Revision() string { return snapshot.revision }
 
-// FileVersion returns strong metadata evidence for cache reuse. ok is false
+// FileVersion returns metadata evidence for cache reuse. ok is false
 // when the platform cannot supply object identity and change-version facts.
 func (snapshot Snapshot) FileVersion() (version RegularFileVersion, ok bool) {
 	return snapshot.version, snapshot.version.valid
