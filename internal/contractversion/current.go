@@ -11,6 +11,9 @@ const (
 // MetadataTransaction identifies bounded file-set recovery evidence.
 const MetadataTransaction = 3
 
+// StateRelocation identifies a retired statefile's authority-transfer receipt.
+const StateRelocation = 1
+
 // CLI JSON envelope schemas evolve independently. Equal values do not imply a
 // shared compatibility sequence.
 const (
@@ -24,6 +27,7 @@ const (
 	ReconciliationPlanJSON = 12
 	ApplyResultJSON        = 19
 	RecoveryJSON           = 9
+	StateMigrationJSON     = 1
 	DoctorJSON             = 2
 	MCPProbeJSON           = 1
 	ExtensionRefreshJSON   = 4

@@ -22,7 +22,8 @@ import (
 )
 
 type PlanInput struct {
-	ManifestPath string
+	ManifestPath    string
+	LegacyUserState bool
 }
 
 // ExecuteOptions supplies effect-boundary dependencies without changing
@@ -109,7 +110,7 @@ func planRecoveryWithFilesystemFenceAndBudget(
 	if planningBudget == nil {
 		return recoveryPreparation{}, fmt.Errorf("recovery planning physical work budget is required")
 	}
-	paths, err := daempaths.Resolve(input.ManifestPath)
+	paths, err := recoveryPaths(ctx, input)
 	if err != nil {
 		return recoveryPreparation{}, err
 	}

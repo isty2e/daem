@@ -156,7 +156,7 @@ func TestEnsureStateDirForEffectFaultMatrix(t *testing.T) {
 		}
 		created, err := authority.EnsureStateDirForEffect(
 			t.Context(),
-			func(context.Context) error { return context.Canceled },
+			func(context.Context, bool) error { return context.Canceled },
 		)
 		if created || !errors.Is(err, context.Canceled) {
 			t.Fatalf("pre-ensure peer cancel = (%t, %v)", created, err)
@@ -177,7 +177,7 @@ func TestEnsureStateDirForEffectFaultMatrix(t *testing.T) {
 		validations := 0
 		created, err := authority.EnsureStateDirForEffect(
 			t.Context(),
-			func(context.Context) error {
+			func(context.Context, bool) error {
 				validations++
 				if validations == 2 {
 					replaceStateDir(t, stateDir)

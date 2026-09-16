@@ -5,6 +5,7 @@ Use this page to interpret stored ownership, recovery results and size limits.
 [Troubleshooting](troubleshooting.md#apply-was-interrupted) gives recovery commands.
 
 - [Statefile](#statefile)
+- [User-state authority migration](#user-state-authority-migration)
 - [Shared global ownership](#shared-global-ownership)
 - [Mutation revision evidence](#mutation-revision-evidence)
 - [Recovery journal](#recovery-journal)
@@ -43,6 +44,59 @@ Import does not claim host state. Supported `apply --manage-existing` adoption
 requires an exact live match and fresh validation. Carrier adoption records
 future bounded relation-removal authority without invoking the host route; it
 does not grant package/cache ownership, runtime readiness or ambient exclusivity.
+
+### User-State Authority Migration
+
+The default user manifest uses one XDG state/recovery location whether selected
+explicitly, from cwd, or by fallback. Before this selection policy, explicit and
+cwd selection used `<user-manifest-directory>/.daem`. Existing management there
+requires an explicit [`migrate state`](cli.md#migrate-state) operation; changing
+selection mode is not migration authority.
+
+Migration transfers the snapshot and exact output/carrier owners. It preserves
+managed baselines, pending carrier facts, acquisition provenance, diagnostic
+manifest paths, historical outcomes and other manifests' claims. It neither
+re-observes installed content as a new baseline nor invokes a host package
+manager. Global carrier adoption can own a registry claim without creating a
+snapshot; that registry-only case is also recognized. Missing snapshots with
+output ownership are refused rather than reconstructed.
+
+One metadata transaction covers four files: destination state, output registry,
+carrier registry, and the old statefile. The old statefile is written last as a
+versioned relocation receipt, not left as a second active snapshot. The receipt
+is not a redirect and grants no authority over arbitrary paths. The v0.2.3
+snapshot reader rejects it. Keep the receipt; do not run older binaries against
+the retired selection or copy the old snapshot back over it.
+
+Before changing metadata, execution revalidates the previewed evidence under
+leases. Existing destination state, conflicting owners, source reservations,
+malformed evidence and unresolved recovery refuse the transfer. Snapshot and
+registry reader limits still apply. Manifest and lockfile bytes are not
+transaction targets; installed payloads, symlinks, modes and filesystem owners
+are untouched.
+
+An interrupted migration fences commands using this user manifest's management.
+`migrate state --recover --dry-run` checks the exact transaction target set and
+previews `rollback` to the before-images or `finalize` for a complete after-set.
+Confirmed recovery rechecks that evidence. Preserve both state roots and shared
+registries until resolved: subsequent edits or other global metadata writes can
+invalidate recovery evidence. Missing, changed or unsupported evidence is a
+refusal, not permission to delete metadata or force a merge. This adds no new
+power-loss, cross-boot, hostile-writer or universal automatic-recovery guarantee.
+
+Old apply journals are not moved. Before migration, inspect them with
+`recover --legacy-user-state --dry-run`, then use `--yes` or terminal
+confirmation. This selector is restricted to the known local root of the
+default user manifest, checks the canonical recovery fence first, and refuses a
+retired source receipt. Interrupted legacy **authoring metadata** remains owned
+by the matching previous daem version and original authoring command; the
+apply-journal selector cannot recover it. Resolve that evidence before migration.
+
+Ordinary project relocation, changed HOME/XDG namespaces, merging authorities
+and cache migration/GC are out of scope. Old local caches remain untouched;
+subsequent user-manifest commands use the XDG cache and may fetch a locked source
+again. Migration does not promise offline use of the old cache or indefinite
+availability of its upstream sources.
 
 ### Shared Global Ownership
 

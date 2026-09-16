@@ -47,6 +47,7 @@ type Paths struct {
 	CarrierClaimRegistryPath string
 	SourceCacheDir           string
 	RecoveryDir              string
+	LegacyUserStateDir       string
 }
 
 // Resolve expands an optional manifest path into daem's manifest, lock, state, cache, and recovery paths.
@@ -83,7 +84,7 @@ func resolveExplicit(manifestPath string) (Paths, error) {
 		return Paths{}, err
 	}
 
-	return buildPaths(absolutePath, manifestRoot, ManifestOriginExplicit, stateDir, cacheDir, dataDir), nil
+	return selectUserStorage(buildPaths(absolutePath, manifestRoot, ManifestOriginExplicit, stateDir, cacheDir, dataDir))
 }
 
 // ProjectPlacementAllowed reports whether project-scoped target-visible writes may use ManifestRoot.
@@ -117,7 +118,7 @@ func implicitPaths() (Paths, error) {
 		if err != nil {
 			return Paths{}, err
 		}
-		return buildPaths(cwdManifestPath, workingDirectory, ManifestOriginCWD, stateDir, cacheDir, dataDir), nil
+		return selectUserStorage(buildPaths(cwdManifestPath, workingDirectory, ManifestOriginCWD, stateDir, cacheDir, dataDir))
 	} else if !os.IsNotExist(err) {
 		return Paths{}, fmt.Errorf("inspect cwd manifest path %q: %w", cwdManifestPath, err)
 	}
@@ -144,7 +145,12 @@ func defaultPaths() (Paths, error) {
 	}
 
 	manifestPath := filepath.Join(configDir, manifestFileName)
-	return buildPaths(manifestPath, configDir, ManifestOriginUserDefault, stateDir, cacheDir, dataDir), nil
+	paths := buildPaths(manifestPath, configDir, ManifestOriginUserDefault, stateDir, cacheDir, dataDir)
+	paths.LegacyUserStateDir = filepath.Join(configDir, localStateDirName)
+	if paths.LegacyUserStateDir == paths.StateDir {
+		paths.LegacyUserStateDir = ""
+	}
+	return paths, nil
 }
 
 func buildPaths(manifestPath string, manifestRoot string, origin ManifestOrigin, stateDir string, cacheDir string, dataDir string) Paths {

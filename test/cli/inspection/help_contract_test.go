@@ -25,6 +25,8 @@ func TestHelpContractCoversEveryRetainedCommandAtSupportedWidths(t *testing.T) {
 		{topic: []string{"unmanage"}, usage: "Usage: daem unmanage <resource>", lineBudget: 32, required: []string{"extension", "never invokes a host route"}, forbidden: []string{"--yes", "--prune"}},
 		{topic: []string{"list"}, usage: "Usage: daem list <resource>", lineBudget: 36, required: []string{"resources", "outputs", "paths"}, forbidden: []string{"--inventory"}},
 		{topic: []string{"probe"}, usage: "Usage: daem probe <resource>", lineBudget: 32, required: []string{"mcp-server", "terminal stdin/stdout/stderr or --yes"}},
+		{topic: []string{"migrate"}, usage: "Usage: daem migrate <subject>", lineBudget: 32, required: []string{"state"}},
+		{topic: []string{"migrate", "state"}, usage: "Usage: daem migrate state", lineBudget: 48, required: []string{"--recover", "--dry-run", "--yes", "--json", "--manifest"}},
 		{topic: []string{"init"}, usage: "Usage: daem init", lineBudget: 46, required: []string{"--force", "entry-identity revalidation", "create ./daem.toml", "daem init --manifest"}, forbidden: []string{"--yes", "--lockfile"}},
 		{topic: []string{"import"}, usage: "Usage: daem import --target <target>", lineBudget: 46, required: []string{"--source-dir", "--merge", "At least one --target is required", "--target codex --target claude-code"}, forbidden: []string{"--output", "--yes", "--lockfile"}},
 		{topic: []string{"lock"}, usage: "Usage: daem lock", lineBudget: 46, required: []string{"daem.lock.toml beside", "Writes by default", "daem lock --dry-run --verbose"}, forbidden: []string{"--lockfile", "--yes"}},

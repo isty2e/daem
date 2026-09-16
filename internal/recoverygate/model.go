@@ -205,6 +205,9 @@ func Observe(ctx context.Context, paths daempaths.Paths) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := RequireUserStateMigrated(ctx, paths); err != nil {
+		return err
+	}
 	stateDir, stateDirErr := CaptureStateDir(ctx, paths.StateDir)
 	if err := ctx.Err(); err != nil {
 		return err
@@ -228,15 +231,15 @@ func RequireClear(ctx context.Context, paths daempaths.Paths) error {
 	return Observe(ctx, paths)
 }
 
-// RequireFileSetClear observes only the StateDir file-set fence. It does not
-// inspect RecoveryDir journals. Lock planning, init planning, and authoring
-// dry-run retain this compatibility posture; joint journal and file-set
-// refusal uses RequireClear or EffectAuthority.
-func RequireFileSetClear(ctx context.Context, stateDir string) error {
-	if err := requireBarrierContext(ctx); err != nil {
+// RequireFileSetClear fences legacy management, then observes only the selected
+// StateDir file-set fence. Lock planning, init planning, and authoring dry-run
+// do not inspect the selected RecoveryDir journals; joint refusal uses
+// RequireClear or EffectAuthority.
+func RequireFileSetClear(ctx context.Context, paths daempaths.Paths) error {
+	if err := RequireUserStateMigrated(ctx, paths); err != nil {
 		return err
 	}
-	authority, err := CaptureStateDir(ctx, stateDir)
+	authority, err := CaptureStateDir(ctx, paths.StateDir)
 	if err != nil {
 		return err
 	}

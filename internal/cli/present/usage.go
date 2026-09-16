@@ -45,7 +45,6 @@ func PrintUsage(output io.Writer, context UsageContext) {
 	width := helpWidth(context.Width)
 	lines := []string{
 		"daem - manage declarative agent environments",
-		"",
 		"Usage: daem <command> [options]",
 		"",
 		"Start",
@@ -70,6 +69,7 @@ func PrintUsage(output io.Writer, context UsageContext) {
 		"Reconcile",
 		"  apply      Reconcile the locked environment.",
 		"  recover    Recover an operation or finish journal cleanup.",
+		"  migrate    Move legacy user-state authority without reinstalling.",
 		"",
 		"First project: daem init",
 		"Existing setup: daem import --target <target>",
@@ -266,6 +266,18 @@ func helpPages(context UsageContext) map[string]helpPage {
 		"unmanage": groupPage("daem unmanage", "release daem management while retaining host state", []helpRow{
 			{"extension", "Release one exact extension relation."},
 		}, "Unmanage writes metadata by default and never invokes a host route. Target and scope are safety filters."),
+		"migrate": {
+			Path: "daem migrate", Usage: "daem migrate <subject>",
+			Summary: "move management metadata without changing installed outputs",
+			Sections: []helpSection{{Title: "Subjects", Rows: []helpRow{
+				{"state", "Move the default user manifest's legacy state to XDG storage."},
+			}}},
+			Examples: []string{"daem help migrate state"}, Reference: cliDocumentReference,
+		},
+		"migrate state": leaf("daem migrate state", "daem migrate state [--manifest <path>] [--recover] [--dry-run|--yes] [--json]", "move legacy user-state authority without reinstalling", nil,
+			[]helpRow{workspace, {"--recover", "Restore or finalize an interrupted state migration."}, dryRun, {"--yes", "Authorize metadata transfer or recovery without a terminal prompt."}, {"--json", "Emit one schema-versioned JSON document; requires --dry-run or --yes."}},
+			[]helpRow{{"", "Only the default user manifest is eligible. Destination state must be absent; existing states are not merged."}, {"", "Execution requires terminal stdin/stdout/stderr or --yes. --dry-run and --yes are mutually exclusive."}, {"", "Managed output bytes and host packages are retained. Old local caches are not moved or deleted."}, {"", "Resolve old apply recovery first with recover --legacy-user-state."}},
+			[]string{"daem migrate state --dry-run", "daem migrate state --yes", "daem migrate state --recover --dry-run"}, cliDocumentReference),
 		"list": groupPage("daem list", "enumerate declarations or output ownership", []helpRow{
 			{"resources", "Declared resources and stable remove keys."},
 			{"outputs", "Managed outputs and conflicting live destinations."},
@@ -305,8 +317,8 @@ func helpPages(context UsageContext) map[string]helpPage {
 			[]helpRow{workspace, target, {"--manage-existing", "Record exact-match unmanaged outputs or eligible external carriers as managed."}, dryRun, yes, diff, jsonOutputWithDiff, verbose},
 			[]helpRow{{"", "Bare apply requires terminal stdin/stdout/stderr, discloses effects to stdout, then prompts on stderr."}, {"", "Non-interactive apply requires --yes. --json requires --dry-run or --yes."}, {"", "All admitted host and delegated routes are ordinary selected apply work."}, {"", "After extension install or removal, apply rereads order. New managed/foreign precedence changes require fresh interactive confirmation."}},
 			[]string{"daem apply --dry-run --diff", "daem apply --target codex --yes --json"}, cliDocumentReference),
-		"recover": leaf("daem recover", "daem recover [--manifest <path>] [--dry-run|--yes] [--json|--verbose]", "recover an operation or finish journal cleanup", nil,
-			[]helpRow{workspace, dryRun, yes, jsonOutput, verbose},
+		"recover": leaf("daem recover", "daem recover [--manifest <path>] [--legacy-user-state] [--dry-run|--yes] [--json|--verbose]", "recover an operation or finish journal cleanup", nil,
+			[]helpRow{workspace, {"--legacy-user-state", "Select the default user manifest's former local state for apply recovery."}, dryRun, yes, jsonOutput, verbose},
 			[]helpRow{{"", "Bare recover requires terminal stdin/stdout/stderr and confirms after stdout disclosure."}, {"", "Non-interactive recovery requires --yes. --json requires --dry-run or --yes."}, {"", "Cleanup-only recovery never reads or mutates host, statefile, or ownership data."}},
 			[]string{"daem recover --dry-run", "daem recover --yes"}, cliDocumentReference),
 		"doctor": leaf("daem doctor", "daem doctor [--manifest <path>] [--target <target> ...|--all-targets] [--json|--verbose]", "check passive environment prerequisites", nil,

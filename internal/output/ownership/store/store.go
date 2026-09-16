@@ -771,6 +771,23 @@ func unsupportedOwnershipRegistryVersion(version int) error {
 	)
 }
 
+// Marshal validates and encodes the complete registry for a leased, journaled
+// metadata transaction. Serialization does not authorize publication.
+func Marshal(registry ownership.Registry) ([]byte, error) {
+	canonical, err := ownership.NewRegistry(registry.Claims())
+	if err != nil {
+		return nil, err
+	}
+	content, err := encode(canonical)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(content)) > maximumOwnershipRegistryBytes {
+		return nil, fmt.Errorf("ownership registry exceeds %d bytes", maximumOwnershipRegistryBytes)
+	}
+	return content, nil
+}
+
 func encode(registry ownership.Registry) ([]byte, error) {
 	claims := registry.Claims()
 	sort.Slice(claims, func(left int, right int) bool {

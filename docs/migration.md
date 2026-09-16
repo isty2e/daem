@@ -14,6 +14,10 @@ source paths. Neither approach requires a hosted Git repository.
 Keep a backup of files you intend to migrate. Import is not a backup of an
 agent's entire configuration, and `recover` is not historical restore.
 
+For existing daem management in the default user manifest's former local state
+root, use [state-authority migration](state-and-recovery.md#user-state-authority-migration),
+not import or reinstallation.
+
 ## Import Live Configuration
 
 Run these commands from the project whose agent files you want to import. For

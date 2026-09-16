@@ -77,6 +77,15 @@ func (authority Authority) Validate() error {
 	return nil
 }
 
+// WithStatefile preserves diagnostic provenance while changing the exact key.
+// Constructing the value does not authorize a persisted ownership transfer.
+func (authority Authority) WithStatefile(key pathauthority.Exact) (Authority, error) {
+	if err := authority.Validate(); err != nil {
+		return Authority{}, err
+	}
+	return New(key, authority.manifestPath)
+}
+
 // StatefileKey returns the canonical equality key for the state authority.
 func (authority Authority) StatefileKey() string {
 	return authority.key.String()
