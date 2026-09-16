@@ -55,6 +55,39 @@ func TestMigrateStateRequiresCompleteDisclosureAndConfirmation(t *testing.T) {
 				if _, err := statefile.Load(t.Context(), destination); err != nil {
 					t.Fatal(err)
 				}
+
+				for _, repeat := range []struct {
+					name     string
+					tty      bool
+					yes      bool
+					wantCode int
+				}{
+					{name: "non_tty", wantCode: 2},
+					{name: "tty", tty: true},
+					{name: "non_tty_yes", yes: true},
+				} {
+					t.Run("repeat_"+repeat.name, func(t *testing.T) {
+						var stdout, stderr bytes.Buffer
+						options := RunOptions{Stdout: &stdout, Stderr: &stderr}
+						if repeat.tty {
+							options = interactiveRunOptions(strings.NewReader(""), &stdout, &stderr)
+						}
+						args := []string{"migrate", "state", "--manifest", manifest}
+						if repeat.yes {
+							args = append(args, "--yes")
+						}
+
+						if code := RunWithOptions(args, options); code != repeat.wantCode {
+							t.Fatalf("repeat: code=%d, stderr=%s", code, stderr.String())
+						}
+						if strings.Contains(stderr.String(), "Proceed with") {
+							t.Fatal("completed repeat prompted again")
+						}
+						if repeat.wantCode == 0 && !strings.Contains(stdout.String(), "already_migrated") {
+							t.Fatalf("repeat did not report completion: %s", stdout.String())
+						}
+					})
+				}
 			} else {
 				if code != 1 {
 					t.Fatalf("refusal code = %d", code)

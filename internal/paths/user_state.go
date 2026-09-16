@@ -9,9 +9,14 @@ import (
 )
 
 func selectUserStorage(selected Paths) (Paths, error) {
+	if !strings.EqualFold(filepath.Base(selected.ManifestPath), manifestFileName) {
+		return selected, nil
+	}
+
 	configDir, err := defaultRootConfigDir()
 	if err != nil {
-		return Paths{}, err
+		// A selected project does not require a valid default-user address.
+		return selected, nil
 	}
 	userManifest := filepath.Join(configDir, manifestFileName)
 	selectedUser, err := isUserManifestEntry(selected.ManifestPath, userManifest)
@@ -36,9 +41,6 @@ func selectUserStorage(selected Paths) (Paths, error) {
 func isUserManifestEntry(selected, user string) (bool, error) {
 	if selected == user {
 		return true, nil
-	}
-	if !strings.EqualFold(filepath.Base(selected), manifestFileName) {
-		return false, nil
 	}
 	selectedParent, err := os.Stat(filepath.Dir(selected))
 	if errors.Is(err, os.ErrNotExist) {

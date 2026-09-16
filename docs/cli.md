@@ -98,9 +98,9 @@ sharing storage does not change placement admission.
 
 ### Daem Storage Roots
 
-On supported Unix platforms, daem observes four XDG variables. A non-empty value
-must be an absolute path. The `daem` directory is appended to the configured
-root:
+On supported Unix platforms, daem observes four XDG variables. An applicable,
+non-empty value must be an absolute path. The `daem` directory is appended to
+the configured root:
 
 | Variable | Default daem path | When it applies | Owned content |
 | --- | --- | --- | --- |
@@ -122,6 +122,17 @@ under `<manifest-root>/.daem` and its source cache under
 does not relocate those project-local paths. `XDG_DATA_HOME` remains shared
 across project and user workspaces because its registries coordinate global
 ownership and carrier claims.
+
+User-config lookup is limited to `daem.toml` and case-folded spellings that could
+name it. When the default user address cannot be formed because
+`XDG_CONFIG_HOME` is relative or the required HOME fallback is unavailable,
+explicit, cwd and creation selection keep project-local storage; user fallback
+still fails.
+
+For a default-named manifest and a valid config address, identity-observation
+errors still refuse: an inaccessible directory may hide an alias of the selected
+manifest. Silently choosing project storage in that case is unsupported because
+it could split one user's management authority.
 
 Changing an applicable root selects a different storage namespace. In
 particular, changing `XDG_CONFIG_HOME` selects a different implicit user
@@ -166,8 +177,11 @@ Commands use effect-tiered modes:
 | Management authority | `migrate state` | three-stream TTY confirmation | preview | non-interactive execution |
 
 An empty host/runtime plan does not prompt; an already completed state migration
-also needs no new prompt. JSON cannot share an interactive prompt, so
-host/runtime and state-migration JSON require `--dry-run` or `--yes`.
+also needs no new prompt. Skipping a prompt does not waive command admission:
+a bare state-migration repeat still requires terminal stdin/stdout/stderr;
+non-interactive repeats use `--dry-run` or `--yes`. JSON cannot share an
+interactive prompt, so host/runtime and state-migration JSON require `--dry-run`
+or `--yes`.
 
 Interactive authorization uses three distinct process streams: stdin accepts
 the answer, stdout carries the stable effect disclosure, and stderr carries the
