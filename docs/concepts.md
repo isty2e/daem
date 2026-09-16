@@ -74,8 +74,10 @@ it does not claim the original outputs. `apply --manage-existing` can register
 an eligible exact match. That grants later authority to update or remove it,
 not permission to overwrite a mismatch.
 
-Project metadata lives under `.daem/`. The implicit user workspace uses the
-state and cache locations described in [Storage Roots](cli.md#daem-storage-roots).
+Project metadata lives under `.daem/`. The default user manifest uses the
+[Storage Roots](cli.md#daem-storage-roots) state and cache locations in every
+selection mode. Existing local user-manifest management needs an explicit
+[state-authority migration](state-and-recovery.md#user-state-authority-migration).
 Imported `daem.d/` files are user-owned sources, not cache or managed-state
 metadata. Do not delete state or recovery files to bypass a refusal.
 

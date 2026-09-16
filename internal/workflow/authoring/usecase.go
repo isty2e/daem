@@ -313,7 +313,7 @@ func requireClearManifestFileSet(ctx context.Context, manifestPath string) error
 	if err != nil {
 		return err
 	}
-	return recoverygate.RequireFileSetClear(ctx, paths.StateDir)
+	return recoverygate.RequireFileSetClear(ctx, paths)
 }
 
 func recoverAuthoringFileSetBeforeRead(

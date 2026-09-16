@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
+	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
 func TestCombinePreservesOrthogonalRecoveryBarrierState(t *testing.T) {
@@ -148,7 +149,7 @@ func TestCombinePreservesSingleAxisCausesAndPeerKnowledge(t *testing.T) {
 
 func TestRequireFileSetClearRejectsNilContext(t *testing.T) {
 	t.Parallel()
-	err := RequireFileSetClear(nil, t.TempDir())
+	err := RequireFileSetClear(nil, daempaths.Paths{StateDir: t.TempDir()})
 	if err == nil {
 		t.Fatal("expected context error")
 	}

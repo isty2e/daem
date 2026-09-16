@@ -21,7 +21,8 @@ See the [CLI Reference](cli.md) for JSON output and exact exit-code behavior.
 - Setup: [unsupported platform](#unsupported-platform),
   [missing or stale lockfile](#lockfile-is-missing-or-stale),
   [skipped import](#import-skipped-an-instruction-hook-or-mcp-file).
-- Ownership: [`ownership_conflict`](#ownership_conflict),
+- Ownership: [user-state selection changed](#user-state-selection-changed),
+  [`ownership_conflict`](#ownership_conflict),
   [`unmanaged_output_exists`](#unmanaged_output_exists),
   [drift](#a-managed-output-drifted),
   [same-name skills at several paths](#same-skill-name-at-multiple-agent-paths).
@@ -50,6 +51,28 @@ platform error alongside path-resolution errors and any independent checks.
 Capability-bound checks are `unsupported`/`skipped`, not `ok`; durable
 file-set/recovery inventory is not invoked. Storage-backed commands remain
 unavailable; use an admitted [platform](platforms.md).
+
+## User-State Selection Changed
+
+If the same default user manifest previously worked only from its directory or
+with `--manifest`, it may have management in the former local `.daem` root.
+Current selection always uses its XDG state root. Preview the transfer rather
+than removing/re-adding resources or copying state files:
+
+```bash
+daem migrate state --dry-run
+daem migrate state --yes
+```
+
+Preserve your explicit `--manifest` when needed. Installed outputs and host
+packages are not changed by this operation. Interrupted migration uses
+`migrate state --recover --dry-run`; old apply recovery uses
+`recover --legacy-user-state --dry-run`. They are different protocols.
+Destination conflicts, changed roots and missing recovery evidence are not
+fixed by `--yes`. See the complete
+[migration boundary](state-and-recovery.md#user-state-authority-migration),
+including the matching-old-writer requirement for interrupted legacy authoring
+metadata and the retained-cache limitation.
 
 ## Pre-1.0 Durable Authority Schemas
 

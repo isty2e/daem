@@ -353,7 +353,7 @@ func ensureStateDirForAuthoringEffect(
 	revisions mutation.RevisionSet,
 	leases *mutation.LeaseSet,
 ) error {
-	_, err := barrier.EnsureStateDirForEffect(ctx, func(ctx context.Context) error {
+	_, err := barrier.EnsureStateDirForEffect(ctx, func(ctx context.Context, _ bool) error {
 		matches, err := revisions.MatchesCurrent(ctx)
 		if err != nil {
 			return err

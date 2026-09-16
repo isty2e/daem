@@ -248,8 +248,11 @@ func TestEffectAuthorityCreatesStateDirBetweenPeerAuthorityValidations(t *testin
 	validations := 0
 	created, err := authority.EnsureStateDirForEffect(
 		t.Context(),
-		func(context.Context) error {
+		func(_ context.Context, created bool) error {
 			validations++
+			if created != (validations == 2) {
+				t.Fatalf("creation evidence at validation %d = %t", validations, created)
+			}
 			_, statErr := os.Stat(stateDir)
 			if validations == 1 && !os.IsNotExist(statErr) {
 				t.Fatalf("StateDir existed during pre-effect validation: %v", statErr)
@@ -265,6 +268,16 @@ func TestEffectAuthorityCreatesStateDirBetweenPeerAuthorityValidations(t *testin
 	}
 	if !created || validations != 2 {
 		t.Fatalf("created, validations = %t, %d; want true, 2", created, validations)
+	}
+
+	created, err = authority.EnsureStateDirForEffect(t.Context(), func(_ context.Context, created bool) error {
+		if created {
+			t.Fatal("existing directory granted creation acceptance")
+		}
+		return nil
+	})
+	if err != nil || created {
+		t.Fatalf("repeat ensure = %t, %v", created, err)
 	}
 }
 
@@ -282,7 +295,7 @@ func TestEffectAuthorityDoesNotCreateStateDirAfterPeerValidationFailure(t *testi
 
 	created, err := authority.EnsureStateDirForEffect(
 		t.Context(),
-		func(context.Context) error { return wantErr },
+		func(context.Context, bool) error { return wantErr },
 	)
 	if !errors.Is(err, wantErr) || created {
 		t.Fatalf("EnsureStateDirForEffect = %t, %v; want false, peer error", created, err)
@@ -308,7 +321,7 @@ func TestEffectAuthorityCreatesAndBindsFirstStateDirIncarnation(t *testing.T) {
 	}
 	created, err := authority.EnsureStateDirForEffect(
 		t.Context(),
-		func(context.Context) error { return nil },
+		func(context.Context, bool) error { return nil },
 	)
 	if err != nil {
 		t.Fatalf("EnsureStateDirForEffect: %v", err)

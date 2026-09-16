@@ -17,6 +17,7 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 	flags := newCommandFlagSet([]string{"recover"}, stderr)
 
 	manifestPath := flags.String("manifest", "", "path to daem.toml")
+	legacyUserState := flags.Bool("legacy-user-state", false, "recover the default user manifest's former local state")
 	dryRun := flags.Bool("dry-run", false, "classify recovery or cleanup evidence without writing")
 	jsonOutput := flags.Bool("json", false, "emit structured JSON output with --dry-run")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
@@ -48,7 +49,7 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 		return 2
 	}
 
-	prepared, err := recoverworkflow.Plan(options.context, recoverworkflow.PlanInput{ManifestPath: *manifestPath})
+	prepared, err := recoverworkflow.Plan(options.context, recoverworkflow.PlanInput{ManifestPath: *manifestPath, LegacyUserState: *legacyUserState})
 	if err != nil {
 		fmt.Fprintf(stderr, "recover failed: %s\n", humanDiagnosticError(err))
 		return 1

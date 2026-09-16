@@ -137,7 +137,7 @@ func buildCommandResult(
 		LockfilePath:     outputPath,
 		ExplicitLockfile: lockfilePath != "",
 	}
-	if err := recoverygate.RequireFileSetClear(ctx, paths.StateDir); err != nil {
+	if err := recoverygate.RequireFileSetClear(ctx, paths); err != nil {
 		errorContext.Err = err
 		return commandResult{}, errorContext
 	}

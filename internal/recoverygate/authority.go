@@ -67,9 +67,12 @@ type stateDirBarrierAuthority interface {
 	EnsureOwnedIncarnation(context.Context) (bool, error)
 }
 
-// NewEffectAuthority captures the StateDir identity before any recovery
-// barrier observation and constructs the complete peer mutation evidence.
+// NewEffectAuthority fences legacy management, then captures the StateDir
+// identity and the peer mutation evidence for the selected recovery boundary.
 func NewEffectAuthority(ctx context.Context, paths daempaths.Paths) (EffectAuthority, error) {
+	if err := RequireUserStateMigrated(ctx, paths); err != nil {
+		return EffectAuthority{}, err
+	}
 	stateDir, err := CaptureStateDir(ctx, paths.StateDir)
 	if err != nil {
 		return EffectAuthority{}, err
@@ -108,6 +111,34 @@ func NewEffectAuthority(ctx context.Context, paths daempaths.Paths) (EffectAutho
 			}
 		}
 	}
+	legacy, hasLegacy, err := legacyUserStateSelection(paths)
+	if err != nil {
+		return EffectAuthority{}, err
+	}
+	if hasLegacy {
+		for _, path := range []string{
+			legacy.StateDir, legacy.StatefilePath, legacy.RecoveryDir,
+			paths.OwnershipRegistryPath, paths.CarrierClaimRegistryPath,
+		} {
+			for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+				domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
+					Path: path, Access: mutation.AccessShared, Effect: effect,
+				})
+				if err != nil {
+					return EffectAuthority{}, err
+				}
+				domains = append(domains, domain)
+			}
+		}
+		revisions = append(
+			revisions,
+			mutation.NewBoundedDirectoryListingRevisionRequest(legacy.StateDir),
+			mutation.NewBoundedContentRevisionRequest(legacy.StatefilePath, mutation.PathEffectDirectoryEntry),
+			mutation.NewBoundedContentRevisionRequest(legacy.RecoveryDir, mutation.PathEffectDirectoryEntry),
+			mutation.NewBoundedContentRevisionRequest(paths.OwnershipRegistryPath, mutation.PathEffectDirectoryEntry),
+			mutation.NewBoundedContentRevisionRequest(paths.CarrierClaimRegistryPath, mutation.PathEffectDirectoryEntry),
+		)
+	}
 	return EffectAuthority{
 		paths:     paths,
 		stateDir:  stateDir,
@@ -116,13 +147,13 @@ func NewEffectAuthority(ctx context.Context, paths daempaths.Paths) (EffectAutho
 	}, nil
 }
 
-// Domains returns owned copies of the complete RecoveryDir and StateDir lease set.
+// Domains returns owned copies of the complete selected and legacy barrier lease set.
 func (authority EffectAuthority) Domains() []mutation.Domain {
 	return append([]mutation.Domain(nil), authority.domains...)
 }
 
-// RevisionRequests returns owned RecoveryDir revision requests. StateDir
-// object identity is retained separately by this authority.
+// RevisionRequests returns owned recovery and legacy-management revision requests.
+// Selected StateDir object identity is retained separately by this authority.
 func (authority EffectAuthority) RevisionRequests() []mutation.RevisionRequest {
 	return append([]mutation.RevisionRequest(nil), authority.revisions...)
 }
@@ -132,6 +163,10 @@ func (authority EffectAuthority) RevisionRequests() []mutation.RevisionRequest {
 func (authority EffectAuthority) Equal(other EffectAuthority) bool {
 	return authority.paths.RecoveryDir == other.paths.RecoveryDir &&
 		authority.paths.StateDir == other.paths.StateDir &&
+		authority.paths.LegacyUserStateDir == other.paths.LegacyUserStateDir &&
+		(authority.paths.LegacyUserStateDir == "" ||
+			(authority.paths.OwnershipRegistryPath == other.paths.OwnershipRegistryPath &&
+				authority.paths.CarrierClaimRegistryPath == other.paths.CarrierClaimRegistryPath)) &&
 		authority.stateDir.Equal(other.stateDir) &&
 		len(authority.domains) == len(other.domains) &&
 		len(authority.revisions) == len(other.revisions)
@@ -146,14 +181,25 @@ func (authority EffectAuthority) IdentityFingerprint() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	var outputRegistry, carrierRegistry string
+	if authority.paths.LegacyUserStateDir != "" {
+		outputRegistry = authority.paths.OwnershipRegistryPath
+		carrierRegistry = authority.paths.CarrierClaimRegistryPath
+	}
 	canonical, err := json.Marshal(struct {
-		RecoveryDir string
-		StateDir    string
-		State       string
+		RecoveryDir     string
+		StateDir        string
+		State           string
+		Legacy          string `json:",omitempty"`
+		OutputRegistry  string `json:",omitempty"`
+		CarrierRegistry string `json:",omitempty"`
 	}{
-		RecoveryDir: authority.paths.RecoveryDir,
-		StateDir:    authority.paths.StateDir,
-		State:       stateDir,
+		RecoveryDir:     authority.paths.RecoveryDir,
+		StateDir:        authority.paths.StateDir,
+		State:           stateDir,
+		Legacy:          authority.paths.LegacyUserStateDir,
+		OutputRegistry:  outputRegistry,
+		CarrierRegistry: carrierRegistry,
 	})
 	if err != nil {
 		return "", fmt.Errorf("fingerprint recovery effect authority: %w", err)
@@ -166,6 +212,9 @@ func (authority EffectAuthority) IdentityFingerprint() (string, error) {
 // remain clear under the planning-time StateDir identity.
 func (authority EffectAuthority) Validate(ctx context.Context) error {
 	if err := authority.requireInitialized(); err != nil {
+		return err
+	}
+	if err := RequireUserStateMigrated(ctx, authority.paths); err != nil {
 		return err
 	}
 	return validateBarrier(ctx, authority.paths, authority.stateDir)
@@ -211,10 +260,11 @@ func normalizeStateDirValidation(err error) error {
 
 // EnsureStateDirForEffect validates peer workflow authority and the recovery
 // barrier before StateDir creation, then revalidates both after that first
-// authorized visibility effect.
+// authorized visibility effect. The peer receives false before creation and
+// the owned-creation result afterward, when it may accept namespace visibility.
 func (authority EffectAuthority) EnsureStateDirForEffect(
 	ctx context.Context,
-	validatePeer func(context.Context) error,
+	validatePeer func(context.Context, bool) error,
 ) (bool, error) {
 	if ctx == nil {
 		return false, fmt.Errorf("recovery effect context is required")
@@ -222,7 +272,7 @@ func (authority EffectAuthority) EnsureStateDirForEffect(
 	if validatePeer == nil {
 		return false, fmt.Errorf("recovery effect peer validation is required")
 	}
-	if err := validatePeer(ctx); err != nil {
+	if err := validatePeer(ctx, false); err != nil {
 		return false, err
 	}
 	if err := authority.Validate(ctx); err != nil {
@@ -232,7 +282,7 @@ func (authority EffectAuthority) EnsureStateDirForEffect(
 	if err != nil {
 		return created, normalizeStateDirValidation(err)
 	}
-	if err := validatePeer(ctx); err != nil {
+	if err := validatePeer(ctx, created); err != nil {
 		return created, err
 	}
 	if err := authority.Validate(ctx); err != nil {

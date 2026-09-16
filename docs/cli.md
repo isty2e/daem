@@ -20,7 +20,7 @@ or [Use An Existing Environment](migration.md).
 - Commands: [`version`](#version), [`init`](#init), [`import`](#import),
   [`add`](#add), [`remove`](#remove), [`unmanage extension`](#unmanage-extension),
   [`lock`](#lock), [`outdated`](#outdated), [`list`](#list), [`status`](#status),
-  [`apply`](#apply), [`recover`](#recover), [`doctor`](#doctor),
+  [`apply`](#apply), [`recover`](#recover), [`migrate state`](#migrate-state), [`doctor`](#doctor),
   [`probe mcp-server`](#probe-mcp-server), [`refresh extension`](#refresh-extension)
 - [Authoring JSON](#authoring-json), [progress](#progress),
   [streams and exit codes](#streams-and-exit-codes),
@@ -91,29 +91,48 @@ The lockfile is always `daem.lock.toml` beside the selected manifest. State,
 cache, recovery, and project-installation paths derive from that same selected
 workspace. There is no independent public lockfile selector.
 
-A user manifest is not a project root. Project-scoped resources selected from
-the user manifest are rejected with guidance to select a project manifest or
-declare global scope.
+Implicit user-manifest selection does not establish a project root: project-scoped
+resources are rejected with guidance to select a project manifest or declare
+global scope. Explicit and cwd selection retain their existing placement policy;
+sharing storage does not change placement admission.
 
 ### Daem Storage Roots
 
-On supported Unix platforms, daem observes four XDG variables. A non-empty value
-must be an absolute path. The `daem` directory is appended to the configured
-root:
+On supported Unix platforms, daem observes four XDG variables. An applicable,
+non-empty value must be an absolute path. The `daem` directory is appended to
+the configured root:
 
 | Variable | Default daem path | When it applies | Owned content |
 | --- | --- | --- | --- |
-| `XDG_CONFIG_HOME` | `~/.config/daem` | Implicit user workspace only | User manifest and adjacent lockfile |
-| `XDG_STATE_HOME` | `~/.local/state/daem` | Implicit user workspace only | Statefile and recovery journals |
-| `XDG_CACHE_HOME` | `~/.cache/daem` | Implicit user workspace only | Resolved source cache |
+| `XDG_CONFIG_HOME` | `~/.config/daem` | Default user manifest | User manifest and adjacent lockfile |
+| `XDG_STATE_HOME` | `~/.local/state/daem` | Default user manifest, in every selection mode | Statefile and recovery journals |
+| `XDG_CACHE_HOME` | `~/.cache/daem` | Default user manifest, in every selection mode | Resolved source cache |
 | `XDG_DATA_HOME` | `~/.local/share/daem` | Every selected workspace | Shared output-ownership and carrier-claim registries |
 
-An explicit or cwd-selected project manifest keeps its state and recovery data
+Selecting the default user manifest through `--manifest`, cwd discovery, or
+fallback uses the same state, recovery and cache roots under unchanged HOME/XDG
+settings. Existing manifest-local management must first be transferred with
+[`migrate state`](#migrate-state). Directory aliases identify the same manifest
+entry; a separate hardlink or final-file symlink entry is not a new spelling of
+that entry.
+
+An explicit or cwd-selected manifest other than the default user manifest keeps its state and recovery data
 under `<manifest-root>/.daem` and its source cache under
 `<manifest-root>/.daem/cache`; changing `XDG_STATE_HOME` or `XDG_CACHE_HOME`
 does not relocate those project-local paths. `XDG_DATA_HOME` remains shared
 across project and user workspaces because its registries coordinate global
 ownership and carrier claims.
+
+User-config lookup is limited to `daem.toml` and case-folded spellings that could
+name it. When the default user address cannot be formed because
+`XDG_CONFIG_HOME` is relative or the required HOME fallback is unavailable,
+explicit, cwd and creation selection keep project-local storage; user fallback
+still fails.
+
+For a default-named manifest and a valid config address, identity-observation
+errors still refuse: an inaccessible directory may hide an alias of the selected
+manifest. Silently choosing project storage in that case is unsupported because
+it could split one user's management authority.
 
 Changing an applicable root selects a different storage namespace. In
 particular, changing `XDG_CONFIG_HOME` selects a different implicit user
@@ -155,9 +174,14 @@ Commands use effect-tiered modes:
 | Read-only | `list`, `outdated`, `status`, `doctor`, `version` | query | rejected | rejected |
 | Desired/derived state | `init`, `import`, `add`, `remove`, `lock` | write | preview | rejected |
 | Host/runtime effect | `apply`, `recover`, `probe mcp-server`, `refresh extension` | three-stream TTY confirmation | preview | non-interactive execution |
+| Management authority | `migrate state` | three-stream TTY confirmation | preview | non-interactive execution |
 
-An empty host/runtime plan does not prompt. JSON cannot share an interactive
-prompt, so host/runtime JSON requires `--dry-run` or `--yes`.
+An empty host/runtime plan does not prompt; an already completed state migration
+also needs no new prompt. Skipping a prompt does not waive command admission:
+a bare state-migration repeat still requires terminal stdin/stdout/stderr;
+non-interactive repeats use `--dry-run` or `--yes`. JSON cannot share an
+interactive prompt, so host/runtime and state-migration JSON require `--dry-run`
+or `--yes`.
 
 Interactive authorization uses three distinct process streams: stdin accepts
 the answer, stdout carries the stable effect disclosure, and stderr carries the
@@ -235,7 +259,8 @@ flags.
 | `lock` | `--dry-run`, `--json`, `--manifest`, `--verbose` |
 | `outdated` | `--check`, `--json`, `--manifest`, `--verbose` |
 | `probe mcp-server` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
-| `recover` | `--dry-run`, `--json`, `--manifest`, `--verbose`, `--yes` |
+| `recover` | `--dry-run`, `--json`, `--legacy-user-state`, `--manifest`, `--verbose`, `--yes` |
+| `migrate state` | `--dry-run`, `--json`, `--manifest`, `--recover`, `--yes` |
 | `refresh extension` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
 | `remove extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
@@ -263,6 +288,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `status`, `apply --dry-run` | Reconciliation plan | `12` |
 | confirmed `apply` | Apply result | `19` |
 | `recover` | Recovery plan/result | `9` |
+| `migrate state` | State-authority migration | `1` |
 | `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
@@ -1038,7 +1064,7 @@ cancellation, signal or exit facts.
 ## `recover`
 
 ```bash
-daem recover [--manifest <path>] [--dry-run|--yes] [--json|--verbose]
+daem recover [--manifest <path>] [--legacy-user-state] [--dry-run|--yes] [--json|--verbose]
 ```
 
 Recovery classifies and resolves one interrupted apply operation or finishes
@@ -1048,9 +1074,15 @@ current recovery plan; non-interactive execution requires `--yes`. It does not
 read desired resources from the manifest or lockfile: the manifest selects the
 derived state/recovery paths. An interrupted published metadata-transaction
 marker remains a separate protocol recovered by retrying the exact authoring
-or `unmanage` write. Markerless private residue under the state directory is
+or `unmanage` write, or by `migrate state --recover` for a state migration. Markerless private residue under the state directory is
 not recoverable by retry; preserve it for analysis as described in
 [troubleshooting](troubleshooting.md#manifest-metadata-update-was-interrupted).
+
+`--legacy-user-state` selects only the default user manifest's former local
+apply-journal root, before state migration. It is not an arbitrary state-path
+selector and cannot bypass a canonical migration fence or a retired source.
+See [User-State Authority Migration](state-and-recovery.md#user-state-authority-migration)
+for the separate legacy authoring-metadata recovery boundary.
 
 | Classification | Meaning |
 | --- | --- |
@@ -1145,6 +1177,50 @@ not retirement paths or wrapped filesystem errors. After semantic retirement, GC
 failure reports hidden residue and `phase = "authority_retired"` without the
 former action name. It remains a command failure, but no recovery action remains
 and later commands are not blocked.
+
+## `migrate state`
+
+```bash
+daem migrate state [--manifest <path>] [--recover] [--dry-run|--yes] [--json]
+```
+
+Transfer the default user manifest's former local state authority to its XDG
+state location without changing installed outputs or invoking host packages.
+This is not arbitrary workspace relocation or migration between changed
+HOME/XDG settings. Use `--manifest` when cwd would select another manifest.
+
+```bash
+daem migrate state --dry-run
+daem migrate state --yes
+```
+
+The preview lists the source and destination statefiles and both shared
+registries. Execution requires the normal three-stream confirmation or `--yes`;
+`--dry-run` neither writes nor acquires mutation leases. `--dry-run` and `--yes`
+are mutually exclusive; JSON requires one of them. A completed migration can be
+repeated as `already_migrated` without another transfer.
+
+An interrupted migration must be inspected with `migrate state --recover
+--dry-run` and executed with `migrate state --recover --yes`. Its disclosed
+`rollback` or `finalize` action applies only to that migration's exact metadata
+set. It does not recover unrelated authoring transactions or apply journals.
+See [User-State Authority Migration](state-and-recovery.md#user-state-authority-migration)
+for retained evidence, cache behavior, refusals and legacy recovery.
+
+JSON uses `schema_version = 1`, `mode` (`dry-run` or `write`), `action`,
+`manifest_path`, `source_statefile`, `destination_statefile`,
+`output_registry_path` and `carrier_registry_path`. Transfer and repeat results
+also report `output_claims`, `carrier_claims`, `managed_paths` and
+`managed_aggregates`; recovery omits these counts rather than inventing zeros.
+Transfer actions are `migrate`, `migrated` and `already_migrated`; recovery actions
+are `rollback` and `finalize`. An execution error retains the disclosed action
+and adds `error`; that action is not evidence of completion or a fresh recovery
+plan. Re-preview current evidence before retrying.
+
+Exit status is `0` for a successful preview, migration, recovery or completed
+repeat, `1` for refusal/execution failure, and `2` for invalid arguments or
+missing non-interactive authorization. Planning errors use stderr, not a result
+document. No legacy management to transfer is a refusal, not a new empty state.
 
 ## `doctor`
 

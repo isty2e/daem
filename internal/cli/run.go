@@ -83,6 +83,7 @@ var commandAdmissionCatalog = map[string]commandPlatformAdmission{
 	"init":     {scope: platformAdmissionWholeCommand},
 	"list":     {},
 	"lock":     {scope: platformAdmissionWholeCommand},
+	"migrate":  {scope: platformAdmissionWholeCommand},
 	"outdated": {scope: platformAdmissionWholeCommand},
 	"probe":    {},
 	"recover":  {scope: platformAdmissionWholeCommand},
@@ -226,6 +227,8 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 		return runList(args[1:], stdout, stderr, commandInvocation)
 	case "lock":
 		return runLock(args[1:], stdout, stderr, commandInvocation)
+	case "migrate":
+		return runMigrate(args[1:], stdout, stderr, commandInvocation)
 	case "outdated":
 		return runOutdated(args[1:], stdout, stderr, commandInvocation)
 	case "probe":
