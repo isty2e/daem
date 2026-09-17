@@ -30,6 +30,7 @@ func TestRunGitOutputCancelsCompleteProcessTree(t *testing.T) {
 	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "pids")
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	command := gitProcessHelperCommand(t, ctx, "chain-parent", pidFile)
 
 	result := make(chan error, 1)
@@ -425,7 +426,7 @@ func gitProcessHelperCommand(t *testing.T, ctx context.Context, stage string, pi
 	return command
 }
 
-func runGitProcessHelperChild(stage string, pidFile string, wait bool) error {
+func runGitProcessHelperChild(stage string, pidFile string, waitForSignal bool) error {
 	command, err := newGitProcessHelperChild(stage, pidFile)
 	if err != nil {
 		return err
@@ -433,8 +434,22 @@ func runGitProcessHelperChild(stage string, pidFile string, wait bool) error {
 	if err := command.Start(); err != nil {
 		return err
 	}
-	if wait {
-		return command.Wait()
+	if waitForSignal {
+		if err := command.Wait(); err != nil {
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				return err
+			}
+		}
+		if err := appendGitHelperPID(pidFile+".reaped", os.Getpid()); err != nil {
+			return err
+		}
+
+		// A child can receive group SIGTERM before this process. Do not turn
+		// that child exit into a process-owned exit before our own signal.
+		for {
+			time.Sleep(time.Hour)
+		}
 	}
 	return nil
 }
