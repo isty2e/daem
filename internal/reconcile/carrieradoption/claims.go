@@ -18,7 +18,8 @@ func relevantCarrierAdoptionClaims(
 	relevant := make([]durablecarrier.ManagedCarrierClaim, 0, len(claims))
 	for _, claim := range claims {
 		claimIdentity := claim.Identity()
-		if claimIdentity.Carrier() == identity.Carrier() ||
+		if (claim.RequireStable() != nil && durablecarrier.SharesPiGitFootprint(claimIdentity, identity)) ||
+			claimIdentity.Carrier() == identity.Carrier() ||
 			(claim.Owner().Equal(owner) &&
 				claimIdentity.RelationSubject() == identity.RelationSubject()) ||
 			(claimIdentity.Target() == identity.Target() &&
@@ -46,6 +47,10 @@ func assessClaims(
 	assessment := claimAssessment{}
 	for _, claim := range claims {
 		claimIdentity := claim.Identity()
+		if claim.RequireStable() != nil && durablecarrier.SharesPiGitFootprint(claimIdentity, identity) {
+			assessment.conflicts = append(assessment.conflicts, claim)
+			continue
+		}
 		sameOwnerRelation := claim.Owner().Equal(owner) &&
 			claimIdentity.RelationSubject() == identity.RelationSubject()
 		if sameOwnerRelation {

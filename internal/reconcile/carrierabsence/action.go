@@ -330,6 +330,9 @@ func classifyAbsence(
 	pending durablecarrier.PendingCarrierRemoval,
 	hasPending bool,
 ) Decision {
+	if claim.RequireStable() != nil {
+		return DecisionBlockTransition
+	}
 	switch correlation.State() {
 	case observerelation.StateMissing:
 		if hasPending {

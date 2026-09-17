@@ -45,6 +45,30 @@ requires an exact live match and fresh validation. Carrier adoption records
 future bounded relation-removal authority without invoking the host route; it
 does not grant package/cache ownership, runtime readiness or ambient exclusivity.
 
+### Pending Pi Pin Changes
+
+A managed [Pi Git pin change](host-integrations.md#managed-pi-git-pins) keeps the
+old claim, acquisition request and provenance while adding `pending_pin` with
+the exact target identity and install request. Project reservations live in the
+statefile; global reservations live in the shared carrier registry so other
+manifests can see them. State-authority migration preserves the complete pair.
+
+Only a newly authorized successful native attempt plus fresh exact target
+observation replaces that claim with `pin_transition_observed` provenance.
+After intent publication, command failure, cancellation, uncertain observation
+or an uncommitted replacement leaves the reservation. Once replacement is
+committed, a later history-write failure does not restore old management.
+
+Metadata recovery does not undo native checkout or dependency changes. Keep
+pending evidence and retry the original target through a new apply preview and
+authorization; do not delete the claim or infer unchanged files from old
+settings. Indeterminate metadata commits still require the existing recovery
+checks before retry. No automatic native rollback is supported.
+
+Stable claim encodings are unchanged. Earlier strict readers cannot consume
+pending-pin fields or the new completion provenance; do not downgrade a binary
+and discard state to bypass that refusal.
+
 ### User-State Authority Migration
 
 The default user manifest uses one XDG state/recovery location whether selected

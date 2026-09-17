@@ -551,6 +551,9 @@ func compileApplyPreparedRouteSchedule(
 	statefile *applyStatefileSchedule,
 	route applyRouteScheduleFact,
 ) operationplan.EffectNode {
+	if route.work.PinChange {
+		return compileApplyPinRouteSchedule(builder, statefile, route)
+	}
 	bound := operationplan.EffectSequence(
 		statefile.checkedPublications(route.ref+"/statefile/pending", 1),
 		compileApplyCheckedStep(
@@ -713,6 +716,9 @@ func compileApplyRouteSchedule(
 	route applyRouteScheduleFact,
 	provider bool,
 ) operationplan.EffectNode {
+	if route.work.PinChange {
+		return compileApplyPinRouteSchedule(builder, statefile, route)
+	}
 	nodes := []operationplan.EffectNode{
 		builder.Step(route.ref+"/forward", operationplan.EffectStepForwardEffect),
 	}

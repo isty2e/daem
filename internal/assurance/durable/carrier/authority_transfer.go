@@ -20,7 +20,7 @@ func (registry GlobalCarrierClaims) TransferAuthority(from, to stateauthority.Au
 		if err != nil {
 			return GlobalCarrierClaims{}, err
 		}
-		replacement, err := NewManagedCarrierClaim(owner, claim.Identity(), claim.InstallRequest(), claim.Provenance())
+		replacement, err := claim.WithOwner(owner)
 		if err != nil {
 			return GlobalCarrierClaims{}, err
 		}

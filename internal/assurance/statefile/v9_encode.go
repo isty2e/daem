@@ -188,12 +188,19 @@ func persistedEffectPostconditionSummaries(
 }
 
 func persistedManagedCarrierClaim(claim durablecarrier.ManagedCarrierClaim) managedCarrierClaimDTO {
-	return managedCarrierClaimDTO{
+	row := managedCarrierClaimDTO{
 		Owner:          persistedStateAuthority(claim.Owner()),
 		Identity:       persistedManagedCarrierIdentity(claim.Identity()),
 		InstallRequest: persistedDelegatedRequest(claim.InstallRequest()),
 		Provenance:     string(claim.Provenance()),
 	}
+	if pending, present := claim.PendingPinTransition(); present {
+		row.PendingPin = &pinTargetDTO{
+			Identity: persistedManagedCarrierIdentity(pending.Identity()),
+			Request:  persistedDelegatedRequest(pending.Request()),
+		}
+	}
+	return row
 }
 
 func persistedStateAuthority(authority stateauthority.Authority) stateAuthorityDTO {

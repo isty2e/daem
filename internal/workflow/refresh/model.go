@@ -314,6 +314,7 @@ type plan struct {
 	command           CommandSpec
 	preObservation    *observerelation.CorrelationResult
 	authorityPaths    []observerelation.AuthorityPath
+	pinClaimRegistry  bool
 	currentState      durable.Snapshot
 	timeout           HostCommandTimeout
 	fingerprint       mutation.OperationFingerprint

@@ -129,6 +129,15 @@ func buildAuthorityEvidence(
 	for _, revision := range planned.barrier.RevisionRequests() {
 		builder.AddRevision(revision)
 	}
+	if planned.pinClaimRegistry {
+		registryKey, err := mutation.CanonicalDirectoryEntryKey(planned.paths.CarrierClaimRegistryPath)
+		if err != nil {
+			return authorityEvidence{}, err
+		}
+		if err := builder.AddLogicalPair(registryKey, mutation.AccessShared, mutation.AccessShared); err != nil {
+			return authorityEvidence{}, err
+		}
+	}
 	for _, observedPath := range planned.authorityPaths {
 		if err := builder.AddPhysicalPair(
 			observedPath.Path(),

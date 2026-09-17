@@ -109,6 +109,9 @@ func (registry GlobalCarrierClaims) WithClaims(
 		seen[key] = struct{}{}
 		matched := false
 		for _, existing := range next {
+			if existing.FactKey() != key && existing.RequireStable() != nil && SharesPiGitFootprint(existing.Identity(), claim.Identity()) {
+				return GlobalCarrierClaims{}, false, fmt.Errorf("Pi checkout has a pending pin transition")
+			}
 			if existing.FactKey() != key {
 				continue
 			}
@@ -152,6 +155,9 @@ func (registry GlobalCarrierClaims) RetireClaims(
 				index,
 				err,
 			)
+		}
+		if err := claim.RequireStable(); err != nil {
+			return GlobalCarrierClaims{}, err
 		}
 		if claim.Identity().Scope() != target.ScopeGlobal {
 			return GlobalCarrierClaims{}, fmt.Errorf(
@@ -231,6 +237,9 @@ func (registry GlobalCarrierClaims) WithoutClaim(
 	claim ManagedCarrierClaim,
 ) (GlobalCarrierClaims, bool, error) {
 	if err := claim.Validate(); err != nil {
+		return GlobalCarrierClaims{}, false, err
+	}
+	if err := claim.RequireStable(); err != nil {
 		return GlobalCarrierClaims{}, false, err
 	}
 	if claim.Identity().Scope() != target.ScopeGlobal {

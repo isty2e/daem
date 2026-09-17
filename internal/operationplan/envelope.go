@@ -49,6 +49,7 @@ func (obligation Obligation) Count() int { return obligation.count }
 // RouteWork is one already-classified host-route or relation action.
 // InvokesHost takes precedence over Promotion on the same item.
 type RouteWork struct {
+	PinChange   bool
 	InvokesHost bool
 	Global      bool
 	Promotion   bool
@@ -419,6 +420,17 @@ func hostRouteStatefileDemand(routes []RouteWork) (statefileDemand, error) {
 	var demand statefileDemand
 	for _, route := range routes {
 		switch {
+		case route.PinChange:
+			if !route.InvokesHost || route.Promotion {
+				return statefileDemand{}, fmt.Errorf("operationplan: pin change requires an invocation without install promotion")
+			}
+			validations, commits := 6, 3
+			if route.Global {
+				validations, commits = 9, 1
+			}
+			if err := demand.add(validations, commits); err != nil {
+				return statefileDemand{}, err
+			}
 		case route.InvokesHost:
 			validations := 7
 			if route.Global {

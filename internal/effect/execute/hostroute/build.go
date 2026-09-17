@@ -13,7 +13,7 @@ import (
 func BuildCommand(input BuildInput) (Command, error) {
 	action := input.Action
 	subjectID := action.Subject()
-	if (action.Kind() != reconciliation.ActionCreate && action.Kind() != reconciliation.ActionAttempt) ||
+	if (action.Kind() != reconciliation.ActionCreate && action.Kind() != reconciliation.ActionAttempt && action.Kind() != reconciliation.ActionChangePin) ||
 		!action.InvokesHostRoute() {
 		return Command{}, newValidationError(
 			ReasonUnsupportedAction,

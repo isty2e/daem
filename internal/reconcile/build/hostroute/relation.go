@@ -26,6 +26,7 @@ type RelationInput struct {
 	Observations    relationobserve.Batch
 	CurrentOwner    stateauthority.Authority
 	PendingInstalls []durablecarrier.PendingCarrierInstall
+	PendingRemovals []durablecarrier.PendingCarrierRemoval
 	ManagedClaims   []durablecarrier.ManagedCarrierClaim
 }
 
@@ -66,6 +67,10 @@ func BuildRelationActions(input RelationInput) ([]reconciliation.RelationAction,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("plan carrier relation %q: %w", item.contract.SubjectID().Key(), err)
+		}
+		action, err = pinTransitionRelationAction(input, item, records, action)
+		if err != nil {
+			return nil, err
 		}
 		actions = append(actions, action)
 	}

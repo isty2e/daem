@@ -111,7 +111,7 @@ func validateSnapshotCarrierFacts(
 		if !overlap {
 			continue
 		}
-		if !pendingValue.Owner().ExactEqual(claim.Owner()) ||
+		if claim.RequireStable() != nil || !pendingValue.Owner().ExactEqual(claim.Owner()) ||
 			!pendingValue.Identity().ExactEqual(claim.Identity()) ||
 			!pendingValue.InstallRequest().Equal(claim.InstallRequest()) {
 			return fmt.Errorf(
@@ -216,6 +216,9 @@ func (snapshot Snapshot) WithPromotedCarrierClaims(
 				err,
 			)
 		}
+		if err := claim.RequireStable(); err != nil {
+			return Snapshot{}, false, err
+		}
 		if claim.Identity().Scope() != target.ScopeProject {
 			return Snapshot{}, false, fmt.Errorf(
 				"promoted carrier claim[%d]: global claims require the global carrier registry",
@@ -266,6 +269,9 @@ func (snapshot Snapshot) WithAdoptedCarrierClaims(
 				index,
 				err,
 			)
+		}
+		if err := claim.RequireStable(); err != nil {
+			return Snapshot{}, false, err
 		}
 		if claim.Provenance() != durablecarrier.ClaimProvenanceExplicitlyAdoptedObserved {
 			return Snapshot{}, false, fmt.Errorf(
@@ -360,6 +366,9 @@ func (snapshot Snapshot) WithoutManagedCarrierClaim(
 	if err := claim.Validate(); err != nil {
 		return Snapshot{}, false, fmt.Errorf("retired managed carrier claim: %w", err)
 	}
+	if err := claim.RequireStable(); err != nil {
+		return Snapshot{}, false, err
+	}
 	if claim.Identity().Scope() != target.ScopeProject {
 		return Snapshot{}, false, fmt.Errorf(
 			"retired managed carrier claim: global claims require the global carrier registry",
@@ -402,7 +411,7 @@ func (snapshot Snapshot) WithConvergedGlobalCarrierClaims(
 	for _, candidate := range pending {
 		matched := false
 		for _, claim := range globalClaims {
-			if candidate.Owner().ExactEqual(claim.Owner()) &&
+			if claim.RequireStable() == nil && candidate.Owner().ExactEqual(claim.Owner()) &&
 				candidate.Identity().ExactEqual(claim.Identity()) &&
 				candidate.InstallRequest().Equal(claim.InstallRequest()) {
 				matched = true

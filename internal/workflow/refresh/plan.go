@@ -350,6 +350,11 @@ func planAtPathsWithBarrier(
 		ObservationPosture:     posture,
 	}
 
+	pinClaimRegistry, err := requireNoPendingPinRefresh(ctx, paths, currentState, contract)
+	if err != nil {
+		return refusedPlan(result, ReasonMutationAuthority, err, "restore managed-state evidence; resume a pending pin change only through a newly authorized apply")
+	}
+
 	var preObservation *observerelation.CorrelationResult
 	var authorityPaths []observerelation.AuthorityPath
 	if posture == PostureRequireCurrent {
@@ -410,6 +415,7 @@ func planAtPathsWithBarrier(
 		command:           command,
 		preObservation:    preObservation,
 		authorityPaths:    authorityPaths,
+		pinClaimRegistry:  pinClaimRegistry,
 		currentState:      currentState,
 		timeout:           timeout,
 	}

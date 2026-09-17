@@ -378,6 +378,15 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 	}
 
 	for index, item := range prepared {
+		if _, pinChange := item.action.PinTransition(); pinChange {
+			var pinRecords []durableattempt.HostRouteAttempt
+			nextState, globalCarrierClaims, pinRecords, err = runPinTransition(ctx, paths, stateAuthority, nextState, globalCarrierClaims, item, options)
+			records = append(records, pinRecords...)
+			if err != nil {
+				return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
+			}
+			continue
+		}
 		phase := fmt.Sprintf("host route[%d]", index)
 		if err := ensureStateAuthority(ctx); err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(

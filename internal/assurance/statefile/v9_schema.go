@@ -102,6 +102,12 @@ type managedCarrierClaimDTO struct {
 	Identity       managedCarrierIdentityDTO `json:"identity"`
 	InstallRequest delegatedRequestDTO       `json:"install_request"`
 	Provenance     string                    `json:"provenance"`
+	PendingPin     *pinTargetDTO             `json:"pending_pin,omitempty"`
+}
+
+type pinTargetDTO struct {
+	Identity managedCarrierIdentityDTO `json:"identity"`
+	Request  delegatedRequestDTO       `json:"request"`
 }
 
 type delegateAttemptDTO struct {

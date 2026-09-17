@@ -225,6 +225,9 @@ func desiredStateForClaim(
 	}
 	for _, item := range records {
 		if item.contract.SubjectID() == claim.Identity().RelationSubject() {
+			if _, err := claim.PinTransitionTo(item.contract); err == nil {
+				return carrierabsence.DesiredRetained
+			}
 			return carrierabsence.DesiredTransitionConflict
 		}
 	}
