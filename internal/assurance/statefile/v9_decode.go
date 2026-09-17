@@ -326,12 +326,23 @@ func (persisted managedCarrierClaimDTO) canonical() (durablecarrier.ManagedCarri
 	if err != nil {
 		return durablecarrier.ManagedCarrierClaim{}, fmt.Errorf("install_request: %w", err)
 	}
-	return durablecarrier.NewManagedCarrierClaim(
-		owner,
-		identity,
-		request,
-		durablecarrier.ClaimProvenance(persisted.Provenance),
-	)
+	claim, err := durablecarrier.NewManagedCarrierClaim(owner, identity, request, durablecarrier.ClaimProvenance(persisted.Provenance))
+	if err != nil || persisted.PendingPin == nil {
+		return claim, err
+	}
+	target, err := persisted.PendingPin.Identity.canonical()
+	if err != nil {
+		return durablecarrier.ManagedCarrierClaim{}, err
+	}
+	nextRequest, err := persisted.PendingPin.Request.canonical()
+	if err != nil {
+		return durablecarrier.ManagedCarrierClaim{}, err
+	}
+	transition, err := durablecarrier.NewPinTransition(claim, target, nextRequest)
+	if err != nil {
+		return durablecarrier.ManagedCarrierClaim{}, err
+	}
+	return transition.PendingClaim()
 }
 
 func (persisted delegateAttemptDTO) canonical(

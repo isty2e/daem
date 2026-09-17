@@ -68,9 +68,11 @@ type carrierClaimFingerprintFacts struct {
 	ManagedInstanceKey string
 	InstallRequest     realizationdelegate.Request
 	Provenance         durablecarrier.ClaimProvenance
+	PendingPin         *carrierPinFingerprintFacts
 }
 
 type relationFingerprintFacts struct {
+	PinChange            *relationPinFingerprintFacts
 	Basis                reconcile.RelationActionBasis
 	Kind                 reconcile.RelationActionKind
 	Subject              topology.SubjectID
@@ -391,6 +393,7 @@ func relationFingerprintRows(
 	for _, action := range actions {
 		admission := action.RouteAdmission()
 		relations = append(relations, relationFingerprintFacts{
+			PinChange:            relationPinFingerprint(action),
 			Basis:                action.Basis(),
 			Kind:                 action.Kind(),
 			Subject:              action.Subject(),
@@ -520,6 +523,7 @@ func carrierClaimFingerprintFact(
 		ManagedInstanceKey: string(relation.ManagedInstanceKey()),
 		InstallRequest:     claim.InstallRequest(),
 		Provenance:         claim.Provenance(),
+		PendingPin:         carrierPinFingerprint(claim),
 	}
 }
 

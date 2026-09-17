@@ -448,7 +448,7 @@ func pendingCarrierInstallForInvocation(
 	owner stateauthority.Authority,
 	action reconciliation.RelationAction,
 ) (durablecarrier.PendingCarrierInstall, bool, error) {
-	if !action.InvokesHostRoute() {
+	if _, pinChange := action.PinTransition(); pinChange || !action.InvokesHostRoute() {
 		return durablecarrier.PendingCarrierInstall{}, false, nil
 	}
 	pending, err := durablecarrier.NewPendingCarrierInstall(

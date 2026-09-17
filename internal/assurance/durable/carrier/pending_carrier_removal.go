@@ -208,6 +208,9 @@ func (pending PendingCarrierRemoval) Validate() error {
 	if err := pending.claim.Validate(); err != nil {
 		return fmt.Errorf("pending carrier removal claim: %w", err)
 	}
+	if err := pending.claim.RequireStable(); err != nil {
+		return err
+	}
 	if err := pending.removeRequest.Validate(); err != nil {
 		return fmt.Errorf("pending carrier removal request: %w", err)
 	}

@@ -46,6 +46,20 @@ func BuildCarrierAdoptionActions(
 	}
 	actions := make([]carrieradoption.Action, 0, len(records))
 	for _, item := range records {
+		retainedPinChange := false
+		for _, claim := range input.AllClaims {
+			if !claim.Owner().Equal(input.CurrentOwner) {
+				continue
+			}
+			if _, err := claim.PinTransitionTo(item.contract); err == nil {
+				retainedPinChange = true
+				break
+			}
+		}
+		if retainedPinChange {
+			continue
+		}
+
 		correlation, err := carrierAdoptionCorrelation(
 			item.contract,
 			item.relation,

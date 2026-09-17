@@ -154,6 +154,20 @@ func NewDelegatedRelationCarrierContract(
 	})
 }
 
+// ReconstructDelegatedRelationCarrierContract recovers the declaration identity
+// bound to a retained relation subject and applies the canonical lock grammar.
+func ReconstructDelegatedRelationCarrierContract(
+	carrier desiredextension.CarrierKey,
+	subject topology.SubjectID,
+	subjectKey hostrelation.SubjectKey,
+) (LockedSubjectContract, error) {
+	id, err := entity.New(entity.KindExtension, subject.Key())
+	if err != nil {
+		return LockedSubjectContract{}, err
+	}
+	return NewDelegatedRelationCarrierContract(id, carrier, subject, subjectKey)
+}
+
 func delegatedRelationCarrierSpecFor(carrier desiredextension.Carrier) (delegatedRelationCarrierSpec, bool) {
 	for _, spec := range implementedDelegatedRelationCarrierSpecs() {
 		if spec.Profile.Carrier() == carrier {

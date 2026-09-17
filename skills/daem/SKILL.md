@@ -105,6 +105,8 @@ Never apply with a stale or failed lock.
 ## Update, Import, And Recovery
 
 - Lockable source updates: run `daem outdated`, preview with `daem lock --dry-run`, write with `daem lock`, then follow the apply workflow.
+- Managed Pi Git commit-pin changes: when supported by the installed daem, keep the extension ID, repository locator and scope unchanged, then use manual manifest edit → lock → apply. Inspect the disclosed old/new pins, checkout reset/clean and dependency-script effects. Do not substitute refresh, unmanage, or remove/reinstall.
+- An uncertain pin attempt retains management and its exact target. Obtain a new preview and authorization before retrying that same target; settings alone do not complete it. Report unreadable or conflicting settings instead of guessing. Metadata recovery is not native package rollback.
 - Use `daem refresh extension` only for an explicitly selected extension route supported by the installed daem. Preview before execution.
 - Existing host state under declaration: start with `daem import --target <target> --dry-run`; repeat `--target` when needed. Import writes no lockfile. After successful import, run lock and apply previews separately.
 - Use `daem apply --manage-existing --dry-run` only for explicit intent to adopt eligible exact existing state. Never infer adoption from matching files alone.

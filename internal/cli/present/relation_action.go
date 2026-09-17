@@ -9,6 +9,7 @@ import (
 )
 
 type relationActionJSON struct {
+	PinChange                  *pinChangeJSON   `json:"pin_change,omitempty"`
 	Kind                       string           `json:"kind"`
 	Subject                    *planJSONSubject `json:"subject,omitempty"`
 	Target                     string           `json:"target"`
@@ -72,6 +73,7 @@ func relationJSONActions(actions []reconciliation.RelationAction) []relationActi
 		identity := action.CarrierIdentity()
 		disclosure := carrierIdentityDisclosureFor(identity)
 		result = append(result, relationActionJSON{
+			PinChange:                  pinChangeForAction(action),
 			Kind:                       string(action.Kind()),
 			Subject:                    planJSONSubjectFor(action.Subject()),
 			Target:                     string(action.Target()),
@@ -148,6 +150,7 @@ func PrintRelationActionsWithOptions(output io.Writer, actions []reconciliation.
 	for _, action := range actions {
 		if !options.Verbose {
 			printRelationActionSummary(output, action)
+			printPinChange(output, action)
 			continue
 		}
 		route := action.RouteRequest()
@@ -189,6 +192,7 @@ func PrintRelationActionsWithOptions(output io.Writer, actions []reconciliation.
 			admission.AllowsHostRouteInvocation(),
 			action.BlocksOrdinaryApply(),
 		)
+		printPinChange(output, action)
 	}
 }
 
@@ -196,6 +200,10 @@ func printRelationActionSummary(output io.Writer, action reconciliation.Relation
 	subject := ""
 	if renderedSubject := planJSONSubjectFor(action.Subject()); renderedSubject != nil {
 		subject = subjectString(*renderedSubject)
+	}
+	if action.Kind() == reconciliation.ActionChangePin {
+		fmt.Fprintf(output, "  - change managed Pi pin subject=%q target=%s scope=%s\n", subject, action.Target(), action.Scope())
+		return
 	}
 	if action.InvokesHostRoute() {
 		fmt.Fprintf(output, "  - install extension through host subject=%q target=%s scope=%s\n", subject, action.Target(), action.Scope())

@@ -25,7 +25,7 @@ func (snapshot Snapshot) TransferAuthority(from, to stateauthority.Authority) (S
 		if err != nil {
 			return Snapshot{}, err
 		}
-		replacement, err := carrier.NewManagedCarrierClaim(owner, claim.Identity(), claim.InstallRequest(), claim.Provenance())
+		replacement, err := claim.WithOwner(owner)
 		if err != nil {
 			return Snapshot{}, err
 		}
@@ -54,7 +54,7 @@ func (snapshot Snapshot) TransferAuthority(from, to stateauthority.Authority) (S
 		if err != nil {
 			return Snapshot{}, err
 		}
-		replacement, err := carrier.NewManagedCarrierClaim(owner, claim.Identity(), claim.InstallRequest(), claim.Provenance())
+		replacement, err := claim.WithOwner(owner)
 		if err != nil {
 			return Snapshot{}, err
 		}

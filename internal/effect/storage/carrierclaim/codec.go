@@ -24,10 +24,16 @@ type registryDTO struct {
 }
 
 type claimDTO struct {
-	Owner          authorityDTO `json:"owner"`
-	Identity       identityDTO  `json:"identity"`
-	InstallRequest requestDTO   `json:"install_request"`
-	Provenance     string       `json:"provenance"`
+	Owner          authorityDTO  `json:"owner"`
+	Identity       identityDTO   `json:"identity"`
+	InstallRequest requestDTO    `json:"install_request"`
+	Provenance     string        `json:"provenance"`
+	PendingPin     *pinTargetDTO `json:"pending_pin,omitempty"`
+}
+
+type pinTargetDTO struct {
+	Identity identityDTO `json:"identity"`
+	Request  requestDTO  `json:"request"`
 }
 
 type authorityDTO struct {
@@ -89,12 +95,9 @@ func Marshal(registry durablecarrier.GlobalCarrierClaims) ([]byte, error) {
 }
 
 func persistedClaim(claim durablecarrier.ManagedCarrierClaim) claimDTO {
-	identity := claim.Identity()
-	key := identity.Carrier().Key()
-	relation := identity.ExpectedRelation()
 	request := claim.InstallRequest()
 	statefile := claim.Owner().StatefileAuthority()
-	return claimDTO{
+	row := claimDTO{
 		Owner: authorityDTO{
 			StatefileAuthority: pathAuthorityDTO{
 				Key:     statefile.Key(),
@@ -102,23 +105,33 @@ func persistedClaim(claim durablecarrier.ManagedCarrierClaim) claimDTO {
 			},
 			ManifestPath: claim.Owner().ManifestPath(),
 		},
-		Identity: identityDTO{
-			CarrierSubject:     persistedSubject(identity.CarrierSubject()),
-			CarrierFamily:      string(identity.Carrier().Family()),
-			Target:             string(identity.Target()),
-			Scope:              string(identity.Scope()),
-			SourceKind:         string(key.Source().Kind()),
-			SourceRef:          key.Source().Ref(),
-			RelationSubject:    persistedSubject(identity.RelationSubject()),
-			RelationSubjectKey: string(relation.SubjectKey()),
-			ManagedInstanceKey: string(relation.ManagedInstanceKey()),
-		},
+		Identity: persistedIdentity(claim.Identity()),
 		InstallRequest: requestDTO{
 			RouteID:                request.RouteID(),
 			AdapterContractVersion: request.ContractVersion(),
 			CanonicalRequestHash:   request.CanonicalRequestHash(),
 		},
 		Provenance: string(claim.Provenance()),
+	}
+	if pending, present := claim.PendingPinTransition(); present {
+		request := pending.Request()
+		row.PendingPin = &pinTargetDTO{
+			Identity: persistedIdentity(pending.Identity()),
+			Request:  requestDTO{RouteID: request.RouteID(), AdapterContractVersion: request.ContractVersion(), CanonicalRequestHash: request.CanonicalRequestHash()},
+		}
+	}
+	return row
+}
+
+func persistedIdentity(identity durablecarrier.ManagedCarrierIdentity) identityDTO {
+	key := identity.Carrier().Key()
+	relation := identity.ExpectedRelation()
+	return identityDTO{
+		CarrierSubject: persistedSubject(identity.CarrierSubject()), CarrierFamily: string(identity.Carrier().Family()),
+		Target: string(identity.Target()), Scope: string(identity.Scope()),
+		SourceKind: string(key.Source().Kind()), SourceRef: key.Source().Ref(),
+		RelationSubject: persistedSubject(identity.RelationSubject()), RelationSubjectKey: string(relation.SubjectKey()),
+		ManagedInstanceKey: string(relation.ManagedInstanceKey()),
 	}
 }
 
@@ -222,12 +235,24 @@ func (persisted claimDTO) canonical() (durablecarrier.ManagedCarrierClaim, error
 	if err != nil {
 		return durablecarrier.ManagedCarrierClaim{}, fmt.Errorf("install_request: %w", err)
 	}
-	return durablecarrier.NewManagedCarrierClaim(
-		owner,
-		identity,
-		request,
-		durablecarrier.ClaimProvenance(persisted.Provenance),
-	)
+	claim, err := durablecarrier.NewManagedCarrierClaim(owner, identity, request, durablecarrier.ClaimProvenance(persisted.Provenance))
+	if err != nil || persisted.PendingPin == nil {
+		return claim, err
+	}
+	target, err := persisted.PendingPin.Identity.canonical()
+	if err != nil {
+		return durablecarrier.ManagedCarrierClaim{}, err
+	}
+	row := persisted.PendingPin.Request
+	nextRequest, err := realizationdelegate.NewRequest(row.RouteID, row.AdapterContractVersion, row.CanonicalRequestHash)
+	if err != nil {
+		return durablecarrier.ManagedCarrierClaim{}, err
+	}
+	transition, err := durablecarrier.NewPinTransition(claim, target, nextRequest)
+	if err != nil {
+		return durablecarrier.ManagedCarrierClaim{}, err
+	}
+	return transition.PendingClaim()
 }
 
 func (persisted identityDTO) canonical() (durablecarrier.ManagedCarrierIdentity, error) {

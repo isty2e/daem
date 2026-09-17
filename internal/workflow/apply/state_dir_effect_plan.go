@@ -223,6 +223,7 @@ func routeWorks(
 	works := make([]operationplan.RouteWork, 0, len(actions))
 	for _, action := range actions {
 		works = append(works, operationplan.RouteWork{
+			PinChange:   action.Kind() == reconcile.ActionChangePin,
 			InvokesHost: action.InvokesHostRoute(),
 			Global:      action.Scope() == target.ScopeGlobal,
 			Promotion:   isGlobalCarrierPromotionCandidate(current, action),

@@ -22,6 +22,14 @@ func (snapshot Snapshot) WithoutCarrierManagement(
 		return Snapshot{}, false, fmt.Errorf("carrier management identity: %w", err)
 	}
 
+	for _, claim := range snapshot.ManagedCarrierClaims() {
+		if claim.Owner().Equal(owner) && claim.Identity().RelationSubject() == identity.RelationSubject() {
+			if err := claim.RequireStable(); err != nil {
+				return Snapshot{}, false, err
+			}
+		}
+	}
+
 	pendingInstalls, installsChanged, err := withoutMatchingCarrierFacts(
 		snapshot.PendingCarrierInstalls(),
 		owner,

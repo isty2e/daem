@@ -64,6 +64,7 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 		Observations:    input.relationObservations,
 		CurrentOwner:    input.owner,
 		PendingInstalls: input.currentState.PendingCarrierInstalls(),
+		PendingRemovals: input.currentState.PendingCarrierRemovals(),
 		ManagedClaims:   input.allCarrierClaims,
 	})
 	if err != nil {

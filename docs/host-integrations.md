@@ -288,7 +288,8 @@ explicit-global scope. `pi-extension` is a rejected future candidate, not syntax
 | Host/operation | Native route | Verification and remaining effects |
 | --- | --- | --- |
 | OpenCode install | `opencode plugin <host-source>`; add `--global` only globally | Fresh exact selected-scope absence before invocation and presence before claim creation. |
-| Pi install | `pi install <host-source>`; add `-l` only for project | Same absence/presence requirement; no implicit `pi -e`, trust or prompt-policy flags. |
+| Pi install | `pi install <host-source>`; add `-l` only for project | Same absence/presence requirement for new management; no implicit `pi -e`, trust or prompt-policy flags. |
+| Pi managed Git pin change | Same scoped install route, with the new commit | Explicit old-to-new transition through ordinary apply; see [managed Pi Git pins](#managed-pi-git-pins). |
 | OpenCode refresh | `opencode plugin <host-source> --force`; add `--global` only globally | `attempted_unverified`: relation observation does not prove package/version/refresh convergence. Package resolution, caches, same-family replacement/deduplication, multi-target config, dependencies and activation remain host-owned. |
 | Pi refresh | `pi update --extension <host-source>` for either scope | No update scope flag: may update matching user and trusted-project rows. `attempted_unverified`; pins may stay fixed, local paths have no updater, Git may reset/clean and install dependencies. Trust refusal/no match is a host failure. No approval, self-update, model-update or bulk flags. |
 | OpenCode removal | Direct config edit; no `opencode uninstall` | Remove only the exact source row from every existing server/TUI JSON/JSONC candidate. Missing candidates are not created; all four paths remain guarded. Partial per-file success stays pending until fresh absence from every loaded candidate. |
@@ -305,8 +306,45 @@ OpenCode removal preserves comments, whitespace, tuple options, siblings,
 unknown fields, empty arrays and files. Other scope, installed artifacts,
 caches, local sources, credentials, trust/sessions/runtime and unrelated rows
 remain outside that removal. Pi retains other-scope state and unrelated stores;
-its selected source-kind effects do not grant prune. Neither explicit refresh
-becomes ordinary apply update, and no per-contribution disable is supported.
+its selected source-kind effects do not grant prune. Explicit refresh remains
+separate from selecting a new Pi Git pin in apply. No per-contribution disable is
+supported.
+
+### Managed Pi Git Pins
+
+For an already managed Pi Git package, change only the commit in
+`source.host_source`, then run `daem lock`, review `daem apply --dry-run`, and
+authorize `daem apply --yes`. The preview shows both sources and whether it is
+resuming an earlier attempt. JSON uses `kind: "change_pin"` and `pin_change`
+with `from_source`, `to_source`, `resume`, and `previous_provenance`.
+
+Both pins must be full lowercase hexadecimal commits. Keep the extension ID,
+locator spelling, target and scope unchanged. Daem requires an exact old
+settings relation and refuses another declared or known managed consumer, or
+an ambiguous settings row, sharing the selected checkout. Different pins and
+transport aliases can share a checkout; they are not independent packages.
+
+Daem records the exact old-to-new intent before invoking Pi. It replaces the
+claim only after the command succeeds **and** a fresh observation finds the
+exact new selected-scope settings relation. Native Pi may reset/clean the
+checkout and run dependency scripts before publishing settings. Failure can
+therefore leave changed files under the old settings source; exit zero alone
+also does not prove that settings were published.
+
+An uncertain attempt keeps the old claim and its pending target. Restore that
+same desired target, obtain fresh unambiguous old or new settings evidence, and
+review/authorize apply again. A retry always invokes Pi; later settings alone
+do not settle the claim. Missing, third-pin, or ambiguous settings require
+operator repair before retry. Pending claims cannot be removed, un-managed,
+adopted over, or refreshed; Pi refresh also checks known pending claims in the
+other scope because its update selector is not scope-local.
+
+The checked native envelope is Pi 0.85.1 in isolated fixtures. This operation
+is not a general npm/moving-ref upgrade or repository/ID/scope migration.
+Automatic native rollback, package-script compensation, implicit trust approval
+and runtime/dependency attestation are unsupported. See
+[pending pin state](state-and-recovery.md#pending-pi-pin-changes) for metadata
+and recovery boundaries.
 
 ## Antigravity CLI Plugin Carrier Route Summary
 

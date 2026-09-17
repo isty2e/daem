@@ -194,6 +194,7 @@ type RelationAction struct {
 	reason          RelationReasonCode
 	execution       RelationExecutionClass
 	admission       RelationRouteAdmissionDecision
+	pinChange       *pinChangeFacts
 }
 
 // Compare returns the canonical ordering of two managed-relation decisions.

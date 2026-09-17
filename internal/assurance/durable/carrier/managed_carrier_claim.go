@@ -21,6 +21,7 @@ const (
 	// ClaimProvenanceExplicitlyAdoptedObserved records an explicit state-only
 	// adoption of one fresh source-exact external relation.
 	ClaimProvenanceExplicitlyAdoptedObserved ClaimProvenance = "explicitly_adopted_observed"
+	ClaimProvenancePinTransitionObserved     ClaimProvenance = "pin_transition_observed"
 )
 
 // ManagedCarrierClaim is durable delete-authority provenance for one exact
@@ -30,6 +31,7 @@ type ManagedCarrierClaim struct {
 	identity       ManagedCarrierIdentity
 	installRequest realizationdelegate.Request
 	provenance     ClaimProvenance
+	pendingPin     *pinTarget
 }
 
 // NewManagedCarrierClaim reconstructs one exact durable claim.
@@ -235,9 +237,13 @@ func (claim ManagedCarrierClaim) Validate() error {
 	}
 	switch claim.provenance {
 	case ClaimProvenanceInstalledObserved,
-		ClaimProvenanceExplicitlyAdoptedObserved:
+		ClaimProvenanceExplicitlyAdoptedObserved,
+		ClaimProvenancePinTransitionObserved:
 	default:
 		return fmt.Errorf("unsupported managed carrier claim provenance %q", claim.provenance)
+	}
+	if pending, present := claim.PendingPinTransition(); present {
+		return pending.Validate()
 	}
 	return nil
 }
@@ -281,7 +287,7 @@ func (claim ManagedCarrierClaim) ExactEqual(other ManagedCarrierClaim) bool {
 	return claim.owner.ExactEqual(other.owner) &&
 		claim.identity.ExactEqual(other.identity) &&
 		claim.installRequest.Equal(other.installRequest) &&
-		claim.provenance == other.provenance
+		claim.provenance == other.provenance && claim.pendingPinEqual(other)
 }
 
 // SameAcquisition reports whether two claims describe the same owner, carrier
@@ -290,12 +296,12 @@ func (claim ManagedCarrierClaim) ExactEqual(other ManagedCarrierClaim) bool {
 func (claim ManagedCarrierClaim) SameAcquisition(other ManagedCarrierClaim) bool {
 	return claim.owner.ExactEqual(other.owner) &&
 		claim.identity.ExactEqual(other.identity) &&
-		claim.installRequest.Equal(other.installRequest)
+		claim.installRequest.Equal(other.installRequest) && claim.pendingPinEqual(other)
 }
 
 // MatchesLockedRecord checks exact current lock identity without treating it as
 // current observation or removal eligibility.
 func (claim ManagedCarrierClaim) MatchesLockedRecord(locked lock.LockedSubjectContract) bool {
-	return claim.Validate() == nil &&
+	return claim.Validate() == nil && claim.RequireStable() == nil &&
 		claim.identity.MatchesLockedRecord(locked, claim.installRequest)
 }
