@@ -17,8 +17,14 @@ import (
 )
 
 func TestPiPinChangePublicCLIDisclosesRetainsAndResumes(t *testing.T) {
-	for _, scope := range []string{"project", "global"} {
-		t.Run(scope, func(t *testing.T) {
+	for _, scenario := range []struct{ scope, failureFormat string }{
+		{"project", "json"},
+		{"global", "json"},
+		{"project", "human"},
+		{"global", "human"},
+	} {
+		t.Run(scenario.scope+"/"+scenario.failureFormat, func(t *testing.T) {
+			scope := scenario.scope
 			root := t.TempDir()
 			testkit.SetDataRootEnv(t, root)
 			t.Setenv("HOME", filepath.Join(root, "home"))
@@ -66,13 +72,31 @@ func TestPiPinChangePublicCLIDisclosesRetainsAndResumes(t *testing.T) {
 				t.Fatal("adoption invoked native host")
 			}
 
-			testkit.WriteFile(t, root, "daem.toml", strings.Replace(declaration, before, after, 1))
+			nextDeclaration := strings.Replace(declaration, before, after, 1)
+			testkit.WriteFile(t, root, "daem.toml", nextDeclaration)
 			if code := run("lock"); code != 0 {
 				t.Fatalf("new pin lock=%d: %s", code, &stderr)
 			}
-			if code := run("apply", "--dry-run"); code != 0 || !strings.Contains(stdout.String(), before) || !strings.Contains(stdout.String(), after) || !strings.Contains(stdout.String(), "no automatic rollback") {
-				t.Fatalf("pin disclosure=%d: %s %s", code, &stdout, &stderr)
-			}
+			t.Run("initial change is not a retry", func(t *testing.T) {
+				if code := run("apply", "--dry-run"); code != 0 || !strings.Contains(stdout.String(), before) || !strings.Contains(stdout.String(), after) || !strings.Contains(stdout.String(), "no automatic rollback") {
+					t.Fatalf("pin disclosure=%d: %s %s", code, &stdout, &stderr)
+				}
+				assertNoPendingPinGuidance(t, stdout.String())
+				if code := run("status"); code != 0 {
+					t.Fatalf("initial status=%d: %s %s", code, &stdout, &stderr)
+				}
+				assertNoPendingPinGuidance(t, stdout.String())
+			})
+			t.Run("initial conflict is not a retry", func(t *testing.T) {
+				defer testkit.WriteFile(t, filepath.Dir(settings), filepath.Base(settings), fmt.Sprintf("{\"packages\":[%q]}", before))
+				testkit.WriteFile(t, filepath.Dir(settings), filepath.Base(settings), fmt.Sprintf("{\"packages\":[%q]}", after))
+				for _, args := range [][]string{{"status", "--check"}, {"apply", "--dry-run"}} {
+					if code := run(args...); code != 1 || !strings.Contains(stdout.String(), "pin_transition_conflict") {
+						t.Fatalf("initial conflict %v=%d: %s %s", args, code, &stdout, &stderr)
+					}
+					assertNoPendingPinGuidance(t, stdout.String())
+				}
+			})
 			if code := run("apply", "--dry-run", "--json"); code != 0 {
 				t.Fatalf("pin JSON preview=%d: %s", code, &stderr)
 			}
@@ -83,8 +107,29 @@ func TestPiPinChangePublicCLIDisclosesRetainsAndResumes(t *testing.T) {
 			if code := run("apply"); code != 2 || calls != 0 {
 				t.Fatalf("missing authorization=%d, calls=%d", code, calls)
 			}
-			if code := run("apply", "--yes", "--json"); code != 1 || calls != 1 {
+			failedArgs := []string{"apply", "--yes"}
+			if scenario.failureFormat == "json" {
+				failedArgs = append(failedArgs, "--json")
+			}
+			if code := run(failedArgs...); code != 1 || calls != 1 {
 				t.Fatalf("false native success=%d, calls=%d: %s %s", code, calls, &stdout, &stderr)
+			}
+			if scenario.failureFormat == "human" {
+				if !strings.Contains(stderr.String(), "next: inspect with daem status --manifest") {
+					t.Fatalf("initial failure lost fresh inspection guidance: %s", &stderr)
+				}
+				assertNoPendingPinGuidance(t, stderr.String())
+			}
+			t.Run("pending status advances past inspection", func(t *testing.T) {
+				if code := run("status"); code != 0 || !strings.Contains(stdout.String(), "original pending target") || !strings.Contains(stdout.String(), "new authorization") {
+					t.Fatalf("pending retry guidance=%d: %s %s", code, &stdout, &stderr)
+				}
+				if strings.Contains(stdout.String(), "next: inspect") {
+					t.Fatalf("verbose status recommends itself: %s", &stdout)
+				}
+			})
+			if calls != 1 {
+				t.Fatal("pending status invoked the native host")
 			}
 			if code := run("refresh", "extension", "tools-managed", "--dry-run"); code != 1 || !strings.Contains(stdout.String()+stderr.String(), "pending pin change") {
 				t.Fatalf("pending refresh=%d: %s %s", code, &stdout, &stderr)
@@ -93,18 +138,76 @@ func TestPiPinChangePublicCLIDisclosesRetainsAndResumes(t *testing.T) {
 				t.Fatalf("pending unmanage=%d: %s %s", code, &stdout, &stderr)
 			}
 
+			for _, changed := range []struct {
+				name, manifest  string
+				missingSettings bool
+			}{
+				{name: "omitted", manifest: "version = 1\ntargets = [\"pi\"]\n"},
+				{name: "omitted and absent", manifest: "version = 1\ntargets = [\"pi\"]\n", missingSettings: true},
+				{name: "different target", manifest: strings.Replace(nextDeclaration, after, "git:github.com/example/package@"+strings.Repeat("c", 40), 1)},
+				{name: "old target", manifest: declaration},
+			} {
+				t.Run("pending "+changed.name, func(t *testing.T) {
+					defer func() {
+						testkit.WriteFile(t, root, "daem.toml", nextDeclaration)
+						testkit.WriteFile(t, filepath.Dir(settings), filepath.Base(settings), fmt.Sprintf("{\"packages\":[%q]}", before))
+						if code := run("lock"); code != 0 {
+							t.Errorf("restore pending target=%d: %s", code, &stderr)
+						}
+					}()
+					testkit.WriteFile(t, root, "daem.toml", changed.manifest)
+					if changed.missingSettings {
+						testkit.WriteFile(t, filepath.Dir(settings), filepath.Base(settings), "{\"packages\":[]}")
+					}
+					if code := run("lock"); code != 0 {
+						t.Fatalf("changed pending declaration lock=%d: %s", code, &stderr)
+					}
+					for _, args := range [][]string{{"status", "--check"}, {"apply", "--dry-run"}, {"apply", "--yes"}} {
+						code := run(args...)
+						text := stdout.String() + stderr.String()
+						if code != 1 || strings.Count(text, "original pending target") != 1 || !strings.Contains(text, "new authorization") {
+							t.Fatalf("pending %v=%d: %s", args, code, text)
+						}
+						if calls != 1 {
+							t.Fatalf("pending refusal invoked Pi: calls=%d", calls)
+						}
+					}
+				})
+			}
+
 			if code := run("apply", "--dry-run", "--json"); code != 0 {
 				t.Fatalf("retry preview=%d: %s", code, &stderr)
 			}
 			assertPinChangeDisclosure(t, stdout.Bytes(), before, after, true)
+			if code := run("apply", "--yes"); code != 1 || calls != 2 {
+				t.Fatalf("failed retry=%d, calls=%d: %s %s", code, calls, &stdout, &stderr)
+			}
+			if !strings.Contains(stderr.String(), "next: inspect with daem status --manifest") {
+				t.Fatalf("failed retry lost fresh inspection guidance: %s", &stderr)
+			}
+			assertNoPendingPinGuidance(t, stderr.String())
+
 			publish = true
-			if code := run("apply", "--yes", "--json"); code != 0 || calls != 2 {
+			if code := run("apply", "--yes", "--json"); code != 0 || calls != 3 {
 				t.Fatalf("retry=%d, calls=%d: %s %s", code, calls, &stdout, &stderr)
 			}
-			if code := run("apply", "--yes", "--json"); code != 0 || calls != 2 {
+			if code := run("apply", "--yes", "--json"); code != 0 || calls != 3 {
 				t.Fatalf("settled apply=%d, calls=%d: %s %s", code, calls, &stdout, &stderr)
 			}
+			if code := run("status", "--check"); code != 0 {
+				t.Fatalf("settled status=%d: %s %s", code, &stdout, &stderr)
+			}
+			assertNoPendingPinGuidance(t, stdout.String())
 		})
+	}
+}
+
+func assertNoPendingPinGuidance(t *testing.T, output string) {
+	t.Helper()
+	for _, advice := range []string{"original pending target", "retry only after"} {
+		if strings.Contains(output, advice) {
+			t.Errorf("non-pending state includes %q: %s", advice, output)
+		}
 	}
 }
 

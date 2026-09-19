@@ -51,7 +51,7 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 
 	prepared, err := recoverworkflow.Plan(options.context, recoverworkflow.PlanInput{ManifestPath: *manifestPath, LegacyUserState: *legacyUserState})
 	if err != nil {
-		fmt.Fprintf(stderr, "recover failed: %s\n", humanDiagnosticError(err))
+		clipresent.PrintRecoverPlanningFailure(stderr, err, clipresent.HumanOptions{Verbose: *verbose})
 		return 1
 	}
 	defer prepared.Close()

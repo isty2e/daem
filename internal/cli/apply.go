@@ -129,6 +129,9 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 			printApplyLockCommandHint(stdout, planning.ManifestPath, *verbose)
 		}
 		clipresent.PrintDiagnosticsWithOptions(stdout, planning.Diagnostics, humanOptions)
+		if clipresent.PrintReconciliationGuidance(stdout, planning.Reconciliation) {
+			printReconciliationInspectionHint(stdout, planning.ManifestPath, targetValues, *verbose)
+		}
 		if planning.Reconciliation.HasErrors() {
 			return 1
 		}
@@ -194,6 +197,9 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		clipresent.PrintCarrierAdoptionActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAdoptions(), clipresent.HumanOptions{Verbose: *verbose})
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAbsences(), clipresent.HumanOptions{Verbose: *verbose})
 		printApplyWorkflowHints(stderr, *manifestPath, readinessPlanning.CommandResult, err, *verbose)
+		if clipresent.PrintReconciliationGuidance(stderr, readinessPlanning.Reconciliation) {
+			printReconciliationInspectionHint(stderr, readinessPlanning.ManifestPath, targetValues, *verbose)
+		}
 		if readinessPlanning.Reconciliation.HasLockReadinessErrors() {
 			printApplyLockCommandHint(stderr, readinessPlanning.ManifestPath, *verbose)
 		}
@@ -306,6 +312,9 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 			result,
 			*verbose,
 		)
+		if clipresent.PrintReconciliationFailureGuidance(stderr, result.Reconciliation) {
+			printReconciliationInspectionHint(stderr, result.ManifestPath, targetValues, *verbose)
+		}
 		return 1
 	}
 
