@@ -287,6 +287,9 @@ func TestRunGitReaderKeepsConsumerFailureWhenCallerCancelsDuringCleanup(t *testi
 	if !errors.Is(err, consumerErr) {
 		t.Fatalf("runGitReader error = %v, want consumer failure", err)
 	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("runGitReader promoted cleanup cancellation over consumer failure: %v", err)
+	}
 	assertGitHelperProcessesGone(t, waitForGitHelperPIDs(t, pidFile, 2))
 }
 
