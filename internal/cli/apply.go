@@ -312,7 +312,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 			result,
 			*verbose,
 		)
-		if clipresent.PrintReconciliationGuidance(stderr, result.Reconciliation) {
+		if clipresent.PrintReconciliationFailureGuidance(stderr, result.Reconciliation) {
 			printReconciliationInspectionHint(stderr, result.ManifestPath, targetValues, *verbose)
 		}
 		return 1

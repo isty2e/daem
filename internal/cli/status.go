@@ -98,7 +98,7 @@ func runStatus(args []string, stdout io.Writer, stderr io.Writer, options comman
 		printLockCommandHint(stdout, result.ManifestPath)
 	}
 	clipresent.PrintDiagnosticsWithOptions(stdout, result.Diagnostics, humanOptions)
-	if clipresent.PrintReconciliationGuidance(stdout, result.Reconciliation) {
+	if clipresent.PrintReconciliationGuidance(stdout, result.Reconciliation) && !*verbose {
 		printReconciliationInspectionHint(stdout, result.ManifestPath, targetValues, *verbose)
 	}
 

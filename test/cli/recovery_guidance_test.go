@@ -58,8 +58,11 @@ func TestRecoveryGuidanceManagedDriftJourneys(t *testing.T) {
 				t.Fatalf("verbose output=%q, want scoped command %q", output, wantHint)
 			}
 			inspected := runRecoveryGuidanceCLI(t, manifest, 0, inspection...)
-			if !strings.Contains(inspected, "reason=drifted_output") {
-				t.Fatalf("suggested inspection lost the selected manifest/target: %q", inspected)
+			if !strings.Contains(inspected, "reason=drifted_output") || !strings.Contains(inspected, "preserve the local edits") {
+				t.Fatalf("suggested inspection lost the selected manifest/target or recovery guidance: %q", inspected)
+			}
+			if strings.Contains(inspected, "next: inspect") {
+				t.Fatalf("verbose status recommends itself: %q", inspected)
 			}
 
 			var stdout, stderr bytes.Buffer

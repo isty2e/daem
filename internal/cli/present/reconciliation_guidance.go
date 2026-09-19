@@ -9,7 +9,7 @@ import (
 
 // PrintReconciliationGuidance reports whether selected recovery guidance was emitted.
 func PrintReconciliationGuidance(output io.Writer, result reconcile.Result) bool {
-	var drift, unmanaged, pinChange bool
+	var drift, unmanaged, pendingPin bool
 	for _, decision := range result.Decisions() {
 		var reason reconcile.ActionReason
 		if managed, ok := decision.ManagedPath(); ok && managed.IsBlocked() {
@@ -25,8 +25,11 @@ func PrintReconciliationGuidance(output io.Writer, result reconcile.Result) bool
 		}
 	}
 	for _, action := range result.Relations() {
-		_, hasTransition := action.PinTransition()
-		pinChange = pinChange || hasTransition || action.Reason() == reconcile.ReasonPinTransitionConflict
+		pendingPin = pendingPin || action.ResumesPinTransition()
+	}
+	for _, action := range result.CarrierAbsences() {
+		_, pending := action.Claim().PendingPinTransition()
+		pendingPin = pendingPin || pending
 	}
 
 	if drift {
@@ -39,13 +42,27 @@ func PrintReconciliationGuidance(output io.Writer, result reconcile.Result) bool
 		fmt.Fprintln(output, "unmanaged content is preserved: compare the selected destination or config entry with its declaration before changing either")
 		fmt.Fprintln(output, "  --manage-existing can adopt an eligible exact match, not overwrite a mismatch; preview it and review any other disclosed effects")
 	}
-	if pinChange {
-		fmt.Fprintln(output, "pin changes: for a retained attempt, preserve the original pending target in the manifest and lock; inspect scoped settings and conflicting consumers")
+	if pendingPin {
+		fmt.Fprintln(output, "pending pin changes: preserve the original pending target in the manifest and lock; inspect scoped settings and conflicting consumers")
 		fmt.Fprintln(output, "  retry only after a fresh apply --dry-run with the same selection and new authorization; settings alone do not finish the attempt, and recover cannot roll back Pi")
 	}
-	if drift || unmanaged || pinChange {
+	if drift || unmanaged || pendingPin {
 		fmt.Fprintln(output, "help: https://github.com/isty2e/daem/blob/main/docs/troubleshooting.md")
 		return true
 	}
 	return false
+}
+
+// PrintReconciliationFailureGuidance keeps inspection available even when the
+// failed command's reconciliation predates a pin reservation or completion.
+func PrintReconciliationFailureGuidance(output io.Writer, result reconcile.Result) bool {
+	for _, action := range result.Relations() {
+		if _, planned := action.PinTransition(); !planned {
+			continue
+		}
+		fmt.Fprintln(output, "pin change outcome: inspect current management and scoped settings before deciding whether to retry; recover cannot roll back Pi")
+		fmt.Fprintln(output, "help: https://github.com/isty2e/daem/blob/main/docs/troubleshooting.md")
+		return true
+	}
+	return PrintReconciliationGuidance(output, result)
 }
