@@ -137,7 +137,9 @@ func completeGitProcess(
 			if consumeErr != nil && !process.stdout.Incomplete() {
 				_, _ = process.Terminate()
 			}
-			if ctx.Err() == nil && waitAlreadyDone(waitDone) {
+			// Observe completion before snapshotting context; a prior live
+			// snapshot must not freeze a wait that cancellation completes.
+			if waitAlreadyDone(waitDone) && ctx.Err() == nil {
 				leaderExited = true
 				invokeAfterGitLeaderWait()
 			}
