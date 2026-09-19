@@ -150,9 +150,6 @@ func planRecoveryWithFilesystemFenceAndBudget(
 	blocksRecovery := fenceKind == fileset.FileSetFenceAccessUnprovable ||
 		fenceKind == fileset.FileSetFenceInvalidEvidence
 	if journalErr != nil {
-		if errors.Is(journalErr, journal.ErrNoRecoverableJournal) && !blocksRecovery {
-			return recoveryPreparation{}, journalErr
-		}
 		return recoveryPreparation{}, recoverygate.Combine(journalErr, fenceErr)
 	}
 	if recoverable.AuthorityKind() != journal.RecoveryAuthorityActiveJournal {

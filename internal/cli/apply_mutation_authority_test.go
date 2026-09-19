@@ -196,6 +196,25 @@ func TestRunApplyAbandonedResidueUsesTypedFenceRefusal(t *testing.T) {
 		strings.Contains(stderr.String(), "retry the interrupted") {
 		t.Fatalf("stderr = %q, want no generic refused or retry-authoring guidance", stderr.String())
 	}
+
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = RunWithOptions(
+		[]string{"recover", "--dry-run", "--manifest", manifestPath},
+		RunOptions{Stdout: &stdout, Stderr: &stderr},
+	)
+	if exitCode != 1 || stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), "no recoverable journal operation") ||
+		!strings.Contains(stderr.String(), "continuing file-set fence: abandoned_residue") ||
+		!strings.Contains(stderr.String(), "do not delete reserved names by prefix") {
+		t.Fatalf("recover code=%d stdout=%q stderr=%q, want no journal plus retained fence", exitCode, &stdout, &stderr)
+	}
+	if strings.Contains(stderr.String(), root) {
+		t.Fatalf("recover default guidance exposed a private path: %q", &stderr)
+	}
+	if _, err := os.Lstat(residue); err != nil {
+		t.Fatalf("recover consumed markerless residue: %v", err)
+	}
 }
 
 func TestRunApplyPlanningFailureUsesClosedDefaultDetail(t *testing.T) {

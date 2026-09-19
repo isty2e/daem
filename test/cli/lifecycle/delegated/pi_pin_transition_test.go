@@ -86,6 +86,12 @@ func TestPiPinChangePublicCLIDisclosesRetainsAndResumes(t *testing.T) {
 			if code := run("apply", "--yes", "--json"); code != 1 || calls != 1 {
 				t.Fatalf("false native success=%d, calls=%d: %s %s", code, calls, &stdout, &stderr)
 			}
+			if code := run("status"); code != 0 || !strings.Contains(stdout.String(), "original pending target") || !strings.Contains(stdout.String(), "new authorization") {
+				t.Fatalf("pending retry guidance=%d: %s %s", code, &stdout, &stderr)
+			}
+			if calls != 1 {
+				t.Fatal("pending status invoked the native host")
+			}
 			if code := run("refresh", "extension", "tools-managed", "--dry-run"); code != 1 || !strings.Contains(stdout.String()+stderr.String(), "pending pin change") {
 				t.Fatalf("pending refresh=%d: %s %s", code, &stdout, &stderr)
 			}

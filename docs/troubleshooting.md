@@ -2,7 +2,9 @@
 
 Start with read-only inspection. Substitute `--manifest <path>` when the
 workspace is not selected by the normal current-directory or user-manifest
-rules.
+rules. Keep that same manifest, HOME/XDG environment, and any `--target`
+selection throughout inspection and retry. `recover` selects the whole
+manifest's journal and does not accept `--target`.
 
 ```bash
 daem status --check
@@ -31,6 +33,7 @@ See the [CLI Reference](cli.md) for JSON output and exact exit-code behavior.
 - Extensions: [unclaimed carrier](#external-carrier-is-present-but-unclaimed),
   [order change](#extension-order-changed-after-carrier-updates),
   [refresh failure](#extension-refresh-was-refused-or-failed),
+  [pending Pi pin change](#a-pi-pin-change-is-pending),
   [Pi removal not converged](#pi-package-removal-did-not-converge).
 - Interrupted work: [apply](#apply-was-interrupted),
   [manifest metadata update](#manifest-metadata-update-was-interrupted),
@@ -182,12 +185,10 @@ retained copies; files may change afterward.
 
 ## `unmanaged_output_exists`
 
-The desired destination exists but the selected manifest does not own it.
-Inspect the dry-run diff before choosing a remedy:
-
-```bash
-daem apply --dry-run --diff
-```
+The desired destination or config entry exists but the selected manifest does
+not own it. Use `daem status --verbose` to identify the destination and, for a
+shared config, its selected entry. Compare that content with the declaration
+and source outside daem: blocked plans do not produce `--diff` output.
 
 If the live output is exactly the desired output and should become managed,
 preview and confirm registration:
@@ -197,10 +198,19 @@ daem apply --manage-existing --dry-run
 daem apply --manage-existing --yes
 ```
 
-Daem refuses registration when content or required file metadata differs. In
-that case, preserve or move the existing material yourself, or import supported
-host configuration into a manifest before applying. `--manage-existing` is not
-an overwrite flag.
+Daem refuses content-mismatched registration; managed-file adoption also
+requires matching file metadata. Review any shared-config document-mode changes
+in the plan. If the existing content is intentional, align the
+source/declaration, run `daem
+lock`, then preview exact adoption again. Import can copy supported host
+configuration into user-owned sources and declarations; it does not claim the
+original output. Otherwise preserve a copy before manually changing or moving
+unowned material. For a shared config, do not replace the whole file or remove
+unrelated entries to resolve one overlap.
+
+`--manage-existing` is not an overwrite flag. Adoption grants later update and
+removal authority. Review the entire preview: an apply that records an exact
+config contribution may also execute a disclosed MCP delegate or other action.
 
 ## Missing MCP Environment Sources
 
@@ -435,8 +445,14 @@ file-set transaction`. Choose the action by the evidence:
 Markerless `.daem-tmp-*`, legacy `.metadata-stage-*`, `.daem-tombstone-*` or
 `.daem-cleanup-*` residue is a separate fence. Authoring/unmanage retry, refresh
 and recover do not remove it. Preserve it; never delete, rename or empty by
-prefix. If a recoverable journal exists, resolve it first; if a valid marker
-also exists, then retry that write. Leftover siblings still block until
+prefix. `recover` reporting `no recoverable journal operation` does not mean the
+state directory is clear: any observed continuing file-set fence still blocks
+ordinary work. There is no supported automatic cleanup for markerless residue.
+Preserve the residue, selected manifest/lock, state/registry records, and error
+output for manual analysis of its origin and any retained backup data; the name
+alone cannot establish safe disposal. If a recoverable journal exists, resolve
+it first; if a valid marker also exists, then retry that write. Leftover siblings
+still block until
 independently resolved. `unmanage` does not inspect/repair metadata transactions
 while journal authority remains.
 
@@ -482,6 +498,30 @@ contributions. See the
 [Host Integration Contract](host-integrations.md#explicit-carrier-refresh) for
 each host's native command and verification strength.
 
+## A Pi Pin Change Is Pending
+
+A failed or unverified managed Git pin change can leave durable intent even
+when Pi settings already show the new pin. Preserve the manifest, lock, claim
+records and scoped Pi state. The recorded original target is the intended new
+pin, not the previously managed pin.
+
+1. Run `daem status --verbose` with the original manifest and target selection.
+   Inspect the from/to pins, pending intent and reported conflicting consumers.
+2. Keep that pending target in the declaration and lock. If it was changed or
+   omitted, restore that declaration and run `daem lock`; do not edit the claim
+   or settings to manufacture completion.
+3. Resolve the reported external cause, then run `daem apply --dry-run` with
+   the same selection. Review reset/clean, dependency-script and other effects.
+4. Only if the fresh plan is acceptable, run interactive apply or explicitly
+   authorize it with `--yes`. A retry invokes Pi again, even if settings already
+   show the target. Confirm the resulting management with a fresh status.
+
+`recover` handles daem journals, not native Pi rollback. Removal, refresh,
+adoption and unmanage cannot abandon a pending pin change. If the original
+pending target or exact scoped evidence cannot be restored, there is no
+supported automatic cancel or rollback; preserve evidence for manual analysis.
+See [Pending Pi Pin Changes](state-and-recovery.md#pending-pi-pin-changes).
+
 ## Pi Package Removal Did Not Converge
 
 Run `daem status --verbose` and preview the same desired absence again:
@@ -508,11 +548,37 @@ relation and release only daem's management authority.
 
 ## A Managed Output Drifted
 
-Daem reports drift instead of overwriting an output that changed outside daem.
-Use `daem status --verbose` and `daem apply --dry-run --diff` to compare the
-locked desired output with the live destination. Either restore the managed
-content through a reviewed apply or intentionally change the manifest and lock.
-Do not use `--manage-existing` to convert mismatched content into ownership.
+Daem refuses to overwrite or remove a managed output that differs from its
+recorded baseline. First preserve the local edits and inspect `daem status
+--verbose` for the destination and mismatch. A blocked `apply --dry-run --diff`
+does **not** produce content diffs. Compare reviewed copies outside daem; a
+recorded hash is not a backup.
+
+Choose the intended direction before changing files:
+
+- **Keep an intentional edit at the same destination:** update the original
+  source or declaration to produce that content, run `daem lock`, then preview
+  apply. For example, edit the source Markdown for a managed instruction, not
+  just the generated `AGENTS.md`. When the live content and required metadata
+  exactly match the newly locked output, apply can record the current managed
+  state. Recheck the whole preview before authorization.
+- **Restore declared content:** after preserving the edit, independently restore
+  the known managed baseline, including required metadata. Then preview apply
+  again; it can update that baseline to the locked desired output. Daem has no
+  general automatic baseline-restore or force-overwrite command. If the baseline
+  is unavailable or uncertain, stop for manual analysis rather than deleting
+  state or replacing the output speculatively.
+- **Release ownership:** removing a declaration and applying is a removal path,
+  not a way to leave the output in place. It still refuses drift. There is no
+  generic unmanage command for files or config entries. The distinct
+  [`unmanage extension`](cli.md#unmanage-extension) operation retains eligible
+  host relations but cannot release a pending Pi pin change.
+
+For a config entry, reconcile only its owned contribution and preserve disjoint
+host fields. For a moved or removed destination, source changes alone do not
+settle drift at the previous path: its retained baseline must still match.
+`--manage-existing` does not bypass drift, and `recover` is not a drift-repair
+command. If a recovery journal is active, resolve it before manual host edits.
 
 ## NFS-Backed Home Or Workspace
 

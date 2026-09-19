@@ -2,6 +2,7 @@ package clipresent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -11,9 +12,27 @@ import (
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/recoverygate"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
 )
+
+func PrintRecoverPlanningFailure(output io.Writer, err error, options HumanOptions) {
+	state := recoverygate.StateOf(err)
+	fileSetClear := state.FileSetKnown() && state.FileSet() == fileset.FileSetFenceClear
+	if !errors.Is(err, journal.ErrNoRecoverableJournal) ||
+		state.Observed() && !fileSetClear && !state.HasContinuingFileSetFence() {
+		fmt.Fprintf(output, "recover failed: %s\n", Error(err))
+		return
+	}
+
+	fmt.Fprintln(output, "recover failed: no recoverable journal operation")
+	fmt.Fprintln(output, "note: journal recovery does not restore ordinary drift, finish pending native attempts, or remove markerless residue")
+	printContinuingFileSetFence(output, state.FileSet())
+	if options.Verbose {
+		fmt.Fprintf(output, "recover failure evidence: %s\n", Quote(BoundedErrorEvidence(err, 4096)))
+	}
+}
 
 func PrintRecoverPlanWithFenceOptions(
 	output io.Writer,

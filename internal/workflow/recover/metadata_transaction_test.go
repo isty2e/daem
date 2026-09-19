@@ -15,7 +15,7 @@ import (
 	"github.com/isty2e/daem/test/testkit/metadatatx"
 )
 
-func TestRecoverNoJournalDoesNotHijackFileSetFence(t *testing.T) {
+func TestRecoverNoJournalRetainsFileSetEvidenceWithoutRecoveryAuthority(t *testing.T) {
 	t.Run("published marker", func(t *testing.T) {
 		manifestPath := filepath.Join(t.TempDir(), "daem.toml")
 		paths, err := daempaths.Resolve(manifestPath)
@@ -24,13 +24,15 @@ func TestRecoverNoJournalDoesNotHijackFileSetFence(t *testing.T) {
 		}
 		metadatatx.WriteInterrupted(t, paths.StateDir)
 
-		_, err = Plan(context.Background(), PlanInput{ManifestPath: manifestPath})
-		if !errors.Is(err, journal.ErrNoRecoverableJournal) {
-			t.Fatalf("error = %v, want ErrNoRecoverableJournal", err)
+		prepared, err := Plan(context.Background(), PlanInput{ManifestPath: manifestPath})
+		if !errors.Is(err, journal.ErrNoRecoverableJournal) || prepared != nil {
+			t.Fatalf("Plan = %v, %v, want no recovery authority and ErrNoRecoverableJournal", prepared, err)
 		}
-		if errors.Is(err, fileset.ErrAbandonedFileSetResidue) ||
-			strings.Contains(err.Error(), "interrupted file-set transaction") {
-			t.Fatalf("error = %v, must not replace missing journal with file-set fence", err)
+		if got := fileset.FileSetFenceKindOf(err); got != fileset.FileSetFencePublishedTransaction {
+			t.Fatalf("fence = %q, want retained published transaction", got)
+		}
+		if _, err := os.Stat(filepath.Join(paths.StateDir, "metadata-transaction")); err != nil {
+			t.Fatalf("metadata marker changed: %v", err)
 		}
 	})
 
@@ -48,12 +50,12 @@ func TestRecoverNoJournalDoesNotHijackFileSetFence(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err = Plan(context.Background(), PlanInput{ManifestPath: manifestPath})
-		if !errors.Is(err, journal.ErrNoRecoverableJournal) {
-			t.Fatalf("error = %v, want ErrNoRecoverableJournal", err)
+		prepared, err := Plan(context.Background(), PlanInput{ManifestPath: manifestPath})
+		if !errors.Is(err, journal.ErrNoRecoverableJournal) || prepared != nil {
+			t.Fatalf("Plan = %v, %v, want no recovery authority and ErrNoRecoverableJournal", prepared, err)
 		}
-		if errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
-			t.Fatalf("error = %v, must not hijack missing journal with residue", err)
+		if !errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
+			t.Fatalf("error = %v, want retained secondary residue evidence", err)
 		}
 		if _, statErr := os.Lstat(residue); statErr != nil {
 			t.Fatalf("residue disappeared: %v", statErr)
