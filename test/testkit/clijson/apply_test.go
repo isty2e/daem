@@ -3,9 +3,11 @@ package clijson
 import (
 	"fmt"
 	"testing"
+
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
-func TestDecodeApplyResultAcceptsSchema19RecoveryBarriers(t *testing.T) {
+func TestDecodeApplyResultAcceptsCurrentRecoveryBarriers(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		barrier string
@@ -19,7 +21,7 @@ func TestDecodeApplyResultAcceptsSchema19RecoveryBarriers(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			payload := DecodeApplyResult(t, []byte(fmt.Sprintf(`{
-  "schema_version": 19,
+  "schema_version": %d,
   "command": "apply",
   "mode": "write",
   "action_count": 0,
@@ -44,7 +46,7 @@ func TestDecodeApplyResultAcceptsSchema19RecoveryBarriers(t *testing.T) {
     "message": "recovery barrier",
     "recovery_barrier": %s
   }]
-}`, test.barrier)))
+}`, contractversion.ApplyResultJSON, test.barrier)))
 			if len(payload.Errors) != 1 || payload.Errors[0].RecoveryBarrier == nil {
 				t.Fatalf("errors = %#v", payload.Errors)
 			}
