@@ -285,13 +285,17 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list resources` | Resource inventory | `2` |
 | `list outputs` | Output inventory | `4` |
 | `list paths` | Agent location inventory | `1` |
-| `status`, `apply --dry-run` | Reconciliation plan | `12` |
-| confirmed `apply` | Apply result | `19` |
+| `status`, `apply --dry-run` | Reconciliation plan | `13` |
+| confirmed `apply` | Apply result | `20` |
 | `recover` | Recovery plan/result | `9` |
 | `migrate state` | State-authority migration | `1` |
 | `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
+
+Plan version `13` and apply-result version `20` add managed Pi Git pin-change
+actions and their `pin_change` disclosure. They replace versions `12` and `19`
+shipped in v0.2.3, including for invocations without a pin change.
 
 Consumers must select the expected command envelope, inspect
 `schema_version`, and reject unsupported versions before interpreting any
@@ -953,7 +957,7 @@ reason codes, selected source/ref, and evidence. Raw subprocess output and
 secret values are never printed. Redaction checks both captured and
 display-normalized spellings.
 
-Status and apply-dry-run JSON use plan schema version `12`. The document contains
+Status and apply-dry-run JSON use plan schema version `13`. The document contains
 the derived lockfile status, lock-only resources, typed actions, delegated
 actions, relation actions, physical extension-order actions, carrier-adoption
 actions, carrier-absence actions, `host_route_attempts` history, diagnostics, MCP
@@ -1007,7 +1011,7 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "observation_only"` for pending settlement, and
 `execution = "state_only"` for already-absent claim retirement.
 
-`apply --yes --json` uses result schema version `19`: executed action count,
+`apply --yes --json` uses result schema version `20`: executed action count,
 statefile path, bounded delegated attempts and `host_route_attempts`, typed errors,
 carrier-adoption transitions and final claim provenance, carrier-absence
 outcomes, physical `relation_order_results`, and `has_errors`. Each order result

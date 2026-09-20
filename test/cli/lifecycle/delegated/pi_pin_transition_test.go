@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/subprocess"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestPiPinChangePublicCLIDisclosesRetainsAndResumes(t *testing.T) {
@@ -60,7 +61,25 @@ func TestPiPinChangePublicCLIDisclosesRetainsAndResumes(t *testing.T) {
 				stdout.Reset()
 				stderr.Reset()
 				args = append(args, "--manifest", manifest)
-				return testkit.RunVerboseCLIWithOptions(args, clipkg.RunOptions{Stdout: &stdout, Stderr: &stderr, ApplyExecuteOptions: applyworkflow.ExecuteOptions{HostRouteExecutor: executor}})
+				code := testkit.RunVerboseCLIWithOptions(args, clipkg.RunOptions{Stdout: &stdout, Stderr: &stderr, ApplyExecuteOptions: applyworkflow.ExecuteOptions{HostRouteExecutor: executor}})
+
+				// v0.2.3 advertised plan 12/apply 19 without pin-change disclosure.
+				if slices.Contains(args, "--json") {
+					switch {
+					case args[0] == "status" || args[0] == "apply" && slices.Contains(args, "--dry-run"):
+						payload := clijson.DecodePlan(t, stdout.Bytes())
+						if payload.SchemaVersion <= 12 {
+							t.Errorf("pin-capable plan uses released schema %d; want a version newer than 12", payload.SchemaVersion)
+						}
+					case args[0] == "apply":
+						payload := clijson.DecodeApplyResult(t, stdout.Bytes())
+						if payload.SchemaVersion <= 19 {
+							t.Errorf("pin-capable apply result uses released schema %d; want a version newer than 19", payload.SchemaVersion)
+						}
+					}
+				}
+
+				return code
 			}
 			if code := run("lock"); code != 0 {
 				t.Fatalf("initial lock=%d: %s", code, &stderr)
@@ -101,6 +120,10 @@ func TestPiPinChangePublicCLIDisclosesRetainsAndResumes(t *testing.T) {
 				t.Fatalf("pin JSON preview=%d: %s", code, &stderr)
 			}
 			assertPinChangeDisclosure(t, stdout.Bytes(), before, after, false)
+			if code := run("status", "--json"); code != 0 {
+				t.Fatalf("pin JSON status=%d: %s", code, &stderr)
+			}
+			assertPinChangeDisclosure(t, stdout.Bytes(), before, after, false)
 			if calls != 0 {
 				t.Fatal("preview invoked native host")
 			}
@@ -119,6 +142,9 @@ func TestPiPinChangePublicCLIDisclosesRetainsAndResumes(t *testing.T) {
 					t.Fatalf("initial failure lost fresh inspection guidance: %s", &stderr)
 				}
 				assertNoPendingPinGuidance(t, stderr.String())
+			}
+			if scenario.failureFormat == "json" {
+				assertPinChangeDisclosure(t, stdout.Bytes(), before, after, false)
 			}
 			t.Run("pending status advances past inspection", func(t *testing.T) {
 				if code := run("status"); code != 0 || !strings.Contains(stdout.String(), "original pending target") || !strings.Contains(stdout.String(), "new authorization") {
@@ -191,8 +217,12 @@ func TestPiPinChangePublicCLIDisclosesRetainsAndResumes(t *testing.T) {
 			if code := run("apply", "--yes", "--json"); code != 0 || calls != 3 {
 				t.Fatalf("retry=%d, calls=%d: %s %s", code, calls, &stdout, &stderr)
 			}
+			assertPinChangeDisclosure(t, stdout.Bytes(), before, after, true)
 			if code := run("apply", "--yes", "--json"); code != 0 || calls != 3 {
 				t.Fatalf("settled apply=%d, calls=%d: %s %s", code, calls, &stdout, &stderr)
+			}
+			if code := run("status", "--check", "--json"); code != 0 {
+				t.Fatalf("settled JSON status=%d: %s %s", code, &stdout, &stderr)
 			}
 			if code := run("status", "--check"); code != 0 {
 				t.Fatalf("settled status=%d: %s %s", code, &stdout, &stderr)

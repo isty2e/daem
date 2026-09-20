@@ -1,6 +1,16 @@
 package clijson
 
 type RelationAction struct {
+	PinChange *struct {
+		FromSource         string   `json:"from_source"`
+		FromSourceRedacted bool     `json:"from_source_redacted"`
+		ToSource           string   `json:"to_source"`
+		ToSourceRedacted   bool     `json:"to_source_redacted"`
+		Resume             bool     `json:"resume"`
+		PreviousProvenance string   `json:"previous_provenance"`
+		EffectClasses      []string `json:"effect_classes"`
+		NonClaims          []string `json:"non_claims"`
+	} `json:"pin_change"`
 	Kind    string `json:"kind"`
 	Subject *struct {
 		Kind      string `json:"kind"`
