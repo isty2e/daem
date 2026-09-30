@@ -757,16 +757,9 @@ func (prepared *RetirementContinuation) executeActive(
 	return executePreparedRetirement(ctx, prepared, gate)
 }
 
-// ExecuteCleanup consumes this continuation for the same cleanup-only plan.
-func (prepared *RetirementContinuation) ExecuteCleanup(
-	ctx context.Context,
-	plan retirement.CleanupPlan,
-) error {
-	return prepared.ExecuteCleanupWithGate(ctx, plan, nil)
-}
-
 // ExecuteCleanupWithGate consumes this continuation while admitting and
 // settling each exact journal-retirement step through gate.
+// A nil gate skips admission and settlement, not Journal validation or transitions.
 func (prepared *RetirementContinuation) ExecuteCleanupWithGate(
 	ctx context.Context,
 	plan retirement.CleanupPlan,
