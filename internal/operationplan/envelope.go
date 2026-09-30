@@ -418,17 +418,33 @@ func applyStatefileDemand(work ApplyWork) (statefileDemand, error) {
 
 func hostRouteStatefileDemand(routes []RouteWork) (statefileDemand, error) {
 	var demand statefileDemand
+	var pinUnits [2]struct {
+		compiled bool
+		demand   statefileDemand
+	}
+
 	for _, route := range routes {
 		switch {
 		case route.PinChange:
 			if !route.InvokesHost || route.Promotion {
 				return statefileDemand{}, fmt.Errorf("operationplan: pin change requires an invocation without install promotion")
 			}
-			validations, commits := 6, 3
+
+			scopeIndex := 0
 			if route.Global {
-				validations, commits = 9, 1
+				scopeIndex = 1
 			}
-			if err := demand.add(validations, commits); err != nil {
+			if !pinUnits[scopeIndex].compiled {
+				projected, err := pinChangeStatefileDemand(route.Global)
+				if err != nil {
+					return statefileDemand{}, err
+				}
+				pinUnits[scopeIndex].demand = projected
+				pinUnits[scopeIndex].compiled = true
+			}
+
+			projected := pinUnits[scopeIndex].demand
+			if err := demand.add(projected.validations, projected.commits); err != nil {
 				return statefileDemand{}, err
 			}
 		case route.InvokesHost:

@@ -95,6 +95,19 @@ func (builder *EffectStructureBuilder) Step(id string, kind EffectStepKind) Effe
 	return step
 }
 
+// DescendantEnsure describes initial binding or validation of a binding already
+// described by the enclosing compilation. It grants no physical authority.
+func (builder *EffectStructureBuilder) DescendantEnsure(prefix string, bindingDescribed bool) EffectNode {
+	if bindingDescribed {
+		return builder.Step(prefix+"/ensure-validate", EffectStepValidateDescendant)
+	}
+	return builder.Choice(
+		prefix+"/initial-authority",
+		builder.Step(prefix+"/bind", EffectStepBindDescendant),
+		builder.Step(prefix+"/validate-existing", EffectStepValidateDescendant),
+	)
+}
+
 // Choice constructs one closed exclusive choice.
 func (builder *EffectStructureBuilder) Choice(
 	id string,

@@ -109,7 +109,7 @@ func (demand effectDemand) maximum(other effectDemand) effectDemand {
 }
 
 // legacyUpperBound reproduces the flat counter projection used by the current
-// reservation seed. It is a shadow projection rather than structure validity:
+// reservation seed. It is a conservative bound, not a structure-validity check:
 // collapsing a choice before physical lowering can combine dimensions that no
 // reachable alternative consumes together.
 func (structure EffectStructure) legacyUpperBound() (effectDemand, error) {
