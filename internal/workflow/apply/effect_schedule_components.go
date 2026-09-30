@@ -1350,26 +1350,8 @@ func (schedule *applyStatefileSchedule) checkedEnsureWithCleanup(
 	if schedule == nil || schedule.builder == nil {
 		return operationplan.EffectSequence()
 	}
-	var authority operationplan.EffectNode
-	if !schedule.bound {
-		schedule.bound = true
-		authority = schedule.builder.Choice(
-			prefix+"/initial-authority",
-			schedule.builder.Step(
-				prefix+"/bind",
-				operationplan.EffectStepBindDescendant,
-			),
-			schedule.builder.Step(
-				prefix+"/validate-existing",
-				operationplan.EffectStepValidateDescendant,
-			),
-		)
-	} else {
-		authority = schedule.builder.Step(
-			prefix+"/ensure-validate",
-			operationplan.EffectStepValidateDescendant,
-		)
-	}
+
+	authority := schedule.ensure(prefix)
 	outcome := compileApplyFailFastChoice(schedule.builder, prefix+"/ensure-outcome")
 	if cleanupOnFailure {
 		outcome = compileApplyFailFastChoiceWithFailureCleanup(
@@ -1384,29 +1366,10 @@ func (schedule *applyStatefileSchedule) optionalEnsure(prefix string) operationp
 	if schedule == nil || schedule.builder == nil {
 		return operationplan.EffectSequence()
 	}
-	var authority operationplan.EffectNode
-	if !schedule.bound {
-		schedule.bound = true
-		authority = schedule.builder.Choice(
-			prefix+"/initial-authority",
-			schedule.builder.Step(
-				prefix+"/bind",
-				operationplan.EffectStepBindDescendant,
-			),
-			schedule.builder.Step(
-				prefix+"/validate-existing",
-				operationplan.EffectStepValidateDescendant,
-			),
-		)
-	} else {
-		authority = schedule.builder.Step(
-			prefix+"/ensure-validate",
-			operationplan.EffectStepValidateDescendant,
-		)
-	}
+
 	return schedule.builder.Choice(
 		prefix+"/execution",
-		authority,
+		schedule.ensure(prefix),
 		schedule.builder.Step(prefix+"/skipped", operationplan.EffectStepNoOp),
 	)
 }
@@ -1518,24 +1481,10 @@ func (schedule *applyStatefileSchedule) ensure(prefix string) operationplan.Effe
 	if schedule == nil || schedule.builder == nil {
 		return operationplan.EffectSequence()
 	}
-	if !schedule.bound {
-		schedule.bound = true
-		return schedule.builder.Choice(
-			prefix+"/initial-authority",
-			schedule.builder.Step(
-				prefix+"/bind",
-				operationplan.EffectStepBindDescendant,
-			),
-			schedule.builder.Step(
-				prefix+"/validate-existing",
-				operationplan.EffectStepValidateDescendant,
-			),
-		)
-	}
-	return schedule.builder.Step(
-		prefix+"/ensure-validate",
-		operationplan.EffectStepValidateDescendant,
-	)
+
+	authority := schedule.builder.DescendantEnsure(prefix, schedule.bound)
+	schedule.bound = true
+	return authority
 }
 
 func (schedule *applyStatefileSchedule) validations(

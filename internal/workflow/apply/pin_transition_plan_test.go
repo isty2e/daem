@@ -42,8 +42,11 @@ func TestPiPinPlanBindsResumeEvidenceAndFitsReservedDemand(t *testing.T) {
 				if scope == target.ScopeGlobal {
 					validations, commits = 9, 1
 				}
-				if plan.demand.DescendantValidations() != validations || plan.demand.DescendantFileCommits() != commits {
-					t.Fatalf("%s demand=%d/%d, want %d/%d", phase, plan.demand.DescendantValidations(), plan.demand.DescendantFileCommits(), validations, commits)
+				if plan.demand.EnsureCalls() != 1 || plan.demand.BarrierValidationCalls() != 0 ||
+					plan.demand.StateDirValidationCalls() != 0 || plan.demand.DescendantBindings() != 1 ||
+					plan.demand.DescendantPath() != planned.assessment.StatePath ||
+					plan.demand.DescendantValidations() != validations || plan.demand.DescendantFileCommits() != commits {
+					t.Fatalf("%s demand=%+v, want one ensure/binding, unchanged path and %d/%d validations/commits", phase, plan.demand, validations, commits)
 				}
 				fingerprint, err := applyOperationFingerprint(planned, reconcile.ContextApply)
 				if err != nil {
