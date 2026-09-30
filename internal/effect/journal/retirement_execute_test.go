@@ -151,11 +151,26 @@ func TestPreparedRetirementCapacityMatchesExecutableReadPasses(t *testing.T) {
 		}
 
 		filesystem.resetReadObservations()
-		if err := prepared.ExecuteCleanup(t.Context(), plan); err != nil {
-			t.Fatalf("ExecuteCleanup: %v", err)
+		gate := &retirementRecordingStepGate{}
+		if err := prepared.ExecuteCleanupWithGate(t.Context(), plan, gate); err != nil {
+			t.Fatalf("ExecuteCleanupWithGate: %v", err)
 		}
 		if got := filesystem.controlSnapshots[retirement.PhasePrepared]; got != 2 {
 			t.Fatalf("prepared control snapshots = %d, want 2", got)
+		}
+
+		wantEvents := successfulRetirementGateEvents([]RetirementExecutionStep{
+			RetirementStepValidateCleanupAuthority,
+			RetirementStepValidatePreparedLayout,
+			RetirementStepValidatePhaseAdvanceLayout,
+			RetirementStepAdvanceRecord,
+			RetirementStepValidateFinalizingLayout,
+			RetirementStepCleanupResidue,
+			RetirementStepRetireControl,
+			RetirementStepCleanupGarbage,
+		})
+		if !slices.Equal(gate.events, wantEvents) {
+			t.Fatalf("capacity gate events = %#v, want %#v", gate.events, wantEvents)
 		}
 	})
 }
@@ -418,13 +433,14 @@ func TestRetirementRevalidatesExactControlBeforeEffects(t *testing.T) {
 		}
 		root := captureRetirementTestRoot(t, recoveryRoot)
 
-		err := finalizeJournalCleanupForTest(
+		err := finalizeJournalCleanupWithGateForTest(
 			t.Context(),
 			plan,
 			root,
 			recovery.MaximumPhysicalPathDepth,
 			retirementTestBudget(t),
 			filesystem,
+			&retirementRecordingStepGate{},
 		)
 		if err == nil || !strings.Contains(err.Error(), "unexpected child") {
 			t.Fatalf("FinalizeJournalCleanup error = %v, want foreign-child rejection", err)
@@ -458,13 +474,14 @@ func TestFinalizeJournalCleanupAdmitsInterruptedRecordTemporary(t *testing.T) {
 	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
 	root := captureRetirementTestRoot(t, recoveryRoot)
 
-	if err := finalizeJournalCleanupForTest(
+	if err := finalizeJournalCleanupWithGateForTest(
 		t.Context(),
 		plan,
 		root,
 		recovery.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
+		&retirementRecordingStepGate{},
 	); err != nil {
 		t.Fatalf("FinalizeJournalCleanup: %v", err)
 	}
@@ -489,13 +506,14 @@ func TestFinalizeJournalCleanupRejectsSpecialResidueBeforePhaseAdvance(t *testin
 	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
 	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
 	root := captureRetirementTestRoot(t, recoveryRoot)
-	err := finalizeJournalCleanupForTest(
+	err := finalizeJournalCleanupWithGateForTest(
 		t.Context(),
 		plan,
 		root,
 		recovery.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
+		&retirementRecordingStepGate{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "unsupported entry") {
 		t.Fatalf("FinalizeJournalCleanup error = %v, want special-entry rejection", err)
@@ -535,13 +553,14 @@ func TestFinalizeJournalCleanupRejectsResidueCreatedAfterPlanning(t *testing.T) 
 	}
 	root := captureRetirementTestRoot(t, recoveryRoot)
 
-	err := finalizeJournalCleanupForTest(
+	err := finalizeJournalCleanupWithGateForTest(
 		t.Context(),
 		plan,
 		root,
 		recovery.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
+		&retirementRecordingStepGate{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "appeared after cleanup planning") {
 		t.Fatalf("FinalizeJournalCleanup error = %v, want late-residue rejection", err)
@@ -606,13 +625,14 @@ func TestFinalizeJournalCleanupResumesEveryCleanupPhase(t *testing.T) {
 			plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
 			root := captureRetirementTestRoot(t, recoveryRoot)
 
-			if err := finalizeJournalCleanupForTest(
+			if err := finalizeJournalCleanupWithGateForTest(
 				t.Context(),
 				plan,
 				root,
 				recovery.MaximumPhysicalPathDepth,
 				retirementTestBudget(t),
 				filesystem,
+				&retirementRecordingStepGate{},
 			); err != nil {
 				t.Fatalf("FinalizeJournalCleanup: %v", err)
 			}
@@ -1171,13 +1191,14 @@ func TestRetirementPostVisibilityFailuresRemainClassifiableAndResumable(t *testi
 				}
 			} else {
 				cleanup := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
-				if err := finalizeJournalCleanupForTest(
+				if err := finalizeJournalCleanupWithGateForTest(
 					t.Context(),
 					cleanup,
 					root,
 					recovery.MaximumPhysicalPathDepth,
 					retirementTestBudget(t),
 					filesystem,
+					&retirementRecordingStepGate{},
 				); err != nil {
 					t.Fatalf("resume cleanup retirement: %v", err)
 				}
@@ -1231,13 +1252,14 @@ func TestRetirementCancellationAfterEachPhaseRemainsClassifiableAndResumable(t *
 				}
 			case retirement.StateRetained, retirement.StateFinalizing:
 				cleanup := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
-				if err := finalizeJournalCleanupForTest(
+				if err := finalizeJournalCleanupWithGateForTest(
 					t.Context(),
 					cleanup,
 					root,
 					recovery.MaximumPhysicalPathDepth,
 					retirementTestBudget(t),
 					filesystem,
+					&retirementRecordingStepGate{},
 				); err != nil {
 					t.Fatalf("resume cleanup retirement: %v", err)
 				}
@@ -1365,25 +1387,6 @@ func retireActiveJournalWithAuthorityAndGateForTest(
 		return err
 	}
 	return prepared.ExecuteActiveWithGate(ctx, plan, gate)
-}
-
-func finalizeJournalCleanupForTest(
-	ctx context.Context,
-	plan retirement.CleanupPlan,
-	root *rootedpath.CapturedRoot,
-	maximumPhysicalDepth int,
-	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
-	filesystem mutationfs.RootedStore,
-) error {
-	return finalizeJournalCleanupWithGateForTest(
-		ctx,
-		plan,
-		root,
-		maximumPhysicalDepth,
-		physicalWorkBudget,
-		filesystem,
-		nil,
-	)
 }
 
 func finalizeJournalCleanupWithGateForTest(
