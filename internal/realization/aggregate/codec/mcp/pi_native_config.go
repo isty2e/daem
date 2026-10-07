@@ -124,21 +124,12 @@ func admitPiNativeDocument(content []byte, spec mcpConfigSpec) error {
 	}
 	names := make([]string, 0, len(servers))
 	for name := range servers {
-		names = append(names, name)
+		if _, err := aggregate.PiNativeMCPNamespace(name); err == nil {
+			names = append(names, name)
+		}
 	}
 	sort.Strings(names)
-	seen := make(map[string]string, len(names))
-	for _, name := range names {
-		namespace, err := aggregate.PiNativeMCPNamespace(name)
-		if err != nil {
-			continue
-		}
-		if _, exists := seen[namespace]; exists {
-			return fmt.Errorf("native Pi MCP server namespaces collide after hyphen normalization")
-		}
-		seen[namespace] = name
-	}
-	return nil
+	return aggregate.AdmitPiNativeMCPNamespaces(names)
 }
 
 func newPiNativePlacementOperations(placement aggregate.MCPPlacement) (MCPPlacementOperations, error) {

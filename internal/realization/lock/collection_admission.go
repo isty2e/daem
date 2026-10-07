@@ -59,6 +59,8 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 	delegatedCarriers := make(map[topology.SubjectID]extensiontopology.Carrier)
 	mcpProviderContracts := make([]LockedSubjectContract, 0)
 
+	nativeMCPNames := make([]string, 0)
+
 	for _, subject := range subjects {
 		if existing, duplicate := seenSubjects[subject.SubjectID()]; duplicate {
 			return lockedCollectionIndex{}, fmt.Errorf(
@@ -97,6 +99,9 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			continue
 		}
 		if contribution, ok := realization.ManagedAggregateContribution(); ok {
+			if contribution.CodecContractID() == aggregate.MCPCodecPiNativeStdio {
+				nativeMCPNames = append(nativeMCPNames, subject.EntityID().Name())
+			}
 			key := managedAggregateOccupancy{
 				scope:         contribution.Scope(),
 				aggregateRoot: contribution.AggregateRoot().String(), contentPath: contribution.ContentPath(),
@@ -146,6 +151,10 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			}
 		}
 	}
+	if err := aggregate.AdmitPiNativeMCPNamespaces(nativeMCPNames); err != nil {
+		return lockedCollectionIndex{}, err
+	}
+
 	for subjectID, entityID := range pathProjectionEntities {
 		supply, supplied := exactSupplyByEntity[entityID]
 		if !supplied {

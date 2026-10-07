@@ -33,6 +33,22 @@ func PiNativeMCPNamespace(name string) (string, error) {
 	return strings.ReplaceAll(name, "-", "_"), nil
 }
 
+// AdmitPiNativeMCPNamespaces rejects distinct names sharing a tool namespace while allowing exact-name overrides.
+func AdmitPiNativeMCPNamespaces(names []string) error {
+	seen := make(map[string]string, len(names))
+	for _, name := range names {
+		namespace, err := PiNativeMCPNamespace(name)
+		if err != nil {
+			return err
+		}
+		if existing, present := seen[namespace]; present && existing != name {
+			return fmt.Errorf("native Pi MCP server names %q and %q collide after hyphen normalization", existing, name)
+		}
+		seen[namespace] = name
+	}
+	return nil
+}
+
 // ImplementedMCPContracts returns projection variants without duplicating writable physical placements.
 func ImplementedMCPContracts() []MCPPlacement {
 	contracts := ImplementedMCPPlacements()

@@ -293,6 +293,11 @@ func mcpProjectionLockSpecForCodec(id aggregate.MCPPlacementID, codec aggregate.
 	spec.Label = "native Pi MCP"
 	spec.ProviderRequired = piContract.RequiresProvider()
 	spec.WritePreconditions = []string{"ambient-executable", "no-native-install-or-cleanup-step", "native-pi-mcp-host-qualified", "runtime-env-references", "no-secret-material", "no-server-lifecycle-control"}
+	spec.RemovePreconditions = []string{
+		"managed_binding_baseline",
+		"native_config_strict_json",
+		"unsupported_managed_fields_absent",
+	}
 	spec.ReplayExclusions = []ReplayExclusion{
 		{Component: "Pi version, builtin/extension selection, and project trust", Reason: ReplayExclusionHostApproval},
 		{Component: "launcher executable and runtime environment", Reason: ReplayExclusionRuntimeDependency},

@@ -12,6 +12,7 @@ import (
 	mcpdelegate "github.com/isty2e/daem/internal/realization/delegate/mcp"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -35,6 +36,18 @@ func MCPSubjects(
 	}
 	if encoder == nil {
 		return nil, fmt.Errorf("MCP contribution encoder is required")
+	}
+
+	nativeNames := make([]string, 0)
+	for _, server := range servers {
+		for _, binding := range server.Bindings() {
+			if binding.Target() == target.TargetPi && binding.Backend() == desiredmcp.BackendNative {
+				nativeNames = append(nativeNames, server.ID().Name())
+			}
+		}
+	}
+	if err := aggregate.AdmitPiNativeMCPNamespaces(nativeNames); err != nil {
+		return nil, err
 	}
 
 	providerCandidates, err := mcpProviderContributions(extensions)
