@@ -153,18 +153,40 @@ func TestRecoveryRootInventoryBlocksReservedSymlinks(t *testing.T) {
 }
 
 func TestRecoveryRootInventoryBlocksJournalPayloadViolations(t *testing.T) {
+	t.Run("truncated", func(t *testing.T) {
+		recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+		_, result := captureInventoryJournal(t, recoveryRoot, "journal-payload-truncated")
+		options := inventoryOptions{
+			Filesystem: journalTestFilesystem(),
+			StateCodec: testStateCodec(),
+		}
+
+		inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, options)
+		if err != nil {
+			t.Fatalf("load valid journal inventory: %v", err)
+		}
+		if inventory.decision.State() != retirement.StateActive {
+			t.Fatalf("valid journal state = %q detail=%q, want active", inventory.decision.State(), inventory.decision.Detail())
+		}
+
+		writePrivateFile(t, result.JournalPath, []byte("{"))
+		inventory, err = loadRecoveryRootInventory(t.Context(), recoveryRoot, options)
+		if err != nil {
+			t.Fatalf("load truncated journal inventory: %v", err)
+		}
+		if inventory.decision.State() != retirement.StateBlocked {
+			t.Fatalf("truncated journal state = %q detail=%q, want blocked", inventory.decision.State(), inventory.decision.Detail())
+		}
+		if _, ok := inventory.decision.CleanupPlan(); ok {
+			t.Fatal("truncated journal granted cleanup authority")
+		}
+	})
+
 	tests := []struct {
 		name   string
 		mutate func(*testing.T, CaptureResult)
 		want   string
 	}{
-		{
-			name: "truncated",
-			mutate: func(t *testing.T, result CaptureResult) {
-				writePrivateFile(t, result.JournalPath, []byte("{"))
-			},
-			want: "EOF",
-		},
 		{
 			name: "oversized",
 			mutate: func(t *testing.T, result CaptureResult) {
@@ -214,18 +236,44 @@ func TestRecoveryRootInventoryBlocksJournalPayloadViolations(t *testing.T) {
 }
 
 func TestRecoveryRootInventoryBlocksControlRecordViolations(t *testing.T) {
+	t.Run("truncated record", func(t *testing.T) {
+		recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+		identity := inventoryTestIdentity(t, "control-record-truncated-record", "3")
+		control := writeInventoryControl(t, recoveryRoot, identity, retirement.PhaseFinalizing)
+		options := inventoryOptions{
+			Filesystem: journalTestFilesystem(),
+			StateCodec: testStateCodec(),
+		}
+
+		inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, options)
+		if err != nil {
+			t.Fatalf("load valid control inventory: %v", err)
+		}
+		if inventory.decision.State() != retirement.StateFinalizing {
+			t.Fatalf("valid control state = %q detail=%q, want finalizing", inventory.decision.State(), inventory.decision.Detail())
+		}
+		if _, ok := inventory.decision.CleanupPlan(); !ok {
+			t.Fatal("valid finalizing control did not grant cleanup authority")
+		}
+
+		writePrivateFile(t, filepath.Join(control, retirement.RecordFileName), []byte("{"))
+		inventory, err = loadRecoveryRootInventory(t.Context(), recoveryRoot, options)
+		if err != nil {
+			t.Fatalf("load truncated control inventory: %v", err)
+		}
+		if inventory.decision.State() != retirement.StateBlocked {
+			t.Fatalf("truncated control state = %q detail=%q, want blocked", inventory.decision.State(), inventory.decision.Detail())
+		}
+		if _, ok := inventory.decision.CleanupPlan(); ok {
+			t.Fatal("truncated control granted cleanup authority")
+		}
+	})
+
 	tests := []struct {
 		name   string
 		mutate func(*testing.T, string)
 		want   string
 	}{
-		{
-			name: "truncated record",
-			mutate: func(t *testing.T, control string) {
-				writePrivateFile(t, filepath.Join(control, retirement.RecordFileName), []byte("{"))
-			},
-			want: "EOF",
-		},
 		{
 			name: "oversized record",
 			mutate: func(t *testing.T, control string) {

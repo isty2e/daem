@@ -123,12 +123,37 @@ func TestReadInstalledInventoryCanonicalizesProjectSymlinks(t *testing.T) {
 
 func TestReadInstalledInventoryRejectsUntrustedSchemaStates(t *testing.T) {
 	projectRoot := t.TempDir()
+	t.Run("invalid json", func(t *testing.T) {
+		configRoot := t.TempDir()
+		input := observeclaudeplugin.InstalledInventoryInput{
+			ConfigRoot:  configRoot,
+			ProjectRoot: projectRoot,
+		}
+		writeInstalledPlugins(t, configRoot, `{"version":2,"plugins":{"context7@market":[{"scope":"user"}]}}`)
+
+		inventory, err := observeclaudeplugin.ReadInstalledInventory(input)
+		if err != nil {
+			t.Fatalf("read valid installed inventory: %v", err)
+		}
+		sources, err := inventory.ExactSources(target.ScopeGlobal)
+		if err != nil {
+			t.Fatalf("read valid installed inventory sources: %v", err)
+		}
+		if len(sources) != 1 || sources[0] != "context7@market" {
+			t.Fatalf("valid installed inventory sources = %v, want [context7@market]", sources)
+		}
+
+		writeInstalledPlugins(t, configRoot, `{`)
+		if _, err := observeclaudeplugin.ReadInstalledInventory(input); err == nil {
+			t.Fatal("malformed installed inventory was accepted as evidence")
+		}
+	})
+
 	tests := []struct {
 		name    string
 		content string
 		want    string
 	}{
-		{name: "invalid json", content: `{`, want: "EOF"},
 		{name: "trailing value", content: `{"version":2,"plugins":{}} {}`, want: "multiple JSON values"},
 		{name: "unsupported version", content: `{"version":3,"plugins":{}}`, want: "unsupported version 3"},
 		{name: "missing plugins", content: `{"version":2}`, want: "plugins object is required"},
