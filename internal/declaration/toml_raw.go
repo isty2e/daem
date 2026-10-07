@@ -125,6 +125,7 @@ type MCPServer struct {
 	Targets   []string                   `toml:"targets"`
 	Scope     string                     `toml:"scope"`
 	Transport string                     `toml:"transport"`
+	Backend   string                     `toml:"backend"`
 	Command   MCPCommand                 `toml:"command"`
 	Args      []string                   `toml:"args"`
 	Env       map[string]MCPEnvReference `toml:"env"`

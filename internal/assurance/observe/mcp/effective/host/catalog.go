@@ -3,9 +3,13 @@
 package host
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
+
+	"github.com/isty2e/daem/internal/desired/mcp"
+	"github.com/isty2e/daem/internal/realization/profile"
 
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	"github.com/isty2e/daem/internal/hostsurface/catalog"
@@ -17,8 +21,9 @@ import (
 )
 
 // Input contains selected locked MCP projections and operation-local path
-// facts. Direct-host projections without a provider contribution are ignored.
+// facts. Pi dispatch consumes recorded codecs rather than inferring a backend from provider presence.
 type Input struct {
+	Context            context.Context
 	Contracts          []lock.LockedSubjectContract
 	Retiring           []aggregate.SubjectContribution
 	Codecs             aggregate.CodecCatalog
@@ -45,8 +50,11 @@ func Observe(input Input) (ObservationSet, error) {
 		piContextErr error
 		piResolved   bool
 	)
+	var nativeVersion profile.PiMCPVersion
+	nativeVersionObserved := false
 	observeProjection := func(
 		projection aggregate.SubjectContribution,
+		retiring bool,
 	) (mcpeffective.Observation, error) {
 		subject := projection.SubjectID()
 		if _, duplicate := seen[subject]; duplicate {
@@ -66,6 +74,10 @@ func Observe(input Input) (ObservationSet, error) {
 		placement := view.Placement()
 		switch placement.ID() {
 		case aggregate.MCPPlacementPiProject, aggregate.MCPPlacementPiGlobal:
+			piContract, admitted := profile.PiMCPContractForCodec(projection.Contribution().CodecContractID())
+			if !admitted {
+				return mcpeffective.Observation{}, fmt.Errorf("recorded Pi MCP codec has no admitted contract")
+			}
 			if !piResolved {
 				piContext, piContextErr = resolvePiObservationContext(input.WorkDir)
 				piResolved = true
@@ -82,6 +94,24 @@ func Observe(input Input) (ObservationSet, error) {
 					subject,
 					err,
 				)
+			}
+			if piContract.Backend() == mcp.BackendNative {
+				if !retiring {
+					if !nativeVersionObserved {
+						nativeVersion, err = ObservePiVersion(input.Context)
+						if err != nil {
+							return mcpeffective.Observation{}, err
+						}
+						nativeVersionObserved = true
+					}
+					if err := qualifyPiNativeSettings(piContract, projection.Contribution().Scope(), input.WorkDir, piContext.agentRoot, nativeVersion); err != nil {
+						return mcpeffective.Observation{}, err
+					}
+				}
+				return ObservePiNative(PiNativeInput{
+					Projection: projection, Codecs: input.Codecs, WorkDir: input.WorkDir, AgentRoot: piContext.agentRoot,
+					SelectedPath: selectedPath, Retiring: retiring,
+				})
 			}
 			observation, err := ObservePiAdapter(PiAdapterInput{
 				Projection:   projection,
@@ -114,10 +144,12 @@ func Observe(input Input) (ObservationSet, error) {
 	for _, contract := range input.Contracts {
 		subject := contract.SubjectID()
 		provider, providerMediated := contract.MCPProviderContribution()
-		if !providerMediated {
+		view, pi := catalog.Product().LookupMCPBySubject(subject)
+		pi = pi && (view.Placement().ID() == aggregate.MCPPlacementPiProject || view.Placement().ID() == aggregate.MCPPlacementPiGlobal)
+		if !providerMediated && !pi {
 			continue
 		}
-		if provider.Kind() != "mcp-client" || provider.Key() != "default" {
+		if providerMediated && (provider.Kind() != "mcp-client" || provider.Key() != "default") {
 			return ObservationSet{}, fmt.Errorf(
 				"provider-mediated MCP subject %q has unsupported contribution %q/%q",
 				subject,
@@ -135,7 +167,7 @@ func Observe(input Input) (ObservationSet, error) {
 				subject,
 			)
 		}
-		observation, err := observeProjection(projection)
+		observation, err := observeProjection(projection, false)
 		if err != nil {
 			return ObservationSet{}, err
 		}
@@ -154,7 +186,7 @@ func Observe(input Input) (ObservationSet, error) {
 		default:
 			continue
 		}
-		observation, err := observeProjection(projection)
+		observation, err := observeProjection(projection, true)
 		if err != nil {
 			return ObservationSet{}, err
 		}

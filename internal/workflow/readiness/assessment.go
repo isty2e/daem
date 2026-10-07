@@ -191,6 +191,7 @@ func buildAssessment(
 		return Assessment{}, err
 	}
 	mcpEffective, err := observeProviderEffectiveMCP(
+		ctx,
 		paths,
 		resolver,
 		mcpContracts,

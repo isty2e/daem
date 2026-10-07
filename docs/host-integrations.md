@@ -24,7 +24,7 @@ commands and [Platform Support](platforms.md) owns OS/architecture coverage.
 | Instructions | `supported` | `supported` | `supported` | `supported` | `supported` |
 | Skills and skill groups | `supported` | `supported` | `supported` | `supported` | `supported` |
 | Command hooks | `supported` | `supported` | `diagnostic` | `diagnostic` | `unsupported` |
-| MCP config | project/global | project/global | project/global | project/global via explicit provider | global |
+| MCP config | project/global | project/global | project/global | project/global Native or Adapter | global |
 | Delegated executable execution | `deferred` | project MCP | `deferred` | `deferred` | `deferred` |
 | Carrier declaration, observation and lifecycle | global | project/global | project/global | project/global package | global; observation/removal require selector |
 | Provider contribution diagnostics | cache diagnostics | `deferred` | `deferred` | admitted MCP provider only | `deferred` |
@@ -98,7 +98,7 @@ undeclared scripts, directories, tools, trust approval or bundled hooks.
 
 Supported stdio rows manage one entry and preserve unrelated configuration.
 The [MCP schema](manifest.md#mcp-servers) defines exact destinations, fields and
-rejections. Import covers core-native rows, not inferred Pi provider relations;
+rejections. Import covers supported non-Pi core-native rows; Pi import is unsupported.
 `apply --manage-existing` may register exact matching projections.
 
 | Host/scope | Environment references |
@@ -109,7 +109,7 @@ rejections. Import covers core-native rows, not inferred Pi provider relations;
 | OpenCode project | None; command/args only. |
 | OpenCode global | Aliases rendered as `{env:SOURCE}` in strict `opencode.json`. |
 | Antigravity CLI global | Same-name ambient requirements; no native `env` is written. |
-| Pi project/global | Aliases rendered as `${SOURCE}` in provider config. |
+| Pi project/global | Aliases rendered as `${SOURCE}` in the recorded Native or Adapter config. |
 
 Lock and durable state retain names, never values. Apply checks fresh source
 presence before selected mutation; an empty present value is valid. Values are
@@ -123,6 +123,39 @@ These projections do not own the executable, package/cache, credentials, trust,
 session, runtime health, effective merged state, remote transports or bundled
 MCP. Pi's explicit provider has its own extension relation; removing an MCP row
 removes only its config contribution and retains the provider declaration.
+
+#### Pi Native And Adapter
+
+The declaration's Pi-only backend selects a fixed file contract. Omission means
+Adapter, including on newer Pi installations. New automatic authoring observes
+one isolated, bounded `pi --version` result, choosing Native for a stable
+`>=1.0.2,<2.0.0` version; unavailable or incompatible evidence retains Adapter
+with a diagnostic. Apply qualifies that recorded choice and never switches it.
+
+Native writes strict JSON in the Pi agent-root `mcp.json` or project
+`.pi/mcp.json`. Only those two files participate. A trusted project's full
+entry replaces the same-name user entry; a transport-free project entry
+instead overrides `enabled`, `exposure` and `toolExposure`. Daem evaluates
+this project-participating envelope without claiming trust has been granted.
+Lower replaced or equivalent definitions do not block current Native writes;
+retirement conservatively reports any remaining definition as fallback evidence.
+
+Native entries are enabled with codemode exposure. Enabled servers connect in
+the background at Pi startup; codemode is not Adapter's lazy lifecycle. Daem
+checks the bounded version and applicable builtin/package settings before
+publication, refusing known disablement or an Adapter replacement without
+repairing settings or removing a package. Existing global physical ownership
+and the selected agent-root namespace still apply during removal. Changing that
+namespace is not automatic migration of existing ownership. Native manifests,
+locks and state require a Native-aware daem build; older readers may refuse the
+backend field or codec rather than reinterpret it as Adapter.
+
+Unsupported: native import, automatic Adapter-to-Native migration, HTTP/OAuth,
+custom managed exposure, trust approval, live session/server probes, native
+rollback and custom extension/SDK runtime certification. Pi owns runtime
+activation and extension behavior; file/version facts cannot prove connectivity
+or tool availability. These limits can change only through a separately accepted
+contract, not from a Pi upgrade or successful config convergence.
 
 #### Pi Provider
 

@@ -169,12 +169,21 @@ func (source SourceObservation) DefinitionEquivalence() DefinitionEquivalence {
 }
 func (source SourceObservation) Detail() string { return source.detail }
 
+// EvaluationPolicy distinguishes exclusive adapter names from native replacement layers.
+type EvaluationPolicy string
+
+const (
+	PolicyExclusive    EvaluationPolicy = "exclusive"
+	PolicyReplaceLower EvaluationPolicy = "replace_lower"
+)
+
 // ObservationInput is constructor input for one provider-effective MCP name.
 type ObservationInput struct {
 	Subject      topology.SubjectID
 	ServerName   string
 	SelectedPath string
 	Sources      []SourceObservation
+	Policy       EvaluationPolicy
 }
 
 // Observation is immutable provider-effective collision evidence for one
@@ -185,6 +194,7 @@ type Observation struct {
 	selectedPath string
 	sources      []SourceObservation
 	state        State
+	policy       EvaluationPolicy
 }
 
 // NewObservation validates source coverage and derives the effective state.
@@ -204,6 +214,13 @@ func NewObservation(input ObservationInput) (Observation, error) {
 		)
 	}
 
+	policy := input.Policy
+	if policy == "" {
+		policy = PolicyExclusive
+	}
+	if policy != PolicyExclusive && policy != PolicyReplaceLower {
+		return Observation{}, fmt.Errorf("unsupported MCP evaluation policy %q", policy)
+	}
 	sources := append([]SourceObservation(nil), input.Sources...)
 	selectedCount := 0
 	seenIDs := make(map[string]struct{}, len(sources))
@@ -237,8 +254,7 @@ func NewObservation(input ObservationInput) (Observation, error) {
 			state = StateUnobservable
 			break
 		}
-		if source.DefinesSelectedName() &&
-			(source.Precedence() != PrecedenceSelected || source.Kind() != SourceNormal) {
+		if sourceConflicts(source, policy) {
 			state = StateConflicting
 		}
 	}
@@ -248,7 +264,18 @@ func NewObservation(input ObservationInput) (Observation, error) {
 		selectedPath: input.SelectedPath,
 		sources:      sources,
 		state:        state,
+		policy:       policy,
 	}, nil
+}
+
+func sourceConflicts(source SourceObservation, policy EvaluationPolicy) bool {
+	if !source.DefinesSelectedName() || (source.Precedence() == PrecedenceSelected && source.Kind() == SourceNormal) {
+		return false
+	}
+	if policy == PolicyReplaceLower && (source.Precedence() == PrecedenceLower || source.DefinitionEquivalence() == DefinitionEquivalenceEquivalent) {
+		return false
+	}
+	return true
 }
 
 func (observation Observation) Subject() topology.SubjectID { return observation.subject }
@@ -271,8 +298,7 @@ func (observation Observation) BlockingSources() []SourceObservation {
 			}
 			continue
 		}
-		if source.DefinesSelectedName() &&
-			(source.Precedence() != PrecedenceSelected || source.Kind() != SourceNormal) {
+		if sourceConflicts(source, observation.policy) {
 			result = append(result, source)
 		}
 	}

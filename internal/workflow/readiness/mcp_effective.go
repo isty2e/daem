@@ -1,6 +1,7 @@
 package readiness
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -18,6 +19,7 @@ import (
 )
 
 func observeProviderEffectiveMCP(
+	ctx context.Context,
 	paths daempaths.Paths,
 	resolver liveobserve.DestinationResolver,
 	contracts []lock.LockedSubjectContract,
@@ -34,6 +36,7 @@ func observeProviderEffectiveMCP(
 		return mcpeffectivehost.ObservationSet{}, err
 	}
 	return mcpeffectivehost.Observe(mcpeffectivehost.Input{
+		Context:            ctx,
 		Contracts:          contracts,
 		Retiring:           retiring,
 		Codecs:             codecs,

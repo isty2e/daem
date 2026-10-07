@@ -232,15 +232,19 @@ point-in-time diagnostics and do not replace the apply-time gate.
 
 ## Pi MCP Provider Or Config Is Not Current
 
-Pi MCP support is provided by the explicit `pi-mcp-adapter` extension in the
-same manifest. Start with:
+Pi MCP uses its recorded Native or Adapter backend; an omitted backend means
+Adapter. Start with:
 
 ```bash
 daem status --target pi --verbose
 daem apply --target pi --dry-run --diff
 ```
 
-- `provider_prerequisite` reports package presence and the freshly observed
+- For Native, an unobservable/incompatible Pi version, disabled builtin or
+  configured Adapter replacement refuses publication. Inspect the diagnostic
+  and scoped settings; daem neither repairs them nor changes the backend.
+  Enabled Native servers connect at Pi startup, subject to project trust.
+- For Adapter, `provider_prerequisite` reports package presence and the freshly observed
   exact version separately from config projection. Supported stable versions
   are `>=2.13.0` and `<3.0.0`; `2.15.0` is the deeply inspected artifact, not a
   permanently pinned version.

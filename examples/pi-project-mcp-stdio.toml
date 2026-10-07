@@ -1,6 +1,6 @@
 # Provider-mediated Pi project MCP example.
 #
-# Pi core does not own this MCP config surface. The explicit pi-mcp-adapter
+# This example retains the Adapter contract. The explicit pi-mcp-adapter
 # package reads project .pi/mcp.json after Pi trusts and loads the project.
 # Daem installs the declared provider through Pi before projecting the binding.
 # It does not prove project trust, provider activation, server connectivity,

@@ -521,8 +521,15 @@ executables use the manifest-only `command = { path = "/absolute/path" }`
 form; `daem import` also emits that form for supported host entries with an
 absolute command.
 
-For `--target pi`, add also ensures that one compatible explicit
-`pi-mcp-adapter` package is declared at the selected scope. The default provider
+For a new automatic `--target pi` row, add observes one bounded `pi --version`
+result in disposable agent and working directories. Stable `>=1.0.2,<2.0.0`
+evidence selects and records `backend = "native"` without a package. Missing,
+malformed or incompatible evidence retains Adapter with a diagnostic;
+cancellation is an error. Existing same-identity backend and explicit provider
+intent take precedence. Lock regeneration and apply never reselect the backend.
+
+For Adapter, add ensures that one compatible explicit `pi-mcp-adapter` package
+is declared at the selected scope. The default provider
 selector is `npm:pi-mcp-adapter@^2.13.0`; the admitted profile accepts stable
 `2.x` versions from `2.13.0` onward and rejects unbounded selectors,
 prereleases, and major `3`. Project add may reuse one unambiguous explicit
@@ -577,10 +584,12 @@ binding removal, and supported route effects are later apply work. It never
 means unconditional carrier uninstall, package/cache cleanup, credential
 deletion, trust reset, or contribution-level mutation.
 
-Removing a Pi MCP row retains its explicit provider extension. A later apply
-removes the managed Pi config contribution and reports any lower-layer fallback
-that becomes effective; remove the provider extension separately only when the
-package relation itself is also undesired.
+Removing a Pi MCP row retains any explicit provider extension. A later apply
+uses the stored Native or Adapter codec to remove only its config contribution,
+without needing a working Pi binary for Native retirement. Remaining unowned
+definitions are reported conservatively as fallback, not runtime activation.
+Physical ownership and root-namespace checks still apply. Remove the provider
+extension separately only when the package relation itself is also undesired.
 
 For extension rows, removal expresses desired relation absence. Manual deletion
 of the same row followed by `lock` produces the same later status/apply

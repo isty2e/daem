@@ -37,7 +37,7 @@ func buildCatalog() (aggregate.CodecCatalog, error) {
 		}
 		codecs = append(codecs, codec)
 	}
-	for _, placement := range aggregate.ImplementedMCPPlacements() {
+	for _, placement := range aggregate.ImplementedMCPContracts() {
 		contractID := placement.CodecContractID()
 		if _, registered := mcpContracts[contractID]; registered {
 			continue

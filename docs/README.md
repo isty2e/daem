@@ -38,9 +38,10 @@
 - [Skill placement](../examples/skill-placement.toml) — default and supported
   alternative roots.
 - [Extension order](../examples/extension-order.toml).
-- Pi MCP: [project](../examples/pi-project-mcp-stdio.toml) and
-  [global](../examples/pi-global-mcp-stdio.toml) configurations using an explicit
-  provider package.
+- Pi Native MCP: [project](../examples/pi-native-project-mcp-stdio.toml) and
+  [global](../examples/pi-native-global-mcp-stdio.toml).
+- Pi Adapter MCP: [project](../examples/pi-project-mcp-stdio.toml) and
+  [global](../examples/pi-global-mcp-stdio.toml), using an explicit provider.
 
 ## Contribute
 

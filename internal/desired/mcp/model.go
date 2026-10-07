@@ -38,10 +38,23 @@ type Binding struct {
 	scope     target.Scope
 	transport Transport
 	onAbsent  OnAbsent
+	backend   Backend
 }
 
 // NewBinding constructs one canonical server binding.
 func NewBinding(selected target.Target, scope target.Scope, transport Transport, onAbsent OnAbsent) (Binding, error) {
+	backend, err := ParseBackend(selected, "")
+	if err != nil {
+		return Binding{}, err
+	}
+	return NewBindingWithBackend(selected, scope, transport, onAbsent, backend)
+}
+
+// NewBindingWithBackend constructs a binding with its selected implementation already recorded.
+func NewBindingWithBackend(selected target.Target, scope target.Scope, transport Transport, onAbsent OnAbsent, backend Backend) (Binding, error) {
+	if backend != BackendNative && (backend != BackendAdapter || selected != target.TargetPi) {
+		return Binding{}, fmt.Errorf("unsupported MCP backend %q for target %q", backend, selected)
+	}
 	parsedTarget, err := target.ParseTarget(string(selected))
 	if err != nil {
 		return Binding{}, err
@@ -57,7 +70,7 @@ func NewBinding(selected target.Target, scope target.Scope, transport Transport,
 	if err != nil {
 		return Binding{}, err
 	}
-	return Binding{target: parsedTarget, scope: parsedScope, transport: transport, onAbsent: parsedOnAbsent}, nil
+	return Binding{target: parsedTarget, scope: parsedScope, transport: transport, onAbsent: parsedOnAbsent, backend: backend}, nil
 }
 
 // Target returns the binding target.
@@ -65,6 +78,9 @@ func (binding Binding) Target() target.Target { return binding.target }
 
 // Scope returns the binding scope.
 func (binding Binding) Scope() target.Scope { return binding.scope }
+
+// Backend returns the recorded implementation, independently of current host facts.
+func (binding Binding) Backend() Backend { return binding.backend }
 
 // Transport returns immutable transport desired state.
 func (binding Binding) Transport() Transport { return binding.transport }
@@ -80,6 +96,7 @@ func (binding Binding) equal(other Binding) bool {
 	return binding.target == other.target &&
 		binding.scope == other.scope &&
 		binding.onAbsent == other.onAbsent &&
+		binding.backend == other.backend &&
 		binding.transport.kind == other.transport.kind &&
 		binding.transport.stdio.command == other.transport.stdio.command &&
 		slices.Equal(binding.transport.stdio.args, other.transport.stdio.args) &&
@@ -88,7 +105,7 @@ func (binding Binding) equal(other Binding) bool {
 
 // Validate rejects a zero or invalid Binding value.
 func (binding Binding) Validate() error {
-	_, err := NewBinding(binding.target, binding.scope, binding.transport, binding.onAbsent)
+	_, err := NewBindingWithBackend(binding.target, binding.scope, binding.transport, binding.onAbsent, binding.backend)
 	return err
 }
 

@@ -135,6 +135,7 @@ func mcpLockedSubjectContract(
 		Graph:                graph,
 		EntityID:             server.ID(),
 		PlacementID:          placement.ID(),
+		CodecContractID:      placement.CodecContractID(),
 		ServerID:             server.ID().Name(),
 		RequestedOnAbsent:    binding.OnAbsent(),
 		LauncherCommand:      stdio.Command().Executable(),
@@ -187,6 +188,12 @@ func selectMCPProviders(
 			placement, err := aggregate.MCPPlacementForBinding(binding)
 			if err != nil {
 				return nil, nil, err
+			}
+			if piContract, pi := profile.PiMCPContractForCodec(placement.CodecContractID()); pi && !piContract.RequiresProvider() {
+				if len(candidates) != 0 {
+					return nil, nil, fmt.Errorf("native Pi MCP cannot be combined with a declared pi-mcp-adapter")
+				}
+				continue
 			}
 			required, err := lock.MCPPlacementRequiresProviderContribution(placement.ID())
 			if err != nil {

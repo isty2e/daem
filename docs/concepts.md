@@ -151,8 +151,10 @@ See [Hook Assets](manifest.md#hook-assets).
 ### MCP Server Bindings
 
 MCP bindings configure stdio command/args, not executable provisioning. Removing
-a binding leaves runtime/package residue. Pi needs an explicit admitted
-`pi-mcp-adapter` package; installation/config do not prove trust or readiness.
+a binding leaves runtime/package residue. Pi records a Native or Adapter
+contract; omitted backend preserves legacy Adapter meaning. Adapter needs an
+explicit admitted `pi-mcp-adapter`; Native does not. Version and config facts
+do not prove trust, activation or readiness.
 See the [project](../examples/pi-project-mcp-stdio.toml) and
 [global](../examples/pi-global-mcp-stdio.toml) examples.
 

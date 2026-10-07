@@ -40,6 +40,7 @@ type MCPProjectionSubjectInput struct {
 	Graph                topology.Graph
 	EntityID             entity.ID
 	PlacementID          aggregate.MCPPlacementID
+	CodecContractID      aggregate.CodecContractID
 	ServerID             string
 	RequestedOnAbsent    desiredmcp.OnAbsent
 	LauncherCommand      string
@@ -100,7 +101,7 @@ func NewMCPProjectionSubjectContract(input MCPProjectionSubjectInput) (LockedSub
 			input.ServerID,
 		)
 	}
-	spec, ok := mcpProjectionLockSpecFor(input.PlacementID)
+	spec, ok := mcpProjectionLockSpecForCodec(input.PlacementID, input.CodecContractID)
 	if !ok {
 		return LockedSubjectContract{}, fmt.Errorf("unsupported MCP placement %q", input.PlacementID)
 	}
@@ -275,6 +276,32 @@ func mcpProjectionLockSpecFor(id aggregate.MCPPlacementID) (mcpProjectionLockSpe
 	return mcpProjectionLockSpec{}, false
 }
 
+func mcpProjectionLockSpecForCodec(id aggregate.MCPPlacementID, codec aggregate.CodecContractID) (mcpProjectionLockSpec, bool) {
+	spec, ok := mcpProjectionLockSpecFor(id)
+	if !ok || codec == "" || codec == spec.Placement.CodecContractID() {
+		return spec, ok
+	}
+	selected, ok := aggregate.MCPPlacementForCodec(id, codec)
+	if !ok {
+		return mcpProjectionLockSpec{}, false
+	}
+	piContract, ok := profile.PiMCPContractForCodec(codec)
+	if !ok {
+		return mcpProjectionLockSpec{}, false
+	}
+	spec.Placement = selected
+	spec.Label = "native Pi MCP"
+	spec.ProviderRequired = piContract.RequiresProvider()
+	spec.WritePreconditions = []string{"ambient-executable", "no-native-install-or-cleanup-step", "native-pi-mcp-host-qualified", "runtime-env-references", "no-secret-material", "no-server-lifecycle-control"}
+	spec.ReplayExclusions = []ReplayExclusion{
+		{Component: "Pi version, builtin/extension selection, and project trust", Reason: ReplayExclusionHostApproval},
+		{Component: "launcher executable and runtime environment", Reason: ReplayExclusionRuntimeDependency},
+		{Component: "endpoint health and server startup", Reason: ReplayExclusionRuntimeReadiness},
+		{Component: "runtime tool inventory", Reason: ReplayExclusionToolInventory},
+	}
+	return spec, true
+}
+
 func (spec mcpProjectionLockSpec) placement() (aggregate.MCPPlacement, error) {
 	if err := spec.Placement.Validate(); err != nil {
 		return aggregate.MCPPlacement{}, fmt.Errorf("MCP projection lock spec placement: %w", err)
@@ -360,6 +387,9 @@ func mcpRouteContract(placement aggregate.MCPPlacement, operation profile.Operat
 	route, ok := profile.Profile(placement.Target()).OperationRoute(entity.KindMCPServer, string(placement.ID()), operation)
 	if !ok {
 		return RouteContractRef{}, fmt.Errorf("MCP placement %q has no unique %s route", placement.ID(), operation)
+	}
+	if placement.CodecContractID() == aggregate.MCPCodecPiNativeStdio {
+		return RouteContractRef{RouteID: route.RouteID(), AdapterContractVersion: string(placement.CodecContractID())}, nil
 	}
 	return RouteContractRef{
 		RouteID:                route.RouteID(),

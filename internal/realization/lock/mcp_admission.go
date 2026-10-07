@@ -30,13 +30,17 @@ func validateAdmittedMCPProjection(
 	if !realized {
 		return true, fmt.Errorf("MCP projection requires managed aggregate realization")
 	}
-	profilePlacement, ok := profile.Profile(placement.Target()).MCPPlacement(placement.ID())
+	physicalPlacement, ok := profile.Profile(placement.Target()).MCPPlacement(placement.ID())
 	if !ok {
 		return true, fmt.Errorf("MCP placement %q is not admitted by target profile %q", placement.ID(), placement.Target())
 	}
 	contribution, ok := realization.ManagedAggregateContribution()
 	if !ok {
 		return true, fmt.Errorf("MCP projection requires managed aggregate realization")
+	}
+	profilePlacement, ok := aggregate.MCPPlacementForCodec(physicalPlacement.ID(), contribution.CodecContractID())
+	if !ok {
+		return true, fmt.Errorf("MCP codec %q is not admitted at placement %q", contribution.CodecContractID(), physicalPlacement.ID())
 	}
 	expectedRealization, err := mcpAggregateRealization(
 		profilePlacement,
@@ -49,7 +53,7 @@ func validateAdmittedMCPProjection(
 	if !realization.Equal(expectedRealization) {
 		return true, fmt.Errorf("MCP realization does not match the admitted placement profile")
 	}
-	spec, ok := mcpProjectionLockSpecFor(profilePlacement.ID())
+	spec, ok := mcpProjectionLockSpecForCodec(profilePlacement.ID(), profilePlacement.CodecContractID())
 	if !ok {
 		return true, fmt.Errorf("MCP placement %q has no admitted lock refinement", profilePlacement.ID())
 	}
