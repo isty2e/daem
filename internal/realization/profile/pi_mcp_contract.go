@@ -127,6 +127,9 @@ type PiNativeHostFacts struct {
 
 // PiMCPAdapterPackageSource identifies configured npm replacement intent, independent of version admission.
 func PiMCPAdapterPackageSource(source string) bool {
+	if !strings.HasPrefix(source, "npm:") {
+		return false
+	}
 	value := strings.TrimPrefix(source, "npm:")
 	return value == piMCPProviderPackageName || strings.HasPrefix(value, piMCPProviderPackageName+"@")
 }

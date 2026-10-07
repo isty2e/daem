@@ -13,26 +13,38 @@ import (
 
 type piNativeSettings struct {
 	mcpSelection    []string
-	adapterDeclared bool
+	adapterPackages []piNativeAdapterPackage
 }
 
 func qualifyPiNativeSettings(contract profile.PiMCPContract, scope target.Scope, workDir string, agentRoot string, version profile.PiMCPVersion) error {
-	global, err := observePiNativeSettings(filepath.Join(agentRoot, "settings.json"))
+	global, err := observePiNativeSettings(filepath.Join(agentRoot, "settings.json"), target.ScopeGlobal)
 	if err != nil {
 		return err
 	}
-	project, err := observePiNativeSettings(filepath.Join(workDir, ".pi", "settings.json"))
+	project, err := observePiNativeSettings(filepath.Join(workDir, ".pi", "settings.json"), target.ScopeProject)
 	if err != nil {
 		return err
+	}
+	contexts := [][]piNativeAdapterPackage{selectNativeAdapterPackages(global.adapterPackages, project.adapterPackages)}
+	if scope == target.ScopeGlobal {
+		contexts = append(contexts, selectNativeAdapterPackages(global.adapterPackages, nil))
+	}
+	adapterSelected := false
+	for _, packages := range contexts {
+		selected, err := nativeAdapterResourcesSelected(packages, workDir, agentRoot)
+		if err != nil {
+			return err
+		}
+		adapterSelected = adapterSelected || selected
 	}
 	return contract.QualifyNativeHost(profile.PiNativeHostFacts{
 		Version: version, Scope: scope,
 		BuiltinSelection: profile.ResolvePiMCPBuiltinSelection(global.mcpSelection, project.mcpSelection),
-		AdapterDeclared:  global.adapterDeclared || project.adapterDeclared,
+		AdapterDeclared:  adapterSelected,
 	})
 }
 
-func observePiNativeSettings(path string) (piNativeSettings, error) {
+func observePiNativeSettings(path string, scope target.Scope) (piNativeSettings, error) {
 	content, exists, err := filesnapshot.ReadRegularFile(path, maximumConfigBytes)
 	if err != nil {
 		return piNativeSettings{}, fmt.Errorf("native Pi MCP settings cannot be read as a bounded regular file")
@@ -49,7 +61,8 @@ func observePiNativeSettings(path string) (piNativeSettings, error) {
 	}
 	settings := piNativeSettings{}
 	if raw, exists := fields["extensions"]; exists {
-		if string(raw) == "null" || json.Unmarshal(raw, &settings.mcpSelection) != nil {
+		settings.mcpSelection, err = nativeSettingsStringArray(raw)
+		if err != nil {
 			return piNativeSettings{}, fmt.Errorf("native Pi MCP extension selection must be a string array")
 		}
 	}
@@ -60,19 +73,50 @@ func observePiNativeSettings(path string) (piNativeSettings, error) {
 		}
 		for _, item := range packages {
 			var source string
+			var entry map[string]json.RawMessage
 			if json.Unmarshal(item, &source) != nil {
-				var entry struct {
-					Source string `json:"source"`
-				}
-				if json.Unmarshal(item, &entry) != nil || entry.Source == "" {
+				if json.Unmarshal(item, &entry) != nil || entry == nil || json.Unmarshal(entry["source"], &source) != nil || source == "" {
 					return piNativeSettings{}, fmt.Errorf("native Pi MCP package source cannot be observed")
 				}
-				source = entry.Source
+			}
+			if source == "" {
+				return piNativeSettings{}, fmt.Errorf("native Pi MCP package source cannot be observed")
 			}
 			if profile.PiMCPAdapterPackageSource(source) {
-				settings.adapterDeclared = true
+				adapter := piNativeAdapterPackage{source: source, scope: scope}
+				if raw, exists := entry["extensions"]; exists {
+					adapter.patterns, err = nativeSettingsStringArray(raw)
+					if err != nil {
+						return piNativeSettings{}, fmt.Errorf("native Pi MCP package extension selection must be a string array")
+					}
+					adapter.filtered = true
+				}
+				if raw, exists := entry["autoload"]; exists {
+					var autoload bool
+					if string(raw) == "null" || json.Unmarshal(raw, &autoload) != nil {
+						return piNativeSettings{}, fmt.Errorf("native Pi MCP package autoload must be boolean")
+					}
+					adapter.delta = !autoload
+				}
+				settings.adapterPackages = append(settings.adapterPackages, adapter)
 			}
 		}
 	}
 	return settings, nil
+}
+
+func nativeSettingsStringArray(raw json.RawMessage) ([]string, error) {
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) != nil || items == nil {
+		return nil, fmt.Errorf("expected a string array")
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		var value string
+		if string(item) == "null" || json.Unmarshal(item, &value) != nil {
+			return nil, fmt.Errorf("expected a string array")
+		}
+		result = append(result, value)
+	}
+	return result, nil
 }

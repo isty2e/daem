@@ -25,6 +25,7 @@ import (
 type Input struct {
 	Context            context.Context
 	Contracts          []lock.LockedSubjectContract
+	Previous           []aggregate.SubjectContribution
 	Retiring           []aggregate.SubjectContribution
 	Codecs             aggregate.CodecCatalog
 	WorkDir            string
@@ -43,6 +44,10 @@ type ObservationSet struct {
 func Observe(input Input) (ObservationSet, error) {
 	if input.ResolveDestination == nil {
 		return ObservationSet{}, fmt.Errorf("provider-effective MCP destination resolver is required")
+	}
+	nativePeers, err := nativePeerProjections(input)
+	if err != nil {
+		return ObservationSet{}, err
 	}
 	seen := make(map[topology.SubjectID]struct{}, len(input.Contracts)+len(input.Retiring))
 	var (
@@ -111,7 +116,7 @@ func Observe(input Input) (ObservationSet, error) {
 				}
 				return ObservePiNative(PiNativeInput{
 					Projection: projection, Codecs: input.Codecs, WorkDir: input.WorkDir, AgentRoot: piAgentRoot,
-					SelectedPath: selectedPath, Retiring: retiring,
+					SelectedPath: selectedPath, Retiring: retiring, peers: nativePeers,
 				})
 			}
 			if piHomeDir == "" {

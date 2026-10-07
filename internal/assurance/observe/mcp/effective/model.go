@@ -68,6 +68,8 @@ type SourceObservationInput struct {
 	DefinesSelectedName        bool
 	DefinitionEquivalence      DefinitionEquivalence
 	DependsOnRemovedDefinition bool
+	PeerSubject                topology.SubjectID
+	PeerRetiring               bool
 	Detail                     string
 }
 
@@ -82,6 +84,8 @@ type SourceObservation struct {
 	definesSelectedName        bool
 	definitionEquivalence      DefinitionEquivalence
 	dependsOnRemovedDefinition bool
+	peerSubject                topology.SubjectID
+	peerRetiring               bool
 	detail                     string
 }
 
@@ -116,6 +120,18 @@ func NewSourceObservation(input SourceObservationInput) (SourceObservation, erro
 			"effective MCP source %q cannot define a name without exact evidence",
 			input.ID,
 		)
+	}
+
+	if input.PeerRetiring && input.PeerSubject.IsZero() {
+		return SourceObservation{}, fmt.Errorf("retiring effective MCP peer requires a subject")
+	}
+	if !input.PeerSubject.IsZero() {
+		if err := input.PeerSubject.Validate(); err != nil {
+			return SourceObservation{}, fmt.Errorf("effective MCP peer subject: %w", err)
+		}
+		if input.PeerSubject.Kind() != topology.SubjectProjection || input.State != SourceExact || input.Kind != SourceNormal || input.Precedence == PrecedenceSelected || !input.DefinesSelectedName || input.DefinitionEquivalence == DefinitionEquivalenceUnknown {
+			return SourceObservation{}, fmt.Errorf("effective MCP peer requires an exact non-selected normal projection definition")
+		}
 	}
 
 	if input.DependsOnRemovedDefinition && (input.State != SourceExact || input.Kind != SourceNormal || input.Precedence != PrecedenceHigher || input.DefinesSelectedName) {
@@ -160,6 +176,8 @@ func NewSourceObservation(input SourceObservationInput) (SourceObservation, erro
 		definesSelectedName:        input.DefinesSelectedName,
 		definitionEquivalence:      input.DefinitionEquivalence,
 		dependsOnRemovedDefinition: input.DependsOnRemovedDefinition,
+		peerSubject:                input.PeerSubject,
+		peerRetiring:               input.PeerRetiring,
 		detail:                     input.Detail,
 	}, nil
 }
@@ -237,6 +255,12 @@ func NewObservation(input ObservationInput) (Observation, error) {
 	selectedCount := 0
 	seenIDs := make(map[string]struct{}, len(sources))
 	for _, source := range sources {
+		if source.PeerSubject() == input.Subject {
+			return Observation{}, fmt.Errorf("effective MCP source cannot be its own peer")
+		}
+		if !source.PeerSubject().IsZero() && source.PeerSubject().Key() != input.ServerName {
+			return Observation{}, fmt.Errorf("effective MCP peer must define the selected server name")
+		}
 		if _, duplicate := seenIDs[source.ID()]; duplicate {
 			return Observation{}, fmt.Errorf("duplicate effective MCP source id %q", source.ID())
 		}
@@ -280,11 +304,18 @@ func NewObservation(input ObservationInput) (Observation, error) {
 	}, nil
 }
 
+// PeerSubject identifies a coordinated same-name projection whose desired or
+// prior contribution matches this source; it does not confer write authority.
+func (source SourceObservation) PeerSubject() topology.SubjectID { return source.peerSubject }
+
+// PeerRetiring reports a matched peer scheduled for removal in this operation.
+func (source SourceObservation) PeerRetiring() bool { return source.peerRetiring }
+
 func sourceConflicts(source SourceObservation, policy EvaluationPolicy) bool {
-	if !source.DefinesSelectedName() || (source.Precedence() == PrecedenceSelected && source.Kind() == SourceNormal) {
+	if !source.DefinesSelectedName() || source.PeerRetiring() || (source.Precedence() == PrecedenceSelected && source.Kind() == SourceNormal) {
 		return false
 	}
-	if policy == PolicyReplaceLower && (source.Precedence() == PrecedenceLower || source.DefinitionEquivalence() == DefinitionEquivalenceEquivalent) {
+	if policy == PolicyReplaceLower && (source.Precedence() == PrecedenceLower || source.DefinitionEquivalence() == DefinitionEquivalenceEquivalent || !source.PeerSubject().IsZero()) {
 		return false
 	}
 	return true
@@ -340,7 +371,7 @@ func (observation Observation) LowerFallbackEquivalence() (DefinitionEquivalence
 		unknown    bool
 	)
 	for _, source := range observation.sources {
-		if source.State() != SourceExact ||
+		if source.PeerRetiring() || source.State() != SourceExact ||
 			!source.DefinesSelectedName() ||
 			source.Precedence() != PrecedenceLower {
 			continue
@@ -385,7 +416,7 @@ func (observation Observation) sameNameSourcesAt(
 	result := make([]SourceObservation, 0)
 	for _, source := range observation.sources {
 		if source.State() == SourceExact &&
-			source.DefinesSelectedName() &&
+			source.DefinesSelectedName() && !source.PeerRetiring() &&
 			source.Precedence() == precedence {
 			result = append(result, source)
 		}

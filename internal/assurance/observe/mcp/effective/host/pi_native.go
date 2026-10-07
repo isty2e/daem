@@ -10,6 +10,8 @@ import (
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 	"github.com/isty2e/daem/internal/topology/mcp"
 )
 
@@ -21,6 +23,7 @@ type PiNativeInput struct {
 	AgentRoot    string
 	SelectedPath string
 	Retiring     bool
+	peers        map[topology.SubjectID]piNativePeer
 }
 
 // ObservePiNative keeps native replacement/override semantics separate from adapter imports and lazy lifecycle.
@@ -95,6 +98,17 @@ func ObservePiNative(input PiNativeInput) (mcpeffective.Observation, error) {
 					}
 					if source.State == mcpeffective.SourceExact && source.DefinesSelectedName {
 						source.DefinitionEquivalence = compareNormalDefinition(comparison, contribution, selection, codec)
+						if index != selectedIndex {
+							scope := target.ScopeGlobal
+							if index == 1 {
+								scope = target.ScopeProject
+							}
+							peerSubject, _ := mcp.ProjectionSubject(target.TargetPi, scope, name)
+							if peer, present := input.peers[peerSubject]; present && peer.matches(spec.path, content, codec) {
+								source.PeerSubject = peerSubject
+								source.PeerRetiring = peer.retiring
+							}
+						}
 					}
 				}
 			}

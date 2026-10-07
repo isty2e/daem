@@ -137,22 +137,24 @@ Native writes strict JSON in the Pi agent-root `mcp.json` or project
 entry replaces the same-name user entry; a transport-free project entry
 instead overrides `enabled`, `exposure` and `toolExposure`. Daem evaluates
 this project-participating envelope without claiming trust has been granted.
-Lower replaced or equivalent definitions do not block current Native writes;
-retirement conservatively reports remaining independent definitions as fallback
-evidence. A transport-free project override depends on the user definition:
-after that definition is removed, the retained override cannot independently
-define the server. Its unowned bytes remain untouched.
+Lower replaced or equivalent definitions do not block current Native writes.
+Same-name managed project/global bindings may also select different commands:
+a peer must match its desired or stored contribution, and normal adoption,
+baseline and physical ownership checks still apply. Retirement reports surviving
+definitions as fallback evidence, excluding peers removed in the same operation.
+A transport-free project override depends on the user definition: after that
+definition is removed, the retained override cannot independently define the
+server. Its unowned bytes remain untouched.
 
 Native entries are enabled with codemode exposure. Enabled servers connect in
 the background at Pi startup; codemode is not Adapter's lazy lifecycle. Daem
 checks the bounded version and applicable builtin/package settings before
-publication, refusing known disablement or an Adapter replacement without
+publication, refusing known disablement or a possible Adapter replacement without
 repairing settings or removing a package. Existing global physical ownership
 and the selected agent-root namespace still apply during removal. Changing that
 namespace is not automatic migration of existing ownership. Native manifests,
 locks and state require a Native-aware daem build; older readers may refuse the
 backend field or codec rather than reinterpret it as Adapter.
-
 
 Builtin selection keeps Pi's two settings-layer rules: user forced exclusion
 beats forced inclusion; the last matching project override wins. Plain entries
@@ -164,6 +166,20 @@ Selection that depends on unmodelled syntax refuses publication without a
 backend fallback; a decisive supported override may resolve the uncertainty.
 Pi owns full selector interpretation. Additional static syntax requires
 separately verified matching support.
+
+An ordinary package object's `extensions: []` excludes its extension resources;
+omitting the field permits the package defaults. With `autoload: false`, the
+object is a filtering delta: an empty list leaves the user package unchanged.
+A normal project package replaces the same npm-name user package, independent
+of version. Global Native projections also qualify the user-only context.
+Nonempty package filters support relative literals, `*` and `?`, glob `!`
+exclusions and exact `+`/`-` paths. They require observable installed metadata
+with a matching stable exact/caret npm selector and a finite explicit JS/TS
+file inventory; no entrypoint is assumed across package versions. Full
+Minimatch, noncanonical path aliases, comment patterns, Unicode glob matching,
+directory/glob/override inventories and unresolved metadata are outside this passive
+proof and refuse dependent Native publication.
+Resource selection does not prove extension activation or project trust.
 
 Unsupported: native import, automatic Adapter-to-Native migration, HTTP/OAuth,
 custom managed exposure, trust approval, live session/server probes, native
