@@ -88,14 +88,17 @@ func TestPiNativeHostQualificationRefusesWithoutFallback(t *testing.T) {
 	contract, _ := PiMCPContractForBackend(desiredmcp.BackendNative)
 	valid := PiNativeHostFacts{
 		Version: ObservePiMCPVersion("1.0.2"), Scope: target.ScopeProject,
-		GlobalBuiltinEnabled: true, ProjectBuiltinEnabled: true,
+		BuiltinSelection: ResolvePiMCPBuiltinSelection(nil, nil),
 	}
 	if err := contract.QualifyNativeHost(valid); err != nil {
 		t.Fatal(err)
 	}
 	for _, change := range []func(*PiNativeHostFacts){
 		func(facts *PiNativeHostFacts) { facts.Version = PiMCPVersion{} },
-		func(facts *PiNativeHostFacts) { facts.ProjectBuiltinEnabled = false },
+		func(facts *PiNativeHostFacts) {
+			facts.BuiltinSelection = ResolvePiMCPBuiltinSelection(nil, []string{"-builtin:mcp"})
+		},
+		func(facts *PiNativeHostFacts) { facts.BuiltinSelection = PiMCPBuiltinSelection{} },
 		func(facts *PiNativeHostFacts) { facts.AdapterDeclared = true },
 		func(facts *PiNativeHostFacts) { facts.Scope = "invalid" },
 	} {
@@ -104,8 +107,5 @@ func TestPiNativeHostQualificationRefusesWithoutFallback(t *testing.T) {
 		if err := contract.QualifyNativeHost(facts); err == nil || contract.Backend() != desiredmcp.BackendNative {
 			t.Fatalf("qualification = %v, backend = %q", err, contract.Backend())
 		}
-	}
-	if PiMCPBuiltinEnabled(true, []string{"-builtin:mcp"}) || !PiMCPBuiltinEnabled(false, []string{"-builtin:mcp", "+builtin:mcp"}) {
-		t.Fatal("ordered builtin selection is incorrect")
 	}
 }

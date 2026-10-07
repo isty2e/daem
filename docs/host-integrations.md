@@ -138,7 +138,10 @@ entry replaces the same-name user entry; a transport-free project entry
 instead overrides `enabled`, `exposure` and `toolExposure`. Daem evaluates
 this project-participating envelope without claiming trust has been granted.
 Lower replaced or equivalent definitions do not block current Native writes;
-retirement conservatively reports any remaining definition as fallback evidence.
+retirement conservatively reports remaining independent definitions as fallback
+evidence. A transport-free project override depends on the user definition:
+after that definition is removed, the retained override cannot independently
+define the server. Its unowned bytes remain untouched.
 
 Native entries are enabled with codemode exposure. Enabled servers connect in
 the background at Pi startup; codemode is not Adapter's lazy lifecycle. Daem
@@ -149,6 +152,18 @@ and the selected agent-root namespace still apply during removal. Changing that
 namespace is not automatic migration of existing ownership. Native manifests,
 locks and state require a Native-aware daem build; older readers may refuse the
 backend field or codec rather than reinterpret it as Adapter.
+
+
+Builtin selection keeps Pi's two settings-layer rules: user forced exclusion
+beats forced inclusion; the last matching project override wins. Plain entries
+do not override builtin selection. Passive matching supports exact
+`+builtin:mcp` / `-builtin:mcp` selectors (including `./` and normalized
+backslash aliases), and slash-free `!` exclusion patterns with `*` and `?`.
+Full Minimatch and root-relative aliases are outside this static envelope.
+Selection that depends on unmodelled syntax refuses publication without a
+backend fallback; a decisive supported override may resolve the uncertainty.
+Pi owns full selector interpretation. Additional static syntax requires
+separately verified matching support.
 
 Unsupported: native import, automatic Adapter-to-Native migration, HTTP/OAuth,
 custom managed exposure, trust approval, live session/server probes, native

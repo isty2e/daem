@@ -25,11 +25,10 @@ func qualifyPiNativeSettings(contract profile.PiMCPContract, scope target.Scope,
 	if err != nil {
 		return err
 	}
-	globalEnabled := profile.PiMCPBuiltinEnabled(true, global.mcpSelection)
-	projectEnabled := profile.PiMCPBuiltinEnabled(globalEnabled, project.mcpSelection)
 	return contract.QualifyNativeHost(profile.PiNativeHostFacts{
-		Version: version, Scope: scope, GlobalBuiltinEnabled: globalEnabled, ProjectBuiltinEnabled: projectEnabled,
-		AdapterDeclared: global.adapterDeclared || project.adapterDeclared,
+		Version: version, Scope: scope,
+		BuiltinSelection: profile.ResolvePiMCPBuiltinSelection(global.mcpSelection, project.mcpSelection),
+		AdapterDeclared:  global.adapterDeclared || project.adapterDeclared,
 	})
 }
 

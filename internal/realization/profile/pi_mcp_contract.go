@@ -119,24 +119,10 @@ func (contract PiMCPContract) Placement(scope target.Scope) (aggregate.MCPPlacem
 
 // PiNativeHostFacts qualifies configuration selection, not trust or runtime connectivity.
 type PiNativeHostFacts struct {
-	Version               PiMCPVersion
-	Scope                 target.Scope
-	GlobalBuiltinEnabled  bool
-	ProjectBuiltinEnabled bool
-	AdapterDeclared       bool
-}
-
-// PiMCPBuiltinEnabled evaluates builtin directives in one ordered settings layer.
-func PiMCPBuiltinEnabled(base bool, directives []string) bool {
-	for _, directive := range directives {
-		switch directive {
-		case "-builtin:mcp":
-			base = false
-		case "+builtin:mcp", "builtin:mcp":
-			base = true
-		}
-	}
-	return base
+	Version          PiMCPVersion
+	Scope            target.Scope
+	BuiltinSelection PiMCPBuiltinSelection
+	AdapterDeclared  bool
 }
 
 // PiMCPAdapterPackageSource identifies configured npm replacement intent, independent of version admission.
@@ -153,8 +139,8 @@ func (contract PiMCPContract) QualifyNativeHost(facts PiNativeHostFacts) error {
 	if facts.Scope != target.ScopeProject && facts.Scope != target.ScopeGlobal {
 		return fmt.Errorf("native Pi MCP qualification requires project or global scope")
 	}
-	if !facts.ProjectBuiltinEnabled || (facts.Scope == target.ScopeGlobal && !facts.GlobalBuiltinEnabled) {
-		return fmt.Errorf("native Pi MCP builtin is disabled in the applicable settings envelope; no settings were changed")
+	if err := facts.BuiltinSelection.requireEnabled(facts.Scope); err != nil {
+		return err
 	}
 	if facts.AdapterDeclared {
 		return fmt.Errorf("configured pi-mcp-adapter may replace the native MCP builtin; package removal is separate and no backend fallback was performed")

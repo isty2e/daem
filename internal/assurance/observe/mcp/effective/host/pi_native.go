@@ -75,17 +75,25 @@ func ObservePiNative(input PiNativeInput) (mcpeffective.Observation, error) {
 					source.DefinitionEquivalence = mcpeffective.DefinitionEquivalenceUnknown
 					comparison := content
 					if index == 1 && selectedIndex == 0 {
-						merged, mergeErr := nativeProjectDefinition(entry, []byte(contribution.CanonicalContribution()))
+						base := []byte(contribution.CanonicalContribution())
+						if input.Retiring {
+							base = nil
+						}
+						merged, override, mergeErr := nativeProjectDefinition(entry, base)
 						if mergeErr != nil {
 							source.State = mcpeffective.SourceOpaque
 							source.DefinesSelectedName = false
 							source.DefinitionEquivalence = mcpeffective.DefinitionEquivalenceNotApplicable
 							source.Detail = mergeErr.Error()
+						} else if override && input.Retiring {
+							source.DefinesSelectedName = false
+							source.DefinitionEquivalence = mcpeffective.DefinitionEquivalenceNotApplicable
+							source.DependsOnRemovedDefinition = true
 						} else {
 							comparison, _ = json.Marshal(map[string]json.RawMessage{"mcpServers": mustNativeServerMap(name, merged)})
 						}
 					}
-					if source.State == mcpeffective.SourceExact {
+					if source.State == mcpeffective.SourceExact && source.DefinesSelectedName {
 						source.DefinitionEquivalence = compareNormalDefinition(comparison, contribution, selection, codec)
 					}
 				}
@@ -135,37 +143,43 @@ func decodeNativeConfig(content []byte, selectedName string) (map[string]json.Ra
 	return servers, nil
 }
 
-func nativeProjectDefinition(project json.RawMessage, global json.RawMessage) (json.RawMessage, error) {
+func nativeProjectDefinition(project json.RawMessage, global json.RawMessage) (json.RawMessage, bool, error) {
 	var entry map[string]json.RawMessage
 	if err := json.Unmarshal(project, &entry); err != nil || entry == nil {
-		return nil, fmt.Errorf("native Pi project entry is not an object")
+		return nil, false, fmt.Errorf("native Pi project entry is not an object")
 	}
 	for _, field := range []string{"command", "url", "type"} {
 		if _, exists := entry[field]; exists {
-			return project, nil
+			return project, false, nil
 		}
-	}
-	var base map[string]json.RawMessage
-	if err := json.Unmarshal(global, &base); err != nil || base == nil {
-		return nil, fmt.Errorf("native Pi override has no comparable global definition")
 	}
 	for field, value := range entry {
 		switch field {
 		case "enabled":
 			if !bytes.Equal(value, []byte("true")) && !bytes.Equal(value, []byte("false")) {
-				return nil, fmt.Errorf("native Pi override enabled must be boolean")
+				return nil, false, fmt.Errorf("native Pi override enabled must be boolean")
 			}
 		case "exposure":
 			var exposure string
 			if err := json.Unmarshal(value, &exposure); err != nil {
-				return nil, fmt.Errorf("native Pi override exposure must be a string")
+				return nil, false, fmt.Errorf("native Pi override exposure must be a string")
 			}
 		case "toolExposure":
 			// Per-tool exposure is outside the managed native contribution contract.
 		default:
-			return nil, fmt.Errorf("native Pi partial overrides may set only enabled, exposure and toolExposure")
+			return nil, false, fmt.Errorf("native Pi partial overrides may set only enabled, exposure and toolExposure")
 		}
+	}
+	if len(global) == 0 {
+		return nil, true, nil
+	}
+	var base map[string]json.RawMessage
+	if err := json.Unmarshal(global, &base); err != nil || base == nil {
+		return nil, false, fmt.Errorf("native Pi override has no comparable global definition")
+	}
+	for field, value := range entry {
 		base[field] = value
 	}
-	return json.Marshal(base)
+	merged, err := json.Marshal(base)
+	return merged, true, err
 }

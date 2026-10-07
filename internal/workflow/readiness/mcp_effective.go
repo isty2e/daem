@@ -131,7 +131,12 @@ func providerEffectiveRemovalNotices(
 		detail := "managed MCP config entry will be removed; "
 		switch observation.State() {
 		case mcpeffective.StateExact:
-			detail += "no other same-name definition was observed"
+			if overrides := observation.DependentOverrideSources(); len(overrides) > 0 {
+				detail += "an unowned project override depends on the removed definition and cannot independently define the server"
+				detail += effectiveSourceLocation(overrides)
+			} else {
+				detail += "no other same-name definition was observed"
+			}
 		case mcpeffective.StateConflicting:
 			switch {
 			case observation.HigherConflictPresent() &&

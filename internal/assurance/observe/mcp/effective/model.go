@@ -59,28 +59,30 @@ const (
 
 // SourceObservationInput is constructor input for one active config source.
 type SourceObservationInput struct {
-	ID                    string
-	Path                  string
-	Kind                  SourceKind
-	Precedence            RelativePrecedence
-	Shared                bool
-	State                 SourceState
-	DefinesSelectedName   bool
-	DefinitionEquivalence DefinitionEquivalence
-	Detail                string
+	ID                         string
+	Path                       string
+	Kind                       SourceKind
+	Precedence                 RelativePrecedence
+	Shared                     bool
+	State                      SourceState
+	DefinesSelectedName        bool
+	DefinitionEquivalence      DefinitionEquivalence
+	DependsOnRemovedDefinition bool
+	Detail                     string
 }
 
 // SourceObservation is redaction-safe provenance for one active config source.
 type SourceObservation struct {
-	id                    string
-	path                  string
-	kind                  SourceKind
-	precedence            RelativePrecedence
-	shared                bool
-	state                 SourceState
-	definesSelectedName   bool
-	definitionEquivalence DefinitionEquivalence
-	detail                string
+	id                         string
+	path                       string
+	kind                       SourceKind
+	precedence                 RelativePrecedence
+	shared                     bool
+	state                      SourceState
+	definesSelectedName        bool
+	definitionEquivalence      DefinitionEquivalence
+	dependsOnRemovedDefinition bool
+	detail                     string
 }
 
 // NewSourceObservation validates and constructs one source observation.
@@ -115,6 +117,11 @@ func NewSourceObservation(input SourceObservationInput) (SourceObservation, erro
 			input.ID,
 		)
 	}
+
+	if input.DependsOnRemovedDefinition && (input.State != SourceExact || input.Kind != SourceNormal || input.Precedence != PrecedenceHigher || input.DefinesSelectedName) {
+		return SourceObservation{}, fmt.Errorf("dependent effective MCP override requires an exact higher non-defining normal source")
+	}
+
 	switch {
 	case !input.DefinesSelectedName &&
 		input.DefinitionEquivalence != DefinitionEquivalenceNotApplicable:
@@ -144,15 +151,16 @@ func NewSourceObservation(input SourceObservationInput) (SourceObservation, erro
 		)
 	}
 	return SourceObservation{
-		id:                    input.ID,
-		path:                  input.Path,
-		kind:                  input.Kind,
-		precedence:            input.Precedence,
-		shared:                input.Shared,
-		state:                 input.State,
-		definesSelectedName:   input.DefinesSelectedName,
-		definitionEquivalence: input.DefinitionEquivalence,
-		detail:                input.Detail,
+		id:                         input.ID,
+		path:                       input.Path,
+		kind:                       input.Kind,
+		precedence:                 input.Precedence,
+		shared:                     input.Shared,
+		state:                      input.State,
+		definesSelectedName:        input.DefinesSelectedName,
+		definitionEquivalence:      input.DefinitionEquivalence,
+		dependsOnRemovedDefinition: input.DependsOnRemovedDefinition,
+		detail:                     input.Detail,
 	}, nil
 }
 
@@ -163,6 +171,10 @@ func (source SourceObservation) Precedence() RelativePrecedence { return source.
 func (source SourceObservation) Shared() bool                   { return source.shared }
 func (source SourceObservation) State() SourceState             { return source.state }
 func (source SourceObservation) DefinesSelectedName() bool      { return source.definesSelectedName }
+
+func (source SourceObservation) DependsOnRemovedDefinition() bool {
+	return source.dependsOnRemovedDefinition
+}
 
 func (source SourceObservation) DefinitionEquivalence() DefinitionEquivalence {
 	return source.definitionEquivalence
@@ -375,6 +387,18 @@ func (observation Observation) sameNameSourcesAt(
 		if source.State() == SourceExact &&
 			source.DefinesSelectedName() &&
 			source.Precedence() == precedence {
+			result = append(result, source)
+		}
+	}
+	return result
+}
+
+// DependentOverrideSources returns exact higher overrides that lose their base
+// when the selected definition is removed, rather than independent survivors.
+func (observation Observation) DependentOverrideSources() []SourceObservation {
+	result := make([]SourceObservation, 0)
+	for _, source := range observation.sources {
+		if source.DependsOnRemovedDefinition() {
 			result = append(result, source)
 		}
 	}
