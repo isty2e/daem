@@ -213,24 +213,36 @@ certification are unsupported. Git locator parsing failure or an unmodelled
 hosted alias refuses qualification rather than proving Adapter absence; full
 hosted-alias parity is unsupported.
 
+Package carrier admission is narrower than daem's generic Git locator grammar.
+Bare `github:owner/repo` and `git+https://...` entries are local paths in Pi
+1.0.2; they are not Git declarations. The Native Git intent check recognizes
+`git:` declarations and explicit lowercase `https://`, `http://`, `ssh://` or
+`git://` locators. Native Git qualification requires a host, owner and
+repository. Other prefix-looking local filenames, such as `builtin:entry.ts` or `http:entry.ts`,
+still receive the local metadata check; a prefix alone does not exclude them.
+
 Local path resolution trims surrounding whitespace after source dispatch, not
 before classifying npm/Git carriers. Relative paths resolve from their settings
 directory; a whitespace-only local source resolves to that directory itself.
-A direct local file uses its parent's metadata because Pi loads that file
-without applying package filters. Directory names alone do not identify the
-Adapter. Missing or differently named metadata does not certify custom extension
-behavior; arbitrary renamed/custom runtime replacement remains outside this
-observation. Malformed or unreadable present local metadata refuses qualification.
+A direct local file checks its configured parent and its resolved target's
+parent, retaining both metadata contexts when a file symlink crosses package
+directories. Relative and chained links are resolved; metadata lookup does not
+scan additional ancestors. Either context naming the Adapter refuses qualification. Pi loads
+direct files without applying package filters. Directory names alone do not
+identify the Adapter. Missing or differently named metadata does not certify
+custom extension behavior; arbitrary renamed/custom runtime replacement remains
+outside this observation. Malformed or unreadable present local metadata refuses qualification.
 Native absolute/relative paths, observable `~` paths and canonical absolute local
 `file://` URLs are supported for this metadata check; other URL authorities and
 noncanonical aliases are unsupported.
 
 The same local metadata check applies to plain paths in either settings file's
 top-level `extensions` array, independently of `packages`. It reads the supplied
-directory's metadata, or a direct file's parent metadata; it does not search
-ancestors or recursively discover other extensions. These entries are local paths,
-not npm/Git carriers. Leading `!`, `+`, `-`, and entries containing `*` or `?`
-are selection patterns, not new discovery paths. Pattern classification uses the
+directory's metadata, or the direct file's configured and resolved target-parent
+metadata; it does not search ancestors or recursively discover other extensions.
+These entries are local paths, not npm/Git carriers. Leading `!`, `+`, `-`, and
+entries containing `*` or `?` are selection patterns, not new discovery paths.
+Pattern classification uses the
 original entry before local whitespace trimming. An explicit path whose metadata
 identifies the Adapter refuses qualification even with other filter entries;
 local filter-based disablement is unsupported. Automatic or custom runtime

@@ -133,6 +133,17 @@ type PiNativeHostFacts struct {
 	AdapterDeclared  bool
 }
 
+// PiMCPPackageSourceIsLocal selects local metadata observation within Native's
+// carrier envelope; nonlocal carriers still require locator admission.
+func PiMCPPackageSourceIsLocal(source string) bool {
+	if strings.HasPrefix(source, "npm:") {
+		return false
+	}
+	value := strings.TrimSpace(source)
+	return !strings.HasPrefix(value, "git:") && !strings.HasPrefix(value, "https://") &&
+		!strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "ssh://")
+}
+
 // PiMCPAdapterPackageSource identifies npm or official Git replacement intent,
 // not managed-provider admission, installation or activation.
 func PiMCPAdapterPackageSource(source string) (bool, error) {
@@ -148,10 +159,10 @@ func PiMCPAdapterPackageSource(source string) (bool, error) {
 		}
 		return spec.Name() == piMCPProviderPackageName, nil
 	}
-	value := strings.TrimSpace(source)
-	if !strings.HasPrefix(value, "git:") && !strings.HasPrefix(value, "https://") && !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "ssh://") {
+	if PiMCPPackageSourceIsLocal(source) {
 		return false, nil
 	}
+	value := strings.TrimSpace(source)
 	if strings.HasPrefix(value, "git://") {
 		value = "git:" + value
 	} else if strings.HasPrefix(value, "git:github:") {
@@ -161,7 +172,11 @@ func PiMCPAdapterPackageSource(source string) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("native Pi MCP Git package source is outside the canonical locator envelope")
 	}
-	host := strings.SplitN(git.Identity(), "/", 2)[0]
+	locator := strings.SplitN(git.Identity(), "/", 2)
+	if len(strings.Split(locator[1], "/")) < 2 {
+		return false, fmt.Errorf("native Pi MCP Git package source requires a host, owner and repository")
+	}
+	host := locator[0]
 	if !strings.ContainsAny(host, ".:") && host != "localhost" {
 		return false, fmt.Errorf("native Pi MCP Git hosted aliases are outside the canonical locator envelope")
 	}

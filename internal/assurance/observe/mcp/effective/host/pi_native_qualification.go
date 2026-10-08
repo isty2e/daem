@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
@@ -83,11 +84,11 @@ func observePiNativeSettings(ctx context.Context, path string, scope target.Scop
 				continue
 			}
 
-			name, err := observeNativeLocalPathPackageName(ctx, entry, filepath.Dir(path))
+			names, err := observeNativeLocalPathPackageNames(ctx, entry, filepath.Dir(path))
 			if err != nil {
 				return piNativeSettings{}, err
 			}
-			if name == "pi-mcp-adapter" {
+			if slices.Contains(names, "pi-mcp-adapter") {
 				return piNativeSettings{}, fmt.Errorf("native Pi MCP cannot qualify a local Adapter extension through the npm selector contract")
 			}
 		}
@@ -133,11 +134,11 @@ func observePiNativeSettings(ctx context.Context, path string, scope target.Scop
 				}
 				settings.adapterPackages = append(settings.adapterPackages, adapter)
 			} else {
-				name, err := observeNativeLocalPackageName(ctx, source, filepath.Dir(path))
+				names, err := observeNativeLocalPackageNames(ctx, source, filepath.Dir(path))
 				if err != nil {
 					return piNativeSettings{}, err
 				}
-				if name == "pi-mcp-adapter" {
+				if slices.Contains(names, "pi-mcp-adapter") {
 					return piNativeSettings{}, fmt.Errorf("native Pi MCP cannot qualify a local Adapter package through the npm selector contract")
 				}
 			}

@@ -11,39 +11,69 @@ import (
 
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/filesnapshot"
+	"github.com/isty2e/daem/internal/realization/profile"
 )
 
-func observeNativeLocalPackageName(ctx context.Context, source, settingsBase string) (string, error) {
-	for _, prefix := range []string{"npm:", "git:", "http:", "https:", "ssh:", "builtin:"} {
-		if strings.HasPrefix(source, prefix) {
-			return "", nil
-		}
+func observeNativeLocalPackageNames(ctx context.Context, source, settingsBase string) ([]string, error) {
+	if !profile.PiMCPPackageSourceIsLocal(source) {
+		return nil, nil
 	}
-	return observeNativeLocalPathPackageName(ctx, source, settingsBase)
+	return observeNativeLocalPathPackageNames(ctx, source, settingsBase)
 }
 
-func observeNativeLocalPathPackageName(ctx context.Context, source, settingsBase string) (string, error) {
+func observeNativeLocalPathPackageNames(ctx context.Context, source, settingsBase string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return nil, err
 	}
 	location, err := nativeLocalPackagePath(source, settingsBase)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	info, err := os.Stat(location)
 	if os.IsNotExist(err) {
-		return "", nil
+		return nil, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("native Pi MCP local package location cannot be observed")
+		return nil, fmt.Errorf("native Pi MCP local package location cannot be observed")
 	}
-	if info.Mode().IsRegular() {
-		location = filepath.Dir(location)
-	} else if !info.IsDir() {
-		return "", nil
+	if !info.Mode().IsRegular() && !info.IsDir() {
+		return nil, nil
+	}
+	resolved, err := filepath.EvalSymlinks(location)
+	if err != nil {
+		return nil, fmt.Errorf("native Pi MCP local package target cannot be resolved")
 	}
 
-	content, exists, err := filesnapshot.ReadRegularFileContext(ctx, filepath.Join(location, "package.json"), maximumConfigBytes)
+	metadataDirectories := []string{resolved}
+	if info.Mode().IsRegular() {
+		configuredParent, err := filepath.EvalSymlinks(filepath.Dir(location))
+		if err != nil {
+			return nil, fmt.Errorf("native Pi MCP local package parent cannot be resolved")
+		}
+		metadataDirectories = []string{configuredParent}
+		if targetParent := filepath.Dir(resolved); targetParent != configuredParent {
+			metadataDirectories = append(metadataDirectories, targetParent)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(metadataDirectories))
+	for _, directory := range metadataDirectories {
+		name, err := readNativeLocalPackageName(ctx, directory)
+		if err != nil {
+			return nil, err
+		}
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
+func readNativeLocalPackageName(ctx context.Context, directory string) (string, error) {
+	content, exists, err := filesnapshot.ReadRegularFileContext(ctx, filepath.Join(directory, "package.json"), maximumConfigBytes)
 	if err != nil {
 		return "", fmt.Errorf("native Pi MCP local package metadata cannot be read as a bounded regular file")
 	}
