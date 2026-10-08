@@ -185,9 +185,38 @@ exclusions and exact `+`/`-` paths. They require observable installed metadata
 with a matching stable exact/caret npm selector and a finite explicit JS/TS
 file inventory; no entrypoint is assumed across package versions. Full
 Minimatch, noncanonical path aliases, comment patterns, Unicode glob matching,
-directory/glob/override inventories and unresolved metadata are outside this passive
-proof and refuse dependent Native publication.
+directory/glob/override inventories and unresolved metadata are outside this static
+selection proof and refuse dependent Native publication.
 Resource selection does not prove extension activation or project trust.
+
+For inventory-dependent filters, daem first selects the installation root.
+Project packages use `.pi/npm/node_modules/pi-mcp-adapter`. User packages prefer
+`<Pi agent root>/npm/node_modules/pi-mcp-adapter` whenever that path exists;
+missing or malformed metadata there does not permit a legacy-root retry. A
+project `autoload: false` delta uses the user package's source and installation
+scope, not a separate project installation.
+
+When the managed user path is absent, Native qualification may run standard
+package-location queries: npm `root -g`, pnpm `list -g --depth 0 --json`, or
+Bun `pm bin -g`. pnpm's first matching dependency path is used directly; a
+successful listing without a matching path falls back to `root -g`. Bun's bin
+directory determines `../install/global/node_modules`. These queries use the
+operation's working directory and inherited environment. The applicable
+project `npmCommand` replaces the user's setting in the project-participating
+context; the additional user-only context uses the user's setting. Absent,
+null or empty settings mean npm. Only a single direct npm, pnpm or Bun
+executable is admitted, including absolute executable paths and native
+`.cmd`/`.exe` suffixes. Wrappers, extra command arguments and directory-relative
+executable paths are unsupported and are not executed.
+
+Location queries are bounded and cancellable; returned locations must be
+absolute native paths. Query failure, malformed/truncated output or invalid
+selected metadata refuses dependent qualification, rather than proving that
+the Adapter is absent or disabled. A failed pnpm listing, an absent listed
+package path or incompatible selected metadata does not trigger another root
+search. No query is needed for inventory-independent selection or an existing
+managed root. Daem does not request package installation/update or server
+startup through these queries, and location evidence does not prove activation.
 
 Unsupported: native import, automatic Adapter-to-Native migration, HTTP/OAuth,
 custom managed exposure, trust approval, live session/server probes, native

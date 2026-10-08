@@ -241,9 +241,16 @@ daem apply --target pi --dry-run --diff
 ```
 
 - For Native, an unobservable/incompatible Pi version, disabled builtin or
-  configured Adapter replacement refuses publication. Inspect the diagnostic
+  selected/unresolved Adapter extension refuses publication. Inspect the diagnostic
   and scoped settings; daem neither repairs them nor changes the backend.
   Enabled Native servers connect at Pi startup, subject to project trust.
+- Inventory-dependent Native package filters need matching metadata at Pi's
+  selected installation root. Existing managed storage preempts legacy storage,
+  even when its metadata is invalid. If managed user storage is absent, review
+  the applicable `npmCommand` and location-query diagnostic. Wrappers and extra
+  command arguments are unsupported; failed queries are not proof of Adapter
+  disablement. See [Pi Native And Adapter](host-integrations.md#pi-native-and-adapter)
+  for root precedence and the supported query forms.
 - For Adapter, `provider_prerequisite` reports package presence and the freshly observed
   exact version separately from config projection. Supported stable versions
   are `>=2.13.0` and `<3.0.0`; `2.15.0` is the deeply inspected artifact, not a

@@ -871,6 +871,11 @@ Status is read-only. It reports convergence across desired resources, exact
 lock identity, managed-state ownership, current host observations, modeled
 relation observations, and retained historical attempt diagnostics.
 
+Read-only means no managed configuration or state mutation. For Native Pi MCP,
+status may run bounded version and, when needed, standard package-location
+queries; see [Pi Native And Adapter](host-integrations.md#pi-native-and-adapter).
+These queries do not request installation, updates or server startup.
+
 Default output prints totals, every planned mutation, blocker, drift,
 unsupported/ambiguous class, binding-removal result, and uncertain host-route
 class. It omits routine no-ops, state/content paths, internal reason fields,
@@ -899,7 +904,9 @@ daem apply [--manifest <path>] [--target <target> ...]
 ```
 
 `apply --dry-run` reports every selected mutation, blocker, delegated/host
-route, destructive implication, and uncertain postcondition without executing.
+route, destructive implication, and uncertain postcondition without performing
+those mutations or routes. Native Pi MCP qualification may run the same
+bounded observation queries described under [status](#status).
 Bare apply under the three-stream terminal contract discloses the same effect
 plan and asks once. Non-interactive apply requires `--yes`. Every selected
 supported config action and delegated route is ordinary apply work; there is no

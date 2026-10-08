@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -40,7 +41,7 @@ func selectNativeAdapterPackages(global, project []piNativeAdapterPackage) []piN
 	return append([]piNativeAdapterPackage{selected}, global...)
 }
 
-func nativeAdapterResourcesSelected(packages []piNativeAdapterPackage, workDir, agentRoot string) (bool, error) {
+func nativeAdapterResourcesSelected(ctx context.Context, packages []piNativeAdapterPackage, settings piNativePackageContext) (bool, error) {
 	needsInventory := false
 	for _, entry := range packages {
 		needsInventory = needsInventory || len(entry.patterns) != 0
@@ -67,7 +68,7 @@ func nativeAdapterResourcesSelected(packages []piNativeAdapterPackage, workDir, 
 		}
 	}
 
-	resources, version, err := observeNativeAdapterInventory(packages[0], workDir, agentRoot)
+	resources, version, err := observeNativeAdapterInventory(ctx, packages[0], settings)
 	if err != nil {
 		return false, err
 	}
@@ -105,12 +106,11 @@ func nativeAdapterResourcesSelected(packages []piNativeAdapterPackage, workDir, 
 	return false, nil
 }
 
-func observeNativeAdapterInventory(entry piNativeAdapterPackage, workDir, agentRoot string) ([]string, string, error) {
-	root := agentRoot
-	if entry.scope == target.ScopeProject {
-		root = filepath.Join(workDir, ".pi")
+func observeNativeAdapterInventory(ctx context.Context, entry piNativeAdapterPackage, settings piNativePackageContext) ([]string, string, error) {
+	packageRoot, err := nativeAdapterPackageRoot(ctx, entry.scope, settings)
+	if err != nil {
+		return nil, "", err
 	}
-	packageRoot := filepath.Join(root, "npm", "node_modules", "pi-mcp-adapter")
 	content, exists, err := filesnapshot.ReadRegularFile(filepath.Join(packageRoot, "package.json"), maximumConfigBytes)
 	if err != nil || !exists || jsonstrict.Validate(content, "Pi adapter package metadata", maximumConfigDepth) != nil {
 		return nil, "", fmt.Errorf("native Pi MCP package filters require observable strict installed package metadata")
@@ -193,7 +193,7 @@ type nativeResourcePattern struct {
 	value  string
 }
 
-// Full Minimatch parity is outside the passive contract in docs/host-integrations.md.
+// Full Minimatch parity is outside the static selector envelope in docs/host-integrations.md.
 func newNativeResourcePattern(directive string) (nativeResourcePattern, error) {
 	pattern := nativeResourcePattern{value: strings.ReplaceAll(directive, `\`, "/")}
 	if pattern.value != "" {

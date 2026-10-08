@@ -118,7 +118,7 @@ func Observe(input Input) (ObservationSet, error) {
 						}
 						nativeVersionObserved = true
 					}
-					if err := qualifyPiNativeSettings(piContract, projection.Contribution().Scope(), input.WorkDir, piAgentRoot, nativeVersion); err != nil {
+					if err := qualifyPiNativeSettings(input.Context, piContract, projection.Contribution().Scope(), input.WorkDir, piAgentRoot, nativeVersion); err != nil {
 						return mcpeffective.Observation{}, err
 					}
 				}

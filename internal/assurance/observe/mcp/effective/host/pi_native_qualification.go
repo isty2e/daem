@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -14,9 +15,10 @@ import (
 type piNativeSettings struct {
 	mcpSelection    []string
 	adapterPackages []piNativeAdapterPackage
+	npmCommand      json.RawMessage
 }
 
-func qualifyPiNativeSettings(contract profile.PiMCPContract, scope target.Scope, workDir string, agentRoot string, version profile.PiMCPVersion) error {
+func qualifyPiNativeSettings(ctx context.Context, contract profile.PiMCPContract, scope target.Scope, workDir string, agentRoot string, version profile.PiMCPVersion) error {
 	global, err := observePiNativeSettings(filepath.Join(agentRoot, "settings.json"), target.ScopeGlobal)
 	if err != nil {
 		return err
@@ -25,13 +27,21 @@ func qualifyPiNativeSettings(contract profile.PiMCPContract, scope target.Scope,
 	if err != nil {
 		return err
 	}
-	contexts := [][]piNativeAdapterPackage{selectNativeAdapterPackages(global.adapterPackages, project.adapterPackages)}
+	npmCommand := global.npmCommand
+	if project.npmCommand != nil {
+		npmCommand = project.npmCommand
+	}
+	type packageSelection struct {
+		packages   []piNativeAdapterPackage
+		npmCommand json.RawMessage
+	}
+	contexts := []packageSelection{{selectNativeAdapterPackages(global.adapterPackages, project.adapterPackages), npmCommand}}
 	if scope == target.ScopeGlobal {
-		contexts = append(contexts, selectNativeAdapterPackages(global.adapterPackages, nil))
+		contexts = append(contexts, packageSelection{selectNativeAdapterPackages(global.adapterPackages, nil), global.npmCommand})
 	}
 	adapterSelected := false
-	for _, packages := range contexts {
-		selected, err := nativeAdapterResourcesSelected(packages, workDir, agentRoot)
+	for _, selection := range contexts {
+		selected, err := nativeAdapterResourcesSelected(ctx, selection.packages, piNativePackageContext{workDir: workDir, agentRoot: agentRoot, npmCommand: selection.npmCommand})
 		if err != nil {
 			return err
 		}
@@ -60,6 +70,7 @@ func observePiNativeSettings(path string, scope target.Scope) (piNativeSettings,
 		return piNativeSettings{}, fmt.Errorf("native Pi MCP settings must be an object")
 	}
 	settings := piNativeSettings{}
+	settings.npmCommand = fields["npmCommand"]
 	if raw, exists := fields["extensions"]; exists {
 		settings.mcpSelection, err = nativeSettingsStringArray(raw)
 		if err != nil {

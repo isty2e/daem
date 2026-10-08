@@ -85,7 +85,7 @@ func TestPiNativeSettingsQualification(t *testing.T) {
 		workDir, agentRoot := filepath.Join(root, "project"), filepath.Join(root, "agent")
 		writeEffectiveConfig(t, filepath.Join(agentRoot, "settings.json"), test.global)
 		writeEffectiveConfig(t, filepath.Join(workDir, ".pi", "settings.json"), test.project)
-		err := qualifyPiNativeSettings(contract, target.ScopeProject, workDir, agentRoot, profile.ObservePiMCPVersion("1.0.2"))
+		err := qualifyPiNativeSettings(t.Context(), contract, target.ScopeProject, workDir, agentRoot, profile.ObservePiMCPVersion("1.0.2"))
 		if (err == nil) != test.accepted {
 			t.Fatalf("qualification for %s/%s = %v", test.global, test.project, err)
 		}

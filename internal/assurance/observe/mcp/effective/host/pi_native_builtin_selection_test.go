@@ -46,7 +46,7 @@ func TestPiNativeBuiltinQualificationMatchesUpstreamSelections(t *testing.T) {
 				}
 
 				accepted := test.ProjectEnabled && (scope == target.ScopeProject || test.GlobalEnabled)
-				err := qualifyPiNativeSettings(contract, scope, workDir, agentRoot, profile.ObservePiMCPVersion("1.0.2"))
+				err := qualifyPiNativeSettings(t.Context(), contract, scope, workDir, agentRoot, profile.ObservePiMCPVersion("1.0.2"))
 				if (err == nil) != accepted {
 					t.Fatalf("qualification accepted=%t, want %t: %v", err == nil, accepted, err)
 				}

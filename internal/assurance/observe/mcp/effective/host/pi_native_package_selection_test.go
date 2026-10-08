@@ -72,7 +72,7 @@ func TestPiNativePackageInventoryRefusals(t *testing.T) {
 				writeEffectiveConfig(t, filepath.Join(packageRoot, "package.json"), test.metadata)
 			}
 			entry := piNativeAdapterPackage{source: "npm:pi-mcp-adapter@2.15.0", scope: target.ScopeProject, filtered: true, patterns: []string{"-index.ts"}}
-			if selected, err := nativeAdapterResourcesSelected([]piNativeAdapterPackage{entry}, workDir, agentRoot); err == nil || selected {
+			if selected, err := nativeAdapterResourcesSelected(t.Context(), []piNativeAdapterPackage{entry}, piNativePackageContext{workDir: workDir, agentRoot: agentRoot}); err == nil || selected {
 				t.Fatalf("unobserved package inventory qualified Native: selected=%t, err=%v", selected, err)
 			}
 		})
@@ -86,7 +86,7 @@ func TestPiNativeProjectPackageDeltaUsesUserInstallationAndSelector(t *testing.T
 	global := []piNativeAdapterPackage{{source: "npm:pi-mcp-adapter@^2.13.0", scope: target.ScopeGlobal}}
 	project := []piNativeAdapterPackage{{source: "npm:pi-mcp-adapter@2.13.0", scope: target.ScopeProject, filtered: true, delta: true, patterns: []string{"-index.ts"}}}
 	packages := selectNativeAdapterPackages(global, project)
-	if selected, err := nativeAdapterResourcesSelected(packages, workDir, agentRoot); err != nil || selected {
+	if selected, err := nativeAdapterResourcesSelected(t.Context(), packages, piNativePackageContext{workDir: workDir, agentRoot: agentRoot}); err != nil || selected {
 		t.Fatalf("project delta used its own source/installation instead of the user base: selected=%t, err=%v", selected, err)
 	}
 }
@@ -97,7 +97,7 @@ func TestPiNativeEmptyProjectDeltaPreservesFirstUserResourceDecision(t *testing.
 		{source: "npm:pi-mcp-adapter@2.15.0", scope: target.ScopeGlobal},
 	}
 	project := []piNativeAdapterPackage{{source: "npm:pi-mcp-adapter@2.13.0", scope: target.ScopeProject, delta: true}}
-	if selected, err := nativeAdapterResourcesSelected(selectNativeAdapterPackages(global, project), t.TempDir(), t.TempDir()); err != nil || selected {
+	if selected, err := nativeAdapterResourcesSelected(t.Context(), selectNativeAdapterPackages(global, project), piNativePackageContext{workDir: t.TempDir(), agentRoot: t.TempDir()}); err != nil || selected {
 		t.Fatalf("empty delta discarded the first disabled user resource decision: selected=%t, err=%v", selected, err)
 	}
 }
@@ -111,11 +111,11 @@ func TestPiNativePackageMatchingDoesNotGuessMinimatchAliasesOrUnicode(t *testing
 	workDir, agentRoot := t.TempDir(), t.TempDir()
 	writeEffectiveConfig(t, filepath.Join(workDir, ".pi", "npm", "node_modules", "pi-mcp-adapter", "package.json"), `{"name":"pi-mcp-adapter","version":"2.15.0","pi":{"extensions":["😀.ts"]}}`)
 	entry := piNativeAdapterPackage{source: "npm:pi-mcp-adapter@2.15.0", scope: target.ScopeProject, filtered: true, patterns: []string{"!?.ts"}}
-	if selected, err := nativeAdapterResourcesSelected([]piNativeAdapterPackage{entry}, workDir, agentRoot); err == nil || selected {
+	if selected, err := nativeAdapterResourcesSelected(t.Context(), []piNativeAdapterPackage{entry}, piNativePackageContext{workDir: workDir, agentRoot: agentRoot}); err == nil || selected {
 		t.Fatalf("Go rune matching was mistaken for upstream UTF-16 glob matching: selected=%t, err=%v", selected, err)
 	}
 	entry.patterns = []string{"-😀.ts"}
-	if selected, err := nativeAdapterResourcesSelected([]piNativeAdapterPackage{entry}, workDir, agentRoot); err != nil || selected {
+	if selected, err := nativeAdapterResourcesSelected(t.Context(), []piNativeAdapterPackage{entry}, piNativePackageContext{workDir: workDir, agentRoot: agentRoot}); err != nil || selected {
 		t.Fatalf("exact Unicode exclusion did not retain literal semantics: selected=%t, err=%v", selected, err)
 	}
 }
