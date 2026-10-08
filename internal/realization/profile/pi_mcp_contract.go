@@ -69,8 +69,8 @@ func SelectPiMCPContract(existing desiredmcp.Backend, explicitProvider bool, ver
 		if err != nil {
 			return PiMCPContract{}, err
 		}
-		if contract.Backend() == desiredmcp.BackendNative && explicitProvider {
-			return PiMCPContract{}, fmt.Errorf("native Pi MCP cannot be combined with a declared pi-mcp-adapter")
+		if err := AdmitPiMCPContext([]PiMCPContract{contract}, explicitProvider); err != nil {
+			return PiMCPContract{}, err
 		}
 		return contract, nil
 	}
@@ -90,13 +90,20 @@ func (contract PiMCPContract) RequiresProvider() bool {
 	return contract.backend == desiredmcp.BackendAdapter
 }
 
-// AdmitPeer rejects mixed native and adapter contracts in one Pi session context.
-func (contract PiMCPContract) AdmitPeer(peer desiredmcp.Backend) error {
-	if _, err := PiMCPContractForBackend(contract.backend); err != nil {
-		return err
-	}
-	if peer != contract.backend {
-		return fmt.Errorf("mixed native and adapter Pi MCP declarations are unsupported; existing bindings were not converted")
+// AdmitPiMCPContext checks compatibility of one current Pi binding/provider cohort.
+func AdmitPiMCPContext(contracts []PiMCPContract, adapterDeclared bool) error {
+	var selected desiredmcp.Backend
+	for _, contract := range contracts {
+		if _, err := PiMCPContractForBackend(contract.backend); err != nil {
+			return err
+		}
+		if selected != "" && selected != contract.backend {
+			return fmt.Errorf("mixed native and adapter Pi MCP declarations are unsupported; existing bindings were not converted")
+		}
+		if contract.backend == desiredmcp.BackendNative && adapterDeclared {
+			return fmt.Errorf("native Pi MCP cannot be combined with a declared pi-mcp-adapter")
+		}
+		selected = contract.backend
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -23,6 +24,7 @@ type lockedCollectionIndex struct {
 	pathProjectionContracts     map[topology.SubjectID]LockedSubjectContract
 	delegatedCarriers           map[topology.SubjectID]extensiontopology.Carrier
 	mcpProviderContracts        []LockedSubjectContract
+	piMCPContracts              []profile.PiMCPContract
 }
 
 type managedPathOccupancy struct {
@@ -58,6 +60,7 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 	pathProjectionCountByEntity := make(map[entity.ID]int)
 	delegatedCarriers := make(map[topology.SubjectID]extensiontopology.Carrier)
 	mcpProviderContracts := make([]LockedSubjectContract, 0)
+	piMCPContracts := make([]profile.PiMCPContract, 0)
 
 	nativeMCPNames := make([]string, 0)
 
@@ -99,8 +102,11 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			continue
 		}
 		if contribution, ok := realization.ManagedAggregateContribution(); ok {
-			if contribution.CodecContractID() == aggregate.MCPCodecPiNativeStdio {
-				nativeMCPNames = append(nativeMCPNames, subject.EntityID().Name())
+			if piContract, pi := profile.PiMCPContractForCodec(contribution.CodecContractID()); pi {
+				piMCPContracts = append(piMCPContracts, piContract)
+				if !piContract.RequiresProvider() {
+					nativeMCPNames = append(nativeMCPNames, subject.EntityID().Name())
+				}
 			}
 			key := managedAggregateOccupancy{
 				scope:         contribution.Scope(),
@@ -183,6 +189,7 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 		pathProjectionContracts:     pathProjectionContracts,
 		delegatedCarriers:           delegatedCarriers,
 		mcpProviderContracts:        mcpProviderContracts,
+		piMCPContracts:              piMCPContracts,
 	}, nil
 }
 
@@ -191,6 +198,7 @@ func validateLockedCollectionAdmission(index lockedCollectionIndex) error {
 		validateInstructionsPathProjectionCollection,
 		validateHookAssetPathProjectionCollection,
 		validateMCPProviderContributionCollection,
+		validatePiMCPContextCollection,
 	} {
 		if err := admit(index); err != nil {
 			return err

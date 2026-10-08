@@ -39,9 +39,18 @@ func MCPSubjects(
 	}
 
 	nativeNames := make([]string, 0)
+	piContracts := make([]profile.PiMCPContract, 0)
 	for _, server := range servers {
 		for _, binding := range server.Bindings() {
-			if binding.Target() == target.TargetPi && binding.Backend() == desiredmcp.BackendNative {
+			if binding.Target() != target.TargetPi {
+				continue
+			}
+			contract, err := profile.PiMCPContractForBackend(binding.Backend())
+			if err != nil {
+				return nil, err
+			}
+			piContracts = append(piContracts, contract)
+			if !contract.RequiresProvider() {
 				nativeNames = append(nativeNames, server.ID().Name())
 			}
 		}
@@ -52,6 +61,9 @@ func MCPSubjects(
 
 	providerCandidates, err := mcpProviderContributions(extensions)
 	if err != nil {
+		return nil, err
+	}
+	if err := profile.AdmitPiMCPContext(piContracts, len(providerCandidates) != 0); err != nil {
 		return nil, err
 	}
 	providerSelections, selectedProviders, err := selectMCPProviders(servers, providerCandidates)
@@ -203,9 +215,6 @@ func selectMCPProviders(
 				return nil, nil, err
 			}
 			if piContract, pi := profile.PiMCPContractForCodec(placement.CodecContractID()); pi && !piContract.RequiresProvider() {
-				if len(candidates) != 0 {
-					return nil, nil, fmt.Errorf("native Pi MCP cannot be combined with a declared pi-mcp-adapter")
-				}
 				continue
 			}
 			required, err := lock.MCPPlacementRequiresProviderContribution(placement.ID())

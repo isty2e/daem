@@ -102,6 +102,14 @@ func Observe(input Input) (ObservationSet, error) {
 				)
 			}
 			if piContract.Backend() == mcp.BackendNative {
+				nativeInput := PiNativeInput{
+					Projection: projection, Codecs: input.Codecs, WorkDir: input.WorkDir, AgentRoot: piAgentRoot,
+					SelectedPath: selectedPath, Retiring: retiring, peers: nativePeers,
+				}
+				sourceContext, err := newPiNativeSourceContext(projection.Contribution().Scope(), input.WorkDir, piAgentRoot, selectedPath)
+				if err != nil {
+					return mcpeffective.Observation{}, err
+				}
 				if !retiring {
 					if !nativeVersionObserved {
 						nativeVersion, err = ObservePiVersion(input.Context)
@@ -114,10 +122,7 @@ func Observe(input Input) (ObservationSet, error) {
 						return mcpeffective.Observation{}, err
 					}
 				}
-				return ObservePiNative(PiNativeInput{
-					Projection: projection, Codecs: input.Codecs, WorkDir: input.WorkDir, AgentRoot: piAgentRoot,
-					SelectedPath: selectedPath, Retiring: retiring, peers: nativePeers,
-				})
+				return observePiNative(nativeInput, sourceContext)
 			}
 			if piHomeDir == "" {
 				piHomeDir, err = os.UserHomeDir()

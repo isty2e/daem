@@ -139,3 +139,18 @@ func validateMCPProviderContributionCollection(index lockedCollectionIndex) erro
 	}
 	return nil
 }
+
+func validatePiMCPContextCollection(index lockedCollectionIndex) error {
+	if len(index.piMCPContracts) == 0 {
+		return nil
+	}
+	adapterDeclared := false
+	for _, carrier := range index.delegatedCarriers {
+		_, admitted, err := profile.MCPProviderContributionForTarget(carrier.Key().Target(), carrier)
+		if err != nil {
+			return err
+		}
+		adapterDeclared = adapterDeclared || admitted
+	}
+	return profile.AdmitPiMCPContext(index.piMCPContracts, adapterDeclared)
+}

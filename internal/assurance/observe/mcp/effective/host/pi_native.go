@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
@@ -28,6 +27,14 @@ type PiNativeInput struct {
 
 // ObservePiNative keeps native replacement/override semantics separate from adapter imports and lazy lifecycle.
 func ObservePiNative(input PiNativeInput) (mcpeffective.Observation, error) {
+	sourceContext, err := newPiNativeSourceContext(input.Projection.Contribution().Scope(), input.WorkDir, input.AgentRoot, input.SelectedPath)
+	if err != nil {
+		return mcpeffective.Observation{}, err
+	}
+	return observePiNative(input, sourceContext)
+}
+
+func observePiNative(input PiNativeInput, sourceContext piNativeSourceContext) (mcpeffective.Observation, error) {
 	contribution := input.Projection.Contribution()
 	if contribution.CodecContractID() != aggregate.MCPCodecPiNativeStdio {
 		return mcpeffective.Observation{}, fmt.Errorf("native Pi observation requires the recorded native codec")
@@ -44,16 +51,7 @@ func ObservePiNative(input PiNativeInput) (mcpeffective.Observation, error) {
 	if err != nil {
 		return mcpeffective.Observation{}, err
 	}
-	globalPath := filepath.Join(input.AgentRoot, "mcp.json")
-	projectPath := filepath.Join(input.WorkDir, ".pi", "mcp.json")
-	if input.SelectedPath != globalPath && input.SelectedPath != projectPath {
-		return mcpeffective.Observation{}, fmt.Errorf("managed native Pi path differs from the active agent/project root")
-	}
-	specs := []normalSourceSpec{{id: "pi-native-global", path: globalPath, shared: true}, {id: "pi-native-project", path: projectPath}}
-	selectedIndex := 0
-	if input.SelectedPath == projectPath {
-		selectedIndex = 1
-	}
+	specs, selectedIndex := sourceContext.sources, sourceContext.selectedIndex
 	sources := make([]mcpeffective.SourceObservation, 0, len(specs))
 	for index, spec := range specs {
 		precedence := relativePrecedence(index, selectedIndex)

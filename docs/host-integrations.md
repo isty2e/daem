@@ -132,9 +132,17 @@ one isolated, bounded `pi --version` result, choosing Native for a stable
 `>=1.0.2,<2.0.0` version; unavailable or incompatible evidence retains Adapter
 with a diagnostic. Apply qualifies that recorded choice and never switches it.
 
+All Pi bindings in one declared or loaded-lock context must use the same backend.
+Native cannot coexist with a declared admitted Adapter provider, even if no
+Adapter binding references that provider. Previous and retiring contracts remain
+separate from the current context and retain their recorded codecs.
+
 Native writes strict JSON in the Pi agent-root `mcp.json` or project
 `.pi/mcp.json`. Only those two files participate. A trusted project's full
-entry replaces the same-name user entry; a transport-free project entry
+entry replaces the same-name user entry. Their resolved paths must be distinct;
+the same path for both scopes is unsupported because it cannot supply independent
+ownership or surviving-definition evidence. Selection follows the recorded scope,
+not path equality. A transport-free project entry
 instead overrides `enabled`, `exposure` and `toolExposure`. Daem evaluates
 this project-participating envelope without claiming trust has been granted.
 Lower replaced or equivalent definitions do not block current Native writes.

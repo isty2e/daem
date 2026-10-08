@@ -79,6 +79,7 @@ func planSelectedMCPAuthoring(content []byte, header declaration.ManifestHeader,
 	if err != nil {
 		return server, mcpProviderAuthoringPlan{}, err
 	}
+	contracts := []profile.PiMCPContract{contract}
 	for _, block := range blocks {
 		peerKey, err := mcpServerAuthoringKeyFor(block.Server, header, "existing mcp_server")
 		if err != nil {
@@ -89,10 +90,15 @@ func planSelectedMCPAuthoring(content []byte, header declaration.ManifestHeader,
 			if err != nil {
 				return server, mcpProviderAuthoringPlan{}, err
 			}
-			if err := contract.AdmitPeer(peer); err != nil {
+			peerContract, err := profile.PiMCPContractForBackend(peer)
+			if err != nil {
 				return server, mcpProviderAuthoringPlan{}, err
 			}
+			contracts = append(contracts, peerContract)
 		}
+	}
+	if err := profile.AdmitPiMCPContext(contracts, provider); err != nil {
+		return server, mcpProviderAuthoringPlan{}, err
 	}
 	if !contract.RequiresProvider() {
 		server.Backend = string(contract.Backend())
