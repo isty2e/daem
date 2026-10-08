@@ -158,11 +158,11 @@ server. Its unowned bytes remain untouched.
 
 Native entries are enabled with codemode exposure. Enabled servers connect in
 the background at Pi startup; codemode is not Adapter's lazy lifecycle. Daem
-checks the bounded version and applicable builtin/package settings before
-publication, refusing known disablement or a possible Adapter replacement without
-repairing settings or removing a package. Existing global physical ownership
-and the selected agent-root namespace still apply during removal. Changing that
-namespace is not automatic migration of existing ownership. Native manifests,
+checks the bounded version and applicable builtin, package and explicit extension
+path settings before publication, refusing known disablement or a possible Adapter
+replacement without repairing settings or removing a package. Existing global
+physical ownership and the selected agent-root namespace still apply during
+removal. Changing that namespace is not automatic migration of existing ownership. Native manifests,
 locks and state require a Native-aware daem build; older readers may refuse the
 backend field or codec rather than reinterpret it as Adapter.
 
@@ -224,6 +224,17 @@ observation. Malformed or unreadable present local metadata refuses qualificatio
 Native absolute/relative paths, observable `~` paths and canonical absolute local
 `file://` URLs are supported for this metadata check; other URL authorities and
 noncanonical aliases are unsupported.
+
+The same local metadata check applies to plain paths in either settings file's
+top-level `extensions` array, independently of `packages`. It reads the supplied
+directory's metadata, or a direct file's parent metadata; it does not search
+ancestors or recursively discover other extensions. These entries are local paths,
+not npm/Git carriers. Leading `!`, `+`, `-`, and entries containing `*` or `?`
+are selection patterns, not new discovery paths. Pattern classification uses the
+original entry before local whitespace trimming. An explicit path whose metadata
+identifies the Adapter refuses qualification even with other filter entries;
+local filter-based disablement is unsupported. Automatic or custom runtime
+extension discovery remains outside this observation.
 
 For inventory-dependent filters, daem first selects the installation root.
 Project packages use `.pi/npm/node_modules/pi-mcp-adapter`. User packages prefer

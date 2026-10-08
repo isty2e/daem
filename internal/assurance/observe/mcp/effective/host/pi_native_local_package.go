@@ -19,6 +19,10 @@ func observeNativeLocalPackageName(ctx context.Context, source, settingsBase str
 			return "", nil
 		}
 	}
+	return observeNativeLocalPathPackageName(ctx, source, settingsBase)
+}
+
+func observeNativeLocalPathPackageName(ctx context.Context, source, settingsBase string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}

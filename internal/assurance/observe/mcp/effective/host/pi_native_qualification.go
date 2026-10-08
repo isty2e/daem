@@ -14,9 +14,9 @@ import (
 )
 
 type piNativeSettings struct {
-	mcpSelection    []string
-	adapterPackages []piNativeAdapterPackage
-	npmCommand      json.RawMessage
+	extensionEntries []string
+	adapterPackages  []piNativeAdapterPackage
+	npmCommand       json.RawMessage
 }
 
 func qualifyPiNativeSettings(ctx context.Context, contract profile.PiMCPContract, scope target.Scope, workDir string, agentRoot string, version profile.PiMCPVersion) error {
@@ -50,7 +50,7 @@ func qualifyPiNativeSettings(ctx context.Context, contract profile.PiMCPContract
 	}
 	return contract.QualifyNativeHost(profile.PiNativeHostFacts{
 		Version: version, Scope: scope,
-		BuiltinSelection: profile.ResolvePiMCPBuiltinSelection(global.mcpSelection, project.mcpSelection),
+		BuiltinSelection: profile.ResolvePiMCPBuiltinSelection(global.extensionEntries, project.extensionEntries),
 		AdapterDeclared:  adapterSelected,
 	})
 }
@@ -73,9 +73,23 @@ func observePiNativeSettings(ctx context.Context, path string, scope target.Scop
 	settings := piNativeSettings{}
 	settings.npmCommand = fields["npmCommand"]
 	if raw, exists := fields["extensions"]; exists {
-		settings.mcpSelection, err = nativeSettingsStringArray(raw)
+		settings.extensionEntries, err = nativeSettingsStringArray(raw)
 		if err != nil {
 			return piNativeSettings{}, fmt.Errorf("native Pi MCP extension selection must be a string array")
+		}
+		for _, entry := range settings.extensionEntries {
+			// Patterns filter discovered resources; they do not discover paths.
+			if strings.HasPrefix(entry, "!") || strings.HasPrefix(entry, "+") || strings.HasPrefix(entry, "-") || strings.ContainsAny(entry, "*?") {
+				continue
+			}
+
+			name, err := observeNativeLocalPathPackageName(ctx, entry, filepath.Dir(path))
+			if err != nil {
+				return piNativeSettings{}, err
+			}
+			if name == "pi-mcp-adapter" {
+				return piNativeSettings{}, fmt.Errorf("native Pi MCP cannot qualify a local Adapter extension through the npm selector contract")
+			}
 		}
 	}
 	if raw, exists := fields["packages"]; exists {
