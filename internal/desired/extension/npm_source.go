@@ -68,6 +68,27 @@ func parseNPMPackageSpec(value string) (NPMPackageSpec, bool) {
 // For an npm alias this is the installed alias, not its registry target.
 func (spec NPMPackageSpec) Name() string { return spec.name }
 
+// RegistryTargetName returns the credential-free registry package named by a
+// direct operand or alias. It does not change the outer installation identity.
+func (spec NPMPackageSpec) RegistryTargetName() (string, bool) {
+	if !spec.Public() {
+		return "", false
+	}
+	if spec.structurallyDirectRegistry() {
+		return spec.name, true
+	}
+
+	target, ok := npmAliasTarget(spec.selector)
+	if !ok {
+		return "", false
+	}
+	parsed, ok := parseNPMPackageSpec(target)
+	if !ok {
+		return "", false
+	}
+	return parsed.name, true
+}
+
 // HasSelector reports whether the package operand includes an explicit
 // selector.
 func (spec NPMPackageSpec) HasSelector() bool { return spec.hasSelector }

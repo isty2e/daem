@@ -195,7 +195,10 @@ type nativeResourcePattern struct {
 
 // Full Minimatch parity is outside the static selector envelope in docs/host-integrations.md.
 func newNativeResourcePattern(directive string) (nativeResourcePattern, error) {
-	pattern := nativeResourcePattern{value: strings.ReplaceAll(directive, `\`, "/")}
+	pattern := nativeResourcePattern{value: filepath.ToSlash(directive)}
+	if strings.ContainsRune(pattern.value, '\\') {
+		return nativeResourcePattern{}, fmt.Errorf("native Pi MCP package filter escapes are outside the static selector envelope")
+	}
 	if pattern.value != "" {
 		switch pattern.value[0] {
 		case '!':

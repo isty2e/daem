@@ -17,6 +17,7 @@ import (
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
 
@@ -58,6 +59,8 @@ func Observe(input Input) (ObservationSet, error) {
 	)
 	var nativeVersion profile.PiMCPVersion
 	nativeVersionObserved := false
+	nativeQualifiedScopes := make(map[target.Scope]bool)
+
 	observeProjection := func(
 		projection aggregate.SubjectContribution,
 		retiring bool,
@@ -111,6 +114,11 @@ func Observe(input Input) (ObservationSet, error) {
 					return mcpeffective.Observation{}, err
 				}
 				if !retiring {
+					if input.Context != nil {
+						if err := input.Context.Err(); err != nil {
+							return mcpeffective.Observation{}, err
+						}
+					}
 					if !nativeVersionObserved {
 						nativeVersion, err = ObservePiVersion(input.Context)
 						if err != nil {
@@ -118,8 +126,12 @@ func Observe(input Input) (ObservationSet, error) {
 						}
 						nativeVersionObserved = true
 					}
-					if err := qualifyPiNativeSettings(input.Context, piContract, projection.Contribution().Scope(), input.WorkDir, piAgentRoot, nativeVersion); err != nil {
-						return mcpeffective.Observation{}, err
+					scope := projection.Contribution().Scope()
+					if !nativeQualifiedScopes[scope] {
+						if err := qualifyPiNativeSettings(input.Context, piContract, scope, input.WorkDir, piAgentRoot, nativeVersion); err != nil {
+							return mcpeffective.Observation{}, err
+						}
+						nativeQualifiedScopes[scope] = true
 					}
 				}
 				return observePiNative(nativeInput, sourceContext)

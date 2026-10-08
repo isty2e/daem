@@ -139,12 +139,14 @@ separate from the current context and retain their recorded codecs.
 
 Native writes strict JSON in the Pi agent-root `mcp.json` or project
 `.pi/mcp.json`. Only those two files participate. A trusted project's full
-entry replaces the same-name user entry. Their resolved paths must be distinct;
-the same path for both scopes is unsupported because it cannot supply independent
-ownership or surviving-definition evidence. Selection follows the recorded scope,
-not path equality. A transport-free project entry
-instead overrides `enabled`, `exposure` and `toolExposure`. Daem evaluates
-this project-participating envelope without claiming trust has been granted.
+entry replaces the same-name user entry. The two config directory entries must be
+distinct, including after resolving ancestor symlinks and native path identity.
+One physical entry cannot supply independent ownership or surviving-definition
+evidence for both scopes. This check does not change the selected agent-root
+namespace; selection follows the recorded scope, not path equality. A
+transport-free project entry instead overrides `enabled`, `exposure` and
+`toolExposure`. Daem evaluates this project-participating envelope without
+claiming trust has been granted.
 Lower replaced or equivalent definitions do not block current Native writes.
 Same-name managed project/global bindings may also select different commands:
 a peer must match its desired or stored contribution, and normal adoption,
@@ -186,28 +188,42 @@ selectable user Adapter safe: it may read project MCP files before trust.
 Nonempty package filters support relative literals, `*` and `?`, glob `!`
 exclusions and exact `+`/`-` paths. They require observable installed metadata
 with a matching stable exact/caret npm selector and a finite explicit JS/TS
-file inventory; no entrypoint is assumed across package versions. Full
-Minimatch, noncanonical path aliases, comment patterns, Unicode glob matching,
-directory/glob/override inventories and unresolved metadata are outside this static
-selection proof and refuse dependent Native publication.
+file inventory; no entrypoint is assumed across package versions. Paths use
+the host's native separator: Windows backslashes normalize to slashes, while
+backslash syntax on Unix is outside this finite matcher and refuses dependent
+qualification. Full Minimatch, noncanonical path aliases, comment patterns,
+Unicode glob matching, directory/glob/override inventories and unresolved
+metadata are outside this static selection proof and refuse dependent Native
+publication.
 Resource selection does not prove extension activation or project trust.
 
-The filter proof above is npm-only. A source naming the official Git repository
+The filter proof above covers direct npm sources, not registry aliases. An npm
+alias targeting `pi-mcp-adapter`, such as
+`npm:mcp-shim@npm:pi-mcp-adapter@2.15.0`, refuses Native qualification even with
+`extensions: []`. Its installation name and registry target are distinct;
+alias inventory and version certification are unsupported. This does not admit
+aliases as managed Adapter providers.
+
+A source naming the official Git repository
 `github.com/nicobailon/pi-mcp-adapter`, or an existing local source whose bounded
 strict `package.json` declares `name: "pi-mcp-adapter"`, refuses Native
 qualification, even with a package filter. These are known replacement intents,
 not aliases of the admitted npm provider. Git/local inventory and filter
-certification are unsupported. Git locator parsing failure or an unmodelled hosted alias
-refuses qualification rather than proving Adapter absence; full hosted-alias
-parity is unsupported. Relative local sources resolve from their
-settings directory; a direct local file uses its parent's metadata because Pi
-loads that file without applying package filters. Directory names alone do not
-identify the Adapter. Missing or differently named metadata does not certify
-custom extension behavior; arbitrary renamed/custom runtime replacement remains
-outside this observation. Malformed or unreadable present local metadata refuses
-qualification. Native absolute/relative paths, observable `~` paths and canonical
-absolute local `file://` URLs are supported for this metadata check; other URL
-authorities and noncanonical aliases are unsupported.
+certification are unsupported. Git locator parsing failure or an unmodelled
+hosted alias refuses qualification rather than proving Adapter absence; full
+hosted-alias parity is unsupported.
+
+Local path resolution trims surrounding whitespace after source dispatch, not
+before classifying npm/Git carriers. Relative paths resolve from their settings
+directory; a whitespace-only local source resolves to that directory itself.
+A direct local file uses its parent's metadata because Pi loads that file
+without applying package filters. Directory names alone do not identify the
+Adapter. Missing or differently named metadata does not certify custom extension
+behavior; arbitrary renamed/custom runtime replacement remains outside this
+observation. Malformed or unreadable present local metadata refuses qualification.
+Native absolute/relative paths, observable `~` paths and canonical absolute local
+`file://` URLs are supported for this metadata check; other URL authorities and
+noncanonical aliases are unsupported.
 
 For inventory-dependent filters, daem first selects the installation root.
 Project packages use `.pi/npm/node_modules/pi-mcp-adapter`. User packages prefer

@@ -15,7 +15,7 @@ import (
 
 func observeNativeLocalPackageName(ctx context.Context, source, settingsBase string) (string, error) {
 	for _, prefix := range []string{"npm:", "git:", "http:", "https:", "ssh:", "builtin:"} {
-		if strings.HasPrefix(strings.TrimSpace(source), prefix) {
+		if strings.HasPrefix(source, prefix) {
 			return "", nil
 		}
 	}
@@ -64,6 +64,8 @@ func observeNativeLocalPackageName(ctx context.Context, source, settingsBase str
 }
 
 func nativeLocalPackagePath(source, settingsBase string) (string, error) {
+	source = strings.TrimSpace(source)
+
 	if strings.HasPrefix(source, "file://") {
 		parsed, err := url.Parse(source)
 		if err != nil || (parsed.Host != "" && parsed.Host != "localhost") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" {

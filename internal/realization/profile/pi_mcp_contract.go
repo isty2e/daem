@@ -138,7 +138,15 @@ type PiNativeHostFacts struct {
 func PiMCPAdapterPackageSource(source string) (bool, error) {
 	if strings.HasPrefix(source, "npm:") {
 		value := strings.TrimSpace(strings.TrimPrefix(source, "npm:"))
-		return value == piMCPProviderPackageName || strings.HasPrefix(value, piMCPProviderPackageName+"@"), nil
+		spec, ok := desiredextension.ParseNPMPackageSpec(value)
+		if !ok {
+			return false, fmt.Errorf("native Pi MCP npm package source is outside the canonical operand envelope")
+		}
+		registryName, knownRegistry := spec.RegistryTargetName()
+		if knownRegistry && registryName == piMCPProviderPackageName && !spec.DirectRegistry() {
+			return false, fmt.Errorf("native Pi MCP cannot qualify an Adapter registry alias through the direct npm selector contract")
+		}
+		return spec.Name() == piMCPProviderPackageName, nil
 	}
 	value := strings.TrimSpace(source)
 	if !strings.HasPrefix(value, "git:") && !strings.HasPrefix(value, "https://") && !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "ssh://") {
