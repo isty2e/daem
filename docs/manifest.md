@@ -780,6 +780,10 @@ underscore namespaces are refused without renaming.
 
 Native has no provider extension prerequisite. Daem refuses known builtin
 disablement or a configured `pi-mcp-adapter` replacement before publication.
+Package qualification checks both user-only and project-participating settings,
+even for a project binding; a project mask cannot exclude a pretrust user
+Adapter. Known official Git and locally labelled Adapter sources also refuse
+Native qualification; this does not admit them as managed providers.
 It neither edits those settings nor falls back to Adapter. Pi owns project
 trust and startup connections; codemode controls tool exposure, not lazy
 server startup. See the [Native project](../examples/pi-native-project-mcp-stdio.toml)

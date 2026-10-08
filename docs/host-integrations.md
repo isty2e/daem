@@ -179,7 +179,10 @@ An ordinary package object's `extensions: []` excludes its extension resources;
 omitting the field permits the package defaults. With `autoload: false`, the
 object is a filtering delta: an empty list leaves the user package unchanged.
 A normal project package replaces the same npm-name user package, independent
-of version. Global Native projections also qualify the user-only context.
+of version, when project settings participate. Daem does not observe Pi trust,
+so Native projections at either scope qualify both the user-only and
+project-participating package contexts. A project filter cannot make a
+selectable user Adapter safe: it may read project MCP files before trust.
 Nonempty package filters support relative literals, `*` and `?`, glob `!`
 exclusions and exact `+`/`-` paths. They require observable installed metadata
 with a matching stable exact/caret npm selector and a finite explicit JS/TS
@@ -188,6 +191,23 @@ Minimatch, noncanonical path aliases, comment patterns, Unicode glob matching,
 directory/glob/override inventories and unresolved metadata are outside this static
 selection proof and refuse dependent Native publication.
 Resource selection does not prove extension activation or project trust.
+
+The filter proof above is npm-only. A source naming the official Git repository
+`github.com/nicobailon/pi-mcp-adapter`, or an existing local source whose bounded
+strict `package.json` declares `name: "pi-mcp-adapter"`, refuses Native
+qualification, even with a package filter. These are known replacement intents,
+not aliases of the admitted npm provider. Git/local inventory and filter
+certification are unsupported. Git locator parsing failure or an unmodelled hosted alias
+refuses qualification rather than proving Adapter absence; full hosted-alias
+parity is unsupported. Relative local sources resolve from their
+settings directory; a direct local file uses its parent's metadata because Pi
+loads that file without applying package filters. Directory names alone do not
+identify the Adapter. Missing or differently named metadata does not certify
+custom extension behavior; arbitrary renamed/custom runtime replacement remains
+outside this observation. Malformed or unreadable present local metadata refuses
+qualification. Native absolute/relative paths, observable `~` paths and canonical
+absolute local `file://` URLs are supported for this metadata check; other URL
+authorities and noncanonical aliases are unsupported.
 
 For inventory-dependent filters, daem first selects the installation root.
 Project packages use `.pi/npm/node_modules/pi-mcp-adapter`. User packages prefer
@@ -201,13 +221,15 @@ package-location queries: npm `root -g`, pnpm `list -g --depth 0 --json`, or
 Bun `pm bin -g`. pnpm's first matching dependency path is used directly; a
 successful listing without a matching path falls back to `root -g`. Bun's bin
 directory determines `../install/global/node_modules`. These queries use the
-operation's working directory and inherited environment. The applicable
-project `npmCommand` replaces the user's setting in the project-participating
-context; the additional user-only context uses the user's setting. Absent,
-null or empty settings mean npm. Only a single direct npm, pnpm or Bun
-executable is admitted, including absolute executable paths and native
-`.cmd`/`.exe` suffixes. Wrappers, extra command arguments and directory-relative
-executable paths are unsupported and are not executed.
+operation's working directory and inherited environment. User settings or the
+default authorize the executable; project settings do not grant execution
+authority. If the project-participating context requires a different normalized
+`npmCommand`, dependent qualification refuses without running that command or
+substituting a different manager's root. Absent, null or empty settings mean
+npm. Only a single direct npm, pnpm or Bun executable is admitted, including
+user-configured absolute executable paths and native `.cmd`/`.exe` suffixes.
+Wrappers, extra command arguments and directory-relative executable paths are
+unsupported and are not executed.
 
 Location queries are bounded and cancellable; returned locations must be
 absolute native paths. Query failure, malformed/truncated output or invalid

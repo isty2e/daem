@@ -17,7 +17,7 @@ func TestPiNativeMCPAdapterResourceSelection(t *testing.T) {
 	}{
 		{"user empty", `{"packages":[{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]}]}`, `{}`, true, true},
 		{"project empty", `{}`, `{"packages":[{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]}]}`, true, true},
-		{"project replaces user", `{"packages":["npm:pi-mcp-adapter@2.13.0"]}`, `{"packages":[{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]}]}`, true, false},
+		{"project cannot mask pretrust user", `{"packages":["npm:pi-mcp-adapter@2.13.0"]}`, `{"packages":[{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]}]}`, false, false},
 		{"enabled project replaces disabled user", `{"packages":[{"source":"npm:pi-mcp-adapter@2.13.0","extensions":[]}]}`, `{"packages":["npm:pi-mcp-adapter@2.15.0"]}`, false, false},
 		{"empty delta preserves user", `{"packages":["npm:pi-mcp-adapter@2.15.0"]}`, `{"packages":[{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[],"autoload":false}]}`, false, false},
 		{"empty delta alone", `{}`, `{"packages":[{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[],"autoload":false}]}`, true, true},
@@ -35,7 +35,7 @@ func TestPiNativeMCPAdapterResourceSelection(t *testing.T) {
 		{"delta last inclusion wins", `{}`, adapterResourceSettings(`["-index.ts","+index.ts"]`, true), false, false},
 		{"delta last exclusion wins", `{}`, adapterResourceSettings(`["+index.ts","-index.ts"]`, true), true, true},
 		{"delta unmatched preserves user", `{"packages":["npm:pi-mcp-adapter@2.15.0"]}`, adapterResourceSettings(`["other.ts"]`, true), false, false},
-		{"delta masks user installation", `{"packages":["npm:pi-mcp-adapter@2.15.0"]}`, adapterResourceSettings(`["-index.ts"]`, true), true, false},
+		{"delta cannot mask pretrust user", `{"packages":["npm:pi-mcp-adapter@2.15.0"]}`, adapterResourceSettings(`["-index.ts"]`, true), false, false},
 		{"empty top-level does not disable package", `{}`, `{"extensions":[],"packages":["npm:pi-mcp-adapter@2.15.0"]}`, false, false},
 		{"package builtin pattern does not disable builtin", `{}`, adapterResourceSettings(`["-builtin:mcp"]`, false), false, false},
 		{"null filter refused", `{}`, adapterResourceSettings(`null`, false), false, false},

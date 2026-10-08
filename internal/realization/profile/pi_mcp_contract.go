@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
@@ -132,13 +133,31 @@ type PiNativeHostFacts struct {
 	AdapterDeclared  bool
 }
 
-// PiMCPAdapterPackageSource identifies configured npm replacement intent, independent of version admission.
-func PiMCPAdapterPackageSource(source string) bool {
-	if !strings.HasPrefix(source, "npm:") {
-		return false
+// PiMCPAdapterPackageSource identifies npm or official Git replacement intent,
+// not managed-provider admission, installation or activation.
+func PiMCPAdapterPackageSource(source string) (bool, error) {
+	if strings.HasPrefix(source, "npm:") {
+		value := strings.TrimSpace(strings.TrimPrefix(source, "npm:"))
+		return value == piMCPProviderPackageName || strings.HasPrefix(value, piMCPProviderPackageName+"@"), nil
 	}
-	value := strings.TrimPrefix(source, "npm:")
-	return value == piMCPProviderPackageName || strings.HasPrefix(value, piMCPProviderPackageName+"@")
+	value := strings.TrimSpace(source)
+	if !strings.HasPrefix(value, "git:") && !strings.HasPrefix(value, "https://") && !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "ssh://") {
+		return false, nil
+	}
+	if strings.HasPrefix(value, "git://") {
+		value = "git:" + value
+	} else if strings.HasPrefix(value, "git:github:") {
+		value = strings.TrimPrefix(value, "git:")
+	}
+	git, ok := desiredextension.ParseGitSource(value)
+	if !ok {
+		return false, fmt.Errorf("native Pi MCP Git package source is outside the canonical locator envelope")
+	}
+	host := strings.SplitN(git.Identity(), "/", 2)[0]
+	if !strings.ContainsAny(host, ".:") && host != "localhost" {
+		return false, fmt.Errorf("native Pi MCP Git hosted aliases are outside the canonical locator envelope")
+	}
+	return git.Identity() == "github.com/nicobailon/pi-mcp-adapter", nil
 }
 
 // QualifyNativeHost consumes fresh selection facts without changing this fixed backend.

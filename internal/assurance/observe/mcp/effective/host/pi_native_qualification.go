@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/filesnapshot"
@@ -19,29 +20,29 @@ type piNativeSettings struct {
 }
 
 func qualifyPiNativeSettings(ctx context.Context, contract profile.PiMCPContract, scope target.Scope, workDir string, agentRoot string, version profile.PiMCPVersion) error {
-	global, err := observePiNativeSettings(filepath.Join(agentRoot, "settings.json"), target.ScopeGlobal)
+	global, err := observePiNativeSettings(ctx, filepath.Join(agentRoot, "settings.json"), target.ScopeGlobal)
 	if err != nil {
 		return err
 	}
-	project, err := observePiNativeSettings(filepath.Join(workDir, ".pi", "settings.json"), target.ScopeProject)
+	project, err := observePiNativeSettings(ctx, filepath.Join(workDir, ".pi", "settings.json"), target.ScopeProject)
 	if err != nil {
 		return err
 	}
-	npmCommand := global.npmCommand
-	if project.npmCommand != nil {
-		npmCommand = project.npmCommand
-	}
+
 	type packageSelection struct {
-		packages   []piNativeAdapterPackage
-		npmCommand json.RawMessage
+		packages []piNativeAdapterPackage
+		settings piNativePackageContext
 	}
-	contexts := []packageSelection{{selectNativeAdapterPackages(global.adapterPackages, project.adapterPackages), npmCommand}}
-	if scope == target.ScopeGlobal {
-		contexts = append(contexts, packageSelection{selectNativeAdapterPackages(global.adapterPackages, nil), global.npmCommand})
+	user := piNativePackageContext{workDir: workDir, agentRoot: agentRoot, npmCommand: global.npmCommand}
+	participating := user
+	participating.projectNpmCommand = project.npmCommand
+	contexts := []packageSelection{
+		{selectNativeAdapterPackages(global.adapterPackages, project.adapterPackages), participating},
+		{selectNativeAdapterPackages(global.adapterPackages, nil), user},
 	}
 	adapterSelected := false
 	for _, selection := range contexts {
-		selected, err := nativeAdapterResourcesSelected(ctx, selection.packages, piNativePackageContext{workDir: workDir, agentRoot: agentRoot, npmCommand: selection.npmCommand})
+		selected, err := nativeAdapterResourcesSelected(ctx, selection.packages, selection.settings)
 		if err != nil {
 			return err
 		}
@@ -54,8 +55,8 @@ func qualifyPiNativeSettings(ctx context.Context, contract profile.PiMCPContract
 	})
 }
 
-func observePiNativeSettings(path string, scope target.Scope) (piNativeSettings, error) {
-	content, exists, err := filesnapshot.ReadRegularFile(path, maximumConfigBytes)
+func observePiNativeSettings(ctx context.Context, path string, scope target.Scope) (piNativeSettings, error) {
+	content, exists, err := filesnapshot.ReadRegularFileContext(ctx, path, maximumConfigBytes)
 	if err != nil {
 		return piNativeSettings{}, fmt.Errorf("native Pi MCP settings cannot be read as a bounded regular file")
 	}
@@ -93,7 +94,14 @@ func observePiNativeSettings(path string, scope target.Scope) (piNativeSettings,
 			if source == "" {
 				return piNativeSettings{}, fmt.Errorf("native Pi MCP package source cannot be observed")
 			}
-			if profile.PiMCPAdapterPackageSource(source) {
+			knownAdapter, err := profile.PiMCPAdapterPackageSource(source)
+			if err != nil {
+				return piNativeSettings{}, err
+			}
+			if knownAdapter {
+				if !strings.HasPrefix(source, "npm:") {
+					return piNativeSettings{}, fmt.Errorf("native Pi MCP cannot qualify a Git Adapter package through the npm selector contract")
+				}
 				adapter := piNativeAdapterPackage{source: source, scope: scope}
 				if raw, exists := entry["extensions"]; exists {
 					adapter.patterns, err = nativeSettingsStringArray(raw)
@@ -110,6 +118,14 @@ func observePiNativeSettings(path string, scope target.Scope) (piNativeSettings,
 					adapter.delta = !autoload
 				}
 				settings.adapterPackages = append(settings.adapterPackages, adapter)
+			} else {
+				name, err := observeNativeLocalPackageName(ctx, source, filepath.Dir(path))
+				if err != nil {
+					return piNativeSettings{}, err
+				}
+				if name == "pi-mcp-adapter" {
+					return piNativeSettings{}, fmt.Errorf("native Pi MCP cannot qualify a local Adapter package through the npm selector contract")
+				}
 			}
 		}
 	}

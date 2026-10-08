@@ -15,9 +15,10 @@ import (
 )
 
 type piNativePackageContext struct {
-	workDir    string
-	agentRoot  string
-	npmCommand json.RawMessage
+	workDir           string
+	agentRoot         string
+	npmCommand        json.RawMessage
+	projectNpmCommand json.RawMessage
 }
 
 func nativeAdapterPackageRoot(ctx context.Context, scope target.Scope, settings piNativePackageContext) (string, error) {
@@ -58,30 +59,13 @@ func nativeAdapterPackageRoot(ctx context.Context, scope target.Scope, settings 
 }
 
 func nativeAdapterLegacyPackageRoot(ctx context.Context, settings piNativePackageContext) (string, error) {
-	command := []string{"npm"}
-	if len(settings.npmCommand) != 0 && string(settings.npmCommand) != "null" {
-		configured, err := nativeSettingsStringArray(settings.npmCommand)
-		if err != nil {
-			return "", fmt.Errorf("Pi legacy package lookup requires a string-array npmCommand")
-		}
-		if len(configured) != 0 {
-			command = configured
-		}
-	}
-	if len(command) != 1 || strings.TrimSpace(command[0]) != command[0] || command[0] == "" || (!filepath.IsAbs(command[0]) && filepath.Base(command[0]) != command[0]) {
-		return "", fmt.Errorf("Pi legacy package lookup does not execute wrappers or command prefixes")
-	}
-	manager := filepath.Base(command[0])
-	suffix := filepath.Ext(manager)
-	if strings.EqualFold(suffix, ".cmd") || strings.EqualFold(suffix, ".exe") {
-		manager = manager[:len(manager)-len(suffix)]
-	}
-	if manager != "npm" && manager != "pnpm" && manager != "bun" {
-		return "", fmt.Errorf("Pi legacy package lookup requires direct npm, pnpm or Bun")
+	command, err := settings.locationCommand()
+	if err != nil {
+		return "", err
 	}
 
-	if manager == "pnpm" {
-		output, err := nativePackageLocationQuery(ctx, command[0], []string{"list", "-g", "--depth", "0", "--json"}, settings.workDir)
+	if command.manager == "pnpm" {
+		output, err := nativePackageLocationQuery(ctx, command.executable, []string{"list", "-g", "--depth", "0", "--json"}, settings.workDir)
 		if err != nil {
 			return "", err
 		}
@@ -91,10 +75,10 @@ func nativeAdapterLegacyPackageRoot(ctx context.Context, settings piNativePackag
 		}
 	}
 	args := []string{"root", "-g"}
-	if manager == "bun" {
+	if command.manager == "bun" {
 		args = []string{"pm", "bin", "-g"}
 	}
-	output, err := nativePackageLocationQuery(ctx, command[0], args, settings.workDir)
+	output, err := nativePackageLocationQuery(ctx, command.executable, args, settings.workDir)
 	if err != nil {
 		return "", err
 	}
@@ -102,10 +86,58 @@ func nativeAdapterLegacyPackageRoot(ctx context.Context, settings piNativePackag
 	if err != nil {
 		return "", err
 	}
-	if manager == "bun" {
+	if command.manager == "bun" {
 		root = filepath.Join(filepath.Dir(root), "install", "global", "node_modules")
 	}
 	return filepath.Join(root, "pi-mcp-adapter"), nil
+}
+
+type nativeNpmCommand struct {
+	executable string
+	manager    string
+}
+
+func (settings piNativePackageContext) locationCommand() (nativeNpmCommand, error) {
+	user, err := newNativeNpmCommand(settings.npmCommand)
+	if err != nil {
+		return nativeNpmCommand{}, err
+	}
+	if settings.projectNpmCommand == nil {
+		return user, nil
+	}
+	project, err := newNativeNpmCommand(settings.projectNpmCommand)
+	if err != nil {
+		return nativeNpmCommand{}, err
+	}
+	if project != user {
+		return nativeNpmCommand{}, fmt.Errorf("Pi legacy package lookup cannot execute a project npmCommand without user authority")
+	}
+	return user, nil
+}
+
+func newNativeNpmCommand(raw json.RawMessage) (nativeNpmCommand, error) {
+	command := []string{"npm"}
+	if len(raw) != 0 && string(raw) != "null" {
+		configured, err := nativeSettingsStringArray(raw)
+		if err != nil {
+			return nativeNpmCommand{}, fmt.Errorf("Pi legacy package lookup requires a string-array npmCommand")
+		}
+		if len(configured) != 0 {
+			command = configured
+		}
+	}
+	if len(command) != 1 || strings.TrimSpace(command[0]) != command[0] || command[0] == "" || (!filepath.IsAbs(command[0]) && filepath.Base(command[0]) != command[0]) {
+		return nativeNpmCommand{}, fmt.Errorf("Pi legacy package lookup does not execute wrappers or command prefixes")
+	}
+	manager := filepath.Base(command[0])
+	suffix := filepath.Ext(manager)
+	if strings.EqualFold(suffix, ".cmd") || strings.EqualFold(suffix, ".exe") {
+		manager = manager[:len(manager)-len(suffix)]
+	}
+	if manager != "npm" && manager != "pnpm" && manager != "bun" {
+		return nativeNpmCommand{}, fmt.Errorf("Pi legacy package lookup requires direct npm, pnpm or Bun")
+	}
+	return nativeNpmCommand{executable: command[0], manager: manager}, nil
 }
 
 func nativePackageLocationQuery(ctx context.Context, command string, args []string, workDir string) (string, error) {
