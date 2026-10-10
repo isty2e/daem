@@ -155,7 +155,7 @@ func PiMCPAdapterPackageSource(source string) (bool, error) {
 		}
 		registryName, knownRegistry := spec.RegistryTargetName()
 		if knownRegistry && registryName == piMCPProviderPackageName && !spec.DirectRegistry() {
-			return false, fmt.Errorf("native Pi MCP cannot qualify an Adapter registry alias through the direct npm selector contract")
+			return false, ErrPiNativeAdapterConfigured
 		}
 		return spec.Name() == piMCPProviderPackageName, nil
 	}
@@ -195,7 +195,7 @@ func (contract PiMCPContract) QualifyNativeHost(facts PiNativeHostFacts) error {
 		return err
 	}
 	if facts.AdapterDeclared {
-		return fmt.Errorf("configured pi-mcp-adapter may replace the native MCP builtin; package removal is separate and no backend fallback was performed")
+		return ErrPiNativeAdapterConfigured
 	}
 	return nil
 }
@@ -206,7 +206,7 @@ func (contract PiMCPContract) QualifyNativeVersion(version PiMCPVersion) error {
 		return fmt.Errorf("native version qualification requires the native Pi MCP contract")
 	}
 	if !version.NativeCompatible() {
-		return fmt.Errorf("native Pi MCP requires an observable stable Pi version >=1.0.2,<2.0.0; the recorded backend was not changed")
+		return ErrPiNativeVersionUnqualified
 	}
 	return nil
 }

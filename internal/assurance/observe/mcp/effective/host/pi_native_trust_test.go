@@ -18,7 +18,7 @@ func TestPiNativeQualificationChecksUserPackagesWithoutProjectTrust(t *testing.T
 	}{
 		{"ordinary mask", `"npm:pi-mcp-adapter@2.15.0"`, `{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]}`, false},
 		{"delta mask", `"npm:pi-mcp-adapter@2.15.0"`, `{"source":"npm:pi-mcp-adapter@2.15.0","autoload":false,"extensions":["-index.ts"]}`, false},
-		{"both disabled", `{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]}`, `{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]}`, true},
+		{"both disabled", `{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]}`, `{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]}`, false},
 	} {
 		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 			t.Run(test.name+"/"+string(scope), func(t *testing.T) {
@@ -44,7 +44,7 @@ func TestPiNativeQualificationNeverExecutesProjectSelectedManager(t *testing.T) 
 				workDir, agentRoot := t.TempDir(), t.TempDir()
 				legacyRoot := filepath.Join(workDir, "legacy", "node_modules")
 				writeEffectiveConfig(t, filepath.Join(legacyRoot, "pi-mcp-adapter", "package.json"), `{"name":"pi-mcp-adapter","version":"2.15.0","pi":{"extensions":["index.ts"]}}`)
-				_, _ = installNativeRootQueryFixture(t, "npm", legacyRoot, "[]")
+				queryLog := installNativeQueryCanary(t)
 				projectCommand := filepath.Join(workDir, "repository", manager)
 				marker := filepath.Join(workDir, "project-executed")
 				response := legacyRoot
@@ -74,6 +74,7 @@ func TestPiNativeQualificationNeverExecutesProjectSelectedManager(t *testing.T) 
 				if _, err := os.Stat(marker); !os.IsNotExist(err) {
 					t.Fatalf("project executable ran before trust/authority: %v", err)
 				}
+				assertNativeQueryNotCalled(t, queryLog)
 			})
 		}
 	}

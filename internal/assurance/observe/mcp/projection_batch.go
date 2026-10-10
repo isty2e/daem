@@ -23,6 +23,7 @@ type LockedProjectionBatchInput struct {
 	Preconditions []observe.AggregatePreconditionEvidence
 	Shadowing     map[topology.SubjectID]ShadowState
 	Providers     map[topology.SubjectID]ProviderPrerequisiteObservation
+	Hosts         map[topology.SubjectID]HostPrerequisiteObservation
 }
 
 // LockedProjectionObservation correlates one locked MCP projection with
@@ -30,6 +31,7 @@ type LockedProjectionBatchInput struct {
 type LockedProjectionObservation struct {
 	current                AggregateProjectionObservation
 	provider               ProviderPrerequisiteObservation
+	host                   HostPrerequisiteObservation
 	lastDelegateAttempt    LastDelegateAttemptObservation
 	target                 target.Target
 	scope                  target.Scope
@@ -107,9 +109,14 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 		if err != nil {
 			return nil, fmt.Errorf("MCP projection %q provider evidence: %w", subject.Key(), err)
 		}
+		host, err := hostForContract(contract, input.Hosts)
+		if err != nil {
+			return nil, fmt.Errorf("MCP projection %q host prerequisite evidence: %w", subject.Key(), err)
+		}
 		result = append(result, LockedProjectionObservation{
 			current:                current,
 			provider:               provider,
+			host:                   host,
 			lastDelegateAttempt:    lastDelegateObservation,
 			target:                 contribution.Target(),
 			scope:                  contribution.Scope(),
@@ -119,6 +126,25 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 		})
 	}
 	return result, nil
+}
+
+func hostForContract(contract lock.LockedSubjectContract, hosts map[topology.SubjectID]HostPrerequisiteObservation) (HostPrerequisiteObservation, error) {
+	projection, present, err := contract.ManagedAggregateContribution()
+	if err != nil || !present {
+		return HostPrerequisiteObservation{}, fmt.Errorf("host prerequisite requires an admitted aggregate projection")
+	}
+	native := projection.Contribution().CodecContractID() == aggregate.MCPCodecPiNativeStdio
+	host, observed := hosts[contract.SubjectID()]
+	if native {
+		if !observed || (host.State() != HostQualified && host.State() != HostUnqualified) {
+			return HostPrerequisiteObservation{}, fmt.Errorf("Native projection requires current host qualification evidence")
+		}
+		return host, nil
+	}
+	if observed {
+		return HostPrerequisiteObservation{}, fmt.Errorf("non-Native projection carries unexpected host qualification evidence")
+	}
+	return NewHostPrerequisiteObservation(HostPrerequisiteObservationInput{State: HostNotApplicable})
 }
 
 func providerForContract(
@@ -191,6 +217,10 @@ func (observation LockedProjectionObservation) Current() AggregateProjectionObse
 
 func (observation LockedProjectionObservation) Provider() ProviderPrerequisiteObservation {
 	return observation.provider
+}
+
+func (observation LockedProjectionObservation) Host() HostPrerequisiteObservation {
+	return observation.host
 }
 
 func (observation LockedProjectionObservation) LastDelegateAttempt() LastDelegateAttemptObservation {

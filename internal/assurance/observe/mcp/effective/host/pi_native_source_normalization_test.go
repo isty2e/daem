@@ -12,39 +12,6 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func TestPiNativePackageFiltersPreserveNativeSeparatorSemantics(t *testing.T) {
-	workDir, agentRoot := t.TempDir(), t.TempDir()
-	packageRoot := filepath.Join(agentRoot, "npm", "node_modules", "pi-mcp-adapter")
-	writeEffectiveConfig(t, filepath.Join(packageRoot, "package.json"), `{"name":"pi-mcp-adapter","version":"2.15.0","pi":{"extensions":["nested/index.ts"]}}`)
-	writeEffectiveConfig(t, filepath.Join(packageRoot, "nested", "index.ts"), "export {}")
-	settings := piNativePackageContext{workDir: workDir, agentRoot: agentRoot}
-	for _, delta := range []bool{false, true} {
-		for _, action := range []string{"", "!", "+", "-"} {
-			t.Run(fmt.Sprintf("delta=%t/action=%s", delta, action), func(t *testing.T) {
-				entry := piNativeAdapterPackage{
-					source: "npm:pi-mcp-adapter@2.15.0", scope: target.ScopeGlobal,
-					patterns: []string{action + `nested\index.ts`}, filtered: true, delta: delta,
-				}
-				selected, err := nativeAdapterResourcesSelected(t.Context(), []piNativeAdapterPackage{entry}, settings)
-				if filepath.Separator != '\\' {
-					if err == nil || selected {
-						t.Fatalf("Unix backslash syntax supplied selection evidence: %t, %v", selected, err)
-					}
-					return
-				}
-				wanted := action == "" || action == "+"
-				if err != nil || selected != wanted {
-					t.Fatalf("native separator selection = %t, %v; want %t", selected, err, wanted)
-				}
-			})
-		}
-	}
-	entry := piNativeAdapterPackage{source: "npm:pi-mcp-adapter@2.15.0", scope: target.ScopeGlobal, patterns: []string{"-nested/index.ts"}, filtered: true}
-	if selected, err := nativeAdapterResourcesSelected(t.Context(), []piNativeAdapterPackage{entry}, settings); err != nil || selected {
-		t.Fatalf("canonical slash exclusion = %t, %v", selected, err)
-	}
-}
-
 func TestPiNativePaddedLocalSourcesUsePiResolutionBoundary(t *testing.T) {
 	for _, spelling := range []string{"relative", "absolute", "file", "URL", "tilde", "base", "npm-looking local"} {
 		for _, packageScope := range []target.Scope{target.ScopeGlobal, target.ScopeProject} {

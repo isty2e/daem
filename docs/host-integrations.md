@@ -127,15 +127,20 @@ removes only its config contribution and retains the provider declaration.
 #### Pi Native And Adapter
 
 The declaration's Pi-only backend selects a fixed file contract. Omission means
-Adapter, including on newer Pi installations. New automatic authoring observes
-one isolated, bounded `pi --version` result, choosing Native for a stable
+Adapter, including on newer Pi installations. An existing homogeneous Pi binding
+cohort determines the backend for a newly added server, across names and scopes,
+without another version query. Only the first automatic choice without Pi bindings
+or an explicit Adapter provider observes one isolated, bounded `pi --version`
+result, choosing Native for a stable
 `>=1.0.2,<2.0.0` version; unavailable or incompatible evidence retains Adapter
-with a diagnostic. Apply qualifies that recorded choice and never switches it.
+with a diagnostic. Status and apply qualify that recorded choice and never switch it.
 
 All Pi bindings in one declared or loaded-lock context must use the same backend.
 Native cannot coexist with a declared admitted Adapter provider, even if no
 Adapter binding references that provider. Previous and retiring contracts remain
-separate from the current context and retain their recorded codecs.
+separate from the current context and retain their recorded codecs. Changing a
+managed entry's desired backend in place is unsupported; see
+[Moving From Adapter To Native](#moving-from-adapter-to-native).
 
 Native writes strict JSON in the Pi agent-root `mcp.json` or project
 `.pi/mcp.json`. Only those two files participate. A trusted project's full
@@ -159,11 +164,20 @@ server. Its unowned bytes remain untouched.
 Native entries are enabled with codemode exposure. Enabled servers connect in
 the background at Pi startup; codemode is not Adapter's lazy lifecycle. Daem
 checks the bounded version and applicable builtin, package and explicit extension
-path settings before publication, refusing known disablement or a possible Adapter
-replacement without repairing settings or removing a package. Existing global
-physical ownership and the selected agent-root namespace still apply during
-removal. Changing that namespace is not automatic migration of existing ownership. Native manifests,
-locks and state require a Native-aware daem build; older readers may refuse the
+path settings before publication, refusing known disablement or configured Adapter
+intent without repairing settings or removing a package. Qualification is reported
+per binding as `host_prerequisite = qualified` or `unqualified`, separately from
+config projection, provider evidence and runtime readiness. An unqualified binding
+retains its status row and causal reason; it does not suppress other targets'
+observations. Plain status returns a valid report, while `status --check` and
+apply dry-run return nonzero for the blocker. A confirmed apply refuses the whole
+selected plan before publication; it does not automatically apply only its healthy
+targets. Use an explicit `--target` selection for independent work.
+
+Existing global physical ownership and the selected agent-root namespace still
+apply during removal. Changing that namespace is not automatic migration of
+existing ownership. Native manifests, locks and state require a Native-aware daem
+build; older readers may refuse the
 backend field or codec rather than reinterpret it as Adapter.
 
 Builtin selection keeps Pi's two settings-layer rules: user forced exclusion
@@ -177,28 +191,17 @@ backend fallback; a decisive supported override may resolve the uncertainty.
 Pi owns full selector interpretation. Additional static syntax requires
 separately verified matching support.
 
-An ordinary package object's `extensions: []` excludes its extension resources;
-omitting the field permits the package defaults. With `autoload: false`, the
-object is a filtering delta: an empty list leaves the user package unchanged.
-A normal project package replaces the same npm-name user package, independent
-of version, when project settings participate. Daem does not observe Pi trust,
-so Native projections at either scope qualify both the user-only and
-project-participating package contexts. A project filter cannot make a
-selectable user Adapter safe: it may read project MCP files before trust.
-Nonempty package filters support relative literals, `*` and `?`, glob `!`
-exclusions and exact `+`/`-` paths. They require observable installed metadata
-with a matching stable exact/caret npm selector and a finite explicit JS/TS
-file inventory; no entrypoint is assumed across package versions. Paths use
-the host's native separator: Windows backslashes normalize to slashes, while
-backslash syntax on Unix is outside this finite matcher and refuses dependent
-qualification. Full Minimatch, noncanonical path aliases, comment patterns,
-Unicode glob matching, directory/glob/override inventories and unresolved
-metadata are outside this static selection proof and refuse dependent Native
-publication.
-Resource selection does not prove extension activation or project trust.
+Any configured `pi-mcp-adapter` package intent in either user or project settings
+refuses Native qualification, including an uninstalled package, `extensions: []`,
+exclusion filters and `autoload: false` deltas. Remove the declaration separately
+if Native is wanted. Daem deliberately does not certify disabled-Adapter
+coexistence: package inventory, filter matching, deduplication and installation-root
+resolution belong to Pi. Native qualification does not run npm, pnpm or Bun
+location queries or inspect npm installation inventory. A project declaration or
+mask cannot make a user Adapter safe before trust. This conservative refusal is
+not a claim that the extension is active or will load successfully.
 
-The filter proof above covers direct npm sources, not registry aliases. An npm
-alias targeting `pi-mcp-adapter`, such as
+An npm alias targeting `pi-mcp-adapter`, such as
 `npm:mcp-shim@npm:pi-mcp-adapter@2.15.0`, refuses Native qualification even with
 `extensions: []`. Its installation name and registry target are distinct;
 alias inventory and version certification are unsupported. This does not admit
@@ -208,8 +211,8 @@ A source naming the official Git repository
 `github.com/nicobailon/pi-mcp-adapter`, or an existing local source whose bounded
 strict `package.json` declares `name: "pi-mcp-adapter"`, refuses Native
 qualification, even with a package filter. These are known replacement intents,
-not aliases of the admitted npm provider. Git/local inventory and filter
-certification are unsupported. Git locator parsing failure or an unmodelled
+not aliases of the admitted npm provider. Git/local filter certification is
+unsupported. Git locator parsing failure or an unmodelled
 hosted alias refuses qualification rather than proving Adapter absence; full
 hosted-alias parity is unsupported.
 
@@ -248,43 +251,47 @@ identifies the Adapter refuses qualification even with other filter entries;
 local filter-based disablement is unsupported. Automatic or custom runtime
 extension discovery remains outside this observation.
 
-For inventory-dependent filters, daem first selects the installation root.
-Project packages use `.pi/npm/node_modules/pi-mcp-adapter`. User packages prefer
-`<Pi agent root>/npm/node_modules/pi-mcp-adapter` whenever that path exists;
-missing or malformed metadata there does not permit a legacy-root retry. A
-project `autoload: false` delta uses the user package's source and installation
-scope, not a separate project installation.
-
-When the managed user path is absent, Native qualification may run standard
-package-location queries: npm `root -g`, pnpm `list -g --depth 0 --json`, or
-Bun `pm bin -g`. pnpm's first matching dependency path is used directly; a
-successful listing without a matching path falls back to `root -g`. Bun's bin
-directory determines `../install/global/node_modules`. These queries use the
-operation's working directory and inherited environment. User settings or the
-default authorize the executable; project settings do not grant execution
-authority. If the project-participating context requires a different normalized
-`npmCommand`, dependent qualification refuses without running that command or
-substituting a different manager's root. Absent, null or empty settings mean
-npm. Only a single direct npm, pnpm or Bun executable is admitted, including
-user-configured absolute executable paths and native `.cmd`/`.exe` suffixes.
-Wrappers, extra command arguments and directory-relative executable paths are
-unsupported and are not executed.
-
-Location queries are bounded and cancellable; returned locations must be
-absolute native paths. Query failure, malformed/truncated output or invalid
-selected metadata refuses dependent qualification, rather than proving that
-the Adapter is absent or disabled. A failed pnpm listing, an absent listed
-package path or incompatible selected metadata does not trigger another root
-search. No query is needed for inventory-independent selection or an existing
-managed root. Daem does not request package installation/update or server
-startup through these queries, and location evidence does not prove activation.
-
-Unsupported: native import, automatic Adapter-to-Native migration, HTTP/OAuth,
+Unsupported: disabled-Adapter coexistence, native import, automatic backend migration, HTTP/OAuth,
 custom managed exposure, trust approval, live session/server probes, native
 rollback and custom extension/SDK runtime certification. Pi owns runtime
 activation and extension behavior; file/version facts cannot prove connectivity
 or tool availability. These limits can change only through a separately accepted
 contract, not from a Pi upgrade or successful config convergence.
+
+##### Moving From Adapter To Native
+
+Editing `backend = "native"` on an already managed Adapter entry does not migrate
+its stored codec. Status and apply refuse that transition with the affected server,
+target, scope and old/new backends. The same restriction applies in reverse.
+Retire the old ownership before authoring the new backend:
+
+1. Remove **all** Adapter Pi MCP declarations from the selected manifest and apply
+   their removal while retaining the provider declarations. For one project row:
+   `daem remove mcp-server context7 --target pi --scope project`, then
+   `daem apply --target pi --yes`. Repeat for every Pi binding, including global
+   bindings; a remaining Adapter binding determines later add's backend.
+2. After the old bindings are retired, remove unused Adapter provider declarations
+   with `daem remove extension <provider-id>` and review/apply their removal.
+   A shared global provider may have other consumers; do not remove it without
+   checking those uses. Separately remove any remaining Adapter intent from user
+   and project Pi settings, including external Git/local or top-level extension
+   declarations. Daem does not turn filters into Native admission or remove
+   unrelated settings. Package caches need not be deleted merely to retire the
+   MCP config contribution.
+3. With no remaining Pi bindings or Adapter provider intent, use a supported stable
+   Pi `>=1.0.2,<2.0.0` to add the servers again with their original command and args.
+   For the [Native project example](../examples/pi-native-project-mcp-stdio.toml):
+   `daem add mcp-server context7 npx --arg=-y --arg=@upstash/context7-mcp@1.2.3 --target pi --scope project`.
+   Check that authoring recorded `backend = "native"`; otherwise do not treat its
+   Adapter fallback as a migration. Restore any desired environment references.
+4. Review `daem apply --target pi --dry-run`, then apply and run
+   `daem status --target pi --check`. Native connection and trust remain Pi's
+   responsibility, not proof supplied by config convergence.
+
+These commands use the default manifest; add `--manifest <path>` consistently for
+another manifest. The retirement phase uses stored codecs and does not require
+Native qualification. Unowned fallback entries survive retirement and must still
+satisfy the new backend's observation and ownership rules.
 
 #### Pi Provider
 

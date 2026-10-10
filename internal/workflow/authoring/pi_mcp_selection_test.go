@@ -77,23 +77,48 @@ func TestPiNativeAuthoringExplicitProviderDominatesHostVersion(t *testing.T) {
 	}
 }
 
-func TestPiNativeAuthoringRefusesMixedBackendPeers(t *testing.T) {
+func TestPiNativeAuthoringInheritsHomogeneousBackendPeers(t *testing.T) {
 	for _, test := range []struct {
 		backend string
 		version string
 	}{
+		{"native", ""},
 		{"native", "0.85.1"},
+		{"native", "2.0.0"},
 		{"adapter", "1.0.2"},
 	} {
 		content := "version = 1\ntargets = [\"pi\"]\n\n[[mcp_server]]\nname = \"existing\"\ntargets = [\"pi\"]\nscope = \"project\"\nbackend = \"" + test.backend + "\"\ntransport = \"stdio\"\ncommand = \"node\"\n"
-		_, err := BuildAddMCPServerChangeWithPiVersion(
+		if test.backend == "adapter" {
+			content += "\n" + piProviderExtensionBlock("provider", "project", "npm:pi-mcp-adapter@2.15.0")
+		}
+		change, err := BuildAddMCPServerChangeWithPiVersion(
 			ManifestDocument{Content: []byte(content)},
-			AddMCPServerRequest{Name: "new", Targets: []string{"pi"}, Scope: "project", Command: "node"},
+			AddMCPServerRequest{Name: "new", Targets: []string{"pi"}, Scope: "global", Command: "node"},
 			profile.ObservePiMCPVersion(test.version),
 		)
-		if err == nil {
-			t.Fatalf("mixed peer %s/%s was accepted", test.backend, test.version)
+		if err != nil {
+			t.Fatal(err)
 		}
+		normalized, err := declarationmanifest.Decode(change.Content)
+		if err != nil || len(normalized.MCPServers()) != 2 {
+			t.Fatalf("peer authoring %s/%s: %v", test.backend, test.version, err)
+		}
+		for _, server := range normalized.MCPServers() {
+			if server.Bindings()[0].Backend() != desiredmcp.Backend(test.backend) {
+				t.Fatalf("host version changed recorded cohort %s: %s", test.backend, change.Content)
+			}
+		}
+	}
+}
+
+func TestPiNativeAuthoringRefusesExplicitMixedBackendPeers(t *testing.T) {
+	content := "version = 1\ntargets = [\"pi\"]\n\n" + piProviderExtensionBlock("provider", "project", "npm:pi-mcp-adapter@2.15.0")
+	for _, backend := range []string{"native", "adapter"} {
+		content += "\n[[mcp_server]]\nname = \"" + backend + "\"\ntargets = [\"pi\"]\nscope = \"project\"\nbackend = \"" + backend + "\"\ntransport = \"stdio\"\ncommand = \"node\"\n"
+	}
+	if _, err := BuildAddMCPServerChangeWithPiVersion(ManifestDocument{Content: []byte(content)},
+		AddMCPServerRequest{Name: "new", Targets: []string{"pi"}, Scope: "project", Command: "node"}, profile.PiMCPVersion{}); err == nil {
+		t.Fatal("explicit mixed backend cohort was accepted")
 	}
 }
 
@@ -106,6 +131,7 @@ func TestPiNativeAuthoringObservationIsNeededOnlyForNewAutomaticPi(t *testing.T)
 		{"version = 1\ntargets = [\"pi\"]\n", true},
 		{"version = 1\ntargets = [\"pi\"]\n\n" + piProviderExtensionBlock("provider", "project", "npm:pi-mcp-adapter@2.15.0"), false},
 		{"version = 1\ntargets = [\"pi\"]\n\n[[mcp_server]]\nname = \"context7\"\ntargets = [\"pi\"]\nscope = \"project\"\nbackend = \"native\"\ntransport = \"stdio\"\ncommand = \"node\"\n", false},
+		{"version = 1\ntargets = [\"pi\"]\n\n[[mcp_server]]\nname = \"other\"\ntargets = [\"pi\"]\nscope = \"global\"\nbackend = \"native\"\ntransport = \"stdio\"\ncommand = \"node\"\n", false},
 	} {
 		needed, err := requiresPiVersionForAuthoring(ManifestDocument{Content: []byte(test.content)}, request)
 		if err != nil || needed != test.want {

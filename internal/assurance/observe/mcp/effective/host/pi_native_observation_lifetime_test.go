@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
@@ -91,16 +92,10 @@ func TestPiNativeSourceContextRetainsDistinctDirectoryEntries(t *testing.T) {
 
 func TestPiNativeQualificationLifetimeIsOperationAndScopeLocal(t *testing.T) {
 	workDir, agentRoot := t.TempDir(), t.TempDir()
-	legacyRoot := filepath.Join(t.TempDir(), "node_modules")
-	writeEffectiveConfig(t, filepath.Join(legacyRoot, "pi-mcp-adapter", "package.json"), `{"name":"pi-mcp-adapter","version":"2.15.0","pi":{"extensions":["index.ts"]}}`)
-	writeEffectiveConfig(t, filepath.Join(legacyRoot, "pi-mcp-adapter", "index.ts"), "export {}")
-	command, queryLog := installNativeRootQueryFixture(t, "npm", legacyRoot, "[]")
-	if err := os.WriteFile(filepath.Join(filepath.Dir(command), "pi"), []byte("#!/bin/sh\n[ \"$1\" = --version ] || exit 91\nprintf '1.0.2\\n'\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	queryLog := installNativeQueryCanary(t)
 	t.Setenv("PI_CODING_AGENT_DIR", agentRoot)
 	settingsPath := filepath.Join(agentRoot, "settings.json")
-	settings := `{"packages":[{"source":"npm:pi-mcp-adapter@2.15.0","extensions":["-index.ts"]}]}`
+	settings := `{}`
 	writeEffectiveConfig(t, settingsPath, settings)
 	resolver := hostpath.NewResolver(workDir).WithDestinationOverride(pihostpath.DestinationOverride(workDir))
 	input := Input{Context: t.Context(), Codecs: aggregatecodec.Catalog(), WorkDir: workDir, ResolveDestination: resolver.Resolve}
@@ -109,29 +104,37 @@ func TestPiNativeQualificationLifetimeIsOperationAndScopeLocal(t *testing.T) {
 		t.Run(string(scope), func(t *testing.T) {
 			writeEffectiveConfig(t, settingsPath, settings)
 			input.Contracts = nativeCatalogContracts(t, scope, "one")
-			writeEffectiveConfig(t, queryLog, "")
 			observed, err := Observe(input)
 			if err != nil || len(observed.Current) != 1 {
 				t.Fatalf("single binding observation = %#v, %v", observed, err)
 			}
-			baseline, err := os.ReadFile(queryLog)
-			if err != nil || len(baseline) == 0 {
-				t.Fatalf("fixture did not exercise legacy lookup: %q, %v", baseline, err)
+			if observed.HostPrerequisites[input.Contracts[0].SubjectID()].State() != mcpobserve.HostQualified {
+				t.Fatal("single binding lacks qualification evidence")
 			}
 
 			input.Contracts = nativeCatalogContracts(t, scope, "one", "two", "three")
-			writeEffectiveConfig(t, queryLog, "")
 			observed, err = Observe(input)
 			if err != nil || len(observed.Current) != len(input.Contracts) {
 				t.Fatalf("multiple binding observation = %#v, %v", observed, err)
 			}
-			assertNativeRootQueryLog(t, queryLog, string(baseline))
-
-			writeEffectiveConfig(t, settingsPath, `{"packages":["npm:pi-mcp-adapter@2.15.0"]}`)
-			observed, err = Observe(input)
-			if err == nil || len(observed.Current) != 0 || len(observed.Retiring) != 0 {
-				t.Fatalf("later operation reused stale qualification: %#v, %v", observed, err)
+			for _, contract := range input.Contracts {
+				if observed.HostPrerequisites[contract.SubjectID()].State() != mcpobserve.HostQualified {
+					t.Fatal("qualification was not attributed to every binding")
+				}
 			}
+
+			writeEffectiveConfig(t, settingsPath, `{"packages":[{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]}]}`)
+			observed, err = Observe(input)
+			if err != nil || len(observed.Current) != len(input.Contracts) {
+				t.Fatalf("host refusal suppressed current observations: %#v, %v", observed, err)
+			}
+			for _, contract := range input.Contracts {
+				host := observed.HostPrerequisites[contract.SubjectID()]
+				if host.State() != mcpobserve.HostUnqualified || host.Reason() != mcpobserve.ReasonHostAdapterConfigured {
+					t.Fatalf("later operation reused stale qualification: %#v", host)
+				}
+			}
+			assertNativeQueryNotCalled(t, queryLog)
 		})
 	}
 
@@ -140,33 +143,35 @@ func TestPiNativeQualificationLifetimeIsOperationAndScopeLocal(t *testing.T) {
 		writeEffectiveConfig(t, filepath.Join(workDir, ".pi", "settings.json"), `{"extensions":["+builtin:mcp"]}`)
 		input.Contracts = append(nativeCatalogContracts(t, target.ScopeProject, "one"), nativeCatalogContracts(t, target.ScopeGlobal, "two")...)
 		observed, err := Observe(input)
-		if err == nil || len(observed.Current) != 0 || len(observed.Retiring) != 0 {
-			t.Fatalf("project success bypassed global qualification: %#v, %v", observed, err)
+		if err != nil || len(observed.Current) != 2 {
+			t.Fatalf("scope-local qualification suppressed observations: %#v, %v", observed, err)
+		}
+		for index, state := range []mcpobserve.HostPrerequisiteState{mcpobserve.HostQualified, mcpobserve.HostUnqualified} {
+			if host := observed.HostPrerequisites[input.Contracts[index].SubjectID()]; host.State() != state {
+				t.Fatalf("scope %d reused another scope's qualification: %#v", index, host)
+			}
 		}
 	})
 
 	t.Run("cancellation between bindings", func(t *testing.T) {
 		writeEffectiveConfig(t, settingsPath, settings)
 		writeEffectiveConfig(t, filepath.Join(workDir, ".pi", "settings.json"), `{}`)
-		writeEffectiveConfig(t, queryLog, "")
 		input.Contracts = nativeCatalogContracts(t, target.ScopeProject, "one", "two")
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		input.Context = ctx
 		canceledAfterQualification := false
+		resolved := 0
 		input.ResolveDestination = func(destination output.Destination) (string, error) {
-			calls, err := os.ReadFile(queryLog)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(calls) != 0 {
+			resolved++
+			if resolved == 2 {
 				cancel()
 				canceledAfterQualification = true
 			}
 			return resolver.Resolve(destination)
 		}
 		observed, err := Observe(input)
-		if !canceledAfterQualification || !errors.Is(err, context.Canceled) || len(observed.Current) != 0 || len(observed.Retiring) != 0 {
+		if !canceledAfterQualification || !errors.Is(err, context.Canceled) || len(observed.Current) != 0 || len(observed.Retiring) != 0 || len(observed.HostPrerequisites) != 0 {
 			t.Fatalf("qualification reuse bypassed cancellation: %#v, %v", observed, err)
 		}
 	})
@@ -180,13 +185,12 @@ func TestPiNativeQualificationLifetimeIsOperationAndScopeLocal(t *testing.T) {
 			t.Fatalf("retiring projection: %t, %v", present, err)
 		}
 		input.Retiring = []aggregate.SubjectContribution{projection}
-		writeEffectiveConfig(t, queryLog, "")
 		t.Setenv("PATH", t.TempDir())
 		observed, err := Observe(input)
-		if err != nil || len(observed.Retiring) != 1 {
+		if err != nil || len(observed.Retiring) != 1 || len(observed.HostPrerequisites) != 0 {
 			t.Fatalf("retirement acquired current qualification: %#v, %v", observed, err)
 		}
-		assertNativeRootQueryLog(t, queryLog, "")
+		assertNativeQueryNotCalled(t, queryLog)
 	})
 }
 

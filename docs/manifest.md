@@ -769,7 +769,10 @@ Pi backend permanently means Adapter; upgrading Pi never changes existing
 declarations. The field is rejected on other targets. Native and Adapter
 declarations cannot be combined in one Pi session context.
 
-Native requires an observable stable Pi version `>=1.0.2,<2.0.0` during apply.
+Native qualification requires an observable stable Pi version `>=1.0.2,<2.0.0`
+for status and before apply publication. Failures are per-binding
+`host_prerequisite = unqualified` evidence, not a loss of all-target status;
+`status --check` and apply dry-run report the blocker with a nonzero exit.
 Its managed entry uses command, ordered args, exact `${SOURCE}` environment
 references, `enabled = true` and `exposure = "codemode"`; enabled/exposure may
 be omitted when observing their defaults. It accepts `type = "stdio"` and the
@@ -780,14 +783,18 @@ underscore namespaces are refused without renaming.
 
 Native has no provider extension prerequisite. Daem refuses known builtin
 disablement or a configured `pi-mcp-adapter` replacement before publication.
-Package qualification checks both user-only and project-participating settings,
-even for a project binding; a project mask cannot exclude a pretrust user
-Adapter. Known official Git and locally labelled Adapter sources also refuse
-Native qualification; this does not admit them as managed providers.
+Any configured Adapter package intent in user or project settings refuses Native,
+regardless of package filters, `autoload` or installation presence. Daem does not
+run package-location queries to certify disabled-Adapter coexistence. Known npm
+aliases, official Git and locally labelled Adapter sources also refuse Native;
+this does not admit them as managed providers.
 It neither edits those settings nor falls back to Adapter. Pi owns project
 trust and startup connections; codemode controls tool exposure, not lazy
 server startup. See the [Native project](../examples/pi-native-project-mcp-stdio.toml)
 and [global](../examples/pi-native-global-mcp-stdio.toml) examples.
+Changing a managed binding's backend in place is unsupported. Follow
+[Moving From Adapter To Native](host-integrations.md#moving-from-adapter-to-native)
+to retire the old codec and provider intent before re-authoring.
 
 Each Adapter binding must correlate with one explicit `[[extension]]` using `carrier = "pi-package"`,
 target `pi`, the same scope or a reusable explicit-global scope, and an exact
@@ -889,11 +896,13 @@ global`. Defaults do not authorize global MCP. Helpers author command/args: add
 supported env references manually or through accepted import (Antigravity only
 manually; project OpenCode rejects them).
 
-For a new automatic Pi row, add observes one bounded, isolated `pi --version`
+For the first automatic Pi choice without existing Pi bindings or an explicit
+Adapter provider, add observes one bounded, isolated `pi --version`
 result and records Native when admitted. Missing, malformed or incompatible
 version evidence retains Adapter authoring with a diagnostic; cancellation
-fails instead. Existing same-identity backend and explicit provider intent
-take precedence, and later lock/apply never reselect the backend.
+fails instead. An existing homogeneous Pi cohort supplies a new server's backend
+across names and scopes without another version query; explicit provider intent
+also takes precedence. Later lock/apply never reselect the backend.
 
 Adapter add creates/reuses an explicit scoped `pi-mcp-adapter`: project prefers
 project provider, otherwise one unambiguous explicit-global provider; global

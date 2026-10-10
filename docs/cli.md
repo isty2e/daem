@@ -285,17 +285,20 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list resources` | Resource inventory | `2` |
 | `list outputs` | Output inventory | `4` |
 | `list paths` | Agent location inventory | `1` |
-| `status`, `apply --dry-run` | Reconciliation plan | `13` |
-| confirmed `apply` | Apply result | `20` |
+| `status`, `apply --dry-run` | Reconciliation plan | `14` |
+| confirmed `apply` | Apply result | `21` |
 | `recover` | Recovery plan/result | `9` |
 | `migrate state` | State-authority migration | `1` |
 | `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
 
-Plan version `13` and apply-result version `20` add managed Pi Git pin-change
-actions and their `pin_change` disclosure. They replace versions `12` and `19`
-shipped in v0.2.3, including for invocations without a pin change.
+Plan version `14` and apply-result version `21` add per-binding MCP
+`host_prerequisite` evidence and optional dimension `detail`, plus the unsupported
+Pi backend-transition failure classification. They retain the managed Pi Git
+pin-change actions and `pin_change` disclosure introduced in versions `13` and
+`20`. These versions replace the `12` and `19` envelopes shipped in v0.2.3,
+including for invocations without Native MCP or a pin change.
 
 Consumers must select the expected command envelope, inspect
 `schema_version`, and reject unsupported versions before interpreting any
@@ -521,12 +524,15 @@ executables use the manifest-only `command = { path = "/absolute/path" }`
 form; `daem import` also emits that form for supported host entries with an
 absolute command.
 
-For a new automatic `--target pi` row, add observes one bounded `pi --version`
+For the first automatic `--target pi` choice without existing Pi bindings or an
+explicit Adapter provider, add observes one bounded `pi --version`
 result in disposable agent and working directories. Stable `>=1.0.2,<2.0.0`
 evidence selects and records `backend = "native"` without a package. Missing,
 malformed or incompatible evidence retains Adapter with a diagnostic;
-cancellation is an error. Existing same-identity backend and explicit provider
-intent take precedence. Lock regeneration and apply never reselect the backend.
+cancellation is an error. An existing homogeneous Pi cohort determines new
+servers' backend across names and scopes without another version query. Explicit
+provider intent also takes precedence. Lock regeneration and apply never reselect
+the backend; apply still qualifies the recorded Native choice before publication.
 
 For Adapter, add ensures that one compatible explicit `pi-mcp-adapter` package
 is declared at the selected scope. The default provider
@@ -872,9 +878,27 @@ lock identity, managed-state ownership, current host observations, modeled
 relation observations, and retained historical attempt diagnostics.
 
 Read-only means no managed configuration or state mutation. For Native Pi MCP,
-status may run bounded version and, when needed, standard package-location
-queries; see [Pi Native And Adapter](host-integrations.md#pi-native-and-adapter).
-These queries do not request installation, updates or server startup.
+status may run the bounded `pi --version` observation; it does not execute
+npm/pnpm/Bun location queries. See
+[Pi Native And Adapter](host-integrations.md#pi-native-and-adapter).
+Version observation does not request installation, updates or server startup.
+
+Native qualification failures are per-binding `host_prerequisite = unqualified`
+evidence with a closed reason and causal detail. Other targets' status remains
+visible. They block `status --check` and publication, not plain status reporting.
+Native bindings require current host qualification evidence; other MCP bindings
+report `host_prerequisite = not_applicable`, separately from any Adapter
+`provider_prerequisite`. These dimensions do not certify runtime readiness.
+
+Unqualified host prerequisites use these reasons:
+
+| Reason | Meaning |
+| --- | --- |
+| `HOST_VERSION_UNQUALIFIED` | A stable Pi version in the admitted Native range was not observed. |
+| `HOST_SETTINGS_UNOBSERVED` | The applicable settings or source metadata cannot be interpreted within the bounded observation contract. |
+| `HOST_BUILTIN_DISABLED` | The applicable builtin MCP selection is disabled. |
+| `HOST_BUILTIN_UNOBSERVED` | Builtin selection depends on unsupported static selector syntax. |
+| `HOST_ADAPTER_CONFIGURED` | Known Adapter intent remains configured, regardless of its package filters. |
 
 Default output prints totals, every planned mutation, blocker, drift,
 unsupported/ambiguous class, binding-removal result, and uncertain host-route
@@ -888,7 +912,7 @@ still return `1` before or while emitting their applicable result contract.
 | Invocation | Exit `0` | Exit `1` |
 | --- | --- | --- |
 | `status` | any valid report | never because of reported state |
-| `status --check` | lockfile present, no pending output action, exact extension order, and no blocked relation, adoption, or extension-removal action | lockfile missing; pending output action; non-exact extension order; or blocked relation, adoption, or extension-removal action |
+| `status --check` | lockfile present, no pending or blocked output action, exact extension order, and no blocked relation, adoption, or extension-removal action | lockfile missing; pending or blocked output action, including an unqualified MCP host; non-exact extension order; or blocked relation, adoption, or extension-removal action |
 
 Warning-only diagnostics, selected missing extension relations, and observe-only
 relation rows do not make `--check` fail. A blocked removal of a managed
@@ -907,6 +931,10 @@ daem apply [--manifest <path>] [--target <target> ...]
 route, destructive implication, and uncertain postcondition without performing
 those mutations or routes. Native Pi MCP qualification may run the same
 bounded observation queries described under [status](#status).
+An unqualified Native binding refuses the whole selected plan before publication;
+apply does not silently skip it and publish the other targets. Select independent
+work explicitly with `--target` instead. This preflight rule does not promise
+rollback for a later delegated failure after effects begin.
 Bare apply under the three-stream terminal contract discloses the same effect
 plan and asks once. Non-interactive apply requires `--yes`. Every selected
 supported config action and delegated route is ordinary apply work; there is no
@@ -973,7 +1001,7 @@ reason codes, selected source/ref, and evidence. Raw subprocess output and
 secret values are never printed. Redaction checks both captured and
 display-normalized spellings.
 
-Status and apply-dry-run JSON use plan schema version `13`. The document contains
+Status and apply-dry-run JSON use plan schema version `14`. The document contains
 the derived lockfile status, lock-only resources, typed actions, delegated
 actions, relation actions, physical extension-order actions, carrier-adoption
 actions, carrier-absence actions, `host_route_attempts` history, diagnostics, MCP
@@ -1027,7 +1055,7 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "observation_only"` for pending settlement, and
 `execution = "state_only"` for already-absent claim retirement.
 
-`apply --yes --json` uses result schema version `20`: executed action count,
+`apply --yes --json` uses result schema version `21`: executed action count,
 statefile path, bounded delegated attempts and `host_route_attempts`, typed errors,
 carrier-adoption transitions and final claim provenance, carrier-absence
 outcomes, physical `relation_order_results`, and `has_errors`. Each order result
@@ -1054,7 +1082,10 @@ These are not `apply_refused`; never delete reserved names to bypass them.
 
 Closed `phase` and `outcome` distinguish pre-effect refusal, incomplete effects
 and complete compensation. Messages come only from typed facts, not internal
-error strings. `rolled_back` requires compensation for every attempted effect; a
+error strings. `mcp_backend_transition_unsupported` identifies a direct change
+between stored and desired Pi codecs, with the binding, backends and retirement
+guidance. It can refuse planning before an execution envelope exists.
+`rolled_back` requires compensation for every attempted effect; a
 retained provider prerequisite or any effect outside the journal keeps the
 result `incomplete`. Human output uses the same detail; verbose evidence is
 bounded and sanitized. Planning, projection, diff, confirmation, diagnostic and

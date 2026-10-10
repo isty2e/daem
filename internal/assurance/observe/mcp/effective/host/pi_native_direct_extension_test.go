@@ -137,7 +137,7 @@ func TestPiNativeTopLevelPatternsDoNotDiscoverLocalMetadata(t *testing.T) {
 			}
 			writeEffectiveConfig(t, filepath.Join(base, "settings.json"), string(wire))
 
-			if _, err := observePiNativeSettings(t.Context(), filepath.Join(base, "settings.json"), target.ScopeGlobal); err != nil {
+			if _, err := observePiNativeSettings(t.Context(), filepath.Join(base, "settings.json")); err != nil {
 				t.Fatalf("pattern-only declaration inspected unrelated local metadata: %v", err)
 			}
 		})

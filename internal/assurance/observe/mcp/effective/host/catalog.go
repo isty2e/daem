@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/realization/profile"
 
+	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output"
@@ -36,13 +37,20 @@ type Input struct {
 // ObservationSet separates current desired projections, which may constrain
 // writes, from retiring managed projections, which are diagnostic only.
 type ObservationSet struct {
-	Current  []mcpeffective.Observation
-	Retiring []mcpeffective.Observation
+	Current           []mcpeffective.Observation
+	Retiring          []mcpeffective.Observation
+	HostPrerequisites map[topology.SubjectID]mcpobserve.HostPrerequisiteObservation
 }
 
 // Observe dispatches current and retiring provider-mediated projections to
 // their admitted host observer without exposing host identities to readiness.
 func Observe(input Input) (ObservationSet, error) {
+	if input.Context == nil {
+		input.Context = context.Background()
+	}
+	if err := input.Context.Err(); err != nil {
+		return ObservationSet{}, err
+	}
 	if input.ResolveDestination == nil {
 		return ObservationSet{}, fmt.Errorf("provider-effective MCP destination resolver is required")
 	}
@@ -59,7 +67,8 @@ func Observe(input Input) (ObservationSet, error) {
 	)
 	var nativeVersion profile.PiMCPVersion
 	nativeVersionObserved := false
-	nativeQualifiedScopes := make(map[target.Scope]bool)
+	nativeQualifiedScopes := make(map[target.Scope]mcpobserve.HostPrerequisiteObservation)
+	hostPrerequisites := make(map[topology.SubjectID]mcpobserve.HostPrerequisiteObservation)
 
 	observeProjection := func(
 		projection aggregate.SubjectContribution,
@@ -114,10 +123,8 @@ func Observe(input Input) (ObservationSet, error) {
 					return mcpeffective.Observation{}, err
 				}
 				if !retiring {
-					if input.Context != nil {
-						if err := input.Context.Err(); err != nil {
-							return mcpeffective.Observation{}, err
-						}
+					if err := input.Context.Err(); err != nil {
+						return mcpeffective.Observation{}, err
 					}
 					if !nativeVersionObserved {
 						nativeVersion, err = ObservePiVersion(input.Context)
@@ -127,12 +134,19 @@ func Observe(input Input) (ObservationSet, error) {
 						nativeVersionObserved = true
 					}
 					scope := projection.Contribution().Scope()
-					if !nativeQualifiedScopes[scope] {
-						if err := qualifyPiNativeSettings(input.Context, piContract, scope, input.WorkDir, piAgentRoot, nativeVersion); err != nil {
+					qualified, present := nativeQualifiedScopes[scope]
+					if !present {
+						qualificationErr := qualifyPiNativeSettings(input.Context, piContract, scope, input.WorkDir, piAgentRoot, nativeVersion)
+						if err := input.Context.Err(); err != nil {
 							return mcpeffective.Observation{}, err
 						}
-						nativeQualifiedScopes[scope] = true
+						qualified, err = nativeHostPrerequisite(qualificationErr)
+						if err != nil {
+							return mcpeffective.Observation{}, err
+						}
+						nativeQualifiedScopes[scope] = qualified
 					}
+					hostPrerequisites[subject] = qualified
 				}
 				return observePiNative(nativeInput, sourceContext)
 			}
@@ -167,8 +181,9 @@ func Observe(input Input) (ObservationSet, error) {
 	}
 
 	result := ObservationSet{
-		Current:  make([]mcpeffective.Observation, 0),
-		Retiring: make([]mcpeffective.Observation, 0, len(input.Retiring)),
+		Current:           make([]mcpeffective.Observation, 0),
+		Retiring:          make([]mcpeffective.Observation, 0, len(input.Retiring)),
+		HostPrerequisites: hostPrerequisites,
 	}
 	for _, contract := range input.Contracts {
 		subject := contract.SubjectID()
@@ -233,5 +248,8 @@ func Observe(input Input) (ObservationSet, error) {
 			result.Retiring[right].Subject(),
 		) < 0
 	})
+	if err := input.Context.Err(); err != nil {
+		return ObservationSet{}, err
+	}
 	return result, nil
 }

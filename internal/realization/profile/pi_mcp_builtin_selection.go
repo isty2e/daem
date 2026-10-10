@@ -1,7 +1,6 @@
 package profile
 
 import (
-	"fmt"
 	"path"
 	"strings"
 
@@ -64,12 +63,12 @@ func (selection PiMCPBuiltinSelection) requireEnabled(scope target.Scope) error 
 	}
 	for _, state := range states {
 		if state == piMCPBuiltinDisabled {
-			return fmt.Errorf("native Pi MCP builtin is disabled in the applicable settings envelope; no settings were changed")
+			return ErrPiNativeBuiltinDisabled
 		}
 	}
 	for _, state := range states {
 		if state != piMCPBuiltinEnabled {
-			return fmt.Errorf("native Pi MCP builtin selection cannot be established within the static selector envelope; no settings were changed")
+			return ErrPiNativeBuiltinUnobserved
 		}
 	}
 	return nil

@@ -26,20 +26,30 @@ func piMCPAuthoringIntent(content []byte, header declaration.ManifestHeader, key
 	if err != nil {
 		return "", false, err
 	}
+	var existing desiredmcp.Backend
+	var contracts []profile.PiMCPContract
 	for _, block := range blocks {
-		if block.Server.Name != key.name {
-			continue
-		}
 		existingKey, err := mcpServerAuthoringKeyFor(block.Server, header, "existing mcp_server")
 		if err != nil {
 			return "", false, err
 		}
-		if existingKey == key {
-			backend, err := desiredmcp.ParseBackend(key.target, block.Server.Backend)
-			return backend, len(providers) != 0, err
+		if existingKey.target == target.TargetPi {
+			backend, err := desiredmcp.ParseBackend(existingKey.target, block.Server.Backend)
+			if err != nil {
+				return "", false, err
+			}
+			contract, err := profile.PiMCPContractForBackend(backend)
+			if err != nil {
+				return "", false, err
+			}
+			contracts = append(contracts, contract)
+			existing = backend
 		}
 	}
-	return "", len(providers) != 0, nil
+	if err := profile.AdmitPiMCPContext(contracts, len(providers) != 0); err != nil {
+		return "", false, err
+	}
+	return existing, len(providers) != 0, nil
 }
 
 func requiresPiVersionForAuthoring(document ManifestDocument, request AddMCPServerRequest) (bool, error) {
@@ -75,31 +85,7 @@ func planSelectedMCPAuthoring(content []byte, header declaration.ManifestHeader,
 	if err != nil {
 		return server, mcpProviderAuthoringPlan{}, err
 	}
-	blocks, err := declarationcodec.ScanMCPServerBlocks(content)
-	if err != nil {
-		return server, mcpProviderAuthoringPlan{}, err
-	}
-	contracts := []profile.PiMCPContract{contract}
-	for _, block := range blocks {
-		peerKey, err := mcpServerAuthoringKeyFor(block.Server, header, "existing mcp_server")
-		if err != nil {
-			return server, mcpProviderAuthoringPlan{}, err
-		}
-		if peerKey.target == target.TargetPi {
-			peer, err := desiredmcp.ParseBackend(peerKey.target, block.Server.Backend)
-			if err != nil {
-				return server, mcpProviderAuthoringPlan{}, err
-			}
-			peerContract, err := profile.PiMCPContractForBackend(peer)
-			if err != nil {
-				return server, mcpProviderAuthoringPlan{}, err
-			}
-			contracts = append(contracts, peerContract)
-		}
-	}
-	if err := profile.AdmitPiMCPContext(contracts, provider); err != nil {
-		return server, mcpProviderAuthoringPlan{}, err
-	}
+
 	if !contract.RequiresProvider() {
 		server.Backend = string(contract.Backend())
 		if err := validateCanonicalMCPServerAuthoring(server); err != nil {
