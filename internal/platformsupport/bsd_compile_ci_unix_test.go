@@ -46,10 +46,10 @@ func TestBSDCompileCIExecutesEveryTargetAndPreservesFailures(t *testing.T) {
 		failure string
 		version string
 	}{
-		{name: "success", version: "go1.26.6"},
-		{name: "first failure", version: "go1.26.6", failure: "freebsd/amd64:./internal/filesnapshot"},
-		{name: "middle failure", version: "go1.26.6", failure: "netbsd/amd64:./internal/assurance/observe/codexplugin"},
-		{name: "last failure", version: "go1.26.6", failure: "openbsd/amd64:./internal/assurance/observe/codexplugin"},
+		{name: "success", version: "go1.26.9"},
+		{name: "first failure", version: "go1.26.9", failure: "freebsd/amd64:./internal/filesnapshot"},
+		{name: "middle failure", version: "go1.26.9", failure: "netbsd/amd64:./internal/assurance/observe/codexplugin"},
+		{name: "last failure", version: "go1.26.9", failure: "openbsd/amd64:./internal/assurance/observe/codexplugin"},
 		{name: "wrong toolchain", version: "go1.25.12"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
@@ -87,7 +87,7 @@ fi
 				command.Env = append(command.Env, key+"="+value)
 			}
 			output, err := command.CombinedOutput()
-			wantSuccess := scenario.failure == "" && scenario.version == "go1.26.6"
+			wantSuccess := scenario.failure == "" && scenario.version == "go1.26.9"
 			if (err == nil) != wantSuccess {
 				t.Fatalf("compile result = %v, want success=%t\n%s", err, wantSuccess, output)
 			}
@@ -96,7 +96,7 @@ fi
 			}
 
 			var expected []string
-			if scenario.version == "go1.26.6" {
+			if scenario.version == "go1.26.9" {
 				for _, target := range []string{"freebsd/amd64", "freebsd/386", "freebsd/arm", "netbsd/amd64", "netbsd/386", "netbsd/arm", "openbsd/amd64"} {
 					for _, packagePath := range []string{"./internal/filesnapshot", "./internal/assurance/observe/codexplugin"} {
 						expected = append(expected, target, "0", "5", "test", "-c", "-o",

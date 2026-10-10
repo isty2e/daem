@@ -64,11 +64,11 @@ func TestStateBarrierCIMatrixCoversNativeMinimumAndRaceContracts(t *testing.T) {
 		Race      bool
 	}
 	want := map[string]matrixRow{
-		"linux-amd64":            {OS: "ubuntu-24.04", GOOS: "linux", GOARCH: "amd64", GoVersion: "1.26.6"},
-		"darwin-arm64":           {OS: "macos-26", GOOS: "darwin", GOARCH: "arm64", GoVersion: "1.26.6"},
-		"windows-amd64":          {OS: "windows-2025", GOOS: "windows", GOARCH: "amd64", GoVersion: "1.26.6"},
+		"linux-amd64":            {OS: "ubuntu-24.04", GOOS: "linux", GOARCH: "amd64", GoVersion: "1.26.9"},
+		"darwin-arm64":           {OS: "macos-26", GOOS: "darwin", GOARCH: "arm64", GoVersion: "1.26.9"},
+		"windows-amd64":          {OS: "windows-2025", GOOS: "windows", GOARCH: "amd64", GoVersion: "1.26.9"},
 		"minimum-go-linux-amd64": {OS: "ubuntu-24.04", GOOS: "linux", GOARCH: "amd64", GoVersion: "1.25.12"},
-		"race-linux-amd64":       {OS: "ubuntu-24.04", GOOS: "linux", GOARCH: "amd64", GoVersion: "1.26.6", Race: true},
+		"race-linux-amd64":       {OS: "ubuntu-24.04", GOOS: "linux", GOARCH: "amd64", GoVersion: "1.26.9", Race: true},
 	}
 	if len(job.Strategy.Matrix.Include) != len(want) {
 		t.Fatalf("state_barrier matrix rows = %d, want %d", len(job.Strategy.Matrix.Include), len(want))
