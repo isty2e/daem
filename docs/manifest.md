@@ -727,7 +727,8 @@ for it.
 form. Author an exact absolute path directly in the manifest, or obtain it
 through `daem import`.
 
-`[[mcp_server]]` is currently limited to nine stdio exact-projection slices:
+`[[mcp_server]]` supports nine stdio placements. Pi has two distinct file
+contracts at each of its project/global placements:
 
 - Codex project scope, rendered into project `.codex/config.toml` under
   `/mcp_servers/<name>` with `command` and `args` only.
@@ -744,10 +745,9 @@ through `daem import`.
   `~/.config/opencode/opencode.json` as `type = "local"` with `command` and
   `args`, plus optional exact child-to-source environment references lowered to
   `{env:SOURCE}` strings.
-- Pi project scope, mediated by one explicitly declared admitted
-  `pi-mcp-adapter` package and rendered into project `.pi/mcp.json` under
-  `/mcpServers/<name>`.
-- Pi explicit global scope, mediated by the same provider contract and rendered
+- Pi project scope, using the recorded Native or Adapter contract and
+  rendered into project `.pi/mcp.json` under `/mcpServers/<name>`.
+- Pi explicit global scope, using the same recorded contract and rendered
   into `mcp.json` under the current Pi agent root, `~/.pi/agent` by default or
   `PI_CODING_AGENT_DIR` when set.
 - Antigravity CLI explicit global scope, rendered into
@@ -764,8 +764,39 @@ rendered into host config and modeled as a non-owned executable requirement, but
 they are not package installation, provisioning, runtime readiness, or cleanup
 syntax.
 
-Pi MCP is provider-mediated rather than core-native. Each Pi binding must
-correlate with one explicit `[[extension]]` using `carrier = "pi-package"`,
+Pi bindings record `backend = "native"` or `backend = "adapter"`. An omitted
+Pi backend permanently means Adapter; upgrading Pi never changes existing
+declarations. The field is rejected on other targets. Native and Adapter
+declarations cannot be combined in one Pi session context.
+
+Native qualification requires an observable stable Pi version `>=1.0.2,<2.0.0`
+for status and before apply publication. Failures are per-binding
+`host_prerequisite = unqualified` evidence, not a loss of all-target status;
+`status --check` and apply dry-run report the blocker with a nonzero exit.
+Its managed entry uses command, ordered args, exact `${SOURCE}` environment
+references, `enabled = true` and `exposure = "codemode"`; enabled/exposure may
+be omitted when observing their defaults. It accepts `type = "stdio"` and the
+`codemode-deferred` exposure alias, but not JSONC, Adapter fields, HTTP/OAuth,
+`cwd`, timeouts, per-tool exposure or command interpolation. Server names may
+contain only letters, digits, underscores and hyphens; colliding hyphen and
+underscore namespaces are refused without renaming.
+
+Native has no provider extension prerequisite. Daem refuses known builtin
+disablement or a configured `pi-mcp-adapter` replacement before publication.
+Any configured Adapter package intent in user or project settings refuses Native,
+regardless of package filters, `autoload` or installation presence. Daem does not
+run package-location queries to certify disabled-Adapter coexistence. Known npm
+aliases, official Git and locally labelled Adapter sources also refuse Native;
+this does not admit them as managed providers.
+It neither edits those settings nor falls back to Adapter. Pi owns project
+trust and startup connections; codemode controls tool exposure, not lazy
+server startup. See the [Native project](../examples/pi-native-project-mcp-stdio.toml)
+and [global](../examples/pi-native-global-mcp-stdio.toml) examples.
+Changing a managed binding's backend in place is unsupported. Follow
+[Moving From Adapter To Native](host-integrations.md#moving-from-adapter-to-native)
+to retire the old codec and provider intent before re-authoring.
+
+Each Adapter binding must correlate with one explicit `[[extension]]` using `carrier = "pi-package"`,
 target `pi`, the same scope or a reusable explicit-global scope, and an exact
 or caret-bounded `npm:pi-mcp-adapter@<version>` source. The current profile
 accepts canonical stable versions `>=2.13.0` and `<3.0.0`; `2.13.0` is the
@@ -773,14 +804,14 @@ verified contract floor, while `2.15.0` is the deeply inspected artifact and
 not an exact-version ceiling. Unbounded selectors, tags, prereleases,
 below-floor versions, and the next major are rejected before mutation.
 
-For Pi MCP, the provider relation and MCP projection remain separate. Apply
+For Adapter Pi MCP, the provider relation and MCP projection remain separate. Apply
 establishes and observes the selected `pi-mcp-adapter` package/version, then
 writes only the selected `mcpServers/<name>` contribution to `.pi/mcp.json`
 (project) or `<Pi agent root>/mcp.json` (global). Other Pi-owned/imported layers
 may be observed for collision/fallback diagnostics but are not written. See
 [Host Integration Contract](host-integrations.md#mcp-server-config).
 
-Pi entries accept canonical `command`, ordered `args`, exact child-to-source
+Adapter Pi entries accept canonical `command`, ordered `args`, exact child-to-source
 `${SOURCE}` aliases, `lifecycle = "lazy"`, and `disabled = false`; the two
 semantic defaults may be omitted. The unambiguous `mcp-servers` alias and JSONC
 are accepted. Malformed, duplicate, conflicting-alias, credential-bearing, or
@@ -800,7 +831,8 @@ Provider admission does not flatten package-bundled MCP, skills, hooks,
 instructions, apps, commands, or rules into standalone declarations; those
 contributions remain provider-scoped unless an exact profile admits ownership.
 
-`daem import` may create `[[mcp_server]]` only for supported core-native rows.
+`daem import` may create `[[mcp_server]]` only for its supported non-Pi
+core-native rows. Pi Native and Adapter import are unsupported.
 It preserves accepted child-to-host environment references, skips unsupported or
 credential-bearing shapes, creates no source files, and never edits host MCP
 config, starts servers, probes readiness, installs packages, or flattens
@@ -864,10 +896,18 @@ global`. Defaults do not authorize global MCP. Helpers author command/args: add
 supported env references manually or through accepted import (Antigravity only
 manually; project OpenCode rejects them).
 
-Pi add creates/reuses an explicit scoped `pi-mcp-adapter`: project prefers
+For the first automatic Pi choice without existing Pi bindings or an explicit
+Adapter provider, add observes one bounded, isolated `pi --version`
+result and records Native when admitted. Missing, malformed or incompatible
+version evidence retains Adapter authoring with a diagnostic; cancellation
+fails instead. An existing homogeneous Pi cohort supplies a new server's backend
+across names and scopes without another version query; explicit provider intent
+also takes precedence. Later lock/apply never reselect the backend.
+
+Adapter add creates/reuses an explicit scoped `pi-mcp-adapter`: project prefers
 project provider, otherwise one unambiguous explicit-global provider; global
 requires global provider. Ambiguous/incompatible providers fail before
-manifest/lock changes. MCP removal retains the provider declaration. Helpers
+manifest/lock changes. MCP removal retains any provider declaration. Helpers
 update manifest/adjacent lock together, never host config, server execution,
 package installation, credentials or trust/approval. Remove deletes the whole
 declaration; later apply removes only its managed projection, retaining
@@ -1618,8 +1658,10 @@ summarized in [Feature Support](features.md) and the owning host contracts.
 
 - MCP remains limited to the supported Codex, Claude Code, OpenCode, Pi, and
   Antigravity CLI stdio slices and their documented project/global destinations,
-  environment-reference rules, and rejection conditions. Pi requires an explicit
-  admitted `pi-mcp-adapter`; import does not infer ambient names. Config
+  environment-reference rules, and rejection conditions. Pi Adapter requires
+  an explicit admitted `pi-mcp-adapter`; Native uses the recorded builtin
+  contract. Pi import and automatic backend migration are unsupported.
+  Import does not infer ambient names. Config
   convergence, provider version, trust, approval, runtime readiness, endpoint
   health, tool inventory/policy, credentials, package/cache ownership, and
   broader host ownership remain separate or unsupported concerns. See the [MCP

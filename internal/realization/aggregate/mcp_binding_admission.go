@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/isty2e/daem/internal/target"
+
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 )
 
@@ -19,6 +21,12 @@ func MCPPlacementForBinding(binding desiredmcp.Binding) (MCPPlacement, error) {
 			return MCPPlacement{}, fmt.Errorf("unsupported MCP scope %q", binding.Scope())
 		}
 		return MCPPlacement{}, fmt.Errorf("unsupported MCP target %q", binding.Target())
+	}
+	if binding.Target() == target.TargetPi {
+		placement, ok = MCPPlacementForCodec(placement.ID(), PiMCPProjectionCodec(binding.Backend()))
+		if !ok {
+			return MCPPlacement{}, fmt.Errorf("native Pi MCP contract is not admitted")
+		}
 	}
 	stdio, ok := binding.Transport().Stdio()
 	if !ok {

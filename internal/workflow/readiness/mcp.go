@@ -24,6 +24,7 @@ func classifyMCPProjections(
 	preconditions []observe.AggregatePreconditionEvidence,
 	effective []mcpeffective.Observation,
 	providers []MCPProviderPrerequisite,
+	hosts map[topology.SubjectID]mcpobserve.HostPrerequisiteObservation,
 ) ([]mcpobserve.LockedProjectionObservation, error) {
 	shadowing, err := effectiveShadowingBySubject(effective)
 	if err != nil {
@@ -41,6 +42,7 @@ func classifyMCPProjections(
 		Preconditions: preconditions,
 		Shadowing:     shadowing,
 		Providers:     providerEvidence,
+		Hosts:         hosts,
 	})
 }
 

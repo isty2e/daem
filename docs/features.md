@@ -27,11 +27,13 @@ Skills use the default root or a cataloged `install_to` alternative. Inspect
 locations with `daem list paths`. Same-name skills in other modeled discovery
 roots produce warnings in doctor/status/apply, not automatic deletion.
 
-MCP entries configure a server, not install its executable. Pi additionally
-requires the admitted `pi-mcp-adapter` package; `add mcp-server --target pi`
-authors both declarations when needed, and apply installs the provider before
-config. Provider/config convergence does not prove trust, activation or runtime
-readiness. [MCP Servers](manifest.md#mcp-servers) lists environment-reference
+MCP entries configure a server, not install its executable. Pi supports fixed
+Native and Adapter contracts. New automatic authoring selects Native from an
+admitted Pi version or retains Adapter with a diagnostic; existing choices
+remain unchanged. Adapter requires `pi-mcp-adapter`, installed and freshly
+verified before config. Native has no package prerequisite and refuses an
+incompatible version or known builtin replacement without fallback. Config
+convergence does not prove trust, activation or runtime readiness. [MCP Servers](manifest.md#mcp-servers) lists environment-reference
 rules; values stay runtime-only. Only Claude Code project apply may run the
 locked server. `probe mcp-server` is a separate explicit startup check for
 Claude Code/OpenCode project entries.

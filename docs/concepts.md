@@ -151,8 +151,10 @@ See [Hook Assets](manifest.md#hook-assets).
 ### MCP Server Bindings
 
 MCP bindings configure stdio command/args, not executable provisioning. Removing
-a binding leaves runtime/package residue. Pi needs an explicit admitted
-`pi-mcp-adapter` package; installation/config do not prove trust or readiness.
+a binding leaves runtime/package residue. Pi records a Native or Adapter
+contract; omitted backend preserves legacy Adapter meaning. Adapter needs an
+explicit admitted `pi-mcp-adapter`; Native does not. Version and config facts
+do not prove trust, activation or readiness.
 See the [project](../examples/pi-project-mcp-stdio.toml) and
 [global](../examples/pi-global-mcp-stdio.toml) examples.
 
@@ -174,6 +176,9 @@ contributions or readiness. See [Host Integrations](host-integrations.md).
 Preview before each write: use `--dry-run` for authoring, lock, apply, and
 recovery. `status` and `doctor` are read-only; doctor checks passive prerequisites
 without launching host CLIs, package managers, credential helpers, or servers.
+For Native Pi MCP, status may run bounded version and package-location queries
+without changing managed configuration or state; see
+[Pi Native And Adapter](host-integrations.md#pi-native-and-adapter).
 `probe` is the separate command for an explicitly authorized runtime check.
 
 A preview does not authorize a later command to ignore changed inputs. Applying

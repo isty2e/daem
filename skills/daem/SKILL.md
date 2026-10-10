@@ -81,7 +81,7 @@ Do not force an ambiguous object into the nearest kind. Inspect `daem help add <
 
 For removal, get the exact resource key from `daem list resources`, then use `daem remove <resource> <resource-key>`. Remove skill groups with `daem remove skill <resource-key>`.
 
-For Pi MCP, `daem add mcp-server --target pi` may author an explicit `pi-mcp-adapter` extension alongside the binding. Treat both as intentional: removing the MCP row keeps the provider; removing the provider is a separate extension lifecycle decision. Never describe this as Pi core-native MCP or infer trust/runtime readiness from successful projection.
+For Pi MCP, inspect the recorded backend and current daem diagnostics. New automatic authoring may record Native from admitted Pi version evidence or retain Adapter with a diagnostic; existing declarations never migrate automatically. Adapter may author an explicit `pi-mcp-adapter` extension alongside the binding. Removing the MCP row keeps that provider; package removal is a separate lifecycle decision. Native qualification never authorizes settings repair, provider removal or backend fallback. Do not infer trust, activation or runtime readiness from version or config convergence.
 
 For extensions, distinguish the user's removal intents:
 

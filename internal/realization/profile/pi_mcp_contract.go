@@ -1,0 +1,212 @@
+package profile
+
+import (
+	"fmt"
+	"strings"
+
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
+	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/target"
+	"golang.org/x/mod/semver"
+)
+
+// PiMCPVersion is bounded version evidence, not an activation or runtime-readiness certificate.
+type PiMCPVersion struct {
+	version string
+}
+
+// ObservePiMCPVersion admits only a complete stable semantic version from a successful version command.
+func ObservePiMCPVersion(output string) PiMCPVersion {
+	value := strings.TrimSpace(output)
+	if len(value) > 64 {
+		return PiMCPVersion{}
+	}
+	version := "v" + strings.TrimPrefix(value, "v")
+	if !semver.IsValid(version) || semver.Canonical(version) != version ||
+		semver.Prerelease(version) != "" || semver.Build(version) != "" {
+		return PiMCPVersion{}
+	}
+	return PiMCPVersion{version: version}
+}
+
+// NativeCompatible reports compatibility with the admitted native file contract.
+func (version PiMCPVersion) NativeCompatible() bool {
+	return version.version != "" && semver.Compare(version.version, "v1.0.2") >= 0 &&
+		semver.Compare(version.version, "v2.0.0") < 0
+}
+
+// PiMCPContract owns the interpretation of one recorded Pi MCP backend.
+type PiMCPContract struct {
+	backend desiredmcp.Backend
+}
+
+// PiMCPContractForBackend admits an explicit backend, independent of current host facts.
+func PiMCPContractForBackend(backend desiredmcp.Backend) (PiMCPContract, error) {
+	switch backend {
+	case desiredmcp.BackendNative, desiredmcp.BackendAdapter:
+		return PiMCPContract{backend: backend}, nil
+	default:
+		return PiMCPContract{}, fmt.Errorf("unsupported Pi MCP backend %q", backend)
+	}
+}
+
+// PiMCPContractForCodec resolves a stored Pi contract for observation and retirement.
+func PiMCPContractForCodec(codec aggregate.CodecContractID) (PiMCPContract, bool) {
+	switch codec {
+	case aggregate.MCPCodecPiNativeStdio:
+		return PiMCPContract{backend: desiredmcp.BackendNative}, true
+	case aggregate.MCPCodecPiAdapterStdio:
+		return PiMCPContract{backend: desiredmcp.BackendAdapter}, true
+	default:
+		return PiMCPContract{}, false
+	}
+}
+
+// SelectPiMCPContract preserves existing intent before considering automatic version selection.
+func SelectPiMCPContract(existing desiredmcp.Backend, explicitProvider bool, version PiMCPVersion) (PiMCPContract, error) {
+	if existing != "" {
+		contract, err := PiMCPContractForBackend(existing)
+		if err != nil {
+			return PiMCPContract{}, err
+		}
+		if err := AdmitPiMCPContext([]PiMCPContract{contract}, explicitProvider); err != nil {
+			return PiMCPContract{}, err
+		}
+		return contract, nil
+	}
+	if explicitProvider || !version.NativeCompatible() {
+		return PiMCPContract{backend: desiredmcp.BackendAdapter}, nil
+	}
+	return PiMCPContract{backend: desiredmcp.BackendNative}, nil
+}
+
+func (contract PiMCPContract) Backend() desiredmcp.Backend { return contract.backend }
+
+func (contract PiMCPContract) CodecContractID() aggregate.CodecContractID {
+	return aggregate.PiMCPProjectionCodec(contract.backend)
+}
+
+func (contract PiMCPContract) RequiresProvider() bool {
+	return contract.backend == desiredmcp.BackendAdapter
+}
+
+// AdmitPiMCPContext checks compatibility of one current Pi binding/provider cohort.
+func AdmitPiMCPContext(contracts []PiMCPContract, adapterDeclared bool) error {
+	var selected desiredmcp.Backend
+	for _, contract := range contracts {
+		if _, err := PiMCPContractForBackend(contract.backend); err != nil {
+			return err
+		}
+		if selected != "" && selected != contract.backend {
+			return fmt.Errorf("mixed native and adapter Pi MCP declarations are unsupported; existing bindings were not converted")
+		}
+		if contract.backend == desiredmcp.BackendNative && adapterDeclared {
+			return fmt.Errorf("native Pi MCP cannot be combined with a declared pi-mcp-adapter")
+		}
+		selected = contract.backend
+	}
+	return nil
+}
+
+// Placement projects this selected contract onto the canonical physical address.
+func (contract PiMCPContract) Placement(scope target.Scope) (aggregate.MCPPlacement, error) {
+	if _, err := PiMCPContractForBackend(contract.backend); err != nil {
+		return aggregate.MCPPlacement{}, err
+	}
+	physical, ok := aggregate.ImplementedMCPPlacement(target.TargetPi, scope)
+	if !ok {
+		return aggregate.MCPPlacement{}, fmt.Errorf("unsupported Pi MCP scope %q", scope)
+	}
+	placement, ok := aggregate.MCPPlacementForCodec(physical.ID(), contract.CodecContractID())
+	if !ok {
+		return aggregate.MCPPlacement{}, fmt.Errorf("unsupported Pi MCP projection contract")
+	}
+	return placement, nil
+}
+
+// PiNativeHostFacts qualifies configuration selection, not trust or runtime connectivity.
+type PiNativeHostFacts struct {
+	Version          PiMCPVersion
+	Scope            target.Scope
+	BuiltinSelection PiMCPBuiltinSelection
+	AdapterDeclared  bool
+}
+
+// PiMCPPackageSourceIsLocal selects local metadata observation within Native's
+// carrier envelope; nonlocal carriers still require locator admission.
+func PiMCPPackageSourceIsLocal(source string) bool {
+	if strings.HasPrefix(source, "npm:") {
+		return false
+	}
+	value := strings.TrimSpace(source)
+	return !strings.HasPrefix(value, "git:") && !strings.HasPrefix(value, "https://") &&
+		!strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "ssh://")
+}
+
+// PiMCPAdapterPackageSource identifies npm or official Git replacement intent,
+// not managed-provider admission, installation or activation.
+func PiMCPAdapterPackageSource(source string) (bool, error) {
+	if strings.HasPrefix(source, "npm:") {
+		value := strings.TrimSpace(strings.TrimPrefix(source, "npm:"))
+		spec, ok := desiredextension.ParseNPMPackageSpec(value)
+		if !ok {
+			return false, fmt.Errorf("native Pi MCP npm package source is outside the canonical operand envelope")
+		}
+		registryName, knownRegistry := spec.RegistryTargetName()
+		if knownRegistry && registryName == piMCPProviderPackageName && !spec.DirectRegistry() {
+			return false, ErrPiNativeAdapterConfigured
+		}
+		return spec.Name() == piMCPProviderPackageName, nil
+	}
+	if PiMCPPackageSourceIsLocal(source) {
+		return false, nil
+	}
+	value := strings.TrimSpace(source)
+	if strings.HasPrefix(value, "git://") {
+		value = "git:" + value
+	} else if strings.HasPrefix(value, "git:github:") {
+		value = strings.TrimPrefix(value, "git:")
+	}
+	git, ok := desiredextension.ParseGitSource(value)
+	if !ok {
+		return false, fmt.Errorf("native Pi MCP Git package source is outside the canonical locator envelope")
+	}
+	locator := strings.SplitN(git.Identity(), "/", 2)
+	if len(strings.Split(locator[1], "/")) < 2 {
+		return false, fmt.Errorf("native Pi MCP Git package source requires a host, owner and repository")
+	}
+	host := locator[0]
+	if !strings.ContainsAny(host, ".:") && host != "localhost" {
+		return false, fmt.Errorf("native Pi MCP Git hosted aliases are outside the canonical locator envelope")
+	}
+	return git.Identity() == "github.com/nicobailon/pi-mcp-adapter", nil
+}
+
+// QualifyNativeHost consumes fresh selection facts without changing this fixed backend.
+func (contract PiMCPContract) QualifyNativeHost(facts PiNativeHostFacts) error {
+	if err := contract.QualifyNativeVersion(facts.Version); err != nil {
+		return err
+	}
+	if facts.Scope != target.ScopeProject && facts.Scope != target.ScopeGlobal {
+		return fmt.Errorf("native Pi MCP qualification requires project or global scope")
+	}
+	if err := facts.BuiltinSelection.requireEnabled(facts.Scope); err != nil {
+		return err
+	}
+	if facts.AdapterDeclared {
+		return ErrPiNativeAdapterConfigured
+	}
+	return nil
+}
+
+// QualifyNativeVersion checks a fixed native choice; it never selects an adapter fallback.
+func (contract PiMCPContract) QualifyNativeVersion(version PiMCPVersion) error {
+	if contract.backend != desiredmcp.BackendNative {
+		return fmt.Errorf("native version qualification requires the native Pi MCP contract")
+	}
+	if !version.NativeCompatible() {
+		return ErrPiNativeVersionUnqualified
+	}
+	return nil
+}

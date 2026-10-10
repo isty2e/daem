@@ -18,6 +18,7 @@ import (
 
 func TestRunAddPiMCPServerDryRunJSONShowsPairedDeclarationsAndTrust(t *testing.T) {
 	project := newMCPCLIProject(t)
+	installNativeVersionFixture(t, project.root, "0.85.1")
 	original := "version = 1\ntargets = [\"pi\"]\n"
 	testkit.WriteFile(t, project.root, "daem.toml", original)
 
@@ -72,9 +73,10 @@ func TestRunAddPiMCPServerDryRunJSONShowsPairedDeclarationsAndTrust(t *testing.T
 			t.Fatalf("change = %#v, want %q", change, want)
 		}
 	}
-	if len(payload.Warnings) != 1 ||
-		!strings.Contains(payload.Warnings[0], "until the project is trusted") {
-		t.Fatalf("Warnings = %#v, want project trust warning", payload.Warnings)
+	if len(payload.Warnings) != 2 ||
+		!strings.Contains(payload.Warnings[0], "until the project is trusted") ||
+		!strings.Contains(payload.Warnings[1], "adapter authoring was retained") {
+		t.Fatalf("Warnings = %#v, want project trust and version-fallback warnings", payload.Warnings)
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
 	testkit.AssertPathMissing(t, project.lockfilePath)
@@ -83,6 +85,7 @@ func TestRunAddPiMCPServerDryRunJSONShowsPairedDeclarationsAndTrust(t *testing.T
 
 func TestRunAddPiMCPServerWritesPairedManifestAndLockOnly(t *testing.T) {
 	project := newMCPCLIProject(t)
+	installNativeVersionFixture(t, project.root, "0.85.1")
 	testkit.WriteFile(t, project.root, "daem.toml", "version = 1\ntargets = [\"pi\"]\n")
 
 	var stdout bytes.Buffer
@@ -140,6 +143,7 @@ func TestRunAddPiMCPServerWritesPairedManifestAndLockOnly(t *testing.T) {
 
 func TestRunAddPiGlobalMCPServerWritesBoundedPairedManifestAndLock(t *testing.T) {
 	project := newMCPCLIProject(t)
+	installNativeVersionFixture(t, project.root, "0.85.1")
 	testkit.WriteFile(t, project.root, "daem.toml", "version = 1\ntargets = [\"pi\"]\n")
 
 	var stdout bytes.Buffer

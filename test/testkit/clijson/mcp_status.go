@@ -4,6 +4,7 @@ type MCPStatusDimension struct {
 	Dimension string `json:"dimension"`
 	State     string `json:"state"`
 	Reason    string `json:"reason"`
+	Detail    string `json:"detail"`
 }
 
 type MCPStatus struct {

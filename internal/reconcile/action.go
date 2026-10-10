@@ -35,6 +35,7 @@ const (
 	ReasonProviderVersionUnobserved   ActionReason = "provider_version_unobserved"
 	ReasonProviderVersionIncompatible ActionReason = "provider_version_incompatible"
 	ReasonProviderCodecMismatch       ActionReason = "provider_codec_mismatch"
+	ReasonHostPrerequisiteUnqualified ActionReason = "host_prerequisite_unqualified"
 	ReasonUnmanagedOutputExists       ActionReason = "unmanaged_output_exists"
 	ReasonManagedExisting             ActionReason = "managed_existing"
 	ReasonDestinationConflict         ActionReason = "destination_conflict"
@@ -65,6 +66,7 @@ func validateActionReason(reason ActionReason) error {
 		ReasonProviderVersionUnobserved,
 		ReasonProviderVersionIncompatible,
 		ReasonProviderCodecMismatch,
+		ReasonHostPrerequisiteUnqualified,
 		ReasonUnmanagedOutputExists,
 		ReasonManagedExisting,
 		ReasonDestinationConflict,

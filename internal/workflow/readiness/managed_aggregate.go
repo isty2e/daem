@@ -198,6 +198,9 @@ func observeAggregateDocuments(
 			contractsByDocument[document] = contracts
 		}
 		if previous, duplicate := contracts[address]; duplicate && !previous.Equal(contract) {
+			if err := piMCPBackendTransition(contract, previous); err != nil {
+				return err
+			}
 			return fmt.Errorf("aggregate document contains contract drift at %q", address.ContentPath())
 		}
 		contracts[address] = contract.Clone()

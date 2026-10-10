@@ -26,7 +26,7 @@ func CanonicalMCPBindingContribution(
 	if err != nil {
 		return nil, err
 	}
-	if selected.ID() != placement.ID() {
+	if selected.ID() != placement.ID() || selected.CodecContractID() != placement.CodecContractID() {
 		return nil, fmt.Errorf("MCP placement %q does not match selected placement %q", placement.ID(), selected.ID())
 	}
 	stdio, ok := binding.Transport().Stdio()
@@ -152,6 +152,9 @@ func CanonicalMCPBindingContribution(
 		env, err := canonicalMCPBindingEnv(stdio.Env())
 		if err != nil {
 			return nil, err
+		}
+		if placement.CodecContractID() == aggregate.MCPCodecPiNativeStdio {
+			return canonicalPiNativeServerEntry(serverID, command, args, env)
 		}
 		return CanonicalPiMCPAdapterServerEntry(PiMCPAdapterServerProjection{
 			ServerID:        serverID,

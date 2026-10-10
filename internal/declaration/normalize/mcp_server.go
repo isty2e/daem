@@ -42,11 +42,16 @@ func ExplicitMCPServer(server declarationcodec.MCPServer) (desiredmcp.Server, de
 	if err != nil {
 		return desiredmcp.Server{}, desiredmcp.Binding{}, fmt.Errorf("mcp-server: %w", err)
 	}
-	binding, err := desiredmcp.NewBinding(
+	backend, err := desiredmcp.ParseBackend(selectedTarget, server.Backend)
+	if err != nil {
+		return desiredmcp.Server{}, desiredmcp.Binding{}, err
+	}
+	binding, err := desiredmcp.NewBindingWithBackend(
 		selectedTarget,
 		selectedScope,
 		transport,
 		desiredmcp.OnAbsentRemoveBinding,
+		backend,
 	)
 	if err != nil {
 		return desiredmcp.Server{}, desiredmcp.Binding{}, fmt.Errorf("mcp-server: %w", err)
@@ -124,7 +129,11 @@ func normalizeMCPServers(rawServers []declaration.MCPServer, defaultTargets []ta
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", context, err)
 		}
-		binding, err := desiredmcp.NewBinding(serverTarget, scope, transport, desiredmcp.OnAbsentRemoveBinding)
+		backend, err := desiredmcp.ParseBackend(serverTarget, raw.Backend)
+		if err != nil {
+			return nil, fmt.Errorf("%s.backend: %w", context, err)
+		}
+		binding, err := desiredmcp.NewBindingWithBackend(serverTarget, scope, transport, desiredmcp.OnAbsentRemoveBinding, backend)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", context, err)
 		}
