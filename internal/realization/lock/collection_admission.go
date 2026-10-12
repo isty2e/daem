@@ -6,6 +6,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -23,6 +24,7 @@ type lockedCollectionIndex struct {
 	pathProjectionContracts     map[topology.SubjectID]LockedSubjectContract
 	delegatedCarriers           map[topology.SubjectID]extensiontopology.Carrier
 	mcpProviderContracts        []LockedSubjectContract
+	piMCPContracts              []profile.PiMCPContract
 }
 
 type managedPathOccupancy struct {
@@ -58,6 +60,9 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 	pathProjectionCountByEntity := make(map[entity.ID]int)
 	delegatedCarriers := make(map[topology.SubjectID]extensiontopology.Carrier)
 	mcpProviderContracts := make([]LockedSubjectContract, 0)
+	piMCPContracts := make([]profile.PiMCPContract, 0)
+
+	nativeMCPNames := make([]string, 0)
 
 	for _, subject := range subjects {
 		if existing, duplicate := seenSubjects[subject.SubjectID()]; duplicate {
@@ -97,6 +102,12 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			continue
 		}
 		if contribution, ok := realization.ManagedAggregateContribution(); ok {
+			if piContract, pi := profile.PiMCPContractForCodec(contribution.CodecContractID()); pi {
+				piMCPContracts = append(piMCPContracts, piContract)
+				if !piContract.RequiresProvider() {
+					nativeMCPNames = append(nativeMCPNames, subject.EntityID().Name())
+				}
+			}
 			key := managedAggregateOccupancy{
 				scope:         contribution.Scope(),
 				aggregateRoot: contribution.AggregateRoot().String(), contentPath: contribution.ContentPath(),
@@ -146,6 +157,10 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			}
 		}
 	}
+	if err := aggregate.AdmitPiNativeMCPNamespaces(nativeMCPNames); err != nil {
+		return lockedCollectionIndex{}, err
+	}
+
 	for subjectID, entityID := range pathProjectionEntities {
 		supply, supplied := exactSupplyByEntity[entityID]
 		if !supplied {
@@ -174,6 +189,7 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 		pathProjectionContracts:     pathProjectionContracts,
 		delegatedCarriers:           delegatedCarriers,
 		mcpProviderContracts:        mcpProviderContracts,
+		piMCPContracts:              piMCPContracts,
 	}, nil
 }
 
@@ -182,6 +198,7 @@ func validateLockedCollectionAdmission(index lockedCollectionIndex) error {
 		validateInstructionsPathProjectionCollection,
 		validateHookAssetPathProjectionCollection,
 		validateMCPProviderContributionCollection,
+		validatePiMCPContextCollection,
 	} {
 		if err := admit(index); err != nil {
 			return err

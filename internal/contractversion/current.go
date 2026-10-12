@@ -24,8 +24,8 @@ const (
 	ResourceInventoryJSON  = 2
 	OutputInventoryJSON    = 4
 	PathInventoryJSON      = 1
-	ReconciliationPlanJSON = 13
-	ApplyResultJSON        = 20
+	ReconciliationPlanJSON = 14
+	ApplyResultJSON        = 21
 	RecoveryJSON           = 9
 	StateMigrationJSON     = 1
 	DoctorJSON             = 2

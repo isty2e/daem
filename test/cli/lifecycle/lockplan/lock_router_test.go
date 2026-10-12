@@ -102,7 +102,7 @@ targets = ["codex"]
 }
 
 func TestPublicExampleManifestsLockDryRun(t *testing.T) {
-	for _, name := range []string{"daem.toml", "representative-project.toml", "skill-placement.toml"} {
+	for _, name := range []string{"daem.toml", "representative-project.toml", "skill-placement.toml", "pi-native-project-mcp-stdio.toml", "pi-native-global-mcp-stdio.toml"} {
 		t.Run(name, func(t *testing.T) {
 			manifestPath := filepath.Join(testkit.RepositoryRoot(t), "examples", name)
 

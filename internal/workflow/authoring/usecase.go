@@ -20,6 +20,9 @@ import (
 	"context"
 	"fmt"
 
+	mcpeffectivehost "github.com/isty2e/daem/internal/assurance/observe/mcp/effective/host"
+	"github.com/isty2e/daem/internal/realization/profile"
+
 	"github.com/isty2e/daem/internal/declaration"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declarationartifact"
@@ -219,8 +222,21 @@ func AddHook(ctx context.Context, options ExecutionOptions, request AddHookReque
 
 // AddMCPServer executes one MCP server add authoring operation.
 func AddMCPServer(ctx context.Context, options ExecutionOptions, request AddMCPServerRequest) (OperationResult, error) {
+	var version profile.PiMCPVersion
+	observed := false
 	return executeAuthoringOperation(ctx, options, func(document ManifestDocument) (Change, error) {
-		return BuildAddMCPServerChange(document, request)
+		required, err := requiresPiVersionForAuthoring(document, request)
+		if err != nil {
+			return Change{}, err
+		}
+		if required && !observed {
+			version, err = mcpeffectivehost.ObservePiVersion(ctx)
+			if err != nil {
+				return Change{}, err
+			}
+			observed = true
+		}
+		return BuildAddMCPServerChangeWithPiVersion(document, request, version)
 	})
 }
 

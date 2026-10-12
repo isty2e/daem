@@ -48,7 +48,8 @@ func isCanonicalJSONServerEntry(value any) bool {
 		AntigravityGlobalMCPServerEntry,
 		OpenCodeProjectMCPServerEntry,
 		OpenCodeGlobalMCPServerEntry,
-		PiMCPAdapterServerEntry:
+		PiMCPAdapterServerEntry,
+		piNativeServerEntry:
 		return true
 	default:
 		return false

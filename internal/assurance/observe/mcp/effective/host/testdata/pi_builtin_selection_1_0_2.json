@@ -1,0 +1,316 @@
+[
+  {
+    "name": "default",
+    "global": [],
+    "project": [],
+    "globalEnabled": true,
+    "projectEnabled": true
+  },
+  {
+    "name": "global minus",
+    "global": [
+      "-builtin:mcp"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global exact bang",
+    "global": [
+      "!builtin:mcp"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global star bang",
+    "global": [
+      "!builtin:*"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global universal bang",
+    "global": [
+      "!*"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global double star bang",
+    "global": [
+      "!**"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global question bang",
+    "global": [
+      "!builtin:m?p"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global other bang",
+    "global": [
+      "!builtin:other"
+    ],
+    "project": [],
+    "globalEnabled": true,
+    "projectEnabled": true
+  },
+  {
+    "name": "global minus then plus",
+    "global": [
+      "-builtin:mcp",
+      "+builtin:mcp"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global plus then minus",
+    "global": [
+      "+builtin:mcp",
+      "-builtin:mcp"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global minus then plain",
+    "global": [
+      "-builtin:mcp",
+      "builtin:mcp"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global bang then plus",
+    "global": [
+      "!builtin:*",
+      "+builtin:mcp"
+    ],
+    "project": [],
+    "globalEnabled": true,
+    "projectEnabled": true
+  },
+  {
+    "name": "global plus then bang",
+    "global": [
+      "+builtin:mcp",
+      "!builtin:*"
+    ],
+    "project": [],
+    "globalEnabled": true,
+    "projectEnabled": true
+  },
+  {
+    "name": "global force wildcards are literal",
+    "global": [
+      "-builtin:*"
+    ],
+    "project": [],
+    "globalEnabled": true,
+    "projectEnabled": true
+  },
+  {
+    "name": "global dot exact",
+    "global": [
+      "-./builtin:mcp"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global backslash exact",
+    "global": [
+      "-.\\builtin:mcp"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global relative exact",
+    "global": [
+      "-../project/builtin:mcp"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "project minus",
+    "global": [],
+    "project": [
+      "-builtin:mcp"
+    ],
+    "globalEnabled": true,
+    "projectEnabled": false
+  },
+  {
+    "name": "project exact bang",
+    "global": [],
+    "project": [
+      "!builtin:mcp"
+    ],
+    "globalEnabled": true,
+    "projectEnabled": false
+  },
+  {
+    "name": "project star bang",
+    "global": [],
+    "project": [
+      "!builtin:*"
+    ],
+    "globalEnabled": true,
+    "projectEnabled": false
+  },
+  {
+    "name": "project minus then plus",
+    "global": [],
+    "project": [
+      "-builtin:mcp",
+      "+builtin:mcp"
+    ],
+    "globalEnabled": true,
+    "projectEnabled": true
+  },
+  {
+    "name": "project plus then minus",
+    "global": [],
+    "project": [
+      "+builtin:mcp",
+      "-builtin:mcp"
+    ],
+    "globalEnabled": true,
+    "projectEnabled": false
+  },
+  {
+    "name": "project plus then bang",
+    "global": [],
+    "project": [
+      "+builtin:mcp",
+      "!builtin:*"
+    ],
+    "globalEnabled": true,
+    "projectEnabled": false
+  },
+  {
+    "name": "project bang then plus",
+    "global": [],
+    "project": [
+      "!builtin:*",
+      "+builtin:mcp"
+    ],
+    "globalEnabled": true,
+    "projectEnabled": true
+  },
+  {
+    "name": "project plain ignored",
+    "global": [
+      "-builtin:mcp"
+    ],
+    "project": [
+      "builtin:mcp"
+    ],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "project overrides global",
+    "global": [
+      "-builtin:mcp"
+    ],
+    "project": [
+      "+builtin:mcp"
+    ],
+    "globalEnabled": false,
+    "projectEnabled": true
+  },
+  {
+    "name": "project unrelated preserves global",
+    "global": [
+      "-builtin:mcp"
+    ],
+    "project": [
+      "+builtin:other"
+    ],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "project dot exact",
+    "global": [],
+    "project": [
+      "-./builtin:mcp"
+    ],
+    "globalEnabled": true,
+    "projectEnabled": false
+  },
+  {
+    "name": "project relative exact",
+    "global": [],
+    "project": [
+      "-../builtin:mcp"
+    ],
+    "globalEnabled": true,
+    "projectEnabled": false
+  },
+  {
+    "name": "global complex glob",
+    "global": [
+      "!{builtin:mcp,builtin:other}"
+    ],
+    "project": [],
+    "globalEnabled": false,
+    "projectEnabled": false
+  },
+  {
+    "name": "global complex glob force include",
+    "global": [
+      "!{builtin:mcp,builtin:other}",
+      "+builtin:mcp"
+    ],
+    "project": [],
+    "globalEnabled": true,
+    "projectEnabled": true
+  },
+  {
+    "name": "project complex glob later force include",
+    "global": [],
+    "project": [
+      "!{builtin:mcp,builtin:other}",
+      "+builtin:mcp"
+    ],
+    "globalEnabled": true,
+    "projectEnabled": true
+  },
+  {
+    "name": "global complex glob project force include",
+    "global": [
+      "!{builtin:mcp,builtin:other}"
+    ],
+    "project": [
+      "+builtin:mcp"
+    ],
+    "globalEnabled": false,
+    "projectEnabled": true
+  }
+]

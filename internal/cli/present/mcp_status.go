@@ -38,6 +38,7 @@ type MCPStatusDimension struct {
 	Dimension string `json:"dimension"`
 	State     string `json:"state"`
 	Reason    string `json:"reason,omitempty"`
+	Detail    string `json:"detail,omitempty"`
 }
 
 // MCPStatusesFrom projects canonical passive MCP evidence into the public status contract.
@@ -61,6 +62,8 @@ func MCPStatusesFrom(observations []mcpobserve.LockedProjectionObservation) ([]M
 		if err != nil {
 			return nil, err
 		}
+		host := observation.Host()
+		status.Host = append(status.Host, MCPStatusDimension{Dimension: "host_prerequisite", State: string(host.State()), Reason: string(host.Reason()), Detail: host.Detail()})
 		subject := observation.Subject()
 		status.Subject = MCPSubject{
 			Kind:      string(subject.Kind()),
@@ -225,7 +228,7 @@ func selectedMCPDimensions(dimensions []MCPStatusDimension, options HumanOptions
 	result := make([]MCPStatusDimension, 0, len(dimensions))
 	for _, dimension := range dimensions {
 		switch dimension.State {
-		case "projected", "managed", "current", "not_applicable", "not_probed", "observed_present":
+		case "projected", "managed", "current", "qualified", "not_applicable", "not_probed", "observed_present":
 			continue
 		default:
 			result = append(result, dimension)
@@ -243,6 +246,9 @@ func printMCPStatusDimensionGroup(output io.Writer, label string, dimensions []M
 		fmt.Fprintf(output, "      %s: %s", dimension.Dimension, dimension.State)
 		if dimension.Reason != "" {
 			fmt.Fprintf(output, " reason=%s", dimension.Reason)
+		}
+		if dimension.Detail != "" {
+			fmt.Fprintf(output, " detail=%s", Quote(dimension.Detail))
 		}
 		fmt.Fprintln(output)
 	}

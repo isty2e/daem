@@ -62,8 +62,9 @@ func TestPiMCPAuthoringAddsExplicitScopedProviderAndBinding(t *testing.T) {
 					t.Fatalf("ManifestBlock = %s, want %q", change.ManifestBlock, want)
 				}
 			}
-			if len(change.Warnings) != 1 ||
-				!strings.Contains(change.Warnings[0], test.wantWarning) {
+			if len(change.Warnings) != 2 ||
+				!strings.Contains(change.Warnings[0], test.wantWarning) ||
+				!strings.Contains(change.Warnings[1], "adapter authoring was retained") {
 				t.Fatalf("Warnings = %#v, want %q", change.Warnings, test.wantWarning)
 			}
 		})

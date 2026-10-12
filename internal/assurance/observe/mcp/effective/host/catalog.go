@@ -3,23 +3,31 @@
 package host
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
 
+	"github.com/isty2e/daem/internal/desired/mcp"
+	"github.com/isty2e/daem/internal/realization/profile"
+
+	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output"
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
 
 // Input contains selected locked MCP projections and operation-local path
-// facts. Direct-host projections without a provider contribution are ignored.
+// facts. Pi dispatch consumes recorded codecs rather than inferring a backend from provider presence.
 type Input struct {
+	Context            context.Context
 	Contracts          []lock.LockedSubjectContract
+	Previous           []aggregate.SubjectContribution
 	Retiring           []aggregate.SubjectContribution
 	Codecs             aggregate.CodecCatalog
 	WorkDir            string
@@ -29,24 +37,42 @@ type Input struct {
 // ObservationSet separates current desired projections, which may constrain
 // writes, from retiring managed projections, which are diagnostic only.
 type ObservationSet struct {
-	Current  []mcpeffective.Observation
-	Retiring []mcpeffective.Observation
+	Current           []mcpeffective.Observation
+	Retiring          []mcpeffective.Observation
+	HostPrerequisites map[topology.SubjectID]mcpobserve.HostPrerequisiteObservation
 }
 
 // Observe dispatches current and retiring provider-mediated projections to
 // their admitted host observer without exposing host identities to readiness.
 func Observe(input Input) (ObservationSet, error) {
+	if input.Context == nil {
+		input.Context = context.Background()
+	}
+	if err := input.Context.Err(); err != nil {
+		return ObservationSet{}, err
+	}
 	if input.ResolveDestination == nil {
 		return ObservationSet{}, fmt.Errorf("provider-effective MCP destination resolver is required")
 	}
+	nativePeers, err := nativePeerProjections(input)
+	if err != nil {
+		return ObservationSet{}, err
+	}
 	seen := make(map[topology.SubjectID]struct{}, len(input.Contracts)+len(input.Retiring))
 	var (
-		piContext    piObservationContext
-		piContextErr error
-		piResolved   bool
+		piAgentRoot string
+		piHomeDir   string
+		piRootErr   error
+		piResolved  bool
 	)
+	var nativeVersion profile.PiMCPVersion
+	nativeVersionObserved := false
+	nativeQualifiedScopes := make(map[target.Scope]mcpobserve.HostPrerequisiteObservation)
+	hostPrerequisites := make(map[topology.SubjectID]mcpobserve.HostPrerequisiteObservation)
+
 	observeProjection := func(
 		projection aggregate.SubjectContribution,
+		retiring bool,
 	) (mcpeffective.Observation, error) {
 		subject := projection.SubjectID()
 		if _, duplicate := seen[subject]; duplicate {
@@ -66,12 +92,16 @@ func Observe(input Input) (ObservationSet, error) {
 		placement := view.Placement()
 		switch placement.ID() {
 		case aggregate.MCPPlacementPiProject, aggregate.MCPPlacementPiGlobal:
+			piContract, admitted := profile.PiMCPContractForCodec(projection.Contribution().CodecContractID())
+			if !admitted {
+				return mcpeffective.Observation{}, fmt.Errorf("recorded Pi MCP codec has no admitted contract")
+			}
 			if !piResolved {
-				piContext, piContextErr = resolvePiObservationContext(input.WorkDir)
+				piAgentRoot, piRootErr = pihostpath.ResolveAgentRoot(pihostpath.AgentRootInput{WorkDir: input.WorkDir})
 				piResolved = true
 			}
-			if piContextErr != nil {
-				return mcpeffective.Observation{}, piContextErr
+			if piRootErr != nil {
+				return mcpeffective.Observation{}, fmt.Errorf("resolve Pi agent root for MCP effective observation: %w", piRootErr)
 			}
 			selectedPath, err := input.ResolveDestination(
 				projection.Contribution().AggregateRoot(),
@@ -83,12 +113,55 @@ func Observe(input Input) (ObservationSet, error) {
 					err,
 				)
 			}
+			if piContract.Backend() == mcp.BackendNative {
+				nativeInput := PiNativeInput{
+					Projection: projection, Codecs: input.Codecs, WorkDir: input.WorkDir, AgentRoot: piAgentRoot,
+					SelectedPath: selectedPath, Retiring: retiring, peers: nativePeers,
+				}
+				sourceContext, err := newPiNativeSourceContext(projection.Contribution().Scope(), input.WorkDir, piAgentRoot, selectedPath)
+				if err != nil {
+					return mcpeffective.Observation{}, err
+				}
+				if !retiring {
+					if err := input.Context.Err(); err != nil {
+						return mcpeffective.Observation{}, err
+					}
+					if !nativeVersionObserved {
+						nativeVersion, err = ObservePiVersion(input.Context)
+						if err != nil {
+							return mcpeffective.Observation{}, err
+						}
+						nativeVersionObserved = true
+					}
+					scope := projection.Contribution().Scope()
+					qualified, present := nativeQualifiedScopes[scope]
+					if !present {
+						qualificationErr := qualifyPiNativeSettings(input.Context, piContract, scope, input.WorkDir, piAgentRoot, nativeVersion)
+						if err := input.Context.Err(); err != nil {
+							return mcpeffective.Observation{}, err
+						}
+						qualified, err = nativeHostPrerequisite(qualificationErr)
+						if err != nil {
+							return mcpeffective.Observation{}, err
+						}
+						nativeQualifiedScopes[scope] = qualified
+					}
+					hostPrerequisites[subject] = qualified
+				}
+				return observePiNative(nativeInput, sourceContext)
+			}
+			if piHomeDir == "" {
+				piHomeDir, err = os.UserHomeDir()
+				if err != nil {
+					return mcpeffective.Observation{}, fmt.Errorf("resolve home for Pi MCP effective observation: %w", err)
+				}
+			}
 			observation, err := ObservePiAdapter(PiAdapterInput{
 				Projection:   projection,
 				Codecs:       input.Codecs,
-				HomeDir:      piContext.homeDir,
+				HomeDir:      piHomeDir,
 				WorkDir:      input.WorkDir,
-				AgentRoot:    piContext.agentRoot,
+				AgentRoot:    piAgentRoot,
 				SelectedPath: selectedPath,
 			})
 			if err != nil {
@@ -108,16 +181,19 @@ func Observe(input Input) (ObservationSet, error) {
 	}
 
 	result := ObservationSet{
-		Current:  make([]mcpeffective.Observation, 0),
-		Retiring: make([]mcpeffective.Observation, 0, len(input.Retiring)),
+		Current:           make([]mcpeffective.Observation, 0),
+		Retiring:          make([]mcpeffective.Observation, 0, len(input.Retiring)),
+		HostPrerequisites: hostPrerequisites,
 	}
 	for _, contract := range input.Contracts {
 		subject := contract.SubjectID()
 		provider, providerMediated := contract.MCPProviderContribution()
-		if !providerMediated {
+		view, pi := catalog.Product().LookupMCPBySubject(subject)
+		pi = pi && (view.Placement().ID() == aggregate.MCPPlacementPiProject || view.Placement().ID() == aggregate.MCPPlacementPiGlobal)
+		if !providerMediated && !pi {
 			continue
 		}
-		if provider.Kind() != "mcp-client" || provider.Key() != "default" {
+		if providerMediated && (provider.Kind() != "mcp-client" || provider.Key() != "default") {
 			return ObservationSet{}, fmt.Errorf(
 				"provider-mediated MCP subject %q has unsupported contribution %q/%q",
 				subject,
@@ -135,7 +211,7 @@ func Observe(input Input) (ObservationSet, error) {
 				subject,
 			)
 		}
-		observation, err := observeProjection(projection)
+		observation, err := observeProjection(projection, false)
 		if err != nil {
 			return ObservationSet{}, err
 		}
@@ -154,7 +230,7 @@ func Observe(input Input) (ObservationSet, error) {
 		default:
 			continue
 		}
-		observation, err := observeProjection(projection)
+		observation, err := observeProjection(projection, true)
 		if err != nil {
 			return ObservationSet{}, err
 		}
@@ -172,30 +248,8 @@ func Observe(input Input) (ObservationSet, error) {
 			result.Retiring[right].Subject(),
 		) < 0
 	})
+	if err := input.Context.Err(); err != nil {
+		return ObservationSet{}, err
+	}
 	return result, nil
-}
-
-type piObservationContext struct {
-	homeDir   string
-	agentRoot string
-}
-
-func resolvePiObservationContext(workDir string) (piObservationContext, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return piObservationContext{}, fmt.Errorf(
-			"resolve home for Pi MCP effective observation: %w",
-			err,
-		)
-	}
-	agentRoot, err := pihostpath.ResolveAgentRoot(pihostpath.AgentRootInput{
-		WorkDir: workDir,
-	})
-	if err != nil {
-		return piObservationContext{}, fmt.Errorf(
-			"resolve Pi agent root for MCP effective observation: %w",
-			err,
-		)
-	}
-	return piObservationContext{homeDir: homeDir, agentRoot: agentRoot}, nil
 }

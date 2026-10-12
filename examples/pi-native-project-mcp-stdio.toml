@@ -1,0 +1,17 @@
+# Native Pi project MCP, requiring stable Pi >=1.0.2,<2.0.0 during apply.
+# Pi owns project trust and background startup connections. Config convergence
+# does not prove activation, connectivity, authentication or tool availability.
+# An installed Adapter is not removed or migrated by this declaration.
+
+version = 1
+targets = ["pi"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["pi"]
+scope = "project"
+backend = "native"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@1.2.3"]
+env = { CONTEXT7_API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }

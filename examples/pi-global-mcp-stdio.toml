@@ -1,6 +1,6 @@
 # Provider-mediated Pi global MCP example.
 #
-# Pi core does not own this MCP config surface. The explicit pi-mcp-adapter
+# This example retains the Adapter contract. The explicit pi-mcp-adapter
 # package reads mcp.json from the Pi agent root, which defaults to ~/.pi/agent
 # and follows PI_CODING_AGENT_DIR when set. Daem installs the declared provider
 # through Pi before projecting the binding. It stores only the environment

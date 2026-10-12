@@ -46,8 +46,9 @@ func (codec mcpProjectionCodec) ValidateContributions(contributions aggregate.Co
 			codec.ContractID(),
 		)
 	}
-	operations, ok := ImplementedMCPPlacementOperationsForPlacement(
+	operations, ok := ImplementedMCPPlacementOperationsForContract(
 		aggregate.MCPPlacementID(contribution.Address().PlacementID()),
+		contribution.CodecContractID(),
 	)
 	if !ok {
 		return fmt.Errorf(
@@ -324,7 +325,7 @@ func (codec mcpProjectionCodec) selectedProjections(
 		)
 	}
 	placementID := aggregate.MCPPlacementID(contracts[0].Address().PlacementID())
-	operations, ok := ImplementedMCPPlacementOperationsForPlacement(placementID)
+	operations, ok := ImplementedMCPPlacementOperationsForContract(placementID, codec.ContractID())
 	if !ok || operations.Placement().CodecContractID() != codec.ContractID() {
 		return MCPPlacementOperations{}, nil, mcpCodecFailure(
 			fmt.Errorf("MCP selection placement does not implement codec contract"),

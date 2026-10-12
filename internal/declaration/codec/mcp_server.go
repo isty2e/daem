@@ -17,6 +17,7 @@ type MCPServer struct {
 	Targets   []string                   `toml:"targets"`
 	Scope     string                     `toml:"scope"`
 	Transport string                     `toml:"transport"`
+	Backend   string                     `toml:"backend,omitempty"`
 	Command   declaration.MCPCommand     `toml:"command"`
 	Args      []string                   `toml:"args"`
 	Env       map[string]MCPEnvReference `toml:"env"`
@@ -30,9 +31,17 @@ type MCPEnvReference struct {
 // payload independently of name, target, and scope identity.
 func SameMCPServerProjectionPayload(left MCPServer, right MCPServer) bool {
 	return left.Transport == right.Transport &&
+		canonicalPiBackend(left.Backend) == canonicalPiBackend(right.Backend) &&
 		left.Command == right.Command &&
 		slices.Equal(left.Args, right.Args) &&
 		maps.Equal(left.Env, right.Env)
+}
+
+func canonicalPiBackend(value string) string {
+	if value == "" {
+		return "adapter"
+	}
+	return value
 }
 
 type MCPServerBlock struct {
@@ -93,6 +102,11 @@ func RenderMCPServerBlock(server MCPServer) string {
 	if server.Scope != "" {
 		builder.WriteString("scope = ")
 		builder.WriteString(strconv.Quote(server.Scope))
+		builder.WriteByte('\n')
+	}
+	if server.Backend != "" {
+		builder.WriteString("backend = ")
+		builder.WriteString(strconv.Quote(server.Backend))
 		builder.WriteByte('\n')
 	}
 	builder.WriteString("transport = ")

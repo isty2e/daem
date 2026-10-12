@@ -12,6 +12,7 @@ import (
 	mcpdelegate "github.com/isty2e/daem/internal/realization/delegate/mcp"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -37,8 +38,32 @@ func MCPSubjects(
 		return nil, fmt.Errorf("MCP contribution encoder is required")
 	}
 
+	nativeNames := make([]string, 0)
+	piContracts := make([]profile.PiMCPContract, 0)
+	for _, server := range servers {
+		for _, binding := range server.Bindings() {
+			if binding.Target() != target.TargetPi {
+				continue
+			}
+			contract, err := profile.PiMCPContractForBackend(binding.Backend())
+			if err != nil {
+				return nil, err
+			}
+			piContracts = append(piContracts, contract)
+			if !contract.RequiresProvider() {
+				nativeNames = append(nativeNames, server.ID().Name())
+			}
+		}
+	}
+	if err := aggregate.AdmitPiNativeMCPNamespaces(nativeNames); err != nil {
+		return nil, err
+	}
+
 	providerCandidates, err := mcpProviderContributions(extensions)
 	if err != nil {
+		return nil, err
+	}
+	if err := profile.AdmitPiMCPContext(piContracts, len(providerCandidates) != 0); err != nil {
 		return nil, err
 	}
 	providerSelections, selectedProviders, err := selectMCPProviders(servers, providerCandidates)
@@ -135,6 +160,7 @@ func mcpLockedSubjectContract(
 		Graph:                graph,
 		EntityID:             server.ID(),
 		PlacementID:          placement.ID(),
+		CodecContractID:      placement.CodecContractID(),
 		ServerID:             server.ID().Name(),
 		RequestedOnAbsent:    binding.OnAbsent(),
 		LauncherCommand:      stdio.Command().Executable(),
@@ -187,6 +213,9 @@ func selectMCPProviders(
 			placement, err := aggregate.MCPPlacementForBinding(binding)
 			if err != nil {
 				return nil, nil, err
+			}
+			if piContract, pi := profile.PiMCPContractForCodec(placement.CodecContractID()); pi && !piContract.RequiresProvider() {
+				continue
 			}
 			required, err := lock.MCPPlacementRequiresProviderContribution(placement.ID())
 			if err != nil {

@@ -63,6 +63,7 @@ const (
 	FailureReasonRelationOrderRiskExpanded     FailureReason = "relation_order_risk_expanded"
 	FailureReasonRelationOrderUnauthorized     FailureReason = "relation_order_not_authorized"
 	FailureReasonMCPEnvironmentUnavailable     FailureReason = "mcp_environment_unavailable"
+	FailureReasonMCPBackendTransition          FailureReason = "mcp_backend_transition_unsupported"
 	FailureReasonDelegateAttemptFailed         FailureReason = "delegate_attempt_failed"
 	FailureReasonHostRouteAttemptFailed        FailureReason = "host_route_attempt_failed"
 	FailureReasonCarrierPostconditionFailed    FailureReason = "carrier_removal_postcondition_failed"
@@ -98,10 +99,11 @@ const (
 
 // Failure is a path-neutral public projection of an internal apply error.
 type Failure struct {
-	reason  FailureReason
-	phase   FailurePhase
-	outcome FailureOutcome
-	barrier recoverygate.State
+	reason            FailureReason
+	phase             FailurePhase
+	outcome           FailureOutcome
+	barrier           recoverygate.State
+	backendTransition *readiness.MCPBackendTransitionError
 }
 
 // ClassifyFailure derives public failure facts without copying internal error text.
@@ -116,11 +118,17 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 		}
 	}
 
+	reason := classifyFailureReason(err, result.ExecutionAttempted)
+	var transition *readiness.MCPBackendTransitionError
+	if reason == FailureReasonMCPBackendTransition {
+		errors.As(err, &transition)
+	}
 	return Failure{
-		reason:  classifyFailureReason(err, result.ExecutionAttempted),
-		phase:   phase,
-		outcome: outcome,
-		barrier: recoverygate.StateOf(err),
+		reason:            reason,
+		phase:             phase,
+		outcome:           outcome,
+		barrier:           recoverygate.StateOf(err),
+		backendTransition: transition,
 	}
 }
 
@@ -189,6 +197,10 @@ func classifyFailureReason(err error, executionAttempted bool) FailureReason {
 	}
 
 	var missingEnvironment missingMCPEnvironmentSourcesError
+	var transition *readiness.MCPBackendTransitionError
+	if errors.As(err, &transition) {
+		return FailureReasonMCPBackendTransition
+	}
 	if errors.As(err, &missingEnvironment) {
 		return FailureReasonMCPEnvironmentUnavailable
 	}
@@ -262,6 +274,11 @@ func (failure Failure) reasonDetail() string {
 		return "the updated extension order was not authorized"
 	case FailureReasonMCPEnvironmentUnavailable:
 		return "required MCP environment sources are unavailable"
+	case FailureReasonMCPBackendTransition:
+		if failure.backendTransition != nil {
+			return failure.backendTransition.Error()
+		}
+		return "Pi MCP backend transition is unsupported; retire the existing binding before re-authoring"
 	case FailureReasonDelegateAttemptFailed:
 		return "a delegated host command attempt failed"
 	case FailureReasonHostRouteAttemptFailed:

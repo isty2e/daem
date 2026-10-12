@@ -229,9 +229,27 @@ func ImplementedMCPPlacementOperationsForPlacement(
 	return MCPPlacementOperations{}, false
 }
 
+// ImplementedMCPPlacementOperationsForContract admits the physical placement and recorded codec together.
+func ImplementedMCPPlacementOperationsForContract(id aggregate.MCPPlacementID, codec aggregate.CodecContractID) (MCPPlacementOperations, bool) {
+	placement, ok := aggregate.MCPPlacementForCodec(id, codec)
+	if !ok {
+		return MCPPlacementOperations{}, false
+	}
+	if codec == aggregate.MCPCodecPiNativeStdio {
+		operations, err := newPiNativePlacementOperations(placement)
+		return operations, err == nil
+	}
+	operations, ok := ImplementedMCPPlacementOperationsForPlacement(id)
+	return operations, ok && operations.Placement().CodecContractID() == codec
+}
+
 // MCPCodecContractImplemented reports whether at least one implemented
 // placement is backed by codecContractID.
 func MCPCodecContractImplemented(codecContractID aggregate.CodecContractID) bool {
+	if codecContractID == aggregate.MCPCodecPiNativeStdio {
+		_, ok := ImplementedMCPPlacementOperationsForContract(aggregate.MCPPlacementPiProject, codecContractID)
+		return ok
+	}
 	for _, operations := range implementedMCPPlacementOperationCatalog {
 		if operations.placement.CodecContractID() == codecContractID {
 			return true

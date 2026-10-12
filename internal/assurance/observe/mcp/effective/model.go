@@ -59,28 +59,34 @@ const (
 
 // SourceObservationInput is constructor input for one active config source.
 type SourceObservationInput struct {
-	ID                    string
-	Path                  string
-	Kind                  SourceKind
-	Precedence            RelativePrecedence
-	Shared                bool
-	State                 SourceState
-	DefinesSelectedName   bool
-	DefinitionEquivalence DefinitionEquivalence
-	Detail                string
+	ID                         string
+	Path                       string
+	Kind                       SourceKind
+	Precedence                 RelativePrecedence
+	Shared                     bool
+	State                      SourceState
+	DefinesSelectedName        bool
+	DefinitionEquivalence      DefinitionEquivalence
+	DependsOnRemovedDefinition bool
+	PeerSubject                topology.SubjectID
+	PeerRetiring               bool
+	Detail                     string
 }
 
 // SourceObservation is redaction-safe provenance for one active config source.
 type SourceObservation struct {
-	id                    string
-	path                  string
-	kind                  SourceKind
-	precedence            RelativePrecedence
-	shared                bool
-	state                 SourceState
-	definesSelectedName   bool
-	definitionEquivalence DefinitionEquivalence
-	detail                string
+	id                         string
+	path                       string
+	kind                       SourceKind
+	precedence                 RelativePrecedence
+	shared                     bool
+	state                      SourceState
+	definesSelectedName        bool
+	definitionEquivalence      DefinitionEquivalence
+	dependsOnRemovedDefinition bool
+	peerSubject                topology.SubjectID
+	peerRetiring               bool
+	detail                     string
 }
 
 // NewSourceObservation validates and constructs one source observation.
@@ -115,6 +121,23 @@ func NewSourceObservation(input SourceObservationInput) (SourceObservation, erro
 			input.ID,
 		)
 	}
+
+	if input.PeerRetiring && input.PeerSubject.IsZero() {
+		return SourceObservation{}, fmt.Errorf("retiring effective MCP peer requires a subject")
+	}
+	if !input.PeerSubject.IsZero() {
+		if err := input.PeerSubject.Validate(); err != nil {
+			return SourceObservation{}, fmt.Errorf("effective MCP peer subject: %w", err)
+		}
+		if input.PeerSubject.Kind() != topology.SubjectProjection || input.State != SourceExact || input.Kind != SourceNormal || input.Precedence == PrecedenceSelected || !input.DefinesSelectedName || input.DefinitionEquivalence == DefinitionEquivalenceUnknown {
+			return SourceObservation{}, fmt.Errorf("effective MCP peer requires an exact non-selected normal projection definition")
+		}
+	}
+
+	if input.DependsOnRemovedDefinition && (input.State != SourceExact || input.Kind != SourceNormal || input.Precedence != PrecedenceHigher || input.DefinesSelectedName) {
+		return SourceObservation{}, fmt.Errorf("dependent effective MCP override requires an exact higher non-defining normal source")
+	}
+
 	switch {
 	case !input.DefinesSelectedName &&
 		input.DefinitionEquivalence != DefinitionEquivalenceNotApplicable:
@@ -144,15 +167,18 @@ func NewSourceObservation(input SourceObservationInput) (SourceObservation, erro
 		)
 	}
 	return SourceObservation{
-		id:                    input.ID,
-		path:                  input.Path,
-		kind:                  input.Kind,
-		precedence:            input.Precedence,
-		shared:                input.Shared,
-		state:                 input.State,
-		definesSelectedName:   input.DefinesSelectedName,
-		definitionEquivalence: input.DefinitionEquivalence,
-		detail:                input.Detail,
+		id:                         input.ID,
+		path:                       input.Path,
+		kind:                       input.Kind,
+		precedence:                 input.Precedence,
+		shared:                     input.Shared,
+		state:                      input.State,
+		definesSelectedName:        input.DefinesSelectedName,
+		definitionEquivalence:      input.DefinitionEquivalence,
+		dependsOnRemovedDefinition: input.DependsOnRemovedDefinition,
+		peerSubject:                input.PeerSubject,
+		peerRetiring:               input.PeerRetiring,
+		detail:                     input.Detail,
 	}, nil
 }
 
@@ -164,10 +190,22 @@ func (source SourceObservation) Shared() bool                   { return source.
 func (source SourceObservation) State() SourceState             { return source.state }
 func (source SourceObservation) DefinesSelectedName() bool      { return source.definesSelectedName }
 
+func (source SourceObservation) DependsOnRemovedDefinition() bool {
+	return source.dependsOnRemovedDefinition
+}
+
 func (source SourceObservation) DefinitionEquivalence() DefinitionEquivalence {
 	return source.definitionEquivalence
 }
 func (source SourceObservation) Detail() string { return source.detail }
+
+// EvaluationPolicy distinguishes exclusive adapter names from native replacement layers.
+type EvaluationPolicy string
+
+const (
+	PolicyExclusive    EvaluationPolicy = "exclusive"
+	PolicyReplaceLower EvaluationPolicy = "replace_lower"
+)
 
 // ObservationInput is constructor input for one provider-effective MCP name.
 type ObservationInput struct {
@@ -175,6 +213,7 @@ type ObservationInput struct {
 	ServerName   string
 	SelectedPath string
 	Sources      []SourceObservation
+	Policy       EvaluationPolicy
 }
 
 // Observation is immutable provider-effective collision evidence for one
@@ -185,6 +224,7 @@ type Observation struct {
 	selectedPath string
 	sources      []SourceObservation
 	state        State
+	policy       EvaluationPolicy
 }
 
 // NewObservation validates source coverage and derives the effective state.
@@ -204,10 +244,23 @@ func NewObservation(input ObservationInput) (Observation, error) {
 		)
 	}
 
+	policy := input.Policy
+	if policy == "" {
+		policy = PolicyExclusive
+	}
+	if policy != PolicyExclusive && policy != PolicyReplaceLower {
+		return Observation{}, fmt.Errorf("unsupported MCP evaluation policy %q", policy)
+	}
 	sources := append([]SourceObservation(nil), input.Sources...)
 	selectedCount := 0
 	seenIDs := make(map[string]struct{}, len(sources))
 	for _, source := range sources {
+		if source.PeerSubject() == input.Subject {
+			return Observation{}, fmt.Errorf("effective MCP source cannot be its own peer")
+		}
+		if !source.PeerSubject().IsZero() && source.PeerSubject().Key() != input.ServerName {
+			return Observation{}, fmt.Errorf("effective MCP peer must define the selected server name")
+		}
 		if _, duplicate := seenIDs[source.ID()]; duplicate {
 			return Observation{}, fmt.Errorf("duplicate effective MCP source id %q", source.ID())
 		}
@@ -237,8 +290,7 @@ func NewObservation(input ObservationInput) (Observation, error) {
 			state = StateUnobservable
 			break
 		}
-		if source.DefinesSelectedName() &&
-			(source.Precedence() != PrecedenceSelected || source.Kind() != SourceNormal) {
+		if sourceConflicts(source, policy) {
 			state = StateConflicting
 		}
 	}
@@ -248,7 +300,25 @@ func NewObservation(input ObservationInput) (Observation, error) {
 		selectedPath: input.SelectedPath,
 		sources:      sources,
 		state:        state,
+		policy:       policy,
 	}, nil
+}
+
+// PeerSubject identifies a coordinated same-name projection whose desired or
+// prior contribution matches this source; it does not confer write authority.
+func (source SourceObservation) PeerSubject() topology.SubjectID { return source.peerSubject }
+
+// PeerRetiring reports a matched peer scheduled for removal in this operation.
+func (source SourceObservation) PeerRetiring() bool { return source.peerRetiring }
+
+func sourceConflicts(source SourceObservation, policy EvaluationPolicy) bool {
+	if !source.DefinesSelectedName() || source.PeerRetiring() || (source.Precedence() == PrecedenceSelected && source.Kind() == SourceNormal) {
+		return false
+	}
+	if policy == PolicyReplaceLower && (source.Precedence() == PrecedenceLower || source.DefinitionEquivalence() == DefinitionEquivalenceEquivalent || !source.PeerSubject().IsZero()) {
+		return false
+	}
+	return true
 }
 
 func (observation Observation) Subject() topology.SubjectID { return observation.subject }
@@ -271,8 +341,7 @@ func (observation Observation) BlockingSources() []SourceObservation {
 			}
 			continue
 		}
-		if source.DefinesSelectedName() &&
-			(source.Precedence() != PrecedenceSelected || source.Kind() != SourceNormal) {
+		if sourceConflicts(source, observation.policy) {
 			result = append(result, source)
 		}
 	}
@@ -302,7 +371,7 @@ func (observation Observation) LowerFallbackEquivalence() (DefinitionEquivalence
 		unknown    bool
 	)
 	for _, source := range observation.sources {
-		if source.State() != SourceExact ||
+		if source.PeerRetiring() || source.State() != SourceExact ||
 			!source.DefinesSelectedName() ||
 			source.Precedence() != PrecedenceLower {
 			continue
@@ -347,8 +416,20 @@ func (observation Observation) sameNameSourcesAt(
 	result := make([]SourceObservation, 0)
 	for _, source := range observation.sources {
 		if source.State() == SourceExact &&
-			source.DefinesSelectedName() &&
+			source.DefinesSelectedName() && !source.PeerRetiring() &&
 			source.Precedence() == precedence {
+			result = append(result, source)
+		}
+	}
+	return result
+}
+
+// DependentOverrideSources returns exact higher overrides that lose their base
+// when the selected definition is removed, rather than independent survivors.
+func (observation Observation) DependentOverrideSources() []SourceObservation {
+	result := make([]SourceObservation, 0)
+	for _, source := range observation.sources {
+		if source.DependsOnRemovedDefinition() {
 			result = append(result, source)
 		}
 	}

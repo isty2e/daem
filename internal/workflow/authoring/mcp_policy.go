@@ -22,6 +22,11 @@ func canonicalMCPServerAuthoring(server declarationcodec.MCPServer) (desiredmcp.
 	if _, err := aggregate.MCPPlacementForBinding(binding); err != nil {
 		return desiredmcp.Server{}, desiredmcp.Binding{}, fmt.Errorf("mcp-server: %w", err)
 	}
+	if binding.Backend() == desiredmcp.BackendNative && binding.Target() == target.TargetPi {
+		if _, err := aggregate.PiNativeMCPNamespace(canonical.ID().Name()); err != nil {
+			return desiredmcp.Server{}, desiredmcp.Binding{}, err
+		}
+	}
 	return canonical, binding, nil
 }
 

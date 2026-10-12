@@ -48,7 +48,7 @@ type assessmentPlanInput struct {
 // assembleAssessment classifies observed facts into Assessment. It performs
 // no filesystem, subprocess, or persistence I/O.
 func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
-	effectiveConstraints, err := providerEffectiveConstraints(input.mcpEffective.Current)
+	effectiveConstraints, err := mcpPublicationConstraints(input.mcpEffective)
 	if err != nil {
 		return Assessment{}, err
 	}
@@ -173,6 +173,7 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 		input.aggregateInputs.preconditions,
 		input.mcpEffective.Current,
 		providerPrerequisites,
+		input.mcpEffective.HostPrerequisites,
 	)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("inspect MCP projection status: %w", err)

@@ -19,6 +19,8 @@ func TestParseGitSourceOwnsLocatorRefAndPrivacy(t *testing.T) {
 		{name: "git prefixed shorthand", source: "git:github.com/acme/tools.git@v1", wantOK: true, wantHost: "github.com", wantPath: "acme/tools", wantRef: "v1", wantPublic: true},
 		{name: "git prefixed scp", source: "git:git@github.com:acme/tools.git@v1", wantOK: true, wantHost: "github.com", wantPath: "acme/tools", wantRef: "v1", wantPublic: true},
 		{name: "explicit git URL", source: "https://github.com/acme/tools.git@v1", wantOK: true, wantHost: "github.com", wantPath: "acme/tools", wantRef: "v1", wantPublic: true},
+		{name: "uppercase hostname identity preserved", source: "https://GITHUB.COM/acme/tools.git@v1", wantOK: true, wantHost: "GITHUB.COM", wantPath: "acme/tools", wantRef: "v1", wantPublic: true},
+		{name: "mixed hostname identity preserved", source: "git:git@GiThUb.CoM:acme/tools.git@v1", wantOK: true, wantHost: "GiThUb.CoM", wantPath: "acme/tools", wantRef: "v1", wantPublic: true},
 		{name: "git plus https URL", source: "git+https://github.com/acme/tools.git#v1", wantOK: true, wantHost: "github.com", wantPath: "acme/tools", wantRef: "v1", wantPublic: true},
 		{name: "git plus ssh URL", source: "git+ssh://git@github.com/acme/tools.git#v1", wantOK: true, wantHost: "github.com", wantPath: "acme/tools", wantRef: "v1", wantPublic: true},
 		{name: "git plus http URL", source: "git+http://github.com/acme/tools.git#v1", wantOK: true, wantHost: "github.com", wantPath: "acme/tools", wantRef: "v1", wantPublic: true},

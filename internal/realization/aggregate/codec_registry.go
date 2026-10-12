@@ -139,7 +139,7 @@ func OperationPreconditionsForContract(
 		}
 		return nil, true, nil
 	}
-	placement, ok := MCPPlacementForID(MCPPlacementID(contract.Address().PlacementID()))
+	placement, ok := MCPPlacementForCodec(MCPPlacementID(contract.Address().PlacementID()), contract.CodecContractID())
 	if !ok || placement.CodecContractID() != contractID {
 		return nil, false, nil
 	}
@@ -237,7 +237,7 @@ func ValidateSubjectContract(subject topology.SubjectID, contract ProjectionCont
 		return nil
 	}
 
-	placement, ok := MCPPlacementForID(MCPPlacementID(contract.Address().PlacementID()))
+	placement, ok := MCPPlacementForCodec(MCPPlacementID(contract.Address().PlacementID()), contract.CodecContractID())
 	if !ok || placement.CodecContractID() != contract.CodecContractID() {
 		return fmt.Errorf("aggregate subject contract codec %q is not admitted", contract.CodecContractID())
 	}

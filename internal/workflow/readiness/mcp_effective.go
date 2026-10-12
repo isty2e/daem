@@ -1,6 +1,7 @@
 package readiness
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -18,6 +19,7 @@ import (
 )
 
 func observeProviderEffectiveMCP(
+	ctx context.Context,
 	paths daempaths.Paths,
 	resolver liveobserve.DestinationResolver,
 	contracts []lock.LockedSubjectContract,
@@ -25,38 +27,28 @@ func observeProviderEffectiveMCP(
 	selection targetselection.Selection,
 	codecs aggregate.CodecCatalog,
 ) (mcpeffectivehost.ObservationSet, error) {
-	retiring, err := retiringMCPProjections(
-		contracts,
-		currentState,
-		selection,
-	)
+	previous, err := managedMCPProjections(currentState, selection)
 	if err != nil {
 		return mcpeffectivehost.ObservationSet{}, err
 	}
 	return mcpeffectivehost.Observe(mcpeffectivehost.Input{
+		Context:            ctx,
 		Contracts:          contracts,
-		Retiring:           retiring,
+		Previous:           previous,
+		Retiring:           retiringMCPProjections(contracts, previous),
 		Codecs:             codecs,
 		WorkDir:            paths.ManifestRoot,
 		ResolveDestination: resolver,
 	})
 }
 
-func retiringMCPProjections(
-	current []lock.LockedSubjectContract,
+func managedMCPProjections(
 	currentState durable.Snapshot,
 	selection targetselection.Selection,
 ) ([]aggregate.SubjectContribution, error) {
-	currentSubjects := make(map[topology.SubjectID]struct{}, len(current))
-	for _, contract := range current {
-		currentSubjects[contract.SubjectID()] = struct{}{}
-	}
 	result := make([]aggregate.SubjectContribution, 0)
 	for _, state := range currentState.ManagedAggregates() {
 		if !selection.Includes(state.Contribution().Target()) {
-			continue
-		}
-		if _, stillDesired := currentSubjects[state.Subject()]; stillDesired {
 			continue
 		}
 		if _, admitted := catalog.Product().LookupMCPBySubject(state.Subject()); !admitted {
@@ -68,7 +60,7 @@ func retiringMCPProjections(
 		)
 		if err != nil {
 			return nil, fmt.Errorf(
-				"retiring MCP projection %q: %w",
+				"managed MCP projection %q: %w",
 				state.Subject(),
 				err,
 			)
@@ -76,6 +68,23 @@ func retiringMCPProjections(
 		result = append(result, projection)
 	}
 	return result, nil
+}
+
+func retiringMCPProjections(
+	current []lock.LockedSubjectContract,
+	previous []aggregate.SubjectContribution,
+) []aggregate.SubjectContribution {
+	currentSubjects := make(map[topology.SubjectID]struct{}, len(current))
+	for _, contract := range current {
+		currentSubjects[contract.SubjectID()] = struct{}{}
+	}
+	result := make([]aggregate.SubjectContribution, 0)
+	for _, projection := range previous {
+		if _, stillDesired := currentSubjects[projection.SubjectID()]; !stillDesired {
+			result = append(result, projection)
+		}
+	}
+	return result
 }
 
 func providerEffectiveConstraints(
@@ -128,29 +137,44 @@ func providerEffectiveRemovalNotices(
 		detail := "managed MCP config entry will be removed; "
 		switch observation.State() {
 		case mcpeffective.StateExact:
-			detail += "no other same-name definition was observed"
+			if overrides := observation.DependentOverrideSources(); len(overrides) > 0 {
+				detail += "an unowned project override depends on the removed definition and cannot independently define the server"
+				detail += effectiveSourceLocation(overrides)
+			} else {
+				detail += "no other same-name definition was observed"
+			}
 		case mcpeffective.StateConflicting:
 			switch {
 			case observation.HigherConflictPresent() &&
 				observation.LowerFallbackPresent():
-				detail += "an unowned higher-precedence same-name definition remains effective while lower same-name definitions remain shadowed"
+				detail += "another " + effectiveDefinitionOwnership(observation.HigherConflictSources()) + " higher-precedence same-name definition remains effective while lower same-name definitions remain shadowed"
 				detail += effectiveSourceLocation(
 					observation.HigherConflictSources(),
 				)
 			case observation.HigherConflictPresent():
-				detail += "an unowned higher-precedence same-name definition remains effective"
+				detail += "another " + effectiveDefinitionOwnership(observation.HigherConflictSources()) + " higher-precedence same-name definition remains effective"
 				detail += effectiveSourceLocation(
 					observation.HigherConflictSources(),
 				)
 			case observation.LowerFallbackPresent():
+				lower := observation.LowerFallbackSources()
+				peerPresent := false
+				for _, source := range lower {
+					peerPresent = peerPresent || !source.PeerSubject().IsZero()
+				}
+				if peerPresent {
+					detail += "another " + effectiveDefinitionOwnership(lower) + " lower-precedence same-name definition may become effective"
+					detail += effectiveSourceLocation(lower)
+					break
+				}
 				equivalence, _ := observation.LowerFallbackEquivalence()
 				switch equivalence {
 				case mcpeffective.DefinitionEquivalenceEquivalent:
-					detail += "an equivalent unowned lower-precedence same-name definition may become effective"
+					detail += "an equivalent " + effectiveDefinitionOwnership(observation.LowerFallbackSources()) + " lower-precedence same-name definition may become effective"
 				case mcpeffective.DefinitionEquivalenceDifferent:
-					detail += "a materially different unowned lower-precedence same-name definition may become effective"
+					detail += "a materially different " + effectiveDefinitionOwnership(observation.LowerFallbackSources()) + " lower-precedence same-name definition may become effective"
 				default:
-					detail += "an unowned lower-precedence same-name definition with incomparable semantics may become effective"
+					detail += "another " + effectiveDefinitionOwnership(observation.LowerFallbackSources()) + " lower-precedence same-name definition with incomparable semantics may become effective"
 				}
 				detail += effectiveSourceLocation(
 					observation.LowerFallbackSources(),
@@ -182,6 +206,24 @@ func providerEffectiveRemovalNotices(
 		result = append(result, notice)
 	}
 	return result, nil
+}
+
+func effectiveDefinitionOwnership(sources []mcpeffective.SourceObservation) string {
+	managed, unowned := false, false
+	for _, source := range sources {
+		if source.PeerSubject().IsZero() {
+			unowned = true
+		} else {
+			managed = true
+		}
+	}
+	if managed && unowned {
+		return "managed or unowned"
+	}
+	if managed {
+		return "declared managed"
+	}
+	return "unowned"
 }
 
 func effectiveSourceLocation(

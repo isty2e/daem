@@ -12,6 +12,7 @@ import (
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
@@ -19,6 +20,11 @@ import (
 const firstSliceMCPTransport = "stdio"
 
 func BuildAddMCPServerChange(document ManifestDocument, request AddMCPServerRequest) (Change, error) {
+	return BuildAddMCPServerChangeWithPiVersion(document, request, profile.PiMCPVersion{})
+}
+
+// BuildAddMCPServerChangeWithPiVersion uses supplied boundary evidence only for new automatic Pi authoring.
+func BuildAddMCPServerChangeWithPiVersion(document ManifestDocument, request AddMCPServerRequest, version profile.PiMCPVersion) (Change, error) {
 	if err := document.validateOriginal(); err != nil {
 		return Change{}, err
 	}
@@ -39,12 +45,7 @@ func BuildAddMCPServerChange(document ManifestDocument, request AddMCPServerRequ
 	if err != nil {
 		return Change{}, err
 	}
-	providerPlan, err := planMCPProviderAuthoring(
-		document.Content,
-		header,
-		serverKey.target,
-		serverKey.scope,
-	)
+	server, providerPlan, err := planSelectedMCPAuthoring(document.Content, header, server, serverKey, version)
 	if err != nil {
 		return Change{}, err
 	}

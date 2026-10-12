@@ -232,15 +232,32 @@ point-in-time diagnostics and do not replace the apply-time gate.
 
 ## Pi MCP Provider Or Config Is Not Current
 
-Pi MCP support is provided by the explicit `pi-mcp-adapter` extension in the
-same manifest. Start with:
+Pi MCP uses its recorded Native or Adapter backend; an omitted backend means
+Adapter. Start with:
 
 ```bash
 daem status --target pi --verbose
 daem apply --target pi --dry-run --diff
 ```
 
-- `provider_prerequisite` reports package presence and the freshly observed
+- For Native, `host_prerequisite = unqualified` reports an unobservable/incompatible
+  Pi version, disabled/unobserved builtin, configured Adapter intent or unobserved
+  settings. Inspect its reason and detail; daem neither repairs settings nor
+  changes the backend. Plain status still reports the other targets, while
+  `status --check` and dry-run fail for the blocker. Confirmed apply refuses the
+  selected plan before publication; use an explicit `--target` for independent work.
+  Enabled Native servers connect at Pi startup, subject to project trust.
+- A configured Adapter package must be removed from user/project settings before
+  Native qualification, even with `extensions: []`, an exclusion filter or an
+  `autoload: false` delta. Installation absence is not an exception, and Native
+  qualification does not execute npm/pnpm/Bun location queries. See
+  [Pi Native And Adapter](host-integrations.md#pi-native-and-adapter) for the
+  bounded source-intent checks.
+- Editing a managed entry's backend directly is not migration. A stored/desired
+  codec mismatch reports the affected binding and leaves its config untouched.
+  Follow [Moving From Adapter To Native](host-integrations.md#moving-from-adapter-to-native)
+  to retire old ownership and unused provider intent before adding Native rows.
+- For Adapter, `provider_prerequisite` reports package presence and the freshly observed
   exact version separately from config projection. Supported stable versions
   are `>=2.13.0` and `<3.0.0`; `2.15.0` is the deeply inspected artifact, not a
   permanently pinned version.
