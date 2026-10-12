@@ -2,6 +2,7 @@ package host
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -17,34 +18,57 @@ func TestPiNativeQualificationRefusesKnownGitAdapterSources(t *testing.T) {
 		"git:github.com/nicobailon/pi-mcp-adapter",
 		"git:github.com/nicobailon/pi-mcp-adapter@v2.13.0",
 		"git:github:nicobailon/pi-mcp-adapter@main",
-		"git:nicobailon/pi-mcp-adapter",
 		"https://github.com/nicobailon/pi-mcp-adapter.git",
+		"https://GITHUB.COM/nicobailon/pi-mcp-adapter.git",
+		"http://GitHub.Com/nicobailon/pi-mcp-adapter.git",
+		"ssh://git@GiThUb.CoM/nicobailon/pi-mcp-adapter.git@main",
+		"git:GITHUB.COM/nicobailon/pi-mcp-adapter@main",
 		"git://github.com/nicobailon/pi-mcp-adapter.git",
+		"git://GITHUB.COM/nicobailon/pi-mcp-adapter.git",
 		"git:ssh://git@github.com/nicobailon/pi-mcp-adapter.git@main",
 		"git:git@github.com:nicobailon/pi-mcp-adapter.git",
+		"git:git@GiThUb.CoM:nicobailon/pi-mcp-adapter.git",
 	} {
 		for _, filtered := range []bool{false, true} {
-			for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-				t.Run(fmt.Sprintf("%s/%s/filtered=%t", source, scope, filtered), func(t *testing.T) {
-					workDir, agentRoot := t.TempDir(), t.TempDir()
-					entry := map[string]any{"source": source}
-					if filtered {
-						entry["extensions"] = []string{}
-					}
-					wire, err := json.Marshal(map[string]any{"packages": []any{map[string]any{"source": "npm:pi-mcp-adapter@2.15.0", "extensions": []string{}}, entry}})
-					if err != nil {
-						t.Fatal(err)
-					}
-					writeEffectiveConfig(t, filepath.Join(agentRoot, "settings.json"), string(wire))
-					writeEffectiveConfig(t, filepath.Join(workDir, ".pi", "settings.json"), `{"packages":[{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]}]}`)
+			for _, packageScope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+				for _, bindingScope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+					t.Run(fmt.Sprintf("%s/%s/%s/filtered=%t", source, packageScope, bindingScope, filtered), func(t *testing.T) {
+						workDir, agentRoot := t.TempDir(), t.TempDir()
+						log := installNativeQueryCanary(t)
+						base := agentRoot
+						if packageScope == target.ScopeProject {
+							base = filepath.Join(workDir, ".pi")
+						}
+						var entry any = source
+						if filtered {
+							entry = map[string]any{"source": source, "extensions": []string{}}
+						}
+						wire, err := json.Marshal(map[string]any{"packages": []any{entry}})
+						if err != nil {
+							t.Fatal(err)
+						}
+						writeEffectiveConfig(t, filepath.Join(base, "settings.json"), string(wire))
 
-					contract, _ := profile.PiMCPContractForCodec(aggregate.MCPCodecPiNativeStdio)
-					if err := qualifyPiNativeSettings(t.Context(), contract, scope, workDir, agentRoot, profile.ObservePiMCPVersion("1.0.2")); err == nil {
-						t.Fatal("known Git Adapter was mistaken for an absent npm Adapter")
-					}
-				})
+						contract, _ := profile.PiMCPContractForCodec(aggregate.MCPCodecPiNativeStdio)
+						err = qualifyPiNativeSettings(t.Context(), contract, bindingScope, workDir, agentRoot, profile.ObservePiMCPVersion("1.0.2"))
+						if !errors.Is(err, profile.ErrPiNativeAdapterConfigured) {
+							t.Fatalf("known Git Adapter qualification = %v", err)
+						}
+						assertNativeQueryNotCalled(t, log)
+					})
+				}
 			}
 		}
+	}
+}
+
+func TestPiNativeQualificationRefusesUnobservableGitAdapterSource(t *testing.T) {
+	workDir, agentRoot := t.TempDir(), t.TempDir()
+	writeEffectiveConfig(t, filepath.Join(agentRoot, "settings.json"), `{"packages":["git:nicobailon/pi-mcp-adapter"]}`)
+	contract, _ := profile.PiMCPContractForCodec(aggregate.MCPCodecPiNativeStdio)
+	err := qualifyPiNativeSettings(t.Context(), contract, target.ScopeProject, workDir, agentRoot, profile.ObservePiMCPVersion("1.0.2"))
+	if err == nil || errors.Is(err, profile.ErrPiNativeAdapterConfigured) {
+		t.Fatalf("unobservable Git source qualification = %v", err)
 	}
 }
 

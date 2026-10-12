@@ -180,7 +180,7 @@ func PiMCPAdapterPackageSource(source string) (bool, error) {
 	if !strings.ContainsAny(host, ".:") && host != "localhost" {
 		return false, fmt.Errorf("native Pi MCP Git hosted aliases are outside the canonical locator envelope")
 	}
-	return git.Identity() == "github.com/nicobailon/pi-mcp-adapter", nil
+	return strings.EqualFold(host, "github.com") && locator[1] == "nicobailon/pi-mcp-adapter", nil
 }
 
 // QualifyNativeHost consumes fresh selection facts without changing this fixed backend.

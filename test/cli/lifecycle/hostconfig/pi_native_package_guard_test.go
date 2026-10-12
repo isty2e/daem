@@ -20,6 +20,9 @@ func TestPiNativeConfiguredAdapterRefusesRegardlessOfFiltersAndLayers(t *testing
 		`{"source":"npm:pi-mcp-adapter@2.15.0","autoload":false,"extensions":["-index.ts"]}`,
 		`{"source":"npm:pi-mcp-adapter@2.15.0","extensions":null}`,
 		`{"source":"npm:pi-mcp-adapter@2.15.0","extensions":[]},"npm:pi-mcp-adapter@2.13.0"`,
+		`"https://GITHUB.COM/nicobailon/pi-mcp-adapter.git"`,
+		`{"source":"https://GitHub.Com/nicobailon/pi-mcp-adapter.git","extensions":[]}`,
+		`{"source":"git:git@GiThUb.CoM:nicobailon/pi-mcp-adapter.git","autoload":false,"extensions":[]}`,
 	} {
 		for _, layer := range []string{"user", "project"} {
 			for _, scope := range []string{"project", "global"} {
@@ -55,6 +58,10 @@ func TestPiNativeConfiguredAdapterRefusesRegardlessOfFiltersAndLayers(t *testing
 					if !found {
 						t.Fatalf("package filters changed intent classification: %#v", report.MCPStatuses)
 					}
+					if exit, stdout, stderr := runMCPCLI(t, "status", "--check", "--manifest", project.manifestPath, "--json"); exit == 0 {
+						t.Fatalf("configured Adapter passed the status check: %s/%s", stdout, stderr)
+					}
+
 					if exit, stdout, stderr := runMCPCLI(t, "apply", "--manifest", project.manifestPath, "--yes"); exit == 0 {
 						t.Fatalf("configured Adapter allowed publication: %s/%s", stdout, stderr)
 					}

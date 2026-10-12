@@ -210,9 +210,10 @@ aliases as managed Adapter providers.
 A source naming the official Git repository
 `github.com/nicobailon/pi-mcp-adapter`, or an existing local source whose bounded
 strict `package.json` declares `name: "pi-mcp-adapter"`, refuses Native
-qualification, even with a package filter. These are known replacement intents,
-not aliases of the admitted npm provider. Git/local filter certification is
-unsupported. Git locator parsing failure or an unmodelled
+qualification, even with a package filter. The Git hostname comparison is
+case-insensitive; the repository path must match exactly. These are known
+replacement intents, not aliases of the admitted npm provider. Git/local filter
+certification is unsupported. Git locator parsing failure or an unmodelled
 hosted alias refuses qualification rather than proving Adapter absence; full
 hosted-alias parity is unsupported.
 
