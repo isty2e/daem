@@ -336,10 +336,10 @@ func helpPages(context UsageContext) map[string]helpPage {
 		[]helpRow{
 			{"", "Admitted target/scope pairs: " + context.MCPAuthoringPlacements + "."},
 			{"", "Target omission succeeds only when the manifest identifies one admitted row."},
-			{"", "For Pi, add preserves the backend of existing Pi servers. If none exist, a declared pi-mcp-adapter selects Adapter."},
+			{"", "For Pi, add reuses the backend of existing Pi servers. If none exist, a declared pi-mcp-adapter selects Adapter."},
 			{"", "With neither declared, add selects Native for observable stable Pi >=1.0.2,<2.0.0; unavailable or incompatible versions select Adapter."},
 			{"", "Only Adapter authoring adds a missing pi-mcp-adapter package. Preview reports host startup, project trust or global sharing consequences."},
-			{"", "Environment mappings and non-stdio transports are manifest-only. Writes by default."},
+			{"", "Environment mappings, explicit backends and non-stdio transports are manifest-only. Writes by default."},
 		},
 		[]string{"daem add mcp-server context7 npx --arg -y --arg @upstash/context7-mcp", "daem add mcp-server local-mcp local-mcp-server --target codex --dry-run"}, manifestDocumentReference)
 	pages["probe mcp-server"] = leaf("daem probe mcp-server", "daem probe mcp-server <name> [--manifest <path>] [--target <target>] [--scope <scope>] [options]", "launch one locked MCP command and test runtime dimensions",
