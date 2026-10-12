@@ -201,28 +201,38 @@ func printRelationActionSummary(output io.Writer, action reconciliation.Relation
 	if renderedSubject := planJSONSubjectFor(action.Subject()); renderedSubject != nil {
 		subject = subjectString(*renderedSubject)
 	}
-	if action.Kind() == reconciliation.ActionChangePin {
+
+	switch action.Kind() {
+	case reconciliation.ActionNoOp:
+		fmt.Fprintf(output, "  - no change planned for extension relation subject=%q target=%s scope=%s\n", subject, action.Target(), action.Scope())
+		return
+	case reconciliation.ActionObserveOnly:
+		fmt.Fprintf(output, "  - observe extension relation only subject=%q target=%s scope=%s: %s\n", subject, action.Target(), action.Scope(), strings.ReplaceAll(string(action.Reason()), "_", " "))
+		return
+	case reconciliation.ActionChangePin:
 		fmt.Fprintf(output, "  - change managed Pi pin subject=%q target=%s scope=%s\n", subject, action.Target(), action.Scope())
 		return
+	case reconciliation.ActionCreate, reconciliation.ActionAttempt, reconciliation.ActionAssistCandidate, reconciliation.ActionBlock:
+		if action.InvokesHostRoute() {
+			fmt.Fprintf(output, "  - install extension through host subject=%q target=%s scope=%s\n", subject, action.Target(), action.Scope())
+			fmt.Fprintln(output, "    host may retain packages, caches, credentials, trust data, or logs")
+			return
+		}
+		if action.Reason() == reconciliation.ReasonPresentUnclaimed {
+			fmt.Fprintf(
+				output,
+				"  - external carrier present but unclaimed subject=%q target=%s scope=%s\n",
+				subject,
+				action.Target(),
+				action.Scope(),
+			)
+			return
+		}
+		if action.BlocksOrdinaryApply() {
+			fmt.Fprintf(output, "  - blocked subject=%q target=%s scope=%s: %s\n", subject, action.Target(), action.Scope(), strings.ReplaceAll(string(action.Reason()), "_", " "))
+			return
+		}
 	}
-	if action.InvokesHostRoute() {
-		fmt.Fprintf(output, "  - install extension through host subject=%q target=%s scope=%s\n", subject, action.Target(), action.Scope())
-		fmt.Fprintln(output, "    host may retain packages, caches, credentials, trust data, or logs")
-		return
-	}
-	if action.Reason() == reconciliation.ReasonPresentUnclaimed {
-		fmt.Fprintf(
-			output,
-			"  - external carrier present but unclaimed subject=%q target=%s scope=%s\n",
-			subject,
-			action.Target(),
-			action.Scope(),
-		)
-		return
-	}
-	if action.BlocksOrdinaryApply() {
-		fmt.Fprintf(output, "  - blocked subject=%q target=%s scope=%s: %s\n", subject, action.Target(), action.Scope(), strings.ReplaceAll(string(action.Reason()), "_", " "))
-		return
-	}
-	fmt.Fprintf(output, "  - remove managed extension binding subject=%q target=%s scope=%s\n", subject, action.Target(), action.Scope())
+
+	fmt.Fprintf(output, "  - relation action kind=%q subject=%q target=%s scope=%s\n", action.Kind(), subject, action.Target(), action.Scope())
 }

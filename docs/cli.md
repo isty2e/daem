@@ -201,6 +201,9 @@ interrupts a blocked terminal read and cannot authorize effects.
 - Default human output is concise and always retains blockers, selected
   effects, failures, destructive implications, uncertainty, and the nearest
   corrective action.
+- Relation-action rows describe planned host effects. A no-op row means no
+  host change is planned for that relation; it does not verify runtime readiness.
+  Observation-only rows include the reason; neither kind implies removal.
 - On POSIX platforms, concrete next commands are rendered from an argument
   vector so dynamic paths remain one shell argument. Control-bearing arguments
   use a terminal-safe POSIX reconstruction and still round-trip to the exact

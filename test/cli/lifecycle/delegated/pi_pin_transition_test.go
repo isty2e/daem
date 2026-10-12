@@ -105,6 +105,29 @@ func TestPiPinChangePublicCLIDisclosesRetainsAndResumes(t *testing.T) {
 					t.Fatalf("initial status=%d: %s %s", code, &stdout, &stderr)
 				}
 				assertNoPendingPinGuidance(t, stdout.String())
+
+				for _, args := range [][]string{{"apply", "--dry-run"}, {"status"}} {
+					var summary, diagnostic bytes.Buffer
+					code := testkit.RunCLIWithOptions(append(args, "--manifest", manifest), clipkg.RunOptions{
+						Stdout:              &summary,
+						Stderr:              &diagnostic,
+						ApplyExecuteOptions: applyworkflow.ExecuteOptions{HostRouteExecutor: executor},
+					})
+					if code != 0 || diagnostic.Len() != 0 {
+						t.Fatalf("default pin preview %v=%d: %s %s", args, code, &summary, &diagnostic)
+					}
+					for _, required := range []string{"change managed Pi pin", before, after, "no automatic rollback"} {
+						if !strings.Contains(summary.String(), required) {
+							t.Errorf("default pin preview = %q, want %q", summary.String(), required)
+						}
+					}
+					if strings.Contains(summary.String(), "install extension through host") {
+						t.Errorf("default pin preview relabelled pin change as installation: %q", summary.String())
+					}
+					if calls != 0 {
+						t.Fatalf("default pin preview invoked a host route: calls=%d", calls)
+					}
+				}
 			})
 			t.Run("initial conflict is not a retry", func(t *testing.T) {
 				defer testkit.WriteFile(t, filepath.Dir(settings), filepath.Base(settings), fmt.Sprintf("{\"packages\":[%q]}", before))
