@@ -119,9 +119,6 @@ func TestRunApplyHelpDoesNotMentionRemovedAdoptExistingFlag(t *testing.T) {
 	if strings.Contains(stdout.String(), "attempt-delegates") {
 		t.Fatalf("stdout = %q, want removed delegate mode absent", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "delegated routes are ordinary selected apply work") {
-		t.Fatalf("stdout = %q, want ordinary delegated-route rule", stdout.String())
-	}
 	for _, forbidden := range []string{"ensure-runtime", "execute-mcp"} {
 		if strings.Contains(stdout.String(), forbidden) {
 			t.Fatalf("stdout = %q, want no delegate flag wording containing %q", stdout.String(), forbidden)

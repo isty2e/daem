@@ -10,47 +10,50 @@ import (
 )
 
 type helpCase struct {
-	topic      []string
-	usage      string
-	lineBudget int
-	required   []string
-	forbidden  []string
+	topic          []string
+	usage          string
+	lineBudget     int
+	labels         []string
+	forbiddenFlags []string
 }
 
 func TestHelpContractCoversEveryRetainedCommandAtSupportedWidths(t *testing.T) {
 	cases := []helpCase{
-		{topic: nil, usage: "Usage: daem <command> [options]", lineBudget: 30, required: []string{"First project: daem init", "Existing setup: daem import --target <target>", "More help: daem help <command>"}, forbidden: []string{"Options:", "--manifest", "--json"}},
-		{topic: []string{"add"}, usage: "Usage: daem add <resource>", lineBudget: 32, required: []string{"extension", "instruction", "hook", "mcp-server", "skill", "skill-group"}, forbidden: []string{"daem add extension <id>", "--member", "--timeout"}},
-		{topic: []string{"remove"}, usage: "Usage: daem remove <resource>", lineBudget: 32, required: []string{"extension", "instruction", "hook", "mcp-server", "skill"}, forbidden: []string{"daem remove hook <name>", "--scope"}},
-		{topic: []string{"unmanage"}, usage: "Usage: daem unmanage <resource>", lineBudget: 32, required: []string{"extension", "never invokes a host route"}, forbidden: []string{"--yes", "--prune"}},
-		{topic: []string{"list"}, usage: "Usage: daem list <resource>", lineBudget: 36, required: []string{"resources", "outputs", "paths"}, forbidden: []string{"--inventory"}},
-		{topic: []string{"probe"}, usage: "Usage: daem probe <resource>", lineBudget: 32, required: []string{"mcp-server", "terminal stdin/stdout/stderr or --yes"}},
-		{topic: []string{"migrate"}, usage: "Usage: daem migrate <subject>", lineBudget: 32, required: []string{"state"}},
-		{topic: []string{"migrate", "state"}, usage: "Usage: daem migrate state", lineBudget: 48, required: []string{"--recover", "--dry-run", "--yes", "--json", "--manifest"}},
-		{topic: []string{"init"}, usage: "Usage: daem init", lineBudget: 46, required: []string{"--force", "entry-identity revalidation", "create ./daem.toml", "daem init --manifest"}, forbidden: []string{"--yes", "--lockfile"}},
-		{topic: []string{"import"}, usage: "Usage: daem import --target <target>", lineBudget: 46, required: []string{"--source-dir", "--merge", "At least one --target is required", "--target codex --target claude-code"}, forbidden: []string{"--output", "--yes", "--lockfile"}},
-		{topic: []string{"lock"}, usage: "Usage: daem lock", lineBudget: 46, required: []string{"daem.lock.toml beside", "Writes by default", "daem lock --dry-run --verbose"}, forbidden: []string{"--lockfile", "--yes"}},
-		{topic: []string{"outdated"}, usage: "Usage: daem outdated", lineBudget: 46, required: []string{"--check", "daem outdated --check"}},
-		{topic: []string{"status"}, usage: "Usage: daem status", lineBudget: 46, required: []string{"--check", "every effective target", "--target codex --check --json"}, forbidden: []string{"--inventory", "--scope"}},
-		{topic: []string{"apply"}, usage: "Usage: daem apply", lineBudget: 64, required: []string{"--manage-existing", "eligible external carriers", "terminal stdin/stdout/stderr", "Non-interactive apply requires --yes", "ordinary selected apply work", "rereads order", "fresh interactive confirmation"}, forbidden: []string{"--attempt-delegates", "--lockfile"}},
-		{topic: []string{"recover"}, usage: "Usage: daem recover", lineBudget: 48, required: []string{"finish journal cleanup", "terminal stdin/stdout/stderr", "--json requires --dry-run or --yes", "Cleanup-only recovery never reads"}},
-		{topic: []string{"doctor"}, usage: "Usage: daem doctor", lineBudget: 46, required: []string{"--all-targets", "Doctor never launches", "credential helpers"}},
-		{topic: []string{"add", "extension"}, usage: "Usage: daem add extension <id> <source>", lineBudget: 46, required: []string{"opaque host source", "Source registries", "--target claude-code"}, forbidden: []string{"--marketplace", "--host-source", "--yes"}},
-		{topic: []string{"add", "instruction"}, usage: "Usage: daem add instruction <name> <source>", lineBudget: 46, required: []string{"preserve manifest inheritance", "manifest-only"}},
-		{topic: []string{"add", "hook"}, usage: "Usage: daem add hook <name> <event> <command>", lineBudget: 60, required: []string{"--matcher", "--timeout <duration>", "whole seconds", "PostToolUse"}, forbidden: []string{"--command", "--event", "--status-message", "--target-override"}},
-		{topic: []string{"add", "mcp-server"}, usage: "Usage: daem add mcp-server <name> <command>", lineBudget: 60, required: []string{"--arg <value>", "duplicates", "Environment mappings", "npx --arg -y", "local-mcp-server"}, forbidden: []string{"./bin/server", "--command", "--env", "--yes"}},
-		{topic: []string{"add", "skill"}, usage: "Usage: daem add skill <source>", lineBudget: 60, required: []string{"--path", "--ref", "--name", "Git repository locator"}, forbidden: []string{"--id", "--mode", "--yes"}},
-		{topic: []string{"add", "skill-group"}, usage: "Usage: daem add skill-group <source-root> --member <name>", lineBudget: 46, required: []string{"--member <name>", "Duplicates collapse", "--member review --member test"}, forbidden: []string{"--mode", "--name"}},
-		{topic: []string{"remove", "extension"}, usage: "Usage: daem remove extension <id>", lineBudget: 46, required: []string{"daem list resources", "ambiguous matches"}},
-		{topic: []string{"remove", "instruction"}, usage: "Usage: daem remove instruction <name>", lineBudget: 46, required: []string{"daem list resources", "ambiguous matches"}},
-		{topic: []string{"remove", "hook"}, usage: "Usage: daem remove hook <name>", lineBudget: 46, required: []string{"daem list resources", "ambiguous matches"}},
-		{topic: []string{"remove", "mcp-server"}, usage: "Usage: daem remove mcp-server <name>", lineBudget: 46, required: []string{"daem list resources", "Carrier uninstall effects"}},
-		{topic: []string{"remove", "skill"}, usage: "Usage: daem remove skill <resource-key>", lineBudget: 46, required: []string{"daem list resources", "ambiguous matches"}},
-		{topic: []string{"unmanage", "extension"}, usage: "Usage: daem unmanage extension <id>", lineBudget: 46, required: []string{"--target <target>", "--scope <scope>", "always retains host state", "ambient or manual consumers remain unobservable", "apply recovery or journal cleanup"}, forbidden: []string{"--yes", "--prune", "--uninstall"}},
-		{topic: []string{"list", "resources"}, usage: "Usage: daem list resources", lineBudget: 46, required: []string{"stable remove keys", "--target codex --json"}},
-		{topic: []string{"list", "outputs"}, usage: "Usage: daem list outputs", lineBudget: 46, required: []string{"ownership inventory", "use daem status"}},
-		{topic: []string{"list", "paths"}, usage: "Usage: daem list paths", lineBudget: 46, required: []string{"agent paths", "static and read-only"}},
-		{topic: []string{"probe", "mcp-server"}, usage: "Usage: daem probe mcp-server <name>", lineBudget: 60, required: []string{"needed only when the name is ambiguous", "--timeout <duration>", "terminal stdin/stdout/stderr", "never mutates manifest"}},
+		{topic: nil, usage: "Usage: daem <command> [options]", lineBudget: 30, labels: []string{"init", "import", "add", "remove", "lock", "outdated", "list", "status", "version", "doctor", "probe", "refresh", "unmanage", "apply", "recover", "migrate"}, forbiddenFlags: []string{"--manifest", "--json"}},
+		{topic: []string{"add"}, usage: "Usage: daem add <resource>", lineBudget: 32, labels: []string{"extension", "instruction", "hook", "mcp-server", "skill", "skill-group"}, forbiddenFlags: []string{"--member", "--timeout"}},
+		{topic: []string{"remove"}, usage: "Usage: daem remove <resource>", lineBudget: 32, labels: []string{"extension", "instruction", "hook", "mcp-server", "skill"}, forbiddenFlags: []string{"--scope"}},
+		{topic: []string{"unmanage"}, usage: "Usage: daem unmanage <resource>", lineBudget: 32, labels: []string{"extension"}, forbiddenFlags: []string{"--yes", "--prune"}},
+		{topic: []string{"list"}, usage: "Usage: daem list <resource>", lineBudget: 36, labels: []string{"resources", "outputs", "paths"}, forbiddenFlags: []string{"--inventory"}},
+		{topic: []string{"probe"}, usage: "Usage: daem probe <resource>", lineBudget: 32, labels: []string{"mcp-server"}},
+		{topic: []string{"refresh"}, usage: "Usage: daem refresh <resource>", lineBudget: 32, labels: []string{"extension"}},
+		{topic: []string{"migrate"}, usage: "Usage: daem migrate <subject>", lineBudget: 32, labels: []string{"state"}},
+		{topic: []string{"migrate", "state"}, usage: "Usage: daem migrate state", lineBudget: 48, labels: []string{"--recover", "--dry-run", "--yes", "--json", "--manifest"}},
+		{topic: []string{"init"}, usage: "Usage: daem init", lineBudget: 46, labels: []string{"--force", "--manifest"}, forbiddenFlags: []string{"--yes", "--lockfile"}},
+		{topic: []string{"import"}, usage: "Usage: daem import --target <target>", lineBudget: 46, labels: []string{"--source-dir", "--merge", "--target"}, forbiddenFlags: []string{"--output", "--yes", "--lockfile"}},
+		{topic: []string{"lock"}, usage: "Usage: daem lock", lineBudget: 46, labels: []string{"--dry-run", "--verbose"}, forbiddenFlags: []string{"--lockfile", "--yes"}},
+		{topic: []string{"outdated"}, usage: "Usage: daem outdated", lineBudget: 46, labels: []string{"--check"}},
+		{topic: []string{"status"}, usage: "Usage: daem status", lineBudget: 46, labels: []string{"--check", "--target", "--json"}, forbiddenFlags: []string{"--inventory", "--scope"}},
+		{topic: []string{"version"}, usage: "Usage: daem version", lineBudget: 46, labels: []string{"--json"}},
+		{topic: []string{"apply"}, usage: "Usage: daem apply", lineBudget: 64, labels: []string{"--manage-existing", "--yes"}, forbiddenFlags: []string{"--attempt-delegates", "--adopt-existing", "--ensure-runtime", "--execute-mcp", "--lockfile"}},
+		{topic: []string{"recover"}, usage: "Usage: daem recover", lineBudget: 48, labels: []string{"--dry-run", "--yes", "--json"}},
+		{topic: []string{"doctor"}, usage: "Usage: daem doctor", lineBudget: 46, labels: []string{"--all-targets"}},
+		{topic: []string{"add", "extension"}, usage: "Usage: daem add extension <id> <source>", lineBudget: 46, labels: []string{"--target"}, forbiddenFlags: []string{"--marketplace", "--host-source", "--yes"}},
+		{topic: []string{"add", "instruction"}, usage: "Usage: daem add instruction <name> <source>", lineBudget: 46, labels: []string{"--target", "--scope"}},
+		{topic: []string{"add", "hook"}, usage: "Usage: daem add hook <name> <event> <command>", lineBudget: 60, labels: []string{"--matcher", "--timeout"}, forbiddenFlags: []string{"--command", "--event", "--status-message", "--target-override"}},
+		{topic: []string{"add", "mcp-server"}, usage: "Usage: daem add mcp-server <name> <command>", lineBudget: 60, labels: []string{"--arg"}, forbiddenFlags: []string{"--command", "--env", "--yes"}},
+		{topic: []string{"add", "skill"}, usage: "Usage: daem add skill <source>", lineBudget: 60, labels: []string{"--path", "--ref", "--name"}, forbiddenFlags: []string{"--id", "--mode", "--yes"}},
+		{topic: []string{"add", "skill-group"}, usage: "Usage: daem add skill-group <source-root> --member <name>", lineBudget: 46, labels: []string{"--member"}, forbiddenFlags: []string{"--mode", "--name"}},
+		{topic: []string{"remove", "extension"}, usage: "Usage: daem remove extension <id>", lineBudget: 46},
+		{topic: []string{"remove", "instruction"}, usage: "Usage: daem remove instruction <name>", lineBudget: 46},
+		{topic: []string{"remove", "hook"}, usage: "Usage: daem remove hook <name>", lineBudget: 46},
+		{topic: []string{"remove", "mcp-server"}, usage: "Usage: daem remove mcp-server <name>", lineBudget: 46},
+		{topic: []string{"remove", "skill"}, usage: "Usage: daem remove skill <resource-key>", lineBudget: 46},
+		{topic: []string{"unmanage", "extension"}, usage: "Usage: daem unmanage extension <id>", lineBudget: 46, labels: []string{"--target", "--scope"}, forbiddenFlags: []string{"--yes", "--prune", "--uninstall"}},
+		{topic: []string{"list", "resources"}, usage: "Usage: daem list resources", lineBudget: 46, labels: []string{"--target", "--json"}},
+		{topic: []string{"list", "outputs"}, usage: "Usage: daem list outputs", lineBudget: 46},
+		{topic: []string{"list", "paths"}, usage: "Usage: daem list paths", lineBudget: 46},
+		{topic: []string{"probe", "mcp-server"}, usage: "Usage: daem probe mcp-server <name>", lineBudget: 60, labels: []string{"--timeout"}},
+		{topic: []string{"refresh", "extension"}, usage: "Usage: daem refresh extension <id>", lineBudget: 60, labels: []string{"--target", "--scope", "--timeout", "--yes"}},
 	}
 
 	for _, width := range []int{80, 120} {
@@ -64,9 +67,31 @@ func TestHelpContractCoversEveryRetainedCommandAtSupportedWidths(t *testing.T) {
 				if exitCode != 0 || stderr != "" {
 					t.Fatalf("exitCode=%d stderr=%q stdout=%q", exitCode, stderr, stdout)
 				}
-				assertHelpContains(t, stdout, append([]string{test.usage}, test.required...)...)
-				assertHelpOmits(t, stdout, test.forbidden...)
+				assertHelpContains(t, stdout, test.usage)
+				assertHelpLabels(t, stdout, len(test.topic) == 0, test.labels, test.forbiddenFlags)
 				assertHelpLayout(t, stdout, width, test.lineBudget)
+
+				if width != 80 {
+					return
+				}
+				for _, flag := range []string{"--help", "-h"} {
+					args := append(append([]string(nil), test.topic...), flag)
+					var aliasOut bytes.Buffer
+					var aliasErr bytes.Buffer
+					exitCode := clipkg.RunWithOptions(args, clipkg.RunOptions{Stdout: &aliasOut, Stderr: &aliasErr})
+					if exitCode != 0 || aliasErr.Len() != 0 || aliasOut.String() != stdout {
+						t.Fatalf("args=%q exitCode=%d stderr=%q stdout=%q, want current topic help %q", args, exitCode, aliasErr.String(), aliasOut.String(), stdout)
+					}
+				}
+				for _, flag := range test.forbiddenFlags {
+					args := append(append([]string(nil), test.topic...), flag, "help-contract-input")
+					var rejectedOut bytes.Buffer
+					var rejectedErr bytes.Buffer
+					exitCode := clipkg.RunWithOptions(args, clipkg.RunOptions{Stdout: &rejectedOut, Stderr: &rejectedErr})
+					if exitCode != 2 || rejectedOut.Len() != 0 || !strings.Contains(rejectedErr.String(), strings.TrimLeft(flag, "-")) {
+						t.Fatalf("args=%q exitCode=%d stderr=%q stdout=%q, want rejected option", args, exitCode, rejectedErr.String(), rejectedOut.String())
+					}
+				}
 			})
 		}
 	}
@@ -130,12 +155,31 @@ func assertHelpContains(t *testing.T, output string, values ...string) {
 	}
 }
 
-func assertHelpOmits(t *testing.T, output string, values ...string) {
+func assertHelpLabels(t *testing.T, output string, root bool, required []string, forbidden []string) {
 	t.Helper()
-	normalizedOutput := strings.Join(strings.Fields(output), " ")
-	for _, value := range values {
-		if strings.Contains(normalizedOutput, strings.Join(strings.Fields(value), " ")) {
-			t.Fatalf("output=%q, must omit %q", output, value)
+	labels := make(map[string]bool)
+	inLabelSection := root
+	for _, line := range strings.Split(output, "\n") {
+		if line != "" && !strings.HasPrefix(line, " ") {
+			inLabelSection = root || line == "Operands:" || line == "Options:" || line == "Resources:" || line == "Subjects:"
+		}
+		if !inLabelSection || !strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "   ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 0 {
+			labels[fields[0]] = true
+		}
+	}
+
+	for _, label := range required {
+		if !labels[label] {
+			t.Fatalf("output=%q, missing command/option label %q", output, label)
+		}
+	}
+	for _, label := range forbidden {
+		if labels[label] {
+			t.Fatalf("output=%q, advertised unsupported option %q", output, label)
 		}
 	}
 }

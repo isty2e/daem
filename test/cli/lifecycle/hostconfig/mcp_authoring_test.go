@@ -398,7 +398,7 @@ targets = ["antigravity-cli"]
 	testkit.AssertPathMissing(t, testkit.AuthoringTransactionDir(filepath.Join(project.root, ".daem")))
 }
 
-func TestRunAddMCPServerPreservesFlagLikeArgs(t *testing.T) {
+func TestRunAddMCPServerPreservesOrderedDuplicateAndFlagLikeArgs(t *testing.T) {
 	project := newMCPCLIProject(t)
 	testkit.WriteFile(t, project.root, "daem.toml", "version = 1\ntargets = [\"claude-code\"]\n")
 
@@ -409,6 +409,7 @@ func TestRunAddMCPServerPreservesFlagLikeArgs(t *testing.T) {
 		"--manifest", project.manifestPath,
 		"--arg", "--stdio",
 		"--arg", "--port=0",
+		"--arg", "--stdio",
 		"--arg", "@upstash/context7-mcp@1.2.3",
 		"--dry-run",
 	}, &stdout, &stderr)
@@ -416,7 +417,7 @@ func TestRunAddMCPServerPreservesFlagLikeArgs(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		`args = ["--stdio", "--port=0", "@upstash/context7-mcp@1.2.3"]`,
+		`args = ["--stdio", "--port=0", "--stdio", "@upstash/context7-mcp@1.2.3"]`,
 		"lockfile: would write " + project.lockfilePath,
 	} {
 		if !strings.Contains(stdout.String(), want) {

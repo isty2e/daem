@@ -289,6 +289,7 @@ func TestInstructionSourceInputScopeRules(t *testing.T) {
 		Name:      "shared",
 		SourceArg: sharedSource,
 	}, tempDir, declaration.ManifestHeader{
+		Targets:  []string{"codex", "claude-code"},
 		Defaults: declaration.Defaults{Scope: "global"},
 	})
 	if err != nil {
@@ -296,5 +297,8 @@ func TestInstructionSourceInputScopeRules(t *testing.T) {
 	}
 	if inheritedGlobal.Source.Path != filepath.ToSlash(sharedSource) {
 		t.Fatalf("shared source path = %q, want absolute path for global default", inheritedGlobal.Source.Path)
+	}
+	if len(inheritedGlobal.Targets) != 0 || inheritedGlobal.Scope != "" {
+		t.Fatalf("inherited placement = targets %q scope %q, want omitted declaration fields", inheritedGlobal.Targets, inheritedGlobal.Scope)
 	}
 }

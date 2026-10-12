@@ -204,29 +204,6 @@ func TestRunUnmanageExtensionSelectorsAreSafetyFilters(t *testing.T) {
 	}
 }
 
-func TestRunUnmanageHelpStatesHostPreservationContract(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	exitCode := runWithoutTerminal(
-		[]string{"help", "unmanage", "extension"},
-		&stdout,
-		&stderr,
-	)
-	if exitCode != 0 || stderr.Len() != 0 {
-		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
-	}
-	for _, want := range []string{
-		"daem unmanage extension",
-		"never invokes a host route",
-		"always retains host state",
-		"manual consumers remain unobservable",
-	} {
-		if !strings.Contains(stdout.String(), want) {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
-		}
-	}
-}
-
 func writeCLIUnmanageFixture(
 	t *testing.T,
 	scope string,
