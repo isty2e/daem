@@ -2,6 +2,7 @@ package clipresent
 
 import (
 	"bytes"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,6 +16,41 @@ func TestEveryHelpPageUsesAnInstalledDocumentationReference(t *testing.T) {
 		if strings.Contains(page.Reference, "docs/") || strings.Contains(page.Reference, ".md") {
 			t.Errorf("help page %q reference = %q, contains checkout-relative path", key, page.Reference)
 		}
+	}
+}
+
+func TestHelpDescriptionsReferenceOnlyDeclaredPageOptions(t *testing.T) {
+	optionName := regexp.MustCompile(`--[a-z][a-z0-9-]*`)
+	referenceCount := 0
+	for key, page := range helpPages(UsageContext{SupportedTargets: "codex", ImportTargets: "codex"}) {
+		declared := make(map[string]bool)
+		for _, section := range page.Sections {
+			if section.Title != "Options" && section.Title != "Operands" {
+				continue
+			}
+			for _, row := range section.Rows {
+				for _, name := range optionName.FindAllString(row.Label, -1) {
+					declared[name] = true
+				}
+			}
+		}
+
+		for _, section := range page.Sections {
+			if section.Title != "Options" && section.Title != "Operands" {
+				continue
+			}
+			for _, row := range section.Rows {
+				for _, reference := range optionName.FindAllString(row.Text, -1) {
+					referenceCount++
+					if !declared[reference] {
+						t.Errorf("help page %q %s row %q references undeclared option %q", key, section.Title, row.Label, reference)
+					}
+				}
+			}
+		}
+	}
+	if referenceCount == 0 {
+		t.Fatal("no option-description references were checked")
 	}
 }
 

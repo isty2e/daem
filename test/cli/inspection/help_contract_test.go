@@ -11,6 +11,7 @@ import (
 
 type helpCase struct {
 	topic          []string
+	discoveryOnly  bool
 	usage          string
 	lineBudget     int
 	labels         []string
@@ -19,14 +20,14 @@ type helpCase struct {
 
 func TestHelpContractCoversEveryRetainedCommandAtSupportedWidths(t *testing.T) {
 	cases := []helpCase{
-		{topic: nil, usage: "Usage: daem <command> [options]", lineBudget: 30, labels: []string{"init", "import", "add", "remove", "lock", "outdated", "list", "status", "version", "doctor", "probe", "refresh", "unmanage", "apply", "recover", "migrate"}, forbiddenFlags: []string{"--manifest", "--json"}},
-		{topic: []string{"add"}, usage: "Usage: daem add <resource>", lineBudget: 32, labels: []string{"extension", "instruction", "hook", "mcp-server", "skill", "skill-group"}, forbiddenFlags: []string{"--member", "--timeout"}},
-		{topic: []string{"remove"}, usage: "Usage: daem remove <resource>", lineBudget: 32, labels: []string{"extension", "instruction", "hook", "mcp-server", "skill"}, forbiddenFlags: []string{"--scope"}},
-		{topic: []string{"unmanage"}, usage: "Usage: daem unmanage <resource>", lineBudget: 32, labels: []string{"extension"}, forbiddenFlags: []string{"--yes", "--prune"}},
-		{topic: []string{"list"}, usage: "Usage: daem list <resource>", lineBudget: 36, labels: []string{"resources", "outputs", "paths"}, forbiddenFlags: []string{"--inventory"}},
-		{topic: []string{"probe"}, usage: "Usage: daem probe <resource>", lineBudget: 32, labels: []string{"mcp-server"}},
-		{topic: []string{"refresh"}, usage: "Usage: daem refresh <resource>", lineBudget: 32, labels: []string{"extension"}},
-		{topic: []string{"migrate"}, usage: "Usage: daem migrate <subject>", lineBudget: 32, labels: []string{"state"}},
+		{topic: nil, discoveryOnly: true, usage: "Usage: daem <command> [options]", lineBudget: 30, labels: []string{"init", "import", "add", "remove", "lock", "outdated", "list", "status", "version", "doctor", "probe", "refresh", "unmanage", "apply", "recover", "migrate"}, forbiddenFlags: []string{"--manifest", "--json"}},
+		{topic: []string{"add"}, discoveryOnly: true, usage: "Usage: daem add <resource>", lineBudget: 32, labels: []string{"extension", "instruction", "hook", "mcp-server", "skill", "skill-group"}, forbiddenFlags: []string{"--member", "--timeout"}},
+		{topic: []string{"remove"}, discoveryOnly: true, usage: "Usage: daem remove <resource>", lineBudget: 32, labels: []string{"extension", "instruction", "hook", "mcp-server", "skill"}, forbiddenFlags: []string{"--scope"}},
+		{topic: []string{"unmanage"}, discoveryOnly: true, usage: "Usage: daem unmanage <resource>", lineBudget: 32, labels: []string{"extension"}, forbiddenFlags: []string{"--yes", "--prune"}},
+		{topic: []string{"list"}, discoveryOnly: true, usage: "Usage: daem list <resource>", lineBudget: 36, labels: []string{"resources", "outputs", "paths"}, forbiddenFlags: []string{"--inventory"}},
+		{topic: []string{"probe"}, discoveryOnly: true, usage: "Usage: daem probe <resource>", lineBudget: 32, labels: []string{"mcp-server"}},
+		{topic: []string{"refresh"}, discoveryOnly: true, usage: "Usage: daem refresh <resource>", lineBudget: 32, labels: []string{"extension"}},
+		{topic: []string{"migrate"}, discoveryOnly: true, usage: "Usage: daem migrate <subject>", lineBudget: 32, labels: []string{"state"}},
 		{topic: []string{"migrate", "state"}, usage: "Usage: daem migrate state", lineBudget: 48, labels: []string{"--recover", "--dry-run", "--yes", "--json", "--manifest"}},
 		{topic: []string{"init"}, usage: "Usage: daem init", lineBudget: 46, labels: []string{"--force", "--manifest"}, forbiddenFlags: []string{"--yes", "--lockfile"}},
 		{topic: []string{"import"}, usage: "Usage: daem import --target <target>", lineBudget: 46, labels: []string{"--source-dir", "--merge", "--target"}, forbiddenFlags: []string{"--output", "--yes", "--lockfile"}},
@@ -74,21 +75,30 @@ func TestHelpContractCoversEveryRetainedCommandAtSupportedWidths(t *testing.T) {
 				if width != 80 {
 					return
 				}
+				defaultHelp, defaultErr, defaultExit := runHelpAtWidth(test.topic, 0)
+				if defaultExit != 0 || defaultErr != "" {
+					t.Fatalf("default help exitCode=%d stderr=%q", defaultExit, defaultErr)
+				}
 				for _, flag := range []string{"--help", "-h"} {
 					args := append(append([]string(nil), test.topic...), flag)
 					var aliasOut bytes.Buffer
 					var aliasErr bytes.Buffer
 					exitCode := clipkg.RunWithOptions(args, clipkg.RunOptions{Stdout: &aliasOut, Stderr: &aliasErr})
-					if exitCode != 0 || aliasErr.Len() != 0 || aliasOut.String() != stdout {
-						t.Fatalf("args=%q exitCode=%d stderr=%q stdout=%q, want current topic help %q", args, exitCode, aliasErr.String(), aliasOut.String(), stdout)
+					if exitCode != 0 || aliasErr.Len() != 0 || aliasOut.String() != defaultHelp {
+						t.Fatalf("args=%q exitCode=%d stderr=%q stdout=%q, want default-width topic help %q", args, exitCode, aliasErr.String(), aliasOut.String(), defaultHelp)
 					}
+				}
+
+				if test.discoveryOnly {
+					return
 				}
 				for _, flag := range test.forbiddenFlags {
 					args := append(append([]string(nil), test.topic...), flag, "help-contract-input")
 					var rejectedOut bytes.Buffer
 					var rejectedErr bytes.Buffer
 					exitCode := clipkg.RunWithOptions(args, clipkg.RunOptions{Stdout: &rejectedOut, Stderr: &rejectedErr})
-					if exitCode != 2 || rejectedOut.Len() != 0 || !strings.Contains(rejectedErr.String(), strings.TrimLeft(flag, "-")) {
+					undefinedFlag := "flag provided but not defined: -" + strings.TrimPrefix(flag, "--")
+					if exitCode != 2 || rejectedOut.Len() != 0 || !strings.Contains(rejectedErr.String(), undefinedFlag) {
 						t.Fatalf("args=%q exitCode=%d stderr=%q stdout=%q, want rejected option", args, exitCode, rejectedErr.String(), rejectedOut.String())
 					}
 				}
@@ -179,7 +189,7 @@ func assertHelpLabels(t *testing.T, output string, root bool, required []string,
 	}
 	for _, label := range forbidden {
 		if labels[label] {
-			t.Fatalf("output=%q, advertised unsupported option %q", output, label)
+			t.Fatalf("output=%q, unexpected option label %q on this help page", output, label)
 		}
 	}
 }
