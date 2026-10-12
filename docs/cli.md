@@ -201,6 +201,13 @@ interrupts a blocked terminal read and cannot authorize effects.
 - Default human output is concise and always retains blockers, selected
   effects, failures, destructive implications, uncertainty, and the nearest
   corrective action.
+- Relation-action rows describe relation decisions, not every planned host
+  effect. A no-op row means the relation itself needs no change. An Adapter
+  provider package can still need reinstalling, reported separately as
+  `provider_prerequisite: install_required`. During `apply`, that prerequisite
+  can replay the host install route.
+  Observation-only rows include the reason; neither kind implies removal or
+  verified runtime readiness.
 - On POSIX platforms, concrete next commands are rendered from an argument
   vector so dynamic paths remain one shell argument. Control-bearing arguments
   use a terminal-safe POSIX reconstruction and still round-trip to the exact
@@ -902,9 +909,10 @@ Unqualified host prerequisites use these reasons:
 
 Default output prints totals, every planned mutation, blocker, drift,
 unsupported/ambiguous class, binding-removal result, and uncertain host-route
-class. It omits routine no-ops, state/content paths, internal reason fields,
-hashes, route ids, and exhaustive evidence arrays. `--verbose` adds those
-bounded causal fields and every ordinary row.
+class. It omits routine no-op resource rows, state/content paths, internal
+reason fields, hashes, route ids, and exhaustive evidence arrays. Relation-action
+rows, including no-ops, remain visible. `--verbose` adds the omitted bounded
+causal fields and every ordinary row.
 
 The table below describes exit codes for valid status results. Command failures
 still return `1` before or while emitting their applicable result contract.
