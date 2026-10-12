@@ -85,24 +85,35 @@ func TestRunProbeHelpListsAdmittedRuntimeProbeTargets(t *testing.T) {
 	}
 }
 
-func TestRunAddHelpMentionsMCPGlobalScopeConsent(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+func TestRunAddMCPHelpRoutesToPresenter(t *testing.T) {
+	var expected bytes.Buffer
+	if !printCommandUsage([]string{"add", "mcp-server"}, &expected, 0) {
+		t.Fatal("MCP add help topic was not rendered")
+	}
+	if expected.Len() == 0 {
+		t.Fatal("MCP add help output is empty")
+	}
 
-	exitCode := runWithoutTerminal([]string{"help", "add", "mcp-server"}, &stdout, &stderr)
-	if exitCode != 0 {
-		t.Fatalf("exitCode = %d, want 0", exitCode)
-	}
-	for _, want := range []string{
-		"Target omission succeeds only when the manifest identifies one admitted row.",
-		"Environment mappings and non-stdio transports are manifest-only.",
+	for _, args := range [][]string{
+		{"help", "add", "mcp-server"},
+		{"add", "mcp-server", "--help"},
+		{"add", "mcp-server", "-h"},
 	} {
-		if !strings.Contains(stdout.String(), want) {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
-		}
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+
+			exitCode := runWithoutTerminal(args, &stdout, &stderr)
+			if exitCode != 0 {
+				t.Fatalf("exitCode = %d, want 0", exitCode)
+			}
+			if !bytes.Equal(stdout.Bytes(), expected.Bytes()) {
+				t.Fatalf("stdout = %q, want current MCP add help %q", stdout.String(), expected.String())
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr = %q, want empty", stderr.String())
+			}
+		})
 	}
 }
 
