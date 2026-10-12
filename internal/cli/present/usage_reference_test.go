@@ -98,16 +98,12 @@ func TestMCPHelpUsesCommandSpecificAdmissionFacts(t *testing.T) {
 		"authoring-targets-sentinel",
 		"authoring-scopes-sentinel",
 		"authoring-placements-sentinel",
-		"For Pi, add also authors an explicit pi-mcp-adapter package",
 	)
-	assertHelpPageOmits(t, pages["add mcp-server"], "all-targets-sentinel", "repeat for multiple targets")
+	assertHelpPageOmits(t, pages["add mcp-server"], "all-targets-sentinel", "probe-targets-sentinel")
 	assertHelpPageContains(t, pages["probe mcp-server"], "probe-targets-sentinel", "probe-scopes-sentinel", "probe-placements-sentinel")
-	assertHelpPageOmits(t, pages["probe mcp-server"], "all-targets-sentinel", "repeat for multiple targets")
-	assertHelpPageContains(
-		t,
-		pages["remove mcp-server"],
-		"Removing a Pi MCP row keeps its explicit pi-mcp-adapter package declaration",
-	)
+	assertHelpPageOmits(t, pages["probe mcp-server"], "all-targets-sentinel", "authoring-targets-sentinel")
+	assertHelpPageContains(t, pages["remove mcp-server"], "all-targets-sentinel")
+	assertHelpPageOmits(t, pages["remove mcp-server"], "authoring-targets-sentinel", "probe-targets-sentinel")
 }
 
 func assertHelpPageContains(t *testing.T, page helpPage, values ...string) {
