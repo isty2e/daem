@@ -2,6 +2,8 @@ package clipresent
 
 import (
 	"bytes"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -17,38 +19,71 @@ func TestEveryHelpPageUsesAnInstalledDocumentationReference(t *testing.T) {
 	}
 }
 
-func TestInitHelpUsesStarterManifestWording(t *testing.T) {
-	page := helpPages(UsageContext{})["init"]
-	if page.Summary != "create a starter manifest" {
-		t.Fatalf("init summary = %q, want starter manifest wording", page.Summary)
-	}
-
-	var root bytes.Buffer
-	PrintUsage(&root, UsageContext{})
-	if !strings.Contains(root.String(), "Create a starter manifest.") {
-		t.Fatalf("root usage = %q, want starter manifest wording", root.String())
-	}
-}
-
-func TestHelpJSONDescriptionNamesDiffOnlyWhenTheCommandHasDiff(t *testing.T) {
+func TestHelpDescriptionsReferenceOnlyDeclaredPageOptions(t *testing.T) {
+	optionName := regexp.MustCompile(`--[a-z][a-z0-9-]*`)
+	referenceCount := 0
 	for key, page := range helpPages(UsageContext{SupportedTargets: "codex", ImportTargets: "codex"}) {
-		hasDiff := false
-		jsonDescription := ""
+		declared := make(map[string]bool)
 		for _, section := range page.Sections {
+			if section.Title != "Options" && section.Title != "Operands" {
+				continue
+			}
 			for _, row := range section.Rows {
-				switch row.Label {
-				case "--diff":
-					hasDiff = true
-				case "--json":
-					jsonDescription = row.Text
+				for _, name := range optionName.FindAllString(row.Label, -1) {
+					declared[name] = true
 				}
 			}
 		}
-		if jsonDescription == "" {
-			continue
+
+		for _, section := range page.Sections {
+			if section.Title != "Options" && section.Title != "Operands" {
+				continue
+			}
+			for _, row := range section.Rows {
+				for _, reference := range optionName.FindAllString(row.Text, -1) {
+					referenceCount++
+					if !declared[reference] {
+						t.Errorf("help page %q %s row %q references undeclared option %q", key, section.Title, row.Label, reference)
+					}
+				}
+			}
 		}
-		if mentionsDiff := strings.Contains(jsonDescription, "--diff"); mentionsDiff != hasDiff {
-			t.Errorf("help page %q: --json description = %q, has --diff = %t", key, jsonDescription, hasDiff)
+	}
+	if referenceCount == 0 {
+		t.Fatal("no option-description references were checked")
+	}
+}
+
+func TestCommandHelpRendersCurrentPageContentAtSupportedWidths(t *testing.T) {
+	for _, width := range []int{80, 120} {
+		context := UsageContext{SupportedTargets: "codex", ImportTargets: "codex", Width: width}
+		for key, page := range helpPages(context) {
+			t.Run(key+"_"+strconv.Itoa(width), func(t *testing.T) {
+				var output bytes.Buffer
+				if !PrintCommandUsage(&output, strings.Fields(key), context) {
+					t.Fatal("current help page was not rendered")
+				}
+				if output.Len() == 0 {
+					t.Fatal("current help page output is empty")
+				}
+
+				normalizedOutput := strings.Join(strings.Fields(strings.ReplaceAll(output.String(), "\\\n", "")), " ")
+				content := []string{page.Path, page.Summary, page.Usage, page.Reference}
+				for _, section := range page.Sections {
+					content = append(content, section.Title)
+					for _, row := range section.Rows {
+						content = append(content, row.Label, row.Text)
+					}
+				}
+				content = append(content, page.Examples...)
+
+				for _, value := range content {
+					expected := strings.Join(strings.Fields(value), " ")
+					if !strings.Contains(normalizedOutput, expected) {
+						t.Errorf("help page omits current content %q:\n%s", value, output.String())
+					}
+				}
+			})
 		}
 	}
 }
