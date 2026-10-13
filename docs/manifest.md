@@ -1547,11 +1547,13 @@ path. Percent-encoded `@` in that path remains repository data. Daem uses that
 classification for checkout identity and coupled removal checks.
 
 The locked source is passed unchanged to Pi; daem does not convert generic Git
-locators to Pi-specific package syntax. Use a spelling accepted by the installed
-Pi version, such as the explicit `git:` form above. Daem's source classification
-does not prove host-parser equivalence. Native MCP qualification separately
-models Pi's settings-source dispatch: its treatment of bare `github:` and
-`git+https` entries is described in [Pi Native And Adapter](host-integrations.md#pi-native-and-adapter).
+locators to Pi-specific package syntax. Use the explicit `git:` form above or
+a lowercase `https://` or `ssh://` Git URL accepted by the installed Pi version.
+The Pi settings-source dispatch modeled by Native MCP qualification treats bare
+`github:` and `git+http://`, `git+https://` or `git+ssh://` entries as local paths,
+not Git package declarations. Daem's generic Git classification does not prove
+host-parser equivalence. See [Pi Native And Adapter](host-integrations.md#pi-native-and-adapter)
+for that qualification profile.
 
 Lock stores a `host_relation` subject with route identity and operation
 contracts. Status/apply preview disclose subject, target/scope, route/admission,
