@@ -48,7 +48,7 @@ the host, the native object may be called a plugin, package, or extension.
 | Declare | Global only | Project + global | Project + global | Project + global | Global only |
 | Detect installed | Global only | Project + global | Project + global | Project + global | Limited |
 | Install | Global only | Project + global | Project + global | Project + global | Global only |
-| Refresh one | Global only | Project + global | Project + global | Project + global | Global only |
+| Explicit refresh | Global only | Project + global | Project + global | Project + global | Global only |
 | Remove managed | Global only | Project + global | Project + global | Project + global | Limited |
 | Adopt existing | Global only | Project + global | Project + global | Project + global | No |
 | Import installed | Global only | Project + global | Project + global | Project + global | Diagnostic only |
@@ -58,6 +58,10 @@ the host, the native object may be called a plugin, package, or extension.
 Daem previews the locked host command/config change, obtains confirmation and
 checks the available post-operation evidence. Command success alone is not
 convergence.
+
+Refresh selects one declared extension, but its native command can affect
+broader host state: Codex refresh selects a marketplace, and Pi may update
+matching user and trusted-project rows. See [refresh scope and effects](host-integrations.md#explicit-carrier-refresh).
 
 Removing a declaration requests managed removal on the next confirmed apply;
 it requires a daem-created or explicitly adopted installation and no remaining

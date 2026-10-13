@@ -40,6 +40,10 @@ host-selected artifacts. Neither path grants bulk refresh, uninstall, prune,
 contribution control, rollback or runtime-readiness guarantees. Exact commands are in the
 host summaries below.
 
+Selecting one declaration does not limit every host-owned effect to that
+relation: Codex refresh selects its marketplace, and Pi may update matching user
+and trusted-project rows. Review the disclosed native route and retained effects.
+
 Refresh bounds only the child process: default `10m`, or `--timeout` from `1s`
 through `1h` in whole seconds, disclosed and fingerprinted before authorization.
 Planning, confirmation, observation, history persistence and cleanup are outside
@@ -217,9 +221,10 @@ certification is unsupported. Git locator parsing failure or an unmodelled
 hosted alias refuses qualification rather than proving Adapter absence; full
 hosted-alias parity is unsupported.
 
-Package carrier admission is narrower than daem's generic Git locator grammar.
-Bare `github:owner/repo` and `git+https://...` entries are local paths in Pi
-1.0.2; they are not Git declarations. The Native Git intent check recognizes
+Native MCP qualification follows Pi 1.0.2's settings-source dispatch, not the
+generic Git grammar used for [Pi package relations](manifest.md#extension-carriers).
+Bare `github:owner/repo` and `git+https://...` entries are local paths in that
+dispatch; this check does not treat them as Git declarations. It recognizes
 `git:` declarations and explicit lowercase `https://`, `http://`, `ssh://` or
 `git://` locators. Native Git qualification requires a host, owner and
 repository. Other prefix-looking local filenames, such as `builtin:entry.ts` or `http:entry.ts`,
@@ -549,8 +554,10 @@ operations. In particular:
   global provider use does not confer ownership of unowned project config.
 - Antigravity IDE, Markdown slash-command skills, direct hooks, project/remote
   MCP, rules, workflows and settings as separate resources remain unsupported.
-- `[[local_parameter]]`, `[[package_runner]]`, `[[executable_artifact]]` and
-  command-object MCP references are design-only and rejected before normalization.
-  Adding one requires its own parser, lock, status, apply, authoring, docs and tests.
+- `[[local_parameter]]`, `[[package_runner]]`, `[[executable_artifact]]` and MCP
+  command references to those resources are design-only and rejected before
+  normalization. Adding one requires its own parser, lock, status, apply,
+  authoring, docs and tests. The supported [absolute command-path object](manifest.md#mcp-servers)
+  is launch data for a non-owned executable, not one of these resource references.
 - Hook-asset directories, implicit command-path inference, bundled-hook and
   standalone executable installation remain outside current support.

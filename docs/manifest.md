@@ -327,7 +327,7 @@ Codex also supports its modeled global compatible root:
 ```toml
 [[skill]]
 name = "humanizer"
-source = { git = "https://github.com/blader/humanizer.git", ref = "main" }
+source = { git = "https://github.com/blader/humanizer.git", path = ".", ref = "main" }
 targets = ["codex"]
 scope = "global"
 
@@ -478,8 +478,10 @@ Validation rules:
 - `names` and `include` must contain at least one entry when present.
 - Every group name must be a safe single path segment. Empty names, `.`, `..`,
   names starting with `~`, and names containing `/` or `\` are rejected.
-- Expanded group names share the same unique skill-name namespace as regular
-  `[[skill]]` entries.
+- Each expanded group member uses its name as its resource id. These ids must
+  be unique across groups and regular `[[skill]]` entries. Installed names may
+  repeat only with distinct resource ids and non-overlapping target/scope
+  destinations, as for [ordinary skills](#skills).
 - Project-scoped local link groups must set `portable = false`.
 - `compat_repair = true` is inherited by every expanded skill. Selector-backed
   groups record repair data on the expanded child lock entries, not on the
@@ -696,6 +698,20 @@ command = "npx"
 args = ["-y", "@upstash/context7-mcp@1.2.3"]
 env = { API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }
 ```
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes | none | Stable server name; target-specific naming limits apply. |
+| `targets` | array of strings | no | top-level `targets` | Exactly one effective target per row; an inherited target array must also select one supported host. |
+| `scope` | string | no | `defaults.scope` | Project or global placement. Shared user-level config requires explicit `scope = "global"` on the row. |
+| `transport` | string | yes | none | Only `stdio` is supported. |
+| `command` | string or path object | yes | none | Portable executable token or explicit absolute `path`, described below; neither provisions the executable. |
+| `args` | array of strings | no | empty | Ordered argv entries; duplicates are preserved. |
+| `env` | table | no | empty | Child-to-source references using `{ from_env = "SOURCE" }`; target/scope restrictions apply. Values remain runtime-only. |
+| `backend` | string | no; Pi only | `adapter` when omitted | Recorded Pi contract: `native` or `adapter`. Rejected on other targets; managed backend changes are not in-place migration. |
+
+The placement, environment and backend rules below constrain this field list.
+Pi Adapter providers are separate extension declarations, not an MCP field.
 
 The string form is a portable executable token resolved through the agent
 process environment:
@@ -1493,7 +1509,7 @@ id = "tools-managed"
 carrier = "pi-package"
 targets = ["pi"]
 scope = "project"
-source = { host_source = "github:acme/pi-tools" }
+source = { host_source = "git:github.com/acme/pi-tools" }
 
 [[extension]]
 id = "guidance-managed"
@@ -1522,12 +1538,22 @@ one lexical identity; project scope stores clean manifest-root-relative spelling
 and global scope clean absolute spelling. Same-scope collisions are rejected.
 Normalization does not make an external settings row source-exact or adoptable.
 
-Pi npm sources preserve credential-free local, remote, and opaque package
-arguments. Only direct registry specs and npm aliases establish public package
-identity; the outer name is the relation identity. Git sources include
-`git+http`, `git+https`, and `git+ssh` with a valid host and non-empty
-repository path; percent-encoded `@` in that path remains repository data. These
-use Git checkout identity and removal semantics, not local-source semantics.
+For `pi-package` relations, daem's carrier grammar preserves credential-free
+local, remote and opaque npm arguments. Only direct registry specs and npm
+aliases establish public package identity; the outer name is the relation
+identity. The carrier grammar also classifies generic Git locators, including
+`git+http`, `git+https` and `git+ssh` with a valid host and non-empty repository
+path. Percent-encoded `@` in that path remains repository data. Daem uses that
+classification for checkout identity and coupled removal checks.
+
+The locked source is passed unchanged to Pi; daem does not convert generic Git
+locators to Pi-specific package syntax. Use the explicit `git:` form above or
+a lowercase `https://` or `ssh://` Git URL accepted by the installed Pi version.
+The Pi settings-source dispatch modeled by Native MCP qualification treats bare
+`github:` and `git+http://`, `git+https://` or `git+ssh://` entries as local paths,
+not Git package declarations. Daem's generic Git classification does not prove
+host-parser equivalence. See [Pi Native And Adapter](host-integrations.md#pi-native-and-adapter)
+for that qualification profile.
 
 Lock stores a `host_relation` subject with route identity and operation
 contracts. Status/apply preview disclose subject, target/scope, route/admission,

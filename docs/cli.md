@@ -45,6 +45,7 @@ or [Use An Existing Environment](migration.md).
 | Operate | `refresh` | Refresh one exact declared and locked host extension relation. |
 | Reconcile | `apply` | Reconcile the locked environment. |
 | Reconcile | `recover` | Recover one operation or finish its retained journal cleanup. |
+| Management authority | `migrate state` | Move the default user manifest's legacy state authority or recover that migration. |
 
 `help`, `-h`, `--help`, and `--version` are meta surfaces. Use
 `daem help <command>` and `daem help <group> <resource>` for progressively
@@ -172,7 +173,7 @@ Commands use effect-tiered modes:
 | Effect class | Commands | Bare invocation | `--dry-run` | `--yes` |
 | --- | --- | --- | --- | --- |
 | Read-only | `list`, `outdated`, `status`, `doctor`, `version` | query | rejected | rejected |
-| Desired/derived state | `init`, `import`, `add`, `remove`, `lock` | write | preview | rejected |
+| Desired/derived state | `init`, `import`, `add`, `remove`, `unmanage extension`, `lock` | write | preview | rejected |
 | Host/runtime effect | `apply`, `recover`, `probe mcp-server`, `refresh extension` | three-stream TTY confirmation | preview | non-interactive execution |
 | Management authority | `migrate state` | three-stream TTY confirmation | preview | non-interactive execution |
 
@@ -611,6 +612,14 @@ later supported apply plan may remove it through the disclosed host-native or
 direct-config route. If that authority is absent, ambiguous, stale, or
 unsupported, apply blocks without mutating visible host state.
 
+Confirmed apply may remove a daem-managed selector-shaped Antigravity relation
+only after fresh residual correlation and the last-daem-known-consumer check. It
+invokes `agy plugin uninstall <plugin>`, never the marketplace selector, and
+settles only when both the selected import row and plugin directory are freshly
+absent. Partial or uncertain outcomes retain claim and pending state for retry;
+already-absent state retires without invocation. See [host
+integrations](host-integrations.md) for the remaining scope and non-claims.
+
 Pi package rows currently admit this later apply step for project and explicit
 global scope. Project removal invokes `pi remove <source> -l`; global removal
 invokes `pi remove <source>`. Daem retires the exact claim only after fresh
@@ -969,10 +978,13 @@ material, a local path, or more than 256 bytes is replaced by a deterministic
 `foreign_identity_redacted` without changing the exact identity used for
 planning, comparison, or authorization.
 
-`--manage-existing` records exact-match unmanaged outputs as managed without
-rewriting them. This changes future deletion authority, so it is never implicit
-and never imports source material. It cannot transfer a path already owned by a
-different managed subject, even when the current bytes match exactly.
+`--manage-existing` registers eligible exact-match unmanaged outputs as managed.
+Whole-file matches must satisfy their required metadata before registration.
+For shared config, a matching contribution can still require replacing the
+document to correct its file mode; review the disclosed actions before applying.
+This changes future deletion authority, so it is never implicit and never
+imports source material. It cannot transfer a path already owned by a different
+managed subject, even when the current bytes match exactly.
 
 The same flag can acquire one state-only claim for an already declared, locked,
 source-exact external carrier relation. Current support covers Claude Code
@@ -1433,14 +1445,6 @@ import/link/enable/disable/project-scope or IDE behavior and makes no freshness,
 rollback, ownership, or readiness claim. See [host
 integrations](host-integrations.md) for route details.
 
-Confirmed apply may remove a daem-managed selector-shaped Antigravity relation
-only after fresh residual correlation and the last-daem-known-consumer check. It
-invokes `agy plugin uninstall <plugin>`, never the marketplace selector, and
-settles only when both the selected import row and plugin directory are freshly
-absent. Partial or uncertain outcomes retain claim and pending state for retry;
-already-absent state retires without invocation. See [host
-integrations](host-integrations.md) for the remaining scope and non-claims.
-
 The result classes are:
 
 | Class | Meaning |
@@ -1526,7 +1530,7 @@ fails the command.
 | Situation | Stdout | Stderr | Exit |
 | --- | --- | --- | ---: |
 | Help or successful human result | stable help/result | ephemeral progress or prompt only | `0` |
-| Successful JSON result | exactly one JSON document | empty | `0` |
+| Successful JSON result | exactly one JSON document | empty, except [refresh authorization](#json-stream-exceptions) | `0` |
 | Blocking result for a command whose result contract is failure | stable human or one JSON result | no duplicate prose | `1` |
 | Report-only `status`, including pending or blocked rows | normal result | empty | `0` |
 | Clean `status --check` | normal result | empty | `0` |
@@ -1535,7 +1539,7 @@ fails the command.
 | Warning-only result | stable result | empty | `0` |
 | CLI misuse | empty | problem plus nearest correction | `2` |
 | Failure before result envelope | empty | concise error and remediation | `1` |
-| Failure after JSON envelope exists | one typed JSON result | empty unless write fails | `1` |
+| Failure after JSON envelope exists | one typed JSON result | [refresh authorization](#json-stream-exceptions); otherwise empty unless write fails | `1` |
 | Confirmation declined/canceled | disclosed plan remains | cancellation line | `1` |
 | Stable output write failure | possibly partial | one bounded write diagnostic without the writer's error text | `1`, unless preserving an existing nonzero command identity |
 | Interrupted by `SIGINT` | completed or partial stable output | bounded interruption diagnostic | `130` |
@@ -1554,6 +1558,14 @@ Context cancellation without an OS signal supplies no signal exit identity.
 Internally supplied interactive authorization requires stdin/stdout/stderr, all
 three terminal facts and context-aware confirmation reading; otherwise execution
 is non-interactive.
+
+### JSON Stream Exceptions
+
+- Confirmed [`refresh extension --yes --json`](#refresh-extension) writes one
+  authorization JSON document to stderr before effects and one final result to
+  stdout. The authorization remains on stderr whether execution succeeds or
+  fails. Ordinary execution-failure prose is not appended, but an output-write
+  failure can still add a bounded diagnostic.
 
 ## Deferred Command Names
 
