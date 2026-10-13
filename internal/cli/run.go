@@ -12,6 +12,7 @@ import (
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/platformsupport"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
+	migrateworkflow "github.com/isty2e/daem/internal/workflow/migrate"
 	platformworkflow "github.com/isty2e/daem/internal/workflow/platform"
 	probeworkflow "github.com/isty2e/daem/internal/workflow/probe"
 	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
@@ -46,6 +47,7 @@ type commandOptions struct {
 	recoverExecuteOptions recoverworkflow.ExecuteOptions
 	refreshPlanOptions    refreshworkflow.PlanOptions
 	refreshExecuteOptions refreshworkflow.ExecuteOptions
+	stateMigrationPlan    func(context.Context, migrateworkflow.StateInput) (*migrateworkflow.PreparedState, error)
 	platformAdmission     platformsupport.Admission
 	platformObserver      platformworkflow.RuntimeObserver
 	buildIdentity         buildidentity.Identity

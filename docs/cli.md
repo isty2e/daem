@@ -1531,7 +1531,7 @@ fails the command.
 | --- | --- | --- | ---: |
 | Help or successful human result | stable help/result | ephemeral progress or prompt only | `0` |
 | Successful JSON result | exactly one JSON document | empty, except [refresh authorization](#json-stream-exceptions) | `0` |
-| Blocking result for a command whose result contract is failure | stable human or one JSON result | no duplicate prose, except [state-migration execution failure](#json-stream-exceptions) | `1` |
+| Blocking result for a command whose result contract is failure | stable human or one JSON result | no duplicate prose | `1` |
 | Report-only `status`, including pending or blocked rows | normal result | empty | `0` |
 | Clean `status --check` | normal result | empty | `0` |
 | Non-clean `status --check` | normal result | empty | `1` |
@@ -1539,7 +1539,7 @@ fails the command.
 | Warning-only result | stable result | empty | `0` |
 | CLI misuse | empty | problem plus nearest correction | `2` |
 | Failure before result envelope | empty | concise error and remediation | `1` |
-| Failure after JSON envelope exists | one typed JSON result | [refresh authorization or migration diagnostic](#json-stream-exceptions); otherwise empty unless write fails | `1` |
+| Failure after JSON envelope exists | one typed JSON result | [refresh authorization](#json-stream-exceptions); otherwise empty unless write fails | `1` |
 | Confirmation declined/canceled | disclosed plan remains | cancellation line | `1` |
 | Stable output write failure | possibly partial | one bounded write diagnostic without the writer's error text | `1`, unless preserving an existing nonzero command identity |
 | Interrupted by `SIGINT` | completed or partial stable output | bounded interruption diagnostic | `130` |
@@ -1566,9 +1566,6 @@ is non-interactive.
   stdout. The authorization remains on stderr whether execution succeeds or
   fails. Ordinary execution-failure prose is not appended, but an output-write
   failure can still add a bounded diagnostic.
-- If [`migrate state --yes --json`](#migrate-state) fails during execution, it
-  writes the result JSON to stdout and a concise failure diagnostic to stderr.
-  Failures before a result can be formed follow the pre-envelope rule above.
 
 ## Deferred Command Names
 

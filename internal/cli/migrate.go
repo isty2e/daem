@@ -48,7 +48,11 @@ func runMigrate(args []string, stdout, stderr io.Writer, options commandOptions)
 		printInteractiveConfirmationRequired(stderr, "migrate state", "state migration")
 		return 2
 	}
-	prepared, err := migrate.PlanState(options.context, migrate.StateInput{ManifestPath: *manifest, Recover: *recoverMigration})
+	planState := migrate.PlanState
+	if options.stateMigrationPlan != nil {
+		planState = options.stateMigrationPlan
+	}
+	prepared, err := planState(options.context, migrate.StateInput{ManifestPath: *manifest, Recover: *recoverMigration})
 	if err != nil {
 		fmt.Fprintf(stderr, "migrate state failed: %s\n", humanDiagnosticError(err))
 		return 1
@@ -93,7 +97,9 @@ func runMigrate(args []string, stdout, stderr io.Writer, options commandOptions)
 		}
 	}
 	if executeErr != nil {
-		fmt.Fprintf(stderr, "migrate state failed: %s\n", humanDiagnosticError(executeErr))
+		if !*jsonOutput {
+			fmt.Fprintf(stderr, "migrate state failed: %s\n", humanDiagnosticError(executeErr))
+		}
 		return 1
 	}
 	if !*jsonOutput {
