@@ -176,8 +176,9 @@ contributions or readiness. See [Host Integrations](host-integrations.md).
 Preview before each write: use `--dry-run` for authoring, lock, apply, and
 recovery. `status` and `doctor` are read-only; doctor checks passive prerequisites
 without launching host CLIs, package managers, credential helpers, or servers.
-For Native Pi MCP, status may run bounded version and package-location queries
-without changing managed configuration or state; see
+For Native Pi MCP, status may run an isolated, bounded `pi --version` command
+and inspect settings/source metadata without changing managed configuration or
+state. It does not query npm, pnpm or Bun installation roots; see
 [Pi Native And Adapter](host-integrations.md#pi-native-and-adapter).
 `probe` is the separate command for an explicitly authorized runtime check.
 

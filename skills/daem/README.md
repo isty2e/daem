@@ -23,15 +23,25 @@ daem init --manifest "$DAEM_USER_MANIFEST"
 
 ## Add And Apply The Skill
 
-Preview the declaration at the pinned release ref, then write it:
+For a released binary, choose its matching published tag as the skill ref.
+Check `daem version`; the example below uses the available `v0.3.0` tag, which
+you should replace when using another release. For a source build, choose the
+source ref explicitly. The ref selects skill content, not the daem executable.
+
+```bash
+daem version
+DAEM_SKILL_REF="v0.3.0"
+```
+
+Preview the declaration at that ref, then write it:
 
 ```bash
 daem add skill https://github.com/isty2e/daem.git \
-  --path skills/daem --ref v0.1.0 --name daem \
+  --path skills/daem --ref "$DAEM_SKILL_REF" --name daem \
   --target codex --scope global --manifest "$DAEM_USER_MANIFEST" \
   --dry-run --diff
 daem add skill https://github.com/isty2e/daem.git \
-  --path skills/daem --ref v0.1.0 --name daem \
+  --path skills/daem --ref "$DAEM_SKILL_REF" --name daem \
   --target codex --scope global --manifest "$DAEM_USER_MANIFEST"
 daem apply --manifest "$DAEM_USER_MANIFEST" --dry-run --diff
 daem apply --manifest "$DAEM_USER_MANIFEST"
@@ -42,4 +52,3 @@ confirmation. Review the whole plan, including any other declarations already
 in that manifest. Non-interactive apply requires `--yes`.
 
 Choose or repeat `--target` for other hosts supported by the installed daem.
-The ref selects the skill content; it does not upgrade the daem executable.
