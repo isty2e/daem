@@ -19,7 +19,7 @@ func PrintDryRunSummaryWithOptions(output io.Writer, input DryRunSummaryInput, o
 	subjects := input.Lockfile.Locked.Subjects()
 
 	fmt.Fprintf(output, "would write lockfile: %s\n", Escape(input.LockfilePath))
-	fmt.Fprintf(output, "lockfile entries: %d\n", len(subjects))
+	fmt.Fprintf(output, "lock entries: %d\n", len(subjects))
 	PrintDeltaSummaryWithOptions(output, input.Delta, options)
 	if options.Verbose {
 		printLockedSubjectIDs(output, subjects)

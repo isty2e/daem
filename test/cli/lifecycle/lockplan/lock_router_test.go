@@ -83,7 +83,7 @@ targets = ["codex"]
 
 	for _, want := range []string{
 		"would write lockfile: " + lockfilePath,
-		"lockfile entries: 5",
+		"lock entries: 5",
 		"locked.subject:",
 		"  - projection/codex.project.hooks/hook:protect-env",
 		"  - projection/instructions.project.agents/instructions:project",

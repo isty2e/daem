@@ -280,9 +280,11 @@ func TestPrintDryRunSummaryReportsRepairedLocks(t *testing.T) {
 		NextCommand:  "daem lock --manifest /repo/daem.toml",
 	}, clipresent.HumanOptions{Verbose: true})
 
+	if !strings.Contains(stdout.String(), "\nlock entries: 1\n") {
+		t.Fatalf("stdout = %q, want a standalone lock-entry count", stdout.String())
+	}
 	for _, want := range []string{
 		"would write lockfile: /repo/daem.lock.toml",
-		"lockfile entries: 1",
 		"lock entry changes: added=1 changed=0 removed=0 unchanged=0",
 		"lockfile.subject.added:\n  - resource/skill/oracle",
 		"locked.subject:\n  - resource/skill/oracle (repaired)",
