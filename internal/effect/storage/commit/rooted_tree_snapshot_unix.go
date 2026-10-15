@@ -661,23 +661,34 @@ func capturePreparedTreeMetadataFacts(
 	if err != nil {
 		return preparedTreeMetadataFacts{}, err
 	}
-	slices.Sort(names)
-	facts := preparedTreeMetadataFacts{
-		platform: platform,
-		xattrs:   make([]preparedTreeXattrFact, 0, len(names)),
+	xattrs, err := capturePreparedTreeXattrFacts(path, names, func(name string) ([]byte, error) {
+		return readXattrValue(fd, name)
+	})
+	if err != nil {
+		return preparedTreeMetadataFacts{}, err
 	}
+	return preparedTreeMetadataFacts{platform: platform, xattrs: xattrs}, nil
+}
+
+func capturePreparedTreeXattrFacts(
+	path string,
+	names []string,
+	readValue func(string) ([]byte, error),
+) ([]preparedTreeXattrFact, error) {
+	slices.Sort(names)
+	facts := make([]preparedTreeXattrFact, 0, len(names))
 	for _, name := range names {
 		if !isAllowedPreparedTreeXattr(name) {
-			return preparedTreeMetadataFacts{}, unsupported(
+			return nil, unsupported(
 				fmt.Sprintf("prepared tree entry %q contains unsupported extended attribute %q", path, name),
 				nil,
 			)
 		}
-		value, err := readXattrValue(fd, name)
+		value, err := readValue(name)
 		if err != nil {
-			return preparedTreeMetadataFacts{}, err
+			return nil, err
 		}
-		facts.xattrs = append(facts.xattrs, preparedTreeXattrFact{
+		facts = append(facts, preparedTreeXattrFact{
 			name:   name,
 			size:   len(value),
 			digest: sha256.Sum256(value),

@@ -77,6 +77,24 @@ directory renames before atomic publication or logical removal. Daem checks
 command failure or timeout blocks platform-gated commands before workspace,
 source, storage or host effects. `doctor` retains the diagnostic exceptions below.
 
+### macOS Metadata During Writes
+
+Daem uses private temporary directories to prepare transactions, journals,
+caches and directory outputs for publication. It accepts readable
+`com.apple.provenance` and `com.apple.macl` attributes on these directories and
+their contents, recording fingerprints without stripping or rewriting the
+attributes. Before publishing this data, daem rejects unreadable values or
+changes, additions and removals since its initial inspection. Unknown
+attributes, ACLs and file flags remain unsupported here.
+
+Replacing an existing manifest, lockfile or managed output uses a separate write
+path. Daem preserves the original file's extended attributes, including MACL when
+macOS permits reading, copying and verification. If verification finds MACL on
+the replacement that was not observed on the original, the write still fails,
+even if macOS added it when the temporary replacement file was created. A
+failure during final verification can occur after a replacement has become
+visible. A successful `--dry-run` does not exercise either of these write paths.
+
 ## Unsupported Builds
 
 | Command | Behavior on a not-admitted platform |
