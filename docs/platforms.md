@@ -77,18 +77,23 @@ directory renames before atomic publication or logical removal. Daem checks
 command failure or timeout blocks platform-gated commands before workspace,
 source, storage or host effects. `doctor` retains the diagnostic exceptions below.
 
-### macOS Prepared-Tree Metadata
+### macOS Metadata During Writes
 
-Private prepared trees, including authoring transaction evidence, admit readable
-`com.apple.provenance` and `com.apple.macl` creation attributes. Daem records
-fingerprints of their opaque values without stripping or rewriting the attributes.
-Preparation and publication checks refuse unreadable values or additions,
-removals and changes to captured attributes. Unknown attributes, ACLs and file
-flags retain their existing refusal rules.
+Before `add extension` updates the manifest and lockfile, it saves transaction
+data in temporary directories. Daem accepts readable `com.apple.provenance` and
+`com.apple.macl` attributes on these directories and their contents, recording
+fingerprints without stripping or rewriting the attributes. Before publishing
+this data, daem rejects unreadable values or changes, additions and removals
+since its initial inspection. Unknown attributes, ACLs and file flags remain
+unsupported here.
 
-This observation policy is not a mechanism for copying MACL between file objects
-or changing macOS access grants. A successful authoring preview does not guarantee
-that later temporary-file creation and metadata inspection will succeed.
+Replacing an existing manifest, lockfile or managed output uses a separate write
+path. Daem preserves the original file's extended attributes, including MACL when
+macOS permits reading, copying and verification. If verification finds MACL on
+the replacement that was not observed on the original, the write still fails,
+even if macOS added it when the temporary replacement file was created. A
+failure during final verification can occur after a replacement has become
+visible. A successful `--dry-run` does not exercise either of these write paths.
 
 ## Unsupported Builds
 
