@@ -63,7 +63,7 @@ func PrintHostRouteAttemptsWithOptions(output io.Writer, attempts []durableattem
 	if len(attempts) == 0 {
 		return nil
 	}
-	fmt.Fprintf(output, "host route attempts: %d history-only diagnostics\n", len(attempts))
+	fmt.Fprintf(output, "host route attempts: %s\n", CountLabel(len(attempts), "history-only diagnostic", "history-only diagnostics"))
 	for _, attempt := range attempts {
 		if !options.Verbose {
 			fmt.Fprintf(output, "  - last host %s attempt subject=%q target=%s scope=%s: %s; %s", attempt.Operation(), hostRouteAttemptSubjectString(attempt.Subject()), attempt.Target(), attempt.Scope(), attempt.ObservationSummary(), attempt.PostconditionSummary())

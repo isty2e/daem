@@ -79,7 +79,7 @@ type ImportMergeResult struct {
 }
 
 func PrintImportPlanWithOptions(output io.Writer, plan ImportPlan, options HumanOptions) {
-	fmt.Fprintf(output, "%s: %d resources\n", plan.Label, plan.ResourceCount)
+	fmt.Fprintf(output, "%s: %s\n", plan.Label, CountLabel(plan.ResourceCount, "resource", "resources"))
 	printImportSummary(output, plan)
 	if options.Verbose {
 		printImportEvidence(output, plan)

@@ -20,7 +20,7 @@ func PrintDeltaSummaryWithOptions(output io.Writer, delta lock.Delta, options Hu
 	counts := delta.Counts()
 	fmt.Fprintf(
 		output,
-		"lockfile changes: added=%d changed=%d removed=%d unchanged=%d\n",
+		"lock entry changes: added=%d changed=%d removed=%d unchanged=%d\n",
 		counts.Added,
 		counts.Changed,
 		counts.Removed,
@@ -47,7 +47,7 @@ func printOrderDeltaSummary(
 	}
 	fmt.Fprintf(
 		output,
-		"lockfile order changes: added=%d changed=%d removed=%d unchanged=%d\n",
+		"lock order constraints: added=%d changed=%d removed=%d unchanged=%d\n",
 		counts.Added,
 		counts.Changed,
 		counts.Removed,

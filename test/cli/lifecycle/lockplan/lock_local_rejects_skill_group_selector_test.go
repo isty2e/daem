@@ -103,7 +103,7 @@ targets = ["codex"]
 	if exitCode != 0 {
 		t.Fatalf("outdated exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "lockfile changes: added=2 changed=0 removed=0 unchanged=2") {
+	if !strings.Contains(stdout.String(), "lock entry changes: added=2 changed=0 removed=0 unchanged=2") {
 		t.Fatalf("stdout = %q, want selector child add delta", stdout.String())
 	}
 	assertFileBytes(t, lockfilePath, beforeAddBytes)
@@ -114,7 +114,7 @@ targets = ["codex"]
 	if exitCode != 0 {
 		t.Fatalf("dry-run lock exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "lockfile changes: added=2 changed=0 removed=0 unchanged=2") {
+	if !strings.Contains(stdout.String(), "lock entry changes: added=2 changed=0 removed=0 unchanged=2") {
 		t.Fatalf("stdout = %q, want dry-run selector child add delta", stdout.String())
 	}
 	assertFileBytes(t, lockfilePath, beforeAddBytes)
@@ -172,7 +172,7 @@ targets = ["codex"]
 	if exitCode != 1 {
 		t.Fatalf("outdated --check exitCode = %d, want 1; stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "lockfile changes: added=0 changed=1 removed=0 unchanged=1") {
+	if !strings.Contains(stdout.String(), "lock entry changes: added=0 changed=1 removed=0 unchanged=1") {
 		t.Fatalf("stdout = %q, want changed selector child delta", stdout.String())
 	}
 

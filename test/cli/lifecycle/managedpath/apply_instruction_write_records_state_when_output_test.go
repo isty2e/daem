@@ -41,7 +41,7 @@ source = "instructions/AGENTS.md"
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "applied: 1 actions") {
+	if !strings.Contains(stdout.String(), "applied: 1 action") {
 		t.Fatalf("stdout = %q, want one state record action", stdout.String())
 	}
 

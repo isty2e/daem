@@ -54,7 +54,7 @@ func TestRunImportYesWritesClaudeProjectMCPManifestOnly(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"imported: 1 resources",
+		"imported: 1 resource",
 		"mcp_servers=1",
 		`resource="mcp_server/context7"`,
 		`target=claude-code`,
@@ -165,7 +165,7 @@ func TestRunImportDryRunReportsClaudeMCPWithoutWrites(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"import: 1 resources",
+		"import: 1 resource",
 		"mcp_servers=1",
 		`resource="mcp_server/context7"`,
 		`skip live=".mcp.json#/mcpServers/remote" reason=unsupported_mcp_transport`,

@@ -31,8 +31,8 @@ func TestLockOutputReportsOrderOnlyChanges(t *testing.T) {
 		clipresent.HumanOptions{Verbose: true},
 	)
 	for _, want := range []string{
-		"lockfile changes: added=0 changed=0 removed=0 unchanged=2",
-		"lockfile order changes: added=0 changed=1 removed=0 unchanged=0",
+		"lock entry changes: added=0 changed=0 removed=0 unchanged=2",
+		"lock order constraints: added=0 changed=1 removed=0 unchanged=0",
 		"lockfile.order_constraint.changed:",
 		"before=host_relation/pi.package-carrier/first=npm:first",
 		"after=host_relation/pi.package-carrier/second=npm:second",

@@ -245,7 +245,7 @@ func TestRunImportReportsMalformedAndUnsupportedHookFormsAsSkipped(t *testing.T)
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"import: 1 resources",
+		"import: 1 resource",
 		`resource="hook/claude_code_project_stop_1_3"`,
 		`skip live=".codex/hooks.json" reason=malformed_json`,
 		`reason=unsupported_async`,
@@ -298,7 +298,7 @@ func TestRunImportSkipsCodexHookShapesApplyCannotRender(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"import: 1 resources",
+		"import: 1 resource",
 		`resource="hook/codex_project_userpromptsubmit_1_1"`,
 		`reason=unsupported_target_shape`,
 		`detail="event=Stop,group=1,handler=1"`,

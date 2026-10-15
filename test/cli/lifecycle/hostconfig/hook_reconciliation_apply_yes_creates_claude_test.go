@@ -49,7 +49,7 @@ matcher = "Edit|Write"
 	if strings.Contains(stdout.String(), "lock-only:") {
 		t.Fatalf("stdout = %q, want no lock-only summary for supported claude-code hook", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "applied: 1 actions") {
+	if !strings.Contains(stdout.String(), "applied: 1 action") {
 		t.Fatalf("stdout = %q, want one hook create action", stdout.String())
 	}
 	testkit.AssertFileContent(t, filepath.Join(tempDir, ".claude/settings.json"), expectedSettings)

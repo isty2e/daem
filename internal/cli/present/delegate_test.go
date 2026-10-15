@@ -32,7 +32,7 @@ func TestPrintDelegateAttemptsMarksHistoryOnlyWithoutRawOutput(t *testing.T) {
 	rendered := stdout.String()
 
 	for _, want := range []string{
-		"history-only diagnostics",
+		"history-only diagnostic",
 		"evidence=last_attempt_diagnostics",
 		"authority=history_only",
 		"status=succeeded",

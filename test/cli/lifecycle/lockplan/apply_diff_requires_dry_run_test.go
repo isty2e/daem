@@ -57,9 +57,9 @@ source = "instructions/AGENTS.md"
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		"dry-run: 1 actions",
+		"dry-run: 1 output",
 		`create resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_output`,
-		"diff: 1 files",
+		"diff: 1 file",
 		`diff resource="instructions/project" target=codex scope=project destination="AGENTS.md"`,
 		"--- /dev/null",
 		"+++ desired/AGENTS.md",
@@ -120,7 +120,7 @@ source = "instructions/AGENTS.md"
 	output := stdout.String()
 	for _, want := range []string{
 		`update resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=content_changed`,
-		"diff: 1 files",
+		"diff: 1 file",
 		"--- current/AGENTS.md",
 		"+++ desired/AGENTS.md",
 		" keep",
@@ -172,7 +172,7 @@ render_to = "CLAUDE.md"
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		"diff: 1 files",
+		"diff: 1 file",
 		`diff resource="instructions/project" target=claude-code scope=project destination="CLAUDE.md"`,
 		"+++ desired/CLAUDE.md",
 	} {
@@ -225,7 +225,7 @@ targets = ["codex", "opencode"]
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		"diff: 1 files",
+		"diff: 1 file",
 		`diff resource="instructions/project" targets=codex,opencode scope=project destination="AGENTS.md"`,
 	} {
 		if !strings.Contains(output, want) {

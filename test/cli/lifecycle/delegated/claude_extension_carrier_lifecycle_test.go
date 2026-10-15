@@ -124,7 +124,7 @@ func TestClaudeExtensionCarrierPublicCLILockStatusApplyDiagnostics(t *testing.T)
 				t.Fatalf("%s exitCode=%d stdout=%q stderr=%q", command.name, exitCode, stdout.String(), stderr.String())
 			}
 			for _, want := range []string{
-				"relation actions: 1 subjects",
+				"relation actions: 1 entry",
 				"kind=create",
 				"execution=host_route",
 				"correlation_state=missing",

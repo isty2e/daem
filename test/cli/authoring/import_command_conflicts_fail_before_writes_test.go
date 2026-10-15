@@ -306,7 +306,7 @@ func TestRunImportYesVendorsCodexGlobalSymlinkedSkill(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"imported: 1 resources",
+		"imported: 1 resource",
 		`resource="skill/review"`,
 		`target=codex`,
 		`scope=global`,

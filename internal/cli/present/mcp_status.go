@@ -176,7 +176,7 @@ func PrintMCPStatusesWithOptions(output io.Writer, statuses []MCPStatus, options
 			return
 		}
 	}
-	fmt.Fprintf(output, "mcp status: %d subjects\n", len(statuses))
+	fmt.Fprintf(output, "mcp status: %s\n", CountLabel(len(statuses), "entry", "entries"))
 	for _, status := range statuses {
 		fmt.Fprintf(
 			output, "  - subject=%q target=%s scope=%s",

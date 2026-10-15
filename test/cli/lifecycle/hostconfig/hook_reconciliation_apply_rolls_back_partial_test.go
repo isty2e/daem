@@ -208,7 +208,7 @@ targets = ["claude-code"]
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"status: 1 actions",
+		"status: 1 output",
 		`error resource="hook/protect-env" target=claude-code scope=project destination=".claude/settings.json" content_path="/hooks" reason=unmanaged_output_exists`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -256,7 +256,7 @@ targets = ["claude-code"]
 			t.Fatalf("create contribution %q count = %d, stdout = %q", resource, count, stdout.String())
 		}
 	}
-	if !strings.Contains(stdout.String(), "dry-run: 2 actions") {
+	if !strings.Contains(stdout.String(), "dry-run: 2 outputs") {
 		t.Fatalf("stdout = %q, want two subject decisions over one aggregate projection", stdout.String())
 	}
 }
@@ -287,7 +287,7 @@ targets = ["claude-code", "pi"]
 	}
 	for _, want := range []string{
 		"lock-only: skills=0 hooks=1 (unsupported or not reconciled by apply/status)",
-		"dry-run: 1 actions",
+		"dry-run: 1 output",
 		`create resource="hook/mixed" target=claude-code scope=project destination=".claude/settings.json" content_path="/hooks" reason=missing_output`,
 	} {
 		if !strings.Contains(stdout.String(), want) {

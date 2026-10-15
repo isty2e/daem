@@ -29,7 +29,7 @@ func TestRunImportDryRunPreviewsCodexProjectInstructionsWithoutWrites(t *testing
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"import: 1 resources",
+		"import: 1 resource",
 		"summary: instructions=1 skills=0 hooks=0",
 		"summary target=codex scope=project instructions=1 skills=0 hooks=0",
 		"destination: manifest=" + outputPath + " source-dir=" + filepath.Join(tempDir, "daem.imported.d"),
@@ -352,7 +352,7 @@ func TestRunImportYesWritesClaudeCodeProjectInstruction(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"imported: 1 resources",
+		"imported: 1 resource",
 		`resource="instructions/claude_code_project"`,
 		`target=claude-code`,
 		`source="` + filepath.ToSlash(sourcePath) + `"`,

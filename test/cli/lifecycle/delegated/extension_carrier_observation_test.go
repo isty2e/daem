@@ -230,7 +230,7 @@ func TestClaudeGlobalExtensionCarrierPublicCLIApplyYesReportsAttemptedUnverified
 
 			output := stdout.String()
 			for _, want := range []string{
-				"host route attempts: 1 history-only diagnostics",
+				"host route attempts: 1 history-only diagnostic",
 				"subject=\"host_relation/claude-code.plugin-carrier/context7-global\"",
 				"target=claude-code",
 				"scope=global",
@@ -411,7 +411,7 @@ func TestClaudeGlobalExtensionCarrierPublicCLIApplyYesRejectsWrongScopePostAttem
 
 			output := stderr.String()
 			for _, want := range []string{
-				"host route attempts: 1 history-only diagnostics",
+				"host route attempts: 1 history-only diagnostic",
 				"subject=\"host_relation/claude-code.plugin-carrier/context7-global\"",
 				"target=claude-code",
 				"scope=global",

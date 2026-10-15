@@ -19,13 +19,13 @@ func PrintDryRunSummaryWithOptions(output io.Writer, input DryRunSummaryInput, o
 	subjects := input.Lockfile.Locked.Subjects()
 
 	fmt.Fprintf(output, "would write lockfile: %s\n", Escape(input.LockfilePath))
-	fmt.Fprintf(output, "lockfile entries: subjects=%d\n", len(subjects))
+	fmt.Fprintf(output, "lockfile entries: %d\n", len(subjects))
 	PrintDeltaSummaryWithOptions(output, input.Delta, options)
 	if options.Verbose {
 		printLockedSubjectIDs(output, subjects)
 	}
 	if repaired := repairedSubjectCount(subjects); repaired > 0 {
-		fmt.Fprintf(output, "repaired resources: %d\n", repaired)
+		fmt.Fprintf(output, "repaired lock entries: %d\n", repaired)
 	}
 	if input.NextCommand != "" {
 		fmt.Fprintf(output, "next: run %s\n", input.NextCommand)

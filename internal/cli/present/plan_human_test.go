@@ -371,7 +371,7 @@ func TestPrintRelationActionsDoesNotUseSuccessWording(t *testing.T) {
 
 	var stdout bytes.Buffer
 	PrintRelationActionsWithOptions(&stdout, []reconcile.RelationAction{action}, HumanOptions{Verbose: true})
-	if !strings.Contains(stdout.String(), "relation actions: 1 subjects") {
+	if !strings.Contains(stdout.String(), "relation actions: 1 entry") {
 		t.Fatalf("stdout = %q, want generic relation actions header", stdout.String())
 	}
 	for _, forbidden := range []string{"installed", "enabled", "ready", "converged", "applied", "success"} {

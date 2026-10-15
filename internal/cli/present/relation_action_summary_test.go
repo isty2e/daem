@@ -142,7 +142,7 @@ func TestPrintRelationActionSummaryPreservesPlannedEffects(t *testing.T) {
 			if !strings.Contains(text, row+"\n") {
 				t.Errorf("summary = %q, want row %q", text, row)
 			}
-			if !strings.HasPrefix(text, "relation actions: 1 subjects\n") || strings.Count(text, "  - ") != 1 {
+			if !strings.HasPrefix(text, "relation actions: 1 entry\n") || strings.Count(text, "  - ") != 1 {
 				t.Errorf("summary lost subject count: %q", text)
 			}
 			warning := "host may retain packages, caches, credentials, trust data, or logs"
@@ -159,7 +159,7 @@ func TestPrintRelationActionSummaryPreservesPlannedEffects(t *testing.T) {
 
 	var output bytes.Buffer
 	PrintRelationActionsWithOptions(&output, actions, HumanOptions{})
-	if !strings.HasPrefix(output.String(), fmt.Sprintf("relation actions: %d subjects\n", len(actions))) || strings.Count(output.String(), "  - ") != len(actions) {
+	if !strings.HasPrefix(output.String(), fmt.Sprintf("relation actions: %d entries\n", len(actions))) || strings.Count(output.String(), "  - ") != len(actions) {
 		t.Fatalf("summary row/header count differs from input actions: %q", output.String())
 	}
 }

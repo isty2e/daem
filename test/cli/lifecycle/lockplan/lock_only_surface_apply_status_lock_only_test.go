@@ -43,7 +43,7 @@ targets = ["opencode"]
 			},
 			wantExit: 0,
 			wantStdout: []string{
-				"dry-run: 1 actions",
+				"dry-run: 1 output",
 				`create resource="skill/oracle" target=opencode`,
 			},
 			reject: []string{
@@ -70,7 +70,7 @@ targets = ["pi"]
 			wantStdout: []string{
 				"lock-only: skills=0 hooks=1 (unsupported or not reconciled by apply/status)",
 				"  - hook/notify targets=pi",
-				"status: 0 actions",
+				"status: 0 outputs",
 			},
 		},
 		{
@@ -95,7 +95,7 @@ targets = ["opencode"]
 			},
 			wantExit: 0,
 			wantStdout: []string{
-				"applied: 1 actions",
+				"applied: 1 action",
 			},
 			reject: []string{
 				"lock-only:",
@@ -166,7 +166,7 @@ targets = ["codex"]
 			},
 			wantExit: 0,
 			wantStdout: []string{
-				"dry-run: 1 actions",
+				"dry-run: 1 output",
 			},
 			check: func(t *testing.T, stdout string, stderr string) {
 				t.Helper()
@@ -201,7 +201,7 @@ targets = ["codex"]
 			},
 			wantExit: 0,
 			wantStdout: []string{
-				"dry-run: 1 actions",
+				"dry-run: 1 output",
 				`create resource="instructions/project" target=codex`,
 			},
 			reject: []string{

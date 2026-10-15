@@ -36,7 +36,7 @@ func TestMCPPublicCLIApplyDelegatedRouteDryRunDisclosesDelegateActionWithoutAtte
 
 	human := runMCPCLIExpect(t, 0, "delegated route dry-run human", "apply", "--manifest", project.manifestPath, "--target", "claude-code", "--dry-run")
 	for _, want := range []string{
-		"delegate actions: 1 plans",
+		"delegate actions: 1 plan",
 		`status=skipped`,
 		`outcome=skip`,
 		`schedules_attempt=false`,
@@ -196,7 +196,7 @@ exit 0
 	}
 	for _, want := range []string{
 		"applied: 0 actions",
-		"delegate attempts: 1 history-only diagnostics",
+		"delegate attempts: 1 history-only diagnostic",
 		"evidence=last_attempt_diagnostics",
 		"authority=history_only",
 		`status=succeeded`,

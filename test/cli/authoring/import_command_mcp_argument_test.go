@@ -33,7 +33,7 @@ func TestRunImportCreateSkipsInvalidMCPArgumentAndPublishesValidSibling(t *testi
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("import exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "imported: 1 resources") ||
+	if !strings.Contains(stdout.String(), "imported: 1 resource") ||
 		!strings.Contains(stdout.String(), `skip live=".mcp.json#/mcpServers/invalid" reason=invalid_mcp_argument`) ||
 		strings.Contains(stdout.String(), canary) {
 		t.Fatalf("stdout = %q, want one safe typed invalid-argument skip", stdout.String())
@@ -77,7 +77,7 @@ func TestRunImportMergeSkipsInvalidMCPArgumentAndMergesValidSibling(t *testing.T
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("import --merge exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "imported: 1 resources") ||
+	if !strings.Contains(stdout.String(), "imported: 1 resource") ||
 		!strings.Contains(stdout.String(), `skip live=".mcp.json#/mcpServers/invalid" reason=invalid_mcp_argument`) ||
 		strings.Contains(stdout.String(), canary) {
 		t.Fatalf("stdout = %q, want one safe typed invalid-argument skip", stdout.String())

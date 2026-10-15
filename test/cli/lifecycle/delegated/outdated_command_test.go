@@ -32,7 +32,7 @@ func TestRunOutdatedReportsChangesWithoutWriting(t *testing.T) {
 	}
 	for _, want := range []string{
 		"outdated: lockfile can be refreshed: " + lockfilePath,
-		"lockfile changes: added=2 changed=1 removed=2 unchanged=3",
+		"lock entry changes: added=2 changed=1 removed=2 unchanged=3",
 		"lockfile.subject.added:",
 		"lockfile.subject.changed:",
 		"lockfile.subject.removed:",
@@ -209,7 +209,7 @@ func TestRunOutdatedWithChangedClaudeExtensionSourceReportsLockDeltaOnly(t *test
 	}
 	for _, want := range []string{
 		"outdated: lockfile can be refreshed: " + lockfilePath,
-		"lockfile changes: added=0 changed=1 removed=0 unchanged=0",
+		"lock entry changes: added=0 changed=1 removed=0 unchanged=0",
 		"next: run " + testkit.ExpectedShellCommand(t, "daem", "lock", "--manifest", manifestPath),
 	} {
 		if !strings.Contains(stdout.String(), want) {

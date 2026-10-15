@@ -99,7 +99,7 @@ func TestRunImportYesCoalescesSameContentGlobalSkillsAcrossTargets(t *testing.T)
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "imported: 1 resources") {
+	if !strings.Contains(stdout.String(), "imported: 1 resource") {
 		t.Fatalf("stdout = %q, want one coalesced resource", stdout.String())
 	}
 	testkit.AssertFileContent(t, filepath.Join(copiedSkill, "SKILL.md"), skillContent)
@@ -228,7 +228,7 @@ func TestRunImportDryRunReportsSkillSkipsAndDuplicates(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"import: 1 resources",
+		"import: 1 resource",
 		`scan resource="skill-root" target=codex scope=global live="` + filepath.Join(homeDir, ".agents", "skills") + `" status=scanned entries=1 imported=1 skipped=0`,
 		`scan resource="skill-root" target=codex scope=global live="` + filepath.Join(homeDir, ".codex", "skills") + `" status=no_importable_entries entries=5 imported=0 skipped=5`,
 		`resource="skill/alpha"`,

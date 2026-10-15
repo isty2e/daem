@@ -55,7 +55,7 @@ render_to = "AGENTS.md"
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"applied: 1 actions",
+		"applied: 1 action",
 		"statefile:",
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -126,7 +126,7 @@ render_to = "GEMINI.md"
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "applied: 1 actions") {
+	if !strings.Contains(stdout.String(), "applied: 1 action") {
 		t.Fatalf("stdout = %q, want one selected delete action", stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(tempDir, "AGENTS.md")); !os.IsNotExist(err) {

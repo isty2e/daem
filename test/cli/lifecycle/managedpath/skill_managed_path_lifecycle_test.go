@@ -37,7 +37,7 @@ func TestManagedSkillSecondApplyIsNoOpAndExternalDeletionReconverges(t *testing.
 		t.Fatalf("remove installed Skill externally: %v", err)
 	}
 	stdout, stderr, exitCode = runManagedSkillCLI("apply", "--manifest", manifestPath, "--yes")
-	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 actions") {
+	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 action") {
 		t.Fatalf("reconverging apply exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
 	if got := testkit.HashDirectory(t, installed); got != skillHash {
@@ -88,7 +88,7 @@ func TestSharedManagedSkillPathRetainsRemainingConsumerThenDeletesLast(t *testin
 	writeManagedSkillManifest(t, root, []string{"codex"}, true)
 	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
 	stdout, stderr, exitCode := runManagedSkillCLI("apply", "--manifest", manifestPath, "--target", "antigravity-cli", "--yes")
-	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 actions") {
+	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 action") {
 		t.Fatalf("partial removal exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
 	if got := testkit.HashDirectory(t, installed); got != skillHash {
@@ -103,7 +103,7 @@ func TestSharedManagedSkillPathRetainsRemainingConsumerThenDeletesLast(t *testin
 	writeManagedSkillManifest(t, root, []string{"codex"}, false)
 	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
 	stdout, stderr, exitCode = runManagedSkillCLI("apply", "--manifest", manifestPath, "--target", "codex", "--yes")
-	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 actions") {
+	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 action") {
 		t.Fatalf("final removal exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
 	if _, err := os.Stat(installed); !os.IsNotExist(err) {
@@ -132,7 +132,7 @@ func TestManagedSkillDistinctPlacementsRemoveOnlySelectedProjection(t *testing.T
 	stdout, stderr, exitCode := runManagedSkillCLI(
 		"apply", "--manifest", manifestPath, "--target", "claude-code", "--yes",
 	)
-	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 actions") {
+	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 action") {
 		t.Fatalf("selected projection removal exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
 	if got := testkit.HashDirectory(t, codexPath); got != skillHash {
@@ -227,7 +227,7 @@ func TestManagedSkillAdmittedRootSelectionRelocatesWithinScope(t *testing.T) {
 	}
 	stdout, stderr, exitCode := runManagedSkillCLI("apply", "--manifest", manifestPath, "--dry-run")
 	if exitCode != 0 || stderr != "" ||
-		!strings.Contains(stdout, "dry-run: 1 actions") ||
+		!strings.Contains(stdout, "dry-run: 1 output") ||
 		!strings.Contains(stdout, `destination=".agents/skills/oracle"`) ||
 		!strings.Contains(stdout, `detail="managed destination changed"`) {
 		t.Fatalf("relocation dry-run exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
@@ -407,7 +407,7 @@ func TestManagedSkillRelocationRequiresAbsentDestinationAndMovesStateAtomically(
 		t.Fatalf("remove relocation conflict: %v", err)
 	}
 	stdout, stderr, exitCode = runManagedSkillCLI("apply", "--manifest", manifestPath, "--yes")
-	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 actions") {
+	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 action") {
 		t.Fatalf("relocation exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
 	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {

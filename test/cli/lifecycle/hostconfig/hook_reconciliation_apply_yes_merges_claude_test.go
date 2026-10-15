@@ -259,7 +259,7 @@ targets = ["claude-code"]
 `)
 	partialOutput := runHookApplyYes(t, manifestPath)
 	for _, want := range []string{
-		"applied: 1 actions",
+		"applied: 1 action",
 		`delete resource="hook/alpha" target=claude-code scope=project`,
 	} {
 		if !strings.Contains(partialOutput, want) {

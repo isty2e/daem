@@ -87,7 +87,7 @@ source = { host_source = "git:github.com/acme/pi-tools@v1" }
 			}
 			text := stdout.String()
 			for _, required := range []string{
-				"relation actions: 1 subjects\n",
+				"relation actions: 1 entry\n",
 				"no change planned for extension relation",
 				`subject="host_relation/pi.package-carrier/tools-managed" target=pi scope=project`,
 			} {

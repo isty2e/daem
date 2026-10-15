@@ -38,7 +38,7 @@ source = "instructions/AGENTS.md"
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "applied: 1 actions") {
+	if !strings.Contains(stdout.String(), "applied: 1 action") {
 		t.Fatalf("stdout = %q, want one record action", stdout.String())
 	}
 	testkit.AssertFileContent(t, filepath.Join(tempDir, "AGENTS.md"), "managed instructions\n")
@@ -56,7 +56,7 @@ source = "instructions/AGENTS.md"
 		t.Fatalf("statusExitCode = %d, stderr = %q", statusExitCode, statusStderr.String())
 	}
 	for _, want := range []string{
-		"status: 1 actions",
+		"status: 1 output",
 		`noop resource="instructions/project" target=codex`,
 		"reason=already_current",
 	} {
@@ -97,7 +97,7 @@ targets = ["antigravity-cli"]
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "applied: 1 actions") {
+	if !strings.Contains(stdout.String(), "applied: 1 action") {
 		t.Fatalf("stdout = %q, want one record action", stdout.String())
 	}
 	testkit.AssertFileContent(t, filepath.Join(homeDir, ".gemini", "GEMINI.md"), "managed antigravity instructions\n")
@@ -136,7 +136,7 @@ source = "instructions/AGENTS.md"
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 	for _, want := range []string{
-		"dry-run: 1 actions",
+		"dry-run: 1 output",
 		`record resource="instructions/project" target=codex`,
 		"reason=managed_existing",
 	} {

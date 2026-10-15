@@ -339,7 +339,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		return 0
 	}
 
-	fmt.Fprintf(stdout, "applied: %d actions\n", result.ActionCount)
+	fmt.Fprintf(stdout, "applied: %s\n", clipresent.CountLabel(result.ActionCount, "action", "actions"))
 	clipresent.PrintCarrierAdoptionResultsWithOptions(
 		stdout,
 		result.Reconciliation.CarrierAdoptions(),
@@ -474,8 +474,8 @@ func newRelationOrderRiskAuthorizer(
 		}
 		fmt.Fprintf(
 			output,
-			"extension order changed after carrier updates: %d new precedence risks\n",
-			expansion.AddedRiskCount(),
+			"extension order changed after carrier updates: %s\n",
+			clipresent.CountLabel(expansion.AddedRiskCount(), "new precedence risk", "new precedence risks"),
 		)
 		clipresent.PrintRelationOrderRiskDeltasWithOptions(
 			output,

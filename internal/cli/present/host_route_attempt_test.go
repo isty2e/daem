@@ -28,7 +28,7 @@ func TestPrintHostRouteAttemptsMarksHistoryOnlyWithoutConvergenceClaims(t *testi
 	rendered := stdout.String()
 
 	for _, want := range []string{
-		"history-only diagnostics",
+		"history-only diagnostic",
 		"evidence=host_route_attempt_diagnostics",
 		"authority=history_only",
 		"operation=remove",

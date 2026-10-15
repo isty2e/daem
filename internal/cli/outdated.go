@@ -80,7 +80,7 @@ func runOutdated(args []string, stdout io.Writer, stderr io.Writer, options comm
 		return 0
 	}
 
-	fmt.Fprintf(stdout, "outdated: lockfile is current: %s (checked=%d)\n", humanDiagnosticText(result.LockfilePath), result.Delta.Counts().Unchanged)
+	fmt.Fprintf(stdout, "outdated: lockfile is current: %s (%s)\n", humanDiagnosticText(result.LockfilePath), clipresent.CountLabel(result.Delta.Counts().Unchanged, "lock entry", "lock entries"))
 	if *verbose {
 		clipresent.PrintDeltaSummaryWithOptions(stdout, result.Delta, clipresent.HumanOptions{Verbose: true})
 	}

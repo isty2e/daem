@@ -61,7 +61,7 @@ render_to = "AGENTS.md"
 
 	output := stdout.String()
 	for _, want := range []string{
-		"status: 3 actions",
+		"status: 3 outputs",
 		`noop resource="instructions/active" target=codex scope=project destination="AGENTS.md" mode=copy reason=already_current`,
 		`delete resource="instructions/clean" target=claude-code scope=project destination="CLAUDE.md" mode= reason=removed_from_manifest safety=deletable`,
 		`error resource="instructions/drifted" target=antigravity-cli scope=project destination="GEMINI.md" mode= reason=drifted_output detail="managed output content differs from statefile baseline" safety=drift_blocked`,
@@ -109,7 +109,7 @@ source = "instructions/AGENTS.md"
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"status: 1 actions",
+		"status: 1 output",
 		`error resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_lock`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -209,7 +209,7 @@ source = "instructions/AGENTS.md"
 			if exitCode != 0 {
 				t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 			}
-			if !strings.Contains(stdout.String(), "status: 1 actions") {
+			if !strings.Contains(stdout.String(), "status: 1 output") {
 				t.Fatalf("stdout = %q, want one action", stdout.String())
 			}
 			if !strings.Contains(stdout.String(), scenario.wantReason) {

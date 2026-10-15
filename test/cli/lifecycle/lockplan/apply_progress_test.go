@@ -26,7 +26,7 @@ func TestRunApplyYesWithTerminalStderrWritesProgressToStderrOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
 	assertApplyProgressOnStderrOnly(t, stdout.String(), stderr.String())
-	if !strings.Contains(stdout.String(), "applied: 1 actions") {
+	if !strings.Contains(stdout.String(), "applied: 1 action") {
 		t.Fatalf("stdout = %q, want final apply summary", stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "statefile: "+filepath.Join(tempDir, ".daem", "state.json")) {

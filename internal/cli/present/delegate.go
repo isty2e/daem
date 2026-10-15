@@ -110,7 +110,7 @@ func PrintDelegateActionsWithOptions(output io.Writer, actions []reconcile.Deleg
 	if len(actions) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "delegate actions: %d plans\n", len(actions))
+	fmt.Fprintf(output, "delegate actions: %s\n", CountLabel(len(actions), "plan", "plans"))
 	for _, action := range actions {
 		plan := action.Plan()
 		command := plan.Command()
@@ -155,7 +155,7 @@ func PrintDelegateAttemptsWithOptions(output io.Writer, results []DelegateAttemp
 	if len(results) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "delegate attempts: %d history-only diagnostics\n", len(results))
+	fmt.Fprintf(output, "delegate attempts: %s\n", CountLabel(len(results), "history-only diagnostic", "history-only diagnostics"))
 	for _, result := range results {
 		attempt := result.Attempt
 		if !options.Verbose {
