@@ -421,9 +421,12 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 		lockfilePath,
 	)
 	if err != nil {
+		if barrierErr := barrier.Validate(ctx); barrierErr != nil {
+			return unavailablePreparedWrite(CommandResult{}), errors.Join(err, barrierErr)
+		}
 		return unavailablePreparedWrite(CommandResult{}), fmt.Errorf(
 			"capture pre-plan apply declaration revisions: %w",
-			err,
+			commandInputError{cause: err},
 		)
 	}
 	planned, err := planReadinessAtPathsWithBarrier(ctx, input, operationContext, paths, &barrier)

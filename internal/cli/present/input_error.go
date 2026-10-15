@@ -28,15 +28,15 @@ func RecognizedInputError(err error) (string, bool) {
 		if raw == guidance.Error() {
 			raw = cause.Error()
 		}
-		message := Escape(raw)
+		message := humanErrorDetail(raw)
 		classification := guidance.Classification()
 		if classification.Repairability() == skillrepair.RepairabilityMechanical {
 			return message + "\nnext: fix the source SKILL.md, or declare the resource with compat_repair = true in the manifest and run daem lock" +
-				"\nrepair actions: " + Escape(strings.Join(classification.Actions(), "; ")), true
+				"\nrepair actions: " + humanErrorDetail(strings.Join(classification.Actions(), "; ")), true
 		}
 		for _, reason := range classification.ManualReasons() {
 			if !strings.Contains(raw, reason) {
-				message += "\ndetail: " + Escape(reason)
+				message += "\ndetail: " + humanErrorDetail(reason)
 			}
 		}
 		return message + manualSkillRepairHint, true
@@ -44,10 +44,10 @@ func RecognizedInputError(err error) (string, bool) {
 
 	var manual skillrepair.ManualError
 	if errors.As(err, &manual) {
-		return Escape(err.Error()) + "\nnext: fix the reported source issues manually, then retry", true
+		return humanErrorDetail(err.Error()) + "\nnext: fix the reported source issues manually, then retry", true
 	}
 
-	message := Escape(err.Error())
+	message := humanErrorDetail(err.Error())
 	if line, column, ok := tomlstrict.ErrorPosition(err); ok {
 		message += fmt.Sprintf(" (line %d, column %d)", line, column)
 		return message + "\nnext: check TOML brackets, quotes, and key/value assignments", true

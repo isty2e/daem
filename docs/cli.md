@@ -218,10 +218,19 @@ interrupts a blocked terminal read and cannot authorize effects.
 - Human-readable dynamic paths and errors escape backslashes, controls, format
   characters, and invalid UTF-8 bytes. Structural line breaks remain owned by
   the presenter, so dynamic values cannot forge another diagnostic or hint.
+- Human error details mask credential-shaped text and withhold text that cannot
+  be inspected safely. Each dynamic detail is limited to 4,096 Unicode
+  characters, with a truncation marker when needed.
+  Details too large for complete, bounded credential inspection are withheld
+  instead of printing a partial value. Syntax locations and repair guidance
+  remain outside that detail budget. This also applies to human stderr before
+  a JSON result exists; it does not change JSON payloads or declaration-size
+  admission limits.
 - `--verbose` adds bounded typed causal, provenance, path, and identity
   evidence. Error types without a bounded evidence projection are reported as
-  omitted instead of invoking an arbitrary error formatter. Verbosity never
-  changes selection, planning, authority, or mutation.
+  omitted instead of invoking an arbitrary error formatter. Incomplete error
+  evidence is withheld rather than printing a potentially unsafe prefix.
+  Verbosity never changes selection, planning, authority, or mutation.
 - `--json` emits exactly one schema-versioned JSON document to stdout.
 - `--json` and `--verbose` are mutually exclusive.
 - `--diff` is accepted by `import`, every add/remove leaf, and `apply`. It

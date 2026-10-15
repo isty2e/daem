@@ -26,6 +26,10 @@ var staticErrorEvidenceType = reflect.TypeOf(errors.New(""))
 
 const maximumErrorEvidenceNodes = 64
 
+const maximumHumanErrorDetailRunes = 4096
+
+const errorEvidenceRedactionMarker = "[REDACTED]"
+
 const errorEvidenceTruncationMarker = "\n[truncated]"
 
 type mcpEnvUnsupportedMessage struct {
@@ -79,6 +83,16 @@ func Quote(value string) string {
 	return strconv.QuoteToGraphic(value)
 }
 
+func humanErrorDetail(value string) string {
+	maximumRawBytes := maximumHumanErrorDetailRunes * utf8.UTFMax
+	if len(value) > maximumRawBytes {
+		return errorEvidenceRedactionMarker + errorEvidenceTruncationMarker
+	}
+
+	return subprocess.NewCapturePolicy(nil, maximumHumanErrorDetailRunes).
+		Sanitize(Escape(value), false).Text()
+}
+
 // BoundedErrorEvidence projects a bounded error cause tree into sanitized,
 // display-safe evidence. Wrapping and joined nodes are traversed without
 // materializing their aggregate Error strings.
@@ -95,6 +109,7 @@ func BoundedErrorEvidence(err error, maximumRunes int) string {
 	leaves := 0
 	nodes := 0
 	omitted := false
+	incompleteText := false
 	for len(stack) != 0 {
 		if nodes == maximumErrorEvidenceNodes {
 			omitted = true
@@ -113,6 +128,7 @@ func BoundedErrorEvidence(err error, maximumRunes int) string {
 				maximumRunes,
 				&leaves,
 			)
+			incompleteText = incompleteText || wrote && truncated
 			if !wrote || truncated {
 				omitted = true
 			}
@@ -132,6 +148,7 @@ func BoundedErrorEvidence(err error, maximumRunes int) string {
 					maximumRunes,
 					&leaves,
 				)
+				incompleteText = incompleteText || wrote && truncated
 				if !wrote {
 					omitted = true
 				}
@@ -167,6 +184,7 @@ func BoundedErrorEvidence(err error, maximumRunes int) string {
 			maximumRunes,
 			&leaves,
 		)
+		incompleteText = incompleteText || wrote && truncated
 		if !wrote {
 			omitted = true
 		}
@@ -179,6 +197,13 @@ func BoundedErrorEvidence(err error, maximumRunes int) string {
 		}
 	}
 	if len(stack) != 0 {
+		omitted = true
+	}
+	// A cut string can hide a credential delimiter beyond the buffer. Omitting
+	// whole nodes does not make the retained observations incomplete.
+	if buffer.Truncated() || incompleteText {
+		buffer = subprocess.NewBoundedBuffer(maximumBytes)
+		_, _ = io.WriteString(buffer, errorEvidenceRedactionMarker)
 		omitted = true
 	}
 	if leaves == 0 && omitted {
@@ -230,8 +255,8 @@ func writeErrorEvidenceLeaf(
 	return true, false
 }
 
-// Error renders err for human output without allowing its dynamic text to
-// introduce terminal controls. Only presenter-owned guidance adds new lines.
+// Error renders bounded, credential-redacted human error detail. Dynamic controls
+// are escaped; only presenter-owned annotations add structural lines.
 // A nil error renders as an empty string.
 func Error(err error) string {
 	if err == nil {
@@ -244,9 +269,9 @@ func Error(err error) string {
 	if errors.As(err, &admissionFailure) {
 		message, specialized := commandHookAdmissionMessages[admissionFailure.Reason()]
 		if !specialized {
-			return Escape(err.Error())
+			return humanErrorDetail(err.Error())
 		}
-		return Escape(fmt.Sprintf(
+		return humanErrorDetail(fmt.Sprintf(
 			message,
 			admissionFailure.HookName(),
 			admissionFailure.Target(),
@@ -256,13 +281,13 @@ func Error(err error) string {
 	var envFailure aggregate.MCPEnvReferenceAdmissionError
 	if errors.As(err, &envFailure) {
 		if envFailure.Mapping() != aggregate.MCPEnvMappingUnsupported {
-			return Escape(err.Error())
+			return humanErrorDetail(err.Error())
 		}
 		message, specialized := mcpEnvUnsupportedMessages[envFailure.PlacementID()]
 		if !specialized {
-			return Escape(err.Error())
+			return humanErrorDetail(err.Error())
 		}
-		return Escape(fmt.Sprintf(
+		return humanErrorDetail(fmt.Sprintf(
 			"%s does not support env in the admitted %s adapter",
 			message.label,
 			message.adapterShape,
@@ -271,5 +296,5 @@ func Error(err error) string {
 	if message, recognized := RecognizedInputError(err); recognized {
 		return message
 	}
-	return Escape(err.Error())
+	return humanErrorDetail(err.Error())
 }
