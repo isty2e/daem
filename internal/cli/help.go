@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"cmp"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
@@ -24,17 +26,28 @@ func printCommandHelpHint(output io.Writer, path []string) {
 
 func usageContext(width int) clipresent.UsageContext {
 	facts := workflowhelp.BuildUsageFacts()
+	authoring := mcpPlacementsInHelpOrder(facts.MCPAuthoringPlacements)
+	probe := mcpPlacementsInHelpOrder(facts.MCPRuntimeProbePlacements)
 	return clipresent.UsageContext{
 		SupportedTargets:          targetValuesForHelp(facts.SupportedTargets),
 		ImportTargets:             targetValuesForHelp(facts.ImportTargets),
-		MCPAuthoringTargets:       mcpPlacementTargetsForHelp(facts.MCPAuthoringPlacements),
+		MCPAuthoringTargets:       mcpPlacementTargetsForHelp(authoring),
 		MCPAuthoringScopes:        mcpPlacementScopesForHelp(facts.MCPAuthoringPlacements),
-		MCPAuthoringPlacements:    mcpPlacementValuesForHelp(facts.MCPAuthoringPlacements),
-		MCPRuntimeProbeTargets:    mcpPlacementTargetsForHelp(facts.MCPRuntimeProbePlacements),
+		MCPAuthoringPlacements:    mcpPlacementValuesForHelp(authoring),
+		MCPRuntimeProbeTargets:    mcpPlacementTargetsForHelp(probe),
 		MCPRuntimeProbeScopes:     mcpPlacementScopesForHelp(facts.MCPRuntimeProbePlacements),
-		MCPRuntimeProbePlacements: mcpPlacementValuesForHelp(facts.MCPRuntimeProbePlacements),
+		MCPRuntimeProbePlacements: mcpPlacementValuesForHelp(probe),
 		Width:                     width,
 	}
+}
+
+func mcpPlacementsInHelpOrder(placements []workflowhelp.MCPPlacementFact) []workflowhelp.MCPPlacementFact {
+	ordered := slices.Clone(placements)
+	targets := target.SupportedTargets()
+	slices.SortStableFunc(ordered, func(left, right workflowhelp.MCPPlacementFact) int {
+		return cmp.Compare(slices.Index(targets, left.Target), slices.Index(targets, right.Target))
+	})
+	return ordered
 }
 
 func supportedTargetValuesForHelp() string {
