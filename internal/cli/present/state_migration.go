@@ -14,8 +14,8 @@ func PrintStateMigration(writer io.Writer, mode string, plan migrate.StateDisclo
 	fmt.Fprintf(writer, "  manifest: %s\n  from: %s\n  to: %s\n", Escape(plan.ManifestPath), Escape(plan.SourceStatefile), Escape(plan.DestinationStatefile))
 	fmt.Fprintf(writer, "  output registry: %s\n  carrier registry: %s\n", Escape(plan.OutputRegistryPath), Escape(plan.CarrierRegistryPath))
 	if plan.Action == "migrate" || plan.Action == "migrated" {
-		fmt.Fprintf(writer, "  retained: %d managed paths, %d aggregates\n", plan.ManagedPaths, plan.ManagedAggregates)
-		fmt.Fprintf(writer, "  authority transfer: %d output claims, %d global carrier claims\n", plan.OutputClaims, plan.CarrierClaims)
+		fmt.Fprintf(writer, "  retained: %s, %s\n", CountLabel(plan.ManagedPaths, "managed path", "managed paths"), CountLabel(plan.ManagedAggregates, "aggregate", "aggregates"))
+		fmt.Fprintf(writer, "  authority transfer: %s, %s\n", CountLabel(plan.OutputClaims, "output claim", "output claims"), CountLabel(plan.CarrierClaims, "global carrier claim", "global carrier claims"))
 	}
 	fmt.Fprintln(writer, "  installed outputs and host packages are unchanged; legacy caches are retained")
 }

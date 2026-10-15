@@ -27,7 +27,7 @@ func TestRunLockDryRunReportsDeltaAgainstExistingLockfile(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"lockfile changes: added=2 changed=1 removed=2 unchanged=3",
+		"lock entry changes: added=2 changed=1 removed=2 unchanged=3",
 		"lockfile.subject.added:",
 		`  - resource/skill/review entity="skill:review"`,
 		`  - projection/skill.project.agents/skill:review entity="skill:review"`,
@@ -87,7 +87,7 @@ targets = ["codex"]
 	}
 
 	for _, want := range []string{
-		"lockfile changes: added=2 changed=1 removed=2 unchanged=3",
+		"lock entry changes: added=2 changed=1 removed=2 unchanged=3",
 		`  - resource/skill/added entity="skill:added"`,
 		`content_hash="` + addedHash + `"`,
 		`  - resource/skill/changed changed=exact_supply,derivation`,
@@ -180,7 +180,7 @@ func TestRunLockWriteReportsDeltaAndWritesExactLockfile(t *testing.T) {
 	}
 	for _, want := range []string{
 		"wrote lockfile: " + lockfilePath,
-		"lockfile changes: added=2 changed=1 removed=2 unchanged=3",
+		"lock entry changes: added=2 changed=1 removed=2 unchanged=3",
 		"lockfile.subject.added:",
 		"lockfile.subject.changed:",
 		"lockfile.subject.removed:",

@@ -209,7 +209,7 @@ func TestPrintDryRunDiffsBoundsAggregateCellWork(t *testing.T) {
 	}
 	got := output.String()
 	if strings.Count(got, "report work budget was exhausted") != 1 ||
-		!strings.Contains(got, "diff rendering omitted 1 textual diffs") {
+		!strings.Contains(got, "diff rendering omitted 1 textual diff ") {
 		t.Fatalf("output = %q, want one per-file and one aggregate work omission", got)
 	}
 }

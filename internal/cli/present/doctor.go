@@ -60,8 +60,8 @@ func PrintDoctorChecksWithOptions(output io.Writer, checks []findings.Check, opt
 	}
 	fmt.Fprintf(
 		output,
-		"doctor: %d checks (ok=%d warn=%d error=%d skipped=%d unsupported=%d)\n",
-		len(checks),
+		"doctor: %s (ok=%d warn=%d error=%d skipped=%d unsupported=%d)\n",
+		CountLabel(len(checks), "check", "checks"),
 		okCount,
 		warnCount,
 		errorCount,

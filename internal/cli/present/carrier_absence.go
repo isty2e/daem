@@ -99,7 +99,7 @@ func PrintCarrierAbsenceActionsWithOptions(
 	if len(actions) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "carrier absence actions: %d subjects\n", len(actions))
+	fmt.Fprintf(output, "carrier absence actions: %s\n", CountLabel(len(actions), "entry", "entries"))
 	for _, action := range actions {
 		if !options.Verbose {
 			printCarrierAbsenceSummary(output, action)

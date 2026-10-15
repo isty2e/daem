@@ -92,7 +92,7 @@ render_to = "AGENTS.md"
 
 	output := stdout.String()
 	for _, want := range []string{
-		"status: 4 actions",
+		"status: 4 outputs",
 		`create resource="instructions/missing" target=codex scope=global destination="~/.codex/AGENTS.md" mode=copy reason=missing_output`,
 		`delete resource="instructions/removed" target=antigravity-cli scope=project destination="GEMINI.md" mode= reason=removed_from_manifest safety=deletable`,
 		`noop resource="instructions/ready" target=claude-code scope=project destination="CLAUDE.md" mode=copy reason=already_current`,

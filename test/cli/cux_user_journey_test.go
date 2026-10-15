@@ -33,7 +33,7 @@ func TestCUXFirstProjectJourneyMatchesGettingStarted(t *testing.T) {
 
 	runCUXJourney(t, []string{"status"}, "add managed output")
 	runCUXJourney(t, []string{"apply", "--dry-run"}, "add managed output")
-	runCUXJourney(t, []string{"apply", "--yes"}, "applied: 1 actions")
+	runCUXJourney(t, []string{"apply", "--yes"}, "applied: 1 action")
 
 	content, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
 	if err != nil {

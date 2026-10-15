@@ -12,7 +12,7 @@ import (
 func PrintActionPlanWithOptions(output io.Writer, label string, actionPlan reconcile.Result, options HumanOptions) {
 	decisions := actionPlan.Decisions()
 	if options.Verbose {
-		fmt.Fprintf(output, "%s: %d actions\n", label, actionPlan.ProjectionDecisionCount())
+		fmt.Fprintf(output, "%s: %s\n", label, CountLabel(actionPlan.ProjectionDecisionCount(), "output", "outputs"))
 		printVerboseDecisionRows(output, decisions)
 		return
 	}
@@ -25,7 +25,7 @@ func PrintActionPlanWithOptions(output io.Writer, label string, actionPlan recon
 		}
 		pending = append(pending, decision)
 	}
-	fmt.Fprintf(output, "%s: %d resources (up to date=%d changes=%d)\n", label, actionPlan.ProjectionDecisionCount(), current, len(pending))
+	fmt.Fprintf(output, "%s: %s (up to date=%d changes=%d)\n", label, CountLabel(actionPlan.ProjectionDecisionCount(), "output", "outputs"), current, len(pending))
 	printDecisionRows(output, pending, options)
 }
 

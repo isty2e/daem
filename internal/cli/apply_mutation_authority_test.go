@@ -34,7 +34,7 @@ func TestRunApplyDisclosedSourceDriftReturnsStalePlanWithoutEffects(t *testing.T
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1; stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "apply: 1 resources") || strings.Contains(stdout.String(), "Proceed with apply?") {
+	if !strings.Contains(stdout.String(), "apply: 1 output") || strings.Contains(stdout.String(), "Proceed with apply?") {
 		t.Fatalf("stdout = %q, want disclosed stable plan", stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "Proceed with apply? [y/N]:") ||

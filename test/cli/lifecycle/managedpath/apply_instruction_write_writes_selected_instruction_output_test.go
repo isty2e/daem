@@ -41,7 +41,7 @@ targets = ["codex", "claude-code"]
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"applied: 1 actions",
+		"applied: 1 action",
 		"statefile:",
 	} {
 		if !strings.Contains(stdout.String(), want) {

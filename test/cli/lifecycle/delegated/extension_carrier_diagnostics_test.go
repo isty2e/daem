@@ -135,12 +135,12 @@ func TestClaudeGlobalExtensionCarrierPublicCLIApplyYesHumanReportsHostRouteAttem
 	assertCLIClaudeGlobalHostRouteRequest(t, fixture.root, requests)
 
 	output := stdout.String()
-	if count := strings.Count(output, "relation actions: 1 subjects"); count != 1 {
+	if count := strings.Count(output, "relation actions: 1 entry"); count != 1 {
 		t.Fatalf("apply --yes output printed relation actions %d times, want once:\n%s", count, output)
 	}
 	for _, want := range []string{
 		"applied: 0 actions",
-		"host route attempts: 1 history-only diagnostics",
+		"host route attempts: 1 history-only diagnostic",
 		"evidence=host_route_attempt_diagnostics",
 		"authority=history_only",
 		"subject=\"host_relation/claude-code.plugin-carrier/context7-global\"",
@@ -271,7 +271,7 @@ func TestClaudeGlobalExtensionCarrierPublicCLIApplyYesReportsCommandFailure(t *t
 			}
 			output := stderr.String()
 			for _, want := range []string{
-				"host route attempts: 1 history-only diagnostics",
+				"host route attempts: 1 history-only diagnostic",
 				"subject=\"host_relation/claude-code.plugin-carrier/context7-global\"",
 				"target=claude-code",
 				"scope=global",
@@ -336,7 +336,7 @@ func assertClaudePluginLockOutputFields(t *testing.T, output string, declaration
 func assertClaudePluginStatusOutputFields(t *testing.T, output string, declarationID string, scope string) {
 	t.Helper()
 	for _, want := range []string{
-		"relation actions: 1 subjects",
+		"relation actions: 1 entry",
 		"subject=\"host_relation/" + "claude-code.plugin-carrier" + "/" + declarationID + "\"",
 		"target=claude-code",
 		"scope=" + scope,

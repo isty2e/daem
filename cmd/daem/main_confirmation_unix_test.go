@@ -86,7 +86,7 @@ func TestMainConfirmationPTYDeclineEOFAcceptance(t *testing.T) {
 		{name: "decline", answer: []byte("no\n"), wantExit: 1, wantOutput: "apply canceled"},
 		{name: "eof", answer: []byte{4}, wantExit: 1, wantOutput: "apply canceled"},
 		{name: "affirmative then eof", answer: []byte{'y', 'e', 's', 4}, wantExit: 1, wantOutput: "apply canceled"},
-		{name: "success", answer: []byte("yes\n"), wantExit: 0, wantOutput: "applied: 1 actions", wantApply: true},
+		{name: "success", answer: []byte("yes\n"), wantExit: 0, wantOutput: "applied: 1 action", wantApply: true},
 	}
 
 	for _, test := range tests {

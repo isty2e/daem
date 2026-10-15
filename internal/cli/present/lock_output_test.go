@@ -35,7 +35,7 @@ func TestPrintDeltaSummaryReportsResolvedRefChanges(t *testing.T) {
 	clipresent.PrintDeltaSummaryWithOptions(&stdout, lock.BuildDelta(before, after), clipresent.HumanOptions{Verbose: true})
 
 	for _, want := range []string{
-		"lockfile changes: added=0 changed=1 removed=0 unchanged=0",
+		"lock entry changes: added=0 changed=1 removed=0 unchanged=0",
 		`resource/skill/oracle changed=exact_supply,derivation`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -280,13 +280,15 @@ func TestPrintDryRunSummaryReportsRepairedLocks(t *testing.T) {
 		NextCommand:  "daem lock --manifest /repo/daem.toml",
 	}, clipresent.HumanOptions{Verbose: true})
 
+	if !strings.Contains(stdout.String(), "\nlock entries: 1\n") {
+		t.Fatalf("stdout = %q, want a standalone lock-entry count", stdout.String())
+	}
 	for _, want := range []string{
 		"would write lockfile: /repo/daem.lock.toml",
-		"lockfile entries: subjects=1",
-		"lockfile changes: added=1 changed=0 removed=0 unchanged=0",
+		"lock entry changes: added=1 changed=0 removed=0 unchanged=0",
 		"lockfile.subject.added:\n  - resource/skill/oracle",
 		"locked.subject:\n  - resource/skill/oracle (repaired)",
-		"repaired resources: 1",
+		"repaired lock entries: 1",
 		"next: run daem lock --manifest /repo/daem.toml",
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -381,7 +383,7 @@ func TestPrintDeltaSummaryIncludesMCPSubjectChanges(t *testing.T) {
 	clipresent.PrintDeltaSummaryWithOptions(&stdout, lock.BuildDelta(lock.File{Version: lock.CurrentVersion}, after), clipresent.HumanOptions{Verbose: true})
 
 	for _, want := range []string{
-		"lockfile changes: added=1 changed=0 removed=0 unchanged=0",
+		"lock entry changes: added=1 changed=0 removed=0 unchanged=0",
 		"lockfile.subject.added:",
 		"projection/claude-code.project.mcp-server/context7",
 		`target="claude-code" scope="project" aggregate_root=".mcp.json" content_path="/mcpServers/context7"`,

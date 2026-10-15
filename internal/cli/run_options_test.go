@@ -128,7 +128,7 @@ func TestRunWithOptionsApplyRendererWriteFailureDoesNotFailApply(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, want 0; stdout = %q stderr = %q", exitCode, stdout.String(), stderr.buffer.String())
 	}
-	if !strings.Contains(stdout.String(), "applied: 1 actions") {
+	if !strings.Contains(stdout.String(), "applied: 1 action") {
 		t.Fatalf("stdout = %q, want final apply summary", stdout.String())
 	}
 	if got := strings.Count(stderr.buffer.String(), "Applying 0/1"); got != 1 {

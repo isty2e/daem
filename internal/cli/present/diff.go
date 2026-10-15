@@ -98,7 +98,7 @@ func printDryRunDiffs(
 	diffs := report.Diffs
 	cellBudget := dryRunDiffCellBudget{remaining: maximumCells}
 	workOmitted := 0
-	fmt.Fprintf(output, "diff: %d files\n", len(diffs))
+	fmt.Fprintf(output, "diff: %s\n", CountLabel(len(diffs), "file", "files"))
 	for _, diff := range diffs {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -140,15 +140,15 @@ func printDryRunDiffs(
 	if report.UninspectedManagedPathCount != 0 {
 		fmt.Fprintf(
 			output,
-			"diff collection omitted %d managed-path decisions after the operation item budget was exhausted\n",
-			report.UninspectedManagedPathCount,
+			"diff collection omitted %s after the operation item budget was exhausted\n",
+			CountLabel(report.UninspectedManagedPathCount, "managed-path decision", "managed-path decisions"),
 		)
 	}
 	if workOmitted != 0 {
 		fmt.Fprintf(
 			output,
-			"diff rendering omitted %d textual diffs after the operation work budget was exhausted\n",
-			workOmitted,
+			"diff rendering omitted %s after the operation work budget was exhausted\n",
+			CountLabel(workOmitted, "textual diff", "textual diffs"),
 		)
 	}
 	return nil

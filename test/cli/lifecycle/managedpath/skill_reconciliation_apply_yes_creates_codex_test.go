@@ -47,7 +47,7 @@ targets = ["codex"]
 	if strings.Contains(stdout.String(), "lock-only:") {
 		t.Fatalf("stdout = %q, want no lock-only summary for supported codex skill", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "applied: 1 actions") {
+	if !strings.Contains(stdout.String(), "applied: 1 action") {
 		t.Fatalf("stdout = %q, want one skill create action", stdout.String())
 	}
 	testkit.AssertFileContent(t, filepath.Join(tempDir, ".agents/skills/oracle/SKILL.md"), "---\nname: oracle\ndescription: oracle\n---\n")
@@ -240,7 +240,7 @@ targets = ["codex"]
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "applied: 1 actions") {
+	if !strings.Contains(stdout.String(), "applied: 1 action") {
 		t.Fatalf("stdout = %q, want one selector removal delete action", stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(tempDir, ".agents/skills/removed")); !os.IsNotExist(err) {

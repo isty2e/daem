@@ -53,7 +53,7 @@ func TestMCPPublicCLIStatusReportsDelegateFailureWithoutCheckFailure(t *testing.
 	for _, want := range []string{
 		"project_projection: projected",
 		"delegate_last_attempt: failed reason=DELEGATE_NONZERO_EXIT",
-		"status: 1 actions",
+		"status: 1 output",
 		`noop subject="projection/claude-code.project.mcp-server/context7"`,
 	} {
 		if !strings.Contains(stdout, want) {

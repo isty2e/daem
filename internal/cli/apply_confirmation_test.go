@@ -39,8 +39,8 @@ func TestRunApplyPromptsAndAppliesWhenInteractiveConfirmationAccepted(t *testing
 		t.Fatalf("stderr = %q, want prompt", stderr.String())
 	}
 	for _, want := range []string{
-		"apply: 1 resources",
-		"applied: 1 actions",
+		"apply: 1 output",
+		"applied: 1 action",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -64,7 +64,7 @@ func TestRunApplyPromptCancellationDoesNotMutate(t *testing.T) {
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1", exitCode)
 	}
-	if !strings.Contains(stdout.String(), "apply: 1 resources") || strings.Contains(stdout.String(), "Proceed with apply?") {
+	if !strings.Contains(stdout.String(), "apply: 1 output") || strings.Contains(stdout.String(), "Proceed with apply?") {
 		t.Fatalf("stdout = %q, want stable plan without prompt", stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "Proceed with apply? [y/N]:") || !strings.Contains(stderr.String(), "apply canceled") {
@@ -311,7 +311,7 @@ func TestRunApplyInteractiveNoopPlanDoesNotPrompt(t *testing.T) {
 	if strings.Contains(stdout.String(), "Proceed with apply?") {
 		t.Fatalf("stdout = %q, did not want prompt for noop plan", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "apply: 1 resources") || !strings.Contains(stdout.String(), "applied: 0 actions") {
+	if !strings.Contains(stdout.String(), "apply: 1 output") || !strings.Contains(stdout.String(), "applied: 0 actions") {
 		t.Fatalf("stdout = %q, want preview and zero applied actions", stdout.String())
 	}
 }
@@ -351,7 +351,7 @@ func TestRunApplyOrdinaryDelegationPromptsForNoopProjectionWithDelegateSubject(t
 		t.Fatalf("exitCode = %d, want cancellation exit 1", exitCode)
 	}
 	for _, want := range []string{
-		"apply: 1 resources",
+		"apply: 1 output",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

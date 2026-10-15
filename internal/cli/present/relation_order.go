@@ -171,7 +171,7 @@ func PrintRelationOrderActionsWithOptions(
 	if len(decisions) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "extension order: %d sequences\n", len(decisions))
+	fmt.Fprintf(output, "extension order: %s\n", CountLabel(len(decisions), "sequence", "sequences"))
 	for _, decision := range decisions {
 		if options.Verbose {
 			printVerboseRelationOrder(output, decision)
@@ -191,7 +191,7 @@ func PrintRelationOrderRiskDeltasWithOptions(
 	if len(deltas) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "extension order risk delta: %d sequences\n", len(deltas))
+	fmt.Fprintf(output, "extension order risk delta: %s\n", CountLabel(len(deltas), "sequence", "sequences"))
 	for _, delta := range deltas {
 		if options.Verbose {
 			fmt.Fprintf(
@@ -233,7 +233,7 @@ func PrintRelationOrderResultsWithOptions(
 	if len(results) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "extension order results: %d sequences\n", len(results))
+	fmt.Fprintf(output, "extension order results: %s\n", CountLabel(len(results), "sequence", "sequences"))
 	for _, result := range results {
 		fmt.Fprintf(
 			output,
@@ -393,9 +393,9 @@ func printRelationOrderRiskChanges(
 	}
 	fmt.Fprintf(
 		output,
-		"    %s %d managed/foreign precedence changes:\n",
+		"    %s %s:\n",
 		verb,
-		len(changes),
+		CountLabel(len(changes), "managed/foreign precedence change", "managed/foreign precedence changes"),
 	)
 	for _, change := range changes {
 		foreignIdentity := hostLoadIdentityDisclosureFor(

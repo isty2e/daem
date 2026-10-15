@@ -28,7 +28,7 @@ func TestRunImportYesWritesManifestAndSourceOnly(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"imported: 1 resources",
+		"imported: 1 resource",
 		"manifest: " + outputPath,
 		"source-dir: " + filepath.Join(tempDir, "daem.imported.d"),
 		"next: run daem lock --manifest " + outputPath + " --dry-run",
@@ -214,7 +214,7 @@ func TestRunImportDefaultsManifestAndSourceDirToWorkingDirectory(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"imported: 1 resources",
+		"imported: 1 resource",
 		"manifest: " + outputPath,
 		"source-dir: " + filepath.Join(workingDir, "daem.d"),
 		`source="` + filepath.ToSlash(sourcePath) + `"`,

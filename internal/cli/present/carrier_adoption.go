@@ -163,7 +163,7 @@ func PrintCarrierAdoptionActionsWithOptions(
 	if len(actions) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "carrier adoption actions: %d subjects\n", len(actions))
+	fmt.Fprintf(output, "carrier adoption actions: %s\n", CountLabel(len(actions), "entry", "entries"))
 	for _, action := range actions {
 		if !options.Verbose {
 			printCarrierAdoptionSummary(output, action)
@@ -192,7 +192,7 @@ func PrintCarrierAdoptionResultsWithOptions(
 	if len(stateOnly) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "carrier adoption results: %d subjects\n", len(stateOnly))
+	fmt.Fprintf(output, "carrier adoption results: %s\n", CountLabel(len(stateOnly), "entry", "entries"))
 	phase := applyResultCarrierAdoptionPhase(executionErr != nil, executionAttempted)
 	for _, action := range stateOnly {
 		actionPhase, _, _ := carrierAdoptionResult(action, phase, results)
@@ -312,11 +312,11 @@ func printCarrierAdoptionSummary(output io.Writer, action carrieradoption.Action
 	case carrieradoption.ResultClaimConflict:
 		fmt.Fprintf(
 			output,
-			"  - blocked carrier adoption subject=%q target=%s scope=%s: %d conflicting claims\n",
+			"  - blocked carrier adoption subject=%q target=%s scope=%s: %s\n",
 			subject,
 			row.Target,
 			row.Scope,
-			row.ConflictingClaimCount,
+			CountLabel(row.ConflictingClaimCount, "conflicting claim", "conflicting claims"),
 		)
 	case carrieradoption.ResultMissingRelation:
 		fmt.Fprintf(

@@ -28,7 +28,7 @@ func TestRunApplyDryRunReportsSelectedLockOnlyResources(t *testing.T) {
 	if !strings.Contains(stdout.String(), "lock-only: skills=0 hooks=1 (unsupported or not reconciled by apply/status)") {
 		t.Fatalf("stdout = %q, want hook-only lock-only summary", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "dry-run: 1 actions") {
+	if !strings.Contains(stdout.String(), "dry-run: 1 output") {
 		t.Fatalf("stdout = %q, want supported skill plan", stdout.String())
 	}
 }
@@ -50,7 +50,7 @@ func TestRunApplyYesReportsSelectedLockOnlyResources(t *testing.T) {
 	if strings.Contains(stdout.String(), "lock-only:") {
 		t.Fatalf("stdout = %q, want no lock-only summary for supported opencode skill", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "applied: 1 actions") {
+	if !strings.Contains(stdout.String(), "applied: 1 action") {
 		t.Fatalf("stdout = %q, want one applied skill action", stdout.String())
 	}
 }
@@ -75,7 +75,7 @@ func TestRunStatusReportsSelectedLockOnlyResources(t *testing.T) {
 	if !strings.Contains(stdout.String(), "  - hook/protect-env targets=pi") {
 		t.Fatalf("stdout = %q, want selected lock-only hook details", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "status: 0 actions") {
+	if !strings.Contains(stdout.String(), "status: 0 outputs") {
 		t.Fatalf("stdout = %q, want empty status plan", stdout.String())
 	}
 }
@@ -124,7 +124,7 @@ targets = ["codex"]
 	}
 	for _, want := range []string{
 		"lock-only: skills=0 hooks=1 (unsupported or not reconciled by apply/status)",
-		"dry-run: 2 actions",
+		"dry-run: 2 outputs",
 		`create resource="skill/oracle" target=opencode`,
 		`create resource="instructions/project" target=codex`,
 	} {
@@ -163,7 +163,7 @@ targets = ["codex"]
 	if strings.Contains(stdout.String(), "lock-only:") {
 		t.Fatalf("stdout = %q, want no lock-only summary", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "dry-run: 1 actions") {
+	if !strings.Contains(stdout.String(), "dry-run: 1 output") {
 		t.Fatalf("stdout = %q, want instruction plan", stdout.String())
 	}
 }

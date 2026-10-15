@@ -171,7 +171,7 @@ func TestAuthoringRemovalOfLastInstructionConvergesThroughStatusInventoryAndAppl
 		"add", "instruction", "project", "./instructions/project.md",
 		"--target", "codex",
 	}, "added: instructions/project", "lockfile: wrote")
-	runCUXJourney(t, []string{"apply", "--yes"}, "applied: 1 actions")
+	runCUXJourney(t, []string{"apply", "--yes"}, "applied: 1 action")
 	testkit.AssertFileContent(t, filepath.Join(root, "AGENTS.md"), "project instructions\n")
 
 	runCUXJourney(t, []string{"remove", "instruction", "project"}, "removed: instructions/project", "lockfile: wrote")
@@ -203,7 +203,7 @@ func TestAuthoringRemovalOfLastInstructionConvergesThroughStatusInventoryAndAppl
 	}
 
 	runCUXJourney(t, []string{"apply", "--target", "codex", "--dry-run"}, "remove managed output")
-	runCUXJourney(t, []string{"apply", "--target", "codex", "--yes"}, "applied: 1 actions")
+	runCUXJourney(t, []string{"apply", "--target", "codex", "--yes"}, "applied: 1 action")
 	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
 		t.Fatalf("AGENTS.md exists or stat failed after removal: %v", err)
 	}

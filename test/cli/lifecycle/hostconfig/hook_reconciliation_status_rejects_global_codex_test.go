@@ -104,7 +104,7 @@ targets = ["codex"]
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"dry-run: 1 actions",
+		"dry-run: 1 output",
 		`create resource="hook/protect-env" target=codex`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -216,7 +216,7 @@ targets = ["claude-code"]
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"dry-run: 1 actions",
+		"dry-run: 1 output",
 		`create resource="hook/protect-env" target=claude-code scope=project destination=".claude/settings.json" content_path="/hooks" reason=missing_output`,
 	} {
 		if !strings.Contains(stdout.String(), want) {

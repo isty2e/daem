@@ -146,7 +146,7 @@ func PrintRelationActionsWithOptions(output io.Writer, actions []reconciliation.
 	if len(actions) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "relation actions: %d subjects\n", len(actions))
+	fmt.Fprintf(output, "relation actions: %s\n", CountLabel(len(actions), "entry", "entries"))
 	for _, action := range actions {
 		if !options.Verbose {
 			printRelationActionSummary(output, action)
