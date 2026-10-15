@@ -79,13 +79,13 @@ source, storage or host effects. `doctor` retains the diagnostic exceptions belo
 
 ### macOS Metadata During Writes
 
-Before `add extension` updates the manifest and lockfile, it saves transaction
-data in temporary directories. Daem accepts readable `com.apple.provenance` and
-`com.apple.macl` attributes on these directories and their contents, recording
-fingerprints without stripping or rewriting the attributes. Before publishing
-this data, daem rejects unreadable values or changes, additions and removals
-since its initial inspection. Unknown attributes, ACLs and file flags remain
-unsupported here.
+Daem uses private temporary directories to prepare transactions, journals,
+caches and directory outputs for publication. It accepts readable
+`com.apple.provenance` and `com.apple.macl` attributes on these directories and
+their contents, recording fingerprints without stripping or rewriting the
+attributes. Before publishing this data, daem rejects unreadable values or
+changes, additions and removals since its initial inspection. Unknown
+attributes, ACLs and file flags remain unsupported here.
 
 Replacing an existing manifest, lockfile or managed output uses a separate write
 path. Daem preserves the original file's extended attributes, including MACL when
