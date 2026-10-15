@@ -172,37 +172,30 @@ func printHelpRow(output io.Writer, row helpRow, width int) {
 		return
 	}
 	prefix := "  " + row.Label
-	if len(prefix) < 28 {
-		prefix += strings.Repeat(" ", 28-len(prefix))
-	}
-	printWrappedWithContinuation(output, prefix+row.Text, strings.Repeat(" ", len(prefix)), width)
+	prefix += strings.Repeat(" ", max(1, 28-len(prefix)))
+	printWrappedWithContinuation(output, prefix, row.Text, strings.Repeat(" ", len(prefix)), width)
 }
 
 func printWrappedLines(output io.Writer, lines []string, width int) {
 	for _, line := range lines {
 		indent := line[:len(line)-len(strings.TrimLeft(line, " "))]
-		printWrappedWithContinuation(output, line, indent, width)
+		printWrappedWithContinuation(output, indent, line[len(indent):], indent, width)
 	}
 }
 
-func printWrappedWithContinuation(output io.Writer, line string, continuation string, width int) {
-	if line == "" || len(line) <= width {
-		fmt.Fprintln(output, line)
+func printWrappedWithContinuation(output io.Writer, prefix string, line string, continuation string, width int) {
+	if line == "" || len(prefix)+len(line) <= width {
+		fmt.Fprintln(output, prefix+line)
 		return
 	}
 
-	leading := line[:len(line)-len(strings.TrimLeft(line, " "))]
-	current := leading
+	current := prefix
 	for word := range strings.FieldsSeq(strings.TrimSpace(line)) {
-		candidate := word
-		if current != "" {
-			separator := " "
-			if strings.TrimSpace(current) == "" {
-				separator = ""
-			}
-			candidate = current + separator + word
+		candidate := current + word
+		if current != prefix {
+			candidate = current + " " + word
 		}
-		if strings.TrimSpace(current) != "" && len(candidate) > width {
+		if current != prefix && len(candidate) > width {
 			fmt.Fprintln(output, current)
 			current = continuation + word
 			continue
