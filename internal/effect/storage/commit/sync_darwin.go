@@ -72,7 +72,8 @@ func isAllowedReplacementXattr(name string) bool {
 }
 
 func isAllowedPreparedTreeXattr(name string) bool {
-	return name == "com.apple.provenance"
+	// Creation attributes are fingerprinted, not ignorable replacement extras.
+	return name == "com.apple.provenance" || name == "com.apple.macl"
 }
 
 func capturePreparedTreePlatformMetadataFacts(fd int, path string, stat *unix.Stat_t) (uint64, error) {

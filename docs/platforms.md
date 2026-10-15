@@ -77,6 +77,19 @@ directory renames before atomic publication or logical removal. Daem checks
 command failure or timeout blocks platform-gated commands before workspace,
 source, storage or host effects. `doctor` retains the diagnostic exceptions below.
 
+### macOS Prepared-Tree Metadata
+
+Private prepared trees, including authoring transaction evidence, admit readable
+`com.apple.provenance` and `com.apple.macl` creation attributes. Daem records
+fingerprints of their opaque values without stripping or rewriting the attributes.
+Preparation and publication checks refuse unreadable values or additions,
+removals and changes to captured attributes. Unknown attributes, ACLs and file
+flags retain their existing refusal rules.
+
+This observation policy is not a mechanism for copying MACL between file objects
+or changing macOS access grants. A successful authoring preview does not guarantee
+that later temporary-file creation and metadata inspection will succeed.
+
 ## Unsupported Builds
 
 | Command | Behavior on a not-admitted platform |
