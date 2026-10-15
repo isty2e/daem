@@ -710,14 +710,14 @@ func loadCommandInputsAtPaths(
 
 	environment, err := declarationmanifest.LoadSelected(ctx, paths)
 	if err != nil {
-		return commandContext{}, result, fmt.Errorf("invalid manifest: %w", err)
+		return commandContext{}, result, commandInputError{cause: fmt.Errorf("invalid manifest: %w", err)}
 	}
 
 	locked, lockfileErr := lockfile.Load(ctx, result.LockfilePath)
 	lockfileMissing := false
 	if lockfileErr != nil {
 		if !os.IsNotExist(lockfileErr) {
-			return commandContext{}, result, fmt.Errorf("%w: %w", ErrReadLockfile, lockfileErr)
+			return commandContext{}, result, commandInputError{cause: fmt.Errorf("%w: %w", ErrReadLockfile, lockfileErr)}
 		}
 		lockfileMissing = true
 	} else if err := lockrefine.ValidateCurrentExtensionOrder(
@@ -725,7 +725,7 @@ func loadCommandInputsAtPaths(
 		locked,
 		aggregatecodec.ExtensionOrderIdentityResolver(paths),
 	); err != nil {
-		return commandContext{}, result, fmt.Errorf("%w: %w", ErrReadLockfile, err)
+		return commandContext{}, result, commandInputError{cause: fmt.Errorf("%w: %w", ErrReadLockfile, err)}
 	}
 
 	// Each planning pass owns one persistence epoch. Execute performs a new pass
@@ -763,7 +763,7 @@ func loadCommandInputsAtPaths(
 	}
 
 	if lockfileMissing {
-		return commandContext{}, result, fmt.Errorf("%w: %w", ErrReadLockfile, lockfileErr)
+		return commandContext{}, result, commandInputError{cause: fmt.Errorf("%w: %w", ErrReadLockfile, lockfileErr)}
 	}
 
 	generatedSkills, err := locked.Locked.SkillSetChildren(environment.Skills(), environment.SkillSets())

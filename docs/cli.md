@@ -1107,11 +1107,22 @@ between stored and desired Pi codecs, with the binding, backends and retirement
 guidance. It can refuse planning before an execution envelope exists.
 `rolled_back` requires compensation for every attempted effect; a
 retained provider prerequisite or any effect outside the journal keeps the
-result `incomplete`. Human output uses the same detail; verbose evidence is
-bounded and sanitized. Planning, projection, diff, confirmation, diagnostic and
-output failures use this boundary before any execution envelope. Default
-remediation uses `<manifest>`; verbose output may include the selected path and
-bounded exact command evidence.
+result `incomplete`. JSON messages and generic human failures use the same closed
+detail; verbose evidence is bounded and sanitized. Projection, diff,
+confirmation, diagnostic and output failures retain this boundary.
+
+Before planning completes, human diagnostics for the selected manifest and
+lockfile can include their escaped input errors, syntax locations and shared
+repair guidance. This also applies to stderr when `--json` fails before a result
+envelope exists; it does not add an early JSON result. Cancellation and recovery
+barriers still take precedence. Unknown internal errors retain the closed
+detail, and no reconciliation summary is shown before a plan exists.
+
+Input-remediation commands use the selected manifest path, including without
+`--verbose`. A missing lockfile may direct lock creation; a malformed existing
+lockfile must be corrected first rather than rerunning the same failing lock
+command. Broader hint shortening and early JSON envelopes are outside this
+behavior.
 
 Host-route attempt rows include the exact operation and bounded
 `effect_postconditions` requirement/state summaries when the route couples

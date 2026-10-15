@@ -268,5 +268,8 @@ func Error(err error) string {
 			message.adapterShape,
 		))
 	}
-	return inputError(err)
+	if message, recognized := RecognizedInputError(err); recognized {
+		return message
+	}
+	return Escape(err.Error())
 }

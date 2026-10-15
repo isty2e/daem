@@ -217,7 +217,7 @@ func TestRunApplyAbandonedResidueUsesTypedFenceRefusal(t *testing.T) {
 	}
 }
 
-func TestRunApplyPlanningFailureUsesClosedDefaultDetail(t *testing.T) {
+func TestRunApplyPlanningInputFailureRetainsSelectedPath(t *testing.T) {
 	root := isolatedApplyAuthorityRoot(t)
 	manifestPath := filepath.Join(root, "private", "daem.toml")
 	var stdout bytes.Buffer
@@ -229,11 +229,8 @@ func TestRunApplyPlanningFailureUsesClosedDefaultDetail(t *testing.T) {
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1; stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "apply failed: apply was refused before effects") {
-		t.Fatalf("stderr = %q, want closed planning detail", stderr.String())
-	}
-	if strings.Contains(stderr.String(), root) || strings.Contains(stderr.String(), manifestPath) {
-		t.Fatalf("stderr disclosed planning path: %q", stderr.String())
+	if !strings.Contains(stderr.String(), manifestPath) || strings.Contains(stderr.String(), "<manifest>") {
+		t.Fatalf("stderr = %q, want the selected input path rather than a placeholder", stderr.String())
 	}
 }
 

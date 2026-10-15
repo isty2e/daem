@@ -21,6 +21,28 @@ import (
 	"github.com/isty2e/daem/internal/workflow/authoring"
 )
 
+func TestRecognizedInputErrorKeepsFallbackWithItsCaller(t *testing.T) {
+	for _, err := range []error{nil, errors.New("unknown input\nnext: injected")} {
+		if message, recognized := RecognizedInputError(err); recognized || message != "" {
+			t.Fatalf("unknown error gained recognized guidance: %v -> %q/%t", err, message, recognized)
+		}
+		if err != nil && Error(err) != Escape(err.Error()) {
+			t.Fatal("general renderer lost its escaped fallback")
+		}
+	}
+	_, unknownKey := declaration.DecodeManifest([]byte("version=1\nbogus=true\n"))
+	positioned := tomlstrict.Admit(context.Background(), []byte("broken=[\n"), tomlstrict.StandardLimits())
+	for _, err := range []error{unknownKey, positioned, authoring.ErrMissingGitRef} {
+		if err == nil {
+			t.Fatal("fixture did not produce a known input error")
+		}
+		message, recognized := RecognizedInputError(err)
+		if !recognized || message == "" || message != Error(err) {
+			t.Fatalf("shared recognized rendering diverged: %v -> %q/%t", err, message, recognized)
+		}
+	}
+}
+
 func TestInputGuidanceUsesOwnedFailuresNotText(t *testing.T) {
 	for _, message := range []string{
 		"--ref is required for git sources",

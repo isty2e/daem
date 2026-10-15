@@ -552,12 +552,16 @@ func captureDeclarationRevisions(
 	manifestPath string,
 	lockfilePath string,
 ) (mutation.RevisionSet, error) {
-	return mutation.CaptureBoundedFileRevisionSet(
+	revisions, err := mutation.CaptureBoundedFileRevisionSet(
 		ctx,
 		declarationartifact.MaximumBytes,
 		manifestPath,
 		lockfilePath,
 	)
+	if err != nil {
+		return mutation.RevisionSet{}, commandInputError{cause: err}
+	}
+	return revisions, nil
 }
 
 func (guard applyExecutionGuard) requireDeclarationsCurrent(
