@@ -258,7 +258,12 @@ omit underlying URL parser errors.
 
 TOML syntax errors include a one-based line and column when available. This is
 where parsing stopped, which may be the end of the document rather than the
-opening bracket or quote. Unknown keys link to the [manifest reference](manifest.md).
+opening bracket or quote.
+
+Unknown-key diagnostics include the start of the authored key expression when
+available, using one-based lines and rune columns, and link to the
+[manifest reference](manifest.md). Positions describe the manifest content being
+validated.
 
 Declaration read, validation and placement failures can include input-repair
 guidance. Environment failures while resolving a local carrier source or host

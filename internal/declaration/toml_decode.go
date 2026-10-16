@@ -13,11 +13,18 @@ const CurrentManifestVersion int64 = contractversion.ManifestSchema
 
 // UnknownManifestKeyError identifies a key outside the manifest schema.
 type UnknownManifestKeyError struct {
-	cause error
+	cause  error
+	line   int
+	column int
 }
 
 func (err UnknownManifestKeyError) Error() string { return err.cause.Error() }
 func (err UnknownManifestKeyError) Unwrap() error { return err.cause }
+
+// Position identifies the authored key expression without changing error text.
+func (err UnknownManifestKeyError) Position() (line, column int, ok bool) {
+	return err.line, err.column, err.line > 0 && err.column > 0
+}
 
 func DecodeManifest(content []byte) (Manifest, error) {
 	if err := admitManifestStructure(content); err != nil {
@@ -31,7 +38,13 @@ func DecodeManifest(content []byte) (Manifest, error) {
 	}
 
 	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
-		return Manifest{}, UnknownManifestKeyError{cause: fmt.Errorf("unknown manifest key %q", undecoded[0].String())}
+		key := undecoded[0]
+		line, column, _ := tomlstrict.KeyPosition(content, metadata, key)
+		return Manifest{}, UnknownManifestKeyError{
+			cause:  fmt.Errorf("unknown manifest key %q", key.String()),
+			line:   line,
+			column: column,
+		}
 	}
 
 	return manifest, nil
