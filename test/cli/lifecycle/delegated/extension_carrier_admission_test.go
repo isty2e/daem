@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestRunLockRejectsNonAdmittedExtensionCarriersWithoutWritingLockfile(t *testing.T) {
@@ -554,10 +555,8 @@ enabled = true
 				if exitCode != 1 {
 					t.Fatalf("exitCode = %d, want 1; stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 				}
-				if stdout.Len() != 0 {
-					t.Fatalf("stdout = %q, want empty before a result envelope exists", stdout.String())
-				}
-				combined := stdout.String() + stderr.String()
+				diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), clijson.CommandName(command.args(manifestPath, lockfilePath)), "operation", true)
+				combined := stdout.String() + diagnostic
 				for _, want := range invalidManifest.wants {
 					if !strings.Contains(combined, want) {
 						t.Fatalf("combined output = %q, want %q", combined, want)

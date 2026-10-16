@@ -246,11 +246,9 @@ func TestRunStatusCheckJSONFailsBeforePlanningInvalidLockedSkillSource(t *testin
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1; stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want no JSON after lock freshness preflight failure", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), "inspect lockfile freshness") ||
-		!strings.Contains(stderr.String(), "description is required") {
+	diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "status", "operation", true)
+	if !strings.Contains(diagnostic, "inspect lockfile freshness") ||
+		!strings.Contains(diagnostic, "description is required") {
 		t.Fatalf("stderr = %q, want invalid source preflight failure", stderr.String())
 	}
 }
@@ -297,10 +295,8 @@ func TestRunApplyDryRunJSONFailsBeforePlanningInvalidLockedSkillSource(t *testin
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1; stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want no JSON after lock freshness preflight failure", stdout.String())
-	}
-	if got, want := stderr.String(), "apply failed: apply was refused before effects\n"; got != want {
+	diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "apply", "operation", true)
+	if got, want := diagnostic, "apply failed: apply was refused before effects"; got != want {
 		t.Fatalf("stderr = %q, want closed invalid-source failure %q", got, want)
 	}
 }

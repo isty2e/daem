@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestListPathsReportsSelectionsWithoutMutatingWorkspace(t *testing.T) {
@@ -99,7 +100,8 @@ targets = ["codex"]
 		&stdout,
 		&stderr,
 	)
-	if exitCode != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "--json and --verbose") {
+	diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "list paths", "usage", true)
+	if exitCode != 2 || !strings.Contains(diagnostic, "--json and --verbose") {
 		t.Fatalf("exitCode = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
 }

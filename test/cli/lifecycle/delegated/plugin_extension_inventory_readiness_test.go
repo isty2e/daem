@@ -46,11 +46,12 @@ func TestClaudePluginBundlesAreNotImportCandidates(t *testing.T) {
 			if exitCode != 1 {
 				t.Fatalf("exitCode = %d, want 1; stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 			}
-			if stdout.Len() != 0 || !strings.Contains(stderr.String(), "nothing to import") {
+			diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "import", "operation", true)
+			if !strings.Contains(diagnostic, "nothing to import") {
 				t.Fatalf("stdout=%q stderr=%q, want nothing-to-import failure", stdout.String(), stderr.String())
 			}
-			assertNoClaudePluginBundleIdentityPromotion(t, stderr.String())
-			assertNoPluginRuntimeReadinessClaim(t, stderr.String())
+			assertNoClaudePluginBundleIdentityPromotion(t, diagnostic+stdout.String())
+			assertNoPluginRuntimeReadinessClaim(t, diagnostic+stdout.String())
 			testkit.AssertPathMissing(t, outputPath)
 			testkit.AssertPathMissing(t, strings.TrimSuffix(outputPath, ".toml")+".d")
 			execcheck.AssertClean(t, canary, "import Claude plugin bundle "+mode.name)

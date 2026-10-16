@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestTargetSyntaxFailsAtCLIIngressAcrossCommandFamilies(t *testing.T) {
@@ -39,14 +41,12 @@ func TestTargetSyntaxFailsAtCLIIngressAcrossCommandFamilies(t *testing.T) {
 			if exitCode != 2 {
 				t.Fatalf("exitCode = %d, want 2, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 			}
-			if stdout.Len() != 0 {
-				t.Fatalf("stdout = %q, want empty", stdout.String())
-			}
-			if !strings.Contains(stderr.String(), `unknown target "unknown"`) {
+			diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), clijson.CommandName(test.args), "usage", slices.Contains(test.args, "--json"))
+			if !strings.Contains(diagnostic, `unknown target "unknown"`) {
 				t.Fatalf("stderr = %q, want unknown target diagnostic", stderr.String())
 			}
 			for _, forbidden := range []string{"invalid manifest", "no such file or directory"} {
-				if strings.Contains(stderr.String(), forbidden) {
+				if strings.Contains(diagnostic, forbidden) {
 					t.Fatalf("stderr = %q, target misuse reached workflow failure %q", stderr.String(), forbidden)
 				}
 			}
@@ -72,10 +72,11 @@ func TestStatusRejectsMalformedTargetTokensBeforeManifestSelection(t *testing.T)
 				var stdout bytes.Buffer
 				var stderr bytes.Buffer
 				exitCode := testkit.RunVerboseCLI(args, &stdout, &stderr)
-				if exitCode != 2 || stdout.Len() != 0 {
+				if exitCode != 2 {
 					t.Fatalf("exitCode = %d, stdout = %q, stderr = %q; want misuse with empty stdout", exitCode, stdout.String(), stderr.String())
 				}
-				if !strings.Contains(stderr.String(), "unknown target") {
+				diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "status", "usage", jsonMode)
+				if !strings.Contains(diagnostic, "unknown target") {
 					t.Fatalf("stderr = %q, want target diagnostic", stderr.String())
 				}
 			})
@@ -104,10 +105,11 @@ func TestTargetIngressRejectsMissingAndExcessDistinctValues(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 			exitCode := testkit.RunCLI(test.args, &stdout, &stderr)
-			if exitCode != 2 || stdout.Len() != 0 {
+			if exitCode != 2 {
 				t.Fatalf("exitCode = %d, stdout = %q, stderr = %q; want misuse with empty stdout", exitCode, stdout.String(), stderr.String())
 			}
-			if !strings.Contains(stderr.String(), test.want) {
+			diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), clijson.CommandName(test.args), "usage", slices.Contains(test.args, "--json"))
+			if !strings.Contains(diagnostic, test.want) {
 				t.Fatalf("stderr = %q, want %q", stderr.String(), test.want)
 			}
 		})
@@ -228,13 +230,14 @@ render_to = "AGENTS.md"
 		exitCode := testkit.RunVerboseCLI([]string{
 			"status", "--manifest", manifestPath, "--target", "claude-code", "--json",
 		}, &stdout, &stderr)
-		if exitCode != 1 || stdout.Len() != 0 {
+		if exitCode != 1 {
 			t.Fatalf("exitCode = %d, stdout = %q, stderr = %q; want operational failure", exitCode, stdout.String(), stderr.String())
 		}
-		if !strings.Contains(stderr.String(), `target "claude-code" does not match any manifest resource`) {
+		diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "status", "operation", true)
+		if !strings.Contains(diagnostic, `target "claude-code" does not match any manifest resource`) {
 			t.Fatalf("stderr = %q, want availability diagnostic", stderr.String())
 		}
-		if strings.Contains(stderr.String(), "invalid value") {
+		if strings.Contains(diagnostic, "invalid value") {
 			t.Fatalf("stderr = %q, supported target was misclassified as syntax", stderr.String())
 		}
 	})
@@ -245,13 +248,14 @@ render_to = "AGENTS.md"
 		exitCode := testkit.RunVerboseCLI([]string{
 			"list", "resources", "--manifest", manifestPath, "--target", "claude-code", "--json",
 		}, &stdout, &stderr)
-		if exitCode != 1 || stdout.Len() != 0 {
+		if exitCode != 1 {
 			t.Fatalf("exitCode = %d, stdout = %q, stderr = %q; want operational failure", exitCode, stdout.String(), stderr.String())
 		}
-		if !strings.Contains(stderr.String(), `target "claude-code" does not match any manifest resource`) {
+		diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "list resources", "operation", true)
+		if !strings.Contains(diagnostic, `target "claude-code" does not match any manifest resource`) {
 			t.Fatalf("stderr = %q, want availability diagnostic", stderr.String())
 		}
-		if strings.Contains(stderr.String(), "invalid value") {
+		if strings.Contains(diagnostic, "invalid value") {
 			t.Fatalf("stderr = %q, supported target was misclassified as syntax", stderr.String())
 		}
 	})
@@ -262,10 +266,11 @@ render_to = "AGENTS.md"
 		exitCode := testkit.RunVerboseCLI([]string{
 			"list", "paths", "--manifest", manifestPath, "--target", "claude-code", "--json",
 		}, &stdout, &stderr)
-		if exitCode != 1 || stdout.Len() != 0 {
+		if exitCode != 1 {
 			t.Fatalf("exitCode = %d, stdout = %q, stderr = %q; want operational failure", exitCode, stdout.String(), stderr.String())
 		}
-		if !strings.Contains(stderr.String(), `target "claude-code" does not match any manifest resource`) {
+		diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "list paths", "operation", true)
+		if !strings.Contains(diagnostic, `target "claude-code" does not match any manifest resource`) {
 			t.Fatalf("stderr = %q, want availability diagnostic", stderr.String())
 		}
 	})

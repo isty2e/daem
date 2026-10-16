@@ -177,9 +177,10 @@ func TestRunRemoveExtensionGlobalOmissionNeverUninstallsOrPrunes(t *testing.T) {
 	if hintErr != nil {
 		t.Fatal(hintErr)
 	}
-	if exitCode != 1 || stdout.Len() != 0 ||
-		!strings.Contains(stderr.String(), "apply failed: apply was refused before effects") ||
-		!strings.Contains(stderr.String(), "next: run "+targetHint+"\n") {
+	diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "apply", "operation", true)
+	if exitCode != 1 ||
+		!strings.Contains(diagnostic, "apply failed: apply was refused before effects") ||
+		!strings.Contains(diagnostic, targetHint) {
 		t.Fatalf("targeted apply after remove exitCode = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
 	execcheck.AssertClean(t, canary, "targeted apply after global extension omission")

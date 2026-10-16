@@ -15,6 +15,7 @@ import (
 	clipkg "github.com/isty2e/daem/internal/cli"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/execcheck"
 )
 
@@ -260,7 +261,8 @@ func TestMCPProbeOpenCodeDoesNotExecuteStaleLock(t *testing.T) {
 	exitCode, stdout, stderr := runMCPCLIWithOptions(t, []string{"probe", "mcp-server", "context7", "--manifest", project.manifestPath, "--target", "opencode", "--scope", "project", "--yes", "--json"}, clipkg.RunOptions{
 		ProbeExecutor: executor,
 	})
-	if exitCode != 1 || stdout != "" || !strings.Contains(stderr, "stale") {
+	diagnostic := clijson.FailureText(t, stdout, stderr, "probe mcp-server", "operation", true)
+	if exitCode != 1 || !strings.Contains(diagnostic, "stale") {
 		t.Fatalf("opencode stale probe exitCode=%d stdout=%q stderr=%q, want stale error", exitCode, stdout, stderr)
 	}
 	if executor.called {
@@ -285,10 +287,10 @@ func TestMCPProbeOpenCodeRejectsClaudeOnlyLockForSameNameServer(t *testing.T) {
 	exitCode, stdout, stderr := runMCPCLIWithOptions(t, []string{"probe", "mcp-server", "context7", "--manifest", project.manifestPath, "--target", "opencode", "--scope", "project", "--yes", "--json"}, clipkg.RunOptions{
 		ProbeExecutor: executor,
 	})
+	diagnostic := clijson.FailureText(t, stdout, stderr, "probe mcp-server", "operation", true)
 	if exitCode != 1 ||
-		stdout != "" ||
-		!strings.Contains(stderr, "locked MCP subject projection/opencode.project.mcp-server") ||
-		!strings.Contains(stderr, "missing") {
+		!strings.Contains(diagnostic, "locked MCP subject projection/opencode.project.mcp-server") ||
+		!strings.Contains(diagnostic, "missing") {
 		t.Fatalf("cross-target opencode probe exitCode=%d stdout=%q stderr=%q, want missing OpenCode locked subject", exitCode, stdout, stderr)
 	}
 	if executor.called {
@@ -338,7 +340,8 @@ func TestMCPProbeOpenCodeRejectsInvalidCurrentManifestBeforeExecutor(t *testing.
 			exitCode, stdout, stderr := runMCPCLIWithOptions(t, []string{"probe", "mcp-server", "context7", "--manifest", project.manifestPath, "--target", "opencode", "--scope", "project", "--yes", "--json"}, clipkg.RunOptions{
 				ProbeExecutor: executor,
 			})
-			if exitCode != 1 || stdout != "" || !strings.Contains(stderr, test.want) {
+			diagnostic := clijson.FailureText(t, stdout, stderr, "probe mcp-server", "operation", true)
+			if exitCode != 1 || !strings.Contains(diagnostic, test.want) {
 				t.Fatalf("invalid opencode probe exitCode=%d stdout=%q stderr=%q, want %q", exitCode, stdout, stderr, test.want)
 			}
 			if executor.called {
@@ -360,7 +363,8 @@ func TestMCPProbeOpenCodeRejectsMissingLockBeforeExecutor(t *testing.T) {
 	exitCode, stdout, stderr := runMCPCLIWithOptions(t, []string{"probe", "mcp-server", "context7", "--manifest", project.manifestPath, "--target", "opencode", "--scope", "project", "--yes", "--json"}, clipkg.RunOptions{
 		ProbeExecutor: executor,
 	})
-	if exitCode != 1 || stdout != "" || !strings.Contains(stderr, "run lock") {
+	diagnostic := clijson.FailureText(t, stdout, stderr, "probe mcp-server", "operation", true)
+	if exitCode != 1 || !strings.Contains(diagnostic, "run lock") {
 		t.Fatalf("missing lock opencode probe exitCode=%d stdout=%q stderr=%q, want run lock guidance", exitCode, stdout, stderr)
 	}
 	if executor.called {
@@ -481,7 +485,8 @@ func TestMCPProbeDoesNotExecuteStaleLock(t *testing.T) {
 	exitCode, stdout, stderr := runMCPCLIWithOptions(t, []string{"probe", "mcp-server", "context7", "--manifest", project.manifestPath, "--target", "claude-code", "--scope", "project", "--yes", "--json"}, clipkg.RunOptions{
 		ProbeExecutor: executor,
 	})
-	if exitCode != 1 || stdout != "" || !strings.Contains(stderr, "stale") {
+	diagnostic := clijson.FailureText(t, stdout, stderr, "probe mcp-server", "operation", true)
+	if exitCode != 1 || !strings.Contains(diagnostic, "stale") {
 		t.Fatalf("stale probe exitCode=%d stdout=%q stderr=%q, want stale error", exitCode, stdout, stderr)
 	}
 	if executor.called {

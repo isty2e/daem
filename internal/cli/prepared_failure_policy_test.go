@@ -157,3 +157,51 @@ func TestPreparedNamedCommandsNeverUseAnOptionAsTheMissingName(t *testing.T) {
 		}
 	}
 }
+
+func TestPreparedProbeKeepsBareHyphenAsSuppliedName(t *testing.T) {
+	root, cwd := manifestHintWorkspace(t)
+	manifest := filepath.Join(cwd, "daem.toml")
+	writeHintManifest(t, manifest)
+	before := snapshotApplyInputFiles(t, root)
+	var stdout, stderr bytes.Buffer
+	code := runWithoutTerminal([]string{"probe", "mcp-server", "-", "--dry-run", "--json", "--manifest", manifest}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("supplied name was reclassified: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	commonFailureDiagnosticText(t, "probe mcp-server", "operation", &stdout, &stderr)
+	if after := snapshotApplyInputFiles(t, root); !reflect.DeepEqual(before, after) {
+		t.Fatal("refused probe changed workspace files")
+	}
+}
+
+func TestPreparedRefreshKeepsBareHyphenAsSuppliedID(t *testing.T) {
+	manifestHintWorkspace(t)
+	manifest := writeCLIRefreshFixture(t)
+	before := snapshotApplyInputFiles(t, filepath.Dir(manifest))
+	calls := 0
+	options := refreshCLIRunOptions(t, &calls)
+	var stdout, stderr bytes.Buffer
+	options.Stdout = &stdout
+	options.Stderr = &stderr
+	code := RunWithOptions([]string{"refresh", "extension", "-", "--dry-run", "--json", "--manifest", manifest}, options)
+	if code != 1 || calls != 0 || stderr.Len() != 0 {
+		t.Fatalf("supplied ID changed refusal or host effects: code=%d calls=%d stdout=%q stderr=%q", code, calls, stdout.String(), stderr.String())
+	}
+	var report struct {
+		Command string `json:"command"`
+		Result  struct {
+			Class      string `json:"class"`
+			ReasonCode string `json:"reason_code"`
+		} `json:"result"`
+		HasErrors bool `json:"has_errors"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Command != "refresh extension" || report.Result.Class != "refused" || report.Result.ReasonCode != "invalid_selection" || !report.HasErrors {
+		t.Fatalf("ordinary refusal was replaced: %#v", report)
+	}
+	if after := snapshotApplyInputFiles(t, filepath.Dir(manifest)); !reflect.DeepEqual(before, after) {
+		t.Fatal("refused refresh changed workspace files")
+	}
+}

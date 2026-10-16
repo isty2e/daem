@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestCommonInputErrorsGiveActionableGuidance(t *testing.T) {
@@ -49,21 +50,29 @@ func TestCommonInputErrorsGiveActionableGuidance(t *testing.T) {
 				before := snapshotAuthoringFixture(t, root)
 				var stdout, stderr bytes.Buffer
 				code := testkit.RunCLI(args, &stdout, &stderr)
-				if code != 1 || stdout.Len() != 0 {
+				if code != 1 {
 					t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 				}
+				diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), clijson.CommandName(args), "operation", json)
 				for _, want := range test.want {
-					if !strings.Contains(stderr.String(), want) {
+					if json {
+						want = strings.TrimPrefix(want, "next: ")
+						want = strings.TrimPrefix(want, "run ")
+						if want == "repair actions:" {
+							want = "rename file: skill.md -> SKILL.md"
+						}
+					}
+					if !strings.Contains(diagnostic, want) {
 						t.Errorf("stderr=%q, want %q", stderr.String(), want)
 					}
 				}
-				if strings.Contains(stderr.String(), "lock prospective manifest") || strings.Contains(stderr.String(), "repairability=") {
+				if strings.Contains(diagnostic, "lock prospective manifest") || strings.Contains(diagnostic, "repairability=") {
 					t.Errorf("internal diagnostic noise: %q", stderr.String())
 				}
-				if test.name == "missing frontmatter" && strings.Count(stderr.String(), "SKILL.md frontmatter is required") != 1 {
+				if test.name == "missing frontmatter" && strings.Count(diagnostic, "SKILL.md frontmatter is required") != 1 {
 					t.Errorf("duplicated cause: %q", stderr.String())
 				}
-				if test.name == "missing source add" && strings.Contains(stderr.String(), "next: run daem lock") {
+				if test.name == "missing source add" && strings.Contains(diagnostic, "daem lock") {
 					t.Errorf("failed add must not be replaced by locking the old manifest: %q", stderr.String())
 				}
 				if !reflect.DeepEqual(before, snapshotAuthoringFixture(t, root)) {

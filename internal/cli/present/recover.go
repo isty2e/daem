@@ -38,9 +38,7 @@ func RecoverPlanningDiagnostic(err error, options HumanOptions) FailureDiagnosti
 		diagnostic = diagnostic.WithGuidance(textGuidance(GuidanceInstruction, "", continuingFileSetFenceMessage(state.FileSet())))
 	}
 	if options.Verbose {
-		diagnostic = diagnostic.WithGuidance(Guidance{
-			kind: GuidanceNote, message: Quote(BoundedErrorEvidence(err, 4096)), humanPrefix: "recover failure evidence: ",
-		})
+		diagnostic = diagnostic.WithGuidance(BoundedEvidenceGuidance(err, 4096, "recover failure evidence: "))
 	}
 	return diagnostic
 }

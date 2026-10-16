@@ -221,7 +221,7 @@ type namedArgumentPlan struct {
 }
 
 func prepareNamedArguments(flags *flag.FlagSet, arguments []string, label string) namedArgumentPlan {
-	if len(arguments) == 0 || strings.HasPrefix(arguments[0], "-") {
+	if len(arguments) == 0 || (arguments[0] != "-" && strings.HasPrefix(arguments[0], "-")) {
 		return namedArgumentPlan{
 			options: prepareGoArguments(flags, arguments),
 			missing: &missingNamedArgumentError{label: label},

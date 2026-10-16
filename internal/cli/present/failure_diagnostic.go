@@ -32,6 +32,16 @@ func InstructionGuidance(message string) Guidance {
 	return textGuidance(GuidanceInstruction, "next: ", message)
 }
 
+// BoundedEvidenceGuidance retains the already sanitized causal view without
+// escaping or truncating its display projection a second time.
+func BoundedEvidenceGuidance(err error, maximumRunes int, prefix string) Guidance {
+	evidence := BoundedErrorEvidence(err, maximumRunes)
+	if evidence == "" {
+		return Guidance{}
+	}
+	return Guidance{kind: GuidanceNote, message: Quote(evidence), humanPrefix: humanErrorDetail(prefix)}
+}
+
 func textGuidance(kind GuidanceKind, prefix string, message string) Guidance {
 	if message == "" {
 		return Guidance{}

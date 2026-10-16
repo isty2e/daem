@@ -170,6 +170,24 @@ func TestNamedArgumentPlanDoesNotFillAnAbsentNameFromLaterData(t *testing.T) {
 	}
 }
 
+func TestNamedArgumentPlanKeepsBareHyphenAsData(t *testing.T) {
+	for _, test := range []struct {
+		args []string
+		mode requestedOutput
+	}{
+		{[]string{"-", "--dry-run", "--json"}, requestedJSON},
+		{[]string{"-", "--manifest", "--json"}, requestedHuman},
+	} {
+		t.Run(flagCaseName(test.args), func(t *testing.T) {
+			flags := argumentPlanFlags()
+			plan := prepareNamedArguments(flags, test.args, "name")
+			if err := plan.bind(flags); err != nil || plan.name != "-" || plan.options.output != test.mode {
+				t.Fatalf("bare hyphen lost its operand role: name=%q mode=%v err=%v", plan.name, plan.options.output, err)
+			}
+		})
+	}
+}
+
 func TestVersionArgumentPlanKeepsExactValidGrammar(t *testing.T) {
 	for _, test := range []struct {
 		args []string
