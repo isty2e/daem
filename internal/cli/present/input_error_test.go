@@ -43,6 +43,41 @@ func TestRecognizedInputErrorKeepsFallbackWithItsCaller(t *testing.T) {
 	}
 }
 
+func TestUnknownKeyPositionsKeepRepairGuidanceAndSourceContext(t *testing.T) {
+	_, cause := declaration.DecodeManifest([]byte("version=1\n  bogus=true\n"))
+	if cause == nil {
+		t.Fatal("unknown key fixture was accepted")
+	}
+	if _, _, ok := tomlstrict.ErrorPosition(cause); ok {
+		t.Fatal("unknown key was relabeled as malformed syntax")
+	}
+	prospective := fmt.Errorf("invalid prospective manifest: %w", cause)
+	operation := authoring.OperationError{Phase: authoring.OperationPhaseBuildLockfile, Err: prospective}
+	for _, test := range []struct {
+		err         error
+		wantContext string
+	}{
+		{cause, cause.Error()},
+		{fmt.Errorf("invalid manifest: %w", cause), "invalid manifest: " + cause.Error()},
+		{operation, prospective.Error()},
+		{fmt.Errorf("outer operation: %w", operation), "outer operation: " + operation.Error()},
+	} {
+		message := Error(test.err)
+		if !strings.Contains(message, Escape(test.wantContext)+" (line 2, column 3)") {
+			t.Errorf("lost position or source context: %q", message)
+		}
+		if !strings.Contains(message, "next: correct or remove") || strings.Contains(message, "check TOML brackets") {
+			t.Errorf("position replaced key-specific guidance: %q", message)
+		}
+	}
+
+	malformed := tomlstrict.Admit(context.Background(), []byte("broken=[\n"), tomlstrict.StandardLimits())
+	message := Error(fmt.Errorf("invalid manifest: %w", malformed))
+	if !strings.Contains(message, "check TOML brackets") || strings.Contains(message, "next: correct or remove") {
+		t.Fatalf("syntax diagnostic changed classification: %q", message)
+	}
+}
+
 func TestInputGuidanceUsesOwnedFailuresNotText(t *testing.T) {
 	for _, message := range []string{
 		"--ref is required for git sources",

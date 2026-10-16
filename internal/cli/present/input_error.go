@@ -55,6 +55,9 @@ func RecognizedInputError(err error) (string, bool) {
 
 	var unknown declaration.UnknownManifestKeyError
 	if errors.As(err, &unknown) {
+		if line, column, ok := unknown.Position(); ok {
+			message += fmt.Sprintf(" (line %d, column %d)", line, column)
+		}
 		return message + "\nnext: correct or remove this key; see https://github.com/isty2e/daem/blob/main/docs/manifest.md", true
 	}
 

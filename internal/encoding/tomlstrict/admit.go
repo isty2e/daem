@@ -162,6 +162,10 @@ func Admit(ctx context.Context, content []byte, limits Limits) error {
 // observation. The supplied limits must bound the scan itself; callers may
 // apply a stricter policy to the returned usage before decoding.
 func AdmitWithUsage(ctx context.Context, content []byte, limits Limits) (StructureUsage, error) {
+	return admitWithKeyObserver(ctx, content, limits, nil)
+}
+
+func admitWithKeyObserver(ctx context.Context, content []byte, limits Limits, observeKey func(int)) (StructureUsage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -179,9 +183,10 @@ func AdmitWithUsage(ctx context.Context, content []byte, limits Limits) (Structu
 	}
 
 	scanner := scanner{
-		src:    content,
-		ctx:    ctx,
-		limits: limits,
+		src:        content,
+		ctx:        ctx,
+		limits:     limits,
+		observeKey: observeKey,
 	}
 	if len(content) >= 3 && content[0] == 0xef && content[1] == 0xbb && content[2] == 0xbf {
 		scanner.index = 3
@@ -225,6 +230,7 @@ type scanner struct {
 	limits     Limits
 	ctx        context.Context
 	cancelAt   int
+	observeKey func(int)
 }
 
 func (s *scanner) document() error {
@@ -312,6 +318,9 @@ func (s *scanner) headerKey() (int, int, error) {
 				return 0, 0, fmt.Errorf("%w: truncated table header", ErrMalformed)
 			}
 		}
+		if parts == 0 && s.observeKey != nil {
+			s.observeKey(s.index)
+		}
 		partBytes, err := s.keyPart()
 		if err != nil {
 			return 0, 0, err
@@ -348,6 +357,9 @@ func (s *scanner) assignmentKey() (int, int, error) {
 		}
 		if s.done() {
 			return 0, 0, fmt.Errorf("%w: truncated key", ErrMalformed)
+		}
+		if parts == 0 && s.observeKey != nil {
+			s.observeKey(s.index)
 		}
 		partBytes, err := s.keyPart()
 		if err != nil {

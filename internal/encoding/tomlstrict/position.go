@@ -29,14 +29,15 @@ func positionError(content []byte, index int, cause error) error {
 	if !errors.Is(cause, ErrMalformed) {
 		return cause
 	}
+	line, column := sourceCoordinates(content, index)
+	return &positionedError{cause: cause, line: line, column: column}
+}
+
+func sourceCoordinates(content []byte, index int) (line, column int) {
 	prefix := content[:min(index, len(content))]
 	if bytes.HasPrefix(prefix, []byte{0xef, 0xbb, 0xbf}) {
 		prefix = prefix[3:]
 	}
 	lineStart := bytes.LastIndexByte(prefix, '\n') + 1
-	return &positionedError{
-		cause:  cause,
-		line:   bytes.Count(prefix, []byte{'\n'}) + 1,
-		column: utf8.RuneCount(prefix[lineStart:]) + 1,
-	}
+	return bytes.Count(prefix, []byte{'\n'}) + 1, utf8.RuneCount(prefix[lineStart:]) + 1
 }
