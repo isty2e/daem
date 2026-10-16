@@ -112,19 +112,36 @@ func TestVersionRunsOnUnsupportedPlatformWithoutWorkspaceEnvironment(t *testing.
 }
 
 func TestVersionRejectsEveryUnadmittedArgument(t *testing.T) {
-	tests := [][]string{
-		{"version", "--verbose"},
-		{"version", "--json", "extra"},
-		{"version", "help"},
-		{"--version", "--json"},
-		{"--version", "extra"},
+	tests := []struct {
+		args []string
+		json bool
+	}{
+		{[]string{"version", "--verbose"}, false},
+		{[]string{"version", "--json", "extra"}, true},
+		{[]string{"version", "help"}, false},
+		{[]string{"--version", "--json"}, false},
+		{[]string{"--version", "extra"}, false},
 	}
-	for _, args := range tests {
+	for _, test := range tests {
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
-		exitCode := runCommand(args, &stdout, &stderr, RunOptions{}, commandOptions{buildIdentity: cliVersionTestIdentity(t)})
+		exitCode := runCommand(test.args, &stdout, &stderr, RunOptions{}, commandOptions{buildIdentity: cliVersionTestIdentity(t)})
+		if test.json {
+			var payload struct {
+				Command string `json:"command"`
+				Error   struct {
+					Kind    string `json:"kind"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil || exitCode != 2 || stderr.Len() != 0 ||
+				payload.Command != "version" || payload.Error.Kind != "usage" || !strings.Contains(payload.Error.Message, "unexpected argument") {
+				t.Fatalf("structured version misuse: code=%d decode=%v payload=%#v stderr=%q", exitCode, err, payload, stderr.String())
+			}
+			continue
+		}
 		if exitCode != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "unexpected argument") {
-			t.Fatalf("runCommand(%#v) = %d stdout=%q stderr=%q", args, exitCode, stdout.String(), stderr.String())
+			t.Fatalf("runCommand(%#v) = %d stdout=%q stderr=%q", test.args, exitCode, stdout.String(), stderr.String())
 		}
 	}
 }

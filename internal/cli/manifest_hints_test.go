@@ -89,9 +89,10 @@ func TestManifestHintsDistinguishReadAndCreationDefaults(t *testing.T) {
 		t.Fatalf("absent cwd read target lost explicit selection: %q", readArgv)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := runWithoutTerminal(append(readArgv, "--dry-run", "--json"), &stdout, &stderr); code != 1 || stdout.Len() != 0 {
+	if code := runWithoutTerminal(append(readArgv, "--dry-run", "--json"), &stdout, &stderr); code != 1 {
 		t.Fatalf("missing read target code=%d stdout=%q stderr=%q", code, &stdout, &stderr)
 	}
+	refusalDiagnosticText(t, "lock", &stdout, &stderr, true)
 
 	var creationHint strings.Builder
 	printMissingManifestInitHint(&creationHint, localManifest, os.ErrNotExist)

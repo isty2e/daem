@@ -65,6 +65,17 @@ func (guidance Guidance) Message() string { return guidance.message }
 
 func (guidance Guidance) Argv() []string { return slices.Clone(guidance.argv) }
 
+func (guidance Guidance) HumanText() string {
+	if guidance.kind != GuidanceCommand {
+		return guidance.humanPrefix + guidance.message
+	}
+	command, _ := ShellCommand(guidance.argv...)
+	if guidance.message != "" {
+		command += " " + guidance.message
+	}
+	return guidance.humanPrefix + command
+}
+
 // FailureDiagnostic separates the primary cause from presenter-owned annotations.
 // Construction projects text once; neither renderer interprets error prose.
 type FailureDiagnostic struct {
@@ -77,6 +88,13 @@ func NewFailureDiagnostic(message string) FailureDiagnostic {
 }
 
 func (diagnostic FailureDiagnostic) Message() string { return diagnostic.message }
+
+// WithPrefix projects the caller's context without escaping the retained cause
+// or its guidance a second time.
+func (diagnostic FailureDiagnostic) WithPrefix(prefix string) FailureDiagnostic {
+	diagnostic.message = humanErrorDetail(prefix) + diagnostic.message
+	return diagnostic
+}
 
 func (diagnostic FailureDiagnostic) Guidance() []Guidance {
 	result := slices.Clone(diagnostic.guidance)
@@ -101,15 +119,7 @@ func (diagnostic FailureDiagnostic) HumanText() string {
 	output.WriteString(diagnostic.message)
 	for _, guidance := range diagnostic.guidance {
 		output.WriteByte('\n')
-		output.WriteString(guidance.humanPrefix)
-		if guidance.kind == GuidanceCommand {
-			command, _ := ShellCommand(guidance.argv...)
-			output.WriteString(command)
-			if guidance.message != "" {
-				output.WriteByte(' ')
-			}
-		}
-		output.WriteString(guidance.message)
+		output.WriteString(guidance.HumanText())
 	}
 	return output.String()
 }

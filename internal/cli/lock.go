@@ -9,99 +9,112 @@ import (
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 )
 
-func runLock(args []string, stdout io.Writer, stderr io.Writer, options commandOptions) int {
-	if commandHelpRequested(args) {
-		printCommandUsage([]string{"lock"}, stdout, 0)
-		return 0
-	}
-
+func prepareLockInvocation(args []string, stdout io.Writer, stderr io.Writer, options commandOptions) *preparedInvocation {
 	flags := newCommandFlagSet([]string{"lock"}, stderr)
-
 	manifestPath := flags.String("manifest", "", "path to daem.toml")
 	dryRun := flags.Bool("dry-run", false, "resolve and validate without writing the lockfile")
-	jsonOutput := flags.Bool("json", false, "emit structured JSON output")
+	flags.Bool("json", false, "emit structured JSON output")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
+	plan := prepareGoArguments(flags, args)
+	response := newCommandResponse("lock", plan.output, stdout, stderr)
 
-	if err := flags.Parse(args); err != nil {
-		return 2
-	}
+	return &preparedInvocation{response: response, execute: func() int {
+		if commandHelpRequested(args) {
+			printCommandUsage([]string{"lock"}, stdout, 0)
+			return 0
+		}
+		if err := plan.bind(flags); err != nil {
+			return response.failure(usageFailure, flagBindingDiagnostic([]string{"lock"}, err))
+		}
+		if flags.NArg() != 0 {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic((&unexpectedArgumentError{argument: flags.Arg(0)}).Error()))
+		}
+		if err := validatePresentationFlags("lock", plan.output == requestedJSON, *verbose, false); err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err))
+		}
 
-	if flags.NArg() != 0 {
-		fmt.Fprintf(stderr, "unexpected argument %q\n", flags.Arg(0))
-		return 2
-	}
-	if err := validatePresentationFlags("lock", *jsonOutput, *verbose, false); err != nil {
-		fmt.Fprintln(stderr, humanDiagnosticError(err))
-		return 2
-	}
+		progress := newLockProgressRenderer(plan.output == requestedJSON, stderr, options)
+		result, err := workflowlock.RunLock(options.context, workflowlock.LockInput{
+			ManifestPath: *manifestPath,
+			LockfilePath: "",
+			DryRun:       *dryRun,
+			SourceEvents: progress.SourceSink(),
+			LockEvents:   progress.LockSink(),
+		})
+		progress.Close()
+		if err != nil {
+			diagnostic := humanFailureDiagnostic(err).WithPrefix("lock failed: ").WithGuidance(lockWorkflowGuidance(*manifestPath, err)...)
+			return response.failure(operationFailure, diagnostic)
+		}
+		if err := response.selectOrdinaryResult(); err != nil {
+			return response.failure(operationFailure, humanFailureDiagnostic(err))
+		}
 
-	progress := newLockProgressRenderer(*jsonOutput, stderr, options)
-	result, err := workflowlock.RunLock(options.context, workflowlock.LockInput{
-		ManifestPath: *manifestPath,
-		LockfilePath: "",
-		DryRun:       *dryRun,
-		SourceEvents: progress.SourceSink(),
-		LockEvents:   progress.LockSink(),
-	})
-	progress.Close()
-	if err != nil {
-		fmt.Fprintf(stderr, "lock failed: %s\n", humanDiagnosticError(err))
-		printLockWorkflowHints(stderr, *manifestPath, err)
-		return 1
-	}
+		if *dryRun {
+			if plan.output == requestedJSON {
+				if err := clipresent.PrintJSON(stdout, clipresent.JSONInput{
+					Command:       "lock",
+					Mode:          "dry-run",
+					ManifestPath:  result.ManifestPath,
+					LockfilePath:  result.LockfilePath,
+					PreviousFound: result.PreviousFound,
+					Lockfile:      result.Lockfile,
+					Delta:         result.Delta,
+				}); err != nil {
+					return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("lock failed: write json: "))
+				}
+				return 0
+			}
+			clipresent.PrintDryRunSummaryWithOptions(stdout, clipresent.DryRunSummaryInput{
+				LockfilePath: result.LockfilePath,
+				Lockfile:     result.Lockfile,
+				Delta:        result.Delta,
+				NextCommand:  lockCommandHint(result.ManifestPath, *manifestPath),
+			}, clipresent.HumanOptions{Verbose: *verbose})
+			return 0
+		}
 
-	if *dryRun {
-		if *jsonOutput {
+		if plan.output == requestedJSON {
 			if err := clipresent.PrintJSON(stdout, clipresent.JSONInput{
 				Command:       "lock",
-				Mode:          "dry-run",
+				Mode:          "write",
 				ManifestPath:  result.ManifestPath,
 				LockfilePath:  result.LockfilePath,
 				PreviousFound: result.PreviousFound,
 				Lockfile:      result.Lockfile,
 				Delta:         result.Delta,
 			}); err != nil {
-				fmt.Fprintf(stderr, "lock failed: write json: %s\n", humanDiagnosticError(err))
-				return 1
+				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("lock failed: write json: "))
 			}
 			return 0
 		}
-		clipresent.PrintDryRunSummaryWithOptions(stdout, clipresent.DryRunSummaryInput{
-			LockfilePath: result.LockfilePath,
-			Lockfile:     result.Lockfile,
-			Delta:        result.Delta,
-			NextCommand:  lockCommandHint(result.ManifestPath, *manifestPath),
-		}, clipresent.HumanOptions{Verbose: *verbose})
-		return 0
-	}
 
-	if *jsonOutput {
-		if err := clipresent.PrintJSON(stdout, clipresent.JSONInput{
-			Command:       "lock",
-			Mode:          "write",
-			ManifestPath:  result.ManifestPath,
-			LockfilePath:  result.LockfilePath,
-			PreviousFound: result.PreviousFound,
-			Lockfile:      result.Lockfile,
-			Delta:         result.Delta,
-		}); err != nil {
-			fmt.Fprintf(stderr, "lock failed: write json: %s\n", humanDiagnosticError(err))
-			return 1
+		fmt.Fprintf(stdout, "wrote lockfile: %s\n", humanDiagnosticText(result.LockfilePath))
+		clipresent.PrintDeltaSummaryWithOptions(stdout, result.Delta, clipresent.HumanOptions{Verbose: *verbose})
+		return 0
+	}}
+}
+
+func lockWorkflowGuidance(manifestPath string, err error) []clipresent.Guidance {
+	var guidance []clipresent.Guidance
+	if initialize, present := missingManifestInitGuidance(manifestPath, err); present {
+		guidance = append(guidance, initialize)
+	}
+	var commandError workflowlock.CommandError
+	if errors.As(err, &commandError) {
+		if source, present := clipresent.MissingSourceGuidance(err); present {
+			guidance = append(
+				guidance,
+				source,
+				manifestCommandGuidance([]string{"lock"}, commandError.ManifestPath, manifestHintOptions(manifestPath, false), "--dry-run"),
+			)
 		}
-		return 0
 	}
-
-	fmt.Fprintf(stdout, "wrote lockfile: %s\n", humanDiagnosticText(result.LockfilePath))
-	clipresent.PrintDeltaSummaryWithOptions(stdout, result.Delta, clipresent.HumanOptions{Verbose: *verbose})
-
-	return 0
+	return guidance
 }
 
 func printLockWorkflowHints(output io.Writer, manifestPath string, err error) {
-	printMissingManifestInitHint(output, manifestPath, err)
-
-	var commandError workflowlock.CommandError
-	if errors.As(err, &commandError) && clipresent.PrintMissingSourceHint(output, err) {
-		clipresent.PrintManifestCommand(output, "next: run ", []string{"lock"}, commandError.ManifestPath, manifestHintOptions(manifestPath, false), "--dry-run")
+	for _, guidance := range lockWorkflowGuidance(manifestPath, err) {
+		fmt.Fprintln(output, guidance.HumanText())
 	}
 }

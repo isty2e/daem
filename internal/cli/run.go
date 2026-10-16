@@ -210,8 +210,16 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 		fmt.Fprintln(stderr, "next: run daem help")
 		return 2
 	}
-	if exitCode, rejected := rejectUnsupportedPlatform(args, commandInvocation, stderr); rejected {
-		return exitCode
+	prepared := prepareInvocation(args, stdout, stderr, commandInvocation)
+	if diagnostic, rejected := platformRefusal(args, commandInvocation); rejected {
+		if prepared != nil {
+			return prepared.response.failure(operationFailure, diagnostic)
+		}
+		fmt.Fprintln(stderr, diagnostic.HumanText())
+		return 1
+	}
+	if prepared != nil {
+		return prepared.execute()
 	}
 
 	switch args[0] {
@@ -227,8 +235,6 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 		return runInit(commandInvocation.context, args[1:], stdout, stderr)
 	case "list":
 		return runList(args[1:], stdout, stderr, commandInvocation)
-	case "lock":
-		return runLock(args[1:], stdout, stderr, commandInvocation)
 	case "migrate":
 		return runMigrate(args[1:], stdout, stderr, commandInvocation)
 	case "outdated":
@@ -241,8 +247,6 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 		return runRefresh(args[1:], stdout, stderr, commandInvocation)
 	case "remove":
 		return runRemove(commandInvocation.context, args[1:], stdout, stderr)
-	case "status":
-		return runStatus(args[1:], stdout, stderr, commandInvocation)
 	case "unmanage":
 		return runUnmanage(commandInvocation.context, args[1:], stdout, stderr)
 	case "version":
@@ -276,28 +280,21 @@ func runVersion(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 		return 0
 	}
 
-	jsonOutput := false
-	if len(args) > 0 {
-		if args[0] != "--json" {
-			fmt.Fprintf(stderr, "unexpected argument %q\n", args[0])
-			return 2
-		}
-		jsonOutput = true
-	}
-	if len(args) > 1 {
-		fmt.Fprintf(stderr, "unexpected argument %q\n", args[1])
-		return 2
+	plan := prepareVersionArguments(args)
+	response := newCommandResponse("version", plan.output, stdout, stderr)
+	if plan.err != nil {
+		diagnostic := clipresent.NewFailureDiagnostic(plan.err.Error())
+		return response.failure(usageFailure, diagnostic)
 	}
 
-	var err error
-	if jsonOutput {
-		err = clipresent.PrintVersionJSON(stdout, commandInvocation.buildIdentity)
-	} else {
-		err = clipresent.PrintVersion(stdout, commandInvocation.buildIdentity)
-	}
+	err := response.ordinaryResult(func() error {
+		if plan.output == requestedJSON {
+			return clipresent.PrintVersionJSON(stdout, commandInvocation.buildIdentity)
+		}
+		return clipresent.PrintVersion(stdout, commandInvocation.buildIdentity)
+	})
 	if err != nil {
-		fmt.Fprintf(stderr, "version failed: %s\n", humanDiagnosticError(err))
-		return 1
+		return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("version failed: "))
 	}
 	return 0
 }
@@ -315,20 +312,30 @@ func runVersionAlias(args []string, stdout io.Writer, stderr io.Writer, commandI
 }
 
 func rejectUnsupportedPlatform(args []string, options commandOptions, stderr io.Writer) (int, bool) {
-	if !requiresPlatformAdmission(args) || commandInvocationRequestsHelp(args[1:]) {
+	diagnostic, rejected := platformRefusal(args, options)
+	if !rejected {
 		return 0, false
+	}
+	fmt.Fprintln(stderr, diagnostic.HumanText())
+	return 1, true
+}
+
+func platformRefusal(args []string, options commandOptions) (clipresent.FailureDiagnostic, bool) {
+	if !requiresPlatformAdmission(args) || commandInvocationRequestsHelp(args[1:]) {
+		return clipresent.FailureDiagnostic{}, false
 	}
 	assessment, err := options.assessPlatform()
 	if err != nil {
-		fmt.Fprintf(stderr, "%s failed: observe platform runtime: %s\n", humanDiagnosticText(args[0]), humanDiagnosticError(err))
-		return 1, true
+		return humanFailureDiagnostic(err).WithPrefix(args[0] + " failed: observe platform runtime: "), true
 	}
 	if err := assessment.RequireSupported(); err != nil {
-		fmt.Fprintf(stderr, "%s failed: %s\n", humanDiagnosticText(args[0]), humanDiagnosticError(err))
-		fmt.Fprintln(stderr, "next: run daem doctor")
-		return 1, true
+		diagnostic := humanFailureDiagnostic(err).WithPrefix(args[0] + " failed: ")
+		if doctor, guidanceErr := clipresent.CommandGuidance([]string{"daem", "doctor"}, ""); guidanceErr == nil {
+			diagnostic = diagnostic.WithGuidance(doctor)
+		}
+		return diagnostic, true
 	}
-	return 0, false
+	return clipresent.FailureDiagnostic{}, false
 }
 
 func (options commandOptions) assessPlatform() (platformsupport.PlatformAssessment, error) {
@@ -340,14 +347,18 @@ func humanDiagnosticText(value string) string {
 }
 
 func humanDiagnosticError(err error) string {
+	return humanFailureDiagnostic(err).HumanText()
+}
+
+func humanFailureDiagnostic(err error) clipresent.FailureDiagnostic {
 	var outputFailure *stableOutputWriteError
 	if errors.As(err, &outputFailure) {
 		if outputFailure.writer != nil && outputFailure.writer.err != nil {
 			outputFailure.writer.failureReported = true
 		}
-		return outputFailure.Error()
+		return clipresent.NewFailureDiagnostic(outputFailure.Error())
 	}
-	return clipresent.Error(err)
+	return clipresent.FailureDiagnosticFromError(err)
 }
 
 func requiresPlatformAdmission(args []string) bool {

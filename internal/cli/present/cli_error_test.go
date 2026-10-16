@@ -53,6 +53,15 @@ func TestCLIErrorDoesNotInterpretUnownedAnnotations(t *testing.T) {
 	}
 }
 
+func TestFailureDiagnosticPrefixDoesNotReprojectCause(t *testing.T) {
+	diagnostic := NewFailureDiagnostic("bad input\nnext: untrusted").WithGuidance(InstructionGuidance("repair the selected input"))
+	prefixed := diagnostic.WithPrefix("outer operation: ")
+	if prefixed.Message() != "outer operation: "+diagnostic.Message() ||
+		len(prefixed.Guidance()) != 1 || prefixed.Guidance()[0].Message() != diagnostic.Guidance()[0].Message() {
+		t.Fatalf("context changed the projected cause or guidance: %q, %#v", prefixed.Message(), prefixed.Guidance())
+	}
+}
+
 func TestCommandGuidanceRoundTripsArguments(t *testing.T) {
 	want := []string{"daem", "init", "--manifest", "dir with spaces/line\nbreak.toml", "--dry-run"}
 	input := slices.Clone(want)

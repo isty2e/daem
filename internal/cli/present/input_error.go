@@ -80,9 +80,17 @@ func RecognizedInputDiagnostic(err error) (FailureDiagnostic, bool) {
 // PrintMissingSourceHint emits advice only for a missing local source root,
 // not for an unrelated filesystem failure or an error with similar wording.
 func PrintMissingSourceHint(output io.Writer, err error) bool {
-	if !localfs.IsSourceUnavailable(err) {
+	guidance, present := MissingSourceGuidance(err)
+	if !present {
 		return false
 	}
-	fmt.Fprintln(output, "next: check that the source exists at this path; correct the source argument or the manifest source path")
+	fmt.Fprintln(output, guidance.HumanText())
 	return true
+}
+
+func MissingSourceGuidance(err error) (Guidance, bool) {
+	if !localfs.IsSourceUnavailable(err) {
+		return Guidance{}, false
+	}
+	return InstructionGuidance("check that the source exists at this path; correct the source argument or the manifest source path"), true
 }

@@ -25,16 +25,21 @@ func printLockCommandHint(output io.Writer, manifestPath, requestedManifestPath 
 }
 
 func printTargetSelectionHint(output io.Writer, manifestPath, requestedManifestPath string) {
-	clipresent.PrintManifestCommand(output, "next: run ", []string{"lock"}, manifestPath, manifestHintOptions(requestedManifestPath, false), "--dry-run")
-	fmt.Fprintf(output, "note: omit --target to inspect all effective targets; accepted targets: %s\n", supportedTargetValuesForHelp())
+	for _, guidance := range targetSelectionGuidance(manifestPath, requestedManifestPath) {
+		fmt.Fprintln(output, guidance.HumanText())
+	}
 }
 
 func printUnexpectedArgumentWithTargetHint(output io.Writer, arg string, targetValues targetFlagValues) {
-	fmt.Fprintf(output, "unexpected argument %q\n", arg)
+	fmt.Fprintln(output, unexpectedArgumentDiagnostic(arg, targetValues).HumanText())
+}
+
+func unexpectedArgumentDiagnostic(arg string, targetValues targetFlagValues) clipresent.FailureDiagnostic {
+	diagnostic := clipresent.NewFailureDiagnostic((&unexpectedArgumentError{argument: arg}).Error())
 	if len(targetValues) == 0 || !isSupportedTargetLiteral(arg) {
-		return
+		return diagnostic
 	}
-	printTargetListSyntaxHint(output)
+	return diagnostic.WithGuidance(targetListSyntaxGuidance())
 }
 
 func printAuthoringArgumentCorrection(output io.Writer, path []string, err error, args []string) {
@@ -54,7 +59,11 @@ func printUnexpectedArgumentTargetHintFromArgs(output io.Writer, err error, args
 }
 
 func printTargetListSyntaxHint(output io.Writer) {
-	fmt.Fprintln(output, "next: repeat the flag: --target codex --target claude-code")
+	fmt.Fprintln(output, targetListSyntaxGuidance().HumanText())
+}
+
+func targetListSyntaxGuidance() clipresent.Guidance {
+	return clipresent.InstructionGuidance("repeat the flag: --target codex --target claude-code")
 }
 
 func isSupportedTargetLiteral(value string) bool {
@@ -113,11 +122,32 @@ func printSkillGroupPartialTargetRemovalHint(output io.Writer, resourceKey strin
 }
 
 func printMissingManifestInitHint(output io.Writer, manifestPath string, err error) {
+	if guidance, present := missingManifestInitGuidance(manifestPath, err); present {
+		fmt.Fprintln(output, guidance.HumanText())
+	}
+}
+
+func missingManifestInitGuidance(manifestPath string, err error) (clipresent.Guidance, bool) {
 	resolvedManifestPath, ok := missingManifestInitHintPath(manifestPath, err)
 	if !ok {
-		return
+		return clipresent.Guidance{}, false
 	}
-	clipresent.PrintManifestCommand(output, "next: run ", []string{"init"}, resolvedManifestPath, creationHintOptions(), "--dry-run")
+	return manifestCommandGuidance([]string{"init"}, resolvedManifestPath, creationHintOptions(), "--dry-run"), true
+}
+
+func manifestCommandGuidance(command []string, manifestPath string, options clipresent.HumanOptions, arguments ...string) clipresent.Guidance {
+	argv := clipresent.ManifestCommandArguments(command, manifestPath, options, arguments...)
+	if guidance, err := clipresent.CommandGuidance(argv, ""); err == nil {
+		return guidance
+	}
+	return clipresent.InstructionGuidance("the follow-up arguments cannot be represented safely; inspect the selected manifest and retry manually")
+}
+
+func targetSelectionGuidance(manifestPath, requestedManifestPath string) []clipresent.Guidance {
+	return []clipresent.Guidance{
+		manifestCommandGuidance([]string{"lock"}, manifestPath, manifestHintOptions(requestedManifestPath, false), "--dry-run"),
+		clipresent.NoteGuidance("omit --target to inspect all effective targets; accepted targets: " + supportedTargetValuesForHelp()),
+	}
 }
 
 func missingManifestInitHintPath(manifestPath string, err error) (string, bool) {
