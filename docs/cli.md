@@ -253,8 +253,9 @@ where parsing stopped, which may be the end of the document rather than the
 opening bracket or quote. Unknown keys link to the [manifest reference](manifest.md).
 
 Declaration read, validation and placement failures can include input-repair
-guidance. Environment failures while resolving a local carrier source are not
-classified as invalid manifest input; use `--verbose` for bounded failure evidence.
+guidance. Environment failures while resolving a local carrier source or host
+load identity are not classified as invalid manifest or lockfile input; use
+`--verbose` for bounded failure evidence.
 
 Missing local sources include path-correction advice. Git instruction, skill,
 and skill-group sources require an explicit branch, tag, or commit through `--ref`; local paths
