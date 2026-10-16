@@ -29,8 +29,12 @@ func TestManifestHintPathsKeepSelectionFamiliesDistinct(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(user, "daem.toml"), []byte("version=1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := CWDManifestHintPath(); got != "" {
-		t.Fatalf("user fallback exposed as cwd evidence: %q", got)
+	userManifest := filepath.Join(user, "daem.toml")
+	if got := ImplicitManifestHintPath(""); got != userManifest {
+		t.Fatalf("implicit user hint target=%q, want %q", got, userManifest)
+	}
+	if got := ImplicitManifestHintPath(userManifest); got != "" {
+		t.Fatalf("explicit user selector admitted for elision: %q", got)
 	}
 	if got := CreationManifestHintPath(); got != manifest {
 		t.Fatalf("creation target=%q, want absent cwd path %q", got, manifest)
@@ -39,15 +43,18 @@ func TestManifestHintPathsKeepSelectionFamiliesDistinct(t *testing.T) {
 	if err := os.WriteFile(manifest, []byte("version=1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := CWDManifestHintPath(); got != manifest {
+	if got := ImplicitManifestHintPath(""); got != manifest {
 		t.Fatalf("existing cwd target=%q, want %q", got, manifest)
 	}
 	if got := CreationManifestHintPath(); got != manifest {
 		t.Fatalf("existing creation target=%q, want %q", got, manifest)
 	}
+	if got := ImplicitManifestHintPath("./daem.toml"); got != manifest {
+		t.Fatalf("relative explicit cwd target=%q, want %q", got, manifest)
+	}
 
 	t.Setenv("XDG_DATA_HOME", "invalid-relative-root")
-	if existing, creation := CWDManifestHintPath(), CreationManifestHintPath(); existing != "" || creation != "" {
+	if existing, creation := ImplicitManifestHintPath(""), CreationManifestHintPath(); existing != "" || creation != "" {
 		t.Fatalf("unavailable observation retained selection evidence: existing=%q creation=%q", existing, creation)
 	}
 }

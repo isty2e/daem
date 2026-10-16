@@ -127,11 +127,11 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, planning.Reconciliation.CarrierAbsences(), humanOptions)
 		clipresent.PrintDelegateActionsWithOptions(stdout, planning.Reconciliation.Delegates(), humanOptions)
 		if planning.Reconciliation.HasLockReadinessErrors() {
-			printLockCommandHint(stdout, planning.ManifestPath)
+			printLockCommandHint(stdout, planning.ManifestPath, *manifestPath)
 		}
 		clipresent.PrintDiagnosticsWithOptions(stdout, planning.Diagnostics, humanOptions)
 		if clipresent.PrintReconciliationGuidance(stdout, planning.Reconciliation) {
-			printReconciliationInspectionHint(stdout, planning.ManifestPath, targetValues, *verbose)
+			printReconciliationInspectionHint(stdout, planning.ManifestPath, *manifestPath, targetValues, *verbose)
 		}
 		if planning.Reconciliation.HasErrors() {
 			return 1
@@ -201,10 +201,10 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		}
 		printApplyWorkflowHints(stderr, *manifestPath, readinessPlanning.CommandResult, err)
 		if readinessPlanning.ReconciliationReady && clipresent.PrintReconciliationGuidance(stderr, readinessPlanning.Reconciliation) {
-			printReconciliationInspectionHint(stderr, readinessPlanning.ManifestPath, targetValues, *verbose)
+			printReconciliationInspectionHint(stderr, readinessPlanning.ManifestPath, *manifestPath, targetValues, *verbose)
 		}
 		if readinessPlanning.ReconciliationReady && readinessPlanning.Reconciliation.HasLockReadinessErrors() {
-			printLockCommandHint(stderr, readinessPlanning.ManifestPath)
+			printLockCommandHint(stderr, readinessPlanning.ManifestPath, *manifestPath)
 		}
 		return 1
 	}
@@ -316,7 +316,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 			*verbose,
 		)
 		if clipresent.PrintReconciliationFailureGuidance(stderr, result.Reconciliation) {
-			printReconciliationInspectionHint(stderr, result.ManifestPath, targetValues, *verbose)
+			printReconciliationInspectionHint(stderr, result.ManifestPath, *manifestPath, targetValues, *verbose)
 		}
 		return 1
 	}
@@ -553,7 +553,7 @@ func printApplyWorkflowHints(
 		if _, recognized := clipresent.RecognizedInputError(cause); !recognized {
 			switch {
 			case errors.Is(cause, applyworkflow.ErrReadLockfile) && errors.Is(cause, fs.ErrNotExist):
-				printLockCommandHint(output, selectedManifest)
+				printLockCommandHint(output, selectedManifest, manifestPath)
 			case errors.Is(cause, fs.ErrNotExist):
 				printMissingManifestInitHint(output, selectedManifest, cause)
 			default:
@@ -562,7 +562,7 @@ func printApplyWorkflowHints(
 		}
 	}
 	if failure.Reason() == applyworkflow.FailureReasonApplyRefused && errors.Is(err, targetselection.ErrInvalid) {
-		printTargetSelectionHint(output, selectedManifest)
+		printTargetSelectionHint(output, selectedManifest, manifestPath)
 	}
 	if failure.Reason() == applyworkflow.FailureReasonRelationOrderRiskExpanded {
 		fmt.Fprintln(output, "next: inspect a fresh dry-run with daem apply --dry-run, then rerun interactively to authorize the updated extension order")

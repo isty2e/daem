@@ -89,7 +89,7 @@ func runRemoveHook(ctx context.Context, args []string, stdout io.Writer, stderr 
 		}
 		return 0
 	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("removed", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceHook, result), manifestHintOptions(*verbose))
+	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("removed", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceHook, result), manifestHintOptions(*manifestPath, *verbose))
 	return 0
 }
 

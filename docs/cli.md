@@ -215,12 +215,14 @@ interrupts a blocked terminal read and cannot authorize effects.
   argv; arguments containing NUL cannot be represented and produce no concrete
   command. Commands containing placeholders such as `<target>` are templates,
   not concrete argv claims.
-- Concrete manifest-scoped hints omit `--manifest` when the exact manifest path
-  matches the suggested command's cwd selection. User-default fallback,
-  different paths, and failed selection checks retain an explicit argument. Run the hint from the
-  same directory and environment; if manifest files change, recheck the selected
-  workspace. Rerun reminders are not full command replays: keep your original
-  operands and selection flags.
+- Concrete manifest-scoped hints preserve the requested selection. Implicit
+  requests may omit `--manifest` when the hinted command selects the same cwd or
+  user manifest. Explicit requests may elide only equivalent cwd selection,
+  never user-default fallback. Creation hints use creation rules. If selection
+  cannot be confirmed, the hint keeps the requested selector. Run it from the
+  same directory and environment; if discovery inputs change, recheck the
+  selected workspace. Rerun reminders are not full command replays: keep your
+  original operands and selection flags.
 - Human-readable dynamic paths and errors escape backslashes, controls, format
   characters, and invalid UTF-8 bytes. Structural line breaks remain owned by
   the presenter, so dynamic values cannot forge another diagnostic or hint.

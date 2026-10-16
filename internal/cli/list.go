@@ -56,7 +56,7 @@ func runList(args []string, stdout io.Writer, stderr io.Writer, options commandO
 			fmt.Fprintf(stderr, "list failed: %s\n", humanDiagnosticError(err))
 			printMissingManifestInitHint(stderr, *manifestPath, err)
 			if errors.Is(err, targetselection.ErrInvalid) {
-				printTargetSelectionHint(stderr, result.ManifestPath)
+				printTargetSelectionHint(stderr, result.ManifestPath, *manifestPath)
 			}
 			return 1
 		}
@@ -79,7 +79,7 @@ func runList(args []string, stdout io.Writer, stderr io.Writer, options commandO
 			fmt.Fprintf(stderr, "list failed: %s\n", humanDiagnosticError(err))
 			printMissingManifestInitHint(stderr, *manifestPath, err)
 			if errors.Is(err, targetselection.ErrInvalid) {
-				printTargetSelectionHint(stderr, result.ManifestPath)
+				printTargetSelectionHint(stderr, result.ManifestPath, *manifestPath)
 			}
 			return 1
 		}
@@ -107,7 +107,7 @@ func runList(args []string, stdout io.Writer, stderr io.Writer, options commandO
 		fmt.Fprintf(stderr, "list failed: %s\n", humanDiagnosticError(err))
 		printMissingManifestInitHint(stderr, result.ManifestPath, err)
 		if errors.Is(err, targetselection.ErrInvalid) {
-			printTargetSelectionHint(stderr, result.ManifestPath)
+			printTargetSelectionHint(stderr, result.ManifestPath, *manifestPath)
 		}
 		return 1
 	}

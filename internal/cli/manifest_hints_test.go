@@ -16,7 +16,7 @@ import (
 )
 
 func TestManifestHintsPreserveSelectedWorkspace(t *testing.T) {
-	for _, selection := range []string{"cwd", "explicit cwd", "other manifest", "user fallback"} {
+	for _, selection := range []string{"cwd", "explicit cwd", "relative cwd", "other manifest", "user fallback", "explicit user"} {
 		t.Run(selection, func(t *testing.T) {
 			root, cwd := manifestHintWorkspace(t)
 			selected := filepath.Join(cwd, "daem.toml")
@@ -24,12 +24,17 @@ func TestManifestHintsPreserveSelectedWorkspace(t *testing.T) {
 			switch selection {
 			case "explicit cwd":
 				selector = []string{"--manifest", selected}
+			case "relative cwd":
+				selector = []string{"--manifest", "./daem.toml"}
 			case "other manifest":
 				writeHintManifest(t, selected)
 				selected = filepath.Join(root, "other 'workspace", "daem.toml")
 				selector = []string{"--manifest", selected}
-			case "user fallback":
+			case "user fallback", "explicit user":
 				selected = filepath.Join(root, "config", "daem", "daem.toml")
+				if selection == "explicit user" {
+					selector = []string{"--manifest", selected}
+				}
 			}
 			writeHintManifest(t, selected)
 			before := snapshotApplyInputFiles(t, root)
@@ -44,7 +49,7 @@ func TestManifestHintsPreserveSelectedWorkspace(t *testing.T) {
 			if len(argv) == 0 || argv[0] != "lock" {
 				t.Fatalf("next command=%q, want lock", argv)
 			}
-			wantExplicit := selection == "other manifest" || selection == "user fallback"
+			wantExplicit := selection == "other manifest" || selection == "explicit user"
 			if slices.Contains(argv, "--manifest") != wantExplicit {
 				t.Fatalf("next argv=%q, explicit selector wanted=%v", argv, wantExplicit)
 			}
@@ -78,7 +83,7 @@ func TestManifestHintsDistinguishReadAndCreationDefaults(t *testing.T) {
 	before := snapshotApplyInputFiles(t, root)
 
 	var readHint strings.Builder
-	printLockCommandHint(&readHint, localManifest)
+	printLockCommandHint(&readHint, localManifest, localManifest)
 	readArgv := manifestHintArgv(t, readHint.String(), "next: run ")
 	if !slices.Contains(readArgv, "--manifest") {
 		t.Fatalf("absent cwd read target lost explicit selection: %q", readArgv)
@@ -122,7 +127,7 @@ func TestManifestHintObservationFailureKeepsExplicitTarget(t *testing.T) {
 		t.Fatal("fixture did not prevent implicit selection observation")
 	}
 	var output strings.Builder
-	printTargetSelectionHint(&output, manifestPath)
+	printTargetSelectionHint(&output, manifestPath, manifestPath)
 	argv := manifestHintArgv(t, output.String(), "next: run ")
 	want := []string{"lock", "--manifest", manifestPath, "--dry-run"}
 	if !reflect.DeepEqual(argv, want) {

@@ -10,7 +10,11 @@ import (
 func ManifestCommand(command []string, manifestPath string, options HumanOptions, arguments ...string) (string, error) {
 	argv := append([]string{"daem"}, command...)
 	if manifestPath == "" || manifestPath != options.ImplicitManifestPath {
-		argv = append(argv, "--manifest", manifestPath)
+		request := manifestPath
+		if options.ManifestRequest != nil {
+			request = *options.ManifestRequest
+		}
+		argv = append(argv, "--manifest", request)
 	}
 	argv = append(argv, arguments...)
 

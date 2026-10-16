@@ -12,20 +12,20 @@ import (
 	workflowhelp "github.com/isty2e/daem/internal/workflow/help"
 )
 
-func lockCommandHint(manifestPath string) string {
-	command, err := clipresent.ManifestCommand([]string{"lock"}, manifestPath, manifestHintOptions(false))
+func lockCommandHint(manifestPath, requestedManifestPath string) string {
+	command, err := clipresent.ManifestCommand([]string{"lock"}, manifestPath, manifestHintOptions(requestedManifestPath, false))
 	if err != nil {
 		return ""
 	}
 	return command
 }
 
-func printLockCommandHint(output io.Writer, manifestPath string) {
-	clipresent.PrintManifestCommand(output, "next: run ", []string{"lock"}, manifestPath, manifestHintOptions(false))
+func printLockCommandHint(output io.Writer, manifestPath, requestedManifestPath string) {
+	clipresent.PrintManifestCommand(output, "next: run ", []string{"lock"}, manifestPath, manifestHintOptions(requestedManifestPath, false))
 }
 
-func printTargetSelectionHint(output io.Writer, manifestPath string) {
-	clipresent.PrintManifestCommand(output, "next: run ", []string{"lock"}, manifestPath, manifestHintOptions(false), "--dry-run")
+func printTargetSelectionHint(output io.Writer, manifestPath, requestedManifestPath string) {
+	clipresent.PrintManifestCommand(output, "next: run ", []string{"lock"}, manifestPath, manifestHintOptions(requestedManifestPath, false), "--dry-run")
 	fmt.Fprintf(output, "note: omit --target to inspect all effective targets; accepted targets: %s\n", supportedTargetValuesForHelp())
 }
 
@@ -123,7 +123,7 @@ func missingManifestInitHintPath(manifestPath string, err error) (string, bool) 
 	if !errors.Is(err, os.ErrNotExist) {
 		return "", false
 	}
-	resolvedManifestPath, pathErr := workflowhelp.InitHintManifestPath(manifestPath)
+	resolvedManifestPath, pathErr := workflowhelp.ManifestHintPath(manifestPath)
 	if pathErr != nil {
 		return "", false
 	}

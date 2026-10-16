@@ -5,10 +5,11 @@ import (
 	workflowhelp "github.com/isty2e/daem/internal/workflow/help"
 )
 
-func manifestHintOptions(verbose bool) clipresent.HumanOptions {
+func manifestHintOptions(requestedManifestPath string, verbose bool) clipresent.HumanOptions {
 	return clipresent.HumanOptions{
 		Verbose:              verbose,
-		ImplicitManifestPath: workflowhelp.CWDManifestHintPath(),
+		ManifestRequest:      &requestedManifestPath,
+		ImplicitManifestPath: workflowhelp.ImplicitManifestHintPath(requestedManifestPath),
 	}
 }
 

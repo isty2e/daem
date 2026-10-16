@@ -52,12 +52,12 @@ func TestBuildUsageFactsReturnsStaticTargetInventory(t *testing.T) {
 	}
 }
 
-func TestInitHintManifestPathResolvesExplicitPath(t *testing.T) {
+func TestManifestHintPathResolvesExplicitPath(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), "nested", "daem.toml")
 
-	resolvedPath, err := InitHintManifestPath(manifestPath)
+	resolvedPath, err := ManifestHintPath(manifestPath)
 	if err != nil {
-		t.Fatalf("InitHintManifestPath returned error: %v", err)
+		t.Fatalf("ManifestHintPath returned error: %v", err)
 	}
 	if resolvedPath != manifestPath {
 		t.Fatalf("resolvedPath = %q, want %q", resolvedPath, manifestPath)

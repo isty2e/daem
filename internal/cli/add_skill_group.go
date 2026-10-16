@@ -99,7 +99,7 @@ func runAddSkill(ctx context.Context, args []string, stdout io.Writer, stderr io
 		}
 		return 0
 	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceSkill, result), manifestHintOptions(*verbose))
+	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceSkill, result), manifestHintOptions(*manifestPath, *verbose))
 	return 0
 }
 
@@ -219,7 +219,7 @@ func runAddSkillGroup(ctx context.Context, args []string, stdout io.Writer, stde
 		}
 		return 0
 	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceSkillGroup, result), manifestHintOptions(*verbose))
+	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceSkillGroup, result), manifestHintOptions(*manifestPath, *verbose))
 	return 0
 }
 

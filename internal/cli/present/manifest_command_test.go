@@ -97,6 +97,25 @@ func TestManifestHintPresentersUseTheSameProjection(t *testing.T) {
 	}
 }
 
+func TestManifestCommandPreservesOriginalSelectorWhenElisionIsUnproven(t *testing.T) {
+	for _, request := range []string{"", "./selected/daem.toml", "/selected 'path/daem.toml", "line\nbreak\x1b.toml"} {
+		text, err := ManifestCommand([]string{"apply"}, "/resolved/daem.toml", HumanOptions{ManifestRequest: &request}, "--dry-run")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"apply", "--manifest", request, "--dry-run"}
+		if got := manifestCommandArgv(t, text); !reflect.DeepEqual(got, want) {
+			t.Fatalf("fallback argv=%q, want retained request %q", got, want)
+		}
+	}
+	request := "invalid\x00selector"
+	var output bytes.Buffer
+	PrintManifestCommand(&output, "next: run ", []string{"lock"}, "/resolved/daem.toml", HumanOptions{ManifestRequest: &request})
+	if output.Len() != 0 {
+		t.Fatalf("unrepresentable retained selector emitted a command: %q", &output)
+	}
+}
+
 func manifestCommandArgv(t *testing.T, command string) []string {
 	t.Helper()
 	if runtime.GOOS == "windows" {

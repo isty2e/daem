@@ -15,20 +15,25 @@ import (
 )
 
 func TestManifestHintsFromRemoveErrorsPreserveSelection(t *testing.T) {
-	for _, selection := range []string{"cwd", "explicit other", "user fallback"} {
+	for _, selection := range []string{"cwd", "relative cwd", "explicit other", "user fallback", "explicit user"} {
 		t.Run(selection, func(t *testing.T) {
 			root, cwd := manifestHintWorkspace(t)
 			manifestPath := filepath.Join(cwd, "daem.toml")
 			scope := "project"
 			var selector []string
 			switch selection {
+			case "relative cwd":
+				selector = []string{"--manifest", "./daem.toml"}
 			case "explicit other":
 				writeHintManifest(t, manifestPath)
 				manifestPath = filepath.Join(root, "other 'workspace", "daem.toml")
 				selector = []string{"--manifest", manifestPath}
-			case "user fallback":
+			case "user fallback", "explicit user":
 				manifestPath = filepath.Join(root, "config", "daem", "daem.toml")
 				scope = "global"
+				if selection == "explicit user" {
+					selector = []string{"--manifest", manifestPath}
+				}
 			}
 			writeHintManifest(t, manifestPath)
 			sourcePath := filepath.Join(filepath.Dir(manifestPath), "source.md")
@@ -53,7 +58,7 @@ func TestManifestHintsFromRemoveErrorsPreserveSelection(t *testing.T) {
 			if len(argv) < 3 || !reflect.DeepEqual(argv[:3], []string{"remove", "instruction", "guide"}) {
 				t.Fatalf("suggested operation=%q, want the existing instruction", argv)
 			}
-			wantExplicit := selection != "cwd"
+			wantExplicit := selection == "explicit other" || selection == "explicit user"
 			index := slices.Index(argv, "--manifest")
 			if (index >= 0) != wantExplicit {
 				t.Fatalf("suggested argv=%q, explicit selector wanted=%v", argv, wantExplicit)

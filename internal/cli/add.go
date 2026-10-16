@@ -115,7 +115,7 @@ func runAddExtension(ctx context.Context, args []string, stdout io.Writer, stder
 		}
 		return 0
 	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceExtension, result), manifestHintOptions(*verbose))
+	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceExtension, result), manifestHintOptions(*manifestPath, *verbose))
 	return 0
 }
 
@@ -239,7 +239,7 @@ func runAddMCPServer(ctx context.Context, args []string, stdout io.Writer, stder
 		}
 		return 0
 	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceMCPServer, result), manifestHintOptions(*verbose))
+	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceMCPServer, result), manifestHintOptions(*manifestPath, *verbose))
 	return 0
 }
 

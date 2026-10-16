@@ -47,7 +47,7 @@ func runStatus(args []string, stdout io.Writer, stderr io.Writer, options comman
 		fmt.Fprintf(stderr, "status failed: %s\n", humanDiagnosticError(err))
 		printMissingManifestInitHint(stderr, *manifestPath, err)
 		if errors.Is(err, targetselection.ErrInvalid) {
-			printTargetSelectionHint(stderr, result.ManifestPath)
+			printTargetSelectionHint(stderr, result.ManifestPath, *manifestPath)
 		}
 		return 1
 	}
@@ -80,7 +80,7 @@ func runStatus(args []string, stdout io.Writer, stderr io.Writer, options comman
 	}
 	if result.LockfileMissing {
 		fmt.Fprintf(stdout, "lockfile: missing %s\n", humanDiagnosticText(result.LockfilePath))
-		printLockCommandHint(stdout, result.ManifestPath)
+		printLockCommandHint(stdout, result.ManifestPath, *manifestPath)
 	}
 	humanOptions := clipresent.HumanOptions{Verbose: *verbose}
 	clipresent.PrintStatusPlanWithOptions(stdout, result.Reconciliation, humanOptions)
@@ -95,11 +95,11 @@ func runStatus(args []string, stdout io.Writer, stderr io.Writer, options comman
 		return 1
 	}
 	if result.Reconciliation.HasLockReadinessErrors() {
-		printLockCommandHint(stdout, result.ManifestPath)
+		printLockCommandHint(stdout, result.ManifestPath, *manifestPath)
 	}
 	clipresent.PrintDiagnosticsWithOptions(stdout, result.Diagnostics, humanOptions)
 	if clipresent.PrintReconciliationGuidance(stdout, result.Reconciliation) && !*verbose {
-		printReconciliationInspectionHint(stdout, result.ManifestPath, targetValues, *verbose)
+		printReconciliationInspectionHint(stdout, result.ManifestPath, *manifestPath, targetValues, *verbose)
 	}
 
 	return statusCheckExitCode(result, *checkOutput)

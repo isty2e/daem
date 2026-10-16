@@ -115,13 +115,13 @@ func TestManifestHintsPreserveTargetAndScopeArguments(t *testing.T) {
 		t.Fatalf("remove next argv=%q, want %q", got, want)
 	}
 	output.Reset()
-	printReconciliationInspectionHint(&output, path, targetFlagValues{"codex", "pi"}, true)
+	printReconciliationInspectionHint(&output, path, path, targetFlagValues{"codex", "pi"}, true)
 	want = []string{"status", "--target", "codex", "--target", "pi", "--verbose"}
 	if got := manifestHintArgv(t, output.String(), "next: inspect with "); !reflect.DeepEqual(got, want) {
 		t.Fatalf("inspection argv=%q, want %q", got, want)
 	}
 	output.Reset()
-	printReconciliationInspectionHint(&output, path, targetFlagValues{"codex", "pi"}, false)
+	printReconciliationInspectionHint(&output, path, path, targetFlagValues{"codex", "pi"}, false)
 	if strings.Contains(output.String(), path) || strings.Contains(output.String(), "next: inspect with ") {
 		t.Fatalf("nonverbose inspection disclosed a concrete path: %q", &output)
 	}
@@ -155,9 +155,11 @@ func TestManifestHintsCanUseUserManifestAsCWD(t *testing.T) {
 		!explicit.ProjectPlacementAllowed() || implicit.StateDir != explicit.StateDir || implicit.CacheDir != explicit.CacheDir {
 		t.Fatal("cwd and explicit user-manifest selection do not share storage and project admission")
 	}
-	var output strings.Builder
-	printLockCommandHint(&output, implicit.ManifestPath)
-	if got := manifestHintArgv(t, output.String(), "next: run "); !reflect.DeepEqual(got, []string{"lock"}) {
-		t.Fatalf("cwd user-manifest next argv=%q", got)
+	for _, request := range []string{"", implicit.ManifestPath} {
+		var output strings.Builder
+		printLockCommandHint(&output, implicit.ManifestPath, request)
+		if got := manifestHintArgv(t, output.String(), "next: run "); !reflect.DeepEqual(got, []string{"lock"}) {
+			t.Fatalf("cwd user-manifest next argv=%q for request %q", got, request)
+		}
 	}
 }
