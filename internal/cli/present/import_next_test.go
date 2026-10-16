@@ -44,7 +44,7 @@ func TestImportNextActionScopesManageExistingGuidance(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var output strings.Builder
-			printImportNextAction(&output, test.plan)
+			printImportNextAction(&output, test.plan, HumanOptions{})
 			for _, want := range test.want {
 				if !strings.Contains(output.String(), want) {
 					t.Fatalf("output = %q, want %q", output.String(), want)

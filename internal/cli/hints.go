@@ -13,7 +13,7 @@ import (
 )
 
 func lockCommandHint(manifestPath string) string {
-	command, err := clipresent.ShellCommand("daem", "lock", "--manifest", manifestPath)
+	command, err := clipresent.ManifestCommand([]string{"lock"}, manifestPath, manifestHintOptions(false))
 	if err != nil {
 		return ""
 	}
@@ -21,11 +21,11 @@ func lockCommandHint(manifestPath string) string {
 }
 
 func printLockCommandHint(output io.Writer, manifestPath string) {
-	clipresent.PrintShellCommand(output, "next: run ", "daem", "lock", "--manifest", manifestPath)
+	clipresent.PrintManifestCommand(output, "next: run ", []string{"lock"}, manifestPath, manifestHintOptions(false))
 }
 
 func printTargetSelectionHint(output io.Writer, manifestPath string) {
-	clipresent.PrintShellCommand(output, "next: run ", "daem", "lock", "--manifest", manifestPath, "--dry-run")
+	clipresent.PrintManifestCommand(output, "next: run ", []string{"lock"}, manifestPath, manifestHintOptions(false), "--dry-run")
 	fmt.Fprintf(output, "note: omit --target to inspect all effective targets; accepted targets: %s\n", supportedTargetValuesForHelp())
 }
 
@@ -96,7 +96,7 @@ func printImportNothingToImportHint(output io.Writer, manifestPath string, merge
 		fmt.Fprintln(output, "next: choose the destination with --manifest <path>, or add --merge when importing into an existing manifest")
 	}
 	fmt.Fprintln(output, "next: if there is no live config to import, initialize the selected manifest and add resources explicitly")
-	clipresent.PrintShellCommand(output, "next: run ", "daem", "init", "--manifest", manifestPath, "--dry-run")
+	clipresent.PrintManifestCommand(output, "next: run ", []string{"init"}, manifestPath, creationHintOptions(), "--dry-run")
 }
 
 func printSkillGroupPartialTargetRemovalHint(output io.Writer, resourceKey string, remainingTargets []string) {
@@ -116,7 +116,7 @@ func printMissingManifestInitHint(output io.Writer, manifestPath string, err err
 	if !ok {
 		return
 	}
-	clipresent.PrintShellCommand(output, "next: run ", "daem", "init", "--manifest", resolvedManifestPath, "--dry-run")
+	clipresent.PrintManifestCommand(output, "next: run ", []string{"init"}, resolvedManifestPath, creationHintOptions(), "--dry-run")
 }
 
 func missingManifestInitHintPath(manifestPath string, err error) (string, bool) {

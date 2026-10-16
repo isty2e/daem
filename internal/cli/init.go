@@ -86,7 +86,7 @@ func runInit(ctx context.Context, args []string, stdout io.Writer, stderr io.Wri
 			}
 			return 0
 		}
-		clipresent.PrintInitPlanWithOptions(stdout, "overwritten", plan, clipresent.HumanOptions{Verbose: *verbose})
+		clipresent.PrintInitPlanWithOptions(stdout, "overwritten", plan, manifestHintOptions(*verbose))
 		return 0
 	}
 	if *jsonOutput {
@@ -96,6 +96,6 @@ func runInit(ctx context.Context, args []string, stdout io.Writer, stderr io.Wri
 		}
 		return 0
 	}
-	clipresent.PrintInitPlanWithOptions(stdout, "created", plan, clipresent.HumanOptions{Verbose: *verbose})
+	clipresent.PrintInitPlanWithOptions(stdout, "created", plan, manifestHintOptions(*verbose))
 	return 0
 }

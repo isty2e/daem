@@ -132,7 +132,7 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 		}
 		return 0
 	}
-	clipresent.PrintImportPlanWithOptions(stdout, clipresent.ImportPlanFromAdoption("imported", plan, false), clipresent.HumanOptions{Verbose: *verbose})
+	clipresent.PrintImportPlanWithOptions(stdout, clipresent.ImportPlanFromAdoption("imported", plan, false), manifestHintOptions(*verbose))
 	return 0
 }
 

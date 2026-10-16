@@ -148,7 +148,7 @@ func PrintAuthoringChangeWithOptions(output io.Writer, summary AuthoringChangeSu
 	if summary.DryRun {
 		fmt.Fprintln(output, "next: rerun this authoring command without --dry-run")
 	} else {
-		PrintShellCommand(output, "next: run ", "daem", "apply", "--manifest", summary.ManifestPath, "--dry-run")
+		PrintManifestCommand(output, "next: run ", []string{"apply"}, summary.ManifestPath, options, "--dry-run")
 	}
 	if strings.TrimSpace(summary.NextStepNote) != "" {
 		fmt.Fprintf(output, "note: %s\n", Escape(summary.NextStepNote))

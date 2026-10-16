@@ -65,3 +65,23 @@ func InitHintManifestPath(manifestPath string) (string, error) {
 	}
 	return paths.ManifestPath, nil
 }
+
+// CWDManifestHintPath returns an observed cwd manifest, or empty when discovery
+// fails or falls back to a user manifest with different placement admission.
+func CWDManifestHintPath() string {
+	paths, err := daempaths.Resolve("")
+	if err != nil || paths.ManifestOrigin != daempaths.ManifestOriginCWD {
+		return ""
+	}
+	return paths.ManifestPath
+}
+
+// CreationManifestHintPath returns the implicit creation target, or empty when
+// it cannot be established. Unlike existing-workspace discovery, it need not exist.
+func CreationManifestHintPath() string {
+	paths, err := daempaths.ResolveCreation("")
+	if err != nil {
+		return ""
+	}
+	return paths.ManifestPath
+}
