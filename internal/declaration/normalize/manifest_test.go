@@ -109,7 +109,7 @@ func TestManifestRejectsNonStdioMCPTransport(t *testing.T) {
 			}}
 
 			_, err := Manifest(raw)
-			if err == nil || !strings.Contains(err.Error(), `unsupported MCP transport "`+transport+`"`) {
+			if err == nil || !strings.Contains(err.Error(), "unsupported MCP transport") {
 				t.Fatalf("Manifest transport %q error = %v", transport, err)
 			}
 		})

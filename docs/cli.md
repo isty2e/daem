@@ -242,14 +242,19 @@ values and supported credential syntax; it does not guarantee detection of
 unknown secret values or arbitrary encodings in free-form text. A complete
 observation or a scanner no-match is not proof that text contains no secrets.
 This does not relax command-specific non-disclosure guarantees for known secret
-inputs. Rejected S3 URIs report the source field and rejection reason without
-echoing the URI or underlying URL parser error.
+inputs. Rejected S3 URIs and MCP declaration transports report the source field
+and rejection reason without echoing the rejected value. S3 diagnostics also
+omit underlying URL parser errors.
 
 ### Input Error Guidance
 
 TOML syntax errors include a one-based line and column when available. This is
 where parsing stopped, which may be the end of the document rather than the
 opening bracket or quote. Unknown keys link to the [manifest reference](manifest.md).
+
+Declaration read, validation and placement failures can include input-repair
+guidance. Environment failures while resolving a local carrier source are not
+classified as invalid manifest input; use `--verbose` for bounded failure evidence.
 
 Missing local sources include path-correction advice. Git instruction, skill,
 and skill-group sources require an explicit branch, tag, or commit through `--ref`; local paths

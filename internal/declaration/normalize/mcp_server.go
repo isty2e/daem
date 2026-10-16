@@ -20,7 +20,7 @@ func ExplicitMCPServer(server declarationcodec.MCPServer) (desiredmcp.Server, de
 		return desiredmcp.Server{}, desiredmcp.Binding{}, fmt.Errorf("mcp-server requires exactly one target")
 	}
 	if server.Transport != string(desiredmcp.TransportKindStdio) {
-		return desiredmcp.Server{}, desiredmcp.Binding{}, fmt.Errorf("mcp-server transport: unsupported MCP transport %q", server.Transport)
+		return desiredmcp.Server{}, desiredmcp.Binding{}, fmt.Errorf("mcp-server transport: unsupported MCP transport; only stdio is supported")
 	}
 	selectedTarget, err := target.ParseTarget(server.Targets[0])
 	if err != nil {
@@ -114,7 +114,7 @@ func normalizeMCPServers(rawServers []declaration.MCPServer, defaultTargets []ta
 			return nil, err
 		}
 		if transportKind != string(desiredmcp.TransportKindStdio) {
-			return nil, fmt.Errorf("%s.transport: unsupported MCP transport %q", context, transportKind)
+			return nil, fmt.Errorf("%s.transport: unsupported MCP transport; only stdio is supported", context)
 		}
 
 		command, err := normalizeMCPCommand(raw.Command)
