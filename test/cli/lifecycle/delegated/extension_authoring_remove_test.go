@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	clipresent "github.com/isty2e/daem/internal/cli/present"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/test/testkit"
@@ -171,9 +172,14 @@ func TestRunRemoveExtensionGlobalOmissionNeverUninstallsOrPrunes(t *testing.T) {
 		"--dry-run",
 		"--json",
 	}, &stdout, &stderr)
-	if exitCode != 1 ||
+
+	targetHint, hintErr := clipresent.ShellCommand("daem", "lock", "--manifest", fixture.manifestPath, "--dry-run")
+	if hintErr != nil {
+		t.Fatal(hintErr)
+	}
+	if exitCode != 1 || stdout.Len() != 0 ||
 		!strings.Contains(stderr.String(), "apply failed: apply was refused before effects") ||
-		!strings.Contains(stderr.String(), "next: run daem lock --manifest <manifest> --dry-run") {
+		!strings.Contains(stderr.String(), "next: run "+targetHint+"\n") {
 		t.Fatalf("targeted apply after remove exitCode = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
 	execcheck.AssertClean(t, canary, "targeted apply after global extension omission")

@@ -1,7 +1,6 @@
 package normalize
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -40,7 +39,7 @@ func TestExplicitMCPServerRejectsAnUnadmittedTransport(t *testing.T) {
 			_, _, err := ExplicitMCPServer(declarationcodec.MCPServer{
 				Name: "context7", Targets: []string{"codex"}, Scope: "project", Transport: transport, Command: declaration.NewMCPAmbientCommand("npx"),
 			})
-			if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("unsupported MCP transport %q", transport)) {
+			if err == nil || !strings.Contains(err.Error(), "unsupported MCP transport") {
 				t.Fatalf("ExplicitMCPServer transport %q error = %v", transport, err)
 			}
 		})

@@ -224,6 +224,7 @@ func ParseS3ObjectFormat(value string) (S3ObjectFormat, error) {
 }
 
 // ParseS3ObjectURI validates a single S3 object URI. Prefix directory sources are unsupported.
+// Rejection errors contain reasons, not URI values or parser error text.
 func ParseS3ObjectURI(value string) (S3ObjectURI, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -232,30 +233,30 @@ func ParseS3ObjectURI(value string) (S3ObjectURI, error) {
 
 	parsed, err := url.Parse(trimmed)
 	if err != nil {
-		return S3ObjectURI{}, fmt.Errorf("parse s3 uri %q: %w", value, err)
+		return S3ObjectURI{}, fmt.Errorf("s3 uri has invalid syntax")
 	}
 	if parsed.Scheme != "s3" {
-		return S3ObjectURI{}, fmt.Errorf("s3 uri %q must use s3:// scheme", value)
+		return S3ObjectURI{}, fmt.Errorf("s3 uri must use s3:// scheme")
 	}
 	if parsed.User != nil {
-		return S3ObjectURI{}, fmt.Errorf("s3 uri %q must not include credentials", value)
+		return S3ObjectURI{}, fmt.Errorf("s3 uri must not include credentials")
 	}
 	if strings.TrimSpace(parsed.Host) == "" {
-		return S3ObjectURI{}, fmt.Errorf("s3 uri %q must include a bucket", value)
+		return S3ObjectURI{}, fmt.Errorf("s3 uri must include a bucket")
 	}
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
-		return S3ObjectURI{}, fmt.Errorf("s3 uri %q must not include query or fragment fields", value)
+		return S3ObjectURI{}, fmt.Errorf("s3 uri must not include query or fragment fields")
 	}
 
 	key := strings.TrimPrefix(parsed.Path, "/")
 	if key == "" {
-		return S3ObjectURI{}, fmt.Errorf("s3 uri %q must include an object key; prefix directory sources are unsupported", value)
+		return S3ObjectURI{}, fmt.Errorf("s3 uri must include an object key; prefix directory sources are unsupported")
 	}
 	if strings.ContainsRune(key, '\x00') {
-		return S3ObjectURI{}, fmt.Errorf("s3 uri %q must not include NUL bytes", value)
+		return S3ObjectURI{}, fmt.Errorf("s3 uri must not include NUL bytes")
 	}
 	if strings.HasSuffix(key, "/") {
-		return S3ObjectURI{}, fmt.Errorf("s3 uri %q looks like a prefix directory source; prefix directory sources are unsupported", value)
+		return S3ObjectURI{}, fmt.Errorf("s3 uri looks like a prefix directory source; prefix directory sources are unsupported")
 	}
 
 	// Re-escape the decoded key without RawPath so equivalent URI spellings

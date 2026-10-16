@@ -218,10 +218,17 @@ interrupts a blocked terminal read and cannot authorize effects.
 - Human-readable dynamic paths and errors escape backslashes, controls, format
   characters, and invalid UTF-8 bytes. Structural line breaks remain owned by
   the presenter, so dynamic values cannot forge another diagnostic or hint.
+- Human error details apply the shared redaction policy. Each dynamic detail is
+  limited to 4,096 Unicode characters, with a truncation marker when needed.
+  Details too large for bounded inspection are withheld instead of printing a
+  partial value. Syntax locations and repair guidance remain outside that
+  detail budget. This also applies to human stderr before a JSON result exists;
+  it does not change JSON payloads or declaration-size admission limits.
 - `--verbose` adds bounded typed causal, provenance, path, and identity
   evidence. Error types without a bounded evidence projection are reported as
-  omitted instead of invoking an arbitrary error formatter. Verbosity never
-  changes selection, planning, authority, or mutation.
+  omitted instead of invoking an arbitrary error formatter. Incomplete error
+  evidence is withheld rather than printing a potentially unsafe prefix.
+  Verbosity never changes selection, planning, authority, or mutation.
 - `--json` emits exactly one schema-versioned JSON document to stdout.
 - `--json` and `--verbose` are mutually exclusive.
 - `--diff` is accepted by `import`, every add/remove leaf, and `apply`. It
@@ -230,11 +237,25 @@ interrupts a blocked terminal read and cannot authorize effects.
 - `--check` exists only on `outdated` and `status`. It preserves normal output
   but returns non-zero when that command's clean predicate is false.
 
+**Credential detection — NON-GOAL.** Redaction covers explicitly supplied secret
+values and supported credential syntax; it does not guarantee detection of
+unknown secret values or arbitrary encodings in free-form text. A complete
+observation or a scanner no-match is not proof that text contains no secrets.
+This does not relax command-specific non-disclosure guarantees for known secret
+inputs. Rejected S3 URIs and MCP declaration transports report the source field
+and rejection reason without echoing the rejected value. S3 diagnostics also
+omit underlying URL parser errors.
+
 ### Input Error Guidance
 
 TOML syntax errors include a one-based line and column when available. This is
 where parsing stopped, which may be the end of the document rather than the
 opening bracket or quote. Unknown keys link to the [manifest reference](manifest.md).
+
+Declaration read, validation and placement failures can include input-repair
+guidance. Environment failures while resolving a local carrier source or host
+load identity are not classified as invalid manifest or lockfile input; use
+`--verbose` for bounded failure evidence.
 
 Missing local sources include path-correction advice. Git instruction, skill,
 and skill-group sources require an explicit branch, tag, or commit through `--ref`; local paths
@@ -1107,11 +1128,22 @@ between stored and desired Pi codecs, with the binding, backends and retirement
 guidance. It can refuse planning before an execution envelope exists.
 `rolled_back` requires compensation for every attempted effect; a
 retained provider prerequisite or any effect outside the journal keeps the
-result `incomplete`. Human output uses the same detail; verbose evidence is
-bounded and sanitized. Planning, projection, diff, confirmation, diagnostic and
-output failures use this boundary before any execution envelope. Default
-remediation uses `<manifest>`; verbose output may include the selected path and
-bounded exact command evidence.
+result `incomplete`. JSON messages and generic human failures use the same closed
+detail; verbose evidence is bounded and sanitized. Projection, diff,
+confirmation, diagnostic and output failures retain this boundary.
+
+Before planning completes, human diagnostics for the selected manifest and
+lockfile can include their escaped input errors, syntax locations and shared
+repair guidance. This also applies to stderr when `--json` fails before a result
+envelope exists; it does not add an early JSON result. Cancellation and recovery
+barriers still take precedence. Unknown internal errors retain the closed
+detail, and no reconciliation summary is shown before a plan exists.
+
+Input-remediation commands use the selected manifest path, including without
+`--verbose`. A missing lockfile may direct lock creation; a malformed existing
+lockfile must be corrected first rather than rerunning the same failing lock
+command. Broader hint shortening and early JSON envelopes are outside this
+behavior.
 
 Host-route attempt rows include the exact operation and bounded
 `effect_postconditions` requirement/state summaries when the route couples

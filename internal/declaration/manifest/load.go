@@ -10,15 +10,15 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
-// LoadSelected decodes, normalizes, and validates the manifest selected by the
-// command boundary.
+// LoadSelected validates the selected manifest and resolves contextual carrier
+// sources. InputErrorCause distinguishes input failures from resolution failures.
 func LoadSelected(ctx context.Context, paths daempaths.Paths) (desired.Environment, error) {
 	environment, err := Load(ctx, paths.ManifestPath)
 	if err != nil {
-		return desired.Environment{}, err
+		return desired.Environment{}, selectedInputError{cause: err}
 	}
 	if err := ValidatePlacement(paths, environment); err != nil {
-		return desired.Environment{}, err
+		return desired.Environment{}, selectedInputError{cause: err}
 	}
 	resolved, err := ResolveSelectedCarrierSources(paths, environment)
 	if err != nil {

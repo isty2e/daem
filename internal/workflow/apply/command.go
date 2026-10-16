@@ -30,7 +30,6 @@ import (
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
-	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
@@ -421,9 +420,12 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 		lockfilePath,
 	)
 	if err != nil {
+		if barrierErr := barrier.Validate(ctx); barrierErr != nil {
+			return unavailablePreparedWrite(CommandResult{}), errors.Join(err, barrierErr)
+		}
 		return unavailablePreparedWrite(CommandResult{}), fmt.Errorf(
 			"capture pre-plan apply declaration revisions: %w",
-			err,
+			commandInputError{cause: err},
 		)
 	}
 	planned, err := planReadinessAtPathsWithBarrier(ctx, input, operationContext, paths, &barrier)
@@ -710,22 +712,25 @@ func loadCommandInputsAtPaths(
 
 	environment, err := declarationmanifest.LoadSelected(ctx, paths)
 	if err != nil {
-		return commandContext{}, result, fmt.Errorf("invalid manifest: %w", err)
+		if _, input := declarationmanifest.InputErrorCause(err); input {
+			return commandContext{}, result, commandInputError{cause: fmt.Errorf("invalid manifest: %w", err)}
+		}
+		return commandContext{}, result, fmt.Errorf("resolve selected manifest context: %w", err)
 	}
 
 	locked, lockfileErr := lockfile.Load(ctx, result.LockfilePath)
 	lockfileMissing := false
 	if lockfileErr != nil {
 		if !os.IsNotExist(lockfileErr) {
-			return commandContext{}, result, fmt.Errorf("%w: %w", ErrReadLockfile, lockfileErr)
+			return commandContext{}, result, commandInputError{cause: fmt.Errorf("%w: %w", ErrReadLockfile, lockfileErr)}
 		}
 		lockfileMissing = true
-	} else if err := lockrefine.ValidateCurrentExtensionOrder(
+	} else if err := validateSelectedExtensionOrder(
 		environment.Extensions(),
 		locked,
 		aggregatecodec.ExtensionOrderIdentityResolver(paths),
 	); err != nil {
-		return commandContext{}, result, fmt.Errorf("%w: %w", ErrReadLockfile, err)
+		return commandContext{}, result, err
 	}
 
 	// Each planning pass owns one persistence epoch. Execute performs a new pass
@@ -763,7 +768,7 @@ func loadCommandInputsAtPaths(
 	}
 
 	if lockfileMissing {
-		return commandContext{}, result, fmt.Errorf("%w: %w", ErrReadLockfile, lockfileErr)
+		return commandContext{}, result, commandInputError{cause: fmt.Errorf("%w: %w", ErrReadLockfile, lockfileErr)}
 	}
 
 	generatedSkills, err := locked.Locked.SkillSetChildren(environment.Skills(), environment.SkillSets())

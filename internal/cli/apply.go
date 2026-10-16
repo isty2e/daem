@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -86,7 +87,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		})
 		if err != nil {
 			printApplyFailure(stderr, err, applyFailurePlanning, planning.CommandResult, *verbose)
-			printApplyWorkflowHints(stderr, *manifestPath, planning.CommandResult, err, *verbose)
+			printApplyWorkflowHints(stderr, *manifestPath, planning.CommandResult, err)
 			return 1
 		}
 		mcpStatuses, err := clipresent.MCPStatusesFrom(planning.MCPProjections)
@@ -126,7 +127,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, planning.Reconciliation.CarrierAbsences(), humanOptions)
 		clipresent.PrintDelegateActionsWithOptions(stdout, planning.Reconciliation.Delegates(), humanOptions)
 		if planning.Reconciliation.HasLockReadinessErrors() {
-			printApplyLockCommandHint(stdout, planning.ManifestPath, *verbose)
+			printLockCommandHint(stdout, planning.ManifestPath)
 		}
 		clipresent.PrintDiagnosticsWithOptions(stdout, planning.Diagnostics, humanOptions)
 		if clipresent.PrintReconciliationGuidance(stdout, planning.Reconciliation) {
@@ -186,22 +187,24 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 			return 1
 		}
 		printApplyFailure(stderr, err, applyFailurePlanning, readinessPlanning.CommandResult, *verbose)
-		clipresent.PrintActionPlanWithOptions(
-			stderr,
-			"apply",
-			readinessPlanning.Reconciliation,
-			clipresent.HumanOptions{Verbose: *verbose},
-		)
-		clipresent.PrintRelationActionsWithOptions(stderr, readinessPlanning.Reconciliation.Relations(), clipresent.HumanOptions{Verbose: *verbose})
-		clipresent.PrintRelationOrderActionsWithOptions(stderr, readinessPlanning.Reconciliation.RelationOrders(), clipresent.HumanOptions{Verbose: *verbose})
-		clipresent.PrintCarrierAdoptionActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAdoptions(), clipresent.HumanOptions{Verbose: *verbose})
-		clipresent.PrintCarrierAbsenceActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAbsences(), clipresent.HumanOptions{Verbose: *verbose})
-		printApplyWorkflowHints(stderr, *manifestPath, readinessPlanning.CommandResult, err, *verbose)
-		if clipresent.PrintReconciliationGuidance(stderr, readinessPlanning.Reconciliation) {
+		if readinessPlanning.ReconciliationReady {
+			clipresent.PrintActionPlanWithOptions(
+				stderr,
+				"apply",
+				readinessPlanning.Reconciliation,
+				clipresent.HumanOptions{Verbose: *verbose},
+			)
+			clipresent.PrintRelationActionsWithOptions(stderr, readinessPlanning.Reconciliation.Relations(), clipresent.HumanOptions{Verbose: *verbose})
+			clipresent.PrintRelationOrderActionsWithOptions(stderr, readinessPlanning.Reconciliation.RelationOrders(), clipresent.HumanOptions{Verbose: *verbose})
+			clipresent.PrintCarrierAdoptionActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAdoptions(), clipresent.HumanOptions{Verbose: *verbose})
+			clipresent.PrintCarrierAbsenceActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAbsences(), clipresent.HumanOptions{Verbose: *verbose})
+		}
+		printApplyWorkflowHints(stderr, *manifestPath, readinessPlanning.CommandResult, err)
+		if readinessPlanning.ReconciliationReady && clipresent.PrintReconciliationGuidance(stderr, readinessPlanning.Reconciliation) {
 			printReconciliationInspectionHint(stderr, readinessPlanning.ManifestPath, targetValues, *verbose)
 		}
-		if readinessPlanning.Reconciliation.HasLockReadinessErrors() {
-			printApplyLockCommandHint(stderr, readinessPlanning.ManifestPath, *verbose)
+		if readinessPlanning.ReconciliationReady && readinessPlanning.Reconciliation.HasLockReadinessErrors() {
+			printLockCommandHint(stderr, readinessPlanning.ManifestPath)
 		}
 		return 1
 	}
@@ -441,6 +444,11 @@ func applyFailureDetail(
 	}
 	if stage == applyFailurePlanning || stage == applyFailureExecution {
 		failure := applyworkflow.ClassifyFailure(err, result)
+		if stage == applyFailurePlanning {
+			if cause, ok := applyInputErrorCause(err, failure); ok {
+				return clipresent.Error(cause), failure.Reason()
+			}
+		}
 		return failure.Detail(), failure.Reason()
 	}
 	switch stage {
@@ -456,6 +464,18 @@ func applyFailureDetail(
 		return "apply output could not be written", applyworkflow.FailureReasonApplyIncomplete
 	default:
 		return "apply was refused before effects", applyworkflow.FailureReasonApplyRefused
+	}
+}
+
+func applyInputErrorCause(err error, failure applyworkflow.Failure) (error, bool) {
+	if failure.Phase() != applyworkflow.FailurePhasePreflight {
+		return nil, false
+	}
+	switch failure.Reason() {
+	case applyworkflow.FailureReasonApplyRefused, applyworkflow.FailureReasonLockfileUnavailable:
+		return applyworkflow.InputErrorCause(err)
+	default:
+		return nil, false
 	}
 }
 
@@ -523,45 +543,28 @@ func printApplyWorkflowHints(
 	manifestPath string,
 	result applyworkflow.CommandResult,
 	err error,
-	verbose bool,
 ) {
-	printApplyMissingManifestInitHint(output, manifestPath, err, verbose)
-	if errors.Is(err, targetselection.ErrInvalid) {
-		if verbose {
-			printTargetSelectionHint(output, result.ManifestPath)
-		} else {
-			fmt.Fprintln(output, "next: run daem lock --manifest <manifest> --dry-run")
+	selectedManifest := result.ManifestPath
+	if selectedManifest == "" {
+		selectedManifest = manifestPath
+	}
+	failure := applyworkflow.ClassifyFailure(err, result)
+	if cause, ok := applyInputErrorCause(err, failure); ok {
+		if _, recognized := clipresent.RecognizedInputError(cause); !recognized {
+			switch {
+			case errors.Is(cause, applyworkflow.ErrReadLockfile) && errors.Is(cause, fs.ErrNotExist):
+				printLockCommandHint(output, selectedManifest)
+			case errors.Is(cause, fs.ErrNotExist):
+				printMissingManifestInitHint(output, selectedManifest, cause)
+			default:
+				fmt.Fprintln(output, "next: correct the reported manifest or lockfile input, then retry")
+			}
 		}
 	}
-	if errors.Is(err, applyworkflow.ErrReadLockfile) {
-		printApplyLockCommandHint(output, result.ManifestPath, verbose)
+	if failure.Reason() == applyworkflow.FailureReasonApplyRefused && errors.Is(err, targetselection.ErrInvalid) {
+		printTargetSelectionHint(output, selectedManifest)
 	}
-	if errors.Is(err, applyworkflow.ErrRelationOrderRiskExpansion) {
+	if failure.Reason() == applyworkflow.FailureReasonRelationOrderRiskExpanded {
 		fmt.Fprintln(output, "next: inspect a fresh dry-run with daem apply --dry-run, then rerun interactively to authorize the updated extension order")
 	}
-}
-
-func printApplyMissingManifestInitHint(
-	output io.Writer,
-	manifestPath string,
-	err error,
-	verbose bool,
-) {
-	resolvedPath, ok := missingManifestInitHintPath(manifestPath, err)
-	if !ok {
-		return
-	}
-	if verbose {
-		clipresent.PrintShellCommand(output, "next: run ", "daem", "init", "--manifest", resolvedPath, "--dry-run")
-		return
-	}
-	fmt.Fprintln(output, "next: run daem init --manifest <manifest> --dry-run")
-}
-
-func printApplyLockCommandHint(output io.Writer, manifestPath string, verbose bool) {
-	if verbose {
-		printLockCommandHint(output, manifestPath)
-		return
-	}
-	fmt.Fprintln(output, "next: run daem lock --manifest <manifest>")
 }
