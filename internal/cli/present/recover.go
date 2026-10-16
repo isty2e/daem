@@ -18,20 +18,31 @@ import (
 )
 
 func PrintRecoverPlanningFailure(output io.Writer, err error, options HumanOptions) {
+	fmt.Fprintln(output, RecoverPlanningDiagnostic(err, options).HumanText())
+}
+
+// RecoverPlanningDiagnostic preserves recovery-state precedence and the basic
+// no-journal path-neutral projection without flattening its joined evidence.
+func RecoverPlanningDiagnostic(err error, options HumanOptions) FailureDiagnostic {
 	state := recoverygate.StateOf(err)
 	fileSetClear := state.FileSetKnown() && state.FileSet() == fileset.FileSetFenceClear
 	if !errors.Is(err, journal.ErrNoRecoverableJournal) ||
 		state.Observed() && !fileSetClear && !state.HasContinuingFileSetFence() {
-		fmt.Fprintf(output, "recover failed: %s\n", Error(err))
-		return
+		return FailureDiagnosticFromError(err).WithPrefix("recover failed: ")
 	}
 
-	fmt.Fprintln(output, "recover failed: no recoverable journal operation")
-	fmt.Fprintln(output, "note: journal recovery does not restore ordinary drift, finish pending native attempts, or remove markerless residue")
-	printContinuingFileSetFence(output, state.FileSet())
-	if options.Verbose {
-		fmt.Fprintf(output, "recover failure evidence: %s\n", Quote(BoundedErrorEvidence(err, 4096)))
+	diagnostic := NewFailureDiagnostic("recover failed: no recoverable journal operation").WithGuidance(
+		NoteGuidance("journal recovery does not restore ordinary drift, finish pending native attempts, or remove markerless residue"),
+	)
+	if state.FileSet() != fileset.FileSetFenceClear {
+		diagnostic = diagnostic.WithGuidance(textGuidance(GuidanceInstruction, "", continuingFileSetFenceMessage(state.FileSet())))
 	}
+	if options.Verbose {
+		diagnostic = diagnostic.WithGuidance(Guidance{
+			kind: GuidanceNote, message: Quote(BoundedErrorEvidence(err, 4096)), humanPrefix: "recover failure evidence: ",
+		})
+	}
+	return diagnostic
 }
 
 func PrintRecoverPlanWithFenceOptions(
@@ -60,9 +71,12 @@ func printContinuingFileSetFence(output io.Writer, kind fileset.FileSetFenceKind
 	if kind == fileset.FileSetFenceClear {
 		return
 	}
-	fmt.Fprintf(
-		output,
-		"continuing file-set fence: %s; journal recovery does not clear this fence; %s\n",
+	fmt.Fprintln(output, continuingFileSetFenceMessage(kind))
+}
+
+func continuingFileSetFenceMessage(kind fileset.FileSetFenceKind) string {
+	return fmt.Sprintf(
+		"continuing file-set fence: %s; journal recovery does not clear this fence; %s",
 		kind,
 		fileSetFenceRemediation(kind, true),
 	)

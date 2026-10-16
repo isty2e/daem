@@ -706,9 +706,10 @@ func TestRunRecoverBlocksPre10JournalTombstoneBeforeEffects(t *testing.T) {
 				args,
 				RunOptions{Stdout: &stdout, Stderr: &stderr},
 			)
-			if exitCode != 1 || stdout.Len() != 0 ||
-				!strings.Contains(stderr.String(), "unsupported authority schema") ||
-				!strings.Contains(stderr.String(), "use the daem version that wrote it") {
+			diagnostic := refusalDiagnosticText(t, "recover", &stdout, &stderr, true)
+			if exitCode != 1 ||
+				!strings.Contains(diagnostic, "unsupported authority schema") ||
+				!strings.Contains(diagnostic, "use the daem version that wrote it") {
 				t.Fatalf(
 					"exitCode = %d stdout = %q stderr = %q",
 					exitCode,

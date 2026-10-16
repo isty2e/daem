@@ -98,15 +98,26 @@ func hasSpacedTargetListAfterTargetFlag(args []string) bool {
 }
 
 func printImportNothingToImportHint(output io.Writer, manifestPath string, merge bool) {
-	fmt.Fprintln(output, "next: verify that the selected --target and --scope have live agent files to import")
-	fmt.Fprintln(output, "next: try another selection, such as --scope global or a different --target")
-	if merge {
-		fmt.Fprintln(output, "next: confirm --manifest points to the existing manifest you want to merge into")
-	} else {
-		fmt.Fprintln(output, "next: choose the destination with --manifest <path>, or add --merge when importing into an existing manifest")
+	for _, guidance := range importNothingToImportGuidance(manifestPath, merge) {
+		fmt.Fprintln(output, guidance.HumanText())
 	}
-	fmt.Fprintln(output, "next: if there is no live config to import, initialize the selected manifest and add resources explicitly")
-	clipresent.PrintManifestCommand(output, "next: run ", []string{"init"}, manifestPath, creationHintOptions(), "--dry-run")
+}
+
+func importNothingToImportGuidance(manifestPath string, merge bool) []clipresent.Guidance {
+	guidance := []clipresent.Guidance{
+		clipresent.InstructionGuidance("verify that the selected --target and --scope have live agent files to import"),
+		clipresent.InstructionGuidance("try another selection, such as --scope global or a different --target"),
+	}
+	if merge {
+		guidance = append(guidance, clipresent.InstructionGuidance("confirm --manifest points to the existing manifest you want to merge into"))
+	} else {
+		guidance = append(guidance, clipresent.InstructionGuidance("choose the destination with --manifest <path>, or add --merge when importing into an existing manifest"))
+	}
+	return append(
+		guidance,
+		clipresent.InstructionGuidance("if there is no live config to import, initialize the selected manifest and add resources explicitly"),
+		manifestCommandGuidance([]string{"init"}, manifestPath, creationHintOptions(), "--dry-run"),
+	)
 }
 
 func printSkillGroupPartialTargetRemovalHint(output io.Writer, resourceKey string, remainingTargets []string) {

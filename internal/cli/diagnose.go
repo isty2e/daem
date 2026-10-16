@@ -12,98 +12,97 @@ import (
 	probeworkflow "github.com/isty2e/daem/internal/workflow/probe"
 )
 
-func runDoctor(
+func prepareDoctorInvocation(
 	args []string,
 	stdout io.Writer,
 	stderr io.Writer,
 	options commandOptions,
-) int {
-	if commandHelpRequested(args) {
-		printCommandUsage([]string{"doctor"}, stdout, 0)
-		return 0
-	}
-
+) *preparedInvocation {
 	flags := newCommandFlagSet([]string{"doctor"}, stderr)
 
 	var targetValues targetFlagValues
 	manifestPath := flags.String("manifest", "", "optional path to daem.toml")
-	jsonOutput := flags.Bool("json", false, "emit structured JSON output")
+	flags.Bool("json", false, "emit structured JSON output")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
 	allTargets := flags.Bool("all-targets", false, "diagnose every supported target")
 	flags.Var(&targetValues, "target", "target to diagnose; may be repeated")
+	arguments := prepareGoArguments(flags, args)
+	response := newCommandResponse("doctor", arguments.output, stdout, stderr)
 
-	if err := flags.Parse(args); err != nil {
-		return 2
-	}
-
-	if flags.NArg() != 0 {
-		printUnexpectedArgumentWithTargetHint(stderr, flags.Arg(0), targetValues)
-		return 2
-	}
-	if err := validatePresentationFlags("doctor", *jsonOutput, *verbose, false); err != nil {
-		fmt.Fprintln(stderr, humanDiagnosticError(err))
-		return 2
-	}
-
-	manifestExplicit := false
-	targetExplicit := false
-	flags.Visit(func(flag *flag.Flag) {
-		switch flag.Name {
-		case "manifest":
-			manifestExplicit = true
-		case "target":
-			targetExplicit = true
+	return &preparedInvocation{response: response, execute: func() int {
+		if commandHelpRequested(args) {
+			printCommandUsage([]string{"doctor"}, stdout, 0)
+			return 0
 		}
-	})
-	if *allTargets && targetExplicit {
-		fmt.Fprintln(stderr, "doctor failed: --all-targets cannot be combined with --target")
-		return 2
-	}
-	assessment, err := options.assessPlatform()
-	if err != nil {
-		fmt.Fprintf(stderr, "doctor failed: observe platform runtime: %s\n", humanDiagnosticError(err))
-		return 1
-	}
-
-	result, err := diagnoseworkflow.Run(options.context, diagnoseworkflow.Input{
-		ManifestPath:     *manifestPath,
-		ManifestExplicit: manifestExplicit,
-		TargetExplicit:   targetExplicit,
-		AllTargets:       *allTargets,
-		TargetValues:     targetValues.strings(),
-	}, assessment)
-	if err != nil {
-		fmt.Fprintf(stderr, "doctor failed: %s\n", humanDiagnosticError(err))
-		if errors.Is(err, diagnoseworkflow.ErrInvalidTargetSelection) {
-			return 2
+		if err := arguments.bind(flags); err != nil {
+			return response.failure(usageFailure, flagBindingDiagnostic([]string{"doctor"}, err))
 		}
-		return 1
-	}
+		if flags.NArg() != 0 {
+			return response.failure(usageFailure, unexpectedArgumentDiagnostic(flags.Arg(0), targetValues))
+		}
+		if err := validatePresentationFlags("doctor", arguments.output == requestedJSON, *verbose, false); err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err))
+		}
 
-	if *jsonOutput {
-		if err := clipresent.PrintDoctorJSON(stdout, clipresent.DoctorJSONInput{
-			ManifestPath:     result.ManifestPath,
-			ManifestExplicit: result.ManifestExplicit,
-			Selection:        result.Selection,
-			Checks:           result.Checks,
-		}); err != nil {
-			fmt.Fprintf(stderr, "doctor failed: write json: %s\n", humanDiagnosticError(err))
+		manifestExplicit := false
+		targetExplicit := false
+		flags.Visit(func(flag *flag.Flag) {
+			switch flag.Name {
+			case "manifest":
+				manifestExplicit = true
+			case "target":
+				targetExplicit = true
+			}
+		})
+		if *allTargets && targetExplicit {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("doctor failed: --all-targets cannot be combined with --target"))
+		}
+		assessment, err := options.assessPlatform()
+		if err != nil {
+			return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("doctor failed: observe platform runtime: "))
+		}
+
+		result, err := diagnoseworkflow.Run(options.context, diagnoseworkflow.Input{
+			ManifestPath:     *manifestPath,
+			ManifestExplicit: manifestExplicit,
+			TargetExplicit:   targetExplicit,
+			AllTargets:       *allTargets,
+			TargetValues:     targetValues.strings(),
+		}, assessment)
+		if err != nil {
+			class := operationFailure
+			if errors.Is(err, diagnoseworkflow.ErrInvalidTargetSelection) {
+				class = usageFailure
+			}
+			return response.failure(class, humanFailureDiagnostic(err).WithPrefix("doctor failed: "))
+		}
+		if err := response.selectOrdinaryResult(); err != nil {
+			return response.failure(operationFailure, humanFailureDiagnostic(err))
+		}
+		if arguments.output == requestedJSON {
+			if err := clipresent.PrintDoctorJSON(stdout, clipresent.DoctorJSONInput{
+				ManifestPath:     result.ManifestPath,
+				ManifestExplicit: result.ManifestExplicit,
+				Selection:        result.Selection,
+				Checks:           result.Checks,
+			}); err != nil {
+				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("doctor failed: write json: "))
+			}
+		} else {
+			targets := result.Selection.Targets()
+			targetNames := make([]string, 0, len(targets))
+			for _, selectedTarget := range targets {
+				targetNames = append(targetNames, string(selectedTarget))
+			}
+			fmt.Fprintf(stdout, "targets: %s\n", strings.Join(targetNames, ","))
+			clipresent.PrintDoctorChecksWithOptions(stdout, result.Checks, clipresent.HumanOptions{Verbose: *verbose})
+		}
+		if result.HasErrors {
 			return 1
 		}
-	} else {
-		targets := result.Selection.Targets()
-		targetNames := make([]string, 0, len(targets))
-		for _, selectedTarget := range targets {
-			targetNames = append(targetNames, string(selectedTarget))
-		}
-		fmt.Fprintf(stdout, "targets: %s\n", strings.Join(targetNames, ","))
-		clipresent.PrintDoctorChecksWithOptions(stdout, result.Checks, clipresent.HumanOptions{Verbose: *verbose})
-	}
-	if result.HasErrors {
-		return 1
-	}
 
-	return 0
+		return 0
+	}}
 }
 
 func runProbe(args []string, stdout io.Writer, stderr io.Writer, options commandOptions) int {

@@ -41,21 +41,50 @@ func printImportSkippedReport(
 	options HumanOptions,
 	overflow bool,
 ) {
-	if options.Verbose {
-		printImportSkippedVerbose(output, skipped)
-	} else {
-		printImportSkippedDefault(output, skipped)
-	}
-	if overflow {
-		fmt.Fprintln(output, "skipped detail omitted: the operation-wide skip diagnostic budget was exhausted")
-		fmt.Fprintln(output, "next: reduce the observed source set or its rejected rows, then retry import")
+	for _, guidance := range importSkippedGuidance(skipped, options, overflow) {
+		fmt.Fprintln(output, guidance.HumanText())
 	}
 }
 
-func printImportSkippedDefault(output io.Writer, skipped []ImportSkipped) {
-	counts := importSkipCounts(skipped)
-	if counts.ActionRequired != 0 {
-		printImportActionRequired(output, skipped)
+func importSkippedGuidance(skipped []ImportSkipped, options HumanOptions, overflow bool) []Guidance {
+	var guidance []Guidance
+	if options.Verbose {
+		guidance = importSkippedVerboseGuidance(skipped)
+	} else {
+		guidance = importSkippedDefaultGuidance(skipped)
+	}
+	if overflow {
+		guidance = append(guidance, importSkipOverflowGuidance()...)
+	}
+	return guidance
+}
+
+// ImportFailureSkippedGuidance shares the selected human-mode projection.
+// Common JSON failures request the basic view, not verbose path inventory.
+func ImportFailureSkippedGuidance(skipped []adoptmodel.Skipped, options HumanOptions, overflow bool) []Guidance {
+	return importSkippedGuidance(importSkippedFromAdoption(skipped), options, overflow)
+}
+
+func importSkippedDefaultGuidance(skipped []ImportSkipped) []Guidance {
+	var guidance []Guidance
+	for _, item := range skipped {
+		if item.Category != adoptmodel.SkipCategoryActionRequired {
+			continue
+		}
+		if len(guidance) == 0 {
+			guidance = append(guidance, textGuidance(GuidanceNote, "", "action required:"))
+		}
+		message := fmt.Sprintf("skip live=%q reason=%s target=%s scope=%s", item.LivePath, item.Reason, item.Target, item.Scope)
+		if item.Detail != "" {
+			message += fmt.Sprintf(" detail=%q", item.Detail)
+		}
+		// Typed skip admission owns the budgets; quoted path/detail fields are
+		// already display-safe and must not be escaped or truncated a second time.
+		guidance = append(
+			guidance,
+			Guidance{kind: GuidanceNote, message: message, humanPrefix: "  "},
+			textGuidance(GuidanceInstruction, "    next: ", importSkipActionText(item.ActionHint)),
+		)
 	}
 
 	compacted := false
@@ -68,52 +97,28 @@ func printImportSkippedDefault(output io.Writer, skipped []ImportSkipped) {
 			continue
 		}
 		compacted = true
-		fmt.Fprintf(output, "%s:\n", category)
+		guidance = append(guidance, textGuidance(GuidanceNote, "", string(category)+":"))
 		for _, group := range groups {
-			fmt.Fprintf(
-				output,
-				"  target=%s reason=%s count=%d\n",
-				group.target,
-				group.reason,
-				group.count,
-			)
+			guidance = append(guidance, textGuidance(GuidanceNote, "  ", fmt.Sprintf("target=%s reason=%s count=%d", group.target, group.reason, group.count)))
 		}
 	}
 	if compacted {
-		fmt.Fprintln(output, "skipped detail: rerun with --verbose to inspect every skipped path")
+		guidance = append(guidance, textGuidance(GuidanceInstruction, "skipped detail: ", "rerun with --verbose to inspect every skipped path"))
+	}
+	return guidance
+}
+
+func importSkipOverflowGuidance() []Guidance {
+	return []Guidance{
+		textGuidance(GuidanceNote, "", "skipped detail omitted: the operation-wide skip diagnostic budget was exhausted"),
+		InstructionGuidance("reduce the observed source set or its rejected rows, then retry import"),
 	}
 }
 
-func printImportActionRequired(output io.Writer, skipped []ImportSkipped) {
-	printedHeader := false
+func importSkippedVerboseGuidance(skipped []ImportSkipped) []Guidance {
+	guidance := make([]Guidance, 0, len(skipped))
 	for _, item := range skipped {
-		if item.Category != adoptmodel.SkipCategoryActionRequired {
-			continue
-		}
-		if !printedHeader {
-			fmt.Fprintln(output, "action required:")
-			printedHeader = true
-		}
-		fmt.Fprintf(
-			output,
-			"  skip live=%q reason=%s target=%s scope=%s",
-			item.LivePath,
-			item.Reason,
-			item.Target,
-			item.Scope,
-		)
-		if item.Detail != "" {
-			fmt.Fprintf(output, " detail=%q", item.Detail)
-		}
-		fmt.Fprintln(output)
-		fmt.Fprintf(output, "    next: %s\n", importSkipActionText(item.ActionHint))
-	}
-}
-
-func printImportSkippedVerbose(output io.Writer, skipped []ImportSkipped) {
-	for _, item := range skipped {
-		fmt.Fprintf(
-			output,
+		message := fmt.Sprintf(
 			"skip live=%q reason=%s target=%s scope=%s category=%s",
 			item.LivePath,
 			item.Reason,
@@ -122,13 +127,14 @@ func printImportSkippedVerbose(output io.Writer, skipped []ImportSkipped) {
 			item.Category,
 		)
 		if item.Detail != "" {
-			fmt.Fprintf(output, " detail=%q", item.Detail)
+			message += fmt.Sprintf(" detail=%q", item.Detail)
 		}
 		if item.ActionHint != "" {
-			fmt.Fprintf(output, " action_hint=%s", item.ActionHint)
+			message += fmt.Sprintf(" action_hint=%s", item.ActionHint)
 		}
-		fmt.Fprintln(output)
+		guidance = append(guidance, Guidance{kind: GuidanceNote, message: message})
 	}
+	return guidance
 }
 
 type importSkipGroup struct {

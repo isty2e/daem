@@ -23,6 +23,17 @@ func prepareInvocation(args []string, stdout, stderr io.Writer, options commandO
 		return prepareOutdatedInvocation(args[1:], stdout, stderr, options)
 	case "init":
 		return prepareInitInvocation(args[1:], stdout, stderr, options)
+	case "doctor":
+		return prepareDoctorInvocation(args[1:], stdout, stderr, options)
+	case "import":
+		return prepareImportInvocation(args[1:], stdout, stderr, options)
+	case "recover":
+		return prepareRecoverInvocation(args[1:], stdout, stderr, options)
+	case "migrate":
+		if len(args) > 1 && args[1] == "state" {
+			return prepareMigrateStateInvocation(args[2:], stdout, stderr, options)
+		}
+		return nil
 	case "list":
 		if len(args) > 1 && isListSubject(args[1]) {
 			return prepareListInvocation(args[1], args[2:], stdout, stderr, options)

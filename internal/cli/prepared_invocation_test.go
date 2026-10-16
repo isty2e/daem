@@ -23,6 +23,10 @@ func TestPreparedOrdinaryCommandsRejectMalformedArgumentsInRequestedFormat(t *te
 		{"list", "resources"},
 		{"list", "outputs"},
 		{"list", "paths"},
+		{"doctor"},
+		{"import"},
+		{"recover"},
+		{"migrate", "state"},
 	} {
 		for _, invalid := range [][]string{
 			{"--targte", "bad", "--json"},
