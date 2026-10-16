@@ -23,11 +23,12 @@ func TestRunInputDiagnosticsAreCredentialSafeAndBounded(t *testing.T) {
 	for _, input := range []struct {
 		name     string
 		manifest string
+		withheld bool
 	}{
 		{name: "credential", manifest: "version=1\ntargets=[\"codex\"]\n[instructions.project]\nsource={s3=\"s3://review-user:review-secret@bucket/key\",version_id=\"test-version\",region=\"us-east-1\"}\n"},
 		{name: "oversized credential", manifest: fmt.Sprintf("version=1\ntargets=[\"codex\"]\n[instructions.project]\nsource={s3=%q,version_id=\"test-version\",region=\"us-east-1\"}\n", "s3://review-user:review-secret"+strings.Repeat("x", 32<<10)+"@bucket/key")},
-		{name: "transport", manifest: fmt.Sprintf("version=1\ntargets=[\"claude-code\"]\n[[mcp_server]]\nname=\"review\"\ntransport=%q\ncommand=\"must-not-run\"\n", large)},
-		{name: "install mode", manifest: fmt.Sprintf("version=1\ntargets=[\"codex\"]\n[defaults]\ninstall_mode=%q\n", large)},
+		{name: "transport", manifest: fmt.Sprintf("version=1\ntargets=[\"claude-code\"]\n[[mcp_server]]\nname=\"review\"\ntransport=%q\ncommand=\"must-not-run\"\n", large), withheld: true},
+		{name: "install mode", manifest: fmt.Sprintf("version=1\ntargets=[\"codex\"]\n[defaults]\ninstall_mode=%q\n", large), withheld: true},
 	} {
 		for _, args := range [][]string{
 			{"apply", "--dry-run"},
@@ -66,11 +67,12 @@ func TestRunInputDiagnosticsAreCredentialSafeAndBounded(t *testing.T) {
 						t.Error("input refusal disclosed a credential-shaped source")
 					}
 				}
-				if !strings.Contains(stderr.String(), "[REDACTED]") {
-					t.Error("input refusal did not indicate withheld detail")
-				}
-				if input.name != "credential" && !strings.Contains(stderr.String(), "[truncated]") {
-					t.Error("oversized input refusal did not indicate truncation")
+				if input.withheld {
+					if !strings.Contains(stderr.String(), "[REDACTED]") || !strings.Contains(stderr.String(), "[truncated]") {
+						t.Error("oversized input refusal did not indicate withheld detail and truncation")
+					}
+				} else if strings.Contains(stderr.String(), "s3://") || !strings.Contains(stderr.String(), "s3 uri") {
+					t.Error("S3 rejection did not retain its reason without echoing the URI")
 				}
 				if count := utf8.RuneCountInString(stderr.String()); count > 4096+1024 {
 					t.Errorf("input refusal emitted %d runes, want bounded context and guidance", count)

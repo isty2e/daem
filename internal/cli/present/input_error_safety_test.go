@@ -9,10 +9,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/isty2e/daem/internal/encoding/tomlstrict"
-	"github.com/isty2e/daem/internal/supply/source"
 )
 
-func TestErrorRedactsInputCredentials(t *testing.T) {
+func TestErrorRedactsCredentialShapedText(t *testing.T) {
 	for _, input := range []struct {
 		name string
 		uri  string
@@ -25,10 +24,7 @@ func TestErrorRedactsInputCredentials(t *testing.T) {
 		{name: "oversized userinfo", uri: "s3://review-user:review-secret" + strings.Repeat("x", 32<<10) + "@bucket/key"},
 	} {
 		t.Run(input.name, func(t *testing.T) {
-			_, cause := source.ParseS3ObjectURI(input.uri)
-			if cause == nil {
-				t.Fatal("credential fixture unexpectedly accepted")
-			}
+			cause := fmt.Errorf("invalid source %q", input.uri)
 			for _, err := range []error{cause, fmt.Errorf("invalid manifest: %w", cause)} {
 				got := Error(err)
 				for _, secret := range []string{"review-user", "review-secret", "review%2Dsecret"} {
@@ -76,11 +72,8 @@ func TestErrorBoundsInputDetailAndKeepsSyntaxGuidance(t *testing.T) {
 func TestBoundedErrorEvidenceWithholdsIncompleteCredentialText(t *testing.T) {
 	const maximumRunes = 4096
 	uri := "s3://review-user:review-secret" + strings.Repeat("x", 32<<10) + "@bucket/key"
-	_, cause := source.ParseS3ObjectURI(uri)
-	_, joinedCause := source.ParseS3ObjectURI("s3://review-user:review-secret" + strings.Repeat("x", 15<<10) + "@bucket/key")
-	if cause == nil || joinedCause == nil {
-		t.Fatal("credential fixtures unexpectedly accepted")
-	}
+	cause := fmt.Errorf("invalid source %q", uri)
+	joinedCause := fmt.Errorf("invalid source %q", "s3://review-user:review-secret"+strings.Repeat("x", 15<<10)+"@bucket/key")
 	typedCalls := 0
 	for _, input := range []struct {
 		name  string

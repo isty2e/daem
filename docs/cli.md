@@ -218,14 +218,12 @@ interrupts a blocked terminal read and cannot authorize effects.
 - Human-readable dynamic paths and errors escape backslashes, controls, format
   characters, and invalid UTF-8 bytes. Structural line breaks remain owned by
   the presenter, so dynamic values cannot forge another diagnostic or hint.
-- Human error details mask credential-shaped text and withhold text that cannot
-  be inspected safely. Each dynamic detail is limited to 4,096 Unicode
-  characters, with a truncation marker when needed.
-  Details too large for complete, bounded credential inspection are withheld
-  instead of printing a partial value. Syntax locations and repair guidance
-  remain outside that detail budget. This also applies to human stderr before
-  a JSON result exists; it does not change JSON payloads or declaration-size
-  admission limits.
+- Human error details apply the shared redaction policy. Each dynamic detail is
+  limited to 4,096 Unicode characters, with a truncation marker when needed.
+  Details too large for bounded inspection are withheld instead of printing a
+  partial value. Syntax locations and repair guidance remain outside that
+  detail budget. This also applies to human stderr before a JSON result exists;
+  it does not change JSON payloads or declaration-size admission limits.
 - `--verbose` adds bounded typed causal, provenance, path, and identity
   evidence. Error types without a bounded evidence projection are reported as
   omitted instead of invoking an arbitrary error formatter. Incomplete error
@@ -238,6 +236,14 @@ interrupts a blocked terminal read and cannot authorize effects.
 - `--verbose --diff` is allowed.
 - `--check` exists only on `outdated` and `status`. It preserves normal output
   but returns non-zero when that command's clean predicate is false.
+
+**Credential detection — NON-GOAL.** Redaction covers explicitly supplied secret
+values and supported credential syntax; it does not guarantee detection of
+unknown secret values or arbitrary encodings in free-form text. A complete
+observation or a scanner no-match is not proof that text contains no secrets.
+This does not relax command-specific non-disclosure guarantees for known secret
+inputs. Rejected S3 URIs report the source field and rejection reason without
+echoing the URI or underlying URL parser error.
 
 ### Input Error Guidance
 
