@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/isty2e/daem/internal/declaration"
@@ -41,7 +42,10 @@ func TestTargetSyntaxHintRequiresUnexpectedArgumentFact(t *testing.T) {
 		t.Fatalf("unrelated error gained argument repair: %q", output.String())
 	}
 
-	_, _, cause := splitAuthoringArgs(args, 1, func(name string) bool { return name == "target" })
+	flags := newCommandFlagSet([]string{"fixture"}, io.Discard)
+	flags.String("target", "", "")
+	plan := prepareAuthoringArguments(flags, args, 1)
+	_, cause := plan.operands()
 	if cause == nil {
 		t.Fatal("fixture did not reject the extra argument")
 	}

@@ -299,15 +299,6 @@ func runVersionAlias(args []string, stdout io.Writer, stderr io.Writer, commandI
 	return 0
 }
 
-func rejectUnsupportedPlatform(args []string, options commandOptions, stderr io.Writer) (int, bool) {
-	diagnostic, rejected := platformRefusal(args, options)
-	if !rejected {
-		return 0, false
-	}
-	fmt.Fprintln(stderr, diagnostic.HumanText())
-	return 1, true
-}
-
 func platformRefusal(args []string, options commandOptions) (clipresent.FailureDiagnostic, bool) {
 	if !requiresPlatformAdmission(args) || commandInvocationRequestsHelp(args[1:]) {
 		return clipresent.FailureDiagnostic{}, false

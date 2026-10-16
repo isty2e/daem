@@ -10,262 +10,162 @@ import (
 	"github.com/isty2e/daem/internal/workflow/authoring"
 )
 
-func runAdd(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
-	if handled, exitCode := handleGroupHelp("add", args, stdout, stderr); handled {
-		return exitCode
+func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if handled, code := handleGroupHelp("add", args, stdout, stderr); handled {
+		return code
 	}
+	if prepared := prepareAddInvocation(ctx, args[0], args[1:], stdout, stderr); prepared != nil {
+		return prepared.execute()
+	}
+	fmt.Fprintf(stderr, "unknown add resource %q\n", args[0])
+	fmt.Fprintln(stderr, "next: run daem help add")
+	return 2
+}
 
-	switch args[0] {
+func prepareAddInvocation(ctx context.Context, subject string, args []string, stdout, stderr io.Writer) *preparedInvocation {
+	switch subject {
 	case "extension":
-		return runAddExtension(ctx, args[1:], stdout, stderr)
+		return prepareAddExtensionInvocation(ctx, args, stdout, stderr)
 	case "instruction":
-		return runAddInstruction(ctx, args[1:], stdout, stderr)
+		return prepareAddInstructionInvocation(ctx, args, stdout, stderr)
 	case "hook":
-		return runAddHook(ctx, args[1:], stdout, stderr)
+		return prepareAddHookInvocation(ctx, args, stdout, stderr)
 	case "mcp-server":
-		return runAddMCPServer(ctx, args[1:], stdout, stderr)
+		return prepareAddMCPInvocation(ctx, args, stdout, stderr)
 	case "skill":
-		return runAddSkill(ctx, args[1:], stdout, stderr)
+		return prepareAddSkillInvocation(ctx, args, stdout, stderr)
 	case "skill-group":
-		return runAddSkillGroup(ctx, args[1:], stdout, stderr)
+		return prepareAddSkillGroupInvocation(ctx, args, stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "unknown add resource %q\n", args[0])
-		fmt.Fprintln(stderr, "next: run daem help add")
-		return 2
+		return nil
 	}
 }
 
-func runAddExtension(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
-	if commandHelpRequested(args) {
-		printCommandUsage([]string{"add", "extension"}, stdout, 0)
-		return 0
-	}
-
-	id, source, flagArgs, err := splitAddExtensionArgs(args)
-	if err != nil {
-		fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
-		printAuthoringArgumentCorrection(stderr, []string{"add", "extension"}, err, args)
-		return 2
-	}
-
-	flags := newCommandFlagSet([]string{"add", "extension"}, stderr)
-
-	var targetValues targetFlagValues
-	var scopeValues scopeFlagValues
-	manifestPath := flags.String("manifest", "", "path to daem.toml")
+func prepareAddExtensionInvocation(ctx context.Context, args []string, stdout, stderr io.Writer) *preparedInvocation {
+	path := []string{"add", "extension"}
+	flags := newCommandFlagSet(path, stderr)
+	var targets targetFlagValues
+	var scopes scopeFlagValues
+	manifest := flags.String("manifest", "", "path to daem.toml")
 	dryRun := flags.Bool("dry-run", false, "preview manifest change without writing")
-	showDiff := flags.Bool("diff", false, "show manifest diff with --dry-run")
-	jsonOutput := flags.Bool("json", false, "emit structured JSON output")
+	diff := flags.Bool("diff", false, "show manifest diff with --dry-run")
+	flags.Bool("json", false, "emit structured JSON output")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
-	flags.Var(&targetValues, "target", "extension target; claude-code, codex, opencode, pi, or antigravity-cli")
-	flags.Var(&scopeValues, "scope", "scope for the selected extension carrier; project or explicit global")
+	flags.Var(&targets, "target", "extension target; claude-code, codex, opencode, pi, or antigravity-cli")
+	flags.Var(&scopes, "scope", "scope for the selected extension carrier; project or explicit global")
+	arguments := prepareAuthoringArguments(flags, args, 2)
+	response := newCommandResponse("add extension", arguments.output, stdout, stderr)
 
-	if err := flags.Parse(flagArgs); err != nil {
-		return 2
-	}
-	if flags.NArg() != 0 {
-		printUnexpectedArgumentWithTargetHint(stderr, flags.Arg(0), targetValues)
-		return 2
-	}
-	if *showDiff && !*dryRun {
-		fmt.Fprintln(stderr, "add failed: --diff requires --dry-run")
-		return 2
-	}
-	if err := validatePresentationFlags("add", *jsonOutput, *verbose, *showDiff); err != nil {
-		fmt.Fprintln(stderr, humanDiagnosticError(err))
-		return 2
-	}
-
-	targets := targetValues.strings()
-	scope, err := singleScopeValue(scopeValues)
-	if err != nil {
-		fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
-		return 2
-	}
-
-	result, err := authoring.AddExtension(ctx, authoringExecutionOptions(*manifestPath, *dryRun), authoring.AddExtensionRequest{
-		ID:      id,
-		Source:  source,
-		Targets: targets,
-		Scope:   scope,
-	})
-	if err != nil {
-		printAuthoringOperationError(stderr, "add", *manifestPath, err)
-		return 1
-	}
-	if *dryRun {
-		if *jsonOutput {
-			if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceExtension, result)); err != nil {
-				fmt.Fprintf(stderr, "add failed: write json: %s\n", humanDiagnosticError(err))
-				return 1
-			}
+	return &preparedInvocation{response: response, execute: func() int {
+		if commandHelpRequested(args) {
+			printCommandUsage(path, stdout, 0)
 			return 0
 		}
-		clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("add", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceExtension, result), clipresent.HumanOptions{Verbose: *verbose})
-		if *showDiff {
-			clipresent.PrintManifestDiff(stdout, result.ManifestPath, result.Original, result.ManifestPath, result.Content)
+		id, source, err := addExtensionOperands(arguments)
+		if err != nil {
+			return response.failure(usageFailure, authoringArgumentDiagnostic(path, err, args))
 		}
-		return 0
-	}
+		if err := arguments.bind(flags); err != nil {
+			return response.failure(usageFailure, flagBindingDiagnostic(path, err))
+		}
+		if err := validateAuthoringPresentation("add", arguments.output, *verbose, *diff, *dryRun); err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err))
+		}
+		scope, err := singleScopeValue(scopes)
+		if err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err).WithPrefix("add failed: "))
+		}
 
-	if *jsonOutput {
-		if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceExtension, result)); err != nil {
-			fmt.Fprintf(stderr, "add failed: write json: %s\n", humanDiagnosticError(err))
-			return 1
+		result, err := authoring.AddExtension(ctx, authoringExecutionOptions(*manifest, *dryRun), authoring.AddExtensionRequest{ID: id, Source: source, Targets: targets.strings(), Scope: scope})
+		if err != nil {
+			return response.failure(operationFailure, authoringFailureDiagnostic("add", *manifest, err))
 		}
-		return 0
-	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceExtension, result), manifestHintOptions(*manifestPath, *verbose))
-	return 0
+		return renderAuthoringResult(response, clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceExtension, result, *manifest, *verbose, *diff)
+	}}
 }
 
-func splitAddExtensionArgs(args []string) (string, string, []string, error) {
-	positionals, flagArgs, err := splitAuthoringArgs(args, 2, extensionAuthoringFlagTakesValue)
+func addExtensionOperands(plan authoringArgumentPlan) (string, string, error) {
+	positionals, err := plan.operands()
 	if err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
 	if len(positionals) == 0 {
-		return "", "", nil, fmt.Errorf("missing extension id")
+		return "", "", fmt.Errorf("missing extension id")
 	}
 	if len(positionals) < 2 || strings.TrimSpace(positionals[1]) == "" {
-		return "", "", nil, fmt.Errorf("missing extension source")
+		return "", "", fmt.Errorf("missing extension source")
 	}
-	cleanID, err := authoring.CleanExtensionID(positionals[0])
+	id, err := authoring.CleanExtensionID(positionals[0])
 	if err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
-	return cleanID, positionals[1], flagArgs, nil
-}
-
-func extensionAuthoringFlagTakesValue(name string) bool {
-	switch name {
-	case "manifest", "target", "scope":
-		return true
-	default:
-		return false
-	}
+	return id, positionals[1], nil
 }
 
 type mcpArgFlagValues []string
 
-func (values *mcpArgFlagValues) String() string {
-	return fmt.Sprint([]string(*values))
-}
+func (values *mcpArgFlagValues) String() string         { return fmt.Sprint([]string(*values)) }
+func (values *mcpArgFlagValues) Set(value string) error { *values = append(*values, value); return nil }
 
-func (values *mcpArgFlagValues) Set(value string) error {
-	*values = append(*values, value)
-	return nil
-}
-
-func runAddMCPServer(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
-	if commandHelpRequested(args) {
-		printCommandUsage([]string{"add", "mcp-server"}, stdout, 0)
-		return 0
-	}
-
-	name, command, flagArgs, err := splitAddMCPServerArgs(args)
-	if err != nil {
-		fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
-		printAuthoringArgumentCorrection(stderr, []string{"add", "mcp-server"}, err, args)
-		return 2
-	}
-
-	flags := newCommandFlagSet([]string{"add", "mcp-server"}, stderr)
-
-	var argValues mcpArgFlagValues
-	var targetValues targetFlagValues
-	var scopeValues scopeFlagValues
-	manifestPath := flags.String("manifest", "", "path to daem.toml")
+func prepareAddMCPInvocation(ctx context.Context, args []string, stdout, stderr io.Writer) *preparedInvocation {
+	path := []string{"add", "mcp-server"}
+	flags := newCommandFlagSet(path, stderr)
+	var targets targetFlagValues
+	var scopes scopeFlagValues
+	var argv mcpArgFlagValues
+	manifest := flags.String("manifest", "", "path to daem.toml")
 	dryRun := flags.Bool("dry-run", false, "preview manifest change without writing")
-	showDiff := flags.Bool("diff", false, "show manifest diff with --dry-run")
-	jsonOutput := flags.Bool("json", false, "emit structured JSON output")
+	diff := flags.Bool("diff", false, "show manifest diff with --dry-run")
+	flags.Bool("json", false, "emit structured JSON output")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
-	flags.Var(&argValues, "arg", "argv entry for the MCP server command; may be repeated")
-	flags.Var(&targetValues, "target", "target to add; accepts claude-code, opencode, codex, or antigravity-cli")
-	flags.Var(&scopeValues, "scope", "scope for the MCP server; project rows may omit it, but global MCP rows require explicit --scope global")
+	flags.Var(&argv, "arg", "argv entry for the MCP server command; may be repeated")
+	flags.Var(&targets, "target", "target to add; accepts claude-code, opencode, codex, or antigravity-cli")
+	flags.Var(&scopes, "scope", "scope for the MCP server; project rows may omit it, but global MCP rows require explicit --scope global")
+	arguments := prepareAuthoringArguments(flags, args, 2)
+	response := newCommandResponse("add mcp-server", arguments.output, stdout, stderr)
 
-	if err := flags.Parse(flagArgs); err != nil {
-		return 2
-	}
-	if flags.NArg() != 0 {
-		printUnexpectedArgumentWithTargetHint(stderr, flags.Arg(0), targetValues)
-		return 2
-	}
-	if *showDiff && !*dryRun {
-		fmt.Fprintln(stderr, "add failed: --diff requires --dry-run")
-		return 2
-	}
-	if err := validatePresentationFlags("add", *jsonOutput, *verbose, *showDiff); err != nil {
-		fmt.Fprintln(stderr, humanDiagnosticError(err))
-		return 2
-	}
-
-	targets := targetValues.strings()
-	scope, err := singleScopeValue(scopeValues)
-	if err != nil {
-		fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
-		return 2
-	}
-	result, err := authoring.AddMCPServer(ctx, authoringExecutionOptions(*manifestPath, *dryRun), authoring.AddMCPServerRequest{
-		Name:    name,
-		Command: command,
-		Args:    []string(argValues),
-		Targets: targets,
-		Scope:   scope,
-	})
-	if err != nil {
-		printAuthoringOperationError(stderr, "add", *manifestPath, err)
-		return 1
-	}
-	if *dryRun {
-		if *jsonOutput {
-			if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceMCPServer, result)); err != nil {
-				fmt.Fprintf(stderr, "add failed: write json: %s\n", humanDiagnosticError(err))
-				return 1
-			}
+	return &preparedInvocation{response: response, execute: func() int {
+		if commandHelpRequested(args) {
+			printCommandUsage(path, stdout, 0)
 			return 0
 		}
-		clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("add", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceMCPServer, result), clipresent.HumanOptions{Verbose: *verbose})
-		if *showDiff {
-			clipresent.PrintManifestDiff(stdout, result.ManifestPath, result.Original, result.ManifestPath, result.Content)
+		name, command, err := addMCPOperands(arguments)
+		if err != nil {
+			return response.failure(usageFailure, authoringArgumentDiagnostic(path, err, args))
 		}
-		return 0
-	}
+		if err := arguments.bind(flags); err != nil {
+			return response.failure(usageFailure, flagBindingDiagnostic(path, err))
+		}
+		if err := validateAuthoringPresentation("add", arguments.output, *verbose, *diff, *dryRun); err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err))
+		}
+		scope, err := singleScopeValue(scopes)
+		if err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err).WithPrefix("add failed: "))
+		}
 
-	if *jsonOutput {
-		if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceMCPServer, result)); err != nil {
-			fmt.Fprintf(stderr, "add failed: write json: %s\n", humanDiagnosticError(err))
-			return 1
+		result, err := authoring.AddMCPServer(ctx, authoringExecutionOptions(*manifest, *dryRun), authoring.AddMCPServerRequest{Name: name, Command: command, Args: []string(argv), Targets: targets.strings(), Scope: scope})
+		if err != nil {
+			return response.failure(operationFailure, authoringFailureDiagnostic("add", *manifest, err))
 		}
-		return 0
-	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceMCPServer, result), manifestHintOptions(*manifestPath, *verbose))
-	return 0
+		return renderAuthoringResult(response, clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceMCPServer, result, *manifest, *verbose, *diff)
+	}}
 }
 
-func splitAddMCPServerArgs(args []string) (string, string, []string, error) {
-	positionals, flagArgs, err := splitAuthoringArgs(args, 2, addMCPServerFlagTakesValue)
+func addMCPOperands(plan authoringArgumentPlan) (string, string, error) {
+	positionals, err := plan.operands()
 	if err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
 	if len(positionals) == 0 || strings.TrimSpace(positionals[0]) == "" {
-		return "", "", nil, fmt.Errorf("missing mcp-server name")
+		return "", "", fmt.Errorf("missing mcp-server name")
 	}
 	if len(positionals) < 2 || strings.TrimSpace(positionals[1]) == "" {
-		return "", "", nil, fmt.Errorf("missing mcp-server command")
+		return "", "", fmt.Errorf("missing mcp-server command")
 	}
-	cleanName, err := authoring.CleanMCPServerName(positionals[0])
+	name, err := authoring.CleanMCPServerName(positionals[0])
 	if err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
-	return cleanName, positionals[1], flagArgs, nil
-}
-
-func addMCPServerFlagTakesValue(name string) bool {
-	switch name {
-	case "manifest", "arg", "target", "scope":
-		return true
-	default:
-		return false
-	}
+	return name, positionals[1], nil
 }

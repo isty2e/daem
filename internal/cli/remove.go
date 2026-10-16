@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -11,356 +10,163 @@ import (
 	"github.com/isty2e/daem/internal/workflow/authoring"
 )
 
-func runRemove(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
-	if handled, exitCode := handleGroupHelp("remove", args, stdout, stderr); handled {
-		return exitCode
+func runRemove(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if handled, code := handleGroupHelp("remove", args, stdout, stderr); handled {
+		return code
 	}
+	if prepared := prepareRemoveInvocation(ctx, args[0], args[1:], stdout, stderr); prepared != nil {
+		return prepared.execute()
+	}
+	fmt.Fprintf(stderr, "unknown remove resource %q\n", args[0])
+	fmt.Fprintln(stderr, "next: run daem help remove")
+	return 2
+}
 
-	switch args[0] {
+func prepareRemoveInvocation(ctx context.Context, subject string, args []string, stdout, stderr io.Writer) *preparedInvocation {
+	switch subject {
 	case "extension":
-		return runRemoveExtension(ctx, args[1:], stdout, stderr)
+		return prepareRemoveExtensionInvocation(ctx, args, stdout, stderr)
 	case "instruction":
-		return runRemoveInstruction(ctx, args[1:], stdout, stderr)
+		return prepareRemoveInstructionInvocation(ctx, args, stdout, stderr)
 	case "hook":
-		return runRemoveHook(ctx, args[1:], stdout, stderr)
+		return prepareRemoveHookInvocation(ctx, args, stdout, stderr)
 	case "mcp-server":
-		return runRemoveMCPServer(ctx, args[1:], stdout, stderr)
+		return prepareRemoveMCPInvocation(ctx, args, stdout, stderr)
 	case "skill":
-		return runRemoveSkill(ctx, args[1:], stdout, stderr)
+		return prepareRemoveSkillInvocation(ctx, args, stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "unknown remove resource %q\n", args[0])
-		fmt.Fprintln(stderr, "next: run daem help remove")
-		return 2
+		return nil
 	}
 }
 
-func runRemoveExtension(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
-	if commandHelpRequested(args) {
-		printCommandUsage([]string{"remove", "extension"}, stdout, 0)
-		return 0
-	}
-
-	id, flagArgs, err := splitRemoveExtensionArgs(args)
-	if err != nil {
-		fmt.Fprintf(stderr, "remove failed: %s\n", humanDiagnosticError(err))
-		printAuthoringArgumentCorrection(stderr, []string{"remove", "extension"}, err, args)
-		return 2
-	}
-
-	flags := newCommandFlagSet([]string{"remove", "extension"}, stderr)
-
-	var targetValues targetFlagValues
-	var scopeValues scopeFlagValues
-	manifestPath := flags.String("manifest", "", "path to daem.toml")
+func prepareRemoveExtensionInvocation(ctx context.Context, args []string, stdout, stderr io.Writer) *preparedInvocation {
+	path := []string{"remove", "extension"}
+	flags := newCommandFlagSet(path, stderr)
+	var targets targetFlagValues
+	var scopes scopeFlagValues
+	manifest := flags.String("manifest", "", "path to daem.toml")
 	dryRun := flags.Bool("dry-run", false, "preview manifest change without writing")
-	showDiff := flags.Bool("diff", false, "show manifest diff with --dry-run")
-	jsonOutput := flags.Bool("json", false, "emit structured JSON output")
+	diff := flags.Bool("diff", false, "show manifest diff with --dry-run")
+	flags.Bool("json", false, "emit structured JSON output")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
-	flags.Var(&targetValues, "target", "optional extension target filter; claude-code, codex, opencode, pi, or antigravity-cli")
-	flags.Var(&scopeValues, "scope", "optional extension scope filter; project or global")
+	flags.Var(&targets, "target", "optional extension target filter; claude-code, codex, opencode, pi, or antigravity-cli")
+	flags.Var(&scopes, "scope", "optional extension scope filter; project or global")
+	arguments := prepareAuthoringArguments(flags, args, 1)
+	response := newCommandResponse("remove extension", arguments.output, stdout, stderr)
 
-	if err := flags.Parse(flagArgs); err != nil {
-		return 2
-	}
-	if flags.NArg() != 0 {
-		printUnexpectedArgumentWithTargetHint(stderr, flags.Arg(0), targetValues)
-		return 2
-	}
-	if *showDiff && !*dryRun {
-		fmt.Fprintln(stderr, "remove failed: --diff requires --dry-run")
-		return 2
-	}
-	if err := validatePresentationFlags("remove", *jsonOutput, *verbose, *showDiff); err != nil {
-		fmt.Fprintln(stderr, humanDiagnosticError(err))
-		return 2
-	}
-
-	targets := targetValues.strings()
-	scope, err := singleScopeValue(scopeValues)
-	if err != nil {
-		fmt.Fprintf(stderr, "remove failed: %s\n", humanDiagnosticError(err))
-		return 2
-	}
-
-	result, err := authoring.RemoveExtension(ctx, authoringExecutionOptions(*manifestPath, *dryRun), authoring.RemoveExtensionRequest{
-		ID:      id,
-		Targets: targets,
-		Scope:   scope,
-	})
-	if err != nil {
-		printAuthoringOperationError(stderr, "remove", *manifestPath, err)
-		return 1
-	}
-	if *dryRun {
-		if *jsonOutput {
-			if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceExtension, result)); err != nil {
-				fmt.Fprintf(stderr, "remove failed: write json: %s\n", humanDiagnosticError(err))
-				return 1
-			}
+	return &preparedInvocation{response: response, execute: func() int {
+		if commandHelpRequested(args) {
+			printCommandUsage(path, stdout, 0)
 			return 0
 		}
-		clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("remove", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceExtension, result), clipresent.HumanOptions{Verbose: *verbose})
-		if *showDiff {
-			clipresent.PrintManifestDiff(stdout, result.ManifestPath, result.Original, result.ManifestPath, result.Content)
+		id, err := extensionIDOperand(arguments)
+		if err != nil {
+			return response.failure(usageFailure, authoringArgumentDiagnostic(path, err, args))
 		}
-		return 0
-	}
+		if err := arguments.bind(flags); err != nil {
+			return response.failure(usageFailure, flagBindingDiagnostic(path, err))
+		}
+		if err := validateAuthoringPresentation("remove", arguments.output, *verbose, *diff, *dryRun); err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err))
+		}
+		scope, err := singleScopeValue(scopes)
+		if err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err).WithPrefix("remove failed: "))
+		}
 
-	if *jsonOutput {
-		if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceExtension, result)); err != nil {
-			fmt.Fprintf(stderr, "remove failed: write json: %s\n", humanDiagnosticError(err))
-			return 1
+		result, err := authoring.RemoveExtension(ctx, authoringExecutionOptions(*manifest, *dryRun), authoring.RemoveExtensionRequest{ID: id, Targets: targets.strings(), Scope: scope})
+		if err != nil {
+			return response.failure(operationFailure, authoringFailureDiagnostic("remove", *manifest, err))
 		}
-		return 0
-	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("removed", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceExtension, result), manifestHintOptions(*manifestPath, *verbose))
-	return 0
+		return renderAuthoringResult(response, clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceExtension, result, *manifest, *verbose, *diff)
+	}}
 }
 
-func splitRemoveExtensionArgs(args []string) (string, []string, error) {
-	positionals, flagArgs, err := splitAuthoringArgs(args, 1, extensionAuthoringFlagTakesValue)
-	if err != nil {
-		return "", nil, err
-	}
-	var id string
-	if len(positionals) != 0 {
-		id = positionals[0]
-	}
-	cleanID, err := authoring.CleanExtensionID(id)
-	if err != nil {
-		return "", nil, err
-	}
-	return cleanID, flagArgs, nil
-}
-
-func runRemoveMCPServer(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
-	if commandHelpRequested(args) {
-		printCommandUsage([]string{"remove", "mcp-server"}, stdout, 0)
-		return 0
-	}
-
-	name, flagArgs, err := splitRemoveMCPServerArgs(args)
-	if err != nil {
-		fmt.Fprintf(stderr, "remove failed: %s\n", humanDiagnosticError(err))
-		printAuthoringArgumentCorrection(stderr, []string{"remove", "mcp-server"}, err, args)
-		return 2
-	}
-
-	flags := newCommandFlagSet([]string{"remove", "mcp-server"}, stderr)
-
-	var targetValues targetFlagValues
-	var scopeValues scopeFlagValues
-	manifestPath := flags.String("manifest", "", "path to daem.toml")
+func prepareRemoveMCPInvocation(ctx context.Context, args []string, stdout, stderr io.Writer) *preparedInvocation {
+	path := []string{"remove", "mcp-server"}
+	flags := newCommandFlagSet(path, stderr)
+	var targets targetFlagValues
+	var scopes scopeFlagValues
+	manifest := flags.String("manifest", "", "path to daem.toml")
 	dryRun := flags.Bool("dry-run", false, "preview manifest change without writing")
-	showDiff := flags.Bool("diff", false, "show manifest diff with --dry-run")
-	jsonOutput := flags.Bool("json", false, "emit structured JSON output")
+	diff := flags.Bool("diff", false, "show manifest diff with --dry-run")
+	flags.Bool("json", false, "emit structured JSON output")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
-	flags.Var(&targetValues, "target", "target selector; accepts claude-code, opencode, codex, or antigravity-cli")
-	flags.Var(&scopeValues, "scope", "scope selector; claude-code uses project, codex/opencode use project or explicit global, antigravity-cli requires global")
+	flags.Var(&targets, "target", "target selector; accepts claude-code, opencode, codex, or antigravity-cli")
+	flags.Var(&scopes, "scope", "scope selector; claude-code uses project, codex/opencode use project or explicit global, antigravity-cli requires global")
+	arguments := prepareAuthoringArguments(flags, args, 1)
+	response := newCommandResponse("remove mcp-server", arguments.output, stdout, stderr)
 
-	if err := flags.Parse(flagArgs); err != nil {
-		return 2
-	}
-	if flags.NArg() != 0 {
-		printUnexpectedArgumentWithTargetHint(stderr, flags.Arg(0), targetValues)
-		return 2
-	}
-	if *showDiff && !*dryRun {
-		fmt.Fprintln(stderr, "remove failed: --diff requires --dry-run")
-		return 2
-	}
-	if err := validatePresentationFlags("remove", *jsonOutput, *verbose, *showDiff); err != nil {
-		fmt.Fprintln(stderr, humanDiagnosticError(err))
-		return 2
-	}
-
-	targets := targetValues.strings()
-	scope, err := singleScopeValue(scopeValues)
-	if err != nil {
-		fmt.Fprintf(stderr, "remove failed: %s\n", humanDiagnosticError(err))
-		return 2
-	}
-
-	result, err := authoring.RemoveMCPServer(ctx, authoringExecutionOptions(*manifestPath, *dryRun), authoring.RemoveMCPServerRequest{
-		Name:    name,
-		Targets: targets,
-		Scope:   scope,
-	})
-	if err != nil {
-		printAuthoringOperationError(stderr, "remove", *manifestPath, err)
-		printRemoveMCPServerNotFoundHint(stderr, err)
-		return 1
-	}
-	if *dryRun {
-		if *jsonOutput {
-			if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceMCPServer, result)); err != nil {
-				fmt.Fprintf(stderr, "remove failed: write json: %s\n", humanDiagnosticError(err))
-				return 1
-			}
+	return &preparedInvocation{response: response, execute: func() int {
+		if commandHelpRequested(args) {
+			printCommandUsage(path, stdout, 0)
 			return 0
 		}
-		clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("remove", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceMCPServer, result), clipresent.HumanOptions{Verbose: *verbose})
-		if *showDiff {
-			clipresent.PrintManifestDiff(stdout, result.ManifestPath, result.Original, result.ManifestPath, result.Content)
+		name, err := requiredAuthoringOperand(arguments, "missing mcp-server name")
+		if err == nil {
+			name, err = authoring.CleanMCPServerName(name)
 		}
-		return 0
-	}
+		if err != nil {
+			return response.failure(usageFailure, authoringArgumentDiagnostic(path, err, args))
+		}
+		if err := arguments.bind(flags); err != nil {
+			return response.failure(usageFailure, flagBindingDiagnostic(path, err))
+		}
+		if err := validateAuthoringPresentation("remove", arguments.output, *verbose, *diff, *dryRun); err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err))
+		}
+		scope, err := singleScopeValue(scopes)
+		if err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err).WithPrefix("remove failed: "))
+		}
 
-	if *jsonOutput {
-		if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceMCPServer, result)); err != nil {
-			fmt.Fprintf(stderr, "remove failed: write json: %s\n", humanDiagnosticError(err))
-			return 1
+		result, err := authoring.RemoveMCPServer(ctx, authoringExecutionOptions(*manifest, *dryRun), authoring.RemoveMCPServerRequest{Name: name, Targets: targets.strings(), Scope: scope})
+		if err != nil {
+			return response.failure(operationFailure, authoringFailureDiagnostic("remove", *manifest, err))
 		}
-		return 0
-	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("removed", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceMCPServer, result), manifestHintOptions(*manifestPath, *verbose))
-	return 0
+		return renderAuthoringResult(response, clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceMCPServer, result, *manifest, *verbose, *diff)
+	}}
 }
 
-func runRemoveSkill(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
-	if commandHelpRequested(args) {
-		printCommandUsage([]string{"remove", "skill"}, stdout, 0)
-		return 0
-	}
-
-	resourceKey, flagArgs, err := splitRemoveSkillArgs(args)
-	if err != nil {
-		fmt.Fprintf(stderr, "remove failed: %s\n", humanDiagnosticError(err))
-		printAuthoringArgumentCorrection(stderr, []string{"remove", "skill"}, err, args)
-		return 2
-	}
-
-	flags := newCommandFlagSet([]string{"remove", "skill"}, stderr)
-
-	var targetValues targetFlagValues
-	var scopeValues scopeFlagValues
-	manifestPath := flags.String("manifest", "", "path to daem.toml")
+func prepareRemoveSkillInvocation(ctx context.Context, args []string, stdout, stderr io.Writer) *preparedInvocation {
+	path := []string{"remove", "skill"}
+	flags := newCommandFlagSet(path, stderr)
+	var targets targetFlagValues
+	var scopes scopeFlagValues
+	manifest := flags.String("manifest", "", "path to daem.toml")
 	dryRun := flags.Bool("dry-run", false, "preview manifest change without writing")
-	showDiff := flags.Bool("diff", false, "show manifest diff with --dry-run")
-	jsonOutput := flags.Bool("json", false, "emit structured JSON output")
+	diff := flags.Bool("diff", false, "show manifest diff with --dry-run")
+	flags.Bool("json", false, "emit structured JSON output")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
-	flags.Var(&targetValues, "target", "target to remove; may be repeated")
-	flags.Var(&scopeValues, "scope", "scope to remove from")
+	flags.Var(&targets, "target", "target to remove; may be repeated")
+	flags.Var(&scopes, "scope", "scope to remove from")
+	arguments := prepareAuthoringArguments(flags, args, 1)
+	response := newCommandResponse("remove skill", arguments.output, stdout, stderr)
 
-	if err := flags.Parse(flagArgs); err != nil {
-		return 2
-	}
-	if flags.NArg() != 0 {
-		printUnexpectedArgumentWithTargetHint(stderr, flags.Arg(0), targetValues)
-		return 2
-	}
-	if *showDiff && !*dryRun {
-		fmt.Fprintln(stderr, "remove failed: --diff requires --dry-run")
-		return 2
-	}
-	if err := validatePresentationFlags("remove", *jsonOutput, *verbose, *showDiff); err != nil {
-		fmt.Fprintln(stderr, humanDiagnosticError(err))
-		return 2
-	}
-
-	targets := targetValues.strings()
-	scope, err := singleScopeValue(scopeValues)
-	if err != nil {
-		fmt.Fprintf(stderr, "remove failed: %s\n", humanDiagnosticError(err))
-		return 2
-	}
-
-	request := authoring.RemoveSkillRequest{
-		ResourceKey: resourceKey,
-		Targets:     targets,
-		Scope:       scope,
-	}
-	result, err := authoring.RemoveSkill(ctx, authoringExecutionOptions(*manifestPath, *dryRun), request)
-	if err != nil {
-		printAuthoringOperationError(stderr, "remove", *manifestPath, err)
-		var splitErr authoring.SkillGroupPartialTargetRemovalError
-		if errors.As(err, &splitErr) {
-			printSkillGroupPartialTargetRemovalHint(stderr, splitErr.ResourceID, splitErr.RemainingTargets)
-		}
-		return 1
-	}
-	if *dryRun {
-		if *jsonOutput {
-			if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceSkill, result)); err != nil {
-				fmt.Fprintf(stderr, "remove failed: write json: %s\n", humanDiagnosticError(err))
-				return 1
-			}
+	return &preparedInvocation{response: response, execute: func() int {
+		if commandHelpRequested(args) {
+			printCommandUsage(path, stdout, 0)
 			return 0
 		}
-		clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("remove", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceSkill, result), clipresent.HumanOptions{Verbose: *verbose})
-		if *showDiff {
-			clipresent.PrintManifestDiff(stdout, result.ManifestPath, result.Original, result.ManifestPath, result.Content)
+		key, err := requiredAuthoringOperand(arguments, "missing skill resource key")
+		if err != nil {
+			return response.failure(usageFailure, authoringArgumentDiagnostic(path, err, args))
 		}
-		return 0
-	}
-
-	if *jsonOutput {
-		if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceSkill, result)); err != nil {
-			fmt.Fprintf(stderr, "remove failed: write json: %s\n", humanDiagnosticError(err))
-			return 1
+		if err := arguments.bind(flags); err != nil {
+			return response.failure(usageFailure, flagBindingDiagnostic(path, err))
 		}
-		return 0
-	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("removed", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceSkill, result), manifestHintOptions(*manifestPath, *verbose))
-	return 0
-}
+		if err := validateAuthoringPresentation("remove", arguments.output, *verbose, *diff, *dryRun); err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err))
+		}
+		scope, err := singleScopeValue(scopes)
+		if err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err).WithPrefix("remove failed: "))
+		}
 
-func splitRemoveMCPServerArgs(args []string) (string, []string, error) {
-	positionals, flagArgs, err := splitAuthoringArgs(args, 1, removeMCPServerFlagTakesValue)
-	if err != nil {
-		return "", nil, err
-	}
-	var name string
-	if len(positionals) != 0 {
-		name = positionals[0]
-	}
-	if strings.TrimSpace(name) == "" {
-		return "", nil, fmt.Errorf("missing mcp-server name")
-	}
-	cleanName, err := authoring.CleanMCPServerName(name)
-	if err != nil {
-		return "", nil, err
-	}
-	return cleanName, flagArgs, nil
-}
-
-func removeMCPServerFlagTakesValue(name string) bool {
-	switch name {
-	case "manifest", "target", "scope":
-		return true
-	default:
-		return false
-	}
-}
-
-func printRemoveMCPServerNotFoundHint(output io.Writer, err error) {
-	var missing *authoring.ResourceSelectionNotFoundError
-	if !errors.As(err, &missing) || missing.Kind != "mcp_server" {
-		return
-	}
-	fmt.Fprintln(output, "next: inspect declared [[mcp_server]] entries in the selected manifest, or add the server before removing it")
-}
-
-func splitRemoveSkillArgs(args []string) (string, []string, error) {
-	positionals, flagArgs, err := splitAuthoringArgs(args, 1, removeSkillFlagTakesValue)
-	if err != nil {
-		return "", nil, err
-	}
-	var resourceKey string
-	if len(positionals) != 0 {
-		resourceKey = positionals[0]
-	}
-	if strings.TrimSpace(resourceKey) == "" {
-		return "", nil, fmt.Errorf("missing skill resource key")
-	}
-	return strings.TrimSpace(resourceKey), flagArgs, nil
-}
-
-func removeSkillFlagTakesValue(name string) bool {
-	switch name {
-	case "manifest", "target", "scope":
-		return true
-	default:
-		return false
-	}
+		result, err := authoring.RemoveSkill(ctx, authoringExecutionOptions(*manifest, *dryRun), authoring.RemoveSkillRequest{ResourceKey: strings.TrimSpace(key), Targets: targets.strings(), Scope: scope})
+		if err != nil {
+			return response.failure(operationFailure, authoringFailureDiagnostic("remove", *manifest, err))
+		}
+		return renderAuthoringResult(response, clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceSkill, result, *manifest, *verbose, *diff)
+	}}
 }

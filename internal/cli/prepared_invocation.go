@@ -15,6 +15,21 @@ type preparedInvocation struct {
 
 func prepareInvocation(args []string, stdout, stderr io.Writer, options commandOptions) *preparedInvocation {
 	switch args[0] {
+	case "add":
+		if len(args) > 1 {
+			return prepareAddInvocation(options.context, args[1], args[2:], stdout, stderr)
+		}
+		return nil
+	case "remove":
+		if len(args) > 1 {
+			return prepareRemoveInvocation(options.context, args[1], args[2:], stdout, stderr)
+		}
+		return nil
+	case "unmanage":
+		if len(args) > 1 && args[1] == "extension" {
+			return prepareUnmanageExtensionInvocation(options.context, args[2:], stdout, stderr)
+		}
+		return nil
 	case "status":
 		return prepareStatusInvocation(args[1:], stdout, stderr, options)
 	case "lock":
@@ -57,9 +72,10 @@ func prepareInvocation(args []string, stdout, stderr io.Writer, options commandO
 }
 
 func flagBindingDiagnostic(path []string, err error) clipresent.FailureDiagnostic {
-	diagnostic := humanFailureDiagnostic(err)
-	if guidance, guidanceErr := clipresent.CommandGuidance(append([]string{"daem", "help"}, path...), ""); guidanceErr == nil {
-		diagnostic = diagnostic.WithGuidance(guidance)
-	}
-	return diagnostic
+	return humanFailureDiagnostic(err).WithGuidance(commandHelpGuidance(path))
+}
+
+func commandHelpGuidance(path []string) clipresent.Guidance {
+	guidance, _ := clipresent.CommandGuidance(append([]string{"daem", "help"}, path...), "")
+	return guidance
 }

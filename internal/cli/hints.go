@@ -24,16 +24,6 @@ func printLockCommandHint(output io.Writer, manifestPath, requestedManifestPath 
 	clipresent.PrintManifestCommand(output, "next: run ", []string{"lock"}, manifestPath, manifestHintOptions(requestedManifestPath, false))
 }
 
-func printTargetSelectionHint(output io.Writer, manifestPath, requestedManifestPath string) {
-	for _, guidance := range targetSelectionGuidance(manifestPath, requestedManifestPath) {
-		fmt.Fprintln(output, guidance.HumanText())
-	}
-}
-
-func printUnexpectedArgumentWithTargetHint(output io.Writer, arg string, targetValues targetFlagValues) {
-	fmt.Fprintln(output, unexpectedArgumentDiagnostic(arg, targetValues).HumanText())
-}
-
 func unexpectedArgumentDiagnostic(arg string, targetValues targetFlagValues) clipresent.FailureDiagnostic {
 	diagnostic := clipresent.NewFailureDiagnostic((&unexpectedArgumentError{argument: arg}).Error())
 	if len(targetValues) == 0 || !isSupportedTargetLiteral(arg) {
@@ -42,24 +32,12 @@ func unexpectedArgumentDiagnostic(arg string, targetValues targetFlagValues) cli
 	return diagnostic.WithGuidance(targetListSyntaxGuidance())
 }
 
-func printAuthoringArgumentCorrection(output io.Writer, path []string, err error, args []string) {
-	if printUnexpectedArgumentTargetHintFromArgs(output, err, args) {
-		return
-	}
-	printCommandHelpHint(output, path)
-}
-
-func printUnexpectedArgumentTargetHintFromArgs(output io.Writer, err error, args []string) bool {
+func unexpectedArgumentTargetGuidance(err error, args []string) (clipresent.Guidance, bool) {
 	var unexpected *unexpectedArgumentError
 	if !errors.As(err, &unexpected) || !hasSpacedTargetListAfterTargetFlag(args) {
-		return false
+		return clipresent.Guidance{}, false
 	}
-	printTargetListSyntaxHint(output)
-	return true
-}
-
-func printTargetListSyntaxHint(output io.Writer) {
-	fmt.Fprintln(output, targetListSyntaxGuidance().HumanText())
+	return targetListSyntaxGuidance(), true
 }
 
 func targetListSyntaxGuidance() clipresent.Guidance {
@@ -97,12 +75,6 @@ func hasSpacedTargetListAfterTargetFlag(args []string) bool {
 	return false
 }
 
-func printImportNothingToImportHint(output io.Writer, manifestPath string, merge bool) {
-	for _, guidance := range importNothingToImportGuidance(manifestPath, merge) {
-		fmt.Fprintln(output, guidance.HumanText())
-	}
-}
-
 func importNothingToImportGuidance(manifestPath string, merge bool) []clipresent.Guidance {
 	guidance := []clipresent.Guidance{
 		clipresent.InstructionGuidance("verify that the selected --target and --scope have live agent files to import"),
@@ -120,16 +92,19 @@ func importNothingToImportGuidance(manifestPath string, merge bool) []clipresent
 	)
 }
 
-func printSkillGroupPartialTargetRemovalHint(output io.Writer, resourceKey string, remainingTargets []string) {
+func skillGroupPartialTargetRemovalGuidance(resourceKey string, remainingTargets []string) []clipresent.Guidance {
 	targets := "<remaining-targets>"
 	if len(remainingTargets) != 0 {
 		targets = tomlStringArray(remainingTargets)
 	}
-	fmt.Fprintf(output, "next: edit the manifest so %q is in its own [[skill_group]] block with targets = %s\n", resourceKey, targets)
-	fmt.Fprintln(output, "next: keep the same source, scope, and install_mode on the original and split skill_group blocks")
-	if command, err := clipresent.ShellCommand("daem", "remove", "skill", resourceKey); err == nil {
-		fmt.Fprintf(output, "next: then rerun %s --target <target> --dry-run\n", command)
+	guidance := []clipresent.Guidance{
+		clipresent.InstructionGuidance(fmt.Sprintf("edit the manifest so %q is in its own [[skill_group]] block with targets = %s", resourceKey, targets)),
+		clipresent.InstructionGuidance("keep the same source, scope, and install_mode on the original and split skill_group blocks"),
 	}
+	if command, err := clipresent.ShellCommand("daem", "remove", "skill", resourceKey); err == nil {
+		guidance = append(guidance, clipresent.InstructionGuidance("then rerun "+command+" --target <target> --dry-run"))
+	}
+	return guidance
 }
 
 func printMissingManifestInitHint(output io.Writer, manifestPath string, err error) {

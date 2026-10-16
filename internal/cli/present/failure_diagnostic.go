@@ -65,6 +65,12 @@ func (guidance Guidance) Message() string { return guidance.message }
 
 func (guidance Guidance) Argv() []string { return slices.Clone(guidance.argv) }
 
+// WithHumanPrefix changes only the human annotation, not its wire meaning.
+func (guidance Guidance) WithHumanPrefix(prefix string) Guidance {
+	guidance.humanPrefix = humanErrorDetail(prefix)
+	return guidance
+}
+
 func (guidance Guidance) HumanText() string {
 	if guidance.kind != GuidanceCommand {
 		return guidance.humanPrefix + guidance.message

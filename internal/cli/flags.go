@@ -31,62 +31,6 @@ func (err *unexpectedArgumentError) Error() string {
 	return fmt.Sprintf("unexpected argument %q", err.argument)
 }
 
-func splitAuthoringArgs(
-	args []string,
-	positionalCount int,
-	flagTakesValue func(string) bool,
-) ([]string, []string, error) {
-	positionals := make([]string, 0, positionalCount)
-	flagArgs := make([]string, 0, len(args))
-	positionalOnly := false
-
-	for index := 0; index < len(args); index++ {
-		arg := args[index]
-		if !positionalOnly && arg == "--" {
-			positionalOnly = true
-			continue
-		}
-		if !positionalOnly && (arg == "-h" || arg == "--help") {
-			flagArgs = append(flagArgs, arg)
-			continue
-		}
-		if !positionalOnly && strings.HasPrefix(arg, "--") {
-			name, _, hasInlineValue := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
-			if !flagTakesValue(name) && !authoringBooleanFlag(name) {
-				return nil, nil, fmt.Errorf("flag provided but not defined: -%s", name)
-			}
-			flagArgs = append(flagArgs, arg)
-			if !hasInlineValue && flagTakesValue(name) {
-				index++
-				if index >= len(args) {
-					return nil, nil, fmt.Errorf("flag needs an argument: --%s", name)
-				}
-				flagArgs = append(flagArgs, args[index])
-				continue
-			}
-			continue
-		}
-		if !positionalOnly && strings.HasPrefix(arg, "-") && arg != "-" {
-			return nil, nil, fmt.Errorf("flag provided but not defined: %s", arg)
-		}
-		if len(positionals) == positionalCount {
-			return nil, nil, &unexpectedArgumentError{argument: arg}
-		}
-		positionals = append(positionals, arg)
-	}
-
-	return positionals, flagArgs, nil
-}
-
-func authoringBooleanFlag(name string) bool {
-	switch name {
-	case "dry-run", "diff", "json", "verbose":
-		return true
-	default:
-		return false
-	}
-}
-
 type targetFlagValues []target.Target
 
 func (values *targetFlagValues) String() string {

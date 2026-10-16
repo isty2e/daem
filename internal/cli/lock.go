@@ -112,9 +112,3 @@ func lockWorkflowGuidance(manifestPath string, err error) []clipresent.Guidance 
 	}
 	return guidance
 }
-
-func printLockWorkflowHints(output io.Writer, manifestPath string, err error) {
-	for _, guidance := range lockWorkflowGuidance(manifestPath, err) {
-		fmt.Fprintln(output, guidance.HumanText())
-	}
-}

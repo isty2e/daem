@@ -2,8 +2,6 @@ package cli
 
 import (
 	"errors"
-	"fmt"
-	"io"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/workflow/authoring"
@@ -21,19 +19,33 @@ func authoringExecutionOptions(manifestPath string, dryRun bool) authoring.Execu
 	}
 }
 
-func printAuthoringOperationError(output io.Writer, command string, manifestPath string, err error) {
-	fmt.Fprintf(output, "%s failed: %s\n", command, humanDiagnosticError(err))
+func authoringFailureDiagnostic(command, manifestPath string, err error) clipresent.FailureDiagnostic {
+	diagnostic := humanFailureDiagnostic(err).WithPrefix(command + " failed: ")
 	if authoringManifestInitHintApplies(err) {
-		printMissingManifestInitHint(output, manifestPath, err)
+		if init, present := missingManifestInitGuidance(manifestPath, err); present {
+			diagnostic = diagnostic.WithGuidance(init)
+		}
 	}
-	printMissingResourceSelectionHint(output, manifestPath, err)
-	clipresent.PrintMissingSourceHint(output, err)
+	diagnostic = diagnostic.WithGuidance(missingResourceSelectionGuidance(manifestPath, err)...)
+	if source, present := clipresent.MissingSourceGuidance(err); present {
+		diagnostic = diagnostic.WithGuidance(source)
+	}
+	if command == "remove" {
+		if missing, present := removeMCPServerNotFoundGuidance(err); present {
+			diagnostic = diagnostic.WithGuidance(missing)
+		}
+		var split authoring.SkillGroupPartialTargetRemovalError
+		if errors.As(err, &split) {
+			diagnostic = diagnostic.WithGuidance(skillGroupPartialTargetRemovalGuidance(split.ResourceID, split.RemainingTargets)...)
+		}
+	}
+	return diagnostic
 }
 
-func printMissingResourceSelectionHint(output io.Writer, manifestPath string, err error) {
+func missingResourceSelectionGuidance(manifestPath string, err error) []clipresent.Guidance {
 	var missing *authoring.ResourceSelectionNotFoundError
 	if !errors.As(err, &missing) {
-		return
+		return nil
 	}
 	kind := map[string]string{
 		"instructions": "instruction", "mcp_server": "mcp-server",
@@ -48,6 +60,7 @@ func printMissingResourceSelectionHint(output io.Writer, manifestPath string, er
 		hintManifestPath = manifestPath
 	}
 
+	var guidance []clipresent.Guidance
 	for _, selection := range missing.AvailableSelections() {
 		var args []string
 		for _, target := range selection.Targets {
@@ -56,8 +69,25 @@ func printMissingResourceSelectionHint(output io.Writer, manifestPath string, er
 		if selection.Scope != "" {
 			args = append(args, "--scope", selection.Scope)
 		}
-		clipresent.PrintManifestCommand(output, "hint: available selection: ", []string{"remove", kind, selection.Name}, hintManifestPath, hintOptions, args...)
+		guidance = append(guidance, manifestCommandGuidance([]string{"remove", kind, selection.Name}, hintManifestPath, hintOptions, args...).WithHumanPrefix("hint: available selection: "))
 	}
+	return guidance
+}
+
+func authoringArgumentDiagnostic(path []string, err error, args []string) clipresent.FailureDiagnostic {
+	diagnostic := humanFailureDiagnostic(err).WithPrefix(path[0] + " failed: ")
+	if guidance, present := unexpectedArgumentTargetGuidance(err, args); present {
+		return diagnostic.WithGuidance(guidance)
+	}
+	return diagnostic.WithGuidance(commandHelpGuidance(path))
+}
+
+func removeMCPServerNotFoundGuidance(err error) (clipresent.Guidance, bool) {
+	var missing *authoring.ResourceSelectionNotFoundError
+	if !errors.As(err, &missing) || missing.Kind != "mcp_server" {
+		return clipresent.Guidance{}, false
+	}
+	return clipresent.InstructionGuidance("inspect declared [[mcp_server]] entries in the selected manifest, or add the server before removing it"), true
 }
 
 func authoringManifestInitHintApplies(err error) bool {
