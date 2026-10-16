@@ -25,7 +25,7 @@ func TestManifestCommandPreservesSelectionAndArguments(t *testing.T) {
 		{name: "other workspace", path: "/other/daem.toml", implicit: "/project/daem.toml"},
 		{name: "alias is not proof", path: "/alias/daem.toml", implicit: "/project/daem.toml"},
 		{name: "case is not proof", path: "/project/DAEM.toml", implicit: "/project/daem.toml"},
-		{name: "empty target is not proof"},
+		{name: "empty selector remains implicit", omit: true},
 		{name: "quoted path", path: "/project 'name; ${HOME}/daem.toml"},
 		{name: "terminal safe path", path: "/project\nname\x1b/daem.toml"},
 		{name: "invalid UTF8 path", path: string([]byte{'/', 'a', 0xff})},
@@ -103,7 +103,10 @@ func TestManifestCommandPreservesOriginalSelectorWhenElisionIsUnproven(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"apply", "--manifest", request, "--dry-run"}
+		want := []string{"apply", "--dry-run"}
+		if request != "" {
+			want = []string{"apply", "--manifest", request, "--dry-run"}
+		}
 		if got := manifestCommandArgv(t, text); !reflect.DeepEqual(got, want) {
 			t.Fatalf("fallback argv=%q, want retained request %q", got, want)
 		}

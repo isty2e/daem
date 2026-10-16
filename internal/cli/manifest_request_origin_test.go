@@ -152,7 +152,10 @@ func TestManifestHintsKeepUnknownRequestInsteadOfResolvedTarget(t *testing.T) {
 	for _, request := range []string{"", "./selected/daem.toml"} {
 		var output strings.Builder
 		printLockCommandHint(&output, filepath.Join(cwd, "selected", "daem.toml"), request)
-		want := []string{"lock", "--manifest", request}
+		want := []string{"lock"}
+		if request != "" {
+			want = []string{"lock", "--manifest", request}
+		}
 		if got := manifestHintArgv(t, output.String(), "next: run "); !reflect.DeepEqual(got, want) {
 			t.Fatalf("unknown request fallback=%q, want %q", got, want)
 		}

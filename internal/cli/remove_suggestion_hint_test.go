@@ -107,8 +107,7 @@ func TestManifestHintUnknownRemoveSelectionKeepsImplicitRequest(t *testing.T) {
 	var output strings.Builder
 	printMissingResourceSelectionHint(&output, "", missingSelectionForTest())
 	argv := manifestHintArgv(t, output.String(), "hint: available selection: ")
-	index := slices.Index(argv, "--manifest")
-	if index < 0 || index+1 >= len(argv) || argv[index+1] != "" {
-		t.Fatalf("unknown observation changed the original implicit selector: %q", argv)
+	if slices.Contains(argv, "--manifest") {
+		t.Fatalf("implicit request emitted a redundant manifest selector: %q", argv)
 	}
 }

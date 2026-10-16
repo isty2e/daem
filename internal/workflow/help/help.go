@@ -70,7 +70,7 @@ func ManifestHintPath(manifestPath string) (string, error) {
 // Explicit requests require cwd discovery to retain project-placement admission.
 func ImplicitManifestHintPath(requestedManifestPath string) string {
 	paths, err := daempaths.Resolve("")
-	if err != nil || requestedManifestPath != "" && paths.ManifestOrigin != daempaths.ManifestOriginCWD {
+	if err != nil || (requestedManifestPath != "" && paths.ManifestOrigin != daempaths.ManifestOriginCWD) {
 		return ""
 	}
 	return paths.ManifestPath

@@ -14,7 +14,9 @@ func ManifestCommand(command []string, manifestPath string, options HumanOptions
 		if options.ManifestRequest != nil {
 			request = *options.ManifestRequest
 		}
-		argv = append(argv, "--manifest", request)
+		if request != "" {
+			argv = append(argv, "--manifest", request)
+		}
 	}
 	argv = append(argv, arguments...)
 
