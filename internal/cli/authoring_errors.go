@@ -41,6 +41,11 @@ func printMissingResourceSelectionHint(output io.Writer, manifestPath string, er
 	if kind == "" {
 		kind = missing.Kind
 	}
+	hintOptions := manifestHintOptions(false)
+	if manifestPath == "" && hintOptions.ImplicitManifestPath != "" {
+		manifestPath = hintOptions.ImplicitManifestPath
+	}
+
 	for _, selection := range missing.AvailableSelections() {
 		var args []string
 		for _, target := range selection.Targets {
@@ -49,7 +54,7 @@ func printMissingResourceSelectionHint(output io.Writer, manifestPath string, er
 		if selection.Scope != "" {
 			args = append(args, "--scope", selection.Scope)
 		}
-		clipresent.PrintManifestCommand(output, "hint: available selection: ", []string{"remove", kind, selection.Name}, manifestPath, manifestHintOptions(false), args...)
+		clipresent.PrintManifestCommand(output, "hint: available selection: ", []string{"remove", kind, selection.Name}, manifestPath, hintOptions, args...)
 	}
 }
 
