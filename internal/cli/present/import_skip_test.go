@@ -209,6 +209,24 @@ func TestImportFailureSkipReportHonorsVerboseModeAndMarksOverflow(t *testing.T) 
 	}
 }
 
+func TestImportFailureGuidanceKeepsOverflowWithNoRetainedRows(t *testing.T) {
+	t.Parallel()
+	diagnostic := NewFailureDiagnostic("import failed").WithGuidance(ImportFailureSkippedGuidance(nil, HumanOptions{}, true)...)
+	var output bytes.Buffer
+	if err := PrintCLIErrorJSON(&output, "import", CLIErrorOperation, diagnostic); err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Guidance []struct{ Kind, Message string } `json:"guidance"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Guidance) != 2 || payload.Guidance[0].Kind != "note" || !strings.Contains(payload.Guidance[0].Message, "budget was exhausted") || payload.Guidance[1].Kind != "instruction" || !strings.Contains(payload.Guidance[1].Message, "reduce the observed source set") {
+		t.Fatalf("overflow became an empty successful observation: %#v", payload)
+	}
+}
+
 func TestImportJSONSkippedIncludesStableClassification(t *testing.T) {
 	t.Parallel()
 

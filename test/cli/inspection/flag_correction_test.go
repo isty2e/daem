@@ -2,10 +2,12 @@ package cli_test
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestFlagSyntaxErrorsUseNearestScopedCorrection(t *testing.T) {
@@ -184,16 +186,23 @@ func assertScopedFlagCorrection(t *testing.T, args []string, helpPath string, wa
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	exitCode := testkit.RunCLI(args, &stdout, &stderr)
-	if exitCode != 2 || stdout.Len() != 0 {
+	if exitCode != 2 {
 		t.Fatalf("exitCode = %d, stdout = %q, stderr = %q; want misuse with empty stdout", exitCode, stdout.String(), stderr.String())
 	}
 
-	output := stderr.String()
+	commonJSON := slices.Contains(args, "--json")
+	output := clijson.FailureText(t, stdout.String(), stderr.String(), helpPath, "usage", commonJSON)
 	if !strings.Contains(output, wantProblem) {
 		t.Fatalf("stderr = %q, want problem containing %q", output, wantProblem)
 	}
 	correction := "next: run daem help " + helpPath + "\n"
-	if strings.Count(output, correction) != 1 || !strings.HasSuffix(output, correction) {
+	if commonJSON {
+		failure := clijson.DecodeFailure(t, stdout.String(), helpPath, "usage")
+		want := append([]string{"daem", "help"}, strings.Fields(helpPath)...)
+		if len(failure.Guidance) != 1 || failure.Guidance[0].Kind != "command" || !slices.Equal(failure.Guidance[0].Argv, want) {
+			t.Fatalf("lost or duplicated scoped correction: %+v", failure.Guidance)
+		}
+	} else if strings.Count(output, correction) != 1 || !strings.HasSuffix(output, correction) {
 		t.Fatalf("stderr = %q, want one terminal correction %q", output, correction)
 	}
 	for _, forbidden := range []string{"Usage of ", "\n  -manifest", "invalid manifest", "no such file or directory"} {

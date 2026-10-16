@@ -331,17 +331,15 @@ scope = "project"
 	}
 }
 
-func TestRunImportPreResultJSONFailureUsesStderrOnly(t *testing.T) {
+func TestRunImportPreResultJSONFailureUsesCommonFailure(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	exitCode := testkit.RunVerboseCLI([]string{"import", "--target", "unknown", "--json"}, &stdout, &stderr)
 	if exitCode != 2 {
 		t.Fatalf("exitCode = %d, want 2, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty before a typed result exists", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), "unknown target") {
+	diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "import", "usage", true)
+	if !strings.Contains(diagnostic, "unknown target") {
 		t.Fatalf("stderr = %q, want target diagnostic", stderr.String())
 	}
 }
@@ -376,10 +374,8 @@ func TestRunManifestAuthoringJSONAndDiffAreMutuallyExclusive(t *testing.T) {
 			if exitCode != 2 {
 				t.Fatalf("exitCode = %d, want 2", exitCode)
 			}
-			if stdout.Len() != 0 {
-				t.Fatalf("stdout = %q, want empty", stdout.String())
-			}
-			if !strings.Contains(stderr.String(), scenario.want) {
+			diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), clijson.CommandName(scenario.args), "usage", true)
+			if !strings.Contains(diagnostic, scenario.want) {
 				t.Fatalf("stderr = %q, want %q", stderr.String(), scenario.want)
 			}
 		})

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -31,19 +32,23 @@ func TestRunInputDiagnosticsAreCredentialSafeAndBounded(t *testing.T) {
 		{name: "transport", manifest: fmt.Sprintf("version=1\ntargets=[\"claude-code\"]\n[[mcp_server]]\nname=\"review\"\ntransport=%q\ncommand=\"must-not-run\"\n", large), reason: "unsupported MCP transport"},
 		{name: "install mode", manifest: fmt.Sprintf("version=1\ntargets=[\"codex\"]\n[defaults]\ninstall_mode=%q\n", large), withheld: true},
 	} {
-		for _, args := range [][]string{
-			{"apply", "--dry-run"},
-			{"apply", "--yes"},
-			{"apply"},
-			{"apply", "--dry-run", "--verbose"},
-			{"apply", "--yes", "--verbose"},
-			{"apply", "--dry-run", "--json"},
-			{"apply", "--yes", "--json"},
-			{"status"},
-			{"status", "--json"},
-			{"lock", "--dry-run"},
-			{"lock", "--dry-run", "--json"},
+		for _, commandCase := range []struct {
+			args []string
+			json bool
+		}{
+			{[]string{"apply", "--dry-run"}, false},
+			{[]string{"apply", "--yes"}, false},
+			{[]string{"apply"}, false},
+			{[]string{"apply", "--dry-run", "--verbose"}, false},
+			{[]string{"apply", "--yes", "--verbose"}, false},
+			{[]string{"apply", "--dry-run", "--json"}, true},
+			{[]string{"apply", "--yes", "--json"}, true},
+			{[]string{"status"}, false},
+			{[]string{"status", "--json"}, true},
+			{[]string{"lock", "--dry-run"}, false},
+			{[]string{"lock", "--dry-run", "--json"}, true},
 		} {
+			args := commandCase.args
 			t.Run(input.name+"/"+strings.Join(args, " "), func(t *testing.T) {
 				root := isolatedApplyAuthorityRoot(t)
 				t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
@@ -60,22 +65,23 @@ func TestRunInputDiagnosticsAreCredentialSafeAndBounded(t *testing.T) {
 				} else {
 					code = runWithoutTerminal(command, &stdout, &stderr)
 				}
-				if code != 1 || stdout.Len() != 0 {
+				if code != 1 {
 					t.Fatalf("input refusal code=%d stdout bytes=%d", code, stdout.Len())
 				}
+				message := refusalDiagnosticText(t, args[0], &stdout, &stderr, commandCase.json)
 				for _, secret := range []string{"review-user", "review-secret"} {
-					if strings.Contains(stderr.String(), secret) {
+					if strings.Contains(message, secret) {
 						t.Error("input refusal disclosed a credential-shaped source")
 					}
 				}
 				if input.withheld {
-					if !strings.Contains(stderr.String(), "[REDACTED]") || !strings.Contains(stderr.String(), "[truncated]") {
+					if !strings.Contains(message, "[REDACTED]") || !strings.Contains(message, "[truncated]") {
 						t.Error("oversized input refusal did not indicate withheld detail and truncation")
 					}
-				} else if strings.Contains(stderr.String(), "s3://") || !strings.Contains(stderr.String(), input.reason) {
+				} else if strings.Contains(message, "s3://") || !strings.Contains(message, input.reason) {
 					t.Error("input rejection did not retain its reason without echoing the value")
 				}
-				if count := utf8.RuneCountInString(stderr.String()); count > 4096+1024 {
+				if count := utf8.RuneCountInString(message); count > 4096+1024 {
 					t.Errorf("input refusal emitted %d runes, want bounded context and guidance", count)
 				}
 				if after := snapshotApplyInputFiles(t, root); !reflect.DeepEqual(before, after) {
@@ -193,13 +199,14 @@ func TestRunApplyCaptureFailurePreservesRecoveryPrecedence(t *testing.T) {
 						} else {
 							code = runWithoutTerminal(args, &stdout, &stderr)
 						}
-						if code != 1 || stdout.Len() != 0 {
+						if code != 1 {
 							t.Errorf("fenced input code=%d stdout bytes=%d", code, stdout.Len())
 						}
-						if !strings.Contains(stderr.String(), want.Detail()) || strings.Contains(stderr.String(), "correct the reported manifest") {
-							t.Errorf("write-mode input disclosure replaced the recovery disposition: %q", &stderr)
+						diagnostic := refusalDiagnosticText(t, "apply", &stdout, &stderr, slices.Contains(mode, "--json"))
+						if !strings.Contains(diagnostic, want.PrimaryDetail()) || strings.Contains(diagnostic, "correct the reported manifest") {
+							t.Errorf("write-mode input disclosure replaced the recovery disposition: %q", diagnostic)
 						}
-						if strings.Contains(stderr.String(), root) {
+						if strings.Contains(diagnostic, root) {
 							t.Error("recovery refusal disclosed the private input path")
 						}
 					}

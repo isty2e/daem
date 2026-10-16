@@ -79,7 +79,10 @@ func TestRepeatedAddReportsUnchangedAcrossAuthoringFamilies(t *testing.T) {
 			stdout.Reset()
 			stderr.Reset()
 			wrong := append(append([]string{}, remove...), "--scope", "global", "--json")
-			if code := testkit.RunCLI(wrong, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "not found") || !strings.Contains(stderr.String(), "hint: available selection:") || !strings.Contains(stderr.String(), "--scope project") {
+			code := testkit.RunCLI(wrong, &stdout, &stderr)
+			diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), clijson.CommandName(wrong), "operation", true)
+			failure := clijson.DecodeFailure(t, stdout.String(), clijson.CommandName(wrong), "operation")
+			if code != 1 || !strings.Contains(diagnostic, "not found") || len(failure.Guidance) == 0 || failure.Guidance[0].Kind != "command" || !strings.Contains(diagnostic, "--scope project") {
 				t.Fatalf("wrong selection: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 			}
 			if !bytes.Equal(manifestBefore, readAuthoringFile(t, manifest)) || !bytes.Equal(lockBefore, readAuthoringFile(t, lock)) {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,7 +22,18 @@ func TestRunMCPTransportRejectionsOmitPayload(t *testing.T) {
 		{`to\u200bken=opaque-one`, `to\u200bken=opaque-two`},
 		{"custom=opaque-one", "custom=opaque-two"},
 	} {
-		for _, command := range [][]string{{"apply", "--dry-run"}, {"apply", "--yes", "--verbose"}, {"apply", "--dry-run", "--json"}, {"apply", "--yes", "--json"}, {"status", "--verbose"}, {"lock", "--dry-run", "--json"}} {
+		for _, commandCase := range []struct {
+			args []string
+			json bool
+		}{
+			{[]string{"apply", "--dry-run"}, false},
+			{[]string{"apply", "--yes", "--verbose"}, false},
+			{[]string{"apply", "--dry-run", "--json"}, true},
+			{[]string{"apply", "--yes", "--json"}, true},
+			{[]string{"status", "--verbose"}, false},
+			{[]string{"lock", "--dry-run", "--json"}, true},
+		} {
+			command := commandCase.args
 			t.Run(fmt.Sprintf("case%d/%s", pairIndex, strings.Join(command, " ")), func(t *testing.T) {
 				root := isolatedApplyAuthorityRoot(t)
 				t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
@@ -35,10 +47,10 @@ func TestRunMCPTransportRejectionsOmitPayload(t *testing.T) {
 					}
 					before := snapshotApplyInputFiles(t, root)
 					var stdout, stderr bytes.Buffer
-					if code := runWithoutTerminal(args, &stdout, &stderr); code != 1 || stdout.Len() != 0 {
+					if code := runWithoutTerminal(args, &stdout, &stderr); code != 1 {
 						t.Fatalf("transport refusal code=%d stdout bytes=%d", code, stdout.Len())
 					}
-					message := stderr.String()
+					message := refusalDiagnosticText(t, command[0], &stdout, &stderr, commandCase.json)
 					if strings.Contains(message, "opaque-one") || strings.Contains(message, "opaque-two") {
 						t.Error("transport refusal echoes rejected payload")
 					}
@@ -127,11 +139,12 @@ source={host_source="./packages/tools"}
 		} else {
 			code = runWithoutTerminal(args, &stdout, &stderr)
 		}
-		if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), want) {
+		diagnostic := refusalDiagnosticText(t, "apply", &stdout, &stderr, slices.Contains(flags, "--json"))
+		if code != 1 || !strings.Contains(diagnostic, want) {
 			t.Errorf("environment refusal did not retain closed disposition: code=%d stdout=%d", code, stdout.Len())
 		}
 		for _, misleading := range []string{"invalid manifest", "correct the reported manifest", "next: run daem lock"} {
-			if strings.Contains(stderr.String(), misleading) {
+			if strings.Contains(diagnostic, misleading) {
 				t.Error("environment failure was presented as repairable manifest input")
 			}
 		}

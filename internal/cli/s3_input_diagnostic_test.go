@@ -21,14 +21,18 @@ func TestRunS3URIRejectionsOmitPayload(t *testing.T) {
 		{name: "userinfo", values: [2]string{"s3://user:opaque-one@private-bucket/object", "s3://user:opaque-two@private-bucket/object"}},
 		{name: "syntax", values: [2]string{"s3://user:opaque-one@private-bucket/object%zz", "s3://user:opaque-two@private-bucket/object%yy"}},
 	} {
-		for _, command := range [][]string{
-			{"apply", "--dry-run"},
-			{"apply", "--yes", "--verbose"},
-			{"apply", "--dry-run", "--json"},
-			{"apply", "--yes", "--json"},
-			{"status", "--verbose"},
-			{"lock", "--dry-run", "--json"},
+		for _, commandCase := range []struct {
+			args []string
+			json bool
+		}{
+			{[]string{"apply", "--dry-run"}, false},
+			{[]string{"apply", "--yes", "--verbose"}, false},
+			{[]string{"apply", "--dry-run", "--json"}, true},
+			{[]string{"apply", "--yes", "--json"}, true},
+			{[]string{"status", "--verbose"}, false},
+			{[]string{"lock", "--dry-run", "--json"}, true},
 		} {
+			command := commandCase.args
 			t.Run(input.name+"/"+strings.Join(command, " "), func(t *testing.T) {
 				root := isolatedApplyAuthorityRoot(t)
 				t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
@@ -43,11 +47,11 @@ func TestRunS3URIRejectionsOmitPayload(t *testing.T) {
 					}
 					before := snapshotApplyInputFiles(t, root)
 					var stdout, stderr bytes.Buffer
-					if code := runWithoutTerminal(args, &stdout, &stderr); code != 1 || stdout.Len() != 0 {
+					if code := runWithoutTerminal(args, &stdout, &stderr); code != 1 {
 						t.Fatalf("S3 refusal code=%d stdout bytes=%d", code, stdout.Len())
 					}
 
-					message := stderr.String()
+					message := refusalDiagnosticText(t, command[0], &stdout, &stderr, commandCase.json)
 					for _, payload := range []string{"private-bucket", "opaque-one", "opaque-two"} {
 						if strings.Contains(message, payload) {
 							t.Error("S3 refusal echoes rejected URI data")

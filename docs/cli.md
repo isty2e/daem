@@ -59,8 +59,9 @@ authoritative in [Platform Support](platforms.md).
 
 On an unsupported platform, help and version remain available and `doctor`
 reports the platform error in human or JSON form. Platform-gated commands fail
-before path resolution or effects, including dry-run; normal errors use stderr
-and `doctor --json` is the structured diagnostic. Doctor resolves its selected
+before path resolution or effects, including dry-run. Human refusals use stderr;
+known leaves with JSON selected use the common CLI failure family.
+`doctor --json` provides the diagnostic report. Doctor resolves its selected
 manifest and reports platform and path-resolution errors together. Remaining
 capability-bound checks are `unsupported` or `skipped`, not `ok`, and storage
 failure does not erase the platform finding. See [Platform
@@ -230,14 +231,17 @@ interrupts a blocked terminal read and cannot authorize effects.
   limited to 4,096 Unicode characters, with a truncation marker when needed.
   Details too large for bounded inspection are withheld instead of printing a
   partial value. Syntax locations and repair guidance remain outside that
-  detail budget. This also applies to human stderr before a JSON result exists;
-  it does not change JSON payloads or declaration-size admission limits.
+  detail budget. Common CLI failures use these same owned diagnostic views;
+  ordinary result payloads and declaration-size admission limits are unchanged.
 - `--verbose` adds bounded typed causal, provenance, path, and identity
   evidence. Error types without a bounded evidence projection are reported as
   omitted instead of invoking an arbitrary error formatter. Incomplete error
   evidence is withheld rather than printing a potentially unsafe prefix.
   Verbosity never changes selection, planning, authority, or mutation.
-- `--json` emits exactly one schema-versioned JSON document to stdout.
+- `--json` selects one schema-versioned result document on stdout, including
+  [common CLI failures](#common-cli-failures) before an ordinary result is ready.
+  Failed delivery can leave stdout empty or partial; daem does not repair or
+  replace that document.
 - `--json` and `--verbose` are mutually exclusive.
 - `--diff` is accepted by `import`, every add/remove leaf, and `apply`. It
   requires `--dry-run` and is mutually exclusive with `--json`.
@@ -334,6 +338,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
+| Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `1` |
 
 Plan version `14` and apply-result version `21` add per-binding MCP
 `host_prerequisite` evidence and optional dimension `detail`, plus the unsupported
@@ -342,10 +347,10 @@ pin-change actions and `pin_change` disclosure introduced in versions `13` and
 `20`. These versions replace the `12` and `19` envelopes shipped in v0.2.3,
 including for invocations without Native MCP or a pin change.
 
-Consumers must select the expected command envelope, inspect
-`schema_version`, and reject unsupported versions before interpreting any
-other field. A consumer must not infer compatibility from a version used by
-another command.
+Consumers must first distinguish `result_type: "cli_error"` from the expected
+ordinary command envelope, inspect that family's `schema_version`, and reject
+unsupported versions before interpreting its other fields. A consumer must not
+infer compatibility from a version used by another family or command.
 
 Every consumer-visible field addition, removal, rename, type or nullability
 change, or semantic reinterpretation requires a version increment before
@@ -354,6 +359,72 @@ meaning. Each daem binary emits one current version per envelope; it does not
 negotiate or emit legacy variants. Until a command explicitly documents a
 multi-version policy, consumers must update for a new version rather than
 silently accepting it. Released version changes belong in release notes.
+
+### Common CLI Failures
+
+When a known leaf command selects JSON but fails before choosing an ordinary
+result, it returns the `cli_error` family instead of an empty stdout plus human
+error text. For example, `daem status --unknown --json` returns exit `2` with:
+
+```json
+{
+  "schema_version": 1,
+  "result_type": "cli_error",
+  "command": "status",
+  "error": {
+    "kind": "usage",
+    "message": "flag provided but not defined: -unknown"
+  },
+  "guidance": [
+    {"kind": "command", "argv": ["daem", "help", "status"]}
+  ]
+}
+```
+
+`command` is the complete leaf name in the [flag inventory](#command-flag-inventory),
+without `daem` or resource operands: for example, `add skill`, `probe mcp-server`
+or `migrate state`. This does not change the command identifiers or fields in
+ordinary result families. `error.kind` is `usage` for CLI usage failures (exit
+`2`) and `operation` for operation failures (exit `1`). Classification belongs
+to the command, not the parsing or workflow stage where an error was found.
+`error.message` is the owning diagnostic's primary cause, not a machine-stable
+reason code.
+
+`guidance` is always an array, possibly empty. Each entry has one form:
+
+| `kind` | Fields | Meaning |
+| --- | --- | --- |
+| `note` | nonempty `message` | Context or bounded diagnostic evidence |
+| `instruction` | nonempty `message` | Manual work, a template or a syntax example |
+| `command` | complete `argv`, optional `message` | An argument vector beginning with `daem`; the message describes its purpose |
+
+Guidance preserves the relevant basic-mode repair view, not every verbose path
+or the full ordinary result model. Import failures retain every admitted
+action-required skip, compact benign rows and explicitly report an exhausted
+skip budget. Recover's no-journal planning failure keeps its path-neutral scope
+and continuing-fence advice. A command remains manual advice if its required
+context cannot be represented or disclosed safely. An argv is not authorization
+to execute it, proof of prerequisites, or a promise that retry is safe. Run it
+with the same directory/environment and preserve any stated selection context.
+
+Existing valid invocation grammar is unchanged. For a malformed invocation,
+format recovery can recognize a later `--json` after an unknown flag or unbound
+operand. Declared values stay data: `--manifest --json` or MCP `--arg --json`
+does not select JSON. An unconsumed `--` ends option recognition. For commands
+using boolean flag syntax, the last valid JSON binding wins; an invalid binding
+does not undo an earlier valid one. `version` retains its exact `--json` form.
+Help retains its existing precedence and human output. `probe mcp-server` and
+`refresh extension` report a missing name/id when an option occupies that slot;
+options before the required name/id do not become a new successful syntax.
+
+There is no root `--json` prefix. Unknown commands, unknown subjects and missing
+command routes remain human usage errors. Startup failures and OS signals are
+not common CLI results. Once an ordinary family is chosen, its failed or blocked
+result remains in that family; projection, disclosure and output faults do not
+produce a replacement `cli_error`, even when no stdout bytes were delivered.
+The common family makes no claim about effects: a command can fail after writes
+but before returning its ordinary result. Existing signal exit identities and
+[JSON stream exceptions](#json-stream-exceptions) still apply.
 
 ## `version`
 
@@ -480,9 +551,10 @@ discovery/deduplication noise. Every admitted actionable skip has a next action.
 One planning pass admits at most 4,096 skip rows and 256 KiB of aggregate
 dynamic diagnostics; a `detail` over 4,096 bytes becomes a whole-value digest
 and byte count. Ordinary producer failure/cancellation discards that producer's
-rows. Aggregate exhaustion instead aborts before plan/write, prints the bounded
-retained rows once with a diagnostic-budget marker on stderr, and emits no JSON
-envelope.
+rows. Aggregate exhaustion instead aborts before plan/write. Human mode prints
+the bounded retained rows once with a diagnostic-budget marker on stderr. JSON
+returns a common CLI failure with the basic retained view and omission advice,
+not an ordinary import plan.
 
 Unsupported/informational skips are compacted by target/reason. `--verbose`
 shows every admitted per-path skip in success and no-resource failure, plus
@@ -766,8 +838,9 @@ Projection-specific import merge rows include a canonical `subject_id` in
 `resource_id`, such as project and global MCP projections with the same server
 name. Aggregate-level merge rows omit `subject_id`.
 
-Human next-command prose is deliberately absent from schema `6`. CLI misuse or
-a failure before a result envelope exists goes to stderr and produces no JSON.
+Human next-command prose is deliberately absent from schema `6`. JSON CLI misuse
+or failure before an ordinary result uses the separate
+[common CLI failure family](#common-cli-failures), including basic repair guidance.
 An import conflict has a valid result envelope, so it emits JSON with
 `has_errors: true` and exits `1`.
 
@@ -1141,22 +1214,22 @@ between stored and desired Pi codecs, with the binding, backends and retirement
 guidance. It can refuse planning before an execution envelope exists.
 `rolled_back` requires compensation for every attempted effect; a
 retained provider prerequisite or any effect outside the journal keeps the
-result `incomplete`. JSON messages and generic human failures use the same closed
-detail; verbose evidence is bounded and sanitized. Projection, diff,
+result `incomplete`. Ordinary JSON retains its closed detail; common CLI errors
+separate the primary cause from repair guidance over the same classified facts.
+Verbose evidence is bounded and sanitized. Projection, diff,
 confirmation, diagnostic and output failures retain this boundary.
 
 Before planning completes, human diagnostics for the selected manifest and
 lockfile can include their escaped input errors, syntax locations and shared
-repair guidance. This also applies to stderr when `--json` fails before a result
-envelope exists; it does not add an early JSON result. Cancellation and recovery
+repair guidance. Before an ordinary JSON result is selected, these appear in
+the [common CLI failure](#common-cli-failures). Cancellation and recovery
 barriers still take precedence. Unknown internal errors retain the closed
 detail, and no reconciliation summary is shown before a plan exists.
 
 Input-remediation commands use the selected manifest path, including without
 `--verbose`. A missing lockfile may direct lock creation; a malformed existing
 lockfile must be corrected first rather than rerunning the same failing lock
-command. Broader hint shortening and early JSON envelopes are outside this
-behavior.
+command. Repair guidance does not perform that operation or bypass its admission.
 
 Host-route attempt rows include the exact operation and bounded
 `effect_postconditions` requirement/state summaries when the route couples
@@ -1335,8 +1408,9 @@ plan. Re-preview current evidence before retrying.
 
 Exit status is `0` for a successful preview, migration, recovery or completed
 repeat, `1` for refusal/execution failure, and `2` for invalid arguments or
-missing non-interactive authorization. Planning errors use stderr, not a result
-document. No legacy management to transfer is a refusal, not a new empty state.
+missing non-interactive authorization. With JSON selected, planning errors use
+the common CLI failure family rather than a migration result. No legacy
+management to transfer is a refusal, not a new empty state.
 
 ## `doctor`
 
@@ -1540,14 +1614,14 @@ cwd-authority loss. Summaries exclude subprocess output, raw errors, secrets,
 protocol payloads and local paths.
 
 After a refresh result JSON document has been written to stdout, daem does not
-append failure prose to stderr. Dry-run and pre-execution planning failures
-therefore use one stdout result document and empty stderr. Confirmed
+append failure prose to stderr. Dry-run failures and write-planning failures
+with a disclosed result use one stdout result document and empty stderr. Confirmed
 `--yes --json` execution still writes its complete authorization document to
 stderr before effects; a later failure remains only in the final stdout result,
 so the authorization stream stays one valid JSON document. CLI grammar and
-other failures that occur before a result can be formed continue to use empty
-stdout and a concise stderr diagnostic. A result-write failure is the only
-post-result attempt that may fall back to a bounded stderr diagnostic.
+other failures before a result can be formed use the common CLI failure family
+when JSON is selected. A result-write failure may still produce a bounded stderr
+diagnostic, never a replacement result.
 
 Current target-specific route availability remains authoritative in the
 feature matrix.
@@ -1582,8 +1656,10 @@ fails the command.
 | Non-clean `status --check` | normal result | empty | `1` |
 | Non-current `outdated --check` | normal result | empty | `1` |
 | Warning-only result | stable result | empty | `0` |
-| CLI misuse | empty | problem plus nearest correction | `2` |
-| Failure before result envelope | empty | concise error and remediation | `1` |
+| CLI misuse, human mode or unknown command route | empty | problem plus nearest correction | `2` |
+| Known-leaf CLI misuse with JSON selected | one `cli_error` usage document | empty unless delivery fails | `2` |
+| Operation failure before an ordinary result, human mode | empty | concise error and remediation | `1` |
+| Operation failure before an ordinary result, JSON selected | one `cli_error` operation document | empty unless delivery fails | `1` |
 | Failure after JSON envelope exists | one typed JSON result | [refresh authorization](#json-stream-exceptions); otherwise empty unless write fails | `1` |
 | Confirmation declined/canceled | disclosed plan remains | cancellation line | `1` |
 | Stable output write failure | possibly partial | one bounded write diagnostic without the writer's error text | `1`, unless preserving an existing nonzero command identity |
@@ -1592,9 +1668,10 @@ fails the command.
 
 Stable confirmation disclosures are written to stdout; prompts and bounded
 cancellation diagnostics are written to stderr. Human warnings that belong to
-a valid result stay on stdout. Raw subprocess/protocol output, auth material,
-headers, secret values, and unredacted credentials are prohibited from every
-output mode.
+a valid result stay on stdout. Command-specific non-disclosure rules continue
+to withhold raw subprocess/protocol output, authentication material, headers and
+known secret inputs. The [credential-detection non-goal](#presentation-flags) does not
+relax those rules or promise detection of arbitrary secrets in free-form text.
 
 First `SIGINT`/`SIGTERM` records exit identity and cancels the operation. A
 later signal arms a bounded emergency exit, preserving the first exit code and

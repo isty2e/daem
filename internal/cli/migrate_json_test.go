@@ -108,9 +108,10 @@ func TestMigrateStateJSONPlanningFailureKeepsDiagnostic(t *testing.T) {
 	code := RunWithOptions([]string{"migrate", "state", "--manifest", fixture.manifest, "--yes", "--json"}, RunOptions{
 		Context: t.Context(), Stdout: &stdout, Stderr: &stderr,
 	})
-	if code != 1 || stdout.Len() != 0 || stderr.Len() == 0 {
+	if code != 1 {
 		t.Fatalf("planning failure: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
+	refusalDiagnosticText(t, "migrate state", &stdout, &stderr, true)
 	assertCLIPathMissing(t, fixture.destination)
 }
 

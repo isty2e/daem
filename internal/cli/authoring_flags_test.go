@@ -1,17 +1,17 @@
 package cli
 
 import (
+	"io"
 	"slices"
 	"strings"
 	"testing"
 )
 
-func TestSplitAuthoringArgsPreservesOperandAndFlagBoundaries(t *testing.T) {
+func TestAuthoringPlanPreservesOperandAndFlagBoundaries(t *testing.T) {
 	tests := []struct {
 		name            string
 		args            []string
 		positionalCount int
-		flagTakesValue  func(string) bool
 		wantPositionals []string
 		wantFlagArgs    []string
 		wantError       string
@@ -20,7 +20,6 @@ func TestSplitAuthoringArgsPreservesOperandAndFlagBoundaries(t *testing.T) {
 			name:            "interspersed valued and boolean flags",
 			args:            []string{"--target", "codex", "name", "--dry-run", "source"},
 			positionalCount: 2,
-			flagTakesValue:  extensionAuthoringFlagTakesValue,
 			wantPositionals: []string{"name", "source"},
 			wantFlagArgs:    []string{"--target", "codex", "--dry-run"},
 		},
@@ -28,7 +27,6 @@ func TestSplitAuthoringArgsPreservesOperandAndFlagBoundaries(t *testing.T) {
 			name:            "inline valued flag",
 			args:            []string{"name", "source", "--target=codex"},
 			positionalCount: 2,
-			flagTakesValue:  extensionAuthoringFlagTakesValue,
 			wantPositionals: []string{"name", "source"},
 			wantFlagArgs:    []string{"--target=codex"},
 		},
@@ -36,7 +34,6 @@ func TestSplitAuthoringArgsPreservesOperandAndFlagBoundaries(t *testing.T) {
 			name:            "separator admits help token as operand",
 			args:            []string{"--dry-run", "--", "--help"},
 			positionalCount: 1,
-			flagTakesValue:  addSkillFlagTakesValue,
 			wantPositionals: []string{"--help"},
 			wantFlagArgs:    []string{"--dry-run"},
 		},
@@ -44,56 +41,48 @@ func TestSplitAuthoringArgsPreservesOperandAndFlagBoundaries(t *testing.T) {
 			name:            "separator makes later flag-shaped token positional",
 			args:            []string{"name", "--", "--target"},
 			positionalCount: 2,
-			flagTakesValue:  extensionAuthoringFlagTakesValue,
 			wantPositionals: []string{"name", "--target"},
 		},
 		{
 			name:            "unknown flag after operands rejected",
 			args:            []string{"name", "source", "--unknown", "value", "tail"},
 			positionalCount: 2,
-			flagTakesValue:  extensionAuthoringFlagTakesValue,
 			wantError:       "flag provided but not defined: -unknown",
 		},
 		{
 			name:            "unknown flag before operands rejected",
 			args:            []string{"--unknown", "name", "source"},
 			positionalCount: 2,
-			flagTakesValue:  extensionAuthoringFlagTakesValue,
 			wantError:       "flag provided but not defined: -unknown",
 		},
 		{
 			name:            "single hyphen option rejected",
 			args:            []string{"name", "source", "-target", "codex"},
 			positionalCount: 2,
-			flagTakesValue:  extensionAuthoringFlagTakesValue,
 			wantError:       "flag provided but not defined: -target",
 		},
 		{
 			name:            "single hyphen operand admitted after separator",
 			args:            []string{"--", "-source"},
 			positionalCount: 1,
-			flagTakesValue:  addSkillFlagTakesValue,
 			wantPositionals: []string{"-source"},
 		},
 		{
 			name:            "known flag missing value",
 			args:            []string{"name", "source", "--target"},
 			positionalCount: 2,
-			flagTakesValue:  extensionAuthoringFlagTakesValue,
-			wantError:       "flag needs an argument: --target",
+			wantError:       "flag needs an argument: -target",
 		},
 		{
 			name:            "extra positional rejected",
 			args:            []string{"name", "source", "extra"},
 			positionalCount: 2,
-			flagTakesValue:  extensionAuthoringFlagTakesValue,
 			wantError:       `unexpected argument "extra"`,
 		},
 		{
 			name:            "repeated values keep order",
 			args:            []string{"source", "--member", "review", "--member=test", "--target", "codex"},
 			positionalCount: 1,
-			flagTakesValue:  addSkillGroupFlagTakesValue,
 			wantPositionals: []string{"source"},
 			wantFlagArgs:    []string{"--member", "review", "--member=test", "--target", "codex"},
 		},
@@ -101,7 +90,15 @@ func TestSplitAuthoringArgsPreservesOperandAndFlagBoundaries(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			positionals, flagArgs, err := splitAuthoringArgs(test.args, test.positionalCount, test.flagTakesValue)
+			flags := newCommandFlagSet([]string{"fixture"}, io.Discard)
+			flags.String("target", "", "")
+			flags.String("member", "", "")
+			for _, name := range []string{"dry-run", "diff", "json", "verbose"} {
+				flags.Bool(name, false, "")
+			}
+			plan := prepareAuthoringArguments(flags, test.args, test.positionalCount)
+			positionals, err := plan.operands()
+			flagArgs := plan.options
 			if test.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantError) {
 					t.Fatalf("error = %v, want containing %q", err, test.wantError)
@@ -109,7 +106,7 @@ func TestSplitAuthoringArgsPreservesOperandAndFlagBoundaries(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("splitAuthoringArgs returned error: %v", err)
+				t.Fatalf("argument plan returned error: %v", err)
 			}
 			if !slices.Equal(positionals, test.wantPositionals) {
 				t.Fatalf("positionals = %#v, want %#v", positionals, test.wantPositionals)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestUnknownManifestKeyInputGuidanceHasSourcePosition(t *testing.T) {
@@ -41,14 +42,15 @@ func TestUnknownManifestKeyInputGuidanceHasSourcePosition(t *testing.T) {
 				}
 				before := snapshotAuthoringFixture(t, root)
 				var stdout, stderr bytes.Buffer
-				if code := testkit.RunCLI(args, &stdout, &stderr); code != 1 || stdout.Len() != 0 {
+				if code := testkit.RunCLI(args, &stdout, &stderr); code != 1 {
 					t.Fatalf("code=%d stdout=%q stderr=%q", code, &stdout, &stderr)
 				}
-				got := position.FindStringSubmatch(stderr.String())
+				diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), clijson.CommandName(args), "operation", jsonOutput)
+				got := position.FindStringSubmatch(diagnostic)
 				if len(got) != 3 || got[1] != "3" || got[2] != "3" {
 					t.Errorf("position=%q, want line3 column3 in %q", got, &stderr)
 				}
-				if !strings.Contains(stderr.String(), "next: correct or remove") || strings.Contains(stderr.String(), "check TOML brackets") {
+				if !strings.Contains(diagnostic, "correct or remove") || strings.Contains(diagnostic, "check TOML brackets") {
 					t.Errorf("unknown key lost its repair guidance: %q", &stderr)
 				}
 				if !reflect.DeepEqual(before, snapshotAuthoringFixture(t, root)) {

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestImportModesRefuseMalformedRecoveryBeforeLiveScan(t *testing.T) {
@@ -35,7 +37,7 @@ func TestImportModesRefuseMalformedRecoveryBeforeLiveScan(t *testing.T) {
 			if exitCode != 1 {
 				t.Fatalf("exitCode = %d, stdout = %q, stderr = %q, want 1", exitCode, stdout.String(), stderr.String())
 			}
-			assertMalformedRecoveryRefusal(t, stdout.String(), stderr.String())
+			assertMalformedRecoveryRefusal(t, clijson.FailureText(t, stdout.String(), stderr.String(), "import", "operation", slices.Contains(test.args, "--json")))
 			if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
 				t.Fatalf("manifest exists or stat failed unexpectedly: %v", err)
 			}
@@ -68,7 +70,7 @@ func TestDoctorPresentationsRefuseMalformedRecoveryBeforeHostChecks(t *testing.T
 			if exitCode != 1 {
 				t.Fatalf("exitCode = %d, stdout = %q, stderr = %q, want 1", exitCode, stdout.String(), stderr.String())
 			}
-			assertMalformedRecoveryRefusal(t, stdout.String(), stderr.String())
+			assertMalformedRecoveryRefusal(t, clijson.FailureText(t, stdout.String(), stderr.String(), "doctor", "operation", slices.Contains(test.args, "--json")))
 		})
 	}
 }
@@ -108,13 +110,11 @@ func TestImportAndDoctorRefuseValidActiveRecoveryBeforeLiveScan(t *testing.T) {
 					stderr.String(),
 				)
 			}
-			if stdout.Len() != 0 {
-				t.Fatalf("stdout = %q, want empty", stdout.String())
-			}
+			diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), test.command, "operation", slices.Contains(test.args, "--json"))
 			want := test.command +
 				" failed: interrupted apply operation found; run: daem recover --dry-run\n"
-			if stderr.String() != want {
-				t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+			if strings.TrimSuffix(diagnostic, "\n") != strings.TrimSuffix(want, "\n") {
+				t.Fatalf("diagnostic = %q, want %q", diagnostic, want)
 			}
 			if _, err := os.Stat(filepath.Join(root, "daem.imported.d")); !os.IsNotExist(err) {
 				t.Fatalf("live import output exists or stat failed unexpectedly: %v", err)
@@ -163,14 +163,11 @@ func createActiveRecoveryMarker(t *testing.T, root string) {
 	}
 }
 
-func assertMalformedRecoveryRefusal(t *testing.T, stdout string, stderr string) {
+func assertMalformedRecoveryRefusal(t *testing.T, diagnostic string) {
 	t.Helper()
-	if stdout != "" {
-		t.Fatalf("stdout = %q, want empty", stdout)
-	}
 	for _, want := range []string{"recovery inventory is blocked", "has no journal.json"} {
-		if !strings.Contains(stderr, want) {
-			t.Fatalf("stderr = %q, want %q", stderr, want)
+		if !strings.Contains(diagnostic, want) {
+			t.Fatalf("diagnostic = %q, want %q", diagnostic, want)
 		}
 	}
 }

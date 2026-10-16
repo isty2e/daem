@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"context"
-	"fmt"
 	"io"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
@@ -15,87 +13,89 @@ type initRequest struct {
 	dryRun       bool
 }
 
-func runInit(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
-	if commandHelpRequested(args) {
-		printCommandUsage([]string{"init"}, stdout, 0)
-		return 0
-	}
-
+func prepareInitInvocation(args []string, stdout io.Writer, stderr io.Writer, options commandOptions) *preparedInvocation {
 	flags := newCommandFlagSet([]string{"init"}, stderr)
 
 	manifestPath := flags.String("manifest", "", "path to daem.toml")
 	force := flags.Bool("force", false, "overwrite an existing manifest")
 	dryRun := flags.Bool("dry-run", false, "preview manifest creation without writing")
-	jsonOutput := flags.Bool("json", false, "emit structured JSON output")
+	flags.Bool("json", false, "emit structured JSON output")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
-	if err := flags.Parse(args); err != nil {
-		return 2
-	}
-	if flags.NArg() != 0 {
-		fmt.Fprintf(stderr, "unexpected argument %q\n", flags.Arg(0))
-		return 2
-	}
-	if err := validatePresentationFlags("init", *jsonOutput, *verbose, false); err != nil {
-		fmt.Fprintln(stderr, humanDiagnosticError(err))
-		return 2
-	}
-	if err := ctx.Err(); err != nil {
-		fmt.Fprintf(stderr, "init failed: %s\n", humanDiagnosticError(err))
-		return 1
-	}
+	arguments := prepareGoArguments(flags, args)
+	response := newCommandResponse("init", arguments.output, stdout, stderr)
 
-	request := initRequest{
-		manifestPath: *manifestPath,
-		force:        *force,
-		dryRun:       *dryRun,
-	}
-	input := initworkflow.Input{
-		ManifestPath: request.manifestPath,
-		Force:        request.force,
-	}
-	if request.dryRun {
-		plan, err := initworkflow.BuildPlan(ctx, input)
+	return &preparedInvocation{response: response, execute: func() int {
+		ctx := options.context
+		if commandHelpRequested(args) {
+			printCommandUsage([]string{"init"}, stdout, 0)
+			return 0
+		}
+		if err := arguments.bind(flags); err != nil {
+			return response.failure(usageFailure, flagBindingDiagnostic([]string{"init"}, err))
+		}
+		if flags.NArg() != 0 {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic((&unexpectedArgumentError{argument: flags.Arg(0)}).Error()))
+		}
+		if err := validatePresentationFlags("init", arguments.output == requestedJSON, *verbose, false); err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err))
+		}
+		if err := ctx.Err(); err != nil {
+			return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("init failed: "))
+		}
+
+		request := initRequest{
+			manifestPath: *manifestPath,
+			force:        *force,
+			dryRun:       *dryRun,
+		}
+		input := initworkflow.Input{
+			ManifestPath: request.manifestPath,
+			Force:        request.force,
+		}
+		if request.dryRun {
+			plan, err := initworkflow.BuildPlan(ctx, input)
+			if err != nil {
+				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("init failed: "))
+			}
+			if err := response.selectOrdinaryResult(); err != nil {
+				return response.failure(operationFailure, humanFailureDiagnostic(err))
+			}
+			if arguments.output == requestedJSON {
+				if err := clipresent.PrintInitJSON(stdout, "dry-run", plan); err != nil {
+					return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("init failed: write json: "))
+				}
+				return 0
+			}
+			clipresent.PrintInitPlanWithOptions(stdout, "init", plan, clipresent.HumanOptions{Verbose: *verbose})
+			return 0
+		}
+		if err := ctx.Err(); err != nil {
+			return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("init failed: "))
+		}
+		plan, err := initworkflow.Execute(ctx, input)
 		if err != nil {
-			fmt.Fprintf(stderr, "init failed: %s\n", humanDiagnosticError(err))
-			return 1
+			return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("init failed: write manifest: "))
 		}
-		if *jsonOutput {
-			if err := clipresent.PrintInitJSON(stdout, "dry-run", plan); err != nil {
-				fmt.Fprintf(stderr, "init failed: write json: %s\n", humanDiagnosticError(err))
-				return 1
+		if err := response.selectOrdinaryResult(); err != nil {
+			return response.failure(operationFailure, humanFailureDiagnostic(err))
+		}
+		if plan.Action == initworkflow.ActionOverwrite {
+			if arguments.output == requestedJSON {
+				if err := clipresent.PrintInitJSON(stdout, "write", plan); err != nil {
+					return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("init failed: write json: "))
+				}
+				return 0
 			}
+			clipresent.PrintInitPlanWithOptions(stdout, "overwritten", plan, manifestHintOptions(*manifestPath, *verbose))
 			return 0
 		}
-		clipresent.PrintInitPlanWithOptions(stdout, "init", plan, clipresent.HumanOptions{Verbose: *verbose})
-		return 0
-	}
-	if err := ctx.Err(); err != nil {
-		fmt.Fprintf(stderr, "init failed: %s\n", humanDiagnosticError(err))
-		return 1
-	}
-	plan, err := initworkflow.Execute(ctx, input)
-	if err != nil {
-		fmt.Fprintf(stderr, "init failed: write manifest: %s\n", humanDiagnosticError(err))
-		return 1
-	}
-	if plan.Action == initworkflow.ActionOverwrite {
-		if *jsonOutput {
+		if arguments.output == requestedJSON {
 			if err := clipresent.PrintInitJSON(stdout, "write", plan); err != nil {
-				fmt.Fprintf(stderr, "init failed: write json: %s\n", humanDiagnosticError(err))
-				return 1
+				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("init failed: write json: "))
 			}
 			return 0
 		}
-		clipresent.PrintInitPlanWithOptions(stdout, "overwritten", plan, manifestHintOptions(*manifestPath, *verbose))
+		clipresent.PrintInitPlanWithOptions(stdout, "created", plan, manifestHintOptions(*manifestPath, *verbose))
 		return 0
-	}
-	if *jsonOutput {
-		if err := clipresent.PrintInitJSON(stdout, "write", plan); err != nil {
-			fmt.Fprintf(stderr, "init failed: write json: %s\n", humanDiagnosticError(err))
-			return 1
-		}
-		return 0
-	}
-	clipresent.PrintInitPlanWithOptions(stdout, "created", plan, manifestHintOptions(*manifestPath, *verbose))
-	return 0
+	}}
 }

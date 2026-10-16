@@ -11,133 +11,81 @@ import (
 	"github.com/isty2e/daem/internal/workflow/authoring"
 )
 
-func runAddHook(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
-	if commandHelpRequested(args) {
-		printCommandUsage([]string{"add", "hook"}, stdout, 0)
-		return 0
-	}
-
-	name, event, command, flagArgs, err := splitAddHookArgs(args)
-	if err != nil {
-		fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
-		printAuthoringArgumentCorrection(stderr, []string{"add", "hook"}, err, args)
-		return 2
-	}
-
-	flags := newCommandFlagSet([]string{"add", "hook"}, stderr)
-
-	var targetValues targetFlagValues
-	var scopeValues scopeFlagValues
-	manifestPath := flags.String("manifest", "", "path to daem.toml")
+func prepareAddHookInvocation(ctx context.Context, args []string, stdout, stderr io.Writer) *preparedInvocation {
+	path := []string{"add", "hook"}
+	flags := newCommandFlagSet(path, stderr)
+	var targets targetFlagValues
+	var scopes scopeFlagValues
+	manifest := flags.String("manifest", "", "path to daem.toml")
 	matcher := flags.String("matcher", "", "hook matcher")
-	timeoutValue := flags.String("timeout", "", "positive command timeout duration")
+	timeout := flags.String("timeout", "", "positive command timeout duration")
 	dryRun := flags.Bool("dry-run", false, "preview manifest change without writing")
-	showDiff := flags.Bool("diff", false, "show manifest diff with --dry-run")
-	jsonOutput := flags.Bool("json", false, "emit structured JSON output")
+	diff := flags.Bool("diff", false, "show manifest diff with --dry-run")
+	flags.Bool("json", false, "emit structured JSON output")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
-	flags.Var(&targetValues, "target", "target to add; may be repeated")
-	flags.Var(&scopeValues, "scope", "scope for the hook resource")
+	flags.Var(&targets, "target", "target to add; may be repeated")
+	flags.Var(&scopes, "scope", "scope for the hook resource")
+	arguments := prepareAuthoringArguments(flags, args, 3)
+	response := newCommandResponse("add hook", arguments.output, stdout, stderr)
 
-	if err := flags.Parse(flagArgs); err != nil {
-		return 2
-	}
-	if flags.NArg() != 0 {
-		printUnexpectedArgumentWithTargetHint(stderr, flags.Arg(0), targetValues)
-		return 2
-	}
-	if *showDiff && !*dryRun {
-		fmt.Fprintln(stderr, "add failed: --diff requires --dry-run")
-		return 2
-	}
-	if err := validatePresentationFlags("add", *jsonOutput, *verbose, *showDiff); err != nil {
-		fmt.Fprintln(stderr, humanDiagnosticError(err))
-		return 2
-	}
-	timeoutSeconds := 0
-	if *timeoutValue != "" {
-		duration, err := parsePositiveDuration("--timeout", *timeoutValue)
-		if err != nil {
-			fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
-			return 2
-		}
-		if duration%time.Second != 0 {
-			fmt.Fprintln(stderr, "add failed: --timeout must be representable as whole seconds")
-			return 2
-		}
-		timeoutSeconds = int(duration / time.Second)
-	}
-
-	targets := targetValues.strings()
-	scope, err := singleScopeValue(scopeValues)
-	if err != nil {
-		fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
-		return 2
-	}
-	result, err := authoring.AddHook(ctx, authoringExecutionOptions(*manifestPath, *dryRun), authoring.AddHookRequest{
-		Name:           name,
-		Event:          event,
-		Command:        command,
-		Matcher:        strings.TrimSpace(*matcher),
-		TimeoutSeconds: timeoutSeconds,
-		Targets:        targets,
-		Scope:          scope,
-	})
-	if err != nil {
-		printAuthoringOperationError(stderr, "add", *manifestPath, err)
-		return 1
-	}
-	if *dryRun {
-		if *jsonOutput {
-			if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceHook, result)); err != nil {
-				fmt.Fprintf(stderr, "add failed: write json: %s\n", humanDiagnosticError(err))
-				return 1
-			}
+	return &preparedInvocation{response: response, execute: func() int {
+		if commandHelpRequested(args) {
+			printCommandUsage(path, stdout, 0)
 			return 0
 		}
-		clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("add", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceHook, result), clipresent.HumanOptions{Verbose: *verbose})
-		if *showDiff {
-			clipresent.PrintManifestDiff(stdout, result.ManifestPath, result.Original, result.ManifestPath, result.Content)
+		name, event, command, err := addHookOperands(arguments)
+		if err != nil {
+			return response.failure(usageFailure, authoringArgumentDiagnostic(path, err, args))
 		}
-		return 0
-	}
+		if err := arguments.bind(flags); err != nil {
+			return response.failure(usageFailure, flagBindingDiagnostic(path, err))
+		}
+		if err := validateAuthoringPresentation("add", arguments.output, *verbose, *diff, *dryRun); err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err))
+		}
+		timeoutSeconds := 0
+		if *timeout != "" {
+			duration, err := parsePositiveDuration("--timeout", *timeout)
+			if err != nil {
+				return response.failure(usageFailure, humanFailureDiagnostic(err).WithPrefix("add failed: "))
+			}
+			if duration%time.Second != 0 {
+				return response.failure(usageFailure, clipresent.NewFailureDiagnostic("add failed: --timeout must be representable as whole seconds"))
+			}
+			timeoutSeconds = int(duration / time.Second)
+		}
+		scope, err := singleScopeValue(scopes)
+		if err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err).WithPrefix("add failed: "))
+		}
 
-	if *jsonOutput {
-		if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ManifestAuthoringJSONFrom(clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceHook, result)); err != nil {
-			fmt.Fprintf(stderr, "add failed: write json: %s\n", humanDiagnosticError(err))
-			return 1
+		result, err := authoring.AddHook(ctx, authoringExecutionOptions(*manifest, *dryRun), authoring.AddHookRequest{
+			Name: name, Event: event, Command: command, Matcher: strings.TrimSpace(*matcher), TimeoutSeconds: timeoutSeconds, Targets: targets.strings(), Scope: scope,
+		})
+		if err != nil {
+			return response.failure(operationFailure, authoringFailureDiagnostic("add", *manifest, err))
 		}
-		return 0
-	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceHook, result), manifestHintOptions(*manifestPath, *verbose))
-	return 0
+		return renderAuthoringResult(response, clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceHook, result, *manifest, *verbose, *diff)
+	}}
 }
 
-func splitAddHookArgs(args []string) (string, string, string, []string, error) {
-	positionals, flagArgs, err := splitAuthoringArgs(args, 3, hookAuthoringFlagTakesValue)
+func addHookOperands(plan authoringArgumentPlan) (string, string, string, error) {
+	positionals, err := plan.operands()
 	if err != nil {
-		return "", "", "", nil, err
+		return "", "", "", err
 	}
 	if len(positionals) == 0 || strings.TrimSpace(positionals[0]) == "" {
-		return "", "", "", nil, fmt.Errorf("missing hook name")
+		return "", "", "", fmt.Errorf("missing hook name")
 	}
 	if len(positionals) < 2 || strings.TrimSpace(positionals[1]) == "" {
-		return "", "", "", nil, fmt.Errorf("missing hook event")
+		return "", "", "", fmt.Errorf("missing hook event")
 	}
 	if len(positionals) < 3 || strings.TrimSpace(positionals[2]) == "" {
-		return "", "", "", nil, fmt.Errorf("missing hook command")
+		return "", "", "", fmt.Errorf("missing hook command")
 	}
-	cleanName, err := authoring.CleanHookName(positionals[0])
+	name, err := authoring.CleanHookName(positionals[0])
 	if err != nil {
-		return "", "", "", nil, err
+		return "", "", "", err
 	}
-	return cleanName, strings.TrimSpace(positionals[1]), strings.TrimSpace(positionals[2]), flagArgs, nil
-}
-
-func hookAuthoringFlagTakesValue(name string) bool {
-	switch name {
-	case "manifest", "matcher", "timeout", "target", "scope":
-		return true
-	default:
-		return false
-	}
+	return name, strings.TrimSpace(positionals[1]), strings.TrimSpace(positionals[2]), nil
 }

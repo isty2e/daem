@@ -32,15 +32,10 @@ func runRefresh(
 		fmt.Fprintln(stderr, "next: run daem help refresh")
 		return 2
 	}
-	if commandHelpRequested(args[1:]) {
-		printCommandUsage([]string{"refresh", "extension"}, stdout, 0)
-		return 0
-	}
-	if len(args) < 2 {
-		fmt.Fprintln(stderr, "refresh failed: extension id is required")
-		return 2
-	}
+	return prepareRefreshExtensionInvocation(args[1:], stdout, stderr, options).execute()
+}
 
+func prepareRefreshExtensionInvocation(args []string, stdout, stderr io.Writer, options commandOptions) *preparedInvocation {
 	flags := newCommandFlagSet([]string{"refresh", "extension"}, stderr)
 	var targetValues targetFlagValues
 	var scopeValues scopeFlagValues
@@ -60,7 +55,7 @@ func runRefresh(
 		false,
 		"authorize the exact disclosed refresh without a prompt",
 	)
-	jsonOutput := flags.Bool("json", false, "emit structured JSON output")
+	flags.Bool("json", false, "emit structured JSON output")
 	verbose := flags.Bool(
 		"verbose",
 		false,
@@ -76,166 +71,143 @@ func runRefresh(
 		"scope",
 		"exact scope selector; at most one distinct value",
 	)
+	arguments := prepareNamedArguments(flags, args, "extension id")
+	response := newCommandResponse("refresh extension", arguments.options.output, stdout, stderr)
 
-	extensionID := args[1]
-	if err := flags.Parse(args[2:]); err != nil {
-		return 2
-	}
-	if flags.NArg() != 0 {
-		fmt.Fprintf(
-			stderr,
-			"refresh failed: unexpected argument %q\n",
-			flags.Arg(0),
-		)
-		return 2
-	}
-	hostCommandTimeout, err := refreshworkflow.NewHostCommandTimeout(*timeout)
-	if err != nil {
-		fmt.Fprintf(
-			stderr,
-			"refresh failed: --timeout: %s\n",
-			humanDiagnosticError(err),
-		)
-		return 2
-	}
-	if *dryRun && *yes {
-		fmt.Fprintln(
-			stderr,
-			"refresh failed: --dry-run and --yes are mutually exclusive",
-		)
-		return 2
-	}
-	if err := validatePresentationFlags(
-		"refresh",
-		*jsonOutput,
-		*verbose,
-		false,
-	); err != nil {
-		fmt.Fprintln(stderr, humanDiagnosticError(err))
-		return 2
-	}
-	if *jsonOutput && !*dryRun && !*yes {
-		fmt.Fprintln(
-			stderr,
-			"refresh failed: --json requires --dry-run or --yes",
-		)
-		return 2
-	}
-	targets := targetValues.strings()
-	if len(targets) > 1 {
-		fmt.Fprintln(
-			stderr,
-			"refresh failed: refresh accepts at most one distinct --target",
-		)
-		return 2
-	}
-	scopeValue, err := singleScopeValue(scopeValues)
-	if err != nil {
-		fmt.Fprintf(
-			stderr,
-			"refresh failed: %s\n",
-			humanDiagnosticError(err),
-		)
-		return 2
-	}
-	targetValue := ""
-	if len(targets) == 1 {
-		targetValue = targets[0]
-	}
-	input := refreshworkflow.CommandInput{
-		ManifestPath: *manifestPath,
-		ExtensionID:  extensionID,
-		TargetValue:  targetValue,
-		ScopeValue:   scopeValue,
-		Timeout:      hostCommandTimeout.Duration(),
-	}
-	interactiveConfirmation := !*dryRun && !*yes
-	if interactiveConfirmation &&
-		!options.confirmation.allowsInteractiveAuthorization() {
-		printInteractiveConfirmationRequired(stderr, "refresh", "refresh")
-		fmt.Fprintln(
-			stderr,
-			"next: run daem refresh extension <id> --dry-run first, then rerun with --yes when the plan is acceptable",
-		)
-		return 2
-	}
-
-	if *dryRun {
-		result, planErr := refreshworkflow.PlanDryRun(
-			options.context,
-			input,
-			options.refreshPlanOptions,
-		)
-		if renderErr := printRefreshResult(
-			stdout,
-			clipresent.RefreshReportFrom(result),
-			*jsonOutput,
+	return &preparedInvocation{response: response, execute: func() int {
+		if commandHelpRequested(args) {
+			printCommandUsage([]string{"refresh", "extension"}, stdout, 0)
+			return 0
+		}
+		if err := arguments.bind(flags); err != nil {
+			if arguments.missing != nil {
+				return response.failure(usageFailure, humanFailureDiagnostic(err).WithPrefix("refresh failed: "))
+			}
+			return response.failure(usageFailure, flagBindingDiagnostic([]string{"refresh", "extension"}, err))
+		}
+		if flags.NArg() != 0 {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic((&unexpectedArgumentError{argument: flags.Arg(0)}).Error()).WithPrefix("refresh failed: "))
+		}
+		hostCommandTimeout, err := refreshworkflow.NewHostCommandTimeout(*timeout)
+		if err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err).WithPrefix("refresh failed: --timeout: "))
+		}
+		if *dryRun && *yes {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("refresh failed: --dry-run and --yes are mutually exclusive"))
+		}
+		if err := validatePresentationFlags(
+			"refresh",
+			arguments.options.output == requestedJSON,
 			*verbose,
 			false,
-		); renderErr != nil {
-			return 1
+		); err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err))
 		}
-		if planErr != nil {
-			if !*jsonOutput {
-				printRefreshFailure(stderr, result)
-				printMissingManifestInitHint(stderr, *manifestPath, planErr)
-			}
-			return 1
+		if arguments.options.output == requestedJSON && !*dryRun && !*yes {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("refresh failed: --json requires --dry-run or --yes"))
 		}
-		return refreshExitCode(result)
-	}
+		targets := targetValues.strings()
+		if len(targets) > 1 {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("refresh failed: refresh accepts at most one distinct --target"))
+		}
+		scopeValue, err := singleScopeValue(scopeValues)
+		if err != nil {
+			return response.failure(usageFailure, humanFailureDiagnostic(err).WithPrefix("refresh failed: "))
+		}
+		targetValue := ""
+		if len(targets) == 1 {
+			targetValue = targets[0]
+		}
+		input := refreshworkflow.CommandInput{
+			ManifestPath: *manifestPath,
+			ExtensionID:  arguments.name,
+			TargetValue:  targetValue,
+			ScopeValue:   scopeValue,
+			Timeout:      hostCommandTimeout.Duration(),
+		}
+		interactiveConfirmation := !*dryRun && !*yes
+		if interactiveConfirmation &&
+			!options.confirmation.allowsInteractiveAuthorization() {
+			printInteractiveConfirmationRequired(stderr, "refresh", "refresh")
+			fmt.Fprintln(
+				stderr,
+				"next: run daem refresh extension <id> --dry-run first, then rerun with --yes when the plan is acceptable",
+			)
+			return 2
+		}
 
-	prepared, planErr := refreshworkflow.PlanWrite(
-		options.context,
-		input,
-		options.refreshPlanOptions,
-	)
-	if planErr != nil {
-		resultWritten := false
-		if prepared != nil {
-			defer prepared.Close()
+		if *dryRun {
+			result, planErr := refreshworkflow.PlanDryRun(
+				options.context,
+				input,
+				options.refreshPlanOptions,
+			)
+			if err := response.selectOrdinaryResult(); err != nil {
+				return response.failure(operationFailure, humanFailureDiagnostic(err))
+			}
 			if renderErr := printRefreshResult(
 				stdout,
-				clipresent.RefreshReportFrom(prepared.Disclosure()),
-				*jsonOutput,
+				clipresent.RefreshReportFrom(result),
+				arguments.options.output == requestedJSON,
 				*verbose,
 				false,
 			); renderErr != nil {
 				return 1
 			}
-			resultWritten = true
-		}
-		if !*jsonOutput {
-			if prepared != nil {
-				printRefreshFailure(stderr, prepared.Disclosure())
-			} else {
-				fmt.Fprintln(stderr, "refresh failed")
+			if planErr != nil {
+				if arguments.options.output != requestedJSON {
+					printRefreshFailure(stderr, result)
+					printMissingManifestInitHint(stderr, *manifestPath, planErr)
+				}
+				return 1
 			}
-			printMissingManifestInitHint(stderr, *manifestPath, planErr)
-		} else if !resultWritten {
-			fmt.Fprintln(stderr, "refresh failed")
+			return refreshExitCode(result)
 		}
-		return 1
-	}
-	defer prepared.Close()
-	disclosed := clipresent.RefreshReportFrom(prepared.Disclosure())
-	if *jsonOutput {
-		if err := clipresent.PrintRefreshJSON(stderr, disclosed); err != nil {
-			fmt.Fprintf(
-				stderr,
-				"refresh failed: disclose plan: %s\n",
-				humanDiagnosticError(err),
-			)
+
+		prepared, planErr := refreshworkflow.PlanWrite(
+			options.context,
+			input,
+			options.refreshPlanOptions,
+		)
+		if planErr != nil {
+			if prepared != nil {
+				defer prepared.Close()
+				if err := response.selectOrdinaryResult(); err != nil {
+					return response.failure(operationFailure, humanFailureDiagnostic(err))
+				}
+				if renderErr := printRefreshResult(
+					stdout,
+					clipresent.RefreshReportFrom(prepared.Disclosure()),
+					arguments.options.output == requestedJSON,
+					*verbose,
+					false,
+				); renderErr != nil {
+					return 1
+				}
+			}
+			if arguments.options.output != requestedJSON {
+				if prepared != nil {
+					printRefreshFailure(stderr, prepared.Disclosure())
+				} else {
+					fmt.Fprintln(stderr, "refresh failed")
+				}
+				printMissingManifestInitHint(stderr, *manifestPath, planErr)
+			} else if prepared == nil {
+				diagnostic := clipresent.NewFailureDiagnostic("refresh failed")
+				if init, present := missingManifestInitGuidance(*manifestPath, planErr); present {
+					diagnostic = diagnostic.WithGuidance(init)
+				}
+				return response.failure(operationFailure, diagnostic)
+			}
 			return 1
 		}
-	} else {
-		clipresent.PrintRefreshReport(
-			stdout,
-			disclosed,
-			clipresent.HumanOptions{Verbose: *verbose},
-		)
-		if options.confirmation.disclosureError != nil {
-			if err := options.confirmation.disclosureError(); err != nil {
+		defer prepared.Close()
+		if err := response.selectOrdinaryResult(); err != nil {
+			return response.failure(operationFailure, humanFailureDiagnostic(err))
+		}
+		disclosed := clipresent.RefreshReportFrom(prepared.Disclosure())
+		if arguments.options.output == requestedJSON {
+			if err := clipresent.PrintRefreshJSON(stderr, disclosed); err != nil {
 				fmt.Fprintf(
 					stderr,
 					"refresh failed: disclose plan: %s\n",
@@ -243,56 +215,72 @@ func runRefresh(
 				)
 				return 1
 			}
-		}
-	}
-
-	if interactiveConfirmation {
-		confirmed, confirmErr := options.confirmation.prompt("refresh")
-		if confirmErr != nil {
-			printConfirmationFailure(stderr, "refresh", confirmErr)
-			return 1
-		}
-		if !confirmed {
-			cancelled, cancelErr := refreshworkflow.Cancel(prepared)
-			if cancelErr != nil {
-				printRefreshFailure(stderr, cancelled)
-				return 1
-			}
-			clipresent.PrintRefreshOutcome(
+		} else {
+			clipresent.PrintRefreshReport(
 				stdout,
-				clipresent.RefreshReportFrom(cancelled),
+				disclosed,
 				clipresent.HumanOptions{Verbose: *verbose},
 			)
-			fmt.Fprintln(stderr, "refresh canceled")
+			if options.confirmation.disclosureError != nil {
+				if err := options.confirmation.disclosureError(); err != nil {
+					fmt.Fprintf(
+						stderr,
+						"refresh failed: disclose plan: %s\n",
+						humanDiagnosticError(err),
+					)
+					return 1
+				}
+			}
+		}
+
+		if interactiveConfirmation {
+			confirmed, confirmErr := options.confirmation.prompt("refresh")
+			if confirmErr != nil {
+				printConfirmationFailure(stderr, "refresh", confirmErr)
+				return 1
+			}
+			if !confirmed {
+				cancelled, cancelErr := refreshworkflow.Cancel(prepared)
+				if cancelErr != nil {
+					printRefreshFailure(stderr, cancelled)
+					return 1
+				}
+				clipresent.PrintRefreshOutcome(
+					stdout,
+					clipresent.RefreshReportFrom(cancelled),
+					clipresent.HumanOptions{Verbose: *verbose},
+				)
+				fmt.Fprintln(stderr, "refresh canceled")
+				return 1
+			}
+		}
+
+		progress := newRefreshProgressRenderer(arguments.options.output == requestedJSON, stderr, options)
+		progress.Start(
+			disclosed.Selection.ID,
+			time.Duration(disclosed.Disclosure.TimeoutSeconds)*time.Second,
+		)
+		result, executeErr := refreshworkflow.Execute(
+			options.context,
+			prepared,
+			options.refreshExecuteOptions,
+		)
+		progress.Close()
+		report := clipresent.RefreshReportFrom(result)
+		if renderErr := printRefreshResult(
+			stdout,
+			report,
+			arguments.options.output == requestedJSON,
+			*verbose,
+			arguments.options.output != requestedJSON,
+		); renderErr != nil {
 			return 1
 		}
-	}
-
-	progress := newRefreshProgressRenderer(*jsonOutput, stderr, options)
-	progress.Start(
-		disclosed.Selection.ID,
-		time.Duration(disclosed.Disclosure.TimeoutSeconds)*time.Second,
-	)
-	result, executeErr := refreshworkflow.Execute(
-		options.context,
-		prepared,
-		options.refreshExecuteOptions,
-	)
-	progress.Close()
-	report := clipresent.RefreshReportFrom(result)
-	if renderErr := printRefreshResult(
-		stdout,
-		report,
-		*jsonOutput,
-		*verbose,
-		!*jsonOutput,
-	); renderErr != nil {
-		return 1
-	}
-	if executeErr != nil && !*jsonOutput {
-		printRefreshFailure(stderr, result)
-	}
-	return refreshExitCode(result)
+		if executeErr != nil && arguments.options.output != requestedJSON {
+			printRefreshFailure(stderr, result)
+		}
+		return refreshExitCode(result)
+	}}
 }
 
 func printRefreshFailure(output io.Writer, result refreshworkflow.CommandResult) {

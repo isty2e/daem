@@ -259,19 +259,25 @@ func writeErrorEvidenceLeaf(
 // are escaped; only presenter-owned annotations add structural lines.
 // A nil error renders as an empty string.
 func Error(err error) string {
+	return FailureDiagnosticFromError(err).HumanText()
+}
+
+// FailureDiagnosticFromError preserves the general human error projection.
+// Callers with stricter failure contracts must supply their own owned summary.
+func FailureDiagnosticFromError(err error) FailureDiagnostic {
 	if err == nil {
-		return ""
+		return FailureDiagnostic{}
 	}
 	if operation, ok := err.(authoring.OperationError); ok && operation.Phase == authoring.OperationPhaseBuildLockfile && operation.Err != nil {
-		return Error(operation.Err)
+		return FailureDiagnosticFromError(operation.Err)
 	}
 	var admissionFailure authoring.CommandHookAdmissionError
 	if errors.As(err, &admissionFailure) {
 		message, specialized := commandHookAdmissionMessages[admissionFailure.Reason()]
 		if !specialized {
-			return humanErrorDetail(err.Error())
+			return NewFailureDiagnostic(err.Error())
 		}
-		return humanErrorDetail(fmt.Sprintf(
+		return NewFailureDiagnostic(fmt.Sprintf(
 			message,
 			admissionFailure.HookName(),
 			admissionFailure.Target(),
@@ -281,20 +287,20 @@ func Error(err error) string {
 	var envFailure aggregate.MCPEnvReferenceAdmissionError
 	if errors.As(err, &envFailure) {
 		if envFailure.Mapping() != aggregate.MCPEnvMappingUnsupported {
-			return humanErrorDetail(err.Error())
+			return NewFailureDiagnostic(err.Error())
 		}
 		message, specialized := mcpEnvUnsupportedMessages[envFailure.PlacementID()]
 		if !specialized {
-			return humanErrorDetail(err.Error())
+			return NewFailureDiagnostic(err.Error())
 		}
-		return humanErrorDetail(fmt.Sprintf(
+		return NewFailureDiagnostic(fmt.Sprintf(
 			"%s does not support env in the admitted %s adapter",
 			message.label,
 			message.adapterShape,
 		))
 	}
-	if message, recognized := RecognizedInputError(err); recognized {
-		return message
+	if diagnostic, recognized := RecognizedInputDiagnostic(err); recognized {
+		return diagnostic
 	}
-	return humanErrorDetail(err.Error())
+	return NewFailureDiagnostic(err.Error())
 }

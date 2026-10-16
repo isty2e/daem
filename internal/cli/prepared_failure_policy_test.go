@@ -1,0 +1,207 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+
+	daempaths "github.com/isty2e/daem/internal/paths"
+)
+
+func TestPreparedImportKeepsCommandOwnedUsageClassification(t *testing.T) {
+	for _, relativeData := range []bool{false, true} {
+		t.Run(fmt.Sprint(relativeData), func(t *testing.T) {
+			manifestHintWorkspace(t)
+			args := []string{"import", "--json"}
+			if relativeData {
+				t.Setenv("XDG_DATA_HOME", "relative-data")
+				args = append(args, "--target", "codex")
+			}
+			var stdout, stderr bytes.Buffer
+			code := runWithoutTerminal(args, &stdout, &stderr)
+			var payload struct {
+				Command string `json:"command"`
+				Error   struct {
+					Kind string `json:"kind"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil || code != 2 || stderr.Len() != 0 || payload.Command != "import" || payload.Error.Kind != "usage" {
+				t.Fatalf("workflow-owned usage classification changed: code=%d decode=%v payload=%#v stderr=%q", code, err, payload, stderr.String())
+			}
+		})
+	}
+}
+
+func TestPreparedImportKeepsAllBasicRepairActionsWithoutLiteralValues(t *testing.T) {
+	root, cwd := manifestHintWorkspace(t)
+	const withheld = "SYNTHETIC_IMPORT_LITERAL_CANARY"
+	var config strings.Builder
+	config.WriteString(`{"mcpServers":{`)
+	for index := range 6 {
+		if index != 0 {
+			config.WriteByte(',')
+		}
+		fmt.Fprintf(&config, `"server%d":{"type":"stdio","command":"example","env":{"API_TOKEN":%q}}`, index, withheld)
+	}
+	config.WriteString(`}}`)
+	if err := os.WriteFile(filepath.Join(cwd, ".mcp.json"), []byte(config.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotApplyInputFiles(t, root)
+	var stdout, stderr bytes.Buffer
+	args := []string{"import", "--target", "claude-code", "--scope", "project", "--dry-run", "--json", "--manifest", filepath.Join(cwd, "daem.toml")}
+	if code := runWithoutTerminal(args, &stdout, &stderr); code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	diagnostic := refusalDiagnosticText(t, "import", &stdout, &stderr, true)
+	if strings.Contains(diagnostic, withheld) {
+		t.Fatal("import failure exposed a rejected literal")
+	}
+	for index := range 6 {
+		if !strings.Contains(diagnostic, fmt.Sprintf("#/mcpServers/server%d", index)) {
+			t.Fatalf("lost action-required item %d: %s", index, diagnostic)
+		}
+	}
+	var payload struct {
+		Guidance []struct {
+			Kind, Message string
+			Argv          []string
+		} `json:"guidance"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	actions := 0
+	for _, guidance := range payload.Guidance {
+		if guidance.Kind == "instruction" && strings.Contains(guidance.Message, "symbolic environment references") {
+			actions++
+		}
+	}
+	if actions != 6 {
+		t.Fatalf("repair actions=%d, want every admitted action", actions)
+	}
+	if after := snapshotApplyInputFiles(t, root); !reflect.DeepEqual(before, after) {
+		t.Fatal("rejected import changed workspace files")
+	}
+}
+
+func TestPreparedRecoverPlanningFailureKeepsNeutralFenceGuidance(t *testing.T) {
+	for _, mode := range []string{"--dry-run", "--yes"} {
+		t.Run(mode, func(t *testing.T) {
+			root, cwd := manifestHintWorkspace(t)
+			manifest := filepath.Join(cwd, "daem.toml")
+			writeHintManifest(t, manifest)
+			paths, err := daempaths.Resolve(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			residue := filepath.Join(paths.StateDir, ".daem-tmp-"+strings.Repeat("b", 32))
+			if err := os.MkdirAll(residue, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			if code := runWithoutTerminal([]string{"recover", mode, "--json", "--manifest", manifest}, &stdout, &stderr); code != 1 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			diagnostic := refusalDiagnosticText(t, "recover", &stdout, &stderr, true)
+			if strings.Contains(diagnostic, root) || !strings.Contains(diagnostic, "no recoverable journal operation") || !strings.Contains(diagnostic, "abandoned_residue") || !strings.Contains(diagnostic, "do not delete reserved names by prefix") {
+				t.Fatalf("neutral fence diagnostic lost privacy or remediation: %s", diagnostic)
+			}
+			if _, err := os.Stat(residue); err != nil {
+				t.Fatalf("refused recovery changed residue: %v", err)
+			}
+		})
+	}
+}
+
+func TestPreparedNamedCommandsNeverUseAnOptionAsTheMissingName(t *testing.T) {
+	for _, test := range []struct {
+		command []string
+		missing string
+	}{
+		{[]string{"probe", "mcp-server"}, "mcp-server name is required"},
+		{[]string{"refresh", "extension"}, "extension id is required"},
+	} {
+		for _, invalid := range [][]string{
+			{"--dry-run", "--json"},
+			{"--yes", "--dry-run", "--json"},
+			{"--yes", "later-name", "--dry-run", "--json"},
+		} {
+			t.Run(strings.Join(append(slices.Clone(test.command), invalid...), " "), func(t *testing.T) {
+				root, _ := manifestHintWorkspace(t)
+				before := snapshotApplyInputFiles(t, root)
+				var stdout, stderr bytes.Buffer
+				code := runWithoutTerminal(append(slices.Clone(test.command), invalid...), &stdout, &stderr)
+				var payload struct {
+					Command string
+					Error   struct{ Kind, Message string }
+				}
+				if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil || code != 2 || stderr.Len() != 0 || payload.Command != strings.Join(test.command, " ") || payload.Error.Kind != "usage" || !strings.Contains(payload.Error.Message, test.missing) {
+					t.Fatalf("missing operand lost precedence: code=%d decode=%v payload=%#v stderr=%q", code, err, payload, stderr.String())
+				}
+				if after := snapshotApplyInputFiles(t, root); !reflect.DeepEqual(before, after) {
+					t.Fatal("missing operand reached a mutating workflow")
+				}
+			})
+		}
+		var stdout, stderr bytes.Buffer
+		args := append(slices.Clone(test.command), "name", "--timeout", "--json")
+		if code := runWithoutTerminal(args, &stdout, &stderr); code != 2 || stdout.Len() != 0 || stderr.Len() == 0 {
+			t.Fatalf("format-looking timeout value changed mode: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		}
+	}
+}
+
+func TestPreparedProbeKeepsBareHyphenAsSuppliedName(t *testing.T) {
+	root, cwd := manifestHintWorkspace(t)
+	manifest := filepath.Join(cwd, "daem.toml")
+	writeHintManifest(t, manifest)
+	before := snapshotApplyInputFiles(t, root)
+	var stdout, stderr bytes.Buffer
+	code := runWithoutTerminal([]string{"probe", "mcp-server", "-", "--dry-run", "--json", "--manifest", manifest}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("supplied name was reclassified: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	commonFailureDiagnosticText(t, "probe mcp-server", "operation", &stdout, &stderr)
+	if after := snapshotApplyInputFiles(t, root); !reflect.DeepEqual(before, after) {
+		t.Fatal("refused probe changed workspace files")
+	}
+}
+
+func TestPreparedRefreshKeepsBareHyphenAsSuppliedID(t *testing.T) {
+	manifestHintWorkspace(t)
+	manifest := writeCLIRefreshFixture(t)
+	before := snapshotApplyInputFiles(t, filepath.Dir(manifest))
+	calls := 0
+	options := refreshCLIRunOptions(t, &calls)
+	var stdout, stderr bytes.Buffer
+	options.Stdout = &stdout
+	options.Stderr = &stderr
+	code := RunWithOptions([]string{"refresh", "extension", "-", "--dry-run", "--json", "--manifest", manifest}, options)
+	if code != 1 || calls != 0 || stderr.Len() != 0 {
+		t.Fatalf("supplied ID changed refusal or host effects: code=%d calls=%d stdout=%q stderr=%q", code, calls, stdout.String(), stderr.String())
+	}
+	var report struct {
+		Command string `json:"command"`
+		Result  struct {
+			Class      string `json:"class"`
+			ReasonCode string `json:"reason_code"`
+		} `json:"result"`
+		HasErrors bool `json:"has_errors"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Command != "refresh extension" || report.Result.Class != "refused" || report.Result.ReasonCode != "invalid_selection" || !report.HasErrors {
+		t.Fatalf("ordinary refusal was replaced: %#v", report)
+	}
+	if after := snapshotApplyInputFiles(t, filepath.Dir(manifest)); !reflect.DeepEqual(before, after) {
+		t.Fatal("refused refresh changed workspace files")
+	}
+}

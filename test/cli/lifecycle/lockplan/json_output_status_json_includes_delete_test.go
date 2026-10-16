@@ -78,10 +78,8 @@ func TestRunApplyJSONFlagValidation(t *testing.T) {
 			if exitCode != 2 {
 				t.Fatalf("exitCode = %d, want 2", exitCode)
 			}
-			if stdout.Len() != 0 {
-				t.Fatalf("stdout = %q, want empty", stdout.String())
-			}
-			if !strings.Contains(stderr.String(), scenario.want) {
+			diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "apply", "usage", true)
+			if !strings.Contains(diagnostic, scenario.want) {
 				t.Fatalf("stderr = %q, want %q", stderr.String(), scenario.want)
 			}
 		})

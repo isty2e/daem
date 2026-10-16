@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/supply/artifact"
+	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 	"github.com/isty2e/daem/internal/target"
@@ -39,15 +41,9 @@ func TestBuildWithoutCompatRepairStillRejectsIncompatibleSkill(t *testing.T) {
 	if err == nil {
 		t.Fatal("Build returned nil error")
 	}
-	for _, want := range []string{
-		"missing SKILL.md",
-		"repairability=mechanical",
-		"set compat_repair = true",
-		"rename file: skill.md -> SKILL.md",
-	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("error = %q, want %q", err, want)
-		}
+	var guidance *skillrepair.GuidanceError
+	if !errors.As(err, &guidance) || guidance.Classification().Repairability() != skillrepair.RepairabilityMechanical || !strings.Contains(strings.Join(guidance.Classification().Actions(), "; "), "rename file: skill.md -> SKILL.md") || !strings.Contains(err.Error(), "missing SKILL.md") {
+		t.Fatalf("missing typed mechanical cause/action: %v", err)
 	}
 }
 
@@ -84,14 +80,9 @@ func TestBuildWithoutCompatRepairReportsSkillGroupMemberGuidance(t *testing.T) {
 	if err == nil {
 		t.Fatal("Build returned nil error")
 	}
-	for _, want := range []string{
-		`validate skill "oracle"`,
-		"repairability=mechanical",
-		"set compat_repair = true",
-	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("error = %q, want %q", err, want)
-		}
+	var guidance *skillrepair.GuidanceError
+	if !errors.As(err, &guidance) || guidance.Classification().Repairability() != skillrepair.RepairabilityMechanical || len(guidance.Classification().Actions()) == 0 || !strings.Contains(err.Error(), `validate skill "oracle"`) {
+		t.Fatalf("group member lost typed mechanical guidance: %v", err)
 	}
 }
 
@@ -120,17 +111,9 @@ func TestBuildWithoutCompatRepairReportsManualGuidance(t *testing.T) {
 	if err == nil {
 		t.Fatal("Build returned nil error")
 	}
-	for _, want := range []string{
-		"repairability=manual",
-		"manual edit required",
-		"description is required",
-	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("error = %q, want %q", err, want)
-		}
-	}
-	if strings.Contains(err.Error(), "set compat_repair = true") {
-		t.Fatalf("error = %q, want no mechanical repair opt-in guidance", err)
+	var guidance *skillrepair.GuidanceError
+	if !errors.As(err, &guidance) || guidance.Classification().Repairability() != skillrepair.RepairabilityManual || len(guidance.Classification().Actions()) != 0 || !strings.Contains(err.Error(), "description is required") {
+		t.Fatalf("manual failure gained mechanical repair or lost cause: %v", err)
 	}
 }
 
