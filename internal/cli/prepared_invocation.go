@@ -29,6 +29,18 @@ func prepareInvocation(args []string, stdout, stderr io.Writer, options commandO
 		return prepareImportInvocation(args[1:], stdout, stderr, options)
 	case "recover":
 		return prepareRecoverInvocation(args[1:], stdout, stderr, options)
+	case "apply":
+		return prepareApplyInvocation(args[1:], stdout, stderr, options)
+	case "probe":
+		if len(args) > 1 && args[1] == "mcp-server" {
+			return prepareProbeMCPInvocation(args[2:], stdout, stderr, options)
+		}
+		return nil
+	case "refresh":
+		if len(args) > 1 && args[1] == "extension" {
+			return prepareRefreshExtensionInvocation(args[2:], stdout, stderr, options)
+		}
+		return nil
 	case "migrate":
 		if len(args) > 1 && args[1] == "state" {
 			return prepareMigrateStateInvocation(args[2:], stdout, stderr, options)

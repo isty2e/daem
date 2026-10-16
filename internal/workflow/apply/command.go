@@ -231,7 +231,50 @@ func (failure Failure) RecoveryBarrier() recoverygate.State { return failure.bar
 
 // Detail derives bounded public prose only from closed failure facts.
 func (failure Failure) Detail() string {
-	detail := failure.reasonDetail()
+	return failure.withOutcomeFacts(failure.reasonDetail())
+}
+
+// PrimaryDetail retains failure facts without presenter-owned repair advice.
+// Detail remains the ordinary apply result's compatibility projection.
+func (failure Failure) PrimaryDetail() string {
+	var detail string
+	switch failure.reason {
+	case FailureReasonMCPBackendTransition:
+		detail = "Pi MCP backend transition is unsupported"
+		if failure.backendTransition != nil {
+			detail = failure.backendTransition.Summary()
+		}
+	case FailureReasonInterruptedApply, FailureReasonInterruptedApplyFileSetFence:
+		detail = "interrupted apply journal is present"
+	case FailureReasonJournalCleanupIncomplete, FailureReasonJournalCleanupFileSetFence:
+		detail = "journal cleanup is incomplete"
+	case FailureReasonInterruptedFileSetTransaction:
+		detail = "an interrupted file-set transaction is present"
+	case FailureReasonFileSetEvidenceInvalid:
+		detail = "file-set transaction evidence is incomplete or invalid"
+	case FailureReasonAbandonedFileSetResidue:
+		detail = "abandoned file-set residue remains"
+	case FailureReasonFileSetFenceCensusLimit:
+		detail = "the bounded file-set census could not prove the fence clean"
+	case FailureReasonFileSetAccessUnprovable:
+		detail = "StateDir access or identity could not be proven"
+	default:
+		detail = failure.reasonDetail()
+	}
+	return failure.withOutcomeFacts(detail)
+}
+
+func (failure Failure) MCPBackendRepairInstruction() string {
+	if failure.reason != FailureReasonMCPBackendTransition {
+		return ""
+	}
+	if failure.backendTransition != nil {
+		return failure.backendTransition.RepairInstruction()
+	}
+	return "retire the existing binding before re-authoring"
+}
+
+func (failure Failure) withOutcomeFacts(detail string) string {
 	if failure.barrier.JournalObserved() && !failure.barrier.JournalKnown() {
 		detail += "; journal recovery authority could not be classified"
 	}

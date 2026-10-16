@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -19,6 +20,11 @@ func refusalDiagnosticText(t *testing.T, command string, stdout, stderr *bytes.B
 		}
 		return stderr.String()
 	}
+	return commonFailureDiagnosticText(t, command, "operation", stdout, stderr)
+}
+
+func commonFailureDiagnosticText(t *testing.T, command, expectedKind string, stdout, stderr *bytes.Buffer) string {
+	t.Helper()
 	if stderr.Len() != 0 {
 		t.Fatalf("common JSON refusal leaked human stderr: %q", stderr.String())
 	}
@@ -42,7 +48,7 @@ func refusalDiagnosticText(t *testing.T, command string, stdout, stderr *bytes.B
 		t.Fatal(err)
 	}
 	if payload.SchemaVersion != 1 || payload.ResultType != "cli_error" || payload.Command != command ||
-		payload.Error.Kind != "operation" || payload.Error.Message == "" || payload.Guidance == nil {
+		payload.Error.Kind != expectedKind || payload.Error.Message == "" || payload.Guidance == nil {
 		t.Fatalf("refusal lost its identity/cause: %#v", payload)
 	}
 	var extra json.RawMessage
@@ -67,4 +73,24 @@ func refusalDiagnosticText(t *testing.T, command string, stdout, stderr *bytes.B
 		texts = append(texts, guidance.Argv...)
 	}
 	return strings.Join(texts, "\n")
+}
+
+func hasFailureCommand(t *testing.T, stdout *bytes.Buffer, argv []string) bool {
+	t.Helper()
+	var payload struct {
+		Guidance []struct {
+			Kind string
+			Argv []string
+		}
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	return slices.ContainsFunc(payload.Guidance, func(item struct {
+		Kind string
+		Argv []string
+	},
+	) bool {
+		return item.Kind == "command" && slices.Equal(item.Argv, argv)
+	})
 }

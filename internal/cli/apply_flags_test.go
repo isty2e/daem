@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -65,11 +66,12 @@ func TestRunApplyJSONRequiresDryRunOrYes(t *testing.T) {
 	if exitCode != 2 {
 		t.Fatalf("exitCode = %d, want 2", exitCode)
 	}
-	if !strings.Contains(stderr.String(), "--json requires --dry-run or --yes") {
-		t.Fatalf("stderr = %q, want json mode diagnostic", stderr.String())
+	var payload struct {
+		Command string
+		Error   struct{ Kind, Message string }
 	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil || stderr.Len() != 0 || payload.Command != "apply" || payload.Error.Kind != "usage" || !strings.Contains(payload.Error.Message, "--json requires --dry-run or --yes") {
+		t.Fatalf("invalid JSON usage diagnostic: decode=%v payload=%#v stderr=%q", err, payload, stderr.String())
 	}
 }
 

@@ -225,8 +225,6 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 	switch args[0] {
 	case "add":
 		return runAdd(commandInvocation.context, args[1:], stdout, stderr)
-	case "apply":
-		return runApply(args[1:], stdout, stderr, commandInvocation)
 	case "list":
 		return runList(args[1:], stdout, stderr, commandInvocation)
 	case "migrate":

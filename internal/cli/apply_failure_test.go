@@ -23,11 +23,12 @@ func TestApplyFailureDetailPreservesCancellationAcrossPreEffectStages(t *testing
 		applyFailureConfirmation,
 		applyFailureOutput,
 	} {
-		detail, reason := applyFailureDetail(
+		diagnostic, reason := applyFailurePrimary(
 			stage,
 			context.Canceled,
 			applyworkflow.CommandResult{},
 		)
+		detail := diagnostic.HumanText()
 		if detail != "apply was cancelled before effects" ||
 			reason != applyworkflow.FailureReasonCancelled {
 			t.Fatalf("stage %q = %q/%q, want pre-effect cancellation", stage, detail, reason)
@@ -36,11 +37,12 @@ func TestApplyFailureDetailPreservesCancellationAcrossPreEffectStages(t *testing
 }
 
 func TestApplyFailureDetailPreservesPostEffectDeadline(t *testing.T) {
-	detail, reason := applyFailureDetail(
+	diagnostic, reason := applyFailurePrimary(
 		applyFailureDiff,
 		context.DeadlineExceeded,
 		applyworkflow.CommandResult{ExecutionAttempted: true},
 	)
+	detail := diagnostic.HumanText()
 	if detail != "apply was cancelled after an effect boundary was crossed" ||
 		reason != applyworkflow.FailureReasonCancelled {
 		t.Fatalf("detail/reason = %q/%q, want post-effect cancellation", detail, reason)
@@ -60,7 +62,8 @@ func TestApplyFailureRejectsUnownedInputLookalikes(t *testing.T) {
 		for _, stage := range []applyFailureStage{applyFailurePlanning, applyFailureExecution} {
 			result := applyworkflow.CommandResult{}
 			failure := applyworkflow.ClassifyFailure(err, result)
-			detail, reason := applyFailureDetail(stage, err, result)
+			diagnostic, reason := applyFailurePrimary(stage, err, result)
+			detail := diagnostic.HumanText()
 			if detail != failure.Detail() || reason != failure.Reason() {
 				t.Fatalf("unowned error escaped its closed projection: %v -> %q/%q", err, detail, reason)
 			}
@@ -91,9 +94,10 @@ func TestApplyInputDiagnosticPreservesHigherPriorityFailures(t *testing.T) {
 		errors.Join(inputErr, fileset.ErrInterruptedFileSetTransaction),
 		errors.Join(fileset.ErrInterruptedFileSetTransaction, inputErr),
 	} {
-		detail, reason := applyFailureDetail(applyFailurePlanning, err, plan.CommandResult)
+		diagnostic, reason := applyFailurePrimary(applyFailurePlanning, err, plan.CommandResult)
+		detail := diagnostic.HumanText()
 		failure := applyworkflow.ClassifyFailure(err, plan.CommandResult)
-		if detail != failure.Detail() || reason != applyworkflow.FailureReasonInterruptedFileSetTransaction {
+		if detail != failure.PrimaryDetail() || reason != applyworkflow.FailureReasonInterruptedFileSetTransaction {
 			t.Fatalf("input overrode recovery fence: %q/%q", detail, reason)
 		}
 		var hints bytes.Buffer
@@ -103,7 +107,8 @@ func TestApplyInputDiagnosticPreservesHigherPriorityFailures(t *testing.T) {
 		}
 	}
 	for _, err := range []error{errors.Join(inputErr, context.Canceled), errors.Join(context.Canceled, inputErr)} {
-		detail, reason := applyFailureDetail(applyFailurePlanning, err, plan.CommandResult)
+		diagnostic, reason := applyFailurePrimary(applyFailurePlanning, err, plan.CommandResult)
+		detail := diagnostic.HumanText()
 		failure := applyworkflow.ClassifyFailure(err, plan.CommandResult)
 		if detail != failure.Detail() || reason != applyworkflow.FailureReasonCancelled {
 			t.Fatalf("input overrode cancellation: %q/%q", detail, reason)
@@ -116,7 +121,8 @@ func TestApplyInputDiagnosticPreservesHigherPriorityFailures(t *testing.T) {
 	}
 	for _, stage := range []applyFailureStage{applyFailurePlanning, applyFailureExecution} {
 		result := applyworkflow.CommandResult{ExecutionAttempted: true}
-		detail, reason := applyFailureDetail(stage, inputErr, result)
+		diagnostic, reason := applyFailurePrimary(stage, inputErr, result)
+		detail := diagnostic.HumanText()
 		failure := applyworkflow.ClassifyFailure(inputErr, result)
 		if detail != failure.Detail() || reason != failure.Reason() {
 			t.Fatalf("input replaced post-effect outcome: %q/%q", detail, reason)

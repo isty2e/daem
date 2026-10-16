@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -116,5 +117,43 @@ func TestPreparedRecoverPlanningFailureKeepsNeutralFenceGuidance(t *testing.T) {
 				t.Fatalf("refused recovery changed residue: %v", err)
 			}
 		})
+	}
+}
+
+func TestPreparedNamedCommandsNeverUseAnOptionAsTheMissingName(t *testing.T) {
+	for _, test := range []struct {
+		command []string
+		missing string
+	}{
+		{[]string{"probe", "mcp-server"}, "mcp-server name is required"},
+		{[]string{"refresh", "extension"}, "extension id is required"},
+	} {
+		for _, invalid := range [][]string{
+			{"--dry-run", "--json"},
+			{"--yes", "--dry-run", "--json"},
+			{"--yes", "later-name", "--dry-run", "--json"},
+		} {
+			t.Run(strings.Join(append(slices.Clone(test.command), invalid...), " "), func(t *testing.T) {
+				root, _ := manifestHintWorkspace(t)
+				before := snapshotApplyInputFiles(t, root)
+				var stdout, stderr bytes.Buffer
+				code := runWithoutTerminal(append(slices.Clone(test.command), invalid...), &stdout, &stderr)
+				var payload struct {
+					Command string
+					Error   struct{ Kind, Message string }
+				}
+				if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil || code != 2 || stderr.Len() != 0 || payload.Command != strings.Join(test.command, " ") || payload.Error.Kind != "usage" || !strings.Contains(payload.Error.Message, test.missing) {
+					t.Fatalf("missing operand lost precedence: code=%d decode=%v payload=%#v stderr=%q", code, err, payload, stderr.String())
+				}
+				if after := snapshotApplyInputFiles(t, root); !reflect.DeepEqual(before, after) {
+					t.Fatal("missing operand reached a mutating workflow")
+				}
+			})
+		}
+		var stdout, stderr bytes.Buffer
+		args := append(slices.Clone(test.command), "name", "--timeout", "--json")
+		if code := runWithoutTerminal(args, &stdout, &stderr); code != 2 || stdout.Len() != 0 || stderr.Len() == 0 {
+			t.Fatalf("format-looking timeout value changed mode: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		}
 	}
 }

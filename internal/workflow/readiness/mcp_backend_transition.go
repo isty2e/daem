@@ -16,8 +16,16 @@ type MCPBackendTransitionError struct {
 }
 
 func (failure *MCPBackendTransitionError) Error() string {
-	return fmt.Sprintf("Pi MCP backend transition is unsupported: server=%.256q target=%s scope=%s stored=%s desired=%s; retire the existing binding with apply, clear any unused Adapter provider intent, then re-add it; no automatic migration was performed",
+	return failure.Summary() + "; " + failure.RepairInstruction()
+}
+
+func (failure *MCPBackendTransitionError) Summary() string {
+	return fmt.Sprintf("Pi MCP backend transition is unsupported: server=%.256q target=%s scope=%s stored=%s desired=%s",
 		failure.address.ContentPath(), failure.address.Document().Target(), failure.address.Document().Scope(), failure.stored, failure.desired)
+}
+
+func (failure *MCPBackendTransitionError) RepairInstruction() string {
+	return "retire the existing binding with apply, clear any unused Adapter provider intent, then re-add it; no automatic migration was performed"
 }
 
 func piMCPBackendTransition(previous, desired aggregate.ProjectionContract) error {

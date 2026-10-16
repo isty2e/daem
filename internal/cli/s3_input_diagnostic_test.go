@@ -27,8 +27,8 @@ func TestRunS3URIRejectionsOmitPayload(t *testing.T) {
 		}{
 			{[]string{"apply", "--dry-run"}, false},
 			{[]string{"apply", "--yes", "--verbose"}, false},
-			{[]string{"apply", "--dry-run", "--json"}, false},
-			{[]string{"apply", "--yes", "--json"}, false},
+			{[]string{"apply", "--dry-run", "--json"}, true},
+			{[]string{"apply", "--yes", "--json"}, true},
 			{[]string{"status", "--verbose"}, false},
 			{[]string{"lock", "--dry-run", "--json"}, true},
 		} {

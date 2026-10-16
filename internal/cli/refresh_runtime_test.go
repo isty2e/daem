@@ -43,10 +43,10 @@ func TestRefreshTimeoutCLIRejectsInvalidExplicitDurationsBeforePlanning(t *testi
 				"--dry-run",
 				"--json",
 			}, options)
+			diagnostic := commonFailureDiagnosticText(t, "refresh extension", "usage", &stdout, &stderr)
 			if exitCode != 2 ||
 				calls != 0 ||
-				stdout.Len() != 0 ||
-				!strings.Contains(stderr.String(), "--timeout") {
+				!strings.Contains(diagnostic, "--timeout") {
 				t.Fatalf(
 					"exitCode=%d calls=%d stdout=%q stderr=%q",
 					exitCode,

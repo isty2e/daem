@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -102,11 +103,12 @@ func TestRunApplyOrderContextFailureIsNotLockInput(t *testing.T) {
 				} else {
 					code = runWithoutTerminal(args, &stdout, &stderr)
 				}
-				if code != 1 || stdout.Len() != 0 {
+				if code != 1 {
 					t.Errorf("context refusal code=%d stdout bytes=%d", code, stdout.Len())
 				}
+				diagnostic := refusalDiagnosticText(t, "apply", &stdout, &stderr, slices.Contains(flags, "--json"))
 				for _, misleading := range []string{"invalid manifest", "lockfile is unavailable", "correct the reported manifest", "next: run daem lock"} {
-					if strings.Contains(stderr.String(), misleading) {
+					if strings.Contains(diagnostic, misleading) {
 						t.Error("host environment failure advised repairing valid input files")
 					}
 				}

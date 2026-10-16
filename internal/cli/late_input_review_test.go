@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -27,8 +28,8 @@ func TestRunMCPTransportRejectionsOmitPayload(t *testing.T) {
 		}{
 			{[]string{"apply", "--dry-run"}, false},
 			{[]string{"apply", "--yes", "--verbose"}, false},
-			{[]string{"apply", "--dry-run", "--json"}, false},
-			{[]string{"apply", "--yes", "--json"}, false},
+			{[]string{"apply", "--dry-run", "--json"}, true},
+			{[]string{"apply", "--yes", "--json"}, true},
 			{[]string{"status", "--verbose"}, false},
 			{[]string{"lock", "--dry-run", "--json"}, true},
 		} {
@@ -138,11 +139,12 @@ source={host_source="./packages/tools"}
 		} else {
 			code = runWithoutTerminal(args, &stdout, &stderr)
 		}
-		if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), want) {
+		diagnostic := refusalDiagnosticText(t, "apply", &stdout, &stderr, slices.Contains(flags, "--json"))
+		if code != 1 || !strings.Contains(diagnostic, want) {
 			t.Errorf("environment refusal did not retain closed disposition: code=%d stdout=%d", code, stdout.Len())
 		}
 		for _, misleading := range []string{"invalid manifest", "correct the reported manifest", "next: run daem lock"} {
-			if strings.Contains(stderr.String(), misleading) {
+			if strings.Contains(diagnostic, misleading) {
 				t.Error("environment failure was presented as repairable manifest input")
 			}
 		}

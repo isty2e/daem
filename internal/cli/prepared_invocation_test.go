@@ -26,6 +26,7 @@ func TestPreparedOrdinaryCommandsRejectMalformedArgumentsInRequestedFormat(t *te
 		{"doctor"},
 		{"import"},
 		{"recover"},
+		{"apply"},
 		{"migrate", "state"},
 	} {
 		for _, invalid := range [][]string{
@@ -135,7 +136,7 @@ func TestPreparedPlatformRefusalPrecedesBindingAndPathResolution(t *testing.T) {
 }
 
 func TestPreparedFailureGuidanceCommandsPreserveManifestRequest(t *testing.T) {
-	for _, command := range [][]string{{"status"}, {"lock", "--dry-run"}} {
+	for _, command := range [][]string{{"status"}, {"lock", "--dry-run"}, {"apply", "--dry-run"}} {
 		for _, destination := range []string{"explicit-cwd", "implicit-user", "explicit-user", "explicit-other"} {
 			t.Run(flagCaseName(command)+destination, func(t *testing.T) {
 				root, cwd := manifestHintWorkspace(t)

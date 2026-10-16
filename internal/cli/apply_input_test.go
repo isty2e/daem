@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -111,35 +112,46 @@ func TestRunApplyInputDiagnostics(t *testing.T) {
 					}
 					inputErr = fmt.Errorf("invalid manifest: %w", inputErr)
 				}
-				expected := clipresent.Error(inputErr)
+				expected := clipresent.FailureDiagnosticFromError(inputErr)
 				before := snapshotApplyInputFiles(t, root)
 				var stdout, stderr bytes.Buffer
 				args := append([]string{"apply"}, mode.args...)
 				if input.missing == "manifest" {
 					args = append(args, "--manifest", manifestPath)
 				}
-				if code := runWithoutTerminal(args, &stdout, &stderr); code != 1 || stdout.Len() != 0 {
+				if code := runWithoutTerminal(args, &stdout, &stderr); code != 1 {
 					t.Errorf("refusal code=%d stdout=%q stderr=%q", code, &stdout, &stderr)
 				}
-				if !strings.Contains(stderr.String(), expected) {
-					t.Errorf("input diagnostic differs from shared producer: stderr=%q expected=%q", &stderr, expected)
+				commonJSON := slices.Contains(mode.args, "--json")
+				diagnostic := refusalDiagnosticText(t, "apply", &stdout, &stderr, commonJSON)
+				if !strings.Contains(diagnostic, expected.Message()) {
+					t.Errorf("input cause differs from shared producer: actual=%q expected=%q", diagnostic, expected.Message())
+				}
+				for _, guidance := range expected.Guidance() {
+					if !strings.Contains(diagnostic, guidance.Message()) {
+						t.Errorf("lost input repair advice: %q", guidance.Message())
+					}
 				}
 				var unavailablePlan bytes.Buffer
 				clipresent.PrintActionPlanWithOptions(&unavailablePlan, "apply", reconcile.Result{}, clipresent.HumanOptions{})
-				if strings.Contains(stderr.String(), unavailablePlan.String()) {
+				if strings.Contains(diagnostic, unavailablePlan.String()) {
 					t.Errorf("printed a reconciliation that was not produced: %q", &stderr)
 				}
-				if strings.Contains(stderr.String(), "<manifest>") {
+				if strings.Contains(diagnostic, "<manifest>") {
 					t.Errorf("unusable manifest placeholder: %q", &stderr)
 				}
 
 				var lockHint bytes.Buffer
 				printLockCommandHint(&lockHint, manifestPath, "")
+				hasLockHint := strings.Contains(stderr.String(), lockHint.String())
+				if commonJSON {
+					hasLockHint = hasFailureCommand(t, &stdout, clipresent.ManifestCommandArguments([]string{"lock"}, manifestPath, manifestHintOptions("", false)))
+				}
 				if input.missing == "lock" {
-					if !strings.Contains(stderr.String(), lockHint.String()) {
+					if !hasLockHint {
 						t.Errorf("missing executable lock hint: stderr=%q expected=%q", &stderr, &lockHint)
 					}
-				} else if input.lock != "" && strings.Contains(stderr.String(), lockHint.String()) {
+				} else if input.lock != "" && hasLockHint {
 					t.Errorf("corrupt lock recommended a command that rereads it: %q", &stderr)
 				}
 				if after := snapshotApplyInputFiles(t, root); !reflect.DeepEqual(before, after) {
@@ -203,10 +215,16 @@ func TestRunApplyExistingNonregularLockIsNotTreatedAsAbsent(t *testing.T) {
 			before := snapshotApplyInputFiles(t, root)
 			var stdout, stderr, lockHint bytes.Buffer
 			printLockCommandHint(&lockHint, manifestPath, "")
-			if code := runWithoutTerminal(append([]string{"apply"}, mode...), &stdout, &stderr); code != 1 || stdout.Len() != 0 {
+			if code := runWithoutTerminal(append([]string{"apply"}, mode...), &stdout, &stderr); code != 1 {
 				t.Fatalf("existing bad lock refusal: code=%d stdout=%q stderr=%q", code, &stdout, &stderr)
 			}
-			if !strings.Contains(stderr.String(), clipresent.Escape(lockPath)) || strings.Contains(stderr.String(), lockHint.String()) {
+			commonJSON := slices.Contains(mode, "--json")
+			diagnostic := refusalDiagnosticText(t, "apply", &stdout, &stderr, commonJSON)
+			hasLockHint := strings.Contains(stderr.String(), lockHint.String())
+			if commonJSON {
+				hasLockHint = hasFailureCommand(t, &stdout, clipresent.ManifestCommandArguments([]string{"lock"}, manifestPath, manifestHintOptions("", false)))
+			}
+			if !strings.Contains(diagnostic, clipresent.Escape(lockPath)) || hasLockHint {
 				t.Errorf("lost existing-file cause or suggested creation: %q", &stderr)
 			}
 			if after := snapshotApplyInputFiles(t, root); !reflect.DeepEqual(before, after) {

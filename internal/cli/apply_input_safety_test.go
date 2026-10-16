@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -40,8 +41,8 @@ func TestRunInputDiagnosticsAreCredentialSafeAndBounded(t *testing.T) {
 			{[]string{"apply"}, false},
 			{[]string{"apply", "--dry-run", "--verbose"}, false},
 			{[]string{"apply", "--yes", "--verbose"}, false},
-			{[]string{"apply", "--dry-run", "--json"}, false},
-			{[]string{"apply", "--yes", "--json"}, false},
+			{[]string{"apply", "--dry-run", "--json"}, true},
+			{[]string{"apply", "--yes", "--json"}, true},
 			{[]string{"status"}, false},
 			{[]string{"status", "--json"}, true},
 			{[]string{"lock", "--dry-run"}, false},
@@ -198,13 +199,14 @@ func TestRunApplyCaptureFailurePreservesRecoveryPrecedence(t *testing.T) {
 						} else {
 							code = runWithoutTerminal(args, &stdout, &stderr)
 						}
-						if code != 1 || stdout.Len() != 0 {
+						if code != 1 {
 							t.Errorf("fenced input code=%d stdout bytes=%d", code, stdout.Len())
 						}
-						if !strings.Contains(stderr.String(), want.Detail()) || strings.Contains(stderr.String(), "correct the reported manifest") {
-							t.Errorf("write-mode input disclosure replaced the recovery disposition: %q", &stderr)
+						diagnostic := refusalDiagnosticText(t, "apply", &stdout, &stderr, slices.Contains(mode, "--json"))
+						if !strings.Contains(diagnostic, want.PrimaryDetail()) || strings.Contains(diagnostic, "correct the reported manifest") {
+							t.Errorf("write-mode input disclosure replaced the recovery disposition: %q", diagnostic)
 						}
-						if strings.Contains(stderr.String(), root) {
+						if strings.Contains(diagnostic, root) {
 							t.Error("recovery refusal disclosed the private input path")
 						}
 					}
