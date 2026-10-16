@@ -231,14 +231,10 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 		return runDoctor(args[1:], stdout, stderr, commandInvocation)
 	case "import":
 		return runImport(args[1:], stdout, stderr, commandInvocation)
-	case "init":
-		return runInit(commandInvocation.context, args[1:], stdout, stderr)
 	case "list":
 		return runList(args[1:], stdout, stderr, commandInvocation)
 	case "migrate":
 		return runMigrate(args[1:], stdout, stderr, commandInvocation)
-	case "outdated":
-		return runOutdated(args[1:], stdout, stderr, commandInvocation)
 	case "probe":
 		return runProbe(args[1:], stdout, stderr, commandInvocation)
 	case "recover":

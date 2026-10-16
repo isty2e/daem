@@ -8,31 +8,70 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/platformsupport"
 )
 
-func TestPreparedStatusRejectsMalformedArgumentsInRequestedFormat(t *testing.T) {
-	for _, args := range [][]string{
-		{"status", "--targte", "bad", "--json"},
-		{"status", "--json", "--targte", "bad"},
-		{"status", "unbound", "--json"},
-		{"status", "--json", "--json=maybe"},
-		{"status", "--manifest", "--", "--help", "--json"},
+func TestPreparedOrdinaryCommandsRejectMalformedArgumentsInRequestedFormat(t *testing.T) {
+	for _, command := range [][]string{
+		{"status"},
+		{"lock"},
+		{"outdated"},
+		{"init"},
+		{"list", "resources"},
+		{"list", "outputs"},
+		{"list", "paths"},
 	} {
-		var stdout, stderr bytes.Buffer
-		code := RunWithOptions(args, RunOptions{Stdout: &stdout, Stderr: &stderr})
-		var payload struct {
-			Command string `json:"command"`
-			Error   struct {
-				Kind string `json:"kind"`
-			} `json:"error"`
+		for _, invalid := range [][]string{
+			{"--targte", "bad", "--json"},
+			{"--json", "--targte", "bad"},
+			{"unbound", "--json"},
+			{"--json", "--json=maybe"},
+			{"--manifest", "--", "--help", "--json"},
+		} {
+			args := append(slices.Clone(command), invalid...)
+			var stdout, stderr bytes.Buffer
+			code := RunWithOptions(args, RunOptions{Stdout: &stdout, Stderr: &stderr})
+			var payload struct {
+				Command string `json:"command"`
+				Error   struct {
+					Kind string `json:"kind"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil || code != 2 || stderr.Len() != 0 ||
+				payload.Command != strings.Join(command, " ") || payload.Error.Kind != "usage" {
+				t.Errorf("args=%q code=%d decode=%v payload=%#v stderr=%q", args, code, err, payload, stderr.String())
+			}
 		}
-		if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil || code != 2 || stderr.Len() != 0 ||
-			payload.Command != "status" || payload.Error.Kind != "usage" {
-			t.Errorf("args=%q code=%d decode=%v payload=%#v stderr=%q", args, code, err, payload, stderr.String())
-		}
+	}
+}
+
+func TestPreparedOrdinaryOperationFailuresDoNotInventAResult(t *testing.T) {
+	for _, command := range [][]string{
+		{"outdated"}, {"init"}, {"list", "resources"}, {"list", "outputs"}, {"list", "paths"},
+	} {
+		t.Run(strings.Join(command, " "), func(t *testing.T) {
+			root, cwd := manifestHintWorkspace(t)
+			manifestPath := filepath.Join(cwd, "daem.toml")
+			if command[0] == "init" {
+				writeHintManifest(t, manifestPath)
+			}
+			before := snapshotApplyInputFiles(t, root)
+			args := append(slices.Clone(command), "--manifest", manifestPath, "--json")
+			if command[0] == "init" {
+				args = append(args, "--dry-run")
+			}
+			var stdout, stderr bytes.Buffer
+			if code := runWithoutTerminal(args, &stdout, &stderr); code != 1 {
+				t.Fatalf("operation failure code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			refusalDiagnosticText(t, strings.Join(command, " "), &stdout, &stderr, true)
+			if after := snapshotApplyInputFiles(t, root); !reflect.DeepEqual(before, after) {
+				t.Fatal("refused operation changed workspace files")
+			}
+		})
 	}
 }
 

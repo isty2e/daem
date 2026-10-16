@@ -19,6 +19,15 @@ func prepareInvocation(args []string, stdout, stderr io.Writer, options commandO
 		return prepareStatusInvocation(args[1:], stdout, stderr, options)
 	case "lock":
 		return prepareLockInvocation(args[1:], stdout, stderr, options)
+	case "outdated":
+		return prepareOutdatedInvocation(args[1:], stdout, stderr, options)
+	case "init":
+		return prepareInitInvocation(args[1:], stdout, stderr, options)
+	case "list":
+		if len(args) > 1 && isListSubject(args[1]) {
+			return prepareListInvocation(args[1], args[2:], stdout, stderr, options)
+		}
+		return nil
 	default:
 		return nil
 	}
