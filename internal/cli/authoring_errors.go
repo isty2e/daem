@@ -7,6 +7,7 @@ import (
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/workflow/authoring"
+	workflowhelp "github.com/isty2e/daem/internal/workflow/help"
 )
 
 func authoringExecutionOptions(manifestPath string, dryRun bool) authoring.ExecutionOptions {
@@ -41,15 +42,21 @@ func printMissingResourceSelectionHint(output io.Writer, manifestPath string, er
 	if kind == "" {
 		kind = missing.Kind
 	}
+	hintOptions := manifestHintOptions(manifestPath, false)
+	hintManifestPath, resolveErr := workflowhelp.ManifestHintPath(manifestPath)
+	if resolveErr != nil {
+		hintManifestPath = manifestPath
+	}
+
 	for _, selection := range missing.AvailableSelections() {
-		args := []string{"daem", "remove", kind, selection.Name, "--manifest", manifestPath}
+		var args []string
 		for _, target := range selection.Targets {
 			args = append(args, "--target", target)
 		}
 		if selection.Scope != "" {
 			args = append(args, "--scope", selection.Scope)
 		}
-		clipresent.PrintShellCommand(output, "hint: available selection: ", args...)
+		clipresent.PrintManifestCommand(output, "hint: available selection: ", []string{"remove", kind, selection.Name}, hintManifestPath, hintOptions, args...)
 	}
 }
 

@@ -134,7 +134,7 @@ func TestRunApplyInputDiagnostics(t *testing.T) {
 				}
 
 				var lockHint bytes.Buffer
-				printLockCommandHint(&lockHint, manifestPath)
+				printLockCommandHint(&lockHint, manifestPath, "")
 				if input.missing == "lock" {
 					if !strings.Contains(stderr.String(), lockHint.String()) {
 						t.Errorf("missing executable lock hint: stderr=%q expected=%q", &stderr, &lockHint)
@@ -202,7 +202,7 @@ func TestRunApplyExistingNonregularLockIsNotTreatedAsAbsent(t *testing.T) {
 			}
 			before := snapshotApplyInputFiles(t, root)
 			var stdout, stderr, lockHint bytes.Buffer
-			printLockCommandHint(&lockHint, manifestPath)
+			printLockCommandHint(&lockHint, manifestPath, "")
 			if code := runWithoutTerminal(append([]string{"apply"}, mode...), &stdout, &stderr); code != 1 || stdout.Len() != 0 {
 				t.Fatalf("existing bad lock refusal: code=%d stdout=%q stderr=%q", code, &stdout, &stderr)
 			}

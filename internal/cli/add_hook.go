@@ -108,7 +108,7 @@ func runAddHook(ctx context.Context, args []string, stdout io.Writer, stderr io.
 		}
 		return 0
 	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceHook, result), clipresent.HumanOptions{Verbose: *verbose})
+	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceHook, result), manifestHintOptions(*manifestPath, *verbose))
 	return 0
 }
 

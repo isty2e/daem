@@ -73,7 +73,7 @@ func runOutdated(args []string, stdout io.Writer, stderr io.Writer, options comm
 	if result.Delta.HasChanges() {
 		fmt.Fprintf(stdout, "outdated: lockfile can be refreshed: %s\n", humanDiagnosticText(result.LockfilePath))
 		clipresent.PrintDeltaSummaryWithOptions(stdout, result.Delta, clipresent.HumanOptions{Verbose: *verbose})
-		printLockCommandHint(stdout, result.ManifestPath)
+		printLockCommandHint(stdout, result.ManifestPath, *manifestPath)
 		if *check {
 			return 1
 		}

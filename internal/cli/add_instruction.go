@@ -94,7 +94,7 @@ func runAddInstruction(ctx context.Context, args []string, stdout io.Writer, std
 		}
 		return 0
 	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceInstructions, result), clipresent.HumanOptions{Verbose: *verbose})
+	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("added", clipresent.AuthoringOperationAdd, clipresent.AuthoringResourceInstructions, result), manifestHintOptions(*manifestPath, *verbose))
 	return 0
 }
 

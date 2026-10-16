@@ -57,11 +57,31 @@ func mcpPlacementFacts(views []catalog.SurfaceView) []MCPPlacementFact {
 	return facts
 }
 
-// InitHintManifestPath resolves the manifest path displayed in missing-manifest init hints.
-func InitHintManifestPath(manifestPath string) (string, error) {
+// ManifestHintPath resolves a raw selector to its intended hint target.
+func ManifestHintPath(manifestPath string) (string, error) {
 	paths, err := daempaths.Resolve(manifestPath)
 	if err != nil {
 		return "", err
 	}
 	return paths.ManifestPath, nil
+}
+
+// ImplicitManifestHintPath returns a discovered target eligible for elision.
+// Explicit requests require cwd discovery to retain project-placement admission.
+func ImplicitManifestHintPath(requestedManifestPath string) string {
+	paths, err := daempaths.Resolve("")
+	if err != nil || (requestedManifestPath != "" && paths.ManifestOrigin != daempaths.ManifestOriginCWD) {
+		return ""
+	}
+	return paths.ManifestPath
+}
+
+// CreationManifestHintPath returns the implicit creation target, or empty when
+// it cannot be established. Unlike existing-workspace discovery, it need not exist.
+func CreationManifestHintPath() string {
+	paths, err := daempaths.ResolveCreation("")
+	if err != nil {
+		return ""
+	}
+	return paths.ManifestPath
 }

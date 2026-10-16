@@ -24,7 +24,7 @@ func PrintInitPlanWithOptions(output io.Writer, label string, plan initworkflow.
 	if label == "init" {
 		fmt.Fprintln(output, "next: rerun daem init without --dry-run")
 	} else {
-		PrintShellCommand(output, "next: run ", "daem", "lock", "--manifest", plan.ManifestPath, "--dry-run")
+		PrintManifestCommand(output, "next: run ", []string{"lock"}, plan.ManifestPath, options, "--dry-run")
 	}
 }
 

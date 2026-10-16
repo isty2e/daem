@@ -89,7 +89,7 @@ func PrintImportPlanWithOptions(output io.Writer, plan ImportPlan, options Human
 	if options.Verbose {
 		fmt.Fprintf(output, "source-dir: %s\n", Escape(plan.SourceDir))
 	}
-	printImportNextAction(output, plan)
+	printImportNextAction(output, plan, options)
 	fmt.Fprintln(output, "note: import writes or merges the manifest and copied source files only; host files are written only by apply")
 }
 
@@ -173,7 +173,7 @@ func printImportEvidence(output io.Writer, plan ImportPlan) {
 	}
 }
 
-func printImportNextAction(output io.Writer, plan ImportPlan) {
+func printImportNextAction(output io.Writer, plan ImportPlan, options HumanOptions) {
 	if plan.HasErrors {
 		fmt.Fprintln(output, "next: resolve reported import conflicts before rerunning import without --dry-run")
 		return
@@ -182,10 +182,10 @@ func printImportNextAction(output io.Writer, plan ImportPlan) {
 		fmt.Fprintln(output, "next: rerun daem import without --dry-run")
 		return
 	}
-	PrintShellCommand(output, "next: run ", "daem", "lock", "--manifest", plan.ManifestPath, "--dry-run")
+	PrintManifestCommand(output, "next: run ", []string{"lock"}, plan.ManifestPath, options, "--dry-run")
 	if plan.ResourceCount != 0 {
 		fmt.Fprintln(output, "note: after writing the lockfile, eligible exact-match imported outputs can be previewed for ownership recording without rewriting them")
-		PrintShellCommand(output, "next: run ", "daem", "apply", "--manifest", plan.ManifestPath, "--manage-existing", "--dry-run")
+		PrintManifestCommand(output, "next: run ", []string{"apply"}, plan.ManifestPath, options, "--manage-existing", "--dry-run")
 	}
 }
 

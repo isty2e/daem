@@ -21,7 +21,7 @@ func TestCommonInputErrorsGiveActionableGuidance(t *testing.T) {
 		{"unknown key", minimal + "unknown_field = true\n", []string{"lock"}, []string{"unknown manifest key", "next: correct or remove", "docs/manifest.md"}},
 		{"malformed TOML", "version = 1\ntargets = [\n", []string{"lock"}, []string{"unclosed array", "line 3, column 1", "next: check TOML"}},
 		{"missing source add", minimal, []string{"add", "instruction", "guide", "missing.md"}, []string{"source path", "missing.md", "next: check that the source exists"}},
-		{"missing source lock", minimal + "[instructions.guide]\nsource = { path = \"missing.md\", mode = \"vendor\" }\n", []string{"lock"}, []string{"source path", "next: check that the source exists", "next: run daem lock --manifest"}},
+		{"missing source lock", minimal + "[instructions.guide]\nsource = { path = \"missing.md\", mode = \"vendor\" }\n", []string{"lock"}, []string{"source path", "next: check that the source exists", "next: run daem lock "}},
 		{"missing Git ref", minimal, []string{"add", "skill", "https://example.invalid/skills.git", "--name", "review"}, []string{"--ref is required", "branch, tag, or commit", "local paths do not need --ref"}},
 		{"missing group Git ref", minimal, []string{"add", "skill-group", "https://example.invalid/skills.git", "--member", "review"}, []string{"--ref is required", "branch, tag, or commit"}},
 		{"missing frontmatter", minimal, []string{"add", "skill", "invalid", "--name", "review"}, []string{"SKILL.md frontmatter is required", "next: edit the source SKILL.md"}},
@@ -30,7 +30,11 @@ func TestCommonInputErrorsGiveActionableGuidance(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			root := t.TempDir()
+			// Temporary-directory aliases must not hide equivalent cwd selection.
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
 			testkit.SetDefaultRootEnv(t, filepath.Join(root, "xdg"))
 			testkit.WithWorkingDirectory(t, root)
 			testkit.WriteFile(t, root, "daem.toml", test.manifest)

@@ -70,7 +70,7 @@ func runLock(args []string, stdout io.Writer, stderr io.Writer, options commandO
 			LockfilePath: result.LockfilePath,
 			Lockfile:     result.Lockfile,
 			Delta:        result.Delta,
-			NextCommand:  lockCommandHint(result.ManifestPath),
+			NextCommand:  lockCommandHint(result.ManifestPath, *manifestPath),
 		}, clipresent.HumanOptions{Verbose: *verbose})
 		return 0
 	}
@@ -102,6 +102,6 @@ func printLockWorkflowHints(output io.Writer, manifestPath string, err error) {
 
 	var commandError workflowlock.CommandError
 	if errors.As(err, &commandError) && clipresent.PrintMissingSourceHint(output, err) {
-		clipresent.PrintShellCommand(output, "next: run ", "daem", "lock", "--manifest", commandError.ManifestPath, "--dry-run")
+		clipresent.PrintManifestCommand(output, "next: run ", []string{"lock"}, commandError.ManifestPath, manifestHintOptions(manifestPath, false), "--dry-run")
 	}
 }

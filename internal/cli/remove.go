@@ -113,7 +113,7 @@ func runRemoveExtension(ctx context.Context, args []string, stdout io.Writer, st
 		}
 		return 0
 	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("removed", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceExtension, result), clipresent.HumanOptions{Verbose: *verbose})
+	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("removed", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceExtension, result), manifestHintOptions(*manifestPath, *verbose))
 	return 0
 }
 
@@ -213,7 +213,7 @@ func runRemoveMCPServer(ctx context.Context, args []string, stdout io.Writer, st
 		}
 		return 0
 	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("removed", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceMCPServer, result), clipresent.HumanOptions{Verbose: *verbose})
+	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("removed", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceMCPServer, result), manifestHintOptions(*manifestPath, *verbose))
 	return 0
 }
 
@@ -301,7 +301,7 @@ func runRemoveSkill(ctx context.Context, args []string, stdout io.Writer, stderr
 		}
 		return 0
 	}
-	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("removed", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceSkill, result), clipresent.HumanOptions{Verbose: *verbose})
+	clipresent.PrintAuthoringChangeWithOptions(stdout, clipresent.AuthoringChangeFrom("removed", clipresent.AuthoringOperationRemove, clipresent.AuthoringResourceSkill, result), manifestHintOptions(*manifestPath, *verbose))
 	return 0
 }
 
