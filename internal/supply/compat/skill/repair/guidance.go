@@ -1,12 +1,7 @@
 package repair
 
-import (
-	"fmt"
-	"strings"
-)
-
-// GuidanceError retains the validation cause and completed repair classification
-// separately from their raw diagnostic rendering.
+// GuidanceError retains the validation cause separately from completed repair
+// facts. Error renders the cause; presentation owns repair instructions.
 type GuidanceError struct {
 	cause          error
 	classification Classification
@@ -27,13 +22,7 @@ func WithGuidance(cause error, classification Classification) error {
 }
 
 func (err *GuidanceError) Error() string {
-	if err.classification.Repairability() == RepairabilityMechanical {
-		return fmt.Sprintf(
-			"%v; repairability=mechanical; next: set compat_repair = true on this manifest resource and rerun daem lock; repair actions: %s",
-			err.cause, strings.Join(err.classification.Actions(), "; "),
-		)
-	}
-	return fmt.Sprintf("%v; repairability=manual; manual edit required: %s", err.cause, strings.Join(err.classification.ManualReasons(), "; "))
+	return err.cause.Error()
 }
 
 func (err *GuidanceError) Unwrap() error { return err.cause }

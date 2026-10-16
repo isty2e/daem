@@ -45,7 +45,8 @@ func printAuthoringArgumentCorrection(output io.Writer, path []string, err error
 }
 
 func printUnexpectedArgumentTargetHintFromArgs(output io.Writer, err error, args []string) bool {
-	if err == nil || !strings.Contains(err.Error(), "unexpected argument") || !hasSpacedTargetListAfterTargetFlag(args) {
+	var unexpected *unexpectedArgumentError
+	if !errors.As(err, &unexpected) || !hasSpacedTargetListAfterTargetFlag(args) {
 		return false
 	}
 	printTargetListSyntaxHint(output)

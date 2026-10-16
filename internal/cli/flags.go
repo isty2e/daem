@@ -23,6 +23,14 @@ func newCommandFlagSet(path []string, stderr io.Writer) *flag.FlagSet {
 	return flags
 }
 
+type unexpectedArgumentError struct {
+	argument string
+}
+
+func (err *unexpectedArgumentError) Error() string {
+	return fmt.Sprintf("unexpected argument %q", err.argument)
+}
+
 func splitAuthoringArgs(
 	args []string,
 	positionalCount int,
@@ -62,7 +70,7 @@ func splitAuthoringArgs(
 			return nil, nil, fmt.Errorf("flag provided but not defined: %s", arg)
 		}
 		if len(positionals) == positionalCount {
-			return nil, nil, fmt.Errorf("unexpected argument %q", arg)
+			return nil, nil, &unexpectedArgumentError{argument: arg}
 		}
 		positionals = append(positionals, arg)
 	}

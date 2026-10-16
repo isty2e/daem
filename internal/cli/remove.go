@@ -334,7 +334,8 @@ func removeMCPServerFlagTakesValue(name string) bool {
 }
 
 func printRemoveMCPServerNotFoundHint(output io.Writer, err error) {
-	if err == nil || !strings.Contains(err.Error(), "mcp_server resource") || !strings.Contains(err.Error(), "not found") {
+	var missing *authoring.ResourceSelectionNotFoundError
+	if !errors.As(err, &missing) || missing.Kind != "mcp_server" {
 		return
 	}
 	fmt.Fprintln(output, "next: inspect declared [[mcp_server]] entries in the selected manifest, or add the server before removing it")
