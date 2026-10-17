@@ -32,6 +32,7 @@ func TestPlanJSONDisclosesBlockedCarrierAbsenceWithoutExecutionClaim(t *testing.
 	if err := PrintPlanJSON(&output, PlanJSONInput{
 		Command:        "status",
 		Mode:           "status",
+		CheckClean:     planTestCheckAssessment(false),
 		Reconciliation: plan,
 	}); err != nil {
 		t.Fatalf("PrintPlanJSON: %v", err)

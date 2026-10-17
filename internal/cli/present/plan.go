@@ -2,6 +2,7 @@ package clipresent
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
@@ -24,6 +25,7 @@ type PlanJSONInput struct {
 	Mode              string
 	LockfilePath      string
 	LockfileMissing   bool
+	CheckClean        *bool
 	LockOnly          LockOnlyResources
 	Reconciliation    reconcile.Result
 	HostRouteAttempts []durableattempt.HostRouteAttempt
@@ -39,6 +41,7 @@ type planJSONOutput struct {
 	LockOnly          LockOnlyResources           `json:"lock_only"`
 	ActionCount       int                         `json:"action_count"`
 	HasErrors         bool                        `json:"has_errors"`
+	CheckClean        *bool                       `json:"check_clean,omitempty"`
 	Actions           []planJSONAction            `json:"actions"`
 	DelegateActions   []delegateActionJSON        `json:"delegate_actions,omitempty"`
 	RelationActions   []relationActionJSON        `json:"relation_actions,omitempty"`
@@ -131,6 +134,14 @@ type planJSONDiagnostic struct {
 }
 
 func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
+	if input.Command == "status" {
+		if input.CheckClean == nil {
+			return errors.New("status JSON requires a check assessment")
+		}
+	} else if input.CheckClean != nil {
+		return errors.New("check assessment is only available for status JSON")
+	}
+
 	hostRouteAttempts := hostRouteJSONAttempts(input.HostRouteAttempts)
 	reconciliation := input.Reconciliation
 	payload := planJSONOutput{
@@ -146,6 +157,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 		HasErrors: input.LockfileMissing ||
 			reconciliation.HasErrors() ||
 			hasErrorDiagnostics(input.Diagnostics),
+		CheckClean:        input.CheckClean,
 		Actions:           planJSONActionsForPlan(reconciliation),
 		DelegateActions:   delegateJSONActions(reconciliation.Delegates()),
 		RelationActions:   relationJSONActions(reconciliation.Relations()),

@@ -58,6 +58,7 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 		if err != nil {
 			return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("status failed: render MCP status: "))
 		}
+		checkClean := result.CheckClean()
 
 		if plan.output == requestedJSON {
 			mode := "status"
@@ -69,6 +70,7 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 				Mode:              mode,
 				LockfilePath:      result.LockfilePath,
 				LockfileMissing:   result.LockfileMissing,
+				CheckClean:        &checkClean,
 				LockOnly:          clipresent.LockOnlyResourcesFrom(result.LockOnly),
 				Reconciliation:    result.Reconciliation,
 				HostRouteAttempts: result.HostRouteAttempts,
@@ -77,7 +79,7 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 			}); err != nil {
 				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("status failed: write json: "))
 			}
-			return statusCheckExitCode(result, *checkOutput)
+			return statusCheckExitCode(checkClean, *checkOutput)
 		}
 		if result.LockfileMissing {
 			fmt.Fprintf(stdout, "lockfile: missing %s\n", humanDiagnosticText(result.LockfilePath))
@@ -101,19 +103,12 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 		if clipresent.PrintReconciliationGuidance(stdout, result.Reconciliation) && !*verbose {
 			printReconciliationInspectionHint(stdout, result.ManifestPath, *manifestPath, targetValues, *verbose)
 		}
-		return statusCheckExitCode(result, *checkOutput)
+		return statusCheckExitCode(checkClean, *checkOutput)
 	}}
 }
 
-func statusCheckExitCode(result statusworkflow.CommandResult, check bool) int {
-	if !check {
-		return 0
-	}
-	if result.LockfileMissing || len(result.Reconciliation.PendingManagedPaths()) != 0 || len(result.Reconciliation.PendingAggregates()) != 0 ||
-		result.HasBlockedRelationActions() ||
-		result.Reconciliation.HasNonExactRelationOrders() ||
-		result.Reconciliation.HasBlockedCarrierAdoptions() ||
-		result.Reconciliation.HasBlockedCarrierAbsences() {
+func statusCheckExitCode(checkClean bool, check bool) int {
+	if check && !checkClean {
 		return 1
 	}
 	return 0

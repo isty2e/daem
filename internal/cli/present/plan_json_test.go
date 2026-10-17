@@ -57,8 +57,9 @@ func planTestEntityID(t *testing.T, name string) entity.ID {
 func TestPrintPlanJSONTreatsErrorDiagnosticsAsErrors(t *testing.T) {
 	var stdout bytes.Buffer
 	err := PrintPlanJSON(&stdout, PlanJSONInput{
-		Command: "status",
-		Mode:    "status",
+		Command:    "status",
+		Mode:       "status",
+		CheckClean: planTestCheckAssessment(true),
 		Diagnostics: []findings.Diagnostic{
 			{
 				Severity: findings.SeverityError,
@@ -145,6 +146,7 @@ func TestPrintPlanJSONIncludesRemainingAndPreviousConsumerTargets(t *testing.T) 
 	err := PrintPlanJSON(&stdout, PlanJSONInput{
 		Command:        "status",
 		Mode:           "status",
+		CheckClean:     planTestCheckAssessment(false),
 		Reconciliation: planResult,
 	})
 	if err != nil {
@@ -411,8 +413,9 @@ func TestPrintPlanJSONIncludesNoOpRelationAction(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := PrintPlanJSON(&stdout, PlanJSONInput{
-		Command: "status",
-		Mode:    "status",
+		Command:    "status",
+		Mode:       "status",
+		CheckClean: planTestCheckAssessment(true),
 		Reconciliation: reconciliationWithFamilies(
 			t, reconciliation.ContextInspect, reconciliation.Result{},
 			[]reconciliation.RelationAction{action}, nil,
@@ -484,8 +487,9 @@ func TestPrintPlanJSONDisclosesStaleRelationEvidence(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := PrintPlanJSON(&stdout, PlanJSONInput{
-		Command: "status",
-		Mode:    "status",
+		Command:    "status",
+		Mode:       "status",
+		CheckClean: planTestCheckAssessment(false),
 		Reconciliation: reconciliationWithFamilies(
 			t, reconciliation.ContextInspect, reconciliation.Result{},
 			[]reconciliation.RelationAction{action}, nil,
@@ -610,8 +614,9 @@ func TestPrintPlanJSONRelationActionsDoNotExposeOwnershipScalars(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := PrintPlanJSON(&stdout, PlanJSONInput{
-		Command: "status",
-		Mode:    "status",
+		Command:    "status",
+		Mode:       "status",
+		CheckClean: planTestCheckAssessment(false),
 		Reconciliation: reconciliationWithFamilies(
 			t, reconciliation.ContextInspect, reconciliation.Result{},
 			[]reconciliation.RelationAction{action}, nil,

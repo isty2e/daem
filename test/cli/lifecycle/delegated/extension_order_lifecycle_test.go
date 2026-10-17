@@ -582,7 +582,11 @@ func runExtensionOrderStatusCheck(t *testing.T, manifestPath string) clijson.Pla
 			stderr.String(),
 		)
 	}
-	return clijson.DecodePlan(t, stdout.Bytes())
+	report := clijson.DecodePlan(t, stdout.Bytes())
+	if report.CheckClean == nil || *report.CheckClean {
+		t.Fatalf("non-clean extension order has check_clean=%v", report.CheckClean)
+	}
+	return report
 }
 
 func runExtensionOrderApply(

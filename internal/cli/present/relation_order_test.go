@@ -207,6 +207,7 @@ func TestPlanAndApplyJSONEnvelopesIncludeRelationOrderActions(t *testing.T) {
 	if err := PrintPlanJSON(&planOutput, PlanJSONInput{
 		Command:        "status",
 		Mode:           "status",
+		CheckClean:     planTestCheckAssessment(false),
 		Reconciliation: result,
 	}); err != nil {
 		t.Fatal(err)
@@ -287,6 +288,7 @@ func TestPlanAndApplyJSONRedactLocalRelationAndLoadIdentities(t *testing.T) {
 	if err := PrintPlanJSON(&planOutput, PlanJSONInput{
 		Command:        "status",
 		Mode:           "status",
+		CheckClean:     planTestCheckAssessment(false),
 		Reconciliation: result,
 	}); err != nil {
 		t.Fatal(err)
@@ -393,6 +395,7 @@ func TestCarrierIdentityDisclosurePropagatesPrivateHostSource(t *testing.T) {
 					return PrintPlanJSON(output, PlanJSONInput{
 						Command:        "status",
 						Mode:           "status",
+						CheckClean:     planTestCheckAssessment(false),
 						Reconciliation: result,
 					})
 				},

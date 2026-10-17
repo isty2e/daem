@@ -97,8 +97,9 @@ func TestPrintNoObserverAttemptDisclosesEvidenceWithoutConvergenceClaims(t *test
 
 	var machine bytes.Buffer
 	if err := PrintPlanJSON(&machine, PlanJSONInput{
-		Command: "status",
-		Mode:    "status",
+		Command:    "status",
+		Mode:       "status",
+		CheckClean: planTestCheckAssessment(false),
 		Reconciliation: reconciliationWithFamilies(
 			t,
 			reconciliation.ContextInspect,
