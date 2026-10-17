@@ -340,10 +340,11 @@ are unrelated and must not be compared as a product-wide sequence:
 | `refresh extension` | Extension refresh | `4` |
 | Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `1` |
 
-The seven resource-bearing families above replace their v0.5.x versions
-`6`, `2`, `4`, `1`, `14`, `21` and `9`, respectively. Public resource names and
-references now use the authoring vocabulary described below. Each affected
-family emits its new version even for empty results or resources whose spelling
+The resource-name cutover replaces the v0.5.x envelopes for manifest authoring
+(`6`), resource inventory (`2`), output inventory (`4`), agent location inventory
+(`1`), reconciliation plans (`14`), apply results (`21`) and recovery (`9`).
+Public resource names and references now use the authoring vocabulary below.
+Each affected family emits its new version even for empty results or resources whose spelling
 is unchanged. Command input syntax and persisted formats are unchanged.
 
 Plan and apply results retain per-binding MCP `host_prerequisite` evidence,
@@ -972,6 +973,10 @@ project and global locations even before the manifest declares resources:
 - daem's private hook-asset store;
 - MCP config files, or an unsupported row;
 - delegated extension install, refresh, and remove routes.
+
+Human tree headings are descriptive prose, such as `MCP servers` or `hook assets`.
+JSON `resource` values use the [public kind tokens](#resource-names-and-identifiers)
+instead; headings are not command operands.
 
 Resource families select their destinations differently:
 
