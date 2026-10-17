@@ -786,8 +786,8 @@ The default human result must always include `host: retained` plus manifest,
 lockfile, and management-state outcomes. Verbose output may add the exact
 claim and route identities but may not imply current host usability.
 
-Structured output uses authoring schema `6`; its unmanage rows retain their
-existing shape:
+Structured output uses the [manifest-authoring JSON family](#json-schema-contract);
+its unmanage rows retain their existing shape:
 
 - `command` and `operation` are `unmanage`;
 - the single change has manifest `change_kind =
@@ -818,8 +818,8 @@ and does not consume this marker.
 
 ## Authoring JSON
 
-Init uses schema `1`. Add, remove, import, and unmanage use schema `7` with
-these common fields:
+Init uses schema `1`. Add, remove, import, and unmanage share the
+[manifest-authoring JSON family](#json-schema-contract) with these common fields:
 
 | Field | Meaning |
 | --- | --- |
@@ -840,7 +840,8 @@ prospective manifest block and does not generate a duplicate warning. Its
 still a change even when the requested server is already declared. Changed
 add/remove, import, and unmanage retain their row shapes; resource names and
 references follow [Resource Names And Identifiers](#resource-names-and-identifiers).
-Consumers must explicitly accept schema `7`.
+Consumers must explicitly accept the current manifest-authoring version in the
+[version table](#json-schema-contract).
 
 Each import `skipped` row contains exact `target`, `scope`, `live_path`, and
 stable `reason` code values plus one stable `category`. Optional `detail`
@@ -868,8 +869,8 @@ Projection-specific import merge rows include a canonical `subject_id` in
 `resource_id`, such as project and global MCP projections with the same server
 name. Aggregate-level merge rows omit `subject_id`.
 
-Human next-command prose is deliberately absent from schema `7`. JSON CLI misuse
-or failure before an ordinary result uses the separate
+Human next-command prose is deliberately absent from the current authoring
+envelope. JSON CLI misuse or failure before an ordinary result uses the separate
 [common CLI failure family](#common-cli-failures), including basic repair guidance.
 An import conflict has a valid result envelope, so it emits JSON with
 `has_errors: true` and exits `1`.
@@ -1007,18 +1008,19 @@ the current command does not plan to migrate or remove it. The warning does not
 claim which copy the host will load, does not grant ownership, and never
 deletes or adopts the other copy.
 
-`list resources` JSON uses schema version `2`. Extension source identities use
+The [version table](#json-schema-contract) lists the current JSON version for
+each list family. In `list resources` JSON, extension source identities use
 the same carrier disclosure rule as lock output and set `source_redacted` when
-the value is replaced. `list outputs` JSON uses schema
-version `4`, with separate `managed`, `unmanaged`, and `blocked` arrays and
-counts. Rows retain their canonical `subject` and complete `targets` consumer
-set while reporting the correlated resource identity when one exists.
+the value is replaced. `list outputs` JSON has separate `managed`, `unmanaged`,
+and `blocked` arrays and counts. Rows retain their canonical `subject` and
+complete `targets` consumer set while reporting the correlated resource identity
+when one exists.
 Newly classified unmanaged and blocked aggregate rows also carry
 `content_path`, which identifies the selected contribution inside the shared
 file, while `hash` remains empty because daem does not own the whole document.
 Both commands include every selected row.
 
-`list paths` JSON uses schema version `1` and a flat `locations` array. Every
+`list paths` JSON uses a flat `locations` array. Every
 row contains `target`, `scope`, `resource`, `kind`, `realization`, `role`,
 `selected`, `requested`, `default`, `selection_source`, and `source`. A row has
 exactly one applicable payload: `path`, delegated `route` plus `operation`, or
@@ -1164,7 +1166,8 @@ reason codes, selected source/ref, and evidence. Raw subprocess output and
 secret values are never printed. Redaction checks both captured and
 display-normalized spellings.
 
-Status and apply-dry-run JSON use plan schema version `14`. The document contains
+Status and apply-dry-run JSON use the
+[reconciliation-plan family](#json-schema-contract). The document contains
 the derived lockfile status, lock-only resources, typed actions, delegated
 actions, relation actions, physical extension-order actions, carrier-adoption
 actions, carrier-absence actions, `host_route_attempts` history, diagnostics, MCP
@@ -1218,8 +1221,9 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "observation_only"` for pending settlement, and
 `execution = "state_only"` for already-absent claim retirement.
 
-`apply --yes --json` uses result schema version `21`: executed action count,
-statefile path, bounded delegated attempts and `host_route_attempts`, typed errors,
+`apply --yes --json` uses the [apply-result family](#json-schema-contract):
+executed action count, statefile path, bounded delegated attempts and
+`host_route_attempts`, typed errors,
 carrier-adoption transitions and final claim provenance, carrier-absence
 outcomes, physical `relation_order_results`, and `has_errors`. Each order result
 gives target, scope, class, physical sequence, `exact` / `converged` / `failed`
@@ -1343,9 +1347,10 @@ even in verbose mode. Pre-1.0 `.daem-tombstone-<32 lowercase hex>` evidence is
 blocked before plan disclosure, neither inspected nor migrated; other
 reserved-namespace names are blocked as malformed.
 
-Recovery JSON schema version is `9` for both `--dry-run --json` and
-`--yes --json`. Every result declares one `phase`. Dry-run results and write
-attempts rejected before execution use `planned`. After execution begins, a
+Both `--dry-run --json` and `--yes --json` use the
+[recovery family](#json-schema-contract). Every result declares one `phase`.
+Dry-run results and write attempts rejected before execution use `planned`.
+After execution begins, a
 freshly reclassified active journal uses `active_authority_retained`; a
 freshly reclassified cleanup-only continuation uses
 `cleanup_authority_retained`. These retained phases declare `authority_kind`
