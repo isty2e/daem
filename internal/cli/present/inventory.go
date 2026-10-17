@@ -123,7 +123,7 @@ func inventoryResourceID(entry listworkflow.OutputInventoryEntry) string {
 	if entry.EntityID() == (entity.ID{}) {
 		return ""
 	}
-	return string(entry.EntityID().Kind()) + "/" + entry.EntityID().Name()
+	return ResourceReference(entry.EntityID().Kind(), entry.EntityID().Name())
 }
 
 func inventoryTargetStrings(entry listworkflow.OutputInventoryEntry) []string {

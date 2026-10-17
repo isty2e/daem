@@ -48,8 +48,8 @@ mode = "copy"
 	output := stdout.String()
 	for _, want := range []string{
 		"dry-run: 2 outputs",
-		`create resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_output`,
-		`create resource="instructions/project" target=claude-code scope=project destination="CLAUDE.md" mode=copy reason=missing_output`,
+		`create resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_output`,
+		`create resource="instruction/project" target=claude-code scope=project destination="CLAUDE.md" mode=copy reason=missing_output`,
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout = %q, want %q", output, want)

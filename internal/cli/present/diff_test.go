@@ -38,7 +38,7 @@ func TestDryRunDiffReportFromPreservesTypedFactsAndCopiesMutableContent(t *testi
 	})
 	if len(got.Diffs) != 1 ||
 		got.UninspectedManagedPathCount != 7 ||
-		got.Diffs[0].ResourceID != "instructions/project" ||
+		got.Diffs[0].ResourceID != "instruction/project" ||
 		!slices.Equal(got.Diffs[0].Targets, []string{"codex", "opencode"}) ||
 		got.Diffs[0].Scope != "project" ||
 		got.Diffs[0].Destination != "AGENTS.md" ||

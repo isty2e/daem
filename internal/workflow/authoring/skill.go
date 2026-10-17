@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	"github.com/isty2e/daem/internal/desired/entity"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 )
 
@@ -34,7 +35,7 @@ func BuildAddSkillChange(document ManifestDocument, request AddSkillRequest) (Ch
 		ResourceID:    skill.ResourceID(),
 		ChangeKind:    changeKind,
 		ManifestBlock: strings.TrimRight(declarationcodec.RenderSkillBlock(skill), "\n"),
-		Warnings:      skillWarnings(skill, document.Root),
+		Warnings:      plainWarnings(skillWarnings(skill, document.Root)),
 	}, nil
 }
 
@@ -113,9 +114,9 @@ func ApplyRemoveSkillToManifest(original []byte, request RemoveSkillRequest) ([]
 				available = append(available, ResourceSelection{Name: candidate.resourceID, Alias: candidate.installName, Scope: candidate.scope, Targets: candidate.targets})
 			}
 		}
-		missing := missingResourceSelection("skill", request.ResourceKey, available)
+		missing := missingResourceSelection(entity.KindSkill, request.ResourceKey, available)
 		if selectorBackedSkillGroupsExist(candidates) {
-			return nil, "", fmt.Errorf("%w in direct skill declarations or explicit skill_group names; selector-backed skill_group children are not edited by remove skill; edit include/exclude selectors manually and run daem lock", missing)
+			missing.Detail = "in direct skill declarations or explicit skill_group names; selector-backed skill_group children are not edited by remove skill; edit include/exclude selectors manually and run daem lock"
 		}
 		return nil, "", missing
 	}
@@ -150,7 +151,7 @@ func BuildAddSkillGroupChange(document ManifestDocument, request AddSkillGroupRe
 		ResourceID:    strings.Join(group.Names, ","),
 		ChangeKind:    changeKind,
 		ManifestBlock: strings.TrimRight(declarationcodec.RenderSkillGroupBlock(group), "\n"),
-		Warnings:      skillGroupWarnings(group, document.Root),
+		Warnings:      plainWarnings(skillGroupWarnings(group, document.Root)),
 	}, nil
 }
 

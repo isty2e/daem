@@ -7,6 +7,7 @@ import (
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/contractversion"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/target"
 	authoringworkflow "github.com/isty2e/daem/internal/workflow/authoring"
 )
@@ -157,11 +158,14 @@ func PrintManifestAuthoringJSON(output io.Writer, payload ManifestAuthoringJSONO
 }
 
 func authoringJSONResource(kind string, name string) AuthoringJSONResourceObject {
-	return AuthoringJSONResourceObject{Kind: kind, Name: name}
+	return AuthoringJSONResourceObject{Kind: authoringResourceKindName(AuthoringResourceKind(kind)), Name: name}
 }
 
 func authoringResourceID(kind string, name string) string {
-	return kind + "/" + name
+	if AuthoringResourceKind(kind) == AuthoringResourceSkillGroup {
+		return authoringResourceKindName(AuthoringResourceSkillGroup) + "/" + name
+	}
+	return ResourceReference(entity.Kind(kind), name)
 }
 
 func authoringLockfileJSON(lockfile AuthoringLockfile) *ManifestAuthoringJSONLockfile {

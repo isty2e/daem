@@ -34,7 +34,7 @@ func TestRunAddInstructionDryRunPlansLocalInstructionWithoutWrites(t *testing.T)
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"add: instructions/project",
+		"add: instruction/project",
 		"change: append instruction resource",
 		"[instructions.\"project\"]",
 		`source = "instructions/AGENTS.md"`,
@@ -175,7 +175,7 @@ func TestRunAddInstructionDryRunSupportsAdmittedInstructionTargetDefaults(t *tes
 				t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 			}
 			for _, want := range []string{
-				"add: instructions/" + test.resourceName,
+				"add: instruction/" + test.resourceName,
 				"change: append instruction resource",
 				`targets = ["` + test.target + `"]`,
 				test.wantSource(sourcePath),
@@ -247,7 +247,7 @@ func TestRunAddInstructionYesWritesAntigravityProjectManifestAndLockWithoutHostO
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"added: instructions/project",
+		"added: instruction/project",
 		"change: append instruction resource",
 		"lockfile: wrote " + filepath.Join(tempDir, "daem.lock.toml"),
 		"note: add updates the manifest and lockfile only; host files are written only by apply",
@@ -328,7 +328,7 @@ func TestRunAddInstructionYesWritesAntigravityGlobalManifestAndLockWithoutHostOu
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"added: instructions/global",
+		"added: instruction/global",
 		"change: append instruction resource",
 		"lockfile: wrote " + filepath.Join(tempDir, "daem.lock.toml"),
 		"note: add updates the manifest and lockfile only; host files are written only by apply",
@@ -429,7 +429,7 @@ targets = ["codex"]
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"removed: instructions/project",
+		"removed: instruction/project",
 		"change: remove instruction resource",
 		"lockfile: wrote " + lockfilePath,
 		"next: run daem apply --manifest " + manifestPath + " --dry-run",
@@ -483,7 +483,7 @@ targets = ["opencode"]
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
-	testkit.AssertOutputLine(t, stdout.String(), "removed: instructions/project")
+	testkit.AssertOutputLine(t, stdout.String(), "removed: instruction/project")
 	testkit.AssertOutputLine(t, stdout.String(), "change: remove instruction resource")
 
 	content, err := os.ReadFile(manifestPath)

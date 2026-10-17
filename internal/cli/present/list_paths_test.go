@@ -21,15 +21,15 @@ func TestPrintListPathsUsesTargetScopeResourceTree(t *testing.T) {
 	text := output.String()
 	for _, fragment := range []string{
 		"manifest: " + manifestPath,
-		"codex\n  project\n    instructions\n",
+		"codex\n  project\n    instruction\n",
 		"      write: AGENTS.md [selected, default]",
-		"    skills\n",
+		"    skill\n",
 		"      write: .agents/skills [default]",
-		"  global\n    instructions\n",
+		"  global\n    instruction\n",
 		"      write: ~/.codex/skills [selected]",
-		"    MCP servers\n",
+		"    mcp-server\n",
 		"      config: ~/.codex/config.toml",
-		"    extensions (codex-plugin)\n",
+		"    extension (codex-plugin)\n",
 		"      install: codex.plugin-carrier.install",
 	} {
 		if !strings.Contains(text, fragment) {

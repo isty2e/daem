@@ -26,7 +26,7 @@ func TestRunRecoverRollsBackInterruptedApplyAndRemovesJournal(t *testing.T) {
 	}
 	for _, want := range []string{
 		"recover: needs_rollback",
-		`restore_write resource="instructions/project" target=codex scope=project destination="AGENTS.md" reason=restore_file backup="files/000001"`,
+		`restore_write resource="instruction/project" target=codex scope=project destination="AGENTS.md" reason=restore_file backup="files/000001"`,
 	} {
 		if !strings.Contains(dryRunStdout.String(), want) {
 			t.Fatalf("dry-run stdout = %q, want %q", dryRunStdout.String(), want)
@@ -70,7 +70,7 @@ func TestRunRecoverRollsBackInterruptedCreateByDeletingCreatedFile(t *testing.T)
 	}
 	for _, want := range []string{
 		"recover: needs_rollback",
-		`restore_delete resource="instructions/project" target=codex scope=project destination="AGENTS.md" reason=restore_absent`,
+		`restore_delete resource="instruction/project" target=codex scope=project destination="AGENTS.md" reason=restore_absent`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -107,7 +107,7 @@ func TestRunRecoverRollsBackInterruptedDeleteByRestoringManagedFile(t *testing.T
 	}
 	for _, want := range []string{
 		"recover: needs_rollback",
-		`restore_write resource="instructions/project" target=codex scope=project destination="AGENTS.md" reason=restore_file backup="files/000001"`,
+		`restore_write resource="instruction/project" target=codex scope=project destination="AGENTS.md" reason=restore_file backup="files/000001"`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

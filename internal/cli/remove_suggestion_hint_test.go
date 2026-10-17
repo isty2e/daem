@@ -113,7 +113,7 @@ func TestManifestHintsFromRemoveErrorsPreserveSelection(t *testing.T) {
 				if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 					t.Fatal(err)
 				}
-				if result.ManifestPath != manifestPath || len(result.Changes) != 1 || result.Changes[0].Operation != "remove" || result.Changes[0].ResourceID != "instructions/guide" {
+				if result.ManifestPath != manifestPath || len(result.Changes) != 1 || result.Changes[0].Operation != "remove" || result.Changes[0].ResourceID != "instruction/guide" {
 					t.Fatalf("suggestion preview=%+v, want one removal from the original manifest", result)
 				}
 				if !reflect.DeepEqual(before, snapshotApplyInputFiles(t, root)) {

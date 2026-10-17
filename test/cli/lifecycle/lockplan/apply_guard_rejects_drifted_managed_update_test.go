@@ -121,7 +121,7 @@ source = "instructions/AGENTS.md"
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
-	if !strings.Contains(stdout.String(), `error resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_lock`) {
+	if !strings.Contains(stdout.String(), `error resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_lock`) {
 		t.Fatalf("stdout = %q, want missing lock action", stdout.String())
 	}
 }

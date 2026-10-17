@@ -72,7 +72,7 @@ targets = ["codex"]
 			t.Fatalf("action = %#v, want create/missing_output", action)
 		}
 		switch action.ResourceID {
-		case "instructions/project":
+		case "instruction/project":
 			if action.PermissionPolicy != "executable-class" || action.DesiredFileMode != 0o600 || action.LiveFileMode != 0 {
 				t.Fatalf("instruction permission facts = %#v", action)
 			}
@@ -83,7 +83,7 @@ targets = ["codex"]
 		}
 		seenActions[action.ResourceID] = true
 	}
-	if !seenActions["instructions/project"] || !seenActions["skill/oracle"] {
+	if !seenActions["instruction/project"] || !seenActions["skill/oracle"] {
 		t.Fatalf("actions = %#v, want instruction and opencode skill creates", payload.Actions)
 	}
 	if len(payload.LockOnly.Skills) != 0 {

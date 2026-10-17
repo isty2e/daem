@@ -6,9 +6,27 @@ import (
 	"path/filepath"
 
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/delegate"
 	mcpdelegate "github.com/isty2e/daem/internal/realization/delegate/mcp"
 )
+
+// Warning retains optional resource context separately from causal text.
+type Warning struct {
+	Resource entity.ID
+	Detail   string
+}
+
+func plainWarnings(messages []string) []Warning {
+	if messages == nil {
+		return nil
+	}
+	warnings := make([]Warning, 0, len(messages))
+	for _, message := range messages {
+		warnings = append(warnings, Warning{Detail: message})
+	}
+	return warnings
+}
 
 func skillWarnings(skill declarationcodec.Skill, manifestRoot string) []string {
 	if skill.Source.Git != "" {
@@ -54,8 +72,8 @@ func instructionWarnings(instruction declarationcodec.Instruction, manifestRoot 
 	return []string{fmt.Sprintf("local instruction source %q does not exist yet; lock validates instruction source files", instruction.Source.Path)}
 }
 
-func mcpServerAuthoringWarnings(server declarationcodec.MCPServer) ([]string, error) {
-	_, binding, err := canonicalMCPServerAuthoring(server)
+func mcpServerAuthoringWarnings(server declarationcodec.MCPServer) ([]Warning, error) {
+	canonical, binding, err := canonicalMCPServerAuthoring(server)
 	if err != nil {
 		return nil, err
 	}
@@ -67,20 +85,20 @@ func mcpServerAuthoringWarnings(server declarationcodec.MCPServer) ([]string, er
 	if err != nil || plan.PinPolicy() != delegate.PinFloating {
 		return nil, nil
 	}
-	return []string{floatingMCPServerDelegateWarning(server.Name, plan)}, nil
+	return []Warning{{Resource: canonical.ID(), Detail: floatingMCPServerDelegateWarning(plan)}}, nil
 }
 
-func floatingMCPServerDelegateWarning(name string, plan delegate.DelegatePlan) string {
+func floatingMCPServerDelegateWarning(plan delegate.DelegatePlan) string {
 	refs := plan.PackageRefs()
 	if len(refs) == 0 {
-		return fmt.Sprintf("mcp_server %q uses floating delegated package identity; pin the package selector when reproducibility matters", name)
+		return "uses floating delegated package identity; pin the package selector when reproducibility matters"
 	}
 	for _, ref := range refs {
 		if ref.PinPolicy() == delegate.PinFloating {
-			return fmt.Sprintf("mcp_server %q uses floating delegated %s package %q; pin every package selector when reproducibility matters", name, ref.Ecosystem(), ref.Name())
+			return fmt.Sprintf("uses floating delegated %s package %q; pin every package selector when reproducibility matters", ref.Ecosystem(), ref.Name())
 		}
 	}
-	return fmt.Sprintf("mcp_server %q has package inputs that cannot be fully pinned from argv; use only explicit exact package selectors when reproducibility matters", name)
+	return "has package inputs that cannot be fully pinned from argv; use only explicit exact package selectors when reproducibility matters"
 }
 
 func localSourcePath(source declarationcodec.SkillSource, manifestRoot string) string {

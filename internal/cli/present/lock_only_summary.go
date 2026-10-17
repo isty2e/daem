@@ -33,7 +33,7 @@ func LockOnlyResourcesFrom[P interface {
 	for _, projection := range projections {
 		entityID := projection.EntityID()
 		entry := LockOnlyResource{
-			Kind:    string(entityID.Kind()),
+			Kind:    ResourceKindName(entityID.Kind()),
 			Name:    entityID.Name(),
 			Targets: lockOnlyTargetStrings(projection.Targets()),
 		}

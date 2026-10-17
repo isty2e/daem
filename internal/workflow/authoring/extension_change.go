@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
@@ -160,7 +161,7 @@ func ApplyRemoveExtensionToManifest(original []byte, request RemoveExtensionRequ
 		for _, candidate := range candidates {
 			available = append(available, ResourceSelection{Name: candidate.id, Scope: candidate.scope, Targets: candidate.targets})
 		}
-		return nil, "", missingResourceSelection("extension", request.ID, available)
+		return nil, "", missingResourceSelection(entity.KindExtension, request.ID, available)
 	}
 	if len(matches) > 1 {
 		return nil, "", fmt.Errorf("extension resource %q is ambiguous; narrow with --target/--scope", request.ID)

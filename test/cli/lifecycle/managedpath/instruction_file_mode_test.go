@@ -74,7 +74,7 @@ source = "instructions/AGENTS.md"
 		t.Fatalf("Chmod destination to 0644 returned error: %v", err)
 	}
 	stdout := runInstructionModeCLI(t, []string{"status", "--manifest", manifestPath}, 0)
-	if !strings.Contains(stdout, `noop resource="instructions/project"`) {
+	if !strings.Contains(stdout, `noop resource="instruction/project"`) {
 		t.Fatalf("status stdout = %q, want non-executable permission difference to remain current", stdout)
 	}
 
@@ -123,7 +123,7 @@ mode = "symlink"
 
 	status := runInstructionModeCLI(t, []string{"status", "--manifest", manifestPath}, 0)
 	for _, want := range []string{
-		`update resource="instructions/project"`,
+		`update resource="instruction/project"`,
 		`mode=symlink`,
 		`current path kind cannot satisfy the desired placement mode`,
 	} {

@@ -89,8 +89,8 @@ func planJSONEntityResource(subject topology.SubjectID) (string, *planJSONResour
 	if !ok {
 		return "", nil
 	}
-	value := &planJSONResource{Kind: string(entityID.Kind()), Name: entityID.Name()}
-	return value.Kind + "/" + value.Name, value
+	value := &planJSONResource{Kind: ResourceKindName(entityID.Kind()), Name: entityID.Name()}
+	return ResourceReference(entityID.Kind(), entityID.Name()), value
 }
 
 func targetStrings(values []target.Target) []string {

@@ -184,7 +184,7 @@ targets = ["codex", "opencode"]
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), `create resource="instructions/project" target=codex`) {
+	if !strings.Contains(stdout.String(), `create resource="instruction/project" target=codex`) {
 		t.Fatalf("stdout = %q, want codex create action", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "opencode") {

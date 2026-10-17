@@ -81,7 +81,7 @@ source = "`+filepath.ToSlash(sourcePath)+`"
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), `noop resource="instructions/global" target=codex scope=global destination="~/.codex/AGENTS.md" mode=copy reason=already_current`) {
+	if !strings.Contains(stdout.String(), `noop resource="instruction/global" target=codex scope=global destination="~/.codex/AGENTS.md" mode=copy reason=already_current`) {
 		t.Fatalf("stdout = %q, want global noop", stdout.String())
 	}
 }

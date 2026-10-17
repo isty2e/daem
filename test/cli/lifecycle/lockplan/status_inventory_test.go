@@ -46,9 +46,9 @@ targets = ["codex"]
 	for _, want := range []string{
 		"inventory:",
 		"managed: 1",
-		`managed resource="instructions/old" target=claude-code scope=project path="CLAUDE.md" hash="` + oldHash + `"`,
+		`managed resource="instruction/old" target=claude-code scope=project path="CLAUDE.md" hash="` + oldHash + `"`,
 		"unmanaged: 1",
-		`unmanaged resource="instructions/project" target=codex scope=project path="AGENTS.md" hash="` + liveHash + `"`,
+		`unmanaged resource="instruction/project" target=codex scope=project path="AGENTS.md" hash="` + liveHash + `"`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -89,7 +89,7 @@ targets = ["codex", "claude-code"]
 	if strings.Contains(stdout.String(), "target=codex") || strings.Contains(stdout.String(), "AGENTS.md") {
 		t.Fatalf("stdout = %q, did not want codex inventory", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), `managed resource="instructions/project" target=claude-code scope=project path="CLAUDE.md"`) {
+	if !strings.Contains(stdout.String(), `managed resource="instruction/project" target=claude-code scope=project path="CLAUDE.md"`) {
 		t.Fatalf("stdout = %q, want claude-code managed inventory", stdout.String())
 	}
 }

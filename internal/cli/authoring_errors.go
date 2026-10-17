@@ -20,7 +20,11 @@ func authoringExecutionOptions(manifestPath string, dryRun bool) authoring.Execu
 }
 
 func authoringFailureDiagnostic(command, manifestPath string, err error) clipresent.FailureDiagnostic {
-	diagnostic := humanFailureDiagnostic(err).WithPrefix(command + " failed: ")
+	diagnostic, projected := clipresent.AuthoringSelectionDiagnostic(err)
+	if !projected {
+		diagnostic = humanFailureDiagnostic(err)
+	}
+	diagnostic = diagnostic.WithPrefix(command + " failed: ")
 	if authoringManifestInitHintApplies(err) {
 		if init, present := missingManifestInitGuidance(manifestPath, err); present {
 			diagnostic = diagnostic.WithGuidance(init)
@@ -31,7 +35,7 @@ func authoringFailureDiagnostic(command, manifestPath string, err error) clipres
 		diagnostic = diagnostic.WithGuidance(source)
 	}
 	if command == "remove" {
-		if missing, present := removeMCPServerNotFoundGuidance(err); present {
+		if missing, present := clipresent.MCPServerNotFoundGuidance(err); present {
 			diagnostic = diagnostic.WithGuidance(missing)
 		}
 		var split authoring.SkillGroupPartialTargetRemovalError
@@ -47,13 +51,7 @@ func missingResourceSelectionGuidance(manifestPath string, err error) []cliprese
 	if !errors.As(err, &missing) {
 		return nil
 	}
-	kind := map[string]string{
-		"instructions": "instruction", "mcp_server": "mcp-server",
-		"skill": "skill", "hook": "hook", "extension": "extension",
-	}[missing.Kind]
-	if kind == "" {
-		kind = missing.Kind
-	}
+	kind := clipresent.ResourceKindName(missing.Kind)
 	hintOptions := manifestHintOptions(manifestPath, false)
 	hintManifestPath, resolveErr := workflowhelp.ManifestHintPath(manifestPath)
 	if resolveErr != nil {
@@ -80,14 +78,6 @@ func authoringArgumentDiagnostic(path []string, err error, args []string) clipre
 		return diagnostic.WithGuidance(guidance)
 	}
 	return diagnostic.WithGuidance(commandHelpGuidance(path))
-}
-
-func removeMCPServerNotFoundGuidance(err error) (clipresent.Guidance, bool) {
-	var missing *authoring.ResourceSelectionNotFoundError
-	if !errors.As(err, &missing) || missing.Kind != "mcp_server" {
-		return clipresent.Guidance{}, false
-	}
-	return clipresent.InstructionGuidance("inspect declared [[mcp_server]] entries in the selected manifest, or add the server before removing it"), true
 }
 
 func authoringManifestInitHintApplies(err error) bool {

@@ -52,10 +52,10 @@ install_to = ".agents/skills"
 	}
 	for _, fragment := range []string{
 		"opencode\n  project\n",
-		"    skills\n",
+		"    skill\n",
 		"      write: .agents/skills [selected]",
 		"      write: .opencode/skills [default]",
-		"    hooks\n",
+		"    hook\n",
 		"      unsupported: bridge required",
 	} {
 		if !strings.Contains(humanStdout.String(), fragment) {

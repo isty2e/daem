@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/execute"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
@@ -17,17 +18,22 @@ type ApplyProgressRendererOptions struct {
 
 // ApplyProgressRenderer renders execute apply progress facts as line-oriented human text.
 type ApplyProgressRenderer struct {
-	mu       sync.Mutex
-	line     ephemeralLine
-	complete int
-	finished map[int]struct{}
+	mu        sync.Mutex
+	line      ephemeralLine
+	complete  int
+	finished  map[int]struct{}
+	reference func(entity.Kind, string) string
 }
 
 // NewApplyProgressRenderer constructs a progress renderer for execute apply events.
-func NewApplyProgressRenderer(options ApplyProgressRendererOptions) *ApplyProgressRenderer {
+func NewApplyProgressRenderer(options ApplyProgressRendererOptions, reference func(entity.Kind, string) string) *ApplyProgressRenderer {
+	if reference == nil {
+		panic("resource reference projector is required")
+	}
 	return &ApplyProgressRenderer{
-		line:     newEphemeralLine(options.Output),
-		finished: make(map[int]struct{}),
+		line:      newEphemeralLine(options.Output),
+		finished:  make(map[int]struct{}),
+		reference: reference,
 	}
 }
 
@@ -76,7 +82,7 @@ func (renderer *ApplyProgressRenderer) renderEvent(event execute.Event) {
 	}
 	label := ""
 	if event.Action != nil {
-		label = progressActionLabel(event.Action)
+		label = renderer.actionLabel(event.Action)
 	}
 	line := fmt.Sprintf("Applying %d/%d", renderer.complete, event.TotalActions)
 	if label != "" {
@@ -114,10 +120,10 @@ func (renderer *ApplyProgressRenderer) renderRelationOrder(event execute.Event) 
 	renderer.line.write(line)
 }
 
-func progressActionLabel(action *execute.ActionEventFacts) string {
+func (renderer *ApplyProgressRenderer) actionLabel(action *execute.ActionEventFacts) string {
 	parts := make([]string, 0, 2)
 	if entityID, ok := topologyprojection.EntityID(action.Subject); ok {
-		parts = append(parts, string(entityID.Kind())+"/"+entityID.Name())
+		parts = append(parts, renderer.reference(entityID.Kind(), entityID.Name()))
 	}
 	if action.Destination.Validate() == nil {
 		parts = append(parts, action.Destination.String())

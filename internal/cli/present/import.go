@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/desired/entity"
 )
 
 type ImportPlan struct {
@@ -44,7 +45,7 @@ type ImportSummaryRow struct {
 }
 
 type ImportScan struct {
-	ResourceKind string
+	ResourceKind entity.Kind
 	ResourceName string
 	Target       string
 	Scope        string
@@ -96,8 +97,8 @@ func PrintImportPlanWithOptions(output io.Writer, plan ImportPlan, options Human
 func printImportEvidence(output io.Writer, plan ImportPlan) {
 	for _, scan := range plan.Scans {
 		resource := scan.ResourceName
-		if scan.ResourceKind != "skill" {
-			resource = scan.ResourceKind + "/" + scan.ResourceName
+		if scan.ResourceKind != entity.KindSkill {
+			resource = ResourceReference(scan.ResourceKind, scan.ResourceName)
 		}
 		fmt.Fprintf(
 			output,
@@ -277,7 +278,7 @@ func importScansFromAdoption(scans []adoptmodel.Scan) []ImportScan {
 	result := make([]ImportScan, 0, len(scans))
 	for _, scan := range scans {
 		result = append(result, ImportScan{
-			ResourceKind: scan.ResourceKind,
+			ResourceKind: entity.Kind(scan.ResourceKind),
 			ResourceName: scan.ResourceName,
 			Target:       string(scan.Target),
 			Scope:        string(scan.Scope),
@@ -295,7 +296,7 @@ func importResourcesFromAdoption(plan adoptmodel.Plan) []ImportResource {
 	resources := make([]ImportResource, 0, plan.ResourceCount())
 	for _, source := range plan.Sources() {
 		resources = append(resources, ImportResource{
-			ResourceID: "instructions/" + source.ResourceName,
+			ResourceID: ResourceReference(entity.KindInstructions, source.ResourceName),
 			Target:     string(source.Target),
 			Scope:      string(source.Scope),
 			Source:     filepath.ToSlash(source.SourcePath),
@@ -306,7 +307,7 @@ func importResourcesFromAdoption(plan adoptmodel.Plan) []ImportResource {
 	for _, skill := range plan.Skills() {
 		primaryRoute, _ := skill.PrimarySourceRoute()
 		resources = append(resources, ImportResource{
-			ResourceID: "skill/" + skill.ResourceName,
+			ResourceID: ResourceReference(entity.KindSkill, skill.ResourceName),
 			Target:     string(skill.Target),
 			Scope:      string(skill.Scope),
 			Source:     filepath.ToSlash(skill.SourcePath),
@@ -315,7 +316,7 @@ func importResourcesFromAdoption(plan adoptmodel.Plan) []ImportResource {
 	}
 	for _, hook := range plan.Hooks() {
 		resources = append(resources, ImportResource{
-			ResourceID: "hook/" + hook.ResourceName,
+			ResourceID: ResourceReference(entity.KindHook, hook.ResourceName),
 			Target:     string(hook.Target),
 			Scope:      string(hook.Scope),
 			LivePath:   hook.LivePath,
@@ -326,7 +327,7 @@ func importResourcesFromAdoption(plan adoptmodel.Plan) []ImportResource {
 	}
 	for _, server := range plan.MCPServers() {
 		resources = append(resources, ImportResource{
-			ResourceID: "mcp_server/" + server.ResourceName,
+			ResourceID: ResourceReference(entity.KindMCPServer, server.ResourceName),
 			Target:     string(server.Target),
 			Scope:      string(server.Scope),
 			LivePath:   server.LivePath(),
@@ -337,7 +338,7 @@ func importResourcesFromAdoption(plan adoptmodel.Plan) []ImportResource {
 	for _, extension := range plan.Extensions() {
 		disclosure := desiredExtensionIdentityDisclosureFor(extension)
 		resources = append(resources, ImportResource{
-			ResourceID:     "extension/" + extension.ID().Name(),
+			ResourceID:     ResourceReference(extension.ID().Kind(), extension.ID().Name()),
 			Target:         string(extension.Target()),
 			Scope:          string(extension.Scope()),
 			Source:         disclosure.sourceRef.Value(),
@@ -364,7 +365,7 @@ func importMergeResultsFromAdoption(results []adoptmodel.MergeResult) []ImportMe
 
 func importMergeResourceReference(resource adoptmodel.MergeResource) string {
 	if id, present := resource.EntityID(); present {
-		return string(id.Kind()) + "/" + id.Name()
+		return ResourceReference(id.Kind(), id.Name())
 	}
 	if resource.IsManifest() {
 		return "manifest"

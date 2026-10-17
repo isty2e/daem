@@ -248,7 +248,7 @@ func TestRunRecoverDryRunJSONReportsRollbackPlan(t *testing.T) {
 		t.Fatalf("actions = %#v", payload.Actions)
 	}
 	action := payload.Actions[0]
-	if action.Kind != "restore_write" || action.Reason != "restore_file" || action.ResourceID != "instructions/project" || action.BackupPath != "files/000001" {
+	if action.Kind != "restore_write" || action.Reason != "restore_file" || action.ResourceID != "instruction/project" || action.BackupPath != "files/000001" {
 		t.Fatalf("action = %#v", action)
 	}
 }

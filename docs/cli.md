@@ -326,26 +326,29 @@ are unrelated and must not be compared as a product-wide sequence:
 | --- | --- | ---: |
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
-| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `6` |
+| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `7` |
 | `lock`, `outdated` | Lock comparison | `4` |
-| `list resources` | Resource inventory | `2` |
-| `list outputs` | Output inventory | `4` |
-| `list paths` | Agent location inventory | `1` |
-| `status`, `apply --dry-run` | Reconciliation plan | `14` |
-| confirmed `apply` | Apply result | `21` |
-| `recover` | Recovery plan/result | `9` |
+| `list resources` | Resource inventory | `3` |
+| `list outputs` | Output inventory | `5` |
+| `list paths` | Agent location inventory | `2` |
+| `status`, `apply --dry-run` | Reconciliation plan | `15` |
+| confirmed `apply` | Apply result | `22` |
+| `recover` | Recovery plan/result | `10` |
 | `migrate state` | State-authority migration | `1` |
 | `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
 | Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `1` |
 
-Plan version `14` and apply-result version `21` add per-binding MCP
-`host_prerequisite` evidence and optional dimension `detail`, plus the unsupported
-Pi backend-transition failure classification. They retain the managed Pi Git
-pin-change actions and `pin_change` disclosure introduced in versions `13` and
-`20`. These versions replace the `12` and `19` envelopes shipped in v0.2.3,
-including for invocations without Native MCP or a pin change.
+The seven resource-bearing families above replace their v0.5.x versions
+`6`, `2`, `4`, `1`, `14`, `21` and `9`, respectively. Public resource names and
+references now use the authoring vocabulary described below. Each affected
+family emits its new version even for empty results or resources whose spelling
+is unchanged. Command input syntax and persisted formats are unchanged.
+
+Plan and apply results retain per-binding MCP `host_prerequisite` evidence,
+optional dimension `detail`, the unsupported Pi backend-transition
+classification, managed Pi Git pin-change actions and `pin_change` disclosure.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject
@@ -359,6 +362,32 @@ meaning. Each daem binary emits one current version per envelope; it does not
 negotiate or emit legacy variants. Until a command explicitly documents a
 multi-version policy, consumers must update for a new version rather than
 silently accepting it. Released version changes belong in release notes.
+
+### Resource Names And Identifiers
+
+Public resource classifications use the token accepted by the authoring CLI:
+`instruction`, `skill`, `hook`, `mcp-server` and `extension`. Authoring a group
+uses `skill-group`; inventory members remain `skill`. `hook_asset` retains its
+TOML spelling because it has no direct add/remove command. Naming a resource
+kind does not imply that every command supports it.
+
+Public `resource_id` values and human resource references use `kind/name`, such
+as `instruction/project` or `mcp-server/context7`. The name remains literal,
+including any slash, colon, percent sign or words such as `instructions`.
+For command operands, prefer the separate `resource.kind` and `resource.name`
+fields, or `list resources`' `kind` and `key`, rather than splitting a reference.
+
+Canonical `entity_id` and `subject_id` values, including structured subject
+namespaces and keys, are opaque identities, not command operands. They retain
+their existing grammar and may contain `instructions` or `mcp_server`. Other
+`kind` fields may describe an action, subject role, source or artifact rather
+than a resource. TOML keys, embedded manifest blocks, diagnostic quotations of
+source/schema syntax, and summary field names also retain their own spelling.
+
+When migrating from v0.5.x, accept the new family version and update comparisons
+against public resource names/references. Do not rename manifest keys, rewrite
+stored IDs or change valid command inputs. The common CLI failure family remains
+version `1`; its primary message is diagnostic prose, not a stable reason code.
 
 ### Common CLI Failures
 
@@ -789,7 +818,7 @@ and does not consume this marker.
 
 ## Authoring JSON
 
-Init uses schema `1`. Add, remove, import, and unmanage use schema `6` with
+Init uses schema `1`. Add, remove, import, and unmanage use schema `7` with
 these common fields:
 
 | Field | Meaning |
@@ -809,8 +838,9 @@ prospective manifest block and does not generate a duplicate warning. Its
 `lockfile.status` independently reports `would_write`, `written`, or
 `unchanged`. If add must insert a missing Pi MCP provider, that insertion is
 still a change even when the requested server is already declared. Changed
-add/remove, import, and unmanage row shapes are otherwise unchanged from
-schema `5`; consumers must explicitly accept schema `6`.
+add/remove, import, and unmanage retain their row shapes; resource names and
+references follow [Resource Names And Identifiers](#resource-names-and-identifiers).
+Consumers must explicitly accept schema `7`.
 
 Each import `skipped` row contains exact `target`, `scope`, `live_path`, and
 stable `reason` code values plus one stable `category`. Optional `detail`
@@ -838,7 +868,7 @@ Projection-specific import merge rows include a canonical `subject_id` in
 `resource_id`, such as project and global MCP projections with the same server
 name. Aggregate-level merge rows omit `subject_id`.
 
-Human next-command prose is deliberately absent from schema `6`. JSON CLI misuse
+Human next-command prose is deliberately absent from schema `7`. JSON CLI misuse
 or failure before an ordinary result uses the separate
 [common CLI failure family](#common-cli-failures), including basic repair guidance.
 An import conflict has a valid result envelope, so it emits JSON with

@@ -85,7 +85,7 @@ type Change struct {
 	ResourceID    string
 	ChangeKind    string
 	ManifestBlock string
-	Warnings      []string
+	Warnings      []Warning
 }
 
 func (document ManifestDocument) validateOriginal() error {
@@ -134,7 +134,7 @@ type OperationResult struct {
 	ResourceID    string
 	ChangeKind    string
 	ManifestBlock string
-	Warnings      []string
+	Warnings      []Warning
 	Lockfile      LockfileChange
 	Mode          AuthoringMode
 }
@@ -372,7 +372,7 @@ func operationResultFromChange(change Change, lockfile LockfileChange, mode Auth
 		ResourceID:    change.ResourceID,
 		ChangeKind:    change.ChangeKind,
 		ManifestBlock: change.ManifestBlock,
-		Warnings:      append([]string(nil), change.Warnings...),
+		Warnings:      append([]Warning(nil), change.Warnings...),
 		Lockfile:      lockfile,
 		Mode:          mode,
 	}

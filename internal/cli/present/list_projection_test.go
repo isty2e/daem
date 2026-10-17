@@ -54,7 +54,7 @@ targets = ["codex"]
 	rows := ListRows(environment, groups, allTargets)
 	want := []ListRow{
 		{
-			Kind:        "instructions",
+			Kind:        "instruction",
 			Key:         "project",
 			InstallName: "-",
 			Source:      "local:AGENTS.md?mode=vendor",

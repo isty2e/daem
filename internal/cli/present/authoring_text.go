@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	authoringworkflow "github.com/isty2e/daem/internal/workflow/authoring"
 )
 
@@ -50,7 +51,7 @@ func AuthoringChangeFrom(
 	manifestBlock, warnings := authoringAddedContent(operation, result)
 	return AuthoringChangeSummary{
 		Label:        label,
-		ResourceID:   string(resourceKind) + "/" + result.ResourceID,
+		ResourceID:   authoringResourceID(string(resourceKind), result.ResourceID),
 		ChangeKind:   result.ChangeKind,
 		ManifestPath: result.ManifestPath,
 		Lockfile:     authoringLockfileFrom(result),
@@ -97,7 +98,14 @@ func authoringAddedContent(
 	if operation != AuthoringOperationAdd {
 		return "", nil
 	}
-	warnings := append([]string(nil), result.Warnings...)
+	var warnings []string
+	for _, warning := range result.Warnings {
+		message := warning.Detail
+		if warning.Resource != (entity.ID{}) {
+			message = fmt.Sprintf("%s %q %s", ResourceKindName(warning.Resource.Kind()), warning.Resource.Name(), message)
+		}
+		warnings = append(warnings, message)
+	}
 	if !result.ManifestChanged() {
 		return "", warnings
 	}
@@ -176,7 +184,7 @@ func PrintUnmanageExtensionWithOptions(
 	result authoringworkflow.UnmanageExtensionResult,
 	options HumanOptions,
 ) {
-	fmt.Fprintf(output, "unmanage: extension/%s\n", Escape(result.ResourceID))
+	fmt.Fprintf(output, "unmanage: %s\n", Escape(ResourceReference(entity.KindExtension, result.ResourceID)))
 	fmt.Fprintf(
 		output,
 		"manifest: %s %s\n",

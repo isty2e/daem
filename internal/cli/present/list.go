@@ -139,6 +139,9 @@ func ListRows(
 		}
 		return left.Targets < right.Targets
 	})
+	for index := range rows {
+		rows[index].Kind = ResourceKindName(entity.Kind(rows[index].Kind))
+	}
 	return rows
 }
 

@@ -138,7 +138,7 @@ func TestRunAddInstructionDryRunJSONSupportsAdmittedInstructionTarget(t *testing
 		t.Fatalf("changes = %#v, want one change", payload.Changes)
 	}
 	change := payload.Changes[0]
-	if change.ResourceID != "instructions/project" || change.Resource.Kind != "instructions" || change.Resource.Name != "project" || change.ChangeKind != "append instruction resource" {
+	if change.ResourceID != "instruction/project" || change.Resource.Kind != "instruction" || change.Resource.Name != "project" || change.ChangeKind != "append instruction resource" {
 		t.Fatalf("change = %#v", change)
 	}
 	for _, want := range []string{
@@ -177,7 +177,7 @@ func TestRunImportDryRunJSONEmitsPlanWithoutWrites(t *testing.T) {
 		t.Fatalf("payload summary = %#v", payload)
 	}
 	change := payload.Changes[0]
-	if change.ResourceID != "instructions/codex_project" || change.Target != "codex" || change.Scope != "project" || change.LivePath != "AGENTS.md" {
+	if change.ResourceID != "instruction/codex_project" || change.Target != "codex" || change.Scope != "project" || change.LivePath != "AGENTS.md" {
 		t.Fatalf("change = %#v", change)
 	}
 	if len(payload.Summary) != 1 || payload.Summary[0].Instructions != 1 {
@@ -229,7 +229,7 @@ func TestRunImportDryRunJSONIncludesInstructionRenderToProvenance(t *testing.T) 
 		t.Fatalf("payload = %#v", payload)
 	}
 	change := payload.Changes[0]
-	if change.ResourceID != "instructions/antigravity_cli_project_gemini" ||
+	if change.ResourceID != "instruction/antigravity_cli_project_gemini" ||
 		change.Target != "antigravity-cli" ||
 		change.Scope != "project" ||
 		change.LivePath != "GEMINI.md" ||
@@ -322,7 +322,7 @@ scope = "project"
 			if !payload.HasErrors || len(payload.MergeResults) != 1 {
 				t.Fatalf("payload = %#v, want merge conflict", payload)
 			}
-			if payload.MergeResults[0].ResourceID != "instructions/codex_project" || payload.MergeResults[0].Status != "conflict" {
+			if payload.MergeResults[0].ResourceID != "instruction/codex_project" || payload.MergeResults[0].Status != "conflict" {
 				t.Fatalf("merge_results = %#v", payload.MergeResults)
 			}
 			testkit.AssertFileContent(t, outputPath, string(original))

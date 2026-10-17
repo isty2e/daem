@@ -33,7 +33,7 @@ func TestRunImportDryRunPreviewsCodexProjectInstructionsWithoutWrites(t *testing
 		"summary: instructions=1 skills=0 hooks=0",
 		"summary target=codex scope=project instructions=1 skills=0 hooks=0",
 		"destination: manifest=" + outputPath + " source-dir=" + filepath.Join(tempDir, "daem.imported.d"),
-		`resource="instructions/codex_project"`,
+		`resource="instruction/codex_project"`,
 		`target=codex`,
 		`scope=project`,
 		`source="` + filepath.ToSlash(sourcePath) + `"`,
@@ -112,7 +112,7 @@ scope = "project"
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
-	if !strings.Contains(stdout.String(), `merge resource="instructions/codex_project" status=conflict`) {
+	if !strings.Contains(stdout.String(), `merge resource="instruction/codex_project" status=conflict`) {
 		t.Fatalf("stdout = %q, want merge conflict row", stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "next: resolve reported import conflicts before rerunning import without --dry-run") {
@@ -194,10 +194,10 @@ func TestRunImportAcceptsRepeatedTargetsAndScopes(t *testing.T) {
 		"summary target=codex scope=global instructions=1 skills=0 hooks=0",
 		"summary target=claude-code scope=project instructions=1 skills=0 hooks=0",
 		"summary target=claude-code scope=global instructions=1 skills=0 hooks=0",
-		`resource="instructions/codex_project"`,
-		`resource="instructions/codex_global"`,
-		`resource="instructions/claude_code_project"`,
-		`resource="instructions/claude_code_global"`,
+		`resource="instruction/codex_project"`,
+		`resource="instruction/codex_global"`,
+		`resource="instruction/claude_code_project"`,
+		`resource="instruction/claude_code_global"`,
 		`target=codex`,
 		`target=claude-code`,
 		`scope=project`,
@@ -353,7 +353,7 @@ func TestRunImportYesWritesClaudeCodeProjectInstruction(t *testing.T) {
 	}
 	for _, want := range []string{
 		"imported: 1 resource",
-		`resource="instructions/claude_code_project"`,
+		`resource="instruction/claude_code_project"`,
 		`target=claude-code`,
 		`source="` + filepath.ToSlash(sourcePath) + `"`,
 		`live="CLAUDE.md"`,

@@ -216,7 +216,7 @@ func TestMCPServerAddWarningUsesActualCanonicalPlacement(t *testing.T) {
 			if err != nil {
 				t.Fatalf("BuildAddMCPServerChange returned error: %v", err)
 			}
-			if len(change.Warnings) == 0 || !strings.Contains(change.Warnings[0], `floating delegated npm package "@scope/server"`) {
+			if len(change.Warnings) == 0 || !strings.Contains(change.Warnings[0].Detail, `floating delegated npm package "@scope/server"`) {
 				t.Fatalf("warnings = %#v, want actual placement floating-package warning", change.Warnings)
 			}
 		})
@@ -249,7 +249,7 @@ func assertMCPAddWarnings(t *testing.T, command string, args []string, wantWarni
 	if len(change.Warnings) != 1 {
 		t.Fatalf("Warnings = %#v, want one warning", change.Warnings)
 	}
-	warning := change.Warnings[0]
+	warning := change.Warnings[0].Detail
 	if !strings.Contains(warning, wantWarning) {
 		t.Fatalf("warning = %q, want %q", warning, wantWarning)
 	}

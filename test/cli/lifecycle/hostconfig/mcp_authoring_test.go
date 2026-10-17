@@ -37,7 +37,7 @@ func TestRunAddMCPServerDryRunPlansWithoutHostWrites(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"add: mcp_server/context7",
+		"add: mcp-server/context7",
 		"change: append mcp_server resource",
 		"[[mcp_server]]",
 		`name = "context7"`,
@@ -79,7 +79,7 @@ func TestRunAddMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"added: mcp_server/context7",
+		"added: mcp-server/context7",
 		"change: append mcp_server resource",
 		"lockfile: wrote " + project.lockfilePath,
 	} {
@@ -125,7 +125,7 @@ func TestRunAddCodexMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"added: mcp_server/context7",
+		"added: mcp-server/context7",
 		"change: append mcp_server resource",
 		"lockfile: wrote " + project.lockfilePath,
 	} {
@@ -176,7 +176,7 @@ func TestRunAddCodexGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"added: mcp_server/context7",
+		"added: mcp-server/context7",
 		"change: append mcp_server resource",
 		"lockfile: wrote " + project.lockfilePath,
 	} {
@@ -227,7 +227,7 @@ func TestRunAddClaudeGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"added: mcp_server/context7",
+		"added: mcp-server/context7",
 		"change: append mcp_server resource",
 		"lockfile: wrote " + project.lockfilePath,
 	} {
@@ -280,7 +280,7 @@ func TestRunAddAntigravityMCPServerDryRunPlansWithoutHostReadsOrWrites(t *testin
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"add: mcp_server/context7",
+		"add: mcp-server/context7",
 		"change: append mcp_server resource",
 		"[[mcp_server]]",
 		`name = "context7"`,
@@ -329,7 +329,7 @@ func TestRunAddAntigravityMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"added: mcp_server/context7",
+		"added: mcp-server/context7",
 		"change: append mcp_server resource",
 		"lockfile: wrote " + project.lockfilePath,
 	} {
@@ -501,7 +501,7 @@ func TestRunAddMCPServerDryRunJSONDescribesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("len(Changes) = %d, want 1", len(payload.Changes))
 	}
 	change := payload.Changes[0]
-	if change.ResourceID != "mcp_server/context7" || change.Resource.Kind != "mcp_server" || change.Resource.Name != "context7" {
+	if change.ResourceID != "mcp-server/context7" || change.Resource.Kind != "mcp-server" || change.Resource.Name != "context7" {
 		t.Fatalf("change resource = %#v", change)
 	}
 	if change.ChangeKind != "append mcp_server resource" || !strings.Contains(change.ManifestBlock, `command = "npx"`) {
@@ -554,7 +554,7 @@ func TestRunAddAntigravityMCPServerDryRunJSONDescribesManifestAndLockOnly(t *tes
 		t.Fatalf("len(Changes) = %d, want 1", len(payload.Changes))
 	}
 	change := payload.Changes[0]
-	if change.ResourceID != "mcp_server/context7" || change.Resource.Kind != "mcp_server" || change.Resource.Name != "context7" {
+	if change.ResourceID != "mcp-server/context7" || change.Resource.Kind != "mcp-server" || change.Resource.Name != "context7" {
 		t.Fatalf("change resource = %#v", change)
 	}
 	if change.ChangeKind != "append mcp_server resource" ||
@@ -588,7 +588,7 @@ func TestRunAddMCPServerWarnsForFloatingPackageIdentity(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		`warning: mcp_server "context7" uses floating delegated npm package "@upstash/context7-mcp"`,
+		`warning: mcp-server "context7" uses floating delegated npm package "@upstash/context7-mcp"`,
 		"pin every package selector",
 		`args = ["-y", "@upstash/context7-mcp"]`,
 		"lockfile: would write " + project.lockfilePath,

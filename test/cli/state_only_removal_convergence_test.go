@@ -70,8 +70,8 @@ targets = ["codex"]
 		t.Fatalf("status exit=%d stdout=%q stderr=%q, want pending cleanup", statusExit, statusStdout.String(), statusStderr.String())
 	}
 	for _, want := range []string{
-		`delete resource="instructions/project"`,
-		`delete resource="instructions/global"`,
+		`delete resource="instruction/project"`,
+		`delete resource="instruction/global"`,
 		`delete resource="skill/demo"`,
 		`delete resource="hook/old"`,
 	} {
@@ -170,11 +170,11 @@ func TestAuthoringRemovalOfLastInstructionConvergesThroughStatusInventoryAndAppl
 	runCUXJourney(t, []string{
 		"add", "instruction", "project", "./instructions/project.md",
 		"--target", "codex",
-	}, "added: instructions/project", "lockfile: wrote")
+	}, "added: instruction/project", "lockfile: wrote")
 	runCUXJourney(t, []string{"apply", "--yes"}, "applied: 1 action")
 	testkit.AssertFileContent(t, filepath.Join(root, "AGENTS.md"), "project instructions\n")
 
-	runCUXJourney(t, []string{"remove", "instruction", "project"}, "removed: instructions/project", "lockfile: wrote")
+	runCUXJourney(t, []string{"remove", "instruction", "project"}, "removed: instruction/project", "lockfile: wrote")
 
 	var statusStdout bytes.Buffer
 	var statusStderr bytes.Buffer
@@ -182,7 +182,7 @@ func TestAuthoringRemovalOfLastInstructionConvergesThroughStatusInventoryAndAppl
 	if statusExit != 1 || statusStderr.Len() != 0 {
 		t.Fatalf("status exit=%d stdout=%q stderr=%q, want pending removal", statusExit, statusStdout.String(), statusStderr.String())
 	}
-	if !strings.Contains(statusStdout.String(), `remove managed output resource="instructions/project"`) {
+	if !strings.Contains(statusStdout.String(), `remove managed output resource="instruction/project"`) {
 		t.Fatalf("status stdout=%q, want managed removal", statusStdout.String())
 	}
 
@@ -326,8 +326,8 @@ source = "instructions/active.md"
 		t.Fatalf("status exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
 	for _, want := range []string{
-		`create resource="instructions/active" target=claude-code`,
-		`delete resource="instructions/old" target=codex`,
+		`create resource="instruction/active" target=claude-code`,
+		`delete resource="instruction/old" target=codex`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("status stdout=%q, want %q", stdout.String(), want)

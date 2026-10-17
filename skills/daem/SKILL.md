@@ -79,7 +79,7 @@ Use these public resource names:
 
 Do not force an ambiguous object into the nearest kind. Inspect `daem help add <resource>`; ask only if intent still cannot be represented without guessing.
 
-For removal, get the exact resource key from `daem list resources`, then use `daem remove <resource> <resource-key>`. Remove skill groups with `daem remove skill <resource-key>`.
+For removal, get the exact kind and key from `daem list resources`, then use `daem remove <kind> <key>`. Resource-inventory JSON version `3` uses CLI tokens such as `instruction` and `mcp-server`; preserve keys literally. Check the installed version/help rather than assuming older output uses that vocabulary. Do not derive operands from `resource_id`, canonical `entity_id`/`subject_id`, or a `skill_group[index]` membership anchor. Group members remain `skill` and are removed with `daem remove skill <key>`; there is no remove skill-group command.
 
 For Pi MCP, inspect the recorded backend and current daem diagnostics. New automatic authoring may record Native from admitted Pi version evidence or retain Adapter with a diagnostic; existing declarations never migrate automatically. Adapter may author an explicit `pi-mcp-adapter` extension alongside the binding. Removing the MCP row keeps that provider; package removal is a separate lifecycle decision. Native qualification never authorizes settings repair, provider removal or backend fallback. Do not infer trust, activation or runtime readiness from version or config convergence.
 

@@ -30,7 +30,7 @@ func TestRunAddMCPServerSupportsOpenCodeProjectAuthoring(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 	for _, want := range []string{
-		"add: mcp_server/context7",
+		"add: mcp-server/context7",
 		`targets = ["opencode"]`,
 		`scope = "project"`,
 		`command = "npx"`,
@@ -153,7 +153,7 @@ func TestRunAddMCPServerSupportsOpenCodeGlobalScopeAuthoring(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 	for _, want := range []string{
-		"add: mcp_server/context7",
+		"add: mcp-server/context7",
 		`targets = ["opencode"]`,
 		`scope = "global"`,
 		`command = "npx"`,
@@ -203,7 +203,7 @@ args = ["-y", "@upstash/context7-mcp@1.2.3"]
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 	for _, want := range []string{
-		"remove: mcp_server/context7",
+		"remove: mcp-server/context7",
 		"change: remove mcp_server resource",
 		"lockfile: would write",
 		"MCP config changes only when apply removes the managed projection",
@@ -251,7 +251,7 @@ command = "npx"
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 	for _, want := range []string{
-		"remove: mcp_server/context7",
+		"remove: mcp-server/context7",
 		"change: remove mcp_server resource",
 		"lockfile: would write",
 		"MCP config changes only when apply removes the managed projection",

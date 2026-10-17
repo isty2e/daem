@@ -3,6 +3,7 @@ package cli
 import (
 	"io"
 
+	clipresent "github.com/isty2e/daem/internal/cli/present"
 	cliprogress "github.com/isty2e/daem/internal/cli/present/progress"
 )
 
@@ -11,7 +12,7 @@ func newLockProgressRenderer(jsonOutput bool, stderr io.Writer, options commandO
 		return nil
 	}
 
-	return cliprogress.NewLockProgressRenderer(cliprogress.LockProgressRendererOptions{Output: stderr})
+	return cliprogress.NewLockProgressRenderer(cliprogress.LockProgressRendererOptions{Output: stderr}, clipresent.ResourceReference)
 }
 
 func newImportProgressRenderer(jsonOutput bool, stderr io.Writer, options commandOptions) *cliprogress.ImportProgressRenderer {
@@ -27,7 +28,7 @@ func newApplyProgressRenderer(jsonOutput bool, stderr io.Writer, options command
 		return nil
 	}
 
-	return cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: stderr})
+	return cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: stderr}, clipresent.ResourceReference)
 }
 
 func newRefreshProgressRenderer(

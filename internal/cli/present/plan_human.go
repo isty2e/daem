@@ -153,7 +153,7 @@ func aggregatePublicKind(decision reconcile.AggregateSubjectDecision) string {
 
 func aggregateIdentityLabel(decision reconcile.AggregateSubjectDecision) (string, string) {
 	if entityID, ok := topologyprojection.EntityID(decision.Subject()); ok {
-		return "resource", string(entityID.Kind()) + "/" + entityID.Name()
+		return "resource", ResourceReference(entityID.Kind(), entityID.Name())
 	}
 	return "subject", subjectString(*planJSONSubjectFor(decision.Subject()))
 }
@@ -262,7 +262,7 @@ func managedPathPublicKind(decision reconcile.ManagedPathDecision) string {
 
 func managedPathIdentityLabel(decision reconcile.ManagedPathDecision) (string, string) {
 	if entityID, ok := topologyprojection.EntityID(decision.Subject()); ok {
-		return "resource", string(entityID.Kind()) + "/" + entityID.Name()
+		return "resource", ResourceReference(entityID.Kind(), entityID.Name())
 	}
 	return "subject", subjectString(*planJSONSubjectFor(decision.Subject()))
 }

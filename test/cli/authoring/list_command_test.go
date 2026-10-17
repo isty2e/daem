@@ -48,7 +48,7 @@ targets = ["codex"]
 	for _, want := range []string{
 		"manifest: " + manifestPath,
 		"resources: 5",
-		`resource kind=instructions key="project" install="-" source="local:AGENTS.md?mode=vendor" targets="codex" scope="project" group="-"`,
+		`resource kind=instruction key="project" install="-" source="local:AGENTS.md?mode=vendor" targets="codex" scope="project" group="-"`,
 		`resource kind=skill key="alpha" install="alpha" source="local:skills/alpha?mode=vendor" targets="claude-code" scope="project" group="skill_group[0]"`,
 		`resource kind=skill key="beta" install="beta" source="local:skills/beta?mode=vendor" targets="claude-code" scope="project" group="skill_group[0]"`,
 		`resource kind=skill key="codex-review" install="review" source="git:locator=https%3A%2F%2Fgithub.com%2Fowner%2Frepo.git&path=skills%2Freview&ref=name%3Amain" targets="codex" scope="global" group="-"`,

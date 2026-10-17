@@ -64,9 +64,11 @@ func TestMCPServerAddBehaviorWarnsForFloatingDelegatePackage(t *testing.T) {
 	if len(change.Warnings) != 1 {
 		t.Fatalf("Warnings = %#v, want one floating package warning", change.Warnings)
 	}
-	warning := change.Warnings[0]
+	if change.Warnings[0].Resource.Name() != "context7" || string(change.Warnings[0].Resource.Kind()) != "mcp_server" {
+		t.Fatalf("warning lost resource identity: %#v", change.Warnings[0])
+	}
+	warning := change.Warnings[0].Detail
 	for _, want := range []string{
-		`mcp_server "context7"`,
 		"floating delegated npm package",
 		`"@upstash/context7-mcp"`,
 		"pin every package selector",

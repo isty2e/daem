@@ -21,6 +21,7 @@ func TestImportMergePresentationPreservesReferencesAndSubjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	var results []adoptmodel.MergeResult
+	publicNames := []string{"instruction", "skill", "hook", "mcp-server", "extension", "manifest"}
 	for _, kind := range []entity.Kind{entity.KindInstructions, entity.KindSkill, entity.KindHook, entity.KindMCPServer, entity.KindExtension} {
 		resource, err := adoptmodel.NewEntityMergeResource(kind, "instructions/mcp_server:%25")
 		if err != nil {
@@ -34,7 +35,7 @@ func TestImportMergePresentationPreservesReferencesAndSubjects(t *testing.T) {
 	for index, result := range results {
 		want := "manifest"
 		if id, present := result.Resource.EntityID(); present {
-			want = string(id.Kind()) + "/" + id.Name()
+			want = publicNames[index] + "/" + id.Name()
 		}
 		if human[index].Resource != want || wire[index].ResourceID != want ||
 			wire[index].SubjectID != result.Subject.String() || wire[index].Status != string(result.Status) ||
