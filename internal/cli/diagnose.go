@@ -192,7 +192,11 @@ func prepareProbeMCPInvocation(args []string, stdout io.Writer, stderr io.Writer
 			Timeout:      *timeout,
 		})
 		if err != nil {
-			diagnostic := humanFailureDiagnostic(err).WithPrefix("probe failed: ")
+			diagnostic, projected := clipresent.MCPProbeSelectionDiagnostic(err)
+			if !projected {
+				diagnostic = humanFailureDiagnostic(err)
+			}
+			diagnostic = diagnostic.WithPrefix("probe failed: ")
 			if init, present := missingManifestInitGuidance(*manifestPath, err); present {
 				diagnostic = diagnostic.WithGuidance(init)
 			}
