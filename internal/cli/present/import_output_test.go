@@ -10,8 +10,39 @@ import (
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	adoptextension "github.com/isty2e/daem/internal/adopt/extension"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/target"
+	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
+
+func TestImportMergePresentationPreservesReferencesAndSubjects(t *testing.T) {
+	subject, err := topologymcp.ProjectionSubject(target.TargetCodex, target.ScopeProject, "context7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var results []adoptmodel.MergeResult
+	for _, kind := range []entity.Kind{entity.KindInstructions, entity.KindSkill, entity.KindHook, entity.KindMCPServer, entity.KindExtension} {
+		resource, err := adoptmodel.NewEntityMergeResource(kind, "instructions/mcp_server:%25")
+		if err != nil {
+			t.Fatal(err)
+		}
+		results = append(results, adoptmodel.MergeResult{Resource: resource, Subject: subject, Status: adoptmodel.MergeStatusNoop, Detail: "already declared"})
+	}
+	results = append(results, adoptmodel.MergeResult{Resource: adoptmodel.ManifestMergeResource(), Status: adoptmodel.MergeStatusConflict, Detail: "invalid manifest"})
+	human := importMergeResultsFromAdoption(results)
+	wire := importPlanJSONMergeResults(results)
+	for index, result := range results {
+		want := "manifest"
+		if id, present := result.Resource.EntityID(); present {
+			want = string(id.Kind()) + "/" + id.Name()
+		}
+		if human[index].Resource != want || wire[index].ResourceID != want ||
+			wire[index].SubjectID != result.Subject.String() || wire[index].Status != string(result.Status) ||
+			human[index].Detail != result.Detail || wire[index].Detail != result.Detail {
+			t.Fatalf("merge projection %d changed facts: human=%#v JSON=%#v", index, human[index], wire[index])
+		}
+	}
+}
 
 func TestImportPresentationDisclosesExactExtensions(t *testing.T) {
 	plan := presentPiImportPlan(t, "npm:@acme/tools@1.2.3")

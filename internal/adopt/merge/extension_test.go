@@ -176,6 +176,10 @@ func TestClassifyImportExtensionMergeRejectsSameIDDifferentRelation(t *testing.T
 		desiredextension.SourceKindHostSource,
 		"npm:new",
 	)
+	resource, err := adoptmodel.NewEntityMergeResource(imported.ID().Kind(), imported.ID().Name())
+	if err != nil {
+		t.Fatal(err)
+	}
 	result := classifyImportExtensionMerge(existingDeclarations{
 		Extensions: []declarationcodec.ExtensionBlock{{
 			Extension: declaration.Extension{
@@ -186,7 +190,7 @@ func TestClassifyImportExtensionMergeRejectsSameIDDifferentRelation(t *testing.T
 				Source:  declaration.ExtensionSource{HostSource: "npm:old"},
 			},
 		}},
-	}, imported)
+	}, imported, resource)
 	if result.Status != adoptmodel.MergeStatusConflict {
 		t.Fatalf("merge result = %#v", result)
 	}
@@ -202,6 +206,10 @@ func TestClassifyImportExtensionMergeRejectsSameRelationDifferentID(t *testing.T
 		desiredextension.SourceKindHostSource,
 		"npm:existing",
 	)
+	resource, err := adoptmodel.NewEntityMergeResource(imported.ID().Kind(), imported.ID().Name())
+	if err != nil {
+		t.Fatal(err)
+	}
 	result := classifyImportExtensionMerge(existingDeclarations{
 		Extensions: []declarationcodec.ExtensionBlock{{
 			Extension: declaration.Extension{
@@ -212,7 +220,7 @@ func TestClassifyImportExtensionMergeRejectsSameRelationDifferentID(t *testing.T
 				Source:  declaration.ExtensionSource{HostSource: "npm:existing"},
 			},
 		}},
-	}, imported)
+	}, imported, resource)
 	if result.Status != adoptmodel.MergeStatusConflict ||
 		!strings.Contains(result.Detail, "different id") {
 		t.Fatalf("merge result = %#v", result)

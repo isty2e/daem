@@ -354,10 +354,20 @@ func importMergeResultsFromAdoption(results []adoptmodel.MergeResult) []ImportMe
 	presentResults := make([]ImportMergeResult, 0, len(results))
 	for _, result := range results {
 		presentResults = append(presentResults, ImportMergeResult{
-			Resource: result.Resource,
+			Resource: importMergeResourceReference(result.Resource),
 			Status:   string(result.Status),
 			Detail:   result.Detail,
 		})
 	}
 	return presentResults
+}
+
+func importMergeResourceReference(resource adoptmodel.MergeResource) string {
+	if id, present := resource.EntityID(); present {
+		return string(id.Kind()) + "/" + id.Name()
+	}
+	if resource.IsManifest() {
+		return "manifest"
+	}
+	return ""
 }

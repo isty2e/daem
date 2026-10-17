@@ -405,7 +405,7 @@ func importPlanJSONMergeResults(results []adoptmodel.MergeResult) []ImportAuthor
 	merges := make([]ImportAuthoringJSONMerge, 0, len(results))
 	for _, result := range results {
 		merges = append(merges, ImportAuthoringJSONMerge{
-			ResourceID: result.Resource,
+			ResourceID: importMergeResourceReference(result.Resource),
 			SubjectID:  result.Subject.String(),
 			Status:     string(result.Status),
 			Detail:     result.Detail,
