@@ -54,7 +54,7 @@ func TestStatusCheckExitCodeFailsForBlockedCarrierRelationActionsWithClaudeFixtu
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := cliClaudePluginCarrierCommandResultForSubject(t, locked, subject, tt.spec)
-			if got := statusCheckExitCode(result, true); got != 1 {
+			if got := statusCheckExitCode(result.CheckClean(), true); got != 1 {
 				t.Fatalf("statusCheckExitCode = %d, want 1", got)
 			}
 		})
@@ -66,7 +66,7 @@ func TestStatusCheckExitCodeAllowsAdmittedMissingCarrierRelationWithClaudeFixtur
 		Availability: observerelation.InventorySupported,
 		Freshness:    observerelation.EvidenceFresh,
 	})
-	if got := statusCheckExitCode(result, true); got != 0 {
+	if got := statusCheckExitCode(result.CheckClean(), true); got != 0 {
 		t.Fatalf("statusCheckExitCode = %d, want 0 for admitted host-delegated missing relation", got)
 	}
 	relations := result.Reconciliation.Relations()
@@ -143,7 +143,7 @@ func TestStatusCheckExitCodeFailsForCarrierAdoptionClaimConflict(t *testing.T) {
 		t.Fatalf("reconcile.NewResult: %v", err)
 	}
 	result := statusworkflow.CommandResult{Reconciliation: reconciliation}
-	if got := statusCheckExitCode(result, true); got != 1 {
+	if got := statusCheckExitCode(result.CheckClean(), true); got != 1 {
 		t.Fatalf("statusCheckExitCode = %d, want 1 for adoption claim conflict", got)
 	}
 }
@@ -153,7 +153,7 @@ func TestStatusCheckExitCodeAllowsObserveOnlyCarrierRelationActionWithClaudeFixt
 		Availability: observerelation.InventoryUnsupported,
 		Freshness:    observerelation.EvidenceFresh,
 	})
-	if got := statusCheckExitCode(result, true); got != 0 {
+	if got := statusCheckExitCode(result.CheckClean(), true); got != 0 {
 		t.Fatalf("statusCheckExitCode = %d, want 0", got)
 	}
 }

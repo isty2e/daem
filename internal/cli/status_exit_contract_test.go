@@ -37,7 +37,7 @@ func TestStatusExitContractSeparatesReportOnlyFromCheck(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := statusCheckExitCode(test.result, test.check); got != test.want {
+			if got := statusCheckExitCode(test.result.CheckClean(), test.check); got != test.want {
 				t.Fatalf("statusCheckExitCode = %d, want %d", got, test.want)
 			}
 		})

@@ -57,8 +57,9 @@ func planTestEntityID(t *testing.T, name string) entity.ID {
 func TestPrintPlanJSONTreatsErrorDiagnosticsAsErrors(t *testing.T) {
 	var stdout bytes.Buffer
 	err := PrintPlanJSON(&stdout, PlanJSONInput{
-		Command: "status",
-		Mode:    "status",
+		Command:    "status",
+		Mode:       "status",
+		CheckClean: planTestCheckAssessment(true),
 		Diagnostics: []findings.Diagnostic{
 			{
 				Severity: findings.SeverityError,
@@ -74,12 +75,15 @@ func TestPrintPlanJSONTreatsErrorDiagnosticsAsErrors(t *testing.T) {
 		t.Fatalf("PrintPlanJSON returned error: %v", err)
 	}
 
-	var payload planJSONTestPayload
+	var payload struct {
+		HasErrors  bool  `json:"has_errors"`
+		CheckClean *bool `json:"check_clean"`
+	}
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("decode plan json: %v", err)
 	}
-	if !payload.HasErrors {
-		t.Fatalf("HasErrors = false, payload = %#v", payload)
+	if !payload.HasErrors || payload.CheckClean == nil || !*payload.CheckClean {
+		t.Fatalf("payload = %#v, want independent has_errors=true and check_clean=true", payload)
 	}
 }
 
@@ -145,6 +149,7 @@ func TestPrintPlanJSONIncludesRemainingAndPreviousConsumerTargets(t *testing.T) 
 	err := PrintPlanJSON(&stdout, PlanJSONInput{
 		Command:        "status",
 		Mode:           "status",
+		CheckClean:     planTestCheckAssessment(false),
 		Reconciliation: planResult,
 	})
 	if err != nil {
@@ -411,8 +416,9 @@ func TestPrintPlanJSONIncludesNoOpRelationAction(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := PrintPlanJSON(&stdout, PlanJSONInput{
-		Command: "status",
-		Mode:    "status",
+		Command:    "status",
+		Mode:       "status",
+		CheckClean: planTestCheckAssessment(true),
 		Reconciliation: reconciliationWithFamilies(
 			t, reconciliation.ContextInspect, reconciliation.Result{},
 			[]reconciliation.RelationAction{action}, nil,
@@ -484,8 +490,9 @@ func TestPrintPlanJSONDisclosesStaleRelationEvidence(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := PrintPlanJSON(&stdout, PlanJSONInput{
-		Command: "status",
-		Mode:    "status",
+		Command:    "status",
+		Mode:       "status",
+		CheckClean: planTestCheckAssessment(false),
 		Reconciliation: reconciliationWithFamilies(
 			t, reconciliation.ContextInspect, reconciliation.Result{},
 			[]reconciliation.RelationAction{action}, nil,
@@ -610,8 +617,9 @@ func TestPrintPlanJSONRelationActionsDoNotExposeOwnershipScalars(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := PrintPlanJSON(&stdout, PlanJSONInput{
-		Command: "status",
-		Mode:    "status",
+		Command:    "status",
+		Mode:       "status",
+		CheckClean: planTestCheckAssessment(false),
 		Reconciliation: reconciliationWithFamilies(
 			t, reconciliation.ContextInspect, reconciliation.Result{},
 			[]reconciliation.RelationAction{action}, nil,

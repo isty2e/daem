@@ -29,8 +29,9 @@ type Plan struct {
 			Targets []string
 		}
 	} `json:"lock_only"`
-	ActionCount int  `json:"action_count"`
-	HasErrors   bool `json:"has_errors"`
+	ActionCount int   `json:"action_count"`
+	HasErrors   bool  `json:"has_errors"`
+	CheckClean  *bool `json:"check_clean"`
 	Actions     []struct {
 		Kind    string `json:"kind"`
 		Reason  string `json:"reason"`
@@ -128,6 +129,12 @@ func DecodePlan(t *testing.T, content []byte) Plan {
 		t.Fatalf("unexpected trailing JSON content: %s", content)
 	}
 	requireSchemaVersion(t, "reconciliation plan", payload.SchemaVersion, contractversion.ReconciliationPlanJSON)
+	if payload.Command == "status" && payload.CheckClean == nil {
+		t.Fatal("status plan is missing its check assessment")
+	}
+	if payload.Command != "status" && payload.CheckClean != nil {
+		t.Fatal("non-status plan contains a status check assessment")
+	}
 
 	return payload
 }

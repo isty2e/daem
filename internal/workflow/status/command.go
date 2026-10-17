@@ -49,6 +49,18 @@ type CommandResult struct {
 	HostRouteAttempts []durableattempt.HostRouteAttempt
 }
 
+// CheckClean evaluates the status --check predicate for this observation.
+// It does not certify runtime readiness or permission to apply.
+func (result CommandResult) CheckClean() bool {
+	return !result.LockfileMissing &&
+		len(result.Reconciliation.PendingManagedPaths()) == 0 &&
+		len(result.Reconciliation.PendingAggregates()) == 0 &&
+		!result.HasBlockedRelationActions() &&
+		!result.Reconciliation.HasNonExactRelationOrders() &&
+		!result.Reconciliation.HasBlockedCarrierAdoptions() &&
+		!result.Reconciliation.HasBlockedCarrierAbsences()
+}
+
 // HasBlockedRelationActions reports whether relation planning blocks a clean status.
 func (result CommandResult) HasBlockedRelationActions() bool {
 	return result.Reconciliation.HasBlockedRelations()
