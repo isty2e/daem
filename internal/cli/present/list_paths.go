@@ -94,7 +94,24 @@ func PrintListPathsWithOptions(
 }
 
 func locationResourceLabel(kind entity.Kind, variant string) string {
-	label := ResourceKindName(kind)
+	// Tree headings are descriptive prose, not command operands.
+	var label string
+	switch kind {
+	case entity.KindInstructions:
+		label = "instructions"
+	case entity.KindSkill:
+		label = "skills"
+	case entity.KindHook:
+		label = "hooks"
+	case entity.KindHookAsset:
+		label = "hook assets"
+	case entity.KindMCPServer:
+		label = "MCP servers"
+	case entity.KindExtension:
+		label = "extensions"
+	default:
+		label = ResourceKindName(kind)
+	}
 	if variant != "" {
 		return fmt.Sprintf("%s (%s)", label, Escape(variant))
 	}

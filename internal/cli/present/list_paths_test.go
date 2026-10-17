@@ -21,15 +21,16 @@ func TestPrintListPathsUsesTargetScopeResourceTree(t *testing.T) {
 	text := output.String()
 	for _, fragment := range []string{
 		"manifest: " + manifestPath,
-		"codex\n  project\n    instruction\n",
+		"codex\n  project\n    instructions\n",
 		"      write: AGENTS.md [selected, default]",
-		"    skill\n",
+		"    skills\n",
 		"      write: .agents/skills [default]",
-		"  global\n    instruction\n",
+		"  global\n    instructions\n",
 		"      write: ~/.codex/skills [selected]",
-		"    mcp-server\n",
+		"    MCP servers\n",
+		"    hook assets\n",
 		"      config: ~/.codex/config.toml",
-		"    extension (codex-plugin)\n",
+		"    extensions (codex-plugin)\n",
 		"      install: codex.plugin-carrier.install",
 	} {
 		if !strings.Contains(text, fragment) {
@@ -73,7 +74,18 @@ func TestPrintListPathsJSONPreservesFlatVariantContract(t *testing.T) {
 
 	explicitFound := false
 	unsupportedFound := false
+	resourceKinds := map[string]bool{}
 	for _, row := range payload.Locations {
+		kind, ok := row["resource"].(string)
+		if !ok {
+			t.Fatalf("resource classification is not a string: %#v", row)
+		}
+		resourceKinds[kind] = true
+		switch kind {
+		case "instruction", "skill", "hook", "hook_asset", "mcp-server", "extension":
+		default:
+			t.Fatalf("JSON resource classification became a prose heading: %#v", row)
+		}
 		switch row["kind"] {
 		case "path":
 			if _, present := row["path"]; !present {
@@ -123,6 +135,9 @@ func TestPrintListPathsJSONPreservesFlatVariantContract(t *testing.T) {
 	}
 	if !explicitFound || !unsupportedFound {
 		t.Fatalf("JSON rows missing explicit path or unsupported variant:\n%s", output.String())
+	}
+	if !resourceKinds["instruction"] || !resourceKinds["mcp-server"] || !resourceKinds["hook_asset"] {
+		t.Fatalf("JSON resource vocabulary lost selected families: %#v", resourceKinds)
 	}
 }
 
