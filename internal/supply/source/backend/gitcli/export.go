@@ -178,11 +178,11 @@ func extractGitArchiveCommand(ctx context.Context, command *exec.Cmd, outputRoot
 	if lifecycleErr := gitObservedLifecycleError(extractErr, result); lifecycleErr != nil {
 		return joinGitProcessGroupTerminateErr(lifecycleErr, "git archive", result)
 	}
-	if extractErr != nil {
+	if extractErr != nil && !gitOutputDrainOnly(extractErr) {
 		return joinGitProcessGroupTerminateErr(extractErr, "git archive", result)
 	}
 
-	waitErr := result.stderrReadErr
+	waitErr := errors.Join(extractErr, result.stderrReadErr)
 	if result.commandErr != nil {
 		waitErr = errors.Join(waitErr, result.commandErr)
 	}

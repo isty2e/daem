@@ -80,7 +80,7 @@ func TestExtractGitArchiveDrainsRealGitSmallPipe(t *testing.T) {
 		t.Fatalf("invalid pipe capacity %q: %v", capacityText, err)
 	}
 	if capacity >= tailBytes {
-		t.Skipf("minimum pipe capacity %d is not below the real Git tail %d", capacity, tailBytes)
+		t.Skipf("actual pipe capacity %d is not below the real Git tail %d", capacity, tailBytes)
 	}
 	content, err := os.ReadFile(filepath.Join(root, "payload.txt"))
 	if err != nil || string(content) != payload {
@@ -95,6 +95,9 @@ func TestGitArchiveSmallPipeHelper(t *testing.T) {
 		return
 	}
 	capacity, err := unix.FcntlInt(os.Stdout.Fd(), unix.F_SETPIPE_SZ, 4096)
+	if err != nil {
+		capacity, err = unix.FcntlInt(os.Stdout.Fd(), unix.F_GETPIPE_SZ, 0)
+	}
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)

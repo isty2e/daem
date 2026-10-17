@@ -120,6 +120,12 @@ jobs:
           uname -a
       - name: Run full native tests
         run: tools/test.sh full
+      - name: Run Linux Git archive pipe-capacity regression
+        if: matrix.goos == 'linux'
+        run: |
+          tools/test-go.sh -mod=readonly -count=1 -v \
+            -run '^TestExtractGitArchiveDrainsRealGitSmallPipe$' \
+            ./internal/supply/source/backend/gitcli
       - name: Run artifact root-spelling contracts
         run: |
           tools/test-go.sh -mod=readonly -count=1 -v \
