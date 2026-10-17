@@ -38,7 +38,7 @@ func DryRunDiffReportFrom(collection applyworkflow.DryRunDiffCollection) DryRunD
 			targets = append(targets, string(selectedTarget))
 		}
 		result = append(result, DryRunDiff{
-			ResourceID:     string(diff.EntityID.Kind()) + "/" + diff.EntityID.Name(),
+			ResourceID:     ResourceReference(diff.EntityID.Kind(), diff.EntityID.Name()),
 			Targets:        targets,
 			Scope:          string(diff.Scope),
 			Destination:    diff.Destination,

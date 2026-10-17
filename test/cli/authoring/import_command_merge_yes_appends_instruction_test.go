@@ -33,7 +33,7 @@ targets = ["codex"]
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
-	if !strings.Contains(stdout.String(), `merge resource="instructions/codex_project" status=add`) {
+	if !strings.Contains(stdout.String(), `merge resource="instruction/codex_project" status=add`) {
 		t.Fatalf("stdout = %q, want instruction add merge row", stdout.String())
 	}
 	testkit.AssertFileContent(t, sourcePath, "project instructions\n")

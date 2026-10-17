@@ -87,7 +87,7 @@ func TestRunStatusJSONReportsSharedInstructionTargetsForOpenCodePiAntigravity(t 
 	action := payload.Actions[0]
 	if action.Kind != "create" ||
 		action.Reason != "missing_output" ||
-		action.ResourceID != "instructions/project" ||
+		action.ResourceID != "instruction/project" ||
 		action.Target != "" ||
 		action.Destination != "AGENTS.md" {
 		t.Fatalf("action = %#v, want shared instruction create", action)
@@ -115,7 +115,7 @@ func TestRunApplyWritesOneSharedInstructionOutputForOpenCodePiAntigravity(t *tes
 	action := payload.Actions[0]
 	if action.Kind != "create" ||
 		action.Reason != "missing_output" ||
-		action.ResourceID != "instructions/project" ||
+		action.ResourceID != "instruction/project" ||
 		action.Target != "" ||
 		action.Destination != "AGENTS.md" {
 		t.Fatalf("action = %#v, want shared instruction create", action)

@@ -329,7 +329,7 @@ func TestRunImportYesWritesCodexGlobalOverrideInstruction(t *testing.T) {
 	}
 	for _, want := range []string{
 		"imported: 1 resource",
-		`resource="instructions/codex_global"`,
+		`resource="instruction/codex_global"`,
 		`target=codex`,
 		`scope=global`,
 		`source="` + filepath.ToSlash(sourcePath) + `"`,

@@ -6,7 +6,6 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	"github.com/isty2e/daem/internal/contractversion"
-	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
@@ -186,9 +185,9 @@ func planJSONDiagnostics(diagnostics []findings.Diagnostic) []planJSONDiagnostic
 		result = append(result, planJSONDiagnostic{
 			Severity:   string(diagnostic.Severity),
 			Code:       diagnostic.Code,
-			ResourceID: resourceIDString(diagnostic.EntityID),
+			ResourceID: ResourceReference(diagnostic.EntityID.Kind(), diagnostic.EntityID.Name()),
 			Resource: planJSONResource{
-				Kind: string(diagnostic.EntityID.Kind()),
+				Kind: ResourceKindName(diagnostic.EntityID.Kind()),
 				Name: diagnostic.EntityID.Name(),
 			},
 			Target:        string(diagnostic.Target),
@@ -204,10 +203,6 @@ func planJSONDiagnostics(diagnostics []findings.Diagnostic) []planJSONDiagnostic
 	}
 
 	return result
-}
-
-func resourceIDString(id entity.ID) string {
-	return string(id.Kind()) + "/" + id.Name()
 }
 
 func planJSONSubjectFor(subject topology.SubjectID) *planJSONSubject {

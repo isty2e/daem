@@ -56,7 +56,7 @@ func TestRunImportYesWritesClaudeProjectMCPManifestOnly(t *testing.T) {
 	for _, want := range []string{
 		"imported: 1 resource",
 		"mcp_servers=1",
-		`resource="mcp_server/context7"`,
+		`resource="mcp-server/context7"`,
 		`target=claude-code`,
 		`scope=project`,
 		`live=".mcp.json#/mcpServers/context7"`,
@@ -167,7 +167,7 @@ func TestRunImportDryRunReportsClaudeMCPWithoutWrites(t *testing.T) {
 	for _, want := range []string{
 		"import: 1 resource",
 		"mcp_servers=1",
-		`resource="mcp_server/context7"`,
+		`resource="mcp-server/context7"`,
 		`skip live=".mcp.json#/mcpServers/remote" reason=unsupported_mcp_transport`,
 		"next: rerun daem import without --dry-run",
 	} {
@@ -238,7 +238,7 @@ func TestRunImportYesWritesOpenCodeProjectMCPManifestOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		`resource="mcp_server/context7"`,
+		`resource="mcp-server/context7"`,
 		`target=opencode`,
 		`live="opencode.json#/mcp/context7"`,
 		`skip live="opencode.json#/mcp/remote" reason=unsupported_mcp_transport`,
@@ -281,7 +281,7 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		`resource="mcp_server/context7"`,
+		`resource="mcp-server/context7"`,
 		`target=codex`,
 		`scope=global`,
 		`live="` + livePath + `#/mcp_servers/context7"`,
@@ -405,8 +405,8 @@ args = ["context7-mcp==1.2.3"]
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("import --merge exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), `merge resource="mcp_server/context7" status=noop detail="existing mcp_server projection target=codex scope=project`) ||
-		!strings.Contains(stdout.String(), `merge resource="mcp_server/context7" status=add detail="append imported mcp_server projection target=codex scope=global`) {
+	if !strings.Contains(stdout.String(), `merge resource="mcp-server/context7" status=noop detail="existing mcp_server projection target=codex scope=project`) ||
+		!strings.Contains(stdout.String(), `merge resource="mcp-server/context7" status=add detail="append imported mcp_server projection target=codex scope=global`) {
 		t.Fatalf("stdout = %q, want project noop and global add", stdout.String())
 	}
 
@@ -500,7 +500,7 @@ args = ["context7-mcp==1.2.3"]
 		"projection/codex.global.mcp-server/context7",
 	}
 	for index, result := range payload.MergeResults {
-		if result.ResourceID != "mcp_server/context7" || result.Status != "noop" || result.SubjectID != wantSubjects[index] {
+		if result.ResourceID != "mcp-server/context7" || result.Status != "noop" || result.SubjectID != wantSubjects[index] {
 			t.Fatalf("merge result %d = %#v, want subject %q", index, result, wantSubjects[index])
 		}
 	}
@@ -586,11 +586,11 @@ func TestRunImportYesWritesClaudeGlobalMCPManifestOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		`resource="mcp_server/context7"`,
+		`resource="mcp-server/context7"`,
 		`target=claude-code`,
 		`scope=global`,
 		`live="` + livePath + `#/mcpServers/context7"`,
-		`resource="mcp_server/withEnv"`,
+		`resource="mcp-server/withEnv"`,
 		`skip live="` + livePath + `#/mcpServers/remote" reason=unsupported_mcp_transport`,
 		`skip live="` + livePath + `#/mcpServers/literalEnv" reason=secret_literal_forbidden`,
 	} {
@@ -649,11 +649,11 @@ func TestRunImportYesWritesOpenCodeGlobalMCPManifestOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		`resource="mcp_server/context7"`,
+		`resource="mcp-server/context7"`,
 		`target=opencode`,
 		`scope=global`,
 		`live="` + livePath + `#/mcp/context7"`,
-		`resource="mcp_server/withAlias"`,
+		`resource="mcp-server/withAlias"`,
 		`skip live="` + livePath + `#/mcp/remote" reason=unsupported_mcp_transport`,
 		`skip live="` + livePath + `#/mcp/literalEnv" reason=secret_literal_forbidden`,
 	} {
@@ -706,7 +706,7 @@ func TestRunImportYesWritesAntigravityGlobalMCPManifestOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		`resource="mcp_server/context7"`,
+		`resource="mcp-server/context7"`,
 		`target=antigravity-cli`,
 		`scope=global`,
 		`live="` + livePath + `#/mcpServers/context7"`,

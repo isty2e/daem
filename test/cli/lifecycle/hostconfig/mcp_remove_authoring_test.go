@@ -33,7 +33,7 @@ func TestRunRemoveMCPServerDryRunPlansWithoutHostWrites(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"remove: mcp_server/context7",
+		"remove: mcp-server/context7",
 		"change: remove mcp_server resource",
 		"manifest diff:",
 		"-[[mcp_server]]",
@@ -76,7 +76,7 @@ func TestRunRemoveAntigravityMCPServerDryRunPlansWithoutHostReadsOrWrites(t *tes
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"remove: mcp_server/context7",
+		"remove: mcp-server/context7",
 		"change: remove mcp_server resource",
 		"manifest diff:",
 		"-[[mcp_server]]",
@@ -111,7 +111,7 @@ func TestRunRemoveMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"removed: mcp_server/context7",
+		"removed: mcp-server/context7",
 		"change: remove mcp_server resource",
 		"lockfile: wrote " + project.lockfilePath,
 		"next: run daem apply --manifest " + project.manifestPath + " --dry-run",
@@ -156,7 +156,7 @@ func TestRunRemoveCodexMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"removed: mcp_server/context7",
+		"removed: mcp-server/context7",
 		"change: remove mcp_server resource",
 		"lockfile: wrote " + project.lockfilePath,
 		"next: run daem apply --manifest " + project.manifestPath + " --dry-run",
@@ -203,7 +203,7 @@ func TestRunRemoveCodexGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T)
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"removed: mcp_server/context7",
+		"removed: mcp-server/context7",
 		"change: remove mcp_server resource",
 		"lockfile: wrote " + project.lockfilePath,
 		"next: run daem apply --manifest " + project.manifestPath + " --dry-run",
@@ -250,7 +250,7 @@ func TestRunRemoveClaudeGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"removed: mcp_server/context7",
+		"removed: mcp-server/context7",
 		"change: remove mcp_server resource",
 		"lockfile: wrote " + project.lockfilePath,
 		"next: run daem apply --manifest " + project.manifestPath + " --dry-run",
@@ -296,7 +296,7 @@ func TestRunRemoveAntigravityMCPServerYesWritesManifestAndLockOnly(t *testing.T)
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"removed: mcp_server/context7",
+		"removed: mcp-server/context7",
 		"change: remove mcp_server resource",
 		"lockfile: wrote " + project.lockfilePath,
 		"next: run daem apply --manifest " + project.manifestPath + " --dry-run",
@@ -373,7 +373,7 @@ env = { API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, want 0, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "remove: mcp_server/context7") ||
+	if !strings.Contains(stdout.String(), "remove: mcp-server/context7") ||
 		!strings.Contains(stdout.String(), "change: remove mcp_server resource") {
 		t.Fatalf("stdout = %q, want removal plan", stdout.String())
 	}
@@ -433,7 +433,7 @@ func TestRunRemoveAntigravityMCPServerInfersUniqueRow(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, want 0, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "remove: mcp_server/context7") {
+	if !strings.Contains(stdout.String(), "remove: mcp-server/context7") {
 		t.Fatalf("stdout = %q, want inferred removal plan", stdout.String())
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
@@ -489,7 +489,7 @@ func TestRunRemoveMCPServerDryRunJSONDescribesManifestAndLockOnly(t *testing.T) 
 		t.Fatalf("len(Changes) = %d, want 1", len(payload.Changes))
 	}
 	change := payload.Changes[0]
-	if change.ResourceID != "mcp_server/context7" || change.Resource.Kind != "mcp_server" || change.Resource.Name != "context7" {
+	if change.ResourceID != "mcp-server/context7" || change.Resource.Kind != "mcp-server" || change.Resource.Name != "context7" {
 		t.Fatalf("change resource = %#v", change)
 	}
 	if change.ChangeKind != "remove mcp_server resource" || change.ManifestBlock != "" {
@@ -553,7 +553,7 @@ func TestRunRemoveAntigravityMCPServerDryRunJSONDescribesManifestAndLockOnly(t *
 		t.Fatalf("len(Changes) = %d, want 1", len(payload.Changes))
 	}
 	change := payload.Changes[0]
-	if change.ResourceID != "mcp_server/context7" || change.Resource.Kind != "mcp_server" || change.Resource.Name != "context7" {
+	if change.ResourceID != "mcp-server/context7" || change.Resource.Kind != "mcp-server" || change.Resource.Name != "context7" {
 		t.Fatalf("change resource = %#v", change)
 	}
 	if change.ChangeKind != "remove mcp_server resource" || change.ManifestBlock != "" {
@@ -586,7 +586,7 @@ func TestRunRemoveMCPServerRejectsUnsupportedInputsBeforeWriting(t *testing.T) {
 		{
 			name: "missing resource",
 			args: []string{"remove", "mcp-server", "missing", "--dry-run"},
-			want: `mcp_server resource "missing" not found`,
+			want: `mcp-server resource "missing" not found`,
 			code: 1,
 		},
 	}

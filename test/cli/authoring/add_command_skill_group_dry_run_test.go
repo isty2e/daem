@@ -42,7 +42,7 @@ func TestRunAddSkillGroupDryRunPlansGitGroupWithoutWrites(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"add: skill_group/oracle,lean-ontology",
+		"add: skill-group/oracle,lean-ontology",
 		"change: append skill_group resource",
 		"lockfile: would write " + filepath.Join(tempDir, "daem.lock.toml"),
 		"[[skill_group]]",
@@ -91,7 +91,7 @@ func TestRunAddSkillGroupYesAllowsGitRepositoryRoot(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "added: skill_group/oracle") {
+	if !strings.Contains(stdout.String(), "added: skill-group/oracle") {
 		t.Fatalf("stdout = %q, want added skill_group", stdout.String())
 	}
 
@@ -124,7 +124,7 @@ func TestRunAddSkillGroupYesAddsLocalGroupToManifestOnly(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "added: skill_group/oracle,review") {
+	if !strings.Contains(stdout.String(), "added: skill-group/oracle,review") {
 		t.Fatalf("stdout = %q, want added skill_group", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "warning: local source root") {

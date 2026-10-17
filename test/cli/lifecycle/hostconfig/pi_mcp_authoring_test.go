@@ -101,7 +101,7 @@ func TestRunAddPiMCPServerWritesPairedManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		"added: mcp_server/context7",
+		"added: mcp-server/context7",
 		"change: append extension and mcp_server resources",
 		"lockfile: wrote " + project.lockfilePath,
 		"until the project is trusted",

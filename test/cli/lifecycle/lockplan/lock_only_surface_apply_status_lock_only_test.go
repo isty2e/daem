@@ -170,7 +170,7 @@ targets = ["codex"]
 			},
 			check: func(t *testing.T, stdout string, stderr string) {
 				t.Helper()
-				if count := strings.Count(stdout, `create resource="instructions/project" target=codex`); count != 1 {
+				if count := strings.Count(stdout, `create resource="instruction/project" target=codex`); count != 1 {
 					t.Fatalf("create action count = %d, stdout = %q", count, stdout)
 				}
 			},
@@ -202,7 +202,7 @@ targets = ["codex"]
 			wantExit: 0,
 			wantStdout: []string{
 				"dry-run: 1 output",
-				`create resource="instructions/project" target=codex`,
+				`create resource="instruction/project" target=codex`,
 			},
 			reject: []string{
 				"lock-only:",

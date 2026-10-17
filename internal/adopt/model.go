@@ -31,7 +31,7 @@ const (
 // MergeResult is one merge decision for an imported resource. Subject identifies
 // a projection-specific decision and remains zero for aggregate-level decisions.
 type MergeResult struct {
-	Resource string
+	Resource MergeResource
 	Subject  topology.SubjectID
 	Status   MergeStatus
 	Detail   string
@@ -39,8 +39,11 @@ type MergeResult struct {
 
 // Validate rejects incomplete or unknown merge decisions.
 func (result MergeResult) Validate() error {
-	if result.Resource == "" || result.Detail == "" {
-		return fmt.Errorf("merge result requires resource and detail")
+	if err := result.Resource.Validate(); err != nil {
+		return fmt.Errorf("merge result resource: %w", err)
+	}
+	if result.Detail == "" {
+		return fmt.Errorf("merge result requires detail")
 	}
 	if !result.Subject.IsZero() {
 		if err := result.Subject.Validate(); err != nil {

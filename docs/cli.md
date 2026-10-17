@@ -326,26 +326,30 @@ are unrelated and must not be compared as a product-wide sequence:
 | --- | --- | ---: |
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
-| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `6` |
+| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `7` |
 | `lock`, `outdated` | Lock comparison | `4` |
-| `list resources` | Resource inventory | `2` |
-| `list outputs` | Output inventory | `4` |
-| `list paths` | Agent location inventory | `1` |
-| `status`, `apply --dry-run` | Reconciliation plan | `14` |
-| confirmed `apply` | Apply result | `21` |
-| `recover` | Recovery plan/result | `9` |
+| `list resources` | Resource inventory | `3` |
+| `list outputs` | Output inventory | `5` |
+| `list paths` | Agent location inventory | `2` |
+| `status`, `apply --dry-run` | Reconciliation plan | `15` |
+| confirmed `apply` | Apply result | `22` |
+| `recover` | Recovery plan/result | `10` |
 | `migrate state` | State-authority migration | `1` |
 | `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
 | Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `1` |
 
-Plan version `14` and apply-result version `21` add per-binding MCP
-`host_prerequisite` evidence and optional dimension `detail`, plus the unsupported
-Pi backend-transition failure classification. They retain the managed Pi Git
-pin-change actions and `pin_change` disclosure introduced in versions `13` and
-`20`. These versions replace the `12` and `19` envelopes shipped in v0.2.3,
-including for invocations without Native MCP or a pin change.
+The resource-name cutover replaces the v0.5.x envelopes for manifest authoring
+(`6`), resource inventory (`2`), output inventory (`4`), agent location inventory
+(`1`), reconciliation plans (`14`), apply results (`21`) and recovery (`9`).
+Public resource names and references now use the authoring vocabulary below.
+Each affected family emits its new version even for empty results or resources whose spelling
+is unchanged. Command input syntax and persisted formats are unchanged.
+
+Plan and apply results retain per-binding MCP `host_prerequisite` evidence,
+optional dimension `detail`, the unsupported Pi backend-transition
+classification, managed Pi Git pin-change actions and `pin_change` disclosure.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject
@@ -359,6 +363,32 @@ meaning. Each daem binary emits one current version per envelope; it does not
 negotiate or emit legacy variants. Until a command explicitly documents a
 multi-version policy, consumers must update for a new version rather than
 silently accepting it. Released version changes belong in release notes.
+
+### Resource Names And Identifiers
+
+Public resource classifications use the token accepted by the authoring CLI:
+`instruction`, `skill`, `hook`, `mcp-server` and `extension`. Authoring a group
+uses `skill-group`; inventory members remain `skill`. `hook_asset` retains its
+TOML spelling because it has no direct add/remove command. Naming a resource
+kind does not imply that every command supports it.
+
+Public `resource_id` values and human resource references use `kind/name`, such
+as `instruction/project` or `mcp-server/context7`. The name remains literal,
+including any slash, colon, percent sign or words such as `instructions`.
+For command operands, prefer the separate `resource.kind` and `resource.name`
+fields, or `list resources`' `kind` and `key`, rather than splitting a reference.
+
+Canonical `entity_id` and `subject_id` values, including structured subject
+namespaces and keys, are opaque identities, not command operands. They retain
+their existing grammar and may contain `instructions` or `mcp_server`. Other
+`kind` fields may describe an action, subject role, source or artifact rather
+than a resource. TOML keys, embedded manifest blocks, diagnostic quotations of
+source/schema syntax, and summary field names also retain their own spelling.
+
+When migrating from v0.5.x, accept the new family version and update comparisons
+against public resource names/references. Do not rename manifest keys, rewrite
+stored IDs or change valid command inputs. The common CLI failure family remains
+version `1`; its primary message is diagnostic prose, not a stable reason code.
 
 ### Common CLI Failures
 
@@ -757,8 +787,8 @@ The default human result must always include `host: retained` plus manifest,
 lockfile, and management-state outcomes. Verbose output may add the exact
 claim and route identities but may not imply current host usability.
 
-Structured output uses authoring schema `6`; its unmanage rows retain their
-existing shape:
+Structured output uses the [manifest-authoring JSON family](#json-schema-contract);
+its unmanage rows retain their existing shape:
 
 - `command` and `operation` are `unmanage`;
 - the single change has manifest `change_kind =
@@ -789,8 +819,8 @@ and does not consume this marker.
 
 ## Authoring JSON
 
-Init uses schema `1`. Add, remove, import, and unmanage use schema `6` with
-these common fields:
+Init uses schema `1`. Add, remove, import, and unmanage share the
+[manifest-authoring JSON family](#json-schema-contract) with these common fields:
 
 | Field | Meaning |
 | --- | --- |
@@ -809,8 +839,10 @@ prospective manifest block and does not generate a duplicate warning. Its
 `lockfile.status` independently reports `would_write`, `written`, or
 `unchanged`. If add must insert a missing Pi MCP provider, that insertion is
 still a change even when the requested server is already declared. Changed
-add/remove, import, and unmanage row shapes are otherwise unchanged from
-schema `5`; consumers must explicitly accept schema `6`.
+add/remove, import, and unmanage retain their row shapes; resource names and
+references follow [Resource Names And Identifiers](#resource-names-and-identifiers).
+Consumers must explicitly accept the current manifest-authoring version in the
+[version table](#json-schema-contract).
 
 Each import `skipped` row contains exact `target`, `scope`, `live_path`, and
 stable `reason` code values plus one stable `category`. Optional `detail`
@@ -838,8 +870,8 @@ Projection-specific import merge rows include a canonical `subject_id` in
 `resource_id`, such as project and global MCP projections with the same server
 name. Aggregate-level merge rows omit `subject_id`.
 
-Human next-command prose is deliberately absent from schema `6`. JSON CLI misuse
-or failure before an ordinary result uses the separate
+Human next-command prose is deliberately absent from the current authoring
+envelope. JSON CLI misuse or failure before an ordinary result uses the separate
 [common CLI failure family](#common-cli-failures), including basic repair guidance.
 An import conflict has a valid result envelope, so it emits JSON with
 `has_errors: true` and exits `1`.
@@ -909,8 +941,14 @@ daem list paths [--manifest <path>] [--target <target> ...]
 
 Bare `list` is navigation only. `list resources` reads and normalizes the
 manifest without requiring a lockfile. It prints every selected kind, stable
-remove key, install name, target set, and scope. `--verbose` adds source and
-declaration provenance.
+remove key, install name, target set, and scope. Basic rows also show known
+explicit group membership, such as `group="skill_group[0]"`; ungrouped rows omit
+that field. The index is a declaration-position marker, not a stable group ID
+or command operand. Members remain `skill` resources and use their own remove
+keys. Shared group membership can explain why a partial-target removal requires
+[splitting the group first](#remove). Listing does not resolve source selectors
+to discover more membership. `--verbose` adds source summaries and includes the
+group field even when its value is `"-"`.
 
 `list outputs` prints every selected managed output, relevant unmanaged live
 destination, and ownership-blocked output. Blocked rows include the typed
@@ -935,6 +973,10 @@ project and global locations even before the manifest declares resources:
 - daem's private hook-asset store;
 - MCP config files, or an unsupported row;
 - delegated extension install, refresh, and remove routes.
+
+Human tree headings are descriptive prose, such as `MCP servers` or `hook assets`.
+JSON `resource` values use the [public kind tokens](#resource-names-and-identifiers)
+instead; headings are not command operands.
 
 Resource families select their destinations differently:
 
@@ -971,18 +1013,19 @@ the current command does not plan to migrate or remove it. The warning does not
 claim which copy the host will load, does not grant ownership, and never
 deletes or adopts the other copy.
 
-`list resources` JSON uses schema version `2`. Extension source identities use
+The [version table](#json-schema-contract) lists the current JSON version for
+each list family. In `list resources` JSON, extension source identities use
 the same carrier disclosure rule as lock output and set `source_redacted` when
-the value is replaced. `list outputs` JSON uses schema
-version `4`, with separate `managed`, `unmanaged`, and `blocked` arrays and
-counts. Rows retain their canonical `subject` and complete `targets` consumer
-set while reporting the correlated resource identity when one exists.
+the value is replaced. `list outputs` JSON has separate `managed`, `unmanaged`,
+and `blocked` arrays and counts. Rows retain their canonical `subject` and
+complete `targets` consumer set while reporting the correlated resource identity
+when one exists.
 Newly classified unmanaged and blocked aggregate rows also carry
 `content_path`, which identifies the selected contribution inside the shared
 file, while `hash` remains empty because daem does not own the whole document.
 Both commands include every selected row.
 
-`list paths` JSON uses schema version `1` and a flat `locations` array. Every
+`list paths` JSON uses a flat `locations` array. Every
 row contains `target`, `scope`, `resource`, `kind`, `realization`, `role`,
 `selected`, `requested`, `default`, `selection_source`, and `source`. A row has
 exactly one applicable payload: `path`, delegated `route` plus `operation`, or
@@ -1128,7 +1171,8 @@ reason codes, selected source/ref, and evidence. Raw subprocess output and
 secret values are never printed. Redaction checks both captured and
 display-normalized spellings.
 
-Status and apply-dry-run JSON use plan schema version `14`. The document contains
+Status and apply-dry-run JSON use the
+[reconciliation-plan family](#json-schema-contract). The document contains
 the derived lockfile status, lock-only resources, typed actions, delegated
 actions, relation actions, physical extension-order actions, carrier-adoption
 actions, carrier-absence actions, `host_route_attempts` history, diagnostics, MCP
@@ -1182,8 +1226,9 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "observation_only"` for pending settlement, and
 `execution = "state_only"` for already-absent claim retirement.
 
-`apply --yes --json` uses result schema version `21`: executed action count,
-statefile path, bounded delegated attempts and `host_route_attempts`, typed errors,
+`apply --yes --json` uses the [apply-result family](#json-schema-contract):
+executed action count, statefile path, bounded delegated attempts and
+`host_route_attempts`, typed errors,
 carrier-adoption transitions and final claim provenance, carrier-absence
 outcomes, physical `relation_order_results`, and `has_errors`. Each order result
 gives target, scope, class, physical sequence, `exact` / `converged` / `failed`
@@ -1307,9 +1352,10 @@ even in verbose mode. Pre-1.0 `.daem-tombstone-<32 lowercase hex>` evidence is
 blocked before plan disclosure, neither inspected nor migrated; other
 reserved-namespace names are blocked as malformed.
 
-Recovery JSON schema version is `9` for both `--dry-run --json` and
-`--yes --json`. Every result declares one `phase`. Dry-run results and write
-attempts rejected before execution use `planned`. After execution begins, a
+Both `--dry-run --json` and `--yes --json` use the
+[recovery family](#json-schema-contract). Every result declares one `phase`.
+Dry-run results and write attempts rejected before execution use `planned`.
+After execution begins, a
 freshly reclassified active journal uses `active_authority_retained`; a
 freshly reclassified cleanup-only continuation uses
 `cleanup_authority_retained`. These retained phases declare `authority_kind`

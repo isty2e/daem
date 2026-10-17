@@ -54,7 +54,7 @@ targets = ["codex"]
 	rows := ListRows(environment, groups, allTargets)
 	want := []ListRow{
 		{
-			Kind:        "instructions",
+			Kind:        "instruction",
 			Key:         "project",
 			InstallName: "-",
 			Source:      "local:AGENTS.md?mode=vendor",
@@ -193,5 +193,23 @@ targets = ["codex", "claude-code"]
 	}
 	if rows[0].Targets != "codex,claude-code" {
 		t.Fatalf("Targets = %q, want complete authored binding", rows[0].Targets)
+	}
+}
+
+func TestBasicListOmitsAbsentGroupAndKeepsSourcesVerboseOnly(t *testing.T) {
+	rows := []ListRow{
+		{Kind: "skill", Key: "member", Group: "skill_group[2]", Source: "source-canary"},
+		{Kind: "skill", Key: "direct", Group: "-", Source: "source-canary"},
+		{Kind: "instruction", Key: "guide", Source: "source-canary"},
+	}
+	var output bytes.Buffer
+	PrintListRowsWithOptions(&output, "daem.toml", rows, HumanOptions{})
+	if strings.Count(output.String(), "group=") != 1 || !strings.Contains(output.String(), `group="skill_group[2]"`) || strings.Contains(output.String(), "source-canary") {
+		t.Fatalf("basic list changed grouping or source privacy: %q", &output)
+	}
+	output.Reset()
+	PrintListRowsWithOptions(&output, "daem.toml", rows, HumanOptions{Verbose: true})
+	if strings.Count(output.String(), "group=") != 3 || !strings.Contains(output.String(), `group="-"`) || !strings.Contains(output.String(), "source-canary") {
+		t.Fatalf("verbose list lost provenance: %q", &output)
 	}
 }

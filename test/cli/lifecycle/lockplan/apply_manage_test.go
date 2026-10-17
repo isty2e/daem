@@ -57,7 +57,7 @@ source = "instructions/AGENTS.md"
 	}
 	for _, want := range []string{
 		"status: 1 output",
-		`noop resource="instructions/project" target=codex`,
+		`noop resource="instruction/project" target=codex`,
 		"reason=already_current",
 	} {
 		if !strings.Contains(statusStdout.String(), want) {
@@ -137,7 +137,7 @@ source = "instructions/AGENTS.md"
 	}
 	for _, want := range []string{
 		"dry-run: 1 output",
-		`record resource="instructions/project" target=codex`,
+		`record resource="instruction/project" target=codex`,
 		"reason=managed_existing",
 	} {
 		if !strings.Contains(stdout.String(), want) {

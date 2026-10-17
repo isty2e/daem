@@ -58,9 +58,9 @@ source = "instructions/AGENTS.md"
 	output := stdout.String()
 	for _, want := range []string{
 		"dry-run: 1 output",
-		`create resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_output`,
+		`create resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_output`,
 		"diff: 1 file",
-		`diff resource="instructions/project" target=codex scope=project destination="AGENTS.md"`,
+		`diff resource="instruction/project" target=codex scope=project destination="AGENTS.md"`,
 		"--- /dev/null",
 		"+++ desired/AGENTS.md",
 		"+first line",
@@ -119,7 +119,7 @@ source = "instructions/AGENTS.md"
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		`update resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=content_changed`,
+		`update resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=content_changed`,
 		"diff: 1 file",
 		"--- current/AGENTS.md",
 		"+++ desired/AGENTS.md",
@@ -173,7 +173,7 @@ render_to = "CLAUDE.md"
 	output := stdout.String()
 	for _, want := range []string{
 		"diff: 1 file",
-		`diff resource="instructions/project" target=claude-code scope=project destination="CLAUDE.md"`,
+		`diff resource="instruction/project" target=claude-code scope=project destination="CLAUDE.md"`,
 		"+++ desired/CLAUDE.md",
 	} {
 		if !strings.Contains(output, want) {
@@ -226,13 +226,13 @@ targets = ["codex", "opencode"]
 	output := stdout.String()
 	for _, want := range []string{
 		"diff: 1 file",
-		`diff resource="instructions/project" targets=codex,opencode scope=project destination="AGENTS.md"`,
+		`diff resource="instruction/project" targets=codex,opencode scope=project destination="AGENTS.md"`,
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout = %q, want %q", output, want)
 		}
 	}
-	if strings.Contains(output, `diff resource="instructions/project" target=codex `) {
+	if strings.Contains(output, `diff resource="instruction/project" target=codex `) {
 		t.Fatalf("stdout = %q, invented a primary target for shared output", output)
 	}
 }
@@ -270,7 +270,7 @@ source = "instructions/AGENTS.md"
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		`noop resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=already_current`,
+		`noop resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=already_current`,
 		"diff: 0 files",
 	} {
 		if !strings.Contains(output, want) {

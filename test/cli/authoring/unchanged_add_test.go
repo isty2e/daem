@@ -24,11 +24,11 @@ func TestRepeatedAddReportsUnchangedAcrossAuthoringFamilies(t *testing.T) {
 		remove []string
 	}{
 		{name: "skill", kind: "skill", args: []string{"skill", "skills/oracle", "--target", "codex"}, remove: []string{"skill", "oracle", "--target", "codex"}},
-		{name: "instruction", kind: "instructions", args: []string{"instruction", "guide", "notes.md", "--target", "codex"}, remove: []string{"instruction", "guide", "--target", "codex"}},
+		{name: "instruction", kind: "instruction", args: []string{"instruction", "guide", "notes.md", "--target", "codex"}, remove: []string{"instruction", "guide", "--target", "codex"}},
 		{name: "hook", kind: "hook", args: []string{"hook", "lint", "PreToolUse", "true", "--target", "claude-code"}, remove: []string{"hook", "lint", "--target", "claude-code"}},
-		{name: "mcp", kind: "mcp_server", args: []string{"mcp-server", "local", "true", "--target", "codex"}, remove: []string{"mcp-server", "local", "--target", "codex"}},
+		{name: "mcp", kind: "mcp-server", args: []string{"mcp-server", "local", "true", "--target", "codex"}, remove: []string{"mcp-server", "local", "--target", "codex"}},
 		{name: "extension", kind: "extension", args: []string{"extension", "context7", "context7@market", "--target", "claude-code"}, remove: []string{"extension", "context7", "--target", "claude-code"}},
-		{name: "group", kind: "skill_group", args: []string{"skill-group", "skills", "--member", "oracle", "--member", "review", "--target", "codex"}, remove: []string{"skill", "oracle", "--target", "codex"}},
+		{name: "group", kind: "skill-group", args: []string{"skill-group", "skills", "--member", "oracle", "--member", "review", "--target", "codex"}, remove: []string{"skill", "oracle", "--target", "codex"}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -117,14 +117,14 @@ func TestUnchangedAddStillCreatesRefreshesAndValidatesLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	beforePreview := snapshotAuthoringFixture(t, root)
-	assertUnchangedAdd(t, runAuthoringJSON(t, append(append([]string{}, args...), "--dry-run")), "instructions", "would_write")
+	assertUnchangedAdd(t, runAuthoringJSON(t, append(append([]string{}, args...), "--dry-run")), "instruction", "would_write")
 	if !reflect.DeepEqual(beforePreview, snapshotAuthoringFixture(t, root)) {
 		t.Fatal("missing-lock preview wrote state")
 	}
-	assertUnchangedAdd(t, runAuthoringJSON(t, args), "instructions", "written")
+	assertUnchangedAdd(t, runAuthoringJSON(t, args), "instruction", "written")
 	oldLock := readAuthoringFile(t, lock)
 	testkit.WriteFile(t, root, "notes.md", "Updated guidance.\n")
-	assertUnchangedAdd(t, runAuthoringJSON(t, args), "instructions", "written")
+	assertUnchangedAdd(t, runAuthoringJSON(t, args), "instruction", "written")
 	if bytes.Equal(oldLock, readAuthoringFile(t, lock)) || !bytes.Equal(original, readAuthoringFile(t, manifest)) {
 		t.Fatal("source refresh did not update only lock content")
 	}
@@ -153,7 +153,7 @@ func runAuthoringJSON(t *testing.T, args []string) clipresent.ManifestAuthoringJ
 
 func assertUnchangedAdd(t *testing.T, result clipresent.ManifestAuthoringJSONOutput, kind string, lockStatus string) {
 	t.Helper()
-	if result.SchemaVersion != 6 || result.ResourceCount != 1 || result.ChangeCount != 0 || result.Changes == nil || len(result.Changes) != 0 || result.HasErrors || len(result.Unchanged) != 1 || result.Unchanged[0].Kind != kind || result.Unchanged[0].Name == "" || result.Lockfile == nil || result.Lockfile.Status != lockStatus {
+	if result.SchemaVersion != 7 || result.ResourceCount != 1 || result.ChangeCount != 0 || result.Changes == nil || len(result.Changes) != 0 || result.HasErrors || len(result.Unchanged) != 1 || result.Unchanged[0].Kind != kind || result.Unchanged[0].Name == "" || result.Lockfile == nil || result.Lockfile.Status != lockStatus {
 		t.Fatalf("unchanged result = %#v, want kind=%s lock=%s", result, kind, lockStatus)
 	}
 }

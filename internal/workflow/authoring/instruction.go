@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	"github.com/isty2e/daem/internal/desired/entity"
 )
 
 func BuildAddInstructionChange(document ManifestDocument, request AddInstructionRequest) (Change, error) {
@@ -40,7 +41,7 @@ func BuildAddInstructionChange(document ManifestDocument, request AddInstruction
 		ResourceID:    name,
 		ChangeKind:    changeKind,
 		ManifestBlock: strings.TrimRight(declarationcodec.RenderInstructionBlock(name, instruction), "\n"),
-		Warnings:      instructionWarnings(instruction, document.Root),
+		Warnings:      plainWarnings(instructionWarnings(instruction, document.Root)),
 	}, nil
 }
 
@@ -113,7 +114,7 @@ func ApplyRemoveInstructionToManifest(original []byte, request RemoveInstruction
 		for _, candidate := range candidates {
 			available = append(available, ResourceSelection{Name: candidate.resourceName, Scope: candidate.scope, Targets: candidate.targets})
 		}
-		return nil, "", missingResourceSelection("instruction", request.ResourceName, available)
+		return nil, "", missingResourceSelection(entity.KindInstructions, request.ResourceName, available)
 	}
 	if len(matches) > 1 {
 		return nil, "", fmt.Errorf("instruction resource key %q is ambiguous; narrow with --target/--scope", request.ResourceName)

@@ -38,7 +38,7 @@ source = "instructions/AGENTS.md"
 			},
 			want: []string{
 				"dry-run: 1 output",
-				`error resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=stale_lock`,
+				`error resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=stale_lock`,
 			},
 			reject: []string{
 				"reason=managed_existing",
@@ -65,7 +65,7 @@ source = "instructions/AGENTS.md"
 			},
 			want: []string{
 				"dry-run: 1 output",
-				`error resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=stale_lock`,
+				`error resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=stale_lock`,
 			},
 			reject: []string{
 				"reason=missing_output",
@@ -90,7 +90,7 @@ source = "instructions/AGENTS.md"
 			},
 			want: []string{
 				"dry-run: 1 output",
-				`error resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_lock`,
+				`error resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_lock`,
 			},
 			reject: []string{
 				"apply failed: plan instructions",
@@ -121,7 +121,7 @@ targets = ["codex", "claude-code"]
 			},
 			want: []string{
 				"dry-run: 1 output",
-				`error resource="instructions/project" target=claude-code scope=project destination="CLAUDE.md" mode=copy reason=stale_lock`,
+				`error resource="instruction/project" target=claude-code scope=project destination="CLAUDE.md" mode=copy reason=stale_lock`,
 			},
 			reject: []string{
 				"target=codex",
@@ -148,7 +148,7 @@ source = "instructions/AGENTS.md"
 			},
 			want: []string{
 				"dry-run: 1 output",
-				`error resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=stale_lock`,
+				`error resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=stale_lock`,
 			},
 			reject: []string{
 				"reason=missing_output",
@@ -180,7 +180,7 @@ render_to = "AGENTS.md"
 			},
 			want: []string{
 				"dry-run: 1 output",
-				`error resource="instructions/project" target=codex scope=global destination="~/.codex/AGENTS.md" mode=copy reason=stale_lock`,
+				`error resource="instruction/project" target=codex scope=global destination="~/.codex/AGENTS.md" mode=copy reason=stale_lock`,
 			},
 			reject: []string{
 				"destination=\"AGENTS.md\"",

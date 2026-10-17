@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	targetpkg "github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -166,7 +167,7 @@ func TestPlanIdentityIncludesNonwritableSkillSourceAuthority(t *testing.T) {
 			[]byte("version = 1\n"),
 			[]byte("version = 1\n"),
 			candidates,
-			[]MergeResult{{Resource: "skill/review", Status: MergeStatusNoop, Detail: "already declared"}},
+			[]MergeResult{{Resource: mergeEntityForTest(t, entity.KindSkill, "review"), Status: MergeStatusNoop, Detail: "already declared"}},
 		)
 		if planErr != nil {
 			t.Fatal(planErr)
@@ -279,7 +280,7 @@ func TestMergePlanOwnsOriginalBytesAndResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	results := []MergeResult{{
-		Resource: "mcp_server/context7",
+		Resource: mergeEntityForTest(t, entity.KindMCPServer, "context7"),
 		Subject:  subject,
 		Status:   MergeStatusNoop,
 		Detail:   "already present",

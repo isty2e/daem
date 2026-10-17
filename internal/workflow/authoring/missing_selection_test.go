@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/isty2e/daem/internal/desired/entity"
 )
 
 func TestMissingResourceSelectionBoundsAndOrdersCandidates(t *testing.T) {
-	err := missingResourceSelection("instruction", "Project", []ResourceSelection{
+	err := missingResourceSelection(entity.KindInstructions, "Project", []ResourceSelection{
 		{Name: "project", Scope: "global", Targets: []string{"z", "a"}},
 		{Name: "project", Scope: "project", Targets: []string{"b"}},
 		{Name: "project", Scope: "user", Targets: []string{"c"}},
@@ -16,7 +18,7 @@ func TestMissingResourceSelectionBoundsAndOrdersCandidates(t *testing.T) {
 		{Name: "other", Scope: "project"},
 	})
 	var typed *ResourceSelectionNotFoundError
-	if !errors.As(err, &typed) || err.Error() != `instruction resource "Project" not found` {
+	if !errors.As(err, &typed) || err.Error() != `instructions resource "Project" not found` {
 		t.Fatalf("error = %v, typed = %#v", err, typed)
 	}
 	got := typed.AvailableSelections()
@@ -26,10 +28,10 @@ func TestMissingResourceSelectionBoundsAndOrdersCandidates(t *testing.T) {
 }
 
 func TestMissingResourceSelectionUsesConservativeTypoAndNoMatch(t *testing.T) {
-	if got := missingResourceSelection("hook", "protct", []ResourceSelection{{Name: "protect"}}).(*ResourceSelectionNotFoundError).AvailableSelections(); len(got) != 1 {
+	if got := missingResourceSelection("hook", "protct", []ResourceSelection{{Name: "protect"}}).AvailableSelections(); len(got) != 1 {
 		t.Fatalf("typo candidates = %#v", got)
 	}
-	if got := missingResourceSelection("hook", "absent", []ResourceSelection{{Name: "distant"}}).(*ResourceSelectionNotFoundError).AvailableSelections(); len(got) != 0 {
+	if got := missingResourceSelection("hook", "absent", []ResourceSelection{{Name: "distant"}}).AvailableSelections(); len(got) != 0 {
 		t.Fatalf("unrelated candidates = %#v", got)
 	}
 	wrapped := fmt.Errorf("outer: %w", missingResourceSelection("hook", "absent", nil))
@@ -45,7 +47,7 @@ func TestMissingResourceSelectionUsesAliasesWithoutLosingDeclarationKeys(t *test
 		{Name: "claude-review", Alias: "review", Scope: "project", Targets: []string{"claude-code"}},
 		{Name: "Review", Scope: "global", Targets: []string{"codex"}},
 	}
-	failure := missingResourceSelection("skill", "review", available).(*ResourceSelectionNotFoundError)
+	failure := missingResourceSelection("skill", "review", available)
 	selections := failure.AvailableSelections()
 	if len(selections) != 2 || selections[0].Name != "claude-review" || selections[1].Name != "codex-review" {
 		t.Fatalf("alias selections lost exact declaration keys: %#v", selections)

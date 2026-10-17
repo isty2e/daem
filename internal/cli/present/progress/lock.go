@@ -22,14 +22,19 @@ type LockProgressRenderer struct {
 	labelsByTask map[acquisition.RequestID]string
 	completed    int
 	finished     map[string]struct{}
+	reference    func(entity.Kind, string) string
 }
 
 // NewLockProgressRenderer constructs a concurrency-safe progress renderer.
-func NewLockProgressRenderer(options LockProgressRendererOptions) *LockProgressRenderer {
+func NewLockProgressRenderer(options LockProgressRendererOptions, reference func(entity.Kind, string) string) *LockProgressRenderer {
+	if reference == nil {
+		panic("resource reference projector is required")
+	}
 	return &LockProgressRenderer{
 		line:         newEphemeralLine(options.Output),
 		labelsByTask: make(map[acquisition.RequestID]string),
 		finished:     make(map[string]struct{}),
+		reference:    reference,
 	}
 }
 
@@ -85,7 +90,7 @@ func (renderer *LockProgressRenderer) renderLockEvent(event workflowlock.Progres
 		return
 	}
 
-	label := lockEventLabel(event)
+	label := renderer.lockEventLabel(event)
 	renderer.mu.Lock()
 	defer renderer.mu.Unlock()
 
@@ -112,9 +117,9 @@ func (renderer *LockProgressRenderer) renderLockEvent(event workflowlock.Progres
 	renderer.line.write(line)
 }
 
-func lockEventLabel(event workflowlock.ProgressEvent) string {
+func (renderer *LockProgressRenderer) lockEventLabel(event workflowlock.ProgressEvent) string {
 	if event.EntityID != (entity.ID{}) {
-		return string(event.EntityID.Kind()) + "/" + event.EntityID.Name()
+		return renderer.reference(event.EntityID.Kind(), event.EntityID.Name())
 	}
 	if event.SkillGroupIndex != nil {
 		return fmt.Sprintf("skill_group[%d]", *event.SkillGroupIndex)

@@ -51,7 +51,7 @@ targets = ["codex"]
 		if action.Safety != "deletable" {
 			t.Fatalf("delete action safety = %q, want deletable", action.Safety)
 		}
-		if action.PreviousState == nil || action.PreviousState.ResourceID != "instructions/removed" || action.PreviousState.ContentHash != removedHash {
+		if action.PreviousState == nil || action.PreviousState.ResourceID != "instruction/removed" || action.PreviousState.ContentHash != removedHash {
 			t.Fatalf("previous_state = %#v", action.PreviousState)
 		}
 	}

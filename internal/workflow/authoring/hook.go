@@ -46,7 +46,7 @@ func BuildAddHookChange(document ManifestDocument, request AddHookRequest) (Chan
 		ResourceID:    name,
 		ChangeKind:    changeKind,
 		ManifestBlock: strings.TrimRight(declarationcodec.RenderHookBlock(hook), "\n"),
-		Warnings:      warnings,
+		Warnings:      plainWarnings(warnings),
 	}, nil
 }
 
@@ -137,7 +137,7 @@ func ApplyRemoveHookToManifest(original []byte, request RemoveHookRequest) ([]by
 		for _, candidate := range candidates {
 			available = append(available, ResourceSelection{Name: candidate.resourceName, Scope: candidate.scope, Targets: candidate.targets})
 		}
-		return nil, "", missingResourceSelection("hook", request.ResourceName, available)
+		return nil, "", missingResourceSelection(entity.KindHook, request.ResourceName, available)
 	}
 	if len(matches) > 1 {
 		return nil, "", fmt.Errorf("hook resource key %q is ambiguous; narrow with --target/--scope", request.ResourceName)

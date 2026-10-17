@@ -6,6 +6,7 @@ import (
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -72,7 +73,11 @@ func IntoManifest(
 	)
 
 	for _, source := range sources {
-		action, missingTargets := classifyImportInstructionMerge(existing, source)
+		resource, err := adoptmodel.NewEntityMergeResource(entity.KindInstructions, source.ResourceName)
+		if err != nil {
+			return adoptmodel.Plan{}, err
+		}
+		action, missingTargets := classifyImportInstructionMerge(existing, source, resource)
 		mergeResults = append(mergeResults, action)
 		switch action.Status {
 		case adoptmodel.MergeStatusAdd:
@@ -87,7 +92,11 @@ func IntoManifest(
 	}
 
 	for _, skill := range skills {
-		action, missingTargets := classifyImportSkillMerge(existing, skill)
+		resource, err := adoptmodel.NewEntityMergeResource(entity.KindSkill, skill.ResourceName)
+		if err != nil {
+			return adoptmodel.Plan{}, err
+		}
+		action, missingTargets := classifyImportSkillMerge(existing, skill, resource)
 		mergeResults = append(mergeResults, action)
 		switch action.Status {
 		case adoptmodel.MergeStatusAdd:
@@ -102,7 +111,11 @@ func IntoManifest(
 	}
 
 	for _, hook := range hooks {
-		action, missingTargets, err := classifyImportHookMerge(existing, hook)
+		resource, err := adoptmodel.NewEntityMergeResource(entity.KindHook, hook.ResourceName)
+		if err != nil {
+			return adoptmodel.Plan{}, err
+		}
+		action, missingTargets, err := classifyImportHookMerge(existing, hook, resource)
 		if err != nil {
 			return adoptmodel.Plan{}, err
 		}
@@ -119,7 +132,11 @@ func IntoManifest(
 		}
 	}
 	for _, server := range mcpServers {
-		action, err := classifyImportMCPServerMerge(existing, server)
+		resource, err := adoptmodel.NewEntityMergeResource(entity.KindMCPServer, server.ResourceName)
+		if err != nil {
+			return adoptmodel.Plan{}, err
+		}
+		action, err := classifyImportMCPServerMerge(existing, server, resource)
 		if err != nil {
 			return adoptmodel.Plan{}, err
 		}
@@ -129,7 +146,11 @@ func IntoManifest(
 		}
 	}
 	for _, extension := range extensions {
-		action := classifyImportExtensionMerge(existing, extension)
+		resource, err := adoptmodel.NewEntityMergeResource(entity.KindExtension, extension.ID().Name())
+		if err != nil {
+			return adoptmodel.Plan{}, err
+		}
+		action := classifyImportExtensionMerge(existing, extension, resource)
 		mergeResults = append(mergeResults, action)
 		if action.Status == adoptmodel.MergeStatusAdd {
 			addExtensions = append(addExtensions, extension)
@@ -204,7 +225,7 @@ func IntoManifest(
 	}
 	if err := validateCanonicalManifest(content); err != nil {
 		mergeResults = append(mergeResults, adoptmodel.MergeResult{
-			Resource: "manifest",
+			Resource: adoptmodel.ManifestMergeResource(),
 			Status:   adoptmodel.MergeStatusConflict,
 			Detail:   err.Error(),
 		})

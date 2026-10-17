@@ -139,6 +139,9 @@ func ListRows(
 		}
 		return left.Targets < right.Targets
 	})
+	for index := range rows {
+		rows[index].Kind = ResourceKindName(entity.Kind(rows[index].Kind))
+	}
 	return rows
 }
 
@@ -172,6 +175,9 @@ func PrintListRowsWithOptions(output io.Writer, manifestPath string, rows []List
 			strconv.Quote(row.Targets),
 			strconv.Quote(row.Scope),
 		)
+		if row.Group != "" && row.Group != "-" {
+			fmt.Fprintf(output, " group=%s", strconv.Quote(row.Group))
+		}
 		fmt.Fprintln(output)
 	}
 }

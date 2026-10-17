@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
+
+	clipresent "github.com/isty2e/daem/internal/cli/present"
 )
 
 func printAuthoringOperationError(output io.Writer, command, manifestPath string, err error) {
@@ -30,7 +32,7 @@ func printUnexpectedArgumentTargetHintFromArgs(output io.Writer, err error, args
 }
 
 func printRemoveMCPServerNotFoundHint(output io.Writer, err error) {
-	if guidance, present := removeMCPServerNotFoundGuidance(err); present {
+	if guidance, present := clipresent.MCPServerNotFoundGuidance(err); present {
 		fmt.Fprintln(output, guidance.HumanText())
 	}
 }

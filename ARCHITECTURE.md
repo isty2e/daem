@@ -44,6 +44,14 @@ These owners are conceptual contracts, not instructions to create one package
 per row. Package creation still requires an independent invariant, boundary,
 lifecycle, volatility seam, caller set, and test surface.
 
+`internal/cli/present` owns the process output contract and is consumed by CLI
+composition, not by other production packages. Stateful terminal progress has
+its own lifecycle in `internal/cli/present/progress`. CLI composition supplies
+the process-owned resource-reference projector to progress; progress neither
+imports the output contract nor maintains another vocabulary. These
+[public labels](docs/cli.md#resource-names-and-identifiers) do not own command
+admission, canonical identity or persisted formats.
+
 ## Compilation Boundaries
 
 Daem retains the owners above but makes two cross-owner compilations explicit.

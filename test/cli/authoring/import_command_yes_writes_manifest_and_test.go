@@ -74,7 +74,7 @@ func TestRunImportYesWritesAntigravityAlternateInstructionRenderTo(t *testing.T)
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		`resource="instructions/antigravity_cli_project_gemini"`,
+		`resource="instruction/antigravity_cli_project_gemini"`,
 		`target=antigravity-cli`,
 		`source="` + filepath.ToSlash(sourcePath) + `"`,
 		`live="GEMINI.md"`,
@@ -139,7 +139,7 @@ func TestRunImportYesWritesAntigravityGlobalInstruction(t *testing.T) {
 	}
 	for _, want := range []string{
 		`summary target=antigravity-cli scope=global instructions=1`,
-		`resource="instructions/antigravity_cli_global"`,
+		`resource="instruction/antigravity_cli_global"`,
 		`target=antigravity-cli`,
 		`scope=global`,
 		`source="` + filepath.ToSlash(sourcePath) + `"`,
@@ -281,7 +281,7 @@ scope = "project"
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		`merge resource="instructions/codex_project" status=merge_targets`,
+		`merge resource="instruction/codex_project" status=merge_targets`,
 		`detail="add targets codex to existing resource"`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -370,7 +370,7 @@ scope = "project"
 		t.Fatalf("exitCode = %d, want 1, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 	for _, want := range []string{
-		`merge resource="instructions/codex_project" status=conflict`,
+		`merge resource="instruction/codex_project" status=conflict`,
 		"existing instruction has the same name with a different source, scope, or rendering",
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -407,7 +407,7 @@ scope = "project"
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
-	if !strings.Contains(stdout.String(), `merge resource="instructions/codex_project" status=noop`) {
+	if !strings.Contains(stdout.String(), `merge resource="instruction/codex_project" status=noop`) {
 		t.Fatalf("stdout = %q, want noop merge row", stdout.String())
 	}
 	testkit.AssertFileContent(t, outputPath, string(original))

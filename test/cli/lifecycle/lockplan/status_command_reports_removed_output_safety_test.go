@@ -62,9 +62,9 @@ render_to = "AGENTS.md"
 	output := stdout.String()
 	for _, want := range []string{
 		"status: 3 outputs",
-		`noop resource="instructions/active" target=codex scope=project destination="AGENTS.md" mode=copy reason=already_current`,
-		`delete resource="instructions/clean" target=claude-code scope=project destination="CLAUDE.md" mode= reason=removed_from_manifest safety=deletable`,
-		`error resource="instructions/drifted" target=antigravity-cli scope=project destination="GEMINI.md" mode= reason=drifted_output detail="managed output content differs from statefile baseline" safety=drift_blocked`,
+		`noop resource="instruction/active" target=codex scope=project destination="AGENTS.md" mode=copy reason=already_current`,
+		`delete resource="instruction/clean" target=claude-code scope=project destination="CLAUDE.md" mode= reason=removed_from_manifest safety=deletable`,
+		`error resource="instruction/drifted" target=antigravity-cli scope=project destination="GEMINI.md" mode= reason=drifted_output detail="managed output content differs from statefile baseline" safety=drift_blocked`,
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout = %q, want %q", output, want)
@@ -110,7 +110,7 @@ source = "instructions/AGENTS.md"
 	}
 	for _, want := range []string{
 		"status: 1 output",
-		`error resource="instructions/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_lock`,
+		`error resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_lock`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

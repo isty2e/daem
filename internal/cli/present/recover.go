@@ -202,7 +202,7 @@ func printActiveRecoverPlan(
 func recoveryIdentityLabel(action recovery.Action) (string, string) {
 	subject, hasSubject := action.SubjectID()
 	if entityID, ok := topologyprojection.EntityID(subject); hasSubject && ok {
-		return "resource", string(entityID.Kind()) + "/" + entityID.Name()
+		return "resource", ResourceReference(entityID.Kind(), entityID.Name())
 	}
 	if hasSubject {
 		return "subject", subjectString(*planJSONSubjectFor(subject))
@@ -448,7 +448,7 @@ func recoveryPlanJSONActions(actions []recovery.Action) []recoveryPlanJSONAction
 		var resource *recoverPlanJSONResource
 		if entityID != (entity.ID{}) {
 			resource = &recoverPlanJSONResource{
-				Kind: string(entityID.Kind()),
+				Kind: ResourceKindName(entityID.Kind()),
 				Name: entityID.Name(),
 			}
 		}
@@ -478,5 +478,5 @@ func recoveryEntityIDString(entityID entity.ID) string {
 	if entityID == (entity.ID{}) {
 		return ""
 	}
-	return string(entityID.Kind()) + "/" + entityID.Name()
+	return ResourceReference(entityID.Kind(), entityID.Name())
 }

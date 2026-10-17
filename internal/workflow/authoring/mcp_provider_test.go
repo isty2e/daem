@@ -63,8 +63,8 @@ func TestPiMCPAuthoringAddsExplicitScopedProviderAndBinding(t *testing.T) {
 				}
 			}
 			if len(change.Warnings) != 2 ||
-				!strings.Contains(change.Warnings[0], test.wantWarning) ||
-				!strings.Contains(change.Warnings[1], "adapter authoring was retained") {
+				!strings.Contains(change.Warnings[0].Detail, test.wantWarning) ||
+				!strings.Contains(change.Warnings[1].Detail, "adapter authoring was retained") {
 				t.Fatalf("Warnings = %#v, want %q", change.Warnings, test.wantWarning)
 			}
 		})
@@ -89,7 +89,7 @@ func TestPiMCPAuthoringUsesProjectFirstAndExplicitGlobalFallback(t *testing.T) {
 		t.Fatalf("Content = %s, want no generated provider", projectPreferred.Content)
 	}
 	if len(projectPreferred.Warnings) != 1 ||
-		!strings.Contains(projectPreferred.Warnings[0], "project pi-mcp-adapter package") {
+		!strings.Contains(projectPreferred.Warnings[0].Detail, "project pi-mcp-adapter package") {
 		t.Fatalf("Warnings = %#v, want project-provider warning", projectPreferred.Warnings)
 	}
 
@@ -107,7 +107,7 @@ func TestPiMCPAuthoringUsesProjectFirstAndExplicitGlobalFallback(t *testing.T) {
 		t.Fatalf("Content = %s, want existing global provider only", globalFallback.Content)
 	}
 	if len(globalFallback.Warnings) != 1 ||
-		!strings.Contains(globalFallback.Warnings[0], "global pi-mcp-adapter package") {
+		!strings.Contains(globalFallback.Warnings[0].Detail, "global pi-mcp-adapter package") {
 		t.Fatalf("Warnings = %#v, want global-reuse warning", globalFallback.Warnings)
 	}
 }

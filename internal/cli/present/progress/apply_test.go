@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	clipresent "github.com/isty2e/daem/internal/cli/present"
 	cliprogress "github.com/isty2e/daem/internal/cli/present/progress"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/execute"
@@ -18,7 +19,7 @@ import (
 
 func TestApplyProgressRendererShowsOnlyEphemeralActionProgress(t *testing.T) {
 	var output bytes.Buffer
-	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output}, clipresent.ResourceReference)
 	sink := renderer.Sink()
 	sink(execute.Event{Kind: execute.EventJournalCaptureStarted, TotalActions: 2})
 	sink(execute.Event{Kind: execute.EventActionStarted, TotalActions: 2, Action: applyProgressActionFacts(t)})
@@ -38,9 +39,35 @@ func TestApplyProgressRendererShowsOnlyEphemeralActionProgress(t *testing.T) {
 	}
 }
 
+func TestApplyProgressRendererUsesPublicNamesAndCanonicalSubjects(t *testing.T) {
+	for _, test := range []struct {
+		kind entity.Kind
+		name string
+	}{{entity.KindInstructions, "instruction"}, {entity.KindMCPServer, "mcp-server"}} {
+		id, err := entity.New(test.kind, "mcp_server/instructions")
+		if err != nil {
+			t.Fatal(err)
+		}
+		subject, err := topologyprojection.Subject(id, "fixture.project.resource")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var output bytes.Buffer
+		renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output}, clipresent.ResourceReference)
+		facts := &execute.ActionEventFacts{Index: 0, Subject: subject}
+		event := execute.Event{Kind: execute.EventActionDone, TotalActions: 1, Action: facts}
+		renderer.Sink()(event)
+		renderer.Sink()(event)
+		renderer.Close()
+		if !strings.Contains(output.String(), "Applying 1/1: "+test.name+"/mcp_server/instructions") || strings.Contains(output.String(), "Applying 2/1") || facts.Subject != subject {
+			t.Fatalf("apply progress changed label, subject or completion count: %q", output.String())
+		}
+	}
+}
+
 func TestApplyProgressRendererSuppressesUntrustedErrors(t *testing.T) {
 	var output bytes.Buffer
-	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output}, clipresent.ResourceReference)
 	facts := applyProgressActionFacts(t)
 	renderer.Sink()(execute.Event{Kind: execute.EventActionFailed, TotalActions: 1, Action: facts, Err: errors.New("secret\nerror")})
 
@@ -57,6 +84,7 @@ func TestApplyProgressRendererReportsPhysicalOrderSequenceOutcomes(t *testing.T)
 	var output bytes.Buffer
 	renderer := cliprogress.NewApplyProgressRenderer(
 		cliprogress.ApplyProgressRendererOptions{Output: &output},
+		clipresent.ResourceReference,
 	)
 	sink := renderer.Sink()
 	sequence, err := hostrelation.NewPhysicalSequenceID(
@@ -109,7 +137,7 @@ func TestApplyProgressRendererAttributesEntityBackedManagedPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output}, clipresent.ResourceReference)
 	renderer.Sink()(execute.Event{
 		Kind: execute.EventActionStarted, TotalActions: 1,
 		Action: &execute.ActionEventFacts{
@@ -125,7 +153,7 @@ func TestApplyProgressRendererAttributesEntityBackedManagedPath(t *testing.T) {
 
 func TestApplyProgressRendererSuppressesAfterWriteError(t *testing.T) {
 	writer := &applyFailAfterFirstWrite{}
-	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: writer})
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: writer}, clipresent.ResourceReference)
 	renderer.Sink()(execute.Event{Kind: execute.EventActionStarted, TotalActions: 2, Action: applyProgressActionFacts(t)})
 	renderer.Sink()(execute.Event{Kind: execute.EventActionDone, TotalActions: 2, Action: applyProgressActionFacts(t)})
 	renderer.Close()
@@ -136,7 +164,7 @@ func TestApplyProgressRendererSuppressesAfterWriteError(t *testing.T) {
 
 func TestApplyProgressRendererDoesNotDoubleCountRepeatedCompletion(t *testing.T) {
 	var output bytes.Buffer
-	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output}, clipresent.ResourceReference)
 	event := execute.Event{Kind: execute.EventActionDone, TotalActions: 2, Action: applyProgressActionFacts(t)}
 	renderer.Sink()(event)
 	renderer.Sink()(event)
@@ -147,7 +175,7 @@ func TestApplyProgressRendererDoesNotDoubleCountRepeatedCompletion(t *testing.T)
 
 func TestApplyProgressRendererAcceptsConcurrentEvents(t *testing.T) {
 	var output bytes.Buffer
-	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output}, clipresent.ResourceReference)
 	var waitGroup sync.WaitGroup
 	for range 32 {
 		waitGroup.Go(func() {
@@ -166,6 +194,25 @@ func TestApplyProgressRendererNilReceiverIsNoop(t *testing.T) {
 		t.Fatalf("nil renderer Sink returned non-nil sink")
 	}
 	renderer.Close()
+}
+
+func TestProgressRenderersRequireReferenceProjector(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		construct func()
+	}{
+		{"apply", func() { cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{}, nil) }},
+		{"lock", func() { cliprogress.NewLockProgressRenderer(cliprogress.LockProgressRendererOptions{}, nil) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("missing projection dependency was silently accepted")
+				}
+			}()
+			test.construct()
+		})
+	}
 }
 
 func applyProgressActionFacts(t testing.TB) *execute.ActionEventFacts {

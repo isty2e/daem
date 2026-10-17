@@ -20,8 +20,7 @@ import (
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
 
-func classifyImportInstructionMerge(existing existingDeclarations, source adoptmodel.Source) (adoptmodel.MergeResult, []targetpkg.Target) {
-	resource := "instructions/" + source.ResourceName
+func classifyImportInstructionMerge(existing existingDeclarations, source adoptmodel.Source, resource adoptmodel.MergeResource) (adoptmodel.MergeResult, []targetpkg.Target) {
 	for _, instruction := range existing.Instructions {
 		if instruction.ID().Name() != source.ResourceName {
 			continue
@@ -57,8 +56,7 @@ func sameImportedInstruction(
 	return renderTo == imported.RenderTo && mode == desiredinstructions.RenderModeCopy
 }
 
-func classifyImportSkillMerge(existing existingDeclarations, skill adoptmodel.Skill) (adoptmodel.MergeResult, []targetpkg.Target) {
-	resource := "skill/" + skill.ResourceName
+func classifyImportSkillMerge(existing existingDeclarations, skill adoptmodel.Skill, resource adoptmodel.MergeResource) (adoptmodel.MergeResult, []targetpkg.Target) {
 	importedTargets := skill.Targets
 	if len(importedTargets) == 0 {
 		importedTargets = []targetpkg.Target{skill.Target}
@@ -144,8 +142,7 @@ func sameImportedSkillPlacements(
 	return true
 }
 
-func classifyImportHookMerge(existing existingDeclarations, hook adoptmodel.Hook) (adoptmodel.MergeResult, []targetpkg.Target, error) {
-	resource := "hook/" + hook.ResourceName
+func classifyImportHookMerge(existing existingDeclarations, hook adoptmodel.Hook, resource adoptmodel.MergeResource) (adoptmodel.MergeResult, []targetpkg.Target, error) {
 	for _, existingHook := range existing.Hooks {
 		if existingHook.ID().Name() != hook.ResourceName {
 			continue
@@ -182,11 +179,10 @@ func classifyImportHookMerge(existing existingDeclarations, hook adoptmodel.Hook
 	return adoptmodel.MergeResult{Resource: resource, Status: adoptmodel.MergeStatusAdd, Detail: "append imported hook"}, nil, nil
 }
 
-func classifyImportMCPServerMerge(existing existingDeclarations, server adoptmodel.MCPServer) (adoptmodel.MergeResult, error) {
-	resource := "mcp_server/" + server.ResourceName
+func classifyImportMCPServerMerge(existing existingDeclarations, server adoptmodel.MCPServer, resource adoptmodel.MergeResource) (adoptmodel.MergeResult, error) {
 	importedSubject, err := topologymcp.ProjectionSubject(server.Target, server.Scope, server.ResourceName)
 	if err != nil {
-		return adoptmodel.MergeResult{}, fmt.Errorf("imported %s projection identity: %w", resource, err)
+		return adoptmodel.MergeResult{}, fmt.Errorf("imported mcp_server/%s projection identity: %w", server.ResourceName, err)
 	}
 	imported := manifestMCPServerFromImportMCPServer(server)
 	var matching declarationcodec.MCPServer
@@ -197,7 +193,7 @@ func classifyImportMCPServerMerge(existing existingDeclarations, server adoptmod
 		}
 		existingSubject, err := existingMCPServerProjectionSubject(existing.Header, block.Server)
 		if err != nil {
-			return adoptmodel.MergeResult{}, fmt.Errorf("existing %s projection identity: %w", resource, err)
+			return adoptmodel.MergeResult{}, fmt.Errorf("existing mcp_server/%s projection identity: %w", server.ResourceName, err)
 		}
 		if existingSubject != importedSubject {
 			continue
@@ -269,8 +265,8 @@ func existingMCPServerProjectionSubject(
 func classifyImportExtensionMerge(
 	existing existingDeclarations,
 	imported desiredextension.Extension,
+	resource adoptmodel.MergeResource,
 ) adoptmodel.MergeResult {
-	resource := "extension/" + imported.ID().Name()
 	for _, block := range existing.Extensions {
 		if block.Extension.ID != imported.ID().Name() {
 			continue
@@ -326,7 +322,7 @@ func sameImportedExtension(
 	}
 }
 
-func classifyImportTargets(resource string, existingTargets []targetpkg.Target, importedTargets []targetpkg.Target) (adoptmodel.MergeResult, []targetpkg.Target) {
+func classifyImportTargets(resource adoptmodel.MergeResource, existingTargets []targetpkg.Target, importedTargets []targetpkg.Target) (adoptmodel.MergeResult, []targetpkg.Target) {
 	missing := missingCanonicalImportTargets(existingTargets, importedTargets)
 	if len(missing) == 0 {
 		return adoptmodel.MergeResult{

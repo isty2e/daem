@@ -33,7 +33,7 @@ targets = ["claude-code"]
 	testkit.AssertContainsInOrder(
 		t,
 		human,
-		`create resource="instructions/project"`,
+		`create resource="instruction/project"`,
 		`create resource="hook/test"`,
 	)
 
@@ -51,7 +51,7 @@ targets = ["claude-code"]
 	if len(payload.Actions) != 2 {
 		t.Fatalf("actions = %#v, want two mixed decisions", payload.Actions)
 	}
-	if payload.Actions[0].ResourceID != "instructions/project" ||
+	if payload.Actions[0].ResourceID != "instruction/project" ||
 		payload.Actions[1].ResourceID != "hook/test" {
 		t.Fatalf("actions = %#v, want the same plan-owned mixed order as human output", payload.Actions)
 	}

@@ -76,7 +76,7 @@ func TestRunImportYesWritesClaudeCodeGlobalInstruction(t *testing.T) {
 	}
 	for _, want := range []string{
 		"imported: 1 resource",
-		`resource="instructions/claude_code_global"`,
+		`resource="instruction/claude_code_global"`,
 		`target=claude-code`,
 		`scope=global`,
 		`source="` + filepath.ToSlash(sourcePath) + `"`,

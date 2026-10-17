@@ -38,7 +38,7 @@ func ListPathRows(inventory listworkflow.LocationInventory) []ListPathRow {
 	for _, entry := range entries {
 		rows = append(rows, ListPathRow{
 			Target: string(entry.Target()), Scope: string(entry.Scope()),
-			Resource: string(entry.ResourceKind()), Variant: entry.Variant(),
+			Resource: ResourceKindName(entry.ResourceKind()), Variant: entry.Variant(),
 			Kind: string(entry.Kind()), Realization: string(entry.Realization()), Role: string(entry.Role()),
 			Path: entry.Path(), Route: entry.Route(), Operation: string(entry.Operation()),
 			Selected: entry.Selected(), Requested: entry.Requested(), Default: entry.Default(),
@@ -94,6 +94,7 @@ func PrintListPathsWithOptions(
 }
 
 func locationResourceLabel(kind entity.Kind, variant string) string {
+	// Tree headings are descriptive prose, not command operands.
 	var label string
 	switch kind {
 	case entity.KindInstructions:
@@ -109,7 +110,7 @@ func locationResourceLabel(kind entity.Kind, variant string) string {
 	case entity.KindExtension:
 		label = "extensions"
 	default:
-		label = string(kind)
+		label = ResourceKindName(kind)
 	}
 	if variant != "" {
 		return fmt.Sprintf("%s (%s)", label, Escape(variant))

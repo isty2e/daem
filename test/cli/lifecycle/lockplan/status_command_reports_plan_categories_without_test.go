@@ -93,10 +93,10 @@ render_to = "AGENTS.md"
 	output := stdout.String()
 	for _, want := range []string{
 		"status: 4 outputs",
-		`create resource="instructions/missing" target=codex scope=global destination="~/.codex/AGENTS.md" mode=copy reason=missing_output`,
-		`delete resource="instructions/removed" target=antigravity-cli scope=project destination="GEMINI.md" mode= reason=removed_from_manifest safety=deletable`,
-		`noop resource="instructions/ready" target=claude-code scope=project destination="CLAUDE.md" mode=copy reason=already_current`,
-		`update resource="instructions/current" target=codex scope=project destination="AGENTS.md" mode=copy reason=content_changed`,
+		`create resource="instruction/missing" target=codex scope=global destination="~/.codex/AGENTS.md" mode=copy reason=missing_output`,
+		`delete resource="instruction/removed" target=antigravity-cli scope=project destination="GEMINI.md" mode= reason=removed_from_manifest safety=deletable`,
+		`noop resource="instruction/ready" target=claude-code scope=project destination="CLAUDE.md" mode=copy reason=already_current`,
+		`update resource="instruction/current" target=codex scope=project destination="AGENTS.md" mode=copy reason=content_changed`,
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout = %q, want %q", output, want)
@@ -135,7 +135,7 @@ func TestRunStatusCheckExitsZeroForCleanPlan(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
-	if !strings.Contains(stdout.String(), `noop resource="instructions/project"`) {
+	if !strings.Contains(stdout.String(), `noop resource="instruction/project"`) {
 		t.Fatalf("stdout = %q, want noop action", stdout.String())
 	}
 	if stderr.Len() != 0 {
@@ -157,7 +157,7 @@ func TestRunStatusCheckExitsOneForPendingManagedChange(t *testing.T) {
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), `update resource="instructions/project"`) {
+	if !strings.Contains(stdout.String(), `update resource="instruction/project"`) {
 		t.Fatalf("stdout = %q, want update action", stdout.String())
 	}
 	if stderr.Len() != 0 {

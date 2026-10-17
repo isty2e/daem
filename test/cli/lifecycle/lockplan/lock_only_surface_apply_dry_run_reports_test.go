@@ -126,7 +126,7 @@ targets = ["codex"]
 		"lock-only: skills=0 hooks=1 (unsupported or not reconciled by apply/status)",
 		"dry-run: 2 outputs",
 		`create resource="skill/oracle" target=opencode`,
-		`create resource="instructions/project" target=codex`,
+		`create resource="instruction/project" target=codex`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

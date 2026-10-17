@@ -55,7 +55,7 @@ render_to = "AGENTS.md"
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 
-	want := `error resource="instructions/drifted" target=claude-code scope=project destination="CLAUDE.md" mode= reason=drifted_output detail="managed output content differs from statefile baseline" safety=drift_blocked`
+	want := `error resource="instruction/drifted" target=claude-code scope=project destination="CLAUDE.md" mode= reason=drifted_output detail="managed output content differs from statefile baseline" safety=drift_blocked`
 	if !strings.Contains(stdout.String(), want) {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -114,7 +114,7 @@ render_to = "AGENTS.md"
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
-	want := `error resource="instructions/missing" target=claude-code scope=project destination="CLAUDE.md" mode= reason=missing_output detail="managed output is missing" safety=missing_evidence`
+	want := `error resource="instruction/missing" target=claude-code scope=project destination="CLAUDE.md" mode= reason=missing_output detail="managed output is missing" safety=missing_evidence`
 	if !strings.Contains(stdout.String(), want) {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}

@@ -212,7 +212,7 @@ func (plan Plan) IdentityBytes() ([]byte, error) {
 }
 
 type mergeResultIdentity struct {
-	Resource string
+	Resource mergeResourceIdentity
 	Subject  string
 	Status   MergeStatus
 	Detail   string
@@ -225,7 +225,7 @@ func mergeResultIdentities(results []MergeResult) []mergeResultIdentity {
 	identities := make([]mergeResultIdentity, 0, len(results))
 	for _, result := range results {
 		identities = append(identities, mergeResultIdentity{
-			Resource: result.Resource,
+			Resource: result.Resource.identity(),
 			Subject:  result.Subject.String(),
 			Status:   result.Status,
 			Detail:   result.Detail,

@@ -23,13 +23,13 @@ func TestCUXFirstProjectJourneyMatchesGettingStarted(t *testing.T) {
 	runCUXJourney(t, []string{
 		"add", "instruction", "project", "./instructions/project.md",
 		"--target", "codex", "--dry-run",
-	}, "add: instructions/project", "lockfile: would write")
+	}, "add: instruction/project", "lockfile: would write")
 	testkit.AssertPathMissing(t, filepath.Join(root, "daem.lock.toml"))
 
 	runCUXJourney(t, []string{
 		"add", "instruction", "project", "./instructions/project.md",
 		"--target", "codex",
-	}, "added: instructions/project", "lockfile: wrote")
+	}, "added: instruction/project", "lockfile: wrote")
 
 	runCUXJourney(t, []string{"status"}, "add managed output")
 	runCUXJourney(t, []string{"apply", "--dry-run"}, "add managed output")

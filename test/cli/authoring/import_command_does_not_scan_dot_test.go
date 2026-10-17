@@ -41,7 +41,7 @@ func TestRunImportCustomSourceDirUsesAbsoluteManifestPath(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	if strings.Count(stdout.String(), `resource="instructions/codex_project"`) != 1 {
+	if strings.Count(stdout.String(), `resource="instruction/codex_project"`) != 1 {
 		t.Fatalf("stdout = %q, want one imported resource", stdout.String())
 	}
 

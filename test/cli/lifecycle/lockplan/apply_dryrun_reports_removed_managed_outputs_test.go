@@ -86,14 +86,14 @@ render_to = "CLAUDE.md"
 		t.Fatalf("dry-run stderr = %q, want empty", dryRunStderr.String())
 	}
 
-	deleteAction := `delete resource="instructions/removed" target=codex scope=global destination="~/.codex/AGENTS.md" mode= reason=removed_from_manifest safety=deletable`
+	deleteAction := `delete resource="instruction/removed" target=codex scope=global destination="~/.codex/AGENTS.md" mode= reason=removed_from_manifest safety=deletable`
 	if !strings.Contains(statusStdout.String(), deleteAction) {
 		t.Fatalf("status stdout = %q, want %q", statusStdout.String(), deleteAction)
 	}
 	for _, want := range []string{
 		"dry-run: 3 outputs",
-		`noop resource="instructions/active" target=codex scope=project destination="AGENTS.md" mode=copy reason=already_current`,
-		`update resource="instructions/changed" target=claude-code scope=project destination="CLAUDE.md" mode=copy reason=content_changed`,
+		`noop resource="instruction/active" target=codex scope=project destination="AGENTS.md" mode=copy reason=already_current`,
+		`update resource="instruction/changed" target=claude-code scope=project destination="CLAUDE.md" mode=copy reason=content_changed`,
 		deleteAction,
 	} {
 		if !strings.Contains(dryRunStdout.String(), want) {

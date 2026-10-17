@@ -82,7 +82,7 @@ func BuildAddMCPServerChangeWithPiVersion(document ManifestDocument, request Add
 	if err != nil {
 		return Change{}, err
 	}
-	warnings = append(warnings, providerPlan.warnings...)
+	warnings = append(warnings, plainWarnings(providerPlan.warnings)...)
 	if serverChanged {
 		manifestBlocks = append(
 			manifestBlocks,
@@ -236,7 +236,7 @@ func ApplyRemoveMCPServerToManifest(original []byte, request RemoveMCPServerRequ
 		return nil, "", err
 	}
 	if nameOnlySelector && countMCPServerCandidatesByName(candidates, request.Name) > 1 {
-		return nil, "", fmt.Errorf("mcp_server resource %q is ambiguous; narrow with --target/--scope", request.Name)
+		return nil, "", &ResourceSelectionAmbiguousError{Kind: entity.KindMCPServer, Name: request.Name}
 	}
 	matches := filterRemoveMCPServerCandidates(candidates, request)
 	if len(matches) == 0 {
@@ -244,10 +244,10 @@ func ApplyRemoveMCPServerToManifest(original []byte, request RemoveMCPServerRequ
 		for _, candidate := range candidates {
 			available = append(available, ResourceSelection{Name: candidate.name, Scope: candidate.scope, Targets: candidate.targets})
 		}
-		return nil, "", missingResourceSelection("mcp_server", request.Name, available)
+		return nil, "", missingResourceSelection(entity.KindMCPServer, request.Name, available)
 	}
 	if len(matches) > 1 {
-		return nil, "", fmt.Errorf("mcp_server resource %q is ambiguous; narrow with --target/--scope", request.Name)
+		return nil, "", &ResourceSelectionAmbiguousError{Kind: entity.KindMCPServer, Name: request.Name}
 	}
 
 	content := declaration.RemoveDocumentRange(original, declaration.DocumentRange{Start: matches[0].start, End: matches[0].end})

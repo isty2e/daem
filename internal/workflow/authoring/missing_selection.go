@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/isty2e/daem/internal/desired/entity"
 )
 
 // ResourceSelection identifies a removable manifest declaration. Alias is an
@@ -17,13 +19,18 @@ type ResourceSelection struct {
 
 // ResourceSelectionNotFoundError retains manifest-backed alternatives to a missing selection.
 type ResourceSelectionNotFoundError struct {
-	Kind      string
+	Kind      entity.Kind
 	Name      string
 	Available []ResourceSelection
+	Detail    string
 }
 
 func (err *ResourceSelectionNotFoundError) Error() string {
-	return fmt.Sprintf("%s resource %q not found", err.Kind, err.Name)
+	message := fmt.Sprintf("%s resource %q not found", err.Kind, err.Name)
+	if err.Detail != "" {
+		message += " " + err.Detail
+	}
+	return message
 }
 
 // AvailableSelections returns a copy of the admitted alternatives.
@@ -35,7 +42,16 @@ func (err *ResourceSelectionNotFoundError) AvailableSelections() []ResourceSelec
 	return selections
 }
 
-func missingResourceSelection(kind string, name string, available []ResourceSelection) error {
+type ResourceSelectionAmbiguousError struct {
+	Kind entity.Kind
+	Name string
+}
+
+func (err *ResourceSelectionAmbiguousError) Error() string {
+	return fmt.Sprintf("%s resource %q is ambiguous; narrow with --target/--scope", err.Kind, err.Name)
+}
+
+func missingResourceSelection(kind entity.Kind, name string, available []ResourceSelection) *ResourceSelectionNotFoundError {
 	candidates := make([]ResourceSelection, 0)
 	bestRank := 3
 	for _, selection := range available {
