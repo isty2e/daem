@@ -939,8 +939,14 @@ daem list paths [--manifest <path>] [--target <target> ...]
 
 Bare `list` is navigation only. `list resources` reads and normalizes the
 manifest without requiring a lockfile. It prints every selected kind, stable
-remove key, install name, target set, and scope. `--verbose` adds source and
-declaration provenance.
+remove key, install name, target set, and scope. Basic rows also show known
+explicit group membership, such as `group="skill_group[0]"`; ungrouped rows omit
+that field. The index is a declaration-position marker, not a stable group ID
+or command operand. Members remain `skill` resources and use their own remove
+keys. Shared group membership can explain why a partial-target removal requires
+[splitting the group first](#remove). Listing does not resolve source selectors
+to discover more membership. `--verbose` adds source summaries and includes the
+group field even when its value is `"-"`.
 
 `list outputs` prints every selected managed output, relevant unmanaged live
 destination, and ownership-blocked output. Blocked rows include the typed
