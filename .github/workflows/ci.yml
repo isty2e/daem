@@ -120,6 +120,17 @@ jobs:
           uname -a
       - name: Run full native tests
         run: tools/test.sh full
+      - name: Run Linux Git archive pipe-capacity regression
+        if: matrix.goos == 'linux'
+        run: |
+          set -euo pipefail
+          regression=TestExtractGitArchiveDrainsRealGitSmallPipe
+          result_log="${RUNNER_TEMP}/git-archive-small-pipe.json"
+          tools/test-go.sh -mod=readonly -count=1 -json \
+            -run "^${regression}$" \
+            ./internal/supply/source/backend/gitcli | tee "${result_log}"
+          jq -s -e --arg regression "${regression}" \
+            'any(.[]; .Test == $regression and .Action == "pass")' "${result_log}"
       - name: Run artifact root-spelling contracts
         run: |
           tools/test-go.sh -mod=readonly -count=1 -v \
