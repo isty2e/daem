@@ -1081,17 +1081,22 @@ still return `1` before or while emitting their applicable result contract.
 | `status` | any valid report | never because of reported state |
 | `status --check` | lockfile present, no pending or blocked output action, exact extension order, and no blocked relation, adoption, or extension-removal action | lockfile missing; pending or blocked output action, including an unqualified MCP host; non-exact extension order; or blocked relation, adoption, or extension-removal action |
 
-Warning-only diagnostics, selected missing extension relations, and observe-only
-relation rows do not make `--check` fail. A blocked removal of a managed
-extension relation does fail. A normalize, conditional, or blocked
-extension-order row is also non-clean. JSON and human modes use the same exit
-predicate.
+Diagnostic grades, including `error`, do not by themselves affect the `--check`
+exit code or `check_clean`. The `diagnostics` array carries the reported grades;
+error-grade diagnostics contribute to `has_errors`.
+
+Selected missing extension relations and observe-only relation rows do not make
+`--check` fail. A blocked removal of a managed extension relation does fail. A
+normalize, conditional, or blocked extension-order row is also non-clean. JSON
+and human modes use the same exit predicate.
 
 Both `status --json` and `status --check --json` include the required boolean
 `check_clean`. It is true exactly when the selected observed state satisfies
-the check predicate above, regardless of whether `--check` was requested. It is
-independent of `has_errors`: pending changes can make `check_clean` false while
-`has_errors` remains false. Ordinary status still exits `0` for a valid report.
+the check predicate above, regardless of whether `--check` was requested.
+`check_clean` and `has_errors` are independent in both directions: pending changes
+can make `check_clean` false while `has_errors` remains false; an otherwise clean
+report with error-grade diagnostics can have both fields true and still pass
+`--check`. Ordinary status still exits `0` for a valid report.
 
 `check_clean` is not runtime readiness, permission to apply, or a prediction of
 process success when usage, operation, signal or output-delivery failures occur.

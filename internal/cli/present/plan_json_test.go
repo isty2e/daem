@@ -75,12 +75,15 @@ func TestPrintPlanJSONTreatsErrorDiagnosticsAsErrors(t *testing.T) {
 		t.Fatalf("PrintPlanJSON returned error: %v", err)
 	}
 
-	var payload planJSONTestPayload
+	var payload struct {
+		HasErrors  bool  `json:"has_errors"`
+		CheckClean *bool `json:"check_clean"`
+	}
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("decode plan json: %v", err)
 	}
-	if !payload.HasErrors {
-		t.Fatalf("HasErrors = false, payload = %#v", payload)
+	if !payload.HasErrors || payload.CheckClean == nil || !*payload.CheckClean {
+		t.Fatalf("payload = %#v, want independent has_errors=true and check_clean=true", payload)
 	}
 }
 
