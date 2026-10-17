@@ -23,7 +23,13 @@ func extractTarWithBudget(ctx context.Context, input io.Reader, outputRoot strin
 	if err := validateExtraction(ctx, input, budget); err != nil {
 		return err
 	}
-	return extractTar(ctx, newBoundedReader(ctx, input, LimitInputBytes, budget.inputBytes), outputRoot, budget)
+	boundedInput := newBoundedReader(ctx, input, LimitInputBytes, budget.inputBytes)
+	if err := extractTar(ctx, boundedInput, outputRoot, budget); err != nil {
+		return err
+	}
+
+	_, err := io.Copy(io.Discard, boundedInput)
+	return err
 }
 
 func extractTar(ctx context.Context, input io.Reader, outputRoot string, budget budget) error {

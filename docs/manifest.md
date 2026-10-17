@@ -257,6 +257,11 @@ input allowance.
 | Extracted files and directories | 100,000 |
 | Canonical path | 4,096 bytes and 64 components |
 
+Raw tar extraction reads the entire input, including bytes after the tar end
+marker. Trailing bytes are not extracted, but count toward the 256 MiB raw input
+limit. An archive is rejected if its entries fit the budgets but its trailing
+data makes the complete input exceed that limit.
+
 Source-cache wrapper directories and completion metadata have separate reserved
 capacity and do not consume these archive entry, depth, or byte limits.
 Implicit parent directories count toward the extracted-entry limit. Archive
