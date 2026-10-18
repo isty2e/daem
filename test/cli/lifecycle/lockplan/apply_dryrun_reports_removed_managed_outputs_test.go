@@ -91,7 +91,7 @@ render_to = "CLAUDE.md"
 		t.Fatalf("status stdout = %q, want %q", statusStdout.String(), deleteAction)
 	}
 	for _, want := range []string{
-		"dry-run: 3 outputs",
+		"dry-run: 3 output entries",
 		`noop resource="instruction/active" target=codex scope=project destination="AGENTS.md" mode=copy reason=already_current`,
 		`update resource="instruction/changed" target=claude-code scope=project destination="CLAUDE.md" mode=copy reason=content_changed`,
 		deleteAction,

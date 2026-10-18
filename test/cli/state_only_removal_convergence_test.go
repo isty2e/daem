@@ -182,7 +182,7 @@ func TestAuthoringRemovalOfLastInstructionConvergesThroughStatusInventoryAndAppl
 	if statusExit != 1 || statusStderr.Len() != 0 {
 		t.Fatalf("status exit=%d stdout=%q stderr=%q, want pending removal", statusExit, statusStdout.String(), statusStderr.String())
 	}
-	if !strings.Contains(statusStdout.String(), `remove managed output resource="instruction/project"`) {
+	if !strings.Contains(statusStdout.String(), "resource=\"instruction/project\" target=codex scope=project\n    output: remove managed output") {
 		t.Fatalf("status stdout=%q, want managed removal", statusStdout.String())
 	}
 

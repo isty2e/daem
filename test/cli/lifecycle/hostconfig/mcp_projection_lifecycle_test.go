@@ -81,7 +81,7 @@ func TestMCPPublicCLIProjectionLifecycleCoversApplyStatusUpdateRemoval(t *testin
 
 	stdout = runMCPCLIWithSuccessfulDelegate(t, "apply", "--manifest", project.manifestPath, "--target", "claude-code", "--yes")
 	if strings.Count(stdout, "applied: 1 action") != 1 ||
-		!strings.Contains(stdout, `update subject="projection/`+"claude-code.project.mcp-server"+`/context7"`) {
+		!strings.Contains(stdout, `update resource="mcp-server/context7"`) {
 		t.Fatalf("stdout = %q, want one update subject action", stdout)
 	}
 	if strings.Contains(stdout, "mcp status:") {

@@ -12,12 +12,18 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
-func PrintDryRunPlanWithOptions(output io.Writer, result reconcile.Result, options HumanOptions) {
-	PrintActionPlanWithOptions(output, "dry-run", result, options)
+// HumanPlanInput carries plan facts without execution or result-history authority.
+type HumanPlanInput struct {
+	Reconciliation reconcile.Result
+	MCPStatuses    []MCPStatus
 }
 
-func PrintStatusPlanWithOptions(output io.Writer, result reconcile.Result, options HumanOptions) {
-	PrintActionPlanWithOptions(output, "status", result, options)
+func PrintDryRunPlanWithOptions(output io.Writer, input HumanPlanInput, options HumanOptions) {
+	PrintActionPlanWithOptions(output, "dry-run", input, options)
+}
+
+func PrintStatusPlanWithOptions(output io.Writer, input HumanPlanInput, options HumanOptions) {
+	PrintActionPlanWithOptions(output, "status", input, options)
 }
 
 type PlanJSONInput struct {

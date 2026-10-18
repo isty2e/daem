@@ -86,9 +86,11 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 			printLockCommandHint(stdout, result.ManifestPath, *manifestPath)
 		}
 		humanOptions := clipresent.HumanOptions{Verbose: *verbose}
-		clipresent.PrintStatusPlanWithOptions(stdout, result.Reconciliation, humanOptions)
+		clipresent.PrintStatusPlanWithOptions(stdout, clipresent.HumanPlanInput{
+			Reconciliation: result.Reconciliation,
+			MCPStatuses:    mcpStatuses,
+		}, humanOptions)
 		clipresent.PrintStatusLockOnlyResourcesWithOptions(stdout, clipresent.LockOnlyResourcesFrom(result.LockOnly), humanOptions)
-		clipresent.PrintMCPStatusesWithOptions(stdout, mcpStatuses, humanOptions)
 		clipresent.PrintRelationActionsWithOptions(stdout, result.Reconciliation.Relations(), humanOptions)
 		clipresent.PrintRelationOrderActionsWithOptions(stdout, result.Reconciliation.RelationOrders(), humanOptions)
 		clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, result.Reconciliation.CarrierAdoptions(), humanOptions)

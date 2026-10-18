@@ -5,29 +5,12 @@ import (
 	"io"
 	"strings"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/topology"
+	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
-
-func PrintActionPlanWithOptions(output io.Writer, label string, actionPlan reconcile.Result, options HumanOptions) {
-	decisions := actionPlan.Decisions()
-	if options.Verbose {
-		fmt.Fprintf(output, "%s: %s\n", label, CountLabel(actionPlan.ProjectionDecisionCount(), "output", "outputs"))
-		printVerboseDecisionRows(output, decisions)
-		return
-	}
-	current := 0
-	pending := make([]reconcile.Decision, 0, len(decisions))
-	for _, decision := range decisions {
-		if decision.IsNoOp() {
-			current++
-			continue
-		}
-		pending = append(pending, decision)
-	}
-	fmt.Fprintf(output, "%s: %s (up to date=%d changes=%d)\n", label, CountLabel(actionPlan.ProjectionDecisionCount(), "output", "outputs"), current, len(pending))
-	printDecisionRows(output, pending, options)
-}
 
 // PrintPlanResultWithOptions renders every applied reconciliation decision.
 func PrintPlanResultWithOptions(output io.Writer, planResult reconcile.Result, options HumanOptions) {
@@ -66,17 +49,6 @@ func decisionLabel(decision reconcile.Decision) string {
 	return aggregateLabel(aggregate)
 }
 
-func printDecisionRows(output io.Writer, decisions []reconcile.Decision, options HumanOptions) {
-	for _, decision := range decisions {
-		if managedPath, ok := decision.ManagedPath(); ok {
-			printManagedPathRows(output, []reconcile.ManagedPathDecision{managedPath}, options)
-			continue
-		}
-		aggregate, _ := decision.Aggregate()
-		printAggregateRows(output, []reconcile.AggregateSubjectDecision{aggregate}, options)
-	}
-}
-
 func printVerboseDecisionRows(output io.Writer, decisions []reconcile.Decision) {
 	for _, decision := range decisions {
 		if managedPath, ok := decision.ManagedPath(); ok {
@@ -94,7 +66,7 @@ func printAggregateRows(output io.Writer, decisions []reconcile.AggregateSubject
 		return
 	}
 	for _, decision := range decisions {
-		identityLabel, identityValue := aggregateIdentityLabel(decision)
+		identityLabel, identityValue := projectionIdentityLabel(decision.Subject())
 		fmt.Fprintf(
 			output,
 			"  %s %s=%s target=%s scope=%s\n",
@@ -118,7 +90,7 @@ func printAggregateRows(output io.Writer, decisions []reconcile.AggregateSubject
 
 func printVerboseAggregateRows(output io.Writer, decisions []reconcile.AggregateSubjectDecision) {
 	for _, decision := range decisions {
-		identityLabel, identityValue := aggregateIdentityLabel(decision)
+		identityLabel, identityValue := projectionIdentityLabel(decision.Subject())
 		fmt.Fprintf(
 			output,
 			"%s %s=%s target=%s scope=%s destination=%s content_path=%s reason=%s",
@@ -131,6 +103,9 @@ func printVerboseAggregateRows(output io.Writer, decisions []reconcile.Aggregate
 			Quote(string(decision.ContentPath())),
 			Escape(string(decision.Reason())),
 		)
+		if _, isMCP := topologymcp.ServerID(decision.Subject()); isMCP {
+			fmt.Fprintf(output, " subject=%s", Quote(subjectStringFromID(decision.Subject())))
+		}
 		if decision.Detail() != "" {
 			fmt.Fprintf(output, " detail=%s", Quote(decision.Detail()))
 		}
@@ -151,11 +126,14 @@ func aggregatePublicKind(decision reconcile.AggregateSubjectDecision) string {
 	}
 }
 
-func aggregateIdentityLabel(decision reconcile.AggregateSubjectDecision) (string, string) {
-	if entityID, ok := topologyprojection.EntityID(decision.Subject()); ok {
+func projectionIdentityLabel(subject topology.SubjectID) (string, string) {
+	if name, isMCP := topologymcp.ServerID(subject); isMCP {
+		return "resource", ResourceReference(entity.KindMCPServer, name)
+	}
+	if entityID, ok := topologyprojection.EntityID(subject); ok {
 		return "resource", ResourceReference(entityID.Kind(), entityID.Name())
 	}
-	return "subject", subjectString(*planJSONSubjectFor(decision.Subject()))
+	return "subject", subjectString(*planJSONSubjectFor(subject))
 }
 
 func aggregateLabel(decision reconcile.AggregateSubjectDecision) string {
@@ -191,7 +169,7 @@ func printManagedPathRows(output io.Writer, decisions []reconcile.ManagedPathDec
 		return
 	}
 	for _, decision := range decisions {
-		identityLabel, identityValue := managedPathIdentityLabel(decision)
+		identityLabel, identityValue := projectionIdentityLabel(decision.Subject())
 		targetLabel, targetValue := managedPathTargetLabel(decision)
 		fmt.Fprintf(
 			output,
@@ -211,7 +189,7 @@ func printManagedPathRows(output io.Writer, decisions []reconcile.ManagedPathDec
 
 func printVerboseManagedPathRows(output io.Writer, decisions []reconcile.ManagedPathDecision) {
 	for _, decision := range decisions {
-		identityLabel, identityValue := managedPathIdentityLabel(decision)
+		identityLabel, identityValue := projectionIdentityLabel(decision.Subject())
 		targetLabel, targetValue := managedPathTargetLabel(decision)
 		fmt.Fprintf(
 			output,
@@ -258,13 +236,6 @@ func managedPathPublicKind(decision reconcile.ManagedPathDecision) string {
 	default:
 		return string(decision.Kind())
 	}
-}
-
-func managedPathIdentityLabel(decision reconcile.ManagedPathDecision) (string, string) {
-	if entityID, ok := topologyprojection.EntityID(decision.Subject()); ok {
-		return "resource", ResourceReference(entityID.Kind(), entityID.Name())
-	}
-	return "subject", subjectString(*planJSONSubjectFor(decision.Subject()))
 }
 
 func managedPathTargetLabel(decision reconcile.ManagedPathDecision) (string, string) {

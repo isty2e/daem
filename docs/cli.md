@@ -1066,12 +1066,23 @@ Unqualified host prerequisites use these reasons:
 | `HOST_BUILTIN_UNOBSERVED` | Builtin selection depends on unsupported static selector syntax. |
 | `HOST_ADAPTER_CONFIGURED` | Known Adapter intent remains configured, regardless of its package filters. |
 
-Default output prints totals, every planned mutation, blocker, drift,
-unsupported/ambiguous class, binding-removal result, and uncertain host-route
-class. It omits routine no-op resource rows, state/content paths, internal
-reason fields, hashes, route ids, and exhaustive evidence arrays. Relation-action
-rows, including no-ops, remain visible. `--verbose` adds the omitted bounded
-causal fields and every ordinary row.
+Default output groups each resource's selected placement or shared consumer
+set with its output/configuration transition and associated MCP observations.
+The header counts **output entries**: one managed-path decision, including a
+shared output, or one aggregate subject. Two MCP servers in one configuration
+document therefore count as two entries, not two files. `current`, `pending`,
+and `blocked` partition these configuration decisions; pending excludes blocked
+entries. Delegated command plans are separate and may remain when every
+configuration entry is current.
+
+Every planned mutation, blocker, drift, unsupported/ambiguous class,
+binding-removal result, and uncertain host-route class remains visible. Routine
+no-op rows are omitted unless an associated observation, command plan, or blocked
+configuration document needs their context. State/content paths, internal
+reason fields, hashes, route ids, and exhaustive evidence arrays remain
+verbose-only. Relation-action rows, including no-ops, remain visible.
+`--verbose` expands every ordinary row with bounded causal fields; MCP rows
+retain their canonical subject alongside the public resource reference.
 
 The table below describes exit codes for valid status results. Command failures
 still return `1` before or while emitting their applicable result contract.
@@ -1125,6 +1136,14 @@ Bare apply under the three-stream terminal contract discloses the same effect
 plan and asks once. Non-interactive apply requires `--yes`. Every selected
 supported config action and delegated route is ordinary apply work; there is no
 separate route-attempt mode.
+
+Human plans keep a resource's own configuration transition separate from a
+blocked shared document. An unchanged server can therefore have a blocked
+command prerequisite because another entry conflicts in the same document.
+Command plans show their planner disposition: in a dry-run they are skipped,
+even when a prerequisite is also blocked. Their command, arguments, and
+environment-reference bindings remain disclosed. Passive observations and
+previous-attempt evidence do not become current execution outcomes or authority.
 
 For locked Pi and OpenCode extension order, apply settles required carrier
 changes first, re-reads the selected host files, and plans from that fresh

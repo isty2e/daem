@@ -227,7 +227,7 @@ func TestManagedSkillAdmittedRootSelectionRelocatesWithinScope(t *testing.T) {
 	}
 	stdout, stderr, exitCode := runManagedSkillCLI("apply", "--manifest", manifestPath, "--dry-run")
 	if exitCode != 0 || stderr != "" ||
-		!strings.Contains(stdout, "dry-run: 1 output") ||
+		!strings.Contains(stdout, "dry-run: 1 output entry") ||
 		!strings.Contains(stdout, `destination=".agents/skills/oracle"`) ||
 		!strings.Contains(stdout, `detail="managed destination changed"`) {
 		t.Fatalf("relocation dry-run exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)

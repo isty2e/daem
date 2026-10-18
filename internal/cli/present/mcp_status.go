@@ -7,6 +7,7 @@ import (
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	"github.com/isty2e/daem/internal/assurance/runtimeprobe"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 )
 
 // MCPStatus is the presentation DTO for passive MCP status rows grouped by evidence axis.
@@ -65,11 +66,7 @@ func MCPStatusesFrom(observations []mcpobserve.LockedProjectionObservation) ([]M
 		host := observation.Host()
 		status.Host = append(status.Host, MCPStatusDimension{Dimension: "host_prerequisite", State: string(host.State()), Reason: string(host.Reason()), Detail: host.Detail()})
 		subject := observation.Subject()
-		status.Subject = MCPSubject{
-			Kind:      string(subject.Kind()),
-			Namespace: subject.Namespace(),
-			Name:      subject.Key(),
-		}
+		status.Subject = mcpSubjectFromID(subject)
 		status.Target = string(observation.Target())
 		status.Scope = string(observation.Scope())
 		status.ConfigPath = observation.ConfigPath().String()
@@ -185,19 +182,32 @@ func PrintMCPStatusesWithOptions(output io.Writer, statuses []MCPStatus, options
 			status.Scope,
 		)
 		if options.Verbose {
-			fmt.Fprintf(output, " config_path=%q content_path=%q adapter_contract=%q", status.ConfigPath, status.ContentPath, status.AdapterContractVersion)
-			if status.CurrentProviderVersion != "" {
-				fmt.Fprintf(output, " provider_version=%q", status.CurrentProviderVersion)
-			}
+			printMCPStatusMetadata(output, status)
 		}
 		fmt.Fprintln(output)
-		printMCPStatusDimensionGroup(output, "projection", selectedMCPDimensions(status.Projection, options))
-		printMCPStatusDimensionGroup(output, "host", selectedMCPDimensions(status.Host, options))
-		printMCPStatusDimensionGroup(output, "delegate", selectedMCPDimensions(status.Delegate, options))
-		printMCPStatusDimensionGroup(output, "runtime", selectedMCPDimensions(status.Runtime, options))
-		printMCPStatusDimensionGroup(output, "residue", selectedMCPDimensions(status.Residue, options))
-		printMCPStatusDimensionGroup(output, "other", selectedMCPDimensions(status.Other, options))
+		printMCPStatusDimensions(output, status, options)
 	}
+}
+
+func printMCPStatusMetadata(output io.Writer, status MCPStatus) {
+	fmt.Fprintf(output, " config_path=%s content_path=%s adapter_contract=%s",
+		Quote(status.ConfigPath), Quote(status.ContentPath), Quote(status.AdapterContractVersion))
+	if status.CurrentProviderVersion != "" {
+		fmt.Fprintf(output, " provider_version=%s", Quote(status.CurrentProviderVersion))
+	}
+}
+
+func mcpSubjectFromID(subject topology.SubjectID) MCPSubject {
+	return MCPSubject{Kind: string(subject.Kind()), Namespace: subject.Namespace(), Name: subject.Key()}
+}
+
+func printMCPStatusDimensions(output io.Writer, status MCPStatus, options HumanOptions) {
+	printMCPStatusDimensionGroup(output, "projection", selectedMCPDimensions(status.Projection, options))
+	printMCPStatusDimensionGroup(output, "host", selectedMCPDimensions(status.Host, options))
+	printMCPStatusDimensionGroup(output, "previous command", selectedMCPDimensions(status.Delegate, options))
+	printMCPStatusDimensionGroup(output, "runtime", selectedMCPDimensions(status.Runtime, options))
+	printMCPStatusDimensionGroup(output, "residue", selectedMCPDimensions(status.Residue, options))
+	printMCPStatusDimensionGroup(output, "other", selectedMCPDimensions(status.Other, options))
 }
 
 func exceptionalMCPStatuses(statuses []MCPStatus) []MCPStatus {

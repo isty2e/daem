@@ -31,7 +31,7 @@ func TestBuiltCLIEmptyManifestStatusAndApplyDryRun(t *testing.T) {
 		{
 			name:        "status human",
 			args:        []string{"status", "--manifest", "daem.toml"},
-			humanMarker: "status: 0 outputs (up to date=0 changes=0)",
+			humanMarker: "status: 0 output entries (current=0 pending=0 blocked=0)",
 		},
 		{
 			name:        "status JSON",
@@ -41,7 +41,7 @@ func TestBuiltCLIEmptyManifestStatusAndApplyDryRun(t *testing.T) {
 		{
 			name:        "apply dry-run human",
 			args:        []string{"apply", "--manifest", "daem.toml", "--dry-run"},
-			humanMarker: "dry-run: 0 outputs (up to date=0 changes=0)",
+			humanMarker: "dry-run: 0 output entries (current=0 pending=0 blocked=0)",
 		},
 		{
 			name:        "apply dry-run JSON",

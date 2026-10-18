@@ -90,7 +90,7 @@ func TestClaudeGlobalExtensionCarrierApplyDryRunHumanJSONParity(t *testing.T) {
 	}
 	humanOutput := stdout.String()
 	for _, want := range []string{
-		"dry-run: 0 outputs",
+		"dry-run: 0 output entries",
 		"relation actions: 1 entry",
 		"kind=create",
 		"subject=\"host_relation/" + "claude-code.plugin-carrier" + "/context7-global\"",

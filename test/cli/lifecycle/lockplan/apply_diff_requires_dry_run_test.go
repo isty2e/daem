@@ -57,7 +57,7 @@ source = "instructions/AGENTS.md"
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		"dry-run: 1 output",
+		"dry-run: 1 output entry",
 		`create resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_output`,
 		"diff: 1 file",
 		`diff resource="instruction/project" target=codex scope=project destination="AGENTS.md"`,

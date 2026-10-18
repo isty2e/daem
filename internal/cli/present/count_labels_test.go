@@ -63,13 +63,13 @@ func TestHumanCountLabelsDescribeProjectionOutputsInBothModes(t *testing.T) {
 		plan reconcile.Result
 		want string
 	}{
-		{name: "empty", want: "0 outputs"},
-		{name: "aggregate contribution", plan: mcpProjectionPlan(t), want: "1 output"},
+		{name: "empty", want: "0 output entries"},
+		{name: "aggregate contribution", plan: mcpProjectionPlan(t), want: "1 output entry"},
 	} {
 		for _, verbose := range []bool{false, true} {
 			t.Run(test.name+"/verbose="+strconv.FormatBool(verbose), func(t *testing.T) {
 				var output bytes.Buffer
-				PrintActionPlanWithOptions(&output, "status", test.plan, HumanOptions{Verbose: verbose})
+				PrintActionPlanWithOptions(&output, "status", HumanPlanInput{Reconciliation: test.plan}, HumanOptions{Verbose: verbose})
 				header, _, _ := strings.Cut(output.String(), "\n")
 				prefix := "status: " + test.want
 				if header != prefix && !strings.HasPrefix(header, prefix+" (") {

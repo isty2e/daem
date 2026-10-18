@@ -56,7 +56,7 @@ source = "instructions/AGENTS.md"
 		t.Fatalf("statusExitCode = %d, stderr = %q", statusExitCode, statusStderr.String())
 	}
 	for _, want := range []string{
-		"status: 1 output",
+		"status: 1 output entry",
 		`noop resource="instruction/project" target=codex`,
 		"reason=already_current",
 	} {
@@ -136,7 +136,7 @@ source = "instructions/AGENTS.md"
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 	for _, want := range []string{
-		"dry-run: 1 output",
+		"dry-run: 1 output entry",
 		`record resource="instruction/project" target=codex`,
 		"reason=managed_existing",
 	} {
