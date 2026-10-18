@@ -237,16 +237,14 @@ func selectedMCPBinding(
 	}
 	if len(matches) == 0 {
 		if len(rejected) == 1 {
-			return desiredmcp.Server{}, desiredmcp.Binding{}, fmt.Errorf(
-				"mcp_server %q runtime-probe admission: %w",
-				name,
-				rejected[0],
-			)
+			return desiredmcp.Server{}, desiredmcp.Binding{}, BindingAdmissionError{Name: name, Err: rejected[0]}
 		}
-		return desiredmcp.Server{}, desiredmcp.Binding{}, fmt.Errorf("mcp_server %q has no admitted runtime-probe row matching target=%s scope=%s", name, selectedTarget, selectedScope)
+		return desiredmcp.Server{}, desiredmcp.Binding{}, NoAdmittedBindingError{
+			Name: name, Target: selectedTarget, Scope: selectedScope,
+		}
 	}
 	if len(matches) > 1 {
-		return desiredmcp.Server{}, desiredmcp.Binding{}, fmt.Errorf("mcp_server %q is ambiguous across %d runtime-probe rows; narrow with --target and --scope", name, len(matches))
+		return desiredmcp.Server{}, desiredmcp.Binding{}, AmbiguousBindingError{Name: name, Matches: len(matches)}
 	}
 	return matches[0].server, matches[0].binding, nil
 }
