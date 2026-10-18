@@ -20,15 +20,16 @@ type RoutePair struct {
 	Remove string
 }
 
-// Seed is an explicit join of owner-local MCP catalogs. Empty Bindings derive
-// one default MCP surface per placement.
+// Seed joins owner-local MCP catalogs with static observer registrations.
+// Empty Bindings derive one default MCP surface per placement.
 type Seed struct {
-	Bindings    []SurfaceBinding
-	Placements  []aggregate.MCPPlacement
-	Namespaces  []topologymcp.ProjectionNamespace
-	Routes      map[aggregate.MCPPlacementID]RoutePair
-	Probes      []profile.MCPRuntimeProbeCapability
-	ProviderFor map[target.Target]struct{}
+	Bindings           []SurfaceBinding
+	Placements         []aggregate.MCPPlacement
+	Namespaces         []topologymcp.ProjectionNamespace
+	Routes             map[aggregate.MCPPlacementID]RoutePair
+	Probes             []profile.MCPRuntimeProbeCapability
+	EffectiveObservers []aggregate.MCPPlacementID
+	ProviderFor        map[target.Target]struct{}
 }
 
 func productSeed() Seed {
@@ -48,10 +49,11 @@ func productSeed() Seed {
 		}
 	}
 	return Seed{
-		Placements:  placements,
-		Namespaces:  topologymcp.ImplementedProjectionNamespaces(),
-		Routes:      routes,
-		Probes:      profile.MCPRuntimeProbeCapabilities(),
-		ProviderFor: providerFor,
+		Placements:         placements,
+		Namespaces:         topologymcp.ImplementedProjectionNamespaces(),
+		Routes:             routes,
+		Probes:             profile.MCPRuntimeProbeCapabilities(),
+		EffectiveObservers: []aggregate.MCPPlacementID{aggregate.MCPPlacementPiProject, aggregate.MCPPlacementPiGlobal},
+		ProviderFor:        providerFor,
 	}
 }

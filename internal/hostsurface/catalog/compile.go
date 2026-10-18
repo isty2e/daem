@@ -128,7 +128,12 @@ func Compile(seed Seed) (Catalog, error) {
 	if err != nil {
 		return Catalog{}, err
 	}
+	effectiveObservers, err := uniqueEffectiveObservers(seed.EffectiveObservers, referencedPlacements)
+	if err != nil {
+		return Catalog{}, err
+	}
 	for index := range views {
+		_, views[index].hasEffectiveObserver = effectiveObservers[views[index].placement.ID()]
 		if probe, ok := probes[views[index].placement.ID()]; ok {
 			views[index].runtimeProbe = probe
 			views[index].hasRuntimeProbe = true
@@ -275,6 +280,23 @@ func rejectExtraPlacements(
 		}
 	}
 	return nil
+}
+
+func uniqueEffectiveObservers(
+	placements []aggregate.MCPPlacementID,
+	referenced map[aggregate.MCPPlacementID]struct{},
+) (map[aggregate.MCPPlacementID]struct{}, error) {
+	out := make(map[aggregate.MCPPlacementID]struct{}, len(placements))
+	for _, id := range placements {
+		if _, known := referenced[id]; !known {
+			return nil, fmt.Errorf("host-surface catalog: effective observer for unreferenced placement %q", id)
+		}
+		if _, duplicate := out[id]; duplicate {
+			return nil, fmt.Errorf("host-surface catalog: duplicate effective observer for %q", id)
+		}
+		out[id] = struct{}{}
+	}
+	return out, nil
 }
 
 func rejectExtraNamespaces(

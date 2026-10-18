@@ -128,7 +128,7 @@ func mcpStatusEvidenceWithProvider(
 		},
 		Host: []MCPStatusDimension{
 			mcpStatusDimension("same_scope_ownership", string(current.Ownership.State), string(current.Ownership.Reason)),
-			mcpStatusDimension("effective_shadowing", string(current.Shadowing.State), string(current.Shadowing.Reason)),
+			shadowStatusDimension(current.Shadowing),
 			mcpStatusDimension("provider_prerequisite", string(provider.State()), string(provider.Reason())),
 		},
 		Delegate: []MCPStatusDimension{
@@ -149,6 +149,14 @@ func mcpStatusEvidenceWithProvider(
 
 func runtimeStatusDimension(dimension runtimeprobe.Dimension, observation runtimeprobe.ReadinessObservation) MCPStatusDimension {
 	return mcpStatusDimension(string(dimension), string(observation.State()), string(observation.Reason()))
+}
+
+func shadowStatusDimension(observation mcpobserve.ShadowObservation) MCPStatusDimension {
+	state := string(observation.State)
+	if observation.State == mcpobserve.ShadowObserverUnsupported {
+		state = "unobserved"
+	}
+	return mcpStatusDimension("effective_shadowing", state, string(observation.Reason))
 }
 
 func mcpStatusDimension(dimension string, state string, reason string) MCPStatusDimension {
@@ -255,7 +263,8 @@ func routineMCPDimension(dimension MCPStatusDimension) bool {
 	case "same_scope_ownership":
 		return dimension.State == string(mcpobserve.OwnershipAdopted) && dimension.Reason == ""
 	case "effective_shadowing":
-		return dimension.State == string(mcpobserve.ShadowUnshadowed) && dimension.Reason == ""
+		return (dimension.State == string(mcpobserve.ShadowUnshadowed) && dimension.Reason == "") ||
+			(dimension.State == "unobserved" && dimension.Reason == string(mcpobserve.ReasonEffectiveObserverUnsupported))
 	case "delegate_last_attempt":
 		return (dimension.State == string(mcpobserve.DelegateAttemptSucceeded) && dimension.Reason == "") ||
 			(dimension.State == string(mcpobserve.DelegateAttemptNotObserved) && dimension.Reason == string(mcpobserve.ReasonLastDelegateAttemptUnobserved))

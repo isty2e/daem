@@ -266,9 +266,14 @@ daem apply --target pi --dry-run --diff
   unowned eager entry may execute before trust. Daem authors lazy entries but
   does not sanitize other project MCP files. Review `.mcp.json` and
   `.pi/mcp.json` before using a global provider.
-- `effective_shadowing` names a higher-layer same-name definition. Review the
-  six provider layers in the Host Integration Contract; daem mutates only the
+- A conflicting `effective_shadowing` names a higher-layer same-name definition.
+  Review the six provider layers in the Host Integration Contract; daem mutates only the
   selected `.pi/mcp.json` or agent-root `mcp.json`.
+- `EFFECTIVE_STATE_UNOBSERVED` means a supported effective-config observer lacks
+  usable current evidence. Inspect the reported Pi layers before treating the
+  binding as unshadowed. `EFFECTIVE_OBSERVER_UNSUPPORTED` instead identifies a
+  placement without that observer; it is available in verbose/JSON output,
+  not repeated as a per-resource basic warning.
 - After removing a managed binding, a lower unowned definition may become
   effective. That is reported as fallback, not deleted.
 - If the package was manually removed or disabled, rerun the reviewed apply.

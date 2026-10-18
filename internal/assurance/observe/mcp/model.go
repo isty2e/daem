@@ -19,6 +19,7 @@ const (
 	ReasonRoutePreexistingUnowned        ReasonCode = "ROUTE_PREEXISTING_UNOWNED"
 	ReasonOwnershipStateUnobserved       ReasonCode = "OWNERSHIP_STATE_UNOBSERVED"
 	ReasonEffectiveStateUnobserved       ReasonCode = "EFFECTIVE_STATE_UNOBSERVED"
+	ReasonEffectiveObserverUnsupported   ReasonCode = "EFFECTIVE_OBSERVER_UNSUPPORTED"
 	ReasonProjectionEquivalenceUndefined ReasonCode = "PROJECTION_EQUIVALENCE_UNDEFINED"
 	ReasonConfigMalformed                ReasonCode = "CONFIG_MALFORMED"
 	ReasonUnsupportedTransport           ReasonCode = "UNSUPPORTED_TRANSPORT"
@@ -73,6 +74,7 @@ const (
 	ShadowLowerPrecedenceUserConflict ShadowState = "lower_precedence_user_conflict"
 	ShadowCarrierCollision            ShadowState = "carrier_collision"
 	ShadowUnknown                     ShadowState = "unknown"
+	ShadowObserverUnsupported         ShadowState = "observer_unsupported"
 )
 
 // DelegateAttemptState records last attempt diagnostics without implying runtime readiness.

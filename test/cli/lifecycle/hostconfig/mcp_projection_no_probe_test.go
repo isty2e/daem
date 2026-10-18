@@ -145,7 +145,10 @@ func TestMCPPublicCLIDoesNotInvokeCommandsOnGlobalProjectionLifecyclePaths(t *te
 			execcheck.AssertClean(t, canary, test.name+" apply dry-run create")
 			runMCPCLIExpect(t, 1, test.name+" status check before apply", "status", "--manifest", project.manifestPath, "--target", test.target, "--check", "--json")
 			execcheck.AssertClean(t, canary, test.name+" status check before apply")
-			runMCPCLIExpect(t, 0, test.name+" apply write create", "apply", "--manifest", project.manifestPath, "--target", test.target, "--yes", "--json")
+			applied := runMCPCLIExpect(t, 0, test.name+" apply write create", "apply", "--manifest", project.manifestPath, "--target", test.target, "--yes", "--json")
+			if result := clijson.DecodeApplyResult(t, []byte(applied)); len(result.MCPStatuses) != 0 {
+				t.Fatalf("successful apply exposed stale planning MCP facts: %#v", result.MCPStatuses)
+			}
 			execcheck.AssertClean(t, canary, test.name+" apply write create")
 			runMCPCLIExpect(t, 0, test.name+" status check after apply", "status", "--manifest", project.manifestPath, "--target", test.target, "--check", "--json")
 			execcheck.AssertClean(t, canary, test.name+" status check after apply")
@@ -178,6 +181,7 @@ func TestMCPPublicCLIApplyDelegatedRouteInvokesLockedCommandOnlyAfterConfirmatio
 		t.Fatalf("ordinary apply attempt exitCode=%d stdout=%q stderr=%q, want failed attempt JSON only", exitCode, stdout, stderr)
 	}
 	payload := clijson.DecodeApplyResult(t, []byte(stdout))
+	assertMCPJSONDimension(t, clijson.Plan{MCPStatuses: payload.MCPStatuses}, "effective_shadowing", "unobserved", "EFFECTIVE_OBSERVER_UNSUPPORTED")
 	clijson.RequireApplyFailure(
 		t,
 		payload,

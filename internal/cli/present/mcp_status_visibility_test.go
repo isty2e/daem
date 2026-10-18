@@ -2,8 +2,12 @@ package clipresent
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
+
+	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
 func TestMCPDefaultVisibilityKeepsUnknownAndFailedFacts(t *testing.T) {
@@ -17,6 +21,7 @@ func TestMCPDefaultVisibilityKeepsUnknownAndFailedFacts(t *testing.T) {
 		{name: "matching success", dimension: MCPStatusDimension{Dimension: "delegate_last_attempt", State: "succeeded"}, quiet: true},
 		{name: "no matching history", dimension: MCPStatusDimension{Dimension: "delegate_last_attempt", State: "not_observed", Reason: "LAST_DELEGATE_ATTEMPT_UNOBSERVED"}, quiet: true},
 		{name: "actual effective uncertainty", dimension: MCPStatusDimension{Dimension: "effective_shadowing", State: "unobserved", Reason: "EFFECTIVE_STATE_UNOBSERVED"}},
+		{name: "no catalogued effective observer", dimension: MCPStatusDimension{Dimension: "effective_shadowing", State: "unobserved", Reason: "EFFECTIVE_OBSERVER_UNSUPPORTED"}, quiet: true},
 		{name: "ownership uncertainty", dimension: MCPStatusDimension{Dimension: "same_scope_ownership", State: "unobserved", Reason: "OWNERSHIP_STATE_UNOBSERVED"}},
 		{name: "failed attempt", dimension: MCPStatusDimension{Dimension: "delegate_last_attempt", State: "failed", Reason: "DELEGATE_TIMEOUT"}},
 		{name: "stale attempt", dimension: MCPStatusDimension{Dimension: "delegate_last_attempt", State: "stale", Reason: "LAST_DELEGATE_ATTEMPT_STALE"}},
@@ -41,5 +46,43 @@ func TestMCPDefaultVisibilityKeepsUnknownAndFailedFacts(t *testing.T) {
 				t.Fatalf("verbose lost evidence: %s", verbose.String())
 			}
 		})
+	}
+}
+
+func TestMCPObservationCauseSurvivesPlanAndApplyJSON(t *testing.T) {
+	for _, observation := range []mcpobserve.ShadowObservation{
+		{State: mcpobserve.ShadowObserverUnsupported, Reason: mcpobserve.ReasonEffectiveObserverUnsupported},
+		{State: mcpobserve.ShadowUnknown, Reason: mcpobserve.ReasonEffectiveStateUnobserved},
+	} {
+		status := MCPStatus{Host: []MCPStatusDimension{shadowStatusDimension(observation)}}
+		var plan, applied bytes.Buffer
+		if err := PrintPlanJSON(&plan, PlanJSONInput{Reconciliation: mcpProjectionPlan(t), MCPStatuses: []MCPStatus{status}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := PrintApplyResultJSON(&applied, ApplyResultJSONInput{MCPStatuses: []MCPStatus{status}}); err != nil {
+			t.Fatal(err)
+		}
+		for _, envelope := range []struct {
+			data    []byte
+			version int
+		}{
+			{plan.Bytes(), contractversion.ReconciliationPlanJSON},
+			{applied.Bytes(), contractversion.ApplyResultJSON},
+		} {
+			var payload struct {
+				Version  int         `json:"schema_version"`
+				Statuses []MCPStatus `json:"mcp_statuses"`
+			}
+			if err := json.Unmarshal(envelope.data, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Version != envelope.version || len(payload.Statuses) != 1 || len(payload.Statuses[0].Host) != 1 {
+				t.Fatalf("missing versioned status evidence: %s", envelope.data)
+			}
+			dimension := payload.Statuses[0].Host[0]
+			if dimension.Dimension != "effective_shadowing" || dimension.State != "unobserved" || dimension.Reason != string(observation.Reason) {
+				t.Fatalf("wire projection conflates observation causes: %#v", dimension)
+			}
+		}
 	}
 }

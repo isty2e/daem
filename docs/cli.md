@@ -331,8 +331,8 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list resources` | Resource inventory | `3` |
 | `list outputs` | Output inventory | `5` |
 | `list paths` | Agent location inventory | `2` |
-| `status`, `apply --dry-run` | Reconciliation plan | `16` |
-| confirmed `apply` | Apply result | `22` |
+| `status`, `apply --dry-run` | Reconciliation plan | `17` |
+| confirmed `apply` | Apply result | `23` |
 | `recover` | Recovery plan/result | `10` |
 | `migrate state` | State-authority migration | `1` |
 | `doctor` | Passive diagnostics | `2` |
@@ -350,6 +350,13 @@ is unchanged. Command input syntax and persisted formats are unchanged.
 Plan and apply results retain per-binding MCP `host_prerequisite` evidence,
 optional dimension `detail`, the unsupported Pi backend-transition
 classification, managed Pi Git pin-change actions and `pin_change` disclosure.
+
+Plan version `17` and apply-result version `23` distinguish an unsupported MCP
+effective observer from a supported observer whose evidence is unavailable.
+Both use `state: "unobserved"`; `EFFECTIVE_OBSERVER_UNSUPPORTED` replaces the
+previous `EFFECTIVE_STATE_UNOBSERVED` reason only for the unsupported case.
+Consumers of the earlier versions must not interpret the new reason as an
+observation failure or a claim that no shadowing definition exists.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject
@@ -1083,6 +1090,12 @@ reason fields, hashes, route ids, and exhaustive evidence arrays remain
 verbose-only. Relation-action rows, including no-ops, remain visible.
 `--verbose` expands every ordinary row with bounded causal fields; MCP rows
 retain their canonical subject alongside the public resource reference.
+Routine MCP facts include adopted ownership, unshadowed configuration, a
+matching successful command attempt, and no recorded matching attempt. These
+are omitted from basic output, as is structurally unsupported effective
+observation. Genuine unobserved effective state, conflicts, stale/failed/blocked
+attempts and selected command plans remain visible. Omission does not claim
+runtime readiness; `--verbose` and JSON retain the individual facts.
 
 The table below describes exit codes for valid status results. Command failures
 still return `1` before or while emitting their applicable result contract.
@@ -1222,6 +1235,14 @@ order only; Pi rows describe runtime precedence. A carrier install or removal
 that must settle first is reported as `conditional_after_carrier_change`
 instead of an executable order mutation.
 
+For `effective_shadowing`, `state: "unobserved"` with reason
+`EFFECTIVE_OBSERVER_UNSUPPORTED` means the catalog does not provide an
+effective-config observer for that placement. Only Pi placements currently
+provide one, for both Adapter and Native backends. `EFFECTIVE_STATE_UNOBSERVED`
+instead means current evidence from a supported observer is unavailable or
+unobservable, such as an opaque Pi config layer; it remains individually
+visible in basic output. Neither reason means the binding is unshadowed.
+
 Relation-order `detail` is path-neutral prose derived from typed reasons or
 outcomes; raw evidence is verbose-only. Local or opaque source namespaces,
 references, subject keys, order identities, and carrier keys use deterministic
@@ -1273,6 +1294,11 @@ gives target, scope, class, physical sequence, `exact` / `converged` / `failed`
 / `not_attempted`, whether changed, and failure detail when present. Earlier
 document success may survive later failure: no cross-document rollback is
 promised. Retry reobserves every selected sequence and continues idempotently.
+
+Reconciliation-ready planning failures and execution failures may also include
+`mcp_statuses`. These are passive facts collected during planning, not a fresh
+observation of the post-failure host state or proof of runtime readiness.
+Successful apply results omit this field; run `status` for current observations.
 
 In plan and confirmed-apply JSON, `host_route_attempts` is omitted when empty.
 Its bounded records are history-only diagnostics, not proof of current

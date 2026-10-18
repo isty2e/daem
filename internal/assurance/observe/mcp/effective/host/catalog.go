@@ -187,12 +187,11 @@ func Observe(input Input) (ObservationSet, error) {
 	}
 	for _, contract := range input.Contracts {
 		subject := contract.SubjectID()
-		provider, providerMediated := contract.MCPProviderContribution()
-		view, pi := catalog.Product().LookupMCPBySubject(subject)
-		pi = pi && (view.Placement().ID() == aggregate.MCPPlacementPiProject || view.Placement().ID() == aggregate.MCPPlacementPiGlobal)
-		if !providerMediated && !pi {
+		view, admitted := catalog.Product().LookupMCPBySubject(subject)
+		if !admitted || !view.SupportsObservation(catalog.ObservationEffectiveConfiguration) {
 			continue
 		}
+		provider, providerMediated := contract.MCPProviderContribution()
 		if providerMediated && (provider.Kind() != "mcp-client" || provider.Key() != "default") {
 			return ObservationSet{}, fmt.Errorf(
 				"provider-mediated MCP subject %q has unsupported contribution %q/%q",
@@ -225,9 +224,7 @@ func Observe(input Input) (ObservationSet, error) {
 				projection.SubjectID(),
 			)
 		}
-		switch view.Placement().ID() {
-		case aggregate.MCPPlacementPiProject, aggregate.MCPPlacementPiGlobal:
-		default:
+		if !view.SupportsObservation(catalog.ObservationEffectiveConfiguration) {
 			continue
 		}
 		observation, err := observeProjection(projection, true)

@@ -57,7 +57,7 @@ func TestMCPPublicCLIProjectionLifecycleCoversApplyStatusUpdateRemoval(t *testin
 	}
 	assertMCPJSONDimension(t, statusPayload, "project_projection", "projected", "")
 	assertMCPJSONDimension(t, statusPayload, "same_scope_ownership", "managed", "")
-	assertMCPJSONDimension(t, statusPayload, "effective_shadowing", "unobserved", "EFFECTIVE_STATE_UNOBSERVED")
+	assertMCPJSONDimension(t, statusPayload, "effective_shadowing", "unobserved", "EFFECTIVE_OBSERVER_UNSUPPORTED")
 	assertMCPJSONDimension(t, statusPayload, "runtime_launcher", "not_probed", "RUNTIME_NOT_PROBED")
 	assertMCPJSONDimension(t, statusPayload, "protocol_initialize", "not_probed", "RUNTIME_NOT_PROBED")
 	assertMCPJSONDimension(t, statusPayload, "runtime_authentication", "not_probed", "RUNTIME_NOT_PROBED")
