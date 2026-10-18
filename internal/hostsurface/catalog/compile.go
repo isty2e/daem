@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/hostsurface"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -133,8 +134,20 @@ func Compile(seed Seed) (Catalog, error) {
 		return Catalog{}, err
 	}
 	for index := range views {
-		_, views[index].hasEffectiveObserver = effectiveObservers[views[index].placement.ID()]
-		if probe, ok := probes[views[index].placement.ID()]; ok {
+		placementID := views[index].placement.ID()
+		_, views[index].hasEffectiveObserver = effectiveObservers[placementID]
+		requiresProvider, err := lock.MCPPlacementRequiresProviderContribution(placementID)
+		if err != nil {
+			return Catalog{}, fmt.Errorf("host-surface catalog: %w", err)
+		}
+		if requiresProvider && !views[index].hasEffectiveObserver {
+			return Catalog{}, fmt.Errorf(
+				"host-surface catalog: provider-mediated MCP placement %q has no effective-state observer",
+				placementID,
+			)
+		}
+
+		if probe, ok := probes[placementID]; ok {
 			views[index].runtimeProbe = probe
 			views[index].hasRuntimeProbe = true
 		}

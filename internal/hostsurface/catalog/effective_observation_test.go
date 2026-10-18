@@ -10,18 +10,17 @@ import (
 
 func TestEffectiveObservationCapabilityIsExplicitCatalogRegistration(t *testing.T) {
 	seed := productSeed()
-	seed.EffectiveObservers = nil
 	without, err := Compile(seed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := mustMCPKey(t, target.TargetPi, target.ScopeProject)
+	key := mustMCPKey(t, target.TargetOpenCode, target.ScopeProject)
 	view, present := without.Lookup(key)
 	if !present || view.SupportsObservation(ObservationEffectiveConfiguration) || slices.Contains(view.ObservationPurposes(), ObservationEffectiveConfiguration) {
-		t.Fatal("Pi identity alone manufactured an observation capability")
+		t.Fatal("placement identity alone manufactured an observation capability")
 	}
 
-	seed.EffectiveObservers = []aggregate.MCPPlacementID{aggregate.MCPPlacementPiProject}
+	seed.EffectiveObservers = append(seed.EffectiveObservers, aggregate.MCPPlacementOpenCodeProject)
 	with, err := Compile(seed)
 	if err != nil {
 		t.Fatal(err)
@@ -30,12 +29,52 @@ func TestEffectiveObservationCapabilityIsExplicitCatalogRegistration(t *testing.
 	if !present || !view.SupportsObservation(ObservationEffectiveConfiguration) || !slices.Contains(view.ObservationPurposes(), ObservationEffectiveConfiguration) {
 		t.Fatal("registered observation capability was not compiled")
 	}
-	global, present := with.Lookup(mustMCPKey(t, target.TargetPi, target.ScopeGlobal))
+	global, present := with.Lookup(mustMCPKey(t, target.TargetOpenCode, target.ScopeGlobal))
 	if !present || global.SupportsObservation(ObservationEffectiveConfiguration) {
 		t.Fatal("project registration leaked into another placement")
 	}
 	if view.SupportsObservation(ObservationPurpose("future_purpose")) {
 		t.Fatal("unregistered future observation purpose was admitted")
+	}
+}
+
+func TestCompileRejectsProviderPlacementWithoutEffectiveObserver(t *testing.T) {
+	for _, missing := range []aggregate.MCPPlacementID{
+		aggregate.MCPPlacementPiProject,
+		aggregate.MCPPlacementPiGlobal,
+	} {
+		t.Run(string(missing), func(t *testing.T) {
+			seed := productSeed()
+			seed.ProviderFor = nil
+			seed.EffectiveObservers = slices.DeleteFunc(seed.EffectiveObservers, func(id aggregate.MCPPlacementID) bool {
+				return id == missing
+			})
+
+			compiled, err := Compile(seed)
+			if err == nil {
+				t.Fatal("provider-required placement compiled without an effective observer")
+			}
+			if len(compiled.Surfaces()) != 0 {
+				t.Fatal("failed compilation published a partial catalog")
+			}
+		})
+	}
+}
+
+func TestProviderAuthoringAdmissionDoesNotRequireEffectiveObservation(t *testing.T) {
+	seed := productSeed()
+	seed.ProviderFor[target.TargetClaudeCode] = struct{}{}
+	compiled, err := Compile(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	view, present := compiled.Lookup(mustMCPKey(t, target.TargetClaudeCode, target.ScopeProject))
+	if !present || !view.ProviderAuthoringAdmitted() {
+		t.Fatal("provider authoring admission was not compiled")
+	}
+	if view.SupportsObservation(ObservationEffectiveConfiguration) {
+		t.Fatal("provider authoring admission manufactured an observation capability")
 	}
 }
 
