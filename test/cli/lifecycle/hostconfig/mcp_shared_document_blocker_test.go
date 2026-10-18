@@ -105,6 +105,18 @@ scope = "project"
 		t.Fatal("dry-run changed fixture files or state")
 	}
 
+	exit, stdout, stderr = run("apply", "--yes", "--json")
+	if exit != 1 || stderr != "" {
+		t.Fatalf("blocked JSON apply exit=%d stdout=%q stderr=%q", exit, stdout, stderr)
+	}
+	refusal := clijson.DecodeApplyResult(t, []byte(stdout))
+	if !refusal.HasErrors || len(refusal.MCPStatuses) != 2 {
+		t.Fatalf("ready-plan refusal lost MCP evidence: %#v", refusal)
+	}
+	for _, status := range refusal.MCPStatuses {
+		assertMCPJSONDimension(t, clijson.Plan{MCPStatuses: []clijson.MCPStatus{status}}, "effective_shadowing", "unobserved", "EFFECTIVE_OBSERVER_UNSUPPORTED")
+	}
+
 	exit, stdout, stderr = run("apply", "--yes")
 	if exit != 1 {
 		t.Fatalf("blocked apply exit=%d stdout=%q stderr=%q", exit, stdout, stderr)

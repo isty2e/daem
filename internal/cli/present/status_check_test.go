@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
 func TestPrintPlanJSONPreservesExplicitCheckCleanValues(t *testing.T) {
@@ -25,8 +27,8 @@ func TestPrintPlanJSONPreservesExplicitCheckCleanValues(t *testing.T) {
 			if err := json.Unmarshal(output.Bytes(), &report); err != nil {
 				t.Fatal(err)
 			}
-			if report.SchemaVersion != 16 || report.CheckClean == nil || *report.CheckClean != clean {
-				t.Fatalf("mode=%s schema_version=%d check_clean=%v, want explicit %t in version16", mode, report.SchemaVersion, report.CheckClean, clean)
+			if report.SchemaVersion != contractversion.ReconciliationPlanJSON || report.CheckClean == nil || *report.CheckClean != clean {
+				t.Fatalf("mode=%s schema_version=%d check_clean=%v, want explicit %t in version%d", mode, report.SchemaVersion, report.CheckClean, clean, contractversion.ReconciliationPlanJSON)
 			}
 		}
 	}

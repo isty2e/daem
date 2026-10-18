@@ -474,6 +474,9 @@ func assertMCPPublicExampleStatusPayload(
 	}
 	assertMCPJSONDimensionInGroup(t, payload, "projection", projectionDimension, "projected", "")
 	assertMCPJSONDimensionInGroup(t, payload, "host", "same_scope_ownership", "managed", "")
+	if placement.Target() != target.TargetPi {
+		assertMCPJSONDimensionInGroup(t, payload, "host", "effective_shadowing", "unobserved", "EFFECTIVE_OBSERVER_UNSUPPORTED")
+	}
 	if test.providerVersion != "" {
 		if status.CurrentProviderVersion != test.providerVersion {
 			t.Fatalf("provider version = %q, want %q", status.CurrentProviderVersion, test.providerVersion)

@@ -87,14 +87,17 @@ func TestProductCatalogMatchesOwnerMCPRows(t *testing.T) {
 		if placement.Target() == target.TargetPi {
 			piCodecs[placement.CodecContractID()]++
 		}
+		var wantPurposes []ObservationPurpose
 		if _, hasProbe := view.RuntimeProbe(); hasProbe {
 			probeCount++
-			purposes := view.ObservationPurposes()
-			if len(purposes) != 1 || purposes[0] != ObservationRuntimeProbe {
-				t.Fatalf("probe purposes = %v", purposes)
-			}
-		} else if len(view.ObservationPurposes()) != 0 {
-			t.Fatalf("unexpected purposes %v", view.ObservationPurposes())
+			wantPurposes = append(wantPurposes, ObservationRuntimeProbe)
+		}
+		wantEffective := placement.ID() == aggregate.MCPPlacementPiProject || placement.ID() == aggregate.MCPPlacementPiGlobal
+		if wantEffective {
+			wantPurposes = append(wantPurposes, ObservationEffectiveConfiguration)
+		}
+		if view.SupportsObservation(ObservationEffectiveConfiguration) != wantEffective || !slices.Equal(view.ObservationPurposes(), wantPurposes) {
+			t.Fatalf("observation purposes for %s = %v, want %v", placement.ID(), view.ObservationPurposes(), wantPurposes)
 		}
 	}
 

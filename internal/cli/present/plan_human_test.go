@@ -37,7 +37,7 @@ func TestPrintPlanIncludesSharedConsumerTargets(t *testing.T) {
 	})
 
 	var stdout bytes.Buffer
-	PrintActionPlanWithOptions(&stdout, "dry-run", planResult, HumanOptions{Verbose: true})
+	PrintActionPlanWithOptions(&stdout, "dry-run", HumanPlanInput{Reconciliation: planResult}, HumanOptions{Verbose: true})
 	if !strings.Contains(stdout.String(), "targets=antigravity-cli,codex") {
 		t.Fatalf("stdout = %q, want shared targets", stdout.String())
 	}
@@ -69,7 +69,7 @@ func TestPrintPlanPathsAreVerboseOnly(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var ordinary bytes.Buffer
-			PrintActionPlanWithOptions(&ordinary, "status", test.plan, HumanOptions{})
+			PrintActionPlanWithOptions(&ordinary, "status", HumanPlanInput{Reconciliation: test.plan}, HumanOptions{})
 			for _, path := range test.paths {
 				if strings.Contains(ordinary.String(), path) {
 					t.Fatalf("ordinary output disclosed path %q: %q", path, ordinary.String())
@@ -77,7 +77,7 @@ func TestPrintPlanPathsAreVerboseOnly(t *testing.T) {
 			}
 
 			var verbose bytes.Buffer
-			PrintActionPlanWithOptions(&verbose, "status", test.plan, HumanOptions{Verbose: true})
+			PrintActionPlanWithOptions(&verbose, "status", HumanPlanInput{Reconciliation: test.plan}, HumanOptions{Verbose: true})
 			for _, path := range test.paths {
 				if !strings.Contains(verbose.String(), path) {
 					t.Fatalf("verbose output omitted path %q: %q", path, verbose.String())
@@ -134,14 +134,14 @@ func TestPrintPlanKeepsOwnershipConflictProvenanceVerboseOnly(t *testing.T) {
 	})
 
 	var ordinary bytes.Buffer
-	PrintStatusPlanWithOptions(&ordinary, planResult, HumanOptions{})
+	PrintStatusPlanWithOptions(&ordinary, HumanPlanInput{Reconciliation: planResult}, HumanOptions{})
 	if !strings.Contains(ordinary.String(), "blocked: ownership conflict") ||
 		strings.Contains(ordinary.String(), "/work/left/daem.toml") {
 		t.Fatalf("ordinary output = %q, want path-neutral ownership conflict", ordinary.String())
 	}
 
 	var verbose bytes.Buffer
-	PrintStatusPlanWithOptions(&verbose, planResult, HumanOptions{Verbose: true})
+	PrintStatusPlanWithOptions(&verbose, HumanPlanInput{Reconciliation: planResult}, HumanOptions{Verbose: true})
 	if !strings.Contains(verbose.String(), "/work/left/daem.toml") {
 		t.Fatalf("verbose output = %q, want ownership provenance", verbose.String())
 	}
@@ -235,10 +235,10 @@ func TestPrintPlanHumanOutputDistinguishesRecordReasons(t *testing.T) {
 	)
 
 	var planOutput bytes.Buffer
-	PrintActionPlanWithOptions(&planOutput, "status", planResult, HumanOptions{})
+	PrintActionPlanWithOptions(&planOutput, "status", HumanPlanInput{Reconciliation: planResult}, HumanOptions{})
 	for _, want := range []string{
-		`manage existing matching output resource="skill/adopted"`,
-		`update managed ownership resource="skill/shared"`,
+		"resource=\"skill/adopted\" target=codex scope=project\n    output: manage existing matching output",
+		"resource=\"skill/shared\" target=antigravity-cli scope=project\n    output: update managed ownership",
 	} {
 		if !strings.Contains(planOutput.String(), want) {
 			t.Fatalf("plan output = %q, want %q", planOutput.String(), want)
@@ -260,14 +260,15 @@ func TestPrintPlanHumanOutputDistinguishesRecordReasons(t *testing.T) {
 	}
 }
 
-func TestPrintPlanUsesSubjectForAggregateProjectionDecisions(t *testing.T) {
+func TestPrintPlanUsesPublicMCPResourceAndKeepsVerboseSubject(t *testing.T) {
 	planResult := mcpProjectionPlan(t)
 
 	var stdout bytes.Buffer
-	PrintActionPlanWithOptions(&stdout, "dry-run", planResult, HumanOptions{Verbose: true})
+	PrintActionPlanWithOptions(&stdout, "dry-run", HumanPlanInput{Reconciliation: planResult}, HumanOptions{Verbose: true})
 
 	for _, want := range []string{
-		`create subject="projection/claude-code.project.mcp-server/context7" target=claude-code scope=project destination=".mcp.json" content_path="/mcpServers/context7" reason=missing_output`,
+		`create resource="mcp-server/context7" target=claude-code scope=project destination=".mcp.json" content_path="/mcpServers/context7" reason=missing_output`,
+		`subject="projection/claude-code.project.mcp-server/context7"`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -286,7 +287,7 @@ func TestPrintPlanShowsNonAuthoritativeMCPRemovalDetailWithoutVerbose(t *testing
 	PrintActionPlanWithOptions(
 		&stdout,
 		"dry-run",
-		planResult,
+		HumanPlanInput{Reconciliation: planResult},
 		HumanOptions{},
 	)
 	if !strings.Contains(stdout.String(), "remove managed output") ||
@@ -297,7 +298,7 @@ func TestPrintPlanShowsNonAuthoritativeMCPRemovalDetailWithoutVerbose(t *testing
 	}
 
 	var verbose bytes.Buffer
-	PrintActionPlanWithOptions(&verbose, "status", planResult, HumanOptions{Verbose: true})
+	PrintActionPlanWithOptions(&verbose, "status", HumanPlanInput{Reconciliation: planResult}, HumanOptions{Verbose: true})
 	if !strings.Contains(verbose.String(), "detail="+Quote(detail)) ||
 		strings.Contains(verbose.String(), "\x1b") || strings.Contains(verbose.String(), "\u202e") {
 		t.Fatalf("verbose output = %q, want escaped exact removal detail", verbose.String())
@@ -338,11 +339,11 @@ func TestPrintPlansReportSafetyStates(t *testing.T) {
 	var stdout bytes.Buffer
 	PrintDryRunPlanWithOptions(
 		&stdout,
-		mustReconciliationPlan(
+		HumanPlanInput{Reconciliation: mustReconciliationPlan(
 			t,
 			[]reconcile.ManagedPathDecision{removeDecision, driftDecision, missingDecision},
 			nil,
-		),
+		)},
 		HumanOptions{Verbose: true},
 	)
 

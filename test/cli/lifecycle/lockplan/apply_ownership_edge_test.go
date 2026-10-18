@@ -78,7 +78,7 @@ func TestRunApplyOwnershipEdgeCases(t *testing.T) {
 			},
 			wantExit: 1,
 			wantStdout: []string{
-				"dry-run: 2 outputs",
+				"dry-run: 2 output entries",
 				`error resource="instruction/removed" target=claude-code scope=project destination="CLAUDE.md" mode= reason=missing_output detail="managed output is missing" safety=missing_evidence`,
 			},
 			reject: []string{
@@ -109,7 +109,7 @@ source = "instructions/AGENTS.md"
 			},
 			wantExit: 0,
 			wantStdout: []string{
-				"dry-run: 2 outputs",
+				"dry-run: 2 output entries",
 				`record resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=managed_existing`,
 				`delete resource="instruction/old" target=claude-code scope=project destination="CLAUDE.md" mode= reason=removed_from_manifest safety=deletable`,
 			},

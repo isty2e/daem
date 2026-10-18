@@ -37,7 +37,7 @@ source = "instructions/AGENTS.md"
 				return []string{"--manage-existing"}
 			},
 			want: []string{
-				"dry-run: 1 output",
+				"dry-run: 1 output entry",
 				`error resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=stale_lock`,
 			},
 			reject: []string{
@@ -64,7 +64,7 @@ source = "instructions/AGENTS.md"
 				return nil
 			},
 			want: []string{
-				"dry-run: 1 output",
+				"dry-run: 1 output entry",
 				`error resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=stale_lock`,
 			},
 			reject: []string{
@@ -89,7 +89,7 @@ source = "instructions/AGENTS.md"
 				return nil
 			},
 			want: []string{
-				"dry-run: 1 output",
+				"dry-run: 1 output entry",
 				`error resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=missing_lock`,
 			},
 			reject: []string{
@@ -120,7 +120,7 @@ targets = ["codex", "claude-code"]
 				return []string{"--target", "claude-code"}
 			},
 			want: []string{
-				"dry-run: 1 output",
+				"dry-run: 1 output entry",
 				`error resource="instruction/project" target=claude-code scope=project destination="CLAUDE.md" mode=copy reason=stale_lock`,
 			},
 			reject: []string{
@@ -147,7 +147,7 @@ source = "instructions/AGENTS.md"
 				return nil
 			},
 			want: []string{
-				"dry-run: 1 output",
+				"dry-run: 1 output entry",
 				`error resource="instruction/project" target=codex scope=project destination="AGENTS.md" mode=copy reason=stale_lock`,
 			},
 			reject: []string{
@@ -179,7 +179,7 @@ render_to = "AGENTS.md"
 				return nil
 			},
 			want: []string{
-				"dry-run: 1 output",
+				"dry-run: 1 output entry",
 				`error resource="instruction/project" target=codex scope=global destination="~/.codex/AGENTS.md" mode=copy reason=stale_lock`,
 			},
 			reject: []string{

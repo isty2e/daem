@@ -144,7 +144,7 @@ func ownershipObservation(state OwnershipState) OwnershipObservation {
 
 func shadowObservation(state ShadowState) ShadowObservation {
 	switch state {
-	case ShadowUnshadowed, ShadowShadowedByLocal, ShadowLowerPrecedenceUserConflict, ShadowCarrierCollision, ShadowUnknown:
+	case ShadowUnshadowed, ShadowShadowedByLocal, ShadowLowerPrecedenceUserConflict, ShadowCarrierCollision, ShadowUnknown, ShadowObserverUnsupported:
 	default:
 		state = ShadowUnknown
 	}
@@ -154,6 +154,8 @@ func shadowObservation(state ShadowState) ShadowObservation {
 		observation.Reason = ReasonConfigShadowed
 	case ShadowUnknown:
 		observation.Reason = ReasonEffectiveStateUnobserved
+	case ShadowObserverUnsupported:
+		observation.Reason = ReasonEffectiveObserverUnsupported
 	}
 	return observation
 }

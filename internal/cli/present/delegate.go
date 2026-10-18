@@ -110,43 +110,76 @@ func PrintDelegateActionsWithOptions(output io.Writer, actions []reconcile.Deleg
 	if len(actions) == 0 {
 		return
 	}
+	printDelegateActionRows(output, actions, options)
+	printDelegatePlanLimitations(output, actions)
+}
+
+func printDelegateActionRows(output io.Writer, actions []reconcile.DelegateAction, options HumanOptions) {
+	if len(actions) == 0 {
+		return
+	}
 	fmt.Fprintf(output, "delegate actions: %s\n", CountLabel(len(actions), "plan", "plans"))
 	for _, action := range actions {
-		plan := action.Plan()
-		command := plan.Command()
-		env := plan.Env().Bindings()
-		if !options.Verbose {
-			fmt.Fprintf(output, "  - run MCP command attempt subject=%q target=%s scope=%s command=%q args=%s env_bindings=%s environment=%s\n", subjectStringFromID(action.Subject()), action.Target(), action.Scope(), command.Executable(), quotedList(command.Args()), delegateEnvBindingList(env), subprocess.ChildEnvironmentInheritancePolicy)
-			fmt.Fprintln(output, "    package, cache, server, auth, and future readiness are not guaranteed")
-			continue
+		identityLabel, identity := projectionIdentityLabel(action.Subject())
+		fmt.Fprintf(output, "  %s=%s target=%s scope=%s\n", identityLabel, Quote(identity), action.Target(), action.Scope())
+		printDelegateActionBody(output, action, options)
+	}
+}
+
+func printDelegateActionBody(output io.Writer, action reconcile.DelegateAction, options HumanOptions) {
+	plan := action.Plan()
+	command := plan.Command()
+	env := plan.Env().Bindings()
+	if !options.Verbose {
+		fmt.Fprintf(output, "    command plan: %s", Escape(string(action.Disposition())))
+		dryRun, blocked := false, false
+		for _, risk := range action.Risks() {
+			dryRun = dryRun || risk.Code == reconcile.DelegateRiskDryRunDisclosure
+			blocked = blocked || risk.Code == reconcile.DelegateRiskPreconditionBlocked
 		}
-		fmt.Fprintf(
-			output,
-			"  - subject=%q target=%s scope=%s status=%s outcome=%s schedules_attempt=%t runner=%s command=%q args=%s env_bindings=%s environment=%s pin=%s timeout=%s",
-			subjectStringFromID(action.Subject()),
-			action.Target(),
-			action.Scope(),
-			action.Disposition(),
-			action.PolicyOutcome(),
-			action.SchedulesAttempt(),
-			plan.Runner().Kind(),
-			command.Executable(),
-			quotedList(command.Args()),
-			delegateEnvBindingList(env),
-			subprocess.ChildEnvironmentInheritancePolicy,
-			plan.PinPolicy(),
-			delegateTimeoutPolicy(),
-		)
-		if packageRefs := plan.PackageRefs(); len(packageRefs) > 0 {
-			fmt.Fprintf(output, " packages=%s", delegatePackageList(packageRefs))
+		if dryRun {
+			fmt.Fprint(output, " (dry-run)")
 		}
-		if risks := delegateRiskList(action.Risks()); risks != "" {
-			fmt.Fprintf(output, " risks=%s", risks)
+		if blocked {
+			if action.Disposition() == reconcile.DelegateBlocked {
+				fmt.Fprint(output, " (configuration prerequisite)")
+			} else {
+				fmt.Fprint(output, "; prerequisite blocked")
+			}
 		}
-		if dependencies := delegateDependencyList(action.Dependencies()); dependencies != "" {
-			fmt.Fprintf(output, " dependencies=%s", dependencies)
+		fmt.Fprintf(output, "\n      command=%s args=%s env_bindings=%s environment=%s\n",
+			Quote(command.Executable()), quotedList(command.Args()), delegateEnvBindingList(env), subprocess.ChildEnvironmentInheritancePolicy)
+		for _, risk := range action.Risks() {
+			if risk.Code != reconcile.DelegateRiskDryRunDisclosure && risk.Code != reconcile.DelegateRiskPreconditionBlocked {
+				fmt.Fprintf(output, "      risk: %s (%s)\n", strings.ReplaceAll(string(risk.Code), "_", " "), risk.Severity)
+			}
 		}
-		fmt.Fprintln(output)
+		return
+	}
+	fmt.Fprintf(output,
+		"    command plan: subject=%q target=%s scope=%s status=%s outcome=%s schedules_attempt=%t runner=%s command=%s args=%s env_bindings=%s environment=%s pin=%s timeout=%s",
+		subjectStringFromID(action.Subject()), action.Target(), action.Scope(), action.Disposition(),
+		action.PolicyOutcome(), action.SchedulesAttempt(), plan.Runner().Kind(), Quote(command.Executable()),
+		quotedList(command.Args()), delegateEnvBindingList(env), subprocess.ChildEnvironmentInheritancePolicy,
+		plan.PinPolicy(), delegateTimeoutPolicy())
+	if packageRefs := plan.PackageRefs(); len(packageRefs) > 0 {
+		fmt.Fprintf(output, " packages=%s", delegatePackageList(packageRefs))
+	}
+	if risks := delegateRiskList(action.Risks()); risks != "" {
+		fmt.Fprintf(output, " risks=%s", risks)
+	}
+	if dependencies := delegateDependencyList(action.Dependencies()); dependencies != "" {
+		fmt.Fprintf(output, " dependencies=%s", dependencies)
+	}
+	fmt.Fprintln(output)
+}
+
+func printDelegatePlanLimitations(output io.Writer, actions []reconcile.DelegateAction) {
+	for _, action := range actions {
+		if action.Disposition() != reconcile.DelegateBlocked {
+			fmt.Fprintln(output, "  package, cache, server, auth, and future readiness are not guaranteed")
+			return
+		}
 	}
 }
 

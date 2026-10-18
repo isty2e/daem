@@ -42,7 +42,7 @@ func TestStatusModesReportDeclaredMCPSubjectMissingFromExistingLock(t *testing.T
 			if exitCode != test.wantExit || stderr.Len() != 0 {
 				t.Fatalf("exitCode = %d stdout = %q stderr = %q, want %d and empty stderr", exitCode, stdout.String(), stderr.String(), test.wantExit)
 			}
-			if !strings.Contains(stdout.String(), "subject=\"projection/claude-code.project.mcp-server/filesystem\"") ||
+			if !strings.Contains(stdout.String(), "resource=\"mcp-server/filesystem\" target=claude-code scope=project\n    config: blocked\n    blocked: missing lock") ||
 				!strings.Contains(stdout.String(), "blocked: missing lock") ||
 				!strings.Contains(stdout.String(), "next: run daem lock --manifest") {
 				t.Fatalf("stdout = %q, want missing subject blocker and lock remediation", stdout.String())
@@ -125,7 +125,7 @@ func TestApplyDryRunBlocksDeclaredMCPSubjectMissingFromExistingLock(t *testing.T
 	if exitCode != 1 || stderr.Len() != 0 {
 		t.Fatalf("exitCode = %d stdout = %q stderr = %q, want 1 and empty stderr", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "subject=\"projection/claude-code.project.mcp-server/filesystem\"") ||
+	if !strings.Contains(stdout.String(), "resource=\"mcp-server/filesystem\" target=claude-code scope=project\n    config: blocked\n    blocked: missing lock") ||
 		!strings.Contains(stdout.String(), "blocked: missing lock") ||
 		!strings.Contains(stdout.String(), "next: run daem lock --manifest") {
 		t.Fatalf("stdout = %q, want missing subject blocker and lock remediation", stdout.String())

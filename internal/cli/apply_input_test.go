@@ -133,7 +133,7 @@ func TestRunApplyInputDiagnostics(t *testing.T) {
 					}
 				}
 				var unavailablePlan bytes.Buffer
-				clipresent.PrintActionPlanWithOptions(&unavailablePlan, "apply", reconcile.Result{}, clipresent.HumanOptions{})
+				clipresent.PrintActionPlanWithOptions(&unavailablePlan, "apply", clipresent.HumanPlanInput{Reconciliation: reconcile.Result{}}, clipresent.HumanOptions{})
 				if strings.Contains(diagnostic, unavailablePlan.String()) {
 					t.Errorf("printed a reconciliation that was not produced: %q", &stderr)
 				}
@@ -188,7 +188,7 @@ func TestRunApplyInputDiagnostics(t *testing.T) {
 						t.Fatalf("real empty-plan control failed: ready=%t err=%v", plan.ReconciliationReady, err)
 					}
 					var expectedPlan bytes.Buffer
-					clipresent.PrintDryRunPlanWithOptions(&expectedPlan, plan.Reconciliation, clipresent.HumanOptions{})
+					clipresent.PrintDryRunPlanWithOptions(&expectedPlan, clipresent.HumanPlanInput{Reconciliation: plan.Reconciliation}, clipresent.HumanOptions{})
 					if !strings.Contains(stdout.String(), expectedPlan.String()) {
 						t.Errorf("real empty plan was suppressed: stdout=%q expected=%q", &stdout, &expectedPlan)
 					}

@@ -331,8 +331,8 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list resources` | Resource inventory | `3` |
 | `list outputs` | Output inventory | `5` |
 | `list paths` | Agent location inventory | `2` |
-| `status`, `apply --dry-run` | Reconciliation plan | `16` |
-| confirmed `apply` | Apply result | `22` |
+| `status`, `apply --dry-run` | Reconciliation plan | `17` |
+| confirmed `apply` | Apply result | `23` |
 | `recover` | Recovery plan/result | `10` |
 | `migrate state` | State-authority migration | `1` |
 | `doctor` | Passive diagnostics | `2` |
@@ -350,6 +350,13 @@ is unchanged. Command input syntax and persisted formats are unchanged.
 Plan and apply results retain per-binding MCP `host_prerequisite` evidence,
 optional dimension `detail`, the unsupported Pi backend-transition
 classification, managed Pi Git pin-change actions and `pin_change` disclosure.
+
+Plan version `17` and apply-result version `23` distinguish an unsupported MCP
+effective observer from a supported observer whose evidence is unavailable.
+Both use `state: "unobserved"`; `EFFECTIVE_OBSERVER_UNSUPPORTED` replaces the
+previous `EFFECTIVE_STATE_UNOBSERVED` reason only for the unsupported case.
+Consumers of the earlier versions must not interpret the new reason as an
+observation failure or a claim that no shadowing definition exists.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject
@@ -1066,12 +1073,29 @@ Unqualified host prerequisites use these reasons:
 | `HOST_BUILTIN_UNOBSERVED` | Builtin selection depends on unsupported static selector syntax. |
 | `HOST_ADAPTER_CONFIGURED` | Known Adapter intent remains configured, regardless of its package filters. |
 
-Default output prints totals, every planned mutation, blocker, drift,
-unsupported/ambiguous class, binding-removal result, and uncertain host-route
-class. It omits routine no-op resource rows, state/content paths, internal
-reason fields, hashes, route ids, and exhaustive evidence arrays. Relation-action
-rows, including no-ops, remain visible. `--verbose` adds the omitted bounded
-causal fields and every ordinary row.
+Default output groups each resource's selected placement or shared consumer
+set with its output/configuration transition and associated MCP observations.
+The header counts **output entries**: one managed-path decision, including a
+shared output, or one aggregate subject. Two MCP servers in one configuration
+document therefore count as two entries, not two files. `current`, `pending`,
+and `blocked` partition these configuration decisions; pending excludes blocked
+entries. Delegated command plans are separate and may remain when every
+configuration entry is current.
+
+Every planned mutation, blocker, drift, unsupported/ambiguous class,
+binding-removal result, and uncertain host-route class remains visible. Routine
+no-op rows are omitted unless an associated observation, command plan, or blocked
+configuration document needs their context. State/content paths, internal
+reason fields, hashes, route ids, and exhaustive evidence arrays remain
+verbose-only. Relation-action rows, including no-ops, remain visible.
+`--verbose` expands every ordinary row with bounded causal fields; MCP rows
+retain their canonical subject alongside the public resource reference.
+Routine MCP facts include adopted ownership, unshadowed configuration, a
+matching successful command attempt, and no recorded matching attempt. These
+are omitted from basic output, as is structurally unsupported effective
+observation. Genuine unobserved effective state, conflicts, stale/failed/blocked
+attempts and selected command plans remain visible. Omission does not claim
+runtime readiness; `--verbose` and JSON retain the individual facts.
 
 The table below describes exit codes for valid status results. Command failures
 still return `1` before or while emitting their applicable result contract.
@@ -1125,6 +1149,14 @@ Bare apply under the three-stream terminal contract discloses the same effect
 plan and asks once. Non-interactive apply requires `--yes`. Every selected
 supported config action and delegated route is ordinary apply work; there is no
 separate route-attempt mode.
+
+Human plans keep a resource's own configuration transition separate from a
+blocked shared document. An unchanged server can therefore have a blocked
+command prerequisite because another entry conflicts in the same document.
+Command plans show their planner disposition: in a dry-run they are skipped,
+even when a prerequisite is also blocked. Their command, arguments, and
+environment-reference bindings remain disclosed. Passive observations and
+previous-attempt evidence do not become current execution outcomes or authority.
 
 For locked Pi and OpenCode extension order, apply settles required carrier
 changes first, re-reads the selected host files, and plans from that fresh
@@ -1203,6 +1235,14 @@ order only; Pi rows describe runtime precedence. A carrier install or removal
 that must settle first is reported as `conditional_after_carrier_change`
 instead of an executable order mutation.
 
+For `effective_shadowing`, `state: "unobserved"` with reason
+`EFFECTIVE_OBSERVER_UNSUPPORTED` means the catalog does not provide an
+effective-config observer for that placement. Only Pi placements currently
+provide one, for both Adapter and Native backends. `EFFECTIVE_STATE_UNOBSERVED`
+instead means current evidence from a supported observer is unavailable or
+unobservable, such as an opaque Pi config layer; it remains individually
+visible in basic output. Neither reason means the binding is unshadowed.
+
 Relation-order `detail` is path-neutral prose derived from typed reasons or
 outcomes; raw evidence is verbose-only. Local or opaque source namespaces,
 references, subject keys, order identities, and carrier keys use deterministic
@@ -1254,6 +1294,11 @@ gives target, scope, class, physical sequence, `exact` / `converged` / `failed`
 / `not_attempted`, whether changed, and failure detail when present. Earlier
 document success may survive later failure: no cross-document rollback is
 promised. Retry reobserves every selected sequence and continues idempotently.
+
+Reconciliation-ready planning failures and execution failures may also include
+`mcp_statuses`. These are passive facts collected during planning, not a fresh
+observation of the post-failure host state or proof of runtime readiness.
+Successful apply results omit this field; run `status` for current observations.
 
 In plan and confirmed-apply JSON, `host_route_attempts` is omitted when empty.
 Its bounded records are history-only diagnostics, not proof of current

@@ -43,7 +43,7 @@ func TestCUXFirstProjectJourneyMatchesGettingStarted(t *testing.T) {
 		t.Fatalf("AGENTS.md = %q", content)
 	}
 
-	runCUXJourney(t, []string{"status", "--check"}, "up to date")
+	runCUXJourney(t, []string{"status", "--check"}, "current=1 pending=0 blocked=0")
 }
 
 func runCUXJourney(t *testing.T, args []string, expected ...string) {

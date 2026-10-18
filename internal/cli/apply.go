@@ -117,14 +117,15 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			}
 
 			humanOptions := clipresent.HumanOptions{Verbose: *verbose}
-			clipresent.PrintDryRunPlanWithOptions(stdout, planning.Reconciliation, humanOptions)
+			clipresent.PrintDryRunPlanWithOptions(stdout, clipresent.HumanPlanInput{
+				Reconciliation: planning.Reconciliation,
+				MCPStatuses:    mcpStatuses,
+			}, humanOptions)
 			clipresent.PrintLockOnlyResourceSummary(stdout, clipresent.LockOnlyResourcesFrom(planning.LockOnly))
-			clipresent.PrintMCPStatusesWithOptions(stdout, mcpStatuses, humanOptions)
 			clipresent.PrintRelationActionsWithOptions(stdout, planning.Reconciliation.Relations(), humanOptions)
 			clipresent.PrintRelationOrderActionsWithOptions(stdout, planning.Reconciliation.RelationOrders(), humanOptions)
 			clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, planning.Reconciliation.CarrierAdoptions(), humanOptions)
 			clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, planning.Reconciliation.CarrierAbsences(), humanOptions)
-			clipresent.PrintDelegateActionsWithOptions(stdout, planning.Reconciliation.Delegates(), humanOptions)
 			if planning.Reconciliation.HasLockReadinessErrors() {
 				printLockCommandHint(stdout, planning.ManifestPath, *manifestPath)
 			}
@@ -198,7 +199,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				clipresent.PrintActionPlanWithOptions(
 					stderr,
 					"apply",
-					readinessPlanning.Reconciliation,
+					clipresent.HumanPlanInput{Reconciliation: readinessPlanning.Reconciliation},
 					clipresent.HumanOptions{Verbose: *verbose},
 				)
 				clipresent.PrintRelationActionsWithOptions(stderr, readinessPlanning.Reconciliation.Relations(), clipresent.HumanOptions{Verbose: *verbose})
@@ -237,8 +238,10 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAdoptions(), humanOptions)
 			clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAbsences(), humanOptions)
 			carrierAbsencesDisclosed = true
-			clipresent.PrintActionPlanWithOptions(stdout, "apply", readinessPlanning.Reconciliation, humanOptions)
-			clipresent.PrintDelegateActionsWithOptions(stdout, readinessPlanning.Reconciliation.Delegates(), humanOptions)
+			clipresent.PrintActionPlanWithOptions(stdout, "apply", clipresent.HumanPlanInput{
+				Reconciliation: readinessPlanning.Reconciliation,
+				MCPStatuses:    mcpStatuses,
+			}, humanOptions)
 			clipresent.PrintDiagnosticsWithOptions(stdout, readinessPlanning.Diagnostics, humanOptions)
 			if applyConfirmationRequired(readinessPlanning.CommandResult) {
 				confirmed, err := options.confirmation.prompt("apply")

@@ -61,7 +61,8 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 	result := make([]LockedProjectionObservation, 0, len(input.Contracts))
 	for _, contract := range input.Contracts {
 		subject := contract.SubjectID()
-		if _, ok := catalog.Product().LookupMCPBySubject(subject); !ok {
+		view, ok := catalog.Product().LookupMCPBySubject(subject)
+		if !ok {
 			return nil, fmt.Errorf("subject %q is not an MCP projection", subject)
 		}
 		realization, ok := contract.Realization()
@@ -93,6 +94,10 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 		if err != nil {
 			return nil, fmt.Errorf("MCP projection %q delegate attempt classification: %w", subject.Key(), err)
 		}
+		shadowing, err := shadowingForSubject(input.Shadowing, subject, view)
+		if err != nil {
+			return nil, fmt.Errorf("MCP projection %q effective evidence: %w", subject.Key(), err)
+		}
 		current, err := ObserveAggregateProjection(AggregateProjectionObservationInput{
 			Contract:                   contract,
 			Projection:                 projection.state,
@@ -100,7 +105,7 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 			FailureReason:              projection.failureReason,
 			UnsupportedAlternateConfig: projection.unsupportedAlternateConfig,
 			Ownership:                  ownership,
-			Shadowing:                  shadowingForSubject(input.Shadowing, subject),
+			Shadowing:                  shadowing,
 		})
 		if err != nil {
 			return nil, err
@@ -180,11 +185,21 @@ func providerForContract(
 func shadowingForSubject(
 	shadowing map[topology.SubjectID]ShadowState,
 	subject topology.SubjectID,
-) ShadowState {
-	if state, present := shadowing[subject]; present {
-		return state
+	view catalog.SurfaceView,
+) (ShadowState, error) {
+	if !view.SupportsObservation(catalog.ObservationEffectiveConfiguration) {
+		if _, present := shadowing[subject]; present {
+			return "", fmt.Errorf("unsupported effective observer carries observation evidence")
+		}
+		return ShadowObserverUnsupported, nil
 	}
-	return ShadowUnknown
+	if state, present := shadowing[subject]; present {
+		if state == ShadowObserverUnsupported {
+			return "", fmt.Errorf("supported effective observer cannot carry an unsupported outcome")
+		}
+		return state, nil
+	}
+	return ShadowUnknown, nil
 }
 
 func (observation LockedProjectionObservation) Subject() topology.SubjectID {

@@ -53,8 +53,9 @@ func TestMCPPublicCLIStatusReportsDelegateFailureWithoutCheckFailure(t *testing.
 	for _, want := range []string{
 		"project_projection: projected",
 		"delegate_last_attempt: failed reason=DELEGATE_NONZERO_EXIT",
-		"status: 1 output",
-		`noop subject="projection/claude-code.project.mcp-server/context7"`,
+		"status: 1 output entry",
+		`noop resource="mcp-server/context7"`,
+		`subject="projection/claude-code.project.mcp-server/context7"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("human stdout = %q, want %q", stdout, want)

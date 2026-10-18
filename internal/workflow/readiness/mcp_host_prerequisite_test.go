@@ -43,6 +43,10 @@ func TestMCPHostPrerequisiteConstraintPreservesIndependentEffectiveEvidence(t *t
 	if observations.Current[0].State() != mcpeffective.StateUnobservable || observations.HostPrerequisites[subject] != host {
 		t.Fatal("publication precedence erased independent status evidence")
 	}
+	shadowing, err := effectiveShadowingBySubject(observations.Current)
+	if err != nil || shadowing[subject] != mcpobserve.ShadowUnknown {
+		t.Fatalf("opaque supported observer was relabeled unsupported: %v, %v", shadowing, err)
+	}
 
 	qualified, err := mcpobserve.NewHostPrerequisiteObservation(mcpobserve.HostPrerequisiteObservationInput{State: mcpobserve.HostQualified})
 	if err != nil {

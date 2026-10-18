@@ -57,7 +57,7 @@ func TestMCPPublicCLIProjectionLifecycleCoversApplyStatusUpdateRemoval(t *testin
 	}
 	assertMCPJSONDimension(t, statusPayload, "project_projection", "projected", "")
 	assertMCPJSONDimension(t, statusPayload, "same_scope_ownership", "managed", "")
-	assertMCPJSONDimension(t, statusPayload, "effective_shadowing", "unobserved", "EFFECTIVE_STATE_UNOBSERVED")
+	assertMCPJSONDimension(t, statusPayload, "effective_shadowing", "unobserved", "EFFECTIVE_OBSERVER_UNSUPPORTED")
 	assertMCPJSONDimension(t, statusPayload, "runtime_launcher", "not_probed", "RUNTIME_NOT_PROBED")
 	assertMCPJSONDimension(t, statusPayload, "protocol_initialize", "not_probed", "RUNTIME_NOT_PROBED")
 	assertMCPJSONDimension(t, statusPayload, "runtime_authentication", "not_probed", "RUNTIME_NOT_PROBED")
@@ -81,7 +81,7 @@ func TestMCPPublicCLIProjectionLifecycleCoversApplyStatusUpdateRemoval(t *testin
 
 	stdout = runMCPCLIWithSuccessfulDelegate(t, "apply", "--manifest", project.manifestPath, "--target", "claude-code", "--yes")
 	if strings.Count(stdout, "applied: 1 action") != 1 ||
-		!strings.Contains(stdout, `update subject="projection/`+"claude-code.project.mcp-server"+`/context7"`) {
+		!strings.Contains(stdout, `update resource="mcp-server/context7"`) {
 		t.Fatalf("stdout = %q, want one update subject action", stdout)
 	}
 	if strings.Contains(stdout, "mcp status:") {

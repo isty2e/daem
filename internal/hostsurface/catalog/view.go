@@ -12,20 +12,23 @@ type ObservationPurpose string
 const (
 	// ObservationRuntimeProbe is the catalogued MCP runtime-probe purpose.
 	ObservationRuntimeProbe ObservationPurpose = "runtime_probe"
+	// ObservationEffectiveConfiguration is passive effective-config observation.
+	ObservationEffectiveConfiguration ObservationPurpose = "effective_configuration"
 )
 
-// SurfaceView is one compiled MCP host-surface cell. Facet values remain
-// owned by their source catalogs; the view stores references only.
+// SurfaceView is one compiled MCP host-surface cell. It joins owner-local
+// facets with catalogued static observation capabilities.
 type SurfaceView struct {
-	id                hostsurface.SurfaceID
-	key               hostsurface.SurfaceKey
-	placement         aggregate.MCPPlacement
-	namespace         string
-	writeRouteID      string
-	removeRouteID     string
-	runtimeProbe      profile.MCPRuntimeProbeCapability
-	hasRuntimeProbe   bool
-	providerAuthoring bool
+	id                   hostsurface.SurfaceID
+	key                  hostsurface.SurfaceKey
+	placement            aggregate.MCPPlacement
+	namespace            string
+	writeRouteID         string
+	removeRouteID        string
+	runtimeProbe         profile.MCPRuntimeProbeCapability
+	hasRuntimeProbe      bool
+	hasEffectiveObserver bool
+	providerAuthoring    bool
 }
 
 // ID returns the opaque internal surface identity.
@@ -59,10 +62,25 @@ func (view SurfaceView) ProviderAuthoringAdmitted() bool {
 
 // ObservationPurposes returns static observation purposes for this surface.
 func (view SurfaceView) ObservationPurposes() []ObservationPurpose {
-	if !view.hasRuntimeProbe {
-		return nil
+	var purposes []ObservationPurpose
+	for _, purpose := range []ObservationPurpose{ObservationRuntimeProbe, ObservationEffectiveConfiguration} {
+		if view.SupportsObservation(purpose) {
+			purposes = append(purposes, purpose)
+		}
 	}
-	return []ObservationPurpose{ObservationRuntimeProbe}
+	return purposes
+}
+
+// SupportsObservation reports static capability, not current evidence availability.
+func (view SurfaceView) SupportsObservation(purpose ObservationPurpose) bool {
+	switch purpose {
+	case ObservationRuntimeProbe:
+		return view.hasRuntimeProbe
+	case ObservationEffectiveConfiguration:
+		return view.hasEffectiveObserver
+	default:
+		return false
+	}
 }
 
 // IsDefaultVariant reports whether this cell is the family's default variant.

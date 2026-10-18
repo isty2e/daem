@@ -38,7 +38,7 @@ targets = ["codex"]
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	for _, want := range []string{
-		"dry-run: 1 output",
+		"dry-run: 1 output entry",
 		`error resource="skill/oracle" target=codex scope=project destination=".agents/skills/oracle" mode=copy reason=missing_lock`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -117,7 +117,7 @@ targets = ["codex"]
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 	for _, want := range []string{
-		"status: 2 outputs",
+		"status: 2 output entries",
 		`create resource="skill/oracle" target=codex scope=project destination=".agents/skills/oracle" mode=copy reason=missing_output`,
 		`error resource="skill/manual" target=codex scope=project destination=".agents/skills/manual" mode=copy reason=unmanaged_output_exists`,
 	} {

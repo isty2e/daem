@@ -36,7 +36,7 @@ func TestPrintMCPStatusesKeepsDelegateAttemptSeparateFromProjection(t *testing.T
 	for _, want := range []string{
 		"projection:",
 		"project_projection: projected",
-		"delegate:",
+		"previous command:",
 		"delegate_last_attempt: stale reason=LAST_DELEGATE_ATTEMPT_STALE",
 		"runtime:",
 		"runtime_launcher: not_probed reason=RUNTIME_NOT_PROBED",

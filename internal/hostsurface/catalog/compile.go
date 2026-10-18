@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/hostsurface"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -128,8 +129,25 @@ func Compile(seed Seed) (Catalog, error) {
 	if err != nil {
 		return Catalog{}, err
 	}
+	effectiveObservers, err := uniqueEffectiveObservers(seed.EffectiveObservers, referencedPlacements)
+	if err != nil {
+		return Catalog{}, err
+	}
 	for index := range views {
-		if probe, ok := probes[views[index].placement.ID()]; ok {
+		placementID := views[index].placement.ID()
+		_, views[index].hasEffectiveObserver = effectiveObservers[placementID]
+		requiresProvider, err := lock.MCPPlacementRequiresProviderContribution(placementID)
+		if err != nil {
+			return Catalog{}, fmt.Errorf("host-surface catalog: %w", err)
+		}
+		if requiresProvider && !views[index].hasEffectiveObserver {
+			return Catalog{}, fmt.Errorf(
+				"host-surface catalog: provider-mediated MCP placement %q has no effective-state observer",
+				placementID,
+			)
+		}
+
+		if probe, ok := probes[placementID]; ok {
 			views[index].runtimeProbe = probe
 			views[index].hasRuntimeProbe = true
 		}
@@ -275,6 +293,23 @@ func rejectExtraPlacements(
 		}
 	}
 	return nil
+}
+
+func uniqueEffectiveObservers(
+	placements []aggregate.MCPPlacementID,
+	referenced map[aggregate.MCPPlacementID]struct{},
+) (map[aggregate.MCPPlacementID]struct{}, error) {
+	out := make(map[aggregate.MCPPlacementID]struct{}, len(placements))
+	for _, id := range placements {
+		if _, known := referenced[id]; !known {
+			return nil, fmt.Errorf("host-surface catalog: effective observer for unreferenced placement %q", id)
+		}
+		if _, duplicate := out[id]; duplicate {
+			return nil, fmt.Errorf("host-surface catalog: duplicate effective observer for %q", id)
+		}
+		out[id] = struct{}{}
+	}
+	return out, nil
 }
 
 func rejectExtraNamespaces(
