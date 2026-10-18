@@ -28,7 +28,7 @@ targets = ["codex", "claude-code"]
 [instructions.project]
 source = "instructions.md"
 `,
-			resources: 1, outputs: 2, documents: 2, countLabel: "2 outputs",
+			resources: 1, outputs: 2, documents: 2, countLabel: "2 output entries",
 		},
 		{
 			name: "three targets sharing one path",
@@ -37,7 +37,7 @@ targets = ["opencode", "pi", "antigravity-cli"]
 [instructions.project]
 source = "instructions.md"
 `,
-			resources: 1, outputs: 1, documents: 1, countLabel: "1 output",
+			resources: 1, outputs: 1, documents: 1, countLabel: "1 output entry",
 		},
 		{
 			name: "two contributions in one document",
@@ -53,7 +53,7 @@ name = "test"
 event = "Stop"
 command = "make test"
 `,
-			resources: 2, outputs: 2, documents: 1, countLabel: "2 outputs",
+			resources: 2, outputs: 2, documents: 1, countLabel: "2 output entries",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

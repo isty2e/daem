@@ -111,7 +111,7 @@ func PrintDelegateActionsWithOptions(output io.Writer, actions []reconcile.Deleg
 		return
 	}
 	printDelegateActionRows(output, actions, options)
-	printDelegatePlanLimitations(output)
+	printDelegatePlanLimitations(output, actions)
 }
 
 func printDelegateActionRows(output io.Writer, actions []reconcile.DelegateAction, options HumanOptions) {
@@ -141,7 +141,11 @@ func printDelegateActionBody(output io.Writer, action reconcile.DelegateAction, 
 			fmt.Fprint(output, " (dry-run)")
 		}
 		if blocked {
-			fmt.Fprint(output, "; prerequisite blocked")
+			if action.Disposition() == reconcile.DelegateBlocked {
+				fmt.Fprint(output, " (configuration prerequisite)")
+			} else {
+				fmt.Fprint(output, "; prerequisite blocked")
+			}
 		}
 		fmt.Fprintf(output, "\n      command=%s args=%s env_bindings=%s environment=%s\n",
 			Quote(command.Executable()), quotedList(command.Args()), delegateEnvBindingList(env), subprocess.ChildEnvironmentInheritancePolicy)
@@ -170,8 +174,13 @@ func printDelegateActionBody(output io.Writer, action reconcile.DelegateAction, 
 	fmt.Fprintln(output)
 }
 
-func printDelegatePlanLimitations(output io.Writer) {
-	fmt.Fprintln(output, "  package, cache, server, auth, and future readiness are not guaranteed")
+func printDelegatePlanLimitations(output io.Writer, actions []reconcile.DelegateAction) {
+	for _, action := range actions {
+		if action.Disposition() != reconcile.DelegateBlocked {
+			fmt.Fprintln(output, "  package, cache, server, auth, and future readiness are not guaranteed")
+			return
+		}
+	}
 }
 
 // PrintDelegateAttempts writes sanitized attempt summaries without dumping command output.

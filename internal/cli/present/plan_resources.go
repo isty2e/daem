@@ -65,7 +65,7 @@ func PrintActionPlanWithOptions(output io.Writer, label string, input HumanPlanI
 
 		printAggregateResourcePlan(output, aggregate, options)
 		if documentBlocked {
-			printConfigurationBlock(output, block)
+			printConfigurationBlock(output, block, aggregate.Subject())
 		}
 		for _, status := range statuses {
 			if options.Verbose {
@@ -99,7 +99,7 @@ func PrintActionPlanWithOptions(output io.Writer, label string, input HumanPlanI
 	printDelegateActionRows(output, unmatchedPlans, options)
 	if len(input.Reconciliation.Delegates()) != 0 {
 		fmt.Fprintf(output, "MCP command plans: %s\n", CountLabel(len(input.Reconciliation.Delegates()), "plan", "plans"))
-		printDelegatePlanLimitations(output)
+		printDelegatePlanLimitations(output, input.Reconciliation.Delegates())
 	}
 }
 
@@ -190,21 +190,32 @@ func printAggregateResourcePlan(output io.Writer, decision reconcile.AggregateSu
 	}
 }
 
-func printConfigurationBlock(output io.Writer, block configurationBlock) {
+func printConfigurationBlock(output io.Writer, block configurationBlock, current topology.SubjectID) {
+	causes := make([]string, 0, len(block.causes))
+	seen := make(map[string]bool)
+	for _, subject := range block.causes {
+		if subject == current {
+			continue
+		}
+		_, reference := projectionIdentityLabel(subject)
+		if !seen[reference] {
+			seen[reference] = true
+			causes = append(causes, Quote(reference))
+		}
+	}
+	if len(block.causes) != 0 && len(causes) == 0 {
+		return
+	}
+
 	label := "configuration document"
 	if block.subjectCount > 1 {
 		label = "shared configuration"
 	}
-	fmt.Fprintf(output, "    %s: blocked; ordinary apply is refused", label)
-	if len(block.causes) != 0 {
-		causes := make([]string, 0, len(block.causes))
-		for _, subject := range block.causes {
-			_, reference := projectionIdentityLabel(subject)
-			causes = append(causes, Quote(reference))
-		}
+	fmt.Fprintf(output, "    %s: blocked", label)
+	if len(causes) != 0 {
 		fmt.Fprintf(output, " by %s", strings.Join(causes, ", "))
 	} else {
 		fmt.Fprintf(output, " (%s)", actionReasonLabel(block.reason))
 	}
-	fmt.Fprintln(output)
+	fmt.Fprintln(output, "; apply will be refused until resolved")
 }
