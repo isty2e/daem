@@ -237,6 +237,9 @@ func selectedMCPDimensions(dimensions []MCPStatusDimension, options HumanOptions
 	}
 	result := make([]MCPStatusDimension, 0, len(dimensions))
 	for _, dimension := range dimensions {
+		if routineMCPDimension(dimension) {
+			continue
+		}
 		switch dimension.State {
 		case "projected", "managed", "current", "qualified", "not_applicable", "not_probed", "observed_present":
 			continue
@@ -245,6 +248,20 @@ func selectedMCPDimensions(dimensions []MCPStatusDimension, options HumanOptions
 		}
 	}
 	return result
+}
+
+func routineMCPDimension(dimension MCPStatusDimension) bool {
+	switch dimension.Dimension {
+	case "same_scope_ownership":
+		return dimension.State == string(mcpobserve.OwnershipAdopted) && dimension.Reason == ""
+	case "effective_shadowing":
+		return dimension.State == string(mcpobserve.ShadowUnshadowed) && dimension.Reason == ""
+	case "delegate_last_attempt":
+		return (dimension.State == string(mcpobserve.DelegateAttemptSucceeded) && dimension.Reason == "") ||
+			(dimension.State == string(mcpobserve.DelegateAttemptNotObserved) && dimension.Reason == string(mcpobserve.ReasonLastDelegateAttemptUnobserved))
+	default:
+		return false
+	}
 }
 
 func printMCPStatusDimensionGroup(output io.Writer, label string, dimensions []MCPStatusDimension) {
