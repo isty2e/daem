@@ -23,15 +23,17 @@ import (
 func TestAssessMCPDelegateDependenciesFollowPhysicalDocument(t *testing.T) {
 	const filesystemConflict = `{"mcpServers":{"filesystem":{"type":"stdio","command":"manual-not-executed","args":[],"env":{}}}}`
 	tests := []struct {
-		name    string
-		config  string
-		global  bool
-		blocked map[string]bool
+		name            string
+		config          string
+		global          bool
+		managedContext7 bool
+		blocked         map[string]bool
 	}{
 		{name: "all missing"},
 		{name: "mixed", config: filesystemConflict, blocked: map[string]bool{"context7": true, "filesystem": true}},
 		{name: "first subject conflict", config: `{"mcpServers":{"context7":{"type":"stdio","command":"manual-not-executed","args":[],"env":{}}}}`, blocked: map[string]bool{"context7": true, "filesystem": true}},
 		{name: "all conflicting", config: `{"mcpServers":{"context7":{"type":"stdio","command":"manual-not-executed","args":[],"env":{}},"filesystem":{"type":"stdio","command":"manual-not-executed","args":[],"env":{}}}}`, blocked: map[string]bool{"context7": true, "filesystem": true}},
+		{name: "no-op sibling with conflict", config: `{"mcpServers":{"context7":{"type":"stdio","command":"must-not-run-daem-test","args":[],"env":{}},"filesystem":{"type":"stdio","command":"manual-not-executed","args":[],"env":{}}}}`, managedContext7: true, blocked: map[string]bool{"context7": true, "filesystem": true}},
 		{name: "distinct documents", config: filesystemConflict, global: true, blocked: map[string]bool{"filesystem": true}},
 	}
 
@@ -87,7 +89,18 @@ scope = %q
 				t.Fatal(err)
 			}
 
-			epoch := NewPersistenceEpoch(durable.EmptySnapshot(), durablecarrier.EmptyGlobalCarrierClaims())
+			currentState := durable.EmptySnapshot()
+			if test.managedContext7 {
+				for _, contract := range locked.Locked.Subjects() {
+					if contract.SubjectID().Key() == "context7" {
+						currentState = aggregateSnapshot(t, contract)
+					}
+				}
+				if len(currentState.ManagedAggregates()) != 1 {
+					t.Fatal("fixture requires one managed context7 baseline")
+				}
+			}
+			epoch := NewPersistenceEpoch(currentState, durablecarrier.EmptyGlobalCarrierClaims())
 			for _, operation := range []reconcile.OperationContext{reconcile.ContextInspect, reconcile.ContextDryRun, reconcile.ContextApply} {
 				t.Run(string(operation), func(t *testing.T) {
 					assessment, err := Assess(context.Background(), Input{
@@ -99,6 +112,23 @@ scope = %q
 					})
 					if err != nil {
 						t.Fatalf("Assess must return a complete plan: %v", err)
+					}
+
+					if test.managedContext7 {
+						noOpSibling := false
+						for _, decision := range assessment.Reconciliation.Decisions() {
+							projection, present := decision.Aggregate()
+							if !present || projection.Subject().Key() != "context7" {
+								continue
+							}
+							if !projection.IsNoOp() || projection.MutatesHost() || projection.MutatesState() {
+								t.Fatalf("managed context7 projection = %#v, want no-op without mutations", projection)
+							}
+							noOpSibling = true
+						}
+						if !noOpSibling {
+							t.Fatal("missing managed no-op sibling")
+						}
 					}
 
 					blocks := make(map[string]bool)
