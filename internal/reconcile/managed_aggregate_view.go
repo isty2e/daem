@@ -33,6 +33,18 @@ func (decision AggregateDecision) Subjects() []topology.SubjectID {
 	return result
 }
 
+// BlockedSubjects returns subjects whose projection prerequisites are blocked
+// by the physical document or by their own transition, in canonical order.
+func (decision AggregateDecision) BlockedSubjects() []topology.SubjectID {
+	result := make([]topology.SubjectID, 0)
+	for _, delta := range decision.subjectDeltas() {
+		if decision.IsBlocked() || delta.kind == AggregateBlocked {
+			result = append(result, delta.subject)
+		}
+	}
+	return result
+}
+
 func (decision AggregateDecision) subjectDeltas() []aggregateSubjectDelta {
 	result := make([]aggregateSubjectDelta, 0)
 	for _, projection := range decision.projections {

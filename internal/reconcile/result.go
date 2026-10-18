@@ -377,7 +377,10 @@ func validateDelegateDependencies(
 			if _, conflict := projectionBlocks[subject]; conflict {
 				return fmt.Errorf("conflicting projection decisions for %q", subject)
 			}
-			projectionBlocks[subject] = aggregate.IsBlocked() || delta.kind == AggregateBlocked
+			projectionBlocks[subject] = false
+		}
+		for _, subject := range aggregate.BlockedSubjects() {
+			projectionBlocks[subject] = true
 		}
 	}
 	for delegateIndex, action := range delegates {

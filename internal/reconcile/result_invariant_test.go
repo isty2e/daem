@@ -221,6 +221,52 @@ func TestResultRejectsContradictoryDelegateDependencyState(t *testing.T) {
 	}
 }
 
+func TestResultRequiresRiskForSubjectInsideBlockedDocument(t *testing.T) {
+	clear, subject := resultAggregate(t, "context7")
+	contract := clear.Projections()[0].Contract()
+	blocked, err := reconcile.NewAggregateDecision(reconcile.AggregateDecisionInput{
+		Kind: reconcile.AggregateBlocked, Reason: reconcile.ReasonUnmanagedOutputExists,
+		DocumentAddress: clear.DocumentAddress(), CodecContractID: clear.CodecContractID(),
+		Projections: []reconcile.AggregateProjectionDecisionInput{{
+			Kind: reconcile.AggregateNoOp, Reason: reconcile.ReasonAlreadyCurrent, Contract: contract,
+			Subjects: []reconcile.AggregateSubjectDecisionInput{{
+				Subject: subject, Contract: contract, Kind: reconcile.AggregateNoOp, Reason: reconcile.ReasonAlreadyCurrent,
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	risk := reconcile.DelegateRisk{
+		Code: reconcile.DelegateRiskPreconditionBlocked, Severity: reconcile.DelegateRiskBlock,
+		Subject: "projection:" + subject.String(),
+	}
+	blockedDelegate := resultDelegateWithRisks(t, subject, reconcile.DelegateBlocked, []reconcile.DelegateRisk{risk})
+	tests := []struct {
+		name      string
+		aggregate reconcile.AggregateDecision
+		delegate  reconcile.DelegateAction
+		wantError bool
+	}{
+		{name: "missing document risk", aggregate: blocked, delegate: resultDelegate(t, subject, reconcile.DelegateScheduled), wantError: true},
+		{name: "document risk retained", aggregate: blocked, delegate: blockedDelegate},
+		{name: "no fabricated block", aggregate: clear, delegate: blockedDelegate, wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := reconcile.NewResult(reconcile.ResultInput{
+				Context: reconcile.ContextApply, Aggregates: []reconcile.AggregateDecision{test.aggregate},
+				Delegates: []reconcile.DelegateAction{test.delegate},
+			})
+			if (err != nil) != test.wantError {
+				t.Fatalf("NewResult error = %v, want error=%t", err, test.wantError)
+			}
+		})
+	}
+}
+
 func TestResultCanonicalizesFamilyOrder(t *testing.T) {
 	managedZ := resultManagedPath(t, "zeta", outputtest.Parse(t, "skills/zeta"))
 	managedA := resultManagedPath(t, "alpha", outputtest.Parse(t, "skills/alpha"))

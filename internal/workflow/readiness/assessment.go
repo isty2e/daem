@@ -269,13 +269,8 @@ func blockedProjectionDependencies(
 		}
 	}
 	for _, decision := range aggregates {
-		for _, projection := range decision.Projections() {
-			if projection.Kind() != reconcile.AggregateBlocked {
-				continue
-			}
-			for _, subject := range projection.Subjects() {
-				appendBlock(subject)
-			}
+		for _, subject := range decision.BlockedSubjects() {
+			appendBlock(subject)
 		}
 	}
 	return blocks
