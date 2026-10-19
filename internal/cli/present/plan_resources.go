@@ -29,7 +29,7 @@ type resourcePlanFacts struct {
 }
 
 func PrintActionPlanWithOptions(output io.Writer, label string, input HumanPlanInput, options HumanOptions) {
-	decisions := input.Reconciliation.Decisions()
+	decisions := sortedHumanRows(input.Reconciliation.Decisions(), humanDecisionOrder)
 	current, pending, blocked := 0, 0, 0
 	for _, decision := range decisions {
 		switch {

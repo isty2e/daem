@@ -158,18 +158,14 @@ func PrintRelationActionsWithOptions(output io.Writer, actions []reconciliation.
 		}
 		route := action.RouteRequest()
 		admission := action.RouteAdmission()
-		subject := ""
-		if renderedSubject := planJSONSubjectFor(action.Subject()); renderedSubject != nil {
-			subject = subjectString(*renderedSubject)
-		}
 		identity := action.CarrierIdentity()
 		carrier := identity.Carrier()
 		disclosure := carrierIdentityDisclosureFor(identity)
 		fmt.Fprintf(
 			output,
-			"  - kind=%s subject=%q target=%s scope=%s source_kind=%q source_ref=%q source_namespace=%q relation_subject_key=%q evidence_source=%s evidence_availability=%s evidence_freshness=%s execution=%s reason=%s correlation_state=%s correlation_reason=%s route_id=%q route_request_hash=%q route_admission_row=%q requested_outcome=%s selected_outcome=%s replay_boundary=%s retained_effects=%q non_claims=%q invokes_host_route=%t allows_host_route_invocation=%t blocks_ordinary_apply=%t\n",
+			"  - kind=%s %s target=%s scope=%s source_kind=%q source_ref=%q source_namespace=%q relation_subject_key=%q evidence_source=%s evidence_availability=%s evidence_freshness=%s execution=%s reason=%s correlation_state=%s correlation_reason=%s route_id=%q route_request_hash=%q route_admission_row=%q requested_outcome=%s selected_outcome=%s replay_boundary=%s retained_effects=%q non_claims=%q invokes_host_route=%t allows_host_route_invocation=%t blocks_ordinary_apply=%t\n",
 			action.Kind(),
-			subject,
+			carrierHumanReference(identity).fields(true),
 			action.Target(),
 			action.Scope(),
 			carrier.Source().Kind(),
@@ -200,42 +196,39 @@ func PrintRelationActionsWithOptions(output io.Writer, actions []reconciliation.
 }
 
 func printRelationActionSummary(output io.Writer, action reconciliation.RelationAction) {
-	subject := ""
-	if renderedSubject := planJSONSubjectFor(action.Subject()); renderedSubject != nil {
-		subject = subjectString(*renderedSubject)
-	}
+	reference := carrierHumanReference(action.CarrierIdentity()).fields(false)
 
 	switch action.Kind() {
 	case reconciliation.ActionNoOp:
-		fmt.Fprintf(output, "  - no change planned for extension relation subject=%q target=%s scope=%s\n", subject, action.Target(), action.Scope())
+		fmt.Fprintf(output, "  - no change planned for extension relation %s target=%s scope=%s\n", reference, action.Target(), action.Scope())
 		return
 	case reconciliation.ActionObserveOnly:
-		fmt.Fprintf(output, "  - observe extension relation only subject=%q target=%s scope=%s: %s\n", subject, action.Target(), action.Scope(), strings.ReplaceAll(string(action.Reason()), "_", " "))
+		fmt.Fprintf(output, "  - observe extension relation only %s target=%s scope=%s: %s\n", reference, action.Target(), action.Scope(), strings.ReplaceAll(string(action.Reason()), "_", " "))
 		return
 	case reconciliation.ActionChangePin:
-		fmt.Fprintf(output, "  - change managed Pi pin subject=%q target=%s scope=%s\n", subject, action.Target(), action.Scope())
+		fmt.Fprintf(output, "  - change managed Pi pin %s target=%s scope=%s\n", reference, action.Target(), action.Scope())
 		return
 	case reconciliation.ActionCreate, reconciliation.ActionAttempt, reconciliation.ActionAssistCandidate, reconciliation.ActionBlock:
 		if action.InvokesHostRoute() {
-			fmt.Fprintf(output, "  - install extension through host subject=%q target=%s scope=%s\n", subject, action.Target(), action.Scope())
+			fmt.Fprintf(output, "  - install extension through host %s target=%s scope=%s\n", reference, action.Target(), action.Scope())
 			fmt.Fprintln(output, "    host may retain packages, caches, credentials, trust data, or logs")
 			return
 		}
 		if action.Reason() == reconciliation.ReasonPresentUnclaimed {
 			fmt.Fprintf(
 				output,
-				"  - external carrier present but unclaimed subject=%q target=%s scope=%s\n",
-				subject,
+				"  - external carrier present but unclaimed %s target=%s scope=%s\n",
+				reference,
 				action.Target(),
 				action.Scope(),
 			)
 			return
 		}
 		if action.BlocksOrdinaryApply() {
-			fmt.Fprintf(output, "  - blocked subject=%q target=%s scope=%s: %s\n", subject, action.Target(), action.Scope(), strings.ReplaceAll(string(action.Reason()), "_", " "))
+			fmt.Fprintf(output, "  - blocked %s target=%s scope=%s: %s\n", reference, action.Target(), action.Scope(), strings.ReplaceAll(string(action.Reason()), "_", " "))
 			return
 		}
 	}
 
-	fmt.Fprintf(output, "  - relation action kind=%q subject=%q target=%s scope=%s\n", action.Kind(), subject, action.Target(), action.Scope())
+	fmt.Fprintf(output, "  - relation action kind=%q %s target=%s scope=%s\n", action.Kind(), reference, action.Target(), action.Scope())
 }

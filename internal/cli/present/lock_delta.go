@@ -12,6 +12,7 @@ import (
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
 
@@ -159,14 +160,31 @@ func printDeltaEntries(
 	if len(entries) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "lockfile.subject.%s:\n", label)
-	for _, entry := range entries {
-		side := lockIdentityAfter
-		if entry.Status == lock.DeltaStatusRemoved {
-			side = lockIdentityBefore
+	fmt.Fprintf(output, "%s lock entries:\n", label)
+	ordered := sortedHumanRows(entries, func(entry lock.DeltaEntry) humanResourceOrder {
+		contract, _ := lockDeltaContract(entry)
+		var consumers []target.Target
+		var scope target.Scope
+		if spec, present := contract.Realization(); present {
+			consumers, scope = spec.ConsumerTargets(), spec.Scope()
+		} else if use, present := contract.ExactFileUse(); present {
+			scope = use.Scope()
 		}
-		subject := projection.subject(entry.Key, side, options.Verbose)
-		fmt.Fprintf(output, "  - %s", Escape(lockSubjectString(subject)))
+		return humanResourceOrderFor(lockHumanReference(entry, projection, options.Verbose).resource, consumers, scope)
+	})
+	for _, entry := range ordered {
+		contract, _ := lockDeltaContract(entry)
+		fmt.Fprintf(output, "  - %s", lockHumanReference(entry, projection, options.Verbose).fields(options.Verbose))
+		if spec, present := contract.Realization(); present {
+			consumers := targetStrings(spec.ConsumerTargets())
+			field := "target"
+			if len(consumers) != 1 {
+				field = "targets"
+			}
+			fmt.Fprintf(output, " %s=%s scope=%s placement=%s", field, Escape(strings.Join(consumers, ",")), Escape(string(spec.Scope())), Quote(spec.PlacementID()))
+		} else if use, present := contract.ExactFileUse(); present {
+			fmt.Fprintf(output, " scope=%s", Escape(string(use.Scope())))
+		}
 		if !options.Verbose {
 			fmt.Fprintln(output)
 			continue

@@ -56,9 +56,9 @@ func TestHookAssetPublicCLILifecycleForCodexAndClaude(t *testing.T) {
 	}
 	testkit.AssertContainsInOrder(
 		t, stdout,
-		`create resource="hook_asset/guard"`,
 		`create resource="hook/protect" target=codex`,
 		`create resource="hook/protect" target=claude-code`,
+		`create resource="hook_asset/guard"`,
 	)
 	testkit.AssertFileContent(t, assetDestination, scriptContent)
 	assertFileMode(t, assetDestination, 0o700)
@@ -107,9 +107,9 @@ func TestHookAssetPublicCLILifecycleForCodexAndClaude(t *testing.T) {
 	}
 	testkit.AssertContainsInOrder(
 		t, updateStdout,
-		`update resource="hook_asset/guard"`,
 		`update resource="hook/protect" target=codex`,
 		`update resource="hook/protect" target=claude-code`,
+		`update resource="hook_asset/guard"`,
 	)
 	testkit.AssertFileContent(t, updatedAssetDestination, updatedScriptContent)
 	assertFileMode(t, updatedAssetDestination, 0o700)

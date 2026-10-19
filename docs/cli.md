@@ -899,11 +899,25 @@ persistent cache. Temporary resolution data is removed before exit. The same
 floating manifest can legitimately resolve to a different exact lock over time.
 
 Default output reports subject counts plus every added, changed, or removed
-subject identity. When extension order constraints exist, it also reports
-class-relative order counts and changed class ids. It omits unchanged
-identities, source ids, hashes, resolved refs, full repair recipes, and member
-details. `--verbose` adds unchanged identities, bounded resolution evidence,
-and before/after ordered members.
+lock entry under `added lock entries:`, `changed lock entries:`, or
+`removed lock entries:`. Entries use public references such as
+`resource="instruction/project"`, `resource="skill/review"`, and
+`resource="mcp-server/context7"`. Each realized entry also includes its complete
+`target` or `targets`, `scope`, and `placement`. Exact-source entries do not
+invent a target; file-use entries include their scope. These fields depend on
+the entry's kind, not which other entries happen to be listed, so separate
+placements remain distinguishable even when their public reference matches.
+Declaration IDs remain public even when a local or private source requires
+redacting the structural subject or source details. Entries without an
+established declaration identity retain a safely disclosed `subject=`.
+
+Each change list uses the same resource-first display order as status and apply
+below. When extension order constraints exist, lock also reports class-relative
+order counts and changed class ids without reordering their members. It omits
+unchanged entries, source ids, hashes, resolved refs, full repair recipes, and
+member details. `--verbose` adds unchanged entries, safely disclosed canonical
+`subject` identities for lockfile correlation, bounded resolution evidence, and
+before/after ordered members.
 
 Regenerating the lockfile removes entries no longer represented by the
 manifest. It does not inspect or delete host outputs; that belongs to status
@@ -1075,6 +1089,14 @@ Unqualified host prerequisites use these reasons:
 
 Default output groups each resource's selected placement or shared consumer
 set with its output/configuration transition and associated MCP observations.
+Ordinary plan blocks and successful output-result rows are ordered by public
+`kind/name` reference, then target, then scope. Target order follows the supported
+target catalog; shared outputs use their earliest consumer in that order without
+changing the displayed consumer set. Equal keys retain their relative order.
+Rows with only a `subject=` fallback follow named resources in their existing
+order. This is display order, not execution order: JSON arrays, extension
+precedence sequences, and attempt history keep their existing order.
+
 The header counts **output entries**: one managed-path decision, including a
 shared output, or one aggregate subject. Two MCP servers in one configuration
 document therefore count as two entries, not two files. `current`, `pending`,
@@ -1098,7 +1120,13 @@ attempts and selected command plans remain visible. Omission does not claim
 runtime readiness; `--verbose` and JSON retain the individual facts.
 
 Extension plans keep separate relation-action, carrier-adoption, carrier-absence,
-and extension-order sections. A nonempty section always reports its total;
+and extension-order sections. Relation and carrier rows use the declared
+`resource="extension/<id>"` established by the carrier contract, not the host
+package name. A private source does not hide that declaration ID; source and
+structural-subject disclosure remain independent. Rows without an established
+declaration identity retain a safely disclosed `subject=`;
+verbose rows retain the canonical subject alongside the resource reference.
+A nonempty section always reports its total;
 default output adds `(N unchanged)` instead of repeating no-op relation rows,
 already-current carrier claims, retained carrier relations, and exact order
 rows. Admitted bounded same-subject no-ops follow the same rule as exact-source
