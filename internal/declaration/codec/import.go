@@ -153,20 +153,12 @@ func compactImportManifestBody(content []byte) []byte {
 	return output.Bytes()
 }
 
-// AppendImportManifestBody appends rendered import declarations without rewriting existing bytes.
+// AppendImportManifestBody appends declarations while replacing only conflicting
+// empty root collections and preserving their comments and unrelated bytes.
 func AppendImportManifestBody(content []byte, body []byte) []byte {
 	body = bytes.TrimSpace(body)
 	if len(body) == 0 {
 		return append([]byte{}, content...)
 	}
-	output := append([]byte{}, content...)
-	if len(output) != 0 && !bytes.HasSuffix(output, []byte("\n")) {
-		output = append(output, '\n')
-	}
-	if len(output) != 0 {
-		output = append(output, '\n')
-	}
-	output = append(output, body...)
-	output = append(output, '\n')
-	return output
+	return declaration.AppendDocumentBlock(content, string(body)+"\n")
 }
