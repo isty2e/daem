@@ -212,8 +212,8 @@ func PrintCarrierAdoptionResultsWithOptions(
 		case carrierAdoptionCommitted:
 			fmt.Fprintf(
 				output,
-				"  - recorded external carrier claim subject=%q target=%s scope=%s source=%q provenance=%s\n",
-				subjectString(*row.Subject),
+				"  - recorded external carrier claim %s target=%s scope=%s source=%q provenance=%s\n",
+				carrierHumanReference(action.CarrierIdentity()).fields(false),
 				row.Target,
 				row.Scope,
 				row.SourceNamespace,
@@ -223,8 +223,8 @@ func PrintCarrierAdoptionResultsWithOptions(
 		case carrierAdoptionInstallRecovered:
 			fmt.Fprintf(
 				output,
-				"  - completed pending carrier install recovery subject=%q target=%s scope=%s source=%q provenance=%s\n",
-				subjectString(*row.Subject),
+				"  - completed pending carrier install recovery %s target=%s scope=%s source=%q provenance=%s\n",
+				carrierHumanReference(action.CarrierIdentity()).fields(false),
 				row.Target,
 				row.Scope,
 				row.SourceNamespace,
@@ -234,8 +234,8 @@ func PrintCarrierAdoptionResultsWithOptions(
 		case carrierAdoptionNotRecorded:
 			fmt.Fprintf(
 				output,
-				"  - external carrier claim not recorded before apply effects subject=%q target=%s scope=%s source=%q\n",
-				subjectString(*row.Subject),
+				"  - external carrier claim not recorded before apply effects %s target=%s scope=%s source=%q\n",
+				carrierHumanReference(action.CarrierIdentity()).fields(false),
 				row.Target,
 				row.Scope,
 				row.SourceNamespace,
@@ -244,8 +244,8 @@ func PrintCarrierAdoptionResultsWithOptions(
 		}
 		fmt.Fprintf(
 			output,
-			"  - external carrier claim outcome unconfirmed after apply error subject=%q target=%s scope=%s source=%q\n",
-			subjectString(*row.Subject),
+			"  - external carrier claim outcome unconfirmed after apply error %s target=%s scope=%s source=%q\n",
+			carrierHumanReference(action.CarrierIdentity()).fields(false),
 			row.Target,
 			row.Scope,
 			row.SourceNamespace,
@@ -259,13 +259,13 @@ func printCarrierAdoptionSummary(output io.Writer, action carrieradoption.Action
 		[]carrieradoption.Action{action},
 		carrierAdoptionPlanned,
 	)[0]
-	subject := subjectString(*row.Subject)
+	reference := carrierHumanReference(action.CarrierIdentity()).fields(false)
 	switch action.Result() {
 	case carrieradoption.ResultEligibleExactRelation:
 		fmt.Fprintf(
 			output,
-			"  - would record external carrier claim subject=%q target=%s scope=%s source=%q\n",
-			subject,
+			"  - would record external carrier claim %s target=%s scope=%s source=%q\n",
+			reference,
 			row.Target,
 			row.Scope,
 			row.SourceNamespace,
@@ -285,8 +285,8 @@ func printCarrierAdoptionSummary(output io.Writer, action carrieradoption.Action
 	case carrieradoption.ResultAlreadyClaimedCurrent:
 		fmt.Fprintf(
 			output,
-			"  - external carrier already claimed subject=%q target=%s scope=%s source=%q provenance=%s\n",
-			subject,
+			"  - external carrier already claimed %s target=%s scope=%s source=%q provenance=%s\n",
+			reference,
 			row.Target,
 			row.Scope,
 			row.SourceNamespace,
@@ -295,8 +295,8 @@ func printCarrierAdoptionSummary(output io.Writer, action carrieradoption.Action
 	case carrieradoption.ResultPresentUnclaimed:
 		fmt.Fprintf(
 			output,
-			"  - carrier adoption available subject=%q target=%s scope=%s source=%q\n",
-			subject,
+			"  - carrier adoption available %s target=%s scope=%s source=%q\n",
+			reference,
 			row.Target,
 			row.Scope,
 			row.SourceNamespace,
@@ -305,8 +305,8 @@ func printCarrierAdoptionSummary(output io.Writer, action carrieradoption.Action
 	case carrieradoption.ResultPresentUnclaimedIneligible:
 		fmt.Fprintf(
 			output,
-			"  - carrier adoption unavailable subject=%q target=%s scope=%s source=%q: %s\n",
-			subject,
+			"  - carrier adoption unavailable %s target=%s scope=%s source=%q: %s\n",
+			reference,
 			row.Target,
 			row.Scope,
 			row.SourceNamespace,
@@ -315,8 +315,8 @@ func printCarrierAdoptionSummary(output io.Writer, action carrieradoption.Action
 	case carrieradoption.ResultClaimConflict:
 		fmt.Fprintf(
 			output,
-			"  - blocked carrier adoption subject=%q target=%s scope=%s: %s\n",
-			subject,
+			"  - blocked carrier adoption %s target=%s scope=%s: %s\n",
+			reference,
 			row.Target,
 			row.Scope,
 			CountLabel(row.ConflictingClaimCount, "conflicting claim", "conflicting claims"),
@@ -324,24 +324,24 @@ func printCarrierAdoptionSummary(output io.Writer, action carrieradoption.Action
 	case carrieradoption.ResultMissingRelation:
 		fmt.Fprintf(
 			output,
-			"  - external carrier relation missing subject=%q target=%s scope=%s; acquisition remains a separate host action\n",
-			subject,
+			"  - external carrier relation missing %s target=%s scope=%s; acquisition remains a separate host action\n",
+			reference,
 			row.Target,
 			row.Scope,
 		)
 	case carrieradoption.ResultInexactRelation:
 		fmt.Fprintf(
 			output,
-			"  - carrier adoption refused subject=%q target=%s scope=%s: relation is not source-exact\n",
-			subject,
+			"  - carrier adoption refused %s target=%s scope=%s: relation is not source-exact\n",
+			reference,
 			row.Target,
 			row.Scope,
 		)
 	case carrieradoption.ResultObservationBlocked:
 		fmt.Fprintf(
 			output,
-			"  - carrier adoption refused subject=%q target=%s scope=%s: observation %s\n",
-			subject,
+			"  - carrier adoption refused %s target=%s scope=%s: observation %s\n",
+			reference,
 			row.Target,
 			row.Scope,
 			strings.ReplaceAll(row.CorrelationReason, "_", " "),
@@ -363,9 +363,9 @@ func printCarrierAdoptionVerbose(
 	disclosure := carrierIdentityDisclosureFor(action.CarrierIdentity())
 	fmt.Fprintf(
 		output,
-		"  - kind=%s subject=%q carrier=%q target=%s scope=%s source_namespace=%q relation_subject_key=%q result=%s correlation_state=%s correlation_reason=%s evidence_availability=%s evidence_freshness=%s claim_owner=%q claim_store=%s current_claim_provenance=%q proposed_claim_provenance=%q final_claim_provenance=%q claim_transition=%s lifecycle_eligible=%t lifecycle_blocker=%q daem_known_consumers=%d conflicting_claims=%d install_route_status=%s install_route_id=%q install_route_request_hash=%q removal_route_status=%s removal_route_id=%q removal_route_request_hash=%q removal_actuation=%q later_omission=%q preserves_shared_carrier=%t removed_effects=%q retained_effects=%q non_claims=%q ambient_consumer_assurance=%s manage_existing=%t invokes_host_route=%t state_only=%t blocks_ordinary_apply=%t\n",
+		"  - kind=%s %s carrier=%q target=%s scope=%s source_namespace=%q relation_subject_key=%q result=%s correlation_state=%s correlation_reason=%s evidence_availability=%s evidence_freshness=%s claim_owner=%q claim_store=%s current_claim_provenance=%q proposed_claim_provenance=%q final_claim_provenance=%q claim_transition=%s lifecycle_eligible=%t lifecycle_blocker=%q daem_known_consumers=%d conflicting_claims=%d install_route_status=%s install_route_id=%q install_route_request_hash=%q removal_route_status=%s removal_route_id=%q removal_route_request_hash=%q removal_actuation=%q later_omission=%q preserves_shared_carrier=%t removed_effects=%q retained_effects=%q non_claims=%q ambient_consumer_assurance=%s manage_existing=%t invokes_host_route=%t state_only=%t blocks_ordinary_apply=%t\n",
 		row.Kind,
-		subjectString(*row.Subject),
+		carrierHumanReference(action.CarrierIdentity()).fields(true),
 		subjectString(*row.CarrierSubject),
 		row.Target,
 		row.Scope,

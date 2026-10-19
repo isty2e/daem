@@ -126,7 +126,7 @@ func TestRetainedCarrierAbsenceSummaryRemainsExplicit(t *testing.T) {
 	action := retainedCarrierSummaryAction(t)
 	var summary bytes.Buffer
 	printCarrierAbsenceSummary(&summary, action)
-	if !strings.HasPrefix(summary.String(), "  - retain managed carrier relation subject=") || strings.Contains(summary.String(), "decision=") {
+	if !strings.HasPrefix(summary.String(), "  - retain managed carrier relation resource=") || strings.Contains(summary.String(), "decision=") {
 		t.Fatalf("retain lost its specific summary: %s", summary.String())
 	}
 

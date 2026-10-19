@@ -14,7 +14,7 @@ import (
 
 // PrintPlanResultWithOptions renders every applied reconciliation decision.
 func PrintPlanResultWithOptions(output io.Writer, planResult reconcile.Result, options HumanOptions) {
-	decisions := planResult.MutatingDecisions()
+	decisions := sortedHumanRows(planResult.MutatingDecisions(), humanDecisionOrder)
 	if len(decisions) == 0 {
 		return
 	}
@@ -243,12 +243,7 @@ func managedPathPublicKind(decision reconcile.ManagedPathDecision) string {
 }
 
 func managedPathTargetLabel(decision reconcile.ManagedPathDecision) (string, string) {
-	consumers := decision.ConsumerTargets()
-	if len(consumers) == 0 {
-		if previous, present := decision.PreviousState(); present {
-			consumers = previous.ConsumerTargets()
-		}
-	}
+	consumers := managedPathConsumers(decision)
 	values := targetStrings(consumers)
 	if len(values) == 1 {
 		return "target", values[0]

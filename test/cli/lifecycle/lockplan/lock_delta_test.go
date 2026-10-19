@@ -28,17 +28,17 @@ func TestRunLockDryRunReportsDeltaAgainstExistingLockfile(t *testing.T) {
 
 	for _, want := range []string{
 		"lock entry changes: added=2 changed=1 removed=2 unchanged=3",
-		"lockfile.subject.added:",
-		`  - resource/skill/review entity="skill:review"`,
-		`  - projection/skill.project.agents/skill:review entity="skill:review"`,
+		"added lock entries:",
+		`  - resource="skill/review" subject="resource/skill/review" entity="skill:review"`,
+		`  - resource="skill/review" subject="projection/skill.project.agents/skill:review" target=codex scope=project placement="skill.project.agents" entity="skill:review"`,
 		`content_hash="` + hashes.Review + `"`,
-		"lockfile.subject.changed:",
-		`  - resource/skill/oracle changed=exact_supply,derivation`,
-		"lockfile.subject.removed:",
-		`  - resource/skill/legacy entity="skill:legacy"`,
-		`  - projection/skill.project.agents/skill:legacy entity="skill:legacy"`,
-		"lockfile.subject.unchanged:",
-		"  - resource/instructions/project",
+		"changed lock entries:",
+		`  - resource="skill/oracle" subject="resource/skill/oracle" changed=exact_supply,derivation`,
+		"removed lock entries:",
+		`  - resource="skill/legacy" subject="resource/skill/legacy" entity="skill:legacy"`,
+		`  - resource="skill/legacy" subject="projection/skill.project.agents/skill:legacy" target=codex scope=project placement="skill.project.agents" entity="skill:legacy"`,
+		"unchanged lock entries:",
+		`  - resource="instruction/project" subject="resource/instructions/project"`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -88,12 +88,12 @@ targets = ["codex"]
 
 	for _, want := range []string{
 		"lock entry changes: added=2 changed=1 removed=2 unchanged=3",
-		`  - resource/skill/added entity="skill:added"`,
+		`  - resource="skill/added" subject="resource/skill/added" entity="skill:added"`,
 		`content_hash="` + addedHash + `"`,
-		`  - resource/skill/changed changed=exact_supply,derivation`,
-		`  - resource/skill/removed entity="skill:removed"`,
+		`  - resource="skill/changed" subject="resource/skill/changed" changed=exact_supply,derivation`,
+		`  - resource="skill/removed" subject="resource/skill/removed" entity="skill:removed"`,
 		`content_hash="` + oldRemovedHash + `"`,
-		"  - resource/skill/unchanged",
+		`  - resource="skill/unchanged" subject="resource/skill/unchanged"`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -181,10 +181,10 @@ func TestRunLockWriteReportsDeltaAndWritesExactLockfile(t *testing.T) {
 	for _, want := range []string{
 		"wrote lockfile: " + lockfilePath,
 		"lock entry changes: added=2 changed=1 removed=2 unchanged=3",
-		"lockfile.subject.added:",
-		"lockfile.subject.changed:",
-		"lockfile.subject.removed:",
-		"lockfile.subject.unchanged:",
+		"added lock entries:",
+		"changed lock entries:",
+		"removed lock entries:",
+		"unchanged lock entries:",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

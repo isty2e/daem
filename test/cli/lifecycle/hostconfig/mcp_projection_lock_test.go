@@ -62,7 +62,7 @@ func TestMCPPublicCLILockReportsSubjectProjection(t *testing.T) {
 		t.Fatalf("lock dry-run human exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
 	for _, want := range []string{
-		"lockfile.subject.added:",
+		"added lock entries:",
 		"projection/claude-code.project.mcp-server/context7",
 		`target="claude-code" scope="project" aggregate_root=".mcp.json" content_path="/mcpServers/context7"`,
 	} {

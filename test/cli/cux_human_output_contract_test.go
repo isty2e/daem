@@ -102,14 +102,14 @@ func TestCUXDefaultLockOmitsUnchangedAndHashes(t *testing.T) {
 	manifestPath, _, _ := testkit.WriteLockDeltaFixture(t, root)
 
 	defaultOutput := runCUXHuman(t, []string{"lock", "--manifest", manifestPath, "--dry-run"})
-	for _, forbidden := range []string{"lockfile.subject.unchanged:", "source_id=", "content_hash=", "resolved_ref="} {
+	for _, forbidden := range []string{"unchanged lock entries:", "source_id=", "content_hash=", "resolved_ref="} {
 		if strings.Contains(defaultOutput, forbidden) {
 			t.Fatalf("default output = %q, did not want %q", defaultOutput, forbidden)
 		}
 	}
 
 	verboseOutput := runCUXHuman(t, []string{"lock", "--manifest", manifestPath, "--dry-run", "--verbose"})
-	if !strings.Contains(verboseOutput, "lockfile.subject.unchanged:") || !strings.Contains(verboseOutput, "content_hash=") {
+	if !strings.Contains(verboseOutput, "unchanged lock entries:") || !strings.Contains(verboseOutput, "content_hash=") {
 		t.Fatalf("verbose output = %q, want unchanged identities and hashes", verboseOutput)
 	}
 }

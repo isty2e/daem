@@ -144,8 +144,7 @@ func TestPrintRelationActionSummaryPreservesPlannedEffects(t *testing.T) {
 				}
 				return
 			}
-			subject := test.action.Subject()
-			identity := fmt.Sprintf("subject=%q target=%s scope=%s", string(subject.Kind())+"/"+subject.Namespace()+"/"+subject.Key(), test.action.Target(), test.action.Scope())
+			identity := fmt.Sprintf("resource=%q target=%s scope=%s", "extension/"+test.action.Subject().Key(), test.action.Target(), test.action.Scope())
 			row := "  - " + test.label + " " + identity
 			if test.reason != "" {
 				row += ": " + test.reason

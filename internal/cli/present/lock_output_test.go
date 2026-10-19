@@ -36,7 +36,7 @@ func TestPrintDeltaSummaryReportsResolvedRefChanges(t *testing.T) {
 
 	for _, want := range []string{
 		"lock entry changes: added=0 changed=1 removed=0 unchanged=0",
-		`resource/skill/oracle changed=exact_supply,derivation`,
+		`resource="skill/oracle" subject="resource/skill/oracle" changed=exact_supply,derivation`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -65,7 +65,7 @@ func TestPrintDeltaSummaryEscapesCompleteLockSubjectIdentity(t *testing.T) {
 		clipresent.HumanOptions{},
 	)
 	if strings.Contains(output.String(), "\u2028") ||
-		!strings.Contains(output.String(), "%E2%80%A8") {
+		!strings.Contains(output.String(), `resource="skill/review\u2028forged"`) {
 		t.Fatalf("lock delta output = %q", output.String())
 	}
 }
@@ -286,7 +286,7 @@ func TestPrintDryRunSummaryReportsRepairedLocks(t *testing.T) {
 	for _, want := range []string{
 		"would write lockfile: /repo/daem.lock.toml",
 		"lock entry changes: added=1 changed=0 removed=0 unchanged=0",
-		"lockfile.subject.added:\n  - resource/skill/oracle",
+		"added lock entries:\n  - resource=\"skill/oracle\" subject=\"resource/skill/oracle\"",
 		"locked.subject:\n  - resource/skill/oracle (repaired)",
 		"repaired lock entries: 1",
 		"next: run daem lock --manifest /repo/daem.toml",
@@ -384,7 +384,7 @@ func TestPrintDeltaSummaryIncludesMCPSubjectChanges(t *testing.T) {
 
 	for _, want := range []string{
 		"lock entry changes: added=1 changed=0 removed=0 unchanged=0",
-		"lockfile.subject.added:",
+		"added lock entries:",
 		"projection/claude-code.project.mcp-server/context7",
 		`target="claude-code" scope="project" aggregate_root=".mcp.json" content_path="/mcpServers/context7"`,
 	} {

@@ -112,9 +112,9 @@ func PrintCarrierAbsenceActionsWithOptions(
 		disclosure := carrierIdentityDisclosureFor(action.Claim().Identity())
 		fmt.Fprintf(
 			output,
-			"  - kind=%s subject=%q carrier=%q target=%s scope=%s source_namespace=%q requested_outcome=%s selected_action=%s execution=%s correlation_state=%s correlation_reason=%s evidence_availability=%s evidence_freshness=%s daem_known_consumers=%d remaining_daem_known_consumers=%d route_id=%q route_request_hash=%q postcondition_verification=%q recovery_contract=%q removed_effects=%q retained_effects=%q non_claims=%q invokes_host_route=%t retires_claim=%t state_only=%t blocks_ordinary_apply=%t\n",
+			"  - kind=%s %s carrier=%q target=%s scope=%s source_namespace=%q requested_outcome=%s selected_action=%s execution=%s correlation_state=%s correlation_reason=%s evidence_availability=%s evidence_freshness=%s daem_known_consumers=%d remaining_daem_known_consumers=%d route_id=%q route_request_hash=%q postcondition_verification=%q recovery_contract=%q removed_effects=%q retained_effects=%q non_claims=%q invokes_host_route=%t retires_claim=%t state_only=%t blocks_ordinary_apply=%t\n",
 			row.Kind,
-			subjectString(*row.Subject),
+			carrierHumanReference(action.Claim().Identity()).fields(true),
 			subjectString(*row.CarrierSubject),
 			row.Target,
 			row.Scope,
@@ -144,13 +144,13 @@ func PrintCarrierAbsenceActionsWithOptions(
 }
 
 func printCarrierAbsenceSummary(output io.Writer, action carrierabsence.Action) {
-	subject := subjectString(*planJSONSubjectFor(action.Subject()))
+	reference := carrierHumanReference(action.Claim().Identity()).fields(false)
 	switch {
 	case action.BlocksOrdinaryApply():
 		fmt.Fprintf(
 			output,
-			"  - blocked carrier removal subject=%q target=%s scope=%s: %s\n",
-			subject,
+			"  - blocked carrier removal %s target=%s scope=%s: %s\n",
+			reference,
 			action.Target(),
 			action.Scope(),
 			strings.ReplaceAll(string(action.Decision()), "_", " "),
@@ -158,48 +158,48 @@ func printCarrierAbsenceSummary(output io.Writer, action carrierabsence.Action) 
 	case action.StateOnly():
 		fmt.Fprintf(
 			output,
-			"  - retire already-absent carrier claim subject=%q target=%s scope=%s\n",
-			subject,
+			"  - retire already-absent carrier claim %s target=%s scope=%s\n",
+			reference,
 			action.Target(),
 			action.Scope(),
 		)
 	case action.VerifiesPendingRemoval():
 		fmt.Fprintf(
 			output,
-			"  - verify pending carrier removal subject=%q target=%s scope=%s\n",
-			subject,
+			"  - verify pending carrier removal %s target=%s scope=%s\n",
+			reference,
 			action.Target(),
 			action.Scope(),
 		)
 	case action.InvokesHostRoute():
 		fmt.Fprintf(
 			output,
-			"  - remove managed carrier relation through host subject=%q target=%s scope=%s\n",
-			subject,
+			"  - remove managed carrier relation through host %s target=%s scope=%s\n",
+			reference,
 			action.Target(),
 			action.Scope(),
 		)
 	case action.MutatesDirectProjection():
 		fmt.Fprintf(
 			output,
-			"  - remove managed carrier relation from host config subject=%q target=%s scope=%s\n",
-			subject,
+			"  - remove managed carrier relation from host config %s target=%s scope=%s\n",
+			reference,
 			action.Target(),
 			action.Scope(),
 		)
 	case action.Decision() == carrierabsence.DecisionRetain:
 		fmt.Fprintf(
 			output,
-			"  - retain managed carrier relation subject=%q target=%s scope=%s\n",
-			subject,
+			"  - retain managed carrier relation %s target=%s scope=%s\n",
+			reference,
 			action.Target(),
 			action.Scope(),
 		)
 	default:
 		fmt.Fprintf(
 			output,
-			"  - carrier removal decision subject=%q target=%s scope=%s decision=%q\n",
-			subject,
+			"  - carrier removal decision %s target=%s scope=%s decision=%q\n",
+			reference,
 			action.Target(),
 			action.Scope(),
 			action.Decision(),
