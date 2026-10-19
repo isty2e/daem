@@ -31,8 +31,8 @@ func TestAppendDocumentBlockAddsToEmptyRootCollections(t *testing.T) {
 				if !bytes.Equal(original, before) || !bytes.HasPrefix(updated, []byte(prefix)) || !bytes.Contains(updated, []byte(suffix)) {
 					t.Fatalf("append changed input or unrelated bytes: %q", updated)
 				}
-				if root == "instructions" && !bytes.HasPrefix(updated, original) {
-					t.Fatalf("already-extensible empty table was rewritten: %q", updated)
+				if bytes.Contains(updated, []byte(syntax.key+" = ")) {
+					t.Fatalf("appended table retained its conflicting inline placeholder: %q", updated)
 				}
 				if root != "instructions" && !bytes.Contains(updated, []byte(" # retained placeholder note\n")) {
 					t.Fatalf("append discarded a placeholder comment: %q", updated)
@@ -78,6 +78,17 @@ func TestAppendDocumentBlockLeavesUnrelatedOrPopulatedValuesAlone(t *testing.T) 
 			t.Fatalf("append rewrote unrelated/populated input %q: %q", original, appended)
 		}
 	}
+	for _, original := range []string{
+		"instructions = { existing = { source = \"old.md\" } }\n",
+		"[nested]\ninstructions = {}\n",
+		"script = '''\ninstructions = {}\n'''\n",
+		"# instructions = {}\n",
+	} {
+		appended := AppendDocumentBlock([]byte(original), "[instructions.alpha]\nsource = \"guide.md\"\n")
+		if !bytes.HasPrefix(appended, []byte(original)) {
+			t.Fatalf("append rewrote unrelated/populated inline table %q: %q", original, appended)
+		}
+	}
 }
 
 func TestAppendDocumentBlockIgnoresHeadersInsideIncomingStrings(t *testing.T) {
@@ -99,7 +110,7 @@ func TestAppendDocumentBlockIgnoresHeadersInsideIncomingStrings(t *testing.T) {
 	}
 }
 
-func TestAppendDocumentBlockReplacesOnlyExplicitlyRedefinedRoots(t *testing.T) {
+func TestAppendDocumentBlockReplacesOnlyIntroducedRoots(t *testing.T) {
 	original := []byte("instructions = {} # map note\nskill = [] # array note\nhook = [] # untouched\n")
 	block := "[instructions]\n[instructions.alpha]\nsource = \"guide.md\"\n\n[[skill]]\nname = \"alpha\"\n"
 	updated := AppendDocumentBlock(original, block)
@@ -118,5 +129,44 @@ func TestAppendDocumentBlockReplacesOnlyExplicitlyRedefinedRoots(t *testing.T) {
 		if !bytes.Contains(updated, []byte(preserved)) {
 			t.Fatalf("combined append lost %q: %s", preserved, updated)
 		}
+	}
+}
+
+func TestAppendDocumentBlockPreservesArrayRootThroughNestedHeaders(t *testing.T) {
+	original := []byte("skill = []\ninstructions = {}\n")
+	block := "[[skill]]\nname = \"alpha\"\n[skill.source]\npath = \"local\"\n"
+	updated := AppendDocumentBlock(original, block)
+	var document struct {
+		Skill []struct {
+			Name   string
+			Source struct{ Path string }
+		}
+	}
+	if _, err := toml.Decode(string(updated), &document); err != nil {
+		t.Fatalf("nested header replaced the array root classification: %v\n%s", err, updated)
+	}
+	if len(document.Skill) != 1 || document.Skill[0].Name != "alpha" || document.Skill[0].Source.Path != "local" || !bytes.Contains(updated, []byte("instructions = {}\n")) {
+		t.Fatalf("nested header lost declarations or unrelated placeholder: %s", updated)
+	}
+}
+
+func TestRemoveEmptyRootCollectionsRemovesOnlyBlankResidue(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		original string
+		want     string
+	}{
+		{name: "LF", original: "version = 1\nskill = [] \t\nhook = []\n", want: "version = 1\nhook = []\n"},
+		{name: "CRLF and indentation", original: "version = 1\r\n \tskill = [ ] \t\r\nhook = []\r\n", want: "version = 1\r\nhook = []\r\n"},
+		{name: "EOF", original: "version = 1\nskill = []", want: "version = 1\n"},
+		{name: "multiline with unrelated blank line", original: "version = 1\nskill = [\n \t\n]\t\n \t\nhook = []\n", want: "version = 1\n \t\nhook = []\n"},
+		{name: "comments", original: "skill = [\r\n  # inner\r\n]\t# tail\r\n", want: "  # inner\r\n\t# tail\r\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			updated := RemoveEmptyRootCollections([]byte(test.original), "[[skill]]\nname = \"alpha\"\n")
+			if string(updated) != test.want {
+				t.Fatalf("unexpected placeholder residue or lost document content: got=%q want=%q", updated, test.want)
+			}
+		})
 	}
 }

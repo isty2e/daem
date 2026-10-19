@@ -1,17 +1,21 @@
 package declaration
 
-// RemoveEmptyRootCollections removes empty root placeholders redefined by root
+import "strings"
+
+// RemoveEmptyRootCollections removes empty root placeholders extended by
 // table headers in block, preserving comments and unrelated document bytes.
 func RemoveEmptyRootCollections(original []byte, block string) []byte {
 	roots := make(map[string]byte)
 	WalkStructuralLines([]byte(block), func(_ int, trimmed string) bool {
 		header, ok := ParseTableHeader(trimmed)
-		if ok && len(header.Segments) == 1 {
-			opening := byte('{')
-			if header.Array {
-				opening = '['
-			}
-			roots[header.Segments[0]] = opening
+		if !ok || len(header.Segments) == 0 {
+			return false
+		}
+		root := header.Segments[0]
+		if header.Array && len(header.Segments) == 1 {
+			roots[root] = '['
+		} else if _, exists := roots[root]; !exists {
+			roots[root] = '{'
 		}
 		return false
 	})
@@ -39,10 +43,23 @@ func RemoveEmptyRootCollections(original []byte, block string) []byte {
 			return false
 		}
 		trivia, empty := emptyCollectionTrivia(content, equals+1, valueEnd, opening)
-		if empty {
-			changes = append(changes, NewDocumentReplacement(DocumentRange{Start: keyStart, End: valueEnd}, trivia))
-			delete(roots, path[0])
+		if !empty {
+			return false
 		}
+
+		lineEnd := skipLine(content, valueEnd)
+		preserved := content[lineStart:keyStart] + string(trivia) + content[valueEnd:lineEnd]
+		var replacement []byte
+		for len(preserved) > 0 {
+			end := skipLine(preserved, 0)
+			line := preserved[:end]
+			if strings.Trim(line, " \t\r\n") != "" {
+				replacement = append(replacement, line...)
+			}
+			preserved = preserved[end:]
+		}
+		changes = append(changes, NewDocumentReplacement(DocumentRange{Start: lineStart, End: lineEnd}, replacement))
+		delete(roots, path[0])
 		return false
 	})
 	if len(changes) == 0 {

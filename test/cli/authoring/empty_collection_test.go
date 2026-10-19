@@ -76,6 +76,14 @@ func TestAddFirstResourceToExplicitEmptyCollections(t *testing.T) {
 			if counts != test.counts || !bytes.HasPrefix(content, []byte("# retain this heading\n")) || !bytes.Contains(content, []byte("# retain this footer\n")) {
 				t.Fatalf("resource counts=%v want=%v, manifest=%s", counts, test.counts, content)
 			}
+			if test.name == "instruction" && bytes.Contains(content, []byte("instructions = {}")) {
+				t.Fatalf("instruction add extended a closed inline table: %s", content)
+			}
+			for _, line := range strings.Split(string(content), "\n") {
+				if line != "" && strings.Trim(line, " \t\r") == "" {
+					t.Fatalf("add left a whitespace-only line: %q", line)
+				}
+			}
 			locked := testkit.ReadFile(t, lock)
 			run(0, append(append([]string{}, test.args...), "--json")...)
 			if !bytes.Equal(content, testkit.ReadFile(t, manifest)) || !bytes.Equal(locked, testkit.ReadFile(t, lock)) {
