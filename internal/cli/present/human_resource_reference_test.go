@@ -68,19 +68,61 @@ func TestCarrierHumanRowsUseDeclarationIdentityAndKeepVerboseSubject(t *testing.
 	}
 }
 
-func TestCarrierHumanReferenceDoesNotRecoverRedactedAlias(t *testing.T) {
+func TestCarrierHumanReferenceKeepsDeclarationIDSeparateFromPrivateSubject(t *testing.T) {
 	for _, source := range []string{"plugins/local.ts", "npm:public-package"} {
 		contract, _ := hostSourceCarrierFixture(t, "declared-alias", desiredextension.CarrierPiPackage, target.TargetPi, target.ScopeProject, source)
 		identity := presentManagedCarrierIdentity(t, contract)
 		for _, verbose := range []bool{false, true} {
 			fields := carrierHumanReference(identity).fields(verbose)
-			if source == "plugins/local.ts" {
-				if strings.Contains(fields, "declared-alias") || strings.Contains(fields, source) || !strings.Contains(fields, "subject=") || !strings.Contains(fields, "redacted:sha256:") {
-					t.Fatalf("verbose=%t alias bypassed source disclosure: %s", verbose, fields)
-				}
-			} else if !strings.Contains(fields, `resource="extension/declared-alias"`) {
-				t.Fatalf("public carrier lost logical reference: %s", fields)
+			if !strings.Contains(fields, `resource="extension/declared-alias"`) || strings.Contains(fields, source) {
+				t.Fatalf("verbose=%t declaration reference was lost or disclosed source: %s", verbose, fields)
+			}
+			if source == "plugins/local.ts" && verbose && !strings.Contains(fields, `subject="host_relation/pi.package-carrier/redacted:sha256:`) {
+				t.Fatalf("declaration reference bypassed structural subject redaction: %s", fields)
 			}
 		}
+	}
+}
+
+func TestPrivateCarrierHumanRowsRetainPublicDeclarationReference(t *testing.T) {
+	const privateSource = "./pkgs/private-carrier"
+	contract, relation := hostSourceCarrierFixture(t, "my-ext-id", desiredextension.CarrierPiPackage, target.TargetPi, target.ScopeProject, privateSource)
+	fixture := newPresentCarrierAdoptionFixtureFromContract(t, contract, relation)
+	adoption := fixture.action(t, true, fixture.lifecycle, nil)
+	claim := fixture.claim(t, fixture.owner, durablecarrier.ClaimProvenanceExplicitlyAdoptedObserved)
+	absence := presentCarrierAbsenceActionFromContract(t, contract, relation)
+	action := localHostSourceRelationAction(t, "my-ext-id", desiredextension.CarrierPiPackage, target.TargetPi, target.ScopeProject, privateSource)
+	for _, test := range []struct {
+		name  string
+		print func(io.Writer, HumanOptions)
+	}{
+		{"relation", func(out io.Writer, options HumanOptions) {
+			PrintRelationActionsWithOptions(out, []reconcile.RelationAction{action}, options)
+		}},
+		{"adoption", func(out io.Writer, options HumanOptions) {
+			PrintCarrierAdoptionActionsWithOptions(out, []carrieradoption.Action{adoption}, options)
+		}},
+		{"absence", func(out io.Writer, options HumanOptions) {
+			PrintCarrierAbsenceActionsWithOptions(out, []carrierabsence.Action{absence}, options)
+		}},
+		{"adoption result", func(out io.Writer, options HumanOptions) {
+			PrintCarrierAdoptionResultsWithOptions(out, []carrieradoption.Action{adoption}, []durablecarrier.ManagedCarrierClaim{claim}, nil, true, options)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, verbose := range []bool{false, true} {
+				var output bytes.Buffer
+				test.print(&output, HumanOptions{Verbose: verbose})
+				if !strings.Contains(output.String(), `resource="extension/my-ext-id" target=pi scope=project`) && !verbose {
+					t.Fatalf("private-source declaration lost its public identity:\n%s", output.String())
+				}
+				if verbose && (!strings.Contains(output.String(), `resource="extension/my-ext-id" subject="host_relation/pi.package-carrier/redacted:sha256:`) || !strings.Contains(output.String(), "target=pi scope=project")) {
+					t.Fatalf("verbose reference lost identity or structural subject protection:\n%s", output.String())
+				}
+				if !verbose && strings.Contains(output.String(), privateSource) {
+					t.Fatalf("default output disclosed private source:\n%s", output.String())
+				}
+			}
+		})
 	}
 }

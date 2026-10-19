@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestHumanResourceOrderAcrossLockPlanAndApply(t *testing.T) {
@@ -100,6 +101,62 @@ scope = "project"
 	})
 	if strings.Count(output, `resource="mcp-server/ctx"`) != 2 {
 		t.Fatalf("same-name placements were merged or lost:\n%s", output)
+	}
+}
+
+func TestLocalExtensionReferenceMatchesPublicInventoryAndJSONIdentity(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	t.Setenv("HOME", home)
+	for _, key := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "PI_CODING_AGENT_DIR"} {
+		t.Setenv(key, filepath.Join(home, key))
+	}
+	testkit.WithWorkingDirectory(t, root)
+	testkit.WriteFile(t, root, "pkgs/some-dir/package.json", `{"name":"private-fixture","version":"1.0.0"}`)
+	testkit.WriteFile(t, root, "daem.toml", `version = 1
+targets = ["pi"]
+
+[[extension]]
+id = "my-ext-id"
+carrier = "pi-package"
+scope = "project"
+source = { host_source = "./pkgs/some-dir" }
+`)
+	manifest := filepath.Join(root, "daem.toml")
+	structured := runCountUnitCLI(t, manifest, "lock", "--dry-run", "--json")
+	payload := clijson.DecodeLock(t, structured)
+	if len(payload.SubjectChanges) != 1 || payload.SubjectChanges[0].After == nil {
+		t.Fatalf("wrong lock entry count: %#v", payload.SubjectChanges)
+	}
+	change := payload.SubjectChanges[0]
+	if change.After.EntityID != "extension:my-ext-id" || !change.Subject.NameRedacted ||
+		!change.After.Subject.NameRedacted || change.After.Realization == nil ||
+		!change.After.Realization.SourceNamespaceRedacted || !change.After.Realization.RelationSubjectKeyRedacted {
+		t.Fatalf("public declaration identity and private carrier facts were conflated: %#v", change)
+	}
+	if bytes.Contains(structured, []byte("./pkgs/some-dir")) {
+		t.Fatalf("JSON disclosed private source: %s", structured)
+	}
+	for _, verbose := range []bool{false, true} {
+		args := []string{"lock", "--dry-run"}
+		if verbose {
+			args = append(args, "--verbose")
+		}
+		output := string(runCountUnitCLI(t, manifest, args...))
+		if !strings.Contains(output, `resource="extension/my-ext-id"`) ||
+			!strings.Contains(output, "target=pi scope=project") {
+			t.Fatalf("verbose=%t lost declaration identity: %s", verbose, output)
+		}
+		if !verbose && strings.Contains(output, "./pkgs/some-dir") {
+			t.Fatalf("default human output disclosed private source: %s", output)
+		}
+	}
+	resources := string(runCountUnitCLI(t, manifest, "list", "resources"))
+	if !strings.Contains(resources, `key="my-ext-id"`) || strings.Contains(resources, "./pkgs/some-dir") {
+		t.Fatalf("public inventory identity or source privacy changed: %s", resources)
+	}
+	if !bytes.Equal(structured, runCountUnitCLI(t, manifest, "lock", "--dry-run", "--json")) {
+		t.Fatal("human rendering changed canonical lock JSON")
 	}
 }
 

@@ -907,7 +907,9 @@ lock entry under `added lock entries:`, `changed lock entries:`, or
 invent a target; file-use entries include their scope. These fields depend on
 the entry's kind, not which other entries happen to be listed, so separate
 placements remain distinguishable even when their public reference matches.
-Entries without a safely established public reference retain `subject=`.
+Declaration IDs remain public even when a local or private source requires
+redacting the structural subject or source details. Entries without an
+established declaration identity retain a safely disclosed `subject=`.
 
 Each change list uses the same resource-first display order as status and apply
 below. When extension order constraints exist, lock also reports class-relative
@@ -1119,8 +1121,10 @@ runtime readiness; `--verbose` and JSON retain the individual facts.
 
 Extension plans keep separate relation-action, carrier-adoption, carrier-absence,
 and extension-order sections. Relation and carrier rows use the declared
-`resource="extension/<id>"` when safely established by the carrier contract,
-not the host package name. Otherwise they retain a safely disclosed `subject=`;
+`resource="extension/<id>"` established by the carrier contract, not the host
+package name. A private source does not hide that declaration ID; source and
+structural-subject disclosure remain independent. Rows without an established
+declaration identity retain a safely disclosed `subject=`;
 verbose rows retain the canonical subject alongside the resource reference.
 A nonempty section always reports its total;
 default output adds `(N unchanged)` instead of repeating no-op relation rows,

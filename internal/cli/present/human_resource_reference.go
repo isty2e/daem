@@ -30,9 +30,6 @@ func carrierHumanReference(identity durablecarrier.ManagedCarrierIdentity) human
 	reference := humanResourceReference{subject: lockSubjectString(jsonSubjectID{
 		Kind: projected.Kind, Namespace: projected.Namespace, Name: projected.Name,
 	})}
-	if projected.NameRedacted {
-		return reference
-	}
 	contract, err := lock.ReconstructDelegatedRelationCarrierContract(
 		identity.Carrier().Key(), identity.RelationSubject(), identity.ExpectedRelation().SubjectKey(),
 	)
@@ -51,11 +48,9 @@ func lockHumanReference(
 	contract, side := lockDeltaContract(entry)
 	subject := projection.subject(entry.Key, side, verbose)
 	reference := humanResourceReference{subject: lockSubjectString(subject)}
-	if !subject.NameRedacted {
-		id := contract.EntityID()
-		if id.Kind() != "" {
-			reference.resource = ResourceReference(id.Kind(), id.Name())
-		}
+	id := contract.EntityID()
+	if id.Kind() != "" {
+		reference.resource = ResourceReference(id.Kind(), id.Name())
 	}
 	return reference
 }

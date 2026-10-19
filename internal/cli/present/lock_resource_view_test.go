@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -88,6 +89,49 @@ func TestLockResourceViewKeepsFixedDistinguishingFieldsAndCanonicalJSON(t *testi
 	}
 	if !bytes.Equal(jsonBefore, encode()) {
 		t.Fatal("human lock rendering changed canonical JSON")
+	}
+}
+
+func TestPrivateLockResourcesKeepTheSameDefaultAndVerboseOrder(t *testing.T) {
+	makeFile := func(privateSource, publicSource string) lock.File {
+		t.Helper()
+		return presentOrderFile(t, []desiredextension.Extension{
+			presentOrderExtension(t, "alpha-local", privateSource),
+			presentOrderExtension(t, "zeta-public", publicSource),
+		})
+	}
+	empty := lock.File{Version: lock.CurrentVersion}
+	before := makeFile("./pkgs/old-private-carrier", "npm:old-public-package")
+	after := makeFile("./pkgs/current-private-carrier", "npm:current-public-package")
+	for _, test := range []struct {
+		bucket string
+		delta  lock.Delta
+	}{
+		{"added", lock.BuildDelta(empty, after)},
+		{"changed", lock.BuildDelta(before, after)},
+		{"removed", lock.BuildDelta(before, empty)},
+		{"unchanged", lock.BuildDelta(after, after)},
+	} {
+		t.Run(test.bucket, func(t *testing.T) {
+			for _, verbose := range []bool{false, true} {
+				var output bytes.Buffer
+				clipresent.PrintDeltaSummaryWithOptions(&output, test.delta, clipresent.HumanOptions{Verbose: verbose})
+				if test.bucket == "unchanged" && !verbose {
+					if strings.Contains(output.String(), "resource=") {
+						t.Fatalf("default unchanged visibility changed:\n%s", output.String())
+					}
+					continue
+				}
+				local := strings.Index(output.String(), `resource="extension/alpha-local"`)
+				public := strings.Index(output.String(), `resource="extension/zeta-public"`)
+				if local < 0 || public <= local {
+					t.Fatalf("%s verbose=%t lost a declaration or changed resource order:\n%s", test.bucket, verbose, output.String())
+				}
+				if !verbose && strings.Contains(output.String(), "private-carrier") {
+					t.Fatalf("default lock output disclosed private source:\n%s", output.String())
+				}
+			}
+		})
 	}
 }
 

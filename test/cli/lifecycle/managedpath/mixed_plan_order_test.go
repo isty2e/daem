@@ -9,7 +9,7 @@ import (
 	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
-func TestStatusHumanAndJSONSharePlanOwnedMixedDecisionOrder(t *testing.T) {
+func TestStatusHumanUsesResourceOrderWhileJSONKeepsPlanOrder(t *testing.T) {
 	root := t.TempDir()
 	manifestPath := filepath.Join(root, "daem.toml")
 	testkit.WriteFile(t, root, "instructions/AGENTS.md", "managed instructions\n")
@@ -33,8 +33,8 @@ targets = ["claude-code"]
 	testkit.AssertContainsInOrder(
 		t,
 		human,
-		`create resource="instruction/project"`,
 		`create resource="hook/test"`,
+		`create resource="instruction/project"`,
 	)
 
 	var stdout bytes.Buffer
@@ -53,6 +53,6 @@ targets = ["claude-code"]
 	}
 	if payload.Actions[0].ResourceID != "instruction/project" ||
 		payload.Actions[1].ResourceID != "hook/test" {
-		t.Fatalf("actions = %#v, want the same plan-owned mixed order as human output", payload.Actions)
+		t.Fatalf("actions = %#v, want unchanged canonical plan order independent of human display", payload.Actions)
 	}
 }
