@@ -113,6 +113,31 @@ func (identity ExactIdentity) Equal(other ExactIdentity) bool {
 	return identity == other
 }
 
+// ExactIdentityChanges distinguishes named component changes from unclassified ones.
+// Its zero value describes equal identities.
+type ExactIdentityChanges struct {
+	SourceID     bool
+	ResolvedRef  bool
+	Kind         bool
+	ContentHash  bool
+	Unclassified bool
+}
+
+// Changes preserves differences outside the named components as Unclassified.
+func (identity ExactIdentity) Changes(other ExactIdentity) ExactIdentityChanges {
+	residual := identity
+	residual.sourceID, residual.resolvedRef = other.sourceID, other.resolvedRef
+	residual.kind, residual.contentHash = other.kind, other.contentHash
+
+	return ExactIdentityChanges{
+		SourceID:     identity.sourceID != other.sourceID,
+		ResolvedRef:  identity.resolvedRef != other.resolvedRef,
+		Kind:         identity.kind != other.kind,
+		ContentHash:  identity.contentHash != other.contentHash,
+		Unclassified: residual != other,
+	}
+}
+
 func validateIdentityText(label string, value string, optional bool) error {
 	if value == "" {
 		if optional {

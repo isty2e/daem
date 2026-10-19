@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/isty2e/daem/internal/realization"
@@ -185,17 +186,13 @@ func printDeltaEntries(
 		} else if use, present := contract.ExactFileUse(); present {
 			fmt.Fprintf(output, " scope=%s", Escape(string(use.Scope())))
 		}
-		if !options.Verbose {
-			fmt.Fprintln(output)
-			continue
-		}
-		switch entry.Status {
-		case lock.DeltaStatusAdded:
-			printSubjectFields(output, entry.After, projection, lockIdentityAfter)
-		case lock.DeltaStatusRemoved:
-			printSubjectFields(output, entry.Before, projection, lockIdentityBefore)
-		case lock.DeltaStatusChanged:
+		switch {
+		case entry.Status == lock.DeltaStatusChanged:
 			fmt.Fprintf(output, " changed=%s\n", strings.Join(changedFacetNames(entry.Before, entry.After), ","))
+		case options.Verbose && entry.Status == lock.DeltaStatusAdded:
+			printSubjectFields(output, entry.After, projection, lockIdentityAfter)
+		case options.Verbose && entry.Status == lock.DeltaStatusRemoved:
+			printSubjectFields(output, entry.Before, projection, lockIdentityBefore)
 		default:
 			fmt.Fprintln(output)
 		}
@@ -307,9 +304,7 @@ func changedFacetNames(before lock.LockedSubjectContract, after lock.LockedSubje
 	if before.EntityID() != after.EntityID() {
 		changed = append(changed, "entity_id")
 	}
-	if !reflect.DeepEqual(optionalExactSupply(before), optionalExactSupply(after)) {
-		changed = append(changed, "exact_supply")
-	}
+	changed = append(changed, exactSupplyChangeNames(optionalExactSupply(before), optionalExactSupply(after))...)
 	if !reflect.DeepEqual(optionalExactFileUse(before), optionalExactFileUse(after)) {
 		changed = append(changed, "exact_file_use")
 	}
@@ -325,6 +320,16 @@ func changedFacetNames(before lock.LockedSubjectContract, after lock.LockedSubje
 	if !reflect.DeepEqual(optionalDelegatePlan(before), optionalDelegatePlan(after)) {
 		changed = append(changed, "delegate_plan")
 	}
+	if !slices.Equal(before.MCPEnvironmentSources(), after.MCPEnvironmentSources()) {
+		changed = append(changed, "mcp_environment_sources")
+	}
+
+	beforeProvider, beforeHasProvider := before.MCPProviderContribution()
+	afterProvider, afterHasProvider := after.MCPProviderContribution()
+	if beforeHasProvider != afterHasProvider || (beforeHasProvider && !beforeProvider.Equal(afterProvider)) {
+		changed = append(changed, "mcp_provider_contribution")
+	}
+
 	if !reflect.DeepEqual(optionalSkillSetCorrelation(before), optionalSkillSetCorrelation(after)) {
 		changed = append(changed, "skill_set_member")
 	}
@@ -340,7 +345,40 @@ func changedFacetNames(before lock.LockedSubjectContract, after lock.LockedSubje
 	if !operationContractsEqual(before, after) {
 		changed = append(changed, "operations")
 	}
+	if len(changed) == 0 && !before.Equal(after) {
+		changed = append(changed, "locked_contract")
+	}
 	return changed
+}
+
+func exactSupplyChangeNames(before optional[artifact.ExactIdentity], after optional[artifact.ExactIdentity]) []string {
+	if before.present != after.present {
+		return []string{"exact_supply"}
+	}
+	if !before.present {
+		return nil
+	}
+	return exactIdentityChangeNames(before.value.Changes(after.value))
+}
+
+func exactIdentityChangeNames(changes artifact.ExactIdentityChanges) []string {
+	var names []string
+	if changes.SourceID {
+		names = append(names, "source_id")
+	}
+	if changes.ResolvedRef {
+		names = append(names, "resolved_ref")
+	}
+	if changes.Kind {
+		names = append(names, "kind")
+	}
+	if changes.ContentHash {
+		names = append(names, "content_hash")
+	}
+	if changes.Unclassified {
+		names = append(names, "exact_supply")
+	}
+	return names
 }
 
 type optional[T any] struct {

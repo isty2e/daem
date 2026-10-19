@@ -107,6 +107,54 @@ func TestExactIdentityEqualityIncludesResolvedRefAndKind(t *testing.T) {
 	}
 }
 
+func TestExactIdentityChangesPreserveEqualityAndComponentDifferences(t *testing.T) {
+	t.Parallel()
+
+	base, err := NewExactIdentity("source-a", "ref-a", ArtifactKindFile, testExactContentHash("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		sourceID    SourceID
+		resolvedRef ResolvedRef
+		kind        ArtifactKind
+		contentHash ContentHash
+		want        ExactIdentityChanges
+	}{
+		{"equal", "source-a", "ref-a", ArtifactKindFile, testExactContentHash("a"), ExactIdentityChanges{}},
+		{"source", "source-b", "ref-a", ArtifactKindFile, testExactContentHash("a"), ExactIdentityChanges{SourceID: true}},
+		{"revision", "source-a", "ref-b", ArtifactKindFile, testExactContentHash("a"), ExactIdentityChanges{ResolvedRef: true}},
+		{"kind", "source-a", "ref-a", ArtifactKindDirectory, testExactContentHash("a"), ExactIdentityChanges{Kind: true}},
+		{"hash", "source-a", "ref-a", ArtifactKindFile, testExactContentHash("b"), ExactIdentityChanges{ContentHash: true}},
+		{"revision and hash", "source-a", "ref-b", ArtifactKindFile, testExactContentHash("b"), ExactIdentityChanges{ResolvedRef: true, ContentHash: true}},
+		{"all", "source-b", "ref-b", ArtifactKindDirectory, testExactContentHash("b"), ExactIdentityChanges{SourceID: true, ResolvedRef: true, Kind: true, ContentHash: true}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			other, err := NewExactIdentity(test.sourceID, test.resolvedRef, test.kind, test.contentHash)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := base.Changes(other); got != test.want {
+				t.Fatalf("Changes() = %+v, want %+v", got, test.want)
+			}
+			if got := other.Changes(base); got != test.want {
+				t.Fatalf("reverse Changes() = %+v, want %+v", got, test.want)
+			}
+			if base.Equal(other) != (test.want == (ExactIdentityChanges{})) {
+				t.Fatalf("Equal() = %t, inconsistent with changes %+v", base.Equal(other), test.want)
+			}
+			if base.Changes(base) != (ExactIdentityChanges{}) || other.Changes(other) != (ExactIdentityChanges{}) {
+				t.Fatal("Changes() is nonzero for an identity compared with itself")
+			}
+		})
+	}
+}
+
 func testExactContentHash(character string) ContentHash {
 	return ContentHash("sha256:" + strings.Repeat(character, 64))
 }
