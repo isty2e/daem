@@ -18,6 +18,7 @@ func insertImportedExtensions(
 	if len(additions) == 0 {
 		return append([]byte(nil), content...), nil
 	}
+	content = declaration.RemoveEmptyRootCollections(content, declarationcodec.RenderExtensionBlock(extensionDeclaration(additions[0])))
 	blocks, err := declarationcodec.ScanExtensionBlocks(content)
 	if err != nil {
 		return nil, err

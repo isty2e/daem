@@ -131,6 +131,7 @@ func WalkStructuralLines(content []byte, visit func(lineStart int, trimmed strin
 }
 
 func AppendDocumentBlock(original []byte, block string) []byte {
+	original = RemoveEmptyRootCollections(original, block)
 	var output bytes.Buffer
 	output.Write(original)
 	if len(original) != 0 && !bytes.HasSuffix(original, []byte("\n")) {
