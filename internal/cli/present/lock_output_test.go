@@ -26,21 +26,48 @@ import (
 	resourcetopology "github.com/isty2e/daem/internal/topology/resource"
 )
 
-func TestPrintDeltaSummaryReportsResolvedRefChanges(t *testing.T) {
+func TestPrintDeltaSummaryExplainsExactSupplyChangesInBothHumanModes(t *testing.T) {
 	sourceID := artifact.SourceID("git:locator=https%3A%2F%2Fexample.test%2Frepo.git&path=skills%2Foracle&ref=name%3Amain")
 	before := snapshottest.File(t, testExactSupplyContract(t, entity.KindSkill, "oracle", sourceID, "old", "old"))
-	after := snapshottest.File(t, testExactSupplyContract(t, entity.KindSkill, "oracle", sourceID, "new", "new"))
 
-	var stdout bytes.Buffer
-	clipresent.PrintDeltaSummaryWithOptions(&stdout, lock.BuildDelta(before, after), clipresent.HumanOptions{Verbose: true})
+	tests := []struct {
+		name        string
+		sourceID    artifact.SourceID
+		resolvedRef artifact.ResolvedRef
+		content     string
+		want        string
+	}{
+		{"source only", "local:skills/oracle?mode=vendor", "old", "old", "source_id,derivation"},
+		{"revision only", sourceID, "new", "old", "resolved_ref,derivation"},
+		{"hash only", sourceID, "old", "new", "content_hash,derivation"},
+		{"revision and hash", sourceID, "new", "new", "resolved_ref,content_hash,derivation"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			after := snapshottest.File(t, testExactSupplyContract(t, entity.KindSkill, "oracle", test.sourceID, test.resolvedRef, test.content))
+			for _, verbose := range []bool{false, true} {
+				var stdout bytes.Buffer
+				clipresent.PrintDeltaSummaryWithOptions(&stdout, lock.BuildDelta(before, after), clipresent.HumanOptions{Verbose: verbose})
 
-	for _, want := range []string{
-		"lock entry changes: added=0 changed=1 removed=0 unchanged=0",
-		`resource="skill/oracle" subject="resource/skill/oracle" changed=exact_supply,derivation`,
-	} {
-		if !strings.Contains(stdout.String(), want) {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
-		}
+				row := `resource="skill/oracle"`
+				if verbose {
+					row += ` subject="resource/skill/oracle"`
+				}
+				row += " changed=" + test.want + "\n"
+				for _, want := range []string{"lock entry changes: added=0 changed=1 removed=0 unchanged=0", row} {
+					if !strings.Contains(stdout.String(), want) {
+						t.Fatalf("verbose=%t stdout = %q, want %q", verbose, stdout.String(), want)
+					}
+				}
+				if !verbose {
+					for _, private := range []string{string(sourceID), string(test.sourceID), "skills/oracle", "sha256:"} {
+						if strings.Contains(stdout.String(), private) {
+							t.Fatalf("default output discloses source value %q: %q", private, stdout.String())
+						}
+					}
+				}
+			}
+		})
 	}
 }
 

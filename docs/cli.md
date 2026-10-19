@@ -911,6 +911,15 @@ Declaration IDs remain public even when a local or private source requires
 redacting the structural subject or source details. Entries without an
 established declaration identity retain a safely disclosed `subject=`.
 
+Changed entries include `changed=` reasons in both default and verbose output.
+When exact source identity exists before and after, the reasons distinguish
+`source_id`, `resolved_ref`, `kind`, and `content_hash`, in that order; `kind`
+means file or directory, not resource kind. Whole-facet additions/removals and
+unclassified identity changes use `exact_supply`. Other changed facets, such
+as `derivation`, remain listed. For example, a revision-only change can report
+`changed=resolved_ref,derivation`, while a changed source hash can also include
+`content_hash`. These are field names, not disclosed source values.
+
 Each change list uses the same resource-first display order as status and apply
 below. When extension order constraints exist, lock also reports class-relative
 order counts and changed class ids without reordering their members. It omits
@@ -919,9 +928,12 @@ member details. `--verbose` adds unchanged entries, safely disclosed canonical
 `subject` identities for lockfile correlation, bounded resolution evidence, and
 before/after ordered members.
 
-Regenerating the lockfile removes entries no longer represented by the
-manifest. It does not inspect or delete host outputs; that belongs to status
-and apply under managed-state authority.
+Change reasons describe locked input facts, not predicted output work. A
+`content_hash` includes executable class, so it can change while normalized
+instruction output remains current. Regenerating the lockfile removes entries
+no longer represented by the manifest. It does not inspect or delete host
+outputs; status and apply decide output currentness and work under
+managed-state authority.
 
 ## `outdated`
 
@@ -934,7 +946,8 @@ compares the candidate exact identities with the current lockfile, and writes
 nothing persistent. Default current output is count-only; stale output lists
 every added, changed, or removed identity and the lock next step. `--verbose`
 adds checked current identities and bounded refs. `--check` exits `1` when any
-lock identity would change.
+lock identity would change. Changed entries use the same `changed=` reasons
+as lock.
 
 Lock and outdated JSON schema version is `4`. It includes command/mode,
 manifest and derived lockfile paths, prior-lock presence, subject and order
