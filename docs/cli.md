@@ -1234,9 +1234,10 @@ claim changes. Default extension-order results summarize exact, unchanged
 sequences; changed sequences and non-exact outcomes remain visible. Carrier
 adoption results continue to show recorded claim transitions and provenance.
 
-Successful default output contains counts, up to three examples per successful
-action kind, every attempted-but-unverified and retained residue class,
-failures, and a next action only when needed. `--verbose` adds bounded paths,
+Successful default apply output contains counts and a concise row for every
+performed output-entry action. Unchanged output entries do not get result rows.
+Attempted-but-unverified results, retained residue classes, and failures remain
+visible, with a next action only when needed. `--verbose` adds bounded paths,
 reason codes, selected source/ref, and evidence. Raw subprocess output and
 secret values are never printed. Redaction checks both captured and
 display-normalized spellings.
