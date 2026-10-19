@@ -920,6 +920,10 @@ as `derivation`, remain listed. For example, a revision-only change can report
 `changed=resolved_ref,derivation`, while a changed source hash can also include
 `content_hash`. These are field names, not disclosed source values.
 
+MCP dependency changes use `mcp_environment_sources` and
+`mcp_provider_contribution`. If a locked contract differs but no named reason
+is available, `locked_contract` replaces an empty reason list.
+
 Each change list uses the same resource-first display order as status and apply
 below. When extension order constraints exist, lock also reports class-relative
 order counts and changed class ids without reordering their members. It omits

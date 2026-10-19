@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/isty2e/daem/internal/realization"
@@ -319,6 +320,16 @@ func changedFacetNames(before lock.LockedSubjectContract, after lock.LockedSubje
 	if !reflect.DeepEqual(optionalDelegatePlan(before), optionalDelegatePlan(after)) {
 		changed = append(changed, "delegate_plan")
 	}
+	if !slices.Equal(before.MCPEnvironmentSources(), after.MCPEnvironmentSources()) {
+		changed = append(changed, "mcp_environment_sources")
+	}
+
+	beforeProvider, beforeHasProvider := before.MCPProviderContribution()
+	afterProvider, afterHasProvider := after.MCPProviderContribution()
+	if beforeHasProvider != afterHasProvider || (beforeHasProvider && !beforeProvider.Equal(afterProvider)) {
+		changed = append(changed, "mcp_provider_contribution")
+	}
+
 	if !reflect.DeepEqual(optionalSkillSetCorrelation(before), optionalSkillSetCorrelation(after)) {
 		changed = append(changed, "skill_set_member")
 	}
@@ -333,6 +344,9 @@ func changedFacetNames(before lock.LockedSubjectContract, after lock.LockedSubje
 	}
 	if !operationContractsEqual(before, after) {
 		changed = append(changed, "operations")
+	}
+	if len(changed) == 0 && !before.Equal(after) {
+		changed = append(changed, "locked_contract")
 	}
 	return changed
 }

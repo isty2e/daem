@@ -4,6 +4,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
@@ -76,5 +78,23 @@ func TestExactSupplyChangeNamesSeparateFacetPresenceFromComponents(t *testing.T)
 				t.Fatalf("change names = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestChangedFacetNamesAreEmptyForEqualContracts(t *testing.T) {
+	t.Parallel()
+
+	contract := snapshottest.ExactSupply(t, snapshottest.ExactSupplyInput{
+		Kind:         entity.KindSkill,
+		Name:         "current",
+		SourceID:     "local:skills/current?mode=vendor",
+		ArtifactKind: artifact.ArtifactKindDirectory,
+		ContentHash:  artifact.HashFileContent([]byte("current")),
+	})
+	if !contract.Equal(contract) {
+		t.Fatal("fixture contract is not canonically equal to itself")
+	}
+	if names := changedFacetNames(contract, contract); len(names) != 0 {
+		t.Fatalf("equal contract change reasons = %q, want none", names)
 	}
 }
