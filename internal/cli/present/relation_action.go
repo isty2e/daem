@@ -147,7 +147,7 @@ func PrintRelationActionsWithOptions(output io.Writer, actions []reconciliation.
 		return
 	}
 	visible, unchanged := summarizeUnchanged(actions, options.Verbose, func(action reconciliation.RelationAction) bool {
-		return action.Kind() == reconciliation.ActionNoOp
+		return action.Kind() == reconciliation.ActionNoOp && pinChangeForAction(action) == nil
 	})
 	printSectionSummary(output, "relation actions", CountLabel(len(actions), "entry", "entries"), unchanged)
 	for _, action := range visible {

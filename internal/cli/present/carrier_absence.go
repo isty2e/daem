@@ -187,13 +187,22 @@ func printCarrierAbsenceSummary(output io.Writer, action carrierabsence.Action) 
 			action.Target(),
 			action.Scope(),
 		)
-	default:
+	case action.Decision() == carrierabsence.DecisionRetain:
 		fmt.Fprintf(
 			output,
 			"  - retain managed carrier relation subject=%q target=%s scope=%s\n",
 			subject,
 			action.Target(),
 			action.Scope(),
+		)
+	default:
+		fmt.Fprintf(
+			output,
+			"  - carrier removal decision subject=%q target=%s scope=%s decision=%q\n",
+			subject,
+			action.Target(),
+			action.Scope(),
+			action.Decision(),
 		)
 	}
 }

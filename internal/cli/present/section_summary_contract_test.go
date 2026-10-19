@@ -9,6 +9,7 @@ import (
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/target"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
@@ -118,5 +119,20 @@ func TestEmptyExtensionSectionsStaySilent(t *testing.T) {
 		if output.Len() != 0 {
 			t.Fatalf("empty extension sections became noisy: %s", output.String())
 		}
+	}
+}
+
+func TestRetainedCarrierAbsenceSummaryRemainsExplicit(t *testing.T) {
+	action := retainedCarrierSummaryAction(t)
+	var summary bytes.Buffer
+	printCarrierAbsenceSummary(&summary, action)
+	if !strings.HasPrefix(summary.String(), "  - retain managed carrier relation subject=") || strings.Contains(summary.String(), "decision=") {
+		t.Fatalf("retain lost its specific summary: %s", summary.String())
+	}
+
+	summary.Reset()
+	PrintCarrierAbsenceActionsWithOptions(&summary, []carrierabsence.Action{action}, HumanOptions{})
+	if summary.String() != "carrier absence actions: 1 entry (1 unchanged)\n" {
+		t.Fatalf("retain no longer folds in default output: %s", summary.String())
 	}
 }
