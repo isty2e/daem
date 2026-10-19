@@ -99,8 +99,11 @@ func PrintCarrierAbsenceActionsWithOptions(
 	if len(actions) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "carrier absence actions: %s\n", CountLabel(len(actions), "entry", "entries"))
-	for _, action := range actions {
+	visible, unchanged := summarizeUnchanged(actions, options.Verbose, func(action carrierabsence.Action) bool {
+		return action.Decision() == carrierabsence.DecisionRetain
+	})
+	printSectionSummary(output, "carrier absence actions", CountLabel(len(actions), "entry", "entries"), unchanged)
+	for _, action := range visible {
 		if !options.Verbose {
 			printCarrierAbsenceSummary(output, action)
 			continue
@@ -184,13 +187,22 @@ func printCarrierAbsenceSummary(output io.Writer, action carrierabsence.Action) 
 			action.Target(),
 			action.Scope(),
 		)
-	default:
+	case action.Decision() == carrierabsence.DecisionRetain:
 		fmt.Fprintf(
 			output,
 			"  - retain managed carrier relation subject=%q target=%s scope=%s\n",
 			subject,
 			action.Target(),
 			action.Scope(),
+		)
+	default:
+		fmt.Fprintf(
+			output,
+			"  - carrier removal decision subject=%q target=%s scope=%s decision=%q\n",
+			subject,
+			action.Target(),
+			action.Scope(),
+			action.Decision(),
 		)
 	}
 }

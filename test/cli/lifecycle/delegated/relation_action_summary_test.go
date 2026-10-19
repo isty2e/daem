@@ -86,17 +86,23 @@ source = { host_source = "git:github.com/acme/pi-tools@v1" }
 				t.Fatalf("default preview exited %d: %s %s", code, &stdout, &stderr)
 			}
 			text := stdout.String()
-			for _, required := range []string{
-				"relation actions: 1 entry\n",
-				"no change planned for extension relation",
-				`subject="host_relation/pi.package-carrier/tools-managed" target=pi scope=project`,
-			} {
-				if !strings.Contains(text, required) {
-					t.Errorf("default preview = %q, want %q", text, required)
-				}
+			if !strings.Contains(text, "relation actions: 1 entry (1 unchanged)\n") || strings.Contains(text, "no change planned for extension relation") {
+				t.Errorf("default preview did not summarize its no-op: %q", text)
 			}
 			if strings.Contains(text, "remove managed extension binding") || strings.Contains(text, "install extension through host") {
 				t.Errorf("default preview invents a host effect: %q", text)
+			}
+
+			if code := run(append(args, "--verbose")...); code != 0 || stderr.Len() != 0 {
+				t.Fatalf("verbose preview exited %d: %s %s", code, &stdout, &stderr)
+			}
+			for _, required := range []string{
+				"relation actions: 1 entry\n", "kind=no_op", "execution=no_mutation",
+				`subject="host_relation/pi.package-carrier/tools-managed" target=pi scope=project`,
+			} {
+				if !strings.Contains(stdout.String(), required) {
+					t.Errorf("verbose preview = %q, want %q", stdout.String(), required)
+				}
 			}
 		})
 	}

@@ -1087,7 +1087,7 @@ binding-removal result, and uncertain host-route class remains visible. Routine
 no-op rows are omitted unless an associated observation, command plan, or blocked
 configuration document needs their context. State/content paths, internal
 reason fields, hashes, route ids, and exhaustive evidence arrays remain
-verbose-only. Relation-action rows, including no-ops, remain visible.
+verbose-only.
 `--verbose` expands every ordinary row with bounded causal fields; MCP rows
 retain their canonical subject alongside the public resource reference.
 Routine MCP facts include adopted ownership, unshadowed configuration, a
@@ -1096,6 +1096,16 @@ are omitted from basic output, as is structurally unsupported effective
 observation. Genuine unobserved effective state, conflicts, stale/failed/blocked
 attempts and selected command plans remain visible. Omission does not claim
 runtime readiness; `--verbose` and JSON retain the individual facts.
+
+Extension plans keep separate relation-action, carrier-adoption, carrier-absence,
+and extension-order sections. A nonempty section always reports its total;
+default output adds `(N unchanged)` instead of repeating no-op relation rows,
+already-current carrier claims, retained carrier relations, and exact order
+rows. Admitted bounded same-subject no-ops follow the same rule as exact-source
+no-ops. Other decisions, including blockers, observe-only rows, pending claims,
+removal verification, and conditional or normalization order, remain visible.
+`--verbose` and JSON retain every individual fact. The same presentation applies
+to apply previews and preflight refusals.
 
 The table below describes exit codes for valid status results. Command failures
 still return `1` before or while emitting their applicable result contract.
@@ -1214,6 +1224,15 @@ exhaustion produces one aggregate textual-diff omission count.
 Apply also rejects any host mutation path that equals, contains, or is contained
 by a local source consumed by the same manifest. Such an operation would mutate
 its own locked input and could not remain reproducible on the next run.
+
+Nonempty ordinary output results have their own `output results: N output entries`
+heading in both default and verbose output. It counts the same output-entry units
+as the plan: a shared managed path counts once, while each aggregate subject
+counts separately even within one configuration file. The overall `applied`
+action count also includes other work, such as extension ordering and carrier
+claim changes. Default extension-order results summarize exact, unchanged
+sequences; changed sequences and non-exact outcomes remain visible. Carrier
+adoption results continue to show recorded claim transitions and provenance.
 
 Successful default output contains counts, up to three examples per successful
 action kind, every attempted-but-unverified and retained residue class,
