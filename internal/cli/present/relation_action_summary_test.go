@@ -133,6 +133,17 @@ func TestPrintRelationActionSummaryPreservesPlannedEffects(t *testing.T) {
 			var output bytes.Buffer
 			PrintRelationActionsWithOptions(&output, []reconcile.RelationAction{test.action}, HumanOptions{})
 			text := output.String()
+			if test.kind == reconcile.ActionNoOp {
+				if text != "relation actions: 1 entry (1 unchanged)\n" {
+					t.Fatalf("no-op summary = %q", text)
+				}
+				output.Reset()
+				PrintRelationActionsWithOptions(&output, []reconcile.RelationAction{test.action}, HumanOptions{Verbose: true})
+				if !strings.Contains(output.String(), "kind="+string(reconcile.ActionNoOp)) || strings.Count(output.String(), "  - ") != 1 {
+					t.Fatalf("verbose lost the no-op fact: %s", output.String())
+				}
+				return
+			}
 			subject := test.action.Subject()
 			identity := fmt.Sprintf("subject=%q target=%s scope=%s", string(subject.Kind())+"/"+subject.Namespace()+"/"+subject.Key(), test.action.Target(), test.action.Scope())
 			row := "  - " + test.label + " " + identity
@@ -159,7 +170,7 @@ func TestPrintRelationActionSummaryPreservesPlannedEffects(t *testing.T) {
 
 	var output bytes.Buffer
 	PrintRelationActionsWithOptions(&output, actions, HumanOptions{})
-	if !strings.HasPrefix(output.String(), fmt.Sprintf("relation actions: %d entries\n", len(actions))) || strings.Count(output.String(), "  - ") != len(actions) {
+	if !strings.HasPrefix(output.String(), fmt.Sprintf("relation actions: %d entries (1 unchanged)\n", len(actions))) || strings.Count(output.String(), "  - ") != len(actions)-1 {
 		t.Fatalf("summary row/header count differs from input actions: %q", output.String())
 	}
 }

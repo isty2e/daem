@@ -15,6 +15,10 @@ import (
 // PrintPlanResultWithOptions renders every applied reconciliation decision.
 func PrintPlanResultWithOptions(output io.Writer, planResult reconcile.Result, options HumanOptions) {
 	decisions := planResult.MutatingDecisions()
+	if len(decisions) == 0 {
+		return
+	}
+	fmt.Fprintf(output, "output results: %s\n", CountLabel(len(decisions), "output entry", "output entries"))
 	if options.Verbose {
 		printVerboseDecisionRows(output, decisions)
 		return

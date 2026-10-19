@@ -367,7 +367,7 @@ func TestCarrierAdoptionHumanOutputDistinguishesEveryNonEligibleOutcome(t *testi
 		{
 			name:   "already claimed",
 			action: fixture.action(t, true, fixture.lifecycle, []durablecarrier.ManagedCarrierClaim{currentClaim}),
-			want:   "already claimed",
+			want:   "1 unchanged",
 		},
 		{
 			name:       "claim conflict",

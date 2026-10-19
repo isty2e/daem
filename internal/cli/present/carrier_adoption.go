@@ -163,8 +163,11 @@ func PrintCarrierAdoptionActionsWithOptions(
 	if len(actions) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "carrier adoption actions: %s\n", CountLabel(len(actions), "entry", "entries"))
-	for _, action := range actions {
+	visible, unchanged := summarizeUnchanged(actions, options.Verbose, func(action carrieradoption.Action) bool {
+		return action.Result() == carrieradoption.ResultAlreadyClaimedCurrent
+	})
+	printSectionSummary(output, "carrier adoption actions", CountLabel(len(actions), "entry", "entries"), unchanged)
+	for _, action := range visible {
 		if !options.Verbose {
 			printCarrierAdoptionSummary(output, action)
 			continue

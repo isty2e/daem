@@ -161,8 +161,8 @@ func publicRelationIdentitySubjects(
 	return result
 }
 
-// PrintRelationOrderActionsWithOptions writes one row per independently
-// mutable physical extension sequence.
+// PrintRelationOrderActionsWithOptions reports independently mutable physical
+// extension sequences.
 func PrintRelationOrderActionsWithOptions(
 	output io.Writer,
 	decisions []reconcile.RelationOrderDecision,
@@ -171,8 +171,11 @@ func PrintRelationOrderActionsWithOptions(
 	if len(decisions) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "extension order: %s\n", CountLabel(len(decisions), "sequence", "sequences"))
-	for _, decision := range decisions {
+	visible, unchanged := summarizeUnchanged(decisions, options.Verbose, func(action reconcile.RelationOrderDecision) bool {
+		return action.Kind() == reconcile.OrderExact
+	})
+	printSectionSummary(output, "extension order", CountLabel(len(decisions), "sequence", "sequences"), unchanged)
+	for _, decision := range visible {
 		if options.Verbose {
 			printVerboseRelationOrder(output, decision)
 			continue
@@ -233,8 +236,11 @@ func PrintRelationOrderResultsWithOptions(
 	if len(results) == 0 {
 		return
 	}
-	fmt.Fprintf(output, "extension order results: %s\n", CountLabel(len(results), "sequence", "sequences"))
-	for _, result := range results {
+	visible, unchanged := summarizeUnchanged(results, options.Verbose, func(action applyworkflow.RelationOrderExecutionResult) bool {
+		return unchangedOrderResult(action.Outcome(), action.Changed())
+	})
+	printSectionSummary(output, "extension order results", CountLabel(len(results), "sequence", "sequences"), unchanged)
+	for _, result := range visible {
 		fmt.Fprintf(
 			output,
 			"  - %s target=%s scope=%s sequence=%s",
@@ -255,6 +261,10 @@ func PrintRelationOrderResultsWithOptions(
 		}
 		fmt.Fprintln(output)
 	}
+}
+
+func unchangedOrderResult(outcome applyworkflow.RelationOrderOutcome, changed bool) bool {
+	return outcome == applyworkflow.RelationOrderExact && !changed
 }
 
 func printRelationOrderSummary(
