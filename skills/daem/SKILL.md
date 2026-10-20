@@ -64,6 +64,10 @@ Use `daem` as the authority for declared agent-environment changes: translate us
 
    Use `daem doctor` for prerequisite diagnostics. Report remaining drift, unsupported routes, and uncertain postconditions; do not claim convergence from exit alone.
 
+   A passing check can still carry error-grade diagnostics; report them rather than claiming success.
+   When status JSON includes `check_clean`, read it and `has_errors` as independent fields under the [status contract](https://github.com/isty2e/daem/blob/main/docs/cli.md#status) for the installed release or source revision.
+   Neither establishes runtime readiness.
+
 ## Map User Intent
 
 Use these public resource names:
