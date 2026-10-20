@@ -3,6 +3,7 @@ package tomlstrict
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -105,6 +106,20 @@ func TestCanonicalKeysRefuseUnsupportedStructDefinitions(t *testing.T) {
 		{"empty name", &struct {
 			Value string `toml:",omitempty"`
 		}{}},
+		{"missing tag in omitted child", &struct {
+			Child struct{ Value string } `toml:"child"`
+		}{}},
+		{"missing tag behind omitted collections", &struct {
+			Rows map[string][]*struct{ Value string } `toml:"rows"`
+		}{}},
+		{"empty name in omitted child", &struct {
+			Child struct {
+				Value string `toml:",omitempty"`
+			} `toml:"child"`
+		}{}},
+		{"anonymous field in omitted child", &struct {
+			Child struct{ canonicalTestField } `toml:"child"`
+		}{}},
 		{"anonymous field", &struct{ canonicalTestField }{}},
 		{"tagged anonymous field", &struct {
 			canonicalTestField `toml:"nested"`
@@ -132,4 +147,74 @@ func TestCanonicalKeysRefuseUnsupportedStructDefinitions(t *testing.T) {
 	if err := ValidateCanonicalKeys(metadata, &ignored); err != nil || ignored.Value != "kept" {
 		t.Fatalf("ignored anonymous field changed decoding: value=%q err=%v", ignored.Value, err)
 	}
+}
+
+type canonicalRecursiveNode struct {
+	Value    string                               `toml:"value"`
+	Next     *canonicalRecursiveNode              `toml:"next"`
+	Children map[string][]*canonicalRecursiveNode `toml:"children"`
+}
+
+type canonicalRecursiveSlice []canonicalRecursiveSlice
+
+func TestCanonicalKeysAcceptRecursiveTypeGraphs(t *testing.T) {
+	var target canonicalRecursiveNode
+	metadata, err := toml.Decode(`value = "root"
+next = { value = "next" }
+children = { child = [{ value = "child" }] }
+`, &target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCanonicalKeys(metadata, &target); err != nil {
+		t.Fatal(err)
+	}
+
+	var collections struct {
+		Values canonicalRecursiveSlice `toml:"values"`
+	}
+	metadata, err = toml.Decode("values = []\n", &collections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCanonicalKeys(metadata, &collections); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCanonicalTypeCachePreservesConcurrentDocumentChecks(t *testing.T) {
+	type root struct {
+		Node canonicalRecursiveNode `toml:"node"`
+	}
+	const callers = 32
+	start := make(chan struct{})
+	var ready, done sync.WaitGroup
+	ready.Add(callers)
+	done.Add(callers)
+	for index := range callers {
+		go func() {
+			defer done.Done()
+			alias := index%2 != 0
+			content := `node = { value = "ok" }`
+			if alias {
+				content = `node = { Value = "invalid" }`
+			}
+			var target root
+			metadata, err := toml.Decode(content, &target)
+			ready.Done()
+			<-start
+			if err != nil {
+				t.Errorf("decode: %v", err)
+				return
+			}
+			err = ValidateCanonicalKeys(metadata, &target)
+			var canonical *NonCanonicalKeyError
+			if alias != errors.As(err, &canonical) || (!alias && err != nil) {
+				t.Errorf("alias=%t error=%v, document verdict was not independent", alias, err)
+			}
+		}()
+	}
+	ready.Wait()
+	close(start)
+	done.Wait()
 }

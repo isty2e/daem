@@ -26,19 +26,20 @@ func (err *NonCanonicalKeyError) Error() string {
 // Key returns the complete observed path, including implicit dotted parents.
 func (err *NonCanonicalKeyError) Key() toml.Key { return slices.Clone(err.key) }
 
-// ValidateCanonicalKeys checks decoded key spellings and their struct definitions.
-// Undecoded paths retain the caller's policy. Non-ignored exported fields require
-// named tags; non-ignored anonymous fields are unsupported. Custom decoders and
-// Primitive own their grammar.
+// ValidateCanonicalKeys validates all statically reachable struct definitions,
+// then decoded key spellings. Undecoded paths retain the caller's policy.
+// Non-ignored exported fields require named tags; non-ignored anonymous fields
+// are unsupported. Custom decoders and Primitive own their grammar.
 func ValidateCanonicalKeys(metadata toml.MetaData, target any) error {
 	typ := reflect.TypeOf(target)
 	if typ == nil {
 		return fmt.Errorf("canonical TOML keys require a decoded target")
 	}
-	validator := canonicalKeyValidator{fields: make(map[reflect.Type][]canonicalField)}
-	if err := validator.validateKey(typ, nil); err != nil {
-		return err
+	compiled := canonicalMetadataFor(typ)
+	if compiled.err != nil {
+		return compiled.err
 	}
+	validator := canonicalKeyValidator{fields: compiled.fields}
 
 	undecoded := make(map[string]struct{})
 	for _, key := range metadata.Undecoded() {
@@ -67,6 +68,9 @@ type canonicalKeyValidator struct {
 func (validator *canonicalKeyValidator) validateKey(typ reflect.Type, key toml.Key) error {
 	remaining := key
 	for {
+		if len(remaining) == 0 {
+			return nil
+		}
 		var custom bool
 		typ, custom = canonicalKeyType(typ)
 		if custom {
@@ -74,13 +78,7 @@ func (validator *canonicalKeyValidator) validateKey(typ reflect.Type, key toml.K
 		}
 		switch typ.Kind() {
 		case reflect.Struct:
-			fields, err := validator.structFields(typ)
-			if err != nil {
-				return err
-			}
-			if len(remaining) == 0 {
-				return nil
-			}
+			fields := validator.fields[typ]
 			var next reflect.Type
 			for _, field := range fields {
 				if field.name == remaining[0] {
@@ -102,9 +100,6 @@ func (validator *canonicalKeyValidator) validateKey(typ reflect.Type, key toml.K
 			typ = next
 			remaining = remaining[1:]
 		case reflect.Map:
-			if len(remaining) == 0 {
-				return nil
-			}
 			typ = typ.Elem()
 			remaining = remaining[1:]
 		default:
@@ -113,42 +108,9 @@ func (validator *canonicalKeyValidator) validateKey(typ reflect.Type, key toml.K
 	}
 }
 
-func (validator *canonicalKeyValidator) structFields(typ reflect.Type) ([]canonicalField, error) {
-	if fields, ok := validator.fields[typ]; ok {
-		return fields, nil
-	}
-	fields := make([]canonicalField, 0, typ.NumField())
-	for index := range typ.NumField() {
-		field := typ.Field(index)
-		name, _, _ := strings.Cut(field.Tag.Get("toml"), ",")
-		if name == "-" {
-			continue
-		}
-		if field.Anonymous {
-			return nil, fmt.Errorf("TOML type %s must not contain anonymous field %s", typ, field.Name)
-		}
-		if !field.IsExported() {
-			continue
-		}
-		if name == "" {
-			return nil, fmt.Errorf("TOML field %s.%s requires an explicit nonempty toml tag", typ, field.Name)
-		}
-		fields = append(fields, canonicalField{name: name, typ: field.Type})
-	}
-	validator.fields[typ] = fields
-	return fields, nil
-}
-
 func canonicalKeyType(typ reflect.Type) (reflect.Type, bool) {
 	for {
-		if typ == reflect.TypeFor[toml.Primitive]() ||
-			typ.Implements(reflect.TypeFor[toml.Unmarshaler]()) ||
-			typ.Implements(reflect.TypeFor[encoding.TextUnmarshaler]()) {
-			return typ, true
-		}
-		if typ.Kind() != reflect.Pointer &&
-			(reflect.PointerTo(typ).Implements(reflect.TypeFor[toml.Unmarshaler]()) ||
-				reflect.PointerTo(typ).Implements(reflect.TypeFor[encoding.TextUnmarshaler]())) {
+		if canonicalKeyLeaf(typ) {
 			return typ, true
 		}
 		switch typ.Kind() {
@@ -158,4 +120,15 @@ func canonicalKeyType(typ reflect.Type) (reflect.Type, bool) {
 			return typ, false
 		}
 	}
+}
+
+func canonicalKeyLeaf(typ reflect.Type) bool {
+	if typ == reflect.TypeFor[toml.Primitive]() ||
+		typ.Implements(reflect.TypeFor[toml.Unmarshaler]()) ||
+		typ.Implements(reflect.TypeFor[encoding.TextUnmarshaler]()) {
+		return true
+	}
+	return typ.Kind() != reflect.Pointer &&
+		(reflect.PointerTo(typ).Implements(reflect.TypeFor[toml.Unmarshaler]()) ||
+			reflect.PointerTo(typ).Implements(reflect.TypeFor[encoding.TextUnmarshaler]()))
 }
