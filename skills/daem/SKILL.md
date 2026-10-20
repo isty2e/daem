@@ -74,12 +74,15 @@ Use these public resource names:
 | Skill | `skill` |
 | Related skills selected together | `skill-group` when authoring, `skill` when removing by resource key |
 | Hook | `hook` |
+| Source-backed hook payload | `hook_asset` manifest declaration; no direct add/remove command |
 | MCP server | `mcp-server` |
 | Host plugin, extension, or package | `extension` when current daem supports the selected host and source |
 
-Do not force an ambiguous object into the nearest kind. Inspect `daem help add <resource>`; ask only if intent still cannot be represented without guessing.
+Do not force an ambiguous object into the nearest kind. For kinds with curated authoring, inspect `daem help add <resource>`; ask only if intent still cannot be represented without guessing.
 
-For removal, get the exact kind and key from `daem list resources`, then use `daem remove <kind> <key>`. Public inventory kinds use CLI tokens such as `instruction` and `mcp-server`; preserve keys literally. Do not derive operands from `resource_id`, canonical `entity_id`/`subject_id`, or a `skill_group[index]` membership anchor. Group members remain `skill` and are removed with `daem remove skill <key>`; there is no remove skill-group command.
+For a kind supported by `remove`, get the exact kind and key from `daem list resources`, then use `daem remove <kind> <key>`. Preserve keys literally. Do not derive operands from `resource_id`, canonical `entity_id`/`subject_id`, or a `skill_group[index]` membership anchor. Group members remain `skill` and are removed with `daem remove skill <key>`; there is no remove skill-group command.
+
+An inventory row with `kind=hook_asset` identifies a manifest declaration, not a remove operand. Use the manual-manifest flow below for it and any affected hook references; do not substitute `remove hook` or invent an asset authoring command. Unreferenced asset rows have `targets=""` and remain visible under target filters; listed reference targets do not prove runtime support or installed state.
 
 When consuming JSON, check the envelope family's `schema_version` against the [CLI Reference](https://github.com/isty2e/daem/blob/main/docs/cli.md#json-schema-contract) matching the installed executable's release or source revision; reject unsupported versions rather than assuming future versions are compatible. Check installed help before reusing kinds from older inventory output, which may use internal rather than CLI spelling.
 
@@ -92,7 +95,7 @@ For extensions, distinguish the user's removal intents:
 
 ## Manual Manifest Edits
 
-Before editing, re-read `daem help add <resource>`. Proceed only if no curated flag represents the request.
+For a kind with curated authoring, re-read `daem help add <resource>` before editing. Proceed only if no curated flag represents the request. `hook_asset` has no curated add/remove route; edit its declaration and any affected references through this flow, preserving reference validity.
 
 For syntax, consult the [Manifest Reference](https://github.com/isty2e/daem/blob/main/docs/manifest.md). That link follows `main`; select the matching Git tag for a released executable, or the matching source revision for a source build (`daem version`).
 

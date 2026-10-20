@@ -16,7 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/workflow/authoring"
 )
 
-func TestInventoryResourceNamesAreAcceptedByRemove(t *testing.T) {
+func TestCuratedInventoryResourceNamesAreAcceptedByRemove(t *testing.T) {
 	for _, test := range authoringResourceNameFixtures() {
 		t.Run(test.kind, func(t *testing.T) {
 			root, cwd := manifestHintWorkspace(t)
@@ -39,7 +39,7 @@ func TestInventoryResourceNamesAreAcceptedByRemove(t *testing.T) {
 			if err := json.Unmarshal(stdout.Bytes(), &inventory); err != nil {
 				t.Fatal(err)
 			}
-			if inventory.SchemaVersion != 3 || len(inventory.Resources) != 1 || inventory.Resources[0].Kind != test.kind || inventory.Resources[0].Key != "mcp_server" {
+			if inventory.SchemaVersion != 4 || len(inventory.Resources) != 1 || inventory.Resources[0].Kind != test.kind || inventory.Resources[0].Key != "mcp_server" {
 				t.Fatalf("inventory lost the command kind or literal key: %+v", inventory)
 			}
 			row := inventory.Resources[0]

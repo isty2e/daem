@@ -63,7 +63,7 @@ source={path="absent/group",mode="vendor"}
 	if err := json.Unmarshal(stdout.Bytes(), &inventory); err != nil {
 		t.Fatal(err)
 	}
-	if inventory.SchemaVersion != 3 || len(inventory.Resources) != 3 {
+	if inventory.SchemaVersion != 4 || len(inventory.Resources) != 3 {
 		t.Fatalf("group display changed the JSON envelope: %+v", inventory)
 	}
 	for _, row := range inventory.Resources {

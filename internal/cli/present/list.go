@@ -40,9 +40,10 @@ func ListRows(
 	instructionsValues := environment.Instructions()
 	skills := environment.Skills()
 	hooks := environment.Hooks()
+	hookAssets := environment.HookAssets()
 	mcpServers := environment.MCPServers()
 	extensions := environment.Extensions()
-	rows := make([]ListRow, 0, len(instructionsValues)+len(skills)+len(hooks)+len(mcpServers)+len(extensions))
+	rows := make([]ListRow, 0, len(instructionsValues)+len(skills)+len(hooks)+len(hookAssets)+len(mcpServers)+len(extensions))
 	for _, instruction := range instructionsValues {
 		if !listTargetsSelected(instruction.Targets(), selection) {
 			continue
@@ -86,6 +87,22 @@ func ListRows(
 			Source:      "command-hook",
 			Targets:     listTargetSummary(hook.Targets()),
 			Scope:       string(hook.Scope()),
+			Group:       "-",
+		})
+	}
+	assetReferenceTargets := environment.HookAssetReferenceTargets()
+	for _, asset := range hookAssets {
+		targets := assetReferenceTargets[asset.ID()]
+		if len(targets) != 0 && !selection.IncludesAny(targets) {
+			continue
+		}
+		rows = append(rows, ListRow{
+			Kind:        string(entity.KindHookAsset),
+			Key:         asset.ID().Name(),
+			InstallName: "-",
+			Source:      listSourceSummary(asset.Source()),
+			Targets:     listTargetSummary(targets),
+			Scope:       string(asset.Scope()),
 			Group:       "-",
 		})
 	}
@@ -240,11 +257,13 @@ func listKindRank(kind string) int {
 		return 1
 	case entity.KindHook:
 		return 2
+	case entity.KindHookAsset:
+		return 3
 	case entity.KindMCPServer:
-		return 3
-	case entity.KindExtension:
 		return 4
+	case entity.KindExtension:
+		return 5
 	default:
-		return 3
+		return 6
 	}
 }

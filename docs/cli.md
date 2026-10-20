@@ -328,7 +328,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `init` | Manifest initialization | `1` |
 | `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `7` |
 | `lock`, `outdated` | Lock comparison | `4` |
-| `list resources` | Resource inventory | `3` |
+| `list resources` | Resource inventory | `4` |
 | `list outputs` | Output inventory | `5` |
 | `list paths` | Agent location inventory | `2` |
 | `status`, `apply --dry-run` | Reconciliation plan | `17` |
@@ -346,6 +346,12 @@ The resource-name cutover replaces the v0.5.x envelopes for manifest authoring
 Public resource names and references now use the authoring vocabulary below.
 Each affected family emits its new version even for empty results or resources whose spelling
 is unchanged. Command input syntax and persisted formats are unchanged.
+
+Resource inventory version `4` adds `hook_asset` declaration rows. Their
+`targets` field is the canonical union of declared hook-reference targets,
+including an empty string for unreferenced assets, rather than a target set
+declared on the asset. Every resource inventory emits version `4`, including
+empty results; consumers of version `3` must update before interpreting it.
 
 Plan and apply results retain per-binding MCP `host_prerequisite` evidence,
 optional dimension `detail`, the unsupported Pi backend-transition
@@ -382,8 +388,10 @@ kind does not imply that every command supports it.
 Public `resource_id` values and human resource references use `kind/name`, such
 as `instruction/project` or `mcp-server/context7`. The name remains literal,
 including any slash, colon, percent sign or words such as `instructions`.
-For command operands, prefer the separate `resource.kind` and `resource.name`
-fields, or `list resources`' `kind` and `key`, rather than splitting a reference.
+For commands that support the resource kind, prefer the separate `resource.kind`
+and `resource.name` fields, or `list resources`' `kind` and `key`, rather than
+splitting a reference. A `hook_asset` kind/key identifies its declaration, not
+an add/remove operand.
 
 Canonical `entity_id` and `subject_id` values, including structured subject
 namespaces and keys, are opaque identities, not command operands. They retain
@@ -978,15 +986,29 @@ daem list paths [--manifest <path>] [--target <target> ...]
 ```
 
 Bare `list` is navigation only. `list resources` reads and normalizes the
-manifest without requiring a lockfile. It prints every selected kind, stable
-remove key, install name, target set, and scope. Basic rows also show known
-explicit group membership, such as `group="skill_group[0]"`; ungrouped rows omit
+manifest without requiring a lockfile or resolving source files. It prints every
+selected kind, stable declaration key, install name, target set, and scope.
+Basic rows also show known explicit group membership, such as
+`group="skill_group[0]"`; ungrouped rows omit
 that field. The index is a declaration-position marker, not a stable group ID
 or command operand. Members remain `skill` resources and use their own remove
 keys. Shared group membership can explain why a partial-target removal requires
 [splitting the group first](#remove). Listing does not resolve source selectors
 to discover more membership. `--verbose` adds source summaries and includes the
 group field even when its value is `"-"`.
+
+Hook assets appear once per declaration, after hooks and before MCP servers,
+with `kind=hook_asset` and `install="-"`. Their `targets` is the full union of
+declared targets of hooks that reference them, in the existing supported-target
+order, not proof of supported execution or an installed output. Referenced
+assets require overlap with a target filter, without narrowing the displayed
+union. Unreferenced assets have `targets=""` and remain visible under every valid
+target selection. Omitting the filter and explicitly selecting the same target
+set produce the same inventory.
+
+There is no `add hook_asset` or `remove hook_asset` command. Edit the
+[asset declaration and its hook references](manifest.md#hook-assets), then
+validate the change with `daem lock --dry-run` before writing the lockfile.
 
 `list outputs` prints every selected managed output, relevant unmanaged live
 destination, and ownership-blocked output. Blocked rows include the typed

@@ -22,7 +22,7 @@ const (
 	InitJSON               = 1
 	ManifestAuthoringJSON  = 7
 	LockComparisonJSON     = 4
-	ResourceInventoryJSON  = 3
+	ResourceInventoryJSON  = 4
 	OutputInventoryJSON    = 5
 	PathInventoryJSON      = 2
 	ReconciliationPlanJSON = 17
