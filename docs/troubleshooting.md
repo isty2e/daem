@@ -15,8 +15,10 @@ daem apply --dry-run --diff
 
 `doctor` checks passive prerequisites. It does not run MCP servers or mutate
 host state. `status --check` returns nonzero when the environment is not up to
-date; inspect its findings rather than treating that exit alone as a crash.
-See the [CLI Reference](cli.md) for JSON output and exact exit-code behavior.
+date, and a zero exit can still report error-grade diagnostics. Inspect its
+findings either way rather than relying on the exit alone. See the
+[status contract](cli.md#status) for JSON fields, diagnostics and exact
+exit-code behavior.
 
 ## Find Your Symptom
 
