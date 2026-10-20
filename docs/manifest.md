@@ -3,6 +3,7 @@
 `daem.toml` declares the resources daem should manage. This is the authoritative
 public schema reference; the current schema version is `1`. Unknown TOML keys
 are rejected, and declarations are normalized before lock or apply planning.
+Schema field names are case-sensitive and must use the spellings documented here.
 
 For setup steps, use [Getting Started](getting-started.md) or
 [Use An Existing Environment](migration.md). For complete inputs, see the

@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/declaration"
 )
 
@@ -65,7 +64,7 @@ func parseSkillGroupBlock(content []byte, start int, end int) (SkillGroupBlock, 
 	var decoded struct {
 		Groups []SkillGroup `toml:"skill_group"`
 	}
-	if _, err := toml.Decode(string(content[start:end]), &decoded); err != nil {
+	if err := decodeBlockFields(content, declaration.DocumentRange{Start: start, End: end}, &decoded); err != nil {
 		return SkillGroupBlock{}, fmt.Errorf("parse existing skill_group block: %w", err)
 	}
 	if len(decoded.Groups) != 1 {

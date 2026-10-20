@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/declaration"
 )
 
@@ -40,7 +39,7 @@ func parseHookBlock(content []byte, start int, end int) (HookBlock, error) {
 	var decoded struct {
 		Hooks []declaration.Hook `toml:"hook"`
 	}
-	if _, err := toml.Decode(string(content[start:end]), &decoded); err != nil {
+	if err := decodeBlockFields(content, declaration.DocumentRange{Start: start, End: end}, &decoded); err != nil {
 		return HookBlock{}, fmt.Errorf("parse existing hook block: %w", err)
 	}
 	if len(decoded.Hooks) != 1 {

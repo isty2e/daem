@@ -38,8 +38,9 @@ func DecodeManifestHeader(content []byte) (ManifestHeader, error) {
 	}
 
 	var header ManifestHeader
-	if _, err := tomlstrict.DecodeAdmitted(context.Background(), content, &header); err != nil {
-		return ManifestHeader{}, fmt.Errorf("parse manifest header: %w", err)
+	metadata, err := tomlstrict.DecodeAdmitted(context.Background(), content, &header)
+	if err != nil {
+		return ManifestHeader{}, fmt.Errorf("parse manifest header: %w", PositionManifestKeyError(content, DocumentRange{End: len(content)}, metadata, err))
 	}
 	return header, nil
 }
