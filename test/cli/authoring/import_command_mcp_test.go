@@ -28,7 +28,7 @@ func TestRunImportYesWritesClaudeProjectMCPManifestOnly(t *testing.T) {
       "type": "stdio",
       "command": "npx",
       "args": ["-y", "@upstash/context7-mcp"],
-      "env": {"CONTEXT7_API_TOKEN": "${CONTEXT7_API_TOKEN}"}
+      "env": {"CONTEXT7_API_TOKEN": "${Context7_Api_Token}"}
     },
     "remote": {
       "type": "http",
@@ -77,8 +77,8 @@ func TestRunImportYesWritesClaudeProjectMCPManifestOnly(t *testing.T) {
 	stdio := testkit.AssertSingleMCPStdioBinding(t, server, "context7", target.TargetClaudeCode, target.ScopeProject, "npx", []string{"-y", "@upstash/context7-mcp"})
 	env := stdio.Env()
 	envRef, ok := env["CONTEXT7_API_TOKEN"]
-	if !ok || envRef.FromEnv() != "CONTEXT7_API_TOKEN" {
-		t.Fatalf("env = %#v, want CONTEXT7_API_TOKEN from_env reference", env)
+	if !ok || envRef.FromEnv() != "Context7_Api_Token" {
+		t.Fatalf("env = %#v, want preserved mixed-case from_env reference", env)
 	}
 }
 

@@ -345,20 +345,14 @@ func mcpServerEnvReferences(assignments []MCPServerEnvAssignment) (map[string]de
 		name := strings.TrimSpace(assignment.Name)
 		fromEnv := strings.TrimSpace(assignment.FromEnv)
 		if name != assignment.Name || fromEnv != assignment.FromEnv {
-			return nil, fmt.Errorf("--env names must not contain leading or trailing whitespace")
-		}
-		if err := validateMCPEnvName(name, "--env "+name); err != nil {
-			return nil, err
-		}
-		if err := validateMCPEnvName(fromEnv, "--env "+name+" from_env"); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("--env-from names must not contain leading or trailing whitespace")
 		}
 		if _, exists := env[name]; exists {
-			return nil, fmt.Errorf("duplicate --env server name %q", name)
+			return nil, fmt.Errorf("duplicate --env-from child name %q", name)
 		}
 		canonical, err := desiredmcp.NewEnvReference(fromEnv)
 		if err != nil {
-			return nil, fmt.Errorf("--env %s from_env: %w", name, err)
+			return nil, fmt.Errorf("--env-from source: %w", err)
 		}
 		env[name] = declarationcodec.MCPEnvReference{FromEnv: canonical.FromEnv()}
 	}
@@ -391,23 +385,6 @@ func validateMCPStableToken(value string, context string) error {
 			continue
 		}
 		return fmt.Errorf("%s must be a stable token", context)
-	}
-	return nil
-}
-
-func validateMCPEnvName(value string, context string) error {
-	if value == "" {
-		return fmt.Errorf("%s: env name is required", context)
-	}
-	if value[0] >= '0' && value[0] <= '9' {
-		return fmt.Errorf("%s: env name must not start with a digit", context)
-	}
-	for index := 0; index < len(value); index++ {
-		character := value[index]
-		if isASCIIAlphaNumeric(character) || character == '_' {
-			continue
-		}
-		return fmt.Errorf("%s: env name must contain only ASCII letters, digits, or underscore", context)
 	}
 	return nil
 }

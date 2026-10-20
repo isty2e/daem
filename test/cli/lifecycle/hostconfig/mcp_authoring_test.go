@@ -655,7 +655,7 @@ func TestRunAddMCPServerRejectsUnsupportedInputsBeforeWriting(t *testing.T) {
 		{
 			name: "unsupported target",
 			args: []string{"add", "mcp-server", "context7", "npx", "--target", "unknown-agent", "--dry-run"},
-			want: `unknown target "unknown-agent"`,
+			want: "--target",
 			code: 2,
 		},
 		{

@@ -325,14 +325,15 @@ func helpPages(context UsageContext) map[string]helpPage {
 	addInventoryPages(pages, workspace, target, jsonOutput, verbose, cliDocumentReference)
 	pages["add mcp-server"] = leaf("daem add mcp-server", "daem add mcp-server <name> <command> [--arg <value> ...] [options]", "add a standalone stdio MCP server and refresh the lockfile",
 		[]helpRow{{"<name>", "Stable MCP server name."}, {"<command>", "Portable executable token; shell command strings are rejected."}},
-		[]helpRow{{"--arg <value>", "Ordered argv entry; repeat to preserve ordering and duplicates."}, workspace, mcpAuthoringTarget, mcpAuthoringScope, dryRun, diff, jsonOutputWithDiff, verbose},
+		[]helpRow{{"--arg <value>", "Ordered argv entry; repeat to preserve ordering and duplicates."}, {"--env-from <CHILD=SOURCE>", "Variable names, not values; repeat for each mapping. SOURCE uses [A-Z_][A-Z0-9_]*."}, workspace, mcpAuthoringTarget, mcpAuthoringScope, dryRun, diff, jsonOutputWithDiff, verbose},
 		[]helpRow{
 			{"", "Admitted target/scope pairs: " + context.MCPAuthoringPlacements + "."},
 			{"", "Target omission succeeds only when the manifest identifies one admitted row."},
 			{"", "For Pi, add reuses the backend of existing Pi servers. If none exist, a declared pi-mcp-adapter selects Adapter."},
 			{"", "With neither declared, add selects Native for observable stable Pi >=1.0.2,<2.0.0; unavailable or incompatible versions select Adapter."},
 			{"", "Only Adapter authoring adds a missing pi-mcp-adapter package. Preview reports host startup, project trust or global sharing consequences."},
-			{"", "Environment mappings, explicit backends and non-stdio transports are manifest-only. Writes by default."},
+			{"", "Environment mappings follow the selected placement's rules. Repeating add requires the complete matching map; it does not edit existing servers."},
+			{"", "Explicit backends and non-stdio transports are manifest-only. Writes by default."},
 		},
 		[]string{"daem add mcp-server context7 npx --arg -y --arg @upstash/context7-mcp", "daem add mcp-server local-mcp local-mcp-server --target codex --dry-run"}, manifestDocumentReference)
 	pages["probe mcp-server"] = leaf("daem probe mcp-server", "daem probe mcp-server <name> [--manifest <path>] [--target <target>] [--scope <scope>] [options]", "launch one locked MCP command and test runtime dimensions",

@@ -51,6 +51,11 @@ type optionArgumentError struct {
 	argument string
 }
 
+func newOptionArgumentError(kind optionArgumentFailure, argument string) *optionArgumentError {
+	name, _, _ := strings.Cut(argument, "=")
+	return &optionArgumentError{kind: kind, argument: name}
+}
+
 func (err *optionArgumentError) Error() string {
 	switch err.kind {
 	case optionMalformed:
@@ -93,14 +98,14 @@ func (cursor *optionCursor) next() (argumentToken, bool) {
 			return argumentToken{kind: argumentOption, words: word}, true
 		}
 		if !strings.HasPrefix(argument, "--") {
-			return argumentToken{kind: argumentInvalid, words: word, err: &optionArgumentError{kind: optionUnknown, argument: argument}}, true
+			return argumentToken{kind: argumentInvalid, words: word, err: newOptionArgumentError(optionUnknown, argument)}, true
 		}
 	}
 
 	name := strings.TrimPrefix(argument, "-")
 	name = strings.TrimPrefix(name, "-")
 	if name == "" || name[0] == '-' || name[0] == '=' {
-		return argumentToken{kind: argumentInvalid, words: word, err: &optionArgumentError{kind: optionMalformed, argument: argument}}, true
+		return argumentToken{kind: argumentInvalid, words: word, err: newOptionArgumentError(optionMalformed, argument)}, true
 	}
 	name, value, inline := strings.Cut(name, "=")
 	declared := cursor.flags.Lookup(name)
@@ -108,7 +113,7 @@ func (cursor *optionCursor) next() (argumentToken, bool) {
 		if cursor.spelling == goOptionSpelling && (name == "h" || name == "help") {
 			return argumentToken{kind: argumentOption, words: word}, true
 		}
-		return argumentToken{kind: argumentInvalid, words: word, err: &optionArgumentError{kind: optionUnknown, argument: "-" + name}}, true
+		return argumentToken{kind: argumentInvalid, words: word, err: newOptionArgumentError(optionUnknown, "-"+name)}, true
 	}
 
 	boolean, isBoolean := declared.Value.(interface{ IsBoolFlag() bool })
@@ -128,7 +133,7 @@ func (cursor *optionCursor) next() (argumentToken, bool) {
 	}
 	if !inline {
 		if cursor.index == len(cursor.arguments) {
-			return argumentToken{kind: argumentInvalid, words: word, err: &optionArgumentError{kind: optionValueMissing, argument: "-" + name}}, true
+			return argumentToken{kind: argumentInvalid, words: word, err: newOptionArgumentError(optionValueMissing, "-"+name)}, true
 		}
 		cursor.index++
 	}
