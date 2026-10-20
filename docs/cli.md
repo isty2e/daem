@@ -698,12 +698,13 @@ existing declaration; add does not merge them. To change an existing server,
 edit the manifest, inspect `daem lock --dry-run`, then run `daem lock`.
 Remove/re-add does not preserve manual-only fields or backend selection.
 
-Rejected `--env-from` inputs and MCP add's argument-shape/binding errors omit
-submitted values from human and JSON diagnostics. This is not a guarantee that
-all misplaced input disappears: `--arg` accepts literal data that can be stored
-and displayed, and a value accepted as a `--manifest` path can appear in later
-path diagnostics. Output suppression does not erase shell history, process
-arguments or external records.
+Inputs refused by the `--env-from` name check, and MCP add's argument-shape
+and binding errors, omit submitted values from human and JSON diagnostics.
+Names that pass the check can appear in later placement or duplicate-mapping
+diagnostics. This is not a guarantee that all misplaced input disappears:
+`--arg` accepts literal data that can be stored and displayed, and a value
+accepted as a `--manifest` path can appear in later path diagnostics. Output
+suppression does not erase shell history, process arguments or external records.
 
 For the first automatic `--target pi` choice without existing Pi bindings or an
 explicit Adapter provider, add observes one bounded `pi --version`
