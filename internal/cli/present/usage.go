@@ -272,7 +272,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 			[]helpRow{{"", "Only the default user manifest is eligible. Destination state must be absent; existing states are not merged."}, {"", "Execution requires terminal stdin/stdout/stderr or --yes. --dry-run and --yes are mutually exclusive."}, {"", "Managed output bytes and host packages are retained. Old local caches are not moved or deleted."}, {"", "Resolve old apply recovery first with recover --legacy-user-state."}},
 			[]string{"daem migrate state --dry-run", "daem migrate state --yes", "daem migrate state --recover --dry-run"}, cliDocumentReference),
 		"list": groupPage("daem list", "enumerate declarations or output ownership", []helpRow{
-			{"resources", "Declared resources and stable remove keys."},
+			{"resources", "Declared resources and their stable keys."},
 			{"outputs", "Managed outputs and conflicting live destinations."},
 			{"paths", "Agent paths, config files, and delegated routes."},
 		}, "Bare list is navigation only; select one inventory basis."),
@@ -402,7 +402,7 @@ func addRemovalPages(pages map[string]helpPage, workspace helpRow, target helpRo
 }
 
 func addInventoryPages(pages map[string]helpPage, workspace helpRow, target helpRow, jsonOutput helpRow, verbose helpRow, reference string) {
-	pages["list resources"] = leaf("daem list resources", "daem list resources [--manifest <path>] [--target <target> ...] [--json|--verbose]", "list declared resources and stable remove keys", nil,
+	pages["list resources"] = leaf("daem list resources", "daem list resources [--manifest <path>] [--target <target> ...] [--json|--verbose]", "list declared resources and their stable keys", nil,
 		[]helpRow{workspace, target, jsonOutput, verbose}, nil,
 		[]string{"daem list resources", "daem list resources --target codex --json"}, reference)
 	pages["list outputs"] = leaf("daem list outputs", "daem list outputs [--manifest <path>] [--target <target> ...] [--json|--verbose]", "list managed outputs and conflicting live destinations", nil,

@@ -1,6 +1,7 @@
 package desired
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -258,6 +259,88 @@ func TestEnvironmentRejectsDuplicateMCPServerIdentityAcrossBindingSets(t *testin
 	})
 	if err == nil || !strings.Contains(err.Error(), `duplicate mcp_server id "server"`) {
 		t.Fatalf("duplicate MCP identity error = %v", err)
+	}
+}
+
+func TestEnvironmentHookAssetReferenceTargetsAreCanonicalAndDefensive(t *testing.T) {
+	t.Parallel()
+
+	guard := testHookAsset(t, target.ScopeProject)
+	unused, err := hookasset.New(hookasset.Spec{
+		Name: "unused", Source: sourcetest.Local(t, "missing/unused.sh", source.LocalSourceModeVendor),
+		ArtifactKind: hookasset.ArtifactKindFile, Scope: target.ScopeProject,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	declaredHook := func(name string, targets []target.Target) hook.Hook {
+		value, err := hook.New(hook.Spec{
+			Name: name, Event: "Stop", Type: hook.TypeCommand,
+			Command: "echo {hook_file:guard} {hook_file:guard}",
+			Targets: targets, Scope: target.ScopeProject,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	left := declaredHook("left", []target.Target{target.TargetPi, target.TargetClaudeCode})
+	right := declaredHook("right", []target.Target{target.TargetClaudeCode, target.TargetCodex})
+	want := []target.Target{target.TargetCodex, target.TargetClaudeCode, target.TargetPi}
+
+	for _, reverse := range []bool{false, true} {
+		assets := []hookasset.HookAsset{guard, unused}
+		hooks := []hook.Hook{left, right}
+		if reverse {
+			slices.Reverse(assets)
+			slices.Reverse(hooks)
+		}
+		environment, err := New(Spec{
+			Targets: []target.Target{target.TargetAntigravityCLI}, Defaults: testDefaults(t),
+			HookAssets: assets, Hooks: hooks,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := environment.HookAssetReferenceTargets()
+		if len(got) != 2 || !slices.Equal(got[guard.ID()], want) {
+			t.Fatalf("reverse=%t reference targets = %v, want guard targets %v", reverse, got, want)
+		}
+		if targets, present := got[unused.ID()]; !present || len(targets) != 0 {
+			t.Fatalf("unused asset inherited targets or lost its entry: %v", got)
+		}
+
+		got[guard.ID()][0] = target.TargetOpenCode
+		delete(got, unused.ID())
+		again := environment.HookAssetReferenceTargets()
+		if len(again) != 2 || !slices.Equal(again[guard.ID()], want) || len(again[unused.ID()]) != 0 {
+			t.Fatalf("reference target observation aliases model state: %v", again)
+		}
+		if err := environment.Validate(); err != nil {
+			t.Fatalf("reference query changed canonical environment: %v", err)
+		}
+	}
+}
+
+func TestEnvironmentHookAssetReferenceTargetsWithoutReferences(t *testing.T) {
+	t.Parallel()
+
+	for _, assets := range [][]hookasset.HookAsset{nil, {testHookAsset(t, target.ScopeProject)}} {
+		environment, err := New(Spec{
+			Targets: []target.Target{target.TargetCodex}, Defaults: testDefaults(t), HookAssets: assets,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := environment.HookAssetReferenceTargets()
+		if len(got) != len(assets) {
+			t.Fatalf("reference targets = %v for %d asset declarations", got, len(assets))
+		}
+		for _, targets := range got {
+			if len(targets) != 0 {
+				t.Fatalf("unreferenced asset inherited header targets: %v", got)
+			}
+		}
 	}
 }
 

@@ -213,6 +213,40 @@ func (environment Environment) validateHookAssetReferences() error {
 	return nil
 }
 
+// HookAssetReferenceTargets returns each asset's declared hook-target union in
+// SupportedTargets order. Unreferenced assets have an empty set, not header targets.
+func (environment Environment) HookAssetReferenceTargets() map[entity.ID][]target.Target {
+	if len(environment.hookAssets) == 0 {
+		return nil
+	}
+
+	byName := make(map[string]map[target.Target]struct{})
+	for _, declaredHook := range environment.hooks {
+		targets := declaredHook.Targets()
+		for _, reference := range declaredHook.AssetReferences() {
+			if byName[reference.ID()] == nil {
+				byName[reference.ID()] = make(map[target.Target]struct{})
+			}
+			for _, selected := range targets {
+				byName[reference.ID()][selected] = struct{}{}
+			}
+		}
+	}
+
+	result := make(map[entity.ID][]target.Target, len(environment.hookAssets))
+	order := target.SupportedTargets()
+	for _, asset := range environment.hookAssets {
+		var targets []target.Target
+		for _, selected := range order {
+			if _, present := byName[asset.ID().Name()][selected]; present {
+				targets = append(targets, selected)
+			}
+		}
+		result[asset.ID()] = targets
+	}
+	return result
+}
+
 // Validate rejects a zero or invalid Environment value.
 func (environment Environment) Validate() error {
 	_, err := New(environment.spec())
