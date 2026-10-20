@@ -165,9 +165,9 @@ func validateAddMCPAuthoringShape(selectedTarget string, selectedScope string, r
 		return nil
 	}
 	if mcpAuthoringTargetHasEnvPlacement(parsedTarget) {
-		return fmt.Errorf("mcp-server authoring does not support --env for --target %s --scope %s", parsedTarget, parsedScope)
+		return fmt.Errorf("mcp-server authoring does not support --env-from for --target %s --scope %s", parsedTarget, parsedScope)
 	}
-	return fmt.Errorf("mcp-server authoring does not support --env for --target %s", parsedTarget)
+	return fmt.Errorf("mcp-server authoring does not support --env-from for --target %s", parsedTarget)
 }
 
 func mcpAuthoringTargetOptions() string {

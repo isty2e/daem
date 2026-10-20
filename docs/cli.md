@@ -292,7 +292,7 @@ flags.
 | `add extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `add hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--matcher`, `--scope`, `--target`, `--timeout`, `--verbose` |
 | `add instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
-| `add mcp-server` | `--arg`, `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `add mcp-server` | `--arg`, `--diff`, `--dry-run`, `--env-from`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `add skill` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--name`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
 | `add skill-group` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--member`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
 | `apply` | `--diff`, `--dry-run`, `--json`, `--manage-existing`, `--manifest`, `--target`, `--verbose`, `--yes` |
@@ -660,7 +660,7 @@ Common authoring is intentionally curated:
 | Extension | id, one opaque carrier-native source, target, scope | carrier spelling and lifecycle/contribution policy |
 | Instruction | name, local/Git source, Git file path/ref, target, scope | S3 source and target-specific placement |
 | Hook | name, event, command, matcher, timeout, target, scope | status text, target overrides, assets, non-command handlers |
-| MCP server | name, portable command, ordered args, target, scope | exact absolute command path, env refs, remote transport, auth, cwd, tool policy |
+| MCP server | name, portable command, ordered args, env refs with uppercase source names, target, scope | exact absolute command path, other env source-name spellings, explicit backend, remote transport, auth, cwd, tool policy |
 | Skill | source, Git path/ref, installed name, target, scope | resource id, install mode, repair and source policy |
 | Skill group | source root, exact members, Git path/ref, target, scope | selectors, install mode, repair and per-member policy |
 
@@ -682,6 +682,28 @@ seconds. MCP `<command>` is one portable executable token, not a shell command;
 executables use the manifest-only `command = { path = "/absolute/path" }`
 form; `daem import` also emits that form for supported host entries with an
 absolute command.
+
+MCP `--env-from CHILD=SOURCE` declares a child-to-host environment-variable
+reference; repeat it for each mapping. Both sides are names, not values.
+`SOURCE` must match `[A-Z_][A-Z0-9_]*`; it is never converted to uppercase or
+looked up during authoring. `CHILD` retains the manifest's name rules, and
+the selected target/scope must admit the mapping. This CLI-only convention
+does not restrict mixed-case source names in the manifest or accepted imports.
+Use the variable's name literally, not its shell-expanded value. An uppercase
+string can still be a secret, so this convention is not credential detection.
+
+Repeating MCP add requires the complete matching environment map, independently
+of flag order. Added, removed, changed or omitted mappings conflict with an
+existing declaration; add does not merge them. To change an existing server,
+edit the manifest, inspect `daem lock --dry-run`, then run `daem lock`.
+Remove/re-add does not preserve manual-only fields or backend selection.
+
+Rejected `--env-from` inputs and MCP add's argument-shape/binding errors omit
+submitted values from human and JSON diagnostics. This is not a guarantee that
+all misplaced input disappears: `--arg` accepts literal data that can be stored
+and displayed, and a value accepted as a `--manifest` path can appear in later
+path diagnostics. Output suppression does not erase shell history, process
+arguments or external records.
 
 For the first automatic `--target pi` choice without existing Pi bindings or an
 explicit Adapter provider, add observes one bounded `pi --version`

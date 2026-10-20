@@ -110,8 +110,9 @@ func (values *mcpArgFlagValues) Set(value string) error { *values = append(*valu
 func prepareAddMCPInvocation(ctx context.Context, args []string, stdout, stderr io.Writer) *preparedInvocation {
 	path := []string{"add", "mcp-server"}
 	flags := newCommandFlagSet(path, stderr)
-	var targets targetFlagValues
-	var scopes scopeFlagValues
+	var rawTargets mcpInputFlagValues
+	var rawScopes mcpInputFlagValues
+	var rawEnv mcpInputFlagValues
 	var argv mcpArgFlagValues
 	manifest := flags.String("manifest", "", "path to daem.toml")
 	dryRun := flags.Bool("dry-run", false, "preview manifest change without writing")
@@ -119,8 +120,9 @@ func prepareAddMCPInvocation(ctx context.Context, args []string, stdout, stderr 
 	flags.Bool("json", false, "emit structured JSON output")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
 	flags.Var(&argv, "arg", "argv entry for the MCP server command; may be repeated")
-	flags.Var(&targets, "target", "target to add; accepts claude-code, opencode, codex, or antigravity-cli")
-	flags.Var(&scopes, "scope", "scope for the MCP server; project rows may omit it, but global MCP rows require explicit --scope global")
+	flags.Var(&rawEnv, "env-from", "CHILD=SOURCE environment variable names; SOURCE must use uppercase letters, digits, or underscore")
+	flags.Var(&rawTargets, "target", "target to add")
+	flags.Var(&rawScopes, "scope", "scope for the MCP server; project rows may omit it, but global MCP rows require explicit --scope global")
 	arguments := prepareAuthoringArguments(flags, args, 2)
 	response := newCommandResponse("add mcp-server", arguments.output, stdout, stderr)
 
@@ -129,22 +131,30 @@ func prepareAddMCPInvocation(ctx context.Context, args []string, stdout, stderr 
 			printCommandUsage(path, stdout, 0)
 			return 0
 		}
+		if err := arguments.bind(flags); err != nil {
+			return response.failure(usageFailure, mcpInputBindingDiagnostic(path, arguments, err, args))
+		}
 		name, command, err := addMCPOperands(arguments)
 		if err != nil {
 			return response.failure(usageFailure, authoringArgumentDiagnostic(path, err, args))
 		}
-		if err := arguments.bind(flags); err != nil {
-			return response.failure(usageFailure, flagBindingDiagnostic(path, err))
-		}
 		if err := validateAuthoringPresentation("add", arguments.output, *verbose, *diff, *dryRun); err != nil {
 			return response.failure(usageFailure, humanFailureDiagnostic(err))
 		}
-		scope, err := singleScopeValue(scopes)
+		targets, err := mcpInputTargets(rawTargets)
 		if err != nil {
-			return response.failure(usageFailure, humanFailureDiagnostic(err).WithPrefix("add failed: "))
+			return response.failure(usageFailure, flagBindingDiagnostic(path, err))
+		}
+		scope, err := mcpInputScope(rawScopes)
+		if err != nil {
+			return response.failure(usageFailure, flagBindingDiagnostic(path, err))
+		}
+		env, err := mcpInputEnvironment(rawEnv)
+		if err != nil {
+			return response.failure(usageFailure, flagBindingDiagnostic(path, err))
 		}
 
-		result, err := authoring.AddMCPServer(ctx, authoringExecutionOptions(*manifest, *dryRun), authoring.AddMCPServerRequest{Name: name, Command: command, Args: []string(argv), Targets: targets.strings(), Scope: scope})
+		result, err := authoring.AddMCPServer(ctx, authoringExecutionOptions(*manifest, *dryRun), authoring.AddMCPServerRequest{Name: name, Command: command, Args: []string(argv), Env: env, Targets: targets, Scope: scope})
 		if err != nil {
 			return response.failure(operationFailure, authoringFailureDiagnostic("add", *manifest, err))
 		}

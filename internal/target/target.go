@@ -43,6 +43,11 @@ func SupportedTargets() []Target {
 	return append([]Target(nil), supportedTargets...)
 }
 
+// SupportedScopes returns a copy of the accepted scopes in canonical order.
+func SupportedScopes() []Scope {
+	return append([]Scope(nil), supportedScopes...)
+}
+
 // ParseTarget validates a target string.
 func ParseTarget(value string) (Target, error) {
 	parsed := Target(value)

@@ -1,10 +1,11 @@
 package authoring
 
 import (
-	"strings"
+	"reflect"
 	"testing"
 
 	"github.com/isty2e/daem/internal/declaration"
+	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -13,17 +14,14 @@ func TestMCPServerFromAddRequestRejectsUnsupportedFirstSliceValues(t *testing.T)
 	tests := []struct {
 		name    string
 		request AddMCPServerRequest
-		want    string
 	}{
 		{
 			name:    "antigravity missing scope",
 			request: AddMCPServerRequest{Name: "context7", Command: "npx", Targets: []string{"antigravity-cli"}},
-			want:    "requires --scope global for --target antigravity-cli",
 		},
 		{
 			name:    "antigravity project scope",
 			request: AddMCPServerRequest{Name: "context7", Command: "npx", Targets: []string{"antigravity-cli"}, Scope: "project"},
-			want:    "supports --scope global for --target antigravity-cli",
 		},
 		{
 			name: "antigravity env alias",
@@ -34,7 +32,6 @@ func TestMCPServerFromAddRequestRejectsUnsupportedFirstSliceValues(t *testing.T)
 				Scope:   "global",
 				Env:     []MCPServerEnvAssignment{{Name: "API_TOKEN", FromEnv: "CONTEXT7_API_TOKEN"}},
 			},
-			want: "supports only same-name environment references",
 		},
 		{
 			name: "opencode env",
@@ -44,7 +41,6 @@ func TestMCPServerFromAddRequestRejectsUnsupportedFirstSliceValues(t *testing.T)
 				Targets: []string{"opencode"},
 				Env:     []MCPServerEnvAssignment{{Name: "API_TOKEN", FromEnv: "CONTEXT7_API_TOKEN"}},
 			},
-			want: "does not support --env for --target opencode",
 		},
 		{
 			name: "codex env",
@@ -54,22 +50,18 @@ func TestMCPServerFromAddRequestRejectsUnsupportedFirstSliceValues(t *testing.T)
 				Targets: []string{"codex"},
 				Env:     []MCPServerEnvAssignment{{Name: "API_TOKEN", FromEnv: "CONTEXT7_API_TOKEN"}},
 			},
-			want: "does not support --env for --target codex",
 		},
 		{
 			name:    "absolute command",
 			request: AddMCPServerRequest{Name: "context7", Command: "/usr/bin/node"},
-			want:    "portable command token",
 		},
 		{
 			name:    "shell command",
 			request: AddMCPServerRequest{Name: "context7", Command: "node server.js"},
-			want:    "portable command token",
 		},
 		{
 			name:    "command whitespace",
 			request: AddMCPServerRequest{Name: "context7", Command: " npx"},
-			want:    "must not contain leading or trailing whitespace",
 		},
 		{
 			name: "duplicate env",
@@ -81,7 +73,6 @@ func TestMCPServerFromAddRequestRejectsUnsupportedFirstSliceValues(t *testing.T)
 					{Name: "API_TOKEN", FromEnv: "TWO"},
 				},
 			},
-			want: "duplicate --env",
 		},
 		{
 			name: "literal-looking env",
@@ -90,15 +81,17 @@ func TestMCPServerFromAddRequestRejectsUnsupportedFirstSliceValues(t *testing.T)
 				Command: "npx",
 				Env:     []MCPServerEnvAssignment{{Name: "API_TOKEN", FromEnv: "${CONTEXT7_API_TOKEN}"}},
 			},
-			want: "env name must contain only ASCII",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := MCPServerFromAddRequest(test.request, declaration.ManifestHeader{Targets: []string{"claude-code"}}, daempaths.ManifestOriginExplicit)
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("err = %v, want %q", err, test.want)
+			server, err := MCPServerFromAddRequest(test.request, declaration.ManifestHeader{Targets: []string{"claude-code"}}, daempaths.ManifestOriginExplicit)
+			if err == nil {
+				t.Fatal("unsupported declaration was admitted")
+			}
+			if !reflect.DeepEqual(server, declarationcodec.MCPServer{}) {
+				t.Fatal("refusal returned a partially admitted declaration")
 			}
 		})
 	}

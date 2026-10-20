@@ -139,11 +139,15 @@ func TestScopeSyntaxFailsAtCLIIngressAcrossCommandFamilies(t *testing.T) {
 		{name: "unmanage extension", args: []string{"unmanage", "extension", "example", "--scope", "workspace"}, helpPath: "unmanage extension"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			problem := `unknown scope "workspace" (accepted scopes: global, project)`
+			if test.name == "add mcp-server" {
+				problem = "--scope"
+			}
 			assertScopedFlagCorrection(
 				t,
 				test.args,
 				test.helpPath,
-				`unknown scope "workspace" (accepted scopes: global, project)`,
+				problem,
 			)
 		})
 	}

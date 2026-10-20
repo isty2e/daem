@@ -891,7 +891,9 @@ Claude Code MCP requires effective `targets = ["claude-code"]` and project or
 explicit row-local global scope. Project `.mcp.json` accepts structured env
 references; global top-level `~/.claude.json` `/mcpServers/<name>` uses
 command/args and exact `"CHILD": "${SOURCE}"`. The global add helper needs
-`--scope global`; add env references by manifest edit or accepted native import.
+`--scope global`; supported env references can use `--env-from CHILD=SOURCE`,
+manifest editing or accepted native import. See the [add contract](cli.md#add)
+for the CLI-only source-name convention.
 Global native values must be exact `${VALID_NAME}`. Literals,
 `${NAME:-default}`, compounds, `user_config` interpolation, malformed names,
 local/project state, OAuth/session/trust, HTTP/remote, headers, `cwd`,
@@ -913,9 +915,11 @@ works only when inheritance and supported-row compatibility select one row.
 Claude global needs `--target claude-code --scope global`; Codex needs `--target
 codex` and explicit global scope; OpenCode/Pi need their target and project or
 explicit global scope; Antigravity needs `--target antigravity-cli --scope
-global`. Defaults do not authorize global MCP. Helpers author command/args: add
-supported env references manually or through accepted import (Antigravity only
-manually; project OpenCode rejects them).
+global`. Defaults do not authorize global MCP. Helpers author command/args and
+supported env references with `--env-from`; see the [add contract](cli.md#add)
+for source-name and complete-repeat rules. Manifest editing and accepted import
+remain alternatives; Antigravity import does not infer ambient references,
+and project Codex/OpenCode reject env references.
 
 For the first automatic Pi choice without existing Pi bindings or an explicit
 Adapter provider, add observes one bounded, isolated `pi --version`

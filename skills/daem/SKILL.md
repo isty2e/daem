@@ -44,6 +44,8 @@ Use `daem` as the authority for declared agent-environment changes: translate us
 
    Inspect the resource change, manifest path, lockfile result, and errors; rerun the same command without `--dry-run --diff`. Do not manually repeat `daem lock`: successful add/remove already refreshes the lockfile in the same transaction.
 
+   MCP `--env-from CHILD=SOURCE` takes names, not other tools' `KEY=value` literals: keep the value in the host environment and pass its uppercase variable name literally, without shell expansion. Existing-server edits use the manual-manifest flow, not remove/re-add.
+
 3. For apparently manifest-only fields, follow [Manual Manifest Edits](#manual-manifest-edits) before continuing.
 
 4. Preview host effects:
