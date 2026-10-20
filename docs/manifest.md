@@ -125,7 +125,8 @@ an editor or language server.
 Use the schema from the same release tag or source commit as your daem binary.
 Manifest `version = 1` does not identify a daem release. Releases without the
 schema file do not gain it retroactively. You can copy the matching file into
-your project as `daem.schema.json`, then add this ordinary TOML comment:
+your project as `daem.schema.json`, then add this ordinary TOML comment at the top
+of `daem.toml`:
 
 ```toml
 #:schema ./daem.schema.json
@@ -158,7 +159,7 @@ TOML temporal representations can also differ: for example, a schema validator
 may accept `version = 1.0`, while daem requires an integer. An empty root target
 list is another omitted check. A schema pass does not establish source
 availability, lock freshness or runtime readiness. Continue to use the normal
-`lock`, `plan` and `status` workflow.
+`lock`, `apply --dry-run` and `status` workflow.
 
 ## Sources
 
