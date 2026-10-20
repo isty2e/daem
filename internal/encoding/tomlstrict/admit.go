@@ -131,8 +131,9 @@ func ValidateUTF8(ctx context.Context, content []byte) error {
 }
 
 // DecodeAdmitted decodes bytes that the caller has already admitted with the
-// appropriate TOML structure limits. Decoder errors retain precedence; caller
-// cancellation observed after a successful decode is returned instead.
+// appropriate TOML structure limits and enforces canonical decoded field names.
+// Decoder errors retain precedence; caller cancellation observed after a
+// successful decode is returned instead.
 func DecodeAdmitted(ctx context.Context, content []byte, target any) (toml.MetaData, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -147,7 +148,10 @@ func DecodeAdmitted(ctx context.Context, content []byte, target any) (toml.MetaD
 	if err := ctx.Err(); err != nil {
 		return metadata, err
 	}
-	return metadata, nil
+	if err := ValidateCanonicalKeys(metadata, target); err != nil {
+		return metadata, err
+	}
+	return metadata, ctx.Err()
 }
 
 // Admit checks TOML nesting, container count, aggregate token work, and

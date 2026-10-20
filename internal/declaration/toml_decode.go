@@ -34,7 +34,7 @@ func DecodeManifest(content []byte) (Manifest, error) {
 	var manifest Manifest
 	metadata, err := tomlstrict.DecodeAdmitted(context.Background(), content, &manifest)
 	if err != nil {
-		return Manifest{}, err
+		return Manifest{}, PositionManifestKeyError(content, DocumentRange{End: len(content)}, metadata, err)
 	}
 
 	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {

@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/declaration"
 )
 
@@ -75,7 +74,7 @@ func parseMCPServerBlock(content []byte, start int, end int) (MCPServerBlock, er
 	var decoded struct {
 		Servers []MCPServer `toml:"mcp_server"`
 	}
-	if _, err := toml.Decode(string(content[start:end]), &decoded); err != nil {
+	if err := decodeBlockFields(content, declaration.DocumentRange{Start: start, End: end}, &decoded); err != nil {
 		return MCPServerBlock{}, fmt.Errorf("parse existing mcp_server block: %w", err)
 	}
 	if len(decoded.Servers) != 1 {

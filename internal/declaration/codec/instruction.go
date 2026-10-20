@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/declaration"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -74,7 +73,7 @@ func parseInstructionBlock(content []byte, start int, end int) (InstructionBlock
 	var decoded struct {
 		Instructions map[string]Instruction `toml:"instructions"`
 	}
-	if _, err := toml.Decode(string(content[start:end]), &decoded); err != nil {
+	if err := decodeBlockFields(content, declaration.DocumentRange{Start: start, End: end}, &decoded); err != nil {
 		return InstructionBlock{}, fmt.Errorf("parse existing instruction block: %w", err)
 	}
 	if len(decoded.Instructions) != 1 {

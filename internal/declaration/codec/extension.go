@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/declaration"
 )
 
@@ -40,7 +39,7 @@ func parseExtensionBlock(content []byte, start int, end int) (ExtensionBlock, er
 	var decoded struct {
 		Extensions []declaration.Extension `toml:"extension"`
 	}
-	if _, err := toml.Decode(string(content[start:end]), &decoded); err != nil {
+	if err := decodeBlockFields(content, declaration.DocumentRange{Start: start, End: end}, &decoded); err != nil {
 		return ExtensionBlock{}, fmt.Errorf("parse existing extension block: %w", err)
 	}
 	if len(decoded.Extensions) != 1 {

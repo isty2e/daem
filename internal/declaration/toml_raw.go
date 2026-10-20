@@ -50,10 +50,10 @@ func (source *Source) UnmarshalTOML(value any) error {
 }
 
 type Skill struct {
-	ID           string `toml:"id"`
-	Name         string `toml:"name"`
-	Source       Source `toml:"source"`
-	Targets      []string
+	ID           string                 `toml:"id"`
+	Name         string                 `toml:"name"`
+	Source       Source                 `toml:"source"`
+	Targets      []string               `toml:"targets"`
 	Scope        string                 `toml:"scope"`
 	InstallMode  string                 `toml:"install_mode"`
 	Portable     *bool                  `toml:"portable"`

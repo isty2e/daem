@@ -24,39 +24,48 @@ func TestUnknownManifestKeyInputGuidanceHasSourcePosition(t *testing.T) {
 		{name: "add", args: []string{"add", "instruction", "added", "notes.md", "--target", "codex", "--scope", "project", "--dry-run"}},
 		{name: "remove", args: []string{"remove", "instruction", "kept", "--dry-run"}},
 	} {
-		t.Run(command.name, func(t *testing.T) {
-			root, err := filepath.EvalSymlinks(t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			testkit.SetDefaultRootEnv(t, filepath.Join(root, "xdg"))
-			testkit.WithWorkingDirectory(t, root)
-			manifest := "version=1\ntargets=[\"codex\"]\n  bogus=true\n[instructions.kept]\nsource=\"notes.md\"\n"
-			testkit.WriteFile(t, root, "daem.toml", manifest)
-			testkit.WriteFile(t, root, "notes.md", "Project instructions.\n")
-			for _, jsonOutput := range []bool{false, true} {
-				args := append([]string{}, command.args...)
-				args = append(args, "--manifest", filepath.Join(root, "daem.toml"))
-				if jsonOutput {
-					args = append(args, "--json")
+		for _, field := range []struct {
+			name string
+			line string
+		}{
+			{"unknown", "  bogus=true"},
+			{"version alias", "  Version=1"},
+			{"targets alias", "  Targets=[\"codex\"]"},
+		} {
+			t.Run(command.name+"/"+field.name, func(t *testing.T) {
+				root, err := filepath.EvalSymlinks(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
 				}
-				before := snapshotAuthoringFixture(t, root)
-				var stdout, stderr bytes.Buffer
-				if code := testkit.RunCLI(args, &stdout, &stderr); code != 1 {
-					t.Fatalf("code=%d stdout=%q stderr=%q", code, &stdout, &stderr)
+				testkit.SetDefaultRootEnv(t, filepath.Join(root, "xdg"))
+				testkit.WithWorkingDirectory(t, root)
+				manifest := "version=1\ntargets=[\"codex\"]\n" + field.line + "\n[instructions.kept]\nsource=\"notes.md\"\n"
+				testkit.WriteFile(t, root, "daem.toml", manifest)
+				testkit.WriteFile(t, root, "notes.md", "Project instructions.\n")
+				for _, jsonOutput := range []bool{false, true} {
+					args := append([]string{}, command.args...)
+					args = append(args, "--manifest", filepath.Join(root, "daem.toml"))
+					if jsonOutput {
+						args = append(args, "--json")
+					}
+					before := snapshotAuthoringFixture(t, root)
+					var stdout, stderr bytes.Buffer
+					if code := testkit.RunCLI(args, &stdout, &stderr); code != 1 {
+						t.Fatalf("code=%d stdout=%q stderr=%q", code, &stdout, &stderr)
+					}
+					diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), clijson.CommandName(args), "operation", jsonOutput)
+					got := position.FindStringSubmatch(diagnostic)
+					if len(got) != 3 || got[1] != "3" || got[2] != "3" {
+						t.Errorf("position=%q, want line3 column3 in %q", got, &stderr)
+					}
+					if !strings.Contains(diagnostic, "correct or remove") || strings.Contains(diagnostic, "check TOML brackets") {
+						t.Errorf("unknown key lost its repair guidance: %q", &stderr)
+					}
+					if !reflect.DeepEqual(before, snapshotAuthoringFixture(t, root)) {
+						t.Fatal("invalid manifest command changed fixture files")
+					}
 				}
-				diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), clijson.CommandName(args), "operation", jsonOutput)
-				got := position.FindStringSubmatch(diagnostic)
-				if len(got) != 3 || got[1] != "3" || got[2] != "3" {
-					t.Errorf("position=%q, want line3 column3 in %q", got, &stderr)
-				}
-				if !strings.Contains(diagnostic, "correct or remove") || strings.Contains(diagnostic, "check TOML brackets") {
-					t.Errorf("unknown key lost its repair guidance: %q", &stderr)
-				}
-				if !reflect.DeepEqual(before, snapshotAuthoringFixture(t, root)) {
-					t.Fatal("invalid manifest command changed fixture files")
-				}
-			}
-		})
+			})
+		}
 	}
 }
