@@ -2,6 +2,7 @@ package profile
 
 import (
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/isty2e/daem/internal/target"
@@ -61,10 +62,8 @@ func (selection PiMCPBuiltinSelection) requireEnabled(scope target.Scope) error 
 	if scope == target.ScopeGlobal {
 		states = append(states, selection.global)
 	}
-	for _, state := range states {
-		if state == piMCPBuiltinDisabled {
-			return ErrPiNativeBuiltinDisabled
-		}
+	if slices.Contains(states, piMCPBuiltinDisabled) {
+		return ErrPiNativeBuiltinDisabled
 	}
 	for _, state := range states {
 		if state != piMCPBuiltinEnabled {

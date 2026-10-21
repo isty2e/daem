@@ -291,10 +291,7 @@ func readDesiredFileForDiff(
 	if !ok || !lockedIdentity.Equal(resolution.Identity()) {
 		return nil, false, fmt.Errorf("managed file diff source identity does not match lockfile entry")
 	}
-	readLimit := maximumBytes
-	if readLimit < 1 {
-		readLimit = 1
-	}
+	readLimit := max(maximumBytes, 1)
 	content, err := resolution.View().ReadRootFileVerified(
 		ctx,
 		resolution.Identity(),

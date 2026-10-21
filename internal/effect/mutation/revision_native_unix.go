@@ -115,10 +115,7 @@ func readRevisionSymlink(
 	if expected.size < 0 || expected.size > maximumRevisionSymlinkBytes {
 		return "", fmt.Errorf("mutation revision symlink %q target exceeds 1 MiB", name)
 	}
-	bufferSize := int(expected.size) + 1
-	if bufferSize < 256 {
-		bufferSize = 256
-	}
+	bufferSize := max(int(expected.size)+1, 256)
 	for {
 		buffer := make([]byte, bufferSize)
 		count, err := unix.Readlinkat(int(directory.Fd()), name, buffer)

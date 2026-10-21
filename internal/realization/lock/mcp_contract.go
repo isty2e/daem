@@ -216,10 +216,8 @@ func (spec mcpProjectionLockSpec) validateProviderContribution(
 			reference.ProviderSubjectID(),
 		)
 	}
-	for _, bound := range graph.BoundTargetsOf(reference.SubjectID()) {
-		if bound == projection {
-			return nil
-		}
+	if slices.Contains(graph.BoundTargetsOf(reference.SubjectID()), projection) {
+		return nil
 	}
 	return fmt.Errorf(
 		"%s contribution %q is not bound to projection %q",

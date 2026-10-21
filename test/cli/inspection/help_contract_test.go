@@ -169,7 +169,7 @@ func assertHelpLabels(t *testing.T, output string, root bool, required []string,
 	t.Helper()
 	labels := make(map[string]bool)
 	inLabelSection := root
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if line != "" && !strings.HasPrefix(line, " ") {
 			inLabelSection = root || line == "Operands:" || line == "Options:" || line == "Resources:" || line == "Subjects:"
 		}

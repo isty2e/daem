@@ -791,7 +791,7 @@ func TestLoadMarkerRejectsCurrentSchemaTargetCardinality(t *testing.T) {
 	root := t.TempDir()
 	markerFile := filepath.Join(root, transactionMarkerFile)
 	targets := make([]targetMarker, 0, maximumFileSetTargets+1)
-	for index := 0; index < maximumFileSetTargets+1; index++ {
+	for index := range maximumFileSetTargets + 1 {
 		targets = append(targets, targetMarker{
 			Path:   filepath.Join(root, fmt.Sprintf("target-%02d", index)),
 			Before: fileState{},
@@ -823,7 +823,7 @@ func TestRecoverRejectsCurrentSchemaTargetCardinalityWithoutRestore(t *testing.T
 	allowed := make([]string, 0, maximumFileSetTargets+1)
 	targets := make([]targetMarker, 0, maximumFileSetTargets+1)
 	live := make([]string, 0, maximumFileSetTargets+1)
-	for index := 0; index < maximumFileSetTargets+1; index++ {
+	for index := range maximumFileSetTargets + 1 {
 		path := mustWriteTarget(t, filepath.Join(root, fmt.Sprintf("target-%02d", index)), "after").Path()
 		writeFixture(t, path, "after", 0o600)
 		allowed = append(allowed, path)
@@ -1005,7 +1005,7 @@ func TestFileSetTargetCardinalityLimit(t *testing.T) {
 	root := t.TempDir()
 	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
 	targets := make([]FileTarget, 0, maximumFileSetTargets+1)
-	for index := 0; index < maximumFileSetTargets+1; index++ {
+	for index := range maximumFileSetTargets + 1 {
 		targets = append(targets, mustWriteTarget(t, filepath.Join(root, fmt.Sprintf("target-%02d", index)), "after"))
 	}
 	err := CommitFileSet(context.Background(), FileSetInput{
@@ -1023,7 +1023,7 @@ func TestFileSetTargetCardinalityExactLimitSucceeds(t *testing.T) {
 	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
 	targets := make([]FileTarget, 0, maximumFileSetTargets)
 	paths := make([]string, 0, maximumFileSetTargets)
-	for index := 0; index < maximumFileSetTargets; index++ {
+	for index := range maximumFileSetTargets {
 		path := filepath.Join(root, fmt.Sprintf("target-%02d", index))
 		paths = append(paths, path)
 		targets = append(targets, mustWriteTarget(t, path, fmt.Sprintf("after-%02d", index)))
@@ -1044,7 +1044,7 @@ func TestPrepareMarkerRejectsTargetCardinalityBeforeEvidence(t *testing.T) {
 	root := t.TempDir()
 	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
 	targets := make([]FileTarget, 0, maximumFileSetTargets+1)
-	for index := 0; index < maximumFileSetTargets+1; index++ {
+	for index := range maximumFileSetTargets + 1 {
 		targets = append(targets, mustRetainedTarget(t, filepath.Join(root, fmt.Sprintf("target-%02d", index))))
 	}
 	_, err := prepareMarker(context.Background(), stateDir, targets)
@@ -1138,7 +1138,7 @@ func TestMarshalMarkerRejectsOutputOverReadLimit(t *testing.T) {
 	t.Parallel()
 
 	marker := transactionMarker{Version: contractversion.MetadataTransaction}
-	for index := 0; index < 4_096; index++ {
+	for index := range 4_096 {
 		marker.Targets = append(marker.Targets, targetMarker{
 			Path:      filepath.Join(string(filepath.Separator), strings.Repeat("p", 300), fmt.Sprintf("%04d", index)),
 			Before:    fileState{},

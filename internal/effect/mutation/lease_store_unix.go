@@ -326,7 +326,7 @@ func openLeaseRecord(root *os.File, name string, path string) (*unixLeaseRecord,
 	var existed bool
 	var fd int
 	var err error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := range 3 {
 		before = unix.Stat_t{}
 		existed = true
 		err = unix.Fstatat(int(root.Fd()), name, &before, unix.AT_SYMLINK_NOFOLLOW)

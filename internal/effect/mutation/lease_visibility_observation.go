@@ -27,7 +27,7 @@ func observeVisibilityDomains(
 		err     error
 	}
 	var group sync.WaitGroup
-	for worker := 0; worker < workers; worker++ {
+	for worker := range workers {
 		start, end := worker*len(domains)/workers, (worker+1)*len(domains)/workers
 		group.Go(func() {
 			outcomes[worker].matches, outcomes[worker].err = observeVisibilityDomainRange(

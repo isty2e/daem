@@ -56,8 +56,8 @@ func ParseGitSource(source string) (GitSource, bool) {
 	value := strings.TrimSpace(source)
 	credentialInspection := credentialtext.InspectPasswordUserInfo(value)
 	credentialFree := credentialInspection == credentialtext.UserInfoAbsent
-	if strings.HasPrefix(value, "github:") {
-		repository, ref := splitGitRef(strings.TrimPrefix(value, "github:"))
+	if after, ok := strings.CutPrefix(value, "github:"); ok {
+		repository, ref := splitGitRef(after)
 		return buildGitSource("github.com", literalGitSourcePath(repository), ref, credentialFree)
 	}
 	hasGitPrefix := strings.HasPrefix(value, "git:")
@@ -235,7 +235,7 @@ func gitHostLooksLikeIPv4Alias(host string) bool {
 	if !strings.ContainsRune(host, '.') {
 		return false
 	}
-	for _, label := range strings.Split(host, ".") {
+	for label := range strings.SplitSeq(host, ".") {
 		if !gitIPv4AliasLabel(label) {
 			return false
 		}
@@ -354,8 +354,8 @@ func gitLocatorAtPrivate(suffix string) bool {
 		return false
 	}
 	segment := suffix
-	if slash := strings.IndexByte(suffix, '/'); slash >= 0 {
-		segment = suffix[:slash]
+	if before, _, ok := strings.Cut(suffix, "/"); ok {
+		segment = before
 	}
 	if gitRefHasSchemePrefix(segment) {
 		return true
@@ -415,7 +415,7 @@ func publicGitRef(ref string) bool {
 }
 
 func publicGitRefParts(ref string) bool {
-	for _, part := range strings.Split(ref, "#") {
+	for part := range strings.SplitSeq(ref, "#") {
 		if !publicGitRefForm(part) {
 			return false
 		}
@@ -433,7 +433,7 @@ func publicGitRefForm(ref string) bool {
 		!publicGitLocatorPath(ref) {
 		return false
 	}
-	for _, segment := range strings.Split(ref, "/") {
+	for segment := range strings.SplitSeq(ref, "/") {
 		if segment == ".." {
 			return false
 		}
@@ -605,7 +605,7 @@ func inspectGitSourcePart(
 			(!allowSlash && strings.Contains(candidate, "/")) {
 			return "", false
 		}
-		for _, part := range strings.Split(candidate, "/") {
+		for part := range strings.SplitSeq(candidate, "/") {
 			if part == ".." {
 				return "", false
 			}

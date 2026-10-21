@@ -126,7 +126,7 @@ func NewRelativeDestination(value string) (RelativeDestination, error) {
 	if path.IsAbs(value) || hasPathVolumePrefix(value) || value == "~" || strings.HasPrefix(value, "~/") {
 		return RelativeDestination{}, newFailure(FailureInvalidDestination, value, "destination must be root-relative", nil)
 	}
-	for _, component := range strings.Split(value, "/") {
+	for component := range strings.SplitSeq(value, "/") {
 		if component == ".." {
 			return RelativeDestination{}, newFailure(FailureInvalidDestination, value, "destination contains a parent traversal", nil)
 		}
@@ -157,7 +157,7 @@ func newCanonicalNativeRelativeDestination(value string) (RelativeDestination, e
 			nil,
 		)
 	}
-	for _, component := range strings.Split(value, "/") {
+	for component := range strings.SplitSeq(value, "/") {
 		if component == ".." {
 			return RelativeDestination{}, newFailure(
 				FailureInvalidDestination,
@@ -190,7 +190,7 @@ func (relative RelativeDestination) Validate() error {
 		relative.value == ".." || strings.HasPrefix(relative.value, "../") {
 		return newFailure(FailureInvalidDestination, relative.value, "destination is not canonical", nil)
 	}
-	for _, component := range strings.Split(relative.value, "/") {
+	for component := range strings.SplitSeq(relative.value, "/") {
 		if component == ".." {
 			return newFailure(FailureInvalidDestination, relative.value, "destination contains a parent traversal", nil)
 		}

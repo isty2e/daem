@@ -99,6 +99,10 @@ func probeExplicitObjectFormatSupport(ctx context.Context) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
+	return explicitObjectFormatFromHelp(result)
+}
+
+func explicitObjectFormatFromHelp(result subprocess.CommandAttemptResult) (bool, error) {
 	output := strings.TrimSpace(result.Stdout() + "\n" + result.Stderr())
 	switch {
 	case result.TimedOut():
@@ -114,7 +118,7 @@ func probeExplicitObjectFormatSupport(ctx context.Context) (bool, error) {
 		}
 		return false, fmt.Errorf("inspect git object-format capability: %s", detail)
 	case output == "":
-		return false, fmt.Errorf("inspect git object-format capability: git init -h returned empty output")
+		return false, fmt.Errorf("inspect git object-format capability: %s", gitInitHelpEmptyOutputDetail(result))
 	case (result.StdoutTruncated() || result.StderrTruncated()) && !gitHelpSupportsExplicitObjectFormat(output):
 		return false, fmt.Errorf("inspect git object-format capability: help output was truncated")
 	default:
@@ -128,6 +132,22 @@ func gitInitHelpAdmitted(result subprocess.CommandAttemptResult) bool {
 	}
 	exitCode, ok := result.ExitCode()
 	return ok && exitCode == gitHelpUsageExitCode
+}
+
+func gitInitHelpEmptyOutputDetail(result subprocess.CommandAttemptResult) string {
+	description := "git init -h returned empty output"
+	if result.StdoutTruncated() || result.StderrTruncated() {
+		description = "git init -h output capture was truncated or incomplete"
+	}
+	exitCode := "unknown"
+	if code, ok := result.ExitCode(); ok {
+		exitCode = fmt.Sprint(code)
+	}
+
+	return fmt.Sprintf(
+		"%s (exit_code=%s, reason=%q, stdout_truncated=%t, stderr_truncated=%t, error_detail=%q)",
+		description, exitCode, result.Reason(), result.StdoutTruncated(), result.StderrTruncated(), result.ErrorDetail(),
+	)
 }
 
 func gitHelpSupportsExplicitObjectFormat(help string) bool {

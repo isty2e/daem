@@ -145,8 +145,8 @@ func validatePiMCPProviderSelector(sourceRef string) error {
 	}
 	selector := strings.TrimPrefix(sourceRef, prefix)
 	version := selector
-	if strings.HasPrefix(selector, "^") {
-		version = strings.TrimPrefix(selector, "^")
+	if after, ok := strings.CutPrefix(selector, "^"); ok {
+		version = after
 	}
 	canonical, err := canonicalStableNPMVersion(version)
 	if err != nil {

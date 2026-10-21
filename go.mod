@@ -2,7 +2,7 @@ module github.com/isty2e/daem
 
 go 1.25.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/BurntSushi/toml v1.5.0

@@ -215,18 +215,18 @@ func sourceRefContainsCredentialField(kind SourceKind, ref string) bool {
 // and source-kind prefixes are structural; only locator payloads and refs can
 // carry credential fields. Userinfo authority is a separate tri-state query.
 func hostSourceContainsCredentialField(ref string) bool {
-	if strings.HasPrefix(ref, "npm:") {
-		spec := strings.TrimPrefix(ref, "npm:")
+	if after, ok := strings.CutPrefix(ref, "npm:"); ok {
+		spec := after
 		if parsed, ok := ParseNPMPackageSpec(spec); ok {
 			return parsed.containsCredentialField()
 		}
 		return credentialtext.ContainsCredential(spec)
 	}
 	payload := ref
-	if strings.HasPrefix(payload, "git:") {
-		payload = strings.TrimPrefix(payload, "git:")
-	} else if strings.HasPrefix(payload, "github:") {
-		payload = strings.TrimPrefix(payload, "github:")
+	if after, ok := strings.CutPrefix(payload, "git:"); ok {
+		payload = after
+	} else if after, ok := strings.CutPrefix(payload, "github:"); ok {
+		payload = after
 	}
 	if _, _, path, ok := splitScpLikeGitSource(payload); ok {
 		return credentialtext.ContainsCredential(path)

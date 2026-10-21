@@ -449,10 +449,8 @@ func validateObservedSequence(sequence observerelation.ObservedRelationSequence)
 
 func firstCommonSubject(left []topology.SubjectID, right []topology.SubjectID) topology.SubjectID {
 	for _, leftSubject := range left {
-		for _, rightSubject := range right {
-			if leftSubject == rightSubject {
-				return leftSubject
-			}
+		if slices.Contains(right, leftSubject) {
+			return leftSubject
 		}
 	}
 	return topology.SubjectID{}

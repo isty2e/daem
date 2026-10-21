@@ -80,10 +80,7 @@ func (collector *importHookCollector) reserveHookName(
 		return base
 	}
 
-	suffix := collector.nextNameSuffix[base]
-	if suffix < 2 {
-		suffix = 2
-	}
+	suffix := max(collector.nextNameSuffix[base], 2)
 	for {
 		candidate := fmt.Sprintf("%s_%d", base, suffix)
 		suffix++

@@ -640,7 +640,7 @@ func TestImportHookNameAllocatorMatchesSequentialContract(t *testing.T) {
 	}
 	collector := importHookCollector{target: target.TargetClaudeCode, scope: target.ScopeProject}
 	referenceNames := make(map[string]struct{})
-	for round := 0; round < 4; round++ {
+	for round := range 4 {
 		for _, input := range inputs {
 			identity := newImportHookEventIdentity(input.event)
 			got := collector.reserveHookName(identity, input.groupIndex, input.handlerIndex)

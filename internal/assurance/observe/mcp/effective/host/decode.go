@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/encoding/tomlstrict"
@@ -234,16 +235,12 @@ func mergeOpenCodeEntries(
 ) {
 	for name, nextEntry := range next {
 		merged := make(map[string]any)
-		for key, value := range base[name] {
-			merged[key] = value
-		}
+		maps.Copy(merged, base[name])
 		if nextType, present := nextEntry["type"].(string); present && nextType != merged["type"] {
 			delete(merged, "command")
 			delete(merged, "url")
 		}
-		for key, value := range nextEntry {
-			merged[key] = value
-		}
+		maps.Copy(merged, nextEntry)
 		base[name] = merged
 	}
 }

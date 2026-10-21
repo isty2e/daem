@@ -1,7 +1,7 @@
 package lock
 
 import (
-	"sort"
+	"slices"
 
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 )
@@ -28,9 +28,7 @@ func buildOrderDelta(before File, after File) []OrderDeltaEntry {
 	for key := range afterEntries {
 		keys = appendOrderClassKey(keys, seen, key)
 	}
-	sort.Slice(keys, func(left int, right int) bool {
-		return keys[left] < keys[right]
-	})
+	slices.Sort(keys)
 
 	entries := make([]OrderDeltaEntry, 0, len(keys))
 	for _, key := range keys {

@@ -78,7 +78,7 @@ func TestPreflightMCPEnvironmentSourcesBoundsSortedNameOnlyFailure(t *testing.T)
 	t.Parallel()
 
 	env := make(map[string]string)
-	for index := 0; index < maximumReportedMissingMCPEnvironmentSources+3; index++ {
+	for index := range maximumReportedMissingMCPEnvironmentSources + 3 {
 		env[fmt.Sprintf("CHILD_%02d", index)] = fmt.Sprintf("SOURCE_%02d", index)
 	}
 	environment := mcpPreflightEnvironment(

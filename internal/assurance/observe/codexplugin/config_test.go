@@ -445,7 +445,7 @@ func exactMaximumCodexPluginConfig() string {
 
 func overflowingCodexPluginConfigCount(count int) string {
 	var body strings.Builder
-	for index := 0; index < count; index++ {
+	for index := range count {
 		fmt.Fprintf(&body, "[plugins.%q]\nenabled = true\n", versionName(index)+"@market")
 	}
 	return body.String()

@@ -56,7 +56,7 @@ func editorResolveSchemaRef(root map[string]any, reference string) (map[string]a
 		return nil, err
 	}
 	var current any = root
-	for _, encoded := range strings.Split(pointer[1:], "/") {
+	for encoded := range strings.SplitSeq(pointer[1:], "/") {
 		token := strings.ReplaceAll(strings.ReplaceAll(encoded, "~1", "/"), "~0", "~")
 		switch container := current.(type) {
 		case map[string]any:

@@ -3,6 +3,7 @@ package extension
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	observepi "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -268,21 +269,11 @@ func (collector *importCollector) classObserved(
 }
 
 func (collector *importCollector) includesTarget(selected target.Target) bool {
-	for _, candidate := range collector.input.Targets {
-		if candidate == selected {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(collector.input.Targets, selected)
 }
 
 func (collector *importCollector) includesScope(selected target.Scope) bool {
-	for _, candidate := range collector.input.Scopes {
-		if candidate == selected {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(collector.input.Scopes, selected)
 }
 
 func newCarrierKey(

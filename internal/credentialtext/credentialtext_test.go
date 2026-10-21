@@ -578,7 +578,7 @@ func TestRedactTreatsLogicalBearerAsOneCredentialField(t *testing.T) {
 func TestLineScopedValueEndScalesLinearlyWithQuotes(t *testing.T) {
 	var builder strings.Builder
 	builder.WriteString(`Authorization: `)
-	for index := 0; index < 4096; index++ {
+	for range 4096 {
 		builder.WriteString(`"public" `)
 	}
 	builder.WriteString(`response="first` + "\r\n" + `actual-secret"`)

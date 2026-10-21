@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
@@ -189,9 +190,7 @@ func nativeProjectDefinition(project json.RawMessage, global json.RawMessage) (j
 	if err := json.Unmarshal(global, &base); err != nil || base == nil {
 		return nil, false, fmt.Errorf("native Pi override has no comparable global definition")
 	}
-	for field, value := range entry {
-		base[field] = value
-	}
+	maps.Copy(base, entry)
 	merged, err := json.Marshal(base)
 	return merged, true, err
 }

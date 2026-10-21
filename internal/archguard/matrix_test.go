@@ -190,6 +190,12 @@ func TestAnalyzeImportsEmitsStableResidualRuleNames(t *testing.T) {
 			wantRule:    ruleLockRefineBoundaryImport,
 		},
 		{
+			name:        "lock refinement network import",
+			packagePath: "internal/realization/lock/refine",
+			importPath:  "net/http",
+			wantRule:    ruleLockRefineBoundaryImport,
+		},
+		{
 			name:        "lock refinement third party import",
 			packagePath: "internal/realization/lock/refine",
 			importPath:  "example.net/effectful",
@@ -407,6 +413,7 @@ func TestLockOwnershipGuardAllowsCanonicalDirectionAndPathLookalikes(t *testing.
 		{packagePath: "internal/realization/lock/refine", importPath: "example.com/project/internal/topology/mcp"},
 		{packagePath: "internal/realization/lock/refine", importPath: "fmt"},
 		{packagePath: "internal/realization/lock/refine", importPath: "path"},
+		{packagePath: "internal/realization/lock/refine", importPath: "slices"},
 		{packagePath: "internal/realization/lock/refine", importPath: "sort"},
 		{packagePath: "internal/realization/lock/refine", importPath: "strings"},
 		{packagePath: "internal/realization/lockfile", importPath: "example.com/project/internal/realization/lock"},

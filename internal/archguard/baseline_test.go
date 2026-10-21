@@ -2,6 +2,7 @@ package archguard
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,9 +72,7 @@ func clonePackageRecords(records []PackageRecord) []PackageRecord {
 		record.XTestGoFiles = slices.Clone(record.XTestGoFiles)
 		if record.FileContents != nil {
 			record.FileContents = make(map[string]string, len(record.FileContents))
-			for name, content := range record.FileContents {
-				record.FileContents[name] = content
-			}
+			maps.Copy(record.FileContents, record.FileContents)
 		}
 		cloned[index] = record
 	}

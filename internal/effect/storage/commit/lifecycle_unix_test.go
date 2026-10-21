@@ -2102,14 +2102,12 @@ func TestRootedEntryCleanupConcurrentAttemptsNeverDeleteReplacement(t *testing.T
 	var wait sync.WaitGroup
 	errorsByAttempt := make([]error, len(attempts))
 	for index := range attempts {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
+		wait.Go(func() {
 			_, errorsByAttempt[index] = CommitRootedEntryCleanup(
 				context.Background(),
 				attempts[index].request,
 			)
-		}()
+		})
 	}
 	wait.Wait()
 	successes := 0

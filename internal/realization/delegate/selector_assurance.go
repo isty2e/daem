@@ -104,8 +104,8 @@ func isExactPythonVersion(selector string) bool {
 			return false
 		}
 	}
-	if strings.HasPrefix(selector, "==") {
-		selector = strings.TrimPrefix(selector, "==")
+	if after, ok := strings.CutPrefix(selector, "=="); ok {
+		selector = after
 	}
 	if strings.ContainsAny(selector, "*,") || strings.HasPrefix(selector, "=") ||
 		strings.HasPrefix(selector, "!") || strings.HasPrefix(selector, "<") ||

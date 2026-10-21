@@ -66,7 +66,7 @@ func TestApplyAuthorityRequestValidationCopiesFreshInputs(t *testing.T) {
 		}
 		return declined
 	}}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := options.validatePhysicalAuthority(ctx, authority); !errors.Is(err, declined) {
 			t.Fatalf("request callback error: %v", err)
 		}

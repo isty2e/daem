@@ -167,7 +167,7 @@ func (request Request) Merge() bool {
 }
 
 func pathHasComponent(path string, component string) bool {
-	for _, part := range strings.Split(filepath.Clean(path), string(os.PathSeparator)) {
+	for part := range strings.SplitSeq(filepath.Clean(path), string(os.PathSeparator)) {
 		if part == component {
 			return true
 		}

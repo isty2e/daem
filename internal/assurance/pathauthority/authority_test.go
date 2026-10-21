@@ -39,15 +39,16 @@ func TestFoldedWitnessesRequireFoldedKeys(t *testing.T) {
 	if _, err := pathauthority.NewExact(key, "windows-fold-v1:"); err == nil {
 		t.Fatal("NewExact accepted mixed-case Windows-fold key")
 	}
-	darwinWitness := "darwin-case-v1:"
+	var darwinWitness strings.Builder
+	darwinWitness.WriteString("darwin-case-v1:")
 	for _, component := range splitRootedPath(key) {
 		if component == "Mixed" {
-			darwinWitness += "i"
+			darwinWitness.WriteString("i")
 		} else {
-			darwinWitness += "s"
+			darwinWitness.WriteString("s")
 		}
 	}
-	if _, err := pathauthority.NewExact(key, darwinWitness); err == nil {
+	if _, err := pathauthority.NewExact(key, darwinWitness.String()); err == nil {
 		t.Fatal("NewExact accepted mixed-case insensitive Darwin component")
 	}
 }

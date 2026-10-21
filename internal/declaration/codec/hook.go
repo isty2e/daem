@@ -253,15 +253,16 @@ func appendHookTargetOverrides(block string, overrides []declaration.HookTargetO
 	if strings.Contains(block, "\r\n") {
 		lineEnding = "\r\n"
 	}
-	output := strings.TrimRight(block, "\r\n")
+	var output strings.Builder
+	output.WriteString(strings.TrimRight(block, "\r\n"))
 	for _, override := range overrides {
-		output += lineEnding + lineEnding
-		output += renderHookTargetOverride(override, lineEnding)
+		output.WriteString(lineEnding + lineEnding)
+		output.WriteString(renderHookTargetOverride(override, lineEnding))
 	}
 	if hadTerminalNewline {
-		output += lineEnding
+		output.WriteString(lineEnding)
 	}
-	return output
+	return output.String()
 }
 
 func RenderHookBlock(hook declaration.Hook) string {

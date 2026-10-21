@@ -2,7 +2,7 @@ package refine
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -61,9 +61,7 @@ func ExtensionOrderConstraints(
 	for classID := range classes {
 		classIDs = append(classIDs, classID)
 	}
-	sort.Slice(classIDs, func(left int, right int) bool {
-		return classIDs[left] < classIDs[right]
-	})
+	slices.Sort(classIDs)
 
 	constraints := make([]hostrelation.RelationOrderConstraint, 0, len(classIDs))
 	for _, classID := range classIDs {

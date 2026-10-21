@@ -855,12 +855,13 @@ func selectorSkillMergeFixture(
 		if err := os.MkdirAll(skillRoot, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		skillContent := []byte(fmt.Sprintf(
+		skillContent := fmt.Appendf(
+			nil,
 			"---\nname: %s\ndescription: %s skill\n---\n\n%s skill.\n",
 			name,
 			name,
 			name,
-		))
+		)
 		if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), skillContent, 0o600); err != nil {
 			t.Fatal(err)
 		}
