@@ -283,7 +283,7 @@ func TestGitEnvironmentCheckCaptureDiagnostics(t *testing.T) {
 			}
 			class := "returned empty output"
 			if tc.outCut || tc.errCut {
-				class = "capture was truncated"
+				class = "capture was truncated or incomplete"
 			}
 			reason := ""
 			if tc.code != 0 {

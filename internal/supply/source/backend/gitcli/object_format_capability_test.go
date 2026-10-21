@@ -75,6 +75,51 @@ func TestGitHelpDiagnosticRetainsSanitizedEvidence(t *testing.T) {
 	}
 }
 
+func TestExplicitObjectFormatPartialHelpEvidence(t *testing.T) {
+	cases := []struct {
+		name      string
+		stdout    string
+		stderr    string
+		outCut    bool
+		errCut    bool
+		supported bool
+		refused   bool
+	}{
+		{name: "complete positive", stderr: "usage: git init --object-format=<format>", supported: true},
+		{name: "complete negative", stderr: "usage: git init"},
+		{name: "stdout partial positive", stdout: "usage: git init --object-format=<format>", outCut: true, supported: true},
+		{name: "stderr partial positive", stderr: "usage: git init --object-format=<format>", errCut: true, supported: true},
+		{name: "both partial positive", stdout: "usage: git init --object-format=<format>", outCut: true, errCut: true, supported: true},
+		{name: "stdout partial negative", stdout: "usage: git init", outCut: true, refused: true},
+		{name: "stderr partial negative", stderr: "usage: git init", errCut: true, refused: true},
+		{name: "both partial negative", stderr: "usage: git init", outCut: true, errCut: true, refused: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+				Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+					return subprocess.CommandResult{
+						Started: true, HasExitCode: true, ExitCode: gitHelpUsageExitCode,
+						Stdout: tc.stdout, Stderr: tc.stderr,
+						StdoutTruncated: tc.outCut, StderrTruncated: tc.errCut,
+						Err: errors.New("usage-and-cleanup-marker"),
+					}
+				},
+			})
+			result := executor.Execute(context.Background(), subprocess.CommandAttemptRequest{
+				Command: gitExecutable, Args: inspectGitInitHelpArgs(),
+			})
+			supported, err := explicitObjectFormatFromHelp(result)
+			if supported != tc.supported || (err != nil) != tc.refused {
+				t.Fatalf("capability = %t, %v; want supported=%t refused=%t", supported, err, tc.supported, tc.refused)
+			}
+			if err != nil && !strings.Contains(err.Error(), "help output was truncated") {
+				t.Fatalf("partial negative evidence reached the wrong refusal: %v", err)
+			}
+		})
+	}
+}
+
 func TestExplicitObjectFormatSupportPreservesCallerDeadline(t *testing.T) {
 	installStallingGitInitHelp(t)
 

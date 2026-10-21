@@ -26,14 +26,12 @@ func TestExplicitObjectFormatCaptureDiagnostics(t *testing.T) {
 	}{
 		{name: "positive", wantSupported: true},
 		{name: "legacy"},
-		{name: "positive-held", wantSupported: true},
-		{name: "negative-held", wantClass: "help output was truncated"},
 		{name: "empty-zero", wantClass: "returned empty output", wantEmptyEvidence: true},
 		{name: "empty-usage", wantClass: "returned empty output", wantExit: 129, wantEmptyEvidence: true},
-		{name: "stdout-held", wantClass: "capture was truncated", wantExit: 129, wantStdoutCut: true, wantEmptyEvidence: true},
-		{name: "stderr-held", wantClass: "capture was truncated", wantExit: 129, wantStderrCut: true, wantEmptyEvidence: true},
-		{name: "both-held", wantClass: "capture was truncated", wantExit: 129, wantStdoutCut: true, wantStderrCut: true, wantEmptyEvidence: true},
-		{name: "blank-overflow", wantClass: "capture was truncated", wantExit: 129, wantStdoutCut: true, wantEmptyEvidence: true},
+		{name: "stdout-held", wantClass: "capture was truncated or incomplete", wantExit: 129, wantStdoutCut: true, wantEmptyEvidence: true},
+		{name: "stderr-held", wantClass: "capture was truncated or incomplete", wantExit: 129, wantStderrCut: true, wantEmptyEvidence: true},
+		{name: "both-held", wantClass: "capture was truncated or incomplete", wantExit: 129, wantStdoutCut: true, wantStderrCut: true, wantEmptyEvidence: true},
+		{name: "blank-overflow", wantClass: "capture was truncated or incomplete", wantExit: 129, wantStdoutCut: true, wantEmptyEvidence: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -104,15 +102,15 @@ func installGitHelpCaptureFixture(t *testing.T, mode string) string {
 [ "$1" = init ] && [ "$2" = -h ] || exit 87
 printf '.\n' >> "$DAEM_GIT_HELP_COUNT"
 case "$DAEM_GIT_HELP_CASE" in
-  positive|positive-held) printf 'usage: git init --object-format=<format>\n' >&2 ;;
-  legacy|negative-held) printf 'usage: git init\n' >&2 ;;
+  positive) printf 'usage: git init --object-format=<format>\n' >&2 ;;
+  legacy) printf 'usage: git init\n' >&2 ;;
   empty-zero) exit 0 ;;
   blank-overflow) printf "%${DAEM_GIT_HELP_WIDTH}s" "" ;;
 esac
 case "$DAEM_GIT_HELP_CASE" in
   stdout-held) /bin/sh -c 'read value < "$DAEM_GIT_HELP_FIFO"' 2>/dev/null & ;;
   stderr-held) /bin/sh -c 'read value < "$DAEM_GIT_HELP_FIFO"' >/dev/null & ;;
-  both-held|positive-held|negative-held) /bin/sh -c 'read value < "$DAEM_GIT_HELP_FIFO"' & ;;
+  both-held) /bin/sh -c 'read value < "$DAEM_GIT_HELP_FIFO"' & ;;
 esac
 exit 129
 `

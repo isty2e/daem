@@ -99,6 +99,10 @@ func probeExplicitObjectFormatSupport(ctx context.Context) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
+	return explicitObjectFormatFromHelp(result)
+}
+
+func explicitObjectFormatFromHelp(result subprocess.CommandAttemptResult) (bool, error) {
 	output := strings.TrimSpace(result.Stdout() + "\n" + result.Stderr())
 	switch {
 	case result.TimedOut():
@@ -133,7 +137,7 @@ func gitInitHelpAdmitted(result subprocess.CommandAttemptResult) bool {
 func gitInitHelpEmptyOutputDetail(result subprocess.CommandAttemptResult) string {
 	description := "git init -h returned empty output"
 	if result.StdoutTruncated() || result.StderrTruncated() {
-		description = "git init -h output capture was truncated"
+		description = "git init -h output capture was truncated or incomplete"
 	}
 	exitCode := "unknown"
 	if code, ok := result.ExitCode(); ok {

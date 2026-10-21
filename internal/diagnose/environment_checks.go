@@ -205,7 +205,7 @@ func gitInitHelpAdmitted(result subprocess.CommandAttemptResult) bool {
 func gitInitHelpEmptyOutputDetail(result subprocess.CommandAttemptResult) string {
 	description := "git init -h returned empty output"
 	if result.StdoutTruncated() || result.StderrTruncated() {
-		description = "git init -h output capture was truncated"
+		description = "git init -h output capture was truncated or incomplete"
 	}
 	exitCode := "unknown"
 	if code, ok := result.ExitCode(); ok {
