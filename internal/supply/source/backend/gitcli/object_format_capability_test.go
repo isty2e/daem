@@ -28,6 +28,53 @@ func TestGitInitHelpAdmitted(t *testing.T) {
 	}
 }
 
+func TestGitHelpDiagnosticRetainsSanitizedEvidence(t *testing.T) {
+	for _, hasExit := range []bool{false, true} {
+		name := "unavailable exit"
+		if hasExit {
+			name = "observed exit"
+		}
+		t.Run(name, func(t *testing.T) {
+			const secret = "help-probe-private-value"
+			raw := subprocess.CommandResult{Started: true, HasExitCode: hasExit, ExitCode: 129}
+			if hasExit {
+				raw.StdoutTruncated = true
+				raw.Err = errors.New("cleanup-marker\n" + secret)
+			}
+			executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+				LookupEnv: func(string) (string, bool) { return secret, true },
+				Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+					return raw
+				},
+			})
+			result := executor.Execute(context.Background(), subprocess.CommandAttemptRequest{
+				Command: gitExecutable, Args: inspectGitInitHelpArgs(),
+				EnvRefs: []subprocess.CommandEnvRef{{Name: "HELP_SECRET", SourceName: "HELP_SECRET"}},
+			})
+			detail := gitInitHelpEmptyOutputDetail(result)
+			exit := "unknown"
+			if hasExit {
+				exit = "129"
+				if !result.Redacted() || !strings.Contains(result.ErrorDetail(), "cleanup-marker") {
+					t.Fatal("fixture did not retain sanitized error evidence")
+				}
+			}
+			for _, evidence := range []string{
+				"exit_code=" + exit,
+				"reason=" + strconv.Quote(string(result.Reason())),
+				"error_detail=" + strconv.Quote(result.ErrorDetail()),
+			} {
+				if !strings.Contains(detail, evidence) {
+					t.Errorf("detail %q omitted %q", detail, evidence)
+				}
+			}
+			if strings.Contains(detail, secret) || strings.Contains(detail, "\n") {
+				t.Fatal("diagnostic exposed a secret or unquoted multiline evidence")
+			}
+		})
+	}
+}
+
 func TestExplicitObjectFormatSupportPreservesCallerDeadline(t *testing.T) {
 	installStallingGitInitHelp(t)
 

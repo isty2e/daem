@@ -3,10 +3,12 @@ package diagnose
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -65,13 +67,6 @@ func TestGitEnvironmentCheckClassifiesAttempts(t *testing.T) {
 			},
 			want:         findings.CheckError,
 			wantDetail:   "git init -h failed: exit status 127",
-			wantAttempts: 2,
-		},
-		{
-			name: "empty help", version: version,
-			help:         subprocess.CommandResult{Started: true, HasExitCode: true},
-			want:         findings.CheckError,
-			wantDetail:   "git init -h returned empty output",
 			wantAttempts: 2,
 		},
 		{
@@ -250,12 +245,141 @@ func assertGitCheckRequest(t *testing.T, request subprocess.CommandRequest, args
 func TestGitObjectFormatCapabilityLabel(t *testing.T) {
 	t.Parallel()
 
-	if got := gitObjectFormatCapabilityLabel("usage: git init [--object-format=<format>]"); got != "object-format sha1,sha256" {
+	if got := gitObjectFormatCapabilityLabel("usage: git init [--object-format=<format>]", false); got != "object-format sha1,sha256" {
 		t.Fatalf("capable git label = %q", got)
 	}
-	if got := gitObjectFormatCapabilityLabel("usage: git init"); got != "object-format sha1" {
+	if got := gitObjectFormatCapabilityLabel("usage: git init", false); got != "object-format sha1" {
 		t.Fatalf("legacy git label = %q", got)
 	}
+}
+
+func TestGitEnvironmentCheckCaptureDiagnostics(t *testing.T) {
+	cases := []struct {
+		name   string
+		stdout string
+		outCut bool
+		errCut bool
+		code   int
+	}{
+		{name: "complete success"},
+		{name: "complete usage", code: 129},
+		{name: "stdout incomplete", code: 129, outCut: true},
+		{name: "stderr incomplete", code: 129, errCut: true},
+		{name: "both incomplete", code: 129, outCut: true, errCut: true},
+		{name: "normalized overflow", code: 129, outCut: true, stdout: strings.Repeat(" ", subprocess.DefaultCommandOutputLimit)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			help := subprocess.CommandResult{
+				Started: true, HasExitCode: true, ExitCode: tc.code,
+				Stdout: tc.stdout, StdoutTruncated: tc.outCut, StderrTruncated: tc.errCut,
+			}
+			if tc.code != 0 {
+				help.Err = errors.New("cleanup-marker\n--token=help-probe-sensitive-marker")
+			}
+			check := gitEnvironmentHelpFixture(t, help)
+			if check.Name != "git" || check.Status != findings.CheckError {
+				t.Fatalf("check = %#v, want Git error", check)
+			}
+			class := "returned empty output"
+			if tc.outCut || tc.errCut {
+				class = "capture was truncated"
+			}
+			reason := ""
+			if tc.code != 0 {
+				reason = string(subprocess.CommandReasonNonZeroExit)
+			}
+			for _, evidence := range []string{
+				class,
+				fmt.Sprintf("exit_code=%d", tc.code),
+				"reason=" + strconv.Quote(reason),
+				fmt.Sprintf("stdout_truncated=%t", tc.outCut),
+				fmt.Sprintf("stderr_truncated=%t", tc.errCut),
+			} {
+				if !strings.Contains(check.Detail, evidence) {
+					t.Errorf("detail %q omitted %q", check.Detail, evidence)
+				}
+			}
+			if tc.code != 0 && !strings.Contains(check.Detail, "cleanup-marker") {
+				t.Errorf("detail %q lost sanitized cleanup evidence", check.Detail)
+			}
+			detail := ""
+			if help.Err != nil {
+				detail = subprocess.NewCapturePolicy(nil, subprocess.DefaultCommandOutputLimit).Sanitize(help.Err.Error(), false).Text()
+			}
+			if !strings.Contains(check.Detail, "error_detail="+strconv.Quote(detail)) {
+				t.Errorf("diagnostic lost sanitized detail %q: %q", detail, check.Detail)
+			}
+			if strings.Contains(check.Detail, "help-probe-sensitive-marker") || strings.Contains(check.Detail, "\n") {
+				t.Fatal("diagnostic re-emitted a raw secret or unquoted multiline evidence")
+			}
+		})
+	}
+}
+
+func TestGitEnvironmentCheckPartialCapabilityLabel(t *testing.T) {
+	cases := []struct {
+		name    string
+		help    subprocess.CommandResult
+		unknown bool
+		sha256  bool
+	}{
+		{name: "complete negative", help: subprocess.CommandResult{Stdout: "usage: git init"}},
+		{name: "complete positive", help: subprocess.CommandResult{Stderr: "usage: git init --object-format=<format>"}, sha256: true},
+		{name: "stdout partial negative", help: subprocess.CommandResult{Stdout: "usage: git init", StdoutTruncated: true}, unknown: true},
+		{name: "stderr partial negative", help: subprocess.CommandResult{Stderr: "usage: git init", StderrTruncated: true}, unknown: true},
+		{name: "partial positive", help: subprocess.CommandResult{Stderr: "usage: git init --object-format=<format>", StderrTruncated: true}, sha256: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.help.Started = true
+			tc.help.HasExitCode = true
+			tc.help.ExitCode = 129
+			tc.help.Err = errors.New("usage-exit-marker")
+			check := gitEnvironmentHelpFixture(t, tc.help)
+			if check.Status != findings.CheckOK {
+				t.Fatalf("check = %#v, want retained OK status", check)
+			}
+			if strings.Contains(check.Detail, "object-format unknown") != tc.unknown {
+				t.Fatalf("capability uncertainty = %q, want unknown=%t", check.Detail, tc.unknown)
+			}
+			if strings.Contains(check.Detail, "sha256") != tc.sha256 {
+				t.Fatalf("capability evidence = %q, want sha256=%t", check.Detail, tc.sha256)
+			}
+			if tc.unknown {
+				if strings.Contains(check.Detail, "sha1") || !strings.Contains(check.Detail, "truncated") {
+					t.Fatalf("partial negative evidence was mislabelled: %q", check.Detail)
+				}
+			} else if !strings.Contains(check.Detail, "object-format sha1") {
+				t.Fatalf("known capability label lost: %q", check.Detail)
+			}
+		})
+	}
+}
+
+func gitEnvironmentHelpFixture(t *testing.T, help subprocess.CommandResult) findings.Check {
+	t.Helper()
+	attempts := 0
+	runner := func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+		attempts++
+		if request.OutputLimit != subprocess.DefaultCommandOutputLimit {
+			t.Fatal("doctor output limit changed")
+		}
+		if attempts == 1 {
+			assertGitCheckRequest(t, request, "--version")
+			return subprocess.CommandResult{Started: true, HasExitCode: true, Stdout: "git version fixture"}
+		}
+		if attempts != 2 {
+			t.Fatalf("unexpected extra command attempt %d", attempts)
+		}
+		assertGitCheckRequest(t, request, "init", "-h")
+		return help
+	}
+	check := gitEnvironmentCheck(context.Background(), time.Second, runner)
+	if attempts != 2 {
+		t.Fatalf("command attempts = %d, want version and help", attempts)
+	}
+	return check
 }
 
 func TestIndependentEnvironmentChecksNamesHostEffectWithoutProbing(t *testing.T) {

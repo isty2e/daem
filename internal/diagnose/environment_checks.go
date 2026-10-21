@@ -185,9 +185,10 @@ func gitEnvironmentCheck(ctx context.Context, timeout time.Duration, runner subp
 	}
 	output := strings.TrimSpace(strings.TrimSpace(help.Stdout()) + "\n" + strings.TrimSpace(help.Stderr()))
 	if output == "" {
-		return errorCheck("git", "git init -h returned empty output")
+		return errorCheck("git", gitInitHelpEmptyOutputDetail(help))
 	}
-	check.Detail = check.Detail + "; " + gitObjectFormatCapabilityLabel(output)
+	truncated := help.StdoutTruncated() || help.StderrTruncated()
+	check.Detail = check.Detail + "; " + gitObjectFormatCapabilityLabel(output, truncated)
 	return check
 }
 
@@ -199,6 +200,22 @@ func gitInitHelpAdmitted(result subprocess.CommandAttemptResult) bool {
 	}
 	exitCode, ok := result.ExitCode()
 	return ok && exitCode == gitHelpUsageExitCode
+}
+
+func gitInitHelpEmptyOutputDetail(result subprocess.CommandAttemptResult) string {
+	description := "git init -h returned empty output"
+	if result.StdoutTruncated() || result.StderrTruncated() {
+		description = "git init -h output capture was truncated"
+	}
+	exitCode := "unknown"
+	if code, ok := result.ExitCode(); ok {
+		exitCode = fmt.Sprint(code)
+	}
+
+	return fmt.Sprintf(
+		"%s (exit_code=%s, reason=%q, stdout_truncated=%t, stderr_truncated=%t, error_detail=%q)",
+		description, exitCode, result.Reason(), result.StdoutTruncated(), result.StderrTruncated(), result.ErrorDetail(),
+	)
 }
 
 func classifyGitVersionAttempt(
@@ -229,9 +246,12 @@ func classifyGitVersionAttempt(
 	return okCheck("git", value)
 }
 
-func gitObjectFormatCapabilityLabel(help string) string {
+func gitObjectFormatCapabilityLabel(help string, truncated bool) string {
 	if strings.Contains(help, "--object-format") {
 		return "object-format sha1,sha256"
+	}
+	if truncated {
+		return "object-format unknown (help output truncated or incomplete)"
 	}
 	return "object-format sha1"
 }
