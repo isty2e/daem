@@ -14,6 +14,7 @@ For setup steps, use [Getting Started](getting-started.md) or
 
 - [Top-Level Fields](#top-level-fields)
 - [Defaults](#defaults)
+- [Editor Support](#editor-support)
 - [Sources](#sources)
 - [Skills](#skills)
 - [Skill Groups](#skill-groups)
@@ -112,6 +113,53 @@ Supported `install_mode` values:
 - `copy`
 - `symlink`
 - `hardlink`
+
+## Editor Support
+
+The optional [JSON Schema](../schemas/daem.schema.json) provides canonical field
+names, target/scope choices and structural validation for schema-aware TOML
+editors. It uses a restricted JSON Schema Draft 4 vocabulary. Completion and
+diagnostic presentation depend on the editor; daem does not require or configure
+an editor or language server.
+
+Use the schema from the same release tag or source commit as your daem binary.
+Manifest `version = 1` does not identify a daem release. Releases without the
+schema file do not gain it retroactively. You can copy the matching file into
+your project as `daem.schema.json`, then add this ordinary TOML comment at the top
+of `daem.toml`:
+
+```toml
+#:schema ./daem.schema.json
+```
+
+For a remote copy, the URL template is
+`https://raw.githubusercontent.com/isty2e/daem/<tag-or-commit>/schemas/daem.schema.json`.
+Replace `<tag-or-commit>` with a release or exact commit containing the file;
+do not use a moving branch when you need version matching. If your editor uses
+Taplo configuration, this project-root `.taplo.toml` rule is an alternative to
+changing the manifest:
+
+```toml
+[[rule]]
+include = ["daem.toml"]
+
+[rule.schema]
+path = "./daem.schema.json"
+```
+
+Refresh the copied file or pinned URL when upgrading daem. A local self-contained
+copy avoids fetching the schema itself; editor networking and association
+precedence remain editor behavior. Daem does not verify that your editor's
+association matches the installed binary.
+
+The schema is a conservative approximation, not the final admission check.
+It can miss errors involving declaration references, source combinations,
+target-specific placement and explicit mutation authority. JSON numeric and
+TOML temporal representations can also differ: for example, a schema validator
+may accept `version = 1.0`, while daem requires an integer. An empty root target
+list is another omitted check. A schema pass does not establish source
+availability, lock freshness or runtime readiness. Continue to use the normal
+`lock`, `apply --dry-run` and `status` workflow.
 
 ## Sources
 

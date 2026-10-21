@@ -1,0 +1,44 @@
+version = 1
+targets = ["codex", "claude-code", "pi"]
+
+[defaults]
+scope = "project"
+
+[[skill]]
+name = "review"
+source = { path = "./missing-skill", mode = "vendor" }
+
+[[skill_group]]
+names = ["group-review"]
+source = { path = "./missing-skills", mode = "vendor" }
+
+[instructions.project]
+source = "./missing-instructions.md"
+
+[hook_asset.guard]
+source = "./missing-guard.sh"
+kind = "file"
+
+[[hook]]
+name = "guard"
+event = "PreToolUse"
+command = "{hook_file:guard}"
+
+[[hook.target_override]]
+target = "codex"
+matcher = "Shell"
+
+[[mcp_server]]
+name = "docs"
+targets = ["claude-code"]
+scope = "project"
+transport = "stdio"
+command = { path = "/missing/schema-test-tool" }
+env = { TOKEN = { from_env = "source_Name" }, Token = { from_env = "source_Other" } }
+
+[[extension]]
+id = "tooling"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "npm:@acme/tooling@1.2.3" }

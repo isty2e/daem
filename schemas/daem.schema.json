@@ -1,0 +1,640 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "$ref": "#/definitions/Manifest",
+  "definitions": {
+    "Defaults": {
+      "type": "object",
+      "properties": {
+        "install_mode": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "",
+            "global",
+            "project"
+          ],
+          "description": "Omission or an empty string uses the applicable default scope."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Extension": {
+      "type": "object",
+      "properties": {
+        "carrier": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "",
+            "global",
+            "project"
+          ],
+          "description": "Omission or an empty string uses the applicable default scope."
+        },
+        "source": {
+          "$ref": "#/definitions/ExtensionSource"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude-code",
+              "opencode",
+              "pi",
+              "antigravity-cli"
+            ]
+          },
+          "description": "Omission or an empty array inherits the manifest target set."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "carrier",
+        "source"
+      ]
+    },
+    "ExtensionSource": {
+      "type": "object",
+      "properties": {
+        "host_source": {
+          "type": "string"
+        },
+        "marketplace": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Hook": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "event": {
+          "type": "string"
+        },
+        "matcher": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "",
+            "global",
+            "project"
+          ],
+          "description": "Omission or an empty string uses the applicable default scope."
+        },
+        "status_message": {
+          "type": "string"
+        },
+        "target_override": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/HookTargetOverride"
+          }
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude-code",
+              "opencode",
+              "pi",
+              "antigravity-cli"
+            ]
+          },
+          "description": "Omission or an empty array inherits the manifest target set."
+        },
+        "timeout": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "event",
+        "command"
+      ]
+    },
+    "HookAsset": {
+      "type": "object",
+      "properties": {
+        "executable": {
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "",
+            "global",
+            "project"
+          ],
+          "description": "Omission or an empty string uses the applicable default scope."
+        },
+        "source": {
+          "$ref": "#/definitions/HookAssetSource"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "kind"
+      ]
+    },
+    "HookAssetSource": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/Source"
+        }
+      ]
+    },
+    "HookTargetOverride": {
+      "type": "object",
+      "properties": {
+        "if": {
+          "type": "string"
+        },
+        "matcher": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string",
+          "enum": [
+            "codex",
+            "claude-code",
+            "opencode",
+            "pi",
+            "antigravity-cli"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "target"
+      ]
+    },
+    "InstructionSource": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/Source"
+        }
+      ]
+    },
+    "InstructionTarget": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "render_to": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Instructions": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string",
+          "enum": [
+            "",
+            "global",
+            "project"
+          ],
+          "description": "Omission or an empty string uses the applicable default scope."
+        },
+        "source": {
+          "$ref": "#/definitions/InstructionSource"
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "antigravity-cli": {
+              "$ref": "#/definitions/InstructionTarget"
+            },
+            "claude-code": {
+              "$ref": "#/definitions/InstructionTarget"
+            },
+            "codex": {
+              "$ref": "#/definitions/InstructionTarget"
+            },
+            "opencode": {
+              "$ref": "#/definitions/InstructionTarget"
+            },
+            "pi": {
+              "$ref": "#/definitions/InstructionTarget"
+            }
+          },
+          "additionalProperties": false
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude-code",
+              "opencode",
+              "pi",
+              "antigravity-cli"
+            ]
+          },
+          "description": "Omission or an empty array inherits the manifest target set."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "source"
+      ]
+    },
+    "MCPCommand": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "path"
+          ]
+        }
+      ]
+    },
+    "MCPEnvReference": {
+      "type": "object",
+      "properties": {
+        "from_env": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "from_env"
+      ],
+      "description": "Symbolic environment reference. Values stay in the host environment, not this manifest."
+    },
+    "MCPServer": {
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "backend": {
+          "type": "string"
+        },
+        "command": {
+          "$ref": "#/definitions/MCPCommand"
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/MCPEnvReference"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "",
+            "global",
+            "project"
+          ],
+          "description": "Omission or an empty string uses the applicable default scope."
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude-code",
+              "opencode",
+              "pi",
+              "antigravity-cli"
+            ]
+          },
+          "description": "Omission or an empty array inherits the manifest target set."
+        },
+        "transport": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "transport",
+        "command"
+      ]
+    },
+    "Manifest": {
+      "type": "object",
+      "properties": {
+        "defaults": {
+          "$ref": "#/definitions/Defaults"
+        },
+        "extension": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Extension"
+          }
+        },
+        "hook": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Hook"
+          }
+        },
+        "hook_asset": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/HookAsset"
+          }
+        },
+        "instructions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/Instructions"
+          }
+        },
+        "mcp_server": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MCPServer"
+          }
+        },
+        "skill": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Skill"
+          }
+        },
+        "skill_group": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SkillGroup"
+          }
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude-code",
+              "opencode",
+              "pi",
+              "antigravity-cli"
+            ]
+          }
+        },
+        "version": {
+          "type": "integer",
+          "enum": [
+            1
+          ],
+          "description": "Manifest format version. This does not select a daem release or editor schema."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "targets"
+      ]
+    },
+    "Skill": {
+      "type": "object",
+      "properties": {
+        "compat_repair": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "install_mode": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "portable": {
+          "type": "boolean"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "",
+            "global",
+            "project"
+          ],
+          "description": "Omission or an empty string uses the applicable default scope."
+        },
+        "source": {
+          "$ref": "#/definitions/Source"
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "antigravity-cli": {
+              "$ref": "#/definitions/SkillTarget"
+            },
+            "claude-code": {
+              "$ref": "#/definitions/SkillTarget"
+            },
+            "codex": {
+              "$ref": "#/definitions/SkillTarget"
+            },
+            "opencode": {
+              "$ref": "#/definitions/SkillTarget"
+            },
+            "pi": {
+              "$ref": "#/definitions/SkillTarget"
+            }
+          },
+          "additionalProperties": false
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude-code",
+              "opencode",
+              "pi",
+              "antigravity-cli"
+            ]
+          },
+          "description": "Omission or an empty array inherits the manifest target set."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "source"
+      ]
+    },
+    "SkillGroup": {
+      "type": "object",
+      "properties": {
+        "compat_repair": {
+          "type": "boolean"
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "install_mode": {
+          "type": "string"
+        },
+        "names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "portable": {
+          "type": "boolean"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "",
+            "global",
+            "project"
+          ],
+          "description": "Omission or an empty string uses the applicable default scope."
+        },
+        "source": {
+          "$ref": "#/definitions/Source"
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "antigravity-cli": {
+              "$ref": "#/definitions/SkillTarget"
+            },
+            "claude-code": {
+              "$ref": "#/definitions/SkillTarget"
+            },
+            "codex": {
+              "$ref": "#/definitions/SkillTarget"
+            },
+            "opencode": {
+              "$ref": "#/definitions/SkillTarget"
+            },
+            "pi": {
+              "$ref": "#/definitions/SkillTarget"
+            }
+          },
+          "additionalProperties": false
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude-code",
+              "opencode",
+              "pi",
+              "antigravity-cli"
+            ]
+          },
+          "description": "Omission or an empty array inherits the manifest target set."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "source"
+      ]
+    },
+    "SkillTarget": {
+      "type": "object",
+      "properties": {
+        "install_to": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "git": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "s3": {
+          "type": "string"
+        },
+        "version_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
