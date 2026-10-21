@@ -377,6 +377,13 @@ negotiate or emit legacy variants. Until a command explicitly documents a
 multi-version policy, consumers must update for a new version rather than
 silently accepting it. Released version changes belong in release notes.
 
+Diagnostic `code` values are an open set of identifiers. A supported envelope
+version can gain new diagnostic codes without a schema increment. Handle an
+unknown code according to its `severity`; do not assume that a documented or
+previously observed list is exhaustive. This does not change the command's
+exit-code, `has_errors`, or `check_clean` contract. Changing an existing code's
+meaning or the diagnostic field structure still requires a version increment.
+
 ### Resource Names And Identifiers
 
 Public resource classifications use the token accepted by the authoring CLI:
