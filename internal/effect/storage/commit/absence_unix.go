@@ -49,7 +49,7 @@ func confirmRootedEntryAbsentWithFaults(
 	}
 	defer closeRootedCapability(capability)
 
-	for attempt := 0; attempt < rootedAbsenceSyncAttempts; attempt++ {
+	for range rootedAbsenceSyncAttempts {
 		observation, observeErr := observeRootedAbsence(ctx, capability)
 		if observeErr != nil {
 			return failureBeforeVisibility(phaseVerifyEntry, path, observeErr)

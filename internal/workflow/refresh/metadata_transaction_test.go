@@ -112,7 +112,7 @@ func TestRefreshPlanningFailsClosedOnUnprovableFileSetFence(t *testing.T) {
 	if err := os.MkdirAll(paths.StateDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 4097; i++ {
+	for i := range 4097 {
 		name := filepath.Join(paths.StateDir, fmt.Sprintf("entry-%04d", i))
 		if err := os.WriteFile(name, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)

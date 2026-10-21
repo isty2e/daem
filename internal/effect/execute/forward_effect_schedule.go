@@ -2,6 +2,7 @@ package execute
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/isty2e/daem/internal/operationplan"
 )
@@ -358,9 +359,7 @@ func clonePromotionIndexes(source map[ownershipOutputKey]int) map[ownershipOutpu
 		return nil
 	}
 	result := make(map[ownershipOutputKey]int, len(source))
-	for key, index := range source {
-		result[key] = index
-	}
+	maps.Copy(result, source)
 	return result
 }
 

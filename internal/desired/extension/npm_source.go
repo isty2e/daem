@@ -300,8 +300,8 @@ func validNPMPackageName(name string) bool {
 		strings.HasSuffix(name, ".") {
 		return false
 	}
-	if strings.HasPrefix(name, "@") {
-		scope, packageName, ok := strings.Cut(strings.TrimPrefix(name, "@"), "/")
+	if after, ok := strings.CutPrefix(name, "@"); ok {
+		scope, packageName, ok := strings.Cut(after, "/")
 		return ok && validNPMPackageSegment(scope) &&
 			validNPMPackageSegment(packageName)
 	}

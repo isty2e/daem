@@ -9,7 +9,7 @@ import (
 )
 
 func TestMCPNoEnvServerProjectionHasOnlySharedNoEnvFacts(t *testing.T) {
-	projectionType := reflect.TypeOf(MCPNoEnvServerProjection{})
+	projectionType := reflect.TypeFor[MCPNoEnvServerProjection]()
 	want := []struct {
 		name string
 		kind reflect.Kind

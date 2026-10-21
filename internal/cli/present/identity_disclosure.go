@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -141,12 +142,7 @@ func localPathIdentityShape(value string) bool {
 	if credentialtext.ContainsAssignment(value) || localPathShape(value) {
 		return true
 	}
-	for _, part := range strings.FieldsFunc(value, func(r rune) bool { return r == '@' || r == '#' }) {
-		if localPathShape(part) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(strings.FieldsFunc(value, func(r rune) bool { return r == '@' || r == '#' }), localPathShape)
 }
 
 func localPathShape(value string) bool {

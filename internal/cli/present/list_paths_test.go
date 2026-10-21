@@ -57,11 +57,11 @@ func TestPrintListPathsJSONPreservesFlatVariantContract(t *testing.T) {
 		t.Fatalf("PrintListPathsJSON returned error: %v", err)
 	}
 	var payload struct {
-		SchemaVersion int                      `json:"schema_version"`
-		Command       string                   `json:"command"`
-		ManifestPath  string                   `json:"manifest_path"`
-		LocationCount int                      `json:"location_count"`
-		Locations     []map[string]interface{} `json:"locations"`
+		SchemaVersion int              `json:"schema_version"`
+		Command       string           `json:"command"`
+		ManifestPath  string           `json:"manifest_path"`
+		LocationCount int              `json:"location_count"`
+		Locations     []map[string]any `json:"locations"`
 	}
 	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
 		t.Fatalf("JSON output is invalid: %v\n%s", err, output.String())

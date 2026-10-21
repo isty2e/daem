@@ -91,7 +91,7 @@ func TestLockfileVersionPolicyDoesNotInterpretOpaqueBodies(t *testing.T) {
 func TestLockfileStructureAdmissionHonorsLoadCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := loadContent(ctx, []byte(fmt.Sprintf("version = %d\n", lock.CurrentVersion)))
+	_, err := loadContent(ctx, fmt.Appendf(nil, "version = %d\n", lock.CurrentVersion))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("loadContent error = %v, want context.Canceled", err)
 	}

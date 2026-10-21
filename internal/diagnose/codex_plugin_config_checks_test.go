@@ -442,7 +442,7 @@ func TestCodexPluginChecksBlockConfigKeyOverflowWithoutContributionInspection(t 
 func TestCodexPluginChecksReportExactMaximumConfigEntriesWithoutContributionFamily(t *testing.T) {
 	homeDirectory := t.TempDir()
 	var body strings.Builder
-	for index := 0; index < observecodexplugin.MaximumObservationEntries; index++ {
+	for index := range observecodexplugin.MaximumObservationEntries {
 		fmt.Fprintf(&body, "[plugins.%q]\nenabled = true\n", fmt.Sprintf("p%d@market", index))
 	}
 	writeDiagnoseCodexConfig(t, homeDirectory, body.String())
@@ -503,7 +503,7 @@ func findCodexPluginCheck(t *testing.T, checks []findings.Check, severity findin
 
 func overflowingDiagnoseCodexPluginConfig() string {
 	var body strings.Builder
-	for index := 0; index < observecodexplugin.MaximumObservationEntries+1; index++ {
+	for index := range observecodexplugin.MaximumObservationEntries + 1 {
 		fmt.Fprintf(&body, "[plugins.%q]\nenabled = true\n", fmt.Sprintf("p%d@market", index))
 	}
 	return body.String()

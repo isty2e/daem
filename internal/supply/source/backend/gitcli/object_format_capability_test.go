@@ -175,7 +175,7 @@ func TestExplicitObjectFormatSupportWaitersReceiveLeaderError(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("leader did not return")
 	}
-	for i := 0; i < waiters; i++ {
+	for range waiters {
 		select {
 		case err = <-waiterDone:
 			returned = append(returned, err)

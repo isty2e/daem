@@ -2,6 +2,7 @@ package adopt
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -279,9 +280,7 @@ func mergeImportSkillTargetPlacements(
 	additions map[targetpkg.Target]string,
 ) map[string]declaration.SkillTarget {
 	result := make(map[string]declaration.SkillTarget, len(existing)+len(additions))
-	for selectedTarget, placement := range existing {
-		result[selectedTarget] = placement
-	}
+	maps.Copy(result, existing)
 	for selectedTarget, installTo := range additions {
 		result[string(selectedTarget)] = declaration.SkillTarget{InstallTo: installTo}
 	}

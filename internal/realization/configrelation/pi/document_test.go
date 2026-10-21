@@ -123,16 +123,17 @@ func TestPermutePackageRowsPreservesEscapesAndNestedOptionBytes(t *testing.T) {
 }
 
 func TestParseEnforcesPiSettingsDepthLimit(t *testing.T) {
-	content := `{"packages":[],"nested":`
+	var content strings.Builder
+	content.WriteString(`{"packages":[],"nested":`)
 	for range 33 {
-		content += "["
+		content.WriteString("[")
 	}
-	content += "0"
+	content.WriteString("0")
 	for range 33 {
-		content += "]"
+		content.WriteString("]")
 	}
-	content += "}"
-	_, err := piconfig.Parse([]byte(content))
+	content.WriteString("}")
+	_, err := piconfig.Parse([]byte(content.String()))
 	if err == nil || !strings.Contains(err.Error(), "maximum depth 32") {
 		t.Fatalf("Parse error = %v", err)
 	}

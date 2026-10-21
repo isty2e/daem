@@ -76,7 +76,7 @@ func TestLockExplainsPiMCPDependencyChanges(t *testing.T) {
 
 			for _, output := range outputs {
 				var row string
-				for _, line := range strings.Split(string(output), "\n") {
+				for line := range strings.SplitSeq(string(output), "\n") {
 					if strings.HasPrefix(line, `  - resource="mcp-server/ctx"`) {
 						row = line
 						break
@@ -104,7 +104,7 @@ func TestLockExplainsPiMCPDependencyChanges(t *testing.T) {
 			}
 
 			current := runLockReasonCLI(t, "lock", "--dry-run", "--verbose", "--manifest", manifest)
-			for _, line := range strings.Split(string(current), "\n") {
+			for line := range strings.SplitSeq(string(current), "\n") {
 				if strings.HasPrefix(line, "  - ") && strings.Contains(line, " changed=") {
 					t.Fatalf("equal MCP contract entry reported changed reasons: %q", line)
 				}

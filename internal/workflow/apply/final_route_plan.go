@@ -268,7 +268,7 @@ type applyRoutePreflightFingerprint struct {
 	Kind                   applyRoutePreflightKind     `json:"kind"`
 	Command                *applyHostRouteCommandFacts `json:"command,omitempty"`
 	RejectionCode          hostroute.ReasonCode        `json:"rejection_code,omitempty"`
-	RejectionSubject       topology.SubjectID          `json:"rejection_subject,omitempty"`
+	RejectionSubject       topology.SubjectID          `json:"rejection_subject"`
 	RejectionDetail        string                      `json:"rejection_detail,omitempty"`
 	OperationalType        string                      `json:"operational_type,omitempty"`
 	OperationalFingerprint [sha256.Size]byte           `json:"operational_fingerprint,omitempty"`

@@ -34,7 +34,7 @@ func TestSourceFromTOMLValueRejectsNormalizedDuplicateKeysDeterministically(t *t
 					alias.value(key): "alias",
 				}
 				want := fmt.Sprintf("duplicate source key %q after normalization", key)
-				for attempt := 0; attempt < 100; attempt++ {
+				for attempt := range 100 {
 					_, err := SourceFromTOMLValue(values)
 					if err == nil || err.Error() != want {
 						t.Fatalf("attempt %d error = %v, want %q", attempt, err, want)
@@ -104,7 +104,7 @@ func TestSourceFromTOMLValueValidatesKeysBeforeValuesDeterministically(t *testin
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			for attempt := 0; attempt < 100; attempt++ {
+			for attempt := range 100 {
 				_, err := SourceFromTOMLValue(test.values)
 				if err == nil || err.Error() != test.want {
 					t.Fatalf("attempt %d error = %v, want %q", attempt, err, test.want)

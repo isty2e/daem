@@ -1360,7 +1360,7 @@ func TestPhysicalWorkBudgetDerivesObservationCapacityFromIntentCount(t *testing.
 	if err != nil {
 		t.Fatalf("construct removal work budget: %v", err)
 	}
-	for index := 0; index < removalObservationsPerIntent; index++ {
+	for index := range removalObservationsPerIntent {
 		if err := budget.AdmitObservation(); err != nil {
 			t.Fatalf("admit observation %d: %v", index, err)
 		}
@@ -1498,7 +1498,7 @@ func TestPhysicalWorkBudgetBoundsPathDepthAndFixedAggregateComponents(t *testing
 	}
 
 	fullDepthAdmissions := maximumPhysicalPathComponentVisits / MaximumPhysicalPathDepth
-	for index := 0; index < fullDepthAdmissions; index++ {
+	for index := range fullDepthAdmissions {
 		if err := budget.AdmitPathComponents(MaximumPhysicalPathDepth); err != nil {
 			t.Fatalf("admit path within aggregate budget at %d: %v", index, err)
 		}

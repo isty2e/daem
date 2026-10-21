@@ -3,6 +3,8 @@ package extension
 import (
 	"bytes"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
@@ -38,9 +40,7 @@ func planOrder(
 	for _, value := range existing {
 		extensionsByKey[value.CarrierKey()] = value
 	}
-	for key, identity := range existingLoadIdentities {
-		loadIdentityByKey[key] = identity
-	}
+	maps.Copy(loadIdentityByKey, existingLoadIdentities)
 	for key, candidate := range candidates {
 		value, err := desiredextension.New(desiredextension.Spec{
 			Name:    assignedIDs[key],
@@ -168,9 +168,7 @@ func planOrder(
 	for classID := range touchedClasses {
 		classIDs = append(classIDs, classID)
 	}
-	sort.Slice(classIDs, func(left int, right int) bool {
-		return classIDs[left] < classIDs[right]
-	})
+	slices.Sort(classIDs)
 	for _, classID := range classIDs {
 		capability := touchedClasses[classID]
 		members := make([]hostrelation.RelationOrderMember, 0)

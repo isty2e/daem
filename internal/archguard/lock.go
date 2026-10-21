@@ -141,7 +141,7 @@ func isAllowedLockRefineImport(importPath string) bool {
 
 func isAllowedLockRefineExternalImport(importPath string) bool {
 	switch importPath {
-	case "fmt", "path", "sort", "strings":
+	case "fmt", "path", "slices", "sort", "strings":
 		return true
 	default:
 		return false

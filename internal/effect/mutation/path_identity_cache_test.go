@@ -22,7 +22,7 @@ func TestSharedPathIdentitiesKeepKeysAndRetryFailures(t *testing.T) {
 		calls++
 		return canonicalPathIdentity(path, effect)
 	})
-	for pass := 0; pass < 3; pass++ {
+	for range 3 {
 		for _, path := range []string{link, target} {
 			for _, effect := range []PathEffect{PathEffectDirectoryEntry, PathEffectReferent} {
 				want, err := canonicalPathIdentity(path, effect)
@@ -56,7 +56,7 @@ func TestSharedPathIdentitiesKeepKeysAndRetryFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for pass := 0; pass < 2; pass++ {
+	for range 2 {
 		if got, err := retry(target, PathEffectReferent); err != nil || got != want {
 			t.Fatalf("retry observation=%#v,%v want=%#v", got, err, want)
 		}

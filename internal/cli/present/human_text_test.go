@@ -97,7 +97,7 @@ func TestBoundedErrorEvidenceTraversesJoinedLeavesWithoutMaterializingRoot(t *te
 	rootCalls := 0
 	leafCalls := 0
 	children := make([]error, 0, maximumErrorEvidenceNodes+8)
-	for index := 0; index < maximumErrorEvidenceNodes+8; index++ {
+	for range maximumErrorEvidenceNodes + 8 {
 		children = append(children, opaqueEvidenceError{calls: &leafCalls})
 	}
 	evidence := BoundedErrorEvidence(joinedEvidenceError{

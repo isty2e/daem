@@ -20,8 +20,7 @@ import (
 func TestGitConsumerCannotSuppressIncompleteOutput(t *testing.T) {
 	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "pids")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	command := gitProcessHelperCommand(t, ctx, "setsid-stdout-parent", pidFile)
 	result := make(chan error, 1)
 	go func() {
@@ -47,8 +46,7 @@ func TestGitConsumerCannotSuppressIncompleteOutput(t *testing.T) {
 func TestGitStdoutCompletionDoesNotHideInheritedStderr(t *testing.T) {
 	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "pids")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	command := gitProcessHelperCommand(t, ctx, "setsid-stderr-parent", pidFile)
 	result := make(chan error, 1)
 	go func() {

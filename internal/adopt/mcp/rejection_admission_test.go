@@ -30,7 +30,7 @@ func TestCandidatesStopsAtFirstInvalidArgumentOverflow(t *testing.T) {
 	collector := adopt.NewSkippedCollector()
 	if err := collector.Collect(func(skipped adopt.SkipEmitter) error {
 		route := skipped.WithRoute(target.TargetClaudeCode, target.ScopeProject)
-		for index := 0; index < maximumOperationSkips-1; index++ {
+		for index := range maximumOperationSkips - 1 {
 			if err := route.Add(adopt.Skipped{
 				LivePath: fmt.Sprintf("prefill/%d", index),
 				Reason:   "source_not_importable",
@@ -127,7 +127,7 @@ func TestCandidatesStopsAtFirstCodecRejectionOverflow(t *testing.T) {
 	collector := adopt.NewSkippedCollector()
 	if err := collector.Collect(func(skipped adopt.SkipEmitter) error {
 		route := skipped.WithRoute(target.TargetClaudeCode, target.ScopeProject)
-		for index := 0; index < maximumOperationSkips-1; index++ {
+		for index := range maximumOperationSkips - 1 {
 			if err := route.Add(adopt.Skipped{
 				LivePath: fmt.Sprintf("prefill/%d", index),
 				Reason:   "source_not_importable",

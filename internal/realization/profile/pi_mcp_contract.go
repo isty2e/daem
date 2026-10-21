@@ -147,8 +147,8 @@ func PiMCPPackageSourceIsLocal(source string) bool {
 // PiMCPAdapterPackageSource identifies npm or official Git replacement intent,
 // not managed-provider admission, installation or activation.
 func PiMCPAdapterPackageSource(source string) (bool, error) {
-	if strings.HasPrefix(source, "npm:") {
-		value := strings.TrimSpace(strings.TrimPrefix(source, "npm:"))
+	if after, ok := strings.CutPrefix(source, "npm:"); ok {
+		value := strings.TrimSpace(after)
 		spec, ok := desiredextension.ParseNPMPackageSpec(value)
 		if !ok {
 			return false, fmt.Errorf("native Pi MCP npm package source is outside the canonical operand envelope")

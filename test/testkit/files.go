@@ -206,7 +206,7 @@ func AssertDirectoryEntryExistsExact(t *testing.T, root string, name string) {
 func AssertOutputLine(t *testing.T, output string, want string) {
 	t.Helper()
 
-	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(output, "\n"), "\n") {
 		if line == want {
 			return
 		}

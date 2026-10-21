@@ -97,7 +97,7 @@ func (handle *repositoryHandle) verifyLocalConfiguration(ctx context.Context) er
 		return fmt.Errorf("inspect git repository cache configuration: %w", err)
 	}
 	counts := make(map[string]int)
-	for _, name := range strings.Fields(namesOutput) {
+	for name := range strings.FieldsSeq(namesOutput) {
 		if !isAdmittedRepositoryConfigName(name) {
 			return fmt.Errorf("git repository cache contains an unsupported local configuration key")
 		}

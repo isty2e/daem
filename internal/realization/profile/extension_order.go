@@ -3,7 +3,6 @@ package profile
 import (
 	"fmt"
 	"slices"
-	"sort"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -103,9 +102,7 @@ func NewExtensionOrderCapability(
 		}
 		seen[sequenceID] = struct{}{}
 	}
-	sort.Slice(sequenceIDs, func(left int, right int) bool {
-		return sequenceIDs[left] < sequenceIDs[right]
-	})
+	slices.Sort(sequenceIDs)
 
 	return ExtensionOrderCapability{
 		carrier:                input.Carrier,

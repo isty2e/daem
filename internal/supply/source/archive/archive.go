@@ -138,7 +138,7 @@ func cleanArchiveName(name string) (string, error) {
 }
 
 func hasParentSegment(path string) bool {
-	for _, segment := range strings.Split(path, "/") {
+	for segment := range strings.SplitSeq(path, "/") {
 		if segment == ".." {
 			return true
 		}
@@ -232,7 +232,7 @@ func (materializer archiveMaterializer) ensureDirectory(directory string) error 
 	}
 
 	current := materializer.root
-	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+	for component := range strings.SplitSeq(relative, string(filepath.Separator)) {
 		current = filepath.Join(current, component)
 		info, statErr := os.Lstat(current)
 		switch {

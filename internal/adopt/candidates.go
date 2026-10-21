@@ -2,6 +2,7 @@ package adopt
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -389,9 +390,7 @@ func cloneMCPServers(values []MCPServer) []MCPServer {
 			continue
 		}
 		env := make(map[string]string, len(cloned[index].Env))
-		for key, value := range cloned[index].Env {
-			env[key] = value
-		}
+		maps.Copy(env, cloned[index].Env)
 		cloned[index].Env = env
 	}
 	return cloned

@@ -2,6 +2,7 @@ package operationplan
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 )
 
@@ -287,12 +288,7 @@ func effectNodeContainsTerminal(node EffectNode) bool {
 	if node.kind == effectNodeStep && node.step.kind == EffectStepTerminal {
 		return true
 	}
-	for _, child := range node.children {
-		if effectNodeContainsTerminal(child) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(node.children, effectNodeContainsTerminal)
 }
 
 func effectTriggerBits(root EffectNode) (map[string]uint, error) {

@@ -27,7 +27,7 @@ func TestCanonicalTargetsReuseOwnedAfterImages(t *testing.T) {
 	expectedPaths := make([]string, 0, maximumFileSetTargets)
 	for index := maximumFileSetTargets - 1; index >= 0; index-- {
 		path := filepath.Join(root, fmt.Sprintf("target-%02d", index))
-		target, err := NewFileWrite(path, []byte(fmt.Sprintf("after-%02d", index)))
+		target, err := NewFileWrite(path, fmt.Appendf(nil, "after-%02d", index))
 		if err != nil {
 			t.Fatal(err)
 		}

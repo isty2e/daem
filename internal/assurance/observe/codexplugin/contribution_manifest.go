@@ -261,7 +261,7 @@ func walkRelativeDirectory(
 	relative string,
 ) (*pluginObservation, observecontribution.SourceContributionReason, error) {
 	current := plugin
-	for _, part := range strings.Split(relative, "/") {
+	for part := range strings.SplitSeq(relative, "/") {
 		child, reason, err := current.openChildDirectory(part)
 		if current != plugin {
 			current.close()

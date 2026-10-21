@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -691,9 +692,7 @@ func restoreRollbackGroup(
 		return nil
 	}
 	maximumKinds := make(map[string]recovery.ArtifactWork, len(baseline.effectMaximumKinds)+1)
-	for kind, work := range baseline.effectMaximumKinds {
-		maximumKinds[kind] = work
-	}
+	maps.Copy(maximumKinds, baseline.effectMaximumKinds)
 	if baseline.existed {
 		if work, present := maximumKinds[baseline.kind]; present {
 			maximumKinds[baseline.kind] = maximumRecoveryArtifactWork(work, baseline.stagedWork)

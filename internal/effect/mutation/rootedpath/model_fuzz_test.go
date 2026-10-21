@@ -44,7 +44,7 @@ func FuzzRelativeDestinationNeverEscapesBoundRoot(f *testing.F) {
 			strings.Contains(relative.Path(), `\`) {
 			t.Fatalf("accepted non-canonical relative destination %q", relative.Path())
 		}
-		for _, component := range strings.Split(relative.Path(), "/") {
+		for component := range strings.SplitSeq(relative.Path(), "/") {
 			if component == ".." {
 				t.Fatalf("accepted parent traversal in %q", relative.Path())
 			}

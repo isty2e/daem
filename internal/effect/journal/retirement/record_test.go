@@ -70,29 +70,34 @@ func TestDecodeRejectsMalformedRecord(t *testing.T) {
 	}{
 		{name: "empty", content: nil},
 		{name: "unknown field", content: []byte(strings.TrimSuffix(valid, "}") + `,"unknown":true}`)},
-		{name: "missing version", content: []byte(fmt.Sprintf(
+		{name: "missing version", content: fmt.Appendf(
+			nil,
 			`{"phase":"prepared","operation_id":%q,"journal_authority_fingerprint":%q}`,
 			testOperationID,
 			testFingerprint,
-		))},
-		{name: "missing phase", content: []byte(fmt.Sprintf(
+		)},
+		{name: "missing phase", content: fmt.Appendf(
+			nil,
 			`{"version":1,"operation_id":%q,"journal_authority_fingerprint":%q}`,
 			testOperationID,
 			testFingerprint,
-		))},
-		{name: "missing operation id", content: []byte(fmt.Sprintf(
+		)},
+		{name: "missing operation id", content: fmt.Appendf(
+			nil,
 			`{"version":1,"phase":"prepared","journal_authority_fingerprint":%q}`,
 			testFingerprint,
-		))},
-		{name: "missing fingerprint", content: []byte(fmt.Sprintf(
+		)},
+		{name: "missing fingerprint", content: fmt.Appendf(
+			nil,
 			`{"version":1,"phase":"prepared","operation_id":%q}`,
 			testOperationID,
-		))},
-		{name: "duplicate key", content: []byte(fmt.Sprintf(
+		)},
+		{name: "duplicate key", content: fmt.Appendf(
+			nil,
 			`{"version":1,"version":1,"phase":"prepared","operation_id":%q,"journal_authority_fingerprint":%q}`,
 			testOperationID,
 			testFingerprint,
-		))},
+		)},
 		{name: "future version", content: []byte(strings.Replace(valid, `"version":1`, `"version":2`, 1))},
 		{name: "unknown phase", content: []byte(strings.Replace(valid, `"phase":"prepared"`, `"phase":"done"`, 1))},
 		{name: "reserved operation id", content: []byte(strings.Replace(

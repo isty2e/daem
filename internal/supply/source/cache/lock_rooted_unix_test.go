@@ -399,7 +399,7 @@ func countOpenDescriptorsFor(t *testing.T, path string) int {
 		t.Fatalf("stat %q: %v", path, err)
 	}
 	count := 0
-	for fd := 0; fd < 4096; fd++ {
+	for fd := range 4096 {
 		var got unix.Stat_t
 		if err := unix.Fstat(fd, &got); err != nil {
 			continue

@@ -25,7 +25,7 @@ func TestWideVisibilityAcceptanceRejectsRetargetAndAllowsFreshRetry(t *testing.T
 	}
 
 	var domains []Domain
-	for index := 0; index < 128; index++ {
+	for index := range 128 {
 		path := filepath.Join(root, fmt.Sprintf("entry-%d", index))
 		if index == 127 {
 			path = filepath.Join(alias, "value")

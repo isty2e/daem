@@ -42,11 +42,11 @@ func TestBoundedBufferSnapshotIsConcurrencySafe(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			_, _ = buffer.Write([]byte("x"))
 		}
 	}()
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		_, _ = buffer.snapshot()
 		_ = buffer.String()
 		_ = buffer.Truncated()

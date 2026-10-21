@@ -1,6 +1,7 @@
 package authoring
 
 import (
+	"strings"
 	"testing"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
@@ -112,11 +113,12 @@ func TestPiNativeAuthoringInheritsHomogeneousBackendPeers(t *testing.T) {
 }
 
 func TestPiNativeAuthoringRefusesExplicitMixedBackendPeers(t *testing.T) {
-	content := "version = 1\ntargets = [\"pi\"]\n\n" + piProviderExtensionBlock("provider", "project", "npm:pi-mcp-adapter@2.15.0")
+	var content strings.Builder
+	content.WriteString("version = 1\ntargets = [\"pi\"]\n\n" + piProviderExtensionBlock("provider", "project", "npm:pi-mcp-adapter@2.15.0"))
 	for _, backend := range []string{"native", "adapter"} {
-		content += "\n[[mcp_server]]\nname = \"" + backend + "\"\ntargets = [\"pi\"]\nscope = \"project\"\nbackend = \"" + backend + "\"\ntransport = \"stdio\"\ncommand = \"node\"\n"
+		content.WriteString("\n[[mcp_server]]\nname = \"" + backend + "\"\ntargets = [\"pi\"]\nscope = \"project\"\nbackend = \"" + backend + "\"\ntransport = \"stdio\"\ncommand = \"node\"\n")
 	}
-	if _, err := BuildAddMCPServerChangeWithPiVersion(ManifestDocument{Content: []byte(content)},
+	if _, err := BuildAddMCPServerChangeWithPiVersion(ManifestDocument{Content: []byte(content.String())},
 		AddMCPServerRequest{Name: "new", Targets: []string{"pi"}, Scope: "project", Command: "node"}, profile.PiMCPVersion{}); err == nil {
 		t.Fatal("explicit mixed backend cohort was accepted")
 	}

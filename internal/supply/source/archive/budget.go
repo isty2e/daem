@@ -168,10 +168,7 @@ func (reader *boundedReader) Read(buffer []byte) (int, error) {
 	remaining := reader.limit - reader.observed
 	readSize := len(buffer)
 	if remaining < int64(readSize) {
-		readSize = int(remaining) + 1
-		if readSize < 1 {
-			readSize = 1
-		}
+		readSize = max(int(remaining)+1, 1)
 	}
 	count, err := reader.reader.Read(buffer[:readSize])
 	if count == 0 && err == nil {

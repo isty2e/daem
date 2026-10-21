@@ -20,7 +20,7 @@ func TestDecodeApplyResultAcceptsCurrentRecoveryBarriers(t *testing.T) {
 		{name: "file set only", barrier: `{"file_set":"access_unprovable"}`, fileSet: "access_unprovable"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			payload := DecodeApplyResult(t, []byte(fmt.Sprintf(`{
+			payload := DecodeApplyResult(t, fmt.Appendf(nil, `{
   "schema_version": %d,
   "command": "apply",
   "mode": "write",
@@ -46,7 +46,7 @@ func TestDecodeApplyResultAcceptsCurrentRecoveryBarriers(t *testing.T) {
     "message": "recovery barrier",
     "recovery_barrier": %s
   }]
-}`, contractversion.ApplyResultJSON, test.barrier)))
+}`, contractversion.ApplyResultJSON, test.barrier))
 			if len(payload.Errors) != 1 || payload.Errors[0].RecoveryBarrier == nil {
 				t.Fatalf("errors = %#v", payload.Errors)
 			}

@@ -79,7 +79,7 @@ func TestAddFirstResourceToExplicitEmptyCollections(t *testing.T) {
 			if test.name == "instruction" && bytes.Contains(content, []byte("instructions = {}")) {
 				t.Fatalf("instruction add extended a closed inline table: %s", content)
 			}
-			for _, line := range strings.Split(string(content), "\n") {
+			for line := range strings.SplitSeq(string(content), "\n") {
 				if line != "" && strings.Trim(line, " \t\r") == "" {
 					t.Fatalf("add left a whitespace-only line: %q", line)
 				}

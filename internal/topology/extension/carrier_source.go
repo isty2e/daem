@@ -180,9 +180,9 @@ func HostVisibleRelationKey(key desiredextension.CarrierKey) (string, error) {
 }
 
 func interpretPiPackageSource(source string) (CarrierSource, error) {
-	if strings.HasPrefix(source, "npm:") {
+	if after, ok := strings.CutPrefix(source, "npm:"); ok {
 		name, privacy, err := npmSourceIdentity(
-			strings.TrimSpace(strings.TrimPrefix(source, "npm:")),
+			strings.TrimSpace(after),
 		)
 		if err != nil {
 			return CarrierSource{}, err

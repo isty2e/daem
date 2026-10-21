@@ -92,7 +92,7 @@ func CanonicalDecode(value string) (string, []int32, bool) {
 	decoded := value
 	var composed []int32
 	var literals []bool
-	for round := 0; round < maxCanonicalDecodeRounds; round++ {
+	for range maxCanonicalDecodeRounds {
 		if !strings.Contains(decoded, "%") {
 			break
 		}

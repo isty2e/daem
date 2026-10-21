@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"unsafe"
 
@@ -180,12 +181,7 @@ func canonicalDarwinPath(
 }
 
 func containsNonASCIIPathComponent(components []string) bool {
-	for _, component := range components {
-		if containsNonASCII(component) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(components, containsNonASCII)
 }
 
 func containsNonASCII(value string) bool {
