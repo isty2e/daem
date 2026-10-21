@@ -853,10 +853,13 @@ func loadCommandInputsAtPaths(
 	if err := ctx.Err(); err != nil {
 		return commandContext{}, result, err
 	}
-	result.Diagnostics = append(
-		diagnose.HookCommandDiagnostics(environment.Hooks(), selection),
-		skillDiagnostics...,
-	)
+	piDiagnostics, err := diagnose.PiPackageSourceDiagnostics(environment.Extensions(), selection)
+	if err != nil {
+		return commandContext{}, result, err
+	}
+	result.Diagnostics = diagnose.HookCommandDiagnostics(environment.Hooks(), selection)
+	result.Diagnostics = append(result.Diagnostics, piDiagnostics...)
+	result.Diagnostics = append(result.Diagnostics, skillDiagnostics...)
 	result.LockOnly = readiness.SelectedUnsupportedProjections(runtimeEnvironment, selection)
 
 	return context, result, nil

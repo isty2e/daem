@@ -226,6 +226,13 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 	if err := ctx.Err(); err != nil {
 		return commandInputs{}, result, err
 	}
+	piDiagnostics, err := diagnose.PiPackageSourceDiagnostics(environment.Extensions(), selection)
+	if err != nil {
+		return commandInputs{}, result, err
+	}
+	diagnostics := diagnose.HookCommandDiagnostics(environment.Hooks(), selection)
+	diagnostics = append(diagnostics, piDiagnostics...)
+	diagnostics = append(diagnostics, skillDiagnostics...)
 
 	return commandInputs{
 		Paths:              paths,
@@ -234,10 +241,7 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		Selection:          selection,
 		SourceEpoch:        sourceEpoch,
 		PersistenceEpoch:   persistenceEpoch,
-		Diagnostics: append(
-			diagnose.HookCommandDiagnostics(environment.Hooks(), selection),
-			skillDiagnostics...,
-		),
+		Diagnostics:        diagnostics,
 	}, result, nil
 }
 

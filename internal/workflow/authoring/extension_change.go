@@ -37,6 +37,14 @@ func BuildAddExtensionChange(document ManifestDocument, request AddExtensionRequ
 	if err := document.validateResult(content); err != nil {
 		return Change{}, err
 	}
+	canonical, err := canonicalExtensionAuthoring(extension, header, "incoming extension")
+	if err != nil {
+		return Change{}, err
+	}
+	warnings, err := extensionSourceWarnings(canonical)
+	if err != nil {
+		return Change{}, err
+	}
 
 	return Change{
 		ManifestPath:  document.Path,
@@ -45,6 +53,7 @@ func BuildAddExtensionChange(document ManifestDocument, request AddExtensionRequ
 		ResourceID:    id,
 		ChangeKind:    changeKind,
 		ManifestBlock: strings.TrimRight(declarationcodec.RenderExtensionBlock(extension), "\n"),
+		Warnings:      warnings,
 	}, nil
 }
 
@@ -172,28 +181,42 @@ func ApplyRemoveExtensionToManifest(original []byte, request RemoveExtensionRequ
 }
 
 func extensionAuthoringSubject(extension declaration.Extension, header declaration.ManifestHeader, context string) (string, error) {
+	canonical, err := canonicalExtensionAuthoring(extension, header, context)
+	if err != nil {
+		return "", err
+	}
+	key := canonical.CarrierKey()
+	return strings.Join([]string{
+		string(key.Target()),
+		string(key.Scope()),
+		string(key.Source().Kind()),
+		key.Source().Ref(),
+	}, "."), nil
+}
+
+func canonicalExtensionAuthoring(extension declaration.Extension, header declaration.ManifestHeader, context string) (desiredextension.Extension, error) {
 	carrier, ok := extensionAuthoringCarrierFor(extension.Carrier)
 	if !ok {
-		return "", fmt.Errorf("%s.carrier: unsupported extension carrier %q", context, extension.Carrier)
+		return desiredextension.Extension{}, fmt.Errorf("%s.carrier: unsupported extension carrier %q", context, extension.Carrier)
 	}
 	admittedTarget, _ := carrier.AdmittedTarget()
 	label := extensionAuthoringLabel(carrier)
 	effectiveTargets := header.EffectiveTargets(extension.Targets)
 	if len(effectiveTargets) != 1 {
-		return "", fmt.Errorf("%s.targets: %s supports exactly one target", context, label)
+		return desiredextension.Extension{}, fmt.Errorf("%s.targets: %s supports exactly one target", context, label)
 	}
 	selectedTarget, err := target.ParseTarget(effectiveTargets[0])
 	if err != nil || selectedTarget != admittedTarget {
-		return "", fmt.Errorf("%s.targets: %s supports only target %q", context, label, admittedTarget)
+		return desiredextension.Extension{}, fmt.Errorf("%s.targets: %s supports only target %q", context, label, admittedTarget)
 	}
 	scopeValue := header.EffectiveScope(extension.Scope)
 	selectedScope, err := target.ParseScope(scopeValue)
 	if err != nil || !carrier.AdmitsTargetScope(selectedTarget, selectedScope) {
-		return "", fmt.Errorf("%s.scope: %s supports only %s scope", context, label, strings.Join(extensionAuthoringScopeNames(carrier), " or "))
+		return desiredextension.Extension{}, fmt.Errorf("%s.scope: %s supports only %s scope", context, label, strings.Join(extensionAuthoringScopeNames(carrier), " or "))
 	}
 	sourceRef, err := extensionCanonicalSourceRef(extension, carrier, context)
 	if err != nil {
-		return "", err
+		return desiredextension.Extension{}, err
 	}
 	canonical, err := desiredextension.New(desiredextension.Spec{
 		Name:    extension.ID,
@@ -203,15 +226,9 @@ func extensionAuthoringSubject(extension declaration.Extension, header declarati
 		Source:  sourceRef,
 	})
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", context, err)
+		return desiredextension.Extension{}, fmt.Errorf("%s: %w", context, err)
 	}
-	key := canonical.CarrierKey()
-	return strings.Join([]string{
-		string(key.Target()),
-		string(key.Scope()),
-		string(key.Source().Kind()),
-		key.Source().Ref(),
-	}, "."), nil
+	return canonical, nil
 }
 
 func removeExtensionCandidates(content []byte, header declaration.ManifestHeader) ([]removeExtensionCandidate, error) {

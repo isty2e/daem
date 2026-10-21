@@ -1613,6 +1613,15 @@ not Git package declarations. Daem's generic Git classification does not prove
 host-parser equivalence. See [Pi Native And Adapter](host-integrations.md#pi-native-and-adapter)
 for that qualification profile.
 
+When daem classifies one of those bare spellings as Git, `add extension` warns
+about the documented interpretation difference. `status` and `apply`, including
+`apply --dry-run`, report it as a nonblocking diagnostic:
+`extension.pi_source.bare_github` or `extension.pi_source.git_plus`. The warning
+identifies the extension and spelling category without repeating its source.
+It does not run Pi, test whether a local path exists, or change the source;
+`lock` and `outdated` remain unchanged. It is guidance, not a check of the
+installed Pi version's parser or proof that installation will fail.
+
 Lock stores a `host_relation` subject with route identity and operation
 contracts. Status/apply preview disclose subject, target/scope, route/admission,
 evidence source/availability/freshness, replay boundary, retained effects and
