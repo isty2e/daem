@@ -39,6 +39,9 @@ func newPiPackageSourceDiagnostic(difference extensiontopology.PiSourceInterpret
 	case extensiontopology.PiSourceDifferenceGitPlusURL:
 		code = "extension.pi_source.git_plus"
 		detail = "a bare git+ transport URL has a documented local-path interpretation in Pi, unlike daem's generic Git classification; for Git intent use git:host/owner/repo or a lowercase https:// URL; daem does not convert the source"
+	case extensiontopology.PiSourceDifferenceBareSCP:
+		code = "extension.pi_source.bare_scp"
+		detail = "a bare SCP-style Git address has a documented local-path interpretation in Pi, unlike daem's generic Git classification; for SSH Git intent use git:git@github.com:owner/repo or ssh://git@github.com/owner/repo; daem does not convert the source"
 	}
 
 	return findings.Diagnostic{

@@ -16,7 +16,11 @@ func TestPiSourceWarningsPreserveAuthoredAndUnchangedDeclarations(t *testing.T) 
 		}{
 			{"github:acme/PI_SOURCE_MARKER#v1", 1},
 			{"git+https://router.home.arpa/acme/PI_SOURCE_MARKER.git#v1", 1},
+			{"git@github.com:acme/PI_SOURCE_MARKER.git", 1},
+			{"git@router.home.arpa:acme/PI_SOURCE_MARKER.git#v1", 1},
 			{"git:github.com/acme/tool", 0},
+			{"git:git@github.com:acme/tool", 0},
+			{"ssh://git@github.com/acme/tool.git", 0},
 			{"https://github.com/acme/tool.git", 0},
 			{"github:", 0},
 		} {

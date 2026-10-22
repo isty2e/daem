@@ -15,6 +15,7 @@ const (
 	PiSourceDifferenceNone PiSourceInterpretationDifference = iota
 	PiSourceDifferenceGitHubShorthand
 	PiSourceDifferenceGitPlusURL
+	PiSourceDifferenceBareSCP
 )
 
 // PiPackageSourceInterpretationDifference accepts only a Pi package carrier key.
@@ -39,6 +40,9 @@ func PiPackageSourceInterpretationDifference(key desiredextension.CarrierKey) (P
 		strings.HasPrefix(ref, "git+https://"),
 		strings.HasPrefix(ref, "git+ssh://"):
 		return PiSourceDifferenceGitPlusURL, nil
+	case !strings.HasPrefix(ref, "git:") && !strings.Contains(ref, "://"):
+		// Remaining unprefixed, non-URL sources in the admitted Git grammar are SCP locators.
+		return PiSourceDifferenceBareSCP, nil
 	default:
 		return PiSourceDifferenceNone, nil
 	}
