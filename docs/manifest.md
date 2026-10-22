@@ -1610,8 +1610,10 @@ a lowercase `https://` or `ssh://` Git URL accepted by the installed Pi version.
 The Pi settings-source dispatch modeled by Native MCP qualification treats bare
 `github:`, `git+http://`, `git+https://`, `git+ssh://` and SCP-style
 `git@host:owner/repo` entries as local paths, not Git package declarations.
-For SSH Git intent, use `git:git@github.com:owner/repo` or
-`ssh://git@github.com/owner/repo`. Daem's generic Git classification does not prove
+For SSH Git intent, use a server-appropriate `ssh://user@host/owner/repo` URL.
+`git:git@host:owner/repo` is an option only when the SSH user is `git`.
+Repository path semantics depend on the server; these examples are not automatic
+conversion rules. Daem's generic Git classification does not prove
 host-parser equivalence. See [Pi Native And Adapter](host-integrations.md#pi-native-and-adapter)
 for that qualification profile.
 

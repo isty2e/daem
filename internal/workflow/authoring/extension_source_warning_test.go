@@ -18,9 +18,11 @@ func TestPiSourceWarningsPreserveAuthoredAndUnchangedDeclarations(t *testing.T) 
 			{"git+https://router.home.arpa/acme/PI_SOURCE_MARKER.git#v1", 1},
 			{"git@github.com:acme/PI_SOURCE_MARKER.git", 1},
 			{"git@router.home.arpa:acme/PI_SOURCE_MARKER.git#v1", 1},
+			{"deploy@router.home.arpa:team/PI_SOURCE_MARKER.git", 1},
 			{"git:github.com/acme/tool", 0},
 			{"git:git@github.com:acme/tool", 0},
 			{"ssh://git@github.com/acme/tool.git", 0},
+			{"ssh://deploy@router.home.arpa/team/tool.git", 0},
 			{"https://github.com/acme/tool.git", 0},
 			{"github:", 0},
 		} {
@@ -54,6 +56,31 @@ func TestPiSourceWarningsPreserveAuthoredAndUnchangedDeclarations(t *testing.T) 
 					t.Fatalf("unchanged add lost its contract: %#v, error=%v", unchanged, err)
 				}
 			})
+		}
+	}
+}
+
+func TestPiSourceSCPAuthoringWarningsQualifySSHAdvice(t *testing.T) {
+	for _, scope := range []string{"project", "global"} {
+		document := ManifestDocument{
+			Path: "daem.toml", Content: []byte("version = 1\ntargets = [\"pi\"]\n"),
+			Paths: daempaths.Paths{ManifestOrigin: daempaths.ManifestOriginExplicit},
+		}
+		change, err := BuildAddExtensionChange(document, AddExtensionRequest{
+			ID: "source-example", Source: "deploy@router.home.arpa:team/PI_SOURCE_MARKER.git",
+			Targets: []string{"pi"}, Scope: scope,
+		})
+		if err != nil || len(change.Warnings) != 1 {
+			t.Fatalf("warnings=%#v error=%v", change.Warnings, err)
+		}
+		detail := change.Warnings[0].Detail
+		urlAdvice := strings.Index(detail, "ssh://user@host/owner/repo")
+		scpAdvice := strings.Index(detail, "git:git@host:owner/repo")
+		if urlAdvice < 0 || scpAdvice <= urlAdvice ||
+			!strings.Contains(detail, "only an option when the SSH user is git") ||
+			!strings.Contains(detail, "repository paths may differ") ||
+			!strings.Contains(detail, "the authored source is not converted") {
+			t.Fatalf("SSH advice is not qualified: %q", detail)
 		}
 	}
 }

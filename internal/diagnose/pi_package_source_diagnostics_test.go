@@ -25,9 +25,11 @@ func TestPiSourceDiagnosticsAreSelectedSourceFreeWarnings(t *testing.T) {
 			{"git+https://router.home.arpa/acme/PI_SOURCE_MARKER.git#v1", "extension.pi_source.git_plus"},
 			{"git@github.com:acme/PI_SOURCE_MARKER.git", "extension.pi_source.bare_scp"},
 			{"git@router.home.arpa:acme/PI_SOURCE_MARKER.git#v1", "extension.pi_source.bare_scp"},
+			{"deploy@router.home.arpa:team/PI_SOURCE_MARKER.git", "extension.pi_source.bare_scp"},
 			{"git:github.com/acme/PI_SOURCE_MARKER", ""},
 			{"git:git@github.com:acme/PI_SOURCE_MARKER", ""},
 			{"ssh://git@github.com/acme/PI_SOURCE_MARKER.git", ""},
+			{"ssh://deploy@router.home.arpa/team/PI_SOURCE_MARKER.git", ""},
 			{"https://github.com/acme/PI_SOURCE_MARKER.git", ""},
 			{"github:", ""},
 		} {
@@ -98,6 +100,29 @@ func TestPiSourceDiagnosticsDependOnDifferenceNotLocator(t *testing.T) {
 				t.Fatal("locator/privacy/ref changed fixed diagnostic facts")
 			}
 			previous = diagnostics
+		}
+	}
+}
+
+func TestPiSourceSCPDiagnosticsQualifySSHAdvice(t *testing.T) {
+	selection, err := targetselection.ForDiagnostics([]string{"pi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		value := piSourceDiagnosticExtension(t, scope, "deploy@router.home.arpa:team/PI_SOURCE_MARKER.git")
+		diagnostics, err := PiPackageSourceDiagnostics([]desiredextension.Extension{value}, selection)
+		if err != nil || len(diagnostics) != 1 {
+			t.Fatalf("diagnostics=%#v error=%v", diagnostics, err)
+		}
+		detail := diagnostics[0].Detail
+		urlAdvice := strings.Index(detail, "ssh://user@host/owner/repo")
+		scpAdvice := strings.Index(detail, "git:git@host:owner/repo")
+		if urlAdvice < 0 || scpAdvice <= urlAdvice ||
+			!strings.Contains(detail, "only an option when the SSH user is git") ||
+			!strings.Contains(detail, "repository paths may differ") ||
+			!strings.Contains(detail, "daem does not convert the source") {
+			t.Fatalf("SSH advice is not qualified: %q", detail)
 		}
 	}
 }
