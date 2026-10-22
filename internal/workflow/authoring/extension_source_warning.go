@@ -28,6 +28,8 @@ func newExtensionSourceWarning(difference extensiontopology.PiSourceInterpretati
 		detail = "uses bare github: shorthand, which has a documented local-path interpretation in Pi; for Git intent use git:host/owner/repo or a lowercase https:// URL; the authored source is not converted"
 	case extensiontopology.PiSourceDifferenceGitPlusURL:
 		detail = "uses a bare git+ transport URL, which has a documented local-path interpretation in Pi; for Git intent use git:host/owner/repo or a lowercase https:// URL; the authored source is not converted"
+	case extensiontopology.PiSourceDifferenceBareSCP:
+		detail = "uses a bare SCP-style Git address, which has a documented local-path interpretation in Pi; for SSH Git intent use a server-appropriate ssh://user@host/owner/repo URL; git:git@host:owner/repo is only an option when the SSH user is git; repository paths may differ; the authored source is not converted"
 	}
 	return Warning{Resource: id, Detail: detail}
 }

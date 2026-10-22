@@ -1608,15 +1608,20 @@ The locked source is passed unchanged to Pi; daem does not convert generic Git
 locators to Pi-specific package syntax. Use the explicit `git:` form above or
 a lowercase `https://` or `ssh://` Git URL accepted by the installed Pi version.
 The Pi settings-source dispatch modeled by Native MCP qualification treats bare
-`github:` and `git+http://`, `git+https://` or `git+ssh://` entries as local paths,
-not Git package declarations. Daem's generic Git classification does not prove
+`github:`, `git+http://`, `git+https://`, `git+ssh://` and SCP-style
+`git@host:owner/repo` entries as local paths, not Git package declarations.
+For SSH Git intent, use a server-appropriate `ssh://user@host/owner/repo` URL.
+`git:git@host:owner/repo` is an option only when the SSH user is `git`.
+Repository path semantics depend on the server; these examples are not automatic
+conversion rules. Daem's generic Git classification does not prove
 host-parser equivalence. See [Pi Native And Adapter](host-integrations.md#pi-native-and-adapter)
 for that qualification profile.
 
 When daem classifies one of those bare spellings as Git, `add extension` warns
 about the documented interpretation difference. `status` and `apply`, including
 `apply --dry-run`, report it as a nonblocking diagnostic:
-`extension.pi_source.bare_github` or `extension.pi_source.git_plus`. The warning
+`extension.pi_source.bare_github`, `extension.pi_source.git_plus` or
+`extension.pi_source.bare_scp`. The warning
 identifies the extension and spelling category without repeating its source.
 It does not run Pi, test whether a local path exists, or change the source;
 `lock` and `outdated` remain unchanged. It is guidance, not a check of the

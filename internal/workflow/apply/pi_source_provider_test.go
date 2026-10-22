@@ -14,8 +14,21 @@ import (
 )
 
 func TestPiSourceDiagnosticsSurviveProviderEffectAndReplan(t *testing.T) {
+	for _, test := range []struct {
+		name, source, code string
+	}{
+		{"git-plus", "git+https://router.home.arpa/acme/diagnostic.git#v1", "extension.pi_source.git_plus"},
+		{"bare-scp", "git@router.home.arpa:acme/diagnostic.git#v1", "extension.pi_source.bare_scp"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertPiSourceProviderReplan(t, test.source, test.code)
+		})
+	}
+}
+
+func assertPiSourceProviderReplan(t *testing.T, source, code string) {
+	t.Helper()
 	root, manifestPath := writePiProviderMCPFixture(t)
-	const source = "git+https://router.home.arpa/acme/diagnostic.git#v1"
 	content, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +53,7 @@ source = { host_source = "`+source+`" }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(planned.Diagnostics) != 1 || planned.Diagnostics[0].Code != "extension.pi_source.git_plus" {
+	if len(planned.Diagnostics) != 1 || planned.Diagnostics[0].Code != code {
 		t.Fatalf("prepared diagnostics=%#v, want Pi source warning", planned.Diagnostics)
 	}
 	before := slices.Clone(planned.Diagnostics)

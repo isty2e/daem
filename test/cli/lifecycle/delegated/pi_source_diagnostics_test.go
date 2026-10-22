@@ -25,7 +25,13 @@ func TestPiSourceDiagnosticCLIProjectsOnlySourceFreeWarnings(t *testing.T) {
 		}{
 			{"github:acme/PI_SOURCE_MARKER#v1", "extension.pi_source.bare_github"},
 			{"git+https://router.home.arpa/acme/PI_SOURCE_MARKER.git#v1", "extension.pi_source.git_plus"},
+			{"git@github.com:acme/PI_SOURCE_MARKER.git", "extension.pi_source.bare_scp"},
+			{"git@router.home.arpa:acme/PI_SOURCE_MARKER.git#v1", "extension.pi_source.bare_scp"},
+			{"deploy@router.home.arpa:team/PI_SOURCE_MARKER.git", "extension.pi_source.bare_scp"},
 			{"git:github.com/acme/control", ""},
+			{"git:git@github.com:acme/control", ""},
+			{"ssh://git@github.com/acme/control.git", ""},
+			{"ssh://deploy@router.home.arpa/team/control.git", ""},
 			{"https://github.com/acme/control.git", ""},
 		} {
 			t.Run(scope+"/"+test.ref, func(t *testing.T) {

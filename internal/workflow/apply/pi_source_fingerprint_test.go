@@ -21,8 +21,9 @@ func TestPiSourceFingerprintsAreDeterministicAndBindWarnings(t *testing.T) {
 	diagnostics, err := diagnose.PiPackageSourceDiagnostics([]desiredextension.Extension{
 		piFingerprintExtension(t, "first", "github:acme/tool"),
 		piFingerprintExtension(t, "second", "git+https://router.home.arpa/acme/private.git"),
+		piFingerprintExtension(t, "third", "git@router.home.arpa:acme/private.git"),
 	}, selection)
-	if err != nil || len(diagnostics) != 2 {
+	if err != nil || len(diagnostics) != 3 {
 		t.Fatalf("diagnostics=%#v error=%v", diagnostics, err)
 	}
 	withWarnings := planned
@@ -36,7 +37,7 @@ func TestPiSourceFingerprintsAreDeterministicAndBindWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, rows := range [][]findings.Diagnostic{diagnostics, {diagnostics[1], diagnostics[0]}} {
+	for _, rows := range [][]findings.Diagnostic{diagnostics, {diagnostics[2], diagnostics[0], diagnostics[1]}} {
 		repeated := planned
 		repeated.result.Diagnostics = rows
 		gotFull, err := applyOperationFingerprint(repeated, reconcile.ContextApply)
@@ -51,8 +52,10 @@ func TestPiSourceFingerprintsAreDeterministicAndBindWarnings(t *testing.T) {
 
 	changed := withWarnings
 	changed.result.Diagnostics = slices.Clone(diagnostics)
-	changed.result.Diagnostics[0].Detail += "; changed fixed policy"
-	for _, variant := range []commandPlan{planned, changed} {
+	changed.result.Diagnostics[2].Detail += "; changed fixed policy"
+	withoutSCP := withWarnings
+	withoutSCP.result.Diagnostics = diagnostics[:2]
+	for _, variant := range []commandPlan{planned, changed, withoutSCP} {
 		gotFull, err := applyOperationFingerprint(variant, reconcile.ContextApply)
 		if err != nil {
 			t.Fatal(err)

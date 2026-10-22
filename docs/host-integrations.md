@@ -223,8 +223,9 @@ hosted-alias parity is unsupported.
 
 Native MCP qualification follows Pi 1.0.2's settings-source dispatch, not the
 generic Git grammar used for [Pi package relations](manifest.md#extension-carriers).
-Bare `github:owner/repo` and `git+https://...` entries are local paths in that
-dispatch; this check does not treat them as Git declarations. It recognizes
+Bare `github:owner/repo`, `git+https://...` and SCP-style `git@host:owner/repo`
+entries are local paths in that dispatch; this check does not treat them as Git
+declarations. It recognizes
 `git:` declarations and explicit lowercase `https://`, `http://`, `ssh://` or
 `git://` locators. Native Git qualification requires a host, owner and
 repository. Other prefix-looking local filenames, such as `builtin:entry.ts` or `http:entry.ts`,
