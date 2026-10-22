@@ -299,6 +299,14 @@ func preflightRestorableBackups(ctx context.Context, marker transactionMarker) e
 }
 
 func restoreFile(ctx context.Context, path string, state fileState, ops operations) error {
+	matches, err := fileMatchesState(ctx, path, state)
+	if err != nil {
+		return fmt.Errorf("inspect %q before restoration: %w", path, err)
+	}
+	if matches {
+		return nil
+	}
+
 	if !state.Exists {
 		if err := removeFile(ctx, path); err != nil {
 			return fmt.Errorf("remove %q: %w", path, err)
