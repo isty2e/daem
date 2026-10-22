@@ -28,9 +28,9 @@ func TestCompileMetadataDomainsPreservesTargetMarkerLocalAndTrailingOrder(t *tes
 		effect mutation.PathEffect
 	}{
 		{path: "/target-b", access: mutation.AccessExclusive, effect: mutation.PathEffectDirectoryEntry},
-		{path: "/target-b", access: mutation.AccessShared, effect: mutation.PathEffectReferent},
+		{path: "/target-b", access: mutation.AccessExclusive, effect: mutation.PathEffectReferent},
 		{path: "/target-a", access: mutation.AccessExclusive, effect: mutation.PathEffectDirectoryEntry},
-		{path: "/target-a", access: mutation.AccessShared, effect: mutation.PathEffectReferent},
+		{path: "/target-a", access: mutation.AccessExclusive, effect: mutation.PathEffectReferent},
 		{path: "/marker", access: mutation.AccessExclusive, effect: mutation.PathEffectDirectoryEntry},
 		{path: "/source-b", access: mutation.AccessShared, effect: mutation.PathEffectReferent},
 		{path: "/source-a", access: mutation.AccessShared, effect: mutation.PathEffectReferent},

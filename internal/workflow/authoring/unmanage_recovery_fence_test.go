@@ -295,7 +295,7 @@ func TestUnmanageMetadataRecoveryRefusesJournalBeforeRepairingFileSet(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = recoverUnmanageFileSetBeforeRead(t.Context(), paths, targetPaths, barrier)
+	err = recoverUnmanageFileSetBeforeRead(t.Context(), paths, paths.LockfilePath, barrier)
 	if err == nil || !strings.Contains(err.Error(), "interrupted apply operation found") {
 		t.Fatalf("recoverUnmanageFileSetBeforeRead error = %v, want recovery fence", err)
 	}

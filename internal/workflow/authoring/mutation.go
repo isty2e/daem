@@ -51,6 +51,7 @@ type LockfileChange struct {
 	content  []byte
 	status   LockfileStatus
 	stateDir string
+	target   declarationartifact.MutationTarget
 }
 
 // Path returns the absolute lockfile path affected by this change.
@@ -82,6 +83,10 @@ func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (Lockfi
 	if outputPath == "" {
 		outputPath = paths.LockfilePath
 	}
+	target, err := declarationartifact.CaptureMutationTarget(ctx, outputPath)
+	if err != nil {
+		return LockfileChange{}, fmt.Errorf("select lockfile: %w", err)
+	}
 	current, currentErr := lockfile.ReadReplacementContent(ctx, outputPath)
 	if currentErr != nil && !os.IsNotExist(currentErr) {
 		return LockfileChange{}, fmt.Errorf("read lockfile: %w", currentErr)
@@ -111,6 +116,9 @@ func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (Lockfi
 		return LockfileChange{}, err
 	}
 	content := snapshot.Content()
+	if err := target.Validate(ctx); err != nil {
+		return LockfileChange{}, err
+	}
 
 	status := LockfileStatusWouldWrite
 	if currentErr == nil {
@@ -124,6 +132,7 @@ func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (Lockfi
 		content:  content,
 		status:   status,
 		stateDir: paths.StateDir,
+		target:   target,
 	}, nil
 }
 
@@ -153,14 +162,14 @@ func ConsumedLocalPaths(input LockfileChangeInput) ([]string, error) {
 	return consumedLocalPaths(input)
 }
 
-func commitManifestAndLockfile(ctx context.Context, manifestPath string, manifestBytes []byte, lockfileChange LockfileChange) (LockfileChange, error) {
+func commitManifestAndLockfile(ctx context.Context, manifestTarget declarationartifact.MutationTarget, manifestBytes []byte, lockfileChange LockfileChange) (LockfileChange, error) {
 	writtenLockfile := lockfileChange
 	if writtenLockfile.status == LockfileStatusWouldWrite {
 		writtenLockfile.status = LockfileStatusWritten
 	}
 	err := transaction.CommitTransaction(ctx, transaction.TransactionInput{
-		ManifestPath:      manifestPath,
-		LockfilePath:      lockfileChange.path,
+		ManifestTarget:    manifestTarget,
+		LockfileTarget:    lockfileChange.target,
 		StateDir:          lockfileChange.stateDir,
 		ManifestBytes:     manifestBytes,
 		LockfileBytes:     lockfileChange.content,
@@ -340,7 +349,7 @@ func executeAuthoringMutation(
 	if err := optimistic.barrier.Validate(ctx); err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
-	lockfile, err = commitManifestAndLockfile(ctx, current.change.ManifestPath, current.change.Content, lockfile)
+	lockfile, err = commitManifestAndLockfile(ctx, current.document.target, current.change.Content, lockfile)
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
@@ -465,8 +474,17 @@ func recoverMetadataFileSetBeforeRead(
 	if err := barrier.ValidateFileSetRecovery(ctx); err != nil {
 		return err
 	}
-	if err := fileset.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
+	targets, err := declarationartifact.CaptureRecoveryTargets(ctx, targetPaths...)
+	if err != nil {
 		return err
+	}
+	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
+		return err
+	} else if !matches {
+		return mutation.StaleSnapshotError{}
+	}
+	if err := fileset.RecoverFileSet(ctx, paths.StateDir, targets.Paths()); err != nil {
+		return targets.WrapError(err)
 	}
 	return barrier.Validate(ctx)
 }

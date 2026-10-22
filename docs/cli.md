@@ -93,6 +93,12 @@ The lockfile is always `daem.lock.toml` beside the selected manifest. State,
 cache, recovery, and project-installation paths derive from that same selected
 workspace. There is no independent public lockfile selector.
 
+Existing manifests and lockfiles may be symlinks or selected through directory
+aliases. Writes preserve the links and replace their regular-file referents;
+relative sources and default storage still use the selected workspace, not the
+referent's directory. Read-only generated targets are not copied elsewhere or
+made writable automatically.
+
 Implicit user-manifest selection does not establish a project root: project-scoped
 resources are rejected with guidance to select a project manifest or declare
 global scope. Explicit and cwd selection retain their existing placement policy;
@@ -510,10 +516,10 @@ daem init [--manifest <path>] [--force] [--dry-run] [--json|--verbose]
 ```
 
 `init` creates a minimal manifest and writes by default. `--force` authorizes
-replacement of an existing regular file after its directory-entry identity is
-revalidated;
-it does not require the old content to be a valid manifest. It never creates a
-lockfile, statefile, cache, recovery journal, or host file.
+replacement of an existing regular referent after revalidation. For a manifest
+symlink, it overwrites the linked-to file and preserves the link. The old content
+need not be a valid manifest. Init never creates a lockfile, statefile, cache,
+recovery journal, or host file.
 
 Default human output names the action, destination, and nearest next command.
 `--verbose` adds the exact starter content. Init JSON schema version is `1` and

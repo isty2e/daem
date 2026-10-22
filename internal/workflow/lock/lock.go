@@ -7,7 +7,7 @@ import (
 	"os"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -226,12 +226,17 @@ func loadOptionalLockfile(
 	return file, false, nil
 }
 
-func commitLockfile(ctx context.Context, path string, content []byte, fileMode os.FileMode) error {
-	commitPath, err := mutation.CanonicalDirectoryEntryPath(path)
-	if err != nil {
+func commitLockfile(ctx context.Context, target declarationartifact.MutationTarget, content []byte, fileMode os.FileMode) (returnErr error) {
+	if err := target.Validate(ctx); err != nil {
 		return err
 	}
-	info, err := os.Stat(path)
+	defer func() {
+		if returnErr != nil {
+			returnErr = declarationartifact.ReplacementError{Path: target.Path(), Err: returnErr}
+		}
+	}()
+	commitPath := target.Path()
+	info, err := os.Stat(commitPath)
 	if os.IsNotExist(err) {
 		request, requestErr := storagecommit.NewFileCreate(commitPath, content, fileMode)
 		if requestErr != nil {

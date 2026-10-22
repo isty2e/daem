@@ -82,7 +82,7 @@ func commitWithOperations(ctx context.Context, input FileSetInput, ops operation
 			continue
 		}
 		if err := ops.writeFile(ctx, target.path, target.content, fileMode(marker.Targets[index].Before)); err != nil {
-			return rollbackFailure(ctx, fmt.Errorf("write target %q: %w", target.path, err), marker, stateDir, activeMarkerPath, ops)
+			return rollbackFailure(ctx, TargetWriteError{Path: target.path, Err: err}, marker, stateDir, activeMarkerPath, ops)
 		}
 		if err := ctx.Err(); err != nil {
 			return rollbackFailure(ctx, err, marker, stateDir, activeMarkerPath, ops)
@@ -199,7 +199,7 @@ func recoverWithOperations(
 	}
 	for _, target := range marker.Targets {
 		if _, ok := allowed[target.Path]; !ok {
-			return fmt.Errorf("interrupted file-set transaction target %q is outside current recovery authority", target.Path)
+			return RecoveryAuthorityError{Path: target.Path}
 		}
 	}
 
@@ -299,6 +299,14 @@ func preflightRestorableBackups(ctx context.Context, marker transactionMarker) e
 }
 
 func restoreFile(ctx context.Context, path string, state fileState, ops operations) error {
+	matches, err := fileMatchesState(ctx, path, state)
+	if err != nil {
+		return fmt.Errorf("inspect %q before restoration: %w", path, err)
+	}
+	if matches {
+		return nil
+	}
+
 	if !state.Exists {
 		if err := removeFile(ctx, path); err != nil {
 			return fmt.Errorf("remove %q: %w", path, err)

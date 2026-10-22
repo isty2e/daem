@@ -27,7 +27,7 @@ func TestCompileLockPreservesDomainAndRevisionOrder(t *testing.T) {
 		{path: "/manifest", access: mutation.AccessShared, effect: mutation.PathEffectDirectoryEntry},
 		{path: "/manifest", access: mutation.AccessShared, effect: mutation.PathEffectReferent},
 		{path: "/lockfile", access: mutation.AccessExclusive, effect: mutation.PathEffectDirectoryEntry},
-		{path: "/lockfile", access: mutation.AccessShared, effect: mutation.PathEffectReferent},
+		{path: "/lockfile", access: mutation.AccessExclusive, effect: mutation.PathEffectReferent},
 		{path: "/metadata", access: mutation.AccessExclusive, effect: mutation.PathEffectDirectoryEntry},
 		{path: "/source-b", access: mutation.AccessShared, effect: mutation.PathEffectReferent},
 		{path: "/source-a", access: mutation.AccessShared, effect: mutation.PathEffectReferent},

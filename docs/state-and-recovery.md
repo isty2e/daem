@@ -258,9 +258,11 @@ See [interrupted-apply guidance](troubleshooting.md#apply-was-interrupted).
 
 Oversized state is refused before planning; oversized journals and backups are
 refused before covered mutation, and generated state/journals before publication.
-Manifest/lock symlinks are accepted only while both the selected link and regular
-referent stay stable throughout the read. Metadata-transaction recovery uses the
-same bounds and checks every backup's type, size and hash before any restoration.
+Manifest/lock symlinks require stable selected links and regular referents.
+Declaration writes preserve the links and update their exclusively leased
+referents without changing the selected workspace root. Metadata-transaction
+recovery uses the same bounds and checks every backup's type, size and hash
+before restoration, skipping targets already equal to their recorded before-state.
 
 Cleanup preflights entry/depth bounds and mount continuity before advancing a
 retirement control or deleting the first residue child. FIFO, socket and device

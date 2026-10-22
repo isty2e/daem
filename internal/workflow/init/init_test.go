@@ -68,10 +68,12 @@ func TestWritePlanForceReplacesMalformedManifestWithExistingMode(t *testing.T) {
 	if err := os.WriteFile(manifestPath, []byte("[malformed\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	plan := Plan{
-		ManifestPath: manifestPath,
-		Content:      declarationmanifest.StarterContent(),
-		Action:       ActionOverwrite,
+	if err := os.Chmod(manifestPath, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildPlan(context.Background(), Input{ManifestPath: manifestPath, Force: true})
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	if err := writePlan(context.Background(), plan, true); err != nil {

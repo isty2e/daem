@@ -466,6 +466,11 @@ file-set transaction`. Choose the action by the evidence:
 | StateDir access/identity cannot be established | Restore it before recovery, even if a journal was observed. An accessible RecoveryDir child is insufficient. Do not retry a write as if a marker existed. |
 | Bounded census overflow with accessible StateDir | Journal recovery may proceed if RecoveryDir is readable, but the census fence remains. This is neither a marker nor named residue; do not infer a retry or prefix-deletion remedy. |
 
+If a manifest or lockfile link changed after the interrupted write, restore its
+original target mapping before retrying that exact write. The recorded-target
+diagnostic helps identify the mismatch; do not delete the marker or treat its
+paths alone as permission to modify another file.
+
 Markerless `.daem-tmp-*`, legacy `.metadata-stage-*`, `.daem-tombstone-*` or
 `.daem-cleanup-*` residue is a separate fence. Authoring/unmanage retry, refresh
 and recover do not remove it. Preserve it; never delete, rename or empty by
