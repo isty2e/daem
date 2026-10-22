@@ -6,7 +6,6 @@ import (
 	"syscall"
 
 	"github.com/isty2e/daem/internal/declarationartifact"
-	"github.com/isty2e/daem/internal/effect/fileset"
 )
 
 func DeclarationReplacementGuidance(err error) (Guidance, bool) {
@@ -18,9 +17,9 @@ func DeclarationReplacementGuidance(err error) (Guidance, bool) {
 }
 
 func DeclarationRecoveryGuidance(err error) (Guidance, bool) {
-	var authority fileset.RecoveryAuthorityError
-	if !errors.As(err, &authority) {
+	var linked declarationartifact.LinkedRecoveryError
+	if !errors.As(err, &linked) {
 		return Guidance{}, false
 	}
-	return InstructionGuidance("restore the manifest and lockfile links to their original targets, then retry the exact interrupted write with the same --manifest and selection options; preserve the metadata marker; daem recover does not consume it"), true
+	return InstructionGuidance("if the manifest or lockfile links changed after interruption, restore their original targets, then retry the exact interrupted write with the same --manifest and selection options; preserve the metadata marker"), true
 }

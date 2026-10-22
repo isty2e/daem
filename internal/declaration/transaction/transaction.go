@@ -70,9 +70,9 @@ func RecoverInterruptedTransaction(
 	manifestPath string,
 	lockfilePath string,
 ) error {
-	paths, err := declarationartifact.MutationPaths(ctx, manifestPath, lockfilePath)
+	targets, err := declarationartifact.CaptureRecoveryTargets(ctx, manifestPath, lockfilePath)
 	if err != nil {
 		return err
 	}
-	return fileset.RecoverFileSet(ctx, stateDir, paths)
+	return targets.WrapError(fileset.RecoverFileSet(ctx, stateDir, targets.Paths()))
 }

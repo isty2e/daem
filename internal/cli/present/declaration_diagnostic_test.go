@@ -21,7 +21,11 @@ func TestDeclarationFailureGuidanceUsesTypedCauses(t *testing.T) {
 	if _, present := DeclarationReplacementGuidance(err); present {
 		t.Fatal("I/O failure was misclassified as permission or readonly")
 	}
-	guidance, present := DeclarationRecoveryGuidance(fmt.Errorf("write failed: %w", fileset.RecoveryAuthorityError{Path: "/fixture/original.lock"}))
+	refusal := fileset.RecoveryAuthorityError{Path: "/fixture/original.lock"}
+	if _, present := DeclarationRecoveryGuidance(fmt.Errorf("write failed: %w", refusal)); present {
+		t.Fatal("generic recovery-authority refusal was misclassified as a link refusal")
+	}
+	guidance, present := DeclarationRecoveryGuidance(fmt.Errorf("write failed: %w", declarationartifact.LinkedRecoveryError{Err: refusal}))
 	if !present || guidance.Kind() != GuidanceInstruction || guidance.Message() == "" {
 		t.Fatalf("changed-link recovery has no manual retry guidance: %#v", guidance)
 	}

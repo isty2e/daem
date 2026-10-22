@@ -117,18 +117,18 @@ func recoverUnmanageFileSetBeforeRead(
 	if err := barrier.ValidateFileSetRecovery(ctx); err != nil {
 		return err
 	}
-	declarationPaths, err := declarationartifact.MutationPaths(ctx, paths.ManifestPath, lockfilePath)
+	declarations, err := declarationartifact.CaptureRecoveryTargets(ctx, paths.ManifestPath, lockfilePath)
 	if err != nil {
 		return err
 	}
-	physicalPaths := append(declarationPaths, paths.StatefilePath, paths.CarrierClaimRegistryPath)
+	physicalPaths := append(declarations.Paths(), paths.StatefilePath, paths.CarrierClaimRegistryPath)
 	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
 		return err
 	} else if !matches {
 		return mutation.StaleSnapshotError{}
 	}
 	if err := fileset.RecoverFileSet(ctx, paths.StateDir, physicalPaths); err != nil {
-		return err
+		return declarations.WrapError(err)
 	}
 	return barrier.Validate(ctx)
 }
@@ -182,7 +182,7 @@ func commitUnmanageCandidate(
 	if err := optimistic.barrier.ValidateFileSetRecovery(ctx); err != nil {
 		return UnmanageExtensionResult{}, err
 	}
-	physicalDeclarations, err := declarationartifact.MutationPaths(ctx, declarationPaths...)
+	declarations, err := declarationartifact.CaptureRecoveryTargets(ctx, declarationPaths...)
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
@@ -191,8 +191,8 @@ func commitUnmanageCandidate(
 	} else if !matches {
 		return UnmanageExtensionResult{}, mutation.StaleSnapshotError{}
 	}
-	if err := fileset.RecoverFileSet(ctx, paths.StateDir, append(physicalDeclarations, persistencePaths...)); err != nil {
-		return UnmanageExtensionResult{}, err
+	if err := fileset.RecoverFileSet(ctx, paths.StateDir, append(declarations.Paths(), persistencePaths...)); err != nil {
+		return UnmanageExtensionResult{}, declarations.WrapError(err)
 	}
 	revisionRequests, err := program.RevisionRequests()
 	if err != nil {

@@ -474,7 +474,7 @@ func recoverMetadataFileSetBeforeRead(
 	if err := barrier.ValidateFileSetRecovery(ctx); err != nil {
 		return err
 	}
-	physicalPaths, err := declarationartifact.MutationPaths(ctx, targetPaths...)
+	targets, err := declarationartifact.CaptureRecoveryTargets(ctx, targetPaths...)
 	if err != nil {
 		return err
 	}
@@ -483,8 +483,8 @@ func recoverMetadataFileSetBeforeRead(
 	} else if !matches {
 		return mutation.StaleSnapshotError{}
 	}
-	if err := fileset.RecoverFileSet(ctx, paths.StateDir, physicalPaths); err != nil {
-		return err
+	if err := fileset.RecoverFileSet(ctx, paths.StateDir, targets.Paths()); err != nil {
+		return targets.WrapError(err)
 	}
 	return barrier.Validate(ctx)
 }

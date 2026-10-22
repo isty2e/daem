@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/contractversion"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/fileset"
 )
 
@@ -89,6 +90,10 @@ func TestRecoveryBindsRecordedDeclarationReferents(t *testing.T) {
 	var authority fileset.RecoveryAuthorityError
 	if !errors.As(err, &authority) || authority.Path != lockTarget.Path() {
 		t.Fatalf("recovery error = %v, want recorded lock target refusal", err)
+	}
+	var linked declarationartifact.LinkedRecoveryError
+	if !errors.As(err, &linked) {
+		t.Fatalf("changed-link refusal lost declaration link context: %v", err)
 	}
 	assertAdapterContent(t, manifestTarget.Path(), "manifest-after")
 	assertAdapterContent(t, filepath.Join(dot, "other-lock"), "unrelated")

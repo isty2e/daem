@@ -97,12 +97,21 @@ func CanonicalDirectoryEntryPath(path string) (string, error) {
 
 // CanonicalReferentPath returns the native access path after resolving the
 // complete existing path, retaining an ordinary missing suffix for creation.
-func CanonicalReferentPath(path string) (string, error) {
-	identity, err := canonicalPathIdentity(path, PathEffectReferent)
+// It also reports symlink traversal before platform spelling normalization.
+func CanonicalReferentPath(path string) (accessPath string, throughSymlink bool, err error) {
+	selection, err := selectPath(path, PathEffectReferent)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return identity.accessPath, nil
+	absolute, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", false, err
+	}
+	identity, err := canonicalPathIdentityFromSelection(path, selection, PathEffectReferent)
+	if err != nil {
+		return "", false, err
+	}
+	return identity.accessPath, selectedAccessPath(selection) != absolute, nil
 }
 
 // CanonicalDirectoryEntryPathBounded returns the physical no-follow access
