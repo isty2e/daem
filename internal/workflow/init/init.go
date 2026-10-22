@@ -30,6 +30,7 @@ type Plan struct {
 	ManifestPath string
 	Content      []byte
 	Action       string
+	target       declarationartifact.MutationTarget
 }
 
 func BuildPlan(ctx context.Context, input Input) (Plan, error) {
@@ -57,10 +58,18 @@ func BuildPlan(ctx context.Context, input Input) (Plan, error) {
 		return Plan{}, fmt.Errorf("check manifest path: %w", err)
 	}
 
+	var target declarationartifact.MutationTarget
+	if action == ActionOverwrite {
+		target, err = declarationartifact.CaptureMutationTarget(ctx, paths.ManifestPath)
+		if err != nil {
+			return Plan{}, err
+		}
+	}
 	return Plan{
 		ManifestPath: paths.ManifestPath,
 		Content:      content,
 		Action:       action,
+		target:       target,
 	}, nil
 }
 
@@ -184,21 +193,11 @@ func writePlan(ctx context.Context, plan Plan, force bool) error {
 	}
 	if force {
 		if info, err := os.Stat(plan.ManifestPath); err == nil {
-			expected, err := storagecommit.CaptureEntryIdentity(ctx, commitPath)
-			if err != nil {
-				return fmt.Errorf("capture manifest identity: %w", err)
+			if err := plan.target.Validate(ctx); err != nil {
+				return err
 			}
-			request, err := storagecommit.NewFileReplacement(
-				commitPath,
-				plan.Content,
-				info.Mode().Perm(),
-				expected,
-			)
-			if err != nil {
-				return fmt.Errorf("prepare manifest replacement: %w", err)
-			}
-			if err := storagecommit.CommitFile(ctx, request); err != nil {
-				return fmt.Errorf("commit manifest replacement: %w", err)
+			if err := replaceSelectedManifest(ctx, plan.target, plan.Content, info.Mode().Perm()); err != nil {
+				return err
 			}
 			return nil
 		} else if !os.IsNotExist(err) {
@@ -212,6 +211,32 @@ func writePlan(ctx context.Context, plan Plan, force bool) error {
 	}
 	if err := storagecommit.CommitFile(ctx, request); err != nil {
 		return fmt.Errorf("commit manifest creation: %w", err)
+	}
+	return nil
+}
+
+func replaceSelectedManifest(ctx context.Context, target declarationartifact.MutationTarget, content []byte, mode os.FileMode) (returnErr error) {
+	defer func() {
+		if returnErr != nil {
+			returnErr = declarationartifact.ReplacementError{Path: target.Path(), Err: returnErr}
+		}
+	}()
+	commitPath := target.Path()
+	expected, err := storagecommit.CaptureEntryIdentity(ctx, commitPath)
+	if err != nil {
+		return fmt.Errorf("capture manifest identity: %w", err)
+	}
+	request, err := storagecommit.NewFileReplacement(
+		commitPath,
+		content,
+		mode,
+		expected,
+	)
+	if err != nil {
+		return fmt.Errorf("prepare manifest replacement: %w", err)
+	}
+	if err := storagecommit.CommitFile(ctx, request); err != nil {
+		return fmt.Errorf("commit manifest replacement: %w", err)
 	}
 	return nil
 }

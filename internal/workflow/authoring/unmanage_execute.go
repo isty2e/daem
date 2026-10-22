@@ -52,12 +52,7 @@ func UnmanageExtension(
 		if lockfilePath == "" {
 			lockfilePath = paths.LockfilePath
 		}
-		if err := recoverUnmanageFileSetBeforeRead(ctx, paths, []string{
-			paths.ManifestPath,
-			lockfilePath,
-			paths.StatefilePath,
-			paths.CarrierClaimRegistryPath,
-		}, barrier); err != nil {
+		if err := recoverUnmanageFileSetBeforeRead(ctx, paths, lockfilePath, barrier); err != nil {
 			return UnmanageExtensionResult{}, err
 		}
 	}
@@ -75,9 +70,10 @@ func UnmanageExtension(
 func recoverUnmanageFileSetBeforeRead(
 	ctx context.Context,
 	paths daempaths.Paths,
-	targetPaths []string,
+	lockfilePath string,
 	barrier recoverygate.EffectAuthority,
 ) (returnErr error) {
+	targetPaths := []string{paths.ManifestPath, lockfilePath, paths.StatefilePath, paths.CarrierClaimRegistryPath}
 	observationErr := barrier.Validate(ctx)
 	if observationErr == nil {
 		return nil
@@ -121,7 +117,17 @@ func recoverUnmanageFileSetBeforeRead(
 	if err := barrier.ValidateFileSetRecovery(ctx); err != nil {
 		return err
 	}
-	if err := fileset.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
+	declarationPaths, err := declarationartifact.MutationPaths(ctx, paths.ManifestPath, lockfilePath)
+	if err != nil {
+		return err
+	}
+	physicalPaths := append(declarationPaths, paths.StatefilePath, paths.CarrierClaimRegistryPath)
+	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
+		return err
+	} else if !matches {
+		return mutation.StaleSnapshotError{}
+	}
+	if err := fileset.RecoverFileSet(ctx, paths.StateDir, physicalPaths); err != nil {
 		return err
 	}
 	return barrier.Validate(ctx)
@@ -144,7 +150,6 @@ func commitUnmanageCandidate(
 		paths.StatefilePath,
 		paths.CarrierClaimRegistryPath,
 	}
-	targetPaths := append(append([]string(nil), declarationPaths...), persistencePaths...)
 	program := compileUnmanageOperationProgram(
 		declarationPaths,
 		persistencePaths,
@@ -177,7 +182,16 @@ func commitUnmanageCandidate(
 	if err := optimistic.barrier.ValidateFileSetRecovery(ctx); err != nil {
 		return UnmanageExtensionResult{}, err
 	}
-	if err := fileset.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
+	physicalDeclarations, err := declarationartifact.MutationPaths(ctx, declarationPaths...)
+	if err != nil {
+		return UnmanageExtensionResult{}, err
+	}
+	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
+		return UnmanageExtensionResult{}, err
+	} else if !matches {
+		return UnmanageExtensionResult{}, mutation.StaleSnapshotError{}
+	}
+	if err := fileset.RecoverFileSet(ctx, paths.StateDir, append(physicalDeclarations, persistencePaths...)); err != nil {
 		return UnmanageExtensionResult{}, err
 	}
 	revisionRequests, err := program.RevisionRequests()
@@ -229,7 +243,7 @@ func commitUnmanageCandidate(
 		return UnmanageExtensionResult{}, err
 	}
 
-	targets, err := fileTargets(current)
+	targets, err := fileTargets(ctx, current)
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
@@ -240,12 +254,22 @@ func commitUnmanageCandidate(
 		StateDir: paths.StateDir,
 		Targets:  targets,
 	}); err != nil {
+		var writeFailure fileset.TargetWriteError
+		if errors.As(err, &writeFailure) && (writeFailure.Path == current.document.target.Path() || writeFailure.Path == current.lockfile.target.Path()) {
+			return UnmanageExtensionResult{}, declarationartifact.ReplacementError{Path: writeFailure.Path, Err: err}
+		}
 		return UnmanageExtensionResult{}, err
 	}
 	return resultFromCandidate(current, true), nil
 }
 
-func fileTargets(current unmanageCandidate) ([]fileset.FileTarget, error) {
+func fileTargets(ctx context.Context, current unmanageCandidate) ([]fileset.FileTarget, error) {
+	if err := current.document.target.Validate(ctx); err != nil {
+		return nil, err
+	}
+	if err := current.lockfile.target.Validate(ctx); err != nil {
+		return nil, err
+	}
 	stateContent, err := statefile.Marshal(current.nextState)
 	if err != nil {
 		return nil, fmt.Errorf("marshal unmanage statefile: %w", err)
@@ -259,9 +283,9 @@ func fileTargets(current unmanageCandidate) ([]fileset.FileTarget, error) {
 		content []byte
 		write   bool
 	}{
-		{current.document.Path, current.manifestContent, current.manifestChanged},
+		{current.document.target.Path(), current.manifestContent, current.manifestChanged},
 		{
-			current.lockfile.Path(),
+			current.lockfile.target.Path(),
 			current.lockfile.Content(),
 			current.lockfile.Status() == LockfileStatusWouldWrite,
 		},

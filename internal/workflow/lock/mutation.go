@@ -151,6 +151,11 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 	if err != nil {
 		return Result{}, err
 	}
+	lockfileTarget, err := declarationartifact.CaptureMutationTarget(ctx, outputPath)
+	if err != nil {
+		errorContext.Err = err
+		return Result{}, errorContext
+	}
 	matches, err := revisions.MatchesCurrent(ctx)
 	if err != nil {
 		errorContext.Err = err
@@ -175,7 +180,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	if err := commitLockfile(ctx, built.Result.LockfilePath, built.Content, 0o600); err != nil {
+	if err := commitLockfile(ctx, lockfileTarget, built.Content, 0o600); err != nil {
 		return Result{}, fmt.Errorf("write lockfile: %w", err)
 	}
 	return built.Result, nil

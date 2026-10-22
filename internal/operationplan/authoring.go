@@ -24,7 +24,7 @@ func CompileMetadataDomains(input MetadataDomainInput) []DomainStep {
 			)),
 			newPathDomainStep(newLogicalPathDomainRequest(
 				path,
-				mutation.AccessShared,
+				mutation.AccessExclusive,
 				mutation.PathEffectReferent,
 			)),
 		)

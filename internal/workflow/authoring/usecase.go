@@ -53,6 +53,7 @@ type ManifestDocument struct {
 	Root    string
 	Paths   daempaths.Paths
 	Content []byte
+	target  declarationartifact.MutationTarget
 }
 
 // LoadManifestDocument resolves and reads a manifest document for authoring changes.
@@ -65,15 +66,23 @@ func LoadManifestDocument(ctx context.Context, manifestPath string) (ManifestDoc
 }
 
 func loadManifestDocument(ctx context.Context, paths daempaths.Paths) (ManifestDocument, error) {
+	target, err := declarationartifact.CaptureMutationTarget(ctx, paths.ManifestPath)
+	if err != nil {
+		return ManifestDocument{}, fmt.Errorf("select manifest: %w", err)
+	}
 	content, err := declarationartifact.Read(ctx, paths.ManifestPath)
 	if err != nil {
 		return ManifestDocument{}, fmt.Errorf("read manifest: %w", err)
+	}
+	if err := target.Validate(ctx); err != nil {
+		return ManifestDocument{}, err
 	}
 	return ManifestDocument{
 		Path:    paths.ManifestPath,
 		Root:    paths.ManifestRoot,
 		Paths:   paths,
 		Content: content,
+		target:  target,
 	}, nil
 }
 

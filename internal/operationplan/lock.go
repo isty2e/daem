@@ -44,7 +44,7 @@ func CompileLock(input LockInput) LockProgram {
 		)),
 		newPathDomainStep(newLogicalPathDomainRequest(
 			input.LockfilePath,
-			mutation.AccessShared,
+			mutation.AccessExclusive,
 			mutation.PathEffectReferent,
 		)),
 		newPathDomainStep(newLogicalPathDomainRequest(

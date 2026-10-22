@@ -378,7 +378,7 @@ targets = ["codex"]
 	if err != nil {
 		t.Fatalf("second BuildLockfileChange returned error: %v", err)
 	}
-	writtenChange, err := commitManifestAndLockfile(context.Background(), manifestPath, mustReadTestFile(t, manifestPath), change)
+	writtenChange, err := commitManifestAndLockfile(context.Background(), captureAuthoringTarget(t, manifestPath), mustReadTestFile(t, manifestPath), change)
 	if err != nil {
 		t.Fatalf("commitManifestAndLockfile returned error: %v", err)
 	}
@@ -409,7 +409,7 @@ targets = ["codex"]
 		t.Fatalf("BuildLockfileChange returned error: %v", err)
 	}
 
-	writtenChange, err := commitManifestAndLockfile(context.Background(), manifestPath, []byte(prospectiveManifest), change)
+	writtenChange, err := commitManifestAndLockfile(context.Background(), captureAuthoringTarget(t, manifestPath), []byte(prospectiveManifest), change)
 	if err != nil {
 		t.Fatalf("commitManifestAndLockfile returned error: %v", err)
 	}

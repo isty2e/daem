@@ -82,7 +82,7 @@ func commitWithOperations(ctx context.Context, input FileSetInput, ops operation
 			continue
 		}
 		if err := ops.writeFile(ctx, target.path, target.content, fileMode(marker.Targets[index].Before)); err != nil {
-			return rollbackFailure(ctx, fmt.Errorf("write target %q: %w", target.path, err), marker, stateDir, activeMarkerPath, ops)
+			return rollbackFailure(ctx, TargetWriteError{Path: target.path, Err: err}, marker, stateDir, activeMarkerPath, ops)
 		}
 		if err := ctx.Err(); err != nil {
 			return rollbackFailure(ctx, err, marker, stateDir, activeMarkerPath, ops)
@@ -199,7 +199,7 @@ func recoverWithOperations(
 	}
 	for _, target := range marker.Targets {
 		if _, ok := allowed[target.Path]; !ok {
-			return fmt.Errorf("interrupted file-set transaction target %q is outside current recovery authority", target.Path)
+			return RecoveryAuthorityError{Path: target.Path}
 		}
 	}
 

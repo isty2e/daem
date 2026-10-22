@@ -15,11 +15,11 @@ func TestCommitTransactionWritesManifestAndLockfile(t *testing.T) {
 	writeAdapterFixture(t, manifestPath, "manifest-before", 0o644)
 
 	err := CommitTransaction(context.Background(), TransactionInput{
-		ManifestPath:  manifestPath,
-		LockfilePath:  lockfilePath,
-		StateDir:      stateDir,
-		ManifestBytes: []byte("manifest-after"),
-		LockfileBytes: []byte("lock-after"),
+		ManifestTarget: captureAdapterTarget(t, manifestPath),
+		LockfileTarget: captureAdapterTarget(t, lockfilePath),
+		StateDir:       stateDir,
+		ManifestBytes:  []byte("manifest-after"),
+		LockfileBytes:  []byte("lock-after"),
 	})
 	if err != nil {
 		t.Fatalf("CommitTransaction returned error: %v", err)
@@ -42,8 +42,8 @@ func TestCommitTransactionRetainsUnchangedLockfile(t *testing.T) {
 	writeAdapterFixture(t, lockfilePath, "lock-before", 0o600)
 
 	err := CommitTransaction(context.Background(), TransactionInput{
-		ManifestPath:      manifestPath,
-		LockfilePath:      lockfilePath,
+		ManifestTarget:    captureAdapterTarget(t, manifestPath),
+		LockfileTarget:    captureAdapterTarget(t, lockfilePath),
 		StateDir:          filepath.Join(root, ".daem"),
 		ManifestBytes:     []byte("manifest-after"),
 		LockfileBytes:     []byte("ignored"),

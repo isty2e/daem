@@ -95,6 +95,16 @@ func CanonicalDirectoryEntryPath(path string) (string, error) {
 	return identity.accessPath, nil
 }
 
+// CanonicalReferentPath returns the native access path after resolving the
+// complete existing path, retaining an ordinary missing suffix for creation.
+func CanonicalReferentPath(path string) (string, error) {
+	identity, err := canonicalPathIdentity(path, PathEffectReferent)
+	if err != nil {
+		return "", err
+	}
+	return identity.accessPath, nil
+}
+
 // CanonicalDirectoryEntryPathBounded returns the physical no-follow access
 // path while charging every native component and alias expansion. Accepted
 // POSIX control-bearing paths use the same bounded traversal.

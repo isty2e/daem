@@ -31,7 +31,7 @@ func CompileInit(input InitInput) InitProgram {
 		)),
 		newPathDomainStep(newLogicalPathDomainRequest(
 			input.ManifestPath,
-			mutation.AccessShared,
+			mutation.AccessExclusive,
 			mutation.PathEffectReferent,
 		)),
 		newPathDomainStep(newLogicalPathDomainRequest(

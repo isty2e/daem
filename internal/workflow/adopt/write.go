@@ -7,6 +7,7 @@ import (
 	"os"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
@@ -36,6 +37,14 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 	sources := plan.Sources()
 	skills := plan.Skills()
 	output := plan.Output()
+	var outputTarget declarationartifact.MutationTarget
+	if plan.Merge() {
+		var err error
+		outputTarget, err = declarationartifact.CaptureMutationTarget(ctx, output)
+		if err != nil {
+			return err
+		}
+	}
 	manifestContent := plan.ManifestContent()
 	created := make([]createdImportPath, 0, len(sources)+len(skills))
 	createdRevisionPass := mutation.NewRevisionObservationPass()
@@ -141,7 +150,7 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 		return err
 	}
 	if plan.Merge() {
-		if err := commitExistingImportFile(ctx, output, manifestContent, &ancestorCleanup); err != nil {
+		if err := commitExistingImportFile(ctx, outputTarget, manifestContent, &ancestorCleanup); err != nil {
 			if storageCommitMayBeVisible(err) {
 				cleanupOnFailure = false
 			}
@@ -261,14 +270,19 @@ func commitNewFile(
 
 func commitExistingImportFile(
 	ctx context.Context,
-	path string,
+	target declarationartifact.MutationTarget,
 	content []byte,
 	ancestorCleanup *storagecommit.AncestorCleanup,
-) error {
-	commitPath, err := mutation.CanonicalDirectoryEntryPath(path)
-	if err != nil {
+) (returnErr error) {
+	if err := target.Validate(ctx); err != nil {
 		return err
 	}
+	defer func() {
+		if returnErr != nil {
+			returnErr = declarationartifact.ReplacementError{Path: target.Path(), Err: returnErr}
+		}
+	}()
+	commitPath := target.Path()
 	info, err := os.Stat(commitPath)
 	if err != nil {
 		return err

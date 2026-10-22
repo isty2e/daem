@@ -260,13 +260,9 @@ func CompileAdopt(input AdoptInput) AdoptProgram {
 		return builder.program(input)
 	}
 	for _, request := range outputRequests {
-		access := mutation.AccessShared
-		if request.Effect == mutation.PathEffectDirectoryEntry {
-			access = mutation.AccessExclusive
-		}
 		builder.addLogical(
 			input.OutputPath,
-			access,
+			mutation.AccessExclusive,
 			request.Effect,
 			adoptRevisionStep(request, true, false),
 		)

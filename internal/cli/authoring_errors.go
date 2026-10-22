@@ -31,6 +31,9 @@ func authoringFailureDiagnostic(command, manifestPath string, err error) clipres
 		}
 	}
 	diagnostic = diagnostic.WithGuidance(missingResourceSelectionGuidance(manifestPath, err)...)
+	if recovery, present := clipresent.DeclarationRecoveryGuidance(err); present {
+		diagnostic = diagnostic.WithGuidance(recovery)
+	}
 	if source, present := clipresent.MissingSourceGuidance(err); present {
 		diagnostic = diagnostic.WithGuidance(source)
 	}

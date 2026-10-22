@@ -302,5 +302,8 @@ func FailureDiagnosticFromError(err error) FailureDiagnostic {
 	if diagnostic, recognized := RecognizedInputDiagnostic(err); recognized {
 		return diagnostic
 	}
+	if guidance, present := DeclarationReplacementGuidance(err); present {
+		return NewFailureDiagnostic(err.Error()).WithGuidance(guidance)
+	}
 	return NewFailureDiagnostic(err.Error())
 }

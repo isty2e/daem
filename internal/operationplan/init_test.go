@@ -43,7 +43,7 @@ func TestCompileInitPreservesDomainAndRevisionOrder(t *testing.T) {
 		t,
 		steps[1],
 		"/manifest",
-		mutation.AccessShared,
+		mutation.AccessExclusive,
 		mutation.PathEffectReferent,
 	)
 	assertInitLogicalDomainStep(

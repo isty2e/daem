@@ -67,7 +67,7 @@ func TestCompileAdoptPreservesDomainOrderAndRevisionRoles(t *testing.T) {
 
 	wantDomains := []string{
 		"logical:exclusive:1:/out",
-		"logical:shared:2:/out",
+		"logical:exclusive:2:/out",
 		"logical:shared:1:/lock",
 		"logical:shared:2:/lock",
 		"logical:exclusive:1:/metadata",
