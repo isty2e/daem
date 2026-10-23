@@ -30,7 +30,7 @@ func Parse(ctx context.Context, content []byte, syntax Syntax, limits Limits) (D
 	if err := syntax.validate(); err != nil {
 		return Document{}, err
 	}
-	if err := limits.validate(); err != nil {
+	if err := limits.Validate(); err != nil {
 		return Document{}, err
 	}
 	if int64(len(content)) > limits.MaximumBytes {
@@ -56,7 +56,7 @@ func Absent(syntax Syntax, limits Limits) (Document, error) {
 	if err := syntax.validate(); err != nil {
 		return Document{}, err
 	}
-	if err := limits.validate(); err != nil {
+	if err := limits.Validate(); err != nil {
 		return Document{}, err
 	}
 	root, err := newObject(nil)
@@ -118,8 +118,8 @@ func (document Document) Leaves() ([]Entry, error) {
 	var entries []Entry
 	var visit func(Value, output.KeyPath) error
 	visit = func(value Value, path output.KeyPath) error {
-		members, object := value.data.(objectNode)
-		if !object || len(members) == 0 && !path.IsRoot() {
+		members, _ := value.data.(objectNode)
+		if value.IsAtomic() && !path.IsRoot() {
 			entries = append(entries, Entry{Path: path, Value: value})
 			return nil
 		}

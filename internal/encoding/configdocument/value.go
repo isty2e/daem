@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"github.com/tailscale/hujson"
 )
 
 // Value is immutable native data. Its canonical encoding retains distinctions
@@ -109,6 +107,16 @@ func (value Value) IsObject() bool { _, ok := value.data.(objectNode); return ok
 // IsArray reports an atomic array, including a TOML array of tables.
 func (value Value) IsArray() bool { _, ok := value.data.(arrayNode); return ok }
 
+func (value Value) IsAtomic() bool {
+	if value.data == nil {
+		return false
+	}
+	if members, object := value.data.(objectNode); object {
+		return len(members) == 0
+	}
+	return true
+}
+
 // Equal compares typed native meaning, not source spelling or presentation.
 func (value Value) Equal(other Value) bool {
 	return equalNative(value, other)
@@ -116,64 +124,15 @@ func (value Value) Equal(other Value) bool {
 
 // Canonical returns versioned private value data, not host syntax or display
 // text. The zero Value has no encoding.
+// It is unbounded; operation-owned encoding uses CanonicalContext.
 func (value Value) Canonical() string {
 	if value.data == nil {
 		return ""
 	}
-	var result strings.Builder
-	result.WriteString("v1:")
-	appendCanonical(&result, value)
-	return result.String()
-}
-
-func appendCanonical(result *strings.Builder, value Value) {
-	result.WriteByte('[')
-	switch node := value.data.(type) {
-	case nullNode:
-		result.WriteString(`"null"`)
-	case boolNode:
-		result.WriteString(`"bool",`)
-		result.WriteString(strconv.FormatBool(bool(node)))
-	case stringNode:
-		result.WriteString(`"string",`)
-		result.Write(hujson.String(string(node)))
-	case jsonNumberNode:
-		result.WriteString(`"json-number",`)
-		result.Write(hujson.String(string(node)))
-	case integerNode:
-		result.WriteString(`"integer",`)
-		result.Write(hujson.String(strconv.FormatInt(int64(node), 10)))
-	case floatNode:
-		result.WriteString(`"float",`)
-		result.Write(hujson.String(canonicalFloat(float64(node))))
-	case temporalNode:
-		result.Write(hujson.String(node.kind))
-		result.WriteByte(',')
-		result.Write(hujson.String(node.text))
-	case arrayNode:
-		result.WriteString(`"array",[`)
-		for index, child := range node {
-			if index > 0 {
-				result.WriteByte(',')
-			}
-			appendCanonical(result, child)
-		}
-		result.WriteByte(']')
-	case objectNode:
-		result.WriteString(`"object",[`)
-		for index, member := range node {
-			if index > 0 {
-				result.WriteByte(',')
-			}
-			result.WriteByte('[')
-			result.Write(hujson.String(member.key))
-			result.WriteByte(',')
-			appendCanonical(result, member.value)
-			result.WriteByte(']')
-		}
-		result.WriteByte(']')
-	}
-	result.WriteByte(']')
+	encoder := canonicalEncoder{ctx: context.Background()}
+	encoder.raw("v1:")
+	encoder.encode(value, 0)
+	return encoder.buffer.String()
 }
 
 func canonicalFloat(value float64) string {
@@ -201,7 +160,7 @@ func DecodeValue(ctx context.Context, syntax Syntax, canonical string, limits Li
 	if err := syntax.validate(); err != nil {
 		return Value{}, err
 	}
-	if err := limits.validate(); err != nil {
+	if err := limits.Validate(); err != nil {
 		return Value{}, err
 	}
 	if int64(len(canonical)) > limits.MaximumBytes {
@@ -215,7 +174,11 @@ func DecodeValue(ctx context.Context, syntax Syntax, canonical string, limits Li
 	if err != nil {
 		return Value{}, err
 	}
-	if value.Canonical() != canonical {
+	encoded, err := value.CanonicalContext(ctx, limits)
+	if err != nil {
+		return Value{}, err
+	}
+	if encoded != canonical {
 		return Value{}, fmt.Errorf("%w: noncanonical encoding", ErrInvalidValue)
 	}
 	return value, nil

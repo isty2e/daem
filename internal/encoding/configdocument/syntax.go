@@ -62,7 +62,7 @@ type Limits struct {
 	MaximumDepth int
 }
 
-func (limits Limits) validate() error {
+func (limits Limits) Validate() error {
 	if limits.MaximumBytes <= 0 || limits.MaximumDepth <= 0 {
 		return fmt.Errorf("positive native configuration byte and depth limits are required")
 	}
