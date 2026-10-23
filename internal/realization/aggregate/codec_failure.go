@@ -2,6 +2,8 @@ package aggregate
 
 import (
 	"fmt"
+
+	"github.com/isty2e/daem/internal/output"
 )
 
 // CodecFailureReason identifies one redaction-safe codec failure class.
@@ -19,36 +21,36 @@ const (
 	CodecFailureCanonicalInvalid         CodecFailureReason = "canonical_contribution_invalid"
 )
 
-// CodecFailure is a typed failure without raw host bytes or secret values.
+// CodecFailure is a typed failure without raw host bytes or values. A root
+// location is document-wide; it grants no output ownership.
 type CodecFailure struct {
-	reason      CodecFailureReason
-	contentPath ContentPath
+	reason   CodecFailureReason
+	location output.KeyPath
 }
 
-// NewCodecFailure constructs a redaction-safe typed codec error.
-func NewCodecFailure(reason CodecFailureReason, contentPath ContentPath) (*CodecFailure, error) {
-	if !reason.valid() {
-		return nil, fmt.Errorf("unsupported aggregate codec failure reason %q", reason)
+func NewCodecFailure(reason CodecFailureReason, location output.KeyPath) (*CodecFailure, error) {
+	failure := CodecFailure{reason: reason, location: location}
+	if err := failure.Validate(); err != nil {
+		return nil, err
 	}
-	if contentPath != "" {
-		if _, err := ParseContentPath(string(contentPath)); err != nil {
-			return nil, err
-		}
-	}
-	return &CodecFailure{reason: reason, contentPath: contentPath}, nil
+	return &failure, nil
+}
+
+func (failure CodecFailure) Validate() error {
+	return failure.reason.validate()
 }
 
 func (failure CodecFailure) Error() string {
-	if failure.contentPath == "" {
+	if failure.location.IsRoot() {
 		return fmt.Sprintf("aggregate codec %s", failure.reason)
 	}
-	return fmt.Sprintf("aggregate codec %s at %s", failure.reason, failure.contentPath)
+	return fmt.Sprintf("aggregate codec %s at %q", failure.reason, failure.location.String())
 }
 
 func (failure CodecFailure) Reason() CodecFailureReason { return failure.reason }
-func (failure CodecFailure) ContentPath() ContentPath   { return failure.contentPath }
+func (failure CodecFailure) Location() output.KeyPath   { return failure.location }
 
-func (reason CodecFailureReason) valid() bool {
+func (reason CodecFailureReason) validate() error {
 	switch reason {
 	case CodecFailureDocumentMalformed,
 		CodecFailureDuplicateKey,
@@ -59,8 +61,8 @@ func (reason CodecFailureReason) valid() bool {
 		CodecFailureEquivalenceUndefined,
 		CodecFailurePreservationUndefined,
 		CodecFailureCanonicalInvalid:
-		return true
+		return nil
 	default:
-		return false
+		return fmt.Errorf("unsupported aggregate codec failure reason %q", reason)
 	}
 }

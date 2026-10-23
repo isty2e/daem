@@ -490,7 +490,7 @@ func mcpCodecFailure(
 			reason = aggregate.CodecFailurePreservationUndefined
 		}
 	}
-	failure, failureErr := aggregate.NewCodecFailure(reason, contentPath)
+	failure, failureErr := aggregate.NewCodecFailureFromLegacy(reason, contentPath)
 	if failureErr != nil {
 		panic(failureErr)
 	}

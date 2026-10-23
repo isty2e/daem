@@ -304,7 +304,7 @@ func aggregateConstraintObservationFailure(
 	if err != nil {
 		t.Fatal(err)
 	}
-	failure, err := aggregate.NewCodecFailure(
+	failure, err := aggregate.NewCodecFailureFromLegacy(
 		aggregate.CodecFailureSelectedShapeUnsupported,
 		outputtest.LegacyContentPath(t, contracts[0].Address()),
 	)

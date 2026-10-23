@@ -36,7 +36,7 @@ func TestMCPCodecRefusesNativeScopeOutsideItsLegacyContract(t *testing.T) {
 		t.Fatal("fixture has no MCP codec")
 	}
 	_, failure := codec.Read(aggregate.ExistingDocument([]byte(`{"mcpServers":{}}`)), selection)
-	if failure == nil || failure.Reason() != aggregate.CodecFailureSelectedShapeUnsupported || failure.ContentPath() != "" {
+	if failure == nil || failure.Reason() != aggregate.CodecFailureSelectedShapeUnsupported || !failure.Location().IsRoot() {
 		t.Fatalf("legacy MCP codec did not refuse the native scope at the document boundary: %v", failure)
 	}
 }

@@ -266,7 +266,7 @@ func TestAggregatePlannerClassifiesFailedUnmanagedObservationByAdoptionPolicy(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	codecFailure, err := aggregate.NewCodecFailure(
+	codecFailure, err := aggregate.NewCodecFailureFromLegacy(
 		aggregate.CodecFailureSelectedShapeUnsupported,
 		outputtest.LegacyContentPath(t, contract.Address()),
 	)
@@ -759,7 +759,7 @@ func TestAggregatePlannerPreservesLockBlockersAcrossObservationFailure(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	codecFailure, err := aggregate.NewCodecFailure(
+	codecFailure, err := aggregate.NewCodecFailureFromLegacy(
 		aggregate.CodecFailureSelectedShapeUnsupported,
 		outputtest.LegacyContentPath(t, desired[0].Contribution().Contract().Address()),
 	)

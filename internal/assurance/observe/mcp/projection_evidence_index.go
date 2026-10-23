@@ -91,13 +91,9 @@ func (index aggregateObservationIndex) projection(
 		if !covered {
 			return aggregateProjectionObservation{}, fmt.Errorf("failed observation does not cover locked projection")
 		}
-		contentPath, err := contract.Address().LegacyContentPath()
-		if err != nil {
-			return aggregateProjectionObservation{}, err
-		}
 		reason := failure.Reason()
-		if failure.ContentPath() != "" &&
-			failure.ContentPath() != contentPath {
+		if !failure.Location().IsRoot() &&
+			failure.Location() != contract.Address().KeyPath() {
 			reason = aggregate.CodecFailureEquivalenceUndefined
 		}
 		return aggregateProjectionObservation{

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -18,10 +19,9 @@ type AggregateEvidence struct {
 // AggregateObservationFailure is one fresh document read whose selected codec
 // observation could not produce exact AggregateEvidence.
 type AggregateObservationFailure struct {
-	document    aggregate.Document
-	selection   aggregate.Selection
-	reason      aggregate.CodecFailureReason
-	contentPath aggregate.ContentPath
+	document  aggregate.Document
+	selection aggregate.Selection
+	failure   aggregate.CodecFailure
 }
 
 // AggregatePreconditionEvidence is one fresh observation of a static
@@ -94,18 +94,13 @@ func NewAggregateObservationFailure(
 	} else if fileMode != 0 {
 		return AggregateObservationFailure{}, fmt.Errorf("absent aggregate failed observation cannot carry file mode")
 	}
-	canonicalFailure, err := aggregate.NewCodecFailure(
-		failure.Reason(),
-		failure.ContentPath(),
-	)
-	if err != nil {
+	if err := failure.Validate(); err != nil {
 		return AggregateObservationFailure{}, err
 	}
 	return AggregateObservationFailure{
-		document:    document,
-		selection:   canonicalSelection,
-		reason:      canonicalFailure.Reason(),
-		contentPath: canonicalFailure.ContentPath(),
+		document:  document,
+		selection: canonicalSelection,
+		failure:   *failure,
 	}, nil
 }
 
@@ -123,19 +118,15 @@ func (failure AggregateObservationFailure) Selection() aggregate.Selection {
 }
 
 func (failure AggregateObservationFailure) Reason() aggregate.CodecFailureReason {
-	return failure.reason
+	return failure.failure.Reason()
 }
 
-func (failure AggregateObservationFailure) ContentPath() aggregate.ContentPath {
-	return failure.contentPath
+func (failure AggregateObservationFailure) Location() output.KeyPath {
+	return failure.failure.Location()
 }
 
 func (failure AggregateObservationFailure) Error() string {
-	codecFailure, _ := aggregate.NewCodecFailure(
-		failure.reason,
-		failure.contentPath,
-	)
-	return codecFailure.Error()
+	return failure.failure.Error()
 }
 
 // NewAggregatePreconditionEvidence constructs one codec-correlated fresh
