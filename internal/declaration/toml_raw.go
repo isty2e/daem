@@ -17,6 +17,7 @@ type Manifest struct {
 	Instructions map[string]Instructions `toml:"instructions"`
 	MCPServers   []MCPServer             `toml:"mcp_server"`
 	Extensions   []Extension             `toml:"extension"`
+	HostConfigs  []HostConfig            `toml:"host_config"`
 }
 
 type Defaults struct {
@@ -175,6 +176,32 @@ func (source ExtensionSource) Ref() string {
 		return source.HostSource
 	}
 	return source.Marketplace
+}
+
+type HostConfig struct {
+	ID        string           `toml:"id"`
+	Targets   []string         `toml:"targets"`
+	Scope     string           `toml:"scope"`
+	Path      string           `toml:"path"`
+	Source    HostConfigSource `toml:"source"`
+	Ownership string           `toml:"ownership"`
+	Syntax    string           `toml:"syntax"`
+}
+
+type HostConfigSource struct {
+	Source Source
+	Set    bool
+}
+
+func (source *HostConfigSource) UnmarshalTOML(value any) error {
+	source.Set = true
+
+	raw, err := SourceFromTOMLValue(value)
+	if err != nil {
+		return err
+	}
+	source.Source = raw
+	return nil
 }
 
 type Instructions struct {

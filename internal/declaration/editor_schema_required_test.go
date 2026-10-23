@@ -146,6 +146,13 @@ carrier = "pi-package"
 scope = "project"
 source = { host_source = "npm:@acme/tooling@1.2.3" }
 `
+	const hostConfig = `version = 1
+targets = ["pi"]
+[[host_config]]
+id = "settings"
+path = "settings.json"
+source = "/missing/settings.json"
+`
 	witnesses := map[string][]editorOmissionWitness{
 		"$":                            {{content: codex}},
 		"$.skill[*]":                   {{content: skill, indices: []int{0}}},
@@ -158,6 +165,7 @@ source = { host_source = "npm:@acme/tooling@1.2.3" }
 		"$.mcp_server[*].command":      {{content: mcp, indices: []int{0}}, {content: ambient, indices: []int{0}}},
 		"$.mcp_server[*].env.*":        {{content: mcp, indices: []int{0}, keys: []string{"TOKEN"}}},
 		"$.extension[*]":               {{content: extension, indices: []int{0}}},
+		"$.host_config[*]":             {{content: hostConfig, indices: []int{0}}},
 	}
 
 	for site, candidates := range witnesses {
