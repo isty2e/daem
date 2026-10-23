@@ -98,12 +98,13 @@ do not rewrite/delete them; the next state-changing guarded write uses current
 schema. Missing, null, populated or unknown fields remain blocked. Fields
 require exact ASCII `lower_snake_case`; `CLAIMS` is not an alias.
 
-Every pre-v14 journal is blocked, never rewritten or adopted. Version 13 lacks
-the current tagged ownership footprint. Earlier versions also lack recovery
-authority: v12 removal-demand coverage, v10 durable Linux mount identity, v9
-transition foreign key/global-root binding, or v8's transaction contract.
-Ordinarily recover with the writer before upgrading, but **v10 requires the
-continuity check below**.
+Every pre-v15 journal is blocked, never rewritten or adopted. Version 14 used
+the previous canonical state encoding for authority fingerprints. Version 13
+lacks the current tagged ownership footprint. Earlier versions also lack
+recovery authority: v12 removal-demand coverage, v10 durable Linux mount
+identity, v9 transition foreign key/global-root binding, or v8's transaction
+contract. Ordinarily recover with the writer before upgrading, but **v10
+requires the continuity check below**.
 
 Do not unconditionally open a v10 journal with its old writer. That writer can
 authorize Linux recovery with a reusable mount witness that lacks the current

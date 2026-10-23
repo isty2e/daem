@@ -60,9 +60,6 @@ func Decode(content []byte) (durable.Snapshot, error) {
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	if version != snapshotVersion && version != legacySnapshotVersion {
-		return durable.Snapshot{}, unsupportedStatefileVersion(version)
-	}
 	return decodeSupported(content, version)
 }
 
@@ -72,10 +69,8 @@ func decodePersisted(content []byte) (durable.Snapshot, error) {
 		return durable.Snapshot{}, err
 	}
 	switch version {
-	case snapshotVersion:
-		return decodeSupported(content, snapshotVersion)
-	case legacySnapshotVersion:
-		return decodeSupported(content, legacySnapshotVersion)
+	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion:
+		return decodeSupported(content, version)
 	case retiredStatefileVersion:
 		return decodeRetiredStatefile(content)
 	default:
@@ -91,7 +86,18 @@ func statefileDocumentVersion(content []byte) (int, error) {
 }
 
 func decodeSupported(content []byte, version int) (durable.Snapshot, error) {
-	var persisted snapshotDTO
+	switch version {
+	case snapshotVersion:
+		return decodeSnapshotDocument[managedAggregateV10DTO](content, version)
+	case previousSnapshotVersion, legacySnapshotVersion:
+		return decodeSnapshotDocument[legacyManagedAggregateDTO](content, version)
+	default:
+		return durable.Snapshot{}, unsupportedStatefileVersion(version)
+	}
+}
+
+func decodeSnapshotDocument[Aggregate aggregateStateRecord](content []byte, version int) (durable.Snapshot, error) {
+	var persisted snapshotDocumentDTO[Aggregate]
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&persisted); err != nil {
@@ -127,10 +133,7 @@ func Marshal(snapshot durable.Snapshot) ([]byte, error) {
 	if err := validateSnapshotForPersistence(snapshot); err != nil {
 		return nil, err
 	}
-	persisted, err := persistedSnapshot(snapshot)
-	if err != nil {
-		return nil, err
-	}
+	persisted := persistedSnapshot(snapshot)
 	content, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
 		return nil, err

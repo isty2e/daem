@@ -1,7 +1,6 @@
 package statefile
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -14,11 +13,11 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
-func persistedSnapshot(snapshot durable.Snapshot) (snapshotDTO, error) {
+func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
 	persisted := snapshotDTO{
 		Version:                   snapshotVersion,
 		ManagedPaths:              make([]managedPathDTO, 0, len(snapshot.ManagedPaths())),
-		ManagedAggregateBaselines: make([]managedAggregateDTO, 0, len(snapshot.ManagedAggregates())),
+		ManagedAggregateBaselines: make([]managedAggregateV10DTO, 0, len(snapshot.ManagedAggregates())),
 		PendingCarrierInstalls:    make([]pendingCarrierInstallDTO, 0, len(snapshot.PendingCarrierInstalls())),
 		PendingCarrierRemovals:    make([]pendingCarrierRemovalDTO, 0, len(snapshot.PendingCarrierRemovals())),
 		ManagedCarrierClaims:      make([]managedCarrierClaimDTO, 0, len(snapshot.ManagedCarrierClaims())),
@@ -48,19 +47,15 @@ func persistedSnapshot(snapshot durable.Snapshot) (snapshotDTO, error) {
 	}
 	for _, state := range snapshot.ManagedAggregates() {
 		contribution := state.Contribution()
-		contentPath, err := contribution.LegacyContentPath()
-		if err != nil {
-			return snapshotDTO{}, fmt.Errorf("legacy state aggregate scope: %w", err)
-		}
 		persisted.ManagedAggregateBaselines = append(
 			persisted.ManagedAggregateBaselines,
-			managedAggregateDTO{
+			managedAggregateV10DTO{
 				Subject:               persistedSubject(state.Subject()),
 				PlacementID:           contribution.PlacementID(),
 				Target:                string(contribution.Target()),
 				Scope:                 string(contribution.Scope()),
 				AggregateRoot:         contribution.AggregateRoot().String(),
-				ContentPath:           contentPath,
+				KeyPath:               contribution.Address().KeyPath().String(),
 				MergeUnit:             string(contribution.MergeUnit()),
 				Cardinality:           string(contribution.Cardinality()),
 				SiblingRetention:      string(contribution.SiblingRetention()),
@@ -148,7 +143,7 @@ func persistedSnapshot(snapshot durable.Snapshot) (snapshotDTO, error) {
 			Redacted: attempt.Redacted(),
 		})
 	}
-	return persisted, nil
+	return persisted
 }
 
 func persistedEffectBaselines(

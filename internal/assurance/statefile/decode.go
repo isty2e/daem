@@ -30,7 +30,7 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-func (persisted snapshotDTO) canonical(version int) (durable.Snapshot, error) {
+func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int) (durable.Snapshot, error) {
 	if persisted.ManagedPaths == nil ||
 		persisted.ManagedAggregateBaselines == nil ||
 		persisted.PendingCarrierInstalls == nil ||
@@ -151,7 +151,10 @@ func (persisted managedPathDTO) canonical() (durable.ManagedPathState, error) {
 	)
 }
 
-func (persisted managedAggregateDTO) canonical() (durable.ManagedAggregateState, error) {
+func (persisted legacyManagedAggregateDTO) canonical() (durable.ManagedAggregateState, error) {
+	if _, native := aggregate.HostConfigSyntaxForCodec(aggregate.CodecContractID(persisted.CodecContractID)); native {
+		return durable.ManagedAggregateState{}, fmt.Errorf("native host-config family requires statefile v10")
+	}
 	subject, err := persisted.Subject.canonical()
 	if err != nil {
 		return durable.ManagedAggregateState{}, err
@@ -391,7 +394,7 @@ func (persisted delegateAttemptDTO) canonical(
 func (persisted delegateAttemptDTO) attemptFacts(
 	version int,
 ) (bool, durableattempt.DelegateProcessReason, error) {
-	if version == snapshotVersion {
+	if version == snapshotVersion || version == previousSnapshotVersion {
 		if persisted.AttemptObserved == nil {
 			return false, "", fmt.Errorf("attempt_observed is required")
 		}
@@ -479,7 +482,7 @@ func (persisted hostRouteAttemptDTO) canonical(
 func (persisted hostRouteAttemptDTO) canonicalAttemptReason(
 	version int,
 ) durableattempt.HostRouteAttemptReason {
-	if version == snapshotVersion {
+	if version == snapshotVersion || version == previousSnapshotVersion {
 		return durableattempt.HostRouteAttemptReason(persisted.AttemptReason)
 	}
 	const retiredWorkDirAuthorityReason = "workdir_authority"

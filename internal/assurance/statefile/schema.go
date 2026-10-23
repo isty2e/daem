@@ -1,14 +1,15 @@
 package statefile
 
 const (
-	snapshotVersion       = 9
-	legacySnapshotVersion = 8
+	snapshotVersion         = 10
+	previousSnapshotVersion = 9
+	legacySnapshotVersion   = 8
 )
 
-type snapshotDTO struct {
+type snapshotDocumentDTO[Aggregate aggregateStateRecord] struct {
 	Version                   int                        `json:"version"`
 	ManagedPaths              []managedPathDTO           `json:"managed_paths"`
-	ManagedAggregateBaselines []managedAggregateDTO      `json:"managed_aggregate_contributions"`
+	ManagedAggregateBaselines []Aggregate                `json:"managed_aggregate_contributions"`
 	PendingCarrierInstalls    []pendingCarrierInstallDTO `json:"pending_carrier_installs"`
 	PendingCarrierRemovals    []pendingCarrierRemovalDTO `json:"pending_carrier_removals"`
 	ManagedCarrierClaims      []managedCarrierClaimDTO   `json:"managed_carrier_claims"`
@@ -33,7 +34,7 @@ type managedPathDTO struct {
 	FileMode         *uint32    `json:"file_mode,omitempty"`
 }
 
-type managedAggregateDTO struct {
+type legacyManagedAggregateDTO struct {
 	Subject               subjectDTO `json:"subject"`
 	PlacementID           string     `json:"placement_id"`
 	Target                string     `json:"target"`

@@ -23,8 +23,12 @@ package/cache convergence, runtime health, tool inventory, credentials or trust.
 
 Host-route diagnostics retain only the latest request per subject, target,
 scope and route id; a changed request hash replaces the prior diagnostic.
-Statefile v9 separates mechanical process reason from post-attempt working-
-directory authority. Daem reads v8's legacy combined reason and writes v9.
+Mechanical process reasons and post-attempt working-directory authority are
+separate facts. The v8 reader translates the older combined reason.
+
+Statefile v10 records aggregate key paths as RFC 6901 `key_path` values. Daem
+reads v8 and v9 without rewriting them; subsequent state writes use v10.
+Older binaries cannot read v10.
 
 The statefile is private authority data. Daem writes and accepts it only as an
 invoking-user-owned regular file with exact mode `0600`; final symlinks,

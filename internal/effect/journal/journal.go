@@ -46,7 +46,8 @@ func recoveryJournalRecordFingerprint(content []byte) string {
 const (
 	maximumRecoveryJournalBytes int64 = 64 << 20
 	recoveryJournalMode               = 0o600
-	recoveryJournalVersion            = 14
+	// Journal versions bind the canonical state encoding used by authority hashes.
+	recoveryJournalVersion = 15
 
 	maximumRecoveryJournalJSONDepth = 64
 )

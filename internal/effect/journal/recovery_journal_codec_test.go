@@ -368,9 +368,7 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 		{
 			name: "old nested state version",
 			mutate: func(candidate *recoveryJournalDTO) {
-				candidate.StatefileBefore = json.RawMessage(
-					strings.Replace(string(validBefore), `"version": 9`, `"version": 1`, 1),
-				)
+				candidate.StatefileBefore = setNestedStateField(t, validBefore, "version", json.RawMessage(`1`))
 			},
 			want: "statefile_before: unsupported statefile version 1",
 		},
@@ -393,9 +391,7 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 		{
 			name: "duplicate nested state key",
 			mutate: func(candidate *recoveryJournalDTO) {
-				candidate.StatefileBefore = json.RawMessage(
-					strings.Replace(string(validBefore), `"version": 9`, `"version": 9, "version": 9`, 1),
-				)
+				candidate.StatefileBefore = append(json.RawMessage(`{"version":0,`), bytes.TrimSpace(validBefore)[1:]...)
 			},
 			want: "duplicate object key",
 		},
@@ -409,9 +405,7 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 		{
 			name: "unknown nested state field",
 			mutate: func(candidate *recoveryJournalDTO) {
-				candidate.StatefileBefore = json.RawMessage(
-					strings.Replace(string(validBefore), `"version": 9`, `"version": 9, "ready": true`, 1),
-				)
+				candidate.StatefileBefore = setNestedStateField(t, validBefore, "ready", json.RawMessage(`true`))
 			},
 			want: "unknown field",
 		},
