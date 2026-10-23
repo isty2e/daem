@@ -111,7 +111,7 @@ func (value Value) IsArray() bool { _, ok := value.data.(arrayNode); return ok }
 
 // Equal compares typed native meaning, not source spelling or presentation.
 func (value Value) Equal(other Value) bool {
-	return value.data != nil && other.data != nil && value.Canonical() == other.Canonical()
+	return equalNative(value, other)
 }
 
 // Canonical returns versioned private value data, not host syntax or display
