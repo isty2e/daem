@@ -77,28 +77,15 @@ func (document Document) Comments() []string { return slices.Clone(document.comm
 // Lookup traverses object properties only. An array or scalar ancestor is a
 // conflict, not an absent property that an edit may silently replace.
 func (document Document) Lookup(path output.KeyPath) (Value, bool, error) {
-	if document.root.data == nil {
-		return Value{}, false, ErrInvalidDocument
+	resolution, err := document.Resolve(path)
+	if err != nil {
+		return Value{}, false, err
 	}
-	if !document.exists {
-		return Value{}, false, nil
+	if _, blocked := resolution.BlockedBy(); blocked {
+		return Value{}, false, ErrPathConflict
 	}
-	return lookup(document.root, path.Segments())
-}
-
-func lookup(value Value, keys []string) (Value, bool, error) {
-	for _, key := range keys {
-		members, ok := value.data.(objectNode)
-		if !ok {
-			return Value{}, false, ErrPathConflict
-		}
-		index, found := memberIndex(members, key)
-		if !found {
-			return Value{}, false, nil
-		}
-		value = members[index].value
-	}
-	return value, true, nil
+	value, present := resolution.Value()
+	return value, present, nil
 }
 
 func memberIndex(members objectNode, key string) (int, bool) {
