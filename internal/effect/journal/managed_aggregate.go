@@ -159,12 +159,18 @@ func validateAggregateMutationTransition(kind AggregateMutationKind, beforePrese
 }
 
 func pathMutationFromAggregate(mutation ManagedAggregateMutation) (pathMutation, error) {
+	beforeState, _ := mutation.snapshot.State(mutation.contract)
+	expectedState, _ := mutation.expected.Expected().State(mutation.contract)
+	_, beforeBlocked := beforeState.BlockedBy()
+	_, expectedBlocked := expectedState.BlockedBy()
+	if beforeBlocked || expectedBlocked {
+		return pathMutation{}, fmt.Errorf("legacy aggregate journal cannot encode blocked key observations")
+	}
+
 	contentPath, err := mutation.contract.Address().LegacyContentPath()
 	if err != nil {
 		return pathMutation{}, err
 	}
-	beforeState, _ := mutation.snapshot.State(mutation.contract)
-	expectedState, _ := mutation.expected.Expected().State(mutation.contract)
 	expectedDocument := mutation.expected.Document()
 	expectedPathMode := os.FileMode(0)
 	if expectedDocument.Exists() {

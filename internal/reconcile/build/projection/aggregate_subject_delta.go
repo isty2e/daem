@@ -291,10 +291,7 @@ func aggregateProjectionStatesEqual(
 	left aggregate.ProjectionState,
 	right aggregate.ProjectionState,
 ) bool {
-	return left.Contract().Equal(right.Contract()) &&
-		left.ParentPresent() == right.ParentPresent() &&
-		left.Present() == right.Present() &&
-		left.CanonicalProjection() == right.CanonicalProjection()
+	return left.Equal(right)
 }
 
 func aggregateSubjectDeltaMutatesState(delta aggregateSubjectDelta) bool {

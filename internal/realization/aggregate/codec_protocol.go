@@ -85,6 +85,7 @@ type ProjectionState struct {
 	parentPresent       bool
 	present             bool
 	canonicalProjection string
+	blockingAncestor    output.KeyPath
 }
 
 // NewProjectionState constructs one selected codec observation.
@@ -110,6 +111,19 @@ func NewProjectionState(
 func (state ProjectionState) Validate() error {
 	if err := state.contract.Validate(); err != nil {
 		return err
+	}
+	if !state.blockingAncestor.IsRoot() {
+		if _, native := HostConfigSyntaxForCodec(state.contract.CodecContractID()); !native {
+			return fmt.Errorf("blocked projection requires a native codec contract")
+		}
+		key := state.contract.address.KeyPath()
+		if state.blockingAncestor == key || !state.blockingAncestor.Contains(key) {
+			return fmt.Errorf("blocked native projection requires a strict ancestor")
+		}
+		if state.present || state.canonicalProjection != "" || !state.parentPresent {
+			return fmt.Errorf("blocked native projection has contradictory selected state")
+		}
+		return nil
 	}
 	if !state.present {
 		if state.canonicalProjection != "" {
@@ -172,7 +186,11 @@ func NewSnapshot(documentExisted bool, selection Selection, states []ProjectionS
 		}
 		canonical = append(canonical, cloneProjectionState(state))
 	}
-	return Snapshot{documentExisted: documentExisted, states: canonical}, nil
+	snapshot := Snapshot{documentExisted: documentExisted, states: canonical}
+	if err := snapshot.validateBlockingAncestors(); err != nil {
+		return Snapshot{}, err
+	}
+	return snapshot, nil
 }
 
 func (snapshot Snapshot) DocumentExisted() bool { return snapshot.documentExisted }
@@ -385,9 +403,7 @@ func NewRestoredDocumentWithExpected(
 	baselineStates := baseline.States()
 	expectedStates := expected.States()
 	for index := range baselineStates {
-		if !baselineStates[index].Contract().Equal(expectedStates[index].Contract()) ||
-			baselineStates[index].Present() != expectedStates[index].Present() ||
-			baselineStates[index].CanonicalProjection() != expectedStates[index].CanonicalProjection() {
+		if !baselineStates[index].selectedValueEqual(expectedStates[index]) {
 			return RenderedDocument{}, fmt.Errorf(
 				"restored document expected projection[%d] differs from baseline",
 				index,
@@ -418,10 +434,7 @@ func cloneProjectionIntent(intent ProjectionIntent) ProjectionIntent {
 }
 
 func projectionStatesEqual(left ProjectionState, right ProjectionState) bool {
-	return left.contract.Equal(right.contract) &&
-		left.parentPresent == right.parentPresent &&
-		left.present == right.present &&
-		left.canonicalProjection == right.canonicalProjection
+	return left.Equal(right)
 }
 
 func selectionsEqual(left Selection, right Selection) bool {

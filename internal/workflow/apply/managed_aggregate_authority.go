@@ -67,6 +67,7 @@ type aggregateProjectionStateFingerprintFacts struct {
 	ParentPresent bool
 	Present       bool
 	CanonicalHash string
+	BlockedBy     string `json:",omitempty"`
 }
 
 type aggregateContributionFingerprintFacts struct {
@@ -157,8 +158,9 @@ func aggregateProjectionStateFingerprint(
 	if state.Present() {
 		hash = string(artifact.HashFileContent([]byte(state.CanonicalProjection())))
 	}
+	ancestor, _ := state.BlockedBy()
 	return aggregateProjectionStateFingerprintFacts{
-		ParentPresent: state.ParentPresent(), Present: state.Present(), CanonicalHash: hash,
+		ParentPresent: state.ParentPresent(), Present: state.Present(), CanonicalHash: hash, BlockedBy: ancestor.String(),
 	}
 }
 
