@@ -73,8 +73,8 @@ type ProjectionAddress struct {
 	contentPath ContentPath
 }
 
-// ManagedContributionInput carries one subject's locked aggregate realization.
-type ManagedContributionInput struct {
+// LegacyManagedContributionInput uses the frozen slash-delimited aggregate address grammar.
+type LegacyManagedContributionInput struct {
 	PlacementID           string
 	Target                target.Target
 	Scope                 target.Scope
@@ -113,8 +113,8 @@ type ProjectionContract struct {
 	comparedFields      []string
 }
 
-// NewManagedContribution constructs a validated aggregate realization body.
-func NewManagedContribution(input ManagedContributionInput) (ManagedContribution, error) {
+// NewManagedContributionFromLegacy validates legacy fields before canonical construction.
+func NewManagedContributionFromLegacy(input LegacyManagedContributionInput) (ManagedContribution, error) {
 	address, err := newProjectionAddress(
 		input.PlacementID,
 		input.Target,
@@ -126,15 +126,29 @@ func NewManagedContribution(input ManagedContributionInput) (ManagedContribution
 	if err != nil {
 		return ManagedContribution{}, fmt.Errorf("managed aggregate contribution: %w", err)
 	}
+	contract := ProjectionContract{
+		address:             address,
+		cardinality:         input.Cardinality,
+		siblingRetention:    input.SiblingRetention,
+		siblingPreservation: input.SiblingPreservation,
+		equivalence:         input.Equivalence,
+		codecContractID:     input.CodecContractID,
+		comparedFields:      canonicalTokenSet(input.ComparedFields),
+	}
+	return NewManagedContribution(contract, input.CanonicalContribution)
+}
+
+// NewManagedContribution binds desired content to a static projection contract.
+func NewManagedContribution(contract ProjectionContract, canonicalContent string) (ManagedContribution, error) {
 	contribution := ManagedContribution{
-		address:               address,
-		cardinality:           input.Cardinality,
-		siblingRetention:      input.SiblingRetention,
-		siblingPreservation:   input.SiblingPreservation,
-		equivalence:           input.Equivalence,
-		canonicalContribution: input.CanonicalContribution,
-		codecContractID:       input.CodecContractID,
-		comparedFields:        canonicalTokenSet(input.ComparedFields),
+		address:               contract.address,
+		cardinality:           contract.cardinality,
+		siblingRetention:      contract.siblingRetention,
+		siblingPreservation:   contract.siblingPreservation,
+		equivalence:           contract.equivalence,
+		canonicalContribution: canonicalContent,
+		codecContractID:       contract.codecContractID,
+		comparedFields:        append([]string(nil), contract.comparedFields...),
 	}
 	if err := contribution.Validate(); err != nil {
 		return ManagedContribution{}, err

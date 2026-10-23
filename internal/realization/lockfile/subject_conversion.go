@@ -262,7 +262,7 @@ func realizationFromDTO(dto *realizationDTO) (*realization.RealizationSpec, erro
 		if rootErr != nil {
 			return nil, rootErr
 		}
-		spec, err = realization.NewManagedAggregateContribution(aggregate.ManagedContributionInput{
+		spec, err = realization.NewManagedAggregateContributionFromLegacy(aggregate.LegacyManagedContributionInput{
 			PlacementID: body.PlacementID, Target: target.Target(body.Target), Scope: target.Scope(body.Scope),
 			AggregateRoot: aggregateRoot, ContentPath: body.ContentPath,
 			MergeUnit: aggregate.MergeUnit(body.MergeUnit), SiblingRetention: aggregate.SiblingRetention(body.SiblingRetention),

@@ -68,12 +68,21 @@ type RealizationSpec struct {
 	delegatedRelation     *DelegatedRelation
 }
 
-// NewManagedAggregateContribution constructs a sibling-preserving aggregate realization.
-func NewManagedAggregateContribution(input aggregate.ManagedContributionInput) (RealizationSpec, error) {
-	contribution, err := aggregate.NewManagedContribution(input)
+// NewManagedAggregateContributionFromLegacy admits a legacy aggregate input into the realization union.
+func NewManagedAggregateContributionFromLegacy(input aggregate.LegacyManagedContributionInput) (RealizationSpec, error) {
+	contribution, err := aggregate.NewManagedContributionFromLegacy(input)
 	if err != nil {
 		return RealizationSpec{}, err
 	}
+	return NewManagedAggregateContribution(contribution)
+}
+
+// NewManagedAggregateContribution retains a validated contribution in the realization union.
+func NewManagedAggregateContribution(contribution aggregate.ManagedContribution) (RealizationSpec, error) {
+	if err := contribution.Validate(); err != nil {
+		return RealizationSpec{}, err
+	}
+	contribution = contribution.Clone()
 	return RealizationSpec{kind: RealizationManagedAggregateContribution, aggregateContribution: &contribution}, nil
 }
 

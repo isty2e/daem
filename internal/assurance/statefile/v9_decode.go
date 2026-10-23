@@ -163,7 +163,7 @@ func (persisted managedAggregateDTO) canonical() (durable.ManagedAggregateState,
 	if err != nil {
 		return durable.ManagedAggregateState{}, err
 	}
-	contribution, err := aggregate.NewManagedContribution(aggregate.ManagedContributionInput{
+	contribution, err := aggregate.NewManagedContributionFromLegacy(aggregate.LegacyManagedContributionInput{
 		PlacementID:           persisted.PlacementID,
 		Target:                target.Target(persisted.Target),
 		Scope:                 target.Scope(persisted.Scope),

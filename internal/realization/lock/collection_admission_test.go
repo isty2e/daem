@@ -312,7 +312,7 @@ func testAggregateProjectionContractAtTarget(
 	codecContract aggregate.CodecContractID,
 ) LockedSubjectContract {
 	t.Helper()
-	realization, err := realization.NewManagedAggregateContribution(aggregate.ManagedContributionInput{
+	realization, err := realization.NewManagedAggregateContributionFromLegacy(aggregate.LegacyManagedContributionInput{
 		PlacementID: placementID, Target: selectedTarget, Scope: target.ScopeProject,
 		AggregateRoot: outputtest.Parse(t, "settings.json"), ContentPath: contentPath,
 		MergeUnit: "entry", Cardinality: cardinality,

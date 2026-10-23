@@ -659,7 +659,7 @@ func tamperedClaudeLockedProjection(
 	if !ok {
 		t.Fatal("locked subject is missing managed aggregate contribution")
 	}
-	tamperedRealization, err := realization.NewManagedAggregateContribution(aggregate.ManagedContributionInput{
+	tamperedRealization, err := realization.NewManagedAggregateContributionFromLegacy(aggregate.LegacyManagedContributionInput{
 		PlacementID:           contribution.PlacementID(),
 		Target:                contribution.Target(),
 		Scope:                 contribution.Scope(),
@@ -675,7 +675,7 @@ func tamperedClaudeLockedProjection(
 		ComparedFields:        contribution.ComparedFields(),
 	})
 	if err != nil {
-		t.Fatalf("NewManagedAggregateContribution: %v", err)
+		t.Fatalf("NewManagedAggregateContributionFromLegacy: %v", err)
 	}
 	delegatePlan, ok := record.DelegatePlan()
 	if !ok {

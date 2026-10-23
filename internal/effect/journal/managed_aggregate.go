@@ -237,7 +237,7 @@ func (persisted recoveryAggregateContract) canonical() (aggregate.ProjectionCont
 	if err != nil {
 		return aggregate.ProjectionContract{}, err
 	}
-	contribution, err := aggregate.NewManagedContribution(aggregate.ManagedContributionInput{
+	contribution, err := aggregate.NewManagedContributionFromLegacy(aggregate.LegacyManagedContributionInput{
 		PlacementID: persisted.PlacementID, Target: target.Target(persisted.Target), Scope: target.Scope(persisted.Scope),
 		AggregateRoot: aggregateRoot, ContentPath: persisted.ContentPath, MergeUnit: aggregate.MergeUnit(persisted.MergeUnit),
 		Cardinality:         aggregate.ContributionCardinality(persisted.Cardinality),

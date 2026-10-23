@@ -100,7 +100,7 @@ func (placement HookPlacement) Contribution(canonical string) (ManagedContributi
 	if err := placement.Validate(); err != nil {
 		return ManagedContribution{}, err
 	}
-	return NewManagedContribution(ManagedContributionInput{
+	return NewManagedContributionFromLegacy(LegacyManagedContributionInput{
 		PlacementID:           string(placement.id),
 		Target:                placement.target,
 		Scope:                 placement.scope,

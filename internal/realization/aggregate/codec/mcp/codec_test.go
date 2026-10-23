@@ -400,7 +400,7 @@ func mcpCodecContribution(
 	if err != nil {
 		t.Fatal(err)
 	}
-	contribution, err := aggregate.NewManagedContribution(aggregate.ManagedContributionInput{
+	contribution, err := aggregate.NewManagedContributionFromLegacy(aggregate.LegacyManagedContributionInput{
 		PlacementID:           string(placement.ID()),
 		Target:                placement.Target(),
 		Scope:                 placement.Scope(),
