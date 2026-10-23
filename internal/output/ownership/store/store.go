@@ -18,12 +18,13 @@ import (
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	footprintcodec "github.com/isty2e/daem/internal/encoding/footprint"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
 const (
-	currentVersion                    = 2
+	currentVersion                    = 3
 	maximumOwnershipRegistryBytes     = 16 << 20
 	maximumOwnershipRegistryJSONDepth = 64
 )
@@ -658,12 +659,12 @@ type file struct {
 }
 
 type claimRecord struct {
-	PathAuthority      pathAuthorityRecord `json:"path_authority"`
-	ContentPath        string              `json:"content_path,omitempty"`
-	StatefileAuthority pathAuthorityRecord `json:"statefile_authority"`
-	ManifestPath       string              `json:"manifest_path"`
-	State              string              `json:"state"`
-	OperationID        string              `json:"operation_id,omitempty"`
+	PathAuthority      pathAuthorityRecord   `json:"path_authority"`
+	Footprint          footprintcodec.Record `json:"footprint"`
+	StatefileAuthority pathAuthorityRecord   `json:"statefile_authority"`
+	ManifestPath       string                `json:"manifest_path"`
+	State              string                `json:"state"`
+	OperationID        string                `json:"operation_id,omitempty"`
 }
 
 type pathAuthorityRecord struct {
@@ -686,6 +687,8 @@ func decode(content []byte) (ownership.Registry, error) {
 	switch version {
 	case currentVersion:
 		return decodeCurrent(content)
+	case previousOwnershipRegistryVersion:
+		return decodeOwnershipRegistryV2(content)
 	case retiredOwnershipRegistryVersion:
 		return decodeRetiredOwnershipRegistry(content)
 	default:
@@ -695,16 +698,8 @@ func decode(content []byte) (ownership.Registry, error) {
 
 func decodeCurrent(content []byte) (ownership.Registry, error) {
 	var persisted file
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&persisted); err != nil {
-		return ownership.Registry{}, fmt.Errorf("decode ownership registry: %w", err)
-	}
-	var extra json.RawMessage
-	if err := decoder.Decode(&extra); err == nil {
-		return ownership.Registry{}, fmt.Errorf("ownership registry contains multiple JSON values")
-	} else if err != io.EOF {
-		return ownership.Registry{}, fmt.Errorf("decode ownership registry trailer: %w", err)
+	if err := decodeRegistryJSON(content, &persisted); err != nil {
+		return ownership.Registry{}, err
 	}
 	if persisted.Version != currentVersion {
 		return ownership.Registry{}, unsupportedOwnershipRegistryVersion(persisted.Version)
@@ -712,24 +707,40 @@ func decodeCurrent(content []byte) (ownership.Registry, error) {
 	if persisted.Claims == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry requires claims array")
 	}
+	return decodeRegistryClaims(persisted.Claims)
+}
 
-	claims := make([]ownership.Claim, 0, len(persisted.Claims))
-	for index, record := range persisted.Claims {
-		path, err := pathauthority.NewExact(
-			record.PathAuthority.Key,
-			record.PathAuthority.Witness,
-		)
+func decodeRegistryJSON(content []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("decode ownership registry: %w", err)
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err == nil {
+		return fmt.Errorf("ownership registry contains multiple JSON values")
+	} else if err != io.EOF {
+		return fmt.Errorf("decode ownership registry trailer: %w", err)
+	}
+	return nil
+}
+
+func decodeRegistryClaims(records []claimRecord) (ownership.Registry, error) {
+	claims := make([]ownership.Claim, 0, len(records))
+	for index, record := range records {
+		path, err := pathauthority.NewExact(record.PathAuthority.Key, record.PathAuthority.Witness)
 		if err != nil {
 			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] path authority: %w", index, err)
 		}
-		address, err := ownership.NewManagedAddress(path, record.ContentPath)
+		footprint, err := footprintcodec.Decode(record.Footprint)
+		if err != nil {
+			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] footprint: %w", index, err)
+		}
+		address, err := ownership.NewManagedAddress(path, footprint)
 		if err != nil {
 			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] address: %w", index, err)
 		}
-		statefile, err := pathauthority.NewExact(
-			record.StatefileAuthority.Key,
-			record.StatefileAuthority.Witness,
-		)
+		statefile, err := pathauthority.NewExact(record.StatefileAuthority.Key, record.StatefileAuthority.Witness)
 		if err != nil {
 			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] statefile authority: %w", index, err)
 		}
@@ -797,12 +808,16 @@ func encode(registry ownership.Registry) ([]byte, error) {
 	for _, claim := range claims {
 		path := claim.Address().PathAuthority()
 		statefile := claim.Owner().StatefileAuthority()
+		footprint, err := footprintcodec.Encode(claim.Address().Footprint())
+		if err != nil {
+			return nil, err
+		}
 		persisted.Claims = append(persisted.Claims, claimRecord{
 			PathAuthority: pathAuthorityRecord{
 				Key:     path.Key(),
 				Witness: path.Witness(),
 			},
-			ContentPath: claim.Address().ContentPath(),
+			Footprint: footprint,
 			StatefileAuthority: pathAuthorityRecord{
 				Key:     statefile.Key(),
 				Witness: statefile.Witness(),

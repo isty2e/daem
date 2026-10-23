@@ -37,7 +37,7 @@ func TestBuildPreservesForeignAncestorClaimForProvisionalDestination(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	address, err := outputownership.NewManagedAddress(ancestorAuthority.Exact(), "")
+	address, err := outputownership.NewManagedAddressFromLegacy(ancestorAuthority.Exact(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

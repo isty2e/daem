@@ -136,7 +136,7 @@ func captureCLIRecoveryNeedsFinalizeJournal(t *testing.T, manifestPath string) d
 	if err != nil {
 		t.Fatalf("Resolve host destination returned error: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(testkit.MustObservedPathAuthority(t, hostPath), "")
+	address, err := ownership.NewManagedAddressFromLegacy(testkit.MustObservedPathAuthority(t, hostPath), "")
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}

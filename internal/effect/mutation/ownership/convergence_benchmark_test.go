@@ -57,7 +57,7 @@ func benchmarkAcquireTransitions(count int) []ClaimTransition {
 	}
 	transitions := make([]ClaimTransition, 0, count)
 	for index := range count {
-		address, err := outputownership.NewManagedAddress(
+		address, err := outputownership.NewManagedAddressFromLegacy(
 			pathtest.Exact(filepath.Join(root, fmt.Sprintf("output-%06d", index))),
 			"",
 		)

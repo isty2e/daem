@@ -62,7 +62,8 @@ func (observation OwnershipObservation) Validate() error {
 	if err := observation.destination.ValidateScope(target.ScopeGlobal); err != nil {
 		return fmt.Errorf("ownership observation destination: %w", err)
 	}
-	if err := observation.contentPath.Validate(); err != nil {
+	footprint, err := output.FootprintFromLegacy(observation.contentPath)
+	if err != nil {
 		return err
 	}
 	hasExact := !observation.address.PathAuthority().IsZero()
@@ -74,7 +75,7 @@ func (observation OwnershipObservation) Validate() error {
 		if err := observation.address.Validate(); err != nil {
 			return fmt.Errorf("exact address: %w", err)
 		}
-		if observation.address.ContentPath() != string(observation.contentPath) {
+		if !observation.address.Footprint().Equal(footprint) {
 			return fmt.Errorf("ownership observation content path disagrees with its exact address")
 		}
 		if claim, present := observation.claim.Get(); present {

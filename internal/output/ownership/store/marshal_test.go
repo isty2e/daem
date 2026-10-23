@@ -19,7 +19,7 @@ func TestMarshalPreservesClaimsAndRejectsUnreadableSize(t *testing.T) {
 	}
 	claims := make([]ownership.Claim, 2800)
 	for index := range claims {
-		address, err := ownership.NewManagedAddress(pathtest.Exact(filepath.Join(root, fmt.Sprintf("output-%04d", index))), "")
+		address, err := ownership.NewManagedAddressFromLegacy(pathtest.Exact(filepath.Join(root, fmt.Sprintf("output-%04d", index))), "")
 		if err != nil {
 			t.Fatal(err)
 		}

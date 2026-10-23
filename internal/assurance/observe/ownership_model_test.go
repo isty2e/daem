@@ -18,7 +18,7 @@ func TestOwnershipObservationRejectsProjectDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	address, err := ownership.NewManagedAddress(exact, "")
+	address, err := ownership.NewManagedAddressFromLegacy(exact, "")
 	if err != nil {
 		t.Fatal(err)
 	}

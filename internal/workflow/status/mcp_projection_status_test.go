@@ -662,7 +662,7 @@ func writeStatusOwnershipClaim(t *testing.T, manifestPath string, destination ou
 	if err != nil {
 		t.Fatalf("resolve ownership destination: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, physical), string(contentPath))
+	address, err := ownership.NewManagedAddressFromLegacy(mustObservedPathAuthority(t, physical), string(contentPath))
 	if err != nil {
 		t.Fatalf("NewManagedAddress: %v", err)
 	}

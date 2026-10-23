@@ -104,7 +104,7 @@ func TestPrintPlanKeepsOwnershipConflictProvenanceVerboseOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	address, err := ownership.NewManagedAddress(pathtest.Exact(filepath.Join(t.TempDir(), "oracle")), "")
+	address, err := ownership.NewManagedAddressFromLegacy(pathtest.Exact(filepath.Join(t.TempDir(), "oracle")), "")
 	if err != nil {
 		t.Fatal(err)
 	}

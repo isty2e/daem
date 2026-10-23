@@ -3,6 +3,8 @@ package ownership
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/isty2e/daem/internal/output"
 )
 
 type addressOverlapIndex struct {
@@ -73,7 +75,7 @@ func (index *addressOverlapIndex) insert(addressIndex int, address ManagedAddres
 		return current.exact.first, true
 	}
 
-	if existing, overlap := current.exact.content.insert(addressIndex, address.ContentPath()); overlap {
+	if existing, overlap := current.exact.content.insert(addressIndex, address.Footprint()); overlap {
 		return existing, true
 	}
 	for _, node := range visited {
@@ -106,7 +108,7 @@ func (index addressOverlapIndex) first(address ManagedAddress) (int, bool) {
 	if current.exact != nil {
 		if current.exact.witness != address.PathAuthority().Witness() {
 			first = earlierAddressIndex(first, current.exact.first)
-		} else if contentIndex, overlap := current.exact.content.firstOverlap(address.ContentPath()); overlap {
+		} else if contentIndex, overlap := current.exact.content.firstOverlap(address.Footprint()); overlap {
 			first = earlierAddressIndex(first, contentIndex)
 		}
 	} else if current.first >= 0 {
@@ -123,10 +125,10 @@ func newContentAddressNode() contentAddressNode {
 	return contentAddressNode{children: make(map[string]*contentAddressNode), first: -1, terminal: -1}
 }
 
-func (node *contentAddressNode) insert(addressIndex int, contentPath string) (int, bool) {
+func (node *contentAddressNode) insert(addressIndex int, footprint output.Footprint) (int, bool) {
 	current := node
 	visited := []*contentAddressNode{current}
-	for _, component := range contentPathComponents(contentPath) {
+	for _, component := range footprintComponents(footprint) {
 		if current.terminal >= 0 {
 			return current.terminal, true
 		}
@@ -157,10 +159,10 @@ func (node *contentAddressNode) insert(addressIndex int, contentPath string) (in
 	return 0, false
 }
 
-func (node *contentAddressNode) firstOverlap(contentPath string) (int, bool) {
+func (node *contentAddressNode) firstOverlap(footprint output.Footprint) (int, bool) {
 	current := node
 	first := -1
-	for _, component := range contentPathComponents(contentPath) {
+	for _, component := range footprintComponents(footprint) {
 		if current.terminal >= 0 {
 			first = earlierAddressIndex(first, current.terminal)
 		}
@@ -197,9 +199,10 @@ func physicalPathComponents(path string) (string, []string) {
 	return volume, strings.Split(relative, string(filepath.Separator))
 }
 
-func contentPathComponents(path string) []string {
-	if path == "" {
+func footprintComponents(footprint output.Footprint) []string {
+	key, selected := footprint.Key()
+	if !selected {
 		return nil
 	}
-	return strings.Split(strings.TrimPrefix(path, "/"), "/")
+	return key.Segments()
 }

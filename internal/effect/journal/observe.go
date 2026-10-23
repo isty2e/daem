@@ -86,7 +86,7 @@ func applyRecoveryIntentOwnershipEvidence(
 		var conflict outputownership.Claim
 		var present bool
 		if exact, ok := authority.Exact(); ok {
-			address, addressErr := outputownership.NewManagedAddress(exact, string(intent.ContentPath()))
+			address, addressErr := outputownership.NewManagedAddressFromLegacy(exact, string(intent.ContentPath()))
 			if addressErr != nil {
 				observations[index].Error = addressErr.Error()
 				continue

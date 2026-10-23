@@ -211,7 +211,7 @@ func addObservation(
 	if !ok {
 		return fmt.Errorf("canonicalize ownership destination %q: authority observation is empty", destination)
 	}
-	address, err := outputownership.NewManagedAddress(exact, string(contentPath))
+	address, err := outputownership.NewManagedAddressFromLegacy(exact, string(contentPath))
 	if err != nil {
 		return fmt.Errorf("construct ownership address for %q: %w", destination, err)
 	}

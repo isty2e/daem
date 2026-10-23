@@ -212,7 +212,7 @@ func aggregateOwnershipObservation(
 	document := address.Document()
 	destination := document.AggregateRoot()
 	contentPath := output.ContentPath(address.ContentPath())
-	managedAddress, err := ownership.NewManagedAddress(pathtest.Exact(
+	managedAddress, err := ownership.NewManagedAddressFromLegacy(pathtest.Exact(
 		filepath.Join(root, "home", ".claude.json"),
 	),
 
@@ -278,7 +278,7 @@ func aggregateOverlappingObservation(
 	destination output.Destination,
 ) observe.OwnershipObservation {
 	t.Helper()
-	address, err := ownership.NewManagedAddress(pathtest.Exact(
+	address, err := ownership.NewManagedAddressFromLegacy(pathtest.Exact(
 		filepath.Join(root, "home", ".claude.json"),
 	),
 

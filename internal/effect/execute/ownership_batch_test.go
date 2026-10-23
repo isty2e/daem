@@ -374,7 +374,7 @@ func ownershipBatchTransitions(t *testing.T, count int) []ownershipmutation.Clai
 	}
 	transitions := make([]ownershipmutation.ClaimTransition, 0, count)
 	for index := range count {
-		address, err := ownership.NewManagedAddress(
+		address, err := ownership.NewManagedAddressFromLegacy(
 			mustObservedPathAuthority(t, filepath.Join(root, "output", string(rune('a'+index)))),
 			"",
 		)
@@ -409,14 +409,14 @@ func mixedProvenanceOwnershipBatch(t *testing.T) mixedProvenanceOwnershipBatchFi
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldAddress, err := ownership.NewManagedAddress(
+	oldAddress, err := ownership.NewManagedAddressFromLegacy(
 		mustObservedPathAuthority(t, filepath.Join(root, "old")),
 		"",
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	currentAddress, err := ownership.NewManagedAddress(
+	currentAddress, err := ownership.NewManagedAddressFromLegacy(
 		mustObservedPathAuthority(t, filepath.Join(root, "current")),
 		"",
 	)

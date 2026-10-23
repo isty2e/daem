@@ -70,7 +70,11 @@ func (intent ProvisionalAcquireIntent) AdmitAddress(address ManagedAddress) erro
 	if err := address.Validate(); err != nil {
 		return fmt.Errorf("promoted ownership address: %w", err)
 	}
-	if address.ContentPath() != string(intent.contentPath) {
+	expected, err := output.FootprintFromLegacy(intent.contentPath)
+	if err != nil {
+		return err
+	}
+	if !address.Footprint().Equal(expected) {
 		return fmt.Errorf("promoted ownership address changed content path")
 	}
 	return intent.path.AdmitsExact(address.PathAuthority())

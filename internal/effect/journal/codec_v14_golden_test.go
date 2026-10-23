@@ -31,7 +31,7 @@ func marshalRecoveryJournal(journal recoveryJournal, stateEncoder durable.Snapsh
 	return encodeRecoveryJournal(journal, before, after)
 }
 
-func TestRecoveryJournalV13GoldenBytesAndFingerprint(t *testing.T) {
+func TestRecoveryJournalV14GoldenBytesAndFingerprint(t *testing.T) {
 	t.Parallel()
 
 	journal := defaultRecoveryJournal()
@@ -41,7 +41,7 @@ func TestRecoveryJournalV13GoldenBytesAndFingerprint(t *testing.T) {
 	}
 
 	wantContent := []byte(`{
-  "version": 13,
+  "version": 14,
   "operation_id": "20260625T000000.000000000Z-apply",
   "operation": "apply",
   "created_at": "2026-06-25T00:00:00Z",
@@ -151,13 +151,13 @@ func TestRecoveryJournalV13GoldenBytesAndFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recoveryJournalAuthorityFingerprint() error = %v", err)
 	}
-	const wantFingerprint = "sha256:6d388500fa06916924e5830141f41754658d69c8a466662c2eaa2e555bc4b98c"
+	const wantFingerprint = "sha256:ff5262826d3c806135746c00055b20c7c15ec5280197a840e221c8e19ed194fc"
 	if fingerprint != wantFingerprint {
 		t.Fatalf("journal fingerprint = %q, want %q", fingerprint, wantFingerprint)
 	}
 }
 
-func TestRecoveryJournalV13PersistsRemovalTransitionAuthority(t *testing.T) {
+func TestRecoveryJournalV14PersistsRemovalTransitionAuthority(t *testing.T) {
 	t.Parallel()
 
 	removedEntry := defaultRecoveryEntry()
@@ -193,7 +193,7 @@ func TestRecoveryJournalV13PersistsRemovalTransitionAuthority(t *testing.T) {
 	}
 }
 
-func TestRecoveryJournalV13PathDTOConversionOwnsExplicitZeroMode(t *testing.T) {
+func TestRecoveryJournalV14PathDTOConversionOwnsExplicitZeroMode(t *testing.T) {
 	t.Parallel()
 
 	zero := recovery.PermissionMode(0)

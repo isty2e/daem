@@ -1022,7 +1022,7 @@ func recoveryIntentClaimGuard(
 			return err
 		}
 		if exact, ok := authorityObservation.Exact(); ok {
-			address, err := ownership.NewManagedAddress(exact, action.ContentPath)
+			address, err := ownership.NewManagedAddressFromLegacy(exact, action.ContentPath)
 			if err != nil {
 				return err
 			}

@@ -122,7 +122,7 @@ func TestManagedPathOwnershipForeignClaimOverridesPreliminaryUnmanagedBlock(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	address, err := ownership.NewManagedAddress(pathtest.Exact(filepath.Join(root, "AGENTS.md")), "")
+	address, err := ownership.NewManagedAddressFromLegacy(pathtest.Exact(filepath.Join(root, "AGENTS.md")), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func planningManagedPathOwnershipObservation(
 	claimed bool,
 ) observe.OwnershipObservation {
 	t.Helper()
-	address, err := ownership.NewManagedAddress(pathtest.Exact(path), "")
+	address, err := ownership.NewManagedAddressFromLegacy(pathtest.Exact(path), "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -145,9 +145,9 @@ type ConflictError struct {
 
 func (err *ConflictError) Error() string {
 	return fmt.Sprintf(
-		"managed address %q content path %q overlaps claim owned by state authority %q",
+		"managed address %q footprint %s overlaps claim owned by state authority %q",
 		err.Requested.Path(),
-		err.Requested.ContentPath(),
+		addressFootprintLabel(err.Requested),
 		err.Existing.Owner().StatefileKey(),
 	)
 }
@@ -160,7 +160,7 @@ type StaleClaimError struct {
 }
 
 func (err *StaleClaimError) Error() string {
-	return fmt.Sprintf("managed address %q content path %q claim changed", err.Address.Path(), err.Address.ContentPath())
+	return fmt.Sprintf("managed address %q footprint %s claim changed", err.Address.Path(), addressFootprintLabel(err.Address))
 }
 
 func validateClaimValueAddress(name string, address ManagedAddress, value ClaimValue) error {

@@ -46,7 +46,7 @@ func recoveryJournalRecordFingerprint(content []byte) string {
 const (
 	maximumRecoveryJournalBytes int64 = 64 << 20
 	recoveryJournalMode               = 0o600
-	recoveryJournalVersion            = 13
+	recoveryJournalVersion            = 14
 
 	maximumRecoveryJournalJSONDepth = 64
 )

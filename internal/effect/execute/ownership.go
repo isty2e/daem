@@ -403,7 +403,7 @@ func promoteVisibleAcquire(
 				return fmt.Errorf("visible ownership authority observation is empty")
 			}
 			visible = true
-			address, addressErr := ownership.NewManagedAddress(exact, string(intent.ContentPath()))
+			address, addressErr := ownership.NewManagedAddressFromLegacy(exact, string(intent.ContentPath()))
 			if addressErr != nil {
 				return addressErr
 			}

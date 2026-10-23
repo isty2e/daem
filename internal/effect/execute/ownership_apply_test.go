@@ -213,7 +213,7 @@ func managedPathOwnershipObservation(
 	claimed bool,
 ) observe.OwnershipObservation {
 	t.Helper()
-	address, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, path), "")
+	address, err := ownership.NewManagedAddressFromLegacy(mustObservedPathAuthority(t, path), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +390,7 @@ func TestGlobalOwnershipRecoveryRejectsUnadmittedSuccessorAfterConvergence(t *te
 	}
 
 	prepared := requireOnlyOwnershipClaim(t, input.Paths.OwnershipRegistryPath)
-	unrelatedAddress, err := ownership.NewManagedAddress(
+	unrelatedAddress, err := ownership.NewManagedAddressFromLegacy(
 		mustObservedPathAuthority(t, fixture.hostConfigPath+".unrelated"),
 		"",
 	)
@@ -575,7 +575,7 @@ func TestGlobalOwnershipContradictoryFinalizeEvidenceBlocksAndPreservesUnrelated
 	if _, err := store.Apply(context.Background(), transition.Address(), ownership.NoClaim(), transition.Prepared()); err != nil {
 		t.Fatalf("restore prepared claim returned error: %v", err)
 	}
-	unrelatedAddress, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, transition.Address().Path()+".unrelated"), "")
+	unrelatedAddress, err := ownership.NewManagedAddressFromLegacy(mustObservedPathAuthority(t, transition.Address().Path()+".unrelated"), "")
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
@@ -744,7 +744,7 @@ func globalAggregateOwnershipInputAtHome(
 	}
 	var ownershipObservation observe.OwnershipObservation
 	if exact, present := pathObservation.Exact(); present {
-		managedAddress, addressErr := ownership.NewManagedAddress(
+		managedAddress, addressErr := ownership.NewManagedAddressFromLegacy(
 			exact,
 			contribution.Contribution().ContentPath(),
 		)

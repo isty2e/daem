@@ -235,7 +235,7 @@ func globalManagedPathRemovalInput(
 	if err != nil {
 		t.Fatal(err)
 	}
-	address, err := ownership.NewManagedAddress(pathAuthority.Exact(), "")
+	address, err := ownership.NewManagedAddressFromLegacy(pathAuthority.Exact(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestProvisionalGlobalOwnershipRejectsAliasOfClaimThatBecomesCurrent(t *test
 		)
 	}
 
-	address, err := ownership.NewManagedAddress(
+	address, err := ownership.NewManagedAddressFromLegacy(
 		aliasAuthority.Exact(),
 		string(input.Ownership[0].ContentPath()),
 	)
@@ -612,7 +612,7 @@ func seedForeignClaimForVisibleProvisionalOutput(
 	if err != nil {
 		return ownership.Claim{}, err
 	}
-	address, err := ownership.NewManagedAddress(
+	address, err := ownership.NewManagedAddressFromLegacy(
 		pathAuthority.Exact(),
 		string(input.Ownership[0].ContentPath()),
 	)

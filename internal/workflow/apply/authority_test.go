@@ -270,7 +270,7 @@ func TestOwnershipFingerprintDistinguishesAndOrdersPathAuthorityKinds(t *testing
 	namespace := filepath.Join(root, "skills")
 	candidate := filepath.Join(namespace, "Caf\u00e9")
 	exactAuthority := pathtest.DarwinCaseSensitive(candidate)
-	address, err := ownership.NewManagedAddress(exactAuthority, "")
+	address, err := ownership.NewManagedAddressFromLegacy(exactAuthority, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +466,7 @@ func TestBuildApplyAuthorityEvidenceRejectsDistinctLogicalDestinationsAtSamePhys
 	if err != nil {
 		t.Fatal(err)
 	}
-	globalAddress, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, globalPath), "")
+	globalAddress, err := ownership.NewManagedAddressFromLegacy(mustObservedPathAuthority(t, globalPath), "")
 	if err != nil {
 		t.Fatal(err)
 	}
