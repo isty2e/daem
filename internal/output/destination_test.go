@@ -78,6 +78,8 @@ func TestDestinationRoundTripsEveryRootRole(t *testing.T) {
 		{value: ".agents/skills/review", root: RootProject, relative: ".agents/skills/review", scope: target.ScopeProject},
 		{value: "~/.agents/skills/review", root: RootHome, relative: ".agents/skills/review", scope: target.ScopeGlobal},
 		{value: "@data/hook-assets/guard/sha256-deadbeef/asset", root: RootData, relative: "hook-assets/guard/sha256-deadbeef/asset", scope: target.ScopeGlobal},
+		{value: "@pi-agent/agents/reviewer.md", root: RootPiAgent, relative: "agents/reviewer.md", scope: target.ScopeGlobal},
+		{value: "@codex-home/config.toml", root: RootCodexHome, relative: "config.toml", scope: target.ScopeGlobal},
 	}
 	for _, test := range cases {
 		t.Run(string(test.root), func(t *testing.T) {
@@ -137,6 +139,8 @@ func TestDestinationRejectsMalformedAndEscapingSpellings(t *testing.T) {
 	cases := []string{
 		"", ".", "..", "../escape", "a/../b", "a//b", "a/", "/absolute", "//server/share", `C:\\absolute`, "C:/absolute", "c:relative",
 		`a\\b`, "~", "~/", "~/../escape", "~other/path", "@data", "@data/", "@data/../escape",
+		"@pi-agent", "@pi-agent/", "@pi-agent/../escape", "@pi-agentx/path",
+		"@codex-home", "@codex-home/", "@codex-home/../escape", "@codex-homex/path",
 		"@datax/path", "@Data/path", "@cache/path", " spaced", "spaced ", "nul\x00byte", "line\nbreak", "\u202eright-to-left", string([]byte{0xff}),
 	}
 	for _, value := range cases {
@@ -156,6 +160,8 @@ func TestDestinationTreatsReservedMarkersAsOrdinaryNonLeadingComponents(t *testi
 		root  RootRole
 	}{
 		{value: "folder/@data/asset", root: RootProject},
+		{value: "folder/@pi-agent/asset", root: RootProject},
+		{value: "folder/@codex-home/asset", root: RootProject},
 		{value: "~/.agents/@data/skill", root: RootHome},
 		{value: "@data/~archive/asset", root: RootData},
 		{value: "literal/%2e%2e/asset", root: RootProject},
@@ -232,6 +238,10 @@ func TestDestinationScopeValidationCoversEveryRootAndScopeCombination(t *testing
 		{value: "~/global/file", scope: target.ScopeGlobal, valid: true},
 		{value: "@data/global/file", scope: target.ScopeProject},
 		{value: "@data/global/file", scope: target.ScopeGlobal, valid: true},
+		{value: "@pi-agent/agents/reviewer.md", scope: target.ScopeProject},
+		{value: "@pi-agent/agents/reviewer.md", scope: target.ScopeGlobal, valid: true},
+		{value: "@codex-home/config.toml", scope: target.ScopeProject},
+		{value: "@codex-home/config.toml", scope: target.ScopeGlobal, valid: true},
 		{value: "project/file", scope: target.Scope("workspace")},
 		{value: "~/global/file", scope: target.Scope("workspace")},
 		{value: "@data/global/file", scope: target.Scope("workspace")},

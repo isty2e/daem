@@ -401,6 +401,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/output/hostpath/pi"},
 	},
 	{
+		id:        "active.boundary.codex",
+		placement: specializedPlacement(affinityNone, roleActiveAdapter, specializationHost, "Codex"),
+		packages:  []string{"internal/output/hostpath/codex"},
+	},
+	{
 		id:        "declaration.workflow.toml",
 		placement: specializedPlacement(affinityNone, roleWorkflowComposition, specializationFormat, "TOML"),
 		packages:  []string{"internal/declaration/manifest"},

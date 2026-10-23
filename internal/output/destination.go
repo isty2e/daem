@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	homeDestinationPrefix = "~/"
-	dataDestinationPrefix = "@data/"
+	homeDestinationPrefix      = "~/"
+	dataDestinationPrefix      = "@data/"
+	piAgentDestinationPrefix   = "@pi-agent/"
+	codexHomeDestinationPrefix = "@codex-home/"
 )
 
 // RootRole identifies the portable root selected by a destination.
@@ -22,6 +24,10 @@ const (
 	RootProject RootRole = "project"
 	RootHome    RootRole = "home"
 	RootData    RootRole = "data"
+	// RootPiAgent identifies Pi's host-selected global agent root.
+	RootPiAgent RootRole = "pi_agent"
+	// RootCodexHome identifies Codex's host-selected global home root.
+	RootCodexHome RootRole = "codex_home"
 )
 
 // Destination is one canonical portable output root plus a slash-separated
@@ -46,6 +52,12 @@ func Parse(value string) (Destination, error) {
 	case strings.HasPrefix(value, dataDestinationPrefix):
 		root = RootData
 		relative = strings.TrimPrefix(value, dataDestinationPrefix)
+	case strings.HasPrefix(value, piAgentDestinationPrefix):
+		root = RootPiAgent
+		relative = strings.TrimPrefix(value, piAgentDestinationPrefix)
+	case strings.HasPrefix(value, codexHomeDestinationPrefix):
+		root = RootCodexHome
+		relative = strings.TrimPrefix(value, codexHomeDestinationPrefix)
 	case strings.HasPrefix(value, "~"):
 		return Destination{}, fmt.Errorf("destination home-relative path must begin with %s", homeDestinationPrefix)
 	case strings.HasPrefix(value, "@"):
@@ -90,6 +102,10 @@ func (destination Destination) String() string {
 		return homeDestinationPrefix + destination.relative
 	case RootData:
 		return dataDestinationPrefix + destination.relative
+	case RootPiAgent:
+		return piAgentDestinationPrefix + destination.relative
+	case RootCodexHome:
+		return codexHomeDestinationPrefix + destination.relative
 	default:
 		return ""
 	}
@@ -121,15 +137,17 @@ func (destination Destination) ValidateScope(scope target.Scope) error {
 			return fmt.Errorf("project destination must be relative to the selected project root")
 		}
 	case target.ScopeGlobal:
-		if destination.root != RootHome && destination.root != RootData {
-			return fmt.Errorf("global destination must be home-relative or data-root-relative")
+		if destination.root != RootHome && destination.root != RootData &&
+			destination.root != RootPiAgent && destination.root != RootCodexHome {
+			return fmt.Errorf("global destination must use a global root role")
 		}
 	}
 	return nil
 }
 
 func (root RootRole) valid() bool {
-	return root == RootProject || root == RootHome || root == RootData
+	return root == RootProject || root == RootHome || root == RootData ||
+		root == RootPiAgent || root == RootCodexHome
 }
 
 func validateRelativeDestinationPath(value string) error {
