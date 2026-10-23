@@ -344,7 +344,7 @@ func validateProjectionContract(contract ProjectionContract) error {
 		return fmt.Errorf("managed aggregate contribution sibling retention %q is unsupported", contract.siblingRetention)
 	}
 	switch contract.siblingPreservation {
-	case PreserveSiblingsByteExact, PreserveSiblingsSemantic:
+	case PreserveSiblingsByteExact, PreserveSiblingsSemantic, PreserveSiblingsNativeValuesComments:
 	default:
 		return fmt.Errorf("managed aggregate contribution sibling preservation %q is unsupported", contract.siblingPreservation)
 	}

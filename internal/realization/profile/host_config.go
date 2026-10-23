@@ -8,6 +8,7 @@ import (
 
 	desiredhostconfig "github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -139,7 +140,8 @@ func (placement HostConfigPlacement) ID() string {
 	if placement.documentKind == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%s-host-config-%s-v1", placement.target, placement.scope)
+	id, _ := aggregate.HostConfigPlacementID(placement.target, placement.scope)
+	return id
 }
 
 func (placement HostConfigPlacement) Validate() error {

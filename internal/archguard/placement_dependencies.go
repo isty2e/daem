@@ -199,7 +199,9 @@ func isAllowedTopologyImport(packagePath string, importPath string) bool {
 		return importPath == "internal/desired/entity"
 	}
 	if packagePath == "internal/topology/projection" {
-		return importPath == "internal/desired/entity"
+		return importPath == "internal/desired/entity" ||
+			importPath == "internal/output" ||
+			importPath == "internal/target"
 	}
 	return packagePath == "internal/topology/extension" &&
 		importPath == "internal/desired/extension"

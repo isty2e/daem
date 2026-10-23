@@ -222,6 +222,9 @@ func ValidateSubjectContract(subject topology.SubjectID, contract ProjectionCont
 	if err := contract.Validate(); err != nil {
 		return err
 	}
+	if _, native := HostConfigSyntaxForCodec(contract.CodecContractID()); native {
+		return validateHostConfigSubjectContract(subject, contract)
+	}
 	if placement, ok := HookPlacementForCodec(contract.CodecContractID()); ok {
 		expected, err := placement.Contribution("subject-contract")
 		if err != nil {
