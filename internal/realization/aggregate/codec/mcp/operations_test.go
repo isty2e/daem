@@ -315,16 +315,7 @@ args = ["manual.js"]
 	if err != nil {
 		t.Fatalf("MergeCanonicalEntry returned error: %v", err)
 	}
-	for _, want := range []string{
-		`model = "gpt-5-codex"`,
-		`[mcp_servers.sibling]`,
-		`[mcp_servers.context7]`,
-		`env_vars = ["CONTEXT7_TOKEN"]`,
-	} {
-		if !strings.Contains(string(merged), want) {
-			t.Fatalf("merged = %s, want %q", merged, want)
-		}
-	}
+	assertCodexPreservation(t, existing, merged, []string{"model"}, []string{"mcp_servers", "sibling"})
 	extracted, present, err := operations.extractCanonicalEntry(merged, "context7")
 	if err != nil || !present {
 		t.Fatalf("ExtractCanonicalEntry present = %v, err = %v", present, err)
@@ -346,9 +337,10 @@ args = ["manual.js"]
 	if err != nil {
 		t.Fatalf("RestoreRemoveProjection returned error: %v", err)
 	}
-	if !keepFile || strings.Contains(string(removed), `[mcp_servers.context7]`) {
-		t.Fatalf("removed = %s, keepFile = %v; want sibling-only file", removed, keepFile)
+	if !keepFile {
+		t.Fatal("restore removed the sibling document")
 	}
+	assertCodexMissingValue(t, removed, "mcp_servers", "context7")
 	if present, err := operations.entryPresent(removed, "sibling"); err != nil || !present {
 		t.Fatalf("EntryPresent sibling after remove = %v, %v; want present", present, err)
 	}

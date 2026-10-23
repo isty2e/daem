@@ -110,14 +110,21 @@ func TestCodexCanonicalProducersMatchTOMLRenderContract(t *testing.T) {
 	}
 }
 
-func TestCodexFullDocumentProducerRejectsExpandedOutput(t *testing.T) {
+func TestCodexMCPMergeDoesNotReserializeUnmanagedMultilineValue(t *testing.T) {
 	host := []byte("note = '''" + strings.Repeat("\n", 2_200_000) + "'''\n")
 	if int64(len(host)) >= maximumDocumentBytes {
 		t.Fatalf("host fixture bytes = %d, want below document limit", len(host))
 	}
 	canonical := mustCanonicalCodexProjectMCPServerEntry(t, validCodexMCPProjection("context7"))
-	_, err := mergeCodexProjectMCPServerCanonicalEntry(host, "context7", canonical)
-	assertMCPProjectionReason(t, err, MCPProjectionReasonCode("CANONICAL_INVALID"))
+	merged, err := mergeCodexProjectMCPServerCanonicalEntry(host, "context7", canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCodexPreservation(t, host, merged, []string{"note"})
+	comparison, err := compareCodexProjectMCPServerCanonicalEntry(merged, "context7", canonical)
+	if err != nil || !comparison.Present || !comparison.Equivalent {
+		t.Fatalf("selected entry mismatch: %#v, %v", comparison, err)
+	}
 }
 
 func TestCodexProjectMCPProjectionMergeCompareAndPreserveSiblings(t *testing.T) {
@@ -139,18 +146,7 @@ args = ["manual.js"]
 	if err != nil {
 		t.Fatalf("mergeCodexProjectMCPServerCanonicalEntry returned error: %v", err)
 	}
-	for _, want := range []string{
-		`model = "gpt-5-codex"`,
-		`[mcp_servers.context7]`,
-		`command = "npx"`,
-		`args = ["-y", "@upstash/context7-mcp"]`,
-		`[mcp_servers.sibling]`,
-		`command = "node"`,
-	} {
-		if !strings.Contains(string(merged), want) {
-			t.Fatalf("merged = %s, want %q", merged, want)
-		}
-	}
+	assertCodexPreservation(t, existing, merged, []string{"model"}, []string{"mcp_servers", "sibling"})
 
 	comparison, err := compareCodexProjectMCPServerCanonicalEntry(merged, "context7", canonical)
 	if err != nil {
@@ -188,19 +184,7 @@ args = ["manual.js"]
 	if err != nil {
 		t.Fatalf("mergeCodexGlobalMCPServerCanonicalEntry returned error: %v", err)
 	}
-	for _, want := range []string{
-		`model = "gpt-5-codex"`,
-		`[mcp_servers.context7]`,
-		`command = "npx"`,
-		`args = ["-y", "@upstash/context7-mcp"]`,
-		`env_vars = ["CONTEXT7_TOKEN"]`,
-		`[mcp_servers.sibling]`,
-		`command = "node"`,
-	} {
-		if !strings.Contains(string(merged), want) {
-			t.Fatalf("merged = %s, want %q", merged, want)
-		}
-	}
+	assertCodexPreservation(t, existing, merged, []string{"model"}, []string{"mcp_servers", "sibling"})
 
 	comparison, err := compareCodexGlobalMCPServerCanonicalEntry(merged, "context7", canonical)
 	if err != nil {
@@ -300,12 +284,8 @@ env = { API_TOKEN = "SECRET_CANARY" }
 	if err != nil {
 		t.Fatalf("removeCodexGlobalMCPServerProjection returned error: %v", err)
 	}
-	if strings.Contains(string(removed), `[mcp_servers.context7]`) {
-		t.Fatalf("removed = %s, did not want managed server id", removed)
-	}
-	if !containsAll(string(removed), `model = "gpt-5-codex"`, `[mcp_servers.sibling]`, `SECRET_CANARY`) {
-		t.Fatalf("removed = %s, want top-level and unsupported sibling values preserved", removed)
-	}
+	assertCodexMissingValue(t, removed, "mcp_servers", "context7")
+	assertCodexPreservation(t, existing, removed, []string{"model"}, []string{"mcp_servers", "sibling"})
 	comparison, err := compareCodexGlobalMCPServerProjection(removed, validCodexGlobalMCPProjection("context7"))
 	if err != nil {
 		t.Fatalf("compareCodexGlobalMCPServerProjection returned error: %v", err)
@@ -467,8 +447,10 @@ env = { API_TOKEN = "SECRET_CANARY" }
 	if err != nil {
 		t.Fatalf("mergeCodexGlobalMCPServerCanonicalEntry for new server returned error: %v", err)
 	}
-	if !containsAll(string(merged), `[mcp_servers.context7]`, `[mcp_servers.new-server]`, `SECRET_CANARY`) {
-		t.Fatalf("merged = %s, want unsupported siblings preserved when unmanaged", merged)
+	assertCodexPreservation(t, existing, merged, []string{"mcp_servers", "context7"}, []string{"mcp_servers", "sibling"})
+	comparison, err := compareCodexGlobalMCPServerCanonicalEntry(merged, "new-server", canonical)
+	if err != nil || !comparison.Present || !comparison.Equivalent {
+		t.Fatalf("new server was not inserted: %#v, %v", comparison, err)
 	}
 }
 
@@ -548,12 +530,8 @@ args = ["manual.js"]
 	if err != nil {
 		t.Fatalf("removeCodexProjectMCPServerProjection returned error: %v", err)
 	}
-	if strings.Contains(string(removed), `[mcp_servers.context7]`) {
-		t.Fatalf("removed = %s, did not want managed server id", removed)
-	}
-	if !containsAll(string(removed), `model = "gpt-5-codex"`, `[mcp_servers.sibling]`, `command = "node"`) {
-		t.Fatalf("removed = %s, want top-level and sibling values preserved", removed)
-	}
+	assertCodexMissingValue(t, removed, "mcp_servers", "context7")
+	assertCodexPreservation(t, existing, removed, []string{"model"}, []string{"mcp_servers", "sibling"})
 }
 
 func TestCodexProjectMCPProjectionRejectsUnsupportedSameNameShapes(t *testing.T) {
@@ -634,8 +612,10 @@ env = { API_TOKEN = "SECRET_CANARY" }
 	if err != nil {
 		t.Fatalf("mergeCodexProjectMCPServerCanonicalEntry for new server returned error: %v", err)
 	}
-	if !containsAll(string(merged), `[mcp_servers.context7]`, `[mcp_servers.new-server]`, `SECRET_CANARY`) {
-		t.Fatalf("merged = %s, want unsupported siblings preserved when unmanaged", merged)
+	assertCodexPreservation(t, existing, merged, []string{"mcp_servers", "context7"}, []string{"mcp_servers", "sibling"})
+	comparison, err := compareCodexProjectMCPServerCanonicalEntry(merged, "new-server", canonical)
+	if err != nil || !comparison.Present || !comparison.Equivalent {
+		t.Fatalf("new server was not inserted: %#v, %v", comparison, err)
 	}
 }
 

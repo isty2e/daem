@@ -105,6 +105,11 @@ The [MCP schema](manifest.md#mcp-servers) defines exact destinations, fields and
 rejections. Import covers supported non-Pi core-native rows; Pi import is unsupported.
 `apply --manage-existing` may register exact matching projections.
 
+Codex TOML edits preserve unmanaged values and existing comments, including
+comments within a removed server entry. Formatting and comment placement may
+change. Removing the last server retains a comments-only file rather than
+discarding its comments.
+
 | Host/scope | Environment references |
 | --- | --- |
 | Codex project | None; command/args only. |

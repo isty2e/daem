@@ -9,6 +9,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	nativetoml "github.com/pelletier/go-toml/v2"
 )
 
 func mergeCodexProjectMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) ([]byte, error) {
@@ -29,7 +30,7 @@ func mergeCodexProjectMCPServerCanonicalEntry(existing []byte, serverID string, 
 			return nil, err
 		}
 	}
-	config.servers[serverID] = codexProjectMCPServerEntryMap(desired)
+	config.setServer(serverID, codexProjectMCPServerEntryMap(desired))
 	return config.encode()
 }
 
@@ -51,7 +52,7 @@ func mergeCodexGlobalMCPServerCanonicalEntry(existing []byte, serverID string, c
 			return nil, err
 		}
 	}
-	config.servers[serverID] = codexGlobalMCPServerEntryMap(desired)
+	config.setServer(serverID, codexGlobalMCPServerEntryMap(desired))
 	return config.encode()
 }
 
@@ -67,7 +68,7 @@ func removeCodexProjectMCPServerProjection(existing []byte, serverID string) ([]
 		if _, err := decodeCodexProjectMCPServerEntryValue(existingValue, serverID); err != nil {
 			return nil, err
 		}
-		delete(config.servers, serverID)
+		config.removeServer(serverID)
 	}
 	return config.encode()
 }
@@ -84,7 +85,7 @@ func removeCodexGlobalMCPServerProjection(existing []byte, serverID string) ([]b
 		if _, err := decodeCodexGlobalMCPServerEntryValue(existingValue, serverID); err != nil {
 			return nil, err
 		}
-		delete(config.servers, serverID)
+		config.removeServer(serverID)
 	}
 	return config.encode()
 }
@@ -101,7 +102,7 @@ func restoreRemoveCodexProjectMCPServerProjection(existing []byte, serverID stri
 		if _, err := decodeCodexProjectMCPServerEntryValue(existingValue, serverID); err != nil {
 			return nil, false, err
 		}
-		delete(config.servers, serverID)
+		config.removeServer(serverID)
 	}
 	content, keepFile, err := config.encodePreservingMCPParent(parentExistedBefore)
 	if err != nil {
@@ -122,7 +123,7 @@ func restoreRemoveCodexGlobalMCPServerProjection(existing []byte, serverID strin
 		if _, err := decodeCodexGlobalMCPServerEntryValue(existingValue, serverID); err != nil {
 			return nil, false, err
 		}
-		delete(config.servers, serverID)
+		config.removeServer(serverID)
 	}
 	content, keepFile, err := config.encodePreservingMCPParent(parentExistedBefore)
 	if err != nil {
@@ -336,8 +337,11 @@ func codexGlobalMCPServersParentPresent(existing []byte) (bool, error) {
 }
 
 type codexProjectMCPConfig struct {
-	top     map[string]any
-	servers map[string]any
+	ctx            context.Context
+	source         []byte
+	top            map[string]any
+	servers        map[string]any
+	changedServers map[string]struct{}
 }
 
 const maximumCodexMCPServerIDBytes = tomlstrict.MaximumKeyBytes - len(codexProjectMCPManagedField)
@@ -368,7 +372,7 @@ func decodeCodexTOMLMapContext(ctx context.Context, content []byte) (map[string]
 		return nil, err
 	}
 	var decoded map[string]any
-	if _, err := tomlstrict.DecodeAdmitted(ctx, content, &decoded); err != nil {
+	if err := nativetoml.Unmarshal(content, &decoded); err != nil {
 		return nil, err
 	}
 	return decoded, ctx.Err()
@@ -505,8 +509,10 @@ func decodeCodexProjectMCPConfigContext(ctx context.Context, content []byte) (co
 		return codexProjectMCPConfig{}, err
 	}
 	config := codexProjectMCPConfig{
-		top:     make(map[string]any),
-		servers: make(map[string]any),
+		ctx:            ctx,
+		top:            make(map[string]any),
+		servers:        make(map[string]any),
+		changedServers: make(map[string]struct{}),
 	}
 	if content == nil {
 		return config, nil
@@ -536,6 +542,7 @@ func decodeCodexProjectMCPConfigContext(ctx context.Context, content []byte) (co
 	if err := ctx.Err(); err != nil {
 		return codexProjectMCPConfig{}, err
 	}
+	config.source = bytes.Clone(content)
 	config.top = top
 	rawServers, ok := config.top[codexProjectMCPManagedField]
 	if !ok {
@@ -551,25 +558,6 @@ func decodeCodexProjectMCPConfigContext(ctx context.Context, content []byte) (co
 	}
 	config.servers = servers
 	return config, ctx.Err()
-}
-
-func (config codexProjectMCPConfig) encode() ([]byte, error) {
-	content, _, err := config.encodePreservingMCPParent(true)
-	return content, err
-}
-
-func (config codexProjectMCPConfig) encodePreservingMCPParent(parentExistedBefore bool) ([]byte, bool, error) {
-	if len(config.servers) == 0 && !parentExistedBefore {
-		delete(config.top, codexProjectMCPManagedField)
-		if len(config.top) == 0 {
-			return nil, false, nil
-		}
-		content, err := encodeCodexTOMLValue(config.top, "", "encode Codex MCP host document")
-		return content, true, err
-	}
-	config.top[codexProjectMCPManagedField] = orderedCodexMCPServers(config.servers)
-	content, err := encodeCodexTOMLValue(config.top, "", "encode Codex MCP host document")
-	return content, true, err
 }
 
 func decodeCodexProjectMCPServerEntry(content []byte, serverID string) (CodexProjectMCPServerEntry, error) {
@@ -732,12 +720,4 @@ func sortedCodexMCPObjectKeys(object map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func orderedCodexMCPServers(servers map[string]any) map[string]any {
-	ordered := make(map[string]any, len(servers))
-	for _, serverID := range sortedCodexMCPServerIDs(servers) {
-		ordered[serverID] = servers[serverID]
-	}
-	return ordered
 }
