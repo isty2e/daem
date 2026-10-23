@@ -84,7 +84,7 @@ func TestHostConfigStaticPlacementFacts(t *testing.T) {
 	}
 }
 
-func TestHostConfigReservedPathsInBothModesAndScopes(t *testing.T) {
+func TestHostConfigReservedGlobalPathsInBothModes(t *testing.T) {
 	common := []string{"AGENTS.md", "skills/demo/SKILL.md", "auth.json", ".git/config"}
 	paths := map[target.Target][]string{
 		target.TargetPi: {
@@ -112,12 +112,9 @@ func TestHostConfigReservedPathsInBothModesAndScopes(t *testing.T) {
 		},
 	}
 	for selected, nativePaths := range paths {
-		for _, scope := range []target.Scope{target.ScopeGlobal, target.ScopeProject} {
+		for _, scope := range []target.Scope{target.ScopeGlobal} {
 			for _, ownership := range []desiredhostconfig.Ownership{desiredhostconfig.OwnershipKeys, desiredhostconfig.OwnershipDocument} {
 				for _, nativePath := range append(slices.Clone(common), nativePaths...) {
-					if selected == target.TargetPi && scope == target.ScopeProject && nativePath == "models.json/child.json" {
-						continue
-					}
 					input := hostConfigInput(selected, scope, nativePath)
 					input.Ownership, input.Syntax = ownership, desiredhostconfig.SyntaxJSON
 					_, err := ResolveHostConfigPlacement(input)

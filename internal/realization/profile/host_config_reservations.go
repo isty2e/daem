@@ -7,64 +7,65 @@ import (
 )
 
 type hostConfigPathReservation struct {
-	path  string
-	owner string
+	path       string
+	owner      string
+	globalOnly bool
 }
 
 var piHostConfigPathReservations = []hostConfigPathReservation{
-	{"AGENTS.md", "instructions"},
-	{"skills", "skills"},
-	{"mcp.json", "MCP servers"},
-	{"auth.json", "authentication"},
-	{"auth.json.lock", "authentication locking"},
-	{"settings.json.lock", "host settings locking"},
-	{"models-store.json", "the refreshed model cache"},
-	{"models-store.json.lock", "model cache locking"},
-	{"sessions", "session state"},
-	{"crashes.json", "crash diagnostics"},
-	{"pi-debug.log", "runtime diagnostics"},
-	{"npm", "package installation"},
-	{"git", "package installation"},
-	{"tmp", "temporary runtime artifacts"},
-	{"bin", "installed helper code"},
-	{"tools", "host tool artifacts"},
+	{"AGENTS.md", "instructions", true},
+	{"skills", "skills", false},
+	{"mcp.json", "MCP servers", false},
+	{"auth.json", "authentication", true},
+	{"auth.json.lock", "authentication locking", true},
+	{"settings.json.lock", "host settings locking", false},
+	{"models-store.json", "the refreshed model cache", true},
+	{"models-store.json.lock", "model cache locking", true},
+	{"sessions", "session state", true},
+	{"crashes.json", "crash diagnostics", true},
+	{"pi-debug.log", "runtime diagnostics", true},
+	{"npm", "package installation", false},
+	{"git", "package installation", false},
+	{"tmp", "temporary runtime artifacts", true},
+	{"bin", "installed helper code", true},
+	{"tools", "host tool artifacts", true},
 }
 
 var codexHostConfigPathReservations = []hostConfigPathReservation{
-	{"AGENTS.md", "instructions"},
-	{"AGENTS.override.md", "instructions"},
-	{"skills", "skills"},
-	{"hooks.json", "hooks"},
-	{"auth.json", "authentication"},
-	{".credentials.json", "MCP authentication"},
-	{"secrets", "encrypted credentials"},
-	{"mcp-oauth-locks", "MCP authentication locking"},
-	{"sessions", "session state"},
-	{"archived_sessions", "session state"},
-	{"history.jsonl", "message history"},
-	{"session_index.jsonl", "the session index"},
-	{"session_index.jsonl.tmp", "session index publication"},
-	{"shell_snapshots", "runtime shell snapshots"},
-	{"memories", "generated memory state"},
-	{"installation_id", "runtime identity"},
-	{"db-backups", "database recovery"},
-	{"log", "runtime logs"},
-	{"models_cache.json", "the model cache"},
-	{"version.json", "update state"},
-	{"cloud-config-bundle-cache.json", "the cloud configuration cache"},
-	{"cache/remote_plugin_catalog", "the plugin catalog cache"},
-	{"cache/codex_app_directory", "the connector directory cache"},
-	{"plugins/cache", "installed plugin code"},
-	{".tmp/marketplaces", "installed marketplaces"},
-	{".tmp/plugin-share-local-paths-v1.json", "plugin sharing state"},
-	{".tmp/rollout-compression.lock", "session compression locking"},
-	{"tmp/arg0", "runtime helper code"},
-	{"packages/standalone", "the standalone installation"},
-	{"app-server-control", "app-server control"},
-	{"app-server-daemon/daemon.lock", "daemon locking"},
-	{".sandbox", "sandbox state"},
-	{".sandbox-bin", "sandbox helper code"},
-	{".sandbox-secrets", "sandbox credentials"},
+	{"AGENTS.md", "instructions", true},
+	{"AGENTS.override.md", "instructions", true},
+	{"skills", "skills", true},
+	{"hooks.json", "hooks", false},
+	{"auth.json", "authentication", true},
+	{".credentials.json", "MCP authentication", true},
+	{"secrets", "encrypted credentials", true},
+	{"mcp-oauth-locks", "MCP authentication locking", true},
+	{"sessions", "session state", true},
+	{"archived_sessions", "session state", true},
+	{"history.jsonl", "message history", true},
+	{"session_index.jsonl", "the session index", true},
+	{"session_index.jsonl.tmp", "session index publication", true},
+	{"shell_snapshots", "runtime shell snapshots", true},
+	{"memories", "generated memory state", true},
+	{"installation_id", "runtime identity", true},
+	{"db-backups", "database recovery", true},
+	{"log", "runtime logs", true},
+	{"models_cache.json", "the model cache", true},
+	{"version.json", "update state", true},
+	{"cloud-config-bundle-cache.json", "the cloud configuration cache", true},
+	{"cache/remote_plugin_catalog", "the plugin catalog cache", true},
+	{"cache/codex_app_directory", "the connector directory cache", true},
+	{"plugins/cache", "installed plugin code", true},
+	{".tmp/marketplaces", "installed marketplaces", true},
+	{".tmp/plugin-share-local-paths-v1.json", "plugin sharing state", true},
+	{".tmp/rollout-compression.lock", "session compression locking", true},
+	{"tmp/arg0", "runtime helper code", true},
+	{"packages/standalone", "the standalone installation", true},
+	{"app-server-control", "app-server control", true},
+	{"app-server-daemon/daemon.lock", "daemon locking", true},
+	{".sandbox", "sandbox state", true},
+	{".sandbox-bin", "sandbox helper code", true},
+	{".sandbox-secrets", "sandbox credentials", true},
 }
 
 func hostConfigPathOwner(selected target.Target, scope target.Scope, nativePath string) (string, bool) {
@@ -80,6 +81,9 @@ func hostConfigPathOwner(selected target.Target, scope target.Scope, nativePath 
 		reservations = codexHostConfigPathReservations
 	}
 	for _, reservation := range reservations {
+		if reservation.globalOnly && scope != target.ScopeGlobal {
+			continue
+		}
 		if hostConfigPathsOverlap(nativePath, reservation.path) {
 			return reservation.owner, true
 		}
@@ -87,7 +91,7 @@ func hostConfigPathOwner(selected target.Target, scope target.Scope, nativePath 
 	if selected == target.TargetPi && hostConfigPiLoaderPath(nativePath) {
 		return "extension loading", true
 	}
-	if selected == target.TargetCodex && hostConfigCodexRuntimePath(nativePath) {
+	if selected == target.TargetCodex && scope == target.ScopeGlobal && hostConfigCodexRuntimePath(nativePath) {
 		return "runtime state", true
 	}
 	return "", false

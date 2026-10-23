@@ -110,3 +110,37 @@ func TestHostConfigCodexPluginDataCanContainConfiguration(t *testing.T) {
 		mustHostConfigPlacement(t, input)
 	}
 }
+
+func TestHostConfigProjectPathsDoNotInheritGlobalStateReservations(t *testing.T) {
+	paths := map[target.Target][]string{
+		target.TargetPi:    {"auth.json", "auth.json.lock", "sessions/config.json", "models-store.json", "bin/config.json", "tools/config.json", "tmp/config.json", "AGENTS.md"},
+		target.TargetCodex: {"auth.json", "sessions/config.json", "state_5.sqlite", "app-server-daemon/settings.json", "plugins/cache/settings.json", "AGENTS.md", "AGENTS.override.md", "skills/reviewer/config.json"},
+	}
+	for selected, nativePaths := range paths {
+		for _, nativePath := range nativePaths {
+			for _, ownership := range []desiredhostconfig.Ownership{desiredhostconfig.OwnershipKeys, desiredhostconfig.OwnershipDocument} {
+				input := hostConfigInput(selected, target.ScopeProject, nativePath)
+				input.Ownership, input.Syntax = ownership, desiredhostconfig.SyntaxJSON
+				mustHostConfigPlacement(t, input)
+			}
+		}
+	}
+}
+
+func TestHostConfigProjectReservationsMatchNativePlacements(t *testing.T) {
+	paths := map[target.Target][]string{
+		target.TargetPi:    {"mcp.json", "skills/demo/SKILL.md", "npm/package.json", "git/demo/config.json", "settings.json.lock", "settings.json/child.json", "extensions/demo.ts", "extensions/demo/index.js", "extensions/demo/package.json"},
+		target.TargetCodex: {"hooks.json", "config.toml/child.json"},
+	}
+	for selected, nativePaths := range paths {
+		for _, nativePath := range nativePaths {
+			for _, ownership := range []desiredhostconfig.Ownership{desiredhostconfig.OwnershipKeys, desiredhostconfig.OwnershipDocument} {
+				input := hostConfigInput(selected, target.ScopeProject, nativePath)
+				input.Ownership, input.Syntax = ownership, desiredhostconfig.SyntaxJSON
+				if _, err := ResolveHostConfigPlacement(input); err == nil {
+					t.Fatalf("native project resource %s/%q was accepted", selected, nativePath)
+				}
+			}
+		}
+	}
+}
