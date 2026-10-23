@@ -101,7 +101,7 @@ func TestHostConfigReservedPathsInBothModesAndScopes(t *testing.T) {
 			"shell_snapshots/thread.sh", "memories/raw_memories.md", "installation_id", "db-backups/state.sqlite",
 			"log/codex-tui.log", "models_cache.json", "version.json", "cloud-config-bundle-cache.json",
 			"cache/remote_plugin_catalog/item.json", "cache/codex_app_directory/item.json",
-			"plugins/cache/market/demo/plugin.json", "plugins/data/demo/settings.json", ".tmp/marketplaces/demo/file",
+			"plugins/cache/market/demo/plugin.json", ".tmp/marketplaces/demo/file",
 			".tmp/plugin-share-local-paths-v1.json", ".tmp/rollout-compression.lock", "tmp/arg0/helper",
 			"packages/standalone/current", "app-server-control/startup.lock", "app-server-daemon/daemon.lock",
 			"app-server-daemon/app-server.pid", "app-server-daemon/app-server-updater.pid.tmp",
@@ -134,7 +134,7 @@ func TestHostConfigOrdinaryDefinitionsRemainAvailable(t *testing.T) {
 	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
 		for _, scope := range []target.Scope{target.ScopeGlobal, target.ScopeProject} {
 			for _, nativePath := range []string{
-				"agents/reviewer.md", "prompts/review.md", "themes/theme.json", "SYSTEM.md", "APPEND_SYSTEM.md",
+				"agents/reviewer.md", "prompts/review.md", "themes/theme.json", "plugins/data/demo/settings.json", "SYSTEM.md", "APPEND_SYSTEM.md",
 				"extensions/subagent/config.json", "extensions/demo/nested/config.toml", "extensions/demo/nested/script.ts",
 				"skills_extra/config.json", "auth.json.extra", "custom.sqlite", "custom.jsonl", "custom.md",
 				"state_custom.sqlite", "my_state_5.sqlite", "state_5.sqlite-shm-wal",

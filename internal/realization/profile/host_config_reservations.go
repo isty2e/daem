@@ -55,7 +55,6 @@ var codexHostConfigPathReservations = []hostConfigPathReservation{
 	{"cache/remote_plugin_catalog", "the plugin catalog cache"},
 	{"cache/codex_app_directory", "the connector directory cache"},
 	{"plugins/cache", "installed plugin code"},
-	{"plugins/data", "plugin runtime data"},
 	{".tmp/marketplaces", "installed marketplaces"},
 	{".tmp/plugin-share-local-paths-v1.json", "plugin sharing state"},
 	{".tmp/rollout-compression.lock", "session compression locking"},

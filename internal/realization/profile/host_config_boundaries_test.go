@@ -102,3 +102,11 @@ func TestHostConfigPiLoaderControlSubtreesAreReserved(t *testing.T) {
 	input := hostConfigInput(target.TargetPi, target.ScopeGlobal, "extensions/demo.ts/config.json")
 	mustHostConfigPlacement(t, input)
 }
+
+func TestHostConfigCodexPluginDataCanContainConfiguration(t *testing.T) {
+	for _, ownership := range []desiredhostconfig.Ownership{desiredhostconfig.OwnershipKeys, desiredhostconfig.OwnershipDocument} {
+		input := hostConfigInput(target.TargetCodex, target.ScopeGlobal, "plugins/data/demo-market/settings.json")
+		input.Ownership = ownership
+		mustHostConfigPlacement(t, input)
+	}
+}
