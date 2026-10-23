@@ -152,18 +152,31 @@ func validateNonOverlappingRecoveryContentPaths(contentPaths []string) error {
 }
 
 func validateNonOverlappingRecoveryFootprints(footprints []output.Footprint) error {
-	paths := recoveryPathPrefixSet{}
-	for _, footprint := range footprints {
+	ordered := append([]output.Footprint(nil), footprints...)
+	for _, footprint := range ordered {
 		if err := footprint.Validate(); err != nil {
 			return err
 		}
-		var components []string
-		if key, selected := footprint.Key(); selected {
-			components = key.Segments()
+	}
+	sort.Slice(ordered, func(left, right int) bool {
+		return output.CompareFootprints(ordered[left], ordered[right]) < 0
+	})
+
+	ancestors := make([]output.Footprint, 0, len(ordered))
+	for _, footprint := range ordered {
+		key, _ := footprint.Key()
+		for len(ancestors) != 0 {
+			previous := ancestors[len(ancestors)-1]
+			if previous.Contains(footprint) {
+				return fmt.Errorf("overlapping recovery footprint")
+			}
+			previousKey, _ := previous.Key()
+			if strings.HasPrefix(key.String(), previousKey.String()) {
+				break
+			}
+			ancestors = ancestors[:len(ancestors)-1]
 		}
-		if !paths.insertDisjoint(components) {
-			return fmt.Errorf("overlapping recovery footprint")
-		}
+		ancestors = append(ancestors, footprint)
 	}
 	return nil
 }

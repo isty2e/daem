@@ -2,6 +2,7 @@ package ownership
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/output"
@@ -72,5 +73,52 @@ func TestNativeAddressAndIndexPreserveLiteralKeyBoundaries(t *testing.T) {
 	}
 	if _, err := NewManagedAddress(mustPathAuthority(t, path), output.Footprint{}); err == nil {
 		t.Fatal("an uninitialized footprint acquired authority")
+	}
+}
+
+func TestNativeIndexStorageDependsOnFootprintsNotEmptySegments(t *testing.T) {
+	pointer := strings.Repeat("/", 4096)
+	path, err := output.ParseKeyPath(pointer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	footprint, err := output.NewKeyFootprint(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	siblingPath, err := output.ParseKeyPath(pointer + "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sibling, err := output.NewKeyFootprint(siblingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := newContentAddressNode()
+	for position, value := range []output.Footprint{footprint, sibling} {
+		if _, overlap := index.insert(position, value); overlap {
+			t.Fatal("distinct deep keys overlap")
+		}
+	}
+	for position, value := range []output.Footprint{footprint, sibling} {
+		if actual, overlap := index.firstOverlap(value); !overlap || actual != position {
+			t.Fatal("deep native key lost its indexed identity")
+		}
+	}
+
+	// Compressed storage needs at most a branch and a leaf per footprint, not
+	// one map/node per key segment in a bounded metadata string.
+	work := []*contentAddressNode{&index}
+	count := 0
+	for len(work) != 0 {
+		current := work[len(work)-1]
+		work = work[:len(work)-1]
+		count++
+		for _, child := range current.children {
+			work = append(work, child)
+		}
+	}
+	if count > 2*2+1 {
+		t.Fatalf("two footprints allocated %d index nodes", count)
 	}
 }
