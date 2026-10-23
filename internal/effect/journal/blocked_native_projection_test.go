@@ -30,7 +30,7 @@ func TestLegacyJournalRefusesBlockedReadBeforeProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parentIntent, err := aggregate.NewProjectionIntent(parentState, &parentSet)
+	parentIntent, err := aggregate.NewProjectionIntent(parentState, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -273,8 +273,9 @@ func (intent ProjectionIntent) Desired() (ContributionSet, bool) {
 
 // Plan is one canonical batch over a single document and codec contract.
 type Plan struct {
-	before  Snapshot
-	intents []ProjectionIntent
+	before             Snapshot
+	intents            []ProjectionIntent
+	retainedContainers map[ProjectionAddress]bool
 }
 
 // NewPlan validates exact before-state coverage and canonicalizes intent order.
@@ -307,7 +308,11 @@ func NewPlan(before Snapshot, intents []ProjectionIntent) (Plan, error) {
 		}
 		canonical = append(canonical, cloneProjectionIntent(intent))
 	}
-	return Plan{before: cloneSnapshot(before), intents: canonical}, nil
+	plan := Plan{before: cloneSnapshot(before), intents: canonical}
+	if err := plan.indexNativeTreeRelations(); err != nil {
+		return Plan{}, err
+	}
+	return plan, nil
 }
 
 func (plan Plan) Before() Snapshot { return cloneSnapshot(plan.before) }
@@ -477,8 +482,11 @@ func validateExpectedProjectionStates(plan Plan, expected Snapshot) error {
 		if !present || !state.contract.Equal(intent.before.contract) {
 			return fmt.Errorf("rendered document expected snapshot differs from the plan contract")
 		}
-		if intent.desired == nil && state.present {
+		if intent.desired == nil && state.present && !plan.RetainsStructuralContainer(state.contract.address) {
 			return fmt.Errorf("rendered document retains a projection planned for removal")
+		}
+		if intent.desired == nil && !state.present && plan.RetainsStructuralContainer(state.contract.address) {
+			return fmt.Errorf("rendered document omits a required structural container")
 		}
 		if intent.desired != nil && !state.present {
 			return fmt.Errorf("rendered document omits a desired projection")
