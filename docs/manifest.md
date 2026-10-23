@@ -1167,7 +1167,7 @@ read or write may therefore produce several subject-level status rows.
 
 State ownership for supported hook aggregates is partial and subject-owned.
 Each managed Hook row records its lossless aggregate contribution contract,
-including the physical document address, `content_path = "/hooks"`, codec, and
+including the physical document address, `key_path = "/hooks"`, codec, and
 canonical contribution. Current convergence always comes from a fresh codec
 snapshot of `/hooks`, never from state alone or a whole-file hash. `apply`
 preserves unrelated top-level keys; edits to those unrelated keys do not count
@@ -1177,7 +1177,7 @@ exactly match the rendered desired Hook set and the user runs
 removing the final managed contribution removes `/hooks`, and the now-empty host
 file is removed only when no unrelated settings remain.
 
-Codex hook reconciliation manages `content_path = "/hooks"` inside `hooks.json`
+Codex hook reconciliation manages `key_path = "/hooks"` inside `hooks.json`
 and rejects same-layer inline `[hooks]` in `config.toml` as unmanaged hook
 content. Codex hooks written by `daem` are still non-managed Codex hooks,
 so Codex may require the user to review and trust them through `/hooks` before
@@ -1396,7 +1396,7 @@ Current lock behavior:
   files. S3 prefix directory sources are unsupported.
 - Skill sources are validated as directories with a regular `SKILL.md`.
 - Command-only supported Hooks lock no source artifact; each admitted target
-  locks one canonical managed-aggregate contribution. Schema version 6 admits it
+  locks one canonical managed-aggregate contribution. Schema version 7 admits it
   only when the Hook codec can produce a structurally valid host document within
   enforced byte, depth, event, group, and handler bounds; rendered aggregate
   content is tracked separately.
@@ -1437,22 +1437,26 @@ Current lock behavior:
 - Each Instructions resource locks one exact Supply subject with a
   non-executable file-use contract and deterministic materialization, plus one
   managed-file projection per supported placement. Shared files coalesce into
-  one consumer set. Schema-v6 Supply without a structurally valid file
+  one consumer set. Schema-v7 Supply without a structurally valid file
   projection is rejected; apply/status require the projection set to match the
   manifest/profile refinement.
 - Existing lockfile entries that are no longer declared by the manifest are removed by normal lockfile regeneration.
-- Lock readers accept only schema version 6 and reject unsupported versions,
+- Managed-aggregate realizations store a non-root RFC6901 `key_path`; an empty
+  property is `/`, while `/a~1b` identifies the literal property `a/b`. The field
+  records canonical key identity, not permission to mutate that key. The old
+  `content_path` wire field is not accepted in the current schema.
+- Lock readers accept only schema version 7 and reject unsupported versions,
   invalid UTF-8, unknown keys/shapes, duplicate or zero-facet subjects, unknown
   realizations, invalid correlations, unsupported exact-Supply forms, malformed
   identities/contracts, missing `exact_permission_mode` for exact projections,
-  and noncanonical persisted values. Schemas 3–5 are not interpreted: `status`,
+  and noncanonical persisted values. Schemas 3–6 are not interpreted: `status`,
   `apply`, and `outdated` require regeneration; `daem lock` and transactional
   authoring may atomically replace them. Schema 3 was published by daem v0.1.0;
   earlier unknown and future schemas are not replacement-authorized, and future
   schemas require newer daem.
-- Schema version 6 does not admit `generated_at`; readers reject it as an
+- Schema version 7 does not admit `generated_at`; readers reject it as an
   unknown key rather than treating timestamp metadata as lock authority.
-- Schema v6 records canonical delegated package inputs recognized from argv and
+- Schema v7 records canonical delegated package inputs recognized from argv and
   an ecosystem-derived `pin_policy`. Legacy rows are not interpreted because
   version-like tags, ranges, or unmodeled inputs can overstate `pinned`; the
   public manifest remains schema version 1 and needs no migration.

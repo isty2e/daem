@@ -5,7 +5,7 @@ package contractversion
 // Manifest and lockfile schemas evolve independently.
 const (
 	ManifestSchema = 1
-	LockfileSchema = 6
+	LockfileSchema = 7
 )
 
 // MetadataTransaction identifies bounded file-set recovery evidence.

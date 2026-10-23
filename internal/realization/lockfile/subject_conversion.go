@@ -8,7 +8,6 @@ import (
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -116,10 +115,7 @@ func subjectToDTO(contract lock.LockedSubjectContract) (lockedSubjectDTO, error)
 	if contract.EntityID().Validate() != nil || contract.SubjectID().Validate() != nil {
 		return lockedSubjectDTO{}, fmt.Errorf("invalid locked subject identity")
 	}
-	realized, err := realizationToDTO(contract.Realization())
-	if err != nil {
-		return lockedSubjectDTO{}, err
-	}
+	realized := realizationToDTO(contract.Realization())
 	return lockedSubjectDTO{
 		EntityID:                contract.EntityID().String(),
 		SubjectID:               contract.SubjectID().String(),
@@ -262,19 +258,7 @@ func realizationFromDTO(dto *realizationDTO) (*realization.RealizationSpec, erro
 			AdapterContractVersion: body.AdapterContractVersion,
 		})
 	} else if body := dto.ManagedAggregate; body != nil {
-		aggregateRoot, rootErr := output.Parse(body.AggregateRoot)
-		if rootErr != nil {
-			return nil, rootErr
-		}
-		spec, err = realization.NewManagedAggregateContributionFromLegacy(aggregate.LegacyManagedContributionInput{
-			PlacementID: body.PlacementID, Target: target.Target(body.Target), Scope: target.Scope(body.Scope),
-			AggregateRoot: aggregateRoot, ContentPath: body.ContentPath,
-			MergeUnit: aggregate.MergeUnit(body.MergeUnit), SiblingRetention: aggregate.SiblingRetention(body.SiblingRetention),
-			Cardinality:         aggregate.ContributionCardinality(body.ContributionCardinality),
-			SiblingPreservation: aggregate.SiblingPreservation(body.SiblingPreservation),
-			Equivalence:         aggregate.Equivalence(body.Equivalence), CanonicalContribution: body.CanonicalContribution,
-			CodecContractID: aggregate.CodecContractID(body.CodecContract), ComparedFields: body.ComparedFields,
-		})
+		spec, err = aggregateRealizationFromDTO(*body)
 	} else {
 		body := dto.DelegatedRelation
 		subjectKey, keyErr := hostrelation.NewSubjectKey(body.RelationSubjectKey)
@@ -302,9 +286,9 @@ func realizationFromDTO(dto *realizationDTO) (*realization.RealizationSpec, erro
 	return &spec, nil
 }
 
-func realizationToDTO(spec realization.RealizationSpec, present bool) (*realizationDTO, error) {
+func realizationToDTO(spec realization.RealizationSpec, present bool) *realizationDTO {
 	if !present {
-		return nil, nil
+		return nil
 	}
 	dto := &realizationDTO{}
 	if body, ok := spec.ManagedPathProjection(); ok {
@@ -315,18 +299,8 @@ func realizationToDTO(spec realization.RealizationSpec, present bool) (*realizat
 			ExactPermissionMode: exactPathPermissionModeToDTO(body), AdapterContractVersion: body.AdapterContractVersion(),
 		}
 	} else if body, ok := spec.ManagedAggregateContribution(); ok {
-		contentPath, err := body.LegacyContentPath()
-		if err != nil {
-			return nil, fmt.Errorf("legacy lock aggregate scope: %w", err)
-		}
-		dto.ManagedAggregate = &managedAggregateContributionDTO{
-			PlacementID: body.PlacementID(), Target: string(body.Target()), Scope: string(body.Scope()),
-			AggregateRoot: body.AggregateRoot().String(), ContentPath: contentPath, MergeUnit: string(body.MergeUnit()),
-			ContributionCardinality: string(body.Cardinality()),
-			SiblingRetention:        string(body.SiblingRetention()), SiblingPreservation: string(body.SiblingPreservation()),
-			Equivalence: string(body.Equivalence()), CanonicalContribution: body.CanonicalContribution(),
-			CodecContract: string(body.CodecContractID()), ComparedFields: body.ComparedFields(),
-		}
+		aggregateDTO := aggregateRealizationToDTO(body)
+		dto.ManagedAggregate = &aggregateDTO
 	} else if body, ok := spec.DelegatedRelation(); ok {
 		expected := body.ExpectedRelation()
 		dto.DelegatedRelation = &delegatedRelationDTO{
@@ -337,7 +311,7 @@ func realizationToDTO(spec realization.RealizationSpec, present bool) (*realizat
 			VerifiedRelationFields: body.VerifiedRelationFields(),
 		}
 	}
-	return dto, nil
+	return dto
 }
 
 func exactPathPermissionModeFromDTO(value *uint32) (realization.ExactPathPermissionMode, error) {

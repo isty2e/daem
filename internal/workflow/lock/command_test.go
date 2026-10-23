@@ -3,9 +3,9 @@ package lock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -221,7 +221,8 @@ func TestRunLockRejectsFutureSchemaWithoutInterpretingOrReplacingIt(t *testing.T
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
 	writeWorkflowTestFile(t, tempDir, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
-	const future = "version = 7\nfuture_payload = { malformed = [\n"
+	futureVersion := int64(contractversion.LockfileSchema + 1)
+	future := fmt.Sprintf("version = %d\nfuture_payload = { malformed = [\n", futureVersion)
 	writeWorkflowTestFile(t, tempDir, "daem.lock.toml", future)
 
 	for _, dryRun := range []bool{true, false} {
@@ -232,10 +233,9 @@ func TestRunLockRejectsFutureSchemaWithoutInterpretingOrReplacingIt(t *testing.T
 		if err == nil {
 			t.Fatalf("RunLock(dry-run=%t) returned nil error", dryRun)
 		}
-		for _, want := range []string{"unsupported lockfile version 7", "newer daem"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Fatalf("RunLock(dry-run=%t) error = %q, want %q", dryRun, err, want)
-			}
+		var versionErr lockfile.UnsupportedVersionError
+		if !errors.As(err, &versionErr) || versionErr.Found != futureVersion || versionErr.RelockSupported() {
+			t.Fatalf("RunLock(dry-run=%t) did not preserve future-version refusal: %v", dryRun, err)
 		}
 		if got, readErr := os.ReadFile(lockfilePath); readErr != nil || string(got) != future {
 			t.Fatalf("future lockfile after RunLock(dry-run=%t) = %q, %v", dryRun, got, readErr)

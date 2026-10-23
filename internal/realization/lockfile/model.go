@@ -83,7 +83,7 @@ type managedAggregateContributionDTO struct {
 	Target                  string   `toml:"target"`
 	Scope                   string   `toml:"scope"`
 	AggregateRoot           string   `toml:"aggregate_root"`
-	ContentPath             string   `toml:"content_path"`
+	KeyPath                 string   `toml:"key_path"`
 	MergeUnit               string   `toml:"merge_unit"`
 	ContributionCardinality string   `toml:"contribution_cardinality"`
 	SiblingRetention        string   `toml:"sibling_retention"`

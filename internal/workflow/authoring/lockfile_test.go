@@ -2,6 +2,7 @@ package authoring
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 
 	daempaths "github.com/isty2e/daem/internal/paths"
 	lockmodel "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
@@ -67,7 +69,8 @@ func TestBuildLockfileChangeRejectsFutureLockfileWithoutReplacingIt(t *testing.T
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
 	manifest := "version = 1\ntargets = [\"codex\"]\n"
-	futureLockfile := "version = 7\nfuture_payload = \"preserve\"\n"
+	futureVersion := int64(lockmodel.CurrentVersion + 1)
+	futureLockfile := fmt.Sprintf("version = %d\nfuture_payload = \"preserve\"\n", futureVersion)
 	writeTestFile(t, tempDir, "daem.toml", manifest)
 	writeTestFile(t, tempDir, "daem.lock.toml", futureLockfile)
 
@@ -75,7 +78,8 @@ func TestBuildLockfileChangeRejectsFutureLockfileWithoutReplacingIt(t *testing.T
 		ManifestPath:  manifestPath,
 		ManifestBytes: []byte(manifest),
 	})
-	if err == nil || !strings.Contains(err.Error(), "unsupported lockfile version 7") {
+	var versionErr lockfile.UnsupportedVersionError
+	if !errors.As(err, &versionErr) || versionErr.Found != futureVersion || versionErr.RelockSupported() {
 		t.Fatalf("BuildLockfileChange error = %v, want future-schema rejection", err)
 	}
 	assertFileContent(t, lockfilePath, futureLockfile)
@@ -175,7 +179,7 @@ args = ["-y", "@upstash/context7-mcp"]
 		`on_absent = "remove_binding"`,
 		`contribution_cardinality = "exclusive"`,
 		`codec_contract = "claude-project-mcp-stdio-v1"`,
-		`content_path = "/mcpServers/context7"`,
+		`key_path = "/mcpServers/context7"`,
 	} {
 		if !strings.Contains(lockfileContent, want) {
 			t.Fatalf("lockfile content = %q, want %q", lockfileContent, want)
@@ -222,7 +226,7 @@ args = ["-y", "@upstash/context7-mcp@1.2.3"]
 		`contribution_cardinality = "exclusive"`,
 		`codec_contract = "opencode-project-mcp-local-command-v1"`,
 		`aggregate_root = "opencode.json"`,
-		`content_path = "/mcp/context7"`,
+		`key_path = "/mcp/context7"`,
 	} {
 		if !strings.Contains(lockfileContent, want) {
 			t.Fatalf("lockfile content = %q, want %q", lockfileContent, want)
