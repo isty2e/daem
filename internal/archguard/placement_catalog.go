@@ -237,6 +237,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/encoding/tomlstrict"},
 	},
 	{
+		id:        "codec.native-config",
+		placement: specializedPlacement(affinityNone, roleCodec, specializationFormat, "native configuration"),
+		packages:  []string{"internal/encoding/configdocument"},
+	},
+	{
 		id:        "codec.hook-document",
 		placement: specializedPlacement(affinityNone, roleCodec, specializationFormat, "Hook host JSON"),
 		packages:  []string{"internal/encoding/hookdocument"},
