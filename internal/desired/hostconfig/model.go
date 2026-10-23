@@ -95,7 +95,7 @@ func New(spec Spec) (Config, error) {
 		return Config{}, err
 	}
 
-	if err := validatePath(spec.Path); err != nil {
+	if err := ValidateRelativePath(spec.Path); err != nil {
 		return Config{}, err
 	}
 	if err := validateSource(spec.Source, scope); err != nil {
@@ -114,7 +114,8 @@ func New(spec Spec) (Config, error) {
 	return Config{id: id, source: spec.Source, target: selected, scope: scope, path: spec.Path, ownership: ownership, syntax: syntax}, nil
 }
 
-func validatePath(value string) error {
+// ValidateRelativePath refuses noncanonical paths without cleaning or expansion.
+func ValidateRelativePath(value string) error {
 	if value == "" || strings.TrimSpace(value) != value || !utf8.ValidString(value) {
 		return fmt.Errorf("host configuration path must be non-empty, trimmed UTF-8")
 	}
