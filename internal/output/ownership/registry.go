@@ -7,15 +7,18 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 )
 
-// Registry is a canonical, overlap-free set of durable ownership claims.
+// Registry retains independent ownership claims and document identity evidence.
+// Only claims participate in overlap exclusion.
 type Registry struct {
-	claims      []Claim
-	overlaps    addressOverlapIndex
-	initialized bool
+	claims         []Claim
+	bindings       []DocumentBinding
+	bindingIndices map[documentBindingKey]int
+	overlaps       addressOverlapIndex
+	initialized    bool
 }
 
-// NewRegistry validates, copies, and canonically orders claims.
-func NewRegistry(claims []Claim) (Registry, error) {
+// NewRegistry validates, copies, and orders claims and optional document bindings.
+func NewRegistry(claims []Claim, bindings ...DocumentBinding) (Registry, error) {
 	normalized := append([]Claim(nil), claims...)
 	for index, claim := range normalized {
 		if err := claim.Validate(); err != nil {
@@ -25,6 +28,10 @@ func NewRegistry(claims []Claim) (Registry, error) {
 	sort.Slice(normalized, func(left int, right int) bool {
 		return normalized[left].Address().Less(normalized[right].Address())
 	})
+	canonicalBindings, bindingIndices, err := canonicalDocumentBindings(bindings)
+	if err != nil {
+		return Registry{}, err
+	}
 	overlaps := addressOverlapIndex{}
 	if len(normalized) != 0 {
 		overlaps.roots = make(map[string]*physicalAddressNode)
@@ -37,7 +44,7 @@ func NewRegistry(claims []Claim) (Registry, error) {
 			}
 		}
 	}
-	return Registry{claims: normalized, overlaps: overlaps, initialized: true}, nil
+	return Registry{claims: normalized, bindings: canonicalBindings, bindingIndices: bindingIndices, overlaps: overlaps, initialized: true}, nil
 }
 
 // EmptyRegistry returns a valid registry with no claims.
@@ -52,11 +59,16 @@ func (registry Registry) Claims() []Claim {
 
 // Equal reports semantic equality between two canonical registries.
 func (registry Registry) Equal(other Registry) bool {
-	if !registry.initialized || !other.initialized || len(registry.claims) != len(other.claims) {
+	if !registry.initialized || !other.initialized || len(registry.claims) != len(other.claims) || len(registry.bindings) != len(other.bindings) {
 		return false
 	}
 	for index := range registry.claims {
 		if !registry.claims[index].Equal(other.claims[index]) {
+			return false
+		}
+	}
+	for index := range registry.bindings {
+		if !registry.bindings[index].Equal(other.bindings[index]) {
 			return false
 		}
 	}
@@ -134,7 +146,7 @@ func (registry Registry) Apply(address ManagedAddress, expected ClaimValue, repl
 		}
 		next = append(next, claim)
 	}
-	return NewRegistry(next)
+	return NewRegistry(next, registry.bindings...)
 }
 
 // ConflictError reports an overlapping claim owned by an existing authority.

@@ -32,7 +32,7 @@ func nativeClaim(t *testing.T, keys ...string) ownership.Claim {
 	return claim
 }
 
-func TestRegistryV3RoundTripsNativeFootprints(t *testing.T) {
+func TestRegistryCurrentRoundTripsNativeFootprints(t *testing.T) {
 	for _, keys := range [][]string{{""}, {"a/b", "~", "."}, {"line\nkey", "日本語"}} {
 		claim := nativeClaim(t, keys...)
 		registry, err := ownership.NewRegistry([]ownership.Claim{claim})
@@ -44,7 +44,7 @@ func TestRegistryV3RoundTripsNativeFootprints(t *testing.T) {
 			t.Fatal(err)
 		}
 		var envelope file
-		if err := json.Unmarshal(encoded, &envelope); err != nil || envelope.Version != 3 {
+		if err := json.Unmarshal(encoded, &envelope); err != nil || envelope.Version != currentVersion {
 			t.Fatalf("native footprint published without current version: %v", err)
 		}
 		decoded, err := decode(encoded)
@@ -92,7 +92,7 @@ func TestRegistryV2MigrationPreservesLiteralTildeIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if actual, found := decodedAgain.Exact(claim.Address()); !found || !actual.Equal(claim) {
-		t.Fatal("v2 to v3 publication changed ownership")
+		t.Fatal("legacy publication changed ownership")
 	}
 }
 
@@ -138,7 +138,10 @@ func TestRegistryVersionGatesDoNotInferAddressEncoding(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		envelope["version"] = json.RawMessage("3")
+		envelope["version"], err = json.Marshal(currentVersion)
+		if err != nil {
+			t.Fatal(err)
+		}
 		envelope["claims"] = claims
 		malformed, err := json.Marshal(envelope)
 		if err != nil {

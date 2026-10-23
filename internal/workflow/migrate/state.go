@@ -197,6 +197,11 @@ func (prepared *PreparedState) loadTransfer(ctx context.Context) error {
 		return err
 	}
 	if sourceMissing {
+		for _, binding := range prepared.outputs.DocumentBindings() {
+			if binding.Owner().Equal(from) {
+				return fmt.Errorf("legacy document identity exists without its state snapshot; restore the missing snapshot before migration")
+			}
+		}
 		if prepared.disclosure.OutputClaims != 0 {
 			return fmt.Errorf("legacy output ownership exists without its state snapshot; restore the missing snapshot before migration")
 		}
@@ -233,6 +238,11 @@ func (prepared *PreparedState) loadRegistries(ctx context.Context, expected stat
 				return fmt.Errorf("reserved ownership requires recovery before state migration")
 			}
 			prepared.disclosure.OutputClaims++
+		}
+	}
+	for _, binding := range prepared.outputs.DocumentBindings() {
+		if err := prepared.validateRegistryOwner(binding.Owner(), expected, relocated); err != nil {
+			return err
 		}
 	}
 	for _, claim := range prepared.carriers.Claims() {

@@ -151,7 +151,7 @@ func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, er
 			nextClaims = append(nextClaims, claim)
 		}
 	}
-	next, err := NewRegistry(nextClaims)
+	next, err := NewRegistry(nextClaims, registry.bindings...)
 	if err != nil {
 		return Registry{}, false, err
 	}

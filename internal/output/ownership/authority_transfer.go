@@ -36,5 +36,20 @@ func (registry Registry) TransferAuthority(from, to stateauthority.Authority) (R
 		}
 		next[index] = replacement
 	}
-	return NewRegistry(next)
+	bindings := registry.DocumentBindings()
+	for index, binding := range bindings {
+		if !binding.Owner().Equal(from) {
+			continue
+		}
+		owner, err := binding.Owner().WithStatefile(to.StatefileAuthority())
+		if err != nil {
+			return Registry{}, err
+		}
+		replacement, err := NewDocumentBinding(owner, binding.Destination(), binding.PathAuthority())
+		if err != nil {
+			return Registry{}, err
+		}
+		bindings[index] = replacement
+	}
+	return NewRegistry(next, bindings...)
 }

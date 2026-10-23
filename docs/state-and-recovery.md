@@ -129,6 +129,11 @@ managed-output registry permits one owner per whole path or overlapping config
 projection; equal bytes do not permit co-ownership. Losslessly disjoint
 projections, such as separate MCP entries, may have different owners.
 
+Document identity bindings in the same registry map an owning state authority's
+logical destination to a recorded physical namespace. They do not reserve a
+path or grant mutation authority. A stored binding is not proof that the current
+file or root still matches it.
+
 The separate carrier registry permits multiple known manifest consumers of one
 carrier while retaining exact target, scope, source, route and owner identity
 for each relation. Neither registry proves exclusive host ownership or

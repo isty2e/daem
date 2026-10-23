@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	currentVersion                    = 3
+	currentVersion                    = 4
 	maximumOwnershipRegistryBytes     = 16 << 20
 	maximumOwnershipRegistryJSONDepth = 64
 )
@@ -654,8 +654,9 @@ func (store Store) loadForCommit(
 }
 
 type file struct {
-	Version int           `json:"version"`
-	Claims  []claimRecord `json:"claims"`
+	Version          int                     `json:"version"`
+	Claims           []claimRecord           `json:"claims"`
+	DocumentBindings []documentBindingRecord `json:"document_bindings"`
 }
 
 type claimRecord struct {
@@ -687,6 +688,8 @@ func decode(content []byte) (ownership.Registry, error) {
 	switch version {
 	case currentVersion:
 		return decodeCurrent(content)
+	case legacyNativeRegistryVersion:
+		return decodeOwnershipRegistryV3(content)
 	case previousOwnershipRegistryVersion:
 		return decodeOwnershipRegistryV2(content)
 	case retiredOwnershipRegistryVersion:
@@ -707,7 +710,18 @@ func decodeCurrent(content []byte) (ownership.Registry, error) {
 	if persisted.Claims == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry requires claims array")
 	}
-	return decodeRegistryClaims(persisted.Claims)
+	if persisted.DocumentBindings == nil {
+		return ownership.Registry{}, fmt.Errorf("ownership registry requires document_bindings array")
+	}
+	registry, err := decodeRegistryClaims(persisted.Claims)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	bindings, err := decodeDocumentBindings(persisted.DocumentBindings)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	return ownership.NewRegistry(registry.Claims(), bindings...)
 }
 
 func decodeRegistryJSON(content []byte, target any) error {
@@ -785,16 +799,13 @@ func unsupportedOwnershipRegistryVersion(version int) error {
 // Marshal validates and encodes the complete registry for a leased, journaled
 // metadata transaction. Serialization does not authorize publication.
 func Marshal(registry ownership.Registry) ([]byte, error) {
-	canonical, err := ownership.NewRegistry(registry.Claims())
+	canonical, err := ownership.NewRegistry(registry.Claims(), registry.DocumentBindings()...)
 	if err != nil {
 		return nil, err
 	}
 	content, err := encode(canonical)
 	if err != nil {
 		return nil, err
-	}
-	if int64(len(content)) > maximumOwnershipRegistryBytes {
-		return nil, fmt.Errorf("ownership registry exceeds %d bytes", maximumOwnershipRegistryBytes)
 	}
 	return content, nil
 }
@@ -804,7 +815,7 @@ func encode(registry ownership.Registry) ([]byte, error) {
 	sort.Slice(claims, func(left int, right int) bool {
 		return claims[left].Address().Less(claims[right].Address())
 	})
-	persisted := file{Version: currentVersion, Claims: make([]claimRecord, 0, len(claims))}
+	persisted := file{Version: currentVersion, Claims: make([]claimRecord, 0, len(claims)), DocumentBindings: persistedDocumentBindings(registry.DocumentBindings())}
 	for _, claim := range claims {
 		path := claim.Address().PathAuthority()
 		statefile := claim.Owner().StatefileAuthority()
@@ -831,5 +842,9 @@ func encode(registry ownership.Registry) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode ownership registry: %w", err)
 	}
-	return append(content, '\n'), nil
+	content = append(content, '\n')
+	if int64(len(content)) > maximumOwnershipRegistryBytes {
+		return nil, fmt.Errorf("ownership registry exceeds %d bytes", maximumOwnershipRegistryBytes)
+	}
+	return content, nil
 }

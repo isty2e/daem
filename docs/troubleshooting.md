@@ -85,11 +85,12 @@ Old statefile v7, ownership/carrier registry v1 and journal v7 recorded path
 strings without current filesystem witnesses. Daem cannot infer their case or
 Unicode namespace semantics.
 
-Output ownership registry v3 distinguishes whole-path claims from native key
-claims. Populated v2 registries remain readable without rewriting them. The next
-state-changing guarded write upgrades to v3 and preserves v2 keys as literal
-slash-separated segments, not JSON Pointer escapes. After that write, use a
-daem version that understands v3; older binaries cannot read the new registry.
+Output ownership registry v4 stores whole-path or native-key claims separately
+from document identity bindings. Populated v2 and v3 registries remain readable
+without rewriting them. The next state-changing guarded write upgrades to v4
+and preserves v2 keys as literal slash-separated segments, not JSON Pointer
+escapes. After that write, use a daem version that understands v4; older binaries
+cannot read the new registry.
 
 Only exact empty artifacts can retire automatically: v7 state with all seven
 fact arrays present/empty, or v1 registries with present/empty `claims`. Reads
