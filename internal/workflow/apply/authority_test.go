@@ -276,7 +276,7 @@ func TestOwnershipFingerprintDistinguishesAndOrdersPathAuthorityKinds(t *testing
 	}
 	firstDestination := outputtest.Parse(t, "~/.agents/skills/first")
 	secondDestination := outputtest.Parse(t, "~/.agents/skills/second")
-	second, err := observe.NewExactOwnershipObservation(
+	second, err := observe.NewExactOwnershipObservationFromLegacy(
 		secondDestination,
 		"",
 		address,
@@ -285,7 +285,7 @@ func TestOwnershipFingerprintDistinguishesAndOrdersPathAuthorityKinds(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := observe.NewExactOwnershipObservation(
+	first, err := observe.NewExactOwnershipObservationFromLegacy(
 		firstDestination,
 		"",
 		address,
@@ -303,7 +303,7 @@ func TestOwnershipFingerprintDistinguishesAndOrdersPathAuthorityKinds(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	provisional, err := observe.NewProvisionalOwnershipObservation(
+	provisional, err := observe.NewProvisionalOwnershipObservationFromLegacy(
 		outputtest.Parse(t, "~/.agents/skills/provisional"),
 		"",
 		provisionalAuthority,
@@ -470,7 +470,7 @@ func TestBuildApplyAuthorityEvidenceRejectsDistinctLogicalDestinationsAtSamePhys
 	if err != nil {
 		t.Fatal(err)
 	}
-	globalObservation, err := observe.NewExactOwnershipObservation(
+	globalObservation, err := observe.NewExactOwnershipObservationFromLegacy(
 		globalDestination,
 		"",
 		globalAddress,

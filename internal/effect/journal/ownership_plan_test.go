@@ -536,7 +536,7 @@ func testProvisionalAcquireIntent(t *testing.T, entry recoveryEntry) ownership.P
 		t.Fatalf("parse provisional destination: %v", err)
 	}
 	transition, _, _ := testAcquireTransition(t, entry)
-	intent, err := ownership.NewProvisionalAcquireIntent(
+	intent, err := ownership.NewProvisionalAcquireIntentFromLegacy(
 		destination,
 		output.ContentPath(entry.ContentPath),
 		provisional,
@@ -544,7 +544,7 @@ func testProvisionalAcquireIntent(t *testing.T, entry recoveryEntry) ownership.P
 		testOperationID,
 	)
 	if err != nil {
-		t.Fatalf("NewProvisionalAcquireIntent returned error: %v", err)
+		t.Fatalf("NewProvisionalAcquireIntentFromLegacy returned error: %v", err)
 	}
 	return intent
 }

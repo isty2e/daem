@@ -231,7 +231,7 @@ func enforceManagedPathOwnership(
 		return newManagedPathBlocked(input, reconcile.ReasonOwnershipObservationMissing, "durable ownership owner authority is required for a global output")
 	}
 	if previousGlobal {
-		previousKey := ownershipObservationKey{destination: input.Previous.Destination()}
+		previousKey := ownershipObservationKey{destination: input.Previous.Destination(), footprint: output.WholePathFootprint()}
 		previousObservation, present := observations[previousKey]
 		if !present {
 			if preblocked {
@@ -250,7 +250,7 @@ func enforceManagedPathOwnership(
 		if !currentGlobal {
 			return decision
 		}
-		key := ownershipObservationKey{destination: input.Destination}
+		key := ownershipObservationKey{destination: input.Destination, footprint: output.WholePathFootprint()}
 		observation, present := observations[key]
 		if !present {
 			if preblocked {
@@ -271,7 +271,7 @@ func enforceManagedPathOwnership(
 		return decision
 	}
 
-	key := ownershipObservationKey{destination: input.Destination}
+	key := ownershipObservationKey{destination: input.Destination, footprint: output.WholePathFootprint()}
 	observation, present := observations[key]
 	if !present {
 		if preblocked {

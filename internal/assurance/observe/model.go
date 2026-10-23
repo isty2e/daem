@@ -12,7 +12,7 @@ import (
 // OwnershipObservation reports the durable claim, if any, overlapping one resolved output address.
 type OwnershipObservation struct {
 	destination output.Destination
-	contentPath output.ContentPath
+	footprint   output.Footprint
 	address     ownership.ManagedAddress
 	provisional pathauthority.Provisional
 	claim       ownership.ClaimValue
@@ -22,12 +22,12 @@ type OwnershipObservation struct {
 // optional overlapping durable claim.
 func NewExactOwnershipObservation(
 	destination output.Destination,
-	contentPath output.ContentPath,
+	footprint output.Footprint,
 	address ownership.ManagedAddress,
 	claim ownership.ClaimValue,
 ) (OwnershipObservation, error) {
 	observation := OwnershipObservation{
-		destination: destination, contentPath: contentPath, address: address, claim: claim,
+		destination: destination, footprint: footprint, address: address, claim: claim,
 	}
 	if err := observation.Validate(); err != nil {
 		return OwnershipObservation{}, err
@@ -40,12 +40,12 @@ func NewExactOwnershipObservation(
 // exact authority for the candidate.
 func NewProvisionalOwnershipObservation(
 	destination output.Destination,
-	contentPath output.ContentPath,
+	footprint output.Footprint,
 	provisional pathauthority.Provisional,
 	claim ownership.ClaimValue,
 ) (OwnershipObservation, error) {
 	observation := OwnershipObservation{
-		destination: destination, contentPath: contentPath, provisional: provisional,
+		destination: destination, footprint: footprint, provisional: provisional,
 		claim: claim,
 	}
 	if err := observation.Validate(); err != nil {
@@ -62,8 +62,7 @@ func (observation OwnershipObservation) Validate() error {
 	if err := observation.destination.ValidateScope(target.ScopeGlobal); err != nil {
 		return fmt.Errorf("ownership observation destination: %w", err)
 	}
-	footprint, err := output.FootprintFromLegacy(observation.contentPath)
-	if err != nil {
+	if err := observation.footprint.Validate(); err != nil {
 		return err
 	}
 	hasExact := !observation.address.PathAuthority().IsZero()
@@ -75,8 +74,8 @@ func (observation OwnershipObservation) Validate() error {
 		if err := observation.address.Validate(); err != nil {
 			return fmt.Errorf("exact address: %w", err)
 		}
-		if !observation.address.Footprint().Equal(footprint) {
-			return fmt.Errorf("ownership observation content path disagrees with its exact address")
+		if !observation.address.Footprint().Equal(observation.footprint) {
+			return fmt.Errorf("ownership observation footprint disagrees with its exact address")
 		}
 		if claim, present := observation.claim.Get(); present {
 			if err := claim.Validate(); err != nil {
@@ -103,9 +102,9 @@ func (observation OwnershipObservation) Destination() output.Destination {
 	return observation.destination
 }
 
-// ContentPath returns the managed projection within the destination.
-func (observation OwnershipObservation) ContentPath() output.ContentPath {
-	return observation.contentPath
+// Footprint returns the canonical managed scope within the destination.
+func (observation OwnershipObservation) Footprint() output.Footprint {
+	return observation.footprint
 }
 
 // ExactAddress returns exact durable authority when currently observable.
@@ -135,5 +134,5 @@ func (observation OwnershipObservation) Overlaps(other OwnershipObservation) boo
 	rightProvisional, rightIsProvisional := other.ProvisionalPath()
 	return leftIsProvisional && rightIsProvisional &&
 		leftProvisional.Equal(rightProvisional) &&
-		observation.contentPath.Overlaps(other.contentPath)
+		observation.footprint.Overlaps(other.footprint)
 }

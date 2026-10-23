@@ -60,7 +60,7 @@ func ownershipPlanForManagedPathEffects(
 		previous, hasPrevious := effect.PreviousState()
 		if hasPrevious && (previous.Scope() != effect.Scope() || previous.Destination() != effect.Destination()) {
 			if previous.Scope() == target.ScopeGlobal {
-				old, present := byOutput[ownershipOutputKey{destination: previous.Destination()}]
+				old, present := byOutput[ownershipOutputKey{destination: previous.Destination(), footprint: output.WholePathFootprint()}]
 				if !present {
 					return ownershipMutationPlan{}, fmt.Errorf("previous global managed path %q has no ownership observation", previous.Destination())
 				}
@@ -75,7 +75,7 @@ func ownershipPlanForManagedPathEffects(
 				plan.transitions = append(plan.transitions, release)
 			}
 			if effect.Scope() == target.ScopeGlobal {
-				current, present := byOutput[ownershipOutputKey{destination: effect.Destination()}]
+				current, present := byOutput[ownershipOutputKey{destination: effect.Destination(), footprint: output.WholePathFootprint()}]
 				if !present {
 					return ownershipMutationPlan{}, fmt.Errorf("new global managed path %q has no ownership observation", effect.Destination())
 				}
@@ -88,7 +88,7 @@ func ownershipPlanForManagedPathEffects(
 		if effect.Scope() != target.ScopeGlobal {
 			continue
 		}
-		current, present := byOutput[ownershipOutputKey{destination: effect.Destination()}]
+		current, present := byOutput[ownershipOutputKey{destination: effect.Destination(), footprint: output.WholePathFootprint()}]
 		if !present {
 			return ownershipMutationPlan{}, fmt.Errorf("global managed path effect for %q has no ownership observation", effect.Destination())
 		}
@@ -138,29 +138,25 @@ func ownershipPlanForAggregateEffects(
 				continue
 			}
 			address := projection.contract.Address()
-			contentPath, err := address.LegacyContentPath()
-			if err != nil {
-				return ownershipMutationPlan{}, err
-			}
 			key := ownershipOutputKey{
 				destination: document.AggregateRoot(),
-				contentPath: output.ContentPath(contentPath),
+				footprint:   address.Footprint(),
 			}
 			observation, present := byOutput[key]
 			if !present {
 				return ownershipMutationPlan{}, fmt.Errorf(
-					"global aggregate projection for %q content path %q has no ownership observation",
+					"global aggregate projection for %q footprint %s has no ownership observation",
 					key.destination,
-					key.contentPath,
+					key.scopeLabel(),
 				)
 			}
 
 			if len(projection.previous) == 0 {
 				if err := appendOwnershipAcquire(&plan, observation, owner, operationID); err != nil {
 					return ownershipMutationPlan{}, fmt.Errorf(
-						"new global aggregate projection for %q content path %q: %w",
+						"new global aggregate projection for %q footprint %s: %w",
 						key.destination,
-						key.contentPath,
+						key.scopeLabel(),
 						err,
 					)
 				}
@@ -169,9 +165,9 @@ func ownershipPlanForAggregateEffects(
 			claim, err := exactActiveOwnershipClaim(observation, owner)
 			if err != nil {
 				return ownershipMutationPlan{}, fmt.Errorf(
-					"existing global aggregate projection for %q content path %q: %w",
+					"existing global aggregate projection for %q footprint %s: %w",
 					key.destination,
-					key.contentPath,
+					key.scopeLabel(),
 					err,
 				)
 			}
@@ -196,7 +192,7 @@ func ownershipPlanForAggregateEffects(
 
 type ownershipOutputKey struct {
 	destination output.Destination
-	contentPath output.ContentPath
+	footprint   output.Footprint
 }
 
 func provisionalAcquireKeysForManagedPath(
@@ -211,28 +207,24 @@ func provisionalAcquireKeysForManagedPath(
 	if present && previous.Scope() == effect.Scope() && previous.Destination() == effect.Destination() {
 		return nil
 	}
-	return []ownershipOutputKey{{destination: effect.Destination()}}
+	return []ownershipOutputKey{{destination: effect.Destination(), footprint: output.WholePathFootprint()}}
 }
 
-func provisionalAcquireKeysForAggregate(effect AggregateEffect) ([]ownershipOutputKey, error) {
+func provisionalAcquireKeysForAggregate(effect AggregateEffect) []ownershipOutputKey {
 	if effect.Scope() != target.ScopeGlobal || effect.Kind() == AggregateEffectRecord {
-		return nil, nil
+		return nil
 	}
 	keys := make([]ownershipOutputKey, 0, len(effect.projections))
 	for _, projection := range effect.projections {
 		if len(projection.subjects) == 0 || len(projection.previous) != 0 {
 			continue
 		}
-		contentPath, err := projection.contract.Address().LegacyContentPath()
-		if err != nil {
-			return nil, err
-		}
 		keys = append(keys, ownershipOutputKey{
 			destination: effect.Destination(),
-			contentPath: output.ContentPath(contentPath),
+			footprint:   projection.contract.Address().Footprint(),
 		})
 	}
-	return keys, nil
+	return keys
 }
 
 func ownershipObservationsByOutput(
@@ -245,13 +237,13 @@ func ownershipObservationsByOutput(
 		}
 		key := ownershipOutputKey{
 			destination: observation.Destination(),
-			contentPath: observation.ContentPath(),
+			footprint:   observation.Footprint(),
 		}
 		if _, exists := byOutput[key]; exists {
 			return nil, fmt.Errorf(
-				"duplicate execution ownership observation for %q content path %q",
+				"duplicate execution ownership observation for %q footprint %s",
 				key.destination,
-				key.contentPath,
+				key.scopeLabel(),
 			)
 		}
 		byOutput[key] = observation
@@ -285,7 +277,7 @@ func appendOwnershipAcquire(
 	}
 	intent, err := ownership.NewProvisionalAcquireIntent(
 		observation.Destination(),
-		observation.ContentPath(),
+		observation.Footprint(),
 		provisional,
 		owner,
 		operationID,
@@ -317,7 +309,7 @@ func (state *ownershipMutationState) promoteVisibleAcquires(
 		intent := state.provisional[index]
 		key := ownershipOutputKey{
 			destination: intent.Destination(),
-			contentPath: intent.ContentPath(),
+			footprint:   intent.Footprint(),
 		}
 		if _, selected := requested[key]; !selected {
 			index++
@@ -334,9 +326,9 @@ func (state *ownershipMutationState) promoteVisibleAcquires(
 		)
 		if err != nil {
 			return fmt.Errorf(
-				"promote ownership for %q content path %q: %w",
+				"promote ownership for %q footprint %s: %w",
 				intent.Destination(),
-				intent.ContentPath(),
+				key.scopeLabel(),
 				err,
 			)
 		}
@@ -364,7 +356,7 @@ func promoteVisibleAcquire(
 ) (ownershipmutation.ClaimTransition, string, bool, error) {
 	key := ownershipOutputKey{
 		destination: intent.Destination(),
-		contentPath: intent.ContentPath(),
+		footprint:   intent.Footprint(),
 	}
 	prefix, err := execution.promotionReference(key)
 	if err != nil {
@@ -411,7 +403,7 @@ func promoteVisibleAcquire(
 				return fmt.Errorf("visible ownership authority observation is empty")
 			}
 			visible = true
-			address, addressErr := ownership.NewManagedAddressFromLegacy(exact, string(intent.ContentPath()))
+			address, addressErr := ownership.NewManagedAddress(exact, intent.Footprint())
 			if addressErr != nil {
 				return addressErr
 			}

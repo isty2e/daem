@@ -225,7 +225,7 @@ func managedPathOwnershipObservation(
 		}
 		claim, _ = ownership.PresentClaim(active)
 	}
-	observation, err := observe.NewExactOwnershipObservation(destination, "", address, claim)
+	observation, err := observe.NewExactOwnershipObservationFromLegacy(destination, "", address, claim)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -770,7 +770,7 @@ func globalAggregateOwnershipInputAtHome(
 				t.Fatalf("seed ownership registry returned error: %v", storeErr)
 			}
 		}
-		ownershipObservation, err = observe.NewExactOwnershipObservation(
+		ownershipObservation, err = observe.NewExactOwnershipObservationFromLegacy(
 			fixture.destination,
 			output.ContentPath(outputtest.LegacyContentPath(t, contribution.Contribution())),
 			managedAddress,
@@ -783,7 +783,7 @@ func globalAggregateOwnershipInputAtHome(
 		if removing {
 			t.Fatal("removal fixture cannot start from provisional path authority")
 		}
-		ownershipObservation, err = observe.NewProvisionalOwnershipObservation(
+		ownershipObservation, err = observe.NewProvisionalOwnershipObservationFromLegacy(
 			fixture.destination,
 			output.ContentPath(outputtest.LegacyContentPath(t, contribution.Contribution())),
 			provisional,

@@ -116,7 +116,7 @@ func TestPrintPlanKeepsOwnershipConflictProvenanceVerboseOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ownershipObservation, err := observe.NewExactOwnershipObservation(
+	ownershipObservation, err := observe.NewExactOwnershipObservationFromLegacy(
 		fixture.destination,
 		"",
 		address,

@@ -12,6 +12,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/operationplan"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -997,12 +998,16 @@ func recoveryIntentClaimGuard(
 	if len(intents) == 0 {
 		return nil
 	}
-	byOutput := make(map[string]ownership.ProvisionalAcquireIntent, len(intents))
+	byOutput := make(map[provisionalRecoveryOutputKey]ownership.ProvisionalAcquireIntent, len(intents))
 	for _, intent := range intents {
-		byOutput[provisionalRecoveryOutputKey(intent.Destination().String(), string(intent.ContentPath()))] = intent
+		byOutput[provisionalRecoveryOutputKey{destination: intent.Destination().String(), footprint: intent.Footprint()}] = intent
 	}
 	return func(ctx context.Context, action recoveryHostAction, destination mutationDestination) error {
-		intent, present := byOutput[provisionalRecoveryOutputKey(action.Destination, action.ContentPath)]
+		footprint, err := output.FootprintFromLegacy(output.ContentPath(action.ContentPath))
+		if err != nil {
+			return fmt.Errorf("provisional recovery action scope: %w", err)
+		}
+		intent, present := byOutput[provisionalRecoveryOutputKey{destination: action.Destination, footprint: footprint}]
 		if !present {
 			return nil
 		}
@@ -1053,8 +1058,9 @@ func recoveryIntentClaimGuard(
 	}
 }
 
-func provisionalRecoveryOutputKey(destination string, contentPath string) string {
-	return destination + "\x00" + contentPath
+type provisionalRecoveryOutputKey struct {
+	destination string
+	footprint   output.Footprint
 }
 
 func recoveryRollbackFailure(primary error, rollbackErr error, cleanupErr error) error {

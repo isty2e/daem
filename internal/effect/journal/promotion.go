@@ -277,10 +277,14 @@ func promotedIntentEntryIndex(
 	entries []recoveryEntry,
 	intent outputownership.ProvisionalAcquireIntent,
 ) (int, error) {
+	contentPath, err := intent.LegacyContentPath()
+	if err != nil {
+		return -1, err
+	}
 	matchedIndex := -1
 	for index, entry := range entries {
 		if entry.Path != intent.Destination().String() ||
-			entry.ContentPath != string(intent.ContentPath()) {
+			entry.ContentPath != string(contentPath) {
 			continue
 		}
 		if matchedIndex >= 0 {

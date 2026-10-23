@@ -13,7 +13,7 @@ import (
 // without granting exact path authority or reserving a durable claim.
 type ProvisionalAcquireIntent struct {
 	destination output.Destination
-	contentPath output.ContentPath
+	footprint   output.Footprint
 	path        pathauthority.Provisional
 	owner       stateauthority.Authority
 	operationID string
@@ -23,14 +23,14 @@ type ProvisionalAcquireIntent struct {
 // intent for a normalization-sensitive future path.
 func NewProvisionalAcquireIntent(
 	destination output.Destination,
-	contentPath output.ContentPath,
+	footprint output.Footprint,
 	path pathauthority.Provisional,
 	owner stateauthority.Authority,
 	operationID string,
 ) (ProvisionalAcquireIntent, error) {
 	intent := ProvisionalAcquireIntent{
 		destination: destination,
-		contentPath: contentPath,
+		footprint:   footprint,
 		path:        path,
 		owner:       owner,
 		operationID: operationID,
@@ -49,7 +49,7 @@ func (intent ProvisionalAcquireIntent) Validate() error {
 	if err := intent.destination.ValidateScope(target.ScopeGlobal); err != nil {
 		return fmt.Errorf("provisional acquisition destination: %w", err)
 	}
-	if err := intent.contentPath.Validate(); err != nil {
+	if err := intent.footprint.Validate(); err != nil {
 		return err
 	}
 	if err := intent.path.Validate(); err != nil {
@@ -70,12 +70,8 @@ func (intent ProvisionalAcquireIntent) AdmitAddress(address ManagedAddress) erro
 	if err := address.Validate(); err != nil {
 		return fmt.Errorf("promoted ownership address: %w", err)
 	}
-	expected, err := output.FootprintFromLegacy(intent.contentPath)
-	if err != nil {
-		return err
-	}
-	if !address.Footprint().Equal(expected) {
-		return fmt.Errorf("promoted ownership address changed content path")
+	if !address.Footprint().Equal(intent.footprint) {
+		return fmt.Errorf("promoted ownership address changed footprint")
 	}
 	return intent.path.AdmitsExact(address.PathAuthority())
 }
@@ -85,9 +81,9 @@ func (intent ProvisionalAcquireIntent) Destination() output.Destination {
 	return intent.destination
 }
 
-// ContentPath returns the managed projection within the destination.
-func (intent ProvisionalAcquireIntent) ContentPath() output.ContentPath {
-	return intent.contentPath
+// Footprint returns the canonical managed scope within the destination.
+func (intent ProvisionalAcquireIntent) Footprint() output.Footprint {
+	return intent.footprint
 }
 
 // Path returns the non-exact candidate and exact namespace evidence.
@@ -108,7 +104,7 @@ func (intent ProvisionalAcquireIntent) OperationID() string {
 // Equal reports exact intent equality without treating it as path authority.
 func (intent ProvisionalAcquireIntent) Equal(other ProvisionalAcquireIntent) bool {
 	return intent.destination == other.destination &&
-		intent.contentPath == other.contentPath &&
+		intent.footprint == other.footprint &&
 		intent.path.Equal(other.path) &&
 		intent.owner.ExactEqual(other.owner) &&
 		intent.operationID == other.operationID

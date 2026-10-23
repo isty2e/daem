@@ -179,10 +179,7 @@ func compileApplyEffectPlan(
 				),
 			)
 		}
-		keys, err := provisionalAcquireKeysForAggregate(effect)
-		if err != nil {
-			return ApplyEffectPlan{}, err
-		}
+		keys := provisionalAcquireKeysForAggregate(effect)
 		nodes = append(
 			nodes,
 			promotions.forKeys(
@@ -386,13 +383,13 @@ func newProvisionalPromotionSchedule(
 	for index, intent := range state.provisional {
 		key := ownershipOutputKey{
 			destination: intent.Destination(),
-			contentPath: intent.ContentPath(),
+			footprint:   intent.Footprint(),
 		}
 		if _, duplicate := schedule.intentByKey[key]; duplicate {
 			return nil, fmt.Errorf(
-				"duplicate provisional ownership effect key %q/%q",
+				"duplicate provisional ownership effect key %q/%s",
 				key.destination,
-				key.contentPath,
+				key.scopeLabel(),
 			)
 		}
 		schedule.intentByKey[key] = index
@@ -435,9 +432,9 @@ func (schedule *provisionalPromotionSchedule) requireComplete() error {
 		}
 		key := schedule.keys[index]
 		return fmt.Errorf(
-			"provisional ownership effect %q/%q has no producing apply effect",
+			"provisional ownership effect %q/%s has no producing apply effect",
 			key.destination,
-			key.contentPath,
+			key.scopeLabel(),
 		)
 	}
 	return nil

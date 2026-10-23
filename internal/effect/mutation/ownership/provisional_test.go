@@ -32,7 +32,7 @@ func TestProvisionalAcquireIntentPromotesOnlyAdmittedExactAddress(t *testing.T) 
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
-	intent, err := outputownership.NewProvisionalAcquireIntent(destination, "", intentPath, authority, "operation-1")
+	intent, err := outputownership.NewProvisionalAcquireIntentFromLegacy(destination, "", intentPath, authority, "operation-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestProvisionalAcquireIntentRejectsEscapedDepthAndContentPath(t *testing.T)
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
-	intent, err := outputownership.NewProvisionalAcquireIntent(destination, "/alpha", intentPath, authority, "operation-1")
+	intent, err := outputownership.NewProvisionalAcquireIntentFromLegacy(destination, "/alpha", intentPath, authority, "operation-1")
 	if err != nil {
 		t.Fatal(err)
 	}

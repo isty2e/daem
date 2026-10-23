@@ -5,7 +5,6 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
@@ -53,14 +52,10 @@ func enforceAggregateProjectionOwnership(
 		return projection
 	}
 
-	contentPath, err := address.LegacyContentPath()
-	if err != nil {
-		return blockAggregateProjection(projection, reconcile.ReasonInvalidDesiredState, err.Error())
-	}
 	preblocked := projection.kind == reconcile.AggregateBlocked
 	key := ownershipObservationKey{
 		destination: document.AggregateRoot(),
-		contentPath: output.ContentPath(contentPath),
+		footprint:   address.Footprint(),
 	}
 	observation, observed := observations[key]
 	if !observed || owner.IsZero() {

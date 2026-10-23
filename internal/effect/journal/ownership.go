@@ -263,10 +263,10 @@ func bindRecoveryClaimCoverage(
 	}
 	intentKeys := make(map[string]struct{}, len(intents))
 	for index, intent := range intents {
-		if err := intent.Validate(); err != nil {
+		key, err := legacyProvisionalAcquireIntentKey(intent)
+		if err != nil {
 			return nil, fmt.Errorf("recovery provisional acquisition intents[%d]: %w", index, err)
 		}
-		key := provisionalAcquireIntentKey(intent.Destination(), intent.ContentPath())
 		if _, duplicate := intentKeys[key]; duplicate {
 			return nil, fmt.Errorf("recovery journal has duplicate provisional acquisition intent")
 		}
@@ -338,13 +338,16 @@ func validateRecoveryClaimCoverage(
 		}
 		remaining[key] = transition
 	}
-	remainingIntents := make(map[string]ownership.ProvisionalAcquireIntent, len(intents))
+	remainingIntents := make(map[string]struct{}, len(intents))
 	for _, intent := range intents {
-		key := provisionalAcquireIntentKey(intent.Destination(), intent.ContentPath())
+		key, err := legacyProvisionalAcquireIntentKey(intent)
+		if err != nil {
+			return fmt.Errorf("recovery provisional acquisition intent: %w", err)
+		}
 		if _, duplicate := remainingIntents[key]; duplicate {
 			return fmt.Errorf("recovery journal has duplicate provisional acquisition intent")
 		}
-		remainingIntents[key] = intent
+		remainingIntents[key] = struct{}{}
 	}
 	for index, entry := range entries {
 		if !recoveryEntryRequiresOwnership(entry) {
@@ -358,7 +361,7 @@ func validateRecoveryClaimCoverage(
 			return fmt.Errorf("recovery entries[%d] destination: %w", index, err)
 		}
 		intentKey := provisionalAcquireIntentKey(destination, output.ContentPath(entry.ContentPath))
-		if intent, present := remainingIntents[intentKey]; present {
+		if _, present := remainingIntents[intentKey]; present {
 			if entry.OwnershipPathAuthority != nil {
 				return fmt.Errorf("recovery entries[%d] provisional acquisition must not carry exact ownership path authority", index)
 			}
@@ -373,9 +376,6 @@ func validateRecoveryClaimCoverage(
 					index,
 					wantKind,
 				)
-			}
-			if intent.Destination() != destination || string(intent.ContentPath()) != entry.ContentPath {
-				return fmt.Errorf("recovery entries[%d] provisional acquisition identity changed", index)
 			}
 			delete(remainingIntents, intentKey)
 			continue

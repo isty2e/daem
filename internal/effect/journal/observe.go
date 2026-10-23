@@ -55,9 +55,13 @@ func applyRecoveryIntentOwnershipEvidence(
 		}
 	}
 	for _, intent := range intents {
+		contentPath, err := intent.LegacyContentPath()
+		if err != nil {
+			return nil, err
+		}
 		index, found := observationIndexes[recoveryPathObservationKey{
 			path:        intent.Destination().String(),
-			contentPath: string(intent.ContentPath()),
+			contentPath: string(contentPath),
 		}]
 		if !found {
 			continue
@@ -86,7 +90,7 @@ func applyRecoveryIntentOwnershipEvidence(
 		var conflict outputownership.Claim
 		var present bool
 		if exact, ok := authority.Exact(); ok {
-			address, addressErr := outputownership.NewManagedAddressFromLegacy(exact, string(intent.ContentPath()))
+			address, addressErr := outputownership.NewManagedAddress(exact, intent.Footprint())
 			if addressErr != nil {
 				observations[index].Error = addressErr.Error()
 				continue
