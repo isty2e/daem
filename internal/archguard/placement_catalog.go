@@ -25,6 +25,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/desired/hookasset"},
 	},
 	{
+		id:        "desired.family.hostconfig",
+		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "HostConfig"),
+		packages:  []string{"internal/desired/hostconfig"},
+	},
+	{
 		id:        "desired.family.instructions",
 		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "Instructions"),
 		packages:  []string{"internal/desired/instructions"},

@@ -30,6 +30,9 @@ func BuildWithOptions(ctx context.Context, environment desired.Environment, reso
 	if err := environment.Validate(); err != nil {
 		return lock.File{}, fmt.Errorf("desired environment: %w", err)
 	}
+	if len(environment.HostConfigs()) > 0 {
+		return lock.File{}, fmt.Errorf("host configuration is not supported by this lock builder")
+	}
 	if sessionProvider, ok := resolver.(acquisition.ResolutionSessionProvider); ok {
 		sessionResolver, err := sessionProvider.NewResolutionSession()
 		if err != nil {
