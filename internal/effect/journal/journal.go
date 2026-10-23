@@ -382,9 +382,13 @@ func validateRecoveryJournalRelationships(journal recoveryJournal) error {
 			if err != nil {
 				return fmt.Errorf("recovery entries[%d].aggregate: %w", index, err)
 			}
+			contentPath, err := contract.Address().LegacyContentPath()
+			if err != nil {
+				return fmt.Errorf("recovery entries[%d].aggregate: %w", index, err)
+			}
 			document := contract.Address().Document()
 			if entry.Target != string(document.Target()) || entry.Scope != string(document.Scope()) ||
-				entry.Path != document.AggregateRoot().String() || entry.ContentPath != string(contract.Address().ContentPath()) {
+				entry.Path != document.AggregateRoot().String() || entry.ContentPath != string(contentPath) {
 				return fmt.Errorf("recovery entries[%d].aggregate: contract differs from path identity", index)
 			}
 			if _, ok, admissionErr := aggregate.OperationPreconditionsForContract(contract); admissionErr != nil {

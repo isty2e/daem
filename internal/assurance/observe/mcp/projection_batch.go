@@ -118,6 +118,10 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 		if err != nil {
 			return nil, fmt.Errorf("MCP projection %q host prerequisite evidence: %w", subject.Key(), err)
 		}
+		contentPath, err := contribution.Address().LegacyContentPath()
+		if err != nil {
+			return nil, err
+		}
 		result = append(result, LockedProjectionObservation{
 			current:                current,
 			provider:               provider,
@@ -126,7 +130,7 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 			target:                 contribution.Target(),
 			scope:                  contribution.Scope(),
 			configPath:             contribution.AggregateRoot(),
-			contentPath:            contribution.Contract().Address().ContentPath(),
+			contentPath:            contentPath,
 			adapterContractVersion: contribution.CodecContractID(),
 		})
 	}

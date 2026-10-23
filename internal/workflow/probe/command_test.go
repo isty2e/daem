@@ -21,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/subprocess"
 	lockworkflow "github.com/isty2e/daem/internal/workflow/lock"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func stringSlicesEqual(left []string, right []string) bool {
@@ -664,7 +665,7 @@ func tamperedClaudeLockedProjection(
 		Target:                contribution.Target(),
 		Scope:                 contribution.Scope(),
 		AggregateRoot:         contribution.AggregateRoot(),
-		ContentPath:           contribution.ContentPath(),
+		ContentPath:           outputtest.LegacyContentPath(t, contribution),
 		MergeUnit:             contribution.MergeUnit(),
 		Cardinality:           contribution.Cardinality(),
 		SiblingRetention:      contribution.SiblingRetention(),

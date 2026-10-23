@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestAggregateProjectionOwnershipRejectsUnsafeGlobalClaimStates(t *testing.T) {
@@ -211,7 +212,7 @@ func aggregateOwnershipObservation(
 	address := projection.contract.Address()
 	document := address.Document()
 	destination := document.AggregateRoot()
-	contentPath := output.ContentPath(address.ContentPath())
+	contentPath := output.ContentPath(outputtest.LegacyContentPath(t, address))
 	managedAddress, err := ownership.NewManagedAddressFromLegacy(pathtest.Exact(
 		filepath.Join(root, "home", ".claude.json"),
 	),

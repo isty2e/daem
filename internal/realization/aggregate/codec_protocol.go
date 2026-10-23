@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"unicode/utf8"
+
+	"github.com/isty2e/daem/internal/output"
 )
 
 // Selection is a canonical set of projections read from one document by one codec.
@@ -27,10 +29,11 @@ func NewSelection(values []ProjectionContract) (Selection, error) {
 		return compareProjectionAddress(contracts[left].address, contracts[right].address) < 0
 	})
 	first := contracts[0]
-	physicalAddresses := make(map[struct {
-		document    DocumentAddress
-		contentPath ContentPath
-	}]ProjectionAddress, len(contracts))
+	type physicalAddress struct {
+		document  DocumentAddress
+		footprint output.Footprint
+	}
+	physicalAddresses := make(map[physicalAddress]ProjectionAddress, len(contracts))
 	for index, contract := range contracts {
 		if contract.address.document != first.address.document {
 			return Selection{}, fmt.Errorf("aggregate codec selection mixes documents")
@@ -41,10 +44,7 @@ func NewSelection(values []ProjectionContract) (Selection, error) {
 		if index > 0 && contract.address == contracts[index-1].address {
 			return Selection{}, fmt.Errorf("aggregate codec selection repeats projection address")
 		}
-		physical := struct {
-			document    DocumentAddress
-			contentPath ContentPath
-		}{document: contract.address.document, contentPath: contract.address.contentPath}
+		physical := physicalAddress{document: contract.address.document, footprint: contract.address.footprint}
 		if existing, duplicate := physicalAddresses[physical]; duplicate {
 			return Selection{}, fmt.Errorf(
 				"aggregate codec selection has physical projection collision between placements %q and %q",

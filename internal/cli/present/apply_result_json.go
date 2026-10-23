@@ -110,6 +110,10 @@ type applyResultJSONError struct {
 func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 	hostRouteAttempts := hostRouteJSONAttempts(input.HostRouteAttempts)
 	relations := input.Reconciliation.Relations()
+	actions, err := planJSONActionsForPlan(input.Reconciliation)
+	if err != nil {
+		return err
+	}
 	payload := applyResultJSONOutput{
 		SchemaVersion:        contractversion.ApplyResultJSON,
 		Command:              "apply",
@@ -117,7 +121,7 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 		ActionCount:          input.ActionCount,
 		StatefilePath:        input.StatefilePath,
 		LockOnly:             input.LockOnly,
-		Actions:              planJSONActionsForPlan(input.Reconciliation),
+		Actions:              actions,
 		DelegateActions:      delegateJSONActions(input.Reconciliation.Delegates()),
 		RelationActions:      relationJSONActions(relations),
 		RelationOrders:       relationOrderJSONActions(input.Reconciliation.RelationOrders(), relations),

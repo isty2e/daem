@@ -43,7 +43,7 @@ func TestSelectionCanonicalizesOneDocumentAndRejectsPhysicalAlias(t *testing.T) 
 		t.Fatalf("NewSelection returned error: %v", err)
 	}
 	contracts := selection.Contracts()
-	if len(contracts) != 2 || contracts[0].Address().ContentPath() != "/hooks/left" || contracts[1].Address().ContentPath() != "/hooks/right" {
+	if len(contracts) != 2 || string(outputtest.LegacyContentPath(t, contracts[0].Address())) != "/hooks/left" || string(outputtest.LegacyContentPath(t, contracts[1].Address())) != "/hooks/right" {
 		t.Fatalf("canonical selection = %#v", contracts)
 	}
 

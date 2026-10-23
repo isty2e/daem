@@ -395,6 +395,10 @@ func buildRecoveryJournal(
 		if err != nil {
 			return recoveryJournal{}, fmt.Errorf("capture removal transition for %q: %w", action.Destination, err)
 		}
+		aggregateContract, err := persistedAggregateContractFromMutation(action)
+		if err != nil {
+			return recoveryJournal{}, err
+		}
 		entries = append(entries, recoveryEntry{
 			Subject:             subjectRefFromAction(action),
 			Target:              string(action.Target),
@@ -410,7 +414,7 @@ func buildRecoveryJournal(
 			StateBeforeIdentity: stateBeforeIdentityFromAction(action),
 			StateBefore:         stateBefore,
 			StateExpectedAfter:  stateExpectedAfter,
-			Aggregate:           persistedAggregateContractFromMutation(action),
+			Aggregate:           aggregateContract,
 			StateIndependent:    action.StateIndependent,
 		})
 	}

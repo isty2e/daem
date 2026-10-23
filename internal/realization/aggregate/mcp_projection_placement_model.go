@@ -219,20 +219,7 @@ func (placement MCPPlacement) Contribution(
 	if err != nil {
 		return ManagedContribution{}, err
 	}
-	contribution := ManagedContribution{
-		address:               contract.address,
-		cardinality:           contract.cardinality,
-		siblingRetention:      contract.siblingRetention,
-		siblingPreservation:   contract.siblingPreservation,
-		equivalence:           contract.equivalence,
-		canonicalContribution: canonicalProjection,
-		codecContractID:       contract.codecContractID,
-		comparedFields:        contract.ComparedFields(),
-	}
-	if err := contribution.Validate(); err != nil {
-		return ManagedContribution{}, err
-	}
-	return contribution, nil
+	return NewManagedContribution(contract, canonicalProjection)
 }
 
 // ProjectionContract constructs the static standalone MCP projection contract
@@ -245,7 +232,7 @@ func (placement MCPPlacement) ProjectionContract(serverID string) (ProjectionCon
 	if err != nil {
 		return ProjectionContract{}, err
 	}
-	address, err := newProjectionAddress(
+	address, err := newLegacyProjectionAddress(
 		string(placement.id),
 		placement.target,
 		placement.scope,

@@ -321,5 +321,5 @@ func (snapshot Snapshot) input() SnapshotInput {
 func aggregatePhysicalKey(contribution aggregate.ManagedContribution) string {
 	return string(contribution.Scope()) + "\x00" +
 		contribution.AggregateRoot().String() + "\x00" +
-		contribution.ContentPath()
+		contribution.Address().KeyPath().String()
 }

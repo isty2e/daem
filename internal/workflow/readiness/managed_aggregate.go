@@ -201,7 +201,7 @@ func observeAggregateDocuments(
 			if err := piMCPBackendTransition(contract, previous); err != nil {
 				return err
 			}
-			return fmt.Errorf("aggregate document contains contract drift at %q", address.ContentPath())
+			return fmt.Errorf("aggregate document contains contract drift at %q", address.KeyPath().String())
 		}
 		contracts[address] = contract.Clone()
 		return nil
@@ -313,5 +313,5 @@ func aggregateProjectionKey(address aggregate.ProjectionAddress) string {
 	return aggregateDocumentKey(address.Document()) + "\x00" +
 		address.PlacementID() + "\x00" +
 		string(address.MergeUnit()) + "\x00" +
-		string(address.ContentPath())
+		address.KeyPath().String()
 }

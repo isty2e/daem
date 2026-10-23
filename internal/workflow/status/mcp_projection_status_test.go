@@ -528,7 +528,7 @@ func assertStatusMCPAggregatePlanSubject(
 				if contract.Address().Document().Target() != placement.Target() ||
 					contract.Address().Document().Scope() != placement.Scope() ||
 					contract.Address().Document().AggregateRoot() != placement.ConfigPath() ||
-					contract.Address().ContentPath() != contentPath ||
+					outputtest.LegacyContentPath(t, contract.Address()) != contentPath ||
 					projection.Kind() != wantKind ||
 					projection.Reason() != wantReason {
 					t.Fatalf(

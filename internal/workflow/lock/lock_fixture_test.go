@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func assertWorkflowMCPSubject(t *testing.T, file lock.File, serverID string) mcpcodec.ClaudeProjectMCPServerEntry {
@@ -37,7 +38,7 @@ func assertWorkflowMCPSubject(t *testing.T, file lock.File, serverID string) mcp
 	}
 	if record.OnAbsent() != lock.OnAbsentRemoveBinding ||
 		claim.AggregateRoot().String() != aggregate.ClaudeProjectMCPConfigPath ||
-		claim.ContentPath() != mcpcodec.ClaudeProjectMCPContentPath(serverID) ||
+		outputtest.LegacyContentPath(t, claim) != mcpcodec.ClaudeProjectMCPContentPath(serverID) ||
 		claim.Equivalence() != aggregate.EquivalenceCanonicalSemantic ||
 		string(claim.CodecContractID()) != aggregate.ClaudeProjectMCPStdioAdapterV1 {
 		t.Fatalf("claim = %#v, want Claude project MCP exact projection", claim)

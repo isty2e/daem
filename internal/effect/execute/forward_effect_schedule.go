@@ -179,11 +179,15 @@ func compileApplyEffectPlan(
 				),
 			)
 		}
+		keys, err := provisionalAcquireKeysForAggregate(effect)
+		if err != nil {
+			return ApplyEffectPlan{}, err
+		}
 		nodes = append(
 			nodes,
 			promotions.forKeys(
 				&builder,
-				provisionalAcquireKeysForAggregate(effect),
+				keys,
 			)...,
 		)
 	}

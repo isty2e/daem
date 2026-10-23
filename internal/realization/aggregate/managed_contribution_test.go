@@ -20,7 +20,7 @@ func TestManagedContributionOwnsAndCanonicalizesItsContract(t *testing.T) {
 		contribution.Address().Document().Target() != target.TargetCodex ||
 		contribution.Address().Document().Scope() != target.ScopeProject ||
 		contribution.Address().Document().AggregateRoot().String() != "settings.json" ||
-		contribution.Address().ContentPath() != ContentPath("/hooks") {
+		string(outputtest.LegacyContentPath(t, contribution.Address())) != "/hooks" {
 		t.Fatalf("contribution address/contract = %#v", contribution)
 	}
 	if got := contribution.ComparedFields(); !reflect.DeepEqual(got, []string{"command", "event"}) {

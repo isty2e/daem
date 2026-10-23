@@ -113,7 +113,7 @@ func TestManagedPathRealizationCodecRoundTripsPortableDataRootAndExactMode(t *te
 	for _, fileMode := range []os.FileMode{0, 0o640, 0o700, 0o750} {
 		t.Run(fileMode.String(), func(t *testing.T) {
 			realization := exactManagedPathRealization(t, fileMode)
-			dto := realizationToDTO(realization, true)
+			dto := mustRealizationDTO(t, realization, true)
 			if dto.ManagedPath.ExactPermissionMode == nil ||
 				*dto.ManagedPath.ExactPermissionMode != uint32(fileMode) {
 				t.Fatalf("encoded exact permission mode = %#v, want %04o", dto.ManagedPath.ExactPermissionMode, fileMode)
@@ -137,7 +137,7 @@ func TestManagedPathRealizationCodecRoundTripsPortableDataRootAndExactMode(t *te
 }
 
 func TestManagedPathRealizationTOMLPreservesExplicitExactModeZero(t *testing.T) {
-	dto := realizationToDTO(exactManagedPathRealization(t, 0), true)
+	dto := mustRealizationDTO(t, exactManagedPathRealization(t, 0), true)
 
 	var encoded bytes.Buffer
 	if err := toml.NewEncoder(&encoded).Encode(dto.ManagedPath); err != nil {
@@ -171,7 +171,7 @@ func TestManagedPathRealizationCodecRejectsMissingAndUnknownPermissionPolicy(t *
 	spec := exactManagedPathRealization(t, 0o700)
 
 	for _, policy := range []string{"", "future"} {
-		dto := realizationToDTO(spec, true)
+		dto := mustRealizationDTO(t, spec, true)
 		dto.ManagedPath.PermissionPolicy = policy
 		if _, err := realizationFromDTO(dto); err == nil || !strings.Contains(err.Error(), "permission policy") {
 			t.Fatalf("permission policy %q error = %v, want strict codec rejection", policy, err)
@@ -208,7 +208,7 @@ func TestManagedPathRealizationCodecRejectsExactModeContradictions(t *testing.T)
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			dto := realizationToDTO(spec, true)
+			dto := mustRealizationDTO(t, spec, true)
 			test.mutate(dto.ManagedPath)
 			if _, err := realizationFromDTO(dto); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("realizationFromDTO error = %v, want %q", err, test.want)

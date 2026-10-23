@@ -697,7 +697,11 @@ func EntrySelections(
 		if err := mutation.validate(); err != nil {
 			return nil, fmt.Errorf("managed aggregate journal mutation[%d]: %w", index, err)
 		}
-		if err := appendSelection(entrySelectionKeyFromMutation(pathMutationFromAggregate(mutation))); err != nil {
+		path, err := pathMutationFromAggregate(mutation)
+		if err != nil {
+			return nil, err
+		}
+		if err := appendSelection(entrySelectionKeyFromMutation(path)); err != nil {
 			return nil, err
 		}
 	}

@@ -230,7 +230,7 @@ func TestBuildObservesSelectedGlobalAggregateProjectionAtExactContentPath(t *tes
 	address, exact := observation.ExactAddress()
 	contentPath, contentErr := address.Footprint().LegacyContentPath()
 	if !exact || contentErr != nil || address.Path() != canonical ||
-		string(contentPath) != string(contract.Address().ContentPath()) {
+		string(contentPath) != string(outputtest.LegacyContentPath(t, contract.Address())) {
 		t.Fatalf("aggregate ownership address = %#v, want exact projection address", address)
 	}
 }

@@ -11,36 +11,37 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-func planJSONAggregateAction(decision reconcile.AggregateSubjectDecision) planJSONAction {
+func planJSONAggregateAction(decision reconcile.AggregateSubjectDecision) (planJSONAction, error) {
+	contentPath, err := decision.Contract().Address().LegacyContentPath()
+	if err != nil {
+		return planJSONAction{}, err
+	}
 	resourceID, resourceValue := planJSONEntityResource(decision.Subject())
 	row := planJSONAction{
 		Kind: aggregatePublicKind(decision), Reason: string(decision.Reason()),
 		Subject: planJSONSubjectFor(decision.Subject()), Target: string(decision.Target()),
 		Scope: string(decision.Scope()), Destination: decision.Destination().String(),
-		ContentPath: string(decision.ContentPath()), Detail: decision.Detail(),
-		ResourceID: resourceID, Resource: resourceValue,
+		ContentPath: string(contentPath), Detail: decision.Detail(), ResourceID: resourceID, Resource: resourceValue,
 	}
 	if decision.Reason() != reconcile.ReasonMissingLock {
-		address := decision.Contract().Address()
-		document := address.Document()
+		document := decision.Contract().Address().Document()
 		row.Projection = &planJSONProjection{
-			Target:      string(document.Target()),
-			Scope:       string(document.Scope()),
-			ConfigPath:  document.AggregateRoot().String(),
-			ContentPath: string(address.ContentPath()),
+			Target: string(document.Target()), Scope: string(document.Scope()),
+			ConfigPath: document.AggregateRoot().String(), ContentPath: string(contentPath),
 		}
 	}
 	if previous, present := decision.PreviousContribution(); present {
+		previousPath, err := previous.LegacyContentPath()
+		if err != nil {
+			return planJSONAction{}, err
+		}
 		row.PreviousState = &planJSONPreviousState{
-			Subject:     planJSONSubjectFor(decision.Subject()),
-			Target:      string(previous.Target()),
-			Scope:       string(previous.Scope()),
-			Destination: previous.AggregateRoot().String(),
-			ContentPath: previous.ContentPath(),
-			ContentHash: string(artifact.HashFileContent([]byte(previous.CanonicalContribution()))),
+			Subject: planJSONSubjectFor(decision.Subject()), Target: string(previous.Target()),
+			Scope: string(previous.Scope()), Destination: previous.AggregateRoot().String(),
+			ContentPath: previousPath, ContentHash: string(artifact.HashFileContent([]byte(previous.CanonicalContribution()))),
 		}
 	}
-	return row
+	return row, nil
 }
 
 func planJSONManagedPathAction(decision reconcile.ManagedPathDecision) planJSONAction {

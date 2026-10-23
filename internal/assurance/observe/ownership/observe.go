@@ -81,12 +81,16 @@ func Build(input Input) (Result, error) {
 		if document.Scope() != target.ScopeGlobal || !input.Selection.Includes(document.Target()) {
 			continue
 		}
+		contentPath, err := address.LegacyContentPath()
+		if err != nil {
+			return Result{}, err
+		}
 		if err := addObservation(
 			byKey,
 			input.Resolver,
 			input.Registry,
 			document.AggregateRoot(),
-			output.ContentPath(address.ContentPath()),
+			output.ContentPath(contentPath),
 		); err != nil {
 			return Result{}, err
 		}
@@ -112,12 +116,16 @@ func Build(input Input) (Result, error) {
 			!input.Selection.Includes(contribution.Target()) {
 			continue
 		}
+		contentPath, err := contribution.LegacyContentPath()
+		if err != nil {
+			return Result{}, err
+		}
 		if err := addObservation(
 			byKey,
 			input.Resolver,
 			input.Registry,
 			contribution.AggregateRoot(),
-			output.ContentPath(contribution.ContentPath()),
+			output.ContentPath(contentPath),
 		); err != nil {
 			return Result{}, err
 		}

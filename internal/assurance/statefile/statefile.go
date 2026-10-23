@@ -127,7 +127,10 @@ func Marshal(snapshot durable.Snapshot) ([]byte, error) {
 	if err := validateSnapshotForPersistence(snapshot); err != nil {
 		return nil, err
 	}
-	persisted := persistedSnapshot(snapshot)
+	persisted, err := persistedSnapshot(snapshot)
+	if err != nil {
+		return nil, err
+	}
 	content, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
 		return nil, err

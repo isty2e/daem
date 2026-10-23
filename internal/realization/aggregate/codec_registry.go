@@ -241,7 +241,11 @@ func ValidateSubjectContract(subject topology.SubjectID, contract ProjectionCont
 	if !ok || placement.CodecContractID() != contract.CodecContractID() {
 		return fmt.Errorf("aggregate subject contract codec %q is not admitted", contract.CodecContractID())
 	}
-	serverID, ok := placement.ServerIDFromContentPath(contract.Address().ContentPath())
+	contentPath, err := contract.Address().LegacyContentPath()
+	if err != nil {
+		return fmt.Errorf("MCP aggregate legacy scope: %w", err)
+	}
+	serverID, ok := placement.ServerIDFromContentPath(contentPath)
 	if !ok {
 		return fmt.Errorf("MCP aggregate subject contract content path is outside its placement")
 	}

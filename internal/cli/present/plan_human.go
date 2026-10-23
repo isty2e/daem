@@ -104,7 +104,7 @@ func printVerboseAggregateRows(output io.Writer, decisions []reconcile.Aggregate
 			Escape(string(decision.Target())),
 			Escape(string(decision.Scope())),
 			Quote(decision.Destination().String()),
-			Quote(string(decision.ContentPath())),
+			Quote(decision.Contract().Address().KeyPath().String()),
 			Escape(string(decision.Reason())),
 		)
 		if _, isMCP := topologymcp.ServerID(decision.Subject()); isMCP {

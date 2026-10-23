@@ -150,6 +150,10 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 
 	hostRouteAttempts := hostRouteJSONAttempts(input.HostRouteAttempts)
 	reconciliation := input.Reconciliation
+	actions, err := planJSONActionsForPlan(reconciliation)
+	if err != nil {
+		return err
+	}
 	payload := planJSONOutput{
 		SchemaVersion: contractversion.ReconciliationPlanJSON,
 		Command:       input.Command,
@@ -164,7 +168,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 			reconciliation.HasErrors() ||
 			hasErrorDiagnostics(input.Diagnostics),
 		CheckClean:        input.CheckClean,
-		Actions:           planJSONActionsForPlan(reconciliation),
+		Actions:           actions,
 		DelegateActions:   delegateJSONActions(reconciliation.Delegates()),
 		RelationActions:   relationJSONActions(reconciliation.Relations()),
 		RelationOrders:    relationOrderJSONActions(reconciliation.RelationOrders(), reconciliation.Relations()),
@@ -180,7 +184,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 	return encoder.Encode(payload)
 }
 
-func planJSONActionsForPlan(planResult reconcile.Result) []planJSONAction {
+func planJSONActionsForPlan(planResult reconcile.Result) ([]planJSONAction, error) {
 	result := make([]planJSONAction, 0, planResult.ProjectionDecisionCount())
 	for _, decision := range planResult.Decisions() {
 		if managedPath, ok := decision.ManagedPath(); ok {
@@ -188,9 +192,13 @@ func planJSONActionsForPlan(planResult reconcile.Result) []planJSONAction {
 			continue
 		}
 		aggregate, _ := decision.Aggregate()
-		result = append(result, planJSONAggregateAction(aggregate))
+		action, err := planJSONAggregateAction(aggregate)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, action)
 	}
-	return result
+	return result, nil
 }
 
 func hasErrorDiagnostics(diagnostics []findings.Diagnostic) bool {

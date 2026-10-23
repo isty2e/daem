@@ -339,7 +339,11 @@ func pathMutations(
 		if err := mutation.validate(); err != nil {
 			return nil, fmt.Errorf("managed aggregate journal mutation[%d]: %w", index, err)
 		}
-		result = append(result, pathMutationFromAggregate(mutation))
+		path, err := pathMutationFromAggregate(mutation)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, path)
 	}
 	return result, nil
 }

@@ -17,8 +17,9 @@ type mcpProjectionCodec struct {
 const maximumDocumentBytes int64 = 4 << 20
 
 type mcpSelectedProjection struct {
-	contract aggregate.ProjectionContract
-	serverID string
+	contract    aggregate.ProjectionContract
+	serverID    string
+	contentPath aggregate.ContentPath
 }
 
 // For returns the MCP codec implementing contractID.
@@ -63,9 +64,13 @@ func (codec mcpProjectionCodec) ValidateContributions(contributions aggregate.Co
 			contribution.CodecContractID(),
 		)
 	}
-	serverID, ok := operations.ServerIDFromContentPath(contribution.Address().ContentPath())
+	contentPath, err := contribution.Address().LegacyContentPath()
+	if err != nil {
+		return fmt.Errorf("MCP contribution legacy scope: %w", err)
+	}
+	serverID, ok := operations.ServerIDFromContentPath(contentPath)
 	if !ok {
-		return fmt.Errorf("MCP contribution content path %q is outside its placement", contribution.ContentPath())
+		return fmt.Errorf("MCP contribution content path %q is outside its placement", contentPath)
 	}
 	id, err := entity.New(entity.KindMCPServer, serverID)
 	if err != nil {
@@ -235,7 +240,7 @@ func (codec mcpProjectionCodec) Restore(document aggregate.Document, baseline ag
 			return aggregate.RenderedDocument{}, mcpCodecFailure(
 				fmt.Errorf("MCP recovery baseline has inconsistent parent presence"),
 				aggregate.CodecFailureCanonicalInvalid,
-				projection.contract.Address().ContentPath(),
+				projection.contentPath,
 			)
 		}
 		var mutation MCPProjectionMutation
@@ -251,7 +256,7 @@ func (codec mcpProjectionCodec) Restore(document aggregate.Document, baseline ag
 			return aggregate.RenderedDocument{}, mcpCodecFailure(
 				err,
 				aggregate.CodecFailureCanonicalInvalid,
-				projection.contract.Address().ContentPath(),
+				projection.contentPath,
 			)
 		}
 		mutations = append(mutations, mutation)
@@ -310,39 +315,39 @@ func (codec mcpProjectionCodec) selectedProjections(
 	selection aggregate.Selection,
 ) (MCPPlacementOperations, []mcpSelectedProjection, *aggregate.CodecFailure) {
 	if err := document.Validate(); err != nil || selection.CodecContractID() != codec.ContractID() {
-		return MCPPlacementOperations{}, nil, mcpCodecFailure(
-			err,
-			aggregate.CodecFailureCanonicalInvalid,
-			"",
-		)
+		return MCPPlacementOperations{}, nil, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
 	}
 	contracts := selection.Contracts()
 	if len(contracts) == 0 {
 		return MCPPlacementOperations{}, nil, mcpCodecFailure(
-			fmt.Errorf("MCP selection is empty"),
-			aggregate.CodecFailureCanonicalInvalid,
-			"",
+			fmt.Errorf("MCP selection is empty"), aggregate.CodecFailureCanonicalInvalid, "",
 		)
+	}
+	firstPath, err := contracts[0].Address().LegacyContentPath()
+	if err != nil {
+		return MCPPlacementOperations{}, nil, mcpCodecFailure(err, aggregate.CodecFailureSelectedShapeUnsupported, "")
 	}
 	placementID := aggregate.MCPPlacementID(contracts[0].Address().PlacementID())
 	operations, ok := ImplementedMCPPlacementOperationsForContract(placementID, codec.ContractID())
 	if !ok || operations.Placement().CodecContractID() != codec.ContractID() {
 		return MCPPlacementOperations{}, nil, mcpCodecFailure(
 			fmt.Errorf("MCP selection placement does not implement codec contract"),
-			aggregate.CodecFailureSelectedShapeUnsupported,
-			contracts[0].Address().ContentPath(),
+			aggregate.CodecFailureSelectedShapeUnsupported, firstPath,
 		)
 	}
 	placement := operations.Placement()
 	selected := make([]mcpSelectedProjection, 0, len(contracts))
 	for _, contract := range contracts {
 		address := contract.Address()
-		serverID, ok := operations.ServerIDFromContentPath(address.ContentPath())
+		contentPath, err := address.LegacyContentPath()
+		if err != nil {
+			return MCPPlacementOperations{}, nil, mcpCodecFailure(err, aggregate.CodecFailureSelectedShapeUnsupported, "")
+		}
+		serverID, ok := operations.ServerIDFromContentPath(contentPath)
 		if !ok {
 			return MCPPlacementOperations{}, nil, mcpCodecFailure(
 				fmt.Errorf("MCP content path is outside its placement"),
-				aggregate.CodecFailureSelectedShapeUnsupported,
-				address.ContentPath(),
+				aggregate.CodecFailureSelectedShapeUnsupported, contentPath,
 			)
 		}
 		if address.Document().Target() != placement.Target() ||
@@ -357,11 +362,10 @@ func (codec mcpProjectionCodec) selectedProjections(
 			!slices.Equal(contract.ComparedFields(), placement.ComparedFields()) {
 			return MCPPlacementOperations{}, nil, mcpCodecFailure(
 				fmt.Errorf("MCP projection contract differs from its placement"),
-				aggregate.CodecFailurePreservationUndefined,
-				address.ContentPath(),
+				aggregate.CodecFailurePreservationUndefined, contentPath,
 			)
 		}
-		selected = append(selected, mcpSelectedProjection{contract: contract, serverID: serverID})
+		selected = append(selected, mcpSelectedProjection{contract: contract, serverID: serverID, contentPath: contentPath})
 	}
 	return operations, selected, nil
 }
@@ -386,7 +390,7 @@ func mcpMutationsForPlan(
 			return nil, mcpCodecFailure(
 				fmt.Errorf("MCP intent contract differs from selection"),
 				aggregate.CodecFailureCanonicalInvalid,
-				projection.contract.Address().ContentPath(),
+				projection.contentPath,
 			)
 		}
 		desired, desiredPresent := intent.Desired()
@@ -416,7 +420,7 @@ func mcpMutationsForPlan(
 			return nil, mcpCodecFailure(
 				err,
 				aggregate.CodecFailureCanonicalInvalid,
-				projection.contract.Address().ContentPath(),
+				projection.contentPath,
 			)
 		}
 		mutations = append(mutations, mutation)

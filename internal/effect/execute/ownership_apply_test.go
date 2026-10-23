@@ -746,7 +746,7 @@ func globalAggregateOwnershipInputAtHome(
 	if exact, present := pathObservation.Exact(); present {
 		managedAddress, addressErr := ownership.NewManagedAddressFromLegacy(
 			exact,
-			contribution.Contribution().ContentPath(),
+			outputtest.LegacyContentPath(t, contribution.Contribution()),
 		)
 		if addressErr != nil {
 			t.Fatalf("NewManagedAddress returned error: %v", addressErr)
@@ -772,7 +772,7 @@ func globalAggregateOwnershipInputAtHome(
 		}
 		ownershipObservation, err = observe.NewExactOwnershipObservation(
 			fixture.destination,
-			output.ContentPath(contribution.Contribution().ContentPath()),
+			output.ContentPath(outputtest.LegacyContentPath(t, contribution.Contribution())),
 			managedAddress,
 			claimValue,
 		)
@@ -785,7 +785,7 @@ func globalAggregateOwnershipInputAtHome(
 		}
 		ownershipObservation, err = observe.NewProvisionalOwnershipObservation(
 			fixture.destination,
-			output.ContentPath(contribution.Contribution().ContentPath()),
+			output.ContentPath(outputtest.LegacyContentPath(t, contribution.Contribution())),
 			provisional,
 			ownership.NoClaim(),
 		)

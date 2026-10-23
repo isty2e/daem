@@ -116,12 +116,16 @@ func subjectToDTO(contract lock.LockedSubjectContract) (lockedSubjectDTO, error)
 	if contract.EntityID().Validate() != nil || contract.SubjectID().Validate() != nil {
 		return lockedSubjectDTO{}, fmt.Errorf("invalid locked subject identity")
 	}
+	realized, err := realizationToDTO(contract.Realization())
+	if err != nil {
+		return lockedSubjectDTO{}, err
+	}
 	return lockedSubjectDTO{
 		EntityID:                contract.EntityID().String(),
 		SubjectID:               contract.SubjectID().String(),
 		ExactSupply:             optionalExactIdentityToDTO(contract.ExactSupply()),
 		ExactFileUse:            exactFileUseToDTO(contract.ExactFileUse()),
-		Realization:             realizationToDTO(contract.Realization()),
+		Realization:             realized,
 		Derivation:              derivationToDTO(contract.Derivation()),
 		RepairRecipe:            repairRecipeToDTO(contract.RepairRecipe()),
 		DelegatePlan:            delegatePlanToDTO(contract),
@@ -298,9 +302,9 @@ func realizationFromDTO(dto *realizationDTO) (*realization.RealizationSpec, erro
 	return &spec, nil
 }
 
-func realizationToDTO(spec realization.RealizationSpec, present bool) *realizationDTO {
+func realizationToDTO(spec realization.RealizationSpec, present bool) (*realizationDTO, error) {
 	if !present {
-		return nil
+		return nil, nil
 	}
 	dto := &realizationDTO{}
 	if body, ok := spec.ManagedPathProjection(); ok {
@@ -308,18 +312,20 @@ func realizationToDTO(spec realization.RealizationSpec, present bool) *realizati
 			PlacementID: body.PlacementID(), ConsumerTargets: targetsToDTO(body.ConsumerTargets()), Scope: string(body.Scope()),
 			Destination: body.Destination().String(), ContentKind: string(body.ContentKind()),
 			PlacementMode: string(body.PlacementMode()), PermissionPolicy: string(body.PermissionPolicy()),
-			ExactPermissionMode:    exactPathPermissionModeToDTO(body),
-			AdapterContractVersion: body.AdapterContractVersion(),
+			ExactPermissionMode: exactPathPermissionModeToDTO(body), AdapterContractVersion: body.AdapterContractVersion(),
 		}
 	} else if body, ok := spec.ManagedAggregateContribution(); ok {
+		contentPath, err := body.LegacyContentPath()
+		if err != nil {
+			return nil, fmt.Errorf("legacy lock aggregate scope: %w", err)
+		}
 		dto.ManagedAggregate = &managedAggregateContributionDTO{
 			PlacementID: body.PlacementID(), Target: string(body.Target()), Scope: string(body.Scope()),
-			AggregateRoot: body.AggregateRoot().String(), ContentPath: body.ContentPath(), MergeUnit: string(body.MergeUnit()),
+			AggregateRoot: body.AggregateRoot().String(), ContentPath: contentPath, MergeUnit: string(body.MergeUnit()),
 			ContributionCardinality: string(body.Cardinality()),
 			SiblingRetention:        string(body.SiblingRetention()), SiblingPreservation: string(body.SiblingPreservation()),
 			Equivalence: string(body.Equivalence()), CanonicalContribution: body.CanonicalContribution(),
-			CodecContract:  string(body.CodecContractID()),
-			ComparedFields: body.ComparedFields(),
+			CodecContract: string(body.CodecContractID()), ComparedFields: body.ComparedFields(),
 		}
 	} else if body, ok := spec.DelegatedRelation(); ok {
 		expected := body.ExpectedRelation()
@@ -331,7 +337,7 @@ func realizationToDTO(spec realization.RealizationSpec, present bool) *realizati
 			VerifiedRelationFields: body.VerifiedRelationFields(),
 		}
 	}
-	return dto
+	return dto, nil
 }
 
 func exactPathPermissionModeFromDTO(value *uint32) (realization.ExactPathPermissionMode, error) {

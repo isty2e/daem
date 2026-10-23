@@ -53,10 +53,14 @@ func enforceAggregateProjectionOwnership(
 		return projection
 	}
 
+	contentPath, err := address.LegacyContentPath()
+	if err != nil {
+		return blockAggregateProjection(projection, reconcile.ReasonInvalidDesiredState, err.Error())
+	}
 	preblocked := projection.kind == reconcile.AggregateBlocked
 	key := ownershipObservationKey{
 		destination: document.AggregateRoot(),
-		contentPath: output.ContentPath(address.ContentPath()),
+		contentPath: output.ContentPath(contentPath),
 	}
 	observation, observed := observations[key]
 	if !observed || owner.IsZero() {

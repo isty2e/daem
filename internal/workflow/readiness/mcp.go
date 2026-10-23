@@ -174,7 +174,7 @@ func observationCoveredMCPProjectionContracts(
 		for _, contract := range selection.Contracts() {
 			address := contract.Address()
 			if previous, duplicate := covered[address]; duplicate && !previous.Equal(contract) {
-				return fmt.Errorf("aggregate observation coverage changes contract at %q", address.ContentPath())
+				return fmt.Errorf("aggregate observation coverage changes contract at %q", address.KeyPath().String())
 			}
 			covered[address] = contract
 		}

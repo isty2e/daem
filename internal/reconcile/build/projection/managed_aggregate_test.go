@@ -20,6 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestAggregatePlannerCreatesAndThenConvergesSharedHookSet(t *testing.T) {
@@ -267,7 +268,7 @@ func TestAggregatePlannerClassifiesFailedUnmanagedObservationByAdoptionPolicy(t 
 	}
 	codecFailure, err := aggregate.NewCodecFailure(
 		aggregate.CodecFailureSelectedShapeUnsupported,
-		contract.Address().ContentPath(),
+		outputtest.LegacyContentPath(t, contract.Address()),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -760,7 +761,7 @@ func TestAggregatePlannerPreservesLockBlockersAcrossObservationFailure(t *testin
 	}
 	codecFailure, err := aggregate.NewCodecFailure(
 		aggregate.CodecFailureSelectedShapeUnsupported,
-		desired[0].Contribution().Contract().Address().ContentPath(),
+		outputtest.LegacyContentPath(t, desired[0].Contribution().Contract().Address()),
 	)
 	if err != nil {
 		t.Fatal(err)

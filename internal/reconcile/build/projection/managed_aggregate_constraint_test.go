@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestAggregateSubjectConstraintBlocksAnOtherwiseWritableProjection(t *testing.T) {
@@ -305,7 +306,7 @@ func aggregateConstraintObservationFailure(
 	}
 	failure, err := aggregate.NewCodecFailure(
 		aggregate.CodecFailureSelectedShapeUnsupported,
-		contracts[0].Address().ContentPath(),
+		outputtest.LegacyContentPath(t, contracts[0].Address()),
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -35,7 +36,7 @@ type managedPathOccupancy struct {
 type managedAggregateOccupancy struct {
 	scope         target.Scope
 	aggregateRoot string
-	contentPath   string
+	footprint     output.Footprint
 }
 
 type managedAggregateOccupant struct {
@@ -110,19 +111,20 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			}
 			key := managedAggregateOccupancy{
 				scope:         contribution.Scope(),
-				aggregateRoot: contribution.AggregateRoot().String(), contentPath: contribution.ContentPath(),
+				aggregateRoot: contribution.AggregateRoot().String(), footprint: contribution.Footprint(),
 			}
 			if existing, duplicate := seenContributions[key]; duplicate {
+				nativeKey, _ := key.footprint.Key()
 				if !existing.contract.Equal(contribution.Contract()) {
 					return lockedCollectionIndex{}, fmt.Errorf(
 						"conflicting managed aggregate occupancy scope=%q aggregate_root=%q content_path=%q for subjects %q and %q",
-						key.scope, key.aggregateRoot, key.contentPath, existing.subject, subject.SubjectID(),
+						key.scope, key.aggregateRoot, nativeKey.String(), existing.subject, subject.SubjectID(),
 					)
 				}
 				if contribution.Cardinality() == aggregate.ContributionExclusive {
 					return lockedCollectionIndex{}, fmt.Errorf(
 						"duplicate exclusive managed aggregate occupancy scope=%q aggregate_root=%q content_path=%q for subjects %q and %q",
-						key.scope, key.aggregateRoot, key.contentPath, existing.subject, subject.SubjectID(),
+						key.scope, key.aggregateRoot, nativeKey.String(), existing.subject, subject.SubjectID(),
 					)
 				}
 				continue

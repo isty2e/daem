@@ -367,7 +367,7 @@ func validateAggregateSelection(
 		if !actualContracts[index].Equal(expectedContracts[index]) {
 			return fmt.Errorf(
 				"aggregate evidence does not exactly cover projection %q",
-				expectedContracts[index].Address().ContentPath(),
+				expectedContracts[index].Address().KeyPath().String(),
 			)
 		}
 	}

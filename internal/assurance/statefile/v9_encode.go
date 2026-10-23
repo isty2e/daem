@@ -1,6 +1,7 @@
 package statefile
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -13,7 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
-func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
+func persistedSnapshot(snapshot durable.Snapshot) (snapshotDTO, error) {
 	persisted := snapshotDTO{
 		Version:                   snapshotVersion,
 		ManagedPaths:              make([]managedPathDTO, 0, len(snapshot.ManagedPaths())),
@@ -47,6 +48,10 @@ func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
 	}
 	for _, state := range snapshot.ManagedAggregates() {
 		contribution := state.Contribution()
+		contentPath, err := contribution.LegacyContentPath()
+		if err != nil {
+			return snapshotDTO{}, fmt.Errorf("legacy state aggregate scope: %w", err)
+		}
 		persisted.ManagedAggregateBaselines = append(
 			persisted.ManagedAggregateBaselines,
 			managedAggregateDTO{
@@ -55,7 +60,7 @@ func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
 				Target:                string(contribution.Target()),
 				Scope:                 string(contribution.Scope()),
 				AggregateRoot:         contribution.AggregateRoot().String(),
-				ContentPath:           contribution.ContentPath(),
+				ContentPath:           contentPath,
 				MergeUnit:             string(contribution.MergeUnit()),
 				Cardinality:           string(contribution.Cardinality()),
 				SiblingRetention:      string(contribution.SiblingRetention()),
@@ -143,7 +148,7 @@ func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
 			Redacted: attempt.Redacted(),
 		})
 	}
-	return persisted
+	return persisted, nil
 }
 
 func persistedEffectBaselines(

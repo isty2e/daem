@@ -533,9 +533,13 @@ func applyWithOptions(
 		visibilityGate,
 		effectExecution,
 		func(ctx context.Context, effect AggregateEffect) error {
+			keys, err := provisionalAcquireKeysForAggregate(effect)
+			if err != nil {
+				return err
+			}
 			return ownershipState.promoteVisibleAcquires(
 				ctx,
-				provisionalAcquireKeysForAggregate(effect),
+				keys,
 				mutationAuthority,
 				registryStore,
 				input.StateCodec,

@@ -21,7 +21,7 @@ func (failure *MCPBackendTransitionError) Error() string {
 
 func (failure *MCPBackendTransitionError) Summary() string {
 	return fmt.Sprintf("Pi MCP backend transition is unsupported: server=%.256q target=%s scope=%s stored=%s desired=%s",
-		failure.address.ContentPath(), failure.address.Document().Target(), failure.address.Document().Scope(), failure.stored, failure.desired)
+		failure.address.KeyPath().String(), failure.address.Document().Target(), failure.address.Document().Scope(), failure.stored, failure.desired)
 }
 
 func (failure *MCPBackendTransitionError) RepairInstruction() string {

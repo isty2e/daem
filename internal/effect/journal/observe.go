@@ -411,12 +411,16 @@ func extractRecoveryObservationProjection(
 		)
 	}
 	address := aggregateContract.Address()
+	contractPath, err := address.LegacyContentPath()
+	if err != nil {
+		return nil, false, err
+	}
 	if address.Document().AggregateRoot() != destination ||
-		string(address.ContentPath()) != string(contentPath) {
+		string(contractPath) != string(contentPath) {
 		return nil, false, fmt.Errorf(
 			"recovery aggregate contract address %q%q does not match observation %q%q",
 			address.Document().AggregateRoot(),
-			address.ContentPath(),
+			contractPath,
 			destination,
 			contentPath,
 		)

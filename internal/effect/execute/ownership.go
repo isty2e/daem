@@ -138,9 +138,13 @@ func ownershipPlanForAggregateEffects(
 				continue
 			}
 			address := projection.contract.Address()
+			contentPath, err := address.LegacyContentPath()
+			if err != nil {
+				return ownershipMutationPlan{}, err
+			}
 			key := ownershipOutputKey{
 				destination: document.AggregateRoot(),
-				contentPath: output.ContentPath(address.ContentPath()),
+				contentPath: output.ContentPath(contentPath),
 			}
 			observation, present := byOutput[key]
 			if !present {
@@ -210,21 +214,25 @@ func provisionalAcquireKeysForManagedPath(
 	return []ownershipOutputKey{{destination: effect.Destination()}}
 }
 
-func provisionalAcquireKeysForAggregate(effect AggregateEffect) []ownershipOutputKey {
+func provisionalAcquireKeysForAggregate(effect AggregateEffect) ([]ownershipOutputKey, error) {
 	if effect.Scope() != target.ScopeGlobal || effect.Kind() == AggregateEffectRecord {
-		return nil
+		return nil, nil
 	}
 	keys := make([]ownershipOutputKey, 0, len(effect.projections))
 	for _, projection := range effect.projections {
 		if len(projection.subjects) == 0 || len(projection.previous) != 0 {
 			continue
 		}
+		contentPath, err := projection.contract.Address().LegacyContentPath()
+		if err != nil {
+			return nil, err
+		}
 		keys = append(keys, ownershipOutputKey{
 			destination: effect.Destination(),
-			contentPath: output.ContentPath(projection.contract.Address().ContentPath()),
+			contentPath: output.ContentPath(contentPath),
 		})
 	}
-	return keys
+	return keys, nil
 }
 
 func ownershipObservationsByOutput(

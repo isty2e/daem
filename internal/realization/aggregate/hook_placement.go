@@ -136,7 +136,7 @@ func (placement HookPlacement) Validate() error {
 			return err
 		}
 	}
-	if _, err := newProjectionAddress(
+	if _, err := newLegacyProjectionAddress(
 		string(placement.id), placement.target, placement.scope, placement.aggregateRoot,
 		HookMergeUnit, HooksContentPath,
 	); err != nil {

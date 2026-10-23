@@ -1310,7 +1310,10 @@ func testV9ProjectionSubject(
 
 func delegateAttemptJSONFromSnapshot(t *testing.T, snapshot durable.Snapshot) string {
 	t.Helper()
-	persisted := persistedSnapshot(snapshot)
+	persisted, err := persistedSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(persisted.DelegateAttempts) != 1 {
 		t.Fatalf("delegate attempt fixture count = %d", len(persisted.DelegateAttempts))
 	}
@@ -1327,7 +1330,10 @@ func mutatedSnapshotJSON(
 	mutate func(*snapshotDTO),
 ) string {
 	t.Helper()
-	persisted := persistedSnapshot(snapshot)
+	persisted, err := persistedSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mutate(&persisted)
 	content, err := json.Marshal(persisted)
 	if err != nil {
