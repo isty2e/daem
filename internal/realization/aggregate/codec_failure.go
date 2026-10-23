@@ -19,6 +19,8 @@ const (
 	CodecFailureEquivalenceUndefined     CodecFailureReason = "equivalence_undefined"
 	CodecFailurePreservationUndefined    CodecFailureReason = "preservation_undefined"
 	CodecFailureCanonicalInvalid         CodecFailureReason = "canonical_contribution_invalid"
+	CodecFailureOperationCanceled        CodecFailureReason = "operation_canceled"
+	CodecFailureResourceLimitExceeded    CodecFailureReason = "resource_limit_exceeded"
 )
 
 // CodecFailure is a typed failure without raw host bytes or values. A root
@@ -60,7 +62,9 @@ func (reason CodecFailureReason) validate() error {
 		CodecFailureSecretLiteralForbidden,
 		CodecFailureEquivalenceUndefined,
 		CodecFailurePreservationUndefined,
-		CodecFailureCanonicalInvalid:
+		CodecFailureCanonicalInvalid,
+		CodecFailureOperationCanceled,
+		CodecFailureResourceLimitExceeded:
 		return nil
 	default:
 		return fmt.Errorf("unsupported aggregate codec failure reason %q", reason)
