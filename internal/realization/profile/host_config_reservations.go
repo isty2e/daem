@@ -106,12 +106,15 @@ func hostConfigPiLoaderPath(nativePath string) bool {
 	if len(parts) == 1 {
 		return true
 	}
-	if len(parts) == 2 {
-		name := parts[1]
-		return strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".js") ||
-			name == "package.json" || name == ".gitignore" || name == ".ignore" || name == ".fdignore"
+	name := parts[1]
+	if name == "index.ts" || name == "index.js" || name == "package.json" ||
+		name == ".gitignore" || name == ".ignore" || name == ".fdignore" {
+		return true
 	}
-	return len(parts) == 3 && (parts[2] == "index.ts" || parts[2] == "index.js" || parts[2] == "package.json")
+	if len(parts) == 2 {
+		return strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".js")
+	}
+	return parts[2] == "index.ts" || parts[2] == "index.js" || parts[2] == "package.json"
 }
 
 func hostConfigCodexRuntimePath(nativePath string) bool {

@@ -85,3 +85,20 @@ func TestHostConfigCodexNamedProfileClassification(t *testing.T) {
 		}
 	}
 }
+
+func TestHostConfigPiLoaderControlSubtreesAreReserved(t *testing.T) {
+	for _, nativePath := range []string{
+		"extensions/package.json/child.json", "extensions/index.ts/child.json",
+		"extensions/index.js/child.json", "extensions/.ignore/child.json",
+		"extensions/demo/package.json/child.json", "extensions/demo/index.ts/child.json",
+		"extensions/demo/index.js/child.json",
+	} {
+		input := hostConfigInput(target.TargetPi, target.ScopeGlobal, nativePath)
+		input.Ownership = desiredhostconfig.OwnershipDocument
+		if _, err := ResolveHostConfigPlacement(input); err == nil {
+			t.Fatalf("loader control subtree %q was accepted", nativePath)
+		}
+	}
+	input := hostConfigInput(target.TargetPi, target.ScopeGlobal, "extensions/demo.ts/config.json")
+	mustHostConfigPlacement(t, input)
+}
