@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
@@ -40,7 +41,50 @@ func CommitFileSet(ctx context.Context, input FileSetInput) error {
 	return commitWithOperations(ctx, input, operations{writeFile: commitFile})
 }
 
+// CommitFileSet4 publishes a generation-4 static file set with the existing
+// before-image and after-hash evidence grammar.
+func CommitFileSet4(ctx context.Context, input FileSetInput) error {
+	return commitWithOperationsVersion(
+		ctx,
+		input,
+		operations{writeFile: commitFile},
+		contractversion.MetadataTransactionReference,
+		false,
+	)
+}
+
+// CommitFileSet4WithReference publishes a generation-4 file set retaining the
+// constructor-owned after-image for its one commit-point target.
+func CommitFileSet4WithReference(ctx context.Context, input FileSetInput) error {
+	return commitWithOperationsVersion(
+		ctx,
+		input,
+		operations{writeFile: commitFile},
+		contractversion.MetadataTransactionReference,
+		true,
+	)
+}
+
 func commitWithOperations(ctx context.Context, input FileSetInput, ops operations) error {
+	return commitWithOperationsVersion(ctx, input, ops, contractversion.MetadataTransaction, false)
+}
+
+func hasCommitPointTarget(targets []FileTarget) bool {
+	for _, target := range targets {
+		if target.commitPoint {
+			return true
+		}
+	}
+	return false
+}
+
+func commitWithOperationsVersion(
+	ctx context.Context,
+	input FileSetInput,
+	ops operations,
+	version int,
+	retainReference bool,
+) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
 	}
@@ -58,14 +102,23 @@ func commitWithOperations(ctx context.Context, input FileSetInput, ops operation
 	if ops.writeFile == nil {
 		ops.writeFile = commitFile
 	}
+	if version != contractversion.MetadataTransaction && version != contractversion.MetadataTransactionReference {
+		return fmt.Errorf("unsupported file-set transaction writer version %d", version)
+	}
+	if retainReference && version != contractversion.MetadataTransactionReference {
+		return fmt.Errorf("reference evidence requires file-set transaction generation 4")
+	}
+	if retainReference && !hasCommitPointTarget(targets) {
+		return fmt.Errorf("reference evidence requires exactly one commit-point target")
+	}
 	allowed := make([]string, 0, len(targets))
 	for _, target := range targets {
 		allowed = append(allowed, target.path)
 	}
-	if err := recoverWithOperations(ctx, stateDir, allowed, ops); err != nil {
+	if err := recoverWithOperationsVersion(ctx, stateDir, allowed, ops, version); err != nil {
 		return err
 	}
-	marker, err := prepareMarker(ctx, stateDir, targets)
+	marker, err := prepareMarkerVersion(ctx, stateDir, targets, version, retainReference)
 	if err != nil {
 		return err
 	}
@@ -109,11 +162,38 @@ func RecoverFileSet(ctx context.Context, stateDir string, allowedPaths []string)
 	return recoverWithOperations(ctx, canonical, allowedPaths, operations{writeFile: commitFile})
 }
 
+// RecoverFileSet4 recovers a generation-4 transaction for the complete exact
+// target set. A reference artifact is evidence only; it does not expand that
+// target authority.
+func RecoverFileSet4(ctx context.Context, stateDir string, exactPaths []string) error {
+	canonical, err := canonicalStateDir(stateDir)
+	if err != nil {
+		return err
+	}
+	return recoverWithOperationsVersion(ctx, canonical, exactPaths, operations{writeFile: commitFile}, contractversion.MetadataTransactionReference)
+}
+
 func requireClearFileSetAtCanonicalPath(
 	ctx context.Context,
 	stateDir string,
 	maximumPhysicalDepth int,
 	physicalWorkBudget PhysicalWorkBudget,
+) error {
+	return requireClearFileSetAtCanonicalPathVersion(
+		ctx,
+		stateDir,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		contractversion.MetadataTransaction,
+	)
+}
+
+func requireClearFileSetAtCanonicalPathVersion(
+	ctx context.Context,
+	stateDir string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+	version int,
 ) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
@@ -159,14 +239,25 @@ func requireClearFileSetAtCanonicalPath(
 	); err != nil {
 		return err
 	}
-	if _, err := loadMarkerAtCanonicalPath(ctx, activeMarkerPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+	var markerErr error
+	if version == contractversion.MetadataTransactionReference {
+		_, _, _, markerErr = loadMarker4WithBudget(
+			ctx,
+			activeMarkerPath,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		)
+	} else {
+		_, markerErr = loadMarkerAtCanonicalPath(ctx, activeMarkerPath)
+	}
+	if markerErr != nil {
+		if errors.Is(markerErr, os.ErrNotExist) {
 			return wrapFileSetEvidenceInvalid(fmt.Errorf(
 				"file-set transaction evidence at %s is incomplete: marker is missing",
 				evidencePath,
 			))
 		}
-		return wrapFileSetEvidenceInvalid(err)
+		return wrapFileSetEvidenceInvalid(markerErr)
 	}
 	return fmt.Errorf("%w at %s", ErrInterruptedFileSetTransaction, activeMarkerPath)
 }
@@ -177,6 +268,16 @@ func recoverWithOperations(
 	allowedPaths []string,
 	ops operations,
 ) error {
+	return recoverWithOperationsVersion(ctx, stateDir, allowedPaths, ops, contractversion.MetadataTransaction)
+}
+
+func recoverWithOperationsVersion(
+	ctx context.Context,
+	stateDir string,
+	allowedPaths []string,
+	ops operations,
+	version int,
+) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
 	}
@@ -186,7 +287,13 @@ func recoverWithOperations(
 	if ops.writeFile == nil {
 		ops.writeFile = commitFile
 	}
-	marker, err := loadMarker(ctx, markerPath(stateDir))
+	var err error
+	var marker transactionMarker
+	if version == contractversion.MetadataTransactionReference {
+		marker, _, _, err = loadMarker4(ctx, markerPath(stateDir))
+	} else {
+		marker, err = loadMarker(ctx, markerPath(stateDir))
+	}
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return rejectAbandonedFileSetResidue(ctx, stateDir)
@@ -196,6 +303,9 @@ func recoverWithOperations(
 	allowed, err := canonicalAllowedPaths(allowedPaths)
 	if err != nil {
 		return err
+	}
+	if version == contractversion.MetadataTransactionReference && len(allowed) != len(marker.Targets) {
+		return fmt.Errorf("interrupted file-set target set does not match this operation")
 	}
 	for _, target := range marker.Targets {
 		if _, ok := allowed[target.Path]; !ok {

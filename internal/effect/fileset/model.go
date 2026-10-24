@@ -13,7 +13,41 @@ const (
 	maximumTargetBytes            int64 = 64 << 20
 	maximumFileSetTargets               = 8
 	maximumStagedBeforeImageBytes int64 = 4 * maximumTargetBytes
+	referenceAfterImageName             = "reference.after"
 )
+
+// ReferenceEvidenceView is a defensive, read-only snapshot of the before and
+// proposed images for the selected commit-point target. It grants no file
+// mutation authority. MarkerRevision identifies the exact validated marker
+// bytes from which this view was reconstructed.
+type ReferenceEvidenceView struct {
+	namespace      string
+	markerRevision string
+	beforeExists   bool
+	before         []byte
+	after          []byte
+	afterHash      string
+}
+
+// ReferenceNamespace returns the canonical target path selected by the caller.
+func (view ReferenceEvidenceView) ReferenceNamespace() string { return view.namespace }
+
+// MarkerRevision returns the digest of the exact marker bytes for this view.
+func (view ReferenceEvidenceView) MarkerRevision() string { return view.markerRevision }
+
+// BeforeImage returns a defensive copy and whether the reference existed
+// before the transaction.
+func (view ReferenceEvidenceView) BeforeImage() ([]byte, bool) {
+	return append([]byte(nil), view.before...), view.beforeExists
+}
+
+// AfterImage returns a defensive copy of the constructor-owned proposed bytes.
+func (view ReferenceEvidenceView) AfterImage() []byte {
+	return append([]byte(nil), view.after...)
+}
+
+// AfterHash returns the digest correlated to the target's after-state.
+func (view ReferenceEvidenceView) AfterHash() string { return view.afterHash }
 
 // FileTarget is one exact file transition in a recoverable transaction. A
 // write target privately owns its immutable after-image snapshot.
@@ -91,14 +125,19 @@ func admitFileSetTargetCount(count int) error {
 }
 
 func admitStagedBeforeImageBytes(total int64, additional int) error {
+	return admitStagedEvidenceBytes(total, additional, "file-set transaction before-images")
+}
+
+func admitStagedEvidenceBytes(total int64, additional int, label string) error {
 	if additional < 0 {
-		return fmt.Errorf("file-set transaction before-image byte length must not be negative")
+		return fmt.Errorf("file-set transaction evidence byte length must not be negative")
 	}
 	additionalBytes := int64(additional)
 	if additionalBytes > maximumStagedBeforeImageBytes ||
 		total > maximumStagedBeforeImageBytes-additionalBytes {
 		return fmt.Errorf(
-			"file-set transaction before-images contain %d bytes, maximum %d",
+			"%s contain %d bytes, maximum %d",
+			label,
 			total+additionalBytes,
 			maximumStagedBeforeImageBytes,
 		)

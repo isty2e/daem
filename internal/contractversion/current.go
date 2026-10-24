@@ -11,6 +11,10 @@ const (
 // MetadataTransaction identifies bounded file-set recovery evidence.
 const MetadataTransaction = 3
 
+// MetadataTransactionReference identifies file-set evidence with one retained
+// commit-point after-image.
+const MetadataTransactionReference = 4
+
 // StateRelocation identifies a retired statefile's authority-transfer receipt.
 const StateRelocation = 1
 

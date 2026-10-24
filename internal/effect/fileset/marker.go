@@ -45,11 +45,33 @@ type targetMarker struct {
 }
 
 type transactionMarker struct {
-	Version int            `json:"version"`
-	Targets []targetMarker `json:"targets"`
+	Version   int                      `json:"version"`
+	Targets   []targetMarker           `json:"targets"`
+	Reference *referenceEvidenceMarker `json:"reference,omitempty"`
+}
+
+type referenceEvidenceMarker struct {
+	Target     string                    `json:"target"`
+	AfterImage referenceAfterImageMarker `json:"after_image"`
+}
+
+type referenceAfterImageMarker struct {
+	Path   string `json:"path"`
+	Size   int64  `json:"size"`
+	Digest string `json:"digest"`
 }
 
 func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (transactionMarker, error) {
+	return prepareMarkerVersion(ctx, stateDir, targets, contractversion.MetadataTransaction, false)
+}
+
+func prepareMarkerVersion(
+	ctx context.Context,
+	stateDir string,
+	targets []FileTarget,
+	version int,
+	retainReference bool,
+) (transactionMarker, error) {
 	if err := ctx.Err(); err != nil {
 		return transactionMarker{}, err
 	}
@@ -70,14 +92,45 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 	if err := rejectAbandonedFileSetResidue(ctx, stateDir); err != nil {
 		return transactionMarker{}, err
 	}
+	marker := transactionMarker{
+		Version: version,
+		Targets: make([]targetMarker, 0, len(targets)),
+	}
+	var referenceTarget *FileTarget
+	if retainReference {
+		for index := range targets {
+			if targets[index].commitPoint {
+				if referenceTarget != nil {
+					return transactionMarker{}, fmt.Errorf("reference evidence requires exactly one commit-point target")
+				}
+				referenceTarget = &targets[index]
+			}
+		}
+		if referenceTarget == nil || version != contractversion.MetadataTransactionReference {
+			return transactionMarker{}, fmt.Errorf("reference evidence requires one generation-4 commit-point target")
+		}
+		marker.Reference = &referenceEvidenceMarker{
+			Target: referenceTarget.path,
+			AfterImage: referenceAfterImageMarker{
+				Path:   referenceAfterImageName,
+				Size:   int64(len(referenceTarget.content)),
+				Digest: hashBytes(referenceTarget.content),
+			},
+		}
+	}
+	if version == contractversion.MetadataTransactionReference {
+		referenceSize := int64(0)
+		if marker.Reference != nil {
+			referenceSize = marker.Reference.AfterImage.Size
+		}
+		if err := preflightStagedEvidenceSizes(ctx, targets, referenceSize); err != nil {
+			return transactionMarker{}, err
+		}
+	}
 	if err := storagecommit.PrepareCommitParent(ctx, transactionDir); err != nil {
 		return transactionMarker{}, fmt.Errorf("prepare file-set evidence parent: %w", err)
 	}
 
-	marker := transactionMarker{
-		Version: contractversion.MetadataTransaction,
-		Targets: make([]targetMarker, 0, len(targets)),
-	}
 	capturedRoot, destination, err := rootedpath.CaptureDestinationNoFollow(transactionDir)
 	if err != nil {
 		return transactionMarker{}, fmt.Errorf("capture file-set evidence destination: %w", err)
@@ -88,7 +141,13 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 		return transactionMarker{}, fmt.Errorf("acquire file-set evidence publication capability: %w", err)
 	}
 	prepared, err := storagecommit.PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
-		var stagedBeforeBytes int64
+		var stagedEvidenceBytes int64
+		if marker.Reference != nil {
+			if err := admitMarkerEvidenceBytes(version, stagedEvidenceBytes, int(marker.Reference.AfterImage.Size)); err != nil {
+				return fmt.Errorf("file-set reference evidence: %w", err)
+			}
+			stagedEvidenceBytes += marker.Reference.AfterImage.Size
+		}
 		for index, target := range targets {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -115,7 +174,7 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 			if !before.Exists {
 				continue
 			}
-			if err := admitStagedBeforeImageBytes(stagedBeforeBytes, len(content)); err != nil {
+			if err := admitMarkerEvidenceBytes(version, stagedEvidenceBytes, len(content)); err != nil {
 				return err
 			}
 			path, pathErr := mutationfs.NewTreeRelativePath(backupName)
@@ -125,8 +184,21 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 			if writeErr := writer.WriteFile(path, transactionEvidenceMode, bytes.NewReader(content)); writeErr != nil {
 				return writeErr
 			}
-			stagedBeforeBytes += int64(len(content))
+			stagedEvidenceBytes += int64(len(content))
 			content = nil
+		}
+		if marker.Reference != nil {
+			referencePath, pathErr := mutationfs.NewTreeRelativePath(marker.Reference.AfterImage.Path)
+			if pathErr != nil {
+				return pathErr
+			}
+			if writeErr := writer.WriteFile(
+				referencePath,
+				transactionEvidenceMode,
+				bytes.NewReader(referenceTarget.content),
+			); writeErr != nil {
+				return writeErr
+			}
 		}
 		if err := ctx.Err(); err != nil {
 			return err
@@ -148,6 +220,47 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 		return transactionMarker{}, fmt.Errorf("publish file-set transaction evidence: %w", err)
 	}
 	return marker, nil
+}
+
+func preflightStagedEvidenceSizes(ctx context.Context, targets []FileTarget, afterImageSize int64) error {
+	if afterImageSize < 0 || afterImageSize > maximumTargetBytes {
+		return fmt.Errorf("file-set reference after-image size exceeds the target limit")
+	}
+	stagedBytes := afterImageSize
+	if err := admitStagedEvidenceBytes(0, int(afterImageSize), "file-set transaction evidence"); err != nil {
+		return err
+	}
+	for _, target := range targets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		info, err := os.Lstat(target.path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect target before-image %q: %w", target.path, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("target before-image %q is not a regular file", target.path)
+		}
+		size := info.Size()
+		if size < 0 || size > maximumTargetBytes {
+			return fmt.Errorf("target before-image %q contains %d bytes, maximum %d", target.path, size, maximumTargetBytes)
+		}
+		if err := admitStagedEvidenceBytes(stagedBytes, int(size), "file-set transaction evidence"); err != nil {
+			return err
+		}
+		stagedBytes += size
+	}
+	return nil
+}
+
+func admitMarkerEvidenceBytes(version int, total int64, additional int) error {
+	if version == contractversion.MetadataTransaction {
+		return admitStagedBeforeImageBytes(total, additional)
+	}
+	return admitStagedEvidenceBytes(total, additional, "file-set transaction evidence")
 }
 
 func marshalMarker(marker transactionMarker) ([]byte, error) {
@@ -175,12 +288,56 @@ func loadMarker(ctx context.Context, path string) (transactionMarker, error) {
 }
 
 func loadMarkerAtCanonicalPath(ctx context.Context, canonicalPath string) (transactionMarker, error) {
+	marker, _, err := loadMarkerAtCanonicalPathVersion(ctx, canonicalPath, contractversion.MetadataTransaction)
+	return marker, err
+}
+
+func loadMarker4(ctx context.Context, path string) (transactionMarker, []byte, *reconstructedReferenceEvidence, error) {
+	canonicalPath, err := mutation.CanonicalDirectoryEntryPath(path)
+	if err != nil {
+		return transactionMarker{}, nil, nil, fmt.Errorf("canonicalize file-set transaction marker path: %w", err)
+	}
+	return loadMarker4WithBudget(ctx, canonicalPath, 0, nil)
+}
+
+func loadMarker4WithBudget(
+	ctx context.Context,
+	canonicalPath string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) (transactionMarker, []byte, *reconstructedReferenceEvidence, error) {
+	marker, content, err := loadMarkerAtCanonicalPathVersion(
+		ctx,
+		canonicalPath,
+		contractversion.MetadataTransactionReference,
+	)
+	if err != nil {
+		return transactionMarker{}, nil, nil, err
+	}
+	evidence, err := reconstructReferenceEvidenceWithBudget(
+		ctx,
+		canonicalPath,
+		marker,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
+	if err != nil {
+		return transactionMarker{}, nil, nil, err
+	}
+	return marker, content, evidence, nil
+}
+
+func loadMarkerAtCanonicalPathVersion(
+	ctx context.Context,
+	canonicalPath string,
+	expectedVersion int,
+) (transactionMarker, []byte, error) {
 	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, canonicalPath, maximumMarkerBytes)
 	if err != nil {
-		return transactionMarker{}, err
+		return transactionMarker{}, nil, err
 	}
 	if mode := snapshot.Mode().Perm(); mode != transactionEvidenceMode {
-		return transactionMarker{}, fmt.Errorf(
+		return transactionMarker{}, nil, fmt.Errorf(
 			"file-set transaction marker %q permissions are %04o, want %04o",
 			canonicalPath,
 			mode,
@@ -192,45 +349,45 @@ func loadMarkerAtCanonicalPath(ctx context.Context, canonicalPath string) (trans
 		content,
 		"file-set transaction marker",
 		maximumMarkerJSONDepth,
-		contractversion.MetadataTransaction,
+		expectedVersion,
 	)
 	if err != nil {
-		return transactionMarker{}, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
+		return transactionMarker{}, nil, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
 	}
 	switch envelope.Disposition {
 	case jsonstrict.VersionLegacy:
-		return transactionMarker{}, fmt.Errorf(
+		return transactionMarker{}, nil, fmt.Errorf(
 			"unsupported legacy file-set transaction marker version %d; use the daem version that wrote it to recover before upgrading and do not delete the transaction evidence",
 			envelope.Version,
 		)
 	case jsonstrict.VersionFuture:
-		return transactionMarker{}, fmt.Errorf(
+		return transactionMarker{}, nil, fmt.Errorf(
 			"unsupported file-set transaction marker version %d; it was written by a newer daem, so upgrade daem before recovery and do not delete the transaction evidence",
 			envelope.Version,
 		)
 	}
-	if err := validateMarkerPresence(content); err != nil {
-		return transactionMarker{}, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
+	if err := validateMarkerPresence(content, expectedVersion); err != nil {
+		return transactionMarker{}, nil, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
 	}
 	var marker transactionMarker
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&marker); err != nil {
-		return transactionMarker{}, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
+		return transactionMarker{}, nil, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
 	}
 	var extra json.RawMessage
 	if err := decoder.Decode(&extra); err == nil {
-		return transactionMarker{}, fmt.Errorf("file-set transaction marker %q contains multiple JSON values", canonicalPath)
+		return transactionMarker{}, nil, fmt.Errorf("file-set transaction marker %q contains multiple JSON values", canonicalPath)
 	} else if err != io.EOF {
-		return transactionMarker{}, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
+		return transactionMarker{}, nil, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
 	}
-	if err := validateMarker(canonicalPath, marker); err != nil {
-		return transactionMarker{}, err
+	if err := validateMarkerForVersion(canonicalPath, marker, expectedVersion); err != nil {
+		return transactionMarker{}, nil, err
 	}
-	return marker, nil
+	return marker, content, nil
 }
 
-func validateMarkerPresence(content []byte) error {
+func validateMarkerPresence(content []byte, version int) error {
 	// Inspect raw fields before typed decoding can turn omitted or null
 	// authority into zero-value before-image evidence.
 	var root map[string]json.RawMessage
@@ -243,6 +400,20 @@ func validateMarkerPresence(content []byte) error {
 	targets, err := requireMarkerField(root, "targets", "file-set transaction marker")
 	if err != nil {
 		return err
+	}
+	if version == contractversion.MetadataTransaction {
+		if _, exists := root["reference"]; exists {
+			return fmt.Errorf("json: unknown field %q", "reference")
+		}
+	} else {
+		if err := rejectMarkerNull(root, "reference", "file-set transaction marker"); err != nil {
+			return err
+		}
+		if reference, exists := root["reference"]; exists {
+			if err := validateReferencePresence(reference); err != nil {
+				return err
+			}
+		}
 	}
 	var targetValues []json.RawMessage
 	if err := json.Unmarshal(targets, &targetValues); err != nil {
@@ -281,6 +452,30 @@ func validateMarkerPresence(content []byte) error {
 			}
 		}
 		if err := validateBeforePresence(before, prefix+".before"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateReferencePresence(content json.RawMessage) error {
+	var reference map[string]json.RawMessage
+	if err := json.Unmarshal(content, &reference); err != nil {
+		return fmt.Errorf("reference must be an object: %w", err)
+	}
+	if _, err := requireMarkerField(reference, "target", "reference"); err != nil {
+		return err
+	}
+	afterImage, err := requireMarkerField(reference, "after_image", "reference")
+	if err != nil {
+		return err
+	}
+	var image map[string]json.RawMessage
+	if err := json.Unmarshal(afterImage, &image); err != nil {
+		return fmt.Errorf("reference field %q must be an object: %w", "after_image", err)
+	}
+	for _, field := range []string{"path", "size", "digest"} {
+		if _, err := requireMarkerField(image, field, "reference.after_image"); err != nil {
 			return err
 		}
 	}
@@ -332,9 +527,12 @@ func rejectMarkerNull(fields map[string]json.RawMessage, field string, object st
 	return nil
 }
 
-func validateMarker(path string, marker transactionMarker) error {
-	if marker.Version != contractversion.MetadataTransaction {
+func validateMarkerForVersion(path string, marker transactionMarker, version int) error {
+	if marker.Version != version {
 		return fmt.Errorf("unsupported file-set transaction marker version %d", marker.Version)
+	}
+	if version == contractversion.MetadataTransaction && marker.Reference != nil {
+		return fmt.Errorf("unsupported file-set transaction marker reference field")
 	}
 	if len(marker.Targets) == 0 {
 		return fmt.Errorf("file-set transaction marker requires targets")
@@ -349,6 +547,12 @@ func validateMarker(path string, marker transactionMarker) error {
 	for index, target := range marker.Targets {
 		if target.Path == "" || !filepath.IsAbs(target.Path) || filepath.Clean(target.Path) != target.Path {
 			return fmt.Errorf("file-set transaction marker target[%d] has invalid path %q", index, target.Path)
+		}
+		if version == contractversion.MetadataTransactionReference {
+			canonical, err := mutation.CanonicalDirectoryEntryPath(target.Path)
+			if err != nil || canonical != target.Path {
+				return fmt.Errorf("file-set transaction marker target[%d] path is not canonical", index)
+			}
 		}
 		if _, exists := seenPaths[target.Path]; exists {
 			return fmt.Errorf("file-set transaction marker targets must be unique and canonically ordered")
@@ -381,7 +585,49 @@ func validateMarker(path string, marker transactionMarker) error {
 			return err
 		}
 	}
+	if version == contractversion.MetadataTransactionReference && marker.Reference != nil {
+		if err := validateReferenceMarker(marker); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateReferenceMarker(marker transactionMarker) error {
+	reference := marker.Reference
+	if reference.Target == "" || !filepath.IsAbs(reference.Target) || filepath.Clean(reference.Target) != reference.Target {
+		return fmt.Errorf("file-set transaction marker reference target has invalid path %q", reference.Target)
+	}
+	canonical, err := mutation.CanonicalDirectoryEntryPath(reference.Target)
+	if err != nil || canonical != reference.Target {
+		return fmt.Errorf("file-set transaction marker reference target is not canonical")
+	}
+	if reference.AfterImage.Path != referenceAfterImageName {
+		return fmt.Errorf("file-set transaction marker reference after-image path must be the engine-owned artifact")
+	}
+	if reference.AfterImage.Size < 0 || reference.AfterImage.Size > maximumTargetBytes {
+		return fmt.Errorf(
+			"file-set reference after-image contains %d bytes, maximum %d",
+			reference.AfterImage.Size,
+			maximumTargetBytes,
+		)
+	}
+	if !isHash(reference.AfterImage.Digest) {
+		return fmt.Errorf("file-set transaction marker reference after-image has invalid digest")
+	}
+	for _, target := range marker.Targets {
+		if target.Path != reference.Target {
+			continue
+		}
+		if !target.Write || !target.CommitPoint {
+			return fmt.Errorf("file-set reference target must be the write commit-point target")
+		}
+		if target.AfterHash != reference.AfterImage.Digest {
+			return fmt.Errorf("file-set reference after-image digest does not match target after hash")
+		}
+		return nil
+	}
+	return fmt.Errorf("file-set reference target is not present in the transaction target set")
 }
 
 func validateBeforeState(name string, state fileState, expectedBackupPath string) error {
