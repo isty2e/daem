@@ -75,7 +75,7 @@ func MatchPartialDocumentStates(before, expected, current PartialDocumentState) 
 	if err := before.sameSelection(current); err != nil {
 		return PartialDocumentMatch{}, fmt.Errorf("partial document current selection: %w", err)
 	}
-	if !current.sameMetadata(before) && !current.sameMetadata(expected) {
+	if !current.SameRootMetadata(before) && !current.SameRootMetadata(expected) {
 		return PartialDocumentMatch{}, nil
 	}
 
@@ -107,6 +107,8 @@ func (state PartialDocumentState) sameSelection(other PartialDocumentState) erro
 	return nil
 }
 
-func (state PartialDocumentState) sameMetadata(other PartialDocumentState) bool {
-	return state.exists == other.exists && (!state.exists || state.mode == other.mode)
+// SameRootMetadata compares presence and exact regular-file mode, not selected
+// values or filesystem identity.
+func (state PartialDocumentState) SameRootMetadata(other PartialDocumentState) bool {
+	return state.initialized && other.initialized && state.exists == other.exists && (!state.exists || state.mode == other.mode)
 }

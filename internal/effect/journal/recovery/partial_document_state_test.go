@@ -234,6 +234,25 @@ func TestPartialDocumentConstructionAndSelectionRefusalsAreAllOrNothing(t *testi
 	}
 }
 
+func TestPartialDocumentRootMetadataQueryRejectsUninitializedEvidence(t *testing.T) {
+	absent, err := recovery.NewPartialDocumentState(false, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zero := recovery.PartialDocumentState{}
+	if zero.SameRootMetadata(absent) || absent.SameRootMetadata(zero) {
+		t.Fatal("uninitialized evidence matched an observed absent root")
+	}
+	mode := recovery.PermissionMode(0)
+	present, err := recovery.NewPartialDocumentState(true, &mode, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present.SameRootMetadata(absent) || absent.SameRootMetadata(present) || !present.SameRootMetadata(present) || !absent.SameRootMetadata(absent) {
+		t.Fatal("root metadata query collapsed absence and exact0000 presence")
+	}
+}
+
 func partialNativeCodec(t *testing.T, syntax configdocument.Syntax) aggregate.Codec {
 	t.Helper()
 	id, found := aggregate.HostConfigCodecForSyntax(syntax.String())
