@@ -26,14 +26,14 @@ func TestNativeDocumentNarrowingPreservesReleasedDriftAndComments(t *testing.T) 
 	for _, syntax := range []configdocument.Syntax{configdocument.JSON, configdocument.JSONC, configdocument.JSONLineComments, configdocument.TOML} {
 		t.Run(syntax.String(), func(t *testing.T) {
 			baseline := `{"model":"balanced","temperature":0.2,"custom":{"keep":1}}`
-			current := `{"model":"balanced","temperature":0.9,"custom":{"keep":4},"local":[3]}`
+			current := `{"model":"fast","temperature":0.9,"custom":{"keep":4},"local":[3]}`
 			desired := `{"model":"fast"}`
 			if syntax == configdocument.JSONC || syntax == configdocument.JSONLineComments {
 				current = "// same comment\n// same comment\n" + current
 			}
 			if syntax == configdocument.TOML {
 				baseline = "model='balanced'\ntemperature=0.2\n[custom]\nkeep=1\n"
-				current = "# same comment\n# same comment\nmodel='balanced'\ntemperature=0.9\nlocal=[3]\n[custom]\nkeep=4\n"
+				current = "# same comment\n# same comment\nmodel='fast'\ntemperature=0.9\nlocal=[3]\n[custom]\nkeep=4\n"
 				desired = "model='fast'\n"
 			}
 			input := narrowingInput(t, syntax, baseline, current, desired)
@@ -72,14 +72,14 @@ func TestNativeDocumentNarrowingPreservesReleasedDriftAndComments(t *testing.T) 
 	}
 }
 
-func TestNativeDocumentNarrowingUsesOnlyRetainedValueDrift(t *testing.T) {
+func TestNativeDocumentNarrowingUsesWholeHashOrDesiredValues(t *testing.T) {
 	for _, test := range []struct {
 		name, current string
 		refuse        bool
 	}{
 		{name: "unchanged", current: `{"model":"balanced","released":1}`},
 		{name: "already desired", current: `{"model":"fast","released":9}`},
-		{name: "formatting only", current: "{\n  \"released\": 1, \"model\": \"balanced\"\n}"},
+		{name: "formatting only", current: "{\n  \"released\": 1, \"model\": \"balanced\"\n}", refuse: true},
 		{name: "retained drift", current: `{"model":"custom","released":9}`, refuse: true},
 		{name: "retained missing", current: `{"released":9}`, refuse: true},
 	} {
@@ -87,7 +87,7 @@ func TestNativeDocumentNarrowingUsesOnlyRetainedValueDrift(t *testing.T) {
 			input := narrowingInput(t, configdocument.JSON, `{"model":"balanced","released":1}`, test.current, `{"model":"fast"}`)
 			result, err := BuildNativeDocumentNarrowing(t.Context(), input)
 			if test.refuse {
-				if !errors.Is(err, reconcileprojection.ErrNativeNarrowingDrift) || result.Validate() == nil {
+				if !errors.Is(err, reconcileprojection.ErrNativeNarrowingNeedsCapture) || result.Validate() == nil {
 					t.Fatalf("retained drift yielded usable narrowing: %v", err)
 				}
 			} else if err != nil || result.Validate() != nil {
@@ -152,13 +152,11 @@ func TestNativeDocumentNarrowingDoesNotTurnLaterKeyRemovalIntoFileRemoval(t *tes
 	}
 }
 
-func TestNativeDocumentNarrowingRefusesUnverifiedBaselineOrInvalidCurrent(t *testing.T) {
+func TestNativeDocumentNarrowingRefusesInvalidOwnershipOrCurrent(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		edit func(*NativeDocumentNarrowingInput)
 	}{
-		{name: "missing old bytes", edit: func(i *NativeDocumentNarrowingInput) { i.BaselineContent = nil }},
-		{name: "current as old bytes", edit: func(i *NativeDocumentNarrowingInput) { i.BaselineContent = i.Current.Content() }},
 		{name: "zero record", edit: func(i *NativeDocumentNarrowingInput) { i.Baseline = durable.ManagedPathState{} }},
 		{name: "missing current", edit: func(i *NativeDocumentNarrowingInput) { i.Current = aggregate.AbsentDocument() }},
 		{name: "malformed current", edit: func(i *NativeDocumentNarrowingInput) { i.Current = aggregate.ExistingDocument([]byte("{")) }},
@@ -167,7 +165,7 @@ func TestNativeDocumentNarrowingRefusesUnverifiedBaselineOrInvalidCurrent(t *tes
 		{name: "value limit", edit: func(i *NativeDocumentNarrowingInput) { i.ValueLimits.MaximumBytes = 1 }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			input := narrowingInput(t, configdocument.JSON, `{"model":"balanced"}`, `{"model":"balanced","external":1}`, `{"model":"fast"}`)
+			input := narrowingInput(t, configdocument.JSON, `{"model":"balanced"}`, `{"model":"fast","external":1}`, `{"model":"fast"}`)
 			test.edit(&input)
 			result, err := BuildNativeDocumentNarrowing(t.Context(), input)
 			if err == nil || result.Validate() == nil {
@@ -189,11 +187,11 @@ func TestNativeDocumentNarrowingRefusesUnverifiedBaselineOrInvalidCurrent(t *tes
 func TestNativeDocumentNarrowingHandlesGeneralAndAtomicKeys(t *testing.T) {
 	for _, syntax := range []configdocument.Syntax{configdocument.JSON, configdocument.TOML} {
 		baseline := `{"":"old","a/b":[1],"~":{},"settings":{"model":"balanced"},"released":1}`
-		current := `{"":"old","a/b":[1],"~":{},"settings":{"model":"balanced"},"released":9}`
+		current := baseline
 		desired := `{"":"new","a/b":[2],"~":{},"settings":{"model":"fast"}}`
 		if syntax == configdocument.TOML {
 			baseline = "''='old'\n'a/b'=[1]\n'~'={}\nreleased=1\n[settings]\nmodel='balanced'"
-			current = "''='old'\n'a/b'=[1]\n'~'={}\nreleased=9\n[settings]\nmodel='balanced'"
+			current = baseline
 			desired = "''='new'\n'a/b'=[2]\n'~'={}\n[settings]\nmodel='fast'"
 		}
 		input := narrowingInput(t, syntax, baseline, current, desired)
@@ -279,7 +277,7 @@ func narrowingInput(t *testing.T, syntax configdocument.Syntax, baseline, curren
 		sets = append(sets, set)
 	}
 	return NativeDocumentNarrowingInput{
-		Baseline: state, BaselineContent: []byte(baseline), Current: aggregate.ExistingDocument([]byte(current)),
+		Baseline: state, Current: aggregate.ExistingDocument([]byte(current)),
 		Desired: sets, CodecID: codecID, DocumentLimits: narrowingLimits, ValueLimits: narrowingLimits,
 	}
 }

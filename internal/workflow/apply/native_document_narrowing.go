@@ -17,16 +17,15 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-var ErrNativeDocumentBaseline = errors.New("verified native whole-document baseline is required")
+var ErrNativeDocumentBaseline = errors.New("valid native whole-document ownership record is required")
 
 type NativeDocumentNarrowingInput struct {
-	Baseline        durable.ManagedPathState
-	BaselineContent []byte
-	Current         aggregate.Document
-	Desired         []aggregate.ContributionSet
-	CodecID         aggregate.CodecContractID
-	DocumentLimits  configdocument.Limits
-	ValueLimits     configdocument.Limits
+	Baseline       durable.ManagedPathState
+	Current        aggregate.Document
+	Desired        []aggregate.ContributionSet
+	CodecID        aggregate.CodecContractID
+	DocumentLimits configdocument.Limits
+	ValueLimits    configdocument.Limits
 }
 
 // NativeDocumentNarrowing releases the old whole-file scope without making
@@ -74,13 +73,6 @@ func BuildNativeDocumentNarrowing(ctx context.Context, input NativeDocumentNarro
 	if err := input.Baseline.ContentHash().Validate(); err != nil {
 		return NativeDocumentNarrowing{}, fmt.Errorf("%w: %v", ErrNativeDocumentBaseline, err)
 	}
-	if int64(len(input.BaselineContent)) > input.DocumentLimits.MaximumBytes {
-		return NativeDocumentNarrowing{}, configdocument.ErrLimitExceeded
-	}
-	baselineContent := append([]byte(nil), input.BaselineContent...)
-	if artifact.HashFileContent(baselineContent) != input.Baseline.ContentHash() {
-		return NativeDocumentNarrowing{}, ErrNativeDocumentBaseline
-	}
 	if !input.Current.Exists() {
 		return NativeDocumentNarrowing{}, fmt.Errorf("narrowing requires an existing native document")
 	}
@@ -103,9 +95,6 @@ func BuildNativeDocumentNarrowing(ctx context.Context, input NativeDocumentNarro
 		wholeFileChanged: artifact.HashFileContent(currentContent) != input.Baseline.ContentHash(),
 	}
 	if len(input.Desired) == 0 {
-		if _, err := configdocument.Parse(ctx, baselineContent, syntax, input.DocumentLimits); err != nil {
-			return NativeDocumentNarrowing{}, err
-		}
 		return result, nil
 	}
 
@@ -132,15 +121,11 @@ func BuildNativeDocumentNarrowing(ctx context.Context, input NativeDocumentNarro
 	if err != nil {
 		return NativeDocumentNarrowing{}, err
 	}
-	baseline, failure := codec.Read(aggregate.ExistingDocument(baselineContent), selection)
-	if failure != nil {
-		return NativeDocumentNarrowing{}, failure
-	}
 	current, failure := codec.Read(input.Current, selection)
 	if failure != nil {
 		return NativeDocumentNarrowing{}, failure
 	}
-	plan, err := reconcileprojection.BuildNativeNarrowingPlan(baseline, current, input.Desired)
+	plan, err := reconcileprojection.BuildNativeNarrowingPlan(current, input.Desired, !result.wholeFileChanged)
 	if err != nil {
 		return NativeDocumentNarrowing{}, err
 	}
