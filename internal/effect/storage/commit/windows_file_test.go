@@ -310,6 +310,26 @@ func TestWindowsFileCommitRejectsAncestorReplacementAtCommitPoint(t *testing.T) 
 	assertNoWindowsStorageResidue(t, moved)
 }
 
+func TestWindowsFileVerifiesPayloadAfterNamespaceSync(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config")
+	request, err := NewFileCreate(path, []byte("payload"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mutationErr error
+	faults := faultPlan{actions: map[phase]func(){
+		phaseSyncParent: func() { mutationErr = os.WriteFile(path, []byte("changed"), 0o600) },
+	}}
+	_, err = commitWindowsFileWithFaults(t.Context(), request, faults)
+	if mutationErr != nil {
+		t.Fatal(mutationErr)
+	}
+	if !hasStorageFailureKind(err, mutationfs.FailureIndeterminateCommit) {
+		t.Fatalf("payload verification failure = %v, want indeterminate", err)
+	}
+}
+
 func TestWindowsFileCommitHonorsCancellationBeforeEffects(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	request, err := NewFileCreate(path, []byte("payload"), 0o600)

@@ -106,6 +106,9 @@ func restoreDocumentDestination(
 	if err != nil {
 		return attemptedFileMutation(err)
 	}
+	if candidate.Exists() {
+		return attemptedFileMutation(nil)
+	}
 
 	verification, err := authority.acquire(destination)
 	if err != nil {
@@ -116,21 +119,12 @@ func restoreDocumentDestination(
 			outcome.err = errors.Join(outcome.err, markHostEffectIndeterminate(err))
 		}
 	}()
-	actual, actualMode, _, err := readRootedRestorationDocument(ctx, authority, verification, comparison.MaximumDocumentBytes())
-	if err != nil {
-		return attemptedFileMutation(markHostEffectIndeterminate(err))
-	}
-	actualRoot, err := recovery.NewPartialDocumentState(actual.Exists(), actualMode, nil)
-	if err != nil {
-		return attemptedFileMutation(markHostEffectIndeterminate(err))
-	}
-	var expectedMode *recovery.PermissionMode
-	if regular {
-		expectedMode = &fileMode
-	}
-	expectedRoot, err := recovery.NewPartialDocumentState(candidate.Exists(), expectedMode, nil)
-	if err != nil || !actual.Equal(candidate) || !actualRoot.SameRootMetadata(expectedRoot) {
-		return attemptedFileMutation(markHostEffectIndeterminate(fmt.Errorf("restored document postcondition differs")))
+	_, err = authority.filesystem.CaptureRootedEntryIdentity(ctx, verification)
+	if !errors.Is(err, os.ErrNotExist) {
+		if err == nil {
+			err = fmt.Errorf("document entry still exists")
+		}
+		return attemptedFileMutation(markHostEffectIndeterminate(fmt.Errorf("restored document absence did not verify: %w", err)))
 	}
 	return attemptedFileMutation(nil)
 }

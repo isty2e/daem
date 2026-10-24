@@ -165,20 +165,6 @@ func TestDocumentRestorationPublicationRejectsAncestorRedirect(t *testing.T) {
 	assertMutationTestFile(t, filepath.Join(parent+"-moved", filepath.Base(path)), restorationExpected)
 }
 
-func TestDocumentRestorationPublicationVerifiesVisibleOutcome(t *testing.T) {
-	authority, destination, path, store := restorationPublicationFixture(t, restorationExpected)
-	store.afterReplace = func() error {
-		return os.WriteFile(path, []byte("unrecorded post-write content"), 0o644)
-	}
-	mode := recovery.PermissionMode(0o644)
-	outcome := restoreDocumentDestination(t.Context(), authority, destination, restorationPublicationComparison(t, mode), aggregate.ExistingDocument([]byte(restorationExpected)), &mode)
-	var indeterminate *indeterminateHostEffectError
-	if outcome.err == nil || !outcome.commitAttempted || !errors.As(outcome.err, &indeterminate) || store.writes != 1 {
-		t.Fatalf("postcondition failure was not indeterminate: %+v", outcome)
-	}
-	assertMutationTestFile(t, path, "unrecorded post-write content")
-}
-
 func TestDocumentRestorationPublicationChecksContextBeforeIO(t *testing.T) {
 	authority, destination, _, store := restorationPublicationFixture(t, restorationExpected)
 	mode := recovery.PermissionMode(0o644)
@@ -217,6 +203,49 @@ func TestDocumentRestorationPublicationRecreatesRecordedRoot(t *testing.T) {
 	outcome = restoreDocumentDestination(t.Context(), authority, destination, comparison, before, &mode)
 	if outcome.err != nil || outcome.commitAttempted || store.writes != 1 {
 		t.Fatalf("recreated-root retry was not a no-op: %+v", outcome)
+	}
+}
+
+func TestDocumentRestorationPublicationPreservesUnreadableRecordedMode(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires an unprivileged owner to exercise permission-dependent verification")
+	}
+	for _, recreate := range []bool{false, true} {
+		t.Run(map[bool]string{false: "replace", true: "recreate"}[recreate], func(t *testing.T) {
+			authority, destination, path, store := restorationPublicationFixture(t, "readable expected")
+			t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+			beforeMode, expectedMode := recovery.PermissionMode(0), recovery.PermissionMode(0o644)
+			staged := aggregate.ExistingDocument([]byte("readable expected"))
+			var stagedMode *recovery.PermissionMode = &expectedMode
+			if recreate {
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				staged, stagedMode = aggregate.AbsentDocument(), nil
+			}
+			comparison, err := journal.NewWholeDocumentComparison(t.Context(), journal.DocumentComparisonInput{
+				Before: aggregate.ExistingDocument([]byte("original content")), BeforeMode: &beforeMode,
+				Expected: staged, ExpectedMode: stagedMode,
+				Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			outcome := restoreDocumentDestination(t.Context(), authority, destination, comparison, staged, stagedMode)
+			if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0 {
+				t.Fatalf("recorded0000 mode was not restored: stat=%v publication=%v", err, outcome.err)
+			}
+			if outcome.err != nil || !outcome.commitAttempted || store.writes != 1 {
+				t.Fatalf("unreadable-mode restoration did not complete: attempted=%v error=%v writes=%d", outcome.commitAttempted, outcome.err, store.writes)
+			}
+			if _, err := os.ReadFile(path); !errors.Is(err, fs.ErrPermission) {
+				t.Fatalf("fixture did not exercise an unreadable file: %v", err)
+			}
+			if err := os.Chmod(path, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			assertMutationTestFile(t, path, "original content")
+		})
 	}
 }
 
