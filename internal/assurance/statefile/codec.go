@@ -26,17 +26,27 @@ func NewCodec(contributions aggregate.ContributionCatalog) (durable.SnapshotCode
 	if err := contributions.Validate(); err != nil {
 		return nil, err
 	}
-	return contributionCodec{contributions: contributions}, nil
+	return snapshotCodec{contributions: contributions}, nil
 }
 
-type contributionCodec struct {
-	contributions aggregate.ContributionCatalog
+// NewNativeCodec also admits native whole-file baselines in the current schema.
+// It grants no filesystem authority and leaves ordinary and legacy readers closed.
+func NewNativeCodec(contributions aggregate.ContributionCatalog) (durable.SnapshotCodec, error) {
+	if err := contributions.Validate(); err != nil {
+		return nil, err
+	}
+	return snapshotCodec{contributions: contributions, nativeDocuments: true}, nil
 }
 
-func (codec contributionCodec) Encode(snapshot durable.Snapshot) ([]byte, error) {
-	return marshalWithContributions(snapshot, codec.contributions)
+type snapshotCodec struct {
+	contributions   aggregate.ContributionCatalog
+	nativeDocuments bool
 }
 
-func (codec contributionCodec) Decode(content []byte) (durable.Snapshot, error) {
-	return decodeWithContributions(content, codec.contributions)
+func (codec snapshotCodec) Encode(snapshot durable.Snapshot) ([]byte, error) {
+	return marshalSnapshot(snapshot, codec)
+}
+
+func (codec snapshotCodec) Decode(content []byte) (durable.Snapshot, error) {
+	return decodeSnapshot(content, codec)
 }

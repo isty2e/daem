@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
@@ -29,7 +30,7 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codecs aggregate.ContributionCatalog) (durable.Snapshot, error) {
+func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codec snapshotCodec) (durable.Snapshot, error) {
 	if persisted.ManagedPaths == nil ||
 		persisted.ManagedAggregateBaselines == nil ||
 		persisted.PendingCarrierInstalls == nil ||
@@ -104,7 +105,7 @@ func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codecs ag
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	if err := validateSnapshotForPersistence(snapshot, codecs); err != nil {
+	if err := codec.validateSnapshotForPersistence(snapshot); err != nil {
 		return durable.Snapshot{}, err
 	}
 	return snapshot, nil
@@ -559,8 +560,8 @@ func requireCanonicalStrings(values []string, field string) error {
 	return nil
 }
 
-func validateSnapshotForPersistence(snapshot durable.Snapshot, codecs aggregate.ContributionCatalog) error {
-	if err := codecs.Validate(); err != nil {
+func (codec snapshotCodec) validateSnapshotForPersistence(snapshot durable.Snapshot) error {
+	if err := codec.contributions.Validate(); err != nil {
 		return err
 	}
 	for index, state := range snapshot.ManagedPaths() {
@@ -568,14 +569,15 @@ func validateSnapshotForPersistence(snapshot durable.Snapshot, codecs aggregate.
 		if !entityBacked {
 			return fmt.Errorf("managed_paths[%d]: managed path state requires entity-backed projection subject identity", index)
 		}
-		if err := profile.ValidateManagedPathOccupancy(
-			entityID,
-			state.Subject().Namespace(),
-			state.ConsumerTargets(),
-			state.Scope(),
-			state.Destination().String(),
-			state.ContentKind(),
-		); err != nil {
+		var err error
+		if codec.nativeDocuments && entityID.Kind() == entity.KindHostConfig {
+			err = profile.ValidateHostConfigDocumentOccupancy(state.Subject(), state.ConsumerTargets(), state.Scope(),
+				state.Destination(), state.ContentKind(), state.PermissionPolicy(), state.FileMode())
+		} else {
+			err = profile.ValidateManagedPathOccupancy(entityID, state.Subject().Namespace(), state.ConsumerTargets(),
+				state.Scope(), state.Destination().String(), state.ContentKind())
+		}
+		if err != nil {
 			return fmt.Errorf("managed_paths[%d]: managed path occupancy: %w", index, err)
 		}
 	}
@@ -598,7 +600,7 @@ func validateSnapshotForPersistence(snapshot durable.Snapshot, codecs aggregate.
 		return fmt.Errorf("managed_aggregate_contributions: %w", err)
 	}
 	for _, set := range sets {
-		if err := codecs.ValidateContributionSet(set); err != nil {
+		if err := codec.contributions.ValidateContributionSet(set); err != nil {
 			return fmt.Errorf(
 				"managed_aggregate_contributions[%d]: %w",
 				firstIndexByAddress[set.Address()],
