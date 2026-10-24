@@ -29,10 +29,11 @@ func (state ProjectionState) Absent() bool {
 }
 
 func (state ProjectionState) Equal(other ProjectionState) bool {
-	return state.parentPresent == other.parentPresent && state.selectedValueEqual(other)
+	return state.parentPresent == other.parentPresent && state.SelectedValueEqual(other)
 }
 
-func (state ProjectionState) selectedValueEqual(other ProjectionState) bool {
+// SelectedValueEqual compares the selected facts without parent presence.
+func (state ProjectionState) SelectedValueEqual(other ProjectionState) bool {
 	return state.contract.Equal(other.contract) && state.present == other.present &&
 		state.canonicalProjection == other.canonicalProjection && state.blockingAncestor == other.blockingAncestor
 }

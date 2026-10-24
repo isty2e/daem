@@ -408,7 +408,7 @@ func NewRestoredDocumentWithExpected(
 	baselineStates := baseline.States()
 	expectedStates := expected.States()
 	for index := range baselineStates {
-		if !baselineStates[index].selectedValueEqual(expectedStates[index]) {
+		if !baselineStates[index].SelectedValueEqual(expectedStates[index]) {
 			return RenderedDocument{}, fmt.Errorf(
 				"restored document expected projection[%d] differs from baseline",
 				index,
