@@ -23,6 +23,11 @@ type RegistryStore interface {
 	RegistryReader
 	Path() string
 	Converge(context.Context, outputownership.ClaimConvergence) (outputownership.Registry, error)
+	ConvergeRegistry(
+		context.Context,
+		outputownership.ClaimConvergence,
+		outputownership.DocumentBindingConvergence,
+	) (outputownership.Registry, error)
 }
 
 // RootedRegistryBinder binds one registry store to retained physical-root
