@@ -561,7 +561,7 @@ func requireCanonicalStrings(values []string, field string) error {
 }
 
 func validateSnapshotForPersistence(snapshot durable.Snapshot) error {
-	codecs := aggregatecodec.Catalog()
+	codecs := aggregatecodec.Catalog().Contributions()
 	for index, state := range snapshot.ManagedPaths() {
 		entityID, entityBacked := topologyprojection.EntityID(state.Subject())
 		if !entityBacked {

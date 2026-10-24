@@ -297,7 +297,7 @@ func Marshal(file lock.File) ([]byte, error) {
 }
 
 func validateConcreteAggregateContributions(file lock.File) error {
-	codecs := aggregatecodec.Catalog()
+	codecs := aggregatecodec.Catalog().Contributions()
 	items := make([]aggregate.SubjectContribution, 0)
 	firstSubjectIndexByAddress := make(map[aggregate.ProjectionAddress]int)
 	for index, contract := range file.Locked.Subjects() {

@@ -48,9 +48,8 @@ func cloneDocument(document Document) Document {
 
 // Codec is the pure host-aggregate boundary protocol. Implementations must not perform I/O.
 type Codec interface {
-	ContractID() CodecContractID
+	ContributionValidator
 	MaximumDocumentBytes() int64
-	ValidateContributions(ContributionSet) error
 	Read(Document, Selection) (Snapshot, *CodecFailure)
 	ClassifyContributionOccupancy(ProjectionState, ContributionSet) (ContributionOccupancySet, error)
 	Render(Document, Plan) (RenderedDocument, *CodecFailure)
