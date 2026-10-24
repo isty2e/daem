@@ -8,7 +8,7 @@ import (
 
 func (codec documentCodec) Render(document aggregate.Document, input aggregate.Plan) (aggregate.RenderedDocument, *aggregate.CodecFailure) {
 	if err := codec.ctx.Err(); err != nil {
-		return aggregate.RenderedDocument{}, codec.failure(err, aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})
+		return aggregate.RenderedDocument{}, nativeCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})
 	}
 	plan, err := aggregate.NewPlan(input.Before(), input.Intents())
 	if err != nil {
@@ -40,7 +40,7 @@ func (codec documentCodec) Render(document aggregate.Document, input aggregate.P
 		contract := intent.Before().Contract()
 		key := contract.Address().KeyPath()
 		if set, present := intent.Desired(); present {
-			value, failure := codec.desiredValue(set)
+			value, failure := contributionValue(codec.ctx, codec.contractID, codec.syntax, codec.valueLimits, set)
 			if failure != nil {
 				return aggregate.RenderedDocument{}, failure
 			}
@@ -53,7 +53,7 @@ func (codec documentCodec) Render(document aggregate.Document, input aggregate.P
 		}
 		value, _, err := parsed.Lookup(key)
 		if err != nil {
-			return aggregate.RenderedDocument{}, codec.failure(err, aggregate.CodecFailureSelectedShapeUnsupported, key)
+			return aggregate.RenderedDocument{}, nativeCodecFailure(err, aggregate.CodecFailureSelectedShapeUnsupported, key)
 		}
 		if plan.RetainsStructuralContainer(contract.Address()) && value.IsObject() {
 			continue
@@ -84,7 +84,7 @@ func (codec documentCodec) Render(document aggregate.Document, input aggregate.P
 
 func (codec documentCodec) Restore(document aggregate.Document, input aggregate.Snapshot) (aggregate.RenderedDocument, *aggregate.CodecFailure) {
 	if err := codec.ctx.Err(); err != nil {
-		return aggregate.RenderedDocument{}, codec.failure(err, aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})
+		return aggregate.RenderedDocument{}, nativeCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})
 	}
 	selection, err := input.Selection()
 	if err != nil {
@@ -114,7 +114,7 @@ func (codec documentCodec) Restore(document aggregate.Document, input aggregate.
 		if state.Present() {
 			value, err := configdocument.DecodeValue(codec.ctx, codec.syntax, state.CanonicalProjection(), codec.valueLimits)
 			if err != nil {
-				return aggregate.RenderedDocument{}, codec.failure(err, aggregate.CodecFailureCanonicalInvalid, key)
+				return aggregate.RenderedDocument{}, nativeCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, key)
 			}
 			change, err := configdocument.Set(key, value)
 			if err != nil {
@@ -139,12 +139,12 @@ func (codec documentCodec) Restore(document aggregate.Document, input aggregate.
 	if !baseline.DocumentExisted() {
 		root, _, err := parsed.Lookup(output.KeyPath{})
 		if err != nil {
-			return aggregate.RenderedDocument{}, codec.failure(err, aggregate.CodecFailurePreservationUndefined, output.KeyPath{})
+			return aggregate.RenderedDocument{}, nativeCodecFailure(err, aggregate.CodecFailurePreservationUndefined, output.KeyPath{})
 		}
 		if root.IsObject() && root.IsAtomic() && len(parsed.Comments()) == 0 {
 			parsed, err = configdocument.Absent(codec.syntax, codec.documentLimits)
 			if err != nil {
-				return aggregate.RenderedDocument{}, codec.failure(err, aggregate.CodecFailurePreservationUndefined, output.KeyPath{})
+				return aggregate.RenderedDocument{}, nativeCodecFailure(err, aggregate.CodecFailurePreservationUndefined, output.KeyPath{})
 			}
 		}
 	}
@@ -161,13 +161,13 @@ func (codec documentCodec) Restore(document aggregate.Document, input aggregate.
 
 func (codec documentCodec) edit(document configdocument.Document, changes []configdocument.Change) (configdocument.Document, *aggregate.CodecFailure) {
 	if err := codec.ctx.Err(); err != nil {
-		return configdocument.Document{}, codec.failure(err, aggregate.CodecFailurePreservationUndefined, output.KeyPath{})
+		return configdocument.Document{}, nativeCodecFailure(err, aggregate.CodecFailurePreservationUndefined, output.KeyPath{})
 	}
 	if len(changes) == 0 {
 		return document, nil
 	}
 	edited, err := configdocument.Edit(codec.ctx, document, changes)
-	return edited, codec.failure(err, aggregate.CodecFailurePreservationUndefined, output.KeyPath{})
+	return edited, nativeCodecFailure(err, aggregate.CodecFailurePreservationUndefined, output.KeyPath{})
 }
 
 func nativeDocument(document configdocument.Document) aggregate.Document {

@@ -2,7 +2,6 @@ package nativecodec
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -33,11 +32,7 @@ func New(ctx context.Context, contractID aggregate.CodecContractID, documentLimi
 	if err := valueLimits.Validate(); err != nil {
 		return nil, err
 	}
-	name, ok := aggregate.HostConfigSyntaxForCodec(contractID)
-	if !ok {
-		return nil, fmt.Errorf("native codec contract is unsupported")
-	}
-	syntax, err := configdocument.ParseSyntax(name)
+	syntax, err := nativeSyntax(contractID)
 	if err != nil {
 		return nil, err
 	}
@@ -47,76 +42,39 @@ func New(ctx context.Context, contractID aggregate.CodecContractID, documentLimi
 func (codec documentCodec) ContractID() aggregate.CodecContractID { return codec.contractID }
 func (codec documentCodec) MaximumDocumentBytes() int64           { return codec.documentLimits.MaximumBytes }
 
-func (codec documentCodec) validContract(contract aggregate.ProjectionContract) bool {
-	if contract.Validate() != nil || contract.CodecContractID() != codec.contractID {
-		return false
-	}
-	address := contract.Address()
-	document := address.Document()
-	expected, err := aggregate.NewHostConfigProjectionContract(document.Target(), document.Scope(), document.AggregateRoot(), address.Footprint(), codec.contractID)
-	return err == nil && expected.Equal(contract)
-}
-
 func (codec documentCodec) selection(input aggregate.Selection) (aggregate.Selection, *aggregate.CodecFailure) {
 	if err := codec.ctx.Err(); err != nil {
-		return aggregate.Selection{}, codec.failure(err, aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})
+		return aggregate.Selection{}, nativeCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})
 	}
 	selection, err := aggregate.NewSelection(input.Contracts())
 	if err != nil || selection.CodecContractID() != codec.contractID {
 		return aggregate.Selection{}, nativeFailure(aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})
 	}
 	for _, contract := range selection.Contracts() {
-		if !codec.validContract(contract) {
+		if !validNativeContract(codec.contractID, contract) {
 			return aggregate.Selection{}, nativeFailure(aggregate.CodecFailureCanonicalInvalid, contract.Address().KeyPath())
 		}
 	}
 	return selection, nil
 }
 
-func (codec documentCodec) desiredValue(set aggregate.ContributionSet) (configdocument.Value, *aggregate.CodecFailure) {
-	key := set.Address().KeyPath()
-	if err := codec.ctx.Err(); err != nil {
-		return configdocument.Value{}, codec.failure(err, aggregate.CodecFailureCanonicalInvalid, key)
-	}
-	canonical, err := aggregate.NewContributionSet(set.Contributions())
-	if err != nil || !codec.validContract(canonical.Contract()) {
-		return configdocument.Value{}, nativeFailure(aggregate.CodecFailureCanonicalInvalid, key)
-	}
-	items := canonical.Contributions()
-	if len(items) != 1 || aggregate.ValidateSubjectContract(items[0].SubjectID(), canonical.Contract()) != nil {
-		return configdocument.Value{}, nativeFailure(aggregate.CodecFailureCanonicalInvalid, key)
-	}
-	value, err := configdocument.DecodeValue(codec.ctx, codec.syntax, items[0].Contribution().CanonicalContribution(), codec.valueLimits)
-	if err != nil {
-		return configdocument.Value{}, codec.failure(err, aggregate.CodecFailureCanonicalInvalid, key)
-	}
-	if !value.IsAtomic() {
-		return configdocument.Value{}, nativeFailure(aggregate.CodecFailureCanonicalInvalid, key)
-	}
-	return value, nil
-}
-
 func (codec documentCodec) ValidateContributions(set aggregate.ContributionSet) error {
-	_, failure := codec.desiredValue(set)
-	if failure != nil {
-		return failure
-	}
-	return nil
+	return ValidateContributions(codec.ctx, codec.contractID, set, codec.valueLimits)
 }
 
 func (codec documentCodec) parse(document aggregate.Document) (configdocument.Document, *aggregate.CodecFailure) {
 	if err := codec.ctx.Err(); err != nil {
-		return configdocument.Document{}, codec.failure(err, aggregate.CodecFailureDocumentMalformed, output.KeyPath{})
+		return configdocument.Document{}, nativeCodecFailure(err, aggregate.CodecFailureDocumentMalformed, output.KeyPath{})
 	}
 	if document.Validate() != nil {
 		return configdocument.Document{}, nativeFailure(aggregate.CodecFailureDocumentMalformed, output.KeyPath{})
 	}
 	if !document.Exists() {
 		parsed, err := configdocument.Absent(codec.syntax, codec.documentLimits)
-		return parsed, codec.failure(err, aggregate.CodecFailureDocumentMalformed, output.KeyPath{})
+		return parsed, nativeCodecFailure(err, aggregate.CodecFailureDocumentMalformed, output.KeyPath{})
 	}
 	parsed, err := configdocument.Parse(codec.ctx, document.Content(), codec.syntax, codec.documentLimits)
-	return parsed, codec.failure(err, aggregate.CodecFailureDocumentMalformed, output.KeyPath{})
+	return parsed, nativeCodecFailure(err, aggregate.CodecFailureDocumentMalformed, output.KeyPath{})
 }
 
 func (codec documentCodec) Read(document aggregate.Document, input aggregate.Selection) (aggregate.Snapshot, *aggregate.CodecFailure) {
@@ -138,7 +96,7 @@ func (codec documentCodec) observe(document configdocument.Document, selection a
 		key := contract.Address().KeyPath()
 		resolution, err := document.Resolve(key)
 		if err != nil {
-			return aggregate.Snapshot{}, codec.failure(err, aggregate.CodecFailureSelectedShapeUnsupported, key)
+			return aggregate.Snapshot{}, nativeCodecFailure(err, aggregate.CodecFailureSelectedShapeUnsupported, key)
 		}
 		var state aggregate.ProjectionState
 		if ancestor, blocked := resolution.BlockedBy(); blocked {
@@ -154,12 +112,12 @@ func (codec documentCodec) observe(document configdocument.Document, selection a
 			}
 		}
 		if err != nil {
-			return aggregate.Snapshot{}, codec.failure(err, aggregate.CodecFailureSelectedShapeUnsupported, key)
+			return aggregate.Snapshot{}, nativeCodecFailure(err, aggregate.CodecFailureSelectedShapeUnsupported, key)
 		}
 		states = append(states, state)
 	}
 	if err := codec.ctx.Err(); err != nil {
-		return aggregate.Snapshot{}, codec.failure(err, aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})
+		return aggregate.Snapshot{}, nativeCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})
 	}
 	snapshot, err := aggregate.NewSnapshot(document.Exists(), selection, states)
 	if err != nil {
@@ -170,45 +128,27 @@ func (codec documentCodec) observe(document configdocument.Document, selection a
 
 func (codec documentCodec) ClassifyContributionOccupancy(state aggregate.ProjectionState, set aggregate.ContributionSet) (aggregate.ContributionOccupancySet, error) {
 	if err := codec.ctx.Err(); err != nil {
-		return aggregate.ContributionOccupancySet{}, codec.failure(err, aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})
+		return aggregate.ContributionOccupancySet{}, nativeCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})
 	}
 	if state.Validate() != nil || !state.Contract().Equal(set.Contract()) {
 		return aggregate.ContributionOccupancySet{}, nativeFailure(aggregate.CodecFailureCanonicalInvalid, state.Contract().Address().KeyPath())
 	}
-	if _, failure := codec.desiredValue(set); failure != nil {
-		return aggregate.ContributionOccupancySet{}, failure
+	if err := codec.ValidateContributions(set); err != nil {
+		return aggregate.ContributionOccupancySet{}, err
 	}
 	occupancy := aggregate.ContributionAbsent
 	if _, blocked := state.BlockedBy(); blocked {
 		occupancy = aggregate.ContributionAmbiguous
 	} else if state.Present() {
 		if _, err := configdocument.DecodeValue(codec.ctx, codec.syntax, state.CanonicalProjection(), codec.valueLimits); err != nil {
-			return aggregate.ContributionOccupancySet{}, codec.failure(err, aggregate.CodecFailureCanonicalInvalid, state.Contract().Address().KeyPath())
+			return aggregate.ContributionOccupancySet{}, nativeCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, state.Contract().Address().KeyPath())
 		}
 		if state.CanonicalProjection() == set.Contributions()[0].Contribution().CanonicalContribution() {
 			occupancy = aggregate.ContributionPresent
 		}
 	}
 	if err := codec.ctx.Err(); err != nil {
-		return aggregate.ContributionOccupancySet{}, codec.failure(err, aggregate.CodecFailureCanonicalInvalid, state.Contract().Address().KeyPath())
+		return aggregate.ContributionOccupancySet{}, nativeCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, state.Contract().Address().KeyPath())
 	}
 	return aggregate.NewUniformContributionOccupancySet(set, occupancy)
-}
-
-func (codec documentCodec) failure(err error, fallback aggregate.CodecFailureReason, key output.KeyPath) *aggregate.CodecFailure {
-	if err == nil {
-		return nil
-	}
-	switch {
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		fallback = aggregate.CodecFailureOperationCanceled
-	case errors.Is(err, configdocument.ErrLimitExceeded):
-		fallback = aggregate.CodecFailureResourceLimitExceeded
-	}
-	return nativeFailure(fallback, key)
-}
-
-func nativeFailure(reason aggregate.CodecFailureReason, key output.KeyPath) *aggregate.CodecFailure {
-	failure, _ := aggregate.NewCodecFailure(reason, key)
-	return failure
 }
