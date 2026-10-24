@@ -201,6 +201,7 @@ type windowsReparseFrame struct {
 	parentCaseSensitive bool
 	name                string
 	path                string
+	requiresDirectory   bool
 	observation         windowsReparseObservation
 }
 
@@ -781,6 +782,9 @@ func resolveWindowsPendingPath(
 				return nil, windowsReparseFailure(frame.path, "close reparse parent witness", err, allowMissing)
 			}
 			pending.frames[component.frameIndex].parent = windows.InvalidHandle
+			if leaf != nil && frame.requiresDirectory {
+				return nil, newFailure(FailureAncestorNotDirectory, frame.path, "reparse target requires a directory", nil)
+			}
 			if err := verifyWindowsResolvedTarget(platform, leaf); err != nil {
 				return nil, windowsReparseFailure(frame.path, "revalidate resolved reparse target", err, allowMissing)
 			}
@@ -858,6 +862,9 @@ func resolveWindowsPendingPath(
 				name:                component.name,
 				path:                candidatePath,
 				observation:         observation,
+				requiresDirectory: probe.facts.isDirectory ||
+					strings.HasSuffix(observation.target.path, `\`) ||
+					strings.HasSuffix(observation.target.path, "/"),
 			})
 			continue
 		}

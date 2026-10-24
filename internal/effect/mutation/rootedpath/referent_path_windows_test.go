@@ -83,3 +83,62 @@ func TestWindowsReferentLeafRevalidationChecksFileRatherThanParent(t *testing.T)
 		t.Fatalf("replaced file with unchanged parent returned %v", err)
 	}
 }
+
+func TestWindowsReferentRefusesFileTargetsWithTrailingSeparator(t *testing.T) {
+	base := referentTestRoot(t)
+	file := filepath.Join(base, "settings")
+	if err := os.WriteFile(file, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	referentTestSymlink(t, "settings", filepath.Join(base, "capability-alias"))
+
+	for _, test := range []struct {
+		name   string
+		target string
+	}{
+		{name: "relative-backslash", target: `settings\`},
+		{name: "relative-slash", target: "settings/"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			alias := filepath.Join(base, test.name)
+			if err := os.Symlink(test.target, alias); err != nil {
+				t.Fatal(err)
+			}
+			if resolved, err := filepath.EvalSymlinks(alias); err == nil {
+				t.Fatalf("directory-requiring alias unexpectedly resolves through the existing API to %q", resolved)
+			}
+			resolved, err := ResolveReferentPathBounded(alias, 256, &referentTestBudget{limit: 10_000})
+			if resolved != "" || !hasFailureKind(err, FailureAncestorNotDirectory) {
+				t.Fatalf("file target with trailing separator returned %q, %v", resolved, err)
+			}
+		})
+	}
+}
+
+func TestWindowsReferentPreservesDirectoryReparseRequirement(t *testing.T) {
+	base := referentTestRoot(t)
+	directory := filepath.Join(base, "directory")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "directory-alias")
+	referentTestSymlink(t, `directory\`, alias)
+	resolved, err := ResolveReferentPathBounded(alias, 256, &referentTestBudget{limit: 10_000})
+	if err != nil || resolved != directory {
+		t.Fatalf("valid directory target with trailing separator returned %q, %v", resolved, err)
+	}
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	referentTestSymlink(t, "directory", alias)
+	if err := os.Remove(directory); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(directory, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err = ResolveReferentPathBounded(alias, 256, &referentTestBudget{limit: 10_000})
+	if resolved != "" || !hasFailureKind(err, FailureAncestorNotDirectory) {
+		t.Fatalf("directory reparse point to a regular file returned %q, %v", resolved, err)
+	}
+}
