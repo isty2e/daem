@@ -310,6 +310,13 @@ func validateRecoveryJournalEnvelope(journal recoveryJournal) error {
 	if _, err := time.Parse(time.RFC3339, journal.CreatedAt); err != nil {
 		return fmt.Errorf("recovery journal created_at: %w", err)
 	}
+	for _, snapshot := range []durable.Snapshot{journal.StatefileBefore, journal.StatefileAfter} {
+		for _, state := range snapshot.ManagedAggregates() {
+			if _, native := aggregate.HostConfigSyntaxForCodec(state.Contribution().CodecContractID()); native {
+				return fmt.Errorf("recovery journal version %d does not admit native configuration baselines", journal.Version)
+			}
+		}
+	}
 	if err := validateRecoveryEntries(journal.Entries); err != nil {
 		return err
 	}

@@ -17,7 +17,6 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -30,7 +29,7 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int) (durable.Snapshot, error) {
+func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codecs aggregate.ContributionCatalog) (durable.Snapshot, error) {
 	if persisted.ManagedPaths == nil ||
 		persisted.ManagedAggregateBaselines == nil ||
 		persisted.PendingCarrierInstalls == nil ||
@@ -105,7 +104,7 @@ func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int) (durable.
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	if err := validateSnapshotForPersistence(snapshot); err != nil {
+	if err := validateSnapshotForPersistence(snapshot, codecs); err != nil {
 		return durable.Snapshot{}, err
 	}
 	return snapshot, nil
@@ -560,8 +559,10 @@ func requireCanonicalStrings(values []string, field string) error {
 	return nil
 }
 
-func validateSnapshotForPersistence(snapshot durable.Snapshot) error {
-	codecs := aggregatecodec.Catalog().Contributions()
+func validateSnapshotForPersistence(snapshot durable.Snapshot, codecs aggregate.ContributionCatalog) error {
+	if err := codecs.Validate(); err != nil {
+		return err
+	}
 	for index, state := range snapshot.ManagedPaths() {
 		entityID, entityBacked := topologyprojection.EntityID(state.Subject())
 		if !entityBacked {

@@ -38,6 +38,14 @@ func NewContributionCatalog(validators []ContributionValidator) (ContributionCat
 	return ContributionCatalog{byContract: byContract}, nil
 }
 
+// Validate checks that the immutable catalog was constructed successfully.
+func (catalog ContributionCatalog) Validate() error {
+	if len(catalog.byContract) == 0 {
+		return fmt.Errorf("aggregate contribution catalog is required")
+	}
+	return nil
+}
+
 func (catalog ContributionCatalog) Lookup(id CodecContractID) (ContributionValidator, bool) {
 	validator, ok := catalog.byContract[id]
 	if id == "" || !ok || nilContributionValidator(validator) || validator.ContractID() != id {
