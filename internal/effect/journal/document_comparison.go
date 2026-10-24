@@ -77,11 +77,11 @@ func NewSelectedDocumentComparison(ctx context.Context, input DocumentComparison
 			}
 		}
 	}
-	before, err := piconfig.Parse(input.Before.Content())
+	before, err := readPiComparisonDocument(ctx, input.Before, input.Limits)
 	if err != nil {
 		return DocumentComparison{}, err
 	}
-	expected, err := piconfig.Parse(input.Expected.Content())
+	expected, err := readPiComparisonDocument(ctx, input.Expected, input.Limits)
 	if err != nil {
 		return DocumentComparison{}, err
 	}
@@ -147,7 +147,7 @@ func (comparison DocumentComparison) Match(ctx context.Context, current aggregat
 		before: partial.MatchesBefore(), expected: partial.MatchesExpected(), recoverable: partial.Recoverable(),
 	}
 	if comparison.order != nil {
-		document, err := piconfig.Parse(current.Content())
+		document, err := readPiComparisonDocument(ctx, current, comparison.limits)
 		if err != nil {
 			return DocumentComparisonMatch{}, err
 		}
@@ -160,6 +160,14 @@ func (comparison DocumentComparison) Match(ctx context.Context, current aggregat
 		return DocumentComparisonMatch{}, err
 	}
 	return match, nil
+}
+
+func readPiComparisonDocument(ctx context.Context, document aggregate.Document, limits configdocument.Limits) (piconfig.Document, error) {
+	content := document.Content()
+	if _, err := configdocument.Parse(ctx, content, configdocument.JSON, limits); err != nil {
+		return piconfig.Document{}, err
+	}
+	return piconfig.Parse(content)
 }
 
 func validateComparisonDocument(ctx context.Context, document aggregate.Document, limits configdocument.Limits) error {

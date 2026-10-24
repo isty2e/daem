@@ -242,6 +242,34 @@ func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testin
 	}
 }
 
+func TestDocumentComparisonAppliesCallerDepthToDedicatedOrder(t *testing.T) {
+	mode := recovery.PermissionMode(0o600)
+	before := `{"packages":["npm:a","npm:b"]}`
+	expected := `{"packages":["npm:b","npm:a"]}`
+	deepBefore := `{"packages":["npm:a","npm:b"],"outside":{"a":{"b":{"c":true}}}}`
+	deepExpected := `{"packages":["npm:b","npm:a"],"outside":{"a":{"b":{"c":true}}}}`
+	t.Run("witness", func(t *testing.T) {
+		input := comparisonInput(deepBefore, deepExpected, &mode, &mode)
+		input.Limits.MaximumDepth = 3
+		order := comparisonOrder(t, deepBefore, deepExpected)
+		if _, err := journal.NewSelectedDocumentComparison(t.Context(), input, nil, &order); err == nil {
+			t.Fatal("order-only witnesses bypassed the calling operation's depth limit")
+		}
+	})
+	t.Run("current", func(t *testing.T) {
+		input := comparisonInput(before, expected, &mode, &mode)
+		input.Limits.MaximumDepth = 3
+		order := comparisonOrder(t, before, expected)
+		comparison, err := journal.NewSelectedDocumentComparison(t.Context(), input, nil, &order)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if match, err := comparison.Match(t.Context(), aggregate.ExistingDocument([]byte(deepExpected)), &mode); err == nil || match.Recoverable() {
+			t.Fatal("fresh order-only content bypassed the calling operation's depth limit")
+		}
+	})
+}
+
 func comparisonInput(before, expected string, beforeMode, expectedMode *recovery.PermissionMode) journal.DocumentComparisonInput {
 	return journal.DocumentComparisonInput{
 		Before: aggregate.ExistingDocument([]byte(before)), Expected: aggregate.ExistingDocument([]byte(expected)),
