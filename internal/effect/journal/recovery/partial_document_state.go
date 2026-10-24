@@ -112,3 +112,8 @@ func (state PartialDocumentState) sameSelection(other PartialDocumentState) erro
 func (state PartialDocumentState) SameRootMetadata(other PartialDocumentState) bool {
 	return state.initialized && other.initialized && state.exists == other.exists && (!state.exists || state.mode == other.mode)
 }
+
+// RegularFileMode distinguishes exact0000 from absent or uninitialized evidence.
+func (state PartialDocumentState) RegularFileMode() (PermissionMode, bool) {
+	return state.mode, state.initialized && state.exists
+}

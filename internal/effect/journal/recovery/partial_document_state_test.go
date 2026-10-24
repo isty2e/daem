@@ -251,6 +251,15 @@ func TestPartialDocumentRootMetadataQueryRejectsUninitializedEvidence(t *testing
 	if present.SameRootMetadata(absent) || absent.SameRootMetadata(present) || !present.SameRootMetadata(present) || !absent.SameRootMetadata(absent) {
 		t.Fatal("root metadata query collapsed absence and exact0000 presence")
 	}
+	if _, regular := zero.RegularFileMode(); regular {
+		t.Fatal("uninitialized evidence exposed a regular-file mode")
+	}
+	if _, regular := absent.RegularFileMode(); regular {
+		t.Fatal("absent root exposed a regular-file mode")
+	}
+	if actual, regular := present.RegularFileMode(); !regular || actual != mode {
+		t.Fatal("exact0000 regular mode was treated as absence")
+	}
 }
 
 func partialNativeCodec(t *testing.T, syntax configdocument.Syntax) aggregate.Codec {

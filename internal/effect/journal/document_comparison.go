@@ -44,6 +44,17 @@ func (match DocumentComparisonMatch) MatchesBefore() bool   { return match.befor
 func (match DocumentComparisonMatch) MatchesExpected() bool { return match.expected }
 func (match DocumentComparisonMatch) Recoverable() bool     { return match.recoverable }
 
+func (comparison DocumentComparison) Validate() error {
+	if !comparison.initialized {
+		return fmt.Errorf("document comparison is required")
+	}
+	return nil
+}
+
+func (comparison DocumentComparison) MaximumDocumentBytes() int64 {
+	return comparison.limits.MaximumBytes
+}
+
 func NewWholeDocumentComparison(ctx context.Context, input DocumentComparisonInput) (DocumentComparison, error) {
 	comparison, err := newDocumentComparison(ctx, input, nil)
 	if err != nil {
@@ -121,8 +132,8 @@ func newDocumentComparison(ctx context.Context, input DocumentComparisonInput, p
 }
 
 func (comparison DocumentComparison) Match(ctx context.Context, current aggregate.Document, mode *recovery.PermissionMode) (DocumentComparisonMatch, error) {
-	if !comparison.initialized {
-		return DocumentComparisonMatch{}, fmt.Errorf("document comparison is required")
+	if err := comparison.Validate(); err != nil {
+		return DocumentComparisonMatch{}, err
 	}
 	if err := validateComparisonDocument(ctx, current, comparison.limits); err != nil {
 		return DocumentComparisonMatch{}, err
