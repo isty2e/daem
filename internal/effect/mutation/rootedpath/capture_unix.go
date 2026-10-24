@@ -160,6 +160,16 @@ func resolveDirectoryPathPlatform(
 	readableFinal bool,
 	traversal *physicalTraversal,
 ) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
+	return resolveNativePathPlatform(selectedPath, allowMissing, readableFinal, false, traversal)
+}
+
+func resolveNativePathPlatform(
+	selectedPath string,
+	allowMissing bool,
+	readableFinal bool,
+	allowFinalEntry bool,
+	traversal *physicalTraversal,
+) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
 	root, names, err := splitAbsoluteRawPath(selectedPath)
 	if err != nil {
 		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, nil, err
@@ -278,6 +288,16 @@ func resolveDirectoryPathPlatform(
 			continue
 		}
 		if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
+			if allowFinalEntry && len(pending) == 0 {
+				if err := traversal.validateResolvedDepth(len(platform.directories)); err != nil {
+					return fail(err)
+				}
+				object, mount, suffix, identityErr := resolvedDirectoryIdentity(platform, []string{component.name})
+				if identityErr != nil {
+					return fail(identityErr)
+				}
+				return resolvedDirectoryPath(platform), platform, object, mount, suffix, nil
+			}
 			return fail(newFailure(
 				FailureRootUnavailable,
 				candidatePath,
