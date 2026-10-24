@@ -38,6 +38,10 @@ func BuildNativeNarrowingPlan(observation aggregate.DocumentObservation, desired
 		baseline.Destination() != document.AggregateRoot() {
 		return aggregate.Plan{}, fmt.Errorf("native narrowing baseline differs from observed document")
 	}
+	expectedSubject, err := aggregate.HostConfigDocumentSubject(owner, document.Target(), document.Scope())
+	if err != nil || expectedSubject != baseline.Subject() {
+		return aggregate.Plan{}, fmt.Errorf("native narrowing baseline has a different placement identity")
+	}
 	sets := make(map[aggregate.ProjectionAddress]aggregate.ContributionSet, len(desired))
 	for _, set := range desired {
 		canonical, err := aggregate.NewContributionSet(set.Contributions())

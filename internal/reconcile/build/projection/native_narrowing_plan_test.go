@@ -116,7 +116,24 @@ func TestNativeNarrowingPlanUsesBoundWholeDocumentAndRecordedOwner(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, wrong := range []durable.ManagedPathState{{}, nativeNarrowingRecordedState(t, foreign, true), wrongOwner} {
+	otherPlacement, err := aggregate.HostConfigPlacementID(target.TargetCodex, target.ScopeGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, ok := topologyprojection.EntityID(baseline.Subject())
+	if !ok {
+		t.Fatal("fixture baseline is not entity-backed")
+	}
+	otherSubject, err := topologyprojection.Subject(owner, otherPlacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongPlacement, err := durable.NewManagedPathState(otherSubject, baseline.ConsumerTargets(), baseline.Scope(), baseline.Destination(),
+		baseline.ContentHash(), baseline.ContentKind(), baseline.PermissionPolicy(), baseline.FileMode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wrong := range []durable.ManagedPathState{{}, nativeNarrowingRecordedState(t, foreign, true), wrongOwner, wrongPlacement} {
 		plan, err := BuildNativeNarrowingPlan(before, desired, wrong)
 		if err == nil {
 			t.Fatal("matching bytes bypassed prior document/owner correlation")

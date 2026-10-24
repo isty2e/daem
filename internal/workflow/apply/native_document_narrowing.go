@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
@@ -65,9 +64,13 @@ func BuildNativeDocumentNarrowing(ctx context.Context, input NativeDocumentNarro
 		return NativeDocumentNarrowing{}, err
 	}
 	owner, entityBacked := topologyprojection.EntityID(input.Baseline.Subject())
-	if !entityBacked || owner.Kind() != entity.KindHostConfig ||
+	if !entityBacked ||
 		input.Baseline.ContentKind() != realization.PathProjectionFile ||
 		len(input.Baseline.ConsumerTargets()) != 1 || input.Baseline.FileMode()&0o111 != 0 {
+		return NativeDocumentNarrowing{}, ErrNativeDocumentBaseline
+	}
+	expectedSubject, err := aggregate.HostConfigDocumentSubject(owner, input.Baseline.ConsumerTargets()[0], input.Baseline.Scope())
+	if err != nil || expectedSubject != input.Baseline.Subject() {
 		return NativeDocumentNarrowing{}, ErrNativeDocumentBaseline
 	}
 	if err := input.Baseline.ContentHash().Validate(); err != nil {

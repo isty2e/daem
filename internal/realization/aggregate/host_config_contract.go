@@ -3,6 +3,7 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -45,6 +46,19 @@ func HostConfigPlacementID(selected target.Target, scope target.Scope) (string, 
 		return "", err
 	}
 	return fmt.Sprintf("%s-host-config-%s-v1", selected, scope), nil
+}
+
+// HostConfigDocumentSubject binds whole-file ownership to the complete canonical
+// declaration, target and scope identity, not only the declaration's entity ID.
+func HostConfigDocumentSubject(id entity.ID, selected target.Target, scope target.Scope) (topology.SubjectID, error) {
+	if id.Kind() != entity.KindHostConfig {
+		return topology.SubjectID{}, fmt.Errorf("native document subject requires a host-config entity")
+	}
+	placementID, err := HostConfigPlacementID(selected, scope)
+	if err != nil {
+		return topology.SubjectID{}, err
+	}
+	return topologyprojection.Subject(id, placementID)
 }
 
 // NewHostConfigProjectionContract owns native projection shape only. Host
