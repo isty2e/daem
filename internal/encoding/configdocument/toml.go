@@ -237,6 +237,19 @@ func editTOML(ctx context.Context, document Document, expected Value, changes *c
 			commentIndex++
 		}
 		position = expression.span.end
+		lineEnd := position
+		for lineEnd < len(document.content) && (document.content[lineEnd] == ' ' || document.content[lineEnd] == '\t' || document.content[lineEnd] == '\r') {
+			if lineEnd%4096 == 0 {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+			}
+			lineEnd++
+		}
+		if lineEnd < len(document.content) && document.content[lineEnd] == '\n' {
+			position = lineEnd + 1
+		}
+
 		if int64(result.Len()) > document.limits.MaximumBytes {
 			return nil, ErrLimitExceeded
 		}

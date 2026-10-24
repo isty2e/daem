@@ -51,7 +51,11 @@ func parseJSONTree(content []byte) (hujson.Value, error) {
 // This bounded lexical pass protects the recursive CST parser; the shared
 // strict validator still owns JSON string, Unicode and duplicate-key validity.
 func scanJSON(ctx context.Context, content []byte, syntax Syntax, maximumDepth int) (jsonLexical, error) {
-	trivia := jsonLexical{normalized: append(slices.Clone(content), '\n')}
+	trivia := jsonLexical{normalized: slices.Clone(content)}
+	if len(content) == 0 || content[len(content)-1] != '\n' {
+		trivia.normalized = append(trivia.normalized, '\n')
+	}
+
 	depth := 0
 	for index := 0; index < len(content); {
 		if err := ctx.Err(); err != nil {
