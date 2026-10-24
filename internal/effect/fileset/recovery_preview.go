@@ -3,6 +3,8 @@ package fileset
 import (
 	"context"
 	"fmt"
+
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 )
 
 // RecoveryDisposition distinguishes completion from restoration; neither
@@ -66,15 +68,20 @@ func InspectFileSetRecovery4(ctx context.Context, stateDir string, exactPaths []
 	if ctx == nil {
 		return "", fmt.Errorf("file-set recovery context is required")
 	}
-	canonical, err := canonicalStateDir(stateDir)
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	maximumPhysicalDepth := mutationfs.MaximumPhysicalPathDepth
+	physicalWorkBudget := &fenceObservationBudget{}
+	canonical, err := canonicalStateDirBounded(stateDir, maximumPhysicalDepth, physicalWorkBudget)
 	if err != nil {
 		return "", err
 	}
-	marker, _, _, err := loadMarker4(ctx, markerPath(canonical))
+	marker, _, _, err := loadMarker4WithBudget(ctx, markerPath(canonical), maximumPhysicalDepth, physicalWorkBudget)
 	if err != nil {
 		return "", err
 	}
-	allowed, err := canonicalAllowedPaths(exactPaths)
+	allowed, err := canonicalAllowedPathsBounded(exactPaths, maximumPhysicalDepth, physicalWorkBudget)
 	if err != nil {
 		return "", err
 	}
@@ -83,10 +90,10 @@ func InspectFileSetRecovery4(ctx context.Context, stateDir string, exactPaths []
 	}
 	for _, target := range marker.Targets {
 		if _, ok := allowed[target.Path]; !ok {
-			return "", fmt.Errorf("interrupted file-set target %q does not belong to this operation", target.Path)
+			return "", RecoveryAuthorityError{Path: target.Path}
 		}
 	}
-	if err := rejectAbandonedFileSetResidue(ctx, canonical); err != nil {
+	if err := rejectAbandonedFileSetResidueWithBudget(ctx, canonical, maximumPhysicalDepth, physicalWorkBudget); err != nil {
 		return "", err
 	}
 	classification, err := classifyTargets(ctx, marker)
@@ -99,7 +106,7 @@ func InspectFileSetRecovery4(ctx context.Context, stateDir string, exactPaths []
 	if !classification.recoverable {
 		return "", fmt.Errorf("interrupted file-set contains state outside its before/after evidence")
 	}
-	if err := preflightRestorableBackups(ctx, marker); err != nil {
+	if err := preflightRestorableBackupsWithBudget(ctx, marker, maximumPhysicalDepth, physicalWorkBudget); err != nil {
 		return "", err
 	}
 	return RecoveryRollback, nil

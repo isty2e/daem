@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
 const (
@@ -208,6 +209,31 @@ func canonicalAllowedPaths(paths []string) (map[string]struct{}, error) {
 		canonical, err := mutation.CanonicalDirectoryEntryPath(path)
 		if err != nil {
 			return nil, fmt.Errorf("allowed target[%d]: %w", index, err)
+		}
+		allowed[canonical] = struct{}{}
+	}
+	return allowed, nil
+}
+
+func canonicalAllowedPathsBounded(
+	paths []string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
+) (map[string]struct{}, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("file-set recovery requires allowed target paths")
+	}
+	if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
+		return nil, fmt.Errorf("bounded file-set recovery requires a path depth and shared work budget")
+	}
+	allowed := make(map[string]struct{}, len(paths))
+	for index, path := range paths {
+		canonical, err := mutation.CanonicalDirectoryEntryPathBounded(path, maximumPhysicalDepth, physicalWorkBudget)
+		if err != nil {
+			return nil, fmt.Errorf("allowed target[%d]: %w", index, err)
+		}
+		if _, exists := allowed[canonical]; exists {
+			return nil, fmt.Errorf("file-set recovery allowed target paths must be unique")
 		}
 		allowed[canonical] = struct{}{}
 	}

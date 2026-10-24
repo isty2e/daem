@@ -293,11 +293,17 @@ func loadMarkerAtCanonicalPath(ctx context.Context, canonicalPath string) (trans
 }
 
 func loadMarker4(ctx context.Context, path string) (transactionMarker, []byte, *reconstructedReferenceEvidence, error) {
-	canonicalPath, err := mutation.CanonicalDirectoryEntryPath(path)
+	maximumPhysicalDepth := mutationfs.MaximumPhysicalPathDepth
+	physicalWorkBudget := &fenceObservationBudget{}
+	canonicalPath, err := mutation.CanonicalDirectoryEntryPathBounded(
+		path,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
 	if err != nil {
 		return transactionMarker{}, nil, nil, fmt.Errorf("canonicalize file-set transaction marker path: %w", err)
 	}
-	return loadMarker4WithBudget(ctx, canonicalPath, 0, nil)
+	return loadMarker4WithBudget(ctx, canonicalPath, maximumPhysicalDepth, physicalWorkBudget)
 }
 
 func loadMarker4WithBudget(
@@ -306,10 +312,24 @@ func loadMarker4WithBudget(
 	maximumPhysicalDepth int,
 	physicalWorkBudget PhysicalWorkBudget,
 ) (transactionMarker, []byte, *reconstructedReferenceEvidence, error) {
-	marker, content, err := loadMarkerAtCanonicalPathVersion(
+	if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
+		return transactionMarker{}, nil, nil, fmt.Errorf("generation-4 file-set marker requires a path depth and shared work budget")
+	}
+	if err := admitFileSetFenceObservation(
+		canonicalPath,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		1,
+		maximumMarkerBytes,
+	); err != nil {
+		return transactionMarker{}, nil, nil, err
+	}
+	marker, content, err := loadMarkerAtCanonicalPathVersionWithBudget(
 		ctx,
 		canonicalPath,
 		contractversion.MetadataTransactionReference,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
 	)
 	if err != nil {
 		return transactionMarker{}, nil, nil, err
@@ -331,6 +351,16 @@ func loadMarkerAtCanonicalPathVersion(
 	ctx context.Context,
 	canonicalPath string,
 	expectedVersion int,
+) (transactionMarker, []byte, error) {
+	return loadMarkerAtCanonicalPathVersionWithBudget(ctx, canonicalPath, expectedVersion, 0, nil)
+}
+
+func loadMarkerAtCanonicalPathVersionWithBudget(
+	ctx context.Context,
+	canonicalPath string,
+	expectedVersion int,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
 ) (transactionMarker, []byte, error) {
 	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, canonicalPath, maximumMarkerBytes)
 	if err != nil {
@@ -381,7 +411,20 @@ func loadMarkerAtCanonicalPathVersion(
 	} else if err != io.EOF {
 		return transactionMarker{}, nil, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
 	}
-	if err := validateMarkerForVersion(canonicalPath, marker, expectedVersion); err != nil {
+	if expectedVersion == contractversion.MetadataTransactionReference {
+		if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
+			return transactionMarker{}, nil, fmt.Errorf("generation-4 file-set marker requires a path depth and shared work budget")
+		}
+		if err := validateMarkerForVersionWithBudget(
+			canonicalPath,
+			marker,
+			expectedVersion,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		); err != nil {
+			return transactionMarker{}, nil, err
+		}
+	} else if err := validateMarkerForVersion(canonicalPath, marker, expectedVersion); err != nil {
 		return transactionMarker{}, nil, err
 	}
 	return marker, content, nil
@@ -528,8 +571,25 @@ func rejectMarkerNull(fields map[string]json.RawMessage, field string, object st
 }
 
 func validateMarkerForVersion(path string, marker transactionMarker, version int) error {
+	if version == contractversion.MetadataTransactionReference {
+		return fmt.Errorf("generation-4 file-set marker validation requires a path depth and shared work budget")
+	}
+	return validateMarkerForVersionWithBudget(path, marker, version, 0, nil)
+}
+
+func validateMarkerForVersionWithBudget(
+	path string,
+	marker transactionMarker,
+	version int,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) error {
 	if marker.Version != version {
 		return fmt.Errorf("unsupported file-set transaction marker version %d", marker.Version)
+	}
+	if version == contractversion.MetadataTransactionReference &&
+		(maximumPhysicalDepth <= 0 || physicalWorkBudget == nil) {
+		return fmt.Errorf("generation-4 file-set marker validation requires a path depth and shared work budget")
 	}
 	if version == contractversion.MetadataTransaction && marker.Reference != nil {
 		return fmt.Errorf("unsupported file-set transaction marker reference field")
@@ -543,15 +603,15 @@ func validateMarkerForVersion(path string, marker transactionMarker, version int
 	markerDir := filepath.Dir(path)
 	previousOrdinary := ""
 	commitPointSeen := false
+	commitPointTarget := ""
 	seenPaths := make(map[string]struct{}, len(marker.Targets))
 	for index, target := range marker.Targets {
 		if target.Path == "" || !filepath.IsAbs(target.Path) || filepath.Clean(target.Path) != target.Path {
 			return fmt.Errorf("file-set transaction marker target[%d] has invalid path %q", index, target.Path)
 		}
 		if version == contractversion.MetadataTransactionReference {
-			canonical, err := mutation.CanonicalDirectoryEntryPath(target.Path)
-			if err != nil || canonical != target.Path {
-				return fmt.Errorf("file-set transaction marker target[%d] path is not canonical", index)
+			if err := rootedpath.ChargeAbsolutePath(target.Path, maximumPhysicalDepth, physicalWorkBudget); err != nil {
+				return fmt.Errorf("file-set transaction marker target[%d] path depth or work is invalid: %w", index, err)
 			}
 		}
 		if _, exists := seenPaths[target.Path]; exists {
@@ -566,6 +626,7 @@ func validateMarkerForVersion(path string, marker transactionMarker, version int
 				return fmt.Errorf("file-set transaction marker commit point must write an after-image")
 			}
 			commitPointSeen = true
+			commitPointTarget = target.Path
 		} else {
 			if commitPointSeen ||
 				(previousOrdinary != "" && target.Path <= previousOrdinary) {
@@ -586,21 +647,20 @@ func validateMarkerForVersion(path string, marker transactionMarker, version int
 		}
 	}
 	if version == contractversion.MetadataTransactionReference && marker.Reference != nil {
-		if err := validateReferenceMarker(marker); err != nil {
+		if err := validateReferenceMarker(marker, commitPointTarget); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateReferenceMarker(marker transactionMarker) error {
+func validateReferenceMarker(marker transactionMarker, commitPointTarget string) error {
 	reference := marker.Reference
 	if reference.Target == "" || !filepath.IsAbs(reference.Target) || filepath.Clean(reference.Target) != reference.Target {
 		return fmt.Errorf("file-set transaction marker reference target has invalid path %q", reference.Target)
 	}
-	canonical, err := mutation.CanonicalDirectoryEntryPath(reference.Target)
-	if err != nil || canonical != reference.Target {
-		return fmt.Errorf("file-set transaction marker reference target is not canonical")
+	if commitPointTarget == "" || reference.Target != commitPointTarget {
+		return fmt.Errorf("file-set reference target must match the validated commit-point target")
 	}
 	if reference.AfterImage.Path != referenceAfterImageName {
 		return fmt.Errorf("file-set transaction marker reference after-image path must be the engine-owned artifact")

@@ -80,7 +80,15 @@ func MaximumFenceCensusWork4(stateDir string, maximumPhysicalDepth int) (FenceCe
 	if err != nil {
 		return FenceCensusWork{}, err
 	}
-	pathComponents, err := fileSetWorkAdd(base.pathComponents, evidencePathWork)
+	targetPathWork, err := fileSetWorkMultiply(maximumFileSetTargets, maximumPhysicalDepth)
+	if err != nil {
+		return FenceCensusWork{}, err
+	}
+	pathComponents, err := fileSetWorkAdd(base.pathComponents, targetPathWork)
+	if err != nil {
+		return FenceCensusWork{}, err
+	}
+	pathComponents, err = fileSetWorkAdd(pathComponents, evidencePathWork)
 	if err != nil {
 		return FenceCensusWork{}, err
 	}

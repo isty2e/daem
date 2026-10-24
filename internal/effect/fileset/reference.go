@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 )
 
 // ErrFileSetReferenceNamespaceMismatch reports a valid reference marker that
@@ -29,6 +30,9 @@ func reconstructReferenceEvidenceWithBudget(
 	maximumPhysicalDepth int,
 	physicalWorkBudget PhysicalWorkBudget,
 ) (*reconstructedReferenceEvidence, error) {
+	if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
+		return nil, fmt.Errorf("generation-4 evidence reconstruction requires a path depth and shared work budget")
+	}
 	if err := preflightReconstructedEvidenceSizes(ctx, markerPath, marker, maximumPhysicalDepth, physicalWorkBudget); err != nil {
 		return nil, err
 	}
@@ -223,13 +227,22 @@ func readEvidenceImageWithBudget(
 	if err := admitStagedEvidenceBytes(stagedBytes, int(size), "file-set transaction evidence"); err != nil {
 		return nil, stagedBytes, err
 	}
+	readLimit := min(size, maximumStagedBeforeImageBytes-stagedBytes)
+	if readLimit > maximumTargetBytes {
+		readLimit = maximumTargetBytes
+	}
+	if readLimit == 0 {
+		// The snapshot reader requires a positive limit even for an empty file.
+		// The following size and digest checks still reject a changed snapshot.
+		readLimit = 1
+	}
 	if physicalWorkBudget != nil {
-		if err := admitFileSetFenceWork(physicalWorkBudget, fileSetPhysicalWork{bytes: size}); err != nil {
+		if err := admitFileSetFenceWork(physicalWorkBudget, fileSetPhysicalWork{bytes: readLimit}); err != nil {
 			return nil, stagedBytes, err
 		}
 	}
 
-	content, mode, err := readTransactionFileUpTo(ctx, path, maximumTargetBytes)
+	content, mode, err := readTransactionFileUpTo(ctx, path, readLimit)
 	if err != nil {
 		return nil, stagedBytes, fmt.Errorf("read %s: %w", name, err)
 	}
@@ -261,15 +274,26 @@ func ReadFileSetReferenceEvidence4(
 	if err := ctx.Err(); err != nil {
 		return ReferenceEvidenceView{}, err
 	}
-	canonicalNamespace, err := canonicalReferenceNamespace(referenceNamespace)
+	maximumPhysicalDepth := mutationfs.MaximumPhysicalPathDepth
+	physicalWorkBudget := &fenceObservationBudget{}
+	canonicalNamespace, err := canonicalReferenceNamespaceBounded(
+		referenceNamespace,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
 	if err != nil {
 		return ReferenceEvidenceView{}, err
 	}
-	canonicalState, err := canonicalStateDir(stateDir)
+	canonicalState, err := canonicalStateDirBounded(stateDir, maximumPhysicalDepth, physicalWorkBudget)
 	if err != nil {
 		return ReferenceEvidenceView{}, err
 	}
-	marker, markerBytes, evidence, err := loadMarker4(ctx, markerPath(canonicalState))
+	marker, markerBytes, evidence, err := loadMarker4WithBudget(
+		ctx,
+		markerPath(canonicalState),
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
 	if err != nil {
 		return ReferenceEvidenceView{}, wrapFileSetEvidenceInvalid(err)
 	}
@@ -297,11 +321,18 @@ func ReadFileSetReferenceEvidence4(
 	}, nil
 }
 
-func canonicalReferenceNamespace(path string) (string, error) {
+func canonicalReferenceNamespaceBounded(
+	path string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("file-set reference namespace is required")
 	}
-	canonical, err := mutation.CanonicalDirectoryEntryPath(path)
+	if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
+		return "", fmt.Errorf("bounded reference namespace requires a path depth and shared work budget")
+	}
+	canonical, err := mutation.CanonicalDirectoryEntryPathBounded(path, maximumPhysicalDepth, physicalWorkBudget)
 	if err != nil {
 		return "", fmt.Errorf("canonicalize file-set reference namespace: %w", err)
 	}

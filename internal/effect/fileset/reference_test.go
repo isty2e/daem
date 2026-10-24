@@ -13,6 +13,7 @@ import (
 
 	"github.com/isty2e/daem/internal/contractversion"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
 func TestFileSet4StaticRoundTripAndOldReaderRefusal(t *testing.T) {
@@ -251,6 +252,227 @@ func TestReferenceFileSet4RollbackUsesExistingFenceAndDoesNotRetry(t *testing.T)
 	}
 }
 
+func TestFileSet4MarkerDepthChargeRejectsDeepRecordWithoutResolvingTarget(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	markerPathDepth, err := fileSetAbsolutePathWork(markerPath(stateDir), mutationfs.MaximumPhysicalPathDepth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deepTarget := root
+	for range markerPathDepth + 1 {
+		deepTarget = filepath.Join(deepTarget, "segment")
+	}
+	deepTarget = filepath.Join(deepTarget, "target")
+	after := []byte("proposed")
+	writeReferenceMarkerFixture(t, stateDir, []targetMarker{{
+		Path:        deepTarget,
+		Before:      fileState{},
+		AfterHash:   hashBytes(after),
+		Write:       true,
+		CommitPoint: true,
+	}}, deepTarget, after)
+
+	budget := &fenceObservationBudget{}
+	_, _, evidence, err := loadMarker4WithBudget(
+		t.Context(),
+		markerPath(stateDir),
+		markerPathDepth,
+		budget,
+	)
+	if err == nil || evidence != nil {
+		t.Fatal("over-depth persisted target produced usable evidence")
+	}
+	if budget.paths != markerPathDepth || budget.entries != 1 || budget.bytes != maximumMarkerBytes {
+		t.Fatalf("work after depth refusal = %+v; only marker work should have been admitted", budget)
+	}
+}
+
+func TestFileSet4AllowsValidDeepExternalTargetWithShallowStateDir(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	deepParent := root
+	for range 48 {
+		deepParent = filepath.Join(deepParent, "d")
+	}
+	if err := os.MkdirAll(deepParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	deepTarget := filepath.Join(deepParent, "source")
+	manifest := filepath.Join(root, "manifest")
+	writeFixture(t, deepTarget, "source-before", 0o600)
+	writeFixture(t, manifest, "manifest-before", 0o600)
+
+	stateDepth, err := fileSetAbsolutePathWork(stateDir, mutationfs.MaximumPhysicalPathDepth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetDepth, err := fileSetAbsolutePathWork(deepTarget, mutationfs.MaximumPhysicalPathDepth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targetDepth <= stateDepth {
+		t.Fatalf("external target depth %d is not deeper than StateDir depth %d", targetDepth, stateDepth)
+	}
+
+	if _, err := prepareMarkerVersion(t.Context(), stateDir, []FileTarget{
+		mustWriteTarget(t, deepTarget, "source-after"),
+		mustCommitPointTarget(t, manifest, "manifest-after"),
+	}, contractversion.MetadataTransactionReference, true); err != nil {
+		t.Fatalf("prepare deep external target marker: %v", err)
+	}
+	disposition, err := InspectFileSetRecovery4(t.Context(), stateDir, []string{deepTarget, manifest})
+	if err != nil || disposition != RecoveryRollback {
+		t.Fatalf("InspectFileSetRecovery4 = %q, %v; want rollback for valid deep external target", disposition, err)
+	}
+	assertContent(t, deepTarget, "source-before")
+	assertContent(t, manifest, "manifest-before")
+}
+
+func TestFileSet4FenceAndViewDoNotResolveUnselectedPersistedTargets(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	realDir := filepath.Join(root, "real")
+	if err := os.Mkdir(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliasDir := filepath.Join(root, "alias")
+	if err := os.Symlink(realDir, aliasDir); err != nil {
+		t.Fatal(err)
+	}
+	ordinaryPath := filepath.Join(aliasDir, "source")
+	commitPoint := mustCommitPointTarget(t, filepath.Join(root, "manifest"), "manifest-proposed")
+	after := []byte("manifest-proposed")
+	writeReferenceMarkerFixture(t, stateDir, []targetMarker{
+		{
+			Path:      ordinaryPath,
+			Before:    fileState{},
+			AfterHash: hashBytes([]byte("source-proposed")),
+			Write:     true,
+		},
+		{
+			Path:        commitPoint.Path(),
+			Before:      fileState{},
+			AfterHash:   hashBytes(after),
+			Write:       true,
+			CommitPoint: true,
+		},
+	}, commitPoint.Path(), after)
+
+	view, err := ReadFileSetReferenceEvidence4(t.Context(), stateDir, commitPoint.Path())
+	if err != nil {
+		t.Fatalf("read-only reference view resolved an unselected persisted path: %v", err)
+	}
+	if view.ReferenceNamespace() != commitPoint.Path() || !bytes.Equal(view.AfterImage(), after) {
+		t.Fatal("read-only view did not retain the selected reference evidence")
+	}
+
+	fenceErr := ObserveClearFenceAt4(
+		t.Context(),
+		stateDir,
+		mutationfs.MaximumPhysicalPathDepth,
+		&fenceObservationBudget{},
+	)
+	if !errors.Is(fenceErr, ErrInterruptedFileSetTransaction) ||
+		FileSetFenceKindOf(fenceErr) != FileSetFencePublishedTransaction {
+		t.Fatalf("fence = %v, want a pending transaction without resolving its external targets", fenceErr)
+	}
+}
+
+func TestFileSet4RecoveryRequiresBoundedIndependentExactTargetSet(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	realDir := filepath.Join(root, "real")
+	if err := os.Mkdir(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliasDir := filepath.Join(root, "alias")
+	if err := os.Symlink(realDir, aliasDir); err != nil {
+		t.Fatal(err)
+	}
+	ordinaryPath := filepath.Join(aliasDir, "source")
+	resolvedSource := filepath.Join(realDir, "source")
+	writeFixture(t, resolvedSource, "untouched-source", 0o600)
+	commitPoint := mustCommitPointTarget(t, filepath.Join(root, "manifest"), "manifest-proposed")
+	writeFixture(t, commitPoint.Path(), "untouched-manifest", 0o600)
+	writeReferenceMarkerFixture(t, stateDir, []targetMarker{
+		{
+			Path:      ordinaryPath,
+			Before:    fileState{},
+			AfterHash: hashBytes([]byte("source-proposed")),
+			Write:     true,
+		},
+		{
+			Path:        commitPoint.Path(),
+			Before:      fileState{},
+			AfterHash:   hashBytes([]byte("manifest-proposed")),
+			Write:       true,
+			CommitPoint: true,
+		},
+	}, commitPoint.Path(), []byte("manifest-proposed"))
+
+	wrongSet := []string{ordinaryPath, commitPoint.Path()}
+	for _, inspect := range []bool{true, false} {
+		if inspect {
+			_, err := InspectFileSetRecovery4(t.Context(), stateDir, wrongSet)
+			assertRecoveryAuthorityRefusal(t, err, ordinaryPath)
+		} else {
+			err := RecoverFileSet4(t.Context(), stateDir, wrongSet)
+			assertRecoveryAuthorityRefusal(t, err, ordinaryPath)
+		}
+		assertContent(t, resolvedSource, "untouched-source")
+		assertContent(t, commitPoint.Path(), "untouched-manifest")
+		if _, err := os.Stat(markerPath(stateDir)); err != nil {
+			t.Fatalf("authority refusal removed the active marker: %v", err)
+		}
+	}
+
+	differentSet := []string{filepath.Join(root, "other-source"), commitPoint.Path()}
+	assertRecoveryAuthorityRefusal(t, RecoverFileSet4(t.Context(), stateDir, differentSet), ordinaryPath)
+	assertContent(t, resolvedSource, "untouched-source")
+	assertContent(t, commitPoint.Path(), "untouched-manifest")
+}
+
+func TestFileSet4MaximumFenceReservationCoversTargetsAndImages(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	targets := make([]FileTarget, 0, maximumFileSetTargets)
+	for index := range maximumFileSetTargets {
+		path := filepath.Join(root, fmt.Sprintf("target-%02d", index))
+		writeFixture(t, path, fmt.Sprintf("before-%d", index), 0o600)
+		if index == maximumFileSetTargets-1 {
+			targets = append(targets, mustCommitPointTarget(t, path, "proposed"))
+		} else {
+			targets = append(targets, mustWriteTarget(t, path, fmt.Sprintf("after-%d", index)))
+		}
+	}
+	if _, err := prepareMarkerVersion(
+		t.Context(),
+		stateDir,
+		targets,
+		contractversion.MetadataTransactionReference,
+		true,
+	); err != nil {
+		t.Fatalf("prepare maximum-target marker: %v", err)
+	}
+	work, err := MaximumFenceCensusWork4(stateDir, mutationfs.MaximumPhysicalPathDepth)
+	if err != nil {
+		t.Fatalf("MaximumFenceCensusWork4: %v", err)
+	}
+	budget := &limitedPhysicalWorkBudget{maximum: work}
+	fenceErr := ObserveClearFenceAt4(t.Context(), stateDir, mutationfs.MaximumPhysicalPathDepth, budget)
+	if !errors.Is(fenceErr, ErrInterruptedFileSetTransaction) ||
+		FileSetFenceKindOf(fenceErr) != FileSetFencePublishedTransaction {
+		t.Fatalf("maximum-target fence = %v, want interrupted transaction within its reservation", fenceErr)
+	}
+	if budget.paths > work.PathComponents || budget.entries > work.Entries || budget.bytes > work.Bytes {
+		t.Fatalf("fence work exceeded exact reservation: observed=%+v reserved=%+v", budget, work)
+	}
+	for index := range maximumFileSetTargets {
+		assertContent(t, filepath.Join(root, fmt.Sprintf("target-%02d", index)), fmt.Sprintf("before-%d", index))
+	}
+}
+
 func TestReferenceFileSet4FinalizeDoesNotRepeatOperation(t *testing.T) {
 	root := t.TempDir()
 	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
@@ -376,7 +598,7 @@ func TestReferenceFileSet4RejectsMalformedMarkerFields(t *testing.T) {
 		{name: "retarget to ordinary target", edit: func(t *testing.T, root map[string]any, encoded string) string {
 			root["reference"].(map[string]any)["target"] = root["targets"].([]any)[0].(map[string]any)["path"]
 			return marshalTestJSON(t, root)
-		}, want: "write commit-point"},
+		}},
 		{name: "duplicate JSON key", edit: func(t *testing.T, root map[string]any, encoded string) string {
 			last := strings.LastIndex(encoded, "}")
 			return encoded[:last] + `,"reference":null}`
@@ -396,7 +618,8 @@ func TestReferenceFileSet4RejectsMalformedMarkerFields(t *testing.T) {
 			if err := os.WriteFile(path, []byte(encoded), transactionEvidenceMode); err != nil {
 				t.Fatal(err)
 			}
-			if _, _, _, err := loadMarker4(t.Context(), path); err == nil || !strings.Contains(err.Error(), test.want) {
+			if _, _, _, err := loadMarker4(t.Context(), path); err == nil ||
+				(test.want != "" && !strings.Contains(err.Error(), test.want)) {
 				t.Fatalf("loadMarker4 error = %v, want %q", err, test.want)
 			}
 			if test.name == "duplicate JSON key" {
@@ -609,6 +832,59 @@ func TestFileSet4RejectsReconstructionBudgetOverflowBeforeReadingImage(t *testin
 	}
 }
 
+func TestFileSet4BoundsReadAfterEvidenceGrowsAtByteAdmission(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	referencePath := filepath.Join(root, "reference")
+	target := mustCommitPointTarget(t, referencePath, "proposed")
+	marker, err := prepareMarkerVersion(
+		t.Context(),
+		stateDir,
+		[]FileTarget{target},
+		contractversion.MetadataTransactionReference,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("prepare reference evidence: %v", err)
+	}
+	afterImagePath := filepath.Join(transactionDir(stateDir), referenceAfterImageName)
+	grown := []byte("proposed-after-growth")
+	budget := &mutateOnByteAdmissionBudget{
+		mutate: func() error {
+			return os.WriteFile(afterImagePath, grown, transactionEvidenceMode)
+		},
+	}
+
+	evidence, err := reconstructReferenceEvidenceWithBudget(
+		t.Context(),
+		markerPath(stateDir),
+		marker,
+		mutationfs.MaximumPhysicalPathDepth,
+		budget,
+	)
+	if evidence != nil {
+		t.Fatal("changed evidence returned a usable reconstruction")
+	}
+	var readLimitError *storagecommit.RegularFileReadLimitError
+	if !errors.Is(err, storagecommit.ErrRegularFileReadLimitExceeded) ||
+		!errors.As(err, &readLimitError) {
+		t.Fatalf("reconstruction error = %v, want bounded read refusal", err)
+	}
+	if readLimitError.Limit() != int64(len("proposed")) ||
+		readLimitError.Observed() != int64(len(grown)) {
+		t.Fatalf(
+			"read limit = %d, observed = %d; want %d and %d",
+			readLimitError.Limit(),
+			readLimitError.Observed(),
+			len("proposed"),
+			len(grown),
+		)
+	}
+	if !budget.mutated {
+		t.Fatal("physical-work budget did not grow the image after byte admission")
+	}
+}
+
 func TestFileSet4RequiresReferenceCommitPoint(t *testing.T) {
 	root := t.TempDir()
 	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
@@ -653,6 +929,53 @@ func interruptedReferenceFixture(t *testing.T, referenceBeforeAbsent bool) (stri
 	return root, stateDir, source, manifest
 }
 
+func writeReferenceMarkerFixture(
+	t *testing.T,
+	stateDir string,
+	targets []targetMarker,
+	referenceTarget string,
+	afterImage []byte,
+) {
+	t.Helper()
+	if err := os.MkdirAll(transactionDir(stateDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(transactionDir(stateDir), referenceAfterImageName),
+		afterImage,
+		transactionEvidenceMode,
+	); err != nil {
+		t.Fatal(err)
+	}
+	marker := transactionMarker{
+		Version: contractversion.MetadataTransactionReference,
+		Targets: targets,
+		Reference: &referenceEvidenceMarker{
+			Target: referenceTarget,
+			AfterImage: referenceAfterImageMarker{
+				Path:   referenceAfterImageName,
+				Size:   int64(len(afterImage)),
+				Digest: hashBytes(afterImage),
+			},
+		},
+	}
+	content, err := marshalMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(markerPath(stateDir), content, transactionEvidenceMode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertRecoveryAuthorityRefusal(t *testing.T, err error, path string) {
+	t.Helper()
+	var authorityError RecoveryAuthorityError
+	if !errors.As(err, &authorityError) || authorityError.Path != path {
+		t.Fatalf("recovery error = %v, want authority refusal for %q", err, path)
+	}
+}
+
 func assertPanics(t *testing.T, run func()) {
 	t.Helper()
 	deferred := false
@@ -681,4 +1004,59 @@ func marshalTestJSON(t *testing.T, value any) string {
 		t.Fatal(err)
 	}
 	return string(encoded)
+}
+
+type mutateOnByteAdmissionBudget struct {
+	fenceObservationBudget
+	mutate  func() error
+	mutated bool
+}
+
+type limitedPhysicalWorkBudget struct {
+	maximum FenceCensusWork
+	paths   int
+	entries int
+	bytes   int64
+}
+
+func (budget *limitedPhysicalWorkBudget) AdmitPathComponents(count int) error {
+	return budget.AdmitPhysicalWork(count, 0, 0)
+}
+
+func (budget *limitedPhysicalWorkBudget) AdmitPhysicalWork(
+	pathComponents int,
+	entries int,
+	bytes int64,
+) error {
+	if pathComponents < 0 || entries < 0 || bytes < 0 ||
+		pathComponents > budget.maximum.PathComponents-budget.paths ||
+		entries > budget.maximum.Entries-budget.entries ||
+		bytes > budget.maximum.Bytes-budget.bytes {
+		return fmt.Errorf("reserved file-set work exhausted")
+	}
+	budget.paths += pathComponents
+	budget.entries += entries
+	budget.bytes += bytes
+	return nil
+}
+
+func (budget *mutateOnByteAdmissionBudget) AdmitPathComponents(count int) error {
+	return budget.AdmitPhysicalWork(count, 0, 0)
+}
+
+func (budget *mutateOnByteAdmissionBudget) AdmitPhysicalWork(
+	pathComponents int,
+	entries int,
+	bytes int64,
+) error {
+	if err := budget.fenceObservationBudget.AdmitPhysicalWork(pathComponents, entries, bytes); err != nil {
+		return err
+	}
+	if bytes > 0 && !budget.mutated {
+		budget.mutated = true
+		if budget.mutate != nil {
+			return budget.mutate()
+		}
+	}
+	return nil
 }
