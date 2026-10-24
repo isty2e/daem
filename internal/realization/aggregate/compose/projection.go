@@ -13,7 +13,9 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-type projectionArea struct {
+// Participant is one semantic selection and native rewrite envelope. Logical
+// addresses remain distinct even when an outer owner binds them to one file.
+type Participant struct {
 	codec     aggregate.Codec
 	selection aggregate.Selection
 	syntax    configdocument.Syntax
@@ -23,7 +25,7 @@ type projectionArea struct {
 // ProjectionEdit is a semantic plan with its owner's native rewrite envelope.
 // The envelope describes candidate projection, not an ownership claim.
 type ProjectionEdit struct {
-	projection projectionArea
+	projection Participant
 	plan       aggregate.Plan
 }
 
@@ -32,7 +34,11 @@ func NewProjectionEdit(codec aggregate.Codec, plan aggregate.Plan, syntax config
 	if err != nil {
 		return ProjectionEdit{}, err
 	}
-	projection, err := newProjectionArea(codec, canonical.Before(), syntax, areas)
+	selection, err := canonical.Before().Selection()
+	if err != nil {
+		return ProjectionEdit{}, err
+	}
+	projection, err := NewParticipant(codec, selection, syntax, areas)
 	if err != nil {
 		return ProjectionEdit{}, err
 	}
@@ -41,12 +47,16 @@ func NewProjectionEdit(codec aggregate.Codec, plan aggregate.Plan, syntax config
 
 // ProjectionBaseline retains a complete recovery selection, including blockers.
 type ProjectionBaseline struct {
-	projection projectionArea
+	projection Participant
 	baseline   aggregate.Snapshot
 }
 
 func NewProjectionBaseline(codec aggregate.Codec, baseline aggregate.Snapshot, syntax configdocument.Syntax, areas []output.KeyPath) (ProjectionBaseline, error) {
-	projection, err := newProjectionArea(codec, baseline, syntax, areas)
+	selection, err := baseline.Selection()
+	if err != nil {
+		return ProjectionBaseline{}, err
+	}
+	projection, err := NewParticipant(codec, selection, syntax, areas)
 	if err != nil {
 		return ProjectionBaseline{}, err
 	}
@@ -57,27 +67,34 @@ func NewProjectionBaseline(codec aggregate.Codec, baseline aggregate.Snapshot, s
 	return ProjectionBaseline{projection, canonical}, nil
 }
 
-func newProjectionArea(codec aggregate.Codec, snapshot aggregate.Snapshot, syntax configdocument.Syntax, areas []output.KeyPath) (projectionArea, error) {
-	selection, err := snapshot.Selection()
+// Snapshot returns the complete immutable selected facts, including blockers.
+func (baseline ProjectionBaseline) Snapshot() aggregate.Snapshot {
+	return baseline.baseline
+}
+
+// NewParticipant admits one semantic owner's exact selection and native rewrite
+// envelope. It does not prove physical identity or grant mutation authority.
+func NewParticipant(codec aggregate.Codec, input aggregate.Selection, syntax configdocument.Syntax, areas []output.KeyPath) (Participant, error) {
+	selection, err := aggregate.NewSelection(input.Contracts())
 	if err != nil {
-		return projectionArea{}, err
+		return Participant{}, err
 	}
 	catalog, err := aggregate.NewCodecCatalog([]aggregate.Codec{codec})
 	if err != nil {
-		return projectionArea{}, err
+		return Participant{}, err
 	}
 	if _, present := catalog.Lookup(selection.CodecContractID()); !present {
-		return projectionArea{}, fmt.Errorf("projection codec does not match its selection")
+		return Participant{}, fmt.Errorf("projection codec does not match its selection")
 	}
 	if _, err := configdocument.ParseSyntax(syntax.String()); err != nil {
-		return projectionArea{}, err
+		return Participant{}, err
 	}
 	if len(areas) == 0 {
-		return projectionArea{}, fmt.Errorf("projection native rewrite areas are required")
+		return Participant{}, fmt.Errorf("projection native rewrite areas are required")
 	}
 	for _, area := range areas {
 		if area.IsRoot() {
-			return projectionArea{}, fmt.Errorf("native rewrite area cannot select the document root")
+			return Participant{}, fmt.Errorf("native rewrite area cannot select the document root")
 		}
 	}
 	areas = output.TopmostKeyPaths(areas)
@@ -101,12 +118,20 @@ func newProjectionArea(codec aggregate.Codec, snapshot aggregate.Snapshot, synta
 		last := sort.Search(len(keys), func(index int) bool { return keys[index].String() >= upper })
 		members += last - first
 		if members == 0 {
-			return projectionArea{}, fmt.Errorf("native rewrite area covers no selected projection")
+			return Participant{}, fmt.Errorf("native rewrite area covers no selected projection")
 		}
 		covered += members
 	}
 	if covered != len(keys) {
-		return projectionArea{}, fmt.Errorf("native rewrite areas do not cover the complete selection")
+		return Participant{}, fmt.Errorf("native rewrite areas do not cover the complete selection")
 	}
-	return projectionArea{codec, selection, syntax, areas}, nil
+	return Participant{codec, selection, syntax, areas}, nil
+}
+
+func (participant Participant) Selection() aggregate.Selection { return participant.selection }
+func (participant Participant) Syntax() configdocument.Syntax  { return participant.syntax }
+
+// RewriteAreas returns a defensive copy of the native rewrite envelope.
+func (participant Participant) RewriteAreas() []output.KeyPath {
+	return append([]output.KeyPath(nil), participant.areas...)
 }

@@ -25,7 +25,7 @@ func (candidate DocumentCandidate) Expected() []aggregate.Snapshot {
 // Render projects disjoint semantic candidates onto their shared original input.
 // Callers must separately establish that all logical inputs bind one physical file.
 func Render(ctx context.Context, document aggregate.Document, limits configdocument.Limits, edits []ProjectionEdit) (DocumentCandidate, error) {
-	projections := make([]projectionArea, len(edits))
+	projections := make([]Participant, len(edits))
 	for index, edit := range edits {
 		projections[index] = edit.projection
 	}
@@ -85,7 +85,7 @@ func Render(ctx context.Context, document aggregate.Document, limits configdocum
 // Restore assembles baseline candidates; callers still guard current host state
 // and mutation authority before publishing the result.
 func Restore(ctx context.Context, document aggregate.Document, limits configdocument.Limits, baselines []ProjectionBaseline) (DocumentCandidate, error) {
-	projections := make([]projectionArea, len(baselines))
+	projections := make([]Participant, len(baselines))
 	for index, baseline := range baselines {
 		projections[index] = baseline.projection
 	}
@@ -151,7 +151,7 @@ func Restore(ctx context.Context, document aggregate.Document, limits configdocu
 	return DocumentCandidate{final, expected}, nil
 }
 
-func prepare(ctx context.Context, document aggregate.Document, limits configdocument.Limits, projections []projectionArea) (configdocument.Document, error) {
+func prepare(ctx context.Context, document aggregate.Document, limits configdocument.Limits, projections []Participant) (configdocument.Document, error) {
 	if ctx == nil {
 		return configdocument.Document{}, fmt.Errorf("native document composition context is required")
 	}
@@ -180,7 +180,7 @@ func prepare(ctx context.Context, document aggregate.Document, limits configdocu
 	return parse(ctx, document, projections[0].syntax, limits)
 }
 
-func projectedChanges(ctx context.Context, document aggregate.Document, limits configdocument.Limits, projection projectionArea) ([]configdocument.Change, error) {
+func projectedChanges(ctx context.Context, document aggregate.Document, limits configdocument.Limits, projection Participant) ([]configdocument.Change, error) {
 	parsed, err := parse(ctx, document, projection.syntax, limits)
 	if err != nil {
 		return nil, err
