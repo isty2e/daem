@@ -92,9 +92,9 @@ func BuildNativeDocumentNarrowing(ctx context.Context, input NativeDocumentNarro
 	}
 	result := NativeDocumentNarrowing{
 		expected: input.Current, initialized: true,
-		wholeFileChanged: artifact.HashFileContent(currentContent) != input.Baseline.ContentHash(),
 	}
 	if len(input.Desired) == 0 {
+		result.wholeFileChanged = artifact.HashFileContent(currentContent) != input.Baseline.ContentHash()
 		return result, nil
 	}
 
@@ -109,23 +109,18 @@ func BuildNativeDocumentNarrowing(ctx context.Context, input NativeDocumentNarro
 			document.Target() != input.Baseline.ConsumerTargets()[0] {
 			return NativeDocumentNarrowing{}, fmt.Errorf("narrowing changes the managed document placement")
 		}
-		for _, item := range set.Contributions() {
-			id, _, native := topologyprojection.HostConfigKeyIdentity(item.SubjectID())
-			if !native || id != owner {
-				return NativeDocumentNarrowing{}, fmt.Errorf("narrowing changes the managed declaration")
-			}
-		}
 		contracts[index] = contract
 	}
 	selection, err := aggregate.NewSelection(contracts)
 	if err != nil {
 		return NativeDocumentNarrowing{}, err
 	}
-	current, failure := codec.Read(input.Current, selection)
-	if failure != nil {
-		return NativeDocumentNarrowing{}, failure
+	observation, err := aggregate.ObserveDocument(codec, input.Current, selection)
+	if err != nil {
+		return NativeDocumentNarrowing{}, err
 	}
-	plan, err := reconcileprojection.BuildNativeNarrowingPlan(current, input.Desired, !result.wholeFileChanged)
+	result.wholeFileChanged = observation.ContentHash() != input.Baseline.ContentHash()
+	plan, err := reconcileprojection.BuildNativeNarrowingPlan(observation, input.Desired, input.Baseline)
 	if err != nil {
 		return NativeDocumentNarrowing{}, err
 	}

@@ -4,21 +4,39 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 var ErrNativeNarrowingNeedsCapture = errors.New("capture current retained values into source before narrowing")
 
-// BuildNativeNarrowingPlan compares only retained keys. Its operation adapter
-// owns whole-file hash equality and native syntax/value admission before this call.
-func BuildNativeNarrowingPlan(current aggregate.Snapshot, desired []aggregate.ContributionSet, documentUnchanged bool) (aggregate.Plan, error) {
+// BuildNativeNarrowingPlan compares a bound current document read with recorded
+// ownership; it does not accept a caller-asserted unchanged result.
+func BuildNativeNarrowingPlan(observation aggregate.DocumentObservation, desired []aggregate.ContributionSet, baseline durable.ManagedPathState) (aggregate.Plan, error) {
+	if err := observation.Validate(); err != nil {
+		return aggregate.Plan{}, err
+	}
+	current := observation.Snapshot()
 	selection, err := current.Selection()
 	if err != nil {
 		return aggregate.Plan{}, err
 	}
 	if _, native := aggregate.HostConfigSyntaxForCodec(selection.CodecContractID()); !native ||
-		!current.DocumentExisted() || len(selection.Contracts()) != len(desired) {
+		len(selection.Contracts()) != len(desired) {
 		return aggregate.Plan{}, fmt.Errorf("native narrowing requires an existing document and exact correlated selection")
+	}
+	if err := baseline.ContentHash().Validate(); err != nil {
+		return aggregate.Plan{}, err
+	}
+	document := selection.DocumentAddress()
+	targets := baseline.ConsumerTargets()
+	owner, entityBacked := topologyprojection.EntityID(baseline.Subject())
+	if !entityBacked || baseline.ContentKind() != realization.PathProjectionFile || baseline.FileMode()&0o111 != 0 ||
+		len(targets) != 1 || targets[0] != document.Target() || baseline.Scope() != document.Scope() ||
+		baseline.Destination() != document.AggregateRoot() {
+		return aggregate.Plan{}, fmt.Errorf("native narrowing baseline differs from observed document")
 	}
 	sets := make(map[aggregate.ProjectionAddress]aggregate.ContributionSet, len(desired))
 	for _, set := range desired {
@@ -26,12 +44,19 @@ func BuildNativeNarrowingPlan(current aggregate.Snapshot, desired []aggregate.Co
 		if err != nil {
 			return aggregate.Plan{}, err
 		}
+		for _, item := range canonical.Contributions() {
+			id, _, native := topologyprojection.HostConfigKeyIdentity(item.SubjectID())
+			if !native || id != owner {
+				return aggregate.Plan{}, fmt.Errorf("native narrowing changes the managed declaration")
+			}
+		}
 		address := canonical.Address()
 		if _, duplicate := sets[address]; duplicate {
 			return aggregate.Plan{}, fmt.Errorf("native narrowing repeats a desired key")
 		}
 		sets[address] = canonical
 	}
+	documentUnchanged := observation.ContentHash() == baseline.ContentHash()
 	intents := make([]aggregate.ProjectionIntent, 0, len(desired))
 	for _, state := range current.States() {
 		address := state.Contract().Address()

@@ -4,11 +4,14 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	nativecodec "github.com/isty2e/daem/internal/realization/aggregate/codec/native"
+	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
@@ -29,7 +32,7 @@ func TestNativeNarrowingPlanRequiresUnchangedDocumentOrAllDesiredValues(t *testi
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			current, desired := nativeNarrowingPlanFixture(t, test.current, "@pi-agent/extension-settings/test.json")
-			plan, err := BuildNativeNarrowingPlan(current, desired, test.unchanged)
+			plan, err := BuildNativeNarrowingPlan(current, desired, nativeNarrowingRecordedState(t, current, test.unchanged))
 			if test.capture {
 				if !errors.Is(err, ErrNativeNarrowingNeedsCapture) {
 					t.Fatalf("unproved value change did not request capture: %v", err)
@@ -56,7 +59,7 @@ func TestNativeNarrowingPlanRefusesInvalidOrUncorrelatedInputs(t *testing.T) {
 	_, foreign := nativeNarrowingPlanFixture(t, `{"a":2,"z":2}`, "@pi-agent/extension-settings/other.json")
 	for _, test := range []struct {
 		name    string
-		current aggregate.Snapshot
+		current aggregate.DocumentObservation
 		desired []aggregate.ContributionSet
 	}{
 		{name: "zero snapshot", desired: desired},
@@ -66,7 +69,7 @@ func TestNativeNarrowingPlanRefusesInvalidOrUncorrelatedInputs(t *testing.T) {
 		{name: "invalid desired", current: current, desired: []aggregate.ContributionSet{{}, desired[1]}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			plan, err := BuildNativeNarrowingPlan(test.current, test.desired, true)
+			plan, err := BuildNativeNarrowingPlan(test.current, test.desired, nativeNarrowingRecordedState(t, current, true))
 			if err == nil {
 				t.Fatal("unchanged-document fact bypassed input correlation")
 			}
@@ -77,7 +80,54 @@ func TestNativeNarrowingPlanRefusesInvalidOrUncorrelatedInputs(t *testing.T) {
 	}
 }
 
-func nativeNarrowingPlanFixture(t *testing.T, currentText, destination string) (aggregate.Snapshot, []aggregate.ContributionSet) {
+func TestNativeNarrowingPlanUsesBoundWholeDocumentAndRecordedOwner(t *testing.T) {
+	before, desired := nativeNarrowingPlanFixture(t, `{"a":1,"z":1,"released":1}`, "@pi-agent/extension-settings/test.json")
+	changed, _ := nativeNarrowingPlanFixture(t, `{"a":1,"z":1,"released":9}`, "@pi-agent/extension-settings/test.json")
+	foreign, _ := nativeNarrowingPlanFixture(t, `{"a":1,"z":1,"released":1}`, "@pi-agent/extension-settings/other.json")
+	baseline := nativeNarrowingRecordedState(t, before, true)
+	if !before.Snapshot().Equal(changed.Snapshot()) || before.ContentHash() == changed.ContentHash() {
+		t.Fatal("fixture did not separate selected equality from whole-file equality")
+	}
+	if _, err := BuildNativeNarrowingPlan(before, desired, baseline); err != nil {
+		t.Fatalf("verified unchanged document refused update: %v", err)
+	}
+	plan, err := BuildNativeNarrowingPlan(changed, desired, baseline)
+	if !errors.Is(err, ErrNativeNarrowingNeedsCapture) {
+		t.Fatalf("changed unselected bytes were treated as whole-file equality: %v", err)
+	}
+	if _, err := plan.Before().Selection(); err == nil {
+		t.Fatal("changed document exposed a partial update plan")
+	}
+
+	id, err := entity.New(entity.KindHostConfig, "another-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	placement, err := aggregate.HostConfigPlacementID(target.TargetPi, target.ScopeGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject, err := topologyprojection.Subject(id, placement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongOwner, err := durable.NewManagedPathState(subject, baseline.ConsumerTargets(), baseline.Scope(), baseline.Destination(),
+		baseline.ContentHash(), baseline.ContentKind(), baseline.PermissionPolicy(), baseline.FileMode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wrong := range []durable.ManagedPathState{{}, nativeNarrowingRecordedState(t, foreign, true), wrongOwner} {
+		plan, err := BuildNativeNarrowingPlan(before, desired, wrong)
+		if err == nil {
+			t.Fatal("matching bytes bypassed prior document/owner correlation")
+		}
+		if _, err := plan.Before().Selection(); err == nil {
+			t.Fatal("foreign recorded ownership exposed a usable plan")
+		}
+	}
+}
+
+func nativeNarrowingPlanFixture(t *testing.T, currentText, destination string) (aggregate.DocumentObservation, []aggregate.ContributionSet) {
 	t.Helper()
 	root, err := output.Parse(destination)
 	if err != nil {
@@ -113,9 +163,9 @@ func nativeNarrowingPlanFixture(t *testing.T, currentText, destination string) (
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, failure := codec.Read(aggregate.ExistingDocument([]byte(currentText)), selection)
-	if failure != nil {
-		t.Fatal(failure)
+	current, err := aggregate.ObserveDocument(codec, aggregate.ExistingDocument([]byte(currentText)), selection)
+	if err != nil {
+		t.Fatal(err)
 	}
 	want, failure := codec.Read(aggregate.ExistingDocument([]byte(`{"a":2,"z":2}`)), selection)
 	if failure != nil {
@@ -142,4 +192,35 @@ func nativeNarrowingPlanFixture(t *testing.T, currentText, destination string) (
 		desired = append(desired, set)
 	}
 	return current, desired
+}
+
+func nativeNarrowingRecordedState(t *testing.T, observation aggregate.DocumentObservation, unchanged bool) durable.ManagedPathState {
+	t.Helper()
+	selection, err := observation.Snapshot().Selection()
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := selection.DocumentAddress()
+	id, err := entity.New(entity.KindHostConfig, "settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	placement, err := aggregate.HostConfigPlacementID(document.Target(), document.Scope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject, err := topologyprojection.Subject(id, placement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := artifact.HashFileContent([]byte(`{"a":0,"z":0}`))
+	if unchanged {
+		hash = observation.ContentHash()
+	}
+	state, err := durable.NewManagedPathState(subject, []target.Target{document.Target()}, document.Scope(), document.AggregateRoot(),
+		hash, realization.PathProjectionFile, realization.PathPermissionsExact, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state
 }
