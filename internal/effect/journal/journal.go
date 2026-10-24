@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 var errRecoveryJournalStateCodecRequired = errors.New("recovery journal state codec is required")
@@ -311,6 +313,11 @@ func validateRecoveryJournalEnvelope(journal recoveryJournal) error {
 		return fmt.Errorf("recovery journal created_at: %w", err)
 	}
 	for _, snapshot := range []durable.Snapshot{journal.StatefileBefore, journal.StatefileAfter} {
+		for _, state := range snapshot.ManagedPaths() {
+			if id, ok := topologyprojection.EntityID(state.Subject()); ok && id.Kind() == entity.KindHostConfig {
+				return fmt.Errorf("recovery journal version %d does not admit native configuration baselines", journal.Version)
+			}
+		}
 		for _, state := range snapshot.ManagedAggregates() {
 			if _, native := aggregate.HostConfigSyntaxForCodec(state.Contribution().CodecContractID()); native {
 				return fmt.Errorf("recovery journal version %d does not admit native configuration baselines", journal.Version)
