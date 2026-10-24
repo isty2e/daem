@@ -121,8 +121,12 @@ func TestWindowsReferentPreservesDirectoryReparseRequirement(t *testing.T) {
 	if err := os.Mkdir(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	referentTestSymlink(t, "directory", filepath.Join(base, "capability-alias"))
+
 	alias := filepath.Join(base, "directory-alias")
-	referentTestSymlink(t, `directory\`, alias)
+	if err := os.Symlink(`directory\`, alias); err != nil {
+		t.Fatal(err)
+	}
 	resolved, err := ResolveReferentPathBounded(alias, 256, &referentTestBudget{limit: 10_000})
 	if err != nil || resolved != directory {
 		t.Fatalf("valid directory target with trailing separator returned %q, %v", resolved, err)
@@ -130,7 +134,9 @@ func TestWindowsReferentPreservesDirectoryReparseRequirement(t *testing.T) {
 	if err := os.Remove(alias); err != nil {
 		t.Fatal(err)
 	}
-	referentTestSymlink(t, "directory", alias)
+	if err := os.Symlink("directory", alias); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(directory); err != nil {
 		t.Fatal(err)
 	}
