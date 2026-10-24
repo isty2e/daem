@@ -34,11 +34,14 @@ func (change ClaimChange) validate() error {
 	return nil
 }
 
-// ClaimConvergence is a canonical, non-overlapping set of exact claim changes.
-// Each address may currently contain either its expected or target value.
+// ClaimConvergence combines disjoint exact changes. Independent rows admit either
+// phase per address; document fragments must match one complete recorded phase.
 type ClaimConvergence struct {
-	changes     []ClaimChange
-	initialized bool
+	changes        []ClaimChange
+	documents      []DocumentClaimChange
+	documentScopes addressOverlapIndex
+	documentOwners []int
+	initialized    bool
 }
 
 // NewClaimConvergence validates, copies, and canonically orders exact changes.
@@ -74,8 +77,8 @@ func (convergence ClaimConvergence) Validate() error {
 	return nil
 }
 
-// ExpectedRemovals returns exact claims whose target is absence. Stores use
-// these facts to admit deletion-aware path-authority validation.
+// ExpectedRemovals returns exact claims whose addresses leave the target.
+// Stores use these facts for deletion-aware path-authority validation.
 func (convergence ClaimConvergence) ExpectedRemovals() []Claim {
 	removals := make([]Claim, 0)
 	for _, change := range convergence.changes {
@@ -85,17 +88,26 @@ func (convergence ClaimConvergence) ExpectedRemovals() []Claim {
 			removals = append(removals, expected)
 		}
 	}
+	if len(convergence.documents) != 0 {
+		removals = append(removals, convergence.documentRemovals()...)
+		sort.Slice(removals, func(left, right int) bool {
+			return removals[left].Address().Less(removals[right].Address())
+		})
+	}
 	return removals
 }
 
-// Apply derives one deterministic successor. A row already at its target is
-// idempotent; any third value is stale. No partial successor is returned.
+// Apply derives one deterministic successor. Components already at their targets
+// are idempotent; third states refuse without returning a partial successor.
 func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, error) {
 	if err := convergence.Validate(); err != nil {
 		return Registry{}, false, err
 	}
 	if !registry.initialized {
 		return Registry{}, false, fmt.Errorf("ownership registry is required")
+	}
+	if len(convergence.documents) != 0 {
+		return convergence.applyDocumentChanges(registry)
 	}
 
 	currentByAddress := make(map[ManagedAddress]Claim, len(registry.claims))

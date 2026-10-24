@@ -9,10 +9,8 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
-// Converge publishes one canonical ownership-registry successor. The current
-// value at each address may be either the convergence's expected or target
-// value, which makes retries and recovery idempotent without weakening stale
-// third-state rejection.
+// Converge publishes one canonical successor using the convergence's exact
+// expected-or-target matching. Document fragments must match a complete phase.
 func (store Store) Converge(
 	ctx context.Context,
 	convergence ownership.ClaimConvergence,
