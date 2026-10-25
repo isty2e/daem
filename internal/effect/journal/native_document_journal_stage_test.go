@@ -3,9 +3,12 @@ package journal
 import (
 	"context"
 	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -249,6 +252,58 @@ func TestNativeDocumentJournalStageLateFailureAbortsCompletePrivateTree(t *testi
 			}
 		})
 	}
+}
+
+func TestNativeDocumentJournalStageDiscardsFingerprintAfterFinalCheckCancellation(t *testing.T) {
+	fixture, decoded, comparison := preparedNativeFixture(t)
+	base, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ctx := &journalCompletionCancellation{Context: base, cancel: cancel}
+	destination, capability := imageStageDestination(t)
+	var fingerprint string
+	var stageErr error
+	_, err := journalTestFilesystem().PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
+		wrapped := journalCompletionWriter{RootedTreeWriter: writer, context: ctx}
+		fingerprint, stageErr = decoded.stageDocumentJournal(ctx, []DocumentComparison{comparison}, wrapped, documentStageOptions(fixture, imageBudget(t)))
+		return stageErr
+	})
+	if !errors.Is(stageErr, context.Canceled) || fingerprint != "" || !errors.Is(err, context.Canceled) {
+		t.Fatalf("terminal cancellation escaped staging: stage=%v outer=%v fingerprint=%q", stageErr, err, fingerprint)
+	}
+	if _, err := os.Lstat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("terminal cancellation published destination: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(destination))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("terminal cancellation retained partial private data: %v", err)
+	}
+}
+
+type journalCompletionCancellation struct {
+	context.Context
+	cancel context.CancelFunc
+	armed  atomic.Bool
+}
+
+func (ctx *journalCompletionCancellation) Err() error {
+	err := ctx.Context.Err()
+	if ctx.armed.Swap(false) {
+		ctx.cancel()
+	}
+	return err
+}
+
+type journalCompletionWriter struct {
+	mutationfs.RootedTreeWriter
+	context *journalCompletionCancellation
+}
+
+func (writer journalCompletionWriter) WriteFile(path mutationfs.TreeRelativePath, mode fs.FileMode, content io.Reader) error {
+	err := writer.RootedTreeWriter.WriteFile(path, mode, content)
+	if err == nil && path.Path() == recoveryJournalFileName {
+		writer.context.armed.Store(true)
+	}
+	return err
 }
 
 func documentStageOptions(fixture nativeRecordFixture, budget *recovery.PhysicalWorkBudget) nativeDocumentStageOptions {

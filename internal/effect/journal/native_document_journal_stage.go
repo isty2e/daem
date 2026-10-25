@@ -80,7 +80,11 @@ func (journal nativeJournalSnapshots) stageDocumentJournal(ctx context.Context, 
 	if err := errors.Join(writeErr, workErr, ctx.Err()); err != nil {
 		return "", err
 	}
-	return recoveryJournalRecordFingerprint(content), nil
+	fingerprint := recoveryJournalRecordFingerprint(content)
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return fingerprint, nil
 }
 
 func preflightDocumentJournalImages(ctx context.Context, comparisons []DocumentComparison, budget *recovery.PhysicalWorkBudget) (int, int64, error) {
