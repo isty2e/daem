@@ -35,6 +35,8 @@ func (context LocalSourceContext) Validate() error {
 // BaseRoot returns the selected lexical base, not a filesystem capability.
 func (context LocalSourceContext) BaseRoot() string { return context.baseRoot }
 
+func (context LocalSourceContext) HomeRoot() string { return context.homeRoot }
+
 // LocalSourceIdentity is one lexical absolute carrier-local source identity.
 // It deliberately does not resolve symlinks or require the source to exist.
 type LocalSourceIdentity struct {

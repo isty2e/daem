@@ -56,6 +56,17 @@ func NewScopedRelationWithContext(key observerelation.CorrelationKey, scope targ
 	return relation, nil
 }
 
+func (relation ScopedRelation) CorrelationKey() observerelation.CorrelationKey { return relation.key }
+
+func (relation ScopedRelation) Scope() target.Scope { return relation.scope }
+
+func (relation ScopedRelation) SourceContext() (extensiontopology.LocalSourceContext, bool) {
+	if relation.sourceContext == nil {
+		return extensiontopology.LocalSourceContext{}, false
+	}
+	return *relation.sourceContext, true
+}
+
 // Correlate classifies one scope-specific settings inventory against an exact
 // locked source. Pi-equivalent but textually different rows are deliberately
 // surfaced as unkeyed same-subject rows; they can never receive the exact
