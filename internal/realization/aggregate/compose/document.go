@@ -226,6 +226,15 @@ func parse(ctx context.Context, document aggregate.Document, syntax configdocume
 	if !document.Exists() {
 		return configdocument.Absent(syntax, limits)
 	}
+	if ctx == nil {
+		return configdocument.Parse(ctx, nil, syntax, limits)
+	}
+	if err := ctx.Err(); err != nil {
+		return configdocument.Document{}, err
+	}
+	if document.ContentSize() > limits.MaximumBytes {
+		return configdocument.Document{}, configdocument.ErrLimitExceeded
+	}
 	return configdocument.Parse(ctx, document.Content(), syntax, limits)
 }
 

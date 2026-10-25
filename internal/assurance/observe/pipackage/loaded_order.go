@@ -39,6 +39,9 @@ func ReconstructOrder(input LoadedOrderInput) (OrderObservation, error) {
 	if err != nil {
 		return OrderObservation{}, err
 	}
+	if input.Document.ContentSize() > MaximumSettingsBytes {
+		return OrderObservation{}, fmt.Errorf("Pi settings exceeds %d bytes", MaximumSettingsBytes)
+	}
 	context := input.SettingsContext
 	inventory, err := inventoryFromContent(Inventory{
 		scope: input.Scope, settingsBase: context.BaseRoot(),

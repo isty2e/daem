@@ -73,6 +73,9 @@ func (codec documentCodec) parse(document aggregate.Document) (configdocument.Do
 		parsed, err := configdocument.Absent(codec.syntax, codec.documentLimits)
 		return parsed, nativeCodecFailure(err, aggregate.CodecFailureDocumentMalformed, output.KeyPath{})
 	}
+	if document.ContentSize() > codec.documentLimits.MaximumBytes {
+		return configdocument.Document{}, nativeCodecFailure(configdocument.ErrLimitExceeded, aggregate.CodecFailureDocumentMalformed, output.KeyPath{})
+	}
 	parsed, err := configdocument.Parse(codec.ctx, document.Content(), codec.syntax, codec.documentLimits)
 	return parsed, nativeCodecFailure(err, aggregate.CodecFailureDocumentMalformed, output.KeyPath{})
 }

@@ -29,6 +29,9 @@ func ExistingDocument(content []byte) Document {
 func (document Document) Exists() bool    { return document.exists }
 func (document Document) Content() []byte { return bytes.Clone(document.content) }
 
+// ContentSize reports payload bytes without copying the document.
+func (document Document) ContentSize() int64 { return int64(len(document.content)) }
+
 // Equal compares document presence and bytes.
 func (document Document) Equal(other Document) bool {
 	return document.exists == other.exists && bytes.Equal(document.content, other.content)

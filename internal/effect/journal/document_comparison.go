@@ -194,7 +194,7 @@ func validateComparisonDocument(ctx context.Context, document aggregate.Document
 	if err := document.Validate(); err != nil {
 		return err
 	}
-	if int64(len(document.Content())) > limits.MaximumBytes {
+	if document.ContentSize() > limits.MaximumBytes {
 		return fmt.Errorf("document comparison exceeds the selected byte limit")
 	}
 	return nil
