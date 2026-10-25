@@ -228,6 +228,48 @@ type nativeSessionCounter struct {
 	sessions   *int
 }
 
+func TestNativeDocumentDuplicateDestinationRefusesBeforeSourceSession(t *testing.T) {
+	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
+		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
+				directory := t.TempDir()
+				firstSource := nativeLocalSource(t, directory, "first", []byte("# first\n"), 0o600)
+				secondSource := nativeLocalSource(t, directory, "second", []byte("# second\n"), 0o600)
+				configs := []hostconfig.Config{
+					nativeDocumentConfig(t, "first", firstSource, selected, scope, "prompts/review.md", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault),
+					nativeDocumentConfig(t, "second", secondSource, selected, scope, "prompts/review.md", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault),
+				}
+				environment := lockEnvironment(t, desired.Spec{HostConfigs: configs})
+				sessions, events := 0, 0
+				resolver := &nativeSessionCounter{underlying: nativeDocumentResolver(t, directory), sessions: &sessions}
+				file, err := BuildNativeDocumentsWithOptions(context.Background(), environment, resolver, Options{Events: func(Event) { events++ }}, nativeDocumentLimits())
+				if err == nil || file.Version != 0 || file.Locked.Len() != 0 || sessions != 0 || events != 0 {
+					t.Fatalf("duplicate destination reached source execution: sessions=%d events=%d version=%d err=%v", sessions, events, file.Version, err)
+				}
+			})
+		}
+	}
+}
+
+func TestNativeDocumentDestinationPreflightSeparatesTargetScopeAndPath(t *testing.T) {
+	directory := t.TempDir()
+	spec := nativeLocalSource(t, directory, "source", []byte("# content\n"), 0o600)
+	var configs []hostconfig.Config
+	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
+		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+			for _, name := range []string{"review", "reviewer"} {
+				configs = append(configs, nativeDocumentConfig(t, string(selected)+"-"+string(scope)+"-"+name, spec, selected, scope, "prompts/"+name+".md", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault))
+			}
+		}
+	}
+	sessions := 0
+	resolver := &nativeSessionCounter{underlying: nativeDocumentResolver(t, directory), sessions: &sessions}
+	file, err := BuildNativeDocumentsWithOptions(context.Background(), lockEnvironment(t, desired.Spec{HostConfigs: configs}), resolver, Options{}, nativeDocumentLimits())
+	if err != nil || sessions != 1 || file.Version != lock.NativeVersion || file.Locked.Len() != 2*len(configs) {
+		t.Fatalf("disjoint logical destinations conflated: sessions=%d len=%d err=%v", sessions, file.Locked.Len(), err)
+	}
+}
+
 func (counter *nativeSessionCounter) NewResolutionSession() (acquisition.Resolver, error) {
 	*counter.sessions++
 	return counter.underlying.(acquisition.ResolutionSessionProvider).NewResolutionSession()

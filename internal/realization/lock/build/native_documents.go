@@ -5,8 +5,10 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -36,6 +38,7 @@ func BuildNativeDocumentsWithOptions(ctx context.Context, environment desired.En
 		return lock.File{}, err
 	}
 	documents := make([]nativeDocumentInput, 0, len(environment.HostConfigs()))
+	destinations := make(map[aggregate.DocumentAddress]entity.ID, len(environment.HostConfigs()))
 	for _, config := range environment.HostConfigs() {
 		if err := ctx.Err(); err != nil {
 			return lock.File{}, err
@@ -49,6 +52,14 @@ func BuildNativeDocumentsWithOptions(ctx context.Context, environment desired.En
 		if err != nil {
 			return lock.File{}, err
 		}
+		address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
+		if err != nil {
+			return lock.File{}, err
+		}
+		if existing, duplicate := destinations[address]; duplicate {
+			return lock.File{}, fmt.Errorf("host configurations %q and %q target the same scope %q destination %q", existing, config.ID(), placement.Scope(), placement.Destination())
+		}
+		destinations[address] = config.ID()
 		documents = append(documents, nativeDocumentInput{config: config, placement: placement})
 	}
 	return buildWithProfile(ctx, environment, resolver, options, documents, limits, lockBuildProfile{
