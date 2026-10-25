@@ -21,11 +21,12 @@ import (
 )
 
 type nativeDocumentReadOptions struct {
-	artifacts  *rootedpath.CapturedRoot
-	filesystem mutationfs.RootedReader
-	budget     *recovery.PhysicalWorkBudget
-	limits     configdocument.Limits
-	codecs     aggregate.CodecCatalog
+	ordinaryCapabilities RootedCapabilityResolver
+	artifacts            *rootedpath.CapturedRoot
+	filesystem           mutationfs.RootedReader
+	budget               *recovery.PhysicalWorkBudget
+	limits               configdocument.Limits
+	codecs               aggregate.CodecCatalog
 }
 
 // Reconstructed records retain all groups or none. They are not RecoverablePlan:
@@ -47,7 +48,7 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 	if err := journal.record.validateRemovalCoverage(); err != nil {
 		return nativeDocumentRecords{}, err
 	}
-	if err := journal.record.validateWriterPartition(ctx); err != nil {
+	if err := journal.record.validateWriterSpellingPartition(ctx); err != nil {
 		return nativeDocumentRecords{}, err
 	}
 	if err := journal.owner.Validate(); err != nil {

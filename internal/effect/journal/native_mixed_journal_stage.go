@@ -17,15 +17,22 @@ import (
 // ordinaryCaptureSource couples the ordinary builder's record to its private
 // backup tree. Its lifetime belongs to stageMixedDocumentJournal, not publication.
 type ordinaryCaptureSource struct {
-	record   recoveryJournal
-	view     access.View
-	identity artifact.ExactIdentity
-	work     recovery.ArtifactWork
+	record       recoveryJournal
+	view         access.View
+	identity     artifact.ExactIdentity
+	work         recovery.ArtifactWork
+	filesystem   mutationfs.RootedReader
+	capabilities RootedCapabilityResolver
+}
+
+type nativeMixedStageOptions struct {
+	nativeDocumentStageOptions
+	roots NativeDocumentRoots
 }
 
 // stageMixedDocumentJournal populates one unpublished tree. Capture options must
 // contain only ordinary work; the containing operation still owns live authority.
-func (journal nativeJournalSnapshots) stageMixedDocumentJournal(ctx context.Context, paths Paths, capture CaptureOptions, comparisons []DocumentComparison, writer mutationfs.RootedTreeWriter, options nativeDocumentStageOptions) (fingerprint string, resultErr error) {
+func (journal nativeJournalSnapshots) stageMixedDocumentJournal(ctx context.Context, paths Paths, capture CaptureOptions, comparisons []DocumentComparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (fingerprint string, resultErr error) {
 	if ctx == nil || writer == nil || options.budget == nil || options.stateCodec == nil || capture.Filesystem == nil || capture.Resolver == nil {
 		return "", fmt.Errorf("mixed journal staging requires context, private writer, codec, shared budget and ordinary capture adapters")
 	}
@@ -100,10 +107,10 @@ func (journal nativeJournalSnapshots) captureOrdinarySource(ctx context.Context,
 	if err := validateOrdinaryCaptureBackups(ctx, directory, view, record.Entries, capture.Filesystem, budget); err != nil {
 		return ordinaryCaptureSource{}, err
 	}
-	return ordinaryCaptureSource{record: record, view: view, identity: identity, work: work}, nil
+	return ordinaryCaptureSource{record: record, view: view, identity: identity, work: work, filesystem: capture.Filesystem, capabilities: capture.RootedCapability}, nil
 }
 
-func (journal nativeJournalSnapshots) stageWithOrdinarySource(ctx context.Context, ordinary ordinaryCaptureSource, comparisons []DocumentComparison, writer mutationfs.RootedTreeWriter, options nativeDocumentStageOptions) (string, error) {
+func (journal nativeJournalSnapshots) stageWithOrdinarySource(ctx context.Context, ordinary ordinaryCaptureSource, comparisons []DocumentComparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (string, error) {
 	if ordinary.record.OperationID != journal.record.OperationID || ordinary.record.Operation != journal.record.Operation || ordinary.record.CreatedAt != journal.record.CreatedAt || ordinary.record.ManifestRootProvenance != journal.record.ManifestRootProvenance || !ordinary.record.StatefileBefore.Equal(journal.before) || !ordinary.record.StatefileAfter.Equal(journal.after) {
 		return "", fmt.Errorf("ordinary backup source does not match the native operation and complete Snapshots")
 	}
@@ -113,6 +120,9 @@ func (journal nativeJournalSnapshots) stageWithOrdinarySource(ctx context.Contex
 	record.ProvisionalAcquires = append([]recoveryProvisionalAcquireIntent{}, ordinary.record.ProvisionalAcquires...)
 	record.RemovalIntents = append([]recoveryRemovalIntent{}, ordinary.record.RemovalIntents...)
 	journal.record = record
+	if _, err := journal.qualifyDocumentNamespaces(ctx, nativeDocumentReadOptions{filesystem: ordinary.filesystem, budget: options.budget, ordinaryCapabilities: ordinary.capabilities}, options.roots); err != nil {
+		return "", err
+	}
 	// Each traversal may enumerate one overflow entry when refusing source growth.
 	allowance, err := recovery.NewArtifactWork(ordinary.work.Entries()+1, ordinary.work.Bytes())
 	if err != nil {
@@ -122,7 +132,7 @@ func (journal nativeJournalSnapshots) stageWithOrdinarySource(ctx context.Contex
 	if err != nil {
 		return "", err
 	}
-	prepared, content, err := journal.prepareDocumentJournal(ctx, comparisons, options, work)
+	prepared, content, err := journal.prepareDocumentJournal(ctx, comparisons, options.nativeDocumentStageOptions, work)
 	if err != nil {
 		return "", err
 	}

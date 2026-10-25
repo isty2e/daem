@@ -32,6 +32,10 @@ type mixedJournalFixture struct {
 	ordinary   []byte
 }
 
+func (fixture mixedJournalFixture) stageOptions(budget *recovery.PhysicalWorkBudget) nativeMixedStageOptions {
+	return nativeMixedStageOptions{nativeDocumentStageOptions: documentStageOptions(fixture.whole.envelope, budget), roots: fixture.whole.namespace.roots}
+}
+
 func mixedStageFixture(t *testing.T) mixedJournalFixture {
 	t.Helper()
 	whole := wholeGroupFixture(t, target.TargetPi, target.ScopeProject, "replace", []byte("native before\x00"), []byte("native after\xff"))
@@ -103,7 +107,7 @@ func TestNativeMixedJournalStagesActualOrdinaryAndWholeProducers(t *testing.T) {
 	initialBytes := budget.RemainingBytes()
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		var err error
-		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, mixedRecordingWriter{RootedTreeWriter: writer, order: &order}, documentStageOptions(fixture.whole.envelope, budget))
+		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, mixedRecordingWriter{RootedTreeWriter: writer, order: &order}, fixture.stageOptions(budget))
 		return err
 	})
 	if err != nil {
@@ -219,7 +223,7 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 				}
 			}
 			writer := &mixedNoWriteWriter{}
-			fingerprint, err := fixture.journal.stageWithOrdinarySource(t.Context(), source, comparisons, writer, documentStageOptions(fixture.whole.envelope, budget))
+			fingerprint, err := fixture.journal.stageWithOrdinarySource(t.Context(), source, comparisons, writer, fixture.stageOptions(budget))
 			if err == nil || fingerprint != "" || writer.directories != 0 || writer.writes != 0 {
 				t.Fatalf("invalid mixed source caused final-tree writes or exposed evidence: %v", err)
 			}
@@ -295,7 +299,7 @@ func TestNativeMixedJournalFailureCleansBothPrivateTrees(t *testing.T) {
 					return failure
 				}}
 				var err error
-				fingerprint, err = fixture.journal.stageMixedDocumentJournal(ctx, fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, wrapped, documentStageOptions(fixture.whole.envelope, budget))
+				fingerprint, err = fixture.journal.stageMixedDocumentJournal(ctx, fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, wrapped, fixture.stageOptions(budget))
 				return err
 			})
 			cause := failure
@@ -329,7 +333,7 @@ func TestNativeMixedJournalCopyRejectsPostSealMutation(t *testing.T) {
 			requireWholeGroupWrite(t, filepath.Join(directory, "files", "000001"), []byte("changed after revalidation"), 0o700)
 		}}
 		var err error
-		fingerprint, err = fixture.journal.stageWithOrdinarySource(t.Context(), source, []DocumentComparison{fixture.comparison}, wrapped, documentStageOptions(fixture.whole.envelope, budget))
+		fingerprint, err = fixture.journal.stageWithOrdinarySource(t.Context(), source, []DocumentComparison{fixture.comparison}, wrapped, fixture.stageOptions(budget))
 		return err
 	})
 	if err == nil || fingerprint != "" {
@@ -408,7 +412,7 @@ func TestNativeMixedJournalCombinesSelectedWholeAndDirectoryBackups(t *testing.T
 	var fingerprint string
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		var err error
-		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison, comparison}, writer, documentStageOptions(fixture.whole.envelope, imageBudget(t)))
+		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison, comparison}, writer, fixture.stageOptions(imageBudget(t)))
 		return err
 	})
 	if err != nil {
@@ -476,7 +480,7 @@ func TestNativeMixedJournalCleanupFailureClearsSuccessfulFingerprint(t *testing.
 			return nil
 		}}
 		var err error
-		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, wrapped, documentStageOptions(fixture.whole.envelope, imageBudget(t)))
+		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, wrapped, fixture.stageOptions(imageBudget(t)))
 		return err
 	})
 	if err == nil || fingerprint != "" {
@@ -494,7 +498,7 @@ func TestNativeMixedJournalAllowsEmptyOrdinaryBackupSource(t *testing.T) {
 	var fingerprint string
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		var err error
-		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, writer, documentStageOptions(fixture.whole.envelope, imageBudget(t)))
+		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
 		return err
 	})
 	if err != nil {
@@ -529,7 +533,7 @@ func TestNativeMixedJournalExhaustedSourceBudgetCleansWithoutFinalWrites(t *test
 				t.Fatal(err)
 			}
 			writer := &mixedNoWriteWriter{}
-			fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, writer, documentStageOptions(fixture.whole.envelope, budget))
+			fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, writer, fixture.stageOptions(budget))
 			if err == nil || fingerprint != "" || writer.writes != 0 || writer.directories != 0 {
 				t.Fatalf("exhausted source budget escaped: %v", err)
 			}

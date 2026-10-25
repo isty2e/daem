@@ -159,7 +159,7 @@ func (record nativeJournalRecord) reconstructSnapshots(ctx context.Context, code
 			return nativeJournalSnapshots{}, err
 		}
 	}
-	if err := record.validateWriterPartition(ctx); err != nil {
+	if err := record.validateWriterSpellingPartition(ctx); err != nil {
 		return nativeJournalSnapshots{}, err
 	}
 	if err := record.validateRemovalCoverage(); err != nil {

@@ -20,7 +20,7 @@ type documentWriterPath struct {
 }
 
 // Metadata partitioning does not qualify current roots or replace alias leases.
-func (record nativeJournalRecord) validateWriterPartition(ctx context.Context) error {
+func (record nativeJournalRecord) validateWriterSpellingPartition(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("document writer partition context is required")
 	}

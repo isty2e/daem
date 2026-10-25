@@ -25,6 +25,7 @@ func TestNativeWriterPartitionPathOrdering(t *testing.T) {
 	}{
 		{name: "one group aliases", paths: []documentWriterPath{{components: []string{"a"}, group: 0}, {components: []string{"a", "b"}, group: 0}, {components: []string{"a"}, group: 0}}},
 		{name: "ordinary projection siblings", paths: []documentWriterPath{{components: []string{"a"}, group: -1}, {components: []string{"a"}, group: -1}}},
+		{name: "distinct case-sensitive equality keys", paths: []documentWriterPath{{components: []string{"settings.json"}, group: 0}, {components: []string{"SETTINGS.JSON"}, group: -1}}},
 		{name: "disjoint sibling names", paths: []documentWriterPath{{components: []string{"a", "b"}, group: 0}, {components: []string{"a-b"}, group: -1}}},
 		{name: "different volumes", paths: []documentWriterPath{{volume: "one", components: []string{"a"}, group: 0}, {volume: "two", components: []string{"a"}, group: -1}}},
 		{name: "same physical file", paths: []documentWriterPath{{components: []string{"a"}, group: 0}, {components: []string{"a"}, group: -1}}, refuses: true},
@@ -80,7 +81,7 @@ func TestNativeWriterPartitionProtectsSelectedRoutesAndIndependentRoots(t *testi
 		t.Run(test.name, func(t *testing.T) {
 			record := fixture.record
 			record.Entries = []recoveryEntry{{Scope: string(target.ScopeGlobal), Path: alias.Address.Destination, GlobalPathBinding: &recoveryGlobalPathBinding{ResolvedPath: test.writer}}}
-			if err := record.validateWriterPartition(t.Context()); (err != nil) != test.refuses {
+			if err := record.validateWriterSpellingPartition(t.Context()); (err != nil) != test.refuses {
 				t.Fatalf("rooted writer/selected route partition: %v", err)
 			}
 		})
@@ -164,7 +165,7 @@ func TestNativeMixedWriterPartitionRefusesActualAliasedOrdinaryWriter(t *testing
 	temporary := t.TempDir()
 	t.Setenv("TMPDIR", temporary)
 	writer := &mixedNoWriteWriter{}
-	fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, writer, documentStageOptions(fixture.whole.envelope, imageBudget(t)))
+	fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
 	if err == nil || fingerprint != "" || (writer.directories+writer.writes) != 0 {
 		t.Fatalf("aliased native and ordinary writers staged a usable result: fingerprint=%q calls=%d err=%v", fingerprint, (writer.directories + writer.writes), err)
 	}
@@ -236,7 +237,7 @@ func TestNativeWriterPartitionRejectsMalformedAndCanceledMetadata(t *testing.T) 
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()
 			}
-			if err := record.validateWriterPartition(ctx); err == nil || change == "canceled" && !errors.Is(err, context.Canceled) {
+			if err := record.validateWriterSpellingPartition(ctx); err == nil || change == "canceled" && !errors.Is(err, context.Canceled) {
 				t.Fatalf("invalid/canceled metadata admitted a writer partition: %v", err)
 			}
 		})
