@@ -167,7 +167,7 @@ func newLegacyProjectionAddress(
 	if err := validateToken("aggregate placement id", placementID); err != nil {
 		return ProjectionAddress{}, err
 	}
-	if _, err := newDocumentAddress(selectedTarget, scope, aggregateRoot); err != nil {
+	if _, err := NewDocumentAddress(selectedTarget, scope, aggregateRoot); err != nil {
 		return ProjectionAddress{}, err
 	}
 	parsedPath, err := ParseContentPath(contentPath)

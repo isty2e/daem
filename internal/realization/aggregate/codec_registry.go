@@ -80,7 +80,7 @@ func newOperationPrecondition(
 	scope target.Scope,
 	root output.Destination,
 ) (OperationPrecondition, error) {
-	document, err := newDocumentAddress(selectedTarget, scope, root)
+	document, err := NewDocumentAddress(selectedTarget, scope, root)
 	if err != nil {
 		return OperationPrecondition{}, err
 	}
@@ -179,7 +179,8 @@ func OperationPreconditionsForSelection(
 	return OperationPreconditionsForContract(contracts[0])
 }
 
-func newDocumentAddress(
+// NewDocumentAddress constructs a portable document identity without selecting keys.
+func NewDocumentAddress(
 	selectedTarget target.Target,
 	scope target.Scope,
 	aggregateRoot output.Destination,
@@ -200,7 +201,7 @@ func newDocumentAddress(
 
 // Validate rejects zero or forged aggregate document addresses.
 func (address DocumentAddress) Validate() error {
-	canonical, err := newDocumentAddress(address.target, address.scope, address.root)
+	canonical, err := NewDocumentAddress(address.target, address.scope, address.root)
 	if err != nil {
 		return err
 	}

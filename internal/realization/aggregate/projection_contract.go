@@ -58,7 +58,7 @@ func newProjectionAddress(
 	if err := validateToken("aggregate placement id", placementID); err != nil {
 		return ProjectionAddress{}, err
 	}
-	document, err := newDocumentAddress(selectedTarget, scope, aggregateRoot)
+	document, err := NewDocumentAddress(selectedTarget, scope, aggregateRoot)
 	if err != nil {
 		return ProjectionAddress{}, err
 	}
