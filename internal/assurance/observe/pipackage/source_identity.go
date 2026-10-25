@@ -40,11 +40,7 @@ func HostLoadIdentityForInput(
 // HostLoadIdentityForContext uses selected lexical roots without consulting the
 // process environment or filesystem. It supplies no package or path authority.
 func HostLoadIdentityForContext(source string, scope target.Scope, context extensiontopology.LocalSourceContext) (string, error) {
-	interpreted, err := interpretPackageSource(source, scope)
-	if err != nil {
-		return "", err
-	}
-	identity, err := sourceIdentityForCarrier(interpreted, context)
+	identity, err := sourceIdentityForContext(source, scope, context)
 	if err != nil {
 		return "", err
 	}
@@ -62,22 +58,29 @@ func sourceIdentityForInput(source string, commandRoot string, scope target.Scop
 	return parseSourceIdentity(source, commandRoot, scope)
 }
 
-func sourceIdentityForSettings(source string, settingsBase string, scope target.Scope) (sourceIdentity, error) {
-	return parseSourceIdentity(source, settingsBase, scope)
+func sourceIdentityForContext(source string, scope target.Scope, context extensiontopology.LocalSourceContext) (sourceIdentity, error) {
+	interpreted, err := interpretPackageSource(source, scope)
+	if err != nil {
+		return sourceIdentity{}, err
+	}
+	return sourceIdentityForCarrier(interpreted, context)
 }
 
-func expectedSettingsSource(
-	source string,
-	commandRoot string,
-	settingsBase string,
-	scope target.Scope,
-) (string, error) {
-	identity, err := sourceIdentityForInput(source, commandRoot, scope)
+func sourceIdentityForRelation(relation ScopedRelation) (sourceIdentity, error) {
+	source := string(relation.key.ExpectedRelation().SubjectKey())
+	if relation.sourceContext != nil {
+		return sourceIdentityForContext(source, relation.scope, *relation.sourceContext)
+	}
+	return sourceIdentityForInput(source, relation.commandRoot, relation.scope)
+}
+
+func expectedSettingsSource(relation ScopedRelation, settingsBase string) (string, error) {
+	identity, err := sourceIdentityForRelation(relation)
 	if err != nil {
 		return "", err
 	}
 	if identity.kind != sourceKindLocal {
-		return source, nil
+		return string(relation.key.ExpectedRelation().SubjectKey()), nil
 	}
 	relative, err := filepath.Rel(settingsBase, identity.key)
 	if err != nil {

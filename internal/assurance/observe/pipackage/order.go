@@ -80,7 +80,7 @@ func (observation OrderObservation) Scope() target.Scope {
 	return observation.selection.scope
 }
 
-// SettingsPath returns the exact path that produced the baseline.
+// SettingsPath returns the selected path, not proof of a filesystem read.
 func (observation OrderObservation) SettingsPath() string {
 	return observation.inventory.settingsPath
 }
@@ -241,8 +241,7 @@ func newOrderSelection(
 				member.Subject(),
 			)
 		}
-		source := string(relation.key.ExpectedRelation().SubjectKey())
-		identity, err := HostLoadIdentityForInput(source, relation.commandRoot, scope)
+		identity, err := sourceIdentityForRelation(relation)
 		if err != nil {
 			return orderSelection{}, fmt.Errorf(
 				"derive Pi package order member[%d] load identity: %w",
@@ -250,12 +249,13 @@ func newOrderSelection(
 				err,
 			)
 		}
-		if hostrelation.HostLoadIdentity(identity) != member.HostLoadIdentity() {
+		loadIdentity := identity.hostLoadIdentity(scope)
+		if hostrelation.HostLoadIdentity(loadIdentity) != member.HostLoadIdentity() {
 			return orderSelection{}, fmt.Errorf(
 				"Pi package order member[%d] host load identity %q does not match relation identity %q",
 				index,
 				member.HostLoadIdentity(),
-				identity,
+				loadIdentity,
 			)
 		}
 		ordered = append(ordered, relation)
@@ -285,13 +285,7 @@ func observeOrder(
 	}
 	exactSubjects := make(map[string]topology.SubjectID, len(selection.relations))
 	for index, relation := range selection.relations {
-		source := string(relation.key.ExpectedRelation().SubjectKey())
-		stored, err := expectedSettingsSource(
-			source,
-			relation.commandRoot,
-			inventory.settingsBase,
-			selection.scope,
-		)
+		stored, err := expectedSettingsSource(relation, inventory.settingsBase)
 		if err != nil {
 			return OrderObservation{}, fmt.Errorf(
 				"derive Pi package order relation[%d] stored source: %w",
@@ -408,6 +402,12 @@ func inventoryFromContent(
 	content []byte,
 	exists bool,
 ) (Inventory, error) {
+	if len(content) > MaximumSettingsBytes {
+		return Inventory{}, fmt.Errorf("Pi settings exceeds %d bytes", MaximumSettingsBytes)
+	}
+	if !exists && len(content) != 0 {
+		return Inventory{}, fmt.Errorf("absent Pi settings contains bytes")
+	}
 	var document piconfig.Document
 	var err error
 	if exists {
@@ -417,13 +417,14 @@ func inventoryFromContent(
 		}
 	}
 	return Inventory{
-		scope:        baseline.scope,
-		settingsPath: baseline.settingsPath,
-		settingsBase: baseline.settingsBase,
-		revision:     settingsRevision(content),
-		exists:       exists,
-		content:      bytes.Clone(content),
-		document:     document,
+		scope:         baseline.scope,
+		settingsPath:  baseline.settingsPath,
+		settingsBase:  baseline.settingsBase,
+		revision:      settingsRevision(content),
+		exists:        exists,
+		content:       bytes.Clone(content),
+		document:      document,
+		sourceContext: baseline.sourceContext,
 	}, nil
 }
 

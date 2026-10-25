@@ -18,14 +18,22 @@ type LocalSourceContext struct {
 // NewLocalSourceContext validates the roots used to interpret relative and
 // home-relative carrier sources.
 func NewLocalSourceContext(baseRoot string, homeRoot string) (LocalSourceContext, error) {
-	if err := validateLocalSourceRoot("carrier local source base", baseRoot); err != nil {
+	context := LocalSourceContext{baseRoot: baseRoot, homeRoot: homeRoot}
+	if err := context.Validate(); err != nil {
 		return LocalSourceContext{}, err
 	}
-	if err := validateLocalSourceRoot("carrier local source home", homeRoot); err != nil {
-		return LocalSourceContext{}, err
-	}
-	return LocalSourceContext{baseRoot: baseRoot, homeRoot: homeRoot}, nil
+	return context, nil
 }
+
+func (context LocalSourceContext) Validate() error {
+	if err := validateLocalSourceRoot("carrier local source base", context.baseRoot); err != nil {
+		return err
+	}
+	return validateLocalSourceRoot("carrier local source home", context.homeRoot)
+}
+
+// BaseRoot returns the selected lexical base, not a filesystem capability.
+func (context LocalSourceContext) BaseRoot() string { return context.baseRoot }
 
 // LocalSourceIdentity is one lexical absolute carrier-local source identity.
 // It deliberately does not resolve symlinks or require the source to exist.
@@ -53,10 +61,7 @@ func (source CarrierSource) ResolveLocal(context LocalSourceContext) (LocalSourc
 			source.class,
 		)
 	}
-	if err := validateLocalSourceRoot("carrier local source base", context.baseRoot); err != nil {
-		return LocalSourceIdentity{}, err
-	}
-	if err := validateLocalSourceRoot("carrier local source home", context.homeRoot); err != nil {
+	if err := context.Validate(); err != nil {
 		return LocalSourceIdentity{}, err
 	}
 	local, err := localSourcePath(source.identity)

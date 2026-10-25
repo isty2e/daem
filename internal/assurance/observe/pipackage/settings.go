@@ -11,6 +11,7 @@ import (
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 	"github.com/isty2e/daem/internal/target"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
 const (
@@ -28,13 +29,14 @@ type SettingsInput struct {
 
 // Inventory is one immutable, scope-specific Pi package settings observation.
 type Inventory struct {
-	scope        target.Scope
-	settingsPath string
-	settingsBase string
-	revision     string
-	exists       bool
-	content      []byte
-	document     piconfig.Document
+	scope         target.Scope
+	settingsPath  string
+	settingsBase  string
+	revision      string
+	exists        bool
+	content       []byte
+	document      piconfig.Document
+	sourceContext *extensiontopology.LocalSourceContext
 }
 
 // SettingsPath returns the exact passive authority path consumed by the read.
@@ -72,11 +74,7 @@ func (inventory Inventory) Entries() ([]Entry, error) {
 	entries := make([]Entry, 0, len(documentEntries))
 	for index, documentEntry := range documentEntries {
 		source := documentEntry.Source()
-		identity, err := sourceIdentityForSettings(
-			source,
-			inventory.settingsBase,
-			inventory.scope,
-		)
+		identity, err := inventory.sourceIdentity(source)
 		if err != nil {
 			return nil, fmt.Errorf("parse Pi settings package source[%d]: %w", index, err)
 		}
@@ -90,6 +88,13 @@ func (inventory Inventory) Entries() ([]Entry, error) {
 		entries = append(entries, entry)
 	}
 	return entries, nil
+}
+
+func (inventory Inventory) sourceIdentity(source string) (sourceIdentity, error) {
+	if inventory.sourceContext != nil {
+		return sourceIdentityForContext(source, inventory.scope, *inventory.sourceContext)
+	}
+	return parseSourceIdentity(source, inventory.settingsBase, inventory.scope)
 }
 
 // EntriesAdmitted applies admit to every raw source before any identity or
