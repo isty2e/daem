@@ -29,7 +29,7 @@ func (record *recoveryDocumentBindingIntent) UnmarshalJSON(content []byte) error
 	if record == nil {
 		return fmt.Errorf("recovery document binding intent destination is nil")
 	}
-	if err := requireRecoveryJSONFields(content, "recovery document binding intent",
+	if err := requireDocumentEvidenceFields(content,
 		"statefile_authority", "manifest_path", "destination", "before", "after"); err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func (phase *recoveryDocumentBindingPhase) UnmarshalJSON(content []byte) error {
 	if phase == nil {
 		return fmt.Errorf("recovery document binding phase destination is nil")
 	}
-	if err := requireRecoveryJSONFields(content, "recovery document binding phase", "kind"); err != nil {
+	if err := requireDocumentEvidenceFields(content, "kind"); err != nil {
 		return err
 	}
 	type wire recoveryDocumentBindingPhase

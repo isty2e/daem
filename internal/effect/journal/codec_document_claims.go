@@ -1,8 +1,6 @@
 package journal
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"slices"
 
@@ -10,7 +8,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	footprintcodec "github.com/isty2e/daem/internal/encoding/footprint"
-	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -51,7 +48,7 @@ func (record *recoveryDocumentClaimSet) UnmarshalJSON(content []byte) error {
 	if record == nil {
 		return fmt.Errorf("document claim set destination is nil")
 	}
-	if err := requireDocumentClaimFields(content, "kind"); err != nil {
+	if err := requireDocumentEvidenceFields(content, "kind"); err != nil {
 		return err
 	}
 	type wire recoveryDocumentClaimSet
@@ -71,7 +68,7 @@ func (record *recoveryDocumentProvisionalAcquire) UnmarshalJSON(content []byte) 
 	if record == nil {
 		return fmt.Errorf("document provisional acquire destination is nil")
 	}
-	if err := requireDocumentClaimFields(content, "alias", "footprint", "candidate_authority", "namespace_authority", "statefile_authority", "manifest_path", "operation_id"); err != nil {
+	if err := requireDocumentEvidenceFields(content, "alias", "footprint", "candidate_authority", "namespace_authority", "statefile_authority", "manifest_path", "operation_id"); err != nil {
 		return err
 	}
 	type wire recoveryDocumentProvisionalAcquire
@@ -87,7 +84,7 @@ func (alias *recoveryDocumentAliasRef) UnmarshalJSON(content []byte) error {
 	if alias == nil {
 		return fmt.Errorf("document alias destination is nil")
 	}
-	if err := requireDocumentClaimFields(content, "target", "scope", "destination"); err != nil {
+	if err := requireDocumentEvidenceFields(content, "target", "scope", "destination"); err != nil {
 		return err
 	}
 	type wire recoveryDocumentAliasRef
@@ -96,30 +93,6 @@ func (alias *recoveryDocumentAliasRef) UnmarshalJSON(content []byte) error {
 		return err
 	}
 	*alias = recoveryDocumentAliasRef(decoded)
-	return nil
-}
-
-func requireDocumentClaimFields(content []byte, names ...string) error {
-	if err := jsonstrict.Validate(content, "document claim evidence", maximumRecoveryJournalJSONDepth); err != nil {
-		return err
-	}
-	if err := requireRecoveryJSONFields(content, "document claim evidence", names...); err != nil {
-		return err
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(content, &fields); err != nil {
-		return err
-	}
-	for name, value := range fields {
-		for _, character := range []byte(name) {
-			if character != '_' && (character < 'a' || character > 'z') && (character < '0' || character > '9') {
-				return fmt.Errorf("document claim field must use canonical lower_snake_case")
-			}
-		}
-		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return fmt.Errorf("document claim field %q must not be null", name)
-		}
-	}
 	return nil
 }
 

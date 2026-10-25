@@ -153,6 +153,7 @@ func TestDocumentBindingIntentWireRequiresExactJSONStructure(t *testing.T) {
 	for _, replacement := range []string{
 		`"before":{}`, `"before":{"kind":null}`, `"before":{"kind":"absent","extra":1}`,
 		`"before":{"Kind":"absent"}`, `"before":{"kind":"absent","kind":"absent"}`,
+		`"before":{"kind":"absent","Kind":"absent"}`, `"before":{"kind":"absent","Authority":null}`,
 		`"before":[]`, `"before":{"kind":"absent"},"before":{"kind":"absent"}`,
 	} {
 		content := strings.Replace(string(encoded), `"before":{"kind":"absent"}`, replacement, 1)
