@@ -374,13 +374,16 @@ func loadActivePlanFromInventory(
 	if inventory.active == nil {
 		return recovery.Plan{}, fmt.Errorf("active recovery inventory is incomplete")
 	}
+	journal, ok := inventory.active.record.(recoveryJournal)
+	if !ok {
+		return recovery.Plan{}, fmt.Errorf("legacy recovery planning requires a journal15 inventory record")
+	}
 	if options.ValidateBeforeActiveObservation != nil {
 		if err := options.ValidateBeforeActiveObservation(ctx); err != nil {
 			return recovery.Plan{}, err
 		}
 	}
 	operationDir := inventory.active.operationDir
-	journal := inventory.active.journal
 	claimTransitions, err := canonicalClaimTransitions(journal.ClaimTransitions)
 	if err != nil {
 		return recovery.Plan{}, err
