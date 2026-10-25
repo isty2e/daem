@@ -591,56 +591,7 @@ func (store Store) loadForCommit(
 		if observationErr != nil {
 			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, observationErr
 		}
-		if !observations.bounded() {
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
-				"rooted ownership registry budget is unavailable",
-			)
-		}
-		capability, err := store.root.AcquireBounded(
-			store.destination,
-			observations.maximumPhysicalDepth,
-			observations.budget,
-		)
-		if err != nil {
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
-				"acquire ownership registry: %w",
-				err,
-			)
-		}
-		content, mode, identity, err := storagecommit.ReadRootedRegularFileUpTo(
-			ctx,
-			capability,
-			maximumOwnershipRegistryBytes,
-		)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return ownership.EmptyRegistry(), storagecommit.EntryIdentity{}, false, capability, nil
-			}
-			_ = capability.Close()
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
-				"read ownership registry: %w",
-				err,
-			)
-		}
-		if mode.Perm()&0o077 != 0 {
-			_ = capability.Close()
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
-				"ownership registry %q permissions %04o expose authority metadata",
-				store.path,
-				mode.Perm(),
-			)
-		}
-		registry, err := decodePersistedRegistryForClaimRemovals(
-			ctx,
-			content,
-			nil,
-			observations,
-		)
-		if err != nil {
-			_ = capability.Close()
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
-		}
-		return registry, identity, true, capability, nil
+		return store.loadRootedForCommit(ctx, nil, observations)
 	}
 	identity, err := storagecommit.CaptureEntryIdentity(ctx, store.path)
 	if err != nil {

@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
@@ -20,7 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func TestNativeMissingHistoryCapturesAndClassifiesWithoutHostPublication(t *testing.T) {
+func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		for _, retained := range []bool{false, true} {
 			name := string(scope) + "/last-member"
@@ -189,6 +191,39 @@ func TestNativeMissingHistoryCapturesAndClassifiesWithoutHostPublication(t *test
 					}
 					if _, err := os.Lstat(fixture.path); !errors.Is(err, os.ErrNotExist) {
 						t.Fatalf("metadata-only settlement recreated the host file: %v", err)
+					}
+					if committed {
+						writer, supported := store.(ownershipmutation.DocumentRegistryStore)
+						if !supported {
+							t.Fatal("actual rooted store lacks document-qualified settlement")
+						}
+						result, err := writer.ConvergeForDocuments(t.Context(), assessment.finalize, assessment.bindings, owner, []pathauthority.Provisional{pending}, recovery.MaximumPhysicalPathDepth, documents.budget)
+						if err != nil {
+							t.Fatalf("persisted after-state metadata did not settle: %v", err)
+						}
+						var afterClaims []ownership.Claim
+						if prepared[0].claims != nil {
+							afterClaims = prepared[0].claims.After()
+						}
+						var afterBindings []ownership.DocumentBinding
+						if retained {
+							afterBindings = []ownership.DocumentBinding{binding}
+						}
+						expected, err := ownership.NewRegistry(afterClaims, afterBindings...)
+						if err != nil || !result.Equal(expected) {
+							t.Fatalf("joint settlement lost its exact after fragment: %v", err)
+						}
+						encoded, err := ownershipstore.Marshal(expected)
+						if err != nil {
+							t.Fatal(err)
+						}
+						actual, err = os.ReadFile(registryPath)
+						if err != nil || !bytes.Equal(actual, encoded) {
+							t.Fatalf("joint settlement did not persist both exact families: %v", err)
+						}
+						if _, err := os.Lstat(fixture.path); !errors.Is(err, os.ErrNotExist) {
+							t.Fatalf("joint metadata write created the absent host: %v", err)
+						}
 					}
 				}
 			})

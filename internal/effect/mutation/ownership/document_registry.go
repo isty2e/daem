@@ -14,3 +14,10 @@ import (
 type DocumentRegistryReader interface {
 	LoadForDocuments(context.Context, stateauthority.Authority, []pathauthority.Provisional, int, rootedpath.PhysicalTraversalBudget) (outputownership.Registry, error)
 }
+
+// DocumentRegistryStore settles both metadata families in one rooted commit.
+// Operation leases, phase admission and host authority remain caller-owned.
+type DocumentRegistryStore interface {
+	DocumentRegistryReader
+	ConvergeForDocuments(context.Context, outputownership.ClaimConvergence, outputownership.DocumentBindingConvergence, stateauthority.Authority, []pathauthority.Provisional, int, rootedpath.PhysicalTraversalBudget) (outputownership.Registry, error)
+}

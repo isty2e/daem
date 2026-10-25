@@ -16,38 +16,46 @@ var _ ownershipmutation.DocumentRegistryReader = Store{}
 // LoadForDocuments preserves actual owned claim records when a missing document
 // retains their exact comparison key and witness. Other authorities remain strict.
 func (store Store) LoadForDocuments(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, maximumPhysicalDepth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
+	observations, err := newDocumentPathAuthorityObservationSession(ctx, owner, missing, maximumPhysicalDepth, budget)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	return store.load(ctx, nil, observations)
+}
+
+func newDocumentPathAuthorityObservationSession(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, maximumPhysicalDepth int, budget rootedpath.PhysicalTraversalBudget) (*pathAuthorityObservationSession, error) {
 	if ctx == nil {
-		return ownership.Registry{}, fmt.Errorf("document registry read context is required")
+		return nil, fmt.Errorf("document registry read context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return ownership.Registry{}, err
+		return nil, err
 	}
 	if err := owner.Validate(); err != nil {
-		return ownership.Registry{}, err
+		return nil, err
 	}
 	if len(missing) == 0 {
-		return ownership.Registry{}, fmt.Errorf("document registry read requires observed missing namespaces")
+		return nil, fmt.Errorf("document registry read requires observed missing namespaces")
 	}
 	observations, err := newBoundedPathAuthorityObservationSession(maximumPhysicalDepth, budget)
 	if err != nil {
-		return ownership.Registry{}, err
+		return nil, err
 	}
 	observations.documentOwner = owner
 	observations.missingDocuments = make(map[string]pathauthority.Provisional, len(missing))
 	for _, namespace := range missing {
 		if err := ctx.Err(); err != nil {
-			return ownership.Registry{}, err
+			return nil, err
 		}
 		if err := namespace.Validate(); err != nil {
-			return ownership.Registry{}, err
+			return nil, err
 		}
 		key := namespace.CandidateKey()
 		if previous, found := observations.missingDocuments[key]; found && !previous.Equal(namespace) {
-			return ownership.Registry{}, fmt.Errorf("document registry read repeats a contradictory missing namespace")
+			return nil, fmt.Errorf("document registry read repeats a contradictory missing namespace")
 		}
 		observations.missingDocuments[key] = namespace
 	}
-	return store.load(ctx, nil, observations)
+	return observations, nil
 }
 
 func (session *pathAuthorityObservationSession) admitsMissingDocumentClaim(claim ownership.Claim) bool {

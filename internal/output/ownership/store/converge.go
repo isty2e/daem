@@ -29,6 +29,14 @@ func (store Store) ConvergeRegistry(
 	claims ownership.ClaimConvergence,
 	bindings ownership.DocumentBindingConvergence,
 ) (ownership.Registry, error) {
+	observations, err := store.newPathAuthorityObservationSession()
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	return store.convergeRegistry(ctx, claims, bindings, observations)
+}
+
+func (store Store) convergeRegistry(ctx context.Context, claims ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence, observations *pathAuthorityObservationSession) (ownership.Registry, error) {
 	if ctx == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry context is required")
 	}
@@ -42,7 +50,7 @@ func (store Store) ConvergeRegistry(
 		return ownership.Registry{}, err
 	}
 
-	current, expectedEntry, exists, capability, err := store.loadForConvergence(ctx, claims.ExpectedRemovals())
+	current, expectedEntry, exists, capability, err := store.loadForConvergence(ctx, claims.ExpectedRemovals(), observations)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -98,6 +106,7 @@ func (store Store) ConvergeRegistry(
 func (store Store) loadForConvergence(
 	ctx context.Context,
 	removals []ownership.Claim,
+	observations *pathAuthorityObservationSession,
 ) (
 	ownership.Registry,
 	storagecommit.EntryIdentity,
@@ -105,6 +114,9 @@ func (store Store) loadForConvergence(
 	rootedpath.CommitCapability,
 	error,
 ) {
+	if store.root != nil {
+		return store.loadRootedForCommit(ctx, removals, observations)
+	}
 	if len(removals) != 0 {
 		return store.loadForClaimRemovals(ctx, removals)
 	}
