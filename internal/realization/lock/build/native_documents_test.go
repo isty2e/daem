@@ -133,7 +133,11 @@ func TestNativeDocumentProducerUsesExactSourcesAndNativeWholeIdentity(t *testing
 			if err != nil || identity.ContentHash() != hash {
 				t.Fatalf("source identity mismatch: %v", err)
 			}
-			materialization, err := artifact.NewFileMaterialization(identity, fixture.payload, fixture.mode&0o111 != 0, false)
+			observedSource, err := os.Stat(filepath.Join(directory, "source"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			materialization, err := artifact.NewFileMaterialization(identity, fixture.payload, observedSource.Mode().Perm()&0o111 != 0, false)
 			if err != nil || resource.ValidateFileMaterialization(materialization) != nil {
 				t.Fatalf("source bytes were transformed or executable output admitted: %v", err)
 			}
