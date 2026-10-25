@@ -70,27 +70,9 @@ type documentSelectionKey struct {
 // selectedContracts resolves only the declared frontier. Unselected state still
 // belongs to the operation's separate membership and changed-row coverage join.
 func (indexes documentSnapshotIndexes) selectedContracts(ctx context.Context, subjects []topology.SubjectID, aliases []aggregate.DocumentAddress) ([]aggregate.Selection, error) {
-	if ctx == nil {
-		return nil, fmt.Errorf("document selection context is required")
-	}
-	if err := ctx.Err(); err != nil {
+	addresses, err := documentAliasSet(ctx, aliases)
+	if err != nil {
 		return nil, err
-	}
-	if len(aliases) == 0 {
-		return nil, fmt.Errorf("document selection aliases are required")
-	}
-	addresses := make(map[aggregate.DocumentAddress]struct{}, len(aliases))
-	for index, alias := range aliases {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if err := alias.Validate(); err != nil {
-			return nil, fmt.Errorf("document alias[%d]: %w", index, err)
-		}
-		if _, duplicate := addresses[alias]; duplicate {
-			return nil, fmt.Errorf("document aliases must be unique")
-		}
-		addresses[alias] = struct{}{}
 	}
 
 	groups := make(map[documentSelectionKey]map[output.KeyPath]aggregate.ProjectionContract)
@@ -164,6 +146,32 @@ func (indexes documentSnapshotIndexes) selectedContracts(ctx context.Context, su
 		return nil, err
 	}
 	return selections, nil
+}
+
+func documentAliasSet(ctx context.Context, aliases []aggregate.DocumentAddress) (map[aggregate.DocumentAddress]struct{}, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("document selection context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(aliases) == 0 {
+		return nil, fmt.Errorf("document selection aliases are required")
+	}
+	addresses := make(map[aggregate.DocumentAddress]struct{}, len(aliases))
+	for index, alias := range aliases {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if err := alias.Validate(); err != nil {
+			return nil, fmt.Errorf("document alias[%d]: %w", index, err)
+		}
+		if _, duplicate := addresses[alias]; duplicate {
+			return nil, fmt.Errorf("document aliases must be unique")
+		}
+		addresses[alias] = struct{}{}
+	}
+	return addresses, nil
 }
 
 func selectedContractAt(index documentSnapshotIndex, subject topology.SubjectID, aliases map[aggregate.DocumentAddress]struct{}) (aggregate.ProjectionContract, bool) {
