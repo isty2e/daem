@@ -33,7 +33,7 @@ type managedPathExecutionSchedule struct {
 }
 
 func newManagedPathExecutionSchedule(effects []ManagedPathEffect) (managedPathExecutionSchedule, error) {
-	mutations, err := managedPathJournalMutations(effects)
+	mutations, err := ManagedPathJournalMutations(effects)
 	if err != nil {
 		return managedPathExecutionSchedule{}, err
 	}

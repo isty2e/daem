@@ -14,12 +14,14 @@ import (
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	payloadbuild "github.com/isty2e/daem/internal/effect/payload/build"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/lock"
 	lockbuild "github.com/isty2e/daem/internal/realization/lock/build"
@@ -158,6 +160,24 @@ func TestNativeDocumentRealSourceObservationPreparesWholeFileEffect(t *testing.T
 			}
 			if _, err := execute.PrepareApplyEffectPlan(execute.ApplyInput{ManagedPathEffects: effects, CurrentState: current, Payloads: payloads, StateCodec: stateCodec}); err != nil {
 				t.Fatalf("actual native whole effect cannot enter structural apply preparation: %v", err)
+			}
+			mutations, err := execute.ManagedPathJournalMutations(effects)
+			if err != nil || len(mutations) != 1 {
+				t.Fatalf("actual native effect cannot enter capture preparation: %v", err)
+			}
+			comparison, err := journal.PrepareWholeDocument(t.Context(), journal.WholeDocumentPreparationInput{
+				Before: aggregate.AbsentDocument(), Limits: configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64},
+			}, mutations[0], payloads)
+			if err != nil {
+				t.Fatal(err)
+			}
+			beforeMatch, err := comparison.Match(t.Context(), aggregate.AbsentDocument(), nil)
+			if err != nil || !beforeMatch.MatchesBefore() || beforeMatch.MatchesExpected() {
+				t.Fatalf("capture preparation lost actual original absence: %+v, %v", beforeMatch, err)
+			}
+			expectedMatch, err := comparison.Match(t.Context(), aggregate.ExistingDocument(original), recovery.NewPermissionMode(file.Mode()))
+			if err != nil || !expectedMatch.MatchesExpected() || expectedMatch.MatchesBefore() {
+				t.Fatalf("capture preparation lost actual prepared source bytes/mode: %+v, %v", expectedMatch, err)
 			}
 			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(placement.Destination().RelativePath()))); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("preparation crossed host-write boundary: %v", err)

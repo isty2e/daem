@@ -192,7 +192,7 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("marshal statefile: %w", err)
 	}
-	managedMutations, err := managedPathJournalMutations(input.ManagedPathEffects)
+	managedMutations, err := ManagedPathJournalMutations(input.ManagedPathEffects)
 	if err != nil {
 		return ApplyResult{}, err
 	}

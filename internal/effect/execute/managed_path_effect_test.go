@@ -106,9 +106,9 @@ func TestManagedPathEffectCorrelatesExactCrossPlacementRelocation(t *testing.T) 
 	if err := effect.validate(); err != nil {
 		t.Fatalf("cross-placement relocation validation: %v", err)
 	}
-	mutations, err := managedPathJournalMutations([]ManagedPathEffect{effect})
+	mutations, err := ManagedPathJournalMutations([]ManagedPathEffect{effect})
 	if err != nil {
-		t.Fatalf("managedPathJournalMutations returned error: %v", err)
+		t.Fatalf("ManagedPathJournalMutations returned error: %v", err)
 	}
 	if len(mutations) != 2 {
 		t.Fatalf("relocation journal mutation count = %d, want create plus remove", len(mutations))
