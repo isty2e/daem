@@ -27,6 +27,9 @@ func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comp
 	if err := journal.record.validateRemovalCoverage(); err != nil {
 		return nativeDocumentRecords{}, err
 	}
+	if err := journal.record.validateWriterPartition(ctx); err != nil {
+		return nativeDocumentRecords{}, err
+	}
 	if err := journal.owner.Validate(); err != nil {
 		return nativeDocumentRecords{}, err
 	}

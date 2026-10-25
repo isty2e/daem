@@ -154,17 +154,12 @@ func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.
 	second.BindingIntents = []recoveryDocumentBindingIntent{binding}
 	fixture.record.DocumentGroups = append(fixture.record.DocumentGroups, second)
 	content, err := marshalNativeJournalRecord(t.Context(), fixture.record, fixture.before, fixture.after, fixture.codec)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || content != nil {
+		t.Fatal("two logical groups at one recorded writer escaped strict construction")
 	}
-	decoded, err := decodeNativeJournalRecord(t.Context(), content, fixture.codec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The records are independently coherent; only actual physical qualification
-	// reveals that their two aliases are not disjoint execution units.
-	if records, err := decoded.loadDocuments(t.Context(), fixture.read); err != nil || len(records.groups) != 2 {
-		t.Fatalf("collision fixture failed before the physical join: %v", err)
+	decoded := nativeJournalSnapshots{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	if records, err := decoded.loadDocuments(t.Context(), fixture.read); err == nil || records.groups != nil {
+		t.Fatal("bypassing decode admitted overlapping physical writers")
 	}
 	reader := &nativeNamespaceReader{RootedReader: fixture.read.filesystem}
 	fixture.read.filesystem = reader

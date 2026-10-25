@@ -132,16 +132,12 @@ func (record nativeJournalRecord) reconstructSnapshots(ctx context.Context, code
 	if len(record.DocumentGroups) == 0 && len(record.Entries) == 0 && before.Equal(after) {
 		return nativeJournalSnapshots{}, fmt.Errorf("native journal has no host or state work")
 	}
-	groupDestinations := make(map[string]struct{})
 	for index, group := range record.DocumentGroups {
 		if err := ctx.Err(); err != nil {
 			return nativeJournalSnapshots{}, err
 		}
 		if err := group.validate(record.ManifestRootProvenance); err != nil {
 			return nativeJournalSnapshots{}, fmt.Errorf("document group[%d]: %w", index, err)
-		}
-		for _, alias := range group.Aliases {
-			groupDestinations[alias.Address.Destination] = struct{}{}
 		}
 		workItems += 1 + len(group.Aliases) + len(group.SelectedSubjects) + len(group.BindingIntents)
 		if group.Removal != nil {
@@ -163,10 +159,8 @@ func (record nativeJournalRecord) reconstructSnapshots(ctx context.Context, code
 			return nativeJournalSnapshots{}, err
 		}
 	}
-	for _, entry := range record.Entries {
-		if _, shared := groupDestinations[entry.Path]; shared {
-			return nativeJournalSnapshots{}, fmt.Errorf("ordinary entry shares a document group destination")
-		}
+	if err := record.validateWriterPartition(ctx); err != nil {
+		return nativeJournalSnapshots{}, err
 	}
 	if err := record.validateRemovalCoverage(); err != nil {
 		return nativeJournalSnapshots{}, err

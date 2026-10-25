@@ -161,6 +161,7 @@ func TestNativeJournalReconstructionRejectsLateGroupWithoutPartialPrefix(t *test
 	fixture := nativeJournalFixture(t)
 	record := fixture.record
 	late := record.DocumentGroups[0]
+	late.Writer.RelativePath = "late.json"
 	late.Aliases = []recoveryDocumentAlias{late.Aliases[0]}
 	late.Aliases[0].Address.Destination = "@pi-agent/late.json"
 	late.BindingIntents = []recoveryDocumentBindingIntent{late.BindingIntents[0]}
