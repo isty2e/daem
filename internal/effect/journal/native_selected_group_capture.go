@@ -160,6 +160,23 @@ func prepareSelectedDocumentGroup(ctx context.Context, namespace NativeDocumentN
 	if err != nil {
 		return recoveryDocumentGroup{}, DocumentComparison{}, err
 	}
+	relations := make([]aggregate.DocumentAddress, 0, len(input.edits)+1)
+	for _, edit := range input.edits {
+		for _, contract := range edit.Participant().Selection().Contracts() {
+			relations = append(relations, contract.Address().Document())
+		}
+	}
+	if group.PiOrder != nil {
+		alias, err := group.PiOrder.Alias.canonical()
+		if err != nil {
+			return recoveryDocumentGroup{}, DocumentComparison{}, err
+		}
+		relations = append(relations, alias)
+	}
+	group.Removal, err = captureDocumentRemoval(ctx, namespace, comparison, relations, input.budget)
+	if err != nil {
+		return recoveryDocumentGroup{}, DocumentComparison{}, err
+	}
 	if err := group.validate(persistedNativeRoot(manifest.provenance)); err != nil {
 		return recoveryDocumentGroup{}, DocumentComparison{}, err
 	}

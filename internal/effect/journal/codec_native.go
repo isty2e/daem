@@ -144,6 +144,9 @@ func (record nativeJournalRecord) reconstructSnapshots(ctx context.Context, code
 			groupDestinations[alias.Address.Destination] = struct{}{}
 		}
 		workItems += 1 + len(group.Aliases) + len(group.SelectedSubjects) + len(group.BindingIntents)
+		if group.Removal != nil {
+			workItems += 1 + len(group.Removal.Demands) + len(group.Removal.States)
+		}
 		if group.ExclusiveClaims.Before != nil {
 			workItems += len(*group.ExclusiveClaims.Before)
 		}
@@ -164,6 +167,9 @@ func (record nativeJournalRecord) reconstructSnapshots(ctx context.Context, code
 		if _, shared := groupDestinations[entry.Path]; shared {
 			return nativeJournalSnapshots{}, fmt.Errorf("ordinary entry shares a document group destination")
 		}
+	}
+	if err := record.validateRemovalCoverage(); err != nil {
+		return nativeJournalSnapshots{}, err
 	}
 	// The frozen per-entry interpreter can validate ordinary entries alongside
 	// native Snapshots, but its state-only no-work rule excludes Pi-only groups.

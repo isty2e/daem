@@ -44,6 +44,9 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 	if err := ctx.Err(); err != nil {
 		return nativeDocumentRecords{}, err
 	}
+	if err := journal.record.validateRemovalCoverage(); err != nil {
+		return nativeDocumentRecords{}, err
+	}
 	if err := journal.owner.Validate(); err != nil {
 		return nativeDocumentRecords{}, err
 	}
@@ -79,6 +82,9 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 		}
 		images, err := loadDocumentImages(ctx, record.Original, record.Expected, options.artifacts, options.filesystem, options.budget, recovery.MaximumRecoveryBackupFileBytes)
 		if err != nil {
+			return nativeDocumentRecords{}, err
+		}
+		if err := record.validateRemovalImages(images); err != nil {
 			return nativeDocumentRecords{}, err
 		}
 		comparison, err := reconstructNativeDocumentComparison(ctx, record, images, selections, options.limits, options.codecs)

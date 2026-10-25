@@ -86,6 +86,19 @@ func (journal nativeJournalSnapshots) loadQualifiedDocuments(ctx context.Context
 				return nativeQualifiedDocumentRecords{}, err
 			}
 		}
+		if record.Removal != nil {
+			removal, err := record.Removal.canonical()
+			if err != nil {
+				return nativeQualifiedDocumentRecords{}, err
+			}
+			observed, err := ObserveRemovalNamespace(ctx, namespace.writerRoot, namespace.writer, removal.Namespace(), options.budget)
+			if err != nil {
+				return nativeQualifiedDocumentRecords{}, err
+			}
+			if observed.Status() != recovery.RemovalNamespaceMatched {
+				return nativeQualifiedDocumentRecords{}, fmt.Errorf("native document removal namespace no longer matches its writer")
+			}
+		}
 		key := nativeDocumentObservationKey(namespace.observation)
 		volume, components := recoveryFilesystemPathComponents(key)
 		if physicalUnits[volume] == nil {

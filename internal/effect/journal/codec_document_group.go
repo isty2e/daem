@@ -24,7 +24,7 @@ type recoveryDocumentGroup struct {
 	Expected         recoveryDocumentImage           `json:"expected"`
 	ExclusiveClaims  recoveryDocumentClaimSet        `json:"exclusive_claims"`
 	BindingIntents   []recoveryDocumentBindingIntent `json:"binding_intents"`
-	Removal          *recoveryRemovalIntent          `json:"removal,omitempty"`
+	Removal          *recoveryDocumentRemoval        `json:"removal,omitempty"`
 }
 
 type recoveryDocumentObservation struct {
@@ -161,19 +161,7 @@ func (record recoveryDocumentGroup) validate(manifest recoveryRootProvenance) er
 			return fmt.Errorf("Pi command root: %w", err)
 		}
 	}
-	if record.Removal != nil {
-		intents, err := canonicalRecoveryRemovalIntents([]recoveryRemovalIntent{*record.Removal})
-		if err != nil {
-			return err
-		}
-		intent := intents[0]
-		if !slices.ContainsFunc(record.Aliases, func(alias recoveryDocumentAlias) bool {
-			return alias.Address.Scope == string(intent.Scope()) && alias.Address.Destination == intent.Destination().String()
-		}) {
-			return fmt.Errorf("document removal has no declared alias")
-		}
-	}
-	return nil
+	return record.validateRemoval()
 }
 
 func piOrderDocumentAlias(scope target.Scope) (aggregate.DocumentAddress, error) {

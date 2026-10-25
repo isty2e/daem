@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -21,6 +22,9 @@ func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comp
 		return nativeDocumentRecords{}, fmt.Errorf("prepared native document context is required")
 	}
 	if err := ctx.Err(); err != nil {
+		return nativeDocumentRecords{}, err
+	}
+	if err := journal.record.validateRemovalCoverage(); err != nil {
 		return nativeDocumentRecords{}, err
 	}
 	if err := journal.owner.Validate(); err != nil {
@@ -65,6 +69,9 @@ func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comp
 		comparison := comparisons[index]
 		images, err := preparedNativeDocumentImages(ctx, record, comparison, limits)
 		if err != nil {
+			return nativeDocumentRecords{}, err
+		}
+		if err := record.validateRemovalImages(images); err != nil {
 			return nativeDocumentRecords{}, err
 		}
 		reconstructed, err := reconstructNativeDocumentComparison(ctx, record, images, selections, limits, codecs)
@@ -176,7 +183,37 @@ func reconstructNativeDocumentComparison(ctx context.Context, record recoveryDoc
 		order = &observed
 	}
 	candidate, err := ReconstructSelectedDocument(ctx, input, participants, order)
-	return candidate.Comparison(), err
+	if err != nil {
+		return DocumentComparison{}, err
+	}
+	comparison := candidate.Comparison()
+	relations := make([]aggregate.DocumentAddress, 0, len(selections)+1)
+	for _, selection := range selections {
+		relations = append(relations, selection.DocumentAddress())
+	}
+	if record.PiOrder != nil {
+		alias, err := record.PiOrder.Alias.canonical()
+		if err != nil {
+			return DocumentComparison{}, err
+		}
+		relations = append(relations, alias)
+	}
+	expected, err := comparison.removalDemands(ctx, relations)
+	if err != nil {
+		return DocumentComparison{}, err
+	}
+	actual := recovery.RemovalDemandSet{}
+	if record.Removal != nil {
+		removal, err := record.Removal.canonical()
+		if err != nil {
+			return DocumentComparison{}, err
+		}
+		actual = removal.Demands()
+	}
+	if !actual.Equal(expected) {
+		return DocumentComparison{}, fmt.Errorf("selected removal demands do not exactly cover the actual frontier")
+	}
+	return comparison, nil
 }
 
 func preparedNativeDocumentImages(ctx context.Context, record recoveryDocumentGroup, comparison DocumentComparison, limits configdocument.Limits) (loadedDocumentImages, error) {

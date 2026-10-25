@@ -147,6 +147,7 @@ func TestNativeDocumentAssessmentProvisionalDebtDoesNotAuthorizeAfterState(t *te
 	nativeRecordImages(t, fixture, aggregate.AbsentDocument(), aggregate.ExistingDocument([]byte(`{"model":"fast"}`)))
 	group := &fixture.record.DocumentGroups[0]
 	*group = nativeNamespaceGroupFacts(t, *group, namespace)
+	fixtureDocumentRemoval(t, group, aggregate.AbsentDocument(), aggregate.ExistingDocument([]byte(`{"model":"fast"}`)))
 	group.SelectedSubjects = []persistedSubjectRef{{Kind: string(row.Subject().Kind()), Namespace: row.Subject().Namespace(), Name: row.Subject().Key()}}
 	intent, err := ownership.NewProvisionalAcquireIntent(alias.AggregateRoot(), documentKeyFootprint(t, "model"), candidate, fixture.claims.owner, fixture.record.OperationID)
 	if err != nil {

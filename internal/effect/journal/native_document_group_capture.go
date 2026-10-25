@@ -28,7 +28,6 @@ type nativeDocumentCaptureInput struct {
 	claims      *ownershipmutation.DocumentClaimTransition
 	provisional []documentProvisionalAcquire
 	bindings    []ownership.DocumentBindingIntent
-	removal     *recovery.RemovalIntent
 	groupIndex  int
 	limits      configdocument.Limits
 	budget      *recovery.PhysicalWorkBudget
@@ -48,9 +47,6 @@ func prepareWholeDocumentGroup(ctx context.Context, namespace NativeDocumentName
 	if err != nil || !slices.Contains(namespace.Addresses(), address) {
 		return recoveryDocumentGroup{}, DocumentComparison{}, fmt.Errorf("whole document mutation has no captured namespace alias")
 	}
-	if input.removal != nil && (input.removal.Scope() != facts.scope || input.removal.Destination() != facts.destination) {
-		return recoveryDocumentGroup{}, DocumentComparison{}, fmt.Errorf("whole document removal differs from its mutation")
-	}
 	group, manifest, err := nativeDocumentGroupMetadata(ctx, namespace, input.nativeDocumentCaptureInput)
 	if err != nil {
 		return recoveryDocumentGroup{}, DocumentComparison{}, err
@@ -69,6 +65,10 @@ func prepareWholeDocumentGroup(ctx context.Context, namespace NativeDocumentName
 		return recoveryDocumentGroup{}, DocumentComparison{}, err
 	}
 	group.Extent = "whole"
+	group.Removal, err = captureDocumentRemoval(ctx, namespace, comparison, []aggregate.DocumentAddress{address}, input.budget)
+	if err != nil {
+		return recoveryDocumentGroup{}, DocumentComparison{}, err
+	}
 	if err := group.validate(persistedNativeRoot(manifest.provenance)); err != nil {
 		return recoveryDocumentGroup{}, DocumentComparison{}, err
 	}
@@ -150,18 +150,6 @@ func nativeDocumentGroupMetadata(ctx context.Context, namespace NativeDocumentNa
 	}
 	if _, err := group.canonicalBindingIntents(ctx, input.owner); err != nil {
 		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
-	}
-	if input.removal != nil {
-		if !slices.ContainsFunc(namespace.Addresses(), func(alias aggregate.DocumentAddress) bool {
-			return alias.Scope() == input.removal.Scope() && alias.AggregateRoot() == input.removal.Destination()
-		}) {
-			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, fmt.Errorf("document removal has no captured namespace alias")
-		}
-		records, err := persistedRecoveryRemovalIntents([]recovery.RemovalIntent{*input.removal})
-		if err != nil {
-			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
-		}
-		group.Removal = &records[0]
 	}
 	return group, manifest, nil
 }

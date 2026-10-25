@@ -175,7 +175,7 @@ func TestNativeWholeGroupRejectsStaticMisjoinsBeforeContentRead(t *testing.T) {
 }
 
 func TestNativeWholeGroupRejectsValidButUnrelatedMetadataBeforeRead(t *testing.T) {
-	for _, mismatch := range []string{"claim namespace", "binding namespace", "removal destination"} {
+	for _, mismatch := range []string{"claim namespace", "binding namespace"} {
 		t.Run(mismatch, func(t *testing.T) {
 			fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
 			other := wholeGroupFixture(t, target.TargetCodex, target.ScopeProject, "remove", []byte("other"), nil)
@@ -205,8 +205,6 @@ func TestNativeWholeGroupRejectsValidButUnrelatedMetadataBeforeRead(t *testing.T
 					t.Fatal(err)
 				}
 				fixture.input.bindings = []ownership.DocumentBindingIntent{intent}
-			case "removal destination":
-				fixture.input.removal = other.input.removal
 			}
 			group, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
 			if err == nil || comparison.Validate() == nil || len(group.Aliases) != 0 || fixture.reader.imageReads != 0 {
@@ -315,7 +313,10 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 		requireWholeGroupWrite(t, path, original, 0o644)
 	}
 	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
-	budget := imageBudget(t)
+	budget, err := recovery.NewPhysicalWorkBudget(1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	namespace, err := ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{address}, roots, reader, budget)
 	if err != nil {
 		t.Fatal(err)
@@ -436,25 +437,6 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 		}
 	}
 	input.bindings = []ownership.DocumentBindingIntent{binding}
-	if action == "remove" {
-		state, err := recovery.NewBeforeRemovalState(recovery.BeforePathState{Existed: true, PathExisted: true, ParentExisted: true, Kind: recovery.PathKindFile, ContentHash: string(artifact.HashFileContent(original)), PathMode: recovery.NewPermissionMode(0o644)})
-		if err != nil {
-			t.Fatal(err)
-		}
-		demand, err := recovery.NewRemovalDemand(scope, placement.Destination(), []recovery.RemovalState{state})
-		if err != nil {
-			t.Fatal(err)
-		}
-		set, err := recovery.NewRemovalDemandSet([]recovery.RemovalDemand{demand})
-		if err != nil {
-			t.Fatal(err)
-		}
-		intents, err := captureRemovalIntents(t.Context(), set, func(output.Destination) (string, error) { return path, nil })
-		if err != nil {
-			t.Fatal(err)
-		}
-		input.removal = &intents[0]
-	}
 	return wholeGroupTestFixture{namespace: namespace, input: input, envelope: envelope, reader: reader, path: path, original: beforeImage, expected: expectedImage}
 }
 

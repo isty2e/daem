@@ -311,4 +311,5 @@ func nativeRecordImages(t *testing.T, fixture *nativeRecordFixture, original, ex
 			group.Expected = record
 		}
 	}
+	fixtureDocumentRemoval(t, group, original, expected)
 }

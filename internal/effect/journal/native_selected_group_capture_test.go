@@ -416,7 +416,10 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 		requireWholeGroupWrite(t, path, original.Content(), 0o644)
 	}
 	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
-	budget := imageBudget(t)
+	budget, err := recovery.NewPhysicalWorkBudget(1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	namespace, err := ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{alias}, roots, reader, budget)
 	if err != nil {
 		t.Fatal(err)
