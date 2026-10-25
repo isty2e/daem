@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -334,6 +335,63 @@ func TestWindowsNativeIdentityPayloadAndFlush(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = reopened.handle.Close()
+}
+
+func TestWindowsBoundedPayloadNeverTransfersPastAllowance(t *testing.T) {
+	for _, limit := range []int64{0, 5, windowsPayloadChunkSize + 3} {
+		t.Run(fmt.Sprintf("limit-%d", limit), func(t *testing.T) {
+			parent := openWindowsNativeTestDirectory(t, t.TempDir())
+			if _, err := queryWindowsVolumeFactsNative(parent.Handle()); err != nil {
+				skipWindowsNativeCapability(t, err)
+			}
+			opened, err := openWindowsRelativeFile(
+				mustWindowsDirectoryHandle(t, parent.Handle()), "growth.bin",
+				windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.DELETE,
+				windowsPublicationShareMode, windows.FILE_CREATE, true,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer opened.handle.Close()
+			if content, err := readWindowsPayloadUpTo(t.Context(), opened.handle.Handle(), 0); err != nil || len(content) != 0 {
+				t.Fatalf("empty zero-bound read: %d bytes, %v", len(content), err)
+			}
+
+			grown := bytes.Repeat([]byte("x"), int(limit)+32)
+			grew := false
+			transferred := 0
+			faults := faultPlan{
+				actions: map[phase]func(){phaseReadPayload: func() {
+					if grew {
+						return
+					}
+					if err := writeWindowsPayload(t.Context(), opened.handle.Handle(), grown); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := windows.Seek(opened.handle.Handle(), 0, io.SeekStart); err != nil {
+						t.Fatal(err)
+					}
+					grew = true
+				}},
+				payloadRead: func(buffer []byte, read func([]byte) (int, error)) (int, error) {
+					if int64(len(buffer)) > limit-int64(transferred) {
+						t.Errorf("native read request %d exceeds remaining allowance %d", len(buffer), limit-int64(transferred))
+					}
+					count, err := read(buffer)
+					transferred += count
+					return count, err
+				},
+			}
+			content, err := readWindowsPayloadWithFaults(t.Context(), opened.handle.Handle(), limit, faults)
+			var readLimit *RegularFileReadLimitError
+			if content != nil || !errors.As(err, &readLimit) || readLimit.Limit() != limit || readLimit.Observed() != int64(len(grown)) {
+				t.Fatalf("growth result: content=%d error=%v", len(content), err)
+			}
+			if !grew || int64(transferred) > limit || limit == 0 && transferred != 0 {
+				t.Fatalf("growth=%v transferred=%d allowance=%d", grew, transferred, limit)
+			}
+		})
+	}
 }
 
 func TestWindowsNativeDirectoryEnumerationContinuesAcrossBatches(t *testing.T) {

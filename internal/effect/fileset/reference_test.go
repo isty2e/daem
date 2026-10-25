@@ -980,6 +980,20 @@ func TestFileSet4BoundsReadAfterEvidenceGrowsAtByteAdmission(t *testing.T) {
 	}
 }
 
+func TestFileSet4EmptyEvidenceNeedsNoPayloadAllowance(t *testing.T) {
+	path := filepath.Join(mustCanonicalStateDir(t, t.TempDir()), "empty.before")
+	if err := os.WriteFile(path, nil, transactionEvidenceMode); err != nil {
+		t.Fatal(err)
+	}
+	budget := &limitedPhysicalWorkBudget{maximum: FenceCensusWork{
+		PathComponents: mutationfs.MaximumPhysicalPathDepth, Entries: 1, Bytes: 0,
+	}}
+	content, total, err := readEvidenceImageWithBudget(t.Context(), path, "empty evidence", maximumStagedBeforeImageBytes, hashBytes(nil), 0, mutationfs.MaximumPhysicalPathDepth, budget)
+	if err != nil || len(content) != 0 || total != maximumStagedBeforeImageBytes || budget.bytes != 0 {
+		t.Fatalf("empty image at exhausted allowance: content=%d total=%d charged=%d error=%v", len(content), total, budget.bytes, err)
+	}
+}
+
 func TestFileSet4RequiresReferenceCommitPoint(t *testing.T) {
 	root := t.TempDir()
 	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))

@@ -227,22 +227,13 @@ func readEvidenceImageWithBudget(
 	if err := admitStagedEvidenceBytes(stagedBytes, int(size), "file-set transaction evidence"); err != nil {
 		return nil, stagedBytes, err
 	}
-	readLimit := min(size, maximumStagedBeforeImageBytes-stagedBytes)
-	if readLimit > maximumTargetBytes {
-		readLimit = maximumTargetBytes
-	}
-	if readLimit == 0 {
-		// The snapshot reader requires a positive limit even for an empty file.
-		// The following size and digest checks still reject a changed snapshot.
-		readLimit = 1
-	}
 	if physicalWorkBudget != nil {
-		if err := admitFileSetFenceWork(physicalWorkBudget, fileSetPhysicalWork{bytes: readLimit}); err != nil {
+		if err := admitFileSetFenceWork(physicalWorkBudget, fileSetPhysicalWork{bytes: size}); err != nil {
 			return nil, stagedBytes, err
 		}
 	}
 
-	content, mode, err := readTransactionFileUpTo(ctx, path, readLimit)
+	content, mode, err := readTransactionFileUpTo(ctx, path, size)
 	if err != nil {
 		return nil, stagedBytes, fmt.Errorf("read %s: %w", name, err)
 	}

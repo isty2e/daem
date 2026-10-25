@@ -17,16 +17,16 @@ import (
 const maximumSymlinkTargetBytes = 1 << 20
 
 // ReadRegularFileSnapshotUpTo returns an identity-stable, no-follow snapshot
-// while refusing to retain more than maximumBytes of payload content.
+// while reading at most maximumBytes of payload. Zero admits only an empty file.
 func ReadRegularFileSnapshotUpTo(
 	ctx context.Context,
 	path string,
 	maximumBytes int64,
 ) (mutationfs.RegularFileSnapshot, error) {
-	if maximumBytes <= 0 {
-		return mutationfs.RegularFileSnapshot{}, fmt.Errorf("regular file snapshot maximum bytes must be positive")
+	if maximumBytes < 0 {
+		return mutationfs.RegularFileSnapshot{}, fmt.Errorf("regular file snapshot maximum bytes must not be negative")
 	}
-	content, mode, identity, err := readRegularFileSnapshotWithFaults(ctx, path, nil, maximumBytes, faultPlan{})
+	content, mode, identity, err := readRegularFileSnapshotWithin(ctx, path, nil, &maximumBytes, faultPlan{})
 	if err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
 	}
@@ -48,21 +48,21 @@ func ReadRootedRegularFile(
 }
 
 // ReadRootedRegularFileUpTo returns one rooted no-follow snapshot while
-// refusing to retain more than maximumBytes of payload content. It does not
-// consume capability.
+// reading at most maximumBytes of payload. Zero admits only an empty file.
+// It does not consume capability.
 func ReadRootedRegularFileUpTo(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	maximumBytes int64,
 ) ([]byte, fs.FileMode, EntryIdentity, error) {
-	if maximumBytes <= 0 {
-		return nil, 0, EntryIdentity{}, fmt.Errorf("rooted regular file maximum bytes must be positive")
+	if maximumBytes < 0 {
+		return nil, 0, EntryIdentity{}, fmt.Errorf("rooted regular file maximum bytes must not be negative")
 	}
 	path, err := rootedCapabilityPath(capability)
 	if err != nil {
 		return nil, 0, EntryIdentity{}, err
 	}
-	return readRegularFileSnapshotWithFaults(ctx, path, capability, maximumBytes, faultPlan{})
+	return readRegularFileSnapshotWithin(ctx, path, capability, &maximumBytes, faultPlan{})
 }
 
 // ReadRootedSymlinkTarget returns one identity-stable, no-follow symbolic-link
@@ -144,6 +144,21 @@ func readRegularFileSnapshotWithFaults(
 	maximumBytes int64,
 	faults faultPlan,
 ) ([]byte, fs.FileMode, EntryIdentity, error) {
+	var limit *int64
+	if maximumBytes > 0 {
+		limit = &maximumBytes
+	}
+	return readRegularFileSnapshotWithin(ctx, path, capability, limit, faults)
+}
+
+// A nil limit retains the unbounded reader; a non-nil zero transfers no payload.
+func readRegularFileSnapshotWithin(
+	ctx context.Context,
+	path string,
+	capability rootedpath.CommitCapability,
+	maximumBytes *int64,
+	faults faultPlan,
+) ([]byte, fs.FileMode, EntryIdentity, error) {
 	var validationErr error
 	if capability == nil {
 		validationErr = validateCommitPath(path)
@@ -180,11 +195,11 @@ func readRegularFileSnapshotWithFaults(
 	if err := validateOwnedStat(path, &stat); err != nil {
 		return nil, 0, EntryIdentity{}, failureBeforeVisibility(phaseValidate, path, err)
 	}
-	if maximumBytes > 0 && stat.Size > maximumBytes {
+	if maximumBytes != nil && stat.Size > *maximumBytes {
 		return nil, 0, EntryIdentity{}, failureBeforeVisibility(
 			phaseReadPayload,
 			path,
-			newRegularFileReadLimitError(maximumBytes, stat.Size),
+			newRegularFileReadLimitError(*maximumBytes, stat.Size),
 		)
 	}
 	fd, _, err := anchor.openExpected(anchor.base, path, expected)
@@ -204,18 +219,20 @@ func readRegularFileSnapshotWithFaults(
 		if err := faults.check(ctx, phaseReadPayload); err != nil {
 			return nil, 0, EntryIdentity{}, failureBeforeVisibility(phaseReadPayload, path, err)
 		}
-		count, readErr := unix.Read(fd, buffer)
-		if count > 0 {
-			if maximumBytes > 0 && int64(content.Len())+int64(count) > maximumBytes {
-				return nil, 0, EntryIdentity{}, failureBeforeVisibility(
-					phaseReadPayload,
-					path,
-					newRegularFileReadLimitError(
-						maximumBytes,
-						int64(content.Len())+int64(count),
-					),
-				)
+		readBuffer := buffer
+		if maximumBytes != nil {
+			remaining := *maximumBytes - int64(content.Len())
+			if remaining == 0 {
+				break
 			}
+			if remaining < int64(len(readBuffer)) {
+				readBuffer = readBuffer[:int(remaining)]
+			}
+		}
+		count, readErr := faults.readPayload(readBuffer, func(value []byte) (int, error) {
+			return unix.Read(fd, value)
+		})
+		if count > 0 {
 			_, _ = content.Write(buffer[:count])
 		}
 		if readErr == unix.EINTR {
@@ -226,6 +243,15 @@ func readRegularFileSnapshotWithFaults(
 		}
 		if count == 0 {
 			break
+		}
+	}
+	if maximumBytes != nil {
+		var payloadStat unix.Stat_t
+		if err := unix.Fstat(fd, &payloadStat); err != nil {
+			return nil, 0, EntryIdentity{}, failureBeforeVisibility(phaseReadPayload, path, err)
+		}
+		if payloadStat.Size > *maximumBytes {
+			return nil, 0, EntryIdentity{}, failureBeforeVisibility(phaseReadPayload, path, newRegularFileReadLimitError(*maximumBytes, payloadStat.Size))
 		}
 	}
 	if err := faults.check(ctx, phaseRevalidateEntry); err != nil {
@@ -247,6 +273,14 @@ func readRegularFileSnapshotWithFaults(
 	}
 	if err := validateOwnedStat(path, &final); err != nil {
 		return nil, 0, EntryIdentity{}, failureBeforeVisibility(phaseRevalidateEntry, path, err)
+	}
+	if maximumBytes != nil {
+		if final.Size > *maximumBytes {
+			return nil, 0, EntryIdentity{}, failureBeforeVisibility(phaseReadPayload, path, newRegularFileReadLimitError(*maximumBytes, final.Size))
+		}
+		if final.Size != int64(content.Len()) {
+			return nil, 0, EntryIdentity{}, failureBeforeVisibility(phaseRevalidateEntry, path, fmt.Errorf("file size changed during bounded read"))
+		}
 	}
 	return content.Bytes(), fs.FileMode(final.Mode).Perm(), expected, nil
 }

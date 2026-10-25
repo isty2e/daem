@@ -46,6 +46,7 @@ type faultPlan struct {
 	afterEffectFailures       map[phase]error
 	actions                   map[phase]func()
 	payloadWrite              func(context.Context, io.Writer, []byte) error
+	payloadRead               func([]byte, func([]byte) (int, error)) (int, error)
 	afterCleanupDirectoryRead func()
 	beforeCleanupChild        func()
 }
@@ -98,6 +99,13 @@ func (plan faultPlan) writePayload(ctx context.Context, writer io.Writer, payloa
 		return plan.payloadWrite(ctx, writer, payload)
 	}
 	return writeAllContext(ctx, writer, payload)
+}
+
+func (plan faultPlan) readPayload(buffer []byte, read func([]byte) (int, error)) (int, error) {
+	if plan.payloadRead != nil {
+		return plan.payloadRead(buffer, read)
+	}
+	return read(buffer)
 }
 
 func writeAllContext(ctx context.Context, writer io.Writer, payload []byte) error {

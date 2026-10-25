@@ -3,8 +3,10 @@
 package commit
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -115,6 +117,60 @@ func TestReadRegularFileSnapshotUpToRejectsFinalSymlink(t *testing.T) {
 	}
 	_, err := ReadRegularFileSnapshotUpTo(context.Background(), link, 64)
 	assertFailure(t, err, failureUncommitted, phaseValidate)
+}
+
+func TestBoundedSnapshotNeverTransfersPastAllowance(t *testing.T) {
+	for _, limit := range []int64{0, 5, 32*1024 + 3} {
+		t.Run(fmt.Sprintf("limit-%d", limit), func(t *testing.T) {
+			path := filepath.Join(canonicalTempDir(t), "growth")
+			writeTestFile(t, path, "", 0o600)
+			grown := bytes.Repeat([]byte("x"), int(limit)+32*1024)
+			grew := false
+			transferred := 0
+			faults := faultPlan{
+				actions: map[phase]func(){phaseReadPayload: func() {
+					if !grew {
+						if err := os.WriteFile(path, grown, 0o600); err != nil {
+							t.Fatal(err)
+						}
+						grew = true
+					}
+				}},
+				payloadRead: func(buffer []byte, read func([]byte) (int, error)) (int, error) {
+					if int64(len(buffer)) > limit-int64(transferred) {
+						t.Errorf("native read request %d exceeds remaining allowance %d", len(buffer), limit-int64(transferred))
+					}
+					count, err := read(buffer)
+					transferred += count
+					return count, err
+				},
+			}
+			content, _, _, err := readRegularFileSnapshotWithin(t.Context(), path, nil, &limit, faults)
+			var readLimit *RegularFileReadLimitError
+			if content != nil || !errors.As(err, &readLimit) || readLimit.Limit() != limit || readLimit.Observed() != int64(len(grown)) {
+				t.Fatalf("growth result: content=%d error=%v", len(content), err)
+			}
+			if !grew || int64(transferred) > limit || limit == 0 && transferred != 0 {
+				t.Fatalf("growth=%v transferred=%d allowance=%d", grew, transferred, limit)
+			}
+		})
+	}
+}
+
+func TestBoundedSnapshotZeroAndMultiChunkReads(t *testing.T) {
+	path := filepath.Join(canonicalTempDir(t), "payload")
+	for _, payload := range [][]byte{nil, bytes.Repeat([]byte("x"), 2*32*1024+3)} {
+		if err := os.WriteFile(path, payload, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := ReadRegularFileSnapshotUpTo(t.Context(), path, int64(len(payload)))
+		if err != nil || !bytes.Equal(snapshot.Content(), payload) || snapshot.Mode() != 0o600 || snapshot.Identity() == nil {
+			t.Fatalf("exact-size snapshot (%d bytes): %v", len(payload), err)
+		}
+	}
+	if _, err := ReadRegularFileSnapshotUpTo(t.Context(), path, -1); err == nil {
+		t.Fatal("negative allowance admitted")
+	}
 }
 
 func TestReadRegularFileDetectsFinalEntryReplacement(t *testing.T) {

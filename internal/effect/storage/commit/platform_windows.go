@@ -157,14 +157,14 @@ func CaptureWorkingDirectoryIdentity(
 }
 
 // ReadRegularFileSnapshotUpTo returns one bounded, identity-stable Windows
-// regular-file snapshot.
+// regular-file snapshot. Zero admits only an empty file.
 func ReadRegularFileSnapshotUpTo(
 	ctx context.Context,
 	path string,
 	maximumBytes int64,
 ) (mutationfs.RegularFileSnapshot, error) {
-	if maximumBytes <= 0 {
-		return mutationfs.RegularFileSnapshot{}, fmt.Errorf("regular file snapshot maximum bytes must be positive")
+	if maximumBytes < 0 {
+		return mutationfs.RegularFileSnapshot{}, fmt.Errorf("regular file snapshot maximum bytes must not be negative")
 	}
 	if err := validateCommitPath(path); err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
@@ -225,14 +225,14 @@ func ReadRootedRegularFile(
 }
 
 // ReadRootedRegularFileUpTo returns one bounded rooted regular-file snapshot
-// without consuming the supplied capability.
+// without consuming the supplied capability. Zero admits only an empty file.
 func ReadRootedRegularFileUpTo(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	maximumBytes int64,
 ) ([]byte, fs.FileMode, EntryIdentity, error) {
-	if maximumBytes <= 0 {
-		return nil, 0, EntryIdentity{}, fmt.Errorf("rooted regular file maximum bytes must be positive")
+	if maximumBytes < 0 {
+		return nil, 0, EntryIdentity{}, fmt.Errorf("rooted regular file maximum bytes must not be negative")
 	}
 	return readWindowsRegularFile(ctx, capability, maximumBytes)
 }
