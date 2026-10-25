@@ -107,42 +107,50 @@ func (index documentCaptureSubjects) selectedSubjects(ctx context.Context, edits
 // prepareSelectedDocumentGroup captures edit/order facts. Complete Snapshot and
 // operation-authority admission remain the containing caller's responsibility.
 func prepareSelectedDocumentGroup(ctx context.Context, namespace NativeDocumentNamespace, input selectedDocumentCaptureInput, subjects documentCaptureSubjects) (recoveryDocumentGroup, DocumentComparison, error) {
-	if err := validateNativeDocumentCaptureInput(ctx, input.nativeDocumentCaptureInput); err != nil {
+	candidate, err := prepareSelectedDocumentCandidate(ctx, namespace, input, subjects)
+	if err != nil {
 		return recoveryDocumentGroup{}, DocumentComparison{}, err
+	}
+	return candidate.captureRemoval(ctx, input.budget)
+}
+
+func prepareSelectedDocumentCandidate(ctx context.Context, namespace NativeDocumentNamespace, input selectedDocumentCaptureInput, subjects documentCaptureSubjects) (nativeDocumentCaptureCandidate, error) {
+	if err := validateNativeDocumentCaptureInput(ctx, input.nativeDocumentCaptureInput); err != nil {
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	refs, err := subjects.selectedSubjects(ctx, input.edits, namespace.Addresses())
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	group, manifest, err := nativeDocumentGroupMetadata(ctx, namespace, input.nativeDocumentCaptureInput)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	if input.order != nil && input.order.Changed() {
 		evidence, err := persistedPiOrderEvidence(*input.order)
 		if err != nil {
-			return recoveryDocumentGroup{}, DocumentComparison{}, err
+			return nativeDocumentCaptureCandidate{}, err
 		}
 		captured, err := input.order.CaptureInput()
 		if err != nil {
-			return recoveryDocumentGroup{}, DocumentComparison{}, err
+			return nativeDocumentCaptureCandidate{}, err
 		}
 		alias, err := piOrderDocumentAlias(captured.Scope)
 		if err != nil || !slices.Contains(namespace.Addresses(), alias) {
-			return recoveryDocumentGroup{}, DocumentComparison{}, fmt.Errorf("selected Pi order has no captured settings alias")
+			return nativeDocumentCaptureCandidate{}, fmt.Errorf("selected Pi order has no captured settings alias")
 		}
 		group.PiOrder = &recoveryDocumentPiOrder{Alias: persistedDocumentAlias(alias), CommandRoot: recoveryDocumentLogicalRoot{Role: "manifest-root", Provenance: persistedNativeRoot(manifest.provenance)}, Evidence: evidence}
 		if err := qualifyNativePiContext(ctx, *group.PiOrder, manifest, namespace, input.budget); err != nil {
-			return recoveryDocumentGroup{}, DocumentComparison{}, err
+			return nativeDocumentCaptureCandidate{}, err
 		}
 	}
 	original, mode, _, err := readNativeRecoveryDocument(ctx, namespace, min(input.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.budget)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	expected, participants, err := prepareSelectedDocumentImage(ctx, original, input.limits, input.edits, input.order)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	expectedMode := mode
 	if !expected.Exists() {
@@ -152,13 +160,13 @@ func prepareSelectedDocumentGroup(ctx context.Context, namespace NativeDocumentN
 	}
 	candidate, err := ReconstructSelectedDocument(ctx, DocumentComparisonInput{Before: original, Expected: expected, BeforeMode: mode, ExpectedMode: expectedMode, Limits: input.limits}, participants, input.order)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	group.Extent, group.SelectedSubjects = "selected", refs
 	comparison := candidate.Comparison()
 	_, group.Original, group.Expected, err = documentImageReferences(comparison, input.groupIndex)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	relations := make([]aggregate.DocumentAddress, 0, len(input.edits)+1)
 	for _, edit := range input.edits {
@@ -169,19 +177,12 @@ func prepareSelectedDocumentGroup(ctx context.Context, namespace NativeDocumentN
 	if group.PiOrder != nil {
 		alias, err := group.PiOrder.Alias.canonical()
 		if err != nil {
-			return recoveryDocumentGroup{}, DocumentComparison{}, err
+			return nativeDocumentCaptureCandidate{}, err
 		}
 		relations = append(relations, alias)
 	}
-	group.Removal, err = captureDocumentRemoval(ctx, namespace, comparison, relations, input.budget)
-	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
-	}
-	if err := group.validate(persistedNativeRoot(manifest.provenance)); err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
-	}
 	if err := ctx.Err(); err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
-	return group, comparison, nil
+	return nativeDocumentCaptureCandidate{group: group, comparison: comparison, namespace: namespace, manifest: manifest, relations: relations, budget: input.budget}, nil
 }

@@ -86,6 +86,7 @@ func (work ArtifactWork) Equal(other ArtifactWork) bool {
 // ownership, backup, and cleanup evidence to the same operation ceilings;
 // execution receives only capacity reserved before its first effect.
 type PhysicalWorkBudget struct {
+	removalAdmissionPending          bool
 	observations                     int
 	observationLimit                 int
 	reservedForwardObservations      int
@@ -142,8 +143,8 @@ func (budget *PhysicalWorkBudget) BeginGeneralExecution() (
 	*PhysicalWorkBudget,
 	error,
 ) {
-	if budget == nil {
-		return nil, nil, fmt.Errorf("physical work budget is required")
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, nil, err
 	}
 	if budget.generalExecutionBegun {
 		return nil, nil, fmt.Errorf("general recovery execution capacity was already transferred")
@@ -211,8 +212,8 @@ func (budget *PhysicalWorkBudget) ReserveSemanticPathComponents(count int) error
 // BeginReservedSemanticExecution transfers only path capacity reserved before
 // effects for statefile and ownership semantic-witness validation.
 func (budget *PhysicalWorkBudget) BeginReservedSemanticExecution() (*PhysicalWorkBudget, error) {
-	if budget == nil {
-		return nil, fmt.Errorf("physical work budget is required")
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
 	}
 	if budget.semanticExecutionBegun {
 		return nil, fmt.Errorf("recovery semantic execution capacity was already transferred")
@@ -333,8 +334,8 @@ func (budget *PhysicalWorkBudget) ReserveCleanupLifecycle(
 // BeginReservedCleanupLifecycle transfers the pre-effect cleanup envelope and
 // all remaining tree capacity to one post-effect retirement capability.
 func (budget *PhysicalWorkBudget) BeginReservedCleanupLifecycle() (*PhysicalWorkBudget, error) {
-	if budget == nil {
-		return nil, fmt.Errorf("physical work budget is required")
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
 	}
 	if budget.cleanupExecutionBegun {
 		return nil, fmt.Errorf("removal cleanup lifecycle capacity was already transferred")
@@ -439,8 +440,8 @@ func (budget *PhysicalWorkBudget) ReserveBackupFileExecution(work ArtifactWork) 
 // BeginReservedBackupExecution transfers only capacity reserved before recovery
 // effects into the rooted backup-copy phase.
 func (budget *PhysicalWorkBudget) BeginReservedBackupExecution() (*PhysicalWorkBudget, error) {
-	if budget == nil {
-		return nil, fmt.Errorf("physical work budget is required")
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
 	}
 	if budget.backupExecutionBegun {
 		return nil, fmt.Errorf("recovery backup execution capacity was already transferred")
@@ -511,19 +512,15 @@ func NewPhysicalWorkBudgetWithPathBudget(
 			MaximumRemovalIntents,
 		)
 	}
-	return &PhysicalWorkBudget{
-		observationLimit:   intentCount * removalObservationsPerIntent,
-		pathComponentLimit: maximumPhysicalPathComponentVisits,
-		entryLimit:         MaximumPhysicalEntries,
-		byteLimit:          MaximumPhysicalBytes,
-		sharedPathBudget:   sharedPathBudget,
-	}, nil
+	budget := newPhysicalWorkAllocation(sharedPathBudget)
+	budget.observationLimit = intentCount * removalObservationsPerIntent
+	return budget, nil
 }
 
 // AdmitObservation charges one bounded namespace or slot observation.
 func (budget *PhysicalWorkBudget) AdmitObservation() error {
-	if budget == nil {
-		return fmt.Errorf("physical work budget is required")
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return err
 	}
 	if budget.observations >= budget.observationLimit {
 		return fmt.Errorf(
@@ -858,8 +855,8 @@ func (budget *PhysicalWorkBudget) ReserveRootedCleanup(
 // path work already consumed. The child carries the exact storage work that
 // bounded rooted cleanup consumes before touching its selected entry.
 func (budget *PhysicalWorkBudget) BeginReservedExecution() (*PhysicalWorkBudget, error) {
-	if budget == nil {
-		return nil, fmt.Errorf("physical work budget is required")
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
 	}
 	return &PhysicalWorkBudget{
 		observationLimit:   budget.reservedExecutionObservations,

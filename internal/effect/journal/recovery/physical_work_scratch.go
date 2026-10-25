@@ -80,8 +80,8 @@ func (budget *PhysicalWorkBudget) BeginReservedScratchCleanup() (
 	ArtifactWork,
 	error,
 ) {
-	if budget == nil {
-		return nil, ArtifactWork{}, fmt.Errorf("physical work budget is required")
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, ArtifactWork{}, err
 	}
 	if budget.scratchCleanupDisposition != scratchCleanupPending {
 		return nil, ArtifactWork{}, fmt.Errorf("recovery scratch cleanup capacity was already transferred")

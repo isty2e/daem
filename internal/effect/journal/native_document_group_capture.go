@@ -36,46 +36,47 @@ type nativeDocumentCaptureInput struct {
 // prepareWholeDocumentGroup captures persistence facts, not a publication seal.
 // The containing operation must admit complete snapshots and all group relations.
 func prepareWholeDocumentGroup(ctx context.Context, namespace NativeDocumentNamespace, input wholeDocumentCaptureInput) (recoveryDocumentGroup, DocumentComparison, error) {
-	if err := validateNativeDocumentCaptureInput(ctx, input.nativeDocumentCaptureInput); err != nil {
+	candidate, err := prepareWholeDocumentCandidate(ctx, namespace, input)
+	if err != nil {
 		return recoveryDocumentGroup{}, DocumentComparison{}, err
+	}
+	return candidate.captureRemoval(ctx, input.budget)
+}
+
+func prepareWholeDocumentCandidate(ctx context.Context, namespace NativeDocumentNamespace, input wholeDocumentCaptureInput) (nativeDocumentCaptureCandidate, error) {
+	if err := validateNativeDocumentCaptureInput(ctx, input.nativeDocumentCaptureInput); err != nil {
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	facts, err := wholeDocumentMutationFacts(input.mutation)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	address, err := aggregate.NewDocumentAddress(facts.consumerTargets[0], facts.scope, facts.destination)
 	if err != nil || !slices.Contains(namespace.Addresses(), address) {
-		return recoveryDocumentGroup{}, DocumentComparison{}, fmt.Errorf("whole document mutation has no captured namespace alias")
+		return nativeDocumentCaptureCandidate{}, fmt.Errorf("whole document mutation has no captured namespace alias")
 	}
 	group, manifest, err := nativeDocumentGroupMetadata(ctx, namespace, input.nativeDocumentCaptureInput)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
 
 	original, mode, _, err := readNativeRecoveryDocument(ctx, namespace, min(input.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.budget)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	comparison, err := PrepareWholeDocument(ctx, WholeDocumentPreparationInput{Before: original, BeforeMode: mode, Limits: input.limits}, input.mutation, input.payloads)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	_, group.Original, group.Expected, err = documentImageReferences(comparison, input.groupIndex)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
 	group.Extent = "whole"
-	group.Removal, err = captureDocumentRemoval(ctx, namespace, comparison, []aggregate.DocumentAddress{address}, input.budget)
-	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
-	}
-	if err := group.validate(persistedNativeRoot(manifest.provenance)); err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
-	}
 	if err := ctx.Err(); err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return nativeDocumentCaptureCandidate{}, err
 	}
-	return group, comparison, nil
+	return nativeDocumentCaptureCandidate{group: group, comparison: comparison, namespace: namespace, manifest: manifest, relations: []aggregate.DocumentAddress{address}, budget: input.budget}, nil
 }
 
 func validateNativeDocumentCaptureInput(ctx context.Context, input nativeDocumentCaptureInput) error {
