@@ -120,6 +120,22 @@ func (index addressOverlapIndex) first(address ManagedAddress) (int, bool) {
 	return firstAddressIndex(first)
 }
 
+func (index addressOverlapIndex) firstPhysicalAncestor(path string) (int, bool) {
+	volume, components := physicalPathComponents(path)
+	current := index.roots[volume]
+	first := -1
+	for depth := 0; current != nil; depth++ {
+		if current.exact != nil {
+			first = earlierAddressIndex(first, current.exact.first)
+		}
+		if depth == len(components) {
+			break
+		}
+		current = current.children[components[depth]]
+	}
+	return firstAddressIndex(first)
+}
+
 func newPhysicalAddressNode() *physicalAddressNode {
 	return &physicalAddressNode{children: make(map[string]*physicalAddressNode), first: -1}
 }

@@ -87,10 +87,11 @@ func (registry Registry) Exact(address ManagedAddress) (Claim, bool) {
 
 // Conflict returns the first canonically ordered claim overlapping address.
 func (registry Registry) Conflict(address ManagedAddress) (Claim, bool) {
-	for _, claim := range registry.claims {
-		if claim.Address().Overlaps(address) {
-			return claim, true
-		}
+	if address.Validate() != nil {
+		return Claim{}, false
+	}
+	if index, found := registry.overlaps.first(address); found {
+		return registry.claims[index], true
 	}
 	return Claim{}, false
 }
@@ -99,10 +100,11 @@ func (registry Registry) Conflict(address ManagedAddress) (Claim, bool) {
 // footprint contains a provisional candidate. It never treats the candidate
 // itself as exact authority.
 func (registry Registry) ProvisionalAncestorConflict(candidate pathauthority.Provisional) (Claim, bool) {
-	for _, claim := range registry.claims {
-		if candidate.CandidateWithin(claim.Address().PathAuthority()) {
-			return claim, true
-		}
+	if candidate.Validate() != nil {
+		return Claim{}, false
+	}
+	if index, found := registry.overlaps.firstPhysicalAncestor(candidate.CandidateKey()); found {
+		return registry.claims[index], true
 	}
 	return Claim{}, false
 }
