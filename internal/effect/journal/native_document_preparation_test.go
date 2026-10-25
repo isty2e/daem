@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -10,9 +11,11 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -147,6 +150,11 @@ func TestNativeDocumentReaderKeepsMetadataRefusalBeforeImageReads(t *testing.T) 
 func preparedNativeFixture(t *testing.T) (nativeRecordFixture, nativeJournalSnapshots, DocumentComparison) {
 	t.Helper()
 	fixture := nativeJournalFixture(t)
+	return preparedNativeFixtureFor(t, fixture, aggregate.ExistingDocument([]byte(`{"model":true,"outside":1}`)))
+}
+
+func preparedNativeFixtureFor(t *testing.T, fixture nativeRecordFixture, before aggregate.Document) (nativeRecordFixture, nativeJournalSnapshots, DocumentComparison) {
+	t.Helper()
 	row := fixture.after.ManagedAggregates()[0]
 	contract := row.Contribution().Contract()
 	codec, found := fixture.read.codecs.Lookup(contract.CodecContractID())
@@ -157,7 +165,6 @@ func preparedNativeFixture(t *testing.T) (nativeRecordFixture, nativeJournalSnap
 	if err != nil {
 		t.Fatal(err)
 	}
-	before := aggregate.ExistingDocument([]byte(`{"model":true,"outside":1}`))
 	baseline, failure := codec.Read(before, selection)
 	if failure != nil {
 		t.Fatal(failure)
@@ -197,6 +204,144 @@ func preparedNativeFixture(t *testing.T) (nativeRecordFixture, nativeJournalSnap
 		t.Fatal(err)
 	}
 	return fixture, decoded, candidate.Comparison()
+}
+
+func TestPreparedNativeDocumentsRejectNoncanonicalRecoveryPolicy(t *testing.T) {
+	for _, policy := range []string{"broader area", "different syntax"} {
+		t.Run(policy, func(t *testing.T) {
+			fixture := nativeJournalFixture(t)
+			row := membershipNativeRow(t, fixture.claims.alias, "native-json-v1", "preferences", "model")
+			beforeRow := selectionNativeRow(t, row.Contribution().Contract(), nativeRecordCanonical(t, "true"))
+			afterRow := selectionNativeRow(t, row.Contribution().Contract(), nativeRecordCanonical(t, `"fast"`))
+			fixture.before, fixture.after = selectionState(t, beforeRow), selectionState(t, afterRow)
+			fixture.record.DocumentGroups[0].SelectedSubjects = []persistedSubjectRef{{Kind: string(row.Subject().Kind()), Namespace: row.Subject().Namespace(), Name: row.Subject().Key()}}
+			claim := documentActiveClaim(t, fixture.claims, documentKeyFootprint(t, "preferences", "model"))
+			transition, err := ownershipmutation.NewDocumentClaimTransition([]ownership.Claim{claim}, []ownership.Claim{claim}, fixture.record.OperationID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture.record.DocumentGroups[0].ExclusiveClaims, err = persistedDocumentClaimTransition(transition, fixture.record.OperationID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture, decoded, canonical := preparedNativeFixtureFor(t, fixture, aggregate.ExistingDocument([]byte(`{"preferences":{"model":true,"foreign":1},"outside":2}`)))
+			participant := canonical.participants[0]
+			codec, found := fixture.read.codecs.Lookup(participant.Selection().CodecContractID())
+			if !found {
+				t.Fatal("fixture codec missing")
+			}
+			syntax, areas := participant.Syntax(), participant.RewriteAreas()
+			if policy == "broader area" {
+				parent, err := output.NewKeyPath("preferences")
+				if err != nil {
+					t.Fatal(err)
+				}
+				areas = []output.KeyPath{parent}
+			} else {
+				syntax = configdocument.JSONC
+			}
+			changed, err := compose.NewParticipant(codec, participant.Selection(), syntax, areas)
+			if err != nil {
+				t.Fatal(err)
+			}
+			comparison, err := NewSelectedDocumentComparison(t.Context(), DocumentComparisonInput{Before: canonical.before, Expected: canonical.expected, BeforeMode: canonical.beforeMode(), ExpectedMode: recovery.NewPermissionMode(0o600), Limits: fixture.read.limits}, []compose.Participant{changed}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := decoded.prepareDocuments(t.Context(), []DocumentComparison{comparison}, fixture.read.limits, fixture.read.codecs)
+			assertNoPreparedNativeDocuments(t, prepared, err)
+		})
+	}
+}
+
+func TestPreparedNativeDocumentsRestoreOnlyThroughOperationCatalog(t *testing.T) {
+	fixture, decoded, canonical := preparedNativeFixture(t)
+	participant := canonical.participants[0]
+	codec, found := fixture.read.codecs.Lookup(participant.Selection().CodecContractID())
+	if !found {
+		t.Fatal("fixture codec missing")
+	}
+	caller := &preparedNativeCallerCodec{Codec: codec}
+	provided, err := compose.NewParticipant(caller, participant.Selection(), participant.Syntax(), participant.RewriteAreas())
+	if err != nil {
+		t.Fatal(err)
+	}
+	comparison, err := NewSelectedDocumentComparison(t.Context(), DocumentComparisonInput{Before: canonical.before, Expected: canonical.expected, BeforeMode: canonical.beforeMode(), ExpectedMode: recovery.NewPermissionMode(0o600), Limits: fixture.read.limits}, []compose.Participant{provided}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := decoded.prepareDocuments(t.Context(), []DocumentComparison{comparison}, fixture.read.limits, fixture.read.codecs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caller.refuse = true
+	current := aggregate.ExistingDocument([]byte(`{"model":"fast","outside":"fresh"}`))
+	restored, err := prepared.groups[0].comparison.RestoreBefore(t.Context(), current, recovery.NewPermissionMode(0o600))
+	if err != nil {
+		t.Fatalf("prepared recovery retained caller codec behavior instead of operation catalog: %v", err)
+	}
+	var values struct {
+		Model   bool   `json:"model"`
+		Outside string `json:"outside"`
+	}
+	if err := json.Unmarshal(restored.Document().Content(), &values); err != nil || !values.Model || values.Outside != "fresh" {
+		t.Fatalf("catalog-bound restoration lost selected before or foreign current value: %v", err)
+	}
+}
+
+func TestPreparedRecoveryPolicyAllowsReorderedPartitions(t *testing.T) {
+	fixture, _, comparison := preparedNativeFixture(t)
+	model := comparison.participants[0].Selection().Contracts()[0]
+	outside := membershipNativeRow(t, fixture.claims.alias, "native-json-v1", "outside").Contribution().Contract()
+	codec, found := fixture.read.codecs.Lookup(model.CodecContractID())
+	if !found {
+		t.Fatal("fixture codec missing")
+	}
+	selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{model, outside})
+	if err != nil {
+		t.Fatal(err)
+	}
+	participant, err := compose.NewParticipant(codec, selection, configdocument.JSON, []output.KeyPath{model.Address().KeyPath(), outside.Address().KeyPath()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := DocumentComparisonInput{Before: comparison.before, Expected: comparison.expected, BeforeMode: comparison.beforeMode(), ExpectedMode: recovery.NewPermissionMode(0o600), Limits: fixture.read.limits}
+	canonical, err := NewSelectedDocumentComparison(t.Context(), input, []compose.Participant{participant}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parts []compose.Participant
+	for _, contract := range []aggregate.ProjectionContract{outside, model} {
+		selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{contract})
+		if err != nil {
+			t.Fatal(err)
+		}
+		participant, err := compose.NewParticipant(codec, selection, configdocument.JSON, []output.KeyPath{contract.Address().KeyPath()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts = append(parts, participant)
+	}
+	partitioned, err := NewSelectedDocumentComparison(t.Context(), input, parts, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := partitioned.requireCanonicalRecoveryPolicy(t.Context(), canonical); err != nil {
+		t.Fatalf("equivalent reordered policy partitions were refused: %v", err)
+	}
+}
+
+type preparedNativeCallerCodec struct {
+	aggregate.Codec
+	refuse bool
+}
+
+func (codec *preparedNativeCallerCodec) Read(document aggregate.Document, selection aggregate.Selection) (aggregate.Snapshot, *aggregate.CodecFailure) {
+	if codec.refuse {
+		failure, _ := aggregate.NewCodecFailure(aggregate.CodecFailureResourceLimitExceeded, output.KeyPath{})
+		return aggregate.Snapshot{}, failure
+	}
+	return codec.Codec.Read(document, selection)
 }
 
 func assertNoPreparedNativeDocuments(t *testing.T, value nativeDocumentRecords, err error) {
