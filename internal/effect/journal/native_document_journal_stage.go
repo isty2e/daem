@@ -33,35 +33,47 @@ func (journal nativeJournalSnapshots) stageDocumentJournal(ctx context.Context, 
 	if len(journal.record.DocumentGroups) == 0 || len(journal.record.Entries) != 0 || len(journal.record.ClaimTransitions) != 0 || len(journal.record.ProvisionalAcquires) != 0 || len(journal.record.RemovalIntents) != 0 {
 		return "", fmt.Errorf("document-only staging requires document groups without ordinary entry artifacts")
 	}
-	entries, imageBytes, err := preflightDocumentJournalImages(ctx, comparisons, options.budget)
+	prepared, content, err := journal.prepareDocumentJournal(ctx, comparisons, options, recovery.ArtifactWork{})
 	if err != nil {
 		return "", err
 	}
+	return prepared.stageJournal(ctx, content, writer, options.budget)
+}
+
+func (journal nativeJournalSnapshots) prepareDocumentJournal(ctx context.Context, comparisons []DocumentComparison, options nativeDocumentStageOptions, ordinaryWork recovery.ArtifactWork) (nativeDocumentRecords, []byte, error) {
+	entries, imageBytes, err := preflightDocumentJournalImages(ctx, comparisons, options.budget)
+	if err != nil {
+		return nativeDocumentRecords{}, nil, err
+	}
 	prepared, err := journal.prepareDocuments(ctx, comparisons, options.limits, options.codecs)
 	if err != nil {
-		return "", err
+		return nativeDocumentRecords{}, nil, err
 	}
 	record := journal.record
 	record.DocumentGroups = slices.Clone(record.DocumentGroups)
 	for index, group := range prepared.groups {
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return nativeDocumentRecords{}, nil, err
 		}
 		_, original, expected, err := documentImageReferences(group.comparison, index)
 		if err != nil {
-			return "", err
+			return nativeDocumentRecords{}, nil, err
 		}
 		record.DocumentGroups[index].Original, record.DocumentGroups[index].Expected = original, expected
 	}
 	content, err := marshalNativeJournalRecord(ctx, record, journal.before, journal.after, options.stateCodec)
 	if err != nil {
-		return "", err
+		return nativeDocumentRecords{}, nil, err
 	}
-	if entries > options.budget.RemainingEntries() || int64(len(content)) > options.budget.RemainingBytes()-imageBytes {
-		return "", fmt.Errorf("native journal and images exceed the shared staging budget")
+	if entries > options.budget.RemainingEntries()-ordinaryWork.Entries() || int64(len(content)) > options.budget.RemainingBytes()-ordinaryWork.Bytes()-imageBytes {
+		return nativeDocumentRecords{}, nil, fmt.Errorf("native journal, ordinary backups and images exceed the shared staging budget")
 	}
+	return prepared, content, nil
+}
+
+func (prepared nativeDocumentRecords) stageJournal(ctx context.Context, content []byte, writer mutationfs.RootedTreeWriter, budget *recovery.PhysicalWorkBudget) (string, error) {
 	for index, group := range prepared.groups {
-		if _, _, err := stageDocumentImages(ctx, group.comparison, index, writer, options.budget); err != nil {
+		if _, _, err := stageDocumentImages(ctx, group.comparison, index, writer, budget); err != nil {
 			return "", err
 		}
 	}
@@ -75,7 +87,7 @@ func (journal nativeJournalSnapshots) stageDocumentJournal(ctx context.Context, 
 	writeErr := writer.WriteFile(path, recoveryJournalMode, bytes.NewReader(content))
 	work, workErr := recovery.NewArtifactWork(1, int64(len(content)))
 	if workErr == nil {
-		workErr = options.budget.AdmitTree(work)
+		workErr = budget.AdmitTree(work)
 	}
 	if err := errors.Join(writeErr, workErr, ctx.Err()); err != nil {
 		return "", err
