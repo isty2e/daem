@@ -34,7 +34,7 @@ type documentStateGroup struct {
 	frontier       map[documentSelectionKey]map[output.KeyPath]aggregate.ProjectionContract
 }
 
-type documentWholeAddress struct {
+type documentStateAddress struct {
 	target      target.Target
 	scope       target.Scope
 	destination output.Destination
@@ -47,7 +47,7 @@ func reconstructDocumentStateGroups(ctx context.Context, owner stateauthority.Au
 	}
 	groups := make([]documentStateGroup, 0, len(inputs))
 	aliases := make(map[aggregate.DocumentAddress]int)
-	wholeAliases := make(map[documentWholeAddress]int)
+	stateAliases := make(map[documentStateAddress]int)
 	var allAliases []aggregate.DocumentAddress
 	var intents []ownership.DocumentBindingIntent
 	for index, input := range inputs {
@@ -83,7 +83,7 @@ func reconstructDocumentStateGroups(ctx context.Context, owner stateauthority.Au
 				return nil, fmt.Errorf("document alias belongs to more than one group")
 			}
 			aliases[alias] = index
-			wholeAliases[documentWholeAddress{alias.Target(), alias.Scope(), alias.AggregateRoot()}] = index
+			stateAliases[documentStateAddress{alias.Target(), alias.Scope(), alias.AggregateRoot()}] = index
 			destinations[alias.AggregateRoot()] = struct{}{}
 		}
 		for _, intent := range input.bindingIntents {
@@ -98,7 +98,7 @@ func reconstructDocumentStateGroups(ctx context.Context, owner stateauthority.Au
 	if err := indexes.validateNativeBindingMembership(ctx, owner, allAliases, intents); err != nil {
 		return nil, err
 	}
-	if err := indexes.validateNativeGroupCoverage(ctx, groups, aliases, wholeAliases); err != nil {
+	if err := indexes.validateNativeGroupCoverage(ctx, groups, aliases, stateAliases); err != nil {
 		return nil, err
 	}
 	return groups, nil
@@ -141,7 +141,7 @@ func (group documentStateGroup) validateComparisonSelection(ctx context.Context)
 	return ctx.Err()
 }
 
-func (indexes documentSnapshotIndexes) validateNativeGroupCoverage(ctx context.Context, groups []documentStateGroup, aliases map[aggregate.DocumentAddress]int, wholeAliases map[documentWholeAddress]int) error {
+func (indexes documentSnapshotIndexes) validateNativeGroupCoverage(ctx context.Context, groups []documentStateGroup, aliases map[aggregate.DocumentAddress]int, stateAliases map[documentStateAddress]int) error {
 	wholeGroups := make(map[int]struct{})
 	for side, index := range []documentSnapshotIndex{indexes.before, indexes.after} {
 		other := indexes.after
@@ -160,8 +160,15 @@ func (indexes documentSnapshotIndexes) validateNativeGroupCoverage(ctx context.C
 			if err := profile.ValidateHostConfigDocumentOccupancy(subject, targets, row.Scope(), row.Destination(), row.ContentKind(), row.PermissionPolicy(), row.FileMode()); err != nil {
 				return err
 			}
-			groupIndex, declared := wholeAliases[documentWholeAddress{targets[0], row.Scope(), row.Destination()}]
+			address := documentStateAddress{targets[0], row.Scope(), row.Destination()}
+			groupIndex, declared := stateAliases[address]
 			previous, present := other.paths[subject]
+			if side == 1 && present {
+				before := documentStateAddress{previous.ConsumerTargets()[0], previous.Scope(), previous.Destination()}
+				if err := validateDocumentRetargetGroups(before, address, stateAliases); err != nil {
+					return err
+				}
+			}
 			if !declared {
 				if !present || !row.Equal(previous) {
 					return fmt.Errorf("changed native whole-file state has no document group")
@@ -183,6 +190,15 @@ func (indexes documentSnapshotIndexes) validateNativeGroupCoverage(ctx context.C
 			}
 			groupIndex, declared := aliases[contract.Address().Document()]
 			previous, present := other.aggregates[subject]
+			if side == 1 && present {
+				before, after := previous.Contribution().Contract().Address().Document(), contract.Address().Document()
+				if err := validateDocumentRetargetGroups(
+					documentStateAddress{before.Target(), before.Scope(), before.AggregateRoot()},
+					documentStateAddress{after.Target(), after.Scope(), after.AggregateRoot()}, stateAliases,
+				); err != nil {
+					return err
+				}
+			}
 			changed := !present || !row.Equal(previous)
 			if !declared {
 				if changed {
@@ -209,6 +225,21 @@ func (indexes documentSnapshotIndexes) validateNativeGroupCoverage(ctx context.C
 		}
 	}
 	return ctx.Err()
+}
+
+func validateDocumentRetargetGroups(before, after documentStateAddress, groups map[documentStateAddress]int) error {
+	if before == after {
+		return nil
+	}
+	beforeGroup, beforeDeclared := groups[before]
+	afterGroup, afterDeclared := groups[after]
+	if !beforeDeclared || !afterDeclared {
+		return fmt.Errorf("native document retarget requires both retirement and creation groups")
+	}
+	if beforeGroup == afterGroup {
+		return fmt.Errorf("native document retarget requires distinct retirement and creation groups")
+	}
+	return nil
 }
 
 func (group documentStateGroup) covers(contract aggregate.ProjectionContract) bool {
