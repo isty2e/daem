@@ -161,6 +161,10 @@ func TestNativeJournalReconstructionRejectsLateGroupWithoutPartialPrefix(t *test
 	fixture := nativeJournalFixture(t)
 	record := fixture.record
 	late := record.DocumentGroups[0]
+	late.Aliases = []recoveryDocumentAlias{late.Aliases[0]}
+	late.Aliases[0].Address.Destination = "@pi-agent/late.json"
+	late.BindingIntents = []recoveryDocumentBindingIntent{late.BindingIntents[0]}
+	late.BindingIntents[0].Destination = "@pi-agent/late.json"
 	missing := late.SelectedSubjects[0]
 	missing.Name += "-missing"
 	late.SelectedSubjects = []persistedSubjectRef{missing}

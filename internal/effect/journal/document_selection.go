@@ -7,15 +7,19 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 // These indexes retain complete state facts, not validated group authority.
 type documentSnapshotIndex struct {
-	paths      map[topology.SubjectID]durable.ManagedPathState
-	aggregates map[topology.SubjectID]durable.ManagedAggregateState
+	paths            map[topology.SubjectID]durable.ManagedPathState
+	aggregates       map[topology.SubjectID]durable.ManagedAggregateState
+	globalFootprints map[aggregate.DocumentAddress]map[output.Footprint]struct{}
 }
 
 type documentSnapshotIndexes struct {
@@ -44,22 +48,51 @@ func indexDocumentSnapshot(ctx context.Context, snapshot durable.Snapshot) (docu
 	}
 	paths, rows := snapshot.ManagedPaths(), snapshot.ManagedAggregates()
 	index := documentSnapshotIndex{
-		paths:      make(map[topology.SubjectID]durable.ManagedPathState, len(paths)),
-		aggregates: make(map[topology.SubjectID]durable.ManagedAggregateState, len(rows)),
+		paths:            make(map[topology.SubjectID]durable.ManagedPathState, len(paths)),
+		aggregates:       make(map[topology.SubjectID]durable.ManagedAggregateState, len(rows)),
+		globalFootprints: make(map[aggregate.DocumentAddress]map[output.Footprint]struct{}),
 	}
 	for _, row := range paths {
 		if err := ctx.Err(); err != nil {
 			return documentSnapshotIndex{}, err
 		}
 		index.paths[row.Subject()] = row
+		id, native := topologyprojection.EntityID(row.Subject())
+		if !native || id.Kind() != entity.KindHostConfig || row.Scope() != target.ScopeGlobal {
+			continue
+		}
+		for _, selected := range row.ConsumerTargets() {
+			if err := ctx.Err(); err != nil {
+				return documentSnapshotIndex{}, err
+			}
+			address, err := aggregate.NewDocumentAddress(selected, row.Scope(), row.Destination())
+			if err != nil {
+				return documentSnapshotIndex{}, err
+			}
+			index.addGlobalFootprint(address, output.WholePathFootprint())
+		}
 	}
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
 			return documentSnapshotIndex{}, err
 		}
 		index.aggregates[row.Subject()] = row
+		contract := row.Contribution().Contract()
+		if contract.Address().Document().Scope() == target.ScopeGlobal {
+			index.addGlobalFootprint(contract.Address().Document(), contract.Address().Footprint())
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return documentSnapshotIndex{}, err
 	}
 	return index, nil
+}
+
+func (index documentSnapshotIndex) addGlobalFootprint(address aggregate.DocumentAddress, footprint output.Footprint) {
+	if index.globalFootprints[address] == nil {
+		index.globalFootprints[address] = make(map[output.Footprint]struct{})
+	}
+	index.globalFootprints[address][footprint] = struct{}{}
 }
 
 type documentSelectionKey struct {

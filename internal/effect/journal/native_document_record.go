@@ -3,7 +3,6 @@ package journal
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -56,14 +55,21 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 	if err != nil {
 		return nativeDocumentRecords{}, err
 	}
+	bindingGroups, err := journal.documentBindings(ctx)
+	if err != nil {
+		return nativeDocumentRecords{}, err
+	}
 	var inputs []documentStateGroupInput
 	result := nativeDocumentRecords{}
-	for _, record := range journal.record.DocumentGroups {
+	for groupIndex, record := range journal.record.DocumentGroups {
 		if err := ctx.Err(); err != nil {
 			return nativeDocumentRecords{}, err
 		}
 		aliases := make([]aggregate.DocumentAddress, 0, len(record.Aliases))
 		for _, alias := range record.Aliases {
+			if err := ctx.Err(); err != nil {
+				return nativeDocumentRecords{}, err
+			}
 			address, err := alias.Address.canonical()
 			if err != nil {
 				return nativeDocumentRecords{}, err
@@ -72,6 +78,9 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 		}
 		subjects := make([]topology.SubjectID, 0, len(record.SelectedSubjects))
 		for _, ref := range record.SelectedSubjects {
+			if err := ctx.Err(); err != nil {
+				return nativeDocumentRecords{}, err
+			}
 			subject, err := ref.canonical()
 			if err != nil {
 				return nativeDocumentRecords{}, err
@@ -82,10 +91,7 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 		if err != nil {
 			return nativeDocumentRecords{}, err
 		}
-		bindings, err := journal.documentBindings(record)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
+		bindings := bindingGroups[groupIndex]
 		claims, provisional, err := journal.documentClaims(ctx, indexes, record, aliases)
 		if err != nil {
 			return nativeDocumentRecords{}, err
@@ -246,59 +252,89 @@ func nativeJournalParticipant(selection aggregate.Selection, codecs aggregate.Co
 	return compose.NewParticipant(codec, selection, syntax, output.TopmostKeyPaths(areas))
 }
 
-func (journal nativeJournalSnapshots) documentBindings(group recoveryDocumentGroup) ([]ownership.DocumentBindingIntent, error) {
-	intents := make([]ownership.DocumentBindingIntent, 0, len(group.BindingIntents))
-	for _, record := range group.BindingIntents {
-		intent, err := record.canonical()
-		if err != nil {
-			return nil, err
-		}
-		if !intent.Owner().Equal(journal.owner) {
-			return nil, fmt.Errorf("document binding has another operation owner")
-		}
-		aliasIndex := slices.IndexFunc(group.Aliases, func(alias recoveryDocumentAlias) bool {
-			return alias.Address.Destination == intent.Destination().String()
-		})
-		if aliasIndex < 0 {
-			return nil, fmt.Errorf("document binding has no group alias")
-		}
-		before := group.Aliases[aliasIndex].ObservedBefore
-		if binding, present := intent.Before().Get(); present {
-			if before.Kind != "exact" || *persistedPathAuthority(binding.PathAuthority()) != *before.Authority {
-				return nil, fmt.Errorf("document binding baseline differs from its captured before namespace")
+func (journal nativeJournalSnapshots) documentBindings(ctx context.Context) ([][]ownership.DocumentBindingIntent, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("document binding context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	equalState := journal.before.Equal(journal.after)
+	groups := make([][]ownership.DocumentBindingIntent, 0, len(journal.record.DocumentGroups))
+	seenAliases := make(map[aggregate.DocumentAddress]struct{})
+	for _, group := range journal.record.DocumentGroups {
+		beforeByDestination := make(map[string]recoveryDocumentObservation, len(group.Aliases))
+		for _, alias := range group.Aliases {
+			if err := ctx.Err(); err != nil {
+				return nil, err
 			}
+			address, err := alias.Address.canonical()
+			if err != nil {
+				return nil, err
+			}
+			if _, repeated := seenAliases[address]; repeated {
+				return nil, fmt.Errorf("document alias belongs to more than one group")
+			}
+			seenAliases[address] = struct{}{}
+			beforeByDestination[alias.Address.Destination] = alias.ObservedBefore
 		}
-		if value, known := intent.KnownAfter(); known {
-			if binding, present := value.Get(); present {
-				exact := binding.PathAuthority()
-				if group.CapturedTarget.Kind == "exact" {
-					if *persistedPathAuthority(exact) != *group.CapturedTarget.Authority {
-						return nil, fmt.Errorf("document binding after differs from the captured target")
-					}
-				} else {
-					provisional, err := group.CapturedTarget.provisional()
-					if err != nil || provisional.AdmitsExact(exact) != nil {
-						return nil, fmt.Errorf("promoted document binding is outside the captured namespace")
-					}
+		intents := make([]ownership.DocumentBindingIntent, 0, len(group.BindingIntents))
+		for _, record := range group.BindingIntents {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			intent, err := record.canonical()
+			if err != nil {
+				return nil, err
+			}
+			if !intent.Owner().Equal(journal.owner) {
+				return nil, fmt.Errorf("document binding has another operation owner")
+			}
+			before, present := beforeByDestination[intent.Destination().String()]
+			if !present {
+				return nil, fmt.Errorf("document binding has no group alias")
+			}
+			if binding, present := intent.Before().Get(); present {
+				if before.Kind != "exact" || *persistedPathAuthority(binding.PathAuthority()) != *before.Authority {
+					return nil, fmt.Errorf("document binding baseline differs from its captured before namespace")
 				}
 			}
-		} else {
-			pending, _ := intent.ProvisionalAfter()
-			captured, err := group.CapturedTarget.provisional()
-			if err != nil || !pending.Equal(captured) {
-				return nil, fmt.Errorf("provisional document binding differs from the captured target")
+			if value, known := intent.KnownAfter(); known {
+				if binding, present := value.Get(); present {
+					exact := binding.PathAuthority()
+					if group.CapturedTarget.Kind == "exact" {
+						if *persistedPathAuthority(exact) != *group.CapturedTarget.Authority {
+							return nil, fmt.Errorf("document binding after differs from the captured target")
+						}
+					} else {
+						provisional, err := group.CapturedTarget.provisional()
+						if err != nil || provisional.AdmitsExact(exact) != nil {
+							return nil, fmt.Errorf("promoted document binding is outside the captured namespace")
+						}
+					}
+				}
+			} else {
+				pending, _ := intent.ProvisionalAfter()
+				captured, err := group.CapturedTarget.provisional()
+				if err != nil || !pending.Equal(captured) {
+					return nil, fmt.Errorf("provisional document binding differs from the captured target")
+				}
 			}
+			changes, err := intent.ChangesBinding()
+			if err != nil {
+				return nil, err
+			}
+			if changes && equalState {
+				return nil, fmt.Errorf("equal Snapshot operation cannot carry nontrivial document binding debt")
+			}
+			intents = append(intents, intent)
 		}
-		changes, err := intent.ChangesBinding()
-		if err != nil {
-			return nil, err
-		}
-		if changes && journal.before.Equal(journal.after) {
-			return nil, fmt.Errorf("equal Snapshot operation cannot carry nontrivial document binding debt")
-		}
-		intents = append(intents, intent)
+		groups = append(groups, intents)
 	}
-	return intents, nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return groups, nil
 }
 
 func (journal nativeJournalSnapshots) documentClaims(ctx context.Context, indexes documentSnapshotIndexes, record recoveryDocumentGroup, aliases []aggregate.DocumentAddress) (ownershipmutation.DocumentClaimTransition, []documentProvisionalAcquire, error) {
@@ -381,27 +417,15 @@ func (index documentSnapshotIndex) documentFootprints(ctx context.Context, alias
 		return nil, err
 	}
 	result := make(map[output.Footprint]struct{})
-	for _, row := range index.aggregates {
+	for address := range addresses {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		contract := row.Contribution().Contract()
-		if _, found := addresses[contract.Address().Document()]; found && contract.Address().Document().Scope() == target.ScopeGlobal {
-			result[contract.Address().Footprint()] = struct{}{}
-		}
-	}
-	for _, row := range index.paths {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		id, native := topologyprojection.EntityID(row.Subject())
-		if !native || id.Kind() != entity.KindHostConfig || row.Scope() != target.ScopeGlobal {
-			continue
-		}
-		for address := range addresses {
-			if address.Scope() == row.Scope() && address.AggregateRoot() == row.Destination() && slices.Contains(row.ConsumerTargets(), address.Target()) {
-				result[output.WholePathFootprint()] = struct{}{}
+		for footprint := range index.globalFootprints[address] {
+			if err := ctx.Err(); err != nil {
+				return nil, err
 			}
+			result[footprint] = struct{}{}
 		}
 	}
 	return result, nil
