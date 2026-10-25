@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -17,7 +16,6 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
-	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -65,27 +63,9 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 		if err := ctx.Err(); err != nil {
 			return nativeDocumentRecords{}, err
 		}
-		aliases := make([]aggregate.DocumentAddress, 0, len(record.Aliases))
-		for _, alias := range record.Aliases {
-			if err := ctx.Err(); err != nil {
-				return nativeDocumentRecords{}, err
-			}
-			address, err := alias.Address.canonical()
-			if err != nil {
-				return nativeDocumentRecords{}, err
-			}
-			aliases = append(aliases, address)
-		}
-		subjects := make([]topology.SubjectID, 0, len(record.SelectedSubjects))
-		for _, ref := range record.SelectedSubjects {
-			if err := ctx.Err(); err != nil {
-				return nativeDocumentRecords{}, err
-			}
-			subject, err := ref.canonical()
-			if err != nil {
-				return nativeDocumentRecords{}, err
-			}
-			subjects = append(subjects, subject)
+		aliases, subjects, err := record.canonicalReferences(ctx)
+		if err != nil {
+			return nativeDocumentRecords{}, err
 		}
 		selections, err := indexes.selectedContracts(ctx, subjects, aliases)
 		if err != nil {
@@ -100,34 +80,7 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 		if err != nil {
 			return nativeDocumentRecords{}, err
 		}
-		input := DocumentComparisonInput{
-			Before: images.original.document, Expected: images.expected.document,
-			BeforeMode: images.original.mode, ExpectedMode: images.expected.mode, Limits: options.limits,
-		}
-		var comparison DocumentComparison
-		if record.Extent == "whole" {
-			comparison, err = NewWholeDocumentComparison(ctx, input)
-		} else {
-			participants := make([]compose.Participant, 0, len(selections))
-			for _, selection := range selections {
-				participant, err := nativeJournalParticipant(selection, options.codecs)
-				if err != nil {
-					return nativeDocumentRecords{}, err
-				}
-				participants = append(participants, participant)
-			}
-			var order *pipackage.OrderObservation
-			if record.PiOrder != nil {
-				observed, err := record.PiOrder.Evidence.canonical(ctx, images.original.document)
-				if err != nil {
-					return nativeDocumentRecords{}, err
-				}
-				order = &observed
-			}
-			candidate, candidateErr := ReconstructSelectedDocument(ctx, input, participants, order)
-			err = candidateErr
-			comparison = candidate.Comparison()
-		}
+		comparison, err := reconstructNativeDocumentComparison(ctx, record, images, selections, options.limits, options.codecs)
 		if err != nil {
 			return nativeDocumentRecords{}, err
 		}
@@ -136,11 +89,15 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 		result.claims = append(result.claims, claims)
 		result.provisional = append(result.provisional, provisional)
 	}
+	return journal.completeDocuments(ctx, indexes, inputs, result, options.codecs)
+}
+
+func (journal nativeJournalSnapshots) completeDocuments(ctx context.Context, indexes documentSnapshotIndexes, inputs []documentStateGroupInput, result nativeDocumentRecords, codecs aggregate.CodecCatalog) (nativeDocumentRecords, error) {
 	groups, err := reconstructDocumentStateGroups(ctx, journal.owner, journal.before, journal.after, inputs)
 	if err != nil {
 		return nativeDocumentRecords{}, err
 	}
-	if err := journal.validateExpectedBaselines(ctx, indexes.after, groups, options.codecs); err != nil {
+	if err := journal.validateExpectedBaselines(ctx, indexes.after, groups, codecs); err != nil {
 		return nativeDocumentRecords{}, err
 	}
 	result.groups = groups
