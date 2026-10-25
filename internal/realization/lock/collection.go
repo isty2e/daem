@@ -34,6 +34,15 @@ func NewLockedSection(
 	subjects []LockedSubjectContract,
 	orderConstraints []hostrelation.RelationOrderConstraint,
 ) (LockedSection, error) {
+	return newLockedSection(subjects, orderConstraints, validateAdmittedLockedSubject, validateLockedCollectionAdmission)
+}
+
+func newLockedSection(
+	subjects []LockedSubjectContract,
+	orderConstraints []hostrelation.RelationOrderConstraint,
+	admitSubject func(LockedSubjectContract) error,
+	admitCollection lockedCollectionAdmission,
+) (LockedSection, error) {
 	canonical := append([]LockedSubjectContract(nil), subjects...)
 	for index, subject := range canonical {
 		if err := subject.validate(); err != nil {
@@ -49,11 +58,11 @@ func NewLockedSection(
 		return LockedSection{}, err
 	}
 	for _, subject := range canonical {
-		if err := validateAdmittedLockedSubject(subject); err != nil {
+		if err := admitSubject(subject); err != nil {
 			return LockedSection{}, fmt.Errorf("locked subject %q refinement: %w", subject.SubjectID(), err)
 		}
 	}
-	if err := validateLockedCollectionAdmission(collectionIndex); err != nil {
+	if err := admitCollection(collectionIndex); err != nil {
 		return LockedSection{}, err
 	}
 	bySubject := make(map[topology.SubjectID]int, len(canonical))
@@ -134,10 +143,14 @@ func (section LockedSection) OrderLen() int { return len(section.orderConstraint
 
 // Validate rejects malformed or non-canonical lock snapshots.
 func Validate(file File) error {
-	if file.Version != CurrentVersion {
+	return validateFile(file, CurrentVersion, NewLockedSection)
+}
+
+func validateFile(file File, version int, constructor func([]LockedSubjectContract, []hostrelation.RelationOrderConstraint) (LockedSection, error)) error {
+	if file.Version != version {
 		return fmt.Errorf("unsupported lockfile version %d", file.Version)
 	}
-	canonical, err := NewLockedSection(
+	canonical, err := constructor(
 		file.Locked.subjects,
 		file.Locked.orderConstraints,
 	)

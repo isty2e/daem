@@ -99,6 +99,26 @@ func Load(ctx context.Context, path string) (lock.File, error) {
 	return loadContent(ctx, content)
 }
 
+// LoadNative explicitly selects the native generation, never pending legacy content.
+func LoadNative(ctx context.Context, path string) (lock.File, error) {
+	content, err := declarationartifact.Read(ctx, path)
+	if err != nil {
+		return lock.File{}, err
+	}
+	return loadNativeContent(ctx, content)
+}
+
+func loadNativeContent(ctx context.Context, content []byte) (lock.File, error) {
+	version, err := lockfileVersion(ctx, content)
+	if err != nil {
+		return lock.File{}, err
+	}
+	if version != lock.NativeVersion {
+		return lock.File{}, UnsupportedVersionError{Found: version, Supported: lock.NativeVersion}
+	}
+	return loadSnapshotContent(ctx, content, nativeSnapshotAdmission())
+}
+
 // ReadReplacementContent reads exact lockfile bytes and verifies that the
 // authoring workflow may replace them without interpreting unsupported state.
 func ReadReplacementContent(ctx context.Context, path string) ([]byte, error) {
@@ -235,6 +255,10 @@ func isTOMLLineWhitespace(value byte) bool {
 }
 
 func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) {
+	return loadSnapshotContent(ctx, content, defaultSnapshotAdmission())
+}
+
+func loadSnapshotContent(ctx context.Context, content []byte, admission snapshotAdmission) (lock.File, error) {
 	if err := admitCurrentLockfileStructure(ctx, content); err != nil {
 		return lock.File{}, err
 	}
@@ -256,11 +280,11 @@ func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) 
 	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
 		return lock.File{}, fmt.Errorf("unknown lockfile key %q", undecoded[0].String())
 	}
-	file, err := snapshotFromDTO(dto)
+	file, err := snapshotFromDTOWithAdmission(dto, admission)
 	if err != nil {
 		return lock.File{}, err
 	}
-	if err := lock.Validate(file); err != nil {
+	if err := admission.validate(file); err != nil {
 		return lock.File{}, err
 	}
 	if err := validateConcreteAggregateContributions(file); err != nil {
@@ -277,6 +301,18 @@ func Marshal(file lock.File) ([]byte, error) {
 	if err := lock.Validate(file); err != nil {
 		return nil, err
 	}
+	return marshalValidated(file)
+}
+
+// MarshalNative renders only a completely admitted native-generation lock.
+func MarshalNative(file lock.File) ([]byte, error) {
+	if err := lock.ValidateNative(file); err != nil {
+		return nil, err
+	}
+	return marshalValidated(file)
+}
+
+func marshalValidated(file lock.File) ([]byte, error) {
 	if err := validateConcreteAggregateContributions(file); err != nil {
 		return nil, err
 	}

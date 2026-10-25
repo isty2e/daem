@@ -5,9 +5,11 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/refine"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
 )
@@ -33,6 +35,20 @@ func BuildWithOptions(ctx context.Context, environment desired.Environment, reso
 	if len(environment.HostConfigs()) > 0 {
 		return lock.File{}, fmt.Errorf("host configuration is not supported by this lock builder")
 	}
+	return buildWithProfile(ctx, environment, resolver, options, nil, configdocument.Limits{}, lockBuildProfile{
+		version: lock.CurrentVersion, section: lock.NewLockedSection, validate: lock.Validate,
+	})
+}
+
+type lockBuildProfile struct {
+	version  int
+	section  func([]lock.LockedSubjectContract, []hostrelation.RelationOrderConstraint) (lock.LockedSection, error)
+	validate func(lock.File) error
+}
+
+func buildWithProfile(ctx context.Context, environment desired.Environment, resolver acquisition.Resolver, options Options,
+	documents []nativeDocumentInput, limits configdocument.Limits, admission lockBuildProfile,
+) (lock.File, error) {
 	if sessionProvider, ok := resolver.(acquisition.ResolutionSessionProvider); ok {
 		sessionResolver, err := sessionProvider.NewResolutionSession()
 		if err != nil {
@@ -55,7 +71,7 @@ func BuildWithOptions(ctx context.Context, environment desired.Environment, reso
 		return lock.File{}, err
 	}
 
-	concreteSources, err := resolveConcreteSources(ctx, skills, hookAssets, instructionResources, resolver, options)
+	concreteSources, err := resolveConcreteSources(ctx, skills, hookAssets, instructionResources, documents, resolver, options)
 	if err != nil {
 		return lock.File{}, err
 	}
@@ -145,18 +161,26 @@ func BuildWithOptions(ctx context.Context, environment desired.Environment, reso
 	lockedSubjects = append(lockedSubjects, lockedHooks...)
 	lockedSubjects = append(lockedSubjects, lockedMCPSubjects...)
 	lockedSubjects = append(lockedSubjects, lockedExtensionSubjects...)
-	lockedSection, err := lock.NewLockedSection(lockedSubjects, lockedExtensionOrder)
+	lockedDocuments, err := lockResolvedNativeDocuments(ctx, documents, concreteSources.documents, limits, options)
+	if err != nil {
+		return lock.File{}, err
+	}
+	lockedSubjects = append(lockedSubjects, lockedDocuments...)
+	lockedSection, err := admission.section(lockedSubjects, lockedExtensionOrder)
 	if err != nil {
 		emitSnapshotValidationFailed(options.Events, err)
 		return lock.File{}, err
 	}
 
 	file := lock.File{
-		Version: lock.CurrentVersion,
+		Version: admission.version,
 		Locked:  lockedSection,
 	}
-	if err := lock.Validate(file); err != nil {
+	if err := admission.validate(file); err != nil {
 		emitSnapshotValidationFailed(options.Events, err)
+		return lock.File{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return lock.File{}, err
 	}
 

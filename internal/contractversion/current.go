@@ -8,6 +8,9 @@ const (
 	LockfileSchema = 7
 )
 
+// NativeLockfileSchema is selected explicitly until the complete native operation cutover.
+const NativeLockfileSchema = 8
+
 // MetadataTransaction identifies bounded file-set recovery evidence.
 const MetadataTransaction = 3
 

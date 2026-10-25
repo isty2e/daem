@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/target"
@@ -94,6 +95,7 @@ type LockedSubjectContractInput struct {
 	SubjectID                 topology.SubjectID
 	ExactSupply               *artifact.ExactIdentity
 	ExactFileUse              *ExactFileUse
+	HostConfigPlacement       *profile.HostConfigPlacement
 	Realization               *realization.RealizationSpec
 	Derivation                *DerivationContract
 	RepairRecipe              *skillrepair.Recipe
@@ -115,6 +117,7 @@ type LockedSubjectContract struct {
 	subjectID                 topology.SubjectID
 	exactSupply               *artifact.ExactIdentity
 	exactFileUse              *ExactFileUse
+	hostConfigPlacement       *profile.HostConfigPlacement
 	realization               *realization.RealizationSpec
 	derivation                *DerivationContract
 	repairRecipe              *skillrepair.Recipe
@@ -148,6 +151,13 @@ func NewLockedSubjectContract(input LockedSubjectContractInput) (LockedSubjectCo
 			return LockedSubjectContract{}, err
 		}
 		contract.exactFileUse = &use
+	}
+	if input.HostConfigPlacement != nil {
+		placement := *input.HostConfigPlacement
+		if err := placement.Validate(); err != nil {
+			return LockedSubjectContract{}, err
+		}
+		contract.hostConfigPlacement = &placement
 	}
 	if input.Realization != nil {
 		realization := *input.Realization
@@ -219,6 +229,14 @@ func (contract LockedSubjectContract) ExactFileUse() (ExactFileUse, bool) {
 		return ExactFileUse{}, false
 	}
 	return *contract.exactFileUse, true
+}
+
+// HostConfigPlacement returns static declaration intent, not observed host authority.
+func (contract LockedSubjectContract) HostConfigPlacement() (profile.HostConfigPlacement, bool) {
+	if contract.hostConfigPlacement == nil {
+		return profile.HostConfigPlacement{}, false
+	}
+	return *contract.hostConfigPlacement, true
 }
 
 // MaterializedFileIdentity returns the exact output identity selected by the
@@ -343,6 +361,7 @@ func (contract LockedSubjectContract) Equal(other LockedSubjectContract) bool {
 	}
 	return optionalExactIdentityEqual(contract.exactSupply, other.exactSupply) &&
 		optionalExactFileUseEqual(contract.exactFileUse, other.exactFileUse) &&
+		optionalHostConfigPlacementEqual(contract.hostConfigPlacement, other.hostConfigPlacement) &&
 		optionalRealizationEqual(contract.realization, other.realization) &&
 		optionalDerivationEqual(contract.derivation, other.derivation) &&
 		optionalSkillRepairRecipeEqual(contract.repairRecipe, other.repairRecipe) &&
@@ -357,6 +376,13 @@ func (contract LockedSubjectContract) Equal(other LockedSubjectContract) bool {
 		contract.onAbsent == other.onAbsent &&
 		replayCoverageEqual(contract.replay, other.replay) &&
 		operationContractMapsEqual(contract.operationContracts, other.operationContracts)
+}
+
+func optionalHostConfigPlacementEqual(left, right *profile.HostConfigPlacement) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func optionalExactFileUseEqual(left *ExactFileUse, right *ExactFileUse) bool {

@@ -5,13 +5,32 @@ import (
 	"reflect"
 
 	"github.com/isty2e/daem/internal/realization/lock"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 )
 
+type snapshotAdmission struct {
+	version  int
+	section  func([]lock.LockedSubjectContract, []hostrelation.RelationOrderConstraint) (lock.LockedSection, error)
+	validate func(lock.File) error
+}
+
+func defaultSnapshotAdmission() snapshotAdmission {
+	return snapshotAdmission{lock.CurrentVersion, lock.NewLockedSection, lock.Validate}
+}
+
+func nativeSnapshotAdmission() snapshotAdmission {
+	return snapshotAdmission{lock.NativeVersion, lock.NewNativeLockedSection, lock.ValidateNative}
+}
+
 func snapshotFromDTO(dto fileDTO) (lock.File, error) {
-	if dto.Version != currentLockfileVersion {
+	return snapshotFromDTOWithAdmission(dto, defaultSnapshotAdmission())
+}
+
+func snapshotFromDTOWithAdmission(dto fileDTO, admission snapshotAdmission) (lock.File, error) {
+	if dto.Version != int64(admission.version) {
 		return lock.File{}, UnsupportedVersionError{
 			Found:     dto.Version,
-			Supported: currentLockfileVersion,
+			Supported: int64(admission.version),
 		}
 	}
 
@@ -23,12 +42,12 @@ func snapshotFromDTO(dto fileDTO) (lock.File, error) {
 	if err != nil {
 		return lock.File{}, err
 	}
-	locked, err := lock.NewLockedSection(subjects, orderConstraints)
+	locked, err := admission.section(subjects, orderConstraints)
 	if err != nil {
 		return lock.File{}, err
 	}
 	return lock.File{
-		Version: lock.CurrentVersion,
+		Version: admission.version,
 		Locked:  locked,
 	}, nil
 }
