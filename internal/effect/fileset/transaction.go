@@ -91,11 +91,26 @@ func commitWithOperationsVersion(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	stateDir, err := canonicalStateDir(input.StateDir)
+	maximumPhysicalDepth := 0
+	var physicalWorkBudget *fenceObservationBudget
+	var stateDir string
+	var err error
+	if version == contractversion.MetadataTransactionReference {
+		maximumPhysicalDepth = mutationfs.MaximumPhysicalPathDepth
+		physicalWorkBudget = &fenceObservationBudget{}
+		stateDir, err = canonicalStateDirBounded(input.StateDir, maximumPhysicalDepth, physicalWorkBudget)
+	} else {
+		stateDir, err = canonicalStateDir(input.StateDir)
+	}
 	if err != nil {
 		return err
 	}
-	targets, err := canonicalTargets(input.Targets)
+	var targets []FileTarget
+	if version == contractversion.MetadataTransactionReference {
+		targets, err = canonicalTargetsBounded(input.Targets, maximumPhysicalDepth, physicalWorkBudget)
+	} else {
+		targets, err = canonicalTargets(input.Targets)
+	}
 	if err != nil {
 		return err
 	}
@@ -115,8 +130,21 @@ func commitWithOperationsVersion(
 	for _, target := range targets {
 		allowed = append(allowed, target.path)
 	}
-	if err := recoverWithOperationsVersion(ctx, stateDir, allowed, ops, version); err != nil {
-		return err
+	var recoveryErr error
+	if version == contractversion.MetadataTransactionReference {
+		recoveryErr = recoverFileSet4WithBudget(
+			ctx,
+			stateDir,
+			allowed,
+			ops,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		)
+	} else {
+		recoveryErr = recoverWithOperationsVersion(ctx, stateDir, allowed, ops, version)
+	}
+	if recoveryErr != nil {
+		return recoveryErr
 	}
 	marker, err := prepareMarkerVersion(ctx, stateDir, targets, version, retainReference)
 	if err != nil {

@@ -329,6 +329,101 @@ func TestFileSet4AllowsValidDeepExternalTargetWithShallowStateDir(t *testing.T) 
 	assertContent(t, manifest, "manifest-before")
 }
 
+func TestFileSet4StaticAndReferenceWritersRejectOverdepthTargetsBeforePublication(t *testing.T) {
+	for _, reference := range []bool{false, true} {
+		name := "static"
+		if reference {
+			name = "reference"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+			targetPath := deepExternalTarget(t, root, mutationfs.MaximumPhysicalPathDepth)
+			writeFixture(t, targetPath, "before", 0o600)
+			target := mustWriteTarget(t, targetPath, "after")
+			if reference {
+				target = mustCommitPointTarget(t, targetPath, "after")
+			}
+			if _, err := fileSetAbsolutePathWork(target.Path(), mutationfs.MaximumPhysicalPathDepth); err == nil {
+				t.Fatal("target fixture is within the selected physical path depth")
+			}
+
+			assertV4WriterRefusesBeforePublication(t, stateDir, target, reference)
+		})
+	}
+}
+
+func TestFileSet4WriterRejectsStateDirsOutsideMarkerDepthBeforePublication(t *testing.T) {
+	for _, depth := range []int{
+		mutationfs.MaximumPhysicalPathDepth - 1,
+		mutationfs.MaximumPhysicalPathDepth + 1,
+	} {
+		t.Run(fmt.Sprintf("state-depth-%d", depth), func(t *testing.T) {
+			root := t.TempDir()
+			stateDir := deepDirectoryAtDepth(t, root, depth)
+			targetPath := filepath.Join(root, "manifest")
+			writeFixture(t, targetPath, "before", 0o600)
+			target := mustCommitPointTarget(t, targetPath, "after")
+			actualDepth, depthErr := fileSetAbsolutePathWork(stateDir, mutationfs.MaximumPhysicalPathDepth)
+			if depth < mutationfs.MaximumPhysicalPathDepth && (depthErr != nil || actualDepth != depth) {
+				t.Fatalf("StateDir fixture depth = %d, %v; want %d", actualDepth, depthErr, depth)
+			} else if depth > mutationfs.MaximumPhysicalPathDepth && depthErr == nil {
+				t.Fatal("StateDir fixture is within the selected physical path depth")
+			}
+			assertV4WriterRefusesBeforePublication(t, stateDir, target, true)
+		})
+	}
+}
+
+func TestFileSet4StaticAndReferenceWritersAdmitDeepPathsBelowLimit(t *testing.T) {
+	for _, reference := range []bool{false, true} {
+		name := "static"
+		if reference {
+			name = "reference"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+			targetPath := deepExternalTarget(t, root, 200)
+			writeFixture(t, targetPath, "before", 0o600)
+			target := mustWriteTarget(t, targetPath, "after")
+			if reference {
+				target = mustCommitPointTarget(t, targetPath, "after")
+			}
+
+			if _, err := fileSetAbsolutePathWork(target.Path(), mutationfs.MaximumPhysicalPathDepth); err != nil {
+				t.Fatalf("control target exceeds the selected path depth: %v", err)
+			}
+			assertPanics(t, func() {
+				_ = commitWithOperationsVersion(t.Context(), FileSetInput{
+					StateDir: stateDir,
+					Targets:  []FileTarget{target},
+				}, operations{writeFile: func(context.Context, string, []byte, os.FileMode) error {
+					panic("interrupt-after-marker")
+				}}, contractversion.MetadataTransactionReference, reference)
+			})
+			if _, err := os.Lstat(markerPath(stateDir)); err != nil {
+				t.Fatalf("bounded writer did not publish its transaction marker: %v", err)
+			}
+			if reference {
+				view, err := ReadFileSetReferenceEvidence4(t.Context(), stateDir, target.Path())
+				if err != nil || string(view.AfterImage()) != "after" {
+					t.Fatalf("deep reference view = %q, %v", view.AfterImage(), err)
+				}
+			}
+			disposition, err := InspectFileSetRecovery4(t.Context(), stateDir, []string{target.Path()})
+			if err != nil || disposition != RecoveryRollback {
+				t.Fatalf("deep target recovery preview = %q, %v; want rollback", disposition, err)
+			}
+			if err := RecoverFileSet4(t.Context(), stateDir, []string{target.Path()}); err != nil {
+				t.Fatalf("recover bounded deep target: %v", err)
+			}
+			assertContent(t, targetPath, "before")
+			assertMissing(t, transactionDir(stateDir))
+		})
+	}
+}
+
 func TestFileSet4FenceAndViewDoNotResolveUnselectedPersistedTargets(t *testing.T) {
 	root := t.TempDir()
 	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
@@ -966,6 +1061,60 @@ func writeReferenceMarkerFixture(
 	if err := os.WriteFile(markerPath(stateDir), content, transactionEvidenceMode); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func deepExternalTarget(t *testing.T, root string, directoryComponents int) string {
+	t.Helper()
+	parent := root
+	for range directoryComponents {
+		parent = filepath.Join(parent, "d")
+	}
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(parent, "target")
+}
+
+func deepDirectoryAtDepth(t *testing.T, root string, targetDepth int) string {
+	t.Helper()
+	currentDepth, err := fileSetAbsolutePathWork(root, mutationfs.MaximumPhysicalPathDepth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targetDepth < currentDepth {
+		t.Fatalf("requested directory depth %d is shallower than root depth %d", targetDepth, currentDepth)
+	}
+	directory := root
+	for currentDepth < targetDepth {
+		directory = filepath.Join(directory, "d")
+		currentDepth++
+	}
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return directory
+}
+
+func assertV4WriterRefusesBeforePublication(t *testing.T, stateDir string, target FileTarget, reference bool) {
+	t.Helper()
+	var err error
+	if reference {
+		err = CommitFileSet4WithReference(t.Context(), FileSetInput{
+			StateDir: stateDir,
+			Targets:  []FileTarget{target},
+		})
+	} else {
+		err = CommitFileSet4(t.Context(), FileSetInput{
+			StateDir: stateDir,
+			Targets:  []FileTarget{target},
+		})
+	}
+	if err == nil {
+		t.Fatal("writer admitted a path the generation-4 reader cannot admit")
+	}
+	assertMissing(t, markerPath(stateDir))
+	assertMissing(t, transactionDir(stateDir))
+	assertContent(t, target.Path(), "before")
 }
 
 func assertRecoveryAuthorityRefusal(t *testing.T, err error, path string) {

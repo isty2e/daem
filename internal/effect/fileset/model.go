@@ -149,6 +149,26 @@ func admitStagedEvidenceBytes(total int64, additional int, label string) error {
 // canonicalTargets validates and orders a private target slice while retaining
 // each write target's constructor-owned after-image snapshot.
 func canonicalTargets(values []FileTarget) ([]FileTarget, error) {
+	return canonicalTargetsWithResolver(values, mutation.CanonicalDirectoryEntryPath)
+}
+
+func canonicalTargetsBounded(
+	values []FileTarget,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) ([]FileTarget, error) {
+	if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
+		return nil, fmt.Errorf("bounded file-set targets require a path depth and shared work budget")
+	}
+	return canonicalTargetsWithResolver(values, func(path string) (string, error) {
+		return mutation.CanonicalDirectoryEntryPathBounded(path, maximumPhysicalDepth, physicalWorkBudget)
+	})
+}
+
+func canonicalTargetsWithResolver(
+	values []FileTarget,
+	resolvePath func(string) (string, error),
+) ([]FileTarget, error) {
 	if len(values) == 0 {
 		return nil, fmt.Errorf("file-set transaction requires at least one target")
 	}
@@ -166,7 +186,7 @@ func canonicalTargets(values []FileTarget) ([]FileTarget, error) {
 				return nil, fmt.Errorf("target[%d]: %w", index, err)
 			}
 		}
-		canonical, err := mutation.CanonicalDirectoryEntryPath(target.path)
+		canonical, err := resolvePath(target.path)
 		if err != nil {
 			if target.write {
 				return nil, fmt.Errorf("target[%d]: canonicalize transaction target: %w", index, err)
