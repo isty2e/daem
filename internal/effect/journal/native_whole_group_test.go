@@ -348,7 +348,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := wholeDocumentCaptureInput{mutation: mutation, owner: envelope.claims.owner, operationID: envelope.record.OperationID, groupIndex: 3, limits: envelope.read.limits, budget: budget}
+	input := wholeDocumentCaptureInput{mutation: mutation, nativeDocumentCaptureInput: nativeDocumentCaptureInput{owner: envelope.claims.owner, operationID: envelope.record.OperationID, groupIndex: 3, limits: envelope.read.limits, budget: budget}}
 	input.payloads = wholeGroupPayload(t, mutation.facts(), desired)
 	beforeImage, expectedImage := aggregate.ExistingDocument(original), aggregate.ExistingDocument(desired)
 	var beforeRows, afterRows []durable.ManagedPathState

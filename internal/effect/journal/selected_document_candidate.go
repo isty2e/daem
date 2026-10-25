@@ -48,18 +48,29 @@ func (candidate SelectedDocumentCandidate) OrderInput() (pipackage.LoadedOrderIn
 
 // PrepareSelectedDocument accepts real semantic plans, not claimed expected bytes.
 func PrepareSelectedDocument(ctx context.Context, input SelectedDocumentPreparationInput, edits []compose.ProjectionEdit, order *pipackage.OrderObservation) (SelectedDocumentCandidate, error) {
-	if err := validateComparisonDocument(ctx, input.Before, input.Limits); err != nil {
+	expected, participants, err := prepareSelectedDocumentImage(ctx, input.Before, input.Limits, edits, order)
+	if err != nil {
 		return SelectedDocumentCandidate{}, err
+	}
+	return ReconstructSelectedDocument(ctx, DocumentComparisonInput{
+		Before: input.Before, Expected: expected,
+		BeforeMode: input.BeforeMode, ExpectedMode: input.ExpectedMode, Limits: input.Limits,
+	}, participants, order)
+}
+
+func prepareSelectedDocumentImage(ctx context.Context, before aggregate.Document, limits configdocument.Limits, edits []compose.ProjectionEdit, order *pipackage.OrderObservation) (aggregate.Document, []compose.Participant, error) {
+	if err := validateComparisonDocument(ctx, before, limits); err != nil {
+		return aggregate.Document{}, nil, err
 	}
 	participants := make([]compose.Participant, len(edits))
 	for index, edit := range edits {
 		participants[index] = edit.Participant()
 	}
-	expected := input.Before
+	expected := before
 	if len(edits) != 0 {
-		candidate, err := compose.Render(ctx, input.Before, input.Limits, edits)
+		candidate, err := compose.Render(ctx, before, limits, edits)
 		if err != nil {
-			return SelectedDocumentCandidate{}, err
+			return aggregate.Document{}, nil, err
 		}
 		expected = candidate.Document()
 	}
@@ -67,13 +78,10 @@ func PrepareSelectedDocument(ctx context.Context, input SelectedDocumentPreparat
 		var err error
 		expected, err = order.Project(expected)
 		if err != nil {
-			return SelectedDocumentCandidate{}, err
+			return aggregate.Document{}, nil, err
 		}
 	}
-	return ReconstructSelectedDocument(ctx, DocumentComparisonInput{
-		Before: input.Before, Expected: expected,
-		BeforeMode: input.BeforeMode, ExpectedMode: input.ExpectedMode, Limits: input.Limits,
-	}, participants, order)
+	return expected, participants, nil
 }
 
 // ReconstructSelectedDocument verifies actual loaded images through the same

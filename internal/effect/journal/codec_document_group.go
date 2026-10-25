@@ -150,11 +150,8 @@ func (record recoveryDocumentGroup) validate(manifest recoveryRootProvenance) er
 		if address.Target() != target.TargetPi || string(address.Scope()) != order.Evidence.Scope {
 			return fmt.Errorf("Pi order scope/target differs from its alias")
 		}
-		settings := "@pi-agent/settings.json"
-		if address.Scope() == target.ScopeProject {
-			settings = ".pi/settings.json"
-		}
-		if address.AggregateRoot().String() != settings {
+		settings, err := piOrderDocumentAlias(address.Scope())
+		if err != nil || address != settings {
 			return fmt.Errorf("Pi order alias does not identify the admitted settings document")
 		}
 		if !slices.ContainsFunc(record.Aliases, func(alias recoveryDocumentAlias) bool { return alias.Address == order.Alias }) {
@@ -177,6 +174,18 @@ func (record recoveryDocumentGroup) validate(manifest recoveryRootProvenance) er
 		}
 	}
 	return nil
+}
+
+func piOrderDocumentAlias(scope target.Scope) (aggregate.DocumentAddress, error) {
+	path := "@pi-agent/settings.json"
+	if scope == target.ScopeProject {
+		path = ".pi/settings.json"
+	}
+	destination, err := output.Parse(path)
+	if err != nil {
+		return aggregate.DocumentAddress{}, err
+	}
+	return aggregate.NewDocumentAddress(target.TargetPi, scope, destination)
 }
 
 func (record recoveryDocumentAliasRef) canonical() (aggregate.DocumentAddress, error) {

@@ -17,8 +17,12 @@ import (
 )
 
 type wholeDocumentCaptureInput struct {
-	mutation    ManagedPathMutation
-	payloads    payload.PayloadSet
+	nativeDocumentCaptureInput
+	mutation ManagedPathMutation
+	payloads payload.PayloadSet
+}
+
+type nativeDocumentCaptureInput struct {
 	owner       stateauthority.Authority
 	operationID string
 	claims      *ownershipmutation.DocumentClaimTransition
@@ -33,19 +37,7 @@ type wholeDocumentCaptureInput struct {
 // prepareWholeDocumentGroup captures persistence facts, not a publication seal.
 // The containing operation must admit complete snapshots and all group relations.
 func prepareWholeDocumentGroup(ctx context.Context, namespace NativeDocumentNamespace, input wholeDocumentCaptureInput) (recoveryDocumentGroup, DocumentComparison, error) {
-	if ctx == nil || input.budget == nil || input.groupIndex < 0 {
-		return recoveryDocumentGroup{}, DocumentComparison{}, fmt.Errorf("whole document capture requires context, budget and a nonnegative ordinal")
-	}
-	if err := ctx.Err(); err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
-	}
-	if err := input.owner.Validate(); err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
-	}
-	if err := ownership.ValidateOperationID(input.operationID); err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
-	}
-	if err := input.limits.Validate(); err != nil {
+	if err := validateNativeDocumentCaptureInput(ctx, input.nativeDocumentCaptureInput); err != nil {
 		return recoveryDocumentGroup{}, DocumentComparison{}, err
 	}
 	facts, err := wholeDocumentMutationFacts(input.mutation)
@@ -56,7 +48,10 @@ func prepareWholeDocumentGroup(ctx context.Context, namespace NativeDocumentName
 	if err != nil || !slices.Contains(namespace.Addresses(), address) {
 		return recoveryDocumentGroup{}, DocumentComparison{}, fmt.Errorf("whole document mutation has no captured namespace alias")
 	}
-	group, manifest, err := wholeDocumentGroupMetadata(ctx, namespace, input)
+	if input.removal != nil && (input.removal.Scope() != facts.scope || input.removal.Destination() != facts.destination) {
+		return recoveryDocumentGroup{}, DocumentComparison{}, fmt.Errorf("whole document removal differs from its mutation")
+	}
+	group, manifest, err := nativeDocumentGroupMetadata(ctx, namespace, input.nativeDocumentCaptureInput)
 	if err != nil {
 		return recoveryDocumentGroup{}, DocumentComparison{}, err
 	}
@@ -73,7 +68,8 @@ func prepareWholeDocumentGroup(ctx context.Context, namespace NativeDocumentName
 	if err != nil {
 		return recoveryDocumentGroup{}, DocumentComparison{}, err
 	}
-	if err := group.validate(manifest); err != nil {
+	group.Extent = "whole"
+	if err := group.validate(persistedNativeRoot(manifest.provenance)); err != nil {
 		return recoveryDocumentGroup{}, DocumentComparison{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -82,31 +78,47 @@ func prepareWholeDocumentGroup(ctx context.Context, namespace NativeDocumentName
 	return group, comparison, nil
 }
 
-func wholeDocumentGroupMetadata(ctx context.Context, namespace NativeDocumentNamespace, input wholeDocumentCaptureInput) (recoveryDocumentGroup, recoveryRootProvenance, error) {
+func validateNativeDocumentCaptureInput(ctx context.Context, input nativeDocumentCaptureInput) error {
+	if ctx == nil || input.budget == nil || input.groupIndex < 0 {
+		return fmt.Errorf("native document capture requires context, budget and a nonnegative ordinal")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := input.owner.Validate(); err != nil {
+		return err
+	}
+	if err := ownership.ValidateOperationID(input.operationID); err != nil {
+		return err
+	}
+	return input.limits.Validate()
+}
+
+func nativeDocumentGroupMetadata(ctx context.Context, namespace NativeDocumentNamespace, input nativeDocumentCaptureInput) (recoveryDocumentGroup, nativeDocumentRootGrant, error) {
 	if err := validateRecoveryOwnershipWorkBudget(len(input.bindings), 0, 0); err != nil {
-		return recoveryDocumentGroup{}, recoveryRootProvenance{}, err
+		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
 	}
 	grants, err := namespace.roots.qualify(ctx, input.budget)
 	if err != nil {
-		return recoveryDocumentGroup{}, recoveryRootProvenance{}, err
+		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
 	}
 	manifest, present := grants[output.RootProject]
 	if !present {
-		return recoveryDocumentGroup{}, recoveryRootProvenance{}, fmt.Errorf("whole document capture requires the operation manifest root")
+		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, fmt.Errorf("native document capture requires the operation manifest root")
 	}
 	observed, err := persistedNativeObservation(namespace.observation)
 	if err != nil {
-		return recoveryDocumentGroup{}, recoveryRootProvenance{}, err
+		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
 	}
 	group := recoveryDocumentGroup{
-		CapturedTarget: observed, Writer: namespace.writerRecord, Extent: "whole",
+		CapturedTarget: observed, Writer: namespace.writerRecord,
 		SelectedSubjects: []persistedSubjectRef{},
 		Aliases:          make([]recoveryDocumentAlias, 0, len(namespace.aliases)),
 		BindingIntents:   make([]recoveryDocumentBindingIntent, 0, len(input.bindings)),
 	}
 	for _, alias := range namespace.aliases {
 		if err := ctx.Err(); err != nil {
-			return recoveryDocumentGroup{}, recoveryRootProvenance{}, err
+			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
 		}
 		role := "global-root"
 		if alias.address.Scope() == target.ScopeProject {
@@ -114,7 +126,7 @@ func wholeDocumentGroupMetadata(ctx context.Context, namespace NativeDocumentNam
 		}
 		selected, err := persistedNativeObservation(alias.observation)
 		if err != nil {
-			return recoveryDocumentGroup{}, recoveryRootProvenance{}, err
+			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
 		}
 		group.Aliases = append(group.Aliases, recoveryDocumentAlias{
 			Address:             persistedDocumentAlias(alias.address),
@@ -122,40 +134,42 @@ func wholeDocumentGroupMetadata(ctx context.Context, namespace NativeDocumentNam
 			SelectedObservation: selected, ObservedBefore: observed,
 		})
 	}
-	group.ExclusiveClaims, err = wholeDocumentGroupClaims(namespace, input)
+	group.ExclusiveClaims, err = nativeDocumentGroupClaims(namespace, input)
 	if err != nil {
-		return recoveryDocumentGroup{}, recoveryRootProvenance{}, err
+		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
 	}
 	for _, intent := range input.bindings {
 		if err := ctx.Err(); err != nil {
-			return recoveryDocumentGroup{}, recoveryRootProvenance{}, err
+			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
 		}
 		record, err := persistedDocumentBindingIntent(intent)
 		if err != nil {
-			return recoveryDocumentGroup{}, recoveryRootProvenance{}, err
+			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
 		}
 		group.BindingIntents = append(group.BindingIntents, record)
 	}
 	if _, err := group.canonicalBindingIntents(ctx, input.owner); err != nil {
-		return recoveryDocumentGroup{}, recoveryRootProvenance{}, err
+		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
 	}
 	if input.removal != nil {
-		if input.removal.Scope() != input.mutation.facts().scope || input.removal.Destination() != input.mutation.facts().destination {
-			return recoveryDocumentGroup{}, recoveryRootProvenance{}, fmt.Errorf("whole document removal differs from its mutation")
+		if !slices.ContainsFunc(namespace.Addresses(), func(alias aggregate.DocumentAddress) bool {
+			return alias.Scope() == input.removal.Scope() && alias.AggregateRoot() == input.removal.Destination()
+		}) {
+			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, fmt.Errorf("document removal has no captured namespace alias")
 		}
 		records, err := persistedRecoveryRemovalIntents([]recovery.RemovalIntent{*input.removal})
 		if err != nil {
-			return recoveryDocumentGroup{}, recoveryRootProvenance{}, err
+			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
 		}
 		group.Removal = &records[0]
 	}
-	return group, persistedNativeRoot(manifest.provenance), nil
+	return group, manifest, nil
 }
 
-func wholeDocumentGroupClaims(namespace NativeDocumentNamespace, input wholeDocumentCaptureInput) (recoveryDocumentClaimSet, error) {
+func nativeDocumentGroupClaims(namespace NativeDocumentNamespace, input nativeDocumentCaptureInput) (recoveryDocumentClaimSet, error) {
 	if input.claims != nil {
 		if len(input.provisional) != 0 {
-			return recoveryDocumentClaimSet{}, fmt.Errorf("whole document capture cannot mix exact and provisional claims")
+			return recoveryDocumentClaimSet{}, fmt.Errorf("native document capture cannot mix exact and provisional claims")
 		}
 		exact, known := namespace.observation.Exact()
 		if !known {
