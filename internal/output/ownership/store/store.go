@@ -274,7 +274,8 @@ func validateCurrentAuthoritiesForClaimRemovals(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if _, selected := selectedForRemoval[claim]; selected {
+		_, selected := selectedForRemoval[claim]
+		if selected || observations.admitsMissingDocumentClaim(claim) {
 			observed, err := observations.observe(claim.Address().Path())
 			if err != nil {
 				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
@@ -441,6 +442,8 @@ type pathAuthorityObservationSession struct {
 	maximumPhysicalDepth int
 	budget               rootedpath.PhysicalTraversalBudget
 	byPath               map[string]mutation.DirectoryEntryAuthorityObservation
+	documentOwner        stateauthority.Authority
+	missingDocuments     map[string]pathauthority.Provisional
 }
 
 func newPathAuthorityObservationSession() *pathAuthorityObservationSession {

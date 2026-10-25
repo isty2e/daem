@@ -248,3 +248,14 @@ func (record recoveryDocumentObservation) equal(other recoveryDocumentObservatio
 	}
 	return record.NamespaceAuthority == nil && other.NamespaceAuthority == nil || record.NamespaceAuthority != nil && other.NamespaceAuthority != nil && *record.NamespaceAuthority == *other.NamespaceAuthority
 }
+
+func (record recoveryDocumentObservation) matchesRetainedExact(exact pathauthority.Exact) bool {
+	if record.validate() != nil || exact.Validate() != nil {
+		return false
+	}
+	if record.Kind == "exact" {
+		return *record.Authority == *persistedPathAuthority(exact)
+	}
+	missing, err := record.provisional()
+	return err == nil && missing.MatchesMissingExact(exact)
+}

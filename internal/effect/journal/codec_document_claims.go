@@ -197,6 +197,51 @@ func (record recoveryDocumentClaimSet) canonicalExact(owner stateauthority.Autho
 	return ownershipmutation.NewDocumentClaimTransition(before, after, operationID)
 }
 
+func (record recoveryDocumentClaimSet) canonicalObservedExact(owner stateauthority.Authority, operationID string, observed recoveryDocumentObservation) (ownershipmutation.DocumentClaimTransition, error) {
+	if err := record.validateShape(); err != nil {
+		return ownershipmutation.DocumentClaimTransition{}, err
+	}
+	if record.Kind != "exact" {
+		return ownershipmutation.DocumentClaimTransition{}, fmt.Errorf("exact document claims are required")
+	}
+	if err := observed.validate(); err != nil {
+		return ownershipmutation.DocumentClaimTransition{}, err
+	}
+	if observed.Kind == "exact" {
+		exact, err := canonicalPathAuthority(*observed.Authority)
+		if err != nil {
+			return ownershipmutation.DocumentClaimTransition{}, err
+		}
+		return record.canonicalExact(owner, operationID, exact)
+	}
+
+	anchor := *record.Before
+	historical := len(anchor) != 0
+	if !historical {
+		anchor = *record.After
+	}
+	value, err := canonicalClaimValue(anchor[0])
+	if err != nil {
+		return ownershipmutation.DocumentClaimTransition{}, err
+	}
+	claim, present := value.Get()
+	if !present {
+		return ownershipmutation.DocumentClaimTransition{}, fmt.Errorf("exact document claims require a present namespace anchor")
+	}
+	exact := claim.Address().PathAuthority()
+	if historical {
+		if !observed.matchesRetainedExact(exact) {
+			return ownershipmutation.DocumentClaimTransition{}, fmt.Errorf("historical document claims differ from the missing namespace")
+		}
+	} else {
+		provisional, err := observed.provisional()
+		if err != nil || provisional.AdmitsExact(exact) != nil {
+			return ownershipmutation.DocumentClaimTransition{}, fmt.Errorf("promoted document claims are outside the captured namespace")
+		}
+	}
+	return record.canonicalExact(owner, operationID, exact)
+}
+
 func canonicalDocumentClaims(records []recoveryClaimValue, owner stateauthority.Authority, path pathauthority.Exact) ([]ownership.Claim, error) {
 	claims := make([]ownership.Claim, 0, len(records))
 	for _, record := range records {

@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -49,6 +50,7 @@ func (input nativeCaptureOwnershipInput) prepare(ctx context.Context) ([]nativeD
 	beforeFootprints := make([]map[output.Footprint]struct{}, len(input.namespaces))
 	afterFootprints := make([]map[output.Footprint]struct{}, len(input.namespaces))
 	needsRegistry := false
+	var missingHistory []pathauthority.Provisional
 	seenAliases := make(map[aggregate.DocumentAddress]struct{})
 	for index, namespace := range input.namespaces {
 		aliases := namespace.Addresses()
@@ -79,6 +81,9 @@ func (input nativeCaptureOwnershipInput) prepare(ctx context.Context) ([]nativeD
 			return nil, err
 		}
 		needsRegistry = needsRegistry || len(beforeFootprints[index])+len(afterFootprints[index]) != 0
+		if missing, provisional := namespace.observation.Provisional(); provisional && len(beforeFootprints[index]) != 0 {
+			missingHistory = append(missingHistory, missing)
+		}
 	}
 
 	current := ownership.EmptyRegistry()
@@ -86,7 +91,15 @@ func (input nativeCaptureOwnershipInput) prepare(ctx context.Context) ([]nativeD
 		if input.registry == nil {
 			return nil, fmt.Errorf("native membership requires the operation-selected registry reader")
 		}
-		current, err = input.registry.Load(ctx)
+		if len(missingHistory) == 0 {
+			current, err = input.registry.Load(ctx)
+		} else {
+			reader, supported := input.registry.(ownershipmutation.DocumentRegistryReader)
+			if !supported {
+				return nil, fmt.Errorf("missing native history requires a document-qualified registry reader")
+			}
+			current, err = reader.LoadForDocuments(ctx, input.owner, missingHistory, recovery.MaximumPhysicalPathDepth, input.budget)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -174,7 +187,19 @@ func (input nativeCaptureOwnershipInput) documentClaims(ctx context.Context, nam
 	if len(before)+len(after) == 0 {
 		return nil, nil, nil
 	}
-	if exact, known := namespace.observation.Exact(); known {
+	exact, known := namespace.observation.Exact()
+	if !known && len(before) != 0 {
+		missing, provisional := namespace.observation.Provisional()
+		if !provisional {
+			return nil, nil, fmt.Errorf("native history requires a current namespace observation")
+		}
+		previous := owned[missing.CandidateKey()]
+		if len(previous) == 0 || !missing.MatchesMissingExact(previous[0].Address().PathAuthority()) {
+			return nil, nil, fmt.Errorf("native history differs from the missing namespace")
+		}
+		exact, known = previous[0].Address().PathAuthority(), true
+	}
+	if known {
 		beforeClaims := owned[exact.Key()]
 		if !sameDocumentClaimFootprints(before, beforeClaims) {
 			return nil, nil, fmt.Errorf("native capture before membership differs from current owned claims")
@@ -265,20 +290,20 @@ func (input nativeCaptureOwnershipInput) documentBindings(ctx context.Context, n
 		}
 		beforeValue, afterValue := ownership.NoDocumentBinding(), ownership.NoDocumentBinding()
 		if had {
-			exact, known := namespace.observation.Exact()
-			if !known || !binding.PathAuthority().Equal(exact) {
+			observed, err := persistedNativeObservation(namespace.observation)
+			if err != nil || !observed.matchesRetainedExact(binding.PathAuthority()) {
 				return nil, fmt.Errorf("native capture baseline binding differs from the captured namespace")
 			}
 			beforeValue, _ = ownership.PresentDocumentBinding(binding)
 		}
 		if has {
-			if exact, known := namespace.observation.Exact(); known {
-				if !had {
-					var err error
-					binding, err = ownership.NewDocumentBinding(input.owner, destination, exact)
-					if err != nil {
-						return nil, err
-					}
+			if had {
+				afterValue = beforeValue
+			} else if exact, known := namespace.observation.Exact(); known {
+				var err error
+				binding, err = ownership.NewDocumentBinding(input.owner, destination, exact)
+				if err != nil {
+					return nil, err
 				}
 				afterValue, _ = ownership.PresentDocumentBinding(binding)
 			} else {

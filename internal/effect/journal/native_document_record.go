@@ -290,15 +290,16 @@ func (group recoveryDocumentGroup) canonicalBindingIntents(ctx context.Context, 
 			return nil, fmt.Errorf("document binding has no group alias")
 		}
 		if binding, present := intent.Before().Get(); present {
-			if before.Kind != "exact" || *persistedPathAuthority(binding.PathAuthority()) != *before.Authority {
+			if !before.matchesRetainedExact(binding.PathAuthority()) {
 				return nil, fmt.Errorf("document binding baseline differs from its captured before namespace")
 			}
 		}
 		if value, known := intent.KnownAfter(); known {
 			if binding, present := value.Get(); present {
 				exact := binding.PathAuthority()
-				if group.CapturedTarget.Kind == "exact" {
-					if *persistedPathAuthority(exact) != *group.CapturedTarget.Authority {
+				_, historical := intent.Before().Get()
+				if historical || group.CapturedTarget.Kind == "exact" {
+					if !group.CapturedTarget.matchesRetainedExact(exact) {
 						return nil, fmt.Errorf("document binding after differs from the captured target")
 					}
 				} else {
@@ -337,29 +338,7 @@ func (journal nativeJournalSnapshots) documentClaims(ctx context.Context, indexe
 	}
 	switch record.ExclusiveClaims.Kind {
 	case "exact":
-		var claims ownershipmutation.DocumentClaimTransition
-		var err error
-		if record.CapturedTarget.Kind == "exact" {
-			exact, exactErr := canonicalPathAuthority(*record.CapturedTarget.Authority)
-			if exactErr != nil {
-				return claims, nil, exactErr
-			}
-			claims, err = record.ExclusiveClaims.canonicalExact(journal.owner, journal.record.OperationID, exact)
-		} else {
-			if len(before) != 0 || record.ExclusiveClaims.After == nil || len(*record.ExclusiveClaims.After) == 0 {
-				return claims, nil, fmt.Errorf("promoted provisional claims cannot reuse prior global membership")
-			}
-			value, valueErr := canonicalClaimValue((*record.ExclusiveClaims.After)[0])
-			if valueErr != nil {
-				return claims, nil, valueErr
-			}
-			claim, present := value.Get()
-			provisional, provisionalErr := record.CapturedTarget.provisional()
-			if !present || provisionalErr != nil || provisional.AdmitsExact(claim.Address().PathAuthority()) != nil {
-				return claims, nil, fmt.Errorf("promoted document claims are outside the captured namespace")
-			}
-			claims, err = record.ExclusiveClaims.canonicalExact(journal.owner, journal.record.OperationID, claim.Address().PathAuthority())
-		}
+		claims, err := record.ExclusiveClaims.canonicalObservedExact(journal.owner, journal.record.OperationID, record.CapturedTarget)
 		if err != nil {
 			return ownershipmutation.DocumentClaimTransition{}, nil, err
 		}

@@ -69,6 +69,9 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 		if err := matchRetainedNativeObservation(record.CapturedTarget, namespace.observation); err != nil {
 			return nil, err
 		}
+		if err := journal.qualifyRetainedDocumentNamespace(ctx, record, namespace.observation); err != nil {
+			return nil, err
+		}
 		currentAliases := make(map[aggregate.DocumentAddress]nativeDocumentAliasObservation, len(namespace.aliases))
 		for _, alias := range namespace.aliases {
 			currentAliases[alias.address] = alias
@@ -119,6 +122,35 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 		return nil, err
 	}
 	return namespaces, nil
+}
+
+func (journal nativeJournalSnapshots) qualifyRetainedDocumentNamespace(ctx context.Context, record recoveryDocumentGroup, current mutation.DirectoryEntryAuthorityObservation) error {
+	bindings, err := record.canonicalBindingIntents(ctx, journal.owner)
+	if err != nil {
+		return err
+	}
+	for _, intent := range bindings {
+		if binding, present := intent.Before().Get(); present {
+			expected := recoveryDocumentObservation{Kind: "exact", Authority: persistedPathAuthority(binding.PathAuthority())}
+			if err := matchRetainedNativeObservation(expected, current); err != nil {
+				return fmt.Errorf("retained document binding namespace changed: %w", err)
+			}
+		}
+	}
+	if record.ExclusiveClaims.Kind == "exact" {
+		claims, err := record.ExclusiveClaims.canonicalObservedExact(journal.owner, journal.record.OperationID, record.CapturedTarget)
+		if err != nil {
+			return err
+		}
+		before := claims.Before()
+		if len(before) != 0 {
+			expected := recoveryDocumentObservation{Kind: "exact", Authority: persistedPathAuthority(before[0].Address().PathAuthority())}
+			if err := matchRetainedNativeObservation(expected, current); err != nil {
+				return fmt.Errorf("retained document claim namespace changed: %w", err)
+			}
+		}
+	}
+	return ctx.Err()
 }
 
 func matchRetainedNativeObservation(record recoveryDocumentObservation, current mutation.DirectoryEntryAuthorityObservation) error {

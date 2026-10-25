@@ -159,15 +159,15 @@ func nativeDocumentGroupClaims(namespace NativeDocumentNamespace, input nativeDo
 		if len(input.provisional) != 0 {
 			return recoveryDocumentClaimSet{}, fmt.Errorf("native document capture cannot mix exact and provisional claims")
 		}
-		exact, known := namespace.observation.Exact()
-		if !known {
-			return recoveryDocumentClaimSet{}, fmt.Errorf("exact document claims require an exact captured namespace")
-		}
 		record, err := persistedDocumentClaimTransition(*input.claims, input.operationID)
 		if err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}
-		if _, err := record.canonicalExact(input.owner, input.operationID, exact); err != nil {
+		observed, err := persistedNativeObservation(namespace.observation)
+		if err != nil {
+			return recoveryDocumentClaimSet{}, err
+		}
+		if _, err := record.canonicalObservedExact(input.owner, input.operationID, observed); err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}
 		return record, nil

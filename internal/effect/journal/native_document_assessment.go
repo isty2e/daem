@@ -7,6 +7,7 @@ import (
 	"io/fs"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -75,7 +76,23 @@ func (journal nativeJournalSnapshots) assessDocumentRecovery(ctx context.Context
 		return nativeDocumentAssessment{}, err
 	}
 	removals := append(rollback.ExpectedRemovals(), finalize.ExpectedRemovals()...)
-	registry, err := options.registry.LoadForClaimRemovals(ctx, removals, recovery.MaximumPhysicalPathDepth, options.documents.budget)
+	var missingHistory []pathauthority.Provisional
+	for index, namespace := range qualified.namespaces {
+		claims := qualified.records.claims[index]
+		if missing, provisional := namespace.observation.Provisional(); provisional && len(claims.Before())+len(claims.After()) != 0 {
+			missingHistory = append(missingHistory, missing)
+		}
+	}
+	var registry ownership.Registry
+	if len(missingHistory) == 0 {
+		registry, err = options.registry.LoadForClaimRemovals(ctx, removals, recovery.MaximumPhysicalPathDepth, options.documents.budget)
+	} else {
+		reader, supported := options.registry.(ownershipmutation.DocumentRegistryReader)
+		if !supported {
+			return nativeDocumentAssessment{}, fmt.Errorf("missing native history requires a document-qualified registry reader")
+		}
+		registry, err = reader.LoadForDocuments(ctx, journal.owner, missingHistory, recovery.MaximumPhysicalPathDepth, options.documents.budget)
+	}
 	if err != nil {
 		return nativeDocumentAssessment{}, fmt.Errorf("observe native recovery registry: %w", err)
 	}
