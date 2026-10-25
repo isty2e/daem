@@ -48,8 +48,7 @@ func decodeLegacyInventoryJournal(ctx context.Context, snapshot mutationfs.Regul
 	return journal, nil
 }
 
-// The positive native entrypoint still understands ordinary v15 journals.
-// Default inventory and all existing public lifecycle entrypoints stay frozen.
+// Native inventory admits only v16; default lifecycle entrypoints stay on v15.
 func loadNativeRecoveryRootInventory(ctx context.Context, root string, options inventoryOptions) (recoveryRootInventory, error) {
 	options.recordDecoder = decodeNativeInventoryJournal
 	return loadRecoveryRootInventory(ctx, root, options)
@@ -70,16 +69,12 @@ func decodeNativeInventoryJournal(ctx context.Context, snapshot mutationfs.Regul
 	if err != nil {
 		return nil, err
 	}
-	switch version {
-	case recoveryJournalVersion:
-		return decodeLegacyInventoryJournal(ctx, snapshot, path, codec)
-	case nativeRecoveryJournalVersion:
-		journal, err := decodeNativeJournalRecord(ctx, content, codec)
-		if err != nil {
-			return nil, err
-		}
-		return journal, nil
-	default:
+	if version != nativeRecoveryJournalVersion {
 		return nil, unsupportedRecoveryJournalVersion(version)
 	}
+	journal, err := decodeNativeJournalRecord(ctx, content, codec)
+	if err != nil {
+		return nil, err
+	}
+	return journal, nil
 }

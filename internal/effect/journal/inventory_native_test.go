@@ -11,9 +11,11 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
@@ -68,16 +70,25 @@ func TestDefaultInventoryRejectsNativeBeforeStateDecoding(t *testing.T) {
 	}
 }
 
-func TestNativeInventoryPreservesLegacyRecordAndFingerprint(t *testing.T) {
+func TestNativeAndDefaultInventoryKeepGenerationIsolation(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "recovery")
 	identity, _ := captureInventoryJournal(t, root, "ordinary-native-reader")
-	inventory, err := loadNativeRecoveryRootInventory(t.Context(), root, inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: testStateCodec()})
+	inventory, err := loadRecoveryRootInventory(t.Context(), root, inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: testStateCodec()})
 	if err != nil || inventory.active == nil || inventory.decision.State() != retirement.StateActive {
-		t.Fatalf("explicit native reader lost ordinary v15 recovery: %v", err)
+		t.Fatalf("default reader lost ordinary v15 recovery: %v", err)
 	}
 	legacy, ok := inventory.active.record.(recoveryJournal)
 	if !ok || legacy.OperationID != identity.OperationID() || inventory.active.identity.JournalAuthorityFingerprint() != identity.JournalAuthorityFingerprint() {
-		t.Fatal("positive family admission changed legacy record/fingerprint semantics")
+		t.Fatal("default reader changed legacy record/fingerprint semantics")
+	}
+	native, err := statefile.NewNativeCodec(aggregatecodec.Catalog().Contributions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &nativeInventoryCodecProbe{SnapshotCodec: native}
+	rejected, err := loadNativeRecoveryRootInventory(t.Context(), root, inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: probe})
+	if err != nil || rejected.decision.State() != retirement.StateBlocked || rejected.active != nil || probe.decodes != 0 {
+		t.Fatalf("native reader admitted pending v15 or decoded its state: %v, decodes=%d", err, probe.decodes)
 	}
 }
 
@@ -172,8 +183,8 @@ func TestNativeInventoryRejectsUnknownAndMalformedRecordsBeforeState(t *testing.
 	}
 }
 
-func TestNativeInventoryRejectsDirectoryMismatchAndMixedActiveFamilies(t *testing.T) {
-	for _, kind := range []string{"directory name", "mixed families", "record revision"} {
+func TestNativeInventoryRejectsInconsistentActiveLayouts(t *testing.T) {
+	for _, kind := range []string{"directory name", "mixed families", "multiple native records", "record revision"} {
 		t.Run(kind, func(t *testing.T) {
 			setup, root, path := nativeInventoryFixture(t)
 			options := inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec}
@@ -185,6 +196,19 @@ func TestNativeInventoryRejectsDirectoryMismatchAndMixedActiveFamilies(t *testin
 			case "mixed families":
 				_, ordinary := captureInventoryJournal(t, filepath.Join(t.TempDir(), "other-recovery"), "another-ordinary-operation")
 				if err := os.Rename(ordinary.Directory, filepath.Join(root, "another-ordinary-operation")); err != nil {
+					t.Fatal(err)
+				}
+			case "multiple native records":
+				other, _, otherPath := nativeInventoryFixture(t)
+				other.fixture.record.OperationID = "another-native-operation"
+				content, err := marshalNativeJournalRecord(t.Context(), other.fixture.record, other.fixture.before, other.fixture.after, other.fixture.codec)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(otherPath, content, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(filepath.Dir(otherPath), filepath.Join(root, other.fixture.record.OperationID)); err != nil {
 					t.Fatal(err)
 				}
 			case "record revision":
