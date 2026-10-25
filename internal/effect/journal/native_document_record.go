@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -220,7 +221,6 @@ func (journal nativeJournalSnapshots) documentBindings(ctx context.Context) ([][
 	groups := make([][]ownership.DocumentBindingIntent, 0, len(journal.record.DocumentGroups))
 	seenAliases := make(map[aggregate.DocumentAddress]struct{})
 	for _, group := range journal.record.DocumentGroups {
-		beforeByDestination := make(map[string]recoveryDocumentObservation, len(group.Aliases))
 		for _, alias := range group.Aliases {
 			if err := ctx.Err(); err != nil {
 				return nil, err
@@ -233,50 +233,12 @@ func (journal nativeJournalSnapshots) documentBindings(ctx context.Context) ([][
 				return nil, fmt.Errorf("document alias belongs to more than one group")
 			}
 			seenAliases[address] = struct{}{}
-			beforeByDestination[alias.Address.Destination] = alias.ObservedBefore
 		}
-		intents := make([]ownership.DocumentBindingIntent, 0, len(group.BindingIntents))
-		for _, record := range group.BindingIntents {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			intent, err := record.canonical()
-			if err != nil {
-				return nil, err
-			}
-			if !intent.Owner().Equal(journal.owner) {
-				return nil, fmt.Errorf("document binding has another operation owner")
-			}
-			before, present := beforeByDestination[intent.Destination().String()]
-			if !present {
-				return nil, fmt.Errorf("document binding has no group alias")
-			}
-			if binding, present := intent.Before().Get(); present {
-				if before.Kind != "exact" || *persistedPathAuthority(binding.PathAuthority()) != *before.Authority {
-					return nil, fmt.Errorf("document binding baseline differs from its captured before namespace")
-				}
-			}
-			if value, known := intent.KnownAfter(); known {
-				if binding, present := value.Get(); present {
-					exact := binding.PathAuthority()
-					if group.CapturedTarget.Kind == "exact" {
-						if *persistedPathAuthority(exact) != *group.CapturedTarget.Authority {
-							return nil, fmt.Errorf("document binding after differs from the captured target")
-						}
-					} else {
-						provisional, err := group.CapturedTarget.provisional()
-						if err != nil || provisional.AdmitsExact(exact) != nil {
-							return nil, fmt.Errorf("promoted document binding is outside the captured namespace")
-						}
-					}
-				}
-			} else {
-				pending, _ := intent.ProvisionalAfter()
-				captured, err := group.CapturedTarget.provisional()
-				if err != nil || !pending.Equal(captured) {
-					return nil, fmt.Errorf("provisional document binding differs from the captured target")
-				}
-			}
+		intents, err := group.canonicalBindingIntents(ctx, journal.owner)
+		if err != nil {
+			return nil, err
+		}
+		for _, intent := range intents {
 			changes, err := intent.ChangesBinding()
 			if err != nil {
 				return nil, err
@@ -284,7 +246,6 @@ func (journal nativeJournalSnapshots) documentBindings(ctx context.Context) ([][
 			if changes && equalState {
 				return nil, fmt.Errorf("equal Snapshot operation cannot carry nontrivial document binding debt")
 			}
-			intents = append(intents, intent)
 		}
 		groups = append(groups, intents)
 	}
@@ -292,6 +253,61 @@ func (journal nativeJournalSnapshots) documentBindings(ctx context.Context) ([][
 		return nil, err
 	}
 	return groups, nil
+}
+
+func (group recoveryDocumentGroup) canonicalBindingIntents(ctx context.Context, owner stateauthority.Authority) ([]ownership.DocumentBindingIntent, error) {
+	beforeByDestination := make(map[string]recoveryDocumentObservation, len(group.Aliases))
+	for _, alias := range group.Aliases {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		beforeByDestination[alias.Address.Destination] = alias.ObservedBefore
+	}
+	intents := make([]ownership.DocumentBindingIntent, 0, len(group.BindingIntents))
+	for _, record := range group.BindingIntents {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		intent, err := record.canonical()
+		if err != nil {
+			return nil, err
+		}
+		if !intent.Owner().Equal(owner) {
+			return nil, fmt.Errorf("document binding has another operation owner")
+		}
+		before, present := beforeByDestination[intent.Destination().String()]
+		if !present {
+			return nil, fmt.Errorf("document binding has no group alias")
+		}
+		if binding, present := intent.Before().Get(); present {
+			if before.Kind != "exact" || *persistedPathAuthority(binding.PathAuthority()) != *before.Authority {
+				return nil, fmt.Errorf("document binding baseline differs from its captured before namespace")
+			}
+		}
+		if value, known := intent.KnownAfter(); known {
+			if binding, present := value.Get(); present {
+				exact := binding.PathAuthority()
+				if group.CapturedTarget.Kind == "exact" {
+					if *persistedPathAuthority(exact) != *group.CapturedTarget.Authority {
+						return nil, fmt.Errorf("document binding after differs from the captured target")
+					}
+				} else {
+					provisional, err := group.CapturedTarget.provisional()
+					if err != nil || provisional.AdmitsExact(exact) != nil {
+						return nil, fmt.Errorf("promoted document binding is outside the captured namespace")
+					}
+				}
+			}
+		} else {
+			pending, _ := intent.ProvisionalAfter()
+			captured, err := group.CapturedTarget.provisional()
+			if err != nil || !pending.Equal(captured) {
+				return nil, fmt.Errorf("provisional document binding differs from the captured target")
+			}
+		}
+		intents = append(intents, intent)
+	}
+	return intents, nil
 }
 
 func (journal nativeJournalSnapshots) documentClaims(ctx context.Context, indexes documentSnapshotIndexes, record recoveryDocumentGroup, aliases []aggregate.DocumentAddress) (ownershipmutation.DocumentClaimTransition, []documentProvisionalAcquire, error) {

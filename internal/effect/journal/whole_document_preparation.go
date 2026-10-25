@@ -26,18 +26,8 @@ func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInp
 	if err := validateComparisonDocument(ctx, input.Before, input.Limits); err != nil {
 		return DocumentComparison{}, err
 	}
-	if err := mutation.validate(); err != nil {
-		return DocumentComparison{}, err
-	}
-	facts := mutation.facts()
-	mode := facts.expectedMode
-	if mutation.kind() == pathMutationRemove {
-		mode = facts.previous.FileMode()
-	}
-	if err := profile.ValidateHostConfigDocumentOccupancy(facts.subject, facts.consumerTargets, facts.scope, facts.destination, facts.contentKind, realization.PathPermissionsExact, mode); err != nil {
-		return DocumentComparison{}, err
-	}
-	if err := validateWholeDocumentPrevious(facts); err != nil {
+	facts, err := wholeDocumentMutationFacts(mutation)
+	if err != nil {
 		return DocumentComparison{}, err
 	}
 	if _, err := recovery.NewPartialDocumentState(input.Before.Exists(), input.BeforeMode, nil); err != nil {
@@ -91,6 +81,24 @@ func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInp
 		Before: input.Before, Expected: expected,
 		BeforeMode: input.BeforeMode, ExpectedMode: expectedMode, Limits: input.Limits,
 	})
+}
+
+func wholeDocumentMutationFacts(mutation ManagedPathMutation) (managedPathMutationFacts, error) {
+	if err := mutation.validate(); err != nil {
+		return managedPathMutationFacts{}, err
+	}
+	facts := mutation.facts()
+	mode := facts.expectedMode
+	if mutation.kind() == pathMutationRemove {
+		mode = facts.previous.FileMode()
+	}
+	if err := profile.ValidateHostConfigDocumentOccupancy(facts.subject, facts.consumerTargets, facts.scope, facts.destination, facts.contentKind, realization.PathPermissionsExact, mode); err != nil {
+		return managedPathMutationFacts{}, err
+	}
+	if err := validateWholeDocumentPrevious(facts); err != nil {
+		return managedPathMutationFacts{}, err
+	}
+	return facts, nil
 }
 
 func validateWholeDocumentPrevious(facts managedPathMutationFacts) error {

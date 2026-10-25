@@ -46,15 +46,7 @@ func stageDocumentImages(ctx context.Context, comparison DocumentComparison, gro
 	if entries > budget.RemainingEntries() || contentBytes > budget.RemainingBytes() {
 		return recoveryDocumentImage{}, recoveryDocumentImage{}, fmt.Errorf("document images exceed the shared staging budget")
 	}
-	directory, err := mutationfs.NewTreeRelativePath(fmt.Sprintf("document-%06d", groupIndex))
-	if err != nil {
-		return recoveryDocumentImage{}, recoveryDocumentImage{}, err
-	}
-	original, err := stagedDocumentImageRecord(comparison.before, comparison.beforeState, directory.Path()+"/original")
-	if err != nil {
-		return recoveryDocumentImage{}, recoveryDocumentImage{}, err
-	}
-	expected, err := stagedDocumentImageRecord(comparison.expected, comparison.expectedState, directory.Path()+"/expected")
+	directory, original, expected, err := documentImageReferences(comparison, groupIndex)
 	if err != nil {
 		return recoveryDocumentImage{}, recoveryDocumentImage{}, err
 	}
@@ -82,6 +74,25 @@ func stageDocumentImages(ctx context.Context, comparison DocumentComparison, gro
 		return recoveryDocumentImage{}, recoveryDocumentImage{}, err
 	}
 	return original, expected, nil
+}
+
+func documentImageReferences(comparison DocumentComparison, groupIndex int) (mutationfs.TreeRelativePath, recoveryDocumentImage, recoveryDocumentImage, error) {
+	if groupIndex < 0 {
+		return mutationfs.TreeRelativePath{}, recoveryDocumentImage{}, recoveryDocumentImage{}, fmt.Errorf("document image ordinal must be nonnegative")
+	}
+	directory, err := mutationfs.NewTreeRelativePath(fmt.Sprintf("document-%06d", groupIndex))
+	if err != nil {
+		return mutationfs.TreeRelativePath{}, recoveryDocumentImage{}, recoveryDocumentImage{}, err
+	}
+	original, err := stagedDocumentImageRecord(comparison.before, comparison.beforeState, directory.Path()+"/original")
+	if err != nil {
+		return mutationfs.TreeRelativePath{}, recoveryDocumentImage{}, recoveryDocumentImage{}, err
+	}
+	expected, err := stagedDocumentImageRecord(comparison.expected, comparison.expectedState, directory.Path()+"/expected")
+	if err != nil {
+		return mutationfs.TreeRelativePath{}, recoveryDocumentImage{}, recoveryDocumentImage{}, err
+	}
+	return directory, original, expected, nil
 }
 
 func stagedDocumentImageRecord(document aggregate.Document, state recovery.PartialDocumentState, path string) (recoveryDocumentImage, error) {
