@@ -131,6 +131,8 @@ func NewParticipant(codec aggregate.Codec, input aggregate.Selection, syntax con
 func (participant Participant) Selection() aggregate.Selection { return participant.selection }
 func (participant Participant) Syntax() configdocument.Syntax  { return participant.syntax }
 
+func (edit ProjectionEdit) Participant() Participant { return edit.projection }
+
 // RewriteAreas returns a defensive copy of the native rewrite envelope.
 func (participant Participant) RewriteAreas() []output.KeyPath {
 	return append([]output.KeyPath(nil), participant.areas...)

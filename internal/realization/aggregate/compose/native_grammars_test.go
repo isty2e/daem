@@ -51,6 +51,10 @@ func TestNativeProjectionCompositionAcrossAllAdmittedGrammars(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		participants := []compose.Participant{edits[0].Participant(), edits[1].Participant()}
+		if err := compose.VerifyCandidate(t.Context(), original, candidate.Document(), limits, participants); err != nil {
+			t.Fatal(err)
+		}
 		parsedCandidate, err := configdocument.Parse(t.Context(), candidate.Document().Content(), syntax, limits)
 		if err != nil {
 			t.Fatal(err)

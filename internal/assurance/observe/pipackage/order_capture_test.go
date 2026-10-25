@@ -1,0 +1,82 @@
+package pipackage_test
+
+import (
+	"bytes"
+	"path/filepath"
+	"testing"
+
+	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/target"
+)
+
+func TestOrderCaptureAndProjectionPreserveActualInputAndExplicitContexts(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	before := aggregate.ExistingDocument([]byte(`{"packages":["npm:b","npm:foreign", "npm:a"],"theme":"day"}`))
+	loaded, live := loadedOrderFixture(t, target.ScopeProject, filepath.Join(root, ".pi"), root, home,
+		[]orderSpec{{id: "a", source: "npm:a"}, {id: "b", source: "npm:b"}}, before)
+	observation, err := observepipackage.ReconstructOrder(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, err := observation.CaptureInput()
+	if err != nil || !captured.Document.Equal(before) {
+		t.Fatalf("capture did not retain the actual original: %v", err)
+	}
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	replayed, err := observepipackage.ReconstructOrder(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, _ := observation.Candidate()
+	replayedBytes, _ := replayed.Candidate()
+	if !bytes.Equal(candidate, replayedBytes) {
+		t.Fatal("capture changed the actual selected order")
+	}
+	current := aggregate.ExistingDocument(bytes.Replace(before.Content(), []byte(`"day"`), []byte(`"night"`), 1))
+	projected, err := observation.Project(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(projected.Content(), []byte(`"theme":"night"`)) {
+		t.Fatal("Pi projection overwrote an independent native edit")
+	}
+	if err := observation.VerifyPackageContent(projected.Content(), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := observation.Project(aggregate.ExistingDocument(bytes.Replace(before.Content(), []byte("npm:foreign"), []byte("npm:third"), 1))); err == nil {
+		t.Fatal("Pi projection accepted a third package baseline")
+	}
+	captured.Relations[0] = observepipackage.ScopedRelation{}
+	if _, err := observation.CaptureInput(); err != nil {
+		t.Fatal("returned relation-slice mutation changed the observation")
+	}
+	writeSettingsBytes(t, observation.SettingsPath(), before.Content())
+	ambient, err := observepipackage.ReadOrder(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ambient.CaptureInput(); err == nil {
+		t.Fatal("ambient-only observation became replay evidence")
+	}
+}
+
+func TestOrderProjectionDoesNotCreateMissingSettingsOrPackageArrays(t *testing.T) {
+	for _, original := range []aggregate.Document{
+		aggregate.AbsentDocument(), aggregate.ExistingDocument([]byte(`{}`)),
+		aggregate.ExistingDocument([]byte(`{"packages":[]}`)),
+	} {
+		root := t.TempDir()
+		input, _ := loadedOrderFixture(t, target.ScopeProject, filepath.Join(root, ".pi"), root, t.TempDir(),
+			[]orderSpec{{id: "a", source: "npm:a"}}, original)
+		observation, err := observepipackage.ReconstructOrder(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		projected, err := observation.Project(original)
+		if err != nil || !projected.Equal(original) || observation.Changed() {
+			t.Fatalf("no-op order changed document or array presence: %v", err)
+		}
+	}
+}
