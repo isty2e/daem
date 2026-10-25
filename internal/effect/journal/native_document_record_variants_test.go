@@ -275,6 +275,15 @@ func nativeRecordLoadFixture(t *testing.T, fixture nativeRecordFixture) nativeDo
 	if err != nil || len(prepared.groups) != len(loaded.groups) || len(prepared.claims) != len(loaded.claims) || len(prepared.provisional) != len(loaded.provisional) {
 		t.Fatalf("prepared variant differs from artifact reconstruction: %v", err)
 	}
+	if len(decoded.record.Entries) == 0 {
+		requireStagedDocumentJournal(t, fixture, decoded, comparisons)
+	} else {
+		writer := &imageStageWriter{}
+		fingerprint, err := decoded.stageDocumentJournal(t.Context(), comparisons, writer, documentStageOptions(fixture, imageBudget(t)))
+		if err == nil || fingerprint != "" || writer.writes != 0 || writer.directories != 0 {
+			t.Fatalf("document-only stage admitted ordinary artifacts: %v", err)
+		}
+	}
 	return loaded
 }
 
