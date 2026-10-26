@@ -141,6 +141,43 @@ func (projection NativeOwnershipProjection) Global(ctx context.Context, alias ag
 	return observe.NewProvisionalOwnershipObservation(alias.AggregateRoot(), footprint, missing, claimValue)
 }
 
+func (projection NativeOwnershipProjection) Participants(ctx context.Context, alias aggregate.DocumentAddress) (observe.NativeDocumentParticipants, error) {
+	if err := projection.validate(ctx); err != nil {
+		return observe.NativeDocumentParticipants{}, err
+	}
+	baseline, present := projection.baselines[alias]
+	if !present {
+		return observe.NativeDocumentParticipants{}, fmt.Errorf("native participants require an observed alias")
+	}
+	var bindings []ownership.DocumentBinding
+	var err error
+	if exact, current := baseline.namespace.observation.Exact(); current {
+		bindings, err = projection.registry.DocumentBindingsAt(exact)
+	} else if missing, provisional := baseline.namespace.observation.Provisional(); provisional {
+		bindings, err = projection.registry.DocumentBindingsForMissing(missing)
+	} else {
+		return observe.NativeDocumentParticipants{}, fmt.Errorf("native participants require the selected namespace observation")
+	}
+	if err != nil {
+		return observe.NativeDocumentParticipants{}, err
+	}
+	aliases := baseline.namespace.Addresses()
+	subjects, err := projection.before.documentSubjects(ctx, aliases)
+	if err != nil {
+		return observe.NativeDocumentParticipants{}, err
+	}
+	result, err := observe.NewNativeDocumentParticipants(observe.NativeDocumentParticipantsInput{
+		Owner: projection.owner, Aliases: aliases, BeforeSubjects: subjects, CurrentBindings: bindings,
+	})
+	if err != nil {
+		return observe.NativeDocumentParticipants{}, err
+	}
+	if err := projection.validate(ctx); err != nil {
+		return observe.NativeDocumentParticipants{}, err
+	}
+	return result, nil
+}
+
 func (projection NativeOwnershipProjection) Document(ctx context.Context, alias aggregate.DocumentAddress) (observe.NativeDocumentClaimObservation, error) {
 	if err := projection.validate(ctx); err != nil {
 		return observe.NativeDocumentClaimObservation{}, err

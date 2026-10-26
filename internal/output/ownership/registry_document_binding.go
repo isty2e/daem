@@ -50,6 +50,24 @@ func (registry Registry) DocumentBindingsAt(namespace pathauthority.Exact) ([]Do
 	return result, nil
 }
 
+// DocumentBindingsForMissing compares stored identity with a provisional
+// namespace; matching history does not restore current exact authority.
+func (registry Registry) DocumentBindingsForMissing(namespace pathauthority.Provisional) ([]DocumentBinding, error) {
+	if !registry.initialized {
+		return nil, fmt.Errorf("ownership registry is required")
+	}
+	if err := namespace.Validate(); err != nil {
+		return nil, err
+	}
+	var result []DocumentBinding
+	for _, binding := range registry.bindings {
+		if namespace.MatchesMissingExact(binding.PathAuthority()) {
+			result = append(result, binding)
+		}
+	}
+	return result, nil
+}
+
 // DocumentBinding looks up identity evidence by authoritative state key, not
 // by the manifest path retained only for diagnostic provenance.
 func (registry Registry) DocumentBinding(owner stateauthority.Key, destination output.Destination) (DocumentBinding, bool) {

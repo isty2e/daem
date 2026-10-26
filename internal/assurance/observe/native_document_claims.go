@@ -1,7 +1,6 @@
 package observe
 
 import (
-	"cmp"
 	"fmt"
 	"slices"
 
@@ -23,59 +22,26 @@ type NativeDocumentClaimObservationInput struct {
 	CurrentBindings []ownership.DocumentBinding
 }
 
-// NativeDocumentClaimObservation is a read-only projection of a qualified
-// physical group's membership, claims and stored binding participants.
-// Comparison may be retained missing history, never current exact authority.
+// NativeDocumentClaimObservation adds exact claim comparison to participant
+// facts. Comparison may be retained history, never current path authority.
 type NativeDocumentClaimObservation struct {
-	owner           stateauthority.Authority
-	aliases         []aggregate.DocumentAddress
-	comparison      pathauthority.Exact
-	beforeSubjects  []topology.SubjectID
-	beforeClaims    []ownership.Claim
-	currentClaims   []ownership.Claim
-	currentBindings []ownership.DocumentBinding
-	initialized     bool
+	participants  NativeDocumentParticipants
+	comparison    pathauthority.Exact
+	beforeClaims  []ownership.Claim
+	currentClaims []ownership.Claim
+	initialized   bool
 }
 
 func NewNativeDocumentClaimObservation(input NativeDocumentClaimObservationInput) (NativeDocumentClaimObservation, error) {
-	if err := input.Owner.Validate(); err != nil {
-		return NativeDocumentClaimObservation{}, err
-	}
 	whole, err := ownership.NewManagedAddress(input.Comparison, output.WholePathFootprint())
 	if err != nil {
 		return NativeDocumentClaimObservation{}, err
 	}
-	aliases := slices.Clone(input.Aliases)
-	if len(aliases) == 0 {
-		return NativeDocumentClaimObservation{}, fmt.Errorf("native claim observation requires aliases")
-	}
-	seen := make(map[aggregate.DocumentAddress]struct{}, len(aliases))
-	for _, alias := range aliases {
-		if err := alias.Validate(); err != nil {
-			return NativeDocumentClaimObservation{}, err
-		}
-		if _, duplicate := seen[alias]; duplicate {
-			return NativeDocumentClaimObservation{}, fmt.Errorf("native claim observation repeats an alias")
-		}
-		seen[alias] = struct{}{}
-	}
-	slices.SortFunc(aliases, func(left, right aggregate.DocumentAddress) int {
-		for _, order := range []int{cmp.Compare(left.Target(), right.Target()), cmp.Compare(left.Scope(), right.Scope()), cmp.Compare(left.AggregateRoot().String(), right.AggregateRoot().String())} {
-			if order != 0 {
-				return order
-			}
-		}
-		return 0
+	participants, err := NewNativeDocumentParticipants(NativeDocumentParticipantsInput{
+		Owner: input.Owner, Aliases: input.Aliases, BeforeSubjects: input.BeforeSubjects, CurrentBindings: input.CurrentBindings,
 	})
-	subjects := slices.Clone(input.BeforeSubjects)
-	slices.SortFunc(subjects, topology.CompareSubjectID)
-	for index, subject := range subjects {
-		if err := subject.Validate(); err != nil {
-			return NativeDocumentClaimObservation{}, err
-		}
-		if index != 0 && subjects[index-1] == subject {
-			return NativeDocumentClaimObservation{}, fmt.Errorf("native claim observation repeats a before subject")
-		}
+	if err != nil {
+		return NativeDocumentClaimObservation{}, err
 	}
 	current, err := canonicalObservedClaims(input.CurrentClaims, whole)
 	if err != nil {
@@ -90,18 +56,14 @@ func NewNativeDocumentClaimObservation(input NativeDocumentClaimObservationInput
 			return NativeDocumentClaimObservation{}, fmt.Errorf("native before claims differ from active owned current history")
 		}
 	}
-	bindings, err := ownership.NewRegistry(nil, input.CurrentBindings...)
-	if err != nil {
-		return NativeDocumentClaimObservation{}, err
-	}
-	for _, binding := range bindings.DocumentBindings() {
+	for _, binding := range participants.CurrentBindings() {
 		if !binding.PathAuthority().Equal(input.Comparison) {
 			return NativeDocumentClaimObservation{}, fmt.Errorf("native binding fragment differs from its comparison namespace")
 		}
 	}
 	return NativeDocumentClaimObservation{
-		owner: input.Owner, aliases: aliases, comparison: input.Comparison,
-		beforeSubjects: subjects, beforeClaims: before, currentClaims: current, currentBindings: bindings.DocumentBindings(), initialized: true,
+		participants: participants, comparison: input.Comparison,
+		beforeClaims: before, currentClaims: current, initialized: true,
 	}, nil
 }
 
@@ -135,7 +97,7 @@ func (observation NativeDocumentClaimObservation) Validate() error {
 }
 
 func (observation NativeDocumentClaimObservation) Owner() stateauthority.Authority {
-	return observation.owner
+	return observation.participants.Owner()
 }
 
 // ComparisonNamespace is for claim lookup, not current exact path authority.
@@ -143,12 +105,16 @@ func (observation NativeDocumentClaimObservation) ComparisonNamespace() pathauth
 	return observation.comparison
 }
 
+func (observation NativeDocumentClaimObservation) Participants() NativeDocumentParticipants {
+	return observation.participants
+}
+
 func (observation NativeDocumentClaimObservation) Aliases() []aggregate.DocumentAddress {
-	return slices.Clone(observation.aliases)
+	return observation.participants.Aliases()
 }
 
 func (observation NativeDocumentClaimObservation) BeforeSubjects() []topology.SubjectID {
-	return slices.Clone(observation.beforeSubjects)
+	return observation.participants.BeforeSubjects()
 }
 
 func (observation NativeDocumentClaimObservation) BeforeClaims() []ownership.Claim {
@@ -160,5 +126,5 @@ func (observation NativeDocumentClaimObservation) CurrentClaims() []ownership.Cl
 }
 
 func (observation NativeDocumentClaimObservation) CurrentBindings() []ownership.DocumentBinding {
-	return slices.Clone(observation.currentBindings)
+	return observation.participants.CurrentBindings()
 }
