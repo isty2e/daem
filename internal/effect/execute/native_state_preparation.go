@@ -106,6 +106,12 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 		return NativeApplyStatePreparation{}, err
 	}
 	indexes := indexNativeApplyState(input.Before)
+	if err := validateNativeManagedStateInputs(indexes, managed); err != nil {
+		return NativeApplyStatePreparation{}, err
+	}
+	if err := validateNativeAggregateStateInputs(indexes, aggregates); err != nil {
+		return NativeApplyStatePreparation{}, err
+	}
 	adoptions, err := prepareNativeWholeAdoptions(ctx, indexes, input.ManagedPaths, managed, sources)
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
@@ -209,6 +215,64 @@ func indexNativeApplyState(before durable.Snapshot) nativeApplyStateIndexes {
 	return indexes
 }
 
+func validateNativeManagedStateInputs(before nativeApplyStateIndexes, effects []ManagedPathEffect) error {
+	touched := make(map[topology.SubjectID]struct{})
+	for _, effect := range effects {
+		previous, hasPrevious := effect.PreviousState()
+		if hasPrevious {
+			state, present := before.paths[previous.Subject()]
+			if !present || !state.Equal(previous) {
+				return fmt.Errorf("managed path effect has no exact previous state")
+			}
+		}
+		if _, present := before.paths[effect.Subject()]; present && (!hasPrevious || previous.Subject() != effect.Subject()) {
+			return fmt.Errorf("managed path effect would overwrite unselected previous ownership")
+		}
+		subjects := []topology.SubjectID{effect.Subject()}
+		if hasPrevious && previous.Subject() != effect.Subject() {
+			subjects = append(subjects, previous.Subject())
+		}
+		for _, subject := range subjects {
+			if _, duplicate := touched[subject]; duplicate {
+				return fmt.Errorf("managed path state is touched by more than one effect")
+			}
+			touched[subject] = struct{}{}
+		}
+	}
+	return nil
+}
+
+func validateNativeAggregateStateInputs(before nativeApplyStateIndexes, effects []AggregateEffect) error {
+	touched := make(map[topology.SubjectID]struct{})
+	for _, effect := range effects {
+		subjects := make(map[topology.SubjectID]struct{})
+		for _, previous := range effect.PreviousStates() {
+			state, present := before.keys[previous.Subject()]
+			if !present || !state.Equal(previous) {
+				return fmt.Errorf("aggregate effect has no exact previous state")
+			}
+			if _, duplicate := subjects[previous.Subject()]; duplicate {
+				return fmt.Errorf("aggregate effect repeats previous ownership")
+			}
+			subjects[previous.Subject()] = struct{}{}
+		}
+		for _, item := range effect.DesiredContributions() {
+			_, selected := subjects[item.SubjectID()]
+			if _, present := before.keys[item.SubjectID()]; present && !selected {
+				return fmt.Errorf("aggregate effect would overwrite unselected previous ownership")
+			}
+			subjects[item.SubjectID()] = struct{}{}
+		}
+		for subject := range subjects {
+			if _, duplicate := touched[subject]; duplicate {
+				return fmt.Errorf("aggregate state is touched by more than one effect")
+			}
+			touched[subject] = struct{}{}
+		}
+	}
+	return nil
+}
+
 func nativeWholeStateSources(sources []lock.LockedSubjectContract) (map[entity.ID]nativeWholeStateSource, error) {
 	result := make(map[entity.ID]nativeWholeStateSource, len(sources))
 	for _, source := range sources {
@@ -253,9 +317,14 @@ func prepareNativeWholeAdoptions(ctx context.Context, before nativeApplyStateInd
 		}
 		placement, _ := source.source.HostConfigPlacement()
 		materialized, materializedFile := source.source.MaterializedFileIdentity()
+		realization, _ := source.projection.Realization()
+		projection, _ := realization.ManagedPathProjection()
+		mode, exactMode := projection.ExactPermissionMode()
 		consumers := effect.ConsumerTargets()
 		if !materializedFile || materialized.ContentHash() != effect.DesiredHash() || len(consumers) != 1 || consumers[0] != placement.Target() ||
-			effect.Scope() != placement.Scope() || effect.Destination() != placement.Destination() {
+			effect.Scope() != placement.Scope() || effect.Destination() != placement.Destination() ||
+			effect.ContentKind() != projection.ContentKind() || effect.PermissionPolicy() != projection.PermissionPolicy() ||
+			!exactMode || effect.DesiredFileMode() != mode.FileMode() {
 			return nil, fmt.Errorf("native whole effect differs from its source placement or materialized identity")
 		}
 		var owned []durable.ManagedAggregateState
@@ -270,15 +339,7 @@ func prepareNativeWholeAdoptions(ctx context.Context, before nativeApplyStateInd
 			}
 			owned = append(owned, state)
 		}
-		previous, hasPrevious := effect.PreviousState()
-		if hasPrevious {
-			state, present := before.paths[previous.Subject()]
-			if !present || !state.Equal(previous) {
-				return nil, fmt.Errorf("native whole effect has a different previous state")
-			}
-		} else if _, present := before.paths[effect.Subject()]; present {
-			return nil, fmt.Errorf("native whole adoption cannot discard existing whole ownership")
-		}
+		_, hasPrevious := effect.PreviousState()
 		adopting := effect.Kind() == ManagedPathEffectRecord && !hasPrevious && decision.Reason() == reconcile.ReasonManagedExisting
 		if len(owned) != 0 && !adopting {
 			return nil, fmt.Errorf("keys-to-whole transition requires an exact manage-existing record")
