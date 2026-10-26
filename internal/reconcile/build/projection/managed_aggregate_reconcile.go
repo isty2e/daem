@@ -307,7 +307,8 @@ func prepareAggregateProjection(
 		}
 		projection.managedBaseline = previousProjection
 		projection.hasManagedBaseline = true
-		if !current.Present() {
+		_, native := aggregate.HostConfigSyntaxForCodec(group.contract.CodecContractID())
+		if !current.Present() && (!native || desired != nil) {
 			return blockAggregateProjection(
 				projection,
 				reconcile.ReasonMissingOutput,

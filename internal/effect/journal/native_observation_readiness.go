@@ -2,7 +2,6 @@ package journal
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -18,43 +17,8 @@ func (batch NativeDocumentObservationBatch) BeforeState() durable.Snapshot {
 
 // ValidateBefore checks persisted ownership, not source freshness or a write grant.
 func (batch NativeDocumentObservationBatch) ValidateBefore(ctx context.Context) error {
-	if ctx == nil || !batch.initialized {
-		return fmt.Errorf("native observation batch and context are required")
-	}
-	if err := errors.Join(ctx.Err(), batch.budget.RequireCapturePending()); err != nil {
-		return err
-	}
-	before, err := indexDocumentSnapshot(ctx, batch.before)
-	if err != nil {
-		return err
-	}
-	native, err := before.nativeDestinations(ctx)
-	if err != nil {
-		return err
-	}
-	owned := make(map[string][]ownership.Claim)
-	for _, claim := range batch.registry.Claims() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if claim.OwnedBy(batch.owner) {
-			owned[claim.Address().Path()] = append(owned[claim.Address().Path()], claim)
-		}
-	}
-	input := nativeCaptureOwnershipInput{owner: batch.owner}
-	for _, namespace := range batch.namespaces {
-		footprints, err := before.documentFootprints(ctx, namespace.Addresses())
-		if err != nil {
-			return err
-		}
-		if _, _, err := nativeDocumentClaimBaseline(namespace, owned, footprints); err != nil {
-			return err
-		}
-		if _, err := input.documentBindings(ctx, namespace, batch.registry, native, native); err != nil {
-			return err
-		}
-	}
-	return errors.Join(ctx.Err(), batch.budget.RequireCapturePending())
+	_, err := batch.Ownership(ctx)
+	return err
 }
 
 func nativeDocumentClaimBaseline(namespace NativeDocumentNamespace, owned map[string][]ownership.Claim, before map[output.Footprint]struct{}) (pathauthority.Exact, []ownership.Claim, error) {

@@ -246,7 +246,8 @@ func NewProjectionIntent(before ProjectionState, desired *ContributionSet) (Proj
 		return ProjectionIntent{}, err
 	}
 	if desired == nil {
-		if !before.present {
+		_, native := HostConfigSyntaxForCodec(before.contract.CodecContractID())
+		if !before.present && !native {
 			return ProjectionIntent{}, fmt.Errorf("aggregate remove intent requires a present before projection")
 		}
 		return ProjectionIntent{before: cloneProjectionState(before)}, nil

@@ -88,12 +88,36 @@ func TestNativeProjectionEffectBindsContributionSubject(t *testing.T) {
 	}{
 		{"desired", AggregateProjectionEffect{kind: AggregateEffectRecord, contract: contract, desired: &desired, before: before, expected: before}},
 		{"previous", AggregateProjectionEffect{kind: AggregateEffectRemove, contract: contract, previous: []durable.ManagedAggregateState{previous}, before: before, expected: absent}},
+		{"absent retirement", AggregateProjectionEffect{kind: AggregateEffectRecord, contract: contract, previous: []durable.ManagedAggregateState{previous}, before: absent, expected: absent}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			projection := test.projection
-			projection.subjects = []AggregateSubjectEffect{{kind: projection.kind, subject: subject, contract: contract}}
+			subjectKind := projection.kind
+			if !projection.before.Present() {
+				subjectKind = AggregateEffectRemove
+			}
+			projection.subjects = []AggregateSubjectEffect{{kind: subjectKind, subject: subject, contract: contract}}
 			if err := projection.validate(projection.before, projection.expected); err != nil {
 				t.Fatal("actual contribution subject was refused", err)
+			}
+			if !projection.before.Present() {
+				for _, fault := range []string{"no prior", "no removals", "wrong kind", "duplicate removal"} {
+					broken := projection
+					broken.subjects = append([]AggregateSubjectEffect(nil), projection.subjects...)
+					switch fault {
+					case "no prior":
+						broken.previous = nil
+					case "no removals":
+						broken.subjects = nil
+					case "wrong kind":
+						broken.subjects[0].kind = AggregateEffectRecord
+					case "duplicate removal":
+						broken.subjects = append(broken.subjects, broken.subjects[0])
+					}
+					if err := broken.validate(broken.before, broken.expected); err == nil {
+						t.Fatalf("absent retirement accepted %s", fault)
+					}
+				}
 			}
 			projection.subjects[0].subject = other
 			if err := projection.validate(projection.before, projection.expected); err == nil {

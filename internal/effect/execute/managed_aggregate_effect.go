@@ -291,6 +291,26 @@ func (projection AggregateProjectionEffect) validate(
 			}
 		}
 	}
+	if _, native := aggregate.HostConfigSyntaxForCodec(projection.contract.CodecContractID()); native &&
+		projection.kind == AggregateEffectRecord && !before.Present() && !expected.Present() {
+		if len(projection.previous) == 0 || len(projection.subjects) != len(projection.previous) {
+			return fmt.Errorf("native absent retirement requires exact prior subject coverage")
+		}
+		remaining := make(map[topology.SubjectID]struct{}, len(projection.previous))
+		for _, state := range projection.previous {
+			remaining[state.Subject()] = struct{}{}
+		}
+		for _, subject := range projection.subjects {
+			if _, present := remaining[subject.subject]; !present || subject.kind != AggregateEffectRemove {
+				return fmt.Errorf("native absent retirement requires one removal per prior subject")
+			}
+			delete(remaining, subject.subject)
+		}
+		if len(remaining) != 0 {
+			return fmt.Errorf("native absent retirement omits a prior subject")
+		}
+		return nil
+	}
 	if projection.kind != AggregateEffectRecord && len(projection.subjects) == 0 {
 		return fmt.Errorf("mutating aggregate projection requires a subject transition")
 	}

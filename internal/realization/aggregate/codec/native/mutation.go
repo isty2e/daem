@@ -51,9 +51,12 @@ func (codec documentCodec) Render(document aggregate.Document, input aggregate.P
 			desired = append(desired, change)
 			continue
 		}
-		value, _, err := parsed.Lookup(key)
+		value, present, err := parsed.Lookup(key)
 		if err != nil {
 			return aggregate.RenderedDocument{}, nativeCodecFailure(err, aggregate.CodecFailureSelectedShapeUnsupported, key)
+		}
+		if !present {
+			continue
 		}
 		if plan.RetainsStructuralContainer(contract.Address()) && value.IsObject() {
 			continue

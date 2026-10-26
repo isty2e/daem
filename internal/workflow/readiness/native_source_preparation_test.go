@@ -52,6 +52,11 @@ type nativePreparationFixture struct {
 
 func newNativePreparationFixture(t *testing.T, scope target.Scope, fragment string) nativePreparationFixture {
 	t.Helper()
+	return newNativePreparationFixtureAt(t, scope, fragment, "extension-settings/test.json")
+}
+
+func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, nativePath string) nativePreparationFixture {
+	t.Helper()
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "fragment.json")
 	requireNativePreparationFile(t, sourcePath, []byte(fragment))
@@ -59,7 +64,7 @@ func newNativePreparationFixture(t *testing.T, scope target.Scope, fragment stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := hostconfig.New(hostconfig.Spec{Name: "settings", Source: spec, Target: target.TargetPi, Scope: scope, Path: "extension-settings/test.json", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON})
+	config, err := hostconfig.New(hostconfig.Spec{Name: "settings", Source: spec, Target: target.TargetPi, Scope: scope, Path: nativePath, Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON})
 	if err != nil {
 		t.Fatal(err)
 	}
