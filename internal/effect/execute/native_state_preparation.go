@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -43,13 +44,14 @@ func (adoption NativeWholeAdoption) RetiredKeys() []durable.ManagedAggregateStat
 // NativeApplyStatePreparation keeps derived state and its actual logical effects
 // together. It is not a containing operation seal or permission to publish state.
 type NativeApplyStatePreparation struct {
-	before      durable.Snapshot
-	after       durable.Snapshot
-	managed     []ManagedPathEffect
-	aggregates  []AggregateEffect
-	narrowings  []reconcile.NativeNarrowingAction
-	adoptions   []NativeWholeAdoption
-	initialized bool
+	before           durable.Snapshot
+	after            durable.Snapshot
+	managed          []ManagedPathEffect
+	aggregates       []AggregateEffect
+	nativeOperations []profile.NativeAggregateOperationContract
+	narrowings       []reconcile.NativeNarrowingAction
+	adoptions        []NativeWholeAdoption
+	initialized      bool
 }
 
 func (preparation NativeApplyStatePreparation) Validate() error {
@@ -73,6 +75,12 @@ func (preparation NativeApplyStatePreparation) ManagedPathEffects() []ManagedPat
 
 func (preparation NativeApplyStatePreparation) AggregateEffects() []AggregateEffect {
 	return append([]AggregateEffect(nil), preparation.aggregates...)
+}
+
+// NativeAggregateOperations retains static admission for every selected native
+// aggregate, including no-ops. It supplies no fresh observation or runtime grant.
+func (preparation NativeApplyStatePreparation) NativeAggregateOperations() []profile.NativeAggregateOperationContract {
+	return append([]profile.NativeAggregateOperationContract(nil), preparation.nativeOperations...)
 }
 
 func (preparation NativeApplyStatePreparation) Narrowings() []reconcile.NativeNarrowingAction {
@@ -100,6 +108,24 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	aggregates, err := AggregateEffectsForNativeOperation(input.Aggregates)
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
+	}
+	nativeOperations := make([]profile.NativeAggregateOperationContract, 0)
+	for _, decision := range input.Aggregates {
+		if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); !native {
+			continue
+		}
+		operation, present := decision.NativeOperationContract()
+		if !present {
+			return NativeApplyStatePreparation{}, fmt.Errorf("native aggregate preparation requires static admission")
+		}
+		selection, err := decision.BeforeSnapshot().Selection()
+		if err != nil {
+			return NativeApplyStatePreparation{}, err
+		}
+		if err := operation.ValidateSelection(selection); err != nil {
+			return NativeApplyStatePreparation{}, err
+		}
+		nativeOperations = append(nativeOperations, operation)
 	}
 	sources, err := nativeWholeStateSources(input.WholeSources)
 	if err != nil {
@@ -183,7 +209,8 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	}
 	return NativeApplyStatePreparation{
 		before: input.Before, after: after, managed: managed, aggregates: aggregates,
-		narrowings: append([]reconcile.NativeNarrowingAction(nil), input.Narrowings...), adoptions: adoptions, initialized: true,
+		nativeOperations: nativeOperations,
+		narrowings:       append([]reconcile.NativeNarrowingAction(nil), input.Narrowings...), adoptions: adoptions, initialized: true,
 	}, nil
 }
 

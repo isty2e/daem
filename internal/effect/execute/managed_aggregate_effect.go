@@ -71,8 +71,8 @@ func AggregateEffects(decisions []reconcile.AggregateDecision) ([]AggregateEffec
 	return aggregateEffects(decisions)
 }
 
-// AggregateEffectsForNativeOperation preserves static native admission only;
-// the result still requires the containing operation's runtime authority.
+// AggregateEffectsForNativeOperation converts actual effects with their static
+// admission. No-op contracts remain with native state preparation, not Effects.
 func AggregateEffectsForNativeOperation(decisions []reconcile.AggregateDecision) ([]AggregateEffect, error) {
 	return aggregateEffects(decisions)
 }
@@ -271,6 +271,25 @@ func (projection AggregateProjectionEffect) validate(
 	}
 	if projection.expected.Present() != (projection.desired != nil) {
 		return fmt.Errorf("aggregate projection desired presence differs from expected state")
+	}
+	if _, native := aggregate.HostConfigSyntaxForCodec(projection.contract.CodecContractID()); native {
+		for _, subject := range projection.subjects {
+			if err := aggregate.ValidateSubjectContract(subject.subject, projection.contract); err != nil {
+				return err
+			}
+			selected := false
+			for _, state := range projection.previous {
+				selected = selected || state.Subject() == subject.subject
+			}
+			if projection.desired != nil {
+				for _, item := range projection.desired.Contributions() {
+					selected = selected || item.SubjectID() == subject.subject
+				}
+			}
+			if !selected {
+				return fmt.Errorf("native effect subject has no desired or previous contribution")
+			}
+		}
 	}
 	if projection.kind != AggregateEffectRecord && len(projection.subjects) == 0 {
 		return fmt.Errorf("mutating aggregate projection requires a subject transition")
