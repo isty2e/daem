@@ -440,6 +440,7 @@ var packagePlacementRows = []packagePlacementRow{
 			"internal/workflow/lock",
 			"internal/workflow/lock/generate",
 			"internal/workflow/migrate",
+			"internal/workflow/nativeconfig",
 			"internal/workflow/platform",
 			"internal/workflow/probe",
 			"internal/workflow/readiness",

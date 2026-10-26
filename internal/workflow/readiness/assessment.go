@@ -43,6 +43,7 @@ type Assessment struct {
 	Owner                  stateauthority.Authority
 	Ownership              []observe.OwnershipObservation
 	SelectedTargets        reconcile.SelectedTargets
+	NativeSources          []lockobserve.NativeSourceObservation
 }
 
 // Input contains canonical inputs for shared non-mutating apply/status
@@ -61,11 +62,15 @@ type Input struct {
 	Codecs                  aggregate.CodecCatalog
 	HookContributionEncoder commandhook.ContributionEncoder
 	MCPContributionEncoder  lockrefine.MCPContributionEncoder
+	Native                  *NativeAssessmentInput
 }
 
 // Assess sequences fresh observations and persistence reads, then delegates
 // pure decisions to plan without rendering payload bytes or mutating the host.
 func Assess(ctx context.Context, input Input) (Assessment, error) {
+	if input.Lockfile.Version == lock.NativeVersion && input.Native == nil {
+		return Assessment{}, fmt.Errorf("native configuration assessment requires its containing observation operation")
+	}
 	selectedTargets, err := reconcile.NewSelectedTargets(input.Selection.Targets())
 	if err != nil {
 		return Assessment{}, fmt.Errorf("normalize selected targets: %w", err)
@@ -100,8 +105,15 @@ func Assess(ctx context.Context, input Input) (Assessment, error) {
 	if err != nil {
 		return Assessment{}, err
 	}
+	if currentState.ContainsHostConfig() && input.Native == nil {
+		return Assessment{}, fmt.Errorf("native configuration history requires its containing observation operation")
+	}
 
-	return buildAssessment(
+	native, err := prepareNativeAssessmentSources(ctx, input, currentState, *sourceEpoch)
+	if err != nil {
+		return Assessment{}, err
+	}
+	assessment, err := buildAssessment(
 		ctx,
 		input.Paths,
 		input.Resolver,
@@ -118,7 +130,15 @@ func Assess(ctx context.Context, input Input) (Assessment, error) {
 		input.MCPContributionEncoder,
 		input.Context,
 		input.RelationObservations,
+		native,
 	)
+	if err != nil {
+		return Assessment{}, err
+	}
+	if _, err := prepareNativeAssessmentSources(ctx, input, currentState, *sourceEpoch); err != nil {
+		return Assessment{}, err
+	}
+	return assessment, nil
 }
 
 func buildAssessment(
@@ -138,6 +158,7 @@ func buildAssessment(
 	mcpEncoder lockrefine.MCPContributionEncoder,
 	operationContext reconcile.OperationContext,
 	providedRelationObservations *relationobserve.Batch,
+	native ...nativeAssessmentSources,
 ) (Assessment, error) {
 	allCarrierClaims := append(
 		currentState.ManagedCarrierClaims(),
@@ -158,6 +179,7 @@ func buildAssessment(
 		hookEncoder,
 		mcpEncoder,
 		codecs,
+		native...,
 	)
 	if err != nil {
 		return Assessment{}, err
@@ -178,16 +200,25 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, fmt.Errorf("observe managed paths: %w", err)
 	}
-	owner, ownershipObservations, err := buildOwnershipObservations(
-		ctx,
-		paths,
-		liveDestinationResolver(resolver),
-		managedInputs.ownership,
-		aggregateInputs.ownershipProjections(),
-		currentState,
-		selection,
-	)
+	var owner stateauthority.Authority
+	var ownershipObservations []observe.OwnershipObservation
+	if len(native) != 0 && native[0].input != nil && native[0].input.Documents != nil {
+		owner, ownershipObservations, err = nativeOwnershipObservations(ctx, paths, liveDestinationResolver(resolver), managedInputs, aggregateInputs, currentState, selection, native[0].input)
+	} else {
+		owner, ownershipObservations, err = buildOwnershipObservations(
+			ctx,
+			paths,
+			liveDestinationResolver(resolver),
+			managedInputs.ownership,
+			aggregateInputs.ownershipProjections(),
+			currentState,
+			selection,
+		)
+	}
 	if err != nil {
+		return Assessment{}, err
+	}
+	if err := rejectNativeProviderReadOverlap(native, mcpContracts, currentState, selection); err != nil {
 		return Assessment{}, err
 	}
 	mcpEffective, err := observeProviderEffectiveMCP(
@@ -220,6 +251,10 @@ func buildAssessment(
 		return Assessment{}, fmt.Errorf("plan extension order: %w", err)
 	}
 
+	var nativeSources []lockobserve.NativeSourceObservation
+	if len(native) != 0 {
+		nativeSources = native[0].sources
+	}
 	return assembleAssessment(assessmentPlanInput{
 		paths:                  paths,
 		environment:            environment,
@@ -243,6 +278,7 @@ func buildAssessment(
 		providerObservations:   providerObservations,
 		extensionOrderFacts:    extensionOrderFacts,
 		mcpContracts:           mcpContracts,
+		nativeSources:          nativeSources,
 	})
 }
 

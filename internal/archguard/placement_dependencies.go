@@ -96,6 +96,9 @@ func analyzeArchitectureDependencyDirections(records []PackageRecord) []Guardrai
 }
 
 func allowsConcreteAggregateCodec(packagePath string) bool {
+	if packagePath == "internal/workflow/nativeconfig" {
+		return true
+	}
 	for _, root := range []string{
 		"internal/adopt/mcp",
 		"internal/realization/lock/snapshottest",

@@ -18,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	lockgenerate "github.com/isty2e/daem/internal/workflow/lock/generate"
+	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 )
 
 const defaultCommandMaxParallelSourceOps = 4
@@ -158,6 +159,15 @@ func buildCommandResult(
 		return commandResult{}, errorContext
 	}
 
+	var native *lockgenerate.NativeDocumentProfile
+	if len(environment.HostConfigs()) != 0 {
+		codec, err := nativeconfig.LockCodec(ctx)
+		if err != nil {
+			errorContext.Err = err
+			return commandResult{}, errorContext
+		}
+		native = &lockgenerate.NativeDocumentProfile{Codec: codec, Limits: nativeconfig.DocumentLimits()}
+	}
 	snapshot, err := lockgenerate.Build(ctx, lockgenerate.Input{
 		Paths:                  paths,
 		Environment:            environment,
@@ -169,6 +179,7 @@ func buildCommandResult(
 		HookEncoder:            hookcodec.CanonicalHookContribution,
 		MCPEncoder:             mcpcodec.CanonicalMCPBindingContribution,
 		ExtensionOrderIdentity: aggregatecodec.ExtensionOrderIdentityResolver(paths),
+		NativeDocuments:        native,
 	})
 	if err != nil {
 		errorContext.Err = err
@@ -209,7 +220,7 @@ func loadOptionalLockfile(
 	path string,
 	allowPriorSchemaReplacement bool,
 ) (lock.File, bool, error) {
-	file, err := lockfile.Load(ctx, path)
+	file, err := nativeconfig.LoadLockfile(ctx, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return lock.File{Version: lock.CurrentVersion}, true, nil

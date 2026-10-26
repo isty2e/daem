@@ -275,6 +275,7 @@ func TestWorkflowReadinessCompositionEdgesAreExact(t *testing.T) {
 	for _, packagePath := range []string{
 		"internal/workflow/apply",
 		"internal/workflow/list",
+		"internal/workflow/nativeconfig",
 		"internal/workflow/status",
 	} {
 		violations := analyzeImports(packagePath, []string{
@@ -296,6 +297,66 @@ func TestWorkflowReadinessCompositionEdgesAreExact(t *testing.T) {
 			"example.com/project/internal/workflow/readiness",
 		})
 		assertViolationRule(t, violations, ruleWorkflowNestedImport)
+	}
+}
+
+func TestWorkflowNativeConfigCompositionEdgesAreExact(t *testing.T) {
+	for _, packagePath := range []string{"internal/workflow/lock", "internal/workflow/apply", "internal/workflow/status"} {
+		violations := analyzeImports(packagePath, []string{"example.com/project/internal/workflow/nativeconfig"})
+		if len(violations) != 0 {
+			t.Errorf("admitted native composition edge %s: %+v", packagePath, violations)
+		}
+	}
+	for _, edge := range []struct{ from, to string }{
+		{"internal/workflow/lock/generate", "internal/workflow/nativeconfig"},
+		{"internal/workflow/lock/generate", "internal/workflow/readiness"},
+		{"internal/workflow/readiness", "internal/workflow/nativeconfig"},
+		{"internal/workflow/authoring", "internal/workflow/nativeconfig"},
+		{"internal/workflow/list", "internal/workflow/nativeconfig"},
+		{"internal/workflow/lock/other", "internal/workflow/nativeconfig"},
+		{"internal/workflow/apply", "internal/workflow/nativeconfig/private"},
+		{"internal/workflow/nativeconfig", "internal/workflow/status"},
+	} {
+		violations := analyzeImports(edge.from, []string{"example.com/project/" + edge.to})
+		assertViolationRule(t, violations, ruleWorkflowNestedImport)
+		if edge.from == "internal/workflow/lock/generate" {
+			assertViolationRule(t, violations, ruleLockGenerateBoundaryImport)
+		}
+	}
+}
+
+func TestLockGenerateNativeProfileImportsRemainValueOnly(t *testing.T) {
+	violations := analyzeImports("internal/workflow/lock/generate", []string{"example.com/project/internal/encoding/configdocument"})
+	if len(violations) != 0 {
+		t.Fatalf("canonical document limit value rejected: %+v", violations)
+	}
+	for _, importPath := range []string{
+		"internal/encoding/configdocument/private",
+		"internal/assurance/observe",
+		"internal/assurance/statefile",
+		"internal/effect/journal",
+		"internal/effect/mutation/rootedpath",
+		"internal/workflow/nativeconfig",
+		"internal/workflow/readiness",
+		"internal/workflow/status",
+	} {
+		violations := analyzeImports("internal/workflow/lock/generate", []string{"example.com/project/" + importPath})
+		assertViolationRule(t, violations, ruleLockGenerateBoundaryImport)
+	}
+}
+
+func TestNativeConfigCodecSelectionBoundaryIsExact(t *testing.T) {
+	violations := analyzeArchitectureDependencyDirections([]PackageRecord{{
+		ImportPath: "example.com/project/internal/workflow/nativeconfig",
+		Imports:    []string{"example.com/project/internal/realization/aggregate/codec"},
+	}})
+	if len(violations) != 0 {
+		t.Fatalf("selected native composition catalog rejected: %+v", violations)
+	}
+	for _, packagePath := range []string{"internal/workflow/nativeconfig/private", "internal/workflow/readiness"} {
+		if allowsConcreteAggregateCodec(packagePath) {
+			t.Fatalf("concrete codec selection leaked to %q", packagePath)
+		}
 	}
 }
 

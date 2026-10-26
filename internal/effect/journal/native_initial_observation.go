@@ -201,17 +201,8 @@ func (batch NativeDocumentObservationBatch) prepareOwnership(ctx context.Context
 	if err := errors.Join(ctx.Err(), batch.budget.RequireCapturePending()); err != nil {
 		return nil, err
 	}
-	for index, namespace := range batch.namespaces {
-		document, mode, identity, err := readNativeRecoveryDocument(ctx, namespace, min(batch.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), batch.budget)
-		if err != nil {
-			return nil, err
-		}
-		original := batch.originals[index]
-		sameMode := mode == nil && original.mode == nil || mode != nil && original.mode != nil && *mode == *original.mode
-		sameIdentity := identity == nil && original.identity == nil || identity != nil && original.identity != nil && identity.Equal(original.identity)
-		if !document.Equal(original.document) || !sameMode || !sameIdentity {
-			return nil, fmt.Errorf("native original changed after its decision observation")
-		}
+	if err := batch.validateOriginals(ctx); err != nil {
+		return nil, err
 	}
 	if err := errors.Join(ctx.Err(), batch.budget.RequireCapturePending()); err != nil {
 		return nil, err
@@ -221,4 +212,20 @@ func (batch NativeDocumentObservationBatch) prepareOwnership(ctx context.Context
 		namespaces: batch.namespaces, limits: batch.limits, budget: batch.budget,
 	}
 	return input.prepareFromRegistry(ctx, batch.registry)
+}
+
+func (batch NativeDocumentObservationBatch) validateOriginals(ctx context.Context) error {
+	for index, namespace := range batch.namespaces {
+		document, mode, identity, err := readNativeRecoveryDocument(ctx, namespace, min(batch.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), batch.budget)
+		if err != nil {
+			return err
+		}
+		original := batch.originals[index]
+		sameMode := mode == nil && original.mode == nil || mode != nil && original.mode != nil && *mode == *original.mode
+		sameIdentity := identity == nil && original.identity == nil || identity != nil && original.identity != nil && identity.Equal(original.identity)
+		if !document.Equal(original.document) || !sameMode || !sameIdentity {
+			return fmt.Errorf("native original changed after its decision observation")
+		}
+	}
+	return ctx.Err()
 }

@@ -6,6 +6,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
@@ -19,6 +21,15 @@ func (batch NativeDocumentObservationBatch) BeforeState() durable.Snapshot {
 func (batch NativeDocumentObservationBatch) ValidateBefore(ctx context.Context) error {
 	_, err := batch.Ownership(ctx)
 	return err
+}
+
+// ValidatePlanningContext binds shared planner facts to the retained observation;
+// equal values do not supply freshness or execution authority.
+func (batch NativeDocumentObservationBatch) ValidatePlanningContext(ctx context.Context, owner stateauthority.Authority, registry ownership.Registry, budget *recovery.PhysicalWorkBudget) error {
+	if !batch.initialized || !batch.owner.Equal(owner) || !batch.registry.Equal(registry) || batch.budget != budget {
+		return fmt.Errorf("native planning context differs from its observed owner, registry or allocation")
+	}
+	return batch.ValidateBefore(ctx)
 }
 
 func nativeDocumentClaimBaseline(namespace NativeDocumentNamespace, owned map[string][]ownership.Claim, before map[output.Footprint]struct{}) (pathauthority.Exact, []ownership.Claim, error) {

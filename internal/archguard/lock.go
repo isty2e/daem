@@ -90,7 +90,7 @@ func isForbiddenLockBuildBoundaryImport(importPath string) bool {
 }
 
 func isForbiddenLockGenerateImport(importPath string) bool {
-	if importPath == "internal/realization/lock" || importPath == "internal/realization/aggregate/hook" {
+	if importPath == "internal/realization/lock" || importPath == "internal/realization/aggregate/hook" || importPath == "internal/encoding/configdocument" {
 		return false
 	}
 	for _, allowed := range []string{

@@ -13,7 +13,6 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/diagnose"
@@ -23,18 +22,18 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
-	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/recoverygate"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
+	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -423,11 +422,34 @@ func PlanDryRun(ctx context.Context, input CommandInput) (DryRunPlan, error) {
 	if err := rejectLocalSourceMutationOverlap(planned); err != nil {
 		return newDryRunPlan(planned), err
 	}
-	if err := execute.RejectUnsupportedExecutableActions(planned.assessment.Reconciliation); err != nil {
+	if err := rejectUnsupportedPreviewActions(planned.assessment); err != nil {
 		return newDryRunPlan(planned), err
 	}
 
 	return newDryRunPlan(planned), nil
+}
+
+func rejectUnsupportedPreviewActions(assessment readiness.Assessment) error {
+	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsHostConfig() && !assessment.Reconciliation.ContainsHostConfig() {
+		return execute.RejectUnsupportedExecutableActions(assessment.Reconciliation)
+	}
+	var paths []reconcile.ManagedPathDecision
+	for _, decision := range assessment.Reconciliation.ManagedPaths() {
+		if !decision.IsBlocked() && !decision.IsNoOp() && !aggregate.IsHostConfigDocumentSubject(decision.Subject()) {
+			paths = append(paths, decision)
+		}
+	}
+	if _, err := execute.ManagedPathEffects(paths); err != nil {
+		return err
+	}
+	var aggregates []reconcile.AggregateDecision
+	for _, decision := range assessment.Reconciliation.Aggregates() {
+		if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); !native && !decision.IsBlocked() && !decision.IsNoOp() {
+			aggregates = append(aggregates, decision)
+		}
+	}
+	_, err := execute.AggregateEffects(aggregates)
+	return err
 }
 
 // PlanWrite builds an executable apply plan and retains its selected physical
@@ -474,6 +496,9 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 	planned, err := planReadinessAtPathsWithBarrier(ctx, input, operationContext, paths, &barrier)
 	if err != nil {
 		return unavailablePreparedWrite(planned.result), err
+	}
+	if len(planned.assessment.NativeSources) != 0 || planned.assessment.CurrentState.ContainsHostConfig() {
+		return unavailablePreparedWrite(planned.result), execute.ErrNativeOperationRequired
 	}
 	if err := execute.RejectUnsupportedActions(planned.assessment.Reconciliation); err != nil {
 		return unavailablePreparedWrite(planned.result), err
@@ -612,7 +637,7 @@ func planReadinessAtPathsWithBarrierValidation(
 		return planned, err
 	}
 
-	planning, err := readiness.Assess(ctx, readiness.Input{
+	planning, err := nativeconfig.Assess(ctx, readiness.Input{
 		Context:                 operationContext,
 		Paths:                   loaded.Paths,
 		Resolver:                liveobserve.DestinationResolver(destinationResolver(loaded.Paths).Resolve),
@@ -761,7 +786,7 @@ func loadCommandInputsAtPaths(
 		return commandContext{}, result, fmt.Errorf("resolve selected manifest context: %w", err)
 	}
 
-	locked, lockfileErr := lockfile.Load(ctx, result.LockfilePath)
+	locked, lockfileErr := nativeconfig.LoadLockfile(ctx, result.LockfilePath)
 	lockfileMissing := false
 	if lockfileErr != nil {
 		if !os.IsNotExist(lockfileErr) {
@@ -778,23 +803,18 @@ func loadCommandInputsAtPaths(
 
 	// Each planning pass owns one persistence epoch. Execute performs a new pass
 	// after acquiring mutation leases rather than reusing the disclosed plan.
-	currentState, err := statefile.LoadOptional(ctx, paths.StatefilePath)
+	persistenceEpoch, err := nativeconfig.LoadPersistenceEpoch(ctx, paths)
 	if err != nil {
 		return commandContext{}, result, err
 	}
-	carrierStore, err := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
+	currentState, err := persistenceEpoch.Snapshot()
 	if err != nil {
 		return commandContext{}, result, err
 	}
-	globalCarrierClaims, err := carrierStore.LoadForSelectedAuthority(
-		ctx,
-		paths.StatefilePath,
-		paths.ManifestPath,
-	)
+	globalCarrierClaims, err := persistenceEpoch.CarrierClaims()
 	if err != nil {
 		return commandContext{}, result, err
 	}
-	persistenceEpoch := readiness.NewPersistenceEpoch(currentState, globalCarrierClaims)
 
 	availableTargets, err := readiness.FromManifestLockAndState(
 		environment,
@@ -823,7 +843,7 @@ func loadCommandInputsAtPaths(
 		return commandContext{}, result, fmt.Errorf("build runtime desired environment: %w", err)
 	}
 
-	sourceEpoch, err := lockobserve.ResolveSourceEpoch(
+	sourceEpoch, err := nativeconfig.ResolveSourceEpoch(
 		ctx,
 		paths,
 		runtimeEnvironment,

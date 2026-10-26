@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -30,6 +31,14 @@ type Input struct {
 	HookEncoder            commandhook.ContributionEncoder
 	MCPEncoder             lockrefine.MCPContributionEncoder
 	ExtensionOrderIdentity lockrefine.ExtensionOrderIdentityResolver
+	NativeDocuments        *NativeDocumentProfile
+}
+
+// NativeDocumentProfile supplies source parsing limits and native transport
+// admission without granting observation, root or execution authority.
+type NativeDocumentProfile struct {
+	Codec  lockfile.NativeCodec
+	Limits configdocument.Limits
 }
 
 // Result carries a generated canonical lock snapshot and its boundary
@@ -51,6 +60,15 @@ func (result Result) Content() []byte {
 // Build resolves lockable desired resources into a canonical lock snapshot
 // and lockfile bytes.
 func Build(ctx context.Context, input Input) (Result, error) {
+	var native NativeDocumentProfile
+	if input.NativeDocuments != nil {
+		native = *input.NativeDocuments
+		if err := native.Limits.Validate(); err != nil {
+			return Result{}, err
+		}
+	} else if len(input.Environment.HostConfigs()) != 0 {
+		return Result{}, fmt.Errorf("native lock generation requires its selected codec and document limits")
+	}
 	if err := lockrefine.ValidateManagedPathIntent(input.Environment); err != nil {
 		return Result{}, err
 	}
@@ -73,18 +91,29 @@ func Build(ctx context.Context, input Input) (Result, error) {
 		baseResolver = baseResolver.WithCachePreparation(input.PreparePersistentCache)
 	}
 
-	lockfileSnapshot, err := lockbuild.BuildWithOptions(ctx, input.Environment, baseResolver, lockbuild.Options{
+	options := lockbuild.Options{
 		MaxParallelSourceOps:    input.MaxParallelSourceOps,
 		Events:                  input.Events,
 		SourceEvents:            input.SourceEvents,
 		HookContributionEncoder: input.HookEncoder,
 		MCPContributionEncoder:  input.MCPEncoder,
 		ExtensionOrderIdentity:  input.ExtensionOrderIdentity,
-	})
+	}
+	var lockfileSnapshot lock.File
+	if len(input.Environment.HostConfigs()) != 0 {
+		lockfileSnapshot, err = lockbuild.BuildNativeDocumentsWithOptions(ctx, input.Environment, baseResolver, options, native.Limits)
+	} else {
+		lockfileSnapshot, err = lockbuild.BuildWithOptions(ctx, input.Environment, baseResolver, options)
+	}
 	if err != nil {
 		return Result{}, err
 	}
-	content, err := lockfile.Marshal(lockfileSnapshot)
+	var content []byte
+	if lockfileSnapshot.Version == lock.NativeVersion {
+		content, err = native.Codec.Marshal(ctx, lockfileSnapshot)
+	} else {
+		content, err = lockfile.Marshal(lockfileSnapshot)
+	}
 	if err != nil {
 		return Result{}, fmt.Errorf("marshal lockfile: %w", err)
 	}

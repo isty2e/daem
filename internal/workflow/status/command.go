@@ -10,11 +10,9 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/diagnose"
-	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -22,10 +20,10 @@ import (
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
-	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/recoverygate"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
+	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -73,7 +71,7 @@ func Run(ctx context.Context, input CommandInput) (CommandResult, error) {
 		return result, err
 	}
 
-	assessment, err := readiness.Assess(ctx, readiness.Input{
+	assessment, err := nativeconfig.Assess(ctx, readiness.Input{
 		Context:                 reconcile.ContextInspect,
 		Paths:                   loaded.Paths,
 		Resolver:                liveobserve.DestinationResolver(destinationResolver(loaded.Paths).Resolve),
@@ -164,23 +162,18 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 	}
 
 	// Target selection and readiness share this command-local persistence epoch.
-	currentState, err := statefile.LoadOptional(ctx, paths.StatefilePath)
+	persistenceEpoch, err := nativeconfig.LoadPersistenceEpoch(ctx, paths)
 	if err != nil {
 		return commandInputs{}, result, err
 	}
-	carrierStore, err := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
+	currentState, err := persistenceEpoch.Snapshot()
 	if err != nil {
 		return commandInputs{}, result, err
 	}
-	globalCarrierClaims, err := carrierStore.LoadForSelectedAuthority(
-		ctx,
-		paths.StatefilePath,
-		paths.ManifestPath,
-	)
+	globalCarrierClaims, err := persistenceEpoch.CarrierClaims()
 	if err != nil {
 		return commandInputs{}, result, err
 	}
-	persistenceEpoch := readiness.NewPersistenceEpoch(currentState, globalCarrierClaims)
 
 	availableTargets, err := readiness.FromManifestLockAndState(
 		environment,
@@ -207,7 +200,7 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 			return commandInputs{}, result, fmt.Errorf("build runtime desired environment: %w", err)
 		}
 	}
-	sourceEpoch, err := lockobserve.ResolveSourceEpoch(
+	sourceEpoch, err := nativeconfig.ResolveSourceEpoch(
 		ctx,
 		paths,
 		runtimeEnvironment,
@@ -255,7 +248,7 @@ func selectedLockfilePath(paths daempaths.Paths, lockfilePath string) string {
 }
 
 func loadStatusLockfile(ctx context.Context, path string) (lock.File, bool, error) {
-	file, err := lockfile.Load(ctx, path)
+	file, err := nativeconfig.LoadLockfile(ctx, path)
 	if err == nil {
 		return file, false, nil
 	}
