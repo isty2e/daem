@@ -29,7 +29,7 @@ import (
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
-	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
+	"github.com/isty2e/daem/internal/workflow/readiness"
 	statusworkflow "github.com/isty2e/daem/internal/workflow/status"
 )
 
@@ -91,7 +91,7 @@ func nativeTransportAction(t *testing.T, name, fragment string) reconcile.Native
 	if err != nil {
 		t.Fatal(err)
 	}
-	action, err := applyworkflow.BuildNativeNarrowingAction(t.Context(), applyworkflow.NativeNarrowingActionInput{
+	action, err := readiness.BuildNativeNarrowingAction(t.Context(), readiness.NativeNarrowingActionInput{
 		Source: observed, Baseline: baseline, Current: aggregate.ExistingDocument(current), DocumentLimits: limits, ValueLimits: limits,
 	})
 	if err != nil {

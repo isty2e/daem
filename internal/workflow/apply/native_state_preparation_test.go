@@ -31,6 +31,7 @@ import (
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
+	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
 func nativePreparationStateCodec(t *testing.T) durable.SnapshotCodec {
@@ -72,7 +73,7 @@ func nativePreparationOtherWholeState(t *testing.T) durable.ManagedPathState {
 func TestNativeApplyStateDerivesNarrowingWithoutDeletingReleasedContent(t *testing.T) {
 	for _, fragment := range []string{`{}`, `{"a":2,"new":true}`} {
 		input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1,"released":9}`, `{"a":1,"released":9}`, fragment, hostconfig.OwnershipKeys)
-		action, err := BuildNativeNarrowingAction(t.Context(), input)
+		action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,7 +123,7 @@ func TestNativeApplyStateDerivesNarrowingWithoutDeletingReleasedContent(t *testi
 
 func TestNativeApplyStateRejectsStaleAndDuplicateNarrowing(t *testing.T) {
 	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{"a":2}`, hostconfig.OwnershipKeys)
-	action, err := BuildNativeNarrowingAction(t.Context(), input)
+	action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}

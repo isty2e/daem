@@ -18,7 +18,7 @@ import (
 func TestNativeResultInputSurvivesPlanningAndRefusesLegacyExecution(t *testing.T) {
 	for _, fragment := range []string{`{}`, `{"a":2}`} {
 		input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, fragment, hostconfig.OwnershipKeys)
-		action, err := BuildNativeNarrowingAction(t.Context(), input)
+		action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 		if err != nil {
 			t.Fatal(err)
 		}

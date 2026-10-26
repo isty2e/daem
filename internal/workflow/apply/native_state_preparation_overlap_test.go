@@ -13,11 +13,12 @@ import (
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/reconcile"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
+	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
 func TestNativeApplyStateRejectsNarrowingWithWholeDeletion(t *testing.T) {
 	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{}`, hostconfig.OwnershipKeys)
-	action, err := BuildNativeNarrowingAction(t.Context(), input)
+	action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}

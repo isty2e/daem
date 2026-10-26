@@ -27,14 +27,15 @@ import (
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
+	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
-func nativeActionPreparationInput(t *testing.T, syntax configdocument.Syntax, baseline, current, fragment string, ownership hostconfig.Ownership) NativeNarrowingActionInput {
+func nativeActionPreparationInput(t *testing.T, syntax configdocument.Syntax, baseline, current, fragment string, ownership hostconfig.Ownership) readiness.NativeNarrowingActionInput {
 	t.Helper()
 	return nativeActionPreparationInputForScope(t, syntax, baseline, current, fragment, ownership, target.ScopeGlobal)
 }
 
-func nativeActionPreparationInputForScope(t *testing.T, syntax configdocument.Syntax, baseline, current, fragment string, ownership hostconfig.Ownership, scope target.Scope) NativeNarrowingActionInput {
+func nativeActionPreparationInputForScope(t *testing.T, syntax configdocument.Syntax, baseline, current, fragment string, ownership hostconfig.Ownership, scope target.Scope) readiness.NativeNarrowingActionInput {
 	t.Helper()
 	root := t.TempDir()
 	path := filepath.Join(root, "fragment")
@@ -90,7 +91,7 @@ func nativeActionPreparationInputForScope(t *testing.T, syntax configdocument.Sy
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NativeNarrowingActionInput{Source: observed, Baseline: state, Current: aggregate.ExistingDocument([]byte(current)), DocumentLimits: narrowingLimits, ValueLimits: narrowingLimits}
+	return readiness.NativeNarrowingActionInput{Source: observed, Baseline: state, Current: aggregate.ExistingDocument([]byte(current)), DocumentLimits: narrowingLimits, ValueLimits: narrowingLimits}
 }
 
 func TestNativeNarrowingActionUsesActualSourceAndRetainsItsBaseline(t *testing.T) {
@@ -103,7 +104,7 @@ func TestNativeNarrowingActionUsesActualSourceAndRetainsItsBaseline(t *testing.T
 				current, fragment = "# keep\na=1\nreleased=9\n", "a=2\nnew=true\n"
 			}
 			input := nativeActionPreparationInput(t, syntax, current, current, fragment, hostconfig.OwnershipKeys)
-			action, err := BuildNativeNarrowingAction(t.Context(), input)
+			action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 			if err != nil || action.Validate() != nil {
 				t.Fatal("real key source did not prepare its narrowing action", err)
 			}
@@ -157,7 +158,7 @@ func TestNativeNarrowingActionDistinguishesEmptyReleaseAndCaptureRequired(t *tes
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, test.current, test.fragment, hostconfig.OwnershipKeys)
-			action, err := BuildNativeNarrowingAction(t.Context(), input)
+			action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 			if test.captureRequired {
 				if !errors.Is(err, projectionbuild.ErrNativeNarrowingNeedsCapture) || action.Validate() == nil {
 					t.Fatal("capture-required source prepared an executable narrowing prefix", err)
@@ -179,15 +180,15 @@ func TestNativeNarrowingActionEmptyScopeStillRefusesUnsafeInputs(t *testing.T) {
 	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"local":9}`, `{}`, hostconfig.OwnershipKeys)
 	for _, test := range []struct {
 		name string
-		edit func(*NativeNarrowingActionInput)
+		edit func(*readiness.NativeNarrowingActionInput)
 	}{
-		{name: "missing source", edit: func(i *NativeNarrowingActionInput) { i.Source = lockobserve.NativeSourceObservation{} }},
-		{name: "missing prior ownership", edit: func(i *NativeNarrowingActionInput) { i.Baseline = durable.ManagedPathState{} }},
-		{name: "missing current", edit: func(i *NativeNarrowingActionInput) { i.Current = aggregate.AbsentDocument() }},
-		{name: "malformed current", edit: func(i *NativeNarrowingActionInput) { i.Current = aggregate.ExistingDocument([]byte("{")) }},
-		{name: "non object current", edit: func(i *NativeNarrowingActionInput) { i.Current = aggregate.ExistingDocument([]byte("[]")) }},
-		{name: "missing limits", edit: func(i *NativeNarrowingActionInput) { i.DocumentLimits = configdocument.Limits{} }},
-		{name: "different placement", edit: func(i *NativeNarrowingActionInput) {
+		{name: "missing source", edit: func(i *readiness.NativeNarrowingActionInput) { i.Source = lockobserve.NativeSourceObservation{} }},
+		{name: "missing prior ownership", edit: func(i *readiness.NativeNarrowingActionInput) { i.Baseline = durable.ManagedPathState{} }},
+		{name: "missing current", edit: func(i *readiness.NativeNarrowingActionInput) { i.Current = aggregate.AbsentDocument() }},
+		{name: "malformed current", edit: func(i *readiness.NativeNarrowingActionInput) { i.Current = aggregate.ExistingDocument([]byte("{")) }},
+		{name: "non object current", edit: func(i *readiness.NativeNarrowingActionInput) { i.Current = aggregate.ExistingDocument([]byte("[]")) }},
+		{name: "missing limits", edit: func(i *readiness.NativeNarrowingActionInput) { i.DocumentLimits = configdocument.Limits{} }},
+		{name: "different placement", edit: func(i *readiness.NativeNarrowingActionInput) {
 			destination, err := output.Parse("@pi-agent/extension-settings/other.json")
 			if err != nil {
 				t.Fatal(err)
@@ -202,31 +203,31 @@ func TestNativeNarrowingActionEmptyScopeStillRefusesUnsafeInputs(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			changed := input
 			test.edit(&changed)
-			if action, err := BuildNativeNarrowingAction(t.Context(), changed); err == nil || action.Validate() == nil {
+			if action, err := readiness.BuildNativeNarrowingAction(t.Context(), changed); err == nil || action.Validate() == nil {
 				t.Fatal("empty release bypassed source/current/prior-ownership admission")
 			}
 		})
 	}
 	whole := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{}`, hostconfig.OwnershipDocument)
-	if action, err := BuildNativeNarrowingAction(t.Context(), whole); err == nil || action.Validate() == nil {
+	if action, err := readiness.BuildNativeNarrowingAction(t.Context(), whole); err == nil || action.Validate() == nil {
 		t.Fatal("whole-mode source was inferred to be empty key-mode intent")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if action, err := BuildNativeNarrowingAction(ctx, input); !errors.Is(err, context.Canceled) || action.Validate() == nil {
+	if action, err := readiness.BuildNativeNarrowingAction(ctx, input); !errors.Is(err, context.Canceled) || action.Validate() == nil {
 		t.Fatal("cancellation returned a usable scope release", err)
 	}
 }
 
 func TestNativeNarrowingActionCanonicalPlanMustEqualItsWholeSource(t *testing.T) {
 	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{"a":2}`, hostconfig.OwnershipKeys)
-	action, err := BuildNativeNarrowingAction(t.Context(), input)
+	action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan, _ := action.KeyPlan()
 	otherInput := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{"a":99}`, hostconfig.OwnershipKeys)
-	other, err := BuildNativeNarrowingAction(t.Context(), otherInput)
+	other, err := readiness.BuildNativeNarrowingAction(t.Context(), otherInput)
 	if err != nil {
 		t.Fatal(err)
 	}
