@@ -16,6 +16,10 @@ type applyStateTransition struct {
 }
 
 func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) {
+	if err := rejectUnsupportedNativeNarrowings(input.NativeNarrowings); err != nil {
+		return applyStateTransition{}, err
+	}
+
 	nextState, err := snapshotAfterManagedPathEffects(input.CurrentState, input.ManagedPathEffects)
 	if err != nil {
 		return applyStateTransition{}, err

@@ -235,6 +235,7 @@ func (result Result) ProjectionDecisionCount() int {
 // DecisionCount returns every typed decision in this complete result.
 func (result Result) DecisionCount() int {
 	return result.ProjectionDecisionCount() +
+		len(result.nativeNarrowings) +
 		len(result.relations) +
 		len(result.relationOrders) +
 		len(result.adoptions) +

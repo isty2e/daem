@@ -1,10 +1,21 @@
 package execute
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/reconcile"
 )
+
+// ErrNativeOperationRequired marks work the ordinary Apply pipeline cannot execute.
+var ErrNativeOperationRequired = errors.New("native document narrowing requires its containing execution pipeline")
+
+func rejectUnsupportedNativeNarrowings(actions []reconcile.NativeNarrowingAction) error {
+	if len(actions) != 0 {
+		return ErrNativeOperationRequired
+	}
+	return nil
+}
 
 // RejectUnsupportedActions rejects planner errors and action shapes execution cannot commit.
 func RejectUnsupportedActions(planResult reconcile.Result) error {
@@ -40,6 +51,10 @@ func rejectPlanErrorActions(planResult reconcile.Result) error {
 
 // RejectUnsupportedExecutableActions rejects mutating action shapes execution cannot commit.
 func RejectUnsupportedExecutableActions(planResult reconcile.Result) error {
+	if err := rejectUnsupportedNativeNarrowings(planResult.NativeNarrowings()); err != nil {
+		return err
+	}
+
 	managedPaths := planResult.ManagedPaths()
 	executableManagedPaths := make([]reconcile.ManagedPathDecision, 0, len(managedPaths))
 	for _, decision := range managedPaths {

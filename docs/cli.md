@@ -337,8 +337,8 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list resources` | Resource inventory | `4` |
 | `list outputs` | Output inventory | `5` |
 | `list paths` | Agent location inventory | `2` |
-| `status`, `apply --dry-run` | Reconciliation plan | `17` |
-| confirmed `apply` | Apply result | `23` |
+| `status`, `apply --dry-run` | Reconciliation plan | `18` |
+| confirmed `apply` | Apply result | `24` |
 | `recover` | Recovery plan/result | `10` |
 | `migrate state` | State-authority migration | `1` |
 | `doctor` | Passive diagnostics | `2` |
@@ -369,6 +369,16 @@ Both use `state: "unobserved"`; `EFFECTIVE_OBSERVER_UNSUPPORTED` replaces the
 previous `EFFECTIVE_STATE_UNOBSERVED` reason only for the unsupported case.
 Consumers of the earlier versions must not interpret the new reason as an
 observation failure or a claim that no shadowing definition exists.
+
+Plan version `18` and apply-result version `24` add the optional
+`native_narrowing_actions` array for document-to-key ownership transitions.
+Each row identifies the declaration, target, scope, destination and desired key
+count; zero keys explicitly means releasing whole-file ownership. Native values,
+key selectors and source contents are omitted, with `values_omitted: true`.
+These transitions are separate from projection `actions` and do not increase
+the plan's projection `action_count`. A transition row describes planned intent,
+not proof that a host write occurred. Ordinary results omit the array, but all
+results use the new envelope version.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject

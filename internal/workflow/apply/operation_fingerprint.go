@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -187,6 +188,10 @@ func applyOperationFingerprint(
 	planned commandPlan,
 	operationContext reconcile.OperationContext,
 ) (mutation.OperationFingerprint, error) {
+	if len(planned.assessment.Reconciliation.NativeNarrowings()) != 0 {
+		return mutation.OperationFingerprint{}, execute.ErrNativeOperationRequired
+	}
+
 	projectRoot, err := projectRootFingerprint(planned)
 	if err != nil {
 		return mutation.OperationFingerprint{}, err

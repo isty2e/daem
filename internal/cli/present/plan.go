@@ -49,6 +49,7 @@ type planJSONOutput struct {
 	HasErrors         bool                        `json:"has_errors"`
 	CheckClean        *bool                       `json:"check_clean,omitempty"`
 	Actions           []planJSONAction            `json:"actions"`
+	NativeNarrowings  []nativeNarrowingActionJSON `json:"native_narrowing_actions,omitempty"`
 	DelegateActions   []delegateActionJSON        `json:"delegate_actions,omitempty"`
 	RelationActions   []relationActionJSON        `json:"relation_actions,omitempty"`
 	RelationOrders    []relationOrderJSON         `json:"relation_order_actions,omitempty"`
@@ -169,6 +170,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 			hasErrorDiagnostics(input.Diagnostics),
 		CheckClean:        input.CheckClean,
 		Actions:           actions,
+		NativeNarrowings:  nativeNarrowingJSONActions(reconciliation.NativeNarrowings()),
 		DelegateActions:   delegateJSONActions(reconciliation.Delegates()),
 		RelationActions:   relationJSONActions(reconciliation.Relations()),
 		RelationOrders:    relationOrderJSONActions(reconciliation.RelationOrders(), reconciliation.Relations()),

@@ -81,6 +81,7 @@ func applyEffectInput(
 	return execute.ApplyInput{
 		ManagedPathEffects:          managedEffects,
 		AggregateEffects:            aggregateEffects,
+		NativeNarrowings:            current.assessment.Reconciliation.NativeNarrowings(),
 		CurrentState:                postProviderState,
 		GlobalCarrierClaims:         current.assessment.GlobalCarrierClaims,
 		RetiredProjectCarrierClaims: projectRetirements,

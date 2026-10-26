@@ -101,6 +101,7 @@ func PrintActionPlanWithOptions(output io.Writer, label string, input HumanPlanI
 		fmt.Fprintf(output, "MCP command plans: %s\n", CountLabel(len(input.Reconciliation.Delegates()), "plan", "plans"))
 		printDelegatePlanLimitations(output, input.Reconciliation.Delegates())
 	}
+	printNativeNarrowingActions(output, input.Reconciliation.NativeNarrowings())
 }
 
 func resourcePlanFactsFrom(input HumanPlanInput) resourcePlanFacts {

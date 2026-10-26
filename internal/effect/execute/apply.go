@@ -43,12 +43,13 @@ func (paths Paths) journalPaths() journal.Paths {
 	}
 }
 
-// ApplyInput contains typed executable effects and prepared payloads for one apply mutation.
+// ApplyInput retains typed effects, native transition intents and prepared payloads.
 type ApplyInput struct {
 	Paths                       Paths
 	Resolver                    DestinationResolver
 	ManagedPathEffects          []ManagedPathEffect
 	AggregateEffects            []AggregateEffect
+	NativeNarrowings            []reconciliation.NativeNarrowingAction
 	ManagedPathEvidence         []observe.ManagedPathEvidence
 	CurrentState                durable.Snapshot
 	GlobalCarrierClaims         durablecarrier.GlobalCarrierClaims

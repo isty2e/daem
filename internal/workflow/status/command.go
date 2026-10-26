@@ -55,6 +55,7 @@ func (result CommandResult) CheckClean() bool {
 	return !result.LockfileMissing &&
 		len(result.Reconciliation.PendingManagedPaths()) == 0 &&
 		len(result.Reconciliation.PendingAggregates()) == 0 &&
+		len(result.Reconciliation.NativeNarrowings()) == 0 &&
 		!result.HasBlockedRelationActions() &&
 		!result.Reconciliation.HasNonExactRelationOrders() &&
 		!result.Reconciliation.HasBlockedCarrierAdoptions() &&

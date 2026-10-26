@@ -14,6 +14,7 @@ import (
 
 // PrintPlanResultWithOptions renders every applied reconciliation decision.
 func PrintPlanResultWithOptions(output io.Writer, planResult reconcile.Result, options HumanOptions) {
+	printNativeNarrowingActions(output, planResult.NativeNarrowings())
 	decisions := sortedHumanRows(planResult.MutatingDecisions(), humanDecisionOrder)
 	if len(decisions) == 0 {
 		return

@@ -85,6 +85,7 @@ type applyResultJSONOutput struct {
 	StatefilePath        string                      `json:"statefile_path"`
 	LockOnly             LockOnlyResources           `json:"lock_only"`
 	Actions              []planJSONAction            `json:"actions"`
+	NativeNarrowings     []nativeNarrowingActionJSON `json:"native_narrowing_actions,omitempty"`
 	DelegateActions      []delegateActionJSON        `json:"delegate_actions,omitempty"`
 	RelationActions      []relationActionJSON        `json:"relation_actions,omitempty"`
 	RelationOrders       []relationOrderJSON         `json:"relation_order_actions,omitempty"`
@@ -122,6 +123,7 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 		StatefilePath:        input.StatefilePath,
 		LockOnly:             input.LockOnly,
 		Actions:              actions,
+		NativeNarrowings:     nativeNarrowingJSONActions(input.Reconciliation.NativeNarrowings()),
 		DelegateActions:      delegateJSONActions(input.Reconciliation.Delegates()),
 		RelationActions:      relationJSONActions(relations),
 		RelationOrders:       relationOrderJSONActions(input.Reconciliation.RelationOrders(), relations),
