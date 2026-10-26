@@ -18,23 +18,23 @@ func TestNativeInitialObservationRefusesMissingSelectionAndWrongPhase(t *testing
 			defer cancel()
 			switch fault {
 			case "reader":
-				input.registry = nil
+				input.Registry = nil
 			case "budget":
-				input.budget = nil
+				input.Budget = nil
 			case "admitted empty":
-				if err := input.budget.AdmitRemovalDemands(recovery.RemovalDemandSet{}); err != nil {
+				if err := input.Budget.AdmitRemovalDemands(recovery.RemovalDemandSet{}); err != nil {
 					t.Fatal(err)
 				}
 			case "duplicate alias":
-				input.aliases = append(input.aliases, input.aliases[0])
+				input.Aliases = append(input.Aliases, input.Aliases[0])
 			case "closed root":
-				if err := input.roots.Manifest.Root.Close(); err != nil {
+				if err := input.Roots.Manifest.Root.Close(); err != nil {
 					t.Fatal(err)
 				}
 			case "canceled":
 				cancel()
 			}
-			observed, err := observeNativeDocumentBatch(ctx, input)
+			observed, err := ObserveNativeDocuments(ctx, input)
 			if err == nil || observed.initialized || len(observed.originals) != 0 || len(observed.namespaces) != 0 || reader.loads != 0 {
 				t.Fatalf("invalid initial selection exposed facts: %v", err)
 			}
@@ -54,17 +54,17 @@ func TestNativeInitialObservationLateFailureDiscardsAllFacts(t *testing.T) {
 				case "cancellation":
 					cancel()
 				case "byte budget":
-					work, err := recovery.NewArtifactWork(0, input.budget.RemainingBytes())
-					if err != nil || input.budget.AdmitTree(work) != nil {
+					work, err := recovery.NewArtifactWork(0, input.Budget.RemainingBytes())
+					if err != nil || input.Budget.AdmitTree(work) != nil {
 						t.Fatal("could not consume shared allocation", err)
 					}
 				case "phase change":
-					if err := input.budget.AdmitRemovalDemands(recovery.RemovalDemandSet{}); err != nil {
+					if err := input.Budget.AdmitRemovalDemands(recovery.RemovalDemandSet{}); err != nil {
 						t.Fatal(err)
 					}
 				}
 			}
-			observed, err := observeNativeDocumentBatch(ctx, input)
+			observed, err := ObserveNativeDocuments(ctx, input)
 			if err == nil || observed.initialized || len(observed.originals) != 0 || reader.loads != 1 {
 				t.Fatal("late failure exposed a usable observation prefix", err)
 			}
@@ -77,7 +77,7 @@ func TestNativeInitialContinuationRefusesOriginalAndLifetimeDrift(t *testing.T) 
 	for _, fault := range []string{"content", "mode", "replacement", "closed root", "admitted", "canceled"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture, input, reader, _ := nativeInitialFixture(t, target.ScopeProject, "record")
-			batch, err := observeNativeDocumentBatch(t.Context(), input)
+			batch, err := ObserveNativeDocuments(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -94,9 +94,9 @@ func TestNativeInitialContinuationRefusesOriginalAndLifetimeDrift(t *testing.T) 
 					err = os.WriteFile(fixture.path, fixture.original.Content(), 0o644)
 				}
 			case "closed root":
-				err = input.roots.Manifest.Root.Close()
+				err = input.Roots.Manifest.Root.Close()
 			case "admitted":
-				err = input.budget.AdmitRemovalDemands(recovery.RemovalDemandSet{})
+				err = input.Budget.AdmitRemovalDemands(recovery.RemovalDemandSet{})
 			case "canceled":
 				cancel()
 			}
@@ -109,7 +109,7 @@ func TestNativeInitialContinuationRefusesOriginalAndLifetimeDrift(t *testing.T) 
 			}
 		})
 	}
-	var absent nativeDocumentObservationBatch
+	var absent NativeDocumentObservationBatch
 	if captures, err := absent.prepareOwnership(t.Context(), durable.EmptySnapshot(), "operation"); err == nil || captures != nil {
 		t.Fatal("zero observation became a usable continuation")
 	}
@@ -122,7 +122,7 @@ func TestNativeInitialObservationPreservesMissingExactHistory(t *testing.T) {
 			if err := os.Remove(fixture.path); err != nil {
 				t.Fatal(err)
 			}
-			namespace, err := ObserveNativeDocumentNamespace(t.Context(), input.aliases, input.roots, input.filesystem, input.budget)
+			namespace, err := ObserveNativeDocumentNamespace(t.Context(), input.Aliases, input.Roots, input.Filesystem, input.Budget)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -133,9 +133,12 @@ func TestNativeInitialObservationPreservesMissingExactHistory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			batch, err := observeNativeDocumentBatch(t.Context(), input)
+			batch, err := ObserveNativeDocuments(t.Context(), input)
 			if err != nil || !batch.initialized || reader.loads != 1 || reader.qualified != 1 {
 				t.Fatal("actual missing history was not read under its namespace", err)
+			}
+			if err := batch.ValidateBefore(t.Context()); err != nil {
+				t.Fatal("matching missing history could not qualify before planning", err)
 			}
 			prepared, err := batch.prepareOwnership(t.Context(), durable.EmptySnapshot(), fixture.input.operationID)
 			if err != nil || len(prepared) != 1 || len(prepared[0].bindings) != 1 {

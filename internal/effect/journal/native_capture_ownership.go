@@ -210,28 +210,13 @@ func (input nativeCaptureOwnershipInput) documentClaims(ctx context.Context, nam
 	if len(before)+len(after) == 0 {
 		return nil, nil, nil
 	}
-	exact, known := namespace.observation.Exact()
-	if !known && len(before) != 0 {
-		missing, provisional := namespace.observation.Provisional()
-		if !provisional {
-			return nil, nil, fmt.Errorf("native history requires a current namespace observation")
-		}
-		previous := owned[missing.CandidateKey()]
-		if len(previous) == 0 || !missing.MatchesMissingExact(previous[0].Address().PathAuthority()) {
-			return nil, nil, fmt.Errorf("native history differs from the missing namespace")
-		}
-		exact, known = previous[0].Address().PathAuthority(), true
+	exact, beforeClaims, err := nativeDocumentClaimBaseline(namespace, owned, before)
+	if err != nil {
+		return nil, nil, err
 	}
-	if known {
-		beforeClaims := owned[exact.Key()]
-		if !sameDocumentClaimFootprints(before, beforeClaims) {
-			return nil, nil, fmt.Errorf("native capture before membership differs from current owned claims")
-		}
+	if !exact.IsZero() {
 		retained := make(map[output.Footprint]ownership.Claim, len(beforeClaims))
 		for _, claim := range beforeClaims {
-			if !claim.Address().PathAuthority().Equal(exact) || claim.State() != ownership.ClaimActive {
-				return nil, nil, fmt.Errorf("native capture requires active claims at the captured namespace")
-			}
 			retained[claim.Address().Footprint()] = claim
 		}
 		afterClaims := make([]ownership.Claim, 0, len(after))

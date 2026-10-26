@@ -36,13 +36,13 @@ func TestNativeInitialObservationDiscardsEarlierOriginalOnLaterReadFailure(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(input.roots.Manifest.SelectedPath, filepath.FromSlash(second.AggregateRoot().RelativePath()))
+	path := filepath.Join(input.Roots.Manifest.SelectedPath, filepath.FromSlash(second.AggregateRoot().RelativePath()))
 	requireWholeGroupWrite(t, path, []byte("second"), 0o644)
-	input.aliases = append(input.aliases, second)
+	input.Aliases = append(input.Aliases, second)
 	sentinel := errors.New("later original read failed")
-	reader := &nativeInitialLaterReadFailure{RootedReader: input.filesystem, err: sentinel}
-	input.filesystem = reader
-	observed, err := observeNativeDocumentBatch(t.Context(), input)
+	reader := &nativeInitialLaterReadFailure{RootedReader: input.Filesystem, err: sentinel}
+	input.Filesystem = reader
+	observed, err := ObserveNativeDocuments(t.Context(), input)
 	if !errors.Is(err, sentinel) || observed.initialized || len(observed.originals) != 0 || len(observed.namespaces) != 0 || registry.loads != 1 || reader.reads != 2 {
 		t.Fatal("later read failure exposed an earlier observed original", err)
 	}
