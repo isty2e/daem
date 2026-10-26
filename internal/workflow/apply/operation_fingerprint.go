@@ -9,8 +9,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
-	"github.com/isty2e/daem/internal/effect/execute"
-	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/operationplan"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
@@ -184,17 +182,13 @@ type diagnosticFingerprintFacts struct {
 	NextStep      string
 }
 
-func applyOperationFingerprint(
+func applyOperationIdentity(
 	planned commandPlan,
 	operationContext reconcile.OperationContext,
-) (mutation.OperationFingerprint, error) {
-	if planned.assessment.Reconciliation.ContainsHostConfig() || planned.assessment.CurrentState.ContainsHostConfig() {
-		return mutation.OperationFingerprint{}, execute.ErrNativeOperationRequired
-	}
-
+) (operationplan.ApplyIdentityInput, error) {
 	projectRoot, err := projectRootFingerprint(planned)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	result := planned.result
 	relations := relationFingerprintRows(planned.assessment.Reconciliation.Relations())
@@ -237,65 +231,65 @@ func applyOperationFingerprint(
 		managedPathFingerprintRows(planned.assessment.Reconciliation.ManagedPaths()),
 	)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	aggregates, err := marshalApplyFingerprintProjection(
 		aggregateFingerprintRows(planned.assessment.Reconciliation.Aggregates()),
 	)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	mcpProviders, err := marshalApplyFingerprintProjection(
 		mcpProviderFingerprintRows(planned.assessment.MCPProviders),
 	)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	relationActions, err := marshalApplyFingerprintProjection(relations)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	relationOrdersJSON, err := marshalApplyFingerprintProjection(relationOrders)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	carrierAdoptionsJSON, err := marshalApplyFingerprintProjection(carrierAdoptions)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	carrierAbsencesJSON, err := marshalApplyFingerprintProjection(carrierAbsences)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	delegateActions, err := marshalApplyFingerprintProjection(delegates)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	ownerJSON, err := marshalApplyFingerprintProjection(owner)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	ownership, err := marshalApplyFingerprintProjection(
 		ownershipFingerprintFacts(planned.assessment.Ownership),
 	)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	carrierClaims, err := marshalApplyFingerprintProjection(
 		carrierClaimFingerprintRows(planned.assessment.GlobalCarrierClaims),
 	)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	diagnostics, err := marshalApplyFingerprintProjection(diagnosticFingerprintRows(result.Diagnostics))
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
 	projectRootJSON, err := marshalApplyFingerprintProjection(projectRoot)
 	if err != nil {
-		return mutation.OperationFingerprint{}, err
+		return operationplan.ApplyIdentityInput{}, err
 	}
-	return operationplan.ApplyOperationFingerprint(operationplan.ApplyIdentityInput{
+	return operationplan.ApplyIdentityInput{
 		ManifestPath:        result.ManifestPath,
 		LockfilePath:        result.LockfilePath,
 		LockfileExplicit:    result.LockfileExplicit,
@@ -315,7 +309,7 @@ func applyOperationFingerprint(
 		GlobalCarrierClaims: carrierClaims,
 		Diagnostics:         diagnostics,
 		ProjectRoot:         projectRootJSON,
-	})
+	}, nil
 }
 
 func marshalApplyFingerprintProjection[T any](value T) (json.RawMessage, error) {

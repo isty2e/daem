@@ -1,0 +1,105 @@
+package execute
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+
+	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/realization/aggregate"
+)
+
+func publishNativeDocument(ctx context.Context, input NativeApplyInput, document journal.CapturedNativeDocument) (resultErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	expected, expectedMode := document.Expected()
+	if !expected.Exists() || expectedMode == nil {
+		return fmt.Errorf("native document removal requires its bounded removal execution")
+	}
+	capability, err := document.Namespace().AcquireReferent(ctx, input.Budget)
+	if err != nil {
+		return err
+	}
+	open := true
+	defer func() {
+		if open {
+			resultErr = errors.Join(resultErr, capability.Close())
+		}
+	}()
+	maximum := min(document.Comparison().MaximumDocumentBytes(), input.Budget.RemainingBytes())
+	if maximum <= 0 {
+		return fmt.Errorf("native document revalidation exhausted its byte allocation")
+	}
+	content, mode, identity, readErr := input.Filesystem.ReadRootedRegularFileUpTo(ctx, capability, maximum)
+	charged := int64(len(content))
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		charged = maximum
+	}
+	work, err := recovery.NewArtifactWork(0, charged)
+	if err == nil {
+		err = input.Budget.AdmitTree(work)
+	}
+	if err != nil {
+		return err
+	}
+	actual := aggregate.AbsentDocument()
+	if readErr == nil {
+		actual = aggregate.ExistingDocument(content)
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return readErr
+	}
+	original, originalMode := document.Original()
+	if !original.Equal(actual) || actual.Exists() && (originalMode == nil || originalMode.FileMode() != mode.Perm()) {
+		return fmt.Errorf("native document changed after its journal image was captured")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	open = false
+	if actual.Exists() {
+		if identity == nil {
+			open = true
+			return fmt.Errorf("native document has no exact entry identity")
+		}
+		return input.Filesystem.ReplaceRootedFile(ctx, capability, expected.Content(), expectedMode.FileMode(), identity)
+	}
+	return input.Filesystem.CreateRootedFile(ctx, capability, expected.Content(), expectedMode.FileMode())
+}
+
+func readNativeCommittedState(ctx context.Context, authority *mutationAuthority, input NativeApplyInput) (result durable.Snapshot, resultErr error) {
+	if err := ctx.Err(); err != nil {
+		return durable.Snapshot{}, err
+	}
+	capability, err := authority.projectStatefile.Acquire()
+	if err != nil {
+		return durable.Snapshot{}, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, capability.Close(), ctx.Err()) }()
+	maximum := min(recovery.MaximumRecoveryBackupFileBytes, input.Budget.RemainingBytes())
+	if maximum <= 0 {
+		return durable.Snapshot{}, fmt.Errorf("native state revalidation exhausted its byte allocation")
+	}
+	content, _, _, readErr := input.Filesystem.ReadRootedRegularFileUpTo(ctx, capability, maximum)
+	charged := int64(len(content))
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		charged = maximum
+	}
+	work, err := recovery.NewArtifactWork(0, charged)
+	if err == nil {
+		err = input.Budget.AdmitTree(work)
+	}
+	if err != nil {
+		return durable.Snapshot{}, err
+	}
+	if errors.Is(readErr, os.ErrNotExist) {
+		return durable.EmptySnapshot(), nil
+	}
+	if readErr != nil {
+		return durable.Snapshot{}, readErr
+	}
+	return input.StateCodec.Decode(content)
+}

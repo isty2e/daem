@@ -165,20 +165,26 @@ func executeWithDependencies(
 	); err != nil {
 		return disclose(planned), err
 	}
-	current, err := planReadinessAtPathsWithBarrier(
+	assessor := readinessAssessor(previewReadiness)
+	if planned.nativePlan != nil {
+		assessor = retainedReadiness
+	}
+	current, err := planReadinessAtPathsWithAssessor(
 		ctx,
 		currentInput,
 		execution.operationContext,
 		planned.context.Paths,
 		&planned.barrier,
+		nil, assessor,
 	)
+	defer func() { current.projectRoot = nil; returnErr = errors.Join(returnErr, closeCommandPlan(&current)) }()
 	if err != nil {
 		return disclose(planned), staleApplyError(options.PlanWasDisclosed, err)
 	}
 	if err := rejectLocalSourceMutationOverlap(current); err != nil {
 		return disclose(current), staleApplyError(options.PlanWasDisclosed, err)
 	}
-	if err := execute.RejectUnsupportedActions(current.assessment.Reconciliation); err != nil {
+	if err := rejectUnsupportedCommandPlan(current); err != nil {
 		return disclose(current), staleApplyError(options.PlanWasDisclosed, err)
 	}
 	if err := rejectBlockedRelationActions(current.assessment.Reconciliation); err != nil {
@@ -290,6 +296,16 @@ func executeWithDependencies(
 			"apply effect validation",
 		); err != nil {
 			return err
+		}
+		if current.nativePlan != nil {
+			for _, config := range current.context.RuntimeEnvironment.HostConfigs() {
+				if !current.context.Selection.Includes(config.Target()) {
+					continue
+				}
+				if _, err := current.context.SourceEpoch.NativeSource(ctx, config); err != nil {
+					return err
+				}
+			}
 		}
 		if !revisionBoundaryValidated {
 			matches, err := firstEffectRevisions.MatchesCurrent(ctx)
@@ -436,6 +452,13 @@ func executeWithDependencies(
 		recoveryProvenancePreflight:   dependencies.recoveryProvenancePreflight,
 	}
 
+	if current.nativePlan != nil {
+		native, err := nativeApplyInputFor(current)
+		if err != nil {
+			return disclose(current), err
+		}
+		executionOptions.nativeInput = &native
+	}
 	providerPhase, err := runMCPProviderPrerequisitePhase(
 		ctx,
 		&current,

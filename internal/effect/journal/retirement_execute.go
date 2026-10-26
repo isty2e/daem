@@ -167,13 +167,14 @@ func executePreparedRetirement(
 			gate,
 			RetirementStepValidateActiveRecord,
 			func() error {
-				return requireJournalFingerprint(
+				return requireJournalFingerprintWithDecoder(
 					ctx,
 					filesystem,
 					bindings.activeRecord,
 					execution.journalFingerprint,
 					prepared.stateCodec,
 					"active recovery journal",
+					prepared.journalDecoder,
 				)
 			},
 		); err != nil {

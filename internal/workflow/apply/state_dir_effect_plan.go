@@ -49,6 +49,10 @@ func applyEffectInput(
 	current commandPlan,
 	providerActions []reconcile.RelationAction,
 ) (execute.ApplyInput, error) {
+	if current.nativePlan != nil {
+		input, err := nativeApplyInputFor(current)
+		return input.ApplyInput, err
+	}
 	postProviderState, err := postProviderPlanningState(current.assessment.CurrentState, providerActions)
 	if err != nil {
 		return execute.ApplyInput{}, err
@@ -97,7 +101,7 @@ func applyEnvelopeFor(
 	providerActions []reconcile.RelationAction,
 	applyInput execute.ApplyInput,
 ) (operationplan.Envelope, int, error) {
-	executeGates, err := execute.MaximumForwardEffectValidationCount(applyInput)
+	executeGates, err := maximumCommandForwardValidationCount(current, applyInput)
 	if err != nil {
 		return operationplan.Envelope{}, 0, err
 	}

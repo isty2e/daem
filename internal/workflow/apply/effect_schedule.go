@@ -85,7 +85,7 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 	envelope operationplan.Envelope,
 	executeGates int,
 ) (applyForwardEffectSchedule, error) {
-	effectPlan, err := execute.PrepareApplyEffectPlan(applyInput)
+	effectPlan, err := prepareCommandApplyEffectPlan(current, applyInput)
 	if err != nil {
 		return applyForwardEffectSchedule{}, err
 	}

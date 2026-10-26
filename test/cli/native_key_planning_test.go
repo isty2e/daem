@@ -2,7 +2,6 @@ package cli_test
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,12 +77,7 @@ ownership = "keys"
 					t.Fatalf("native pending key action missing: %s", stdout)
 				}
 			}
-			if _, err := apply.PlanWrite(t.Context(), apply.CommandInput{ManifestPath: manifest}); !errors.Is(err, execute.ErrNativeOperationRequired) {
-				t.Fatalf("native planning reached ordinary fingerprint/execution: %v", err)
-			}
-			if code, stdout, stderr := runOwnershipCLI("apply", "--manifest", manifest, "--yes"); code == 0 {
-				t.Fatalf("ordinary execution guard was bypassed: code=%d stdout=%s stderr=%s", code, stdout, stderr)
-			}
+			requireNativeReadOnlyWritePlan(t, manifest)
 			host, err := os.ReadFile(filepath.Join(workspace, ".codex", "config.toml"))
 			if existing {
 				if err != nil || !bytes.Equal(host, []byte(original)) {
@@ -164,9 +158,7 @@ ownership = "keys"
 				if err != nil || len(assessment.NativeSources) != 2 {
 					t.Fatalf("empty selected sources lost typed presence: %#v %v", assessment.NativeSources, err)
 				}
-				if _, err := apply.PlanWrite(t.Context(), apply.CommandInput{ManifestPath: manifest}); !errors.Is(err, execute.ErrNativeOperationRequired) {
-					t.Fatalf("empty positive source disappeared at execution ingress: %v", err)
-				}
+				requireNativeReadOnlyWritePlan(t, manifest)
 			}
 			for _, relative := range []string{".codex", ".daem/state.json"} {
 				if _, err := os.Stat(filepath.Join(workspace, relative)); !os.IsNotExist(err) {
@@ -314,9 +306,7 @@ ownership = "keys"
 			t.Fatalf("last-removal planning mutated %q: %v", path, err)
 		}
 	}
-	if _, err := apply.PlanWrite(t.Context(), apply.CommandInput{ManifestPath: manifest}); !errors.Is(err, execute.ErrNativeOperationRequired) {
-		t.Fatalf("last-removal history reached ordinary execution: %v", err)
-	}
+	requireNativeReadOnlyWritePlan(t, manifest)
 }
 
 func TestNativeKeyPlanningRetainsSuppliedSourceEpoch(t *testing.T) {

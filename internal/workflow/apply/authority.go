@@ -81,6 +81,11 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	if err := builder.AddLogical(metadataTransactionPath, mutation.AccessExclusive, mutation.PathEffectDirectoryEntry); err != nil {
 		return applyAuthorityEvidence{}, err
 	}
+	if planned.nativePlan != nil {
+		if err := builder.AddLogicalPair(planned.context.Paths.OwnershipRegistryPath, mutation.AccessExclusive, mutation.AccessExclusive); err != nil {
+			return applyAuthorityEvidence{}, err
+		}
+	}
 	for _, decision := range planned.assessment.Reconciliation.MutatingManagedPaths() {
 		if !decision.InvolvesScope(target.ScopeGlobal) {
 			continue

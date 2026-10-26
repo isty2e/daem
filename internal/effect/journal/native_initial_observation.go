@@ -49,6 +49,11 @@ type NativeDocumentObservationBatch struct {
 	initialized bool
 }
 
+// Namespaces returns the coalesced observation groups; their roots remain borrowed.
+func (batch NativeDocumentObservationBatch) Namespaces() []NativeDocumentNamespace {
+	return slices.Clone(batch.namespaces)
+}
+
 // ObserveNativeDocuments borrows the selected roots and pending budget. The
 // resulting evidence requires separate ownership and operation qualification.
 func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservationInput) (NativeDocumentObservationBatch, error) {

@@ -400,11 +400,13 @@ type commandContext struct {
 }
 
 type commandPlan struct {
-	result      CommandResult
-	context     commandContext
-	assessment  readiness.Assessment
-	projectRoot *rootedpath.CapturedRoot
-	barrier     recoverygate.EffectAuthority
+	result          CommandResult
+	context         commandContext
+	assessment      readiness.Assessment
+	projectRoot     *rootedpath.CapturedRoot
+	barrier         recoverygate.EffectAuthority
+	nativePlan      *nativePlanInputs
+	nativeOperation *nativeconfig.AssessmentOperation
 }
 
 // DryRunPlan is a capability-free dry-run result plus the immutable inputs
@@ -497,10 +499,7 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 	if err != nil {
 		return unavailablePreparedWrite(planned.result), err
 	}
-	if len(planned.assessment.NativeSources) != 0 || planned.assessment.CurrentState.ContainsHostConfig() {
-		return unavailablePreparedWrite(planned.result), execute.ErrNativeOperationRequired
-	}
-	if err := execute.RejectUnsupportedActions(planned.assessment.Reconciliation); err != nil {
+	if err := rejectUnsupportedCommandPlan(planned); err != nil {
 		return unavailablePreparedWrite(planned.result), err
 	}
 	if err := rejectBlockedRelationActions(planned.assessment.Reconciliation); err != nil {
@@ -620,13 +619,14 @@ func planReadinessAtPathsWithBarrier(
 	)
 }
 
-func planReadinessAtPathsWithBarrierValidation(
+func planReadinessAtPathsWithAssessor(
 	ctx context.Context,
 	input CommandInput,
 	operationContext reconcile.OperationContext,
 	paths daempaths.Paths,
 	barrier *recoverygate.EffectAuthority,
 	validateBarrier func(context.Context) error,
+	assessor readinessAssessor,
 ) (commandPlan, error) {
 	loaded, result, err := loadCommandInputsAtPaths(ctx, input, paths, barrier, validateBarrier)
 	planned := commandPlan{result: result, context: loaded}
@@ -637,7 +637,7 @@ func planReadinessAtPathsWithBarrierValidation(
 		return planned, err
 	}
 
-	planning, err := nativeconfig.Assess(ctx, readiness.Input{
+	planning, observation, err := assessor(ctx, readiness.Input{
 		Context:                 operationContext,
 		Paths:                   loaded.Paths,
 		Resolver:                liveobserve.DestinationResolver(destinationResolver(loaded.Paths).Resolve),
@@ -652,6 +652,7 @@ func planReadinessAtPathsWithBarrierValidation(
 		HookContributionEncoder: hookcodec.CanonicalHookContribution,
 		MCPContributionEncoder:  mcpcodec.CanonicalMCPBindingContribution,
 	})
+	planned.nativeOperation = observation
 	if err != nil {
 		return planned, err
 	}
@@ -677,6 +678,11 @@ func planReadinessAtPathsWithBarrierValidation(
 
 	planned.result = result
 	planned.assessment = planning
+	if operationContext == reconcile.ContextApply {
+		if err := admitNativeCommandPlan(ctx, &planned); err != nil {
+			return planned, err
+		}
+	}
 	return planned, nil
 }
 

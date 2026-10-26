@@ -28,9 +28,7 @@ import (
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
-// Assess owns read-only root lifetimes for the actual CLI planning operation.
-// Returned source and decision facts are independent of those closed roots.
-func Assess(ctx context.Context, input readiness.Input) (result readiness.Assessment, resultErr error) {
+func assessRetainedInputs(ctx context.Context, input readiness.Input, operation *AssessmentOperation) (result readiness.Assessment, resultErr error) {
 	if input.PersistenceEpoch == nil {
 		return readiness.Assessment{}, fmt.Errorf("CLI assessment requires its selected persistence epoch")
 	}
@@ -102,6 +100,9 @@ func Assess(ctx context.Context, input readiness.Input) (result readiness.Assess
 		if input.Lockfile.Version == lock.NativeVersion || before.ContainsHostConfig() {
 			input.Native = &readiness.NativeAssessmentInput{}
 		}
+		if operation != nil {
+			operation.native = input.Native
+		}
 		return readiness.Assess(ctx, input)
 	}
 
@@ -112,6 +113,10 @@ func Assess(ctx context.Context, input readiness.Input) (result readiness.Assess
 	var roots journal.NativeDocumentRoots
 	var retained []*rootedpath.CapturedRoot
 	defer func() {
+		if resultErr == nil && operation != nil {
+			operation.roots = retained
+			return
+		}
 		for _, root := range retained {
 			resultErr = errors.Join(resultErr, root.Close())
 		}
@@ -177,6 +182,9 @@ func Assess(ctx context.Context, input readiness.Input) (result readiness.Assess
 	}
 	input.Native = &readiness.NativeAssessmentInput{
 		Documents: &documents, Registry: registry.actual, Owner: owner, Budget: budget,
+	}
+	if operation != nil {
+		operation.native = input.Native
 	}
 	return readiness.Assess(ctx, input)
 }

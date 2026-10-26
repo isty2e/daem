@@ -62,6 +62,7 @@ type runOptions struct {
 	reserveStatefileAuthority         reserveStatefileEffectAuthority
 	statefileAuthority                *statefileEffectAuthority
 	applyEffectPlan                   *execute.ApplyEffectPlan
+	nativeInput                       *execute.NativeApplyInput
 	preparedContinuation              applyContinuationPlan
 	currentContinuation               applyContinuationPlan
 	requireContinuation               bool
@@ -99,6 +100,9 @@ func runWithOptions(
 	assessment readiness.Assessment,
 	options runOptions,
 ) (result runResult, resultErr error) {
+	if options.nativeInput != nil {
+		return runNativeWithOptions(ctx, paths, assessment, options)
+	}
 	filesystem := storagecommit.Adapter{}
 	validateBeforeEffects := options.validateBeforeEffects
 	if options.validatePhysicalAuthorityRequests != nil {
