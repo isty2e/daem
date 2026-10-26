@@ -1,4 +1,4 @@
-package build
+package nativefragment
 
 import (
 	"context"
@@ -12,9 +12,9 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-// hostConfigKeyContributions refines loaded source data, not source locators or
+// HostConfigKeyContributions refines loaded source data, not source locators or
 // host observations. Limits belong to the calling operation's admission policy.
-func hostConfigKeyContributions(ctx context.Context, config desiredhostconfig.Config, content []byte, limits configdocument.Limits) ([]aggregate.SubjectContribution, error) {
+func HostConfigKeyContributions(ctx context.Context, config desiredhostconfig.Config, content []byte, limits configdocument.Limits) ([]aggregate.SubjectContribution, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("configuration refinement context is required")
 	}

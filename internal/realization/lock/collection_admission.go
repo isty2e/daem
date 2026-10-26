@@ -23,6 +23,7 @@ type lockedCollectionIndex struct {
 	exactSupplyByEntity         map[entity.ID]LockedSubjectContract
 	pathProjectionCountByEntity map[entity.ID]int
 	pathProjectionContracts     map[topology.SubjectID]LockedSubjectContract
+	nativeKeyProjections        map[entity.ID][]LockedSubjectContract
 	delegatedCarriers           map[topology.SubjectID]extensiontopology.Carrier
 	mcpProviderContracts        []LockedSubjectContract
 	piMCPContracts              []profile.PiMCPContract
@@ -59,6 +60,7 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 	pathProjectionEntities := make(map[topology.SubjectID]entity.ID)
 	pathProjectionContracts := make(map[topology.SubjectID]LockedSubjectContract)
 	pathProjectionCountByEntity := make(map[entity.ID]int)
+	nativeKeyProjections := make(map[entity.ID][]LockedSubjectContract)
 	delegatedCarriers := make(map[topology.SubjectID]extensiontopology.Carrier)
 	mcpProviderContracts := make([]LockedSubjectContract, 0)
 	piMCPContracts := make([]profile.PiMCPContract, 0)
@@ -103,6 +105,9 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			continue
 		}
 		if contribution, ok := realization.ManagedAggregateContribution(); ok {
+			if subject.EntityID().Kind() == entity.KindHostConfig {
+				nativeKeyProjections[subject.EntityID()] = append(nativeKeyProjections[subject.EntityID()], subject)
+			}
 			if piContract, pi := profile.PiMCPContractForCodec(contribution.CodecContractID()); pi {
 				piMCPContracts = append(piMCPContracts, piContract)
 				if !piContract.RequiresProvider() {
@@ -189,6 +194,7 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 		exactSupplyByEntity:         exactSupplyByEntity,
 		pathProjectionCountByEntity: pathProjectionCountByEntity,
 		pathProjectionContracts:     pathProjectionContracts,
+		nativeKeyProjections:        nativeKeyProjections,
 		delegatedCarriers:           delegatedCarriers,
 		mcpProviderContracts:        mcpProviderContracts,
 		piMCPContracts:              piMCPContracts,

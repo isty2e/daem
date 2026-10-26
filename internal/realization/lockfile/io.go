@@ -109,6 +109,10 @@ func LoadNative(ctx context.Context, path string) (lock.File, error) {
 }
 
 func loadNativeContent(ctx context.Context, content []byte) (lock.File, error) {
+	return loadNativeContentWithCatalog(ctx, content, aggregatecodec.Catalog().Contributions())
+}
+
+func loadNativeContentWithCatalog(ctx context.Context, content []byte, contributions aggregate.ContributionCatalog) (lock.File, error) {
 	version, err := lockfileVersion(ctx, content)
 	if err != nil {
 		return lock.File{}, err
@@ -116,7 +120,7 @@ func loadNativeContent(ctx context.Context, content []byte) (lock.File, error) {
 	if version != lock.NativeVersion {
 		return lock.File{}, UnsupportedVersionError{Found: version, Supported: lock.NativeVersion}
 	}
-	return loadSnapshotContent(ctx, content, nativeSnapshotAdmission())
+	return loadSnapshotContentWithCatalog(ctx, content, nativeSnapshotAdmission(), contributions)
 }
 
 // ReadReplacementContent reads exact lockfile bytes and verifies that the
@@ -259,6 +263,10 @@ func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) 
 }
 
 func loadSnapshotContent(ctx context.Context, content []byte, admission snapshotAdmission) (lock.File, error) {
+	return loadSnapshotContentWithCatalog(ctx, content, admission, aggregatecodec.Catalog().Contributions())
+}
+
+func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, admission snapshotAdmission, contributions aggregate.ContributionCatalog) (lock.File, error) {
 	if err := admitCurrentLockfileStructure(ctx, content); err != nil {
 		return lock.File{}, err
 	}
@@ -287,7 +295,7 @@ func loadSnapshotContent(ctx context.Context, content []byte, admission snapshot
 	if err := admission.validate(file); err != nil {
 		return lock.File{}, err
 	}
-	if err := validateConcreteAggregateContributions(file); err != nil {
+	if err := validateConcreteAggregateContributions(file, contributions); err != nil {
 		return lock.File{}, err
 	}
 	if err := validateCanonicalDTO(dto, file); err != nil {
@@ -313,7 +321,17 @@ func MarshalNative(file lock.File) ([]byte, error) {
 }
 
 func marshalValidated(file lock.File) ([]byte, error) {
-	if err := validateConcreteAggregateContributions(file); err != nil {
+	return marshalValidatedWithCatalog(context.Background(), file, aggregatecodec.Catalog().Contributions())
+}
+
+func marshalValidatedWithCatalog(ctx context.Context, file lock.File, contributions aggregate.ContributionCatalog) ([]byte, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("lockfile encoding context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateConcreteAggregateContributions(file, contributions); err != nil {
 		return nil, err
 	}
 
@@ -326,14 +344,13 @@ func marshalValidated(file lock.File) ([]byte, error) {
 		return nil, err
 	}
 	content := output.Bytes()
-	if err := admitCurrentLockfileStructure(context.Background(), content); err != nil {
+	if err := admitCurrentLockfileStructure(ctx, content); err != nil {
 		return nil, fmt.Errorf("lockfile TOML structure: %w", err)
 	}
 	return content, nil
 }
 
-func validateConcreteAggregateContributions(file lock.File) error {
-	codecs := aggregatecodec.Catalog().Contributions()
+func validateConcreteAggregateContributions(file lock.File, codecs aggregate.ContributionCatalog) error {
 	items := make([]aggregate.SubjectContribution, 0)
 	firstSubjectIndexByAddress := make(map[aggregate.ProjectionAddress]int)
 	for index, contract := range file.Locked.Subjects() {

@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/realization/lock/nativefragment"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
@@ -22,8 +23,8 @@ type nativeDocumentInput struct {
 	placement profile.HostConfigPlacement
 }
 
-// BuildNativeDocumentsWithOptions selects the native lock generation for document-mode sources.
-// This does not select a host executor or activate native key-mode construction.
+// BuildNativeDocumentsWithOptions locks native whole documents and key fragments.
+// It does not select a host executor or widen default lock admission.
 func BuildNativeDocumentsWithOptions(ctx context.Context, environment desired.Environment, resolver acquisition.Resolver, options Options, limits configdocument.Limits) (lock.File, error) {
 	if ctx == nil {
 		return lock.File{}, fmt.Errorf("native document build context is required")
@@ -43,9 +44,6 @@ func BuildNativeDocumentsWithOptions(ctx context.Context, environment desired.En
 		if err := ctx.Err(); err != nil {
 			return lock.File{}, err
 		}
-		if config.Ownership() != hostconfig.OwnershipDocument {
-			return lock.File{}, fmt.Errorf("host configuration %q: native key source admission is not implemented", config.ID())
-		}
 		placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
 			Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax(),
 		})
@@ -56,10 +54,12 @@ func BuildNativeDocumentsWithOptions(ctx context.Context, environment desired.En
 		if err != nil {
 			return lock.File{}, err
 		}
-		if existing, duplicate := destinations[address]; duplicate {
-			return lock.File{}, fmt.Errorf("host configurations %q and %q target the same scope %q destination %q", existing, config.ID(), placement.Scope(), placement.Destination())
+		if config.Ownership() == hostconfig.OwnershipDocument {
+			if existing, duplicate := destinations[address]; duplicate {
+				return lock.File{}, fmt.Errorf("host configurations %q and %q target the same scope %q destination %q", existing, config.ID(), placement.Scope(), placement.Destination())
+			}
+			destinations[address] = config.ID()
 		}
-		destinations[address] = config.ID()
 		documents = append(documents, nativeDocumentInput{config: config, placement: placement})
 	}
 	return buildWithProfile(ctx, environment, resolver, options, documents, limits, lockBuildProfile{
@@ -77,70 +77,90 @@ func lockResolvedNativeDocuments(ctx context.Context, documents []nativeDocument
 			return nil, err
 		}
 		result := results[index]
-		resource, projection, err := lockResolvedNativeDocument(ctx, document, result, limits)
+		members, err := lockResolvedNativeDocument(ctx, document, result, limits)
 		if err != nil {
 			options.Events.Emit(result.task.event(EventResourceLockFailed, err))
 			return nil, fmt.Errorf("lock host_config %q: %w", document.config.ID(), err)
 		}
-		contracts = append(contracts, resource, projection)
+		contracts = append(contracts, members...)
 		options.Events.Emit(result.task.event(EventResourceLocked, nil))
 	}
 	return contracts, nil
 }
 
-func lockResolvedNativeDocument(ctx context.Context, document nativeDocumentInput, result sourceTaskResult, limits configdocument.Limits) (lock.LockedSubjectContract, lock.LockedSubjectContract, error) {
-	var zero lock.LockedSubjectContract
+func lockResolvedNativeDocument(ctx context.Context, document nativeDocumentInput, result sourceTaskResult, limits configdocument.Limits) ([]lock.LockedSubjectContract, error) {
 	input, err := resolvedArtifactInputFromSourceTaskResult(result)
 	if err != nil {
-		return zero, zero, err
+		return nil, err
 	}
 	identity, view, err := input.exactArtifact(document.config.ID())
 	if err != nil {
-		return zero, zero, err
+		return nil, err
 	}
 	content, err := directfile.ReadExact(ctx, view, identity)
 	if err != nil {
-		return zero, zero, err
+		return nil, err
 	}
 	bytes := content.Bytes()
-	if document.placement.Grammar() != profile.HostConfigOpaque {
+	var keys []aggregate.SubjectContribution
+	if document.config.Ownership() == hostconfig.OwnershipKeys {
+		keys, err = nativefragment.HostConfigKeyContributions(ctx, document.config, bytes, limits)
+		if err != nil {
+			return nil, err
+		}
+	} else if document.placement.Grammar() != profile.HostConfigOpaque {
 		syntax, err := configdocument.ParseSyntax(string(document.placement.Grammar()))
 		if err != nil {
-			return zero, zero, err
+			return nil, err
 		}
 		if _, err := configdocument.Parse(ctx, bytes, syntax, limits); err != nil {
-			return zero, zero, err
+			return nil, err
 		}
 	}
 	materialization, err := artifact.NewFileMaterialization(identity, bytes, content.Mode().Perm()&0o111 != 0, false)
 	if err != nil {
-		return zero, zero, err
+		return nil, err
 	}
 	use, err := lock.NewExactFileUse(document.placement.Scope(), false)
 	if err != nil {
-		return zero, zero, err
+		return nil, err
 	}
 	derivation, err := lock.NewFileMaterializationDerivation(materialization)
 	if err != nil {
-		return zero, zero, err
+		return nil, err
 	}
 	subject, err := resourcetopology.Subject(document.config.ID())
 	if err != nil {
-		return zero, zero, err
+		return nil, err
 	}
 	resource, err := lock.NewExactSupplySubjectContract(lock.ExactSupplySubjectInput{
 		EntityID: document.config.ID(), SubjectID: subject, ExactSupply: identity, ExactFileUse: &use,
 		HostConfigPlacement: &document.placement, Derivation: derivation,
 	})
 	if err != nil {
-		return zero, zero, err
+		return nil, err
 	}
 	if err := resource.ValidateFileMaterialization(materialization); err != nil {
-		return zero, zero, err
+		return nil, err
+	}
+	if document.config.Ownership() == hostconfig.OwnershipKeys {
+		members := make([]lock.LockedSubjectContract, 1, len(keys)+1)
+		members[0] = resource
+		for _, key := range keys {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			projection, err := lock.NewHostConfigKeySubjectContract(document.config.ID(), key.SubjectID(), key.Contribution(), document.placement)
+			if err != nil {
+				return nil, err
+			}
+			members = append(members, projection)
+		}
+		return members, ctx.Err()
 	}
 	projection, err := lock.NewHostConfigDocumentSubjectContract(document.config.ID(), document.placement)
 	if err != nil {
-		return zero, zero, err
+		return nil, err
 	}
-	return resource, projection, nil
+	return []lock.LockedSubjectContract{resource, projection}, nil
 }

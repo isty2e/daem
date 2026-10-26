@@ -227,6 +227,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/realization/lockfile"},
 	},
 	{
+		id:        "realization.codec.native-fragment",
+		placement: specializedPlacement(affinityRealization, roleCodec, specializationFamily, "HostConfig"),
+		packages:  []string{"internal/realization/lock/nativefragment"},
+	},
+	{
 		id:        "assurance.codec.statefile",
 		placement: specializedPlacement(affinityAssurance, roleCodec, specializationFormat, "private state"),
 		packages:  []string{"internal/assurance/statefile"},

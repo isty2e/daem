@@ -101,7 +101,7 @@ func TestNativeDocumentSourceEpochObservesRealFreshAndChangedIdentity(t *testing
 				fixture := newNativeObservationFixture(t, selected, scope, false)
 				check := func(wantStale bool) {
 					t.Helper()
-					epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, fixture.locked, fixture.selection)
+					epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -139,7 +139,7 @@ func TestNativeDocumentSourceEpochIncludesDeclarationIntentAndSourceID(t *testin
 		nativeObservationConfig(t, fixture.resource, other, fixture.resource.Path(), fixture.resource.Syntax()),
 	} {
 		environment := nativeObservationEnvironment(t, []hostconfig.Config{changed}, nil)
-		epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, environment, fixture.locked, fixture.selection)
+		epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, environment, fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -161,7 +161,7 @@ func TestNativeDocumentSourceEpochSharesBatchAndRetainsRawSiblingWithoutPartialO
 		t.Fatal(err)
 	}
 	recorder := &recordingSourceBatchResolver{inner: resolver}
-	candidates, err := nativeDocumentLockObservationCandidates(t.Context(), fixture.environment.HostConfigs(), fixture.locked, fixture.selection)
+	candidates, err := nativeDocumentLockObservationCandidates(t.Context(), fixture.environment.HostConfigs(), fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestNativeDocumentSourceEpochSharesBatchAndRetainsRawSiblingWithoutPartialO
 	if err := os.Remove(filepath.Join(fixture.root, "source.md")); err != nil {
 		t.Fatal(err)
 	}
-	failed, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, fixture.locked, fixture.selection)
+	failed, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 	if err != nil {
 		t.Fatalf("batch lost entity-specific failure semantics: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestNativeDocumentSourceEpochSelectionMissingLockAndDefaultIsolation(t *tes
 	}{
 		{fixture.locked, otherSelection}, {lockmodel.File{Version: lockmodel.NativeVersion, Locked: section}, fixture.selection},
 	} {
-		epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, input.locked, input.selection)
+		epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, input.locked, input.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -228,19 +228,19 @@ func TestNativeDocumentSourceEpochSelectionMissingLockAndDefaultIsolation(t *tes
 	}
 	wrong := fixture.locked
 	wrong.Version = lockmodel.CurrentVersion
-	if _, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, wrong, fixture.selection); err == nil {
+	if _, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, wrong, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64}); err == nil {
 		t.Fatal("native source observer admitted default generation")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := ResolveNativeDocumentSourceEpoch(ctx, fixture.paths, fixture.environment, fixture.locked, fixture.selection); !errors.Is(err, context.Canceled) {
+	if _, err := ResolveNativeDocumentSourceEpoch(ctx, fixture.paths, fixture.environment, fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled source epoch: %v", err)
 	}
 }
 
 func TestNativeDocumentSourceEpochRejectsSourceKindAndPreservesCancellation(t *testing.T) {
 	fixture := newNativeObservationFixture(t, target.TargetPi, target.ScopeProject, false)
-	epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, fixture.locked, fixture.selection)
+	epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestNativeDocumentSourceEpochRejectsSourceKindAndPreservesCancellation(t *t
 	if err := os.Mkdir(filepath.Join(fixture.root, "source.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	directory, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, fixture.locked, fixture.selection)
+	directory, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestNativeDocumentSourceEpochDetectsExecutableAndPlacementChanges(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, nativeObservationEnvironment(t, []hostconfig.Config{changed}, nil), fixture.locked, fixture.selection)
+		epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, nativeObservationEnvironment(t, []hostconfig.Config{changed}, nil), fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -296,7 +296,7 @@ func TestNativeDocumentSourceEpochDetectsExecutableAndPlacementChanges(t *testin
 	if info.Mode().Perm()&0o111 == 0 {
 		t.Skip("filesystem does not expose an executable class")
 	}
-	epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, fixture.locked, fixture.selection)
+	epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 	if err != nil {
 		t.Fatal(err)
 	}

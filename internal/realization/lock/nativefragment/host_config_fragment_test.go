@@ -1,4 +1,4 @@
-package build
+package nativefragment
 
 import (
 	"context"
@@ -62,7 +62,7 @@ func nativeContributionsByKey(t *testing.T, config desiredhostconfig.Config, con
 func TestNativeConfigRefinementKeepsAtomicValuesAndLiteralCredentials(t *testing.T) {
 	config := nativeConfig(t, target.TargetPi, "extensions/subagent/config.json")
 	content := []byte(`{"globalConcurrencyLimit":100,"provider":{"apiKey":"literal-at-own-risk","empty":{}},"enabledModels":["one","two"],"null":null,"a/b~c":{"":true},"\u0000":2}`)
-	contributions, err := hostConfigKeyContributions(t.Context(), config, content, nativeRefinementTestLimits)
+	contributions, err := HostConfigKeyContributions(t.Context(), config, content, nativeRefinementTestLimits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestNativeConfigRefinementPreservesTOMLTypesAndEquivalentSpellings(t *testi
 	}
 	var baseline map[string]aggregate.ManagedContribution
 	for _, content := range inputs {
-		contributions, err := hostConfigKeyContributions(t.Context(), config, []byte(content), nativeRefinementTestLimits)
+		contributions, err := HostConfigKeyContributions(t.Context(), config, []byte(content), nativeRefinementTestLimits)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -119,7 +119,7 @@ func TestNativeConfigRefinementPreservesTOMLTypesAndEquivalentSpellings(t *testi
 			}
 		}
 	}
-	integer, err := hostConfigKeyContributions(t.Context(), config, []byte("tui.ratio=1\n"), nativeRefinementTestLimits)
+	integer, err := HostConfigKeyContributions(t.Context(), config, []byte("tui.ratio=1\n"), nativeRefinementTestLimits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestNativeConfigRefinementKeepsSubjectsAcrossValueChanges(t *testing.T) {
 	config := nativeConfig(t, target.TargetPi, "settings.json")
 	identities := make([]map[topology.SubjectID]bool, 0, 2)
 	for _, content := range []string{`{"theme":"dark","nested":{"x":1}}`, `{"nested":{"x":2},"theme":"light"}`} {
-		contributions, err := hostConfigKeyContributions(t.Context(), config, []byte(content), nativeRefinementTestLimits)
+		contributions, err := HostConfigKeyContributions(t.Context(), config, []byte(content), nativeRefinementTestLimits)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -150,7 +150,7 @@ func TestNativeConfigRefinementKeepsSubjectsAcrossValueChanges(t *testing.T) {
 			t.Fatal("value or ordering changed stable subject identity")
 		}
 	}
-	empty, err := hostConfigKeyContributions(t.Context(), config, []byte(`{}`), nativeRefinementTestLimits)
+	empty, err := HostConfigKeyContributions(t.Context(), config, []byte(`{}`), nativeRefinementTestLimits)
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("empty fragment incorrectly acquired ownership: %v", err)
 	}
@@ -162,18 +162,18 @@ func TestNativeConfigRefinementRejectsCompleteInvalidInputWithoutPartialContribu
 		`{"a":1,"packages":["npm:example"]}`, `{"a":1,"extensions":[]}`, `{"skills":{}}`,
 		`{"a":1,"a":2}`, `{"a":1,}`, `// comment\n{"a":1}`, `[]`, `null`, `{`,
 	} {
-		items, err := hostConfigKeyContributions(t.Context(), config, []byte(content), nativeRefinementTestLimits)
+		items, err := HostConfigKeyContributions(t.Context(), config, []byte(content), nativeRefinementTestLimits)
 		if err == nil || len(items) != 0 {
 			t.Fatal("invalid fragment admitted or returned partial contributions")
 		}
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	items, err := hostConfigKeyContributions(ctx, config, []byte(`{"theme":"dark"}`), nativeRefinementTestLimits)
+	items, err := HostConfigKeyContributions(ctx, config, []byte(`{"theme":"dark"}`), nativeRefinementTestLimits)
 	if !errors.Is(err, context.Canceled) || len(items) != 0 {
 		t.Fatalf("cancellation did not discard contributions: %v", err)
 	}
-	items, err = hostConfigKeyContributions(t.Context(), config, []byte(`{"theme":"dark"}`), configdocument.Limits{MaximumBytes: 4, MaximumDepth: 512})
+	items, err = HostConfigKeyContributions(t.Context(), config, []byte(`{"theme":"dark"}`), configdocument.Limits{MaximumBytes: 4, MaximumDepth: 512})
 	if !errors.Is(err, configdocument.ErrLimitExceeded) || len(items) != 0 {
 		t.Fatalf("caller admission limit was ignored: %v", err)
 	}

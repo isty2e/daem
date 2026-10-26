@@ -122,7 +122,7 @@ func TestNativeDocumentRealSourceObservationPreparesWholeFileEffect(t *testing.T
 			decisionInput := projectionbuild.ManagedPathInput{Locked: locked.Locked, Expectations: []projectionbuild.ManagedPathExpectation{expectation}, SelectedTargets: selectedTargets, States: current.ManagedPaths(), Evidence: live}
 			observeDecisions := func() []reconcile.ManagedPathDecision {
 				t.Helper()
-				epoch, err := lockobserve.ResolveNativeDocumentSourceEpoch(t.Context(), paths, environment, locked, selection)
+				epoch, err := lockobserve.ResolveNativeDocumentSourceEpoch(t.Context(), paths, environment, locked, selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 				if err != nil {
 					t.Fatal(err)
 				}

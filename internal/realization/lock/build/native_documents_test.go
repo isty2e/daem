@@ -200,7 +200,7 @@ func TestNativeDocumentBuildRefusesBeforeSourceEffectsAndNoLatePrefix(t *testing
 	directory := t.TempDir()
 	spec := nativeLocalSource(t, directory, "source", []byte("not JSON"), 0o600)
 	for _, config := range []hostconfig.Config{
-		nativeDocumentConfig(t, "keys", spec, target.TargetPi, target.ScopeProject, "custom.json", hostconfig.OwnershipKeys, hostconfig.SyntaxDefault),
+		nativeDocumentConfig(t, "missing-grammar", spec, target.TargetPi, target.ScopeProject, "custom.bin", hostconfig.OwnershipKeys, hostconfig.SyntaxDefault),
 		nativeDocumentConfig(t, "shared", spec, target.TargetPi, target.ScopeProject, "settings.json", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault),
 	} {
 		calls := 0
