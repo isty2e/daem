@@ -146,6 +146,9 @@ func PrepareNativeApplyEffectPlan(input NativeApplyInput) (ApplyEffectPlan, erro
 	return ApplyEffectPlan{segment: segment, structure: structure, failureStructure: failure, changed: true, valid: true}, nil
 }
 
+// ApplyNativeWithEffectPlan retains the journal after a failed effect boundary;
+// it does not yet invoke automatic rollback. Native recovery-command integration
+// remains required before public activation.
 func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan ApplyEffectPlan, options ApplyOptions) (result ApplyResult, resultErr error) {
 	if ctx == nil || input.Filesystem == nil || input.StateCodec == nil || input.OwnershipRegistryBinder == nil || options.AcceptVisibilityChanges == nil || options.ValidateBeforeEffects == nil && options.ValidatePhysicalAuthorityRequests == nil {
 		return ApplyResult{}, fmt.Errorf("native execution requires its containing authority, visibility callbacks and selected persistence ports")
