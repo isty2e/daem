@@ -133,15 +133,15 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 	if err != nil {
 		return nil, err
 	}
-	blocked, err = applyAggregateSubjectConstraints(blocked, input.Constraints, expected)
+	states, err := selectedAggregateStates(input.States, selection)
+	if err != nil {
+		return nil, err
+	}
+	blocked, err = applyAggregateSubjectConstraints(blocked, input.Constraints, expected, states)
 	if err != nil {
 		return nil, err
 	}
 	removalNotices, err := aggregateRemovalNoticeIndex(input.RemovalNotices)
-	if err != nil {
-		return nil, err
-	}
-	states, err := selectedAggregateStates(input.States, selection)
 	if err != nil {
 		return nil, err
 	}
@@ -329,6 +329,7 @@ func applyAggregateSubjectConstraints(
 	blocked []aggregateBlockedSubject,
 	constraints []AggregateSubjectConstraint,
 	expected map[topology.SubjectID]aggregate.SubjectContribution,
+	states map[topology.SubjectID]durable.ManagedAggregateState,
 ) ([]aggregateBlockedSubject, error) {
 	alreadyBlocked := make(map[topology.SubjectID]struct{}, len(blocked))
 	for _, fact := range blocked {
@@ -349,10 +350,18 @@ func applyAggregateSubjectConstraints(
 		seenConstraints[subject] = struct{}{}
 		item, present := expected[subject]
 		if !present {
-			return nil, fmt.Errorf(
-				"aggregate constraint subject %q has no selected expectation",
-				subject,
-			)
+			prior, selected := states[subject]
+			if !selected {
+				return nil, fmt.Errorf(
+					"aggregate constraint subject %q has no selected expectation or prior state",
+					subject,
+				)
+			}
+			var err error
+			item, err = aggregate.NewSubjectContribution(subject, prior.Contribution())
+			if err != nil {
+				return nil, err
+			}
 		}
 		if _, blockedByLock := alreadyBlocked[subject]; blockedByLock {
 			continue
