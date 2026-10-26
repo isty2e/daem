@@ -30,22 +30,31 @@ type nativeCaptureOwnershipInput struct {
 	budget      *recovery.PhysicalWorkBudget
 }
 
-func (input nativeCaptureOwnershipInput) prepare(ctx context.Context) ([]nativeDocumentCaptureInput, error) {
+type nativeCaptureMembership struct {
+	beforeNative     map[output.Destination]struct{}
+	afterNative      map[output.Destination]struct{}
+	beforeFootprints []map[output.Footprint]struct{}
+	afterFootprints  []map[output.Footprint]struct{}
+	missingHistory   []pathauthority.Provisional
+	needsRegistry    bool
+}
+
+func (input nativeCaptureOwnershipInput) membership(ctx context.Context) (nativeCaptureMembership, error) {
 	base := nativeDocumentCaptureInput{owner: input.owner, operationID: input.operationID, limits: input.limits, budget: input.budget}
 	if err := validateNativeDocumentCaptureInput(ctx, base); err != nil {
-		return nil, err
+		return nativeCaptureMembership{}, err
 	}
 	indexes, err := indexDocumentSnapshots(ctx, input.before, input.after)
 	if err != nil {
-		return nil, err
+		return nativeCaptureMembership{}, err
 	}
 	beforeNative, err := indexes.before.nativeDestinations(ctx)
 	if err != nil {
-		return nil, err
+		return nativeCaptureMembership{}, err
 	}
 	afterNative, err := indexes.after.nativeDestinations(ctx)
 	if err != nil {
-		return nil, err
+		return nativeCaptureMembership{}, err
 	}
 	beforeFootprints := make([]map[output.Footprint]struct{}, len(input.namespaces))
 	afterFootprints := make([]map[output.Footprint]struct{}, len(input.namespaces))
@@ -55,17 +64,17 @@ func (input nativeCaptureOwnershipInput) prepare(ctx context.Context) ([]nativeD
 	for index, namespace := range input.namespaces {
 		aliases := namespace.Addresses()
 		if len(aliases) == 0 {
-			return nil, fmt.Errorf("native capture requires admitted document aliases")
+			return nativeCaptureMembership{}, fmt.Errorf("native capture requires admitted document aliases")
 		}
 		if _, err := documentAliasSet(ctx, aliases); err != nil {
-			return nil, err
+			return nativeCaptureMembership{}, err
 		}
 		if _, err := persistedNativeObservation(namespace.observation); err != nil {
-			return nil, err
+			return nativeCaptureMembership{}, err
 		}
 		for _, alias := range aliases {
 			if _, duplicate := seenAliases[alias]; duplicate {
-				return nil, fmt.Errorf("native capture repeats a document alias")
+				return nativeCaptureMembership{}, fmt.Errorf("native capture repeats a document alias")
 			}
 			seenAliases[alias] = struct{}{}
 			_, had := beforeNative[alias.AggregateRoot()]
@@ -74,36 +83,49 @@ func (input nativeCaptureOwnershipInput) prepare(ctx context.Context) ([]nativeD
 		}
 		beforeFootprints[index], err = indexes.before.documentFootprints(ctx, aliases)
 		if err != nil {
-			return nil, err
+			return nativeCaptureMembership{}, err
 		}
 		afterFootprints[index], err = indexes.after.documentFootprints(ctx, aliases)
 		if err != nil {
-			return nil, err
+			return nativeCaptureMembership{}, err
 		}
 		needsRegistry = needsRegistry || len(beforeFootprints[index])+len(afterFootprints[index]) != 0
 		if missing, provisional := namespace.observation.Provisional(); provisional && len(beforeFootprints[index]) != 0 {
 			missingHistory = append(missingHistory, missing)
 		}
 	}
+	return nativeCaptureMembership{
+		beforeNative: beforeNative, afterNative: afterNative,
+		beforeFootprints: beforeFootprints, afterFootprints: afterFootprints,
+		missingHistory: missingHistory, needsRegistry: needsRegistry,
+	}, nil
+}
 
+func (input nativeCaptureOwnershipInput) prepare(ctx context.Context) ([]nativeDocumentCaptureInput, error) {
+	membership, err := input.membership(ctx)
+	if err != nil {
+		return nil, err
+	}
 	current := ownership.EmptyRegistry()
-	if needsRegistry {
-		if input.registry == nil {
-			return nil, fmt.Errorf("native membership requires the operation-selected registry reader")
-		}
-		if len(missingHistory) == 0 {
-			current, err = input.registry.Load(ctx)
-		} else {
-			reader, supported := input.registry.(ownershipmutation.DocumentRegistryReader)
-			if !supported {
-				return nil, fmt.Errorf("missing native history requires a document-qualified registry reader")
-			}
-			current, err = reader.LoadForDocuments(ctx, input.owner, missingHistory, recovery.MaximumPhysicalPathDepth, input.budget)
-		}
+	if membership.needsRegistry {
+		current, err = readNativeCaptureRegistry(ctx, input.registry, input.owner, membership.missingHistory, input.budget)
 		if err != nil {
 			return nil, err
 		}
 	}
+	return input.derive(ctx, membership, current)
+}
+
+func (input nativeCaptureOwnershipInput) prepareFromRegistry(ctx context.Context, current ownership.Registry) ([]nativeDocumentCaptureInput, error) {
+	membership, err := input.membership(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return input.derive(ctx, membership, current)
+}
+
+func (input nativeCaptureOwnershipInput) derive(ctx context.Context, membership nativeCaptureMembership, current ownership.Registry) ([]nativeDocumentCaptureInput, error) {
+	base := nativeDocumentCaptureInput{owner: input.owner, operationID: input.operationID, limits: input.limits, budget: input.budget}
 	owned := make(map[string][]ownership.Claim)
 	for _, claim := range current.Claims() {
 		if err := ctx.Err(); err != nil {
@@ -124,11 +146,12 @@ func (input nativeCaptureOwnershipInput) prepare(ctx context.Context) ([]nativeD
 		}
 		capture := base
 		capture.groupIndex = index
-		capture.claims, capture.provisional, err = input.documentClaims(ctx, namespace, current, owned, beforeFootprints[index], afterFootprints[index])
+		var err error
+		capture.claims, capture.provisional, err = input.documentClaims(ctx, namespace, current, owned, membership.beforeFootprints[index], membership.afterFootprints[index])
 		if err != nil {
 			return nil, err
 		}
-		capture.bindings, err = input.documentBindings(ctx, namespace, current, beforeNative, afterNative)
+		capture.bindings, err = input.documentBindings(ctx, namespace, current, membership.beforeNative, membership.afterNative)
 		if err != nil {
 			return nil, err
 		}

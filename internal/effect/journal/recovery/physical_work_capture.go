@@ -37,6 +37,15 @@ func (budget *PhysicalWorkBudget) AdmitRemovalDemands(demands RemovalDemandSet) 
 	return nil
 }
 
+// RequireCapturePending rejects a new initial observation after removal
+// admission. Admitted-empty and pending capture are distinct lifecycle states.
+func (budget *PhysicalWorkBudget) RequireCapturePending() error {
+	if budget == nil || !budget.removalAdmissionPending {
+		return fmt.Errorf("physical capture requires pending removal admission")
+	}
+	return nil
+}
+
 func (budget *PhysicalWorkBudget) requireRemovalAdmission() error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")

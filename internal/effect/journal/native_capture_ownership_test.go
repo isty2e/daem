@@ -3,6 +3,7 @@ package journal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -10,7 +11,9 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -276,6 +279,13 @@ func (reader *nativeCaptureRegistryReader) Load(context.Context) (ownership.Regi
 		reader.afterLoad()
 	}
 	return reader.value, reader.err
+}
+
+func (reader *nativeCaptureRegistryReader) LoadForClaimRemovals(ctx context.Context, expected []ownership.Claim, maximumPhysicalDepth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
+	if len(expected) != 0 || maximumPhysicalDepth != recovery.MaximumPhysicalPathDepth || budget == nil {
+		return ownership.Registry{}, fmt.Errorf("capture read must use its bounded strict selection")
+	}
+	return reader.Load(ctx)
 }
 
 func TestNativeCaptureOwnershipFeedsSelectedCapture(t *testing.T) {
