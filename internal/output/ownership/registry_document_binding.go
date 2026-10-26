@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
 )
@@ -29,6 +30,24 @@ func canonicalDocumentBindings(bindings []DocumentBinding) ([]DocumentBinding, m
 
 func (registry Registry) DocumentBindings() []DocumentBinding {
 	return append([]DocumentBinding(nil), registry.bindings...)
+}
+
+// DocumentBindingsAt returns all stored participants at an exact namespace,
+// without treating those identity records as exclusive claims or live authority.
+func (registry Registry) DocumentBindingsAt(namespace pathauthority.Exact) ([]DocumentBinding, error) {
+	if !registry.initialized {
+		return nil, fmt.Errorf("ownership registry is required")
+	}
+	if err := namespace.Validate(); err != nil {
+		return nil, err
+	}
+	var result []DocumentBinding
+	for _, binding := range registry.bindings {
+		if binding.PathAuthority().Equal(namespace) {
+			result = append(result, binding)
+		}
+	}
+	return result, nil
 }
 
 // DocumentBinding looks up identity evidence by authoritative state key, not

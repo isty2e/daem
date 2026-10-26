@@ -14,25 +14,27 @@ import (
 )
 
 type NativeDocumentClaimObservationInput struct {
-	Owner          stateauthority.Authority
-	Aliases        []aggregate.DocumentAddress
-	Comparison     pathauthority.Exact
-	BeforeSubjects []topology.SubjectID
-	BeforeClaims   []ownership.Claim
-	CurrentClaims  []ownership.Claim
+	Owner           stateauthority.Authority
+	Aliases         []aggregate.DocumentAddress
+	Comparison      pathauthority.Exact
+	BeforeSubjects  []topology.SubjectID
+	BeforeClaims    []ownership.Claim
+	CurrentClaims   []ownership.Claim
+	CurrentBindings []ownership.DocumentBinding
 }
 
 // NativeDocumentClaimObservation is a read-only projection of a qualified
-// physical group's membership and complete whole-overlap fragment. Comparison
-// may be retained missing history, never a restored current exact authority.
+// physical group's membership, claims and stored binding participants.
+// Comparison may be retained missing history, never current exact authority.
 type NativeDocumentClaimObservation struct {
-	owner          stateauthority.Authority
-	aliases        []aggregate.DocumentAddress
-	comparison     pathauthority.Exact
-	beforeSubjects []topology.SubjectID
-	beforeClaims   []ownership.Claim
-	currentClaims  []ownership.Claim
-	initialized    bool
+	owner           stateauthority.Authority
+	aliases         []aggregate.DocumentAddress
+	comparison      pathauthority.Exact
+	beforeSubjects  []topology.SubjectID
+	beforeClaims    []ownership.Claim
+	currentClaims   []ownership.Claim
+	currentBindings []ownership.DocumentBinding
+	initialized     bool
 }
 
 func NewNativeDocumentClaimObservation(input NativeDocumentClaimObservationInput) (NativeDocumentClaimObservation, error) {
@@ -88,9 +90,18 @@ func NewNativeDocumentClaimObservation(input NativeDocumentClaimObservationInput
 			return NativeDocumentClaimObservation{}, fmt.Errorf("native before claims differ from active owned current history")
 		}
 	}
+	bindings, err := ownership.NewRegistry(nil, input.CurrentBindings...)
+	if err != nil {
+		return NativeDocumentClaimObservation{}, err
+	}
+	for _, binding := range bindings.DocumentBindings() {
+		if !binding.PathAuthority().Equal(input.Comparison) {
+			return NativeDocumentClaimObservation{}, fmt.Errorf("native binding fragment differs from its comparison namespace")
+		}
+	}
 	return NativeDocumentClaimObservation{
 		owner: input.Owner, aliases: aliases, comparison: input.Comparison,
-		beforeSubjects: subjects, beforeClaims: before, currentClaims: current, initialized: true,
+		beforeSubjects: subjects, beforeClaims: before, currentClaims: current, currentBindings: bindings.DocumentBindings(), initialized: true,
 	}, nil
 }
 
@@ -146,4 +157,8 @@ func (observation NativeDocumentClaimObservation) BeforeClaims() []ownership.Cla
 
 func (observation NativeDocumentClaimObservation) CurrentClaims() []ownership.Claim {
 	return slices.Clone(observation.currentClaims)
+}
+
+func (observation NativeDocumentClaimObservation) CurrentBindings() []ownership.DocumentBinding {
+	return slices.Clone(observation.currentBindings)
 }

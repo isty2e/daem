@@ -119,6 +119,11 @@ func BuildNativeWholeAdoption(ctx context.Context, input NativeWholeAdoptionInpu
 			footprints[row.Contribution().Footprint()] = struct{}{}
 		}
 	}
+	for _, binding := range input.Ownership.CurrentBindings() {
+		if !binding.Owner().Equal(input.Ownership.Owner()) || binding.Destination() != document.AggregateRoot() {
+			return block(reconcile.ReasonOwnershipConflict, "native whole adoption overlaps another stored document participant")
+		}
+	}
 	before := input.Ownership.BeforeClaims()
 	if len(before) != len(footprints) {
 		return block(reconcile.ReasonOwnershipClaimMissing, "native whole adoption lacks the exact retiring claim fragment")

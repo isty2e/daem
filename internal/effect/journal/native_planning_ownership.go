@@ -157,6 +157,10 @@ func (projection NativeOwnershipProjection) Document(ctx context.Context, alias 
 	if err != nil {
 		return observe.NativeDocumentClaimObservation{}, err
 	}
+	bindings, err := projection.registry.DocumentBindingsAt(baseline.comparison)
+	if err != nil {
+		return observe.NativeDocumentClaimObservation{}, err
+	}
 	aliases := baseline.namespace.Addresses()
 	subjects, err := projection.before.documentSubjects(ctx, aliases)
 	if err != nil {
@@ -164,7 +168,7 @@ func (projection NativeOwnershipProjection) Document(ctx context.Context, alias 
 	}
 	result, err := observe.NewNativeDocumentClaimObservation(observe.NativeDocumentClaimObservationInput{
 		Owner: projection.owner, Aliases: aliases, Comparison: baseline.comparison,
-		BeforeSubjects: subjects, BeforeClaims: baseline.claims, CurrentClaims: claims,
+		BeforeSubjects: subjects, BeforeClaims: baseline.claims, CurrentClaims: claims, CurrentBindings: bindings,
 	})
 	if err != nil {
 		return observe.NativeDocumentClaimObservation{}, err
