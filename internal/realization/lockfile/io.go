@@ -301,6 +301,9 @@ func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, admissi
 	if err := validateCanonicalDTO(dto, file); err != nil {
 		return lock.File{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return lock.File{}, err
+	}
 	return file, nil
 }
 
