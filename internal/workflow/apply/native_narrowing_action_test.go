@@ -31,6 +31,11 @@ import (
 
 func nativeActionPreparationInput(t *testing.T, syntax configdocument.Syntax, baseline, current, fragment string, ownership hostconfig.Ownership) NativeNarrowingActionInput {
 	t.Helper()
+	return nativeActionPreparationInputForScope(t, syntax, baseline, current, fragment, ownership, target.ScopeGlobal)
+}
+
+func nativeActionPreparationInputForScope(t *testing.T, syntax configdocument.Syntax, baseline, current, fragment string, ownership hostconfig.Ownership, scope target.Scope) NativeNarrowingActionInput {
+	t.Helper()
 	root := t.TempDir()
 	path := filepath.Join(root, "fragment")
 	if err := os.WriteFile(path, []byte(fragment), 0o600); err != nil {
@@ -40,7 +45,7 @@ func nativeActionPreparationInput(t *testing.T, syntax configdocument.Syntax, ba
 	if err != nil {
 		t.Fatal(err)
 	}
-	resource, err := hostconfig.New(hostconfig.Spec{Name: "settings", Source: spec, Target: target.TargetPi, Scope: target.ScopeGlobal, Path: "extension-settings/test.json", Ownership: ownership, Syntax: hostconfig.Syntax(syntax.String())})
+	resource, err := hostconfig.New(hostconfig.Spec{Name: "settings", Source: spec, Target: target.TargetPi, Scope: scope, Path: "extension-settings/test.json", Ownership: ownership, Syntax: hostconfig.Syntax(syntax.String())})
 	if err != nil {
 		t.Fatal(err)
 	}

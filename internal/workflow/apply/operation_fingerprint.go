@@ -188,7 +188,7 @@ func applyOperationFingerprint(
 	planned commandPlan,
 	operationContext reconcile.OperationContext,
 ) (mutation.OperationFingerprint, error) {
-	if len(planned.assessment.Reconciliation.NativeNarrowings()) != 0 {
+	if planned.assessment.Reconciliation.ContainsHostConfig() || planned.assessment.CurrentState.ContainsHostConfig() {
 		return mutation.OperationFingerprint{}, execute.ErrNativeOperationRequired
 	}
 

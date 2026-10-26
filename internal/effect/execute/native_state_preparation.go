@@ -97,7 +97,7 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
-	aggregates, err := AggregateEffects(input.Aggregates)
+	aggregates, err := AggregateEffectsForNativeOperation(input.Aggregates)
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
 	}

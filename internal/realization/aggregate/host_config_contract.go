@@ -61,6 +61,13 @@ func HostConfigDocumentSubject(id entity.ID, selected target.Target, scope targe
 	return topologyprojection.Subject(id, placementID)
 }
 
+// IsHostConfigDocumentSubject classifies entity-backed whole-document subjects,
+// without validating their placement or granting referent access.
+func IsHostConfigDocumentSubject(subject topology.SubjectID) bool {
+	id, present := topologyprojection.EntityID(subject)
+	return present && id.Kind() == entity.KindHostConfig
+}
+
 // NewHostConfigProjectionContract owns native projection shape only. Host
 // profiles separately admit the logical destination, grammar and reservations.
 func NewHostConfigProjectionContract(selected target.Target, scope target.Scope, root output.Destination, footprint output.Footprint, codec CodecContractID) (ProjectionContract, error) {

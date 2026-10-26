@@ -107,6 +107,9 @@ func runWithOptions(
 	if err := execute.RejectUnsupportedActions(assessment.Reconciliation); err != nil {
 		return runResult{}, err
 	}
+	if assessment.CurrentState.ContainsHostConfig() {
+		return runResult{}, execute.ErrNativeOperationRequired
+	}
 
 	managedPathEffects, err := execute.ManagedPathEffects(assessment.Reconciliation.ManagedPaths())
 	if err != nil {

@@ -4,15 +4,26 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 )
 
 // ErrNativeOperationRequired marks work the ordinary Apply pipeline cannot execute.
-var ErrNativeOperationRequired = errors.New("native document narrowing requires its containing execution pipeline")
+var ErrNativeOperationRequired = errors.New("native document work requires its containing execution pipeline")
 
-func rejectUnsupportedNativeNarrowings(actions []reconcile.NativeNarrowingAction) error {
-	if len(actions) != 0 {
+func rejectUnsupportedNativeInput(input ApplyInput) error {
+	if len(input.NativeNarrowings) != 0 || input.CurrentState.ContainsHostConfig() {
 		return ErrNativeOperationRequired
+	}
+	for _, effect := range input.ManagedPathEffects {
+		if aggregate.IsHostConfigDocumentSubject(effect.Subject()) {
+			return ErrNativeOperationRequired
+		}
+	}
+	for _, effect := range input.AggregateEffects {
+		if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); native {
+			return ErrNativeOperationRequired
+		}
 	}
 	return nil
 }
@@ -49,10 +60,10 @@ func rejectPlanErrorActions(planResult reconcile.Result) error {
 	return nil
 }
 
-// RejectUnsupportedExecutableActions rejects mutating action shapes execution cannot commit.
+// RejectUnsupportedExecutableActions rejects work outside the ordinary execution contract.
 func RejectUnsupportedExecutableActions(planResult reconcile.Result) error {
-	if err := rejectUnsupportedNativeNarrowings(planResult.NativeNarrowings()); err != nil {
-		return err
+	if planResult.ContainsHostConfig() {
+		return ErrNativeOperationRequired
 	}
 
 	managedPaths := planResult.ManagedPaths()

@@ -515,7 +515,7 @@ func validateAggregateDecision(decision AggregateDecision) error {
 			seenSubjects[subject] = struct{}{}
 		}
 	}
-	return nil
+	return validateNativeAggregateOperation(decision)
 }
 
 func validateAggregateDecisionKind(kind AggregateDecisionKind) error {

@@ -6,6 +6,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/topology"
 )
 
@@ -66,23 +67,26 @@ type AggregateDecisionInput struct {
 	Rendered        aggregate.RenderedDocument
 	Evidence        observe.AggregateEvidence
 	Preconditions   []aggregate.OperationPrecondition
+	NativeOperation *profile.NativeAggregateOperationContract
 }
 
 // AggregateDecision owns one codec plan over one physical document. Candidate
 // bytes are non-authoritative until Effect revalidates and commits them.
 type AggregateDecision struct {
-	kind            AggregateDecisionKind
-	reason          ActionReason
-	detail          string
-	documentAddress aggregate.DocumentAddress
-	codecContractID aggregate.CodecContractID
-	projections     []AggregateProjectionDecision
-	document        aggregate.Document
-	snapshot        aggregate.Snapshot
-	codecPlan       aggregate.Plan
-	rendered        aggregate.RenderedDocument
-	evidence        observe.AggregateEvidence
-	preconditions   []aggregate.OperationPrecondition
+	kind               AggregateDecisionKind
+	reason             ActionReason
+	detail             string
+	documentAddress    aggregate.DocumentAddress
+	codecContractID    aggregate.CodecContractID
+	projections        []AggregateProjectionDecision
+	document           aggregate.Document
+	snapshot           aggregate.Snapshot
+	codecPlan          aggregate.Plan
+	rendered           aggregate.RenderedDocument
+	evidence           observe.AggregateEvidence
+	preconditions      []aggregate.OperationPrecondition
+	nativeOperation    profile.NativeAggregateOperationContract
+	hasNativeOperation bool
 }
 
 // AggregateProjectionDecision owns one semantic projection transition inside
@@ -139,6 +143,10 @@ func NewAggregateDecision(input AggregateDecisionInput) (AggregateDecision, erro
 		rendered:        input.Rendered,
 		evidence:        input.Evidence,
 		preconditions:   append([]aggregate.OperationPrecondition(nil), input.Preconditions...),
+	}
+	if input.NativeOperation != nil {
+		decision.nativeOperation = *input.NativeOperation
+		decision.hasNativeOperation = true
 	}
 	if err := validateActionReason(input.Reason); err != nil {
 		return AggregateDecision{}, fmt.Errorf("aggregate decision: %w", err)

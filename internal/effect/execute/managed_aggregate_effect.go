@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -26,16 +27,18 @@ const (
 // AggregateEffect is execution's validated view of one aggregate decision.
 // It carries a candidate but no mutation authority.
 type AggregateEffect struct {
-	kind            AggregateEffectKind
-	documentAddress aggregate.DocumentAddress
-	codecContractID aggregate.CodecContractID
-	projections     []AggregateProjectionEffect
-	before          aggregate.Document
-	snapshot        aggregate.Snapshot
-	codecPlan       aggregate.Plan
-	rendered        aggregate.RenderedDocument
-	evidence        observe.AggregateEvidence
-	preconditions   []aggregate.OperationPrecondition
+	kind               AggregateEffectKind
+	documentAddress    aggregate.DocumentAddress
+	codecContractID    aggregate.CodecContractID
+	projections        []AggregateProjectionEffect
+	before             aggregate.Document
+	snapshot           aggregate.Snapshot
+	codecPlan          aggregate.Plan
+	rendered           aggregate.RenderedDocument
+	evidence           observe.AggregateEvidence
+	preconditions      []aggregate.OperationPrecondition
+	nativeOperation    profile.NativeAggregateOperationContract
+	hasNativeOperation bool
 }
 
 // AggregateProjectionEffect is execution's immutable semantic transition for
@@ -58,8 +61,23 @@ type AggregateSubjectEffect struct {
 	contract aggregate.ProjectionContract
 }
 
-// AggregateEffects admits executable and state-recording decisions.
+// AggregateEffects admits ordinary executable and state-recording decisions.
 func AggregateEffects(decisions []reconcile.AggregateDecision) ([]AggregateEffect, error) {
+	for _, decision := range decisions {
+		if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); native {
+			return nil, ErrNativeOperationRequired
+		}
+	}
+	return aggregateEffects(decisions)
+}
+
+// AggregateEffectsForNativeOperation preserves static native admission only;
+// the result still requires the containing operation's runtime authority.
+func AggregateEffectsForNativeOperation(decisions []reconcile.AggregateDecision) ([]AggregateEffect, error) {
+	return aggregateEffects(decisions)
+}
+
+func aggregateEffects(decisions []reconcile.AggregateDecision) ([]AggregateEffect, error) {
 	effects := make([]AggregateEffect, 0, len(decisions))
 	for index, decision := range decisions {
 		var kind AggregateEffectKind
@@ -92,12 +110,14 @@ func AggregateEffects(decisions []reconcile.AggregateDecision) ([]AggregateEffec
 			}
 			projections = append(projections, effectProjection)
 		}
+		nativeOperation, hasNativeOperation := decision.NativeOperationContract()
 		effect := AggregateEffect{
 			kind: kind, documentAddress: decision.DocumentAddress(),
 			codecContractID: decision.CodecContractID(), projections: projections,
 			before: decision.BeforeDocument(), snapshot: decision.BeforeSnapshot(), codecPlan: decision.CodecPlan(),
 			rendered: decision.Rendered(), evidence: decision.Evidence(),
-			preconditions: decision.OperationPreconditions(),
+			preconditions:   decision.OperationPreconditions(),
+			nativeOperation: nativeOperation, hasNativeOperation: hasNativeOperation,
 		}
 		if err := effect.validate(); err != nil {
 			return nil, fmt.Errorf("aggregate effect[%d]: %w", index, err)
@@ -192,16 +212,28 @@ func (effect AggregateEffect) validate() error {
 		!effect.evidence.Snapshot().Equal(effect.snapshot) {
 		return fmt.Errorf("aggregate effect evidence differs from planned before state")
 	}
-	expectedPreconditions, admitted, err := aggregate.OperationPreconditionsForSelection(selection)
-	if err != nil {
-		return err
-	}
-	if !admitted || len(expectedPreconditions) != len(effect.preconditions) {
-		return fmt.Errorf("aggregate effect operation preconditions differ from codec profile")
-	}
-	for index := range expectedPreconditions {
-		if expectedPreconditions[index] != effect.preconditions[index] {
-			return fmt.Errorf("aggregate effect operation precondition[%d] differs from codec profile", index)
+	if _, native := aggregate.HostConfigSyntaxForCodec(effect.codecContractID); native {
+		if !effect.hasNativeOperation || len(effect.preconditions) != 0 {
+			return fmt.Errorf("native aggregate effect requires its exact static operation contract")
+		}
+		if err := effect.nativeOperation.ValidateSelection(selection); err != nil {
+			return err
+		}
+	} else {
+		if effect.hasNativeOperation {
+			return fmt.Errorf("ordinary aggregate effect carries a native operation contract")
+		}
+		expectedPreconditions, admitted, err := aggregate.OperationPreconditionsForSelection(selection)
+		if err != nil {
+			return err
+		}
+		if !admitted || len(expectedPreconditions) != len(effect.preconditions) {
+			return fmt.Errorf("aggregate effect operation preconditions differ from codec profile")
+		}
+		for index := range expectedPreconditions {
+			if expectedPreconditions[index] != effect.preconditions[index] {
+				return fmt.Errorf("aggregate effect operation precondition[%d] differs from codec profile", index)
+			}
 		}
 	}
 	beforeStates := effect.snapshot.States()
@@ -365,6 +397,10 @@ func (effect AggregateEffect) PreviousStates() []durable.ManagedAggregateState {
 func (effect AggregateEffect) Evidence() observe.AggregateEvidence { return effect.evidence }
 func (effect AggregateEffect) OperationPreconditions() []aggregate.OperationPrecondition {
 	return append([]aggregate.OperationPrecondition(nil), effect.preconditions...)
+}
+
+func (effect AggregateEffect) NativeOperationContract() (profile.NativeAggregateOperationContract, bool) {
+	return effect.nativeOperation, effect.hasNativeOperation
 }
 
 func (effect AggregateEffect) journaledProjectionCount() int {

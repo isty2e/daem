@@ -16,7 +16,7 @@ type applyStateTransition struct {
 }
 
 func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) {
-	if err := rejectUnsupportedNativeNarrowings(input.NativeNarrowings); err != nil {
+	if err := rejectUnsupportedNativeInput(input); err != nil {
 		return applyStateTransition{}, err
 	}
 

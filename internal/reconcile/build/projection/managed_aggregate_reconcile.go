@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 )
 
@@ -97,21 +98,36 @@ func reconcileAggregateDocumentSemantics(
 	if err := validateAggregateEvidenceSelection(evidence, observationSelection); err != nil {
 		return aggregateDecision{}, err
 	}
-	operationPreconditions, blockReason, blockDetail, err := reconcileAggregatePreconditions(
-		observationSelection,
-		preconditionsByDocument[documentAddress],
-	)
-	if err != nil {
-		return aggregateDecision{}, err
-	}
-	if blockReason != "" {
-		return blockedAggregateDocument(
-			groups,
-			documentAddress,
-			decisionSelection.CodecContractID(),
-			blockReason,
-			blockDetail,
-		), nil
+	var nativeOperation *profile.NativeAggregateOperationContract
+	var operationPreconditions []aggregate.OperationPrecondition
+	if _, native := aggregate.HostConfigSyntaxForCodec(decisionSelection.CodecContractID()); native {
+		operation, err := profile.NewNativeAggregateOperationContract(codecs, decisionSelection)
+		if err != nil {
+			return aggregateDecision{}, err
+		}
+		if len(preconditionsByDocument[documentAddress]) != 0 {
+			return aggregateDecision{}, fmt.Errorf("native requirements are not fixed aggregate precondition evidence")
+		}
+		nativeOperation = &operation
+	} else {
+		var blockReason reconcile.ActionReason
+		var blockDetail string
+		operationPreconditions, blockReason, blockDetail, err = reconcileAggregatePreconditions(
+			observationSelection,
+			preconditionsByDocument[documentAddress],
+		)
+		if err != nil {
+			return aggregateDecision{}, err
+		}
+		if blockReason != "" {
+			return blockedAggregateDocument(
+				groups,
+				documentAddress,
+				decisionSelection.CodecContractID(),
+				blockReason,
+				blockDetail,
+			), nil
+		}
 	}
 	codec, ok := codecs.Lookup(decisionSelection.CodecContractID())
 	if !ok {
@@ -201,6 +217,7 @@ func reconcileAggregateDocumentSemantics(
 		rendered:        rendered,
 		evidence:        evidence,
 		preconditions:   operationPreconditions,
+		nativeOperation: nativeOperation,
 	}
 	if blocked {
 		decision.kind = reconcile.AggregateBlocked

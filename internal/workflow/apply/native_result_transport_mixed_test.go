@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
@@ -100,9 +101,18 @@ func TestNativeResultTransportRejectsCompetingKeyDecision(t *testing.T) {
 	}
 	desired, _ := plan.Intents()[0].Desired()
 	expected, _ := rendered.Expected().State(contract)
+	selection, err := plan.Before().Selection()
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, err := profile.NewNativeAggregateOperationContract(catalog, selection)
+	if err != nil {
+		t.Fatal(err)
+	}
 	keyRecord, err := reconcile.NewAggregateDecision(reconcile.AggregateDecisionInput{
 		Kind: reconcile.AggregateRecord, Reason: reconcile.ReasonManagedExisting, DocumentAddress: contract.Address().Document(), CodecContractID: contract.CodecContractID(),
 		Document: action.CurrentDocument(), Snapshot: plan.Before(), CodecPlan: plan, Rendered: rendered, Evidence: evidence,
+		NativeOperation: &operation,
 		Projections: []reconcile.AggregateProjectionDecisionInput{{
 			Kind: reconcile.AggregateRecord, Reason: reconcile.ReasonManagedExisting, Contract: contract, Desired: &desired, Before: plan.Intents()[0].Before(), Expected: expected,
 			Subjects: []reconcile.AggregateSubjectDecisionInput{{Subject: item.SubjectID(), Contract: contract, Kind: reconcile.AggregateRecord, Reason: reconcile.ReasonManagedExisting}},

@@ -158,8 +158,20 @@ func TestNativeDocumentRealSourceObservationPreparesWholeFileEffect(t *testing.T
 			if !present || !regular || !bytes.Equal(file.Bytes(), original) || value.Hash() != effects[0].DesiredHash() {
 				t.Fatal("real source payload does not match prepared effect")
 			}
-			if _, err := execute.PrepareApplyEffectPlan(execute.ApplyInput{ManagedPathEffects: effects, CurrentState: current, Payloads: payloads, StateCodec: stateCodec}); err != nil {
-				t.Fatalf("actual native whole effect cannot enter structural apply preparation: %v", err)
+			sourceEpoch, err := lockobserve.ResolveNativeDocumentSourceEpoch(t.Context(), paths, environment, locked, selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
+			if err != nil {
+				t.Fatal(err)
+			}
+			observedSource, err := sourceEpoch.NativeSource(t.Context(), config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := execute.PrepareNativeApplyState(t.Context(), execute.NativeApplyStateInput{Before: current, ManagedPaths: decisions, WholeSources: []lock.LockedSubjectContract{observedSource.SourceContract()}, StateCodec: stateCodec})
+			if err != nil || len(prepared.AfterState().ManagedPaths()) != 1 || prepared.AfterState().ManagedPaths()[0].ContentHash() != effects[0].DesiredHash() || prepared.AfterState().ManagedPaths()[0].FileMode() != 0o600 {
+				t.Fatal("actual native whole source lost positive native state preparation", err)
+			}
+			if _, err := execute.PrepareApplyEffectPlan(execute.ApplyInput{ManagedPathEffects: effects, CurrentState: current, Payloads: payloads, StateCodec: stateCodec}); !errors.Is(err, execute.ErrNativeOperationRequired) {
+				t.Fatal("actual native whole effect entered ordinary structural preparation", err)
 			}
 			mutations, err := execute.ManagedPathJournalMutations(effects)
 			if err != nil || len(mutations) != 1 {
