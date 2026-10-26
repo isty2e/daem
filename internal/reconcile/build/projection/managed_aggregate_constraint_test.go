@@ -142,7 +142,7 @@ func TestAggregateSubjectConstraintDoesNotBecomeLockBlockerOnPreconditionFailure
 		t.Fatalf("operation preconditions = %#v admitted=%t, want one", preconditions, admitted)
 	}
 	preconditionEvidence, err := observe.NewAggregatePreconditionEvidence(
-		selection.DocumentAddress(),
+		selection.DocumentCodecKey(),
 		preconditions[0],
 		false,
 	)

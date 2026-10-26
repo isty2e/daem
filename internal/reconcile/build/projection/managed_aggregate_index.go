@@ -52,10 +52,10 @@ func aggregateContributionFromLocked(
 	return contract.ManagedAggregateContribution()
 }
 
-func aggregateEvidenceIndex(values []observe.AggregateEvidence) (map[aggregate.DocumentAddress]observe.AggregateEvidence, error) {
-	result := make(map[aggregate.DocumentAddress]observe.AggregateEvidence, len(values))
+func aggregateEvidenceIndex(values []observe.AggregateEvidence) (map[aggregate.DocumentCodecKey]observe.AggregateEvidence, error) {
+	result := make(map[aggregate.DocumentCodecKey]observe.AggregateEvidence, len(values))
 	for index, evidence := range values {
-		address := evidence.Address()
+		address := evidence.DocumentCodecKey()
 		if _, duplicate := result[address]; duplicate {
 			return nil, fmt.Errorf("duplicate aggregate evidence[%d] for document", index)
 		}
@@ -66,10 +66,10 @@ func aggregateEvidenceIndex(values []observe.AggregateEvidence) (map[aggregate.D
 
 func aggregateObservationFailureIndex(
 	values []observe.AggregateObservationFailure,
-) (map[aggregate.DocumentAddress]observe.AggregateObservationFailure, error) {
-	result := make(map[aggregate.DocumentAddress]observe.AggregateObservationFailure, len(values))
+) (map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure, error) {
+	result := make(map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure, len(values))
 	for index, failure := range values {
-		address := failure.Address()
+		address := failure.DocumentCodecKey()
 		if _, duplicate := result[address]; duplicate {
 			return nil, fmt.Errorf("duplicate aggregate observation failure[%d] for document", index)
 		}
@@ -80,8 +80,8 @@ func aggregateObservationFailureIndex(
 
 func aggregatePreconditionEvidenceIndex(
 	values []observe.AggregatePreconditionEvidence,
-) (map[aggregate.DocumentAddress][]observe.AggregatePreconditionEvidence, error) {
-	result := make(map[aggregate.DocumentAddress][]observe.AggregatePreconditionEvidence)
+) (map[aggregate.DocumentCodecKey][]observe.AggregatePreconditionEvidence, error) {
+	result := make(map[aggregate.DocumentCodecKey][]observe.AggregatePreconditionEvidence)
 	for index, evidence := range values {
 		if err := evidence.Owner().Validate(); err != nil {
 			return nil, fmt.Errorf("aggregate precondition evidence[%d]: %w", index, err)
@@ -92,10 +92,10 @@ func aggregatePreconditionEvidenceIndex(
 }
 
 func validateAggregateObservationCoverage(
-	documents map[aggregate.DocumentAddress][]aggregateGroupInput,
-	evidence map[aggregate.DocumentAddress]observe.AggregateEvidence,
-	failures map[aggregate.DocumentAddress]observe.AggregateObservationFailure,
-	preconditions map[aggregate.DocumentAddress][]observe.AggregatePreconditionEvidence,
+	documents map[aggregate.DocumentCodecKey][]aggregateGroupInput,
+	evidence map[aggregate.DocumentCodecKey]observe.AggregateEvidence,
+	failures map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure,
+	preconditions map[aggregate.DocumentCodecKey][]observe.AggregatePreconditionEvidence,
 ) error {
 	for address := range evidence {
 		if _, selected := documents[address]; !selected {

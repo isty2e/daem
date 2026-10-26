@@ -185,24 +185,26 @@ func observeAggregateDocuments(
 	selection targetselection.Selection,
 	codecs aggregate.CodecCatalog,
 ) (aggregateDocumentObservations, error) {
-	contractsByDocument := make(map[aggregate.DocumentAddress]map[aggregate.ProjectionAddress]aggregate.ProjectionContract)
+	contractsByDocument := make(map[aggregate.DocumentCodecKey]map[aggregate.ProjectionAddress]aggregate.ProjectionContract)
+	contractsByAddress := make(map[aggregate.ProjectionAddress]aggregate.ProjectionContract)
 	addContract := func(contract aggregate.ProjectionContract) error {
 		address := contract.Address()
 		if !selection.Includes(address.Document().Target()) {
 			return nil
 		}
-		document := address.Document()
+		document := contract.DocumentCodecKey()
 		contracts := contractsByDocument[document]
 		if contracts == nil {
 			contracts = make(map[aggregate.ProjectionAddress]aggregate.ProjectionContract)
 			contractsByDocument[document] = contracts
 		}
-		if previous, duplicate := contracts[address]; duplicate && !previous.Equal(contract) {
+		if previous, duplicate := contractsByAddress[address]; duplicate && !previous.Equal(contract) {
 			if err := piMCPBackendTransition(contract, previous); err != nil {
 				return err
 			}
 			return fmt.Errorf("aggregate document contains contract drift at %q", address.KeyPath().String())
 		}
+		contractsByAddress[address] = contract.Clone()
 		contracts[address] = contract.Clone()
 		return nil
 	}
@@ -229,12 +231,12 @@ func observeAggregateDocuments(
 		}
 		managedSubjects[state.Subject()] = struct{}{}
 	}
-	documents := make([]aggregate.DocumentAddress, 0, len(contractsByDocument))
+	documents := make([]aggregate.DocumentCodecKey, 0, len(contractsByDocument))
 	for document := range contractsByDocument {
 		documents = append(documents, document)
 	}
 	sort.Slice(documents, func(left int, right int) bool {
-		return aggregateDocumentKey(documents[left]) < aggregateDocumentKey(documents[right])
+		return documents[left].Compare(documents[right]) < 0
 	})
 	result := aggregateDocumentObservations{
 		evidence:      make([]observe.AggregateEvidence, 0, len(documents)),
@@ -275,7 +277,7 @@ func observeAggregateDocuments(
 			}
 			result.preconditions = append(result.preconditions, observed)
 		}
-		logical := address.AggregateRoot()
+		logical := address.DocumentAddress().AggregateRoot()
 		if err := liveobserve.ValidateAggregateReadPreconditions(ctx, logical, resolver); err != nil {
 			return aggregateDocumentObservations{}, err
 		}

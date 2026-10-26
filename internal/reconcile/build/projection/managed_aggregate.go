@@ -224,12 +224,12 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 	if err := validateAggregateObservationCoverage(documents, evidence, failures, preconditions); err != nil {
 		return nil, err
 	}
-	addresses := make([]aggregate.DocumentAddress, 0, len(documents))
+	addresses := make([]aggregate.DocumentCodecKey, 0, len(documents))
 	for address := range documents {
 		addresses = append(addresses, address)
 	}
 	sort.Slice(addresses, func(left int, right int) bool {
-		return aggregateDocumentAddressKey(addresses[left]) < aggregateDocumentAddressKey(addresses[right])
+		return addresses[left].Compare(addresses[right]) < 0
 	})
 	drafts := make([]aggregateDecision, 0, len(addresses))
 	for _, address := range addresses {
@@ -392,10 +392,10 @@ func aggregateGroup(
 
 func aggregateDocumentGroups(
 	groups map[aggregate.ProjectionAddress]*aggregateGroupInput,
-) (map[aggregate.DocumentAddress][]aggregateGroupInput, error) {
-	documents := make(map[aggregate.DocumentAddress][]aggregateGroupInput)
+) (map[aggregate.DocumentCodecKey][]aggregateGroupInput, error) {
+	documents := make(map[aggregate.DocumentCodecKey][]aggregateGroupInput)
 	for _, group := range groups {
-		address := group.contract.Address().Document()
+		address := group.contract.DocumentCodecKey()
 		documents[address] = append(documents[address], *group)
 	}
 	for address, values := range documents {
@@ -408,7 +408,7 @@ func aggregateDocumentGroups(
 			contracts[index] = group.contract
 		}
 		if _, err := aggregate.NewSelection(contracts); err != nil {
-			return nil, fmt.Errorf("aggregate document %q: %w", address.AggregateRoot(), err)
+			return nil, fmt.Errorf("aggregate document %q: %w", address.DocumentAddress().AggregateRoot(), err)
 		}
 		documents[address] = values
 	}

@@ -13,9 +13,9 @@ import (
 
 func reconcileAggregateDocument(
 	groups []aggregateGroupInput,
-	evidenceByDocument map[aggregate.DocumentAddress]observe.AggregateEvidence,
-	failuresByDocument map[aggregate.DocumentAddress]observe.AggregateObservationFailure,
-	preconditionsByDocument map[aggregate.DocumentAddress][]observe.AggregatePreconditionEvidence,
+	evidenceByDocument map[aggregate.DocumentCodecKey]observe.AggregateEvidence,
+	failuresByDocument map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure,
+	preconditionsByDocument map[aggregate.DocumentCodecKey][]observe.AggregatePreconditionEvidence,
 	manageUnmanagedMatches bool,
 	owner stateauthority.Authority,
 	ownershipEvidence map[ownershipObservationKey]observe.OwnershipObservation,
@@ -43,9 +43,9 @@ func reconcileAggregateDocument(
 
 func reconcileAggregateDocumentSemantics(
 	groups []aggregateGroupInput,
-	evidenceByDocument map[aggregate.DocumentAddress]observe.AggregateEvidence,
-	failuresByDocument map[aggregate.DocumentAddress]observe.AggregateObservationFailure,
-	preconditionsByDocument map[aggregate.DocumentAddress][]observe.AggregatePreconditionEvidence,
+	evidenceByDocument map[aggregate.DocumentCodecKey]observe.AggregateEvidence,
+	failuresByDocument map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure,
+	preconditionsByDocument map[aggregate.DocumentCodecKey][]observe.AggregatePreconditionEvidence,
 	manageUnmanagedMatches bool,
 	codecs aggregate.CodecCatalog,
 ) (aggregateDecision, error) {
@@ -56,7 +56,8 @@ func reconcileAggregateDocumentSemantics(
 	decisionSelection := coverage.DecisionSelection()
 	observationSelection, observationRequired := coverage.ObservationSelection()
 	documentAddress := decisionSelection.DocumentAddress()
-	if failure, failed := failuresByDocument[documentAddress]; failed {
+	documentKey := decisionSelection.DocumentCodecKey()
+	if failure, failed := failuresByDocument[documentKey]; failed {
 		if !observationRequired {
 			return aggregateDecision{}, fmt.Errorf(
 				"aggregate failed observation covers an evidence-independent document",
@@ -80,7 +81,7 @@ func reconcileAggregateDocumentSemantics(
 		)
 		return decision, nil
 	}
-	evidence, observed := evidenceByDocument[documentAddress]
+	evidence, observed := evidenceByDocument[documentKey]
 	if !observed {
 		return blockedAggregateDocument(
 			groups,
@@ -105,7 +106,7 @@ func reconcileAggregateDocumentSemantics(
 		if err != nil {
 			return aggregateDecision{}, err
 		}
-		if len(preconditionsByDocument[documentAddress]) != 0 {
+		if len(preconditionsByDocument[documentKey]) != 0 {
 			return aggregateDecision{}, fmt.Errorf("native requirements are not fixed aggregate precondition evidence")
 		}
 		nativeOperation = &operation
@@ -114,7 +115,7 @@ func reconcileAggregateDocumentSemantics(
 		var blockDetail string
 		operationPreconditions, blockReason, blockDetail, err = reconcileAggregatePreconditions(
 			observationSelection,
-			preconditionsByDocument[documentAddress],
+			preconditionsByDocument[documentKey],
 		)
 		if err != nil {
 			return aggregateDecision{}, err

@@ -27,7 +27,7 @@ type AggregateObservationFailure struct {
 // AggregatePreconditionEvidence is one fresh observation of a static
 // codec-profile operation precondition.
 type AggregatePreconditionEvidence struct {
-	owner        aggregate.DocumentAddress
+	owner        aggregate.DocumentCodecKey
 	precondition aggregate.OperationPrecondition
 	satisfied    bool
 }
@@ -67,6 +67,11 @@ func (evidence AggregateEvidence) FileMode() os.FileMode        { return evidenc
 func (evidence AggregateEvidence) Address() aggregate.DocumentAddress {
 	selection, _ := evidence.snapshot.Selection()
 	return selection.DocumentAddress()
+}
+
+func (evidence AggregateEvidence) DocumentCodecKey() aggregate.DocumentCodecKey {
+	selection, _ := evidence.snapshot.Selection()
+	return selection.DocumentCodecKey()
 }
 
 // NewAggregateObservationFailure constructs one redaction-safe failed codec
@@ -129,10 +134,14 @@ func (failure AggregateObservationFailure) Error() string {
 	return failure.failure.Error()
 }
 
+func (failure AggregateObservationFailure) DocumentCodecKey() aggregate.DocumentCodecKey {
+	return failure.selection.DocumentCodecKey()
+}
+
 // NewAggregatePreconditionEvidence constructs one codec-correlated fresh
 // precondition observation.
 func NewAggregatePreconditionEvidence(
-	owner aggregate.DocumentAddress,
+	owner aggregate.DocumentCodecKey,
 	precondition aggregate.OperationPrecondition,
 	satisfied bool,
 ) (AggregatePreconditionEvidence, error) {
@@ -143,10 +152,10 @@ func NewAggregatePreconditionEvidence(
 		return AggregatePreconditionEvidence{}, err
 	}
 	document := precondition.DocumentAddress()
-	if owner.Target() != document.Target() || owner.Scope() != document.Scope() {
+	if owner.DocumentAddress().Target() != document.Target() || owner.DocumentAddress().Scope() != document.Scope() {
 		return AggregatePreconditionEvidence{}, fmt.Errorf("aggregate precondition scope differs from its owner")
 	}
-	if owner == document {
+	if owner.DocumentAddress() == document {
 		return AggregatePreconditionEvidence{}, fmt.Errorf("aggregate precondition must not target its owner document")
 	}
 	return AggregatePreconditionEvidence{
@@ -154,7 +163,7 @@ func NewAggregatePreconditionEvidence(
 	}, nil
 }
 
-func (evidence AggregatePreconditionEvidence) Owner() aggregate.DocumentAddress {
+func (evidence AggregatePreconditionEvidence) Owner() aggregate.DocumentCodecKey {
 	return evidence.owner
 }
 
