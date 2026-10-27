@@ -68,6 +68,14 @@ existing newline-terminated ordinary section preserves its original bytes when n
 additional parent is created. An EOF-only header may retain the separator newline
 needed to insert its first child.
 
+An empty table may still have meaning to the host: an empty profile table can
+continue to define that profile. Remove an unwanted empty parent manually only
+after checking its host-specific meaning. While daem manages a dotted child of
+an implicit TOML parent, declaring that same parent with an explicit header may
+make the document invalid. Remove the managed child before changing that parent
+representation. See [Host Configuration](manifest.md#host-configuration) for
+declarations and the apply workflow.
+
 ### Pending Pi Pin Changes
 
 A managed [Pi Git pin change](host-integrations.md#managed-pi-git-pins) keeps the

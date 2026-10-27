@@ -23,6 +23,7 @@ For setup steps, use [Getting Started](getting-started.md) or
 - [Hooks](#hooks)
 - [Hook Assets](#hook-assets)
 - [Instructions](#instructions)
+- [Host Configuration](#host-configuration)
 - [Lock Behavior](#lock-behavior)
 - [Complete Example](#complete-example)
 - [Extension Carriers](#extension-carriers)
@@ -48,6 +49,7 @@ targets = ["codex"]
 | `hook` | array of tables | no | Hook resources. |
 | `hook_asset` | table of tables | no | Source-backed executable file assets referenced explicitly from supported Codex and Claude Code hook commands. |
 | `mcp_server` | array of tables | no | Supported MCP exact-projection relations; see [MCP Servers](#mcp-servers). |
+| `host_config` | array of tables | no | Selected native configuration keys for Codex or Pi; see [Host Configuration](#host-configuration). |
 | `extension` | array of tables | no | Supported host plugin/package carrier declarations; see [Extension Carriers](#extension-carriers). |
 
 Unimplemented executable lifecycle declaration families such as `[[local_parameter]]`,
@@ -1363,6 +1365,117 @@ combinations fail during prospective lock preflight before writing either file.
 targets, including matching target-specific rendering tables, then refreshes
 the lockfile from the prospective manifest. Host deletion still requires
 explicit `apply`.
+
+## Host Configuration
+
+`[[host_config]]` manages selected keys in a Codex or Pi configuration file.
+Declare only values you want daem to keep consistent. Other settings, such as
+a model or reasoning-effort choice changed by the host, remain unmanaged unless
+you include them in the source.
+
+### Manage Selected Settings
+
+For a project-scoped Codex setting, create `codex-preferences.toml` beside your
+manifest:
+
+```toml
+[tui]
+notifications = false
+```
+
+Add this declaration to `daem.toml`:
+
+```toml
+[[host_config]]
+id = "codex-preferences"
+targets = ["codex"]
+scope = "project"
+path = "config.toml"
+source = "./codex-preferences.toml"
+ownership = "keys"
+```
+
+Then lock, preview, apply and check:
+
+```sh
+daem lock
+daem apply --dry-run
+daem apply --yes
+daem status --check
+```
+
+This manages `tui.notifications` in `.codex/config.toml` under the manifest
+directory. It does not copy the source over the entire file or add management
+markers to the host document. Change the source and rerun `lock` and `apply` to
+update the managed value. Remove a key from the source, or remove its declaration,
+and rerun those commands to remove its managed value. Unrelated settings remain.
+
+For Pi, use `targets = ["pi"]` and a JSON fragment such as
+`{"retry":{"enabled":true}}` with `path = "settings.json"`; project placement
+is `.pi/settings.json`. Configuration convergence does not establish that the
+host has loaded the file or that a particular extension recognizes its values.
+
+### Declaration Fields
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | none | Unique host-configuration declaration name. |
+| `targets` | array of strings | no | top-level `targets` | Must resolve to exactly one target: `codex` or `pi`. |
+| `scope` | string | no | `defaults.scope` | `project` or `global`. |
+| `path` | string | yes | none | Canonical slash-separated path relative to the selected host root. |
+| `source` | string or source object | yes | none | Local regular file, Git file source, or S3 file object; see [Sources](#sources). Local sources use vendor mode; global local sources must be absolute. |
+| `ownership` | string | no | `keys` | `keys` is executable. `document` is parsed but not executable; ownership-mode transitions are unsupported. |
+| `syntax` | string | no | host/path default | `json`, `jsonc`, `json-line-comments`, or `toml`. This selects parsing, not a host-schema validator. |
+
+Project paths are beneath `<manifest-directory>/.codex` or
+`<manifest-directory>/.pi`. Global paths are beneath the selected Codex home
+(`CODEX_HOME`, normally `~/.codex`) or Pi agent root (`PI_CODING_AGENT_DIR`, normally
+`~/.pi/agent`). Do not put those prefixes in `path`. Absolute paths, `..`, `.`
+components, empty components and backslashes are rejected. Preview does not create
+missing host directories; confirmed apply creates the selected directories as
+needed. Empty directory scaffolding can remain after removal or rollback.
+
+Codex `config.toml` and global `<name>.config.toml` files use TOML. Pi
+`settings.json` uses strict JSON; global `models.json` permits line comments.
+For other configuration paths, `.json`, `.jsonc` and `.toml` select their matching
+grammar; specify `syntax` for a path without a recognized extension. A known
+host document cannot override its required grammar.
+
+### Ownership And Limits
+
+Nonempty objects or tables expand into selected leaf keys. Scalars, JSON `null`,
+arrays and explicitly empty objects are atomic values: daem manages each entire
+value, not individual array elements. Multiple declarations may share a document
+only with nonoverlapping ownership. Whole-file ownership cannot overlap key
+ownership of the same physical file, including aliases.
+
+Use dedicated resources for reserved configuration: Codex `mcp_servers`, `hooks`,
+`plugins` and `marketplaces`, and Pi `packages`, `extensions` and `skills` cannot
+be authored through `host_config`. Host-owned authentication, runtime/cache,
+package code and loader-control paths are also reserved. These exclusions do not
+certify other keys as safe for credentials; do not put secrets in source files or
+locks.
+
+Existing key-only documents keep their permission bits; newly created documents
+use `0600`. When Codex MCP and key declarations share `config.toml`, the MCP
+document policy requires `0600`, and the preview includes that permission change.
+Both sets of changes are applied and recovered together.
+
+Selected-value drift is not silently overwritten. Interrupted apply can roll back
+the selected changes before state commit, or finalize a committed operation
+without replaying host writes. A selected value outside both recorded versions
+blocks recovery. See [State And Recovery](state-and-recovery.md) and
+[interruption troubleshooting](troubleshooting.md#apply-was-interrupted).
+
+Removal retains empty structural parents; it is not formatting undo. See
+[key-only containers](state-and-recovery.md#key-only-configuration-containers)
+for TOML representation and manual-editing limits.
+
+Key-mode execution currently supports its document changes, including same-file
+Codex MCP changes. Independent file/skill effects, extension lifecycle changes
+and changed Pi package order are not yet executable in the same selected plan;
+such a plan is refused before effects. Whole-document mode, switching ownership
+modes and capturing current host configuration as a source remain unsupported.
 
 ## Lock Behavior
 
