@@ -108,7 +108,6 @@ type sourceSpan struct{ start, end int }
 
 type tomlExpression struct {
 	path  []string
-	table []string
 	kind  unstable.Kind
 	span  sourceSpan
 	value sourceSpan
@@ -177,7 +176,7 @@ func indexTOML(ctx context.Context, content []byte) (tomlIndex, error) {
 			separator := keyEnd + bytes.IndexByte(content[keyEnd:end], '=')
 			start := end - len(bytes.TrimLeft(content[separator+1:end], " \t"))
 			index.expressions = append(index.expressions, tomlExpression{
-				path: path, table: slices.Clone(table), kind: node.Kind,
+				path: path, kind: node.Kind,
 				span: sourceSpan{int(node.Raw.Offset), end}, value: sourceSpan{start, end},
 			})
 		}

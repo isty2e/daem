@@ -10,8 +10,8 @@ import (
 	"github.com/tailscale/hujson"
 )
 
-// Each node owns its decoded path and lexical representation. Assignments
-// (including dotted groups) and array tables are coupled; standard tables are
+// Each node owns its decoded path and lexical representation. Assignment values
+// and array tables are coupled; dotted ancestors and standard tables remain
 // independently editable containers, even when their sections are interleaved.
 type tomlSyntaxNode struct {
 	path        []string
@@ -21,6 +21,7 @@ type tomlSyntaxNode struct {
 	header      *tomlExpression
 	assignment  *tomlExpression
 	coupled     bool
+	represented bool
 	insert      strings.Builder
 	pending     bool
 }
@@ -50,18 +51,16 @@ type tomlEditor struct {
 }
 
 func patchTOML(ctx context.Context, document Document, expected Value, index tomlIndex) ([]byte, error) {
-	root := &tomlSyntaxNode{}
+	root := &tomlSyntaxNode{represented: true}
 	for i := range index.expressions {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		expression := &index.expressions[i]
 		node := root
-		for depth, key := range expression.path {
+		for _, key := range expression.path {
 			node = node.child(key)
-			if expression.kind == unstable.KeyValue && depth == len(expression.table) {
-				node.coupled = true
-			}
+			node.represented = true
 		}
 		node.expressions = append(node.expressions, expression)
 		switch expression.kind {
@@ -70,9 +69,7 @@ func patchTOML(ctx context.Context, document Document, expected Value, index tom
 		case unstable.ArrayTable:
 			node.coupled = true
 		case unstable.KeyValue:
-			if len(expression.path) == len(expression.table)+1 {
-				node.assignment = expression
-			}
+			node.assignment = expression
 		}
 	}
 
@@ -152,14 +149,24 @@ func (editor *tomlEditor) section(node *tomlSyntaxNode) {
 }
 
 func (editor *tomlEditor) insertValue(node *tomlSyntaxNode, value Value) error {
-	parent := node.parent
-	editor.section(parent)
-	parent.insert.Write(hujson.String(node.path[len(node.path)-1]))
-	parent.insert.WriteString(" = ")
-	if err := appendTOMLValue(&parent.insert, value); err != nil {
+	scope := node.parent
+	if scope.represented {
+		for scope.parent != nil && scope.header == nil {
+			scope = scope.parent
+		}
+	}
+	editor.section(scope)
+	for i, key := range node.path[len(scope.path):] {
+		if i > 0 {
+			scope.insert.WriteByte('.')
+		}
+		scope.insert.Write(hujson.String(key))
+	}
+	scope.insert.WriteString(" = ")
+	if err := appendTOMLValue(&scope.insert, value); err != nil {
 		return err
 	}
-	parent.insert.WriteString(editor.newline)
+	scope.insert.WriteString(editor.newline)
 	return nil
 }
 
