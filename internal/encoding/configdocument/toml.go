@@ -107,8 +107,11 @@ func fromTOML(ctx context.Context, decoded any, maximumDepth, depth int) (Value,
 type sourceSpan struct{ start, end int }
 
 type tomlExpression struct {
-	root string
-	span sourceSpan
+	path  []string
+	table []string
+	kind  unstable.Kind
+	span  sourceSpan
+	value sourceSpan
 }
 
 type tomlIndex struct {
@@ -156,18 +159,19 @@ func indexTOML(ctx context.Context, content []byte) (tomlIndex, error) {
 				}
 				end++
 			}
-			index.expressions = append(index.expressions, tomlExpression{root: table[0], span: sourceSpan{start, end}})
-		case unstable.KeyValue:
-			root := ""
-			if len(table) > 0 {
-				root = table[0]
-			} else {
-				keys := node.Key()
-				keys.Next()
-				root = string(keys.Node().Data)
-			}
 			index.expressions = append(index.expressions, tomlExpression{
-				root: root, span: sourceSpan{int(node.Raw.Offset), int(node.Raw.Offset) + int(node.Raw.Length)},
+				path: slices.Clone(table), kind: node.Kind, span: sourceSpan{start, end},
+			})
+		case unstable.KeyValue:
+			path := slices.Clone(table)
+			keys := node.Key()
+			for keys.Next() {
+				path = append(path, string(keys.Node().Data))
+			}
+			end := int(node.Raw.Offset) + int(node.Raw.Length)
+			index.expressions = append(index.expressions, tomlExpression{
+				path: path, table: slices.Clone(table), kind: node.Kind,
+				span: sourceSpan{int(node.Raw.Offset), end}, value: sourceSpan{int(node.Value().Raw.Offset), end},
 			})
 		}
 	}
@@ -188,9 +192,6 @@ func collectTOMLComments(node *unstable.Node, spans *[]sourceSpan) {
 	}
 }
 
-// Rebuild only touched top-level values. This avoids TOML's inline/dotted/table
-// extension restrictions without changing unrelated native values. Disjoint
-// array-table sections are removed individually; their intervening peers stay.
 func editTOML(ctx context.Context, document Document, expected Value, changes *changeTree) ([]byte, error) {
 	var selected []objectMember
 	for _, member := range expected.data.(objectNode) {
@@ -205,57 +206,7 @@ func editTOML(ctx context.Context, document Document, expected Value, changes *c
 	if err != nil {
 		return nil, err
 	}
-	var result strings.Builder
-	for _, member := range selected {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		result.Write(hujson.String(member.key))
-		result.WriteString(" = ")
-		if err := appendTOMLValue(&result, member.value); err != nil {
-			return nil, err
-		}
-		result.WriteByte('\n')
-	}
-	position := 0
-	commentIndex := 0
-	for _, expression := range index.expressions {
-		if _, selected := changes.children[expression.root]; !selected {
-			continue
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		result.Write(document.content[position:expression.span.start])
-		for commentIndex < len(index.comments) && index.comments[commentIndex].start < expression.span.end {
-			comment := index.comments[commentIndex]
-			if comment.start >= expression.span.start {
-				result.WriteByte('\n')
-				result.Write(document.content[comment.start:comment.end])
-				result.WriteByte('\n')
-			}
-			commentIndex++
-		}
-		position = expression.span.end
-		lineEnd := position
-		for lineEnd < len(document.content) && (document.content[lineEnd] == ' ' || document.content[lineEnd] == '\t' || document.content[lineEnd] == '\r') {
-			if lineEnd%4096 == 0 {
-				if err := ctx.Err(); err != nil {
-					return nil, err
-				}
-			}
-			lineEnd++
-		}
-		if lineEnd < len(document.content) && document.content[lineEnd] == '\n' {
-			position = lineEnd + 1
-		}
-
-		if int64(result.Len()) > document.limits.MaximumBytes {
-			return nil, ErrLimitExceeded
-		}
-	}
-	result.Write(document.content[position:])
-	return []byte(result.String()), nil
+	return patchTOML(ctx, document, expected, index)
 }
 
 func appendTOMLValue(result *strings.Builder, value Value) error {
