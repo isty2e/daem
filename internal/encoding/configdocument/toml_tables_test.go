@@ -3,10 +3,12 @@ package configdocument_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/pelletier/go-toml/v2/unstable"
 )
 
 func TestTOMLStandardTableAddRemoveRestoresOriginalBytes(t *testing.T) {
@@ -50,8 +52,28 @@ func TestTOMLMissingSectionsAppendAtEnd(t *testing.T) {
 	}
 	manual := parse(t, configdocument.TOML, string(result.Bytes())+"manual = false\n")
 	assertEqual(t, lookup(t, manual, "/profiles/a.b/tui/added"), value)
-	if !strings.Contains(string(result.Bytes()), "[\"features\"]") || !strings.Contains(string(result.Bytes()), "[\"profiles\".\"a.b\".\"tui\"]") {
-		t.Fatalf("missing sections were not appended as tables: %q", result.Bytes())
+	var parser unstable.Parser
+	parser.Reset(result.Bytes()[len(content):])
+	var sections [][]string
+	for parser.NextExpression() {
+		node := parser.Expression()
+		if node.Kind != unstable.Table {
+			continue
+		}
+		var parts []string
+		keys := node.Key()
+		for keys.Next() {
+			parts = append(parts, string(keys.Node().Data))
+		}
+		sections = append(sections, parts)
+	}
+	if err := parser.Error(); err != nil {
+		t.Fatalf("appended sections do not parse: %v", err)
+	}
+	for _, expected := range [][]string{{"features"}, {"profiles", "a.b", "tui"}} {
+		if !slices.ContainsFunc(sections, func(parts []string) bool { return slices.Equal(parts, expected) }) {
+			t.Fatalf("missing appended ordinary section %q: %q", expected, result.Bytes())
+		}
 	}
 }
 
@@ -140,5 +162,63 @@ func TestTOMLEOFOnlyHeaderRoundtripNormalizesOnlyRequiredSeparator(t *testing.T)
 			t.Fatalf("EOF separator normalization changed other bytes or grew: %q", current.Bytes())
 		}
 		current = parse(t, configdocument.TOML, string(current.Bytes()))
+	}
+}
+
+func TestTOMLArrayAssignmentReplacementAndRecovery(t *testing.T) {
+	for _, test := range []struct{ name, content, pointer, desired string }{
+		{"empty root", "args=[]\n", "/args", "['new']"},
+		{"root after sibling", "outside=0x1f\nargs = [1, 2]\n", "/args", "[]"},
+		{"section with comments", "# intro\n[mcp_servers.search] # server\ncommand='old'\nargs = [] # args\n[other]\nkeep=true\n", "/mcp_servers/search/args", "['new']"},
+		{"multiline array comments", "# intro\n[tui]\nargs = [\n # first\n 1,\n # second\n 2,\n] # args\n[other]\nkeep=true\n", "/tui/args", "[]"},
+		{"array of tables recovery", "outside=true\n[[a]] # array\nb=1\n", "/a", "[{b=2}]"},
+		{"quoted key separator", "[profiles.'first=profile']\n'args=key'  =  [] # args\n", "/profiles/first=profile/args=key", "[1]"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			original := parse(t, configdocument.TOML, test.content)
+			before := lookup(t, original, test.pointer)
+			desired := lookup(t, parse(t, configdocument.TOML, "v="+test.desired), "/v")
+			rendered := edit(t, original, set(t, test.pointer, desired))
+			assertEqual(t, lookup(t, rendered, test.pointer), desired)
+			assertComments(t, original, rendered)
+			restored := edit(t, rendered, set(t, test.pointer, before))
+			assertEqual(t, lookup(t, restored, test.pointer), before)
+			assertComments(t, original, restored)
+			if strings.Contains(test.content, "[other]\nkeep=true\n") && !strings.Contains(string(rendered.Bytes()), "[other]\nkeep=true\n") {
+				t.Fatalf("array replacement changed unrelated table bytes: %q", rendered.Bytes())
+			}
+		})
+	}
+}
+
+func TestTOMLRootAndSectionInsertionOrdering(t *testing.T) {
+	absent, err := configdocument.Absent(configdocument.TOML, testLimits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name     string
+		original configdocument.Document
+	}{
+		{"absent", absent},
+		{"empty", parse(t, configdocument.TOML, "")},
+		{"comment only", parse(t, configdocument.TOML, "# intro")},
+		{"EOF header", parse(t, configdocument.TOML, "[tui] # retained")},
+		{"interleaved EOF header", parse(t, configdocument.TOML, "[profiles.first]\nmodel='native'\n[tui] # retained")},
+		{"newline terminated header", parse(t, configdocument.TOML, "[tui] # retained\n")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value := lookup(t, parse(t, configdocument.TOML, "v=true"), "/v")
+			pointers := []string{"/features/new", "/model", "/profiles/first/features/new", "/tui/new"}
+			var changes []configdocument.Change
+			for _, pointer := range pointers {
+				changes = append(changes, set(t, pointer, value))
+			}
+			result := edit(t, test.original, changes...)
+			for _, pointer := range pointers {
+				assertEqual(t, lookup(t, result, pointer), value)
+			}
+			assertComments(t, test.original, result)
+		})
 	}
 }

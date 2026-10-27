@@ -165,13 +165,20 @@ func indexTOML(ctx context.Context, content []byte) (tomlIndex, error) {
 		case unstable.KeyValue:
 			path := slices.Clone(table)
 			keys := node.Key()
+			keyEnd := 0
 			for keys.Next() {
-				path = append(path, string(keys.Node().Data))
+				key := keys.Node()
+				path = append(path, string(key.Data))
+				keyEnd = int(key.Raw.Offset) + int(key.Raw.Length)
 			}
 			end := int(node.Raw.Offset) + int(node.Raw.Length)
+			// Array nodes have no Raw span. Locate the value after the final
+			// parsed key so quoted keys containing '=' cannot mask the separator.
+			separator := keyEnd + bytes.IndexByte(content[keyEnd:end], '=')
+			start := end - len(bytes.TrimLeft(content[separator+1:end], " \t"))
 			index.expressions = append(index.expressions, tomlExpression{
 				path: path, table: slices.Clone(table), kind: node.Kind,
-				span: sourceSpan{int(node.Raw.Offset), end}, value: sourceSpan{int(node.Value().Raw.Offset), end},
+				span: sourceSpan{int(node.Raw.Offset), end}, value: sourceSpan{start, end},
 			})
 		}
 	}

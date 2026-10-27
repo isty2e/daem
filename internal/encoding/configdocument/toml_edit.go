@@ -214,6 +214,7 @@ func (editor *tomlEditor) remove(node *tomlSyntaxNode) error {
 
 func (editor *tomlEditor) apply() ([]byte, error) {
 	content := editor.document.content
+	var appendedSections []tomlPatch
 	for _, node := range editor.pending {
 		if err := editor.ctx.Err(); err != nil {
 			return nil, err
@@ -249,8 +250,16 @@ func (editor *tomlEditor) apply() ([]byte, error) {
 			section.WriteString(text)
 			text = section.String()
 		}
-		editor.patches = append(editor.patches, tomlPatch{sourceSpan{position, position}, text})
+		patch := tomlPatch{sourceSpan{position, position}, text}
+		if node.parent != nil && node.header == nil {
+			appendedSections = append(appendedSections, patch)
+		} else {
+			editor.patches = append(editor.patches, patch)
+		}
 	}
+	// At a shared EOF offset, assignments in the root or an existing section
+	// must precede new section headers that change the assignment's scope.
+	editor.patches = append(editor.patches, appendedSections...)
 	slices.SortStableFunc(editor.patches, func(left, right tomlPatch) int {
 		if left.start != right.start {
 			return left.start - right.start
