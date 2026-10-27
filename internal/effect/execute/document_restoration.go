@@ -130,16 +130,34 @@ func restoreDocumentDestination(
 }
 
 func readRootedRestorationDocument(ctx context.Context, authority *mutationAuthority, capability rootedpath.CommitCapability, maximumBytes int64) (aggregate.Document, *recovery.PermissionMode, mutationfs.EntryIdentity, error) {
-	content, mode, identity, err := authority.filesystem.ReadRootedRegularFileUpTo(ctx, capability, maximumBytes)
-	if errors.Is(err, os.ErrNotExist) {
-		return aggregate.AbsentDocument(), nil, nil, nil
+	if authority.physicalWorkBudget != nil {
+		maximumBytes = min(maximumBytes, authority.physicalWorkBudget.RemainingBytes())
+		if maximumBytes <= 0 {
+			return aggregate.Document{}, nil, nil, fmt.Errorf("document restoration exhausted its byte allocation")
+		}
 	}
-	if err != nil {
-		return aggregate.Document{}, nil, nil, err
+	content, mode, identity, readErr := authority.filesystem.ReadRootedRegularFileUpTo(ctx, capability, maximumBytes)
+	if authority.physicalWorkBudget != nil {
+		charged := int64(len(content))
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			charged = maximumBytes
+		}
+		work, err := recovery.NewArtifactWork(0, charged)
+		if err == nil {
+			err = authority.physicalWorkBudget.AdmitTree(work)
+		}
+		if err != nil {
+			return aggregate.Document{}, nil, nil, err
+		}
+	}
+	if errors.Is(readErr, os.ErrNotExist) {
+		return aggregate.AbsentDocument(), nil, nil, ctx.Err()
+	}
+	if readErr != nil {
+		return aggregate.Document{}, nil, nil, readErr
 	}
 	if identity == nil {
 		return aggregate.Document{}, nil, nil, fmt.Errorf("regular document read has no identity evidence")
 	}
-	permissionMode := recovery.PermissionMode(mode.Perm())
-	return aggregate.ExistingDocument(content), &permissionMode, identity, nil
+	return aggregate.ExistingDocument(content), recovery.NewPermissionMode(mode.Perm()), identity, ctx.Err()
 }

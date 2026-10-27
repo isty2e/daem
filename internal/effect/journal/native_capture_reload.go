@@ -130,39 +130,12 @@ func readNativeCaptureRecord(ctx context.Context, root *rootedpath.CapturedRoot,
 
 // ValidateActive checks the selected directory identity and exact published
 // record revision. It does not refresh sources, host state, Registry or leases.
-func (captured CapturedNativeJournal) ValidateActive(ctx context.Context, filesystem mutationfs.RootedReader, entry *rootedpath.EntryAuthority, budget *recovery.PhysicalWorkBudget) (resultErr error) {
+func (captured CapturedNativeJournal) ValidateActive(ctx context.Context, filesystem mutationfs.RootedReader, entry *rootedpath.EntryAuthority, budget *recovery.PhysicalWorkBudget) error {
 	if err := captured.Validate(); err != nil {
 		return err
 	}
-	if ctx == nil || filesystem == nil || entry == nil || budget == nil || budget != captured.budget {
-		return fmt.Errorf("native active validation requires context, selected authority, filesystem and the original allocation")
+	if budget != captured.budget {
+		return fmt.Errorf("native active validation requires the original allocation")
 	}
-	capability, err := entry.Acquire()
-	if err != nil {
-		return err
-	}
-	pathErr := validateOperationCapabilityPath(capability, captured.capture.Directory)
-	identity, identityErr := filesystem.CaptureRootedEntryIdentity(ctx, capability)
-	if err := errors.Join(pathErr, identityErr, capability.Close()); err != nil {
-		return err
-	}
-	if !captured.active.matches(identity) {
-		return fmt.Errorf("published native journal directory identity changed")
-	}
-	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(captured.capture.Directory, recovery.MaximumPhysicalPathDepth, budget)
-	if err != nil {
-		return err
-	}
-	defer func() { resultErr = errors.Join(resultErr, root.Close(), ctx.Err()) }()
-	if err := ValidateActiveJournalRoot(ctx, filesystem, root, budget, captured.active); err != nil {
-		return err
-	}
-	snapshot, err := readNativeCaptureRecord(ctx, root, filesystem, budget)
-	if err != nil {
-		return err
-	}
-	if snapshot.Mode().Perm() != recoveryJournalMode || recoveryJournalRecordFingerprint(snapshot.Content()) != captured.capture.RecordFingerprint {
-		return fmt.Errorf("published native journal record revision changed")
-	}
-	return ValidateActiveJournalRoot(ctx, filesystem, root, budget, captured.active)
+	return validateNativeActive(ctx, captured.capture, captured.active, filesystem, entry, budget)
 }

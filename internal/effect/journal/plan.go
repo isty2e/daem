@@ -36,6 +36,7 @@ type PlanLoadOptions struct {
 	StateReader        durable.SnapshotReader
 	Filesystem         mutationfs.Reader
 	PhysicalPathBudget rootedpath.PhysicalTraversalBudget
+	NativeDocuments    *NativeRecoveryProfile
 	// ValidateBeforeActiveObservation runs after one recovery-root inventory
 	// selects active-journal recovery and before host, state, or ownership
 	// observation. Cleanup-only selection never invokes it.
@@ -198,6 +199,9 @@ func ActiveRecoveryPlan(recoverable RecoverablePlan) (recovery.Plan, bool) {
 func ActiveRecoveryJournalAuthority(
 	recoverable RecoverablePlan,
 ) (ActiveJournalAuthority, bool) {
+	if native, ok := NativeActiveRecoveryPlan(recoverable); ok {
+		return native.active, native.active.valid()
+	}
 	active, ok := recoverable.(activeRecoverablePlan)
 	if !ok || !active.physicalAuthority.valid() {
 		return ActiveJournalAuthority{}, false
@@ -241,6 +245,24 @@ func LoadRecoverablePlanWithOptions(
 	case retirement.StateActive, retirement.StatePrepared:
 		if err := validateActivePlanLoadOptions(options); err != nil {
 			return nil, err
+		}
+		if inventory.active != nil {
+			if _, native := inventory.active.record.(nativeJournalSnapshots); native {
+				if options.ValidateBeforeActiveObservation != nil {
+					if err := options.ValidateBeforeActiveObservation(ctx); err != nil {
+						return nil, err
+					}
+				}
+				operation, err := loadNativeRecoveryOperation(ctx, paths, options, inventory)
+				if err != nil {
+					return nil, err
+				}
+				plan := operation.Plan()
+				if err := operation.Close(); err != nil {
+					return nil, err
+				}
+				return plan, nil
+			}
 		}
 		plan, err := loadActivePlanFromInventory(
 			ctx,
@@ -573,11 +595,14 @@ func validatePlanLoadFilesystem(options PlanLoadOptions) error {
 }
 
 func inventoryOptionsFromPlan(options PlanLoadOptions) inventoryOptions {
-	return inventoryOptions{
-		Filesystem:         options.Filesystem,
-		StateCodec:         options.StateCodec,
+	result := inventoryOptions{
+		Filesystem: options.Filesystem, StateCodec: options.StateCodec,
 		PhysicalPathBudget: options.PhysicalPathBudget,
 	}
+	if options.NativeDocuments != nil {
+		result.recordDecoder = options.NativeDocuments.decodeInventory(options.StateCodec)
+	}
+	return result
 }
 
 func planLoadPhysicalPathBudget(

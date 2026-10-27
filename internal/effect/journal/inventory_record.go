@@ -28,6 +28,9 @@ func (record recoveryJournal) authorityFingerprint(ctx context.Context, codec du
 func (record nativeJournalSnapshots) operationID() string { return record.record.OperationID }
 
 func (record nativeJournalSnapshots) authorityFingerprint(ctx context.Context, codec durable.SnapshotCodec) (string, error) {
+	if record.inventoryCodec != nil {
+		codec = record.inventoryCodec
+	}
 	content, err := marshalNativeJournalRecord(ctx, record.record, record.before, record.after, codec)
 	if err != nil {
 		return "", err
@@ -76,5 +79,6 @@ func decodeNativeInventoryJournal(ctx context.Context, snapshot mutationfs.Regul
 	if err != nil {
 		return nil, err
 	}
+	journal.inventoryCodec = codec
 	return journal, nil
 }

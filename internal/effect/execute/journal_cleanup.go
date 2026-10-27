@@ -29,11 +29,13 @@ func (paths JournalCleanupPaths) validate() error {
 	return nil
 }
 
-// JournalCleanupOptions supplies only the last-safe-point validator and
-// recovery-root filesystem needed by cleanup-only recovery.
+// JournalCleanupOptions grants recovery-root cleanup dependencies only,
+// without host-document, statefile or ownership Registry mutation authority.
 type JournalCleanupOptions struct {
 	ValidateBeforeEffects func(context.Context) error
 	Filesystem            mutationfs.RootedStore
+	InventoryProfile      journal.RecoveryInventoryProfile
+	PhysicalBudget        *recovery.PhysicalWorkBudget
 }
 
 // ExecuteJournalCleanupWithOptions finalizes one cleanup-only plan without
@@ -67,20 +69,26 @@ func ExecuteJournalCleanupWithOptions(
 	if err != nil {
 		return fmt.Errorf("compile journal cleanup effect structure: %w", err)
 	}
-	physicalWorkBudget, err := recovery.NewPhysicalWorkBudget(0)
+	physicalWorkBudget := options.PhysicalBudget
+	if physicalWorkBudget == nil {
+		physicalWorkBudget, err = recovery.NewPhysicalWorkBudget(0)
+	} else if physicalWorkBudget.RequireCapturePending() == nil {
+		err = physicalWorkBudget.AdmitRemovalDemands(recovery.RemovalDemandSet{})
+	}
 	if err != nil {
 		return errors.Join(
 			fmt.Errorf("construct journal cleanup physical work budget: %w", err),
 			execution.abortBeforePreparation(),
 		)
 	}
-	prepared, err := journal.PrepareJournalCleanup(
+	prepared, err := journal.PrepareJournalCleanupWithInventoryProfile(
 		ctx,
 		plan,
 		paths.RecoveryDir,
 		recovery.MaximumPhysicalPathDepth,
 		physicalWorkBudget,
 		options.Filesystem,
+		options.InventoryProfile,
 	)
 	if err != nil {
 		return errors.Join(

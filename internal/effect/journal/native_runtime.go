@@ -24,48 +24,24 @@ type NativeRecoveryOptions struct {
 	Codecs             aggregate.CodecCatalog
 }
 
-// NativeRecoveryAssessment retains a complete native-only phase observation.
+// NativeRecoveryAssessment retains a complete selected-document phase observation.
 // It does not supply leases or permission to change host or ownership state.
 type NativeRecoveryAssessment struct {
-	captured   CapturedNativeJournal
+	capture    CaptureResult
+	active     ActiveJournalAuthority
 	assessment nativeDocumentAssessment
 	valid      bool
 }
 
-func (captured CapturedNativeJournal) AssessRecovery(ctx context.Context, options NativeRecoveryOptions) (result NativeRecoveryAssessment, resultErr error) {
+func (captured CapturedNativeJournal) AssessRecovery(ctx context.Context, options NativeRecoveryOptions) (NativeRecoveryAssessment, error) {
 	if err := captured.Validate(); err != nil {
 		return NativeRecoveryAssessment{}, err
 	}
-	if len(captured.journal.record.Entries)+len(captured.journal.record.ClaimTransitions)+len(captured.journal.record.ProvisionalAcquires)+len(captured.journal.record.RemovalIntents) != 0 {
-		return NativeRecoveryAssessment{}, fmt.Errorf("mixed native recovery requires ordinary phase integration")
-	}
-	if err := captured.ValidateActive(ctx, options.Filesystem, options.OperationAuthority, captured.budget); err != nil {
-		return NativeRecoveryAssessment{}, err
-	}
-	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(captured.capture.Directory, recovery.MaximumPhysicalPathDepth, captured.budget)
-	if err != nil {
-		return NativeRecoveryAssessment{}, err
-	}
-	defer func() {
-		resultErr = errors.Join(resultErr, root.Close(), ctx.Err())
-		if resultErr != nil {
-			result = NativeRecoveryAssessment{}
-		}
-	}()
-	assessment, err := captured.journal.assessDocumentRecovery(ctx, nativeDocumentRecoveryReadOptions{
-		documents: nativeDocumentReadOptions{
-			artifacts: root, filesystem: options.Filesystem, budget: captured.budget,
-			limits: captured.qualified.records.groups[0].comparison.limits, codecs: options.Codecs,
-		},
-		roots: captured.qualified.namespaces[0].roots, state: options.State, registry: options.Registry,
-	})
-	if err != nil {
-		return NativeRecoveryAssessment{}, err
-	}
-	if err := captured.ValidateActive(ctx, options.Filesystem, options.OperationAuthority, captured.budget); err != nil {
-		return NativeRecoveryAssessment{}, err
-	}
-	return NativeRecoveryAssessment{captured: captured, assessment: assessment, valid: true}, nil
+	return assessNativeRecoveryBasis(ctx, nativeRecoveryBasis{
+		capture: captured.capture, active: captured.active, journal: captured.journal,
+		roots:  captured.qualified.namespaces[0].roots,
+		limits: captured.qualified.records.groups[0].comparison.limits, budget: captured.budget,
+	}, options)
 }
 
 func (assessment NativeRecoveryAssessment) CleanBefore() bool {
@@ -111,33 +87,38 @@ func (assessment NativeRecoveryAssessment) FinalizeBindings() ownership.Document
 // NativeJournalRetirement owns the existing bounded retirement mechanism, but
 // accepts only a clean native assessment of its exact published record.
 type NativeJournalRetirement struct {
-	captured CapturedNativeJournal
+	capture  CaptureResult
+	active   ActiveJournalAuthority
 	prepared *RetirementContinuation
+	budget   *recovery.PhysicalWorkBudget
 }
 
 func PrepareNativeJournalRetirement(ctx context.Context, captured CapturedNativeJournal, filesystem mutationfs.RootedStore, stateCodec durable.SnapshotCodec) (*NativeJournalRetirement, error) {
 	if err := captured.Validate(); err != nil {
 		return nil, err
 	}
+	return prepareNativeRetirement(ctx, captured.capture, captured.active, captured.budget, filesystem, stateCodec)
+}
+
+func prepareNativeRetirement(ctx context.Context, capture CaptureResult, active ActiveJournalAuthority, budget *recovery.PhysicalWorkBudget, filesystem mutationfs.RootedStore, stateCodec durable.SnapshotCodec) (*NativeJournalRetirement, error) {
 	if stateCodec == nil {
 		return nil, fmt.Errorf("native retirement requires its selected state codec")
 	}
-	record, err := retirement.NewRecord(captured.capture.OperationID, captured.capture.RecordFingerprint, retirement.PhasePrepared)
+	record, err := retirement.NewRecord(capture.OperationID, capture.RecordFingerprint, retirement.PhasePrepared)
 	if err != nil {
 		return nil, err
 	}
 	prepared, err := prepareRetirement(ctx, retirementExecution{
-		record: record, activePath: captured.capture.Directory, activeAuthority: captured.active,
-		journalFingerprint: captured.capture.RecordFingerprint, start: retirementStartActive,
-	}, filepath.Dir(captured.capture.Directory), recovery.MaximumPhysicalPathDepth, captured.budget, filesystem, stateCodec)
+		record: record, activePath: capture.Directory, activeAuthority: active, journalFingerprint: capture.RecordFingerprint, start: retirementStartActive,
+	}, filepath.Dir(capture.Directory), recovery.MaximumPhysicalPathDepth, budget, filesystem, stateCodec)
 	if err != nil {
 		return nil, err
 	}
-	if !journalFingerprintMatchesEvidence(captured.capture.RecordFingerprint, prepared.evidence.active) {
+	if !journalFingerprintMatchesEvidence(capture.RecordFingerprint, prepared.evidence.active) {
 		return nil, errors.Join(fmt.Errorf("native retirement record changed during reservation"), prepared.Close())
 	}
 	prepared.journalDecoder = decodeNativeInventoryJournal
-	return &NativeJournalRetirement{captured: captured, prepared: prepared}, nil
+	return &NativeJournalRetirement{capture: capture, active: active, prepared: prepared, budget: budget}, nil
 }
 
 func (retiring *NativeJournalRetirement) ExecuteWithGate(ctx context.Context, assessment NativeRecoveryAssessment, gate RetirementStepGate) error {
@@ -154,7 +135,7 @@ func (retiring *NativeJournalRetirement) ExecuteWithGate(ctx context.Context, as
 		if !assessment.CleanBefore() && !assessment.CleanAfter() {
 			return fmt.Errorf("native journal is not clean enough to retire")
 		}
-		if assessment.captured.capture != retiring.captured.capture || !assessment.captured.active.equal(retiring.captured.active) {
+		if assessment.capture != retiring.capture || !assessment.active.equal(retiring.active) {
 			return fmt.Errorf("native retirement assessment belongs to another published record")
 		}
 		return ctx.Err()

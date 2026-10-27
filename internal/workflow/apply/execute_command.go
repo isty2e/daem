@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/recoverygate"
@@ -19,6 +20,7 @@ import (
 )
 
 type ExecuteOptions struct {
+	NativeFilesystem               mutationfs.Store
 	ExecuteEvents                  execute.EventSink
 	RelationObservations           *relationobserve.Batch
 	HostRouteExecutor              subprocess.CommandExecutor
@@ -456,6 +458,9 @@ func executeWithDependencies(
 		native, err := nativeApplyInputFor(current)
 		if err != nil {
 			return disclose(current), err
+		}
+		if options.NativeFilesystem != nil {
+			native.ApplyInput.Filesystem = options.NativeFilesystem
 		}
 		executionOptions.nativeInput = &native
 	}

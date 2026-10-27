@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -148,6 +149,9 @@ func (journal nativeJournalSnapshots) assessDocumentRecovery(ctx context.Context
 			restoration, err = group.comparison.RestoreBefore(ctx, current, mode)
 		}
 		if err != nil {
+			if !match.Recoverable() && ctx.Err() == nil && !errors.Is(err, configdocument.ErrLimitExceeded) {
+				return nativeDocumentAssessment{}, &nativeSelectedPhaseError{cause: err}
+			}
 			return nativeDocumentAssessment{}, fmt.Errorf("stage native document[%d]: %w", index, err)
 		}
 		allBefore = allBefore && !restoration.Changed()

@@ -113,7 +113,7 @@ func nativeApplyInputFor(current commandPlan) (execute.NativeApplyInput, error) 
 			Owner: current.assessment.Owner, Ownership: current.assessment.Ownership, ProjectRoot: current.projectRoot,
 			Codecs: current.nativePlan.codecs, StateCodec: current.nativePlan.stateCodec, Filesystem: storagecommit.Adapter{}, OwnershipRegistryBinder: ownershipstore.BindRooted,
 		},
-		Preparation: current.nativePlan.state, Documents: *input.Documents, Registry: input.Registry, Budget: input.Budget,
+		Preparation: current.nativePlan.state, Documents: *input.Documents, Registry: input.Registry, Budget: input.Budget, RecoveryCodecs: nativePersistenceCodecs,
 	}, nil
 }
 
@@ -184,4 +184,13 @@ func applyOperationFingerprint(planned commandPlan, operationContext reconcile.O
 		return mutation.OperationFingerprint{}, err
 	}
 	return operationplan.NativeApplyOperationFingerprint(identity, facts)
+}
+
+func nativePersistenceCodecs(ctx context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, error) {
+	codecs, err := nativeconfig.Codecs(ctx)
+	if err != nil {
+		return aggregate.CodecCatalog{}, nil, err
+	}
+	codec, err := statefile.NewNativeCodec(codecs.Contributions())
+	return codecs, codec, err
 }

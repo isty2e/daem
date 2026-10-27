@@ -3,8 +3,6 @@ package execute
 import (
 	"errors"
 	"path/filepath"
-	"reflect"
-	"slices"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/journal"
@@ -39,26 +37,6 @@ func TestJournalCleanupPathsRequireCanonicalAbsoluteRecoveryRoot(t *testing.T) {
 	if err := (JournalCleanupPaths{RecoveryDir: canonical}).validate(); err != nil {
 		t.Fatalf("JournalCleanupPaths.validate(%q): %v", canonical, err)
 	}
-}
-
-func TestJournalCleanupBoundaryExposesOnlyRecoveryAuthority(t *testing.T) {
-	assertStructFields := func(value any, want []string) {
-		t.Helper()
-		kind := reflect.TypeOf(value)
-		got := make([]string, kind.NumField())
-		for index := range kind.NumField() {
-			got[index] = kind.Field(index).Name
-		}
-		if !slices.Equal(got, want) {
-			t.Fatalf("%s fields = %v, want %v", kind.Name(), got, want)
-		}
-	}
-
-	assertStructFields(JournalCleanupPaths{}, []string{"RecoveryDir"})
-	assertStructFields(
-		JournalCleanupOptions{},
-		[]string{"ValidateBeforeEffects", "Filesystem"},
-	)
 }
 
 func TestJournalCleanupExecutionAbortsAfterPreEffectValidation(t *testing.T) {

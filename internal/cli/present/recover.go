@@ -49,6 +49,11 @@ func PrintRecoverPlanWithFenceOptions(
 	fileSetFence fileset.FileSetFenceKind,
 	options HumanOptions,
 ) {
+	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
+		printNativeRecoverPlan(output, native, options)
+		printContinuingFileSetFence(output, fileSetFence)
+		return
+	}
 	if plan, ok := journal.ActiveRecoveryPlan(disclosure); ok {
 		printActiveRecoverPlan(output, plan, options)
 		printContinuingFileSetFence(output, fileSetFence)
@@ -364,6 +369,9 @@ func recoveryJSONPayload(
 		}
 		disclosure = current
 	}
+	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
+		return nativeRecoveryJSONPayload(mode, phase, fileSetFenceValue, native), nil
+	}
 	if plan, ok := journal.ActiveRecoveryPlan(disclosure); ok {
 		actions := plan.Actions()
 		cleanupObligations := recoveryCleanupObligations(plan.RemovalCleanupObligations())
@@ -405,6 +413,9 @@ func recoveryJSONPayload(
 }
 
 func recoveryOperationID(disclosure journal.RecoverablePlan) string {
+	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
+		return native.OperationID()
+	}
 	if plan, ok := journal.ActiveRecoveryPlan(disclosure); ok {
 		return plan.OperationID()
 	}

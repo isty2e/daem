@@ -71,6 +71,12 @@ func recoveryOperationFingerprint(
 	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
 ) (mutation.OperationFingerprint, error) {
+	if native, ok := journal.NativeActiveRecoveryPlan(selection); ok {
+		if !activeStateDir {
+			return mutation.OperationFingerprint{}, fmt.Errorf("active native recovery StateDir authority is required")
+		}
+		return nativeRecoveryOperationFingerprint(paths, native, stateDir)
+	}
 	switch selection.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
 		plan, ok := journal.ActiveRecoveryPlan(selection)
@@ -225,6 +231,12 @@ func buildRecoveryAuthorityEvidence(
 	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
 ) (recoveryAuthorityEvidence, error) {
+	if native, ok := journal.NativeActiveRecoveryPlan(selection); ok {
+		if !activeStateDir {
+			return recoveryAuthorityEvidence{}, fmt.Errorf("active native recovery StateDir authority is required")
+		}
+		return buildNativeRecoveryAuthorityEvidence(paths, native, stateDir)
+	}
 	switch selection.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
 		plan, ok := journal.ActiveRecoveryPlan(selection)

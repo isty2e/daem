@@ -81,7 +81,7 @@ func planRecoveryWithFilesystemAndFence(
 	filesystem mutationfs.Reader,
 	observeFileSet func(context.Context, recoverygate.StateDirAuthority) error,
 ) (recoveryPreparation, error) {
-	planningBudget := journalrecovery.NewPhysicalPathBudget()
+	planningBudget := journalrecovery.NewPhysicalCaptureBudget(nil)
 	return planRecoveryWithFilesystemFenceAndBudget(
 		ctx,
 		input,
@@ -198,31 +198,12 @@ func finishRecoveryPreparation(
 	return planned, nil
 }
 
-func loadRecoverySelection(
-	ctx context.Context,
-	paths daempaths.Paths,
-	filesystem mutationfs.Reader,
-	physicalPathBudget rootedpath.PhysicalTraversalBudget,
-) (journal.RecoverablePlan, error) {
-	stateReader := stateReaderForPath(paths.StatefilePath)
-	registry, err := ownershipstore.NewRecoveryReader(paths.OwnershipRegistryPath)
+func loadRecoverySelection(ctx context.Context, paths daempaths.Paths, filesystem mutationfs.Reader, physicalPathBudget rootedpath.PhysicalTraversalBudget) (journal.RecoverablePlan, error) {
+	options, err := recoveryLoadOptions(ctx, paths, filesystem, physicalPathBudget)
 	if err != nil {
 		return nil, err
 	}
-
-	return journal.LoadRecoverablePlanWithOptions(
-		ctx,
-		journalPaths(paths),
-		journal.PlanLoadOptions{
-			Filesystem:         filesystem,
-			PhysicalPathBudget: physicalPathBudget,
-			Resolver:           destinationResolver(paths).Resolve,
-			OwnershipRegistry:  registry,
-			Codecs:             aggregatecodec.Catalog(),
-			StateCodec:         statefile.Codec{},
-			StateReader:        stateReader,
-		},
-	)
+	return journal.LoadRecoverablePlanWithOptions(ctx, journalPaths(paths), options)
 }
 
 // Execute executes one prepared recovery with explicit effect dependencies.
@@ -379,6 +360,18 @@ func Execute(
 	}
 	switch current.plan.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
+		if native, ok := journal.NativeActiveRecoveryPlan(current.plan); ok {
+			loadOptions, err := recoveryLoadOptions(ctx, effectPaths, filesystem, execution.physicalPathBudget)
+			if err != nil {
+				return result, err
+			}
+			err = execute.ExecuteNativeRecovery(ctx, native, executePaths(effectPaths), loadOptions, execute.RecoveryOptions{
+				ValidateBeforeEffects: validateBeforeActiveEffects, ValidateVisibilityAuthority: validateVisibilityAuthority, AcceptVisibilityChanges: acceptVisibilityChanges,
+				Resolver: destinationResolver(effectPaths).Resolve, OwnershipRegistryBinder: ownershipstore.BindRooted, Filesystem: filesystem,
+				Codecs: loadOptions.NativeDocuments.Codecs, StateCodec: loadOptions.NativeDocuments.StateCodec, StateReader: loadOptions.NativeDocuments.StateReader,
+			})
+			return classifyPostExecutionAuthority(ctx, execution, filesystem, result, err)
+		}
 		active, ok := journal.ActiveRecoveryPlan(current.plan)
 		if !ok {
 			return result, fmt.Errorf("active recovery selection is unavailable")
@@ -416,17 +409,14 @@ func Execute(
 		if !ok {
 			return result, fmt.Errorf("journal cleanup selection is unavailable")
 		}
-		err := execute.ExecuteJournalCleanupWithOptions(
-			ctx,
-			cleanup,
-			execute.JournalCleanupPaths{
-				RecoveryDir: effectPaths.RecoveryDir,
-			},
-			execute.JournalCleanupOptions{
-				ValidateBeforeEffects: validateCurrentAuthority,
-				Filesystem:            filesystem,
-			},
-		)
+		inventoryProfile, err := recoveryInventoryProfile(ctx)
+		if err != nil {
+			return result, err
+		}
+		physicalBudget, _ := execution.physicalPathBudget.(*journalrecovery.PhysicalWorkBudget)
+		err = execute.ExecuteJournalCleanupWithOptions(ctx, cleanup, execute.JournalCleanupPaths{RecoveryDir: effectPaths.RecoveryDir}, execute.JournalCleanupOptions{
+			ValidateBeforeEffects: validateCurrentAuthority, Filesystem: filesystem, InventoryProfile: inventoryProfile, PhysicalBudget: physicalBudget,
+		})
 		return classifyPostExecutionAuthority(
 			ctx,
 			execution,

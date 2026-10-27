@@ -8,11 +8,13 @@ import (
 	"slices"
 	"time"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output/ownership"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 )
 
@@ -24,6 +26,8 @@ type NativeApplyInput struct {
 	Documents   journal.NativeDocumentObservationBatch
 	Registry    ownership.Registry
 	Budget      *recovery.PhysicalWorkBudget
+	// RecoveryCodecs reconstructs the same profile without inheriting forward cancellation.
+	RecoveryCodecs func(context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, error)
 }
 
 type nativeApplyWork struct {
@@ -35,6 +39,9 @@ type nativeApplyWork struct {
 func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	if len(input.ManagedPathEffects)+len(input.AggregateEffects)+len(input.NativeNarrowings)+len(input.RetiredProjectCarrierClaims)+len(input.AdoptedProjectCarrierClaims)+len(input.ConfirmedRelationActions) != 0 {
 		return nativeApplyWork{}, fmt.Errorf("native execution requires its derived effects rather than independent ordinary decisions")
+	}
+	if input.RecoveryCodecs == nil {
+		return nativeApplyWork{}, fmt.Errorf("native execution requires its cancellation-independent recovery codec factory")
 	}
 	if err := input.Preparation.Validate(); err != nil {
 		return nativeApplyWork{}, err
@@ -144,9 +151,8 @@ func PrepareNativeApplyEffectPlan(input NativeApplyInput) (ApplyEffectPlan, erro
 	return ApplyEffectPlan{segment: segment, structure: structure, failureStructure: failure, changed: true, valid: true}, nil
 }
 
-// ApplyNativeWithEffectPlan retains the journal after a failed effect boundary;
-// it does not yet invoke automatic rollback. Native recovery-command integration
-// remains required before public activation.
+// ApplyNativeWithEffectPlan settles failed published effects from the observed
+// durable phase. Unqualified or changed recovery evidence remains retained.
 func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan ApplyEffectPlan, options ApplyOptions) (result ApplyResult, resultErr error) {
 	if ctx == nil || input.Filesystem == nil || input.StateCodec == nil || input.OwnershipRegistryBinder == nil || options.AcceptVisibilityChanges == nil || options.ValidateBeforeEffects == nil && options.ValidatePhysicalAuthorityRequests == nil {
 		return ApplyResult{}, fmt.Errorf("native execution requires its containing authority, visibility callbacks and selected persistence ports")
@@ -210,7 +216,11 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	defer func() { resultErr = errors.Join(resultErr, execution.finish(resultErr)) }()
 	gate := visibilityEffectGate{before: func(ctx context.Context) error { return options.validatePhysicalAuthority(ctx, authority) }, after: options.acceptVisibilityChanges}
 	run := func(prefix string, action func() error) error {
-		step := execution.visibilityGate(gate, prefix, operationplan.EffectStepPersistence, applyForwardFailureNoCompensation)
+		failure := applyForwardFailureGuardedRecovery
+		if prefix == "apply/native-journal-publication" {
+			failure = applyForwardFailureNoCompensation
+		}
+		step := execution.visibilityGate(gate, prefix, operationplan.EffectStepPersistence, failure)
 		if err := step.validateBefore(ctx); err != nil {
 			return err
 		}
@@ -239,16 +249,19 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	var retiring *journal.NativeJournalRetirement
 	var preparation ownership.ClaimConvergence
 	var emptyBindings ownership.DocumentBindingConvergence
-	if err := execution.runObservation("apply/native-preparation", applyForwardFailureNoCompensation, func() error {
+	settle := func(primary error) error {
+		return settleNativeApplyFailure(ctx, primary, input, options, authority, store, captured, retiring, execution, &result)
+	}
+	if err := execution.runObservation("apply/native-preparation", applyForwardFailureGuardedRecovery, func() error {
 		var err error
 		retiring, preparation, emptyBindings, err = prepareNativeCapturedEffects(ctx, captured, input)
 		return err
 	}); err != nil {
-		return result, execution.settleFailureWithoutCompensation(err)
+		return result, settle(err)
 	}
 	defer func() { resultErr = errors.Join(resultErr, retiring.Close()) }()
 	if err := run("apply/native-ownership-preparation", func() error { _, err := store.ConvergeRegistry(ctx, preparation, emptyBindings); return err }); err != nil {
-		return result, execution.settleFailureWithoutCompensation(err)
+		return result, settle(err)
 	}
 	for index, document := range captured.Documents() {
 		prefix := fmt.Sprintf("apply/native-document/%d", index)
@@ -256,13 +269,13 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		if work.mutating[index] {
 			err = run(prefix, func() error { return publishNativeDocument(ctx, input, document) })
 		} else {
-			err = execution.runObservation(prefix+"/record", applyForwardFailureNoCompensation, func() error { return ctx.Err() })
+			err = execution.runObservation(prefix+"/record", applyForwardFailureGuardedRecovery, func() error { return ctx.Err() })
 		}
 		if err != nil {
-			return result, execution.settleFailureWithoutCompensation(err)
+			return result, settle(err)
 		}
 	}
-	if err := execution.runObservation("apply/native-host-postconditions", applyForwardFailureNoCompensation, func() error {
+	if err := execution.runObservation("apply/native-host-postconditions", applyForwardFailureGuardedRecovery, func() error {
 		observed, err := observeNativeRuntime(ctx, captured, authority, input, store)
 		if err != nil {
 			return err
@@ -272,11 +285,11 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		}
 		return nil
 	}); err != nil {
-		return result, execution.settleFailureWithoutCompensation(err)
+		return result, settle(err)
 	}
-	stateGate := execution.statefileVisibilityGate(gate)
+	stateGate := execution.visibilityGate(gate, "apply/statefile-publication", operationplan.EffectStepPersistence, applyForwardFailureGuardedRecovery)
 	if err := stateGate.validateBefore(ctx); err != nil {
-		return result, execution.settleFailureWithoutCompensation(err)
+		return result, settle(err)
 	}
 	if err := stateGate.applyEffect(func() error {
 		before, err := readNativeCommittedState(ctx, authority, input)
@@ -291,23 +304,23 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		result.ActionCount = aggregateSubjectCount(input.Preparation.AggregateEffects())
 		return nil
 	}); err != nil {
-		return result, execution.settleFailureWithoutCompensation(err)
+		return result, settle(err)
 	}
 	if err := stateGate.acceptAfter(ctx); err != nil {
-		return result, execution.settleFailureWithoutCompensation(err)
+		return result, settle(err)
 	}
 	observe := func() (journal.NativeRecoveryAssessment, error) {
 		return observeNativeRuntime(ctx, captured, authority, input, store)
 	}
 	var assessment journal.NativeRecoveryAssessment
-	if err := execution.runObservation("apply/native-finalization-observation", applyForwardFailureNoCompensation, func() error { var err error; assessment, err = observe(); return err }); err != nil {
-		return result, execution.settleFailureWithoutCompensation(err)
+	if err := execution.runObservation("apply/native-finalization-observation", applyForwardFailureGuardedRecovery, func() error { var err error; assessment, err = observe(); return err }); err != nil {
+		return result, settle(err)
 	}
 	if err := run("apply/native-ownership-finalization", func() error {
 		_, err := store.ConvergeRegistry(ctx, assessment.FinalizeClaims(), assessment.FinalizeBindings())
 		return err
 	}); err != nil {
-		return result, execution.settleFailureWithoutCompensation(err)
+		return result, settle(err)
 	}
 	steps := []struct {
 		name string
