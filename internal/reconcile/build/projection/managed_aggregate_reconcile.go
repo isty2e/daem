@@ -191,13 +191,15 @@ func reconcileAggregateDocumentSemantics(
 		expectedByAddress[state.Contract().Address()] = state
 	}
 	blocked := false
+	modeCurrent := nativeOperation != nil || evidence.FileMode() == 0 ||
+		evidence.FileMode().Perm() == aggregate.DocumentFileMode
 	for index := range projections {
 		projection := projections[index]
 		projection.expected = expectedByAddress[projection.contract.Address()]
 		projection, err = classifyAggregateProjection(
 			codec,
 			projection,
-			evidence.FileMode(),
+			modeCurrent,
 			manageUnmanagedMatches,
 		)
 		if err != nil {
@@ -228,7 +230,7 @@ func reconcileAggregateDocumentSemantics(
 	}
 	decision.kind, decision.reason = classifyAggregateDocument(
 		evidence.Document(),
-		evidence.FileMode(),
+		modeCurrent,
 		rendered.Document(),
 		projections,
 	)

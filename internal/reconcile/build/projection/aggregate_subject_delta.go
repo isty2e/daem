@@ -2,7 +2,6 @@ package projection
 
 import (
 	"fmt"
-	"os"
 	"sort"
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -13,7 +12,7 @@ import (
 func classifyAggregateProjection(
 	codec aggregate.Codec,
 	projection aggregateProjectionDecision,
-	fileMode os.FileMode,
+	modeCurrent bool,
 	manageUnmanagedMatches bool,
 ) (aggregateProjectionDecision, error) {
 	previous := make(map[topology.SubjectID]aggregate.ManagedContribution, len(projection.previous))
@@ -27,7 +26,6 @@ func classifyAggregateProjection(
 		}
 	}
 	sameProjection := aggregateProjectionStatesEqual(projection.before, projection.expected)
-	modeCurrent := fileMode == 0 || fileMode.Perm() == aggregate.DocumentFileMode
 	if projection.hasManagedBaseline &&
 		projection.before.CanonicalProjection() != projection.managedBaseline &&
 		!sameProjection {
