@@ -151,7 +151,7 @@ func requireNativeLifecycleMetadataForScope(t *testing.T, manifest string, manag
 	if managed {
 		wantBindings = 1
 		if scope == target.ScopeGlobal {
-			wantClaims = 1
+			wantClaims = len(state.ManagedAggregates())
 		}
 	}
 	if len(registry.DocumentBindings()) != wantBindings || len(registry.Claims()) != wantClaims {

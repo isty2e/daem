@@ -3,7 +3,6 @@ package execute
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
@@ -12,9 +11,12 @@ import (
 )
 
 func prepareNativeCapturedEffects(ctx context.Context, captured journal.CapturedNativeJournal, input NativeApplyInput) (retiring *journal.NativeJournalRetirement, preparation ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence, resultErr error) {
-	retiring, err := journal.PrepareNativeJournalRetirement(ctx, captured, input.Filesystem, input.StateCodec)
-	if err != nil {
-		return nil, preparation, bindings, err
+	var err error
+	if !captured.NeedsPromotion() {
+		retiring, err = journal.PrepareNativeJournalRetirement(ctx, captured, input.Filesystem, input.StateCodec)
+		if err != nil {
+			return nil, preparation, bindings, err
+		}
 	}
 	defer func() {
 		if resultErr != nil {
@@ -32,9 +34,6 @@ func prepareNativeCapturedEffects(ctx context.Context, captured journal.Captured
 	}
 	for _, document := range captured.Documents() {
 		claims, exact := document.Claims()
-		if len(document.ProvisionalAcquires()) != 0 {
-			return retiring, preparation, bindings, fmt.Errorf("native claims require exact captured admission")
-		}
 		if !exact {
 			continue
 		}

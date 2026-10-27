@@ -14,7 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 )
 
-func reloadNativeCapture(ctx context.Context, directory, operationID, fingerprint string, batch NativeDocumentObservationBatch, after durable.Snapshot, options CaptureOptions) (result CapturedNativeJournal, resultErr error) {
+func reloadNativePublication(ctx context.Context, directory, operationID, fingerprint string, batch nativePublicationContext, after durable.Snapshot, options CaptureOptions) (result CapturedNativeJournal, resultErr error) {
 	inventory, err := loadRecoveryRootInventory(ctx, filepath.Dir(directory), inventoryOptions{
 		Filesystem: options.Filesystem, StateCodec: options.StateCodec, PhysicalPathBudget: batch.budget, recordDecoder: decodeNativeCaptureInventoryJournal,
 	})
@@ -58,7 +58,7 @@ func reloadNativeCapture(ctx context.Context, directory, operationID, fingerprin
 	qualified, err := journal.loadQualifiedDocuments(ctx, nativeDocumentReadOptions{
 		artifacts: root, filesystem: options.Filesystem, budget: batch.budget, limits: batch.limits,
 		codecs: options.Codecs, ordinaryCapabilities: options.RootedCapability,
-	}, batch.namespaces[0].roots)
+	}, batch.roots)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}

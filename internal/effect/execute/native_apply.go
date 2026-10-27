@@ -31,9 +31,10 @@ type NativeApplyInput struct {
 }
 
 type nativeApplyWork struct {
-	edits    []compose.ProjectionEdit
-	mutating []bool
-	changed  bool
+	edits     []compose.ProjectionEdit
+	mutating  []bool
+	promoting []bool
+	changed   bool
 }
 
 func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
@@ -53,11 +54,9 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		return nativeApplyWork{}, fmt.Errorf("native whole-document and ordinary effects require their execution integration")
 	}
 	namespaces := input.Documents.Namespaces()
-	work := nativeApplyWork{mutating: make([]bool, len(namespaces)), changed: !input.CurrentState.Equal(input.Preparation.AfterState())}
-	for _, namespace := range namespaces {
-		if _, provisional := namespace.Observation().Provisional(); provisional {
-			return nativeApplyWork{}, fmt.Errorf("provisional native publication requires its journal promotion integration")
-		}
+	work := nativeApplyWork{mutating: make([]bool, len(namespaces)), promoting: make([]bool, len(namespaces)), changed: !input.CurrentState.Equal(input.Preparation.AfterState())}
+	for index, namespace := range namespaces {
+		_, work.promoting[index] = namespace.Observation().Provisional()
 	}
 	for _, effect := range input.Preparation.AggregateEffects() {
 		selection, err := effect.BeforeSnapshot().Selection()
@@ -101,9 +100,12 @@ func MaximumNativeForwardEffectValidationCount(input NativeApplyInput) (int, err
 		return 0, err
 	}
 	count := 5 // journal, ownership preparation/finalization, state and retirement
-	for _, mutating := range work.mutating {
+	for index, mutating := range work.mutating {
 		if mutating {
 			count++
+		}
+		if work.promoting[index] {
+			count += 2
 		}
 	}
 	return count, nil
@@ -130,6 +132,12 @@ func PrepareNativeApplyEffectPlan(input NativeApplyInput) (ApplyEffectPlan, erro
 		} else {
 			nodes = append(nodes, applyCheckedStep(&builder, prefix+"/record", operationplan.EffectStepObservation))
 		}
+		if work.promoting[index] {
+			nodes = append(nodes, applyForwardObligation(&builder, prefix+"/promotion", operationplan.EffectStepPersistence), applyForwardObligation(&builder, prefix+"/claims", operationplan.EffectStepPersistence))
+		}
+	}
+	if slices.Contains(work.promoting, true) {
+		nodes = append(nodes, applyCheckedStep(&builder, "apply/native-promoted-preparation", operationplan.EffectStepObservation))
 	}
 	nodes = append(
 		nodes,
@@ -263,7 +271,8 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	if err := run("apply/native-ownership-preparation", func() error { _, err := store.ConvergeRegistry(ctx, preparation, emptyBindings); return err }); err != nil {
 		return result, settle(err)
 	}
-	for index, document := range captured.Documents() {
+	for index := range work.mutating {
+		document := captured.Documents()[index]
 		prefix := fmt.Sprintf("apply/native-document/%d", index)
 		var err error
 		if work.mutating[index] {
@@ -274,13 +283,43 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		if err != nil {
 			return result, settle(err)
 		}
+
+		if work.promoting[index] {
+			if err := run(prefix+"/promotion", func() error {
+				promoted, err := promoteNativeCapturedDocument(ctx, captured, index, authority, input, store)
+				if err == nil {
+					captured = promoted
+				}
+				return err
+			}); err != nil {
+				return result, settle(err)
+			}
+			if err := run(prefix+"/claims", func() error { return reserveNativePromotedDocument(ctx, store, captured.Documents()[index]) }); err != nil {
+				return result, settle(err)
+			}
+		}
+	}
+	if slices.Contains(work.promoting, true) {
+		if err := execution.runObservation("apply/native-promoted-preparation", applyForwardFailureGuardedRecovery, func() error {
+			if captured.NeedsPromotion() {
+				return fmt.Errorf("native operation retains unresolved namespace promotion")
+			}
+			if retiring == nil {
+				var err error
+				retiring, err = journal.PrepareNativeJournalRetirement(ctx, captured, input.Filesystem, input.StateCodec)
+				return err
+			}
+			return nil
+		}); err != nil {
+			return result, settle(err)
+		}
 	}
 	if err := execution.runObservation("apply/native-host-postconditions", applyForwardFailureGuardedRecovery, func() error {
 		observed, err := observeNativeRuntime(ctx, captured, authority, input, store)
 		if err != nil {
 			return err
 		}
-		if !observed.HostMatchesExpected() {
+		if !observed.HostReadyForStateCommit() {
 			return fmt.Errorf("native host postconditions are not satisfied")
 		}
 		return nil
