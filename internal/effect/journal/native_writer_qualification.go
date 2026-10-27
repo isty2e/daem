@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -102,10 +103,26 @@ func acquireNativeWriterRoute(ctx context.Context, grant nativeDocumentRootGrant
 	if grant.selection.Root == nil {
 		return nil, fmt.Errorf("writer route requires its selected retained root")
 	}
-	if err := grant.selection.Root.ValidateSelectionBounded(grant.selection.SelectedPath, recovery.MaximumPhysicalPathDepth, budget); err != nil {
+
+	physical := grant.authority.PhysicalRoot()
+	if grant.selection.creation != nil {
+		var err error
+		physical, err = grant.selection.qualifyCreation(ctx, budget)
+		if err != nil {
+			return nil, err
+		}
+	} else if err := grant.selection.Root.ValidateSelectionBounded(grant.selection.SelectedPath, recovery.MaximumPhysicalPathDepth, budget); err != nil {
 		return nil, err
 	}
-	relative, err := rootedpath.NewRelativeDestination(destination.RelativePath())
+	selected, err := rootedpath.NewRelativeDestination(destination.RelativePath())
+	if err != nil {
+		return nil, err
+	}
+	path, err := filepath.Rel(grant.authority.PhysicalRoot(), filepath.Join(physical, filepath.FromSlash(selected.Path())))
+	if err != nil {
+		return nil, err
+	}
+	relative, err := rootedpath.NewRelativeDestination(filepath.ToSlash(path))
 	if err != nil {
 		return nil, err
 	}

@@ -23,6 +23,7 @@ import (
 type NativeDocumentRoot struct {
 	SelectedPath string
 	Root         *rootedpath.CapturedRoot
+	creation     *nativeRootCreation
 }
 
 // NativeDocumentRoots supplies only the independently selected roots available
@@ -153,6 +154,9 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 	if err != nil {
 		return NativeDocumentNamespace{}, err
 	}
+	if writerGrant.selection.creation != nil && !nativeRootContains(writerGrant.selection.creation.physical, writerPath) {
+		return NativeDocumentNamespace{}, fmt.Errorf("native recorded writer escapes the selected creation prefix")
+	}
 	observedWriter, err := mutation.ObserveDirectoryEntryAuthorityBounded(writerPath, recovery.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		return NativeDocumentNamespace{}, err
@@ -199,7 +203,14 @@ func (roots NativeDocumentRoots) qualify(ctx context.Context, budget rootedpath.
 		if selection.Root == nil || !filepath.IsAbs(selection.SelectedPath) || filepath.Clean(selection.SelectedPath) != selection.SelectedPath || strings.ContainsRune(selection.SelectedPath, '\x00') {
 			return nil, fmt.Errorf("native document root requires an actual retained root and canonical lexical selector")
 		}
-		if err := selection.Root.ValidateSelectionBounded(selection.SelectedPath, recovery.MaximumPhysicalPathDepth, budget); err != nil {
+		if selection.creation != nil {
+			if input.role == output.RootProject {
+				return nil, fmt.Errorf("native manifest root must already exist")
+			}
+			if _, err := selection.qualifyCreation(ctx, budget); err != nil {
+				return nil, err
+			}
+		} else if err := selection.Root.ValidateSelectionBounded(selection.SelectedPath, recovery.MaximumPhysicalPathDepth, budget); err != nil {
 			return nil, err
 		}
 		authority, err := selection.Root.AuthorityBounded(budget)
@@ -234,6 +245,9 @@ func nativeDocumentWriterGrant(grants map[output.RootRole]nativeDocumentRootGran
 	for _, role := range []output.RootRole{output.RootProject, output.RootPiAgent, output.RootCodexHome} {
 		grant, supplied := grants[role]
 		if !supplied {
+			continue
+		}
+		if grant.selection.creation != nil && !nativeRootContains(grant.selection.creation.physical, referent) {
 			continue
 		}
 		path, err := filepath.Rel(grant.authority.PhysicalRoot(), referent)

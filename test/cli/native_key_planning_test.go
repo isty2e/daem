@@ -425,8 +425,15 @@ ownership = "keys"
 			if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
 				t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
 			}
-			if code, stdout, stderr := runOwnershipCLI("status", "--manifest", manifest, "--json"); code == 0 || !strings.Contains(stdout+stderr, "selected native root") {
-				t.Fatalf("missing selected global root was dropped or widened: %d %s %s", code, stdout, stderr)
+			for _, args := range [][]string{{"status", "--manifest", manifest, "--json"}, {"apply", "--manifest", manifest, "--dry-run", "--json"}} {
+				code, stdout, stderr := runOwnershipCLI(args...)
+				if code != 0 {
+					t.Fatalf("missing selected global root could not be planned: %d %s %s", code, stdout, stderr)
+				}
+				plan := clijson.DecodePlan(t, []byte(stdout))
+				if plan.HasErrors || plan.ActionCount != 1 || len(plan.Actions) != 1 || plan.Actions[0].Scope != "global" || plan.Actions[0].Target != target {
+					t.Fatalf("missing-root planning lost its selected native actor: %s", stdout)
+				}
 			}
 			if _, err := os.Stat(hostRoot); !os.IsNotExist(err) {
 				t.Fatalf("readiness created the selected root: %v", err)

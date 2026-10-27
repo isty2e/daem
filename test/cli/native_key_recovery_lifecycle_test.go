@@ -29,6 +29,7 @@ import (
 
 const (
 	nativeRecoveryHelperEnv = "GO_WANT_NATIVE_KEY_RECOVERY_HELPER"
+	nativeRecoveryHostEnv   = "DAEM_TEST_NATIVE_RECOVERY_HOST"
 	nativeRecoveryExit      = 86
 	nativeRecoveryOutside   = "# User preferences\nunmanaged = true\n[tui]\n# User theme\ntheme = 'dark'\n"
 	nativeRecoveryLater     = "# Added after process loss\nrecovery_note = 'keep'\n"
@@ -243,10 +244,17 @@ func newNativeRecoveryFixture(t *testing.T, kind string) nativeRecoveryFixture {
 
 func setNativeRecoveryEnvironment(t *testing.T, root string) {
 	t.Helper()
+	nativeRecoveryEnvironment(t, root, true)
+}
+
+func nativeRecoveryEnvironment(t *testing.T, root string, create bool) {
+	t.Helper()
 	for _, variable := range []string{"HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "CODEX_HOME", "PI_CODING_AGENT_DIR", "CLAUDE_CONFIG_DIR", "TMPDIR", "USERPROFILE", "APPDATA", "LOCALAPPDATA"} {
 		path := filepath.Join(root, strings.ToLower(variable))
-		if err := os.MkdirAll(path, 0o700); err != nil {
-			t.Fatal(err)
+		if create {
+			if err := os.MkdirAll(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
 		}
 		t.Setenv(variable, path)
 	}
@@ -510,7 +518,7 @@ func invokeNativeRecoveryCommand(t *testing.T, fixture nativeRecoveryFixture, bo
 	commandArgs = append(commandArgs, args...)
 	commandArgs = append(commandArgs, "--manifest", fixture.manifest)
 	command := exec.CommandContext(t.Context(), os.Args[0], commandArgs...)
-	command.Env = append(os.Environ(), nativeRecoveryHelperEnv+"=1")
+	command.Env = append(os.Environ(), nativeRecoveryHelperEnv+"=1", nativeRecoveryHostEnv+"="+fixture.destination)
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	if err := command.Run(); err != nil {
@@ -541,7 +549,7 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 	boundary, manifest := os.Args[separator+1], os.Args[separator+2]
 	// TestMain gives each subprocess new default roots; reselect this fixture's
 	// shared, temp-contained roots before invoking the real CLI.
-	setNativeRecoveryEnvironment(t, filepath.Dir(filepath.Dir(manifest)))
+	nativeRecoveryEnvironment(t, filepath.Dir(filepath.Dir(manifest)), false)
 	paths, err := daempaths.Resolve(manifest)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -549,9 +557,13 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	host := os.Getenv(nativeRecoveryHostEnv)
+	if host == "" {
+		host = filepath.Join(filepath.Dir(manifest), ".codex", "config.toml")
+	}
 	store := &nativeRecoveryStore{
 		Adapter: storagecommit.Adapter{}, boundary: boundary,
-		host: filepath.Join(filepath.Dir(manifest), ".codex", "config.toml"), state: paths.StatefilePath, cancel: cancel,
+		host: host, state: paths.StatefilePath, cancel: cancel,
 	}
 	code := clipkg.RunWithOptions(os.Args[separator+3:], clipkg.RunOptions{
 		Context: ctx, Stdout: os.Stdout, Stderr: os.Stderr,

@@ -173,13 +173,19 @@ func (profile NativeRecoveryProfile) captureRoots(ctx context.Context, journal n
 		}
 	}()
 	roles := map[output.RootRole]bool{output.RootProject: true}
+	anchors := map[output.RootRole]recoveryRootProvenance{output.RootProject: journal.record.ManifestRootProvenance}
 	for _, group := range journal.record.DocumentGroups {
 		for _, alias := range group.Aliases {
 			address, err := alias.Address.canonical()
 			if err != nil {
 				return roots, retained, err
 			}
-			roles[address.AggregateRoot().RootRole()] = true
+			role := address.AggregateRoot().RootRole()
+			if previous, known := anchors[role]; known && previous != alias.LogicalRoot.Provenance {
+				return roots, retained, fmt.Errorf("native role has inconsistent recorded root anchors")
+			}
+			anchors[role] = alias.LogicalRoot.Provenance
+			roles[role] = true
 		}
 	}
 	for _, role := range []output.RootRole{output.RootProject, output.RootPiAgent, output.RootCodexHome} {
@@ -206,12 +212,20 @@ func (profile NativeRecoveryProfile) captureRoots(ctx context.Context, journal n
 		if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
 			return roots, retained, fmt.Errorf("native recovery requires a canonical independently selected root")
 		}
-		root, err := rootedpath.CaptureCanonicalRootBounded(path, recovery.MaximumPhysicalPathDepth, profile.Budget)
+		var selection NativeDocumentRoot
+		var err error
+		if role == output.RootProject {
+			var root *rootedpath.CapturedRoot
+			root, err = rootedpath.CaptureCanonicalRootBounded(path, recovery.MaximumPhysicalPathDepth, profile.Budget)
+			selection = NativeDocumentRoot{SelectedPath: path, Root: root}
+		} else {
+			selection, err = captureRecordedNativeRoot(ctx, path, anchors[role], profile.Budget)
+		}
 		if err != nil {
 			return roots, retained, err
 		}
-		retained = append(retained, root)
-		*selected = NativeDocumentRoot{SelectedPath: path, Root: root}
+		retained = append(retained, selection.Root)
+		*selected = selection
 	}
 	return roots, retained, ctx.Err()
 }

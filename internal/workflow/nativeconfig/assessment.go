@@ -131,6 +131,12 @@ func assessRetainedInputs(ctx context.Context, input readiness.Input, operation 
 	slices.SortFunc(addresses, func(left, right aggregate.DocumentAddress) int {
 		return strings.Compare(string(left.Target())+"\x00"+string(left.Scope())+"\x00"+left.AggregateRoot().String(), string(right.Target())+"\x00"+string(right.Scope())+"\x00"+right.AggregateRoot().String())
 	})
+	manifestRoot, err := rootedpath.CaptureCanonicalRootBounded(input.Paths.ManifestRoot, recovery.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return readiness.Assessment{}, err
+	}
+	retained = append(retained, manifestRoot)
+	roots.Manifest = journal.NativeDocumentRoot{SelectedPath: input.Paths.ManifestRoot, Root: manifestRoot}
 	for _, alias := range addresses {
 		var selected *journal.NativeDocumentRoot
 		var path string
@@ -153,12 +159,12 @@ func assessRetainedInputs(ctx context.Context, input readiness.Input, operation 
 			continue
 		}
 		path = filepath.Clean(path)
-		root, err := rootedpath.CaptureCanonicalRootBounded(path, recovery.MaximumPhysicalPathDepth, budget)
+		selection, err := journal.CaptureNativeDocumentRoot(ctx, path, budget)
 		if err != nil {
 			return readiness.Assessment{}, fmt.Errorf("observe selected native root %q without creating it: %w", path, err)
 		}
-		retained = append(retained, root)
-		*selected = journal.NativeDocumentRoot{SelectedPath: path, Root: root}
+		retained = append(retained, selection.Root)
+		*selected = selection
 	}
 	stateAuthority, err := mutation.ObservePersistedDirectoryEntryAuthorityBounded(input.Paths.StatefilePath, recovery.MaximumPhysicalPathDepth, budget)
 	if err != nil {
