@@ -31,6 +31,7 @@ func Remove(path output.KeyPath) (Change, error) {
 
 // Edit validates the whole change set before rendering. A returned document
 // must match the expected native result and retain every existing comment.
+// Removing a key retains empty ancestor objects; it is not formatting undo.
 func Edit(ctx context.Context, document Document, changes []Change) (Document, error) {
 	if ctx == nil {
 		return Document{}, fmt.Errorf("configuration context is required")

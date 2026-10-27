@@ -5,6 +5,7 @@ Use this page to interpret stored ownership, recovery results and size limits.
 [Troubleshooting](troubleshooting.md#apply-was-interrupted) gives recovery commands.
 
 - [Statefile](#statefile)
+- [Key-only configuration containers](#key-only-configuration-containers)
 - [User-state authority migration](#user-state-authority-migration)
 - [Shared global ownership](#shared-global-ownership)
 - [Mutation revision evidence](#mutation-revision-evidence)
@@ -48,6 +49,24 @@ Import does not claim host state. Supported `apply --manage-existing` adoption
 requires an exact live match and fresh validation. Carrier adoption records
 future bounded relation-removal authority without invoking the host route; it
 does not grant package/cache ownership, runtime readiness or ambient exclusivity.
+
+### Key-Only Configuration Containers
+
+Removing managed configuration keys retains their containing document and empty
+ancestor objects or tables, including parents created while adding those keys.
+For example, an empty TOML `[features]` table or JSON `"retry": {}` can remain
+after its last managed child is removed. Removal is not undo and does not promise
+the original file bytes when a parent was absent. Successful state records do
+not retain parent-construction or formatting history.
+
+An empty object explicitly selected as a managed value is different: removing
+that selection deletes the value itself. Unrelated values, empty objects and
+comments are preserved. TOML dotted siblings keep their dotted representation;
+already implicit parents do not gain redundant explicit headers after a temporary
+child is added and removed. Adding and removing an atomic key directly in an
+existing newline-terminated ordinary section preserves its original bytes when no
+additional parent is created. An EOF-only header may retain the separator newline
+needed to insert its first child.
 
 ### Pending Pi Pin Changes
 
