@@ -125,6 +125,9 @@ func (comparison DocumentComparison) selectedRestorationMode(candidate, current 
 	if !candidate.Exists() {
 		return nil, nil
 	}
+	if comparison.before.Exists() && comparison.expected.Exists() && !comparison.beforeState.SameRootMetadata(comparison.expectedState) {
+		return comparison.beforeMode(), nil
+	}
 	if current.Exists() {
 		return mode, nil
 	}

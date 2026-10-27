@@ -532,7 +532,7 @@ func selectedCaptureEdits(t *testing.T, fixture nativeRecordFixture, original ag
 	if err != nil {
 		t.Fatal(err)
 	}
-	participant, err := nativeJournalParticipant(selection, fixture.read.codecs)
+	participant, err := NativeJournalParticipant(selection, fixture.read.codecs)
 	if err != nil {
 		t.Fatal(err)
 	}

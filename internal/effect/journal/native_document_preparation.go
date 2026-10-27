@@ -171,7 +171,7 @@ func reconstructNativeDocumentComparison(ctx context.Context, record recoveryDoc
 	}
 	participants := make([]compose.Participant, 0, len(selections))
 	for _, selection := range selections {
-		participant, err := nativeJournalParticipant(selection, codecs)
+		participant, err := NativeJournalParticipant(selection, codecs)
 		if err != nil {
 			return DocumentComparison{}, err
 		}

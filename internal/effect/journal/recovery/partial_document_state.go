@@ -66,20 +66,25 @@ func MatchPartialDocumentStates(before, expected, current PartialDocumentState) 
 	if !before.initialized || !expected.initialized || !current.initialized {
 		return PartialDocumentMatch{}, fmt.Errorf("partial document states must be initialized")
 	}
-	if before.exists && expected.exists && before.mode != expected.mode {
-		return PartialDocumentMatch{}, fmt.Errorf("partial document mutation must preserve an existing file mode")
-	}
 	if err := before.sameSelection(expected); err != nil {
 		return PartialDocumentMatch{}, fmt.Errorf("partial document expected selection: %w", err)
 	}
 	if err := before.sameSelection(current); err != nil {
 		return PartialDocumentMatch{}, fmt.Errorf("partial document current selection: %w", err)
 	}
+	modeChanged := before.exists && expected.exists && before.mode != expected.mode
+	if modeChanged && !expected.hasMCPDocumentMode() {
+		return PartialDocumentMatch{}, fmt.Errorf("partial document mode transition requires a selected fixed MCP policy")
+	}
 	if !current.SameRootMetadata(before) && !current.SameRootMetadata(expected) {
 		return PartialDocumentMatch{}, nil
 	}
 
 	match := PartialDocumentMatch{before: true, expected: true, recoverable: true}
+	if modeChanged {
+		match.before = current.SameRootMetadata(before)
+		match.expected = current.SameRootMetadata(expected)
+	}
 	for address, projection := range current.projections {
 		original, candidate := before.projections[address], expected.projections[address]
 		isBefore, isExpected := projection.Equal(original), projection.Equal(candidate)
@@ -92,6 +97,21 @@ func MatchPartialDocumentStates(before, expected, current PartialDocumentState) 
 		match.recoverable = match.recoverable && (isBefore || isExpected)
 	}
 	return match, nil
+}
+
+func (state PartialDocumentState) hasMCPDocumentMode() bool {
+	if !state.exists || state.mode != PermissionMode(aggregate.DocumentFileMode) {
+		return false
+	}
+	for _, projection := range state.projections {
+		contract := projection.Contract()
+		placement, found := aggregate.MCPPlacementForCodec(aggregate.MCPPlacementID(contract.Address().PlacementID()), contract.CodecContractID())
+		address := contract.Address().Document()
+		if found && placement.Target() == address.Target() && placement.Scope() == address.Scope() && placement.ConfigPath() == address.AggregateRoot() {
+			return true
+		}
+	}
+	return false
 }
 
 func (state PartialDocumentState) sameSelection(other PartialDocumentState) error {

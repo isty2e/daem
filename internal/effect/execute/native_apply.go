@@ -11,9 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/operationplan"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 )
@@ -55,19 +53,19 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		}
 	}
 	for _, effect := range input.Preparation.AggregateEffects() {
-		operation, native := effect.NativeOperationContract()
-		if !native {
-			return nativeApplyWork{}, fmt.Errorf("mixed native execution requires ordinary capture integration")
-		}
-		var areas []output.KeyPath
-		for _, contract := range operation.Selection().Contracts() {
-			areas = append(areas, contract.Address().KeyPath())
-		}
-		syntax, err := configdocument.ParseSyntax(string(operation.Placement().Grammar()))
+		selection, err := effect.BeforeSnapshot().Selection()
 		if err != nil {
 			return nativeApplyWork{}, err
 		}
-		edit, err := compose.NewProjectionEdit(operation.Codec(), effect.CodecPlan(), syntax, areas)
+		participant, err := journal.NativeJournalParticipant(selection, input.Codecs)
+		if err != nil {
+			return nativeApplyWork{}, err
+		}
+		codec, admitted := input.Codecs.Lookup(selection.CodecContractID())
+		if !admitted {
+			return nativeApplyWork{}, fmt.Errorf("document effect codec is not admitted")
+		}
+		edit, err := compose.NewProjectionEdit(codec, effect.CodecPlan(), participant.Syntax(), participant.RewriteAreas())
 		if err != nil {
 			return nativeApplyWork{}, err
 		}

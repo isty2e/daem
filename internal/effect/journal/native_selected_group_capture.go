@@ -155,8 +155,15 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace NativeDocum
 	expectedMode := mode
 	if !expected.Exists() {
 		expectedMode = nil
-	} else if expectedMode == nil {
-		expectedMode = recovery.NewPermissionMode(aggregate.DocumentFileMode)
+	} else {
+		if expectedMode == nil {
+			expectedMode = recovery.NewPermissionMode(aggregate.DocumentFileMode)
+		}
+		for _, participant := range participants {
+			if _, native := aggregate.HostConfigSyntaxForCodec(participant.Selection().CodecContractID()); !native {
+				expectedMode = recovery.NewPermissionMode(aggregate.DocumentFileMode)
+			}
+		}
 	}
 	candidate, err := ReconstructSelectedDocument(ctx, DocumentComparisonInput{Before: original, Expected: expected, BeforeMode: mode, ExpectedMode: expectedMode, Limits: input.limits}, participants, input.order)
 	if err != nil {

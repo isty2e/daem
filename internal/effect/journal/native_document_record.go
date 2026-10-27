@@ -173,7 +173,9 @@ func (journal nativeJournalSnapshots) validateExpectedBaselines(ctx context.Cont
 	return ctx.Err()
 }
 
-func nativeJournalParticipant(selection aggregate.Selection, codecs aggregate.CodecCatalog) (compose.Participant, error) {
+// NativeJournalParticipant admits the same selected rewrite areas for forward
+// publication and native journal reconstruction.
+func NativeJournalParticipant(selection aggregate.Selection, codecs aggregate.CodecCatalog) (compose.Participant, error) {
 	codec, found := codecs.Lookup(selection.CodecContractID())
 	if !found {
 		return compose.Participant{}, fmt.Errorf("document selection codec is not admitted by the operation")
