@@ -132,7 +132,7 @@ targets = ["antigravity-cli"]
 			},
 			wantExit: 1,
 			wantStderr: []string{
-				`apply failed: apply was refused before effects`,
+				`apply preview failed: apply was refused before effects`,
 				`not an admitted file placement`,
 			},
 			reject: []string{

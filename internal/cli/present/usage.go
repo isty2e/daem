@@ -46,7 +46,6 @@ func PrintUsage(output io.Writer, context UsageContext) {
 	lines := []string{
 		"daem - manage declarative agent environments",
 		"Usage: daem <command> [options]",
-		"",
 		"Start",
 		"  init       Create a starter manifest.",
 		"  import     Build desired state from existing agent configuration.",
