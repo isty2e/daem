@@ -52,7 +52,7 @@ func TestNativeReplacementHumanOutcome(t *testing.T) {
 			if kind == "adopt" {
 				outcome = "Adopted 1 host configuration key without changing its value: model"
 			}
-			if !strings.Contains(stdout, outcome) || strings.Contains(stdout, "current:") || strings.Contains(stdout, "fingerprint:") {
+			if !strings.Contains(stdout, outcome) || !strings.Contains(stdout, "preferences") || !strings.Contains(stdout, fixture.destination) || strings.Contains(stdout, "current:") || strings.Contains(stdout, "fingerprint:") {
 				t.Fatalf("execution must report its outcome rather than replay the preview: %s", stdout)
 			}
 			after, err := os.Stat(fixture.destination)

@@ -26,6 +26,10 @@ func NativeReplacementResultText(disclosure applyworkflow.NativeReplacementDiscl
 	}
 
 	var result bytes.Buffer
+	fmt.Fprintf(&result, "Host configuration %s\n", humanErrorDetail(disclosure.Declaration))
+	if len(disclosure.Keys) != 0 {
+		fmt.Fprintf(&result, "  file: %s\n", humanErrorDetail(disclosure.Keys[0].File))
+	}
 	if len(written) != 0 {
 		fmt.Fprintf(&result, "Applied declared values to %s: %s\n", CountLabel(len(written), "host configuration key", "host configuration keys"), strings.Join(written, ", "))
 	}
