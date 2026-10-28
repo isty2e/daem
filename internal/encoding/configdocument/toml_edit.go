@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2/unstable"
-	"github.com/tailscale/hujson"
 )
 
 // Each node owns its decoded path and lexical representation. Assignment values
@@ -160,7 +159,7 @@ func (editor *tomlEditor) insertValue(node *tomlSyntaxNode, value Value) error {
 		if i > 0 {
 			scope.insert.WriteByte('.')
 		}
-		scope.insert.Write(hujson.String(key))
+		appendTOMLKey(&scope.insert, key)
 	}
 	scope.insert.WriteString(" = ")
 	if err := appendTOMLValue(&scope.insert, value); err != nil {
@@ -250,7 +249,7 @@ func (editor *tomlEditor) apply() ([]byte, error) {
 				if i > 0 {
 					section.WriteByte('.')
 				}
-				section.Write(hujson.String(key))
+				appendTOMLKey(&section, key)
 			}
 			section.WriteByte(']')
 			section.WriteString(editor.newline)

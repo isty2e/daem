@@ -69,6 +69,9 @@ ownership = "keys"
 				}
 				expected := source + fmt.Sprintf("[mcp_servers.search]\ncommand = 'node'\nargs = [%q]\n", server)
 				requireNativeSharedValues(t, configdocument.TOML, content, expected, true)
+				if !bytes.Contains(content, []byte("[mcp_servers.search]\n")) {
+					t.Fatalf("generated Codex MCP header does not use bare TOML segments: %s", content)
+				}
 				requireNativeSharedValues(t, configdocument.TOML, content, outside, true)
 				requireNativeMCPUserComments(t, content)
 				requireNativeSharedMode(t, destination, 0o600)

@@ -238,7 +238,7 @@ func appendTOMLValue(result *strings.Builder, value Value) error {
 			if index > 0 {
 				result.WriteString(", ")
 			}
-			result.Write(hujson.String(member.key))
+			appendTOMLKey(result, member.key)
 			result.WriteString(" = ")
 			if err := appendTOMLValue(result, member.value); err != nil {
 				return err
@@ -270,4 +270,25 @@ func renderTOMLScalar(value Value) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func appendTOMLKey(result *strings.Builder, key string) {
+	if key != "" {
+		bare := true
+		for index := 0; index < len(key); index++ {
+			char := key[index]
+			if (char >= 'A' && char <= 'Z') ||
+				(char >= 'a' && char <= 'z') ||
+				(char >= '0' && char <= '9') || char == '_' || char == '-' {
+				continue
+			}
+			bare = false
+			break
+		}
+		if bare {
+			result.WriteString(key)
+			return
+		}
+	}
+	result.Write(hujson.String(key))
 }
