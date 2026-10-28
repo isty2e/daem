@@ -15,6 +15,7 @@ import (
 
 type rootedTreeBackupSink struct {
 	ctx            context.Context
+	work           *ordinaryCaptureWork
 	root           string
 	hasher         *artifact.DirectoryHashBuilder
 	directoryModes []rootedTreeBackupDirectoryMode
@@ -27,9 +28,10 @@ type rootedTreeBackupDirectoryMode struct {
 	mode fs.FileMode
 }
 
-func newRootedTreeBackupSink(ctx context.Context, root string) *rootedTreeBackupSink {
+func newRootedTreeBackupSink(ctx context.Context, root string, work *ordinaryCaptureWork) *rootedTreeBackupSink {
 	return &rootedTreeBackupSink{
 		ctx:    ctx,
+		work:   work,
 		root:   root,
 		hasher: artifact.NewDirectoryHashBuilder(),
 	}
@@ -38,6 +40,9 @@ func newRootedTreeBackupSink(ctx context.Context, root string) *rootedTreeBackup
 func (sink *rootedTreeBackupSink) VisitRoot(mode fs.FileMode) error {
 	if sink == nil || sink.initialized || sink.root == "" {
 		return fmt.Errorf("rooted tree backup sink is not ready for a root")
+	}
+	if err := sink.work.admitBackupEntry(0); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(sink.root), 0o700); err != nil {
 		return err
@@ -59,6 +64,9 @@ func (sink *rootedTreeBackupSink) VisitDirectory(
 ) error {
 	if !sink.initialized || sink.finalized {
 		return fmt.Errorf("rooted tree backup root is not initialized")
+	}
+	if err := sink.work.admit(1, 0); err != nil {
+		return err
 	}
 	if err := sink.hasher.AddDirectory(path.Path()); err != nil {
 		return err
@@ -82,6 +90,9 @@ func (sink *rootedTreeBackupSink) VisitRegularFile(
 ) error {
 	if !sink.initialized || sink.finalized {
 		return fmt.Errorf("rooted tree backup root is not initialized")
+	}
+	if err := sink.work.admit(1, size); err != nil {
+		return err
 	}
 	backupPath := filepath.Join(sink.root, filepath.FromSlash(path.Path()))
 	file, err := os.OpenFile(backupPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)

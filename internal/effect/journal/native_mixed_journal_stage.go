@@ -17,7 +17,7 @@ import (
 // ordinaryCaptureSource couples the ordinary builder's record to its private
 // backup tree. Its lifetime belongs to stageMixedDocumentJournal, not publication.
 type ordinaryCaptureSource struct {
-	record       recoveryJournal
+	record       ordinaryCaptureMaterial
 	view         access.View
 	identity     artifact.ExactIdentity
 	work         recovery.ArtifactWork
@@ -68,7 +68,10 @@ func (journal nativeJournalSnapshots) stageMixedDocumentJournal(ctx context.Cont
 }
 
 func (journal nativeJournalSnapshots) captureOrdinarySource(ctx context.Context, paths Paths, directory string, createdAt time.Time, capture CaptureOptions, budget *recovery.PhysicalWorkBudget) (ordinaryCaptureSource, error) {
-	record, err := buildRecoveryJournal(ctx, paths, directory, journal.record.OperationID, createdAt, journal.before, journal.after, capture)
+	if budget == nil {
+		return ordinaryCaptureSource{}, fmt.Errorf("native ordinary capture requires the containing allocation")
+	}
+	record, err := buildOrdinaryCaptureMaterial(ctx, paths, directory, journal.record.OperationID, createdAt, journal.before, journal.after, capture, &ordinaryCaptureWork{budget: budget})
 	if err != nil {
 		return ordinaryCaptureSource{}, err
 	}

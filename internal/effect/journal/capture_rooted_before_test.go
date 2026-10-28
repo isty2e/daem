@@ -42,6 +42,7 @@ func TestCaptureGlobalExistingDirectoryUsesRootedCapabilityAndHashEquivalentBack
 			return capability, true, err
 		},
 		nil,
+		&ordinaryCaptureWork{},
 	)
 	if err != nil {
 		t.Fatalf("captureRecoveryBeforePath returned error: %v", err)
@@ -88,6 +89,7 @@ func TestCaptureGlobalExistingDirectoryRejectsBackupHashDifferentFromObservation
 			return capability, true, err
 		},
 		nil,
+		&ordinaryCaptureWork{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "does not match live observation") {
 		t.Fatalf("capture error = %v, want copied-backup hash rejection", err)
@@ -127,6 +129,7 @@ func TestCaptureGlobalExistingDirectoryRefusesMissingStrictRootAuthority(t *test
 			return nil, false, nil
 		},
 		nil,
+		&ordinaryCaptureWork{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "has no retained root authority") {
 		t.Fatalf("capture error = %v, want missing strict root authority refusal", err)
