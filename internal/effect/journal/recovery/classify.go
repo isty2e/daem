@@ -21,11 +21,11 @@ func Classify(
 	if err := selection.validate(authority); err != nil {
 		return Plan{}, err
 	}
-	pathsByEntry, err := pathEvidenceIndex(pathEvidence)
-	if err != nil {
-		return Plan{}, err
+	entries := make([]Entry, 0, len(selection.indexes))
+	for _, index := range selection.indexes {
+		entries = append(entries, authority.entries[index])
 	}
-	backupsByPath, err := backupEvidenceIndex(backupEvidence)
+	assessed, err := AssessEntries(entries, pathEvidence, backupEvidence)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -33,13 +33,68 @@ func Classify(
 	stateBefore := currentState.Equal(authority.statefileBefore)
 	stateAfter := currentState.Equal(authority.statefileAfter)
 	claimsBefore, claimsPrepared, claimsAfter, claimsRollbackEligible, claimsFinalizeEligible := classifyClaimTransitions(authority.claimTransitions, registry)
+	pathsBefore, pathsAfter, pathsRecoverable := assessed.MatchesBefore(), assessed.MatchesExpected(), assessed.Recoverable()
+	actions := assessed.Actions()
+
+	if pathsBefore && stateBefore && claimsBefore {
+		return newPlan(authority, ClassificationCleanBefore,
+			[]Action{cleanupAction(authority.operationID, ClassificationCleanBefore)}, actions)
+	}
+	if pathsAfter && stateAfter && claimsAfter {
+		return newPlan(authority, ClassificationCleanAfter,
+			[]Action{cleanupAction(authority.operationID, ClassificationCleanAfter)}, actions)
+	}
+	if pathsAfter && stateAfter && claimsFinalizeEligible && !claimsAfter {
+		return newPlan(authority, ClassificationNeedsFinalize,
+			[]Action{{Kind: ActionKindFinalizeClaims, Reason: string(ClassificationNeedsFinalize), Destination: authority.operationID}}, actions)
+	}
+	if pathsRecoverable && stateBefore && claimsRollbackEligible {
+		return newPlan(authority, ClassificationNeedsRollback, actions, actions)
+	}
+
+	if !stateBefore && !stateAfter {
+		actions = append(actions, Action{
+			Kind: ActionKindError, Reason: "state_mismatch",
+			Detail: "statefile differs from both before and expected-after states",
+		})
+	} else if stateAfter && !pathsAfter {
+		actions = append(actions, Action{
+			Kind: ActionKindError, Reason: "state_mismatch",
+			Detail: "statefile is after apply but host paths are not clean_after",
+		})
+	}
+	if !claimsBefore && !claimsPrepared && !claimsAfter {
+		actions = append(actions, Action{Kind: ActionKindError, Reason: "claim_mismatch", Detail: "ownership claims differ from before, prepared, and expected-after phases"})
+	} else if stateBefore && !claimsRollbackEligible {
+		actions = append(actions, Action{Kind: ActionKindError, Reason: "claim_mismatch", Detail: "ownership claims cannot be rolled back from the observed phase"})
+	} else if stateAfter && !claimsFinalizeEligible {
+		actions = append(actions, Action{Kind: ActionKindError, Reason: "claim_mismatch", Detail: "ownership claims cannot be finalized from the observed phase"})
+	}
+
+	return newPlan(authority, ClassificationBlocked, actions, actions)
+}
+
+// AssessEntries derives only per-entry facts; the containing journal decides the
+// complete state, ownership, cleanup and retirement phase.
+func AssessEntries(entries []Entry, pathEvidence []PathEvidence, backupEvidence []BackupEvidence) (EntryAssessment, error) {
+	pathsByEntry, err := pathEvidenceIndex(pathEvidence)
+	if err != nil {
+		return EntryAssessment{}, err
+	}
+	backupsByPath, err := backupEvidenceIndex(backupEvidence)
+	if err != nil {
+		return EntryAssessment{}, err
+	}
+
 	pathsBefore := true
 	pathsAfter := true
 	pathsRecoverable := true
-	actions := make([]Action, 0, len(selection.indexes))
+	actions := make([]Action, 0, len(entries))
 
-	for _, entryIndex := range selection.indexes {
-		entry := authority.entries[entryIndex]
+	for _, entry := range entries {
+		if err := entry.validate(); err != nil {
+			return EntryAssessment{}, err
+		}
 		observation, ok := pathsByEntry[pathEvidenceKey{path: entry.destination.String(), contentPath: entry.contentPath}]
 		action := actionFromEntry(entry)
 		if !ok {
@@ -123,42 +178,7 @@ func Classify(
 		actions = append(actions, action)
 	}
 
-	if pathsBefore && stateBefore && claimsBefore {
-		return newPlan(authority, ClassificationCleanBefore,
-			[]Action{cleanupAction(authority.operationID, ClassificationCleanBefore)}, actions)
-	}
-	if pathsAfter && stateAfter && claimsAfter {
-		return newPlan(authority, ClassificationCleanAfter,
-			[]Action{cleanupAction(authority.operationID, ClassificationCleanAfter)}, actions)
-	}
-	if pathsAfter && stateAfter && claimsFinalizeEligible && !claimsAfter {
-		return newPlan(authority, ClassificationNeedsFinalize,
-			[]Action{{Kind: ActionKindFinalizeClaims, Reason: string(ClassificationNeedsFinalize), Destination: authority.operationID}}, actions)
-	}
-	if pathsRecoverable && stateBefore && claimsRollbackEligible {
-		return newPlan(authority, ClassificationNeedsRollback, actions, actions)
-	}
-
-	if !stateBefore && !stateAfter {
-		actions = append(actions, Action{
-			Kind: ActionKindError, Reason: "state_mismatch",
-			Detail: "statefile differs from both before and expected-after states",
-		})
-	} else if stateAfter && !pathsAfter {
-		actions = append(actions, Action{
-			Kind: ActionKindError, Reason: "state_mismatch",
-			Detail: "statefile is after apply but host paths are not clean_after",
-		})
-	}
-	if !claimsBefore && !claimsPrepared && !claimsAfter {
-		actions = append(actions, Action{Kind: ActionKindError, Reason: "claim_mismatch", Detail: "ownership claims differ from before, prepared, and expected-after phases"})
-	} else if stateBefore && !claimsRollbackEligible {
-		actions = append(actions, Action{Kind: ActionKindError, Reason: "claim_mismatch", Detail: "ownership claims cannot be rolled back from the observed phase"})
-	} else if stateAfter && !claimsFinalizeEligible {
-		actions = append(actions, Action{Kind: ActionKindError, Reason: "claim_mismatch", Detail: "ownership claims cannot be finalized from the observed phase"})
-	}
-
-	return newPlan(authority, ClassificationBlocked, actions, actions)
+	return EntryAssessment{before: pathsBefore, expected: pathsAfter, recoverable: pathsRecoverable, actions: actions, initialized: true}, nil
 }
 
 func newPlan(
