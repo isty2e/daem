@@ -18,7 +18,7 @@ type ordinaryWriterAddress struct {
 	destination output.Destination
 }
 
-func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, namespaces []NativeDocumentNamespace, manifest nativeDocumentRootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *recovery.PhysicalWorkBudget) error {
+func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, namespaces []NativeDocumentNamespace, manifest nativeDocumentRootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *recovery.PhysicalWorkBudget, protected []string) error {
 	var paths []documentWriterPath
 	appendObservation := func(observation mutation.DirectoryEntryAuthorityObservation, group int) error {
 		if err := observation.Validate(); err != nil {
@@ -92,6 +92,13 @@ func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, na
 		if err := appendObservation(observation, -1); err != nil {
 			return err
 		}
+	}
+	for index, path := range protected {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		volume, components := recoveryFilesystemPathComponents(path)
+		paths = append(paths, documentWriterPath{volume, components, -2 - index})
 	}
 	return validateDocumentWriterPaths(ctx, paths)
 }

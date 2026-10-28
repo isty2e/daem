@@ -39,8 +39,8 @@ func (journal nativeJournalSnapshots) stageMixedDocumentJournal(ctx context.Cont
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if len(journal.record.DocumentGroups) == 0 || len(journal.record.Entries) != 0 || len(journal.record.ClaimTransitions) != 0 || len(journal.record.ProvisionalAcquires) != 0 || len(journal.record.RemovalIntents) != 0 {
-		return "", fmt.Errorf("mixed staging requires native groups and ordinary facts from the ordinary builder only")
+	if len(journal.record.Entries) != 0 || len(journal.record.ClaimTransitions) != 0 || len(journal.record.ProvisionalAcquires) != 0 || len(journal.record.RemovalIntents) != 0 {
+		return "", fmt.Errorf("mixed staging requires ordinary facts from the ordinary builder only")
 	}
 	createdAt, err := time.Parse(time.RFC3339, journal.record.CreatedAt)
 	if err != nil || !isSafeRecoveryOperationID(journal.record.OperationID) || journal.record.Operation != recoveryOperationApply {

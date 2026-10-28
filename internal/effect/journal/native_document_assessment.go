@@ -13,6 +13,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -23,6 +24,9 @@ type nativeDocumentRecoveryReadOptions struct {
 	roots     NativeDocumentRoots
 	state     durable.SnapshotReader
 	registry  ownershipmutation.RegistryReader
+	directory string
+	active    ActiveJournalAuthority
+	resolver  func(output.Destination) (string, error)
 }
 
 type nativeDocumentDisposition string
@@ -42,17 +46,22 @@ type nativeDocumentRecoveryStage struct {
 	expected    bool
 }
 
-// This assessment covers all document groups, not ordinary entries, selection,
-// removal, leases or whole-envelope retirement. It grants no execution authority.
+// This assessment joins ordinary entries and all document groups with one state
+// and ownership phase. It grants no execution or retirement authority.
 type nativeDocumentAssessment struct {
-	qualified   nativeQualifiedDocumentRecords
-	state       durable.Snapshot
-	registry    ownership.Registry
-	stages      []nativeDocumentRecoveryStage
-	disposition nativeDocumentDisposition
-	rollback    ownership.ClaimConvergence
-	finalize    ownership.ClaimConvergence
-	bindings    ownership.DocumentBindingConvergence
+	qualified        nativeQualifiedDocumentRecords
+	state            durable.Snapshot
+	registry         ownership.Registry
+	stages           []nativeDocumentRecoveryStage
+	disposition      nativeDocumentDisposition
+	rollback         ownership.ClaimConvergence
+	finalize         ownership.ClaimConvergence
+	bindings         ownership.DocumentBindingConvergence
+	ordinary         nativeOrdinaryAssessment
+	missingHistory   []pathauthority.Provisional
+	expectedRemovals []ownership.Claim
+	preparation      ownership.ClaimConvergence
+	claimsReady      bool
 }
 
 func (journal nativeJournalSnapshots) assessDocumentRecovery(ctx context.Context, options nativeDocumentRecoveryReadOptions) (nativeDocumentAssessment, error) {
@@ -72,7 +81,16 @@ func (journal nativeJournalSnapshots) assessDocumentRecovery(ctx context.Context
 		return nativeDocumentAssessment{}, fmt.Errorf("native recovery state differs from both recorded Snapshots")
 	}
 
-	rollback, finalize, err := nativeDocumentClaimConvergences(ctx, qualified.records.claims)
+	independent, err := canonicalClaimTransitions(journal.record.ClaimTransitions)
+	if err != nil {
+		return nativeDocumentAssessment{}, err
+	}
+	for _, transition := range independent {
+		if !transition.Owner().Equal(journal.owner) {
+			return nativeDocumentAssessment{}, fmt.Errorf("ordinary claim transition has another journal owner")
+		}
+	}
+	preparation, rollback, finalize, err := nativeDocumentClaimConvergences(ctx, qualified.records.claims, independent)
 	if err != nil {
 		return nativeDocumentAssessment{}, err
 	}
@@ -92,7 +110,7 @@ func (journal nativeJournalSnapshots) assessDocumentRecovery(ctx context.Context
 		if !supported {
 			return nativeDocumentAssessment{}, fmt.Errorf("missing native history requires a document-qualified registry reader")
 		}
-		registry, err = reader.LoadForDocuments(ctx, journal.owner, missingHistory, recovery.MaximumPhysicalPathDepth, options.documents.budget)
+		registry, err = reader.LoadForDocuments(ctx, journal.owner, missingHistory, removals, recovery.MaximumPhysicalPathDepth, options.documents.budget)
 	}
 	if err != nil {
 		return nativeDocumentAssessment{}, fmt.Errorf("observe native recovery registry: %w", err)
@@ -100,7 +118,7 @@ func (journal nativeJournalSnapshots) assessDocumentRecovery(ctx context.Context
 	if err := validateNativeProvisionalRegistry(ctx, qualified, registry); err != nil {
 		return nativeDocumentAssessment{}, err
 	}
-	claimsReady := true
+	claimsReady := len(journal.record.ProvisionalAcquires) == 0
 	for _, pending := range qualified.records.provisional {
 		if err := ctx.Err(); err != nil {
 			return nativeDocumentAssessment{}, err
@@ -113,7 +131,11 @@ func (journal nativeJournalSnapshots) assessDocumentRecovery(ctx context.Context
 	if err != nil {
 		return nativeDocumentAssessment{}, err
 	}
-	if before && after && (!metadata.unchanged || !nativeDocumentClaimsUnchanged(qualified.records.claims) || !metadata.ready || !claimsReady) {
+	ordinary, err := journal.assessOrdinaryRecovery(ctx, options, registry)
+	if err != nil {
+		return nativeDocumentAssessment{}, err
+	}
+	if before && after && (!ordinaryClaimsUnchanged(independent) || !metadata.unchanged || !nativeDocumentClaimsUnchanged(qualified.records.claims) || !metadata.ready || !claimsReady) {
 		return nativeDocumentAssessment{}, fmt.Errorf("equal native Snapshots retain nontrivial document metadata work")
 	}
 
@@ -122,7 +144,7 @@ func (journal nativeJournalSnapshots) assessDocumentRecovery(ctx context.Context
 		return nativeDocumentAssessment{}, err
 	}
 	stages := make([]nativeDocumentRecoveryStage, 0, len(qualified.records.groups))
-	allBefore, allExpected := true, true
+	allBefore, allExpected := ordinary.entries.MatchesBefore(), ordinary.entries.MatchesExpected()
 	for index, group := range qualified.records.groups {
 		if err := ctx.Err(); err != nil {
 			return nativeDocumentAssessment{}, err
@@ -159,7 +181,7 @@ func (journal nativeJournalSnapshots) assessDocumentRecovery(ctx context.Context
 		stages = append(stages, nativeDocumentRecoveryStage{current: current, mode: mode, identity: identity, restoration: restoration, expected: match.MatchesExpected()})
 	}
 
-	result := nativeDocumentAssessment{qualified: qualified, state: state, registry: registry, stages: stages, rollback: rollback, finalize: finalize, bindings: metadata.convergence}
+	result := nativeDocumentAssessment{qualified: qualified, state: state, registry: registry, stages: stages, rollback: rollback, finalize: finalize, bindings: metadata.convergence, preparation: preparation, claimsReady: claimsReady, ordinary: ordinary, missingHistory: missingHistory, expectedRemovals: removals}
 	switch {
 	case after && allExpected && claimsReady && metadata.ready && finalizeErr == nil:
 		result.disposition = nativeDocumentsAfter
@@ -208,35 +230,55 @@ func readNativeRecoveryDocument(ctx context.Context, namespace NativeDocumentNam
 	return aggregate.ExistingDocument(content), recovery.NewPermissionMode(mode), identity, nil
 }
 
-func nativeDocumentClaimConvergences(ctx context.Context, transitions []ownershipmutation.DocumentClaimTransition) (ownership.ClaimConvergence, ownership.ClaimConvergence, error) {
-	var rollback, finalize []ownership.DocumentClaimChange
+func nativeDocumentClaimConvergences(ctx context.Context, transitions []ownershipmutation.DocumentClaimTransition, independent []ownershipmutation.ClaimTransition) (ownership.ClaimConvergence, ownership.ClaimConvergence, ownership.ClaimConvergence, error) {
+	set, err := ownershipmutation.NewClaimTransitionSet(independent)
+	if err != nil {
+		return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
+	}
+	prepared, err := set.Preparation()
+	if err != nil {
+		return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
+	}
+	before, err := set.Rollback()
+	if err != nil {
+		return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
+	}
+	after, err := set.Finalization()
+	if err != nil {
+		return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
+	}
+	var prepareChanges, rollbackChanges, finalizeChanges []ownership.DocumentClaimChange
 	for _, transition := range transitions {
 		if err := ctx.Err(); err != nil {
-			return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
+			return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
 		}
 		if len(transition.Before()) == 0 && len(transition.After()) == 0 {
 			continue
 		}
-		before, err := transition.Rollback()
+		prepare, err := transition.Preparation()
 		if err != nil {
-			return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
+			return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
 		}
-		after, err := transition.Finalization()
+		rollback, err := transition.Rollback()
 		if err != nil {
-			return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
+			return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
 		}
-		rollback, finalize = append(rollback, before), append(finalize, after)
+		finalize, err := transition.Finalization()
+		if err != nil {
+			return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
+		}
+		prepareChanges, rollbackChanges, finalizeChanges = append(prepareChanges, prepare), append(rollbackChanges, rollback), append(finalizeChanges, finalize)
 	}
-	empty, err := ownership.NewClaimConvergence(nil)
+	prepared, err = prepared.WithDocumentChanges(prepareChanges)
 	if err != nil {
-		return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
+		return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
 	}
-	before, err := empty.WithDocumentChanges(rollback)
+	before, err = before.WithDocumentChanges(rollbackChanges)
 	if err != nil {
-		return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
+		return ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, ownership.ClaimConvergence{}, err
 	}
-	after, err := empty.WithDocumentChanges(finalize)
-	return before, after, err
+	after, err = after.WithDocumentChanges(finalizeChanges)
+	return prepared, before, after, err
 }
 
 type nativeDocumentBindingPhase struct {
@@ -294,6 +336,15 @@ func nativeDocumentClaimsUnchanged(transitions []ownershipmutation.DocumentClaim
 	left, leftErr := ownership.NewRegistry(before)
 	right, rightErr := ownership.NewRegistry(after)
 	return leftErr == nil && rightErr == nil && left.Equal(right)
+}
+
+func ordinaryClaimsUnchanged(transitions []ownershipmutation.ClaimTransition) bool {
+	for _, transition := range transitions {
+		if !transition.Before().Equal(transition.Prepared()) || !transition.Before().Equal(transition.After()) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateNativeProvisionalRegistry(ctx context.Context, qualified nativeQualifiedDocumentRecords, registry ownership.Registry) error {

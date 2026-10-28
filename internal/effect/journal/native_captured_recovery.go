@@ -17,7 +17,7 @@ func (captured CapturedNativeJournal) OpenRecovery(ctx context.Context, codec du
 	if err := captured.Validate(); err != nil {
 		return nil, err
 	}
-	if codec == nil || len(captured.qualified.namespaces) == 0 {
+	if codec == nil || captured.publication.roots.Manifest.Root == nil {
 		return nil, fmt.Errorf("captured native recovery requires its selected codec and roots")
 	}
 	reader, ok := options.Filesystem.(mutationfs.Reader)
@@ -42,11 +42,12 @@ func (captured CapturedNativeJournal) OpenRecovery(ctx context.Context, codec du
 	qualified := assessment.assessment.qualified
 	observed := assessment.assessment
 	observed.qualified = nativeQualifiedDocumentRecords{records: qualified.records}
-	roots := captured.qualified.namespaces[0].roots
+	plan := NativeRecoveryPlan{journal: captured.journal, capture: captured.capture, active: captured.active, inventory: inv, assessment: observed}
 	return &NativeRecoveryOperation{
-		plan:    NativeRecoveryPlan{journal: captured.journal, capture: captured.capture, active: captured.active, inventory: inv, assessment: observed},
-		profile: NativeRecoveryProfile{StateCodec: codec, Codecs: options.Codecs, Limits: captured.qualified.records.groups[0].comparison.limits, Budget: captured.budget},
-		roots:   roots, qualified: qualified, capturedRemovalReservations: true,
+		plan:    plan,
+		profile: NativeRecoveryProfile{StateCodec: codec, Codecs: options.Codecs, Limits: captured.publication.limits, Budget: captured.budget},
+		roots:   captured.publication.roots, qualified: qualified, capturedRemovalReservations: true,
+		resolver: captured.publication.resolver, ordinaryCapabilities: captured.publication.ordinaryCapabilities,
 	}, nil
 }
 

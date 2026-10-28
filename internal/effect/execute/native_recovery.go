@@ -16,9 +16,11 @@ import (
 )
 
 const (
-	nativeRecoveryMetadataReference   = "native-recovery/metadata"
-	nativeRecoveryCleanupReference    = "native-recovery/removal-cleanup"
-	nativeRecoveryRetirementReference = "native-recovery/journal-retirement"
+	nativeRecoveryMetadataReference        = "native-recovery/metadata"
+	nativeRecoveryCleanupReference         = "native-recovery/removal-cleanup"
+	nativeRecoveryRetirementReference      = "native-recovery/journal-retirement"
+	nativeRecoveryOrdinaryReference        = "native-recovery/ordinary"
+	nativeRecoveryOrdinaryCleanupReference = "native-recovery/ordinary-cleanup"
 )
 
 // ExecuteNativeRecovery reopens the exact disclosed native16 operation. The
@@ -61,7 +63,9 @@ func ExecuteNativeRecovery(ctx context.Context, plan journal.NativeRecoveryPlan,
 
 func executeNativeRecoveryOperation(ctx context.Context, operation *journal.NativeRecoveryOperation, authority *mutationAuthority, store ownershipmutation.RegistryStore, options RecoveryOptions, retiring *journal.NativeJournalRetirement, prepared operationplan.EffectStructure) (resultErr error) {
 	budget, plan := operation.Budget(), operation.Plan()
-	var err error
+	if plan.HasErrors() {
+		return fmt.Errorf("joint recovery has blocked or unavailable cleanup evidence")
+	}
 	for _, group := range plan.DocumentAliases() {
 		for _, alias := range group {
 			path, err := options.Resolver(alias.AggregateRoot())
@@ -74,12 +78,32 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 			}
 		}
 	}
+	requests, err := operation.OrdinaryPhysicalAuthorityRequests()
+	if err != nil {
+		return err
+	}
+	for _, request := range requests {
+		if !slices.Contains(authority.physicalAuthorityRequests, request) {
+			authority.physicalAuthorityRequests = append(authority.physicalAuthorityRequests, request)
+		}
+	}
 	initial := operation.InitialAssessment()
 	if !initial.CleanBefore() && !initial.CleanAfter() && !initial.RequiresRollback() && !initial.RequiresFinalization() {
 		return fmt.Errorf("native recovery has no admitted execution phase")
 	}
 	stateReader := func(ctx context.Context) (durable.Snapshot, error) {
 		return authority.readNativeState(ctx, operation.StateCodec(), budget)
+	}
+	semanticGuard := func(ctx context.Context) error {
+		state, err := stateReader(ctx)
+		if err != nil || !state.Equal(operation.ObservedState()) {
+			return errors.Join(fmt.Errorf("joint recovery state changed before restoration"), err)
+		}
+		registry, err := nativeRecoveryRegistry(ctx, operation, initial, store)
+		if err != nil || !registry.Equal(operation.ObservedRegistry()) {
+			return errors.Join(fmt.Errorf("joint recovery Registry changed before restoration"), err)
+		}
+		return nil
 	}
 	observe := func() (journal.NativeRecoveryAssessment, error) {
 		state, err := stateReader(ctx)
@@ -99,9 +123,18 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 	if err := beforeEffect(); err != nil {
 		return err
 	}
-	if err := prepareNativeRecoveryRemovals(ctx, authority, operation); err != nil {
+	hostActions, err := recoveryHostActionsFor(plan.OrdinaryActions())
+	if err != nil {
 		return err
 	}
+	if err := prepareNativeRecoveryRemovals(ctx, authority, operation, hostActions); err != nil {
+		return err
+	}
+	ordinary, err := prepareNativeOrdinaryRecovery(ctx, authority, operation, hostActions)
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, ordinary.cleanup(context.WithoutCancel(ctx), authority)) }()
 	if retiring == nil {
 		retiring, err = operation.PrepareRetirement(ctx, options.Filesystem)
 	}
@@ -126,6 +159,11 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		if err != nil {
 			return err
 		}
+		if len(ordinary.actions) != 0 {
+			if err := budget.ConcludeCleanupLifecycle(); err != nil {
+				return err
+			}
+		}
 		return afterEffect()
 	}}}
 	if initial.RequiresRollback() {
@@ -142,13 +180,8 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 						return err
 					}
 				}
-				currentState, err := stateReader(ctx)
-				if err != nil || !currentState.Equal(operation.ObservedState()) {
-					return errors.Join(fmt.Errorf("native recovery state changed before restoration"), err)
-				}
-				currentRegistry, err := store.LoadForClaimRemovals(ctx, nil, recovery.MaximumPhysicalPathDepth, budget)
-				if err != nil || !currentRegistry.Equal(operation.ObservedRegistry()) {
-					return errors.Join(fmt.Errorf("native recovery Registry changed before restoration"), err)
+				if err := semanticGuard(ctx); err != nil {
+					return err
 				}
 				destination, err := nativeRecoveryDestination(ctx, document, budget)
 				if err != nil {
@@ -163,7 +196,29 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 			}})
 		}
 	}
-	steps = append(steps, nativeRecoveryStep{name: "native-recovery/metadata", kind: operationplan.EffectStepPersistence, run: func() error {
+	if len(ordinary.actions) != 0 {
+		steps = append(steps, nativeRecoveryStep{name: nativeRecoveryOrdinaryReference, kind: operationplan.EffectStepPersistence, run: func() error {
+			if err := authority.beginJointGeneralRecoveryExecution(); err != nil {
+				return err
+			}
+			gate := visibilityEffectGate{before: func(ctx context.Context) error {
+				if err := beforeEffect(); err != nil {
+					return err
+				}
+				if options.ValidateVisibilityAuthority != nil {
+					if err := options.ValidateVisibilityAuthority(ctx); err != nil {
+						return err
+					}
+				}
+				return semanticGuard(ctx)
+			}, after: options.AcceptVisibilityChanges}
+			return ordinary.execute(ctx, authority, operation, store, semanticGuard, gate)
+		}})
+		steps = append(steps, nativeRecoveryStep{name: nativeRecoveryOrdinaryCleanupReference, kind: operationplan.EffectStepCleanup, run: func() error {
+			return ordinary.cleanup(context.WithoutCancel(ctx), authority)
+		}})
+	}
+	steps = append(steps, nativeRecoveryStep{name: nativeRecoveryMetadataReference, kind: operationplan.EffectStepPersistence, run: func() error {
 		if err := beforeEffect(); err != nil {
 			return err
 		}
@@ -173,9 +228,9 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		}
 		switch {
 		case assessment.RequiresRollback(), assessment.CleanBefore():
-			_, err = store.ConvergeRegistry(ctx, assessment.RollbackClaims(), emptyBindings)
+			err = convergeNativeRecoveryRegistry(ctx, operation, assessment, store, assessment.RollbackClaims(), emptyBindings)
 		case assessment.RequiresFinalization(), assessment.CleanAfter():
-			_, err = store.ConvergeRegistry(ctx, assessment.FinalizeClaims(), assessment.FinalizeBindings())
+			err = convergeNativeRecoveryRegistry(ctx, operation, assessment, store, assessment.FinalizeClaims(), assessment.FinalizeBindings())
 		default:
 			return fmt.Errorf("native recovery metadata phase changed")
 		}
@@ -185,18 +240,15 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		return afterEffect()
 	}})
 	steps = append(steps, nativeRecoveryStep{name: nativeRecoveryRetirementReference, kind: operationplan.EffectStepRetirement, run: func() error {
-		// Admitted restorations preserve the cleaned private slots: rooted removal
-		// returns success only after discharging its own residue, and other document
-		// writes never enter those slots. Retain that proof until retirement.
 		if !plan.CleanupReady(discharged) {
-			return fmt.Errorf("native removal cleanup obligations are not discharged")
+			return fmt.Errorf("joint removal cleanup obligations are not discharged")
 		}
 		assessment, err := observe()
 		if err != nil {
 			return err
 		}
 		if !assessment.CleanBefore() && !assessment.CleanAfter() {
-			return fmt.Errorf("native recovery is not clean enough to retire")
+			return fmt.Errorf("joint recovery is not clean enough to retire")
 		}
 		structure, err := compileActiveJournalRetirementStructure()
 		if err != nil {
@@ -278,6 +330,17 @@ func compileNativeRecoverySchedule(operation *journal.NativeRecoveryOperation) (
 				steps = append(steps, nativeRecoveryStep{name: fmt.Sprintf("native-recovery/document/%d", index), kind: operationplan.EffectStepPersistence})
 			}
 		}
+	}
+	hostActions, err := recoveryHostActionsFor(operation.Plan().OrdinaryActions())
+	if err != nil {
+		return operationplan.EffectStructure{}, err
+	}
+	if len(hostActions) != 0 {
+		steps = append(
+			steps,
+			nativeRecoveryStep{name: nativeRecoveryOrdinaryReference, kind: operationplan.EffectStepPersistence},
+			nativeRecoveryStep{name: nativeRecoveryOrdinaryCleanupReference, kind: operationplan.EffectStepCleanup},
+		)
 	}
 	steps = append(steps, nativeRecoveryStep{name: nativeRecoveryMetadataReference, kind: operationplan.EffectStepPersistence}, nativeRecoveryStep{name: nativeRecoveryRetirementReference, kind: operationplan.EffectStepRetirement})
 	return compileNativeRecoverySteps(steps)

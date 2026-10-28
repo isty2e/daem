@@ -153,7 +153,8 @@ func (store *nativeRecoveryStore) ReplaceRootedFileAndRefreshParent(ctx context.
 		return mutationfs.CommitOutcome{}, nil, err
 	}
 	outcome, parent, err := store.Adapter.ReplaceRootedFileAndRefreshParent(ctx, capability, content, mode, expected, expectedParent)
-	if err != nil || filepath.Base(path) != "journal.json" || store.boundary != "promotion" && store.boundary != "return-promotion-error" {
+	ordinary := store.boundary == "ordinary-promotion" || store.boundary == "return-ordinary-promotion-error"
+	if err != nil || filepath.Base(path) != "journal.json" || !ordinary && store.boundary != "promotion" && store.boundary != "return-promotion-error" {
 		return outcome, parent, err
 	}
 
@@ -167,6 +168,23 @@ func (store *nativeRecoveryStore) ReplaceRootedFileAndRefreshParent(ctx context.
 	}
 	if !bytes.Equal(actual, content) || info.Mode().Perm() != mode.Perm() || outcome.State() != mutationfs.CommitOutcomeComplete || parent == nil {
 		return outcome, parent, errors.New("native recovery fixture: group promotion was not confirmed")
+	}
+	if ordinary {
+		var record struct {
+			Pending []json.RawMessage `json:"provisional_acquires"`
+			Entries []json.RawMessage `json:"entries"`
+		}
+		if err := json.Unmarshal(actual, &record); err != nil {
+			return outcome, parent, err
+		}
+		if len(record.Pending) != 0 || len(record.Entries) == 0 {
+			return outcome, parent, nil
+		}
+		fmt.Fprintln(os.Stderr, "native recovery confirmed ordinary promotion")
+		if store.boundary == "ordinary-promotion" {
+			os.Exit(nativeRecoveryExit)
+		}
+		return outcome, parent, errors.New("native recovery fixture: returned ordinary promotion error")
 	}
 	fmt.Fprintln(os.Stderr, "native recovery confirmed group promotion")
 	if store.boundary == "promotion" {

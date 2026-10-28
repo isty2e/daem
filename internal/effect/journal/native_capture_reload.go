@@ -57,7 +57,7 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	}
 	qualified, err := journal.loadQualifiedDocuments(ctx, nativeDocumentReadOptions{
 		artifacts: root, filesystem: options.Filesystem, budget: batch.budget, limits: batch.limits,
-		codecs: options.Codecs, ordinaryCapabilities: options.RootedCapability,
+		codecs: options.Codecs, ordinaryCapabilities: batch.ordinaryCapabilities,
 	}, batch.roots)
 	if err != nil {
 		return CapturedNativeJournal{}, err
@@ -68,9 +68,16 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	if err := ValidateActiveJournalAuthority(ctx, options.Filesystem, options.OperationAuthority, active.physicalAuthority); err != nil {
 		return CapturedNativeJournal{}, err
 	}
+	if _, _, err := journal.ordinaryBackups(ctx, directory, active.physicalAuthority, options.Filesystem, batch.budget); err != nil {
+		return CapturedNativeJournal{}, err
+	}
+	capture := CaptureResult{OperationID: operationID, Directory: directory, JournalPath: filepath.Join(directory, recoveryJournalFileName), RecordFingerprint: fingerprint}
+	if err := validateNativeActive(ctx, capture, active.physicalAuthority, options.Filesystem, options.OperationAuthority, batch.budget); err != nil {
+		return CapturedNativeJournal{}, err
+	}
 	return CapturedNativeJournal{
-		capture: CaptureResult{OperationID: operationID, Directory: directory, JournalPath: filepath.Join(directory, recoveryJournalFileName), RecordFingerprint: fingerprint},
-		journal: journal, qualified: qualified, active: active.physicalAuthority, budget: batch.budget, initialized: true,
+		capture: capture,
+		journal: journal, qualified: qualified, active: active.physicalAuthority, budget: batch.budget, publication: batch, initialized: true,
 	}, nil
 }
 

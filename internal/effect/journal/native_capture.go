@@ -56,7 +56,7 @@ func CaptureNativeJournalWithOptions(
 	edits []compose.ProjectionEdit,
 	options NativeCaptureOptions,
 ) (result CapturedNativeJournal, resultErr error) {
-	if ctx == nil || !batch.initialized || len(batch.namespaces) == 0 || options.OperationAuthority == nil || options.Filesystem == nil || options.StateCodec == nil {
+	if ctx == nil || !batch.initialized || options.OperationAuthority == nil || options.Filesystem == nil || options.StateCodec == nil {
 		return CapturedNativeJournal{}, fmt.Errorf("native capture requires context, live observations, selected publication authority, filesystem and state codec")
 	}
 	var outcome mutationfs.CommitOutcome
@@ -74,8 +74,9 @@ func CaptureNativeJournalWithOptions(
 	if err := errors.Join(ctx.Err(), batch.budget.RequireCapturePending()); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if len(options.ManagedPathMutations)+len(options.ManagedAggregateMutations)+len(options.ClaimTransitions)+len(options.ProvisionalAcquires) != 0 || options.RemovalDemands.Len() != 0 {
-		return CapturedNativeJournal{}, fmt.Errorf("mixed ordinary capture requires cumulative source-build budget integration")
+	mutations, err := pathMutations(options.ManagedPathMutations, options.ManagedAggregateMutations, options.ManagedPathEvidence)
+	if err != nil {
+		return CapturedNativeJournal{}, err
 	}
 	for _, order := range options.OrderObservations {
 		if err := order.Validate(); err != nil {
@@ -94,7 +95,7 @@ func CaptureNativeJournalWithOptions(
 	if err := validateNativeCaptureContext(ctx, paths, batch, options.CaptureOptions); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if err := validateNativeCaptureWork(batch.before, after, edits); err != nil {
+	if err := validateNativeCaptureWork(batch.before, after, edits, mutations); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	if err := ensureNoActive(ctx, paths.RecoveryDir, inventoryOptions{
@@ -102,7 +103,6 @@ func CaptureNativeJournalWithOptions(
 	}); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	var err error
 	directory, err = mutation.CanonicalDirectoryEntryPathBounded(filepath.Join(paths.RecoveryDir, operationID), recovery.MaximumPhysicalPathDepth, batch.budget)
 	if err != nil {
 		return CapturedNativeJournal{}, err
@@ -120,23 +120,31 @@ func CaptureNativeJournalWithOptions(
 	if err := validateOperationCapabilityPath(capability, directory); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if err := validateNativePublicationPartition(ctx, directory, batch); err != nil {
-		return CapturedNativeJournal{}, err
-	}
-	journal, comparisons, err := prepareNativeCapture(ctx, operationID, createdAt, batch, after, edits)
+	members, err := batch.captureMembers(ctx, after)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	roots := batch.namespaces[0].roots
+	if err := validateNativePublicationPartition(ctx, directory, members, mutations, options.Resolver); err != nil {
+		return CapturedNativeJournal{}, err
+	}
+	journal, comparisons, err := prepareNativeCapture(ctx, operationID, createdAt, members, after, edits, options.RemovalDemands)
+	if err != nil {
+		return CapturedNativeJournal{}, err
+	}
+	roots := batch.roots
 	options.ManifestRoot = roots.Manifest.Root
 	stageOptions := nativeDocumentStageOptions{stateCodec: options.StateCodec, codecs: options.Codecs, limits: batch.limits, budget: batch.budget}
 	var fingerprint string
 	prepared, err := options.Filesystem.PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
-		if err := writer.SetRootMode(retirement.DirectoryMode); err != nil {
-			return err
-		}
 		var err error
-		fingerprint, err = journal.stageDocumentJournal(ctx, comparisons, writer, stageOptions)
+		if len(mutations)+len(options.ClaimTransitions)+len(options.ProvisionalAcquires) != 0 || options.RemovalDemands.Len() != 0 || len(journal.record.DocumentGroups) == 0 {
+			fingerprint, err = journal.stageMixedDocumentJournal(ctx, paths, options.CaptureOptions, comparisons, writer, nativeMixedStageOptions{nativeDocumentStageOptions: stageOptions, roots: roots})
+		} else {
+			if err := writer.SetRootMode(retirement.DirectoryMode); err != nil {
+				return err
+			}
+			fingerprint, err = journal.stageDocumentJournal(ctx, comparisons, writer, stageOptions)
+		}
 		return err
 	})
 	capabilityOpen = false // PrepareRootedTree consumes it on every outcome.
@@ -165,7 +173,7 @@ func CaptureNativeJournalWithOptions(
 	return result, nil
 }
 
-func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit) (nativeJournalSnapshots, []DocumentComparison, error) {
+func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, ordinary recovery.RemovalDemandSet) (nativeJournalSnapshots, []DocumentComparison, error) {
 	inputs, err := batch.prepareOwnership(ctx, after, operationID)
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
@@ -211,11 +219,15 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	if !work {
 		return nativeJournalSnapshots{}, nil, fmt.Errorf("native capture requires actual document or state work")
 	}
-	groups, comparisons, _, err := captureNativeDocumentCandidates(ctx, candidates, recovery.RemovalDemandSet{}, batch.budget)
+	groups, comparisons, _, err := captureNativeDocumentCandidates(ctx, candidates, ordinary, batch.budget)
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
 	}
-	manifest := persistedNativeRoot(candidates[0].manifest.provenance)
+	grant, err := batch.manifest(ctx)
+	if err != nil {
+		return nativeJournalSnapshots{}, nil, err
+	}
+	manifest := persistedNativeRoot(grant.provenance)
 	record := nativeJournalRecord{
 		Version: nativeRecoveryJournalVersion, Operation: recoveryOperationApply, OperationID: operationID, CreatedAt: createdAt.UTC().Format(time.RFC3339),
 		StateAuthority:         recoveryStateAuthority{StatefileAuthority: *persistedPathAuthority(batch.owner.StatefileAuthority()), ManifestPath: batch.owner.ManifestPath()},

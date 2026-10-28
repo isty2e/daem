@@ -106,13 +106,7 @@ func assessRetainedInputs(ctx context.Context, input readiness.Input, operation 
 			add(state.Contribution().Contract().Address().Document())
 		}
 	}
-	if len(aliases) == 0 {
-		if input.Lockfile.Version == lock.NativeVersion || before.ContainsHostConfig() {
-			input.Native = &readiness.NativeAssessmentInput{}
-		}
-		if operation != nil {
-			operation.native = input.Native
-		}
+	if len(aliases) == 0 && input.Lockfile.Version != lock.NativeVersion && !before.ContainsHostConfig() {
 		return readiness.Assess(ctx, input)
 	}
 
@@ -202,7 +196,12 @@ func assessRetainedInputs(ctx context.Context, input readiness.Input, operation 
 	if operation != nil {
 		operation.native = input.Native
 	}
-	return readiness.Assess(ctx, input)
+	result, err = readiness.Assess(ctx, input)
+	if err != nil {
+		return readiness.Assessment{}, err
+	}
+	result.NativeApproval, err = documents.ApprovalEvidence()
+	return result, err
 }
 
 type observedRegistry struct {
@@ -218,12 +217,12 @@ func (reader *observedRegistry) LoadForClaimRemovals(ctx context.Context, claims
 	return registry, err
 }
 
-func (reader *observedRegistry) LoadForDocuments(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, depth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
+func (reader *observedRegistry) LoadForDocuments(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, removals []ownership.Claim, depth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
 	qualified, ok := reader.RegistryReader.(ownershipmutation.DocumentRegistryReader)
 	if !ok {
 		return ownership.Registry{}, fmt.Errorf("selected Registry reader cannot qualify missing native history")
 	}
-	registry, err := qualified.LoadForDocuments(ctx, owner, missing, depth, budget)
+	registry, err := qualified.LoadForDocuments(ctx, owner, missing, removals, depth, budget)
 	if err == nil {
 		reader.actual = registry
 	}

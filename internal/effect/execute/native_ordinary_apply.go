@@ -1,0 +1,73 @@
+package execute
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/target"
+)
+
+type nativeOrdinaryApply struct {
+	managedMutations   []journal.ManagedPathMutation
+	aggregateMutations []journal.ManagedAggregateMutation
+	demands            recovery.RemovalDemandSet
+	managedSchedule    managedPathExecutionSchedule
+	ownership          ownershipMutationState
+}
+
+func nativeOrdinaryApplyFor(input NativeApplyInput, work nativeApplyWork, operationID string) (nativeOrdinaryApply, error) {
+	managed, err := ManagedPathJournalMutations(work.managed)
+	if err != nil {
+		return nativeOrdinaryApply{}, err
+	}
+	aggregates, err := aggregateJournalMutations(work.ordinaryAggregates)
+	if err != nil {
+		return nativeOrdinaryApply{}, err
+	}
+	demands, err := removalDemandSetForExecution(work.managed, work.ordinaryAggregates, input.ManagedPathEvidence)
+	if err != nil {
+		return nativeOrdinaryApply{}, err
+	}
+	schedule, err := newManagedPathExecutionSchedule(work.managed)
+	if err != nil {
+		return nativeOrdinaryApply{}, err
+	}
+	managedOwnership, err := ownershipPlanForManagedPathEffects(work.managed, input.Owner, input.Ownership, operationID)
+	if err != nil {
+		return nativeOrdinaryApply{}, err
+	}
+	aggregateOwnership, err := ownershipPlanForAggregateEffects(work.ordinaryAggregates, input.Owner, input.Ownership, operationID)
+	if err != nil {
+		return nativeOrdinaryApply{}, err
+	}
+	return nativeOrdinaryApply{
+		managedMutations: managed, aggregateMutations: aggregates, demands: demands,
+		managedSchedule: schedule, ownership: newOwnershipMutationState(managedOwnership, aggregateOwnership),
+	}, nil
+}
+
+func bindNativeOrdinaryApply(ctx context.Context, input NativeApplyInput, work nativeApplyWork, authority *mutationAuthority) error {
+	for _, effect := range work.managed {
+		if err := authority.bindPhysicalAuthority(effect.Scope(), effect.Destination(), effect.ConsumerTargets()); err != nil {
+			return err
+		}
+		if previous, exists := effect.PreviousState(); exists && (previous.Scope() != effect.Scope() || previous.Destination() != effect.Destination()) {
+			if err := authority.bindPhysicalAuthority(previous.Scope(), previous.Destination(), previous.ConsumerTargets()); err != nil {
+				return err
+			}
+		}
+		if effect.Kind() == ManagedPathEffectCreate || effect.Kind() == ManagedPathEffectReplace {
+			if _, err := managedPathPayload(effect, input.Payloads); err != nil {
+				return fmt.Errorf("prepare joint managed payload: %w", err)
+			}
+		}
+	}
+	for _, effect := range work.ordinaryAggregates {
+		if err := authority.bindPhysicalAuthority(effect.Scope(), effect.Destination(), []target.Target{effect.Target()}); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}

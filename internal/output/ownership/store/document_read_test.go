@@ -129,7 +129,7 @@ func TestDocumentRegistryReadKeepsStoredMissingHistoryScopedAndReadOnly(t *testi
 			if fault == "default read" {
 				loaded, readErr = store.Load(ctx)
 			} else {
-				loaded, readErr = store.LoadForDocuments(ctx, selectedOwner, namespaces, recovery.MaximumPhysicalPathDepth, selectedBudget)
+				loaded, readErr = store.LoadForDocuments(ctx, selectedOwner, namespaces, nil, recovery.MaximumPhysicalPathDepth, selectedBudget)
 			}
 			if fault == "none" {
 				if readErr != nil || !loaded.Equal(registry) {

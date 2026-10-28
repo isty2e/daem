@@ -15,12 +15,12 @@ var _ ownershipmutation.DocumentRegistryReader = Store{}
 
 // LoadForDocuments preserves actual owned claim records when a missing document
 // retains their exact comparison key and witness. Other authorities remain strict.
-func (store Store) LoadForDocuments(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, maximumPhysicalDepth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
+func (store Store) LoadForDocuments(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, removals []ownership.Claim, maximumPhysicalDepth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
 	observations, err := newDocumentPathAuthorityObservationSession(ctx, owner, missing, maximumPhysicalDepth, budget)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
-	return store.load(ctx, nil, observations)
+	return store.load(ctx, removals, observations)
 }
 
 func newDocumentPathAuthorityObservationSession(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, maximumPhysicalDepth int, budget rootedpath.PhysicalTraversalBudget) (*pathAuthorityObservationSession, error) {

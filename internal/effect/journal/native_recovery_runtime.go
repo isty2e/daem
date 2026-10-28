@@ -10,16 +10,19 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
 type nativeRecoveryBasis struct {
-	capture CaptureResult
-	active  ActiveJournalAuthority
-	journal nativeJournalSnapshots
-	roots   NativeDocumentRoots
-	limits  configdocument.Limits
-	budget  *recovery.PhysicalWorkBudget
+	capture              CaptureResult
+	active               ActiveJournalAuthority
+	journal              nativeJournalSnapshots
+	roots                NativeDocumentRoots
+	limits               configdocument.Limits
+	budget               *recovery.PhysicalWorkBudget
+	resolver             func(output.Destination) (string, error)
+	ordinaryCapabilities RootedCapabilityResolver
 }
 
 func (operation *NativeRecoveryOperation) InitialAssessment() NativeRecoveryAssessment {
@@ -38,7 +41,7 @@ func (operation *NativeRecoveryOperation) ObservedRegistry() ownership.Registry 
 }
 
 func (operation *NativeRecoveryOperation) basis() nativeRecoveryBasis {
-	return nativeRecoveryBasis{capture: operation.plan.capture, active: operation.plan.active, journal: operation.plan.journal, roots: operation.roots, limits: operation.profile.Limits, budget: operation.profile.Budget}
+	return nativeRecoveryBasis{capture: operation.plan.capture, active: operation.plan.active, journal: operation.plan.journal, roots: operation.roots, limits: operation.profile.Limits, budget: operation.profile.Budget, resolver: operation.resolver, ordinaryCapabilities: operation.ordinaryCapabilities}
 }
 
 func (operation *NativeRecoveryOperation) Assess(ctx context.Context, options NativeRecoveryOptions) (NativeRecoveryAssessment, error) {
@@ -60,9 +63,6 @@ func (operation *NativeRecoveryOperation) PrepareRetirement(ctx context.Context,
 }
 
 func assessNativeRecoveryBasis(ctx context.Context, basis nativeRecoveryBasis, options NativeRecoveryOptions) (result NativeRecoveryAssessment, resultErr error) {
-	if len(basis.journal.record.Entries)+len(basis.journal.record.ClaimTransitions)+len(basis.journal.record.ProvisionalAcquires)+len(basis.journal.record.RemovalIntents) != 0 {
-		return NativeRecoveryAssessment{}, fmt.Errorf("mixed native recovery requires ordinary phase integration")
-	}
 	if err := validateNativeActive(ctx, basis.capture, basis.active, options.Filesystem, options.OperationAuthority, basis.budget); err != nil {
 		return NativeRecoveryAssessment{}, err
 	}
@@ -77,8 +77,9 @@ func assessNativeRecoveryBasis(ctx context.Context, basis nativeRecoveryBasis, o
 		}
 	}()
 	assessment, err := basis.journal.assessDocumentRecovery(ctx, nativeDocumentRecoveryReadOptions{
-		documents: nativeDocumentReadOptions{artifacts: root, filesystem: options.Filesystem, budget: basis.budget, limits: basis.limits, codecs: options.Codecs},
+		documents: nativeDocumentReadOptions{artifacts: root, filesystem: options.Filesystem, budget: basis.budget, limits: basis.limits, codecs: options.Codecs, ordinaryCapabilities: basis.ordinaryCapabilities},
 		roots:     basis.roots, state: options.State, registry: options.Registry,
+		directory: basis.capture.Directory, active: basis.active, resolver: basis.resolver,
 	})
 	if err != nil {
 		return NativeRecoveryAssessment{}, err

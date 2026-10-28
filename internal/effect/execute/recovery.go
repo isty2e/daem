@@ -658,47 +658,7 @@ func requireSameActiveJournal(
 }
 
 func recoveryHostActionsForPlan(plan recovery.Plan) ([]recoveryHostAction, error) {
-	actions := plan.Actions()
-	hostActions := make([]recoveryHostAction, 0, len(actions))
-	for _, action := range actions {
-		switch action.Kind {
-		case recovery.ActionKindNoOp:
-			continue
-		case recovery.ActionKindRestoreWrite:
-			hostActions = append(hostActions, recoveryHostAction{
-				Kind:                recovery.ActionKindRestoreWrite,
-				Scope:               action.Scope,
-				Destination:         action.Destination,
-				ContentPath:         action.ContentPath,
-				BackupPath:          action.BackupPath,
-				BackupHash:          action.BackupHash,
-				BackupKind:          action.BackupKind,
-				BackupWork:          action.BackupWork,
-				BeforePathMode:      action.BeforePathMode,
-				BeforePathExisted:   action.BeforePathExisted,
-				BeforeParentExisted: action.BeforeParentExisted,
-				ExpectedAfter:       action.ExpectedAfter.Clone(),
-				AggregateContract:   action.AggregateContract,
-			})
-		case recovery.ActionKindRestoreDelete:
-			hostActions = append(hostActions, recoveryHostAction{
-				Kind:                recovery.ActionKindRestoreDelete,
-				Scope:               action.Scope,
-				Destination:         action.Destination,
-				ContentPath:         action.ContentPath,
-				BeforePathMode:      action.BeforePathMode,
-				BeforePathExisted:   action.BeforePathExisted,
-				BeforeParentExisted: action.BeforeParentExisted,
-				ExpectedAfter:       action.ExpectedAfter.Clone(),
-				AggregateContract:   action.AggregateContract,
-			})
-		case recovery.ActionKindError:
-			return nil, fmt.Errorf("recovery plan contains error action: %s", action.Reason)
-		default:
-			return nil, fmt.Errorf("unsupported recovery action %q for %q", action.Kind, action.Destination)
-		}
-	}
-	return orderRecoveryHostActions(hostActions), nil
+	return recoveryHostActionsFor(plan.Actions())
 }
 
 func executeRecoveryRollbackEffects(
@@ -990,9 +950,9 @@ func executeActiveRecoveryRollbackCompensation(
 	return recoveryRollbackFailure(primary, rollbackErr, cleanupErr)
 }
 
-func recoveryIntentClaimGuard(
+func recoveryIntentClaimGuardWithReader(
 	intents []ownership.ProvisionalAcquireIntent,
-	registryStore ownershipmutation.RegistryStore,
+	read func(context.Context) (ownership.Registry, error),
 	authority *mutationAuthority,
 ) recoveryHostOwnershipGuard {
 	if len(intents) == 0 {
@@ -1011,7 +971,7 @@ func recoveryIntentClaimGuard(
 		if !present {
 			return nil
 		}
-		if registryStore == nil {
+		if read == nil {
 			return fmt.Errorf("ownership registry is required for provisional recovery rollback")
 		}
 		authorityObservation, err := mutation.ObserveDirectoryEntryAuthorityBounded(
@@ -1022,7 +982,7 @@ func recoveryIntentClaimGuard(
 		if err != nil {
 			return err
 		}
-		registry, err := registryStore.Load(ctx)
+		registry, err := read(ctx)
 		if err != nil {
 			return err
 		}

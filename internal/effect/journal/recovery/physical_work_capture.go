@@ -23,6 +23,16 @@ func newPhysicalWorkAllocation(sharedPathBudget PathWorkBudget) *PhysicalWorkBud
 // AdmitRemovalDemands closes capture admission once, without replenishing any
 // work already consumed or reserved while deriving the complete demand set.
 func (budget *PhysicalWorkBudget) AdmitRemovalDemands(demands RemovalDemandSet) error {
+	return budget.admitRemovalDemands(demands, 1)
+}
+
+// AdmitRecoveryRemovalDemands includes disclosure, under-lease revalidation,
+// executor reopen and post-failure diagnosis in the same allocation.
+func (budget *PhysicalWorkBudget) AdmitRecoveryRemovalDemands(demands RemovalDemandSet) error {
+	return budget.admitRemovalDemands(demands, 4)
+}
+
+func (budget *PhysicalWorkBudget) admitRemovalDemands(demands RemovalDemandSet, planningPasses int) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
@@ -32,7 +42,7 @@ func (budget *PhysicalWorkBudget) AdmitRemovalDemands(demands RemovalDemandSet) 
 	if err := demands.Validate(); err != nil {
 		return err
 	}
-	budget.observationLimit = demands.Len() * removalObservationsPerIntent
+	budget.observationLimit = demands.Len() * (removalObservationsPerIntent + (planningPasses-1)*removalPlanningObservationsPerIntent)
 	budget.removalAdmissionPending = false
 	return nil
 }

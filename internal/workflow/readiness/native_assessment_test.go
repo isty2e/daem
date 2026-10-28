@@ -43,8 +43,8 @@ func (reader *assessmentRegistryReader) LoadForClaimRemovals(ctx context.Context
 	return actual, err
 }
 
-func (reader *assessmentRegistryReader) LoadForDocuments(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, depth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
-	actual, err := reader.RegistryReader.(ownershipmutation.DocumentRegistryReader).LoadForDocuments(ctx, owner, missing, depth, budget)
+func (reader *assessmentRegistryReader) LoadForDocuments(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, removals []ownership.Claim, depth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
+	actual, err := reader.RegistryReader.(ownershipmutation.DocumentRegistryReader).LoadForDocuments(ctx, owner, missing, removals, depth, budget)
 	if err == nil {
 		reader.actual = actual
 		reader.loads++

@@ -8,8 +8,7 @@ import (
 type nativeSupportReason uint8
 
 const (
-	nativeSupportFiles nativeSupportReason = iota + 1
-	nativeSupportRoutes
+	nativeSupportRoutes nativeSupportReason = iota + 1
 	nativeSupportOrder
 	nativeSupportCarrierState
 )
@@ -20,8 +19,6 @@ func (err nativeSupportError) Error() string { return err.reason.detail() }
 
 func (reason nativeSupportReason) detail() string {
 	switch reason {
-	case nativeSupportFiles:
-		return "settings keys and ordinary file updates cannot yet be applied together"
 	case nativeSupportRoutes:
 		return "settings keys and extension or host-registration changes cannot yet be applied together"
 	case nativeSupportOrder:
@@ -38,9 +35,6 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsHostConfig() && !result.ContainsHostConfig() {
 		return nil
 	}
-	if len(result.MutatingManagedPaths()) != 0 {
-		return nativeSupportError{nativeSupportFiles}
-	}
 	for _, relation := range result.Relations() {
 		if relation.Execution() != reconcile.ExecutionNoMutation {
 			return nativeSupportError{nativeSupportRoutes}
@@ -51,8 +45,15 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 			return nativeSupportError{nativeSupportRoutes}
 		}
 	}
-	if len(result.CarrierAbsences()) != 0 || len(result.CarrierAdoptions()) != 0 {
-		return nativeSupportError{nativeSupportRoutes}
+	for _, absence := range result.CarrierAbsences() {
+		if absence.BlocksOrdinaryApply() || absence.InvokesHostRoute() || absence.MutatesDirectProjection() || absence.RetiresClaim() {
+			return nativeSupportError{nativeSupportRoutes}
+		}
+	}
+	for _, adoption := range result.CarrierAdoptions() {
+		if adoption.BlocksOrdinaryApply() || adoption.StateOnly() {
+			return nativeSupportError{nativeSupportRoutes}
+		}
 	}
 	for _, order := range result.RelationOrders() {
 		if !order.IsExact() {

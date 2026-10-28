@@ -38,9 +38,9 @@ func (reader *nativePlanningRegistryReader) LoadForClaimRemovals(ctx context.Con
 	return reader.RegistryReader.LoadForClaimRemovals(ctx, claims, depth, budget)
 }
 
-func (reader *nativePlanningRegistryReader) LoadForDocuments(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, depth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
+func (reader *nativePlanningRegistryReader) LoadForDocuments(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, removals []ownership.Claim, depth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
 	reader.reads++
-	return reader.RegistryReader.(ownershipmutation.DocumentRegistryReader).LoadForDocuments(ctx, owner, missing, depth, budget)
+	return reader.RegistryReader.(ownershipmutation.DocumentRegistryReader).LoadForDocuments(ctx, owner, missing, removals, depth, budget)
 }
 
 type nativePlanningFixture struct {

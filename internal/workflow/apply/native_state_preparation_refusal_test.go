@@ -135,7 +135,7 @@ func TestNativeApplyStateAdoptionPreservesOtherPlacementAndRefusesForeignKeys(t 
 	}
 }
 
-func TestNativeApplyStateRetainsRecordWorkEvenWithEqualSnapshots(t *testing.T) {
+func TestNativeApplyStateRetainsRecordWorkWithAnExplicitCommitPhase(t *testing.T) {
 	_, input, _ := nativeStateAdoptionFixture(t, `{"a":1,"b":2}`)
 	initial, err := execute.PrepareNativeApplyState(t.Context(), input)
 	if err != nil {
@@ -151,8 +151,8 @@ func TestNativeApplyStateRetainsRecordWorkEvenWithEqualSnapshots(t *testing.T) {
 	}
 	input.ManagedPaths = []reconcile.ManagedPathDecision{decision}
 	prepared, err := execute.PrepareNativeApplyState(t.Context(), input)
-	if err != nil || prepared.Validate() != nil || !prepared.BeforeState().Equal(prepared.AfterState()) || len(prepared.ManagedPathEffects()) != 1 {
-		t.Fatal("equal snapshots erased actual record work", err)
+	if err != nil || prepared.Validate() != nil || !prepared.BeforeState().Equal(input.Before) || prepared.BeforeState().Equal(prepared.AfterState()) || len(prepared.ManagedPathEffects()) != 1 {
+		t.Fatal("state-neutral record work lost its commit phase or effect", err)
 	}
 	input.Before = durable.EmptySnapshot()
 	if prepared, err := execute.PrepareNativeApplyState(t.Context(), input); err == nil || prepared.Validate() == nil {

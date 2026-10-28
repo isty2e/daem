@@ -143,27 +143,9 @@ func (budget *PhysicalWorkBudget) BeginGeneralExecution() (
 	*PhysicalWorkBudget,
 	error,
 ) {
-	if err := budget.requireRemovalAdmission(); err != nil {
+	host, err := budget.beginGeneralHostExecution()
+	if err != nil {
 		return nil, nil, err
-	}
-	if budget.generalExecutionBegun {
-		return nil, nil, fmt.Errorf("general recovery execution capacity was already transferred")
-	}
-	if !budget.cleanupExecutionBegun {
-		return nil, nil, fmt.Errorf("removal cleanup lifecycle must be transferred before general recovery execution")
-	}
-	if budget.scratchCleanupDisposition == scratchCleanupPending {
-		return nil, nil, fmt.Errorf("recovery scratch cleanup must be transferred before general recovery execution")
-	}
-	if budget.retirementDisposition == retirementPending {
-		return nil, nil, fmt.Errorf("journal retirement capacity must be transferred before general recovery execution")
-	}
-	budget.generalExecutionBegun = true
-	host := &PhysicalWorkBudget{
-		pathComponentLimit: budget.reservedGeneralPathComponents,
-		entryLimit:         budget.reservedGeneralEntries,
-		byteLimit:          budget.reservedGeneralBytes,
-		probeByteLimit:     budget.reservedGeneralProbeBytes,
 	}
 	control := &PhysicalWorkBudget{
 		pathComponentLimit: max(0, budget.pathComponentLimit-budget.pathComponents),
@@ -172,6 +154,38 @@ func (budget *PhysicalWorkBudget) BeginGeneralExecution() (
 	budget.entries = budget.entryLimit
 	budget.bytes = budget.byteLimit
 	return host, control, nil
+}
+
+// BeginGeneralExecutionRetainingControl transfers only the charged host
+// reservation; the receiver retains unreserved control observation capacity.
+func (budget *PhysicalWorkBudget) BeginGeneralExecutionRetainingControl() (*PhysicalWorkBudget, error) {
+	return budget.beginGeneralHostExecution()
+}
+
+func (budget *PhysicalWorkBudget) beginGeneralHostExecution() (*PhysicalWorkBudget, error) {
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
+	}
+	if budget.generalExecutionBegun {
+		return nil, fmt.Errorf("general recovery execution capacity was already transferred")
+	}
+	if !budget.cleanupExecutionBegun {
+		return nil, fmt.Errorf("removal cleanup lifecycle must be transferred before general recovery execution")
+	}
+	if budget.scratchCleanupDisposition == scratchCleanupPending {
+		return nil, fmt.Errorf("recovery scratch cleanup must be transferred before general recovery execution")
+	}
+	if budget.retirementDisposition == retirementPending {
+		return nil, fmt.Errorf("journal retirement capacity must be transferred before general recovery execution")
+	}
+	budget.generalExecutionBegun = true
+	host := &PhysicalWorkBudget{
+		pathComponentLimit: budget.reservedGeneralPathComponents,
+		entryLimit:         budget.reservedGeneralEntries,
+		byteLimit:          budget.reservedGeneralBytes,
+		probeByteLimit:     budget.reservedGeneralProbeBytes,
+	}
+	return host, nil
 }
 
 // ReserveGeneralPathComponents charges path work that will be transferred to
@@ -328,6 +342,19 @@ func (budget *PhysicalWorkBudget) ReserveCleanupLifecycle(
 	reserved.reservedCleanupObservations += reserved.observations - startObservations
 	reserved.reservedCleanupPathComponents += reserved.pathComponents - startPathComponents
 	*budget = reserved
+	return nil
+}
+
+// ConcludeCleanupLifecycle closes cleanup after the containing coordinator has
+// discharged every removal obligation on this allocation. No capacity transfers.
+func (budget *PhysicalWorkBudget) ConcludeCleanupLifecycle() error {
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return err
+	}
+	if budget.cleanupExecutionBegun || budget.generalExecutionBegun {
+		return fmt.Errorf("removal cleanup lifecycle was already established")
+	}
+	budget.cleanupExecutionBegun = true
 	return nil
 }
 

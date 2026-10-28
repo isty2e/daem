@@ -55,7 +55,7 @@ func TestNativeSupportUsesActualExtensionExecution(t *testing.T) {
 }
 
 func TestNativeSupportFailureRetainsClosedSafeFacts(t *testing.T) {
-	unsupported := nativeSupportError{nativeSupportFiles}
+	unsupported := nativeSupportError{nativeSupportRoutes}
 	for _, cause := range []error{unsupported, errors.Join(unsupported, errors.New("private-unrelated-detail"))} {
 		failure := ClassifyFailure(cause, CommandResult{})
 		if failure.Reason() != FailureReasonApplyRefused || failure.PrimaryDetail() != unsupported.Error() || failure.Detail() != unsupported.Error() {

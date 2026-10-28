@@ -77,6 +77,12 @@ func Classify(
 // AssessEntries derives only per-entry facts; the containing journal decides the
 // complete state, ownership, cleanup and retirement phase.
 func AssessEntries(entries []Entry, pathEvidence []PathEvidence, backupEvidence []BackupEvidence) (EntryAssessment, error) {
+	return AssessEntriesWithRemovalCleanup(entries, pathEvidence, backupEvidence, nil)
+}
+
+// AssessEntriesWithRemovalCleanup also recognizes an absent replacement path
+// backed by a validated, operation-scoped removal checkpoint.
+func AssessEntriesWithRemovalCleanup(entries []Entry, pathEvidence []PathEvidence, backupEvidence []BackupEvidence, cleanup []RemovalCleanupObligation) (EntryAssessment, error) {
 	pathsByEntry, err := pathEvidenceIndex(pathEvidence)
 	if err != nil {
 		return EntryAssessment{}, err
@@ -90,6 +96,16 @@ func AssessEntries(entries []Entry, pathEvidence []PathEvidence, backupEvidence 
 	pathsAfter := true
 	pathsRecoverable := true
 	actions := make([]Action, 0, len(entries))
+	type retiredPath struct {
+		scope       target.Scope
+		destination string
+	}
+	retired := make(map[retiredPath]bool)
+	for _, obligation := range cleanup {
+		if obligation.Readiness() == RemovalCleanupReady && (obligation.Action() == RemovalCleanupActionPromoteResidue || obligation.Action() == RemovalCleanupActionCleanupProgress || obligation.Action() == RemovalCleanupActionConfirmAbsence) {
+			retired[retiredPath{obligation.Scope(), obligation.Destination().String()}] = true
+		}
+	}
 
 	for _, entry := range entries {
 		if err := entry.validate(); err != nil {
@@ -136,7 +152,9 @@ func AssessEntries(entries []Entry, pathEvidence []PathEvidence, backupEvidence 
 		if !after {
 			pathsAfter = false
 		}
-		if !before && !after {
+		checkpoint := entry.contentPath == "" && !observation.Exists && !observation.PathExisted && retired[retiredPath{entry.scope, entry.destination.String()}]
+		action.retirementVacancy = !before && !after && checkpoint
+		if !before && !after && !checkpoint {
 			action.Kind = ActionKindError
 			action.Reason = "blocked"
 			action.Detail = "path differs from both before and expected-after states"

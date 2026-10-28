@@ -201,15 +201,10 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
-	if after.Equal(input.Before) {
-		for _, decision := range input.Aggregates {
-			if decision.MutatesHost() {
-				after, err = after.AdvanceNativeDocumentCommit()
-				if err != nil {
-					return NativeApplyStatePreparation{}, err
-				}
-				break
-			}
+	if after.Equal(input.Before) && len(managed)+len(aggregates) != 0 {
+		after, err = after.AdvanceNativeDocumentCommit()
+		if err != nil {
+			return NativeApplyStatePreparation{}, err
 		}
 	}
 	if _, err := input.StateCodec.Encode(after); err != nil {

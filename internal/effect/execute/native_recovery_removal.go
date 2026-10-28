@@ -46,28 +46,24 @@ func nativeRecoveryDestination(ctx context.Context, document journal.NativeRecov
 	return mutationDestination{scope: alias.Scope(), logical: alias.AggregateRoot(), hostPath: path, root: root, destination: bound}, nil
 }
 
-func prepareNativeRecoveryRemovals(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation) error {
-	plan, budget := operation.Plan(), operation.Budget()
-	complete, err := plan.RemovalDemands()
+func prepareNativeRecoveryRemovals(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, ordinary []recoveryHostAction) error {
+	physical, err := bindNativeRemovalIntents(ctx, authority, operation)
 	if err != nil {
 		return err
 	}
-	if budget.RequireCapturePending() == nil {
-		if err := budget.AdmitRemovalDemands(complete); err != nil {
-			return err
+	var reachable []recovery.RemovalDemand
+	for _, demand := range physical.Demands() {
+		for _, action := range ordinary {
+			if demand.Scope() == action.Scope && demand.Destination().String() == action.Destination {
+				reachable = append(reachable, demand)
+				break
+			}
 		}
 	}
-	intents, err := plan.RemovalIntents()
-	if err != nil {
-		return err
-	}
-	physical, err := removalDemandSetFromIntents(intents)
-	if err != nil {
-		return err
-	}
-	destinations := make(map[removalRelationKey]mutationDestination, len(intents))
-	var reachable []recovery.RemovalDemand
 	for _, document := range operation.Documents() {
+		if !operation.InitialAssessment().RequiresRollback() || !document.Restoration().Changed() || document.Restoration().Document().Exists() {
+			continue
+		}
 		removal, present, err := document.Removal()
 		if err != nil {
 			return err
@@ -79,29 +75,15 @@ func prepareNativeRecoveryRemovals(ctx context.Context, authority *mutationAutho
 		if err != nil {
 			return err
 		}
-		destination, err := nativeRecoveryDestination(ctx, document, budget)
-		if err != nil {
-			return err
-		}
-		key := removalRelationKey{scope: intent.Scope(), destination: intent.Destination()}
-		if _, duplicate := destinations[key]; duplicate {
-			return fmt.Errorf("native recovery repeats a physical removal relation")
-		}
-		destinations[key] = destination
-		if operation.InitialAssessment().RequiresRollback() && document.Restoration().Changed() && !document.Restoration().Document().Exists() {
-			reachable = append(reachable, intent.Demand())
-		}
-	}
-	authority.removalDemands = physical
-	authority.removalDestinations = destinations
-	authority.physicalWorkBudget = budget
-	authority.removalBindingsPrepared = true
-	if err := authority.bindRemovalIntentList(intents); err != nil {
-		return err
+		reachable = append(reachable, intent.Demand())
 	}
 	reachableDemands, err := recovery.NewRemovalDemandSet(reachable)
 	if err != nil {
 		return err
 	}
-	return authority.prepareForwardRemovalReservationsFor(ctx, reachableDemands, nil)
+	certificates, err := recoveryForwardRemovalCertificates(ctx, ordinary, physical, operation.Codecs())
+	if err != nil {
+		return err
+	}
+	return authority.prepareForwardRemovalReservationsFor(ctx, reachableDemands, certificates)
 }

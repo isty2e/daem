@@ -45,7 +45,7 @@ func (reader *nativeInitialRegistryReader) LoadForClaimRemovals(ctx context.Cont
 	return value, err
 }
 
-func (reader *nativeInitialRegistryReader) LoadForDocuments(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, depth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
+func (reader *nativeInitialRegistryReader) LoadForDocuments(ctx context.Context, owner stateauthority.Authority, missing []pathauthority.Provisional, removals []ownership.Claim, depth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
 	reader.loads++
 	reader.qualified++
 	reader.budget = budget
@@ -53,7 +53,7 @@ func (reader *nativeInitialRegistryReader) LoadForDocuments(ctx context.Context,
 	if !supported {
 		return ownership.Registry{}, errors.New("selected reader cannot qualify missing history")
 	}
-	value, err := qualified.LoadForDocuments(ctx, owner, missing, depth, budget)
+	value, err := qualified.LoadForDocuments(ctx, owner, missing, removals, depth, budget)
 	if reader.afterRead != nil {
 		reader.afterRead()
 	}

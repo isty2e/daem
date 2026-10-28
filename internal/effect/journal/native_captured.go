@@ -23,6 +23,7 @@ type CapturedNativeJournal struct {
 	qualified   nativeQualifiedDocumentRecords
 	active      ActiveJournalAuthority
 	budget      *recovery.PhysicalWorkBudget
+	publication nativePublicationContext
 	initialized bool
 }
 

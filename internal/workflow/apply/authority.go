@@ -229,6 +229,22 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			}
 		}
 	}
+	if planned.nativePlan != nil && !planned.nativePlan.state.AfterState().Equal(planned.assessment.CurrentState) {
+		for _, evidence := range planned.assessment.NativeApproval {
+			member, err := evidence.HasMembers(ctx, planned.assessment.CurrentState, planned.nativePlan.state.AfterState())
+			if err != nil {
+				return applyAuthorityEvidence{}, err
+			}
+			if !member {
+				continue
+			}
+			for _, document := range evidence.Aliases {
+				if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target()); err != nil {
+					return applyAuthorityEvidence{}, err
+				}
+			}
+		}
+	}
 	carrierRegistryAdded := false
 	for _, action := range planned.assessment.Reconciliation.Relations() {
 		if action.Scope() == target.ScopeGlobal && !carrierRegistryAdded {

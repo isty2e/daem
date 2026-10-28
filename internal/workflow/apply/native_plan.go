@@ -100,7 +100,8 @@ func nativeApplyInputFor(current commandPlan) (execute.NativeApplyInput, error) 
 		ApplyInput: execute.ApplyInput{
 			Paths: executePaths(current.context.Paths, current.assessment.StatePath), Resolver: destinationResolver(current.context.Paths).Resolve,
 			CurrentState: current.assessment.CurrentState, GlobalCarrierClaims: current.assessment.GlobalCarrierClaims,
-			Owner: current.assessment.Owner, Ownership: current.assessment.Ownership, ProjectRoot: current.projectRoot,
+			ManagedPathEvidence: current.assessment.ManagedPathEvidence,
+			Owner:               current.assessment.Owner, Ownership: current.assessment.Ownership, ProjectRoot: current.projectRoot,
 			Codecs: current.nativePlan.codecs, StateCodec: current.nativePlan.stateCodec, Filesystem: storagecommit.Adapter{}, OwnershipRegistryBinder: ownershipstore.BindRooted,
 		},
 		Preparation: current.nativePlan.state, Documents: *input.Documents, Registry: input.Registry, Budget: input.Budget, RecoveryCodecs: nativePersistenceCodecs,

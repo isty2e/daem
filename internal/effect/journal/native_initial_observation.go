@@ -41,6 +41,7 @@ type nativeDocumentOriginal struct {
 type NativeDocumentObservationBatch struct {
 	owner       stateauthority.Authority
 	before      durable.Snapshot
+	roots       NativeDocumentRoots
 	namespaces  []NativeDocumentNamespace
 	registry    ownership.Registry
 	originals   []nativeDocumentOriginal
@@ -57,14 +58,20 @@ func (batch NativeDocumentObservationBatch) Namespaces() []NativeDocumentNamespa
 // ObserveNativeDocuments borrows the selected roots and pending budget. The
 // resulting evidence requires separate ownership and operation qualification.
 func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservationInput) (NativeDocumentObservationBatch, error) {
-	if ctx == nil || input.Registry == nil {
-		return NativeDocumentObservationBatch{}, fmt.Errorf("native observation requires context and the selected registry reader")
+	if ctx == nil || input.Registry == nil || input.Filesystem == nil {
+		return NativeDocumentObservationBatch{}, fmt.Errorf("native observation requires context, filesystem and the selected registry reader")
 	}
 	if err := errors.Join(ctx.Err(), input.Owner.Validate(), input.Limits.Validate(), input.Budget.RequireCapturePending()); err != nil {
 		return NativeDocumentObservationBatch{}, err
 	}
-	if _, err := documentAliasSet(ctx, input.Aliases); err != nil {
+	batch := NativeDocumentObservationBatch{owner: input.Owner, roots: input.Roots, budget: input.Budget}
+	if _, err := batch.manifest(ctx); err != nil {
 		return NativeDocumentObservationBatch{}, err
+	}
+	if len(input.Aliases) != 0 {
+		if _, err := documentAliasSet(ctx, input.Aliases); err != nil {
+			return NativeDocumentObservationBatch{}, err
+		}
 	}
 	before, err := indexDocumentSnapshot(ctx, input.Before)
 	if err != nil {
@@ -116,7 +123,7 @@ func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservation
 		return NativeDocumentObservationBatch{}, err
 	}
 	return NativeDocumentObservationBatch{
-		owner: input.Owner, before: input.Before, namespaces: namespaces, registry: current,
+		owner: input.Owner, before: input.Before, roots: input.Roots, namespaces: namespaces, registry: current,
 		originals: originals, limits: input.Limits, budget: input.Budget, initialized: true,
 	}, nil
 }
@@ -178,7 +185,7 @@ func readNativeCaptureRegistry(ctx context.Context, reader ownershipmutation.Reg
 	if !supported {
 		return ownership.Registry{}, fmt.Errorf("missing native history requires a document-qualified registry reader")
 	}
-	return qualified.LoadForDocuments(ctx, owner, missing, recovery.MaximumPhysicalPathDepth, budget)
+	return qualified.LoadForDocuments(ctx, owner, missing, nil, recovery.MaximumPhysicalPathDepth, budget)
 }
 
 // Document returns the retained original; false means unobserved, not absent.
@@ -220,6 +227,9 @@ func (batch NativeDocumentObservationBatch) prepareOwnership(ctx context.Context
 }
 
 func (batch NativeDocumentObservationBatch) validateOriginals(ctx context.Context) error {
+	if _, err := batch.manifest(ctx); err != nil {
+		return err
+	}
 	for index, namespace := range batch.namespaces {
 		document, mode, identity, err := readNativeRecoveryDocument(ctx, namespace, min(batch.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), batch.budget)
 		if err != nil {
@@ -233,4 +243,18 @@ func (batch NativeDocumentObservationBatch) validateOriginals(ctx context.Contex
 		}
 	}
 	return ctx.Err()
+}
+
+// ReadRegistry reuses the selected document-history allowances in one fresh
+// read. It does not infer allowances from the Registry being inspected.
+func (batch NativeDocumentObservationBatch) ReadRegistry(ctx context.Context, reader ownershipmutation.RegistryReader) (ownership.Registry, error) {
+	input := nativeCaptureOwnershipInput{
+		owner: batch.owner, operationID: "native-registry-read", before: batch.before, after: batch.before,
+		namespaces: batch.namespaces, limits: batch.limits, budget: batch.budget,
+	}
+	membership, err := input.membership(ctx)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	return readNativeCaptureRegistry(ctx, reader, batch.owner, membership.missingHistory, batch.budget)
 }

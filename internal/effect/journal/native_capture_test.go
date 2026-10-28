@@ -21,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization"
@@ -442,7 +443,7 @@ func TestCaptureNativeJournalRetainsActualGlobalClaimsAndProvisionalMetadata(t *
 	}
 }
 
-func TestCaptureNativeJournalPreservesOrdinaryHistoryButRefusesOrdinaryWork(t *testing.T) {
+func TestCaptureNativeJournalJoinsOrdinaryWorkWithoutInventingHistory(t *testing.T) {
 	for _, work := range []bool{false, true} {
 		t.Run(fmt.Sprint("ordinary-work=", work), func(t *testing.T) {
 			input := nativeCaptureInput(t, false, target.ScopeProject)
@@ -491,6 +492,9 @@ func TestCaptureNativeJournalPreservesOrdinaryHistoryButRefusesOrdinaryWork(t *t
 			input.options.ManagedPathEvidence = []observe.ManagedPathEvidence{evidence}
 			if work {
 				input.options.ManagedPathMutations = []ManagedPathMutation{mutation}
+				input.options.Resolver = func(destination output.Destination) (string, error) {
+					return filepath.Join(input.paths.ManifestRoot, filepath.FromSlash(destination.RelativePath())), nil
+				}
 			}
 			filesystem := &nativeCaptureFaultFilesystem{Store: input.options.Filesystem, ordinaryPath: ordinaryPath}
 			input.options.Filesystem = filesystem
@@ -498,11 +502,17 @@ func TestCaptureNativeJournalPreservesOrdinaryHistoryButRefusesOrdinaryWork(t *t
 			t.Setenv("TMPDIR", scratch)
 			captured, err := input.capture(t.Context())
 			if work {
-				if err == nil || captured.Validate() == nil || filesystem.prepareCalls != 0 || filesystem.ordinaryReads != 0 || input.batch.budget.RequireCapturePending() != nil {
-					t.Fatalf("mixed request staged/read backup or returned evidence before its budget join: %v", err)
+				if err != nil || captured.Validate() != nil || !captured.BeforeState().Equal(before) || !captured.AfterState().Equal(input.after) {
+					t.Fatalf("mixed capture lost its complete state or qualification: %v", err)
 				}
-				if _, err := os.Stat(filepath.Join(input.paths.RecoveryDir, "native-record-apply")); !errors.Is(err, os.ErrNotExist) {
-					t.Fatal("refused mixed request published an operation", err)
+				if filesystem.prepareCalls != 1 || filesystem.ordinaryReads != 1 || len(captured.journal.record.Entries) != 1 || len(captured.journal.record.DocumentGroups) != 1 {
+					t.Fatalf("mixed capture did not join its actual ordinary and native actors: prepared=%d reads=%d", filesystem.prepareCalls, filesystem.ordinaryReads)
+				}
+				backup := filepath.Join(captured.CaptureResult().Directory, filepath.FromSlash(captured.journal.record.Entries[0].Before.BackupPath))
+				content, readErr := os.ReadFile(backup)
+				info, statErr := os.Stat(backup)
+				if readErr != nil || statErr != nil || !bytes.Equal(content, ordinary) || info.Mode().Perm() != 0o700 {
+					t.Fatalf("published ordinary backup lost its bytes or permissions: %v %v", readErr, statErr)
 				}
 			} else {
 				if err != nil || !captured.BeforeState().Equal(before) || !captured.AfterState().Equal(input.after) {

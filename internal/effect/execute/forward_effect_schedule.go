@@ -132,72 +132,7 @@ func compileApplyEffectPlan(
 		"apply/prepared-effects-validation",
 		operationplan.EffectStepObservation,
 	))
-	for _, operation := range managedSchedule.publish {
-		effect := managedSchedule.effects[operation.effectIndex]
-		prefix := applyManagedPathScheduleReference(managedPathPublishPhase, operation.effectIndex)
-		if effect.Kind() == ManagedPathEffectRecord {
-			nodes = append(nodes, applyCheckedStep(
-				&builder,
-				prefix+"/record",
-				operationplan.EffectStepObservation,
-			))
-		} else {
-			nodes = append(nodes, applyForwardObligation(
-				&builder,
-				prefix,
-				operationplan.EffectStepPersistence,
-			))
-		}
-		nodes = append(
-			nodes,
-			promotions.forKeys(
-				&builder,
-				provisionalAcquireKeysForManagedPath(effect, managedPathPublishPhase),
-			)...,
-		)
-	}
-	for index, effect := range aggregateEffects {
-		prefix := applyAggregateScheduleReference(index)
-		if effect.Kind() == AggregateEffectRecord {
-			nodes = append(nodes, applyCheckedStep(
-				&builder,
-				prefix+"/record",
-				operationplan.EffectStepObservation,
-			))
-		} else {
-			nodes = append(
-				nodes,
-				applyCheckedStep(
-					&builder,
-					prefix+"/preconditions",
-					operationplan.EffectStepObservation,
-				),
-				applyForwardObligation(
-					&builder,
-					prefix,
-					operationplan.EffectStepPersistence,
-				),
-			)
-		}
-		keys := provisionalAcquireKeysForAggregate(effect)
-		nodes = append(
-			nodes,
-			promotions.forKeys(
-				&builder,
-				keys,
-			)...,
-		)
-	}
-	for _, operation := range managedSchedule.retire {
-		if managedSchedule.effects[operation.effectIndex].Kind() == ManagedPathEffectRecord {
-			continue
-		}
-		nodes = append(nodes, applyForwardObligation(
-			&builder,
-			applyManagedPathScheduleReference(managedPathRetirePhase, operation.effectIndex),
-			operationplan.EffectStepPersistence,
-		))
-	}
+	nodes = append(nodes, ordinaryApplyEffectNodes(&builder, managedSchedule, aggregateEffects, promotions)...)
 	if err := promotions.requireComplete(); err != nil {
 		return ApplyEffectPlan{}, err
 	}

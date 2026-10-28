@@ -28,25 +28,8 @@ func prepareNativeCapturedEffects(ctx context.Context, captured journal.Captured
 	if err != nil {
 		return retiring, preparation, bindings, err
 	}
-	preparation, err = ownership.NewClaimConvergence(nil)
-	if err != nil {
-		return retiring, preparation, bindings, err
-	}
-	for _, document := range captured.Documents() {
-		claims, exact := document.Claims()
-		if !exact {
-			continue
-		}
-		change, err := claims.Preparation()
-		if err != nil {
-			return retiring, preparation, bindings, err
-		}
-		preparation, err = preparation.WithDocumentChanges([]ownership.DocumentClaimChange{change})
-		if err != nil {
-			return retiring, preparation, bindings, err
-		}
-	}
-	return retiring, preparation, bindings, nil
+	preparation, err = captured.PreparationClaims(ctx)
+	return retiring, preparation, bindings, err
 }
 
 func observeNativeRuntime(ctx context.Context, captured journal.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryReader) (journal.NativeRecoveryAssessment, error) {

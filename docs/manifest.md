@@ -1465,8 +1465,7 @@ Selected-value drift is not silently overwritten. To take over a different
 existing value or replace a changed managed value, use
 [`replace host-config`](cli.md#replace-host-config) with explicit plan-bound
 consent; ordinary `apply` does not gain replacement authority. Interrupted apply
-can roll back
-the selected changes before state commit, or finalize a committed operation
+can roll back the selected changes before state commit, or finalize a committed operation
 without replaying host writes. A selected value outside both recorded versions
 blocks recovery. See [State And Recovery](state-and-recovery.md) and
 [interruption troubleshooting](troubleshooting.md#apply-was-interrupted).
@@ -1475,11 +1474,15 @@ Removal retains empty structural parents; it is not formatting undo. See
 [key-only containers](state-and-recovery.md#key-only-configuration-containers)
 for TOML representation and manual-editing limits.
 
-Key-mode execution currently supports its document changes, including same-file
-Codex MCP changes. Independent file/skill effects, extension lifecycle changes
-and changed Pi package order are not yet executable in the same selected plan;
-preview and confirmed apply both refuse such a plan before effects. Qualified
-no-op extension facts do not by themselves count as lifecycle changes.
+Key-mode changes can be applied together with instructions, skills and independent
+MCP configuration changes. These direct changes share one recovery operation;
+failure before state commit can restore them together. Same-file Codex MCP and
+key changes are composed into one document write.
+
+Extension lifecycle changes and changed Pi package order are not yet executable
+with key-mode changes in the same selected plan; preview and confirmed apply both
+refuse such a plan before effects. An extension that is already current does not
+by itself block direct changes or trigger another installation.
 Whole-document mode, switching ownership
 modes and capturing current host configuration as a source remain unsupported.
 

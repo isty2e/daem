@@ -20,6 +20,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/recoverygate"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 )
 
@@ -110,6 +111,27 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 			}
 			for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
 				if err := builder.AddPhysical(path, mutation.AccessExclusive, effect, string(alias.Target()), string(alias.Scope())); err != nil {
+					return recoveryAuthorityEvidence{}, err
+				}
+			}
+		}
+	}
+	for _, action := range plan.GuardedOrdinaryActions() {
+		destination, err := output.Parse(action.Destination)
+		if err != nil {
+			return recoveryAuthorityEvidence{}, err
+		}
+		path, err := resolver.Resolve(destination)
+		if err != nil {
+			return recoveryAuthorityEvidence{}, err
+		}
+		targets := action.ConsumerTargets
+		if action.Target != "" {
+			targets = []target.Target{action.Target}
+		}
+		for _, selectedTarget := range targets {
+			for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+				if err := builder.AddPhysical(path, mutation.AccessExclusive, effect, string(selectedTarget), string(action.Scope)); err != nil {
 					return recoveryAuthorityEvidence{}, err
 				}
 			}

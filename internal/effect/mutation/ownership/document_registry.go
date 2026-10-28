@@ -12,7 +12,7 @@ import (
 // DocumentRegistryReader admits matching stored claims for an owner's currently
 // missing documents. This comparison read grants no promotion or write authority.
 type DocumentRegistryReader interface {
-	LoadForDocuments(context.Context, stateauthority.Authority, []pathauthority.Provisional, int, rootedpath.PhysicalTraversalBudget) (outputownership.Registry, error)
+	LoadForDocuments(context.Context, stateauthority.Authority, []pathauthority.Provisional, []outputownership.Claim, int, rootedpath.PhysicalTraversalBudget) (outputownership.Registry, error)
 }
 
 // DocumentRegistryStore settles both metadata families in one rooted commit.

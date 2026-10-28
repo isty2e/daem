@@ -24,7 +24,7 @@ type NativeRecoveryOptions struct {
 	Codecs             aggregate.CodecCatalog
 }
 
-// NativeRecoveryAssessment retains a complete selected-document phase observation.
+// NativeRecoveryAssessment retains the complete operation's observed phase.
 // It does not supply leases or permission to change host or ownership state.
 type NativeRecoveryAssessment struct {
 	capture    CaptureResult
@@ -39,8 +39,8 @@ func (captured CapturedNativeJournal) AssessRecovery(ctx context.Context, option
 	}
 	return assessNativeRecoveryBasis(ctx, nativeRecoveryBasis{
 		capture: captured.capture, active: captured.active, journal: captured.journal,
-		roots:  captured.qualified.namespaces[0].roots,
-		limits: captured.qualified.records.groups[0].comparison.limits, budget: captured.budget,
+		roots: captured.publication.roots, limits: captured.publication.limits, budget: captured.budget,
+		resolver: captured.publication.resolver, ordinaryCapabilities: captured.publication.ordinaryCapabilities,
 	}, options)
 }
 
@@ -61,7 +61,7 @@ func (assessment NativeRecoveryAssessment) RequiresFinalization() bool {
 }
 
 func (assessment NativeRecoveryAssessment) HostMatchesExpected() bool {
-	if !assessment.valid {
+	if !assessment.valid || !assessment.assessment.ordinary.entries.MatchesExpected() {
 		return false
 	}
 	for _, stage := range assessment.assessment.stages {

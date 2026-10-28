@@ -115,7 +115,15 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 		}
 		namespaces = append(namespaces, namespace)
 	}
-	if err := journal.record.qualifyWriterPartition(ctx, namespaces, manifest, options.ordinaryCapabilities, options.budget); err != nil {
+	protected := []string{journal.owner.StatefileKey()}
+	if options.artifacts != nil {
+		artifacts, err := options.artifacts.AuthorityBounded(options.budget)
+		if err != nil {
+			return nil, err
+		}
+		protected = append(protected, artifacts.PhysicalRoot())
+	}
+	if err := journal.record.qualifyWriterPartition(ctx, namespaces, manifest, options.ordinaryCapabilities, options.budget, protected); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {

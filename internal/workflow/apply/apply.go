@@ -101,7 +101,7 @@ func runWithOptions(
 	options runOptions,
 ) (result runResult, resultErr error) {
 	if options.nativeInput != nil {
-		return runNativeWithOptions(ctx, paths, assessment, options)
+		return runNativeWithOptions(ctx, paths, environment, locked, selection, assessment, options)
 	}
 	filesystem := storagecommit.Adapter{}
 	validateBeforeEffects := options.validateBeforeEffects
