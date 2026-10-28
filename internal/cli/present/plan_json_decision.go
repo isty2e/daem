@@ -88,6 +88,9 @@ func fileModeJSONPointer(fileMode os.FileMode) *uint32 {
 func planJSONEntityResource(subject topology.SubjectID) (string, *planJSONResource) {
 	entityID, ok := topologyprojection.EntityID(subject)
 	if !ok {
+		entityID, _, ok = topologyprojection.HostConfigKeyIdentity(subject)
+	}
+	if !ok {
 		return "", nil
 	}
 	value := &planJSONResource{Kind: ResourceKindName(entityID.Kind()), Name: entityID.Name()}

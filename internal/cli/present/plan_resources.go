@@ -184,6 +184,7 @@ func printAggregateResourcePlan(output io.Writer, decision reconcile.AggregateSu
 		return
 	}
 	fmt.Fprintln(output, aggregateLabel(decision))
+	printNativeKeyLocation(output, decision)
 	if decision.IsBlocked() {
 		fmt.Fprintf(output, "    blocked: %s\n", actionReasonLabel(decision.Reason()))
 	} else if decision.Kind() == reconcile.AggregateRemove && decision.Detail() != "" {

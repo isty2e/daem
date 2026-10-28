@@ -81,6 +81,7 @@ func printAggregateRows(output io.Writer, decisions []reconcile.AggregateSubject
 			Escape(string(decision.Target())),
 			Escape(string(decision.Scope())),
 		)
+		printNativeKeyLocation(output, decision)
 		if decision.IsBlocked() {
 			fmt.Fprintf(output, "    blocked: %s\n", actionReasonLabel(decision.Reason()))
 		} else if decision.Kind() == reconcile.AggregateRemove &&
@@ -137,6 +138,9 @@ func projectionIdentityLabel(subject topology.SubjectID) (string, string) {
 	}
 	if entityID, ok := topologyprojection.EntityID(subject); ok {
 		return "resource", ResourceReference(entityID.Kind(), entityID.Name())
+	}
+	if id, _, native := topologyprojection.HostConfigKeyIdentity(subject); native {
+		return "resource", ResourceReference(id.Kind(), id.Name())
 	}
 	return "subject", subjectString(*planJSONSubjectFor(subject))
 }
