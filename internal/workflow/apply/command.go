@@ -102,6 +102,7 @@ type Failure struct {
 	outcome           FailureOutcome
 	barrier           recoverygate.State
 	backendTransition *readiness.MCPBackendTransitionError
+	nativeSupport     nativeSupportReason
 }
 
 // ClassifyFailure derives public failure facts without copying internal error text.
@@ -121,12 +122,17 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 	if reason == FailureReasonMCPBackendTransition {
 		errors.As(err, &transition)
 	}
+	var nativeSupport nativeSupportError
+	if reason == FailureReasonApplyRefused {
+		errors.As(err, &nativeSupport)
+	}
 	return Failure{
 		reason:            reason,
 		phase:             phase,
 		outcome:           outcome,
 		barrier:           recoverygate.StateOf(err),
 		backendTransition: transition,
+		nativeSupport:     nativeSupport.reason,
 	}
 }
 
@@ -287,6 +293,9 @@ func (failure Failure) withOutcomeFacts(detail string) string {
 }
 
 func (failure Failure) reasonDetail() string {
+	if failure.reason == FailureReasonApplyRefused && failure.nativeSupport != 0 {
+		return failure.nativeSupport.detail()
+	}
 	switch failure.reason {
 	case FailureReasonStaleSnapshot:
 		return "authoritative inputs changed before apply completed"
@@ -432,6 +441,9 @@ func PlanDryRun(ctx context.Context, input CommandInput) (DryRunPlan, error) {
 }
 
 func rejectUnsupportedPreviewActions(assessment readiness.Assessment) error {
+	if err := checkNativeCommandSupport(assessment); err != nil {
+		return err
+	}
 	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsHostConfig() && !assessment.Reconciliation.ContainsHostConfig() {
 		return execute.RejectUnsupportedExecutableActions(assessment.Reconciliation)
 	}

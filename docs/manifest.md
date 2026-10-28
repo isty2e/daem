@@ -1474,7 +1474,9 @@ for TOML representation and manual-editing limits.
 Key-mode execution currently supports its document changes, including same-file
 Codex MCP changes. Independent file/skill effects, extension lifecycle changes
 and changed Pi package order are not yet executable in the same selected plan;
-such a plan is refused before effects. Whole-document mode, switching ownership
+preview and confirmed apply both refuse such a plan before effects. Qualified
+no-op extension facts do not by themselves count as lifecycle changes.
+Whole-document mode, switching ownership
 modes and capturing current host configuration as a source remain unsupported.
 
 ## Lock Behavior

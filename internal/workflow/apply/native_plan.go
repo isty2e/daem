@@ -66,18 +66,8 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsHostConfig() && !assessment.Reconciliation.ContainsHostConfig() {
 		return nil
 	}
-	if len(assessment.Reconciliation.MutatingManagedPaths())+len(assessment.Reconciliation.Relations())+len(assessment.Reconciliation.CarrierAbsences())+len(assessment.Reconciliation.CarrierAdoptions())+len(assessment.Reconciliation.Delegates()) != 0 {
-		return fmt.Errorf("mixed native command effects require their containing execution integration")
-	}
-	for _, order := range assessment.Reconciliation.RelationOrders() {
-		if order.Kind() != reconcile.OrderExact {
-			return fmt.Errorf("changed native package order requires its containing execution integration")
-		}
-	}
-	if _, changed, err := assessment.CurrentState.WithConvergedGlobalCarrierClaims(assessment.GlobalCarrierClaims); err != nil {
+	if err := checkNativeCommandSupport(assessment); err != nil {
 		return err
-	} else if changed {
-		return fmt.Errorf("native execution requires its separate carrier-state convergence integration")
 	}
 	codecs, err := nativeconfig.Codecs(ctx)
 	if err != nil {
