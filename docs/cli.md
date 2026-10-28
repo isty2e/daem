@@ -355,8 +355,12 @@ apply results. For example, `["ext", "a/b"]` selects a property literally named
 `a/b`, and `[""]` selects an empty property name. Legacy aggregate rows retain
 `content_path`; native rows do not encode their names in that field.
 
-Default human native-key output names the declaration, destination and dotted
-key path. Quoted segments distinguish `ext."a/b"` and `"a.b"` from nested keys.
+Default human status, previews and apply results group native keys by declaration,
+target, scope and destination. Each displayed key retains its action or status.
+A blocked document names the keys preventing Apply without marking current
+siblings as blocked. Grouping does not change JSON actions or output-entry counts.
+Quoted dotted-path segments distinguish `ext."a/b"` and `"a.b"` from nested keys.
+`--verbose` retains per-key detail.
 
 The resource-name cutover replaces the v0.5.x envelopes for manifest authoring
 (`6`), resource inventory (`2`), output inventory (`4`), agent location inventory

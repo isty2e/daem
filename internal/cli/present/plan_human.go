@@ -36,7 +36,17 @@ func PrintPlanResultWithOptions(output io.Writer, planResult reconcile.Result, o
 			fmt.Fprintf(output, "  %s: %d\n", label, counts[label])
 		}
 	}
-	for _, decision := range decisions {
+	for _, group := range groupHumanDecisions(decisions, options) {
+		if group.native {
+			first, _ := group.decisions[0].Aggregate()
+			printNativeGroupHeader(output, first)
+			for _, decision := range group.decisions {
+				row, _ := decision.Aggregate()
+				printNativeGroupKey(output, row)
+			}
+			continue
+		}
+		decision := group.decisions[0]
 		if managedPath, ok := decision.ManagedPath(); ok {
 			printManagedPathRows(output, []reconcile.ManagedPathDecision{managedPath}, options)
 			continue
