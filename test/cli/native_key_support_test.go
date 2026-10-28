@@ -45,6 +45,11 @@ ownership = "keys"
 			if !strings.Contains(stdout+stderr, "ordinary file updates") {
 				t.Fatalf("basic failure omitted the common readable cause: %s %s", stdout, stderr)
 			}
+			if !jsonOutput && mode == "--dry-run" {
+				if !strings.Contains(stdout, "not executable") || !strings.Contains(stdout, "preferences") || !strings.Contains(stdout, "tui.theme") || !strings.Contains(stdout, "instruction/project") || !strings.Contains(stderr, "apply preview failed:") || strings.Contains(stderr, "apply failed:") {
+					t.Fatalf("refused preview must retain affected actions and identify its phase: stdout=%s stderr=%s", stdout, stderr)
+				}
+			}
 			if jsonOutput && !json.Valid([]byte(stdout)) {
 				t.Fatalf("support refusal returned invalid JSON: %s", stdout)
 			}

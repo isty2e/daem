@@ -84,7 +84,14 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				ManageUnmanagedMatches: *manageExisting,
 			})
 			if err != nil {
-				return response.failure(operationFailure, applyFailureDiagnostic(*manifestPath, err, applyFailurePlanning, planning.CommandResult, *verbose).WithGuidance(applyWorkflowGuidance(*manifestPath, planning.CommandResult, err)...))
+				failure := applyworkflow.ClassifyFailure(err, planning.CommandResult)
+				if arguments.output != requestedJSON && planning.ReconciliationReady && failure.Reason() == applyworkflow.FailureReasonApplyRefused {
+					fmt.Fprintln(stdout, "Apply preview (not executable):")
+					humanOptions := clipresent.HumanOptions{Verbose: *verbose}
+					printApplyPreviewPlan(stdout, planning.CommandResult, nil, humanOptions)
+					clipresent.PrintDiagnosticsWithOptions(stdout, planning.Diagnostics, humanOptions)
+				}
+				return response.failure(operationFailure, applyFailureDiagnostic(*manifestPath, err, applyFailurePlanning, planning.CommandResult, *verbose).WithPrefix("apply preview failed: ").WithGuidance(applyWorkflowGuidance(*manifestPath, planning.CommandResult, err)...))
 			}
 			if err := response.selectOrdinaryResult(); err != nil {
 				return response.failure(operationFailure, humanFailureDiagnostic(err))
@@ -117,15 +124,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			}
 
 			humanOptions := clipresent.HumanOptions{Verbose: *verbose}
-			clipresent.PrintDryRunPlanWithOptions(stdout, clipresent.HumanPlanInput{
-				Reconciliation: planning.Reconciliation,
-				MCPStatuses:    mcpStatuses,
-			}, humanOptions)
-			clipresent.PrintLockOnlyResourceSummary(stdout, clipresent.LockOnlyResourcesFrom(planning.LockOnly))
-			clipresent.PrintRelationActionsWithOptions(stdout, planning.Reconciliation.Relations(), humanOptions)
-			clipresent.PrintRelationOrderActionsWithOptions(stdout, planning.Reconciliation.RelationOrders(), humanOptions)
-			clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, planning.Reconciliation.CarrierAdoptions(), humanOptions)
-			clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, planning.Reconciliation.CarrierAbsences(), humanOptions)
+			printApplyPreviewPlan(stdout, planning.CommandResult, mcpStatuses, humanOptions)
 			if planning.Reconciliation.HasLockReadinessErrors() {
 				printLockCommandHint(stdout, planning.ManifestPath, *manifestPath)
 			}
@@ -192,7 +191,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				return 1
 			}
 			if arguments.output == requestedJSON {
-				return response.failure(operationFailure, applyFailureDiagnostic(*manifestPath, err, applyFailurePlanning, readinessPlanning.CommandResult, false).WithGuidance(applyWorkflowGuidance(*manifestPath, readinessPlanning.CommandResult, err)...))
+				return response.failure(operationFailure, applyFailureDiagnostic(*manifestPath, err, applyFailurePlanning, readinessPlanning.CommandResult, false).WithPrefix("apply failed: ").WithGuidance(applyWorkflowGuidance(*manifestPath, readinessPlanning.CommandResult, err)...))
 			}
 			printApplyFailure(stderr, err, applyFailurePlanning, readinessPlanning.CommandResult, *verbose)
 			if readinessPlanning.ReconciliationReady {
@@ -404,7 +403,7 @@ func printApplyFailure(
 	result applyworkflow.CommandResult,
 	verbose bool,
 ) {
-	fmt.Fprintln(output, applyFailureDiagnostic("", err, stage, result, verbose).HumanText())
+	fmt.Fprintln(output, applyFailureDiagnostic("", err, stage, result, verbose).WithPrefix("apply failed: ").HumanText())
 }
 
 func applyFailureDiagnostic(
@@ -415,7 +414,6 @@ func applyFailureDiagnostic(
 	verbose bool,
 ) clipresent.FailureDiagnostic {
 	diagnostic, reason := applyFailurePrimary(stage, err, result)
-	diagnostic = diagnostic.WithPrefix("apply failed: ")
 	var instruction string
 	switch reason {
 	case applyworkflow.FailureReasonRelationOrderRiskExpanded:
@@ -574,12 +572,12 @@ func printApplyWorkflowHints(
 	result applyworkflow.CommandResult,
 	err error,
 ) {
-	for _, guidance := range applyWorkflowGuidance(manifestPath, result, err) {
+	for _, guidance := range applyInputWorkflowGuidance(manifestPath, result, err) {
 		fmt.Fprintln(output, guidance.HumanText())
 	}
 }
 
-func applyWorkflowGuidance(manifestPath string, result applyworkflow.CommandResult, err error) []clipresent.Guidance {
+func applyInputWorkflowGuidance(manifestPath string, result applyworkflow.CommandResult, err error) []clipresent.Guidance {
 	var guidance []clipresent.Guidance
 	selectedManifest := result.ManifestPath
 	if selectedManifest == "" {
@@ -603,5 +601,5 @@ func applyWorkflowGuidance(manifestPath string, result applyworkflow.CommandResu
 	if failure.Reason() == applyworkflow.FailureReasonApplyRefused && errors.Is(err, targetselection.ErrInvalid) {
 		guidance = append(guidance, targetSelectionGuidance(selectedManifest, manifestPath)...)
 	}
-	return append(guidance, clipresent.NativeReplacementGuidance(result.Reconciliation, selectedManifest)...)
+	return guidance
 }

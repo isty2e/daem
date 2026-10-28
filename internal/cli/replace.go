@@ -87,7 +87,14 @@ func prepareReplaceHostConfigInvocation(args []string, stdout, stderr io.Writer,
 		if err != nil {
 			return fail(operationFailure, err)
 		}
-		if arguments.output != requestedJSON {
+		var humanResult []byte
+		if !*dryRun && arguments.output != requestedJSON {
+			humanResult, err = clipresent.NativeReplacementResultText(disclosure)
+			if err != nil {
+				return fail(operationFailure, err)
+			}
+		}
+		if arguments.output != requestedJSON && (*dryRun || !*yes) {
 			if err := clipresent.PrintNativeReplacement(stdout, disclosure); err != nil {
 				return fail(operationFailure, err)
 			}
@@ -122,7 +129,10 @@ func prepareReplaceHostConfigInvocation(args []string, stdout, stderr io.Writer,
 				return 1
 			}
 		} else if !*dryRun {
-			fmt.Fprintln(stdout, "Selected host configuration keys are current.")
+			if _, err := stdout.Write(humanResult); err != nil {
+				markOutputFailureReported(stdout)
+				return 1
+			}
 		}
 		return 0
 	}}
