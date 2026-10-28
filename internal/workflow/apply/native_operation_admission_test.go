@@ -81,7 +81,7 @@ func nativeAggregatePlanningInput(t *testing.T, kind reconcile.AggregateDecision
 	if err != nil {
 		t.Fatal(err)
 	}
-	locked, err := lock.NewNativeLockedSection(append([]lock.LockedSubjectContract{observed.SourceContract()}, projections...), nil)
+	locked, err := lock.NewLockedSection(append([]lock.LockedSubjectContract{observed.SourceContract()}, projections...), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,6 +20,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -179,7 +180,7 @@ func nativeKeyPlanningInput(t *testing.T, manifest string) readiness.Input {
 	if err != nil {
 		t.Fatal(err)
 	}
-	locked, err := nativeconfig.LoadLockfile(t.Context(), paths.LockfilePath)
+	locked, err := lockfile.Load(t.Context(), paths.LockfilePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,25 +329,25 @@ ownership = "keys"
 		t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
 	}
 	input := nativeKeyPlanningInput(t, manifest)
-	codec, err := nativeconfig.LockCodec(t.Context())
-	if err != nil {
-		t.Fatal(err)
+	events := 0
+	_, err := lockgenerate.Build(t.Context(), lockgenerate.Input{
+		Paths: input.Paths, Environment: input.Environment,
+		SourceEvents: func(acquisition.Event) { events++ },
+	})
+	if err == nil || events != 0 {
+		t.Fatalf("native source generation omitted limit admission before source effects: %v events=%d", err, events)
 	}
-	for _, profile := range []*lockgenerate.NativeDocumentProfile{nil, {Codec: codec}} {
-		events := 0
-		_, err := lockgenerate.Build(t.Context(), lockgenerate.Input{
-			Paths: input.Paths, Environment: input.Environment, NativeDocuments: profile,
-			SourceEvents: func(acquisition.Event) { events++ },
-		})
-		if err == nil || events != 0 {
-			t.Fatalf("default/invalid native generation profile read sources or omitted native work: %v events=%d", err, events)
-		}
+	generation, err := lockgenerate.Build(t.Context(), lockgenerate.Input{
+		Paths: input.Paths, Environment: input.Environment, NativeDocumentLimits: nativeconfig.DocumentLimits(),
+	})
+	if err != nil || !generation.Snapshot().ContainsHostConfig() {
+		t.Fatalf("shared generation omitted native work: %v", err)
 	}
 	testkit.WriteFile(t, workspace, "preferences.toml", "model = \"second\"\n")
 	if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
 		t.Fatalf("relock failed: %d %s %s", code, stdout, stderr)
 	}
-	input.Lockfile, err = nativeconfig.LoadLockfile(t.Context(), input.Paths.LockfilePath)
+	input.Lockfile, err = lockfile.Load(t.Context(), input.Paths.LockfilePath)
 	if err != nil {
 		t.Fatal(err)
 	}

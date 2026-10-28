@@ -8,30 +8,30 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock"
 )
 
-// NativeCodec selects native-generation transport with caller-owned concrete
-// value admission. It does not install codecs in ordinary readers or executors.
-type NativeCodec struct {
+// Codec validates current lock values through a caller-owned contribution catalog.
+// It grants no document capability.
+type Codec struct {
 	contributions aggregate.ContributionCatalog
 }
 
-func NewNativeCodec(contributions aggregate.ContributionCatalog) (NativeCodec, error) {
+func NewCodec(contributions aggregate.ContributionCatalog) (Codec, error) {
 	if err := contributions.Validate(); err != nil {
-		return NativeCodec{}, err
+		return Codec{}, err
 	}
-	return NativeCodec{contributions: contributions}, nil
+	return Codec{contributions: contributions}, nil
 }
 
-func (codec NativeCodec) Marshal(ctx context.Context, file lock.File) ([]byte, error) {
+func (codec Codec) Marshal(ctx context.Context, file lock.File) ([]byte, error) {
 	if err := codec.contributions.Validate(); err != nil {
 		return nil, err
 	}
-	if err := lock.ValidateNative(file); err != nil {
+	if err := lock.Validate(file); err != nil {
 		return nil, err
 	}
 	return marshalValidatedWithCatalog(ctx, file, codec.contributions)
 }
 
-func (codec NativeCodec) Load(ctx context.Context, path string) (lock.File, error) {
+func (codec Codec) Load(ctx context.Context, path string) (lock.File, error) {
 	if err := codec.contributions.Validate(); err != nil {
 		return lock.File{}, err
 	}
@@ -39,5 +39,5 @@ func (codec NativeCodec) Load(ctx context.Context, path string) (lock.File, erro
 	if err != nil {
 		return lock.File{}, err
 	}
-	return loadNativeContentWithCatalog(ctx, content, codec.contributions)
+	return loadContentWithCatalog(ctx, content, codec.contributions)
 }

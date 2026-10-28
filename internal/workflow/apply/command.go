@@ -29,6 +29,7 @@ import (
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/recoverygate"
@@ -815,7 +816,7 @@ func loadCommandInputsAtPaths(
 		}
 		input.TargetValues = []string{string(environment.HostConfigs()[0].Target())}
 	}
-	locked, lockfileErr := nativeconfig.LoadLockfile(ctx, result.LockfilePath)
+	locked, lockfileErr := lockfile.Load(ctx, result.LockfilePath)
 	if lockfileErr == nil && input.nativeReplacement != nil {
 		var selected []lock.LockedSubjectContract
 		for _, contract := range locked.Locked.Subjects() {
@@ -823,7 +824,7 @@ func loadCommandInputsAtPaths(
 				selected = append(selected, contract)
 			}
 		}
-		locked.Locked, err = lock.NewNativeLockedSection(selected, nil)
+		locked.Locked, err = lock.NewLockedSection(selected, nil)
 		if err != nil {
 			return commandContext{}, result, err
 		}

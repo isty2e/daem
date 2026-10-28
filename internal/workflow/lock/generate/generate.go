@@ -31,14 +31,7 @@ type Input struct {
 	HookEncoder            commandhook.ContributionEncoder
 	MCPEncoder             lockrefine.MCPContributionEncoder
 	ExtensionOrderIdentity lockrefine.ExtensionOrderIdentityResolver
-	NativeDocuments        *NativeDocumentProfile
-}
-
-// NativeDocumentProfile supplies source parsing limits and native transport
-// admission without granting observation, root or execution authority.
-type NativeDocumentProfile struct {
-	Codec  lockfile.NativeCodec
-	Limits configdocument.Limits
+	NativeDocumentLimits   configdocument.Limits
 }
 
 // Result carries a generated canonical lock snapshot and its boundary
@@ -60,14 +53,10 @@ func (result Result) Content() []byte {
 // Build resolves lockable desired resources into a canonical lock snapshot
 // and lockfile bytes.
 func Build(ctx context.Context, input Input) (Result, error) {
-	var native NativeDocumentProfile
-	if input.NativeDocuments != nil {
-		native = *input.NativeDocuments
-		if err := native.Limits.Validate(); err != nil {
+	if len(input.Environment.HostConfigs()) != 0 {
+		if err := input.NativeDocumentLimits.Validate(); err != nil {
 			return Result{}, err
 		}
-	} else if len(input.Environment.HostConfigs()) != 0 {
-		return Result{}, fmt.Errorf("native lock generation requires its selected codec and document limits")
 	}
 	if err := lockrefine.ValidateManagedPathIntent(input.Environment); err != nil {
 		return Result{}, err
@@ -101,19 +90,14 @@ func Build(ctx context.Context, input Input) (Result, error) {
 	}
 	var lockfileSnapshot lock.File
 	if len(input.Environment.HostConfigs()) != 0 {
-		lockfileSnapshot, err = lockbuild.BuildNativeDocumentsWithOptions(ctx, input.Environment, baseResolver, options, native.Limits)
+		lockfileSnapshot, err = lockbuild.BuildNativeDocumentsWithOptions(ctx, input.Environment, baseResolver, options, input.NativeDocumentLimits)
 	} else {
 		lockfileSnapshot, err = lockbuild.BuildWithOptions(ctx, input.Environment, baseResolver, options)
 	}
 	if err != nil {
 		return Result{}, err
 	}
-	var content []byte
-	if lockfileSnapshot.Version == lock.NativeVersion {
-		content, err = native.Codec.Marshal(ctx, lockfileSnapshot)
-	} else {
-		content, err = lockfile.Marshal(lockfileSnapshot)
-	}
+	content, err := lockfile.MarshalContext(ctx, lockfileSnapshot)
 	if err != nil {
 		return Result{}, fmt.Errorf("marshal lockfile: %w", err)
 	}

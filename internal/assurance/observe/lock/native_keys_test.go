@@ -79,7 +79,7 @@ func TestNativeKeyEpochRejectsIncompleteOrAlteredProjectionMeaning(t *testing.T)
 					subjects = append(subjects, contract)
 				}
 			}
-			section, err := lockmodel.NewNativeLockedSection(subjects, nil)
+			section, err := lockmodel.NewLockedSection(subjects, nil)
 			if err != nil {
 				t.Fatal("fixture must pass static correlation so the source check is exercised", err)
 			}

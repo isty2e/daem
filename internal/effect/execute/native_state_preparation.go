@@ -317,7 +317,7 @@ func nativeWholeStateSources(sources []lock.LockedSubjectContract) (map[entity.I
 		if err != nil {
 			return nil, err
 		}
-		if _, err := lock.NewNativeLockedSection([]lock.LockedSubjectContract{source, projection}, nil); err != nil {
+		if _, err := lock.NewLockedSection([]lock.LockedSubjectContract{source, projection}, nil); err != nil {
 			return nil, err
 		}
 		if _, duplicate := result[source.EntityID()]; duplicate {

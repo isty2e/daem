@@ -3,27 +3,13 @@ package lock
 import (
 	"fmt"
 
-	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
-	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
-
-const NativeVersion = contractversion.NativeLockfileSchema
-
-// NewNativeLockedSection selects native document admission without widening the default family set.
-func NewNativeLockedSection(subjects []LockedSubjectContract, order []hostrelation.RelationOrderConstraint) (LockedSection, error) {
-	return newLockedSection(subjects, order, validateNativeLockedSubject, validateNativeLockedCollection)
-}
-
-// ValidateNative validates only the explicitly selected native lock generation.
-func ValidateNative(file File) error {
-	return validateFile(file, NativeVersion, NewNativeLockedSection)
-}
 
 // NewHostConfigDocumentSubjectContract projects static declaration intent into its whole-file subject.
 func NewHostConfigDocumentSubjectContract(id entity.ID, placement profile.HostConfigPlacement) (LockedSubjectContract, error) {

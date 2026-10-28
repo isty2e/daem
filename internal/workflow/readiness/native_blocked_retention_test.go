@@ -23,7 +23,7 @@ func TestBlockedNativeWholeAdoptionRetainsPriorKeysAsBlockedNotRemoval(t *testin
 		t.Fatal("fixture did not produce a real blocked source-bound adoption", err)
 	}
 	subjects := append([]lock.LockedSubjectContract{input.Source.SourceContract()}, input.Source.Projections()...)
-	locked, err := lock.NewNativeLockedSection(subjects, nil)
+	locked, err := lock.NewLockedSection(subjects, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

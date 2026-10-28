@@ -75,7 +75,7 @@ func Assess(ctx context.Context, input Input) (Assessment, error) {
 	if input.NativeReplacement != nil {
 		return assessNativeReplacement(ctx, input)
 	}
-	if input.Lockfile.Version == lock.NativeVersion && input.Native == nil {
+	if input.Lockfile.ContainsHostConfig() && input.Native == nil {
 		return Assessment{}, fmt.Errorf("native configuration assessment requires its containing observation operation")
 	}
 	selectedTargets, err := reconcile.NewSelectedTargets(input.Selection.Targets())

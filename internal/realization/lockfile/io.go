@@ -9,7 +9,6 @@ import (
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/lock"
 )
 
@@ -99,28 +98,15 @@ func Load(ctx context.Context, path string) (lock.File, error) {
 	return loadContent(ctx, content)
 }
 
-// LoadNative explicitly selects the native generation, never pending legacy content.
-func LoadNative(ctx context.Context, path string) (lock.File, error) {
-	content, err := declarationartifact.Read(ctx, path)
-	if err != nil {
-		return lock.File{}, err
-	}
-	return loadNativeContent(ctx, content)
-}
-
-func loadNativeContent(ctx context.Context, content []byte) (lock.File, error) {
-	return loadNativeContentWithCatalog(ctx, content, aggregatecodec.Catalog().Contributions())
-}
-
-func loadNativeContentWithCatalog(ctx context.Context, content []byte, contributions aggregate.ContributionCatalog) (lock.File, error) {
+func loadContentWithCatalog(ctx context.Context, content []byte, contributions aggregate.ContributionCatalog) (lock.File, error) {
 	version, err := lockfileVersion(ctx, content)
 	if err != nil {
 		return lock.File{}, err
 	}
-	if version != lock.NativeVersion {
-		return lock.File{}, UnsupportedVersionError{Found: version, Supported: lock.NativeVersion}
+	if version != lock.CurrentVersion {
+		return lock.File{}, UnsupportedVersionError{Found: version, Supported: lock.CurrentVersion}
 	}
-	return loadSnapshotContentWithCatalog(ctx, content, nativeSnapshotAdmission(), contributions)
+	return loadSnapshotContentWithCatalog(ctx, content, contributions)
 }
 
 // ReadReplacementContent reads exact lockfile bytes and verifies that the
@@ -259,14 +245,14 @@ func isTOMLLineWhitespace(value byte) bool {
 }
 
 func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) {
-	return loadSnapshotContent(ctx, content, defaultSnapshotAdmission())
+	contributions, err := currentContributions(ctx)
+	if err != nil {
+		return lock.File{}, err
+	}
+	return loadSnapshotContentWithCatalog(ctx, content, contributions)
 }
 
-func loadSnapshotContent(ctx context.Context, content []byte, admission snapshotAdmission) (lock.File, error) {
-	return loadSnapshotContentWithCatalog(ctx, content, admission, aggregatecodec.Catalog().Contributions())
-}
-
-func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, admission snapshotAdmission, contributions aggregate.ContributionCatalog) (lock.File, error) {
+func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, contributions aggregate.ContributionCatalog) (lock.File, error) {
 	if err := admitCurrentLockfileStructure(ctx, content); err != nil {
 		return lock.File{}, err
 	}
@@ -288,11 +274,11 @@ func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, admissi
 	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
 		return lock.File{}, fmt.Errorf("unknown lockfile key %q", undecoded[0].String())
 	}
-	file, err := snapshotFromDTOWithAdmission(dto, admission)
+	file, err := snapshotFromDTO(dto)
 	if err != nil {
 		return lock.File{}, err
 	}
-	if err := admission.validate(file); err != nil {
+	if err := lock.Validate(file); err != nil {
 		return lock.File{}, err
 	}
 	if err := validateConcreteAggregateContributions(file, contributions); err != nil {
@@ -309,22 +295,19 @@ func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, admissi
 
 // Marshal renders the lockfile as TOML.
 func Marshal(file lock.File) ([]byte, error) {
+	return MarshalContext(context.Background(), file)
+}
+
+// MarshalContext renders the current lock schema with cancelable value validation.
+func MarshalContext(ctx context.Context, file lock.File) ([]byte, error) {
 	if err := lock.Validate(file); err != nil {
 		return nil, err
 	}
-	return marshalValidated(file)
-}
-
-// MarshalNative renders only a completely admitted native-generation lock.
-func MarshalNative(file lock.File) ([]byte, error) {
-	if err := lock.ValidateNative(file); err != nil {
+	contributions, err := currentContributions(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return marshalValidated(file)
-}
-
-func marshalValidated(file lock.File) ([]byte, error) {
-	return marshalValidatedWithCatalog(context.Background(), file, aggregatecodec.Catalog().Contributions())
+	return marshalValidatedWithCatalog(ctx, file, contributions)
 }
 
 func marshalValidatedWithCatalog(ctx context.Context, file lock.File, contributions aggregate.ContributionCatalog) ([]byte, error) {

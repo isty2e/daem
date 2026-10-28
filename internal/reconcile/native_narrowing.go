@@ -41,7 +41,7 @@ func NewNativeNarrowingAction(input NativeNarrowingActionInput) (NativeNarrowing
 	contracts := make([]lock.LockedSubjectContract, 1, len(input.Projections)+1)
 	contracts[0] = input.Source
 	contracts = append(contracts, input.Projections...)
-	if _, err := lock.NewNativeLockedSection(contracts, nil); err != nil {
+	if _, err := lock.NewLockedSection(contracts, nil); err != nil {
 		return NativeNarrowingAction{}, err
 	}
 	baseline := input.Baseline

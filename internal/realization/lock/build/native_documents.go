@@ -24,7 +24,7 @@ type nativeDocumentInput struct {
 }
 
 // BuildNativeDocumentsWithOptions locks native whole documents and key fragments.
-// It does not select a host executor or widen default lock admission.
+// Source parsing limits do not select a host executor.
 func BuildNativeDocumentsWithOptions(ctx context.Context, environment desired.Environment, resolver acquisition.Resolver, options Options, limits configdocument.Limits) (lock.File, error) {
 	if ctx == nil {
 		return lock.File{}, fmt.Errorf("native document build context is required")
@@ -62,9 +62,7 @@ func BuildNativeDocumentsWithOptions(ctx context.Context, environment desired.En
 		}
 		documents = append(documents, nativeDocumentInput{config: config, placement: placement})
 	}
-	return buildWithProfile(ctx, environment, resolver, options, documents, limits, lockBuildProfile{
-		version: lock.NativeVersion, section: lock.NewNativeLockedSection, validate: lock.ValidateNative,
-	})
+	return buildResolved(ctx, environment, resolver, options, documents, limits)
 }
 
 func lockResolvedNativeDocuments(ctx context.Context, documents []nativeDocumentInput, results []sourceTaskResult, limits configdocument.Limits, options Options) ([]lock.LockedSubjectContract, error) {

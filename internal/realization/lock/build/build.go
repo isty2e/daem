@@ -9,7 +9,6 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/refine"
-	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
 )
@@ -35,19 +34,11 @@ func BuildWithOptions(ctx context.Context, environment desired.Environment, reso
 	if len(environment.HostConfigs()) > 0 {
 		return lock.File{}, fmt.Errorf("host configuration is not supported by this lock builder")
 	}
-	return buildWithProfile(ctx, environment, resolver, options, nil, configdocument.Limits{}, lockBuildProfile{
-		version: lock.CurrentVersion, section: lock.NewLockedSection, validate: lock.Validate,
-	})
+	return buildResolved(ctx, environment, resolver, options, nil, configdocument.Limits{})
 }
 
-type lockBuildProfile struct {
-	version  int
-	section  func([]lock.LockedSubjectContract, []hostrelation.RelationOrderConstraint) (lock.LockedSection, error)
-	validate func(lock.File) error
-}
-
-func buildWithProfile(ctx context.Context, environment desired.Environment, resolver acquisition.Resolver, options Options,
-	documents []nativeDocumentInput, limits configdocument.Limits, admission lockBuildProfile,
+func buildResolved(ctx context.Context, environment desired.Environment, resolver acquisition.Resolver, options Options,
+	documents []nativeDocumentInput, limits configdocument.Limits,
 ) (lock.File, error) {
 	if sessionProvider, ok := resolver.(acquisition.ResolutionSessionProvider); ok {
 		sessionResolver, err := sessionProvider.NewResolutionSession()
@@ -166,17 +157,17 @@ func buildWithProfile(ctx context.Context, environment desired.Environment, reso
 		return lock.File{}, err
 	}
 	lockedSubjects = append(lockedSubjects, lockedDocuments...)
-	lockedSection, err := admission.section(lockedSubjects, lockedExtensionOrder)
+	lockedSection, err := lock.NewLockedSection(lockedSubjects, lockedExtensionOrder)
 	if err != nil {
 		emitSnapshotValidationFailed(options.Events, err)
 		return lock.File{}, err
 	}
 
 	file := lock.File{
-		Version: admission.version,
+		Version: lock.CurrentVersion,
 		Locked:  lockedSection,
 	}
-	if err := admission.validate(file); err != nil {
+	if err := lock.Validate(file); err != nil {
 		emitSnapshotValidationFailed(options.Events, err)
 		return lock.File{}, err
 	}

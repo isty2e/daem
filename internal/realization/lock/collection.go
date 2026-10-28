@@ -19,6 +19,16 @@ type File struct {
 	Locked  LockedSection
 }
 
+// ContainsHostConfig reports native source or projection contracts, not execution authority.
+func (file File) ContainsHostConfig() bool {
+	for _, subject := range file.Locked.subjects {
+		if subject.EntityID().Kind() == entity.KindHostConfig {
+			return true
+		}
+	}
+	return false
+}
+
 // LockedSection is the one canonical, deterministically ordered locked-subject collection.
 type LockedSection struct {
 	subjects         []LockedSubjectContract
@@ -33,15 +43,6 @@ type LockedSection struct {
 func NewLockedSection(
 	subjects []LockedSubjectContract,
 	orderConstraints []hostrelation.RelationOrderConstraint,
-) (LockedSection, error) {
-	return newLockedSection(subjects, orderConstraints, validateAdmittedLockedSubject, validateLockedCollectionAdmission)
-}
-
-func newLockedSection(
-	subjects []LockedSubjectContract,
-	orderConstraints []hostrelation.RelationOrderConstraint,
-	admitSubject func(LockedSubjectContract) error,
-	admitCollection lockedCollectionAdmission,
 ) (LockedSection, error) {
 	canonical := append([]LockedSubjectContract(nil), subjects...)
 	for index, subject := range canonical {
@@ -58,11 +59,11 @@ func newLockedSection(
 		return LockedSection{}, err
 	}
 	for _, subject := range canonical {
-		if err := admitSubject(subject); err != nil {
+		if err := validateNativeLockedSubject(subject); err != nil {
 			return LockedSection{}, fmt.Errorf("locked subject %q refinement: %w", subject.SubjectID(), err)
 		}
 	}
-	if err := admitCollection(collectionIndex); err != nil {
+	if err := validateNativeLockedCollection(collectionIndex); err != nil {
 		return LockedSection{}, err
 	}
 	bySubject := make(map[topology.SubjectID]int, len(canonical))
@@ -143,14 +144,10 @@ func (section LockedSection) OrderLen() int { return len(section.orderConstraint
 
 // Validate rejects malformed or non-canonical lock snapshots.
 func Validate(file File) error {
-	return validateFile(file, CurrentVersion, NewLockedSection)
-}
-
-func validateFile(file File, version int, constructor func([]LockedSubjectContract, []hostrelation.RelationOrderConstraint) (LockedSection, error)) error {
-	if file.Version != version {
+	if file.Version != CurrentVersion {
 		return fmt.Errorf("unsupported lockfile version %d", file.Version)
 	}
-	canonical, err := constructor(
+	canonical, err := NewLockedSection(
 		file.Locked.subjects,
 		file.Locked.orderConstraints,
 	)

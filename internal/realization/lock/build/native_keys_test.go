@@ -141,7 +141,7 @@ func TestNativeKeySourceSharedDocumentUsesActualFootprints(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || sessions != 1 || lock.ValidateNative(file) != nil {
+			if err != nil || sessions != 1 || lock.Validate(file) != nil {
 				t.Fatal("disjoint/empty keys were rejected or acquired in separate epochs", err)
 			}
 		})
@@ -186,7 +186,7 @@ func TestNativeKeyCollectionRejectsOrphanRetargetAndOperationForgery(t *testing.
 		t.Fatal(err)
 	}
 	for _, subjects := range [][]lock.LockedSubjectContract{{key}, {resource, other}, {resource, forged}} {
-		if _, err := lock.NewNativeLockedSection(subjects, nil); err == nil {
+		if _, err := lock.NewLockedSection(subjects, nil); err == nil {
 			t.Fatal("native transport bypassed source correlation or canonical operation admission")
 		}
 	}
@@ -211,15 +211,17 @@ func assertNativeKeyRoundtrip(t *testing.T, dir string, file lock.File) {
 	if err != nil || !bytes.Equal(encoded, again) {
 		t.Fatal("native key encoding was not canonical", err)
 	}
-	if _, err := lockfile.Marshal(file); err == nil {
-		t.Fatal("default encoder admitted native key lock")
+	common, err := lockfile.Marshal(file)
+	if err != nil || !bytes.Equal(encoded, common) {
+		t.Fatal("common encoder disagrees with bounded codec", err)
 	}
-	if _, err := lockfile.Load(t.Context(), path); err == nil {
-		t.Fatal("default reader admitted native key lock")
+	commonFile, err := lockfile.Load(t.Context(), path)
+	if err != nil || lock.BuildDelta(file, commonFile).HasChanges() {
+		t.Fatal("common reader lost native key contracts", err)
 	}
 }
 
-func nativeKeyLockCodec(t *testing.T, file lock.File, limits configdocument.Limits) lockfile.NativeCodec {
+func nativeKeyLockCodec(t *testing.T, file lock.File, limits configdocument.Limits) lockfile.Codec {
 	t.Helper()
 	var required []aggregate.CodecContractID
 	for _, contract := range file.Locked.Subjects() {
@@ -237,7 +239,7 @@ func nativeKeyLockCodec(t *testing.T, file lock.File, limits configdocument.Limi
 			t.Fatal(err)
 		}
 	}
-	codec, err := lockfile.NewNativeCodec(catalog)
+	codec, err := lockfile.NewCodec(catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,12 +254,6 @@ func TestNativeKeyCodecKeepsValueAdmissionExplicitAndBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertNativeKeyRoundtrip(t, dir, file)
-	if content, err := lockfile.MarshalNative(file); err == nil || content != nil {
-		t.Fatal("contextless native writer silently installed native value validators")
-	}
-	if _, err := lockfile.LoadNative(t.Context(), filepath.Join(dir, "native.lock.toml")); err == nil {
-		t.Fatal("contextless native reader silently installed native value validators")
-	}
 	limited := nativeKeyLockCodec(t, file, configdocument.Limits{MaximumBytes: 1, MaximumDepth: 64})
 	if content, err := limited.Marshal(t.Context(), file); err == nil || content != nil {
 		t.Fatal("caller-owned native value limit was bypassed")
@@ -290,12 +286,15 @@ func TestNativeKeyCodecKeepsValueAdmissionExplicitAndBounded(t *testing.T) {
 			}
 		}
 	}
-	section, err := lock.NewNativeLockedSection([]lock.LockedSubjectContract{resource, bad}, nil)
+	section, err := lock.NewLockedSection([]lock.LockedSubjectContract{resource, bad}, nil)
 	if err != nil {
 		t.Fatal("malformed-value fixture must reach concrete value admission", err)
 	}
 	malformed := file
 	malformed.Locked = section
+	if content, err := lockfile.Marshal(malformed); err == nil || content != nil {
+		t.Fatal("common writer bypassed concrete native value validation")
+	}
 	if content, err := codec.Marshal(t.Context(), malformed); err == nil || content != nil {
 		t.Fatal("static transport admission replaced native value validation")
 	}

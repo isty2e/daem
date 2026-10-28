@@ -73,7 +73,7 @@ func TestNativeKeyCodecCancellationDuringValueValidationReturnsNoResult(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			codec, err := lockfile.NewNativeCodec(cancelingCatalog)
+			codec, err := lockfile.NewCodec(cancelingCatalog)
 			if err != nil {
 				t.Fatal(err)
 			}

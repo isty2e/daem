@@ -160,9 +160,9 @@ func TestNativeDocumentPayloadPartitionsMixedRequestsAndFreezesDefault(t *testin
 			t.Fatal("default refusal leaked ordinary/native payload prefix")
 		}
 	}
-	input.Lockfile.Version = lock.CurrentVersion
+	input.Lockfile.Version = lock.CurrentVersion + 1
 	if _, err := NativeDocumentPayloadSet(t.Context(), input); err == nil {
-		t.Fatal("native payload preparation reinterpreted the default generation")
+		t.Fatal("native payload preparation admitted an unsupported lock version")
 	}
 }
 

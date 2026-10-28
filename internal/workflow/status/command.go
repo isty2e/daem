@@ -20,6 +20,7 @@ import (
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
+	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/recoverygate"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -248,7 +249,7 @@ func selectedLockfilePath(paths daempaths.Paths, lockfilePath string) string {
 }
 
 func loadStatusLockfile(ctx context.Context, path string) (lock.File, bool, error) {
-	file, err := nativeconfig.LoadLockfile(ctx, path)
+	file, err := lockfile.Load(ctx, path)
 	if err == nil {
 		return file, false, nil
 	}

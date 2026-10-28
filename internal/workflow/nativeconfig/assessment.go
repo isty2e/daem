@@ -23,7 +23,6 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
@@ -106,7 +105,7 @@ func assessRetainedInputs(ctx context.Context, input readiness.Input, operation 
 			add(state.Contribution().Contract().Address().Document())
 		}
 	}
-	if len(aliases) == 0 && input.Lockfile.Version != lock.NativeVersion && !before.ContainsHostConfig() {
+	if len(aliases) == 0 && !input.Lockfile.ContainsHostConfig() && !before.ContainsHostConfig() {
 		return readiness.Assess(ctx, input)
 	}
 

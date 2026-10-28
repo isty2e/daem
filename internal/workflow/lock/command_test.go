@@ -223,7 +223,7 @@ func TestRunLockRejectsFutureSchemaWithoutInterpretingOrReplacingIt(t *testing.T
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
 	writeWorkflowTestFile(t, tempDir, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
-	futureVersion := int64(locksnapshot.NativeVersion + 1)
+	futureVersion := int64(locksnapshot.CurrentVersion + 1)
 	future := fmt.Sprintf("version = %d\nfuture_payload = { malformed = [\n", futureVersion)
 	writeWorkflowTestFile(t, tempDir, "daem.lock.toml", future)
 
@@ -245,7 +245,7 @@ func TestRunLockRejectsFutureSchemaWithoutInterpretingOrReplacingIt(t *testing.T
 	}
 }
 
-func TestRunLockRejectsMalformedSelectedNativeWithoutReplacingOrResolvingSources(t *testing.T) {
+func TestRunLockRejectsMalformedCurrentWithoutReplacingOrResolvingSources(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	manifest := filepath.Join(root, "daem.toml")
@@ -257,12 +257,12 @@ source = "./instructions.md"
 targets = ["codex"]
 `)
 	writeWorkflowTestFile(t, root, "instructions.md", "ordinary source that must not be resolved\n")
-	invalid := fmt.Sprintf("version = %d\nfuture_payload = { malformed = [\n", locksnapshot.NativeVersion)
+	invalid := fmt.Sprintf("version = %d\nfuture_payload = { malformed = [\n", locksnapshot.CurrentVersion)
 	writeWorkflowTestFile(t, root, "daem.lock.toml", invalid)
 	_, err := lockfile.Load(t.Context(), path)
 	var versionErr lockfile.UnsupportedVersionError
-	if !errors.As(err, &versionErr) || versionErr.Found != int64(locksnapshot.NativeVersion) || versionErr.RelockSupported() {
-		t.Fatalf("default reader admitted or interpreted native generation: %v", err)
+	if err == nil || errors.As(err, &versionErr) {
+		t.Fatalf("common reader accepted malformed current content or misclassified its version: %v", err)
 	}
 	for _, dryRun := range []bool{true, false} {
 		events := 0

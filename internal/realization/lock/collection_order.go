@@ -28,7 +28,7 @@ func ValidateExtensionOrderIdentities(
 	file File,
 	resolveIdentity ExtensionOrderIdentityResolver,
 ) error {
-	if file.Version != CurrentVersion && file.Version != NativeVersion {
+	if file.Version != CurrentVersion {
 		return fmt.Errorf("unsupported lockfile version %d", file.Version)
 	}
 	if file.Locked.OrderLen() == 0 {

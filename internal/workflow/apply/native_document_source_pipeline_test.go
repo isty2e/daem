@@ -73,7 +73,7 @@ func TestNativeDocumentRealSourceObservationPreparesWholeFileEffect(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			encoded, err := lockfile.MarshalNative(built)
+			encoded, err := lockfile.Marshal(built)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -81,7 +81,7 @@ func TestNativeDocumentRealSourceObservationPreparesWholeFileEffect(t *testing.T
 			if err := os.WriteFile(lockPath, encoded, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			locked, err := lockfile.LoadNative(t.Context(), lockPath)
+			locked, err := lockfile.Load(t.Context(), lockPath)
 			if err != nil {
 				t.Fatal(err)
 			}

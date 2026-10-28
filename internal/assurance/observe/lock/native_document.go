@@ -44,7 +44,7 @@ func ResolveNativeDocumentSourceEpoch(ctx context.Context, paths daempaths.Paths
 	if err := environment.Validate(); err != nil {
 		return SourceEpoch{}, err
 	}
-	if err := lock.ValidateNative(locked); err != nil {
+	if err := lock.Validate(locked); err != nil {
 		return SourceEpoch{}, err
 	}
 	candidates, err := nativeDocumentLockObservationCandidates(ctx, environment.HostConfigs(), locked, selection, limits)

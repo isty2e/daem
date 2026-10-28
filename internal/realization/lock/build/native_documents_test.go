@@ -99,7 +99,7 @@ func TestNativeDocumentProducerUsesExactSourcesAndNativeWholeIdentity(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			if file.Version != lock.NativeVersion || file.Locked.Len() != 2 || lock.ValidateNative(file) != nil {
+			if file.Version != lock.CurrentVersion || file.Locked.Len() != 2 || lock.Validate(file) != nil {
 				t.Fatalf("invalid complete native lock: %#v", file)
 			}
 			resource, ok := file.Locked.ExactSupplySubject(config.ID())
@@ -151,7 +151,7 @@ func TestNativeDocumentProducerUsesExactSourcesAndNativeWholeIdentity(t *testing
 
 func assertNativeDocumentRoundtrip(t *testing.T, directory string, file lock.File) {
 	t.Helper()
-	encoded, err := lockfile.MarshalNative(file)
+	encoded, err := lockfile.Marshal(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,24 +159,16 @@ func assertNativeDocumentRoundtrip(t *testing.T, directory string, file lock.Fil
 	if err := os.WriteFile(path, encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := lockfile.LoadNative(context.Background(), path)
+	decoded, err := lockfile.Load(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Version != file.Version || lock.BuildDelta(file, decoded).HasChanges() {
 		t.Fatal("native lock roundtrip changed durable facts")
 	}
-	second, err := lockfile.MarshalNative(decoded)
+	second, err := lockfile.Marshal(decoded)
 	if err != nil || !bytes.Equal(encoded, second) {
 		t.Fatalf("native encoding not canonical: %v", err)
-	}
-	if _, err := lockfile.Marshal(file); err == nil {
-		t.Fatal("default writer admitted native schema")
-	}
-	_, err = lockfile.Load(context.Background(), path)
-	var generation lockfile.UnsupportedVersionError
-	if !errors.As(err, &generation) || generation.Found != lock.NativeVersion || generation.Supported != lock.CurrentVersion {
-		t.Fatalf("default reader widened: %v", err)
 	}
 	for _, change := range []struct{ before, after string }{
 		{`path = "`, `path = "other/`},
@@ -190,7 +182,7 @@ func assertNativeDocumentRoundtrip(t *testing.T, directory string, file lock.Fil
 		if err := os.WriteFile(path, []byte(corrupted), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if result, err := lockfile.LoadNative(context.Background(), path); err == nil || result.Version != 0 {
+		if result, err := lockfile.Load(context.Background(), path); err == nil || result.Version != 0 {
 			t.Fatalf("forged native artifact yielded usable lock: %v", err)
 		}
 	}
@@ -265,7 +257,7 @@ func TestNativeDocumentDestinationPreflightSeparatesTargetScopeAndPath(t *testin
 	sessions := 0
 	resolver := &nativeSessionCounter{underlying: nativeDocumentResolver(t, directory), sessions: &sessions}
 	file, err := BuildNativeDocumentsWithOptions(context.Background(), lockEnvironment(t, desired.Spec{HostConfigs: configs}), resolver, Options{}, nativeDocumentLimits())
-	if err != nil || sessions != 1 || file.Version != lock.NativeVersion || file.Locked.Len() != 2*len(configs) {
+	if err != nil || sessions != 1 || file.Version != lock.CurrentVersion || file.Locked.Len() != 2*len(configs) {
 		t.Fatalf("disjoint logical destinations conflated: sessions=%d len=%d err=%v", sessions, file.Locked.Len(), err)
 	}
 }
@@ -296,7 +288,7 @@ func TestNativeDocumentBuildSharesSessionWithOrdinarySourcesAndKeepsEmptyProfile
 		t.Fatalf("default builder performed native effects: %v", err)
 	}
 	empty, err := BuildNativeDocumentsWithOptions(context.Background(), lockEnvironment(t, desired.Spec{}), resolver, Options{}, nativeDocumentLimits())
-	if err != nil || empty.Version != lock.NativeVersion || lock.ValidateNative(empty) != nil {
+	if err != nil || empty.Version != lock.CurrentVersion || lock.Validate(empty) != nil {
 		t.Fatalf("last native removal guessed default profile: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -327,12 +319,12 @@ func TestNativeDocumentCollectionRejectsMissingOrRetargetedMembers(t *testing.T)
 		t.Fatal(err)
 	}
 	for _, subjects := range [][]lock.LockedSubjectContract{{resource}, {wrongProjection}, {resource, wrongProjection}} {
-		if _, err := lock.NewNativeLockedSection(subjects, nil); err == nil {
+		if _, err := lock.NewLockedSection(subjects, nil); err == nil {
 			t.Fatal("incomplete or retargeted native collection admitted")
 		}
 	}
-	if _, err := lock.NewLockedSection(file.Locked.Subjects(), nil); err == nil {
-		t.Fatal("default family admission widened")
+	if _, err := lock.NewLockedSection(file.Locked.Subjects(), nil); err != nil {
+		t.Fatalf("common family admission refused complete native contracts: %v", err)
 	}
 	if resource.EntityID().Kind() != entity.KindHostConfig {
 		t.Fatal("fixture is not native")
@@ -413,27 +405,17 @@ func TestNativeDocumentProducerBoundsAndMidAssemblyCancellation(t *testing.T) {
 	}
 }
 
-func TestNativeDocumentLockReadersSelectGenerationBeforeNestedDecode(t *testing.T) {
+func TestNativeDocumentLockReaderChecksVersionBeforeNestedDecode(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "input.lock.toml")
-	for _, fixture := range []struct {
-		version   int
-		native    bool
-		supported int
-	}{
-		{lock.CurrentVersion, true, lock.NativeVersion}, {lock.NativeVersion, false, lock.CurrentVersion},
-	} {
-		content := []byte(fmt.Sprintf("version = %d\n[locked.subject\nmalformed nested artifact", fixture.version))
+	for _, version := range []int{lock.CurrentVersion - 1, lock.CurrentVersion + 1} {
+		content := []byte(fmt.Sprintf("version = %d\n[locked.subject\nmalformed nested artifact", version))
 		if err := os.WriteFile(path, content, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		reader := lockfile.Load
-		if fixture.native {
-			reader = lockfile.LoadNative
-		}
-		file, err := reader(context.Background(), path)
+		file, err := lockfile.Load(context.Background(), path)
 		var unsupported lockfile.UnsupportedVersionError
-		if !errors.As(err, &unsupported) || unsupported.Found != int64(fixture.version) || unsupported.Supported != int64(fixture.supported) || file.Version != 0 {
+		if !errors.As(err, &unsupported) || unsupported.Found != int64(version) || unsupported.Supported != int64(lock.CurrentVersion) || file.Version != 0 {
 			t.Fatalf("wrong generation reached nested decoder: %v", err)
 		}
 	}

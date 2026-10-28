@@ -47,7 +47,7 @@ func BuildNativeReplacementDecisions(input AggregateInput, selection topologypro
 			locked = append(locked, contract)
 		}
 	}
-	section, err := lock.NewNativeLockedSection(locked, nil)
+	section, err := lock.NewLockedSection(locked, nil)
 	if err != nil {
 		return nil, err
 	}

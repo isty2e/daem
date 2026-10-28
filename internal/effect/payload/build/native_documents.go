@@ -31,7 +31,7 @@ func NativeDocumentPayloadSet(ctx context.Context, input Input) (payload.Payload
 	if err := input.Environment.Validate(); err != nil {
 		return payload.PayloadSet{}, err
 	}
-	if err := lock.ValidateNative(input.Lockfile); err != nil {
+	if err := lock.Validate(input.Lockfile); err != nil {
 		return payload.PayloadSet{}, err
 	}
 	ordinary, documents, err := preflightNativeDocumentPayloads(ctx, input)

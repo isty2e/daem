@@ -201,7 +201,7 @@ func TestNativeDocumentSourceEpochSelectionMissingLockAndDefaultIsolation(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	section, err := lockmodel.NewNativeLockedSection(nil, nil)
+	section, err := lockmodel.NewLockedSection(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestNativeDocumentSourceEpochSelectionMissingLockAndDefaultIsolation(t *tes
 		locked    lockmodel.File
 		selection targetselection.Selection
 	}{
-		{fixture.locked, otherSelection}, {lockmodel.File{Version: lockmodel.NativeVersion, Locked: section}, fixture.selection},
+		{fixture.locked, otherSelection}, {lockmodel.File{Version: lockmodel.CurrentVersion, Locked: section}, fixture.selection},
 	} {
 		epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, input.locked, input.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 		if err != nil {
@@ -227,9 +227,9 @@ func TestNativeDocumentSourceEpochSelectionMissingLockAndDefaultIsolation(t *tes
 		t.Fatal("default source observation admitted native declarations")
 	}
 	wrong := fixture.locked
-	wrong.Version = lockmodel.CurrentVersion
+	wrong.Version = lockmodel.CurrentVersion + 1
 	if _, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, wrong, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64}); err == nil {
-		t.Fatal("native source observer admitted default generation")
+		t.Fatal("native source observer admitted an unsupported lock version")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
