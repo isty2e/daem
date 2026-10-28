@@ -1,6 +1,7 @@
 package statefile
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -23,6 +24,9 @@ func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
 		ManagedCarrierClaims:      make([]managedCarrierClaimDTO, 0, len(snapshot.ManagedCarrierClaims())),
 		DelegateAttempts:          make([]delegateAttemptDTO, 0, len(snapshot.DelegateAttempts())),
 		HostRouteAttempts:         make([]hostRouteAttemptDTO, 0, len(snapshot.HostRouteAttempts())),
+	}
+	if snapshot.NativeDocumentCommit() != 0 {
+		persisted.NativeDocumentCommit = []byte(strconv.FormatUint(snapshot.NativeDocumentCommit(), 10))
 	}
 	for _, state := range snapshot.ManagedPaths() {
 		var fileMode *uint32

@@ -111,6 +111,14 @@ func (journal nativeJournalSnapshots) completeDocuments(ctx context.Context, ind
 	if err := journal.validateExpectedBaselines(ctx, indexes.after, groups, codecs); err != nil {
 		return nativeDocumentRecords{}, err
 	}
+	documentWork := false
+	for _, group := range groups {
+		comparison := group.comparison
+		documentWork = documentWork || !comparison.before.Equal(comparison.expected) || !comparison.beforeState.SameRootMetadata(comparison.expectedState)
+	}
+	if err := requireNativeDocumentCommitWork(journal.before, journal.after, documentWork); err != nil {
+		return nativeDocumentRecords{}, err
+	}
 	result.groups = groups
 	return result, nil
 }

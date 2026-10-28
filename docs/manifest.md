@@ -1461,7 +1461,11 @@ use `0600`. When Codex MCP and key declarations share `config.toml`, the MCP
 document policy requires `0600`, and the preview includes that permission change.
 Both sets of changes are applied and recovered together.
 
-Selected-value drift is not silently overwritten. Interrupted apply can roll back
+Selected-value drift is not silently overwritten. To take over a different
+existing value or replace a changed managed value, use
+[`replace host-config`](cli.md#replace-host-config) with explicit plan-bound
+consent; ordinary `apply` does not gain replacement authority. Interrupted apply
+can roll back
 the selected changes before state commit, or finalize a committed operation
 without replaying host writes. A selected value outside both recorded versions
 blocks recovery. See [State And Recovery](state-and-recovery.md) and

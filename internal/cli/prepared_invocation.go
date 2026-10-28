@@ -25,6 +25,11 @@ func prepareInvocation(args []string, stdout, stderr io.Writer, options commandO
 			return prepareRemoveInvocation(options.context, args[1], args[2:], stdout, stderr)
 		}
 		return nil
+	case "replace":
+		if len(args) > 1 && args[1] == "host-config" {
+			return prepareReplaceHostConfigInvocation(args[2:], stdout, stderr, options)
+		}
+		return nil
 	case "unmanage":
 		if len(args) > 1 && args[1] == "extension" {
 			return prepareUnmanageExtensionInvocation(options.context, args[2:], stdout, stderr)

@@ -291,6 +291,16 @@ func (environment Environment) WithExtensions(values []extension.Extension) (Env
 	return New(spec)
 }
 
+// HostConfigOnly selects one declaration without introducing other resource work.
+func (environment Environment) HostConfigOnly(id entity.ID) (Environment, error) {
+	for _, config := range environment.hostConfigs {
+		if config.ID() == id {
+			return New(Spec{Targets: []target.Target{config.Target()}, Defaults: environment.defaults, HostConfigs: []hostconfig.Config{config}})
+		}
+	}
+	return Environment{}, fmt.Errorf("host-config declaration %q was not found", id)
+}
+
 // Targets returns normalized top-level targets in authored order.
 func (environment Environment) Targets() []target.Target { return environment.targets.Values() }
 

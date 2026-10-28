@@ -33,6 +33,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/recoverygate"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
@@ -367,6 +368,7 @@ type CommandInput struct {
 	RelationObservations   *relationobserve.Batch
 	ManageUnmanagedMatches bool
 	environmentPresent     environmentSourcePresence
+	nativeReplacement      *topologyprojection.HostConfigKeySelection
 }
 
 type CommandResult struct {
@@ -406,6 +408,7 @@ type commandContext struct {
 	PersistenceEpoch             readiness.PersistenceEpoch
 	RelationObservationsExplicit bool
 	ManageUnmanagedMatches       bool
+	nativeReplacement            *topologyprojection.HostConfigKeySelection
 }
 
 type commandPlan struct {
@@ -660,6 +663,7 @@ func planReadinessAtPathsWithAssessor(
 		PersistenceEpoch:        &loaded.PersistenceEpoch,
 		RelationObservations:    input.RelationObservations,
 		ManageUnmanagedMatches:  input.ManageUnmanagedMatches,
+		NativeReplacement:       input.nativeReplacement,
 		Codecs:                  aggregatecodec.Catalog(),
 		HookContributionEncoder: hookcodec.CanonicalHookContribution,
 		MCPContributionEncoder:  mcpcodec.CanonicalMCPBindingContribution,
@@ -804,7 +808,26 @@ func loadCommandInputsAtPaths(
 		return commandContext{}, result, fmt.Errorf("resolve selected manifest context: %w", err)
 	}
 
+	if input.nativeReplacement != nil {
+		environment, err = environment.HostConfigOnly(input.nativeReplacement.Declaration())
+		if err != nil {
+			return commandContext{}, result, err
+		}
+		input.TargetValues = []string{string(environment.HostConfigs()[0].Target())}
+	}
 	locked, lockfileErr := nativeconfig.LoadLockfile(ctx, result.LockfilePath)
+	if lockfileErr == nil && input.nativeReplacement != nil {
+		var selected []lock.LockedSubjectContract
+		for _, contract := range locked.Locked.Subjects() {
+			if contract.EntityID() == input.nativeReplacement.Declaration() {
+				selected = append(selected, contract)
+			}
+		}
+		locked.Locked, err = lock.NewNativeLockedSection(selected, nil)
+		if err != nil {
+			return commandContext{}, result, err
+		}
+	}
 	lockfileMissing := false
 	if lockfileErr != nil {
 		if !os.IsNotExist(lockfileErr) {
@@ -880,6 +903,7 @@ func loadCommandInputsAtPaths(
 		PersistenceEpoch:             persistenceEpoch,
 		RelationObservationsExplicit: input.RelationObservations != nil,
 		ManageUnmanagedMatches:       input.ManageUnmanagedMatches,
+		nativeReplacement:            input.nativeReplacement,
 	}
 	skillDiagnostics := diagnose.SkillRepairDiagnosticsFromSourceEpoch(
 		ctx,

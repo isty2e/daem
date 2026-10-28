@@ -5,16 +5,24 @@ import (
 	"io"
 
 	"github.com/isty2e/daem/internal/reconcile"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 // PrintReconciliationGuidance reports whether selected recovery guidance was emitted.
-func PrintReconciliationGuidance(output io.Writer, result reconcile.Result) bool {
+func PrintReconciliationGuidance(output io.Writer, result reconcile.Result, manifestPath string) bool {
+	native := NativeReplacementGuidance(result, manifestPath)
+	for _, guidance := range native {
+		fmt.Fprintln(output, guidance.HumanText())
+	}
 	var drift, unmanaged, pendingPin bool
 	for _, decision := range result.Decisions() {
 		var reason reconcile.ActionReason
 		if managed, ok := decision.ManagedPath(); ok && managed.IsBlocked() {
 			reason = managed.Reason()
 		} else if aggregate, ok := decision.Aggregate(); ok && aggregate.IsBlocked() {
+			if _, _, native := topologyprojection.HostConfigKeyIdentity(aggregate.Subject()); native {
+				continue
+			}
 			reason = aggregate.Reason()
 		}
 		switch reason {
@@ -46,7 +54,7 @@ func PrintReconciliationGuidance(output io.Writer, result reconcile.Result) bool
 		fmt.Fprintln(output, "pending pin changes: preserve the original pending target in the manifest and lock; inspect scoped settings and conflicting consumers")
 		fmt.Fprintln(output, "  retry only after a fresh apply --dry-run with the same selection and new authorization; settings alone do not finish the attempt, and recover cannot roll back Pi")
 	}
-	if drift || unmanaged || pendingPin {
+	if drift || unmanaged || pendingPin || len(native) != 0 {
 		fmt.Fprintln(output, "help: https://github.com/isty2e/daem/blob/main/docs/troubleshooting.md")
 		return true
 	}
@@ -55,7 +63,7 @@ func PrintReconciliationGuidance(output io.Writer, result reconcile.Result) bool
 
 // PrintReconciliationFailureGuidance keeps inspection available even when the
 // failed command's reconciliation predates a pin reservation or completion.
-func PrintReconciliationFailureGuidance(output io.Writer, result reconcile.Result) bool {
+func PrintReconciliationFailureGuidance(output io.Writer, result reconcile.Result, manifestPath string) bool {
 	for _, action := range result.Relations() {
 		if _, planned := action.PinTransition(); !planned {
 			continue
@@ -64,5 +72,5 @@ func PrintReconciliationFailureGuidance(output io.Writer, result reconcile.Resul
 		fmt.Fprintln(output, "help: https://github.com/isty2e/daem/blob/main/docs/troubleshooting.md")
 		return true
 	}
-	return PrintReconciliationGuidance(output, result)
+	return PrintReconciliationGuidance(output, result, manifestPath)
 }

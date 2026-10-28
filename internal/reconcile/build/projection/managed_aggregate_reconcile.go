@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 func reconcileAggregateDocument(
@@ -17,6 +18,7 @@ func reconcileAggregateDocument(
 	failuresByDocument map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure,
 	preconditionsByDocument map[aggregate.DocumentCodecKey][]observe.AggregatePreconditionEvidence,
 	manageUnmanagedMatches bool,
+	replacement *topologyprojection.HostConfigKeySelection,
 	owner stateauthority.Authority,
 	ownershipEvidence map[ownershipObservationKey]observe.OwnershipObservation,
 	ownershipConflicts map[ownershipObservationKey]struct{},
@@ -28,6 +30,7 @@ func reconcileAggregateDocument(
 		failuresByDocument,
 		preconditionsByDocument,
 		manageUnmanagedMatches,
+		replacement,
 		codecs,
 	)
 	if err != nil {
@@ -47,6 +50,7 @@ func reconcileAggregateDocumentSemantics(
 	failuresByDocument map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure,
 	preconditionsByDocument map[aggregate.DocumentCodecKey][]observe.AggregatePreconditionEvidence,
 	manageUnmanagedMatches bool,
+	replacement *topologyprojection.HostConfigKeySelection,
 	codecs aggregate.CodecCatalog,
 ) (aggregateDecision, error) {
 	coverage, err := newAggregateDocumentCoverage(groups)
@@ -147,7 +151,7 @@ func reconcileAggregateDocumentSemantics(
 	preBlocked := false
 	for _, group := range groups {
 		current := currentByAddress[group.contract.Address()]
-		projection, intent, err := prepareAggregateProjection(codec, group, current)
+		projection, intent, err := prepareAggregateProjection(codec, group, current, replacement)
 		if err != nil {
 			return aggregateDecision{}, err
 		}
@@ -201,6 +205,7 @@ func reconcileAggregateDocumentSemantics(
 			projection,
 			modeCurrent,
 			manageUnmanagedMatches,
+			replacement,
 		)
 		if err != nil {
 			return aggregateDecision{}, err
@@ -285,6 +290,7 @@ func prepareAggregateProjection(
 	codec aggregate.Codec,
 	group aggregateGroupInput,
 	current aggregate.ProjectionState,
+	replacement *topologyprojection.HostConfigKeySelection,
 ) (aggregateProjectionDecision, aggregate.ProjectionIntent, error) {
 	desired, err := aggregateContributionSet(group.desired)
 	if err != nil {
@@ -311,7 +317,7 @@ func prepareAggregateProjection(
 		projection.managedBaseline = previousProjection
 		projection.hasManagedBaseline = true
 		_, native := aggregate.HostConfigSyntaxForCodec(group.contract.CodecContractID())
-		if !current.Present() && (!native || desired != nil) {
+		if replacement == nil && !current.Present() && (!native || desired != nil) {
 			return blockAggregateProjection(
 				projection,
 				reconcile.ReasonMissingOutput,

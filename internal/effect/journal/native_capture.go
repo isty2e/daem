@@ -191,6 +191,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	}
 	candidates := make([]nativeDocumentCaptureCandidate, 0, len(inputs))
 	work := !batch.before.Equal(after)
+	documentWork := false
 	for index, input := range inputs {
 		candidate, err := prepareSelectedDocumentCandidate(ctx, batch.namespaces[index], selectedDocumentCaptureInput{nativeDocumentCaptureInput: input, edits: groupEdits[index]}, subjects)
 		if err != nil {
@@ -200,8 +201,12 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 		if !candidate.comparison.before.Equal(original.document) || !sameNativeImageMode(candidate.comparison.beforeMode(), original.mode) {
 			return nativeJournalSnapshots{}, nil, fmt.Errorf("selected candidate differs from its decision original")
 		}
-		work = work || !candidate.comparison.before.Equal(candidate.comparison.expected) || !candidate.comparison.beforeState.SameRootMetadata(candidate.comparison.expectedState)
+		documentWork = documentWork || !candidate.comparison.before.Equal(candidate.comparison.expected) || !candidate.comparison.beforeState.SameRootMetadata(candidate.comparison.expectedState)
+		work = work || documentWork
 		candidates = append(candidates, candidate)
+	}
+	if err := requireNativeDocumentCommitWork(batch.before, after, documentWork); err != nil {
+		return nativeJournalSnapshots{}, nil, err
 	}
 	if !work {
 		return nativeJournalSnapshots{}, nil, fmt.Errorf("native capture requires actual document or state work")

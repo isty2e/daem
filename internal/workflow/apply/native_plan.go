@@ -127,6 +127,13 @@ func planReadinessAtPathsWithBarrierValidation(ctx context.Context, input Comman
 }
 
 func applyOperationFingerprint(planned commandPlan, operationContext reconcile.OperationContext) (mutation.OperationFingerprint, error) {
+	if planned.context.nativeReplacement != nil {
+		payload, err := nativeReplacementApprovalPayload(planned)
+		if err != nil {
+			return mutation.OperationFingerprint{}, err
+		}
+		return mutation.NewOperationFingerprint(payload), nil
+	}
 	if planned.nativePlan == nil && (planned.assessment.Reconciliation.ContainsHostConfig() || planned.assessment.CurrentState.ContainsHostConfig()) {
 		return mutation.OperationFingerprint{}, execute.ErrNativeOperationRequired
 	}

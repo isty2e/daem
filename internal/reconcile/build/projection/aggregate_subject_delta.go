@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 func classifyAggregateProjection(
@@ -14,6 +15,7 @@ func classifyAggregateProjection(
 	projection aggregateProjectionDecision,
 	modeCurrent bool,
 	manageUnmanagedMatches bool,
+	replacement *topologyprojection.HostConfigKeySelection,
 ) (aggregateProjectionDecision, error) {
 	previous := make(map[topology.SubjectID]aggregate.ManagedContribution, len(projection.previous))
 	for _, state := range projection.previous {
@@ -26,7 +28,7 @@ func classifyAggregateProjection(
 		}
 	}
 	sameProjection := aggregateProjectionStatesEqual(projection.before, projection.expected)
-	if projection.hasManagedBaseline &&
+	if replacement == nil && projection.hasManagedBaseline &&
 		projection.before.CanonicalProjection() != projection.managedBaseline &&
 		!sameProjection {
 		return blockAggregateProjection(
@@ -35,7 +37,7 @@ func classifyAggregateProjection(
 			"managed aggregate projection differs from statefile baseline",
 		), nil
 	}
-	if len(previous) == 0 && projection.before.Present() {
+	if replacement == nil && len(previous) == 0 && projection.before.Present() {
 		if projection.desired == nil {
 			return blockAggregateProjection(
 				projection,
@@ -75,6 +77,11 @@ func classifyAggregateProjection(
 			previous: before, hasPrevious: hadBefore,
 		}
 		switch {
+		case replacement != nil && hasAfter && !sameProjection:
+			delta.kind, delta.reason = reconcile.AggregateReplace, reconcile.ReasonContentChanged
+			if !projection.before.Present() {
+				delta.kind, delta.reason = reconcile.AggregateCreate, reconcile.ReasonMissingOutput
+			}
 		case len(previous) == 0 && !hadBefore && hasAfter &&
 			projection.before.Present() && sameProjection && modeCurrent:
 			delta.kind, delta.reason = reconcile.AggregateRecord, reconcile.ReasonManagedExisting

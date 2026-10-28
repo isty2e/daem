@@ -29,7 +29,12 @@ separate facts. The v8 reader translates the older combined reason.
 
 Statefile v10 records aggregate key paths as RFC 6901 `key_path` values. Daem
 reads v8 and v9 without rewriting them; subsequent state writes use v10.
-Older binaries cannot read v10.
+Older binaries cannot read v10. Its optional `native_document_commit` counter
+distinguishes state-neutral native file changes, such as replacing a changed key
+with the same value already recorded in state. It advances only when a real native
+file mutation would otherwise leave state unchanged; already-current operations
+do not advance it. This makes pre-commit rollback distinguishable from committed
+finalization without introducing another recovery-journal format.
 
 The statefile is private authority data. Daem writes and accepts it only as an
 invoking-user-owned regular file with exact mode `0600`; final symlinks,

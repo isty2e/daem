@@ -25,6 +25,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -75,6 +76,9 @@ func assessRetainedInputs(ctx context.Context, input readiness.Input, operation 
 		add(address)
 	}
 	for _, contract := range input.Lockfile.Locked.Subjects() {
+		if input.NativeReplacement != nil && contract.EntityID() != input.NativeReplacement.Declaration() {
+			continue
+		}
 		if placement, native := contract.HostConfigPlacement(); native && input.Selection.Includes(placement.Target()) {
 			if placement.Ownership() != hostconfig.OwnershipKeys {
 				return readiness.Assessment{}, fmt.Errorf("native document mode and ownership transitions require their containing operation")
@@ -87,6 +91,12 @@ func assessRetainedInputs(ctx context.Context, input readiness.Input, operation 
 		}
 	}
 	for _, state := range before.ManagedPaths() {
+		if input.NativeReplacement != nil {
+			id, present := topologyprojection.EntityID(state.Subject())
+			if !present || id != input.NativeReplacement.Declaration() {
+				continue
+			}
+		}
 		if aggregate.IsHostConfigDocumentSubject(state.Subject()) && slices.ContainsFunc(state.ConsumerTargets(), input.Selection.Includes) {
 			return readiness.Assessment{}, fmt.Errorf("native whole-document history and ownership transitions require their containing operation")
 		}

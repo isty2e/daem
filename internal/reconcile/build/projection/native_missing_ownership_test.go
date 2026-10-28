@@ -39,12 +39,12 @@ func TestNativeAbsentRetirementDoesNotAdmitDesiredRecreationOrOrdinaryAbsence(t 
 		t.Fatal(err)
 	}
 	group := aggregateGroupInput{contract: set.Contract(), desired: set.Contributions(), previous: []durable.ManagedAggregateState{row}}
-	blocked, _, err := prepareAggregateProjection(codec, group, current)
+	blocked, _, err := prepareAggregateProjection(codec, group, current, nil)
 	if err != nil || blocked.Kind() != reconcile.AggregateBlocked || blocked.Reason() != reconcile.ReasonMissingOutput {
 		t.Fatal("ordinary native planning recreated a missing desired owned key", err)
 	}
 	group.desired = nil
-	retiring, intent, err := prepareAggregateProjection(codec, group, current)
+	retiring, intent, err := prepareAggregateProjection(codec, group, current, nil)
 	if err != nil || retiring.Kind() == reconcile.AggregateBlocked || intent.Before().Present() {
 		t.Fatal("native absent retirement manufactured present before evidence", err)
 	}
@@ -73,7 +73,7 @@ func TestNativeAbsentRetirementDoesNotAdmitDesiredRecreationOrOrdinaryAbsence(t 
 		t.Fatal("ordinary fixture codec is missing")
 	}
 	prior := aggregateGroupInput{contract: ordinary.contract, previous: []durable.ManagedAggregateState{ordinaryRow}}
-	refused, _, err := prepareAggregateProjection(ordinaryCodec, prior, ordinaryCurrent)
+	refused, _, err := prepareAggregateProjection(ordinaryCodec, prior, ordinaryCurrent, nil)
 	if err != nil || refused.Kind() != reconcile.AggregateBlocked || refused.Reason() != reconcile.ReasonMissingOutput {
 		t.Fatal("native absence settlement widened ordinary missing-baseline behavior", err)
 	}

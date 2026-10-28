@@ -7,8 +7,10 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/effect/journal"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -44,6 +46,7 @@ type Assessment struct {
 	Ownership              []observe.OwnershipObservation
 	SelectedTargets        reconcile.SelectedTargets
 	NativeSources          []lockobserve.NativeSourceObservation
+	NativeApproval         []journal.NativeDocumentApprovalEvidence
 }
 
 // Input contains canonical inputs for shared non-mutating apply/status
@@ -63,11 +66,15 @@ type Input struct {
 	HookContributionEncoder commandhook.ContributionEncoder
 	MCPContributionEncoder  lockrefine.MCPContributionEncoder
 	Native                  *NativeAssessmentInput
+	NativeReplacement       *topologyprojection.HostConfigKeySelection
 }
 
 // Assess sequences fresh observations and persistence reads, then delegates
 // pure decisions to plan without rendering payload bytes or mutating the host.
 func Assess(ctx context.Context, input Input) (Assessment, error) {
+	if input.NativeReplacement != nil {
+		return assessNativeReplacement(ctx, input)
+	}
 	if input.Lockfile.Version == lock.NativeVersion && input.Native == nil {
 		return Assessment{}, fmt.Errorf("native configuration assessment requires its containing observation operation")
 	}

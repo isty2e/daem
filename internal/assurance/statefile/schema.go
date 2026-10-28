@@ -1,5 +1,7 @@
 package statefile
 
+import "encoding/json"
+
 const (
 	snapshotVersion         = 10
 	previousSnapshotVersion = 9
@@ -8,6 +10,7 @@ const (
 
 type snapshotDocumentDTO[Aggregate aggregateStateRecord] struct {
 	Version                   int                        `json:"version"`
+	NativeDocumentCommit      json.RawMessage            `json:"native_document_commit,omitempty"`
 	ManagedPaths              []managedPathDTO           `json:"managed_paths"`
 	ManagedAggregateBaselines []Aggregate                `json:"managed_aggregate_contributions"`
 	PendingCarrierInstalls    []pendingCarrierInstallDTO `json:"pending_carrier_installs"`

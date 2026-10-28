@@ -57,6 +57,15 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 	if err != nil {
 		return err
 	}
+	if err := before.ValidateNativeDocumentCommitTransition(after); err != nil {
+		return err
+	}
+	if before.NativeDocumentCommit() != after.NativeDocumentCommit() {
+		projected, err = projected.AdvanceNativeDocumentCommit()
+		if err != nil {
+			return err
+		}
+	}
 	if !projected.Equal(after) {
 		return fmt.Errorf("whole-document or non-document state changes require their capture integration")
 	}

@@ -78,6 +78,7 @@ var commandAdmissionCatalog = map[string]commandPlatformAdmission{
 			"extension", "instruction", "hook", "mcp-server", "skill", "skill-group",
 		},
 	},
+	"replace":  {scope: platformAdmissionSelectedSubject, subjects: []string{"host-config"}},
 	"apply":    {scope: platformAdmissionWholeCommand},
 	"doctor":   {},
 	"help":     {},
@@ -235,6 +236,14 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 		return runRefresh(args[1:], stdout, stderr, commandInvocation)
 	case "remove":
 		return runRemove(commandInvocation.context, args[1:], stdout, stderr)
+	case "replace":
+		if commandHelpRequested(args[1:]) {
+			printCommandUsage([]string{"replace"}, stdout, options.HelpWidth)
+			return 0
+		}
+		fmt.Fprintln(stderr, "replace requires the host-config subject and one declaration id")
+		printCommandHelpHint(stderr, []string{"replace"})
+		return 2
 	case "unmanage":
 		return runUnmanage(commandInvocation.context, args[1:], stdout, stderr)
 	case "version":

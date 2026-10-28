@@ -1,6 +1,7 @@
 package statefile
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -43,6 +44,9 @@ func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codec sna
 			version,
 		)
 	}
+	if len(persisted.NativeDocumentCommit) != 0 && version != snapshotVersion {
+		return durable.Snapshot{}, fmt.Errorf("native document commit requires the current state schema")
+	}
 	input := durable.SnapshotInput{
 		ManagedPaths:           make([]durable.ManagedPathState, 0, len(persisted.ManagedPaths)),
 		ManagedAggregates:      make([]durable.ManagedAggregateState, 0, len(persisted.ManagedAggregateBaselines)),
@@ -51,6 +55,14 @@ func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codec sna
 		ManagedCarrierClaims:   make([]durablecarrier.ManagedCarrierClaim, 0, len(persisted.ManagedCarrierClaims)),
 		DelegateAttempts:       make([]durableattempt.DelegateAttempt, 0, len(persisted.DelegateAttempts)),
 		HostRouteAttempts:      make([]durableattempt.HostRouteAttempt, 0, len(persisted.HostRouteAttempts)),
+	}
+	if len(persisted.NativeDocumentCommit) != 0 {
+		if string(persisted.NativeDocumentCommit) == "null" {
+			return durable.Snapshot{}, fmt.Errorf("native document commit must be an unsigned integer")
+		}
+		if err := json.Unmarshal(persisted.NativeDocumentCommit, &input.NativeDocumentCommit); err != nil {
+			return durable.Snapshot{}, fmt.Errorf("native document commit: %w", err)
+		}
 	}
 	for index, row := range persisted.ManagedPaths {
 		state, err := row.canonical()

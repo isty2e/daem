@@ -12,6 +12,7 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 // AggregateInput contains reproducible lock facts, ephemeral desired values,
@@ -119,6 +120,10 @@ type aggregateBlockedSubject struct {
 // BuildAggregateDecisions reconciles semantic projections by address, then
 // batches every projection sharing one physical document and codec.
 func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecision, error) {
+	return buildAggregateDecisions(input, nil)
+}
+
+func buildAggregateDecisions(input AggregateInput, replacement *topologyprojection.HostConfigKeySelection) ([]reconcile.AggregateDecision, error) {
 	selection := selectedTargetSet(input.SelectedTargets)
 	expected, blocked, err := expectedAggregateSubjects(
 		input.Locked,
@@ -239,6 +244,7 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 			failures,
 			preconditions,
 			input.ManageUnmanagedMatches,
+			replacement,
 			input.Owner,
 			ownershipEvidence,
 			ownershipConflicts,
