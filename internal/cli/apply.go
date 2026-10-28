@@ -268,6 +268,14 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			clipresent.PrintDelegateActionsWithOptions(stdout, readinessPlanning.Reconciliation.Delegates(), humanOptions)
 		}
 
+		if arguments.output == requestedJSON {
+			if err := clipresent.PrintApplyResultJSON(io.Discard, clipresent.ApplyResultJSONInput{
+				Reconciliation: readinessPlanning.Reconciliation,
+			}); err != nil {
+				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("apply refused: prepare JSON output: "))
+			}
+		}
+
 		progress := newApplyProgressRenderer(arguments.output == requestedJSON, stderr, options)
 		executeOptions := options.applyExecuteOptions
 		executeOptions.ExecuteEvents = progress.Sink()

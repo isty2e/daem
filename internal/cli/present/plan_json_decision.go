@@ -12,7 +12,7 @@ import (
 )
 
 func planJSONAggregateAction(decision reconcile.AggregateSubjectDecision) (planJSONAction, error) {
-	contentPath, err := decision.Contract().Address().LegacyContentPath()
+	contentPath, keyPath, err := aggregateJSONAddress(decision.Subject(), decision.Contract().Address())
 	if err != nil {
 		return planJSONAction{}, err
 	}
@@ -21,24 +21,24 @@ func planJSONAggregateAction(decision reconcile.AggregateSubjectDecision) (planJ
 		Kind: aggregatePublicKind(decision), Reason: string(decision.Reason()),
 		Subject: planJSONSubjectFor(decision.Subject()), Target: string(decision.Target()),
 		Scope: string(decision.Scope()), Destination: decision.Destination().String(),
-		ContentPath: string(contentPath), Detail: decision.Detail(), ResourceID: resourceID, Resource: resourceValue,
+		ContentPath: contentPath, KeyPath: keyPath, Detail: decision.Detail(), ResourceID: resourceID, Resource: resourceValue,
 	}
 	if decision.Reason() != reconcile.ReasonMissingLock {
 		document := decision.Contract().Address().Document()
 		row.Projection = &planJSONProjection{
 			Target: string(document.Target()), Scope: string(document.Scope()),
-			ConfigPath: document.AggregateRoot().String(), ContentPath: string(contentPath),
+			ConfigPath: document.AggregateRoot().String(), ContentPath: contentPath, KeyPath: keyPath,
 		}
 	}
 	if previous, present := decision.PreviousContribution(); present {
-		previousPath, err := previous.LegacyContentPath()
+		previousPath, previousKey, err := aggregateJSONAddress(decision.Subject(), previous.Address())
 		if err != nil {
 			return planJSONAction{}, err
 		}
 		row.PreviousState = &planJSONPreviousState{
 			Subject: planJSONSubjectFor(decision.Subject()), Target: string(previous.Target()),
 			Scope: string(previous.Scope()), Destination: previous.AggregateRoot().String(),
-			ContentPath: previousPath, ContentHash: string(artifact.HashFileContent([]byte(previous.CanonicalContribution()))),
+			ContentPath: previousPath, KeyPath: previousKey, ContentHash: string(artifact.HashFileContent([]byte(previous.CanonicalContribution()))),
 		}
 	}
 	return row, nil

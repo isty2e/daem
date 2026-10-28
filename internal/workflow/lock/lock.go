@@ -31,6 +31,8 @@ type LockInput struct {
 	MaxParallelSourceOps int
 	SourceEvents         acquisition.EventSink
 	LockEvents           ProgressEventSink
+	// PrepareResult prepares the built response before publication; it must not mutate workflow inputs or outputs.
+	PrepareResult func(Result) error
 }
 
 // OutdatedInput describes one daem outdated workflow invocation.
@@ -91,6 +93,11 @@ func RunLock(ctx context.Context, input LockInput) (Result, error) {
 		)
 		if err != nil {
 			return Result{}, err
+		}
+		if input.PrepareResult != nil {
+			if err := input.PrepareResult(result.Result); err != nil {
+				return Result{}, err
+			}
 		}
 		return result.Result, nil
 	}

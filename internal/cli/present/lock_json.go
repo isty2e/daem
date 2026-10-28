@@ -111,6 +111,7 @@ type jsonRealization struct {
 	ExactPermissionMode        *uint32  `json:"exact_permission_mode,omitempty"`
 	AggregateRoot              string   `json:"aggregate_root,omitempty"`
 	ContentPath                string   `json:"content_path,omitempty"`
+	KeyPath                    []string `json:"key_path,omitempty"`
 	MergeUnit                  string   `json:"merge_unit,omitempty"`
 	SiblingRetention           string   `json:"sibling_retention,omitempty"`
 	Equivalence                string   `json:"equivalence,omitempty"`
@@ -364,11 +365,12 @@ func jsonRealizationForWithDisclosure(
 		result.Target = string(contribution.Target())
 		result.Scope = string(contribution.Scope())
 		result.AggregateRoot = contribution.AggregateRoot().String()
-		contentPath, err := contribution.LegacyContentPath()
+		contentPath, keyPath, err := aggregateJSONAddress(subject, contribution.Address())
 		if err != nil {
 			return jsonRealization{}, err
 		}
 		result.ContentPath = contentPath
+		result.KeyPath = keyPath
 		result.MergeUnit = string(contribution.MergeUnit())
 		result.SiblingRetention = string(contribution.SiblingRetention())
 		result.Equivalence = string(contribution.Equivalence())

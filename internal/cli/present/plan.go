@@ -77,6 +77,7 @@ type planJSONAction struct {
 	Scope            string                 `json:"scope"`
 	Destination      string                 `json:"destination"`
 	ContentPath      string                 `json:"content_path,omitempty"`
+	KeyPath          []string               `json:"key_path,omitempty"`
 	PlacementMode    string                 `json:"placement_mode"`
 	ContentKind      string                 `json:"content_kind,omitempty"`
 	PermissionPolicy string                 `json:"permission_policy,omitempty"`
@@ -103,10 +104,11 @@ type planJSONSubject struct {
 }
 
 type planJSONProjection struct {
-	Target      string `json:"target"`
-	Scope       string `json:"scope"`
-	ConfigPath  string `json:"config_path"`
-	ContentPath string `json:"content_path"`
+	Target      string   `json:"target"`
+	Scope       string   `json:"scope"`
+	ConfigPath  string   `json:"config_path"`
+	ContentPath string   `json:"content_path,omitempty"`
+	KeyPath     []string `json:"key_path,omitempty"`
 }
 
 type planJSONPreviousState struct {
@@ -118,6 +120,7 @@ type planJSONPreviousState struct {
 	Scope            string            `json:"scope"`
 	Destination      string            `json:"destination"`
 	ContentPath      string            `json:"content_path,omitempty"`
+	KeyPath          []string          `json:"key_path,omitempty"`
 	ContentHash      string            `json:"content_hash"`
 	ContentKind      string            `json:"content_kind,omitempty"`
 	PermissionPolicy string            `json:"permission_policy,omitempty"`

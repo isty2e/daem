@@ -28,7 +28,7 @@ const (
 	VersionJSON            = 1
 	InitJSON               = 1
 	ManifestAuthoringJSON  = 7
-	LockComparisonJSON     = 4
+	LockComparisonJSON     = 5
 	ResourceInventoryJSON  = 4
 	OutputInventoryJSON    = 5
 	PathInventoryJSON      = 2

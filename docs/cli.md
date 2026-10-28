@@ -333,7 +333,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
 | `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `7` |
-| `lock`, `outdated` | Lock comparison | `4` |
+| `lock`, `outdated` | Lock comparison | `5` |
 | `list resources` | Resource inventory | `4` |
 | `list outputs` | Output inventory | `5` |
 | `list paths` | Agent location inventory | `2` |
@@ -345,6 +345,12 @@ are unrelated and must not be compared as a product-wide sequence:
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
 | Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `1` |
+
+Native host-configuration key addresses use a `key_path` array of literal names
+in lock comparisons, reconciliation actions/projections/previous state, and
+apply results. For example, `["ext", "a/b"]` selects a property literally named
+`a/b`, and `[""]` selects an empty property name. Legacy aggregate rows retain
+`content_path`; native rows do not encode their names in that field.
 
 The resource-name cutover replaces the v0.5.x envelopes for manifest authoring
 (`6`), resource inventory (`2`), output inventory (`4`), agent location inventory
