@@ -59,7 +59,7 @@ ownership = "keys"
 			if err := toml.Unmarshal(content, &values); err != nil || (values.Model == nil || *values.Model != "native-test") {
 				t.Fatal("CLI apply did not create the selected managed value", err)
 			}
-			if existing && (!values.Unmanaged || !bytes.Contains(content, []byte("# User-owned comment\n"))) {
+			if existing && (!values.Unmanaged || !bytes.HasPrefix(content, []byte("# User-owned comment\n"))) {
 				t.Fatal("adding a managed key lost unrelated values or their comment")
 			}
 			requireNativeLifecycleMetadata(t, manifest, true)

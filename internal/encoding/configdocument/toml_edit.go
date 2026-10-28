@@ -229,7 +229,14 @@ func (editor *tomlEditor) apply() ([]byte, error) {
 		text := node.insert.String()
 		switch {
 		case node.parent == nil:
-			// Root assignments must precede every table header.
+			// Preserve leading trivia without placing root assignments inside a table.
+			position = len(content)
+			if len(editor.index.expressions) != 0 {
+				position = bytes.LastIndexByte(content[:editor.index.expressions[0].span.start], '\n') + 1
+			}
+			if position > 0 && content[position-1] != '\n' {
+				text = editor.newline + text
+			}
 		case node.header != nil:
 			position = node.header.span.end
 			if next := bytes.IndexByte(content[position:], '\n'); next >= 0 {
