@@ -12,6 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.0
 	github.com/creack/pty v1.1.24
 	github.com/gofrs/flock v0.13.0
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/tailscale/hujson v0.0.0-20241010212012-29efb4a0184b
 	golang.org/x/mod v0.40.0
