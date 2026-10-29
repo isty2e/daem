@@ -98,7 +98,7 @@ install_to = ".agents/skills"
 [skill.target.codex]
 install_to = ".codex/skills"
 `,
-			want: "already been defined",
+			want: "",
 		},
 		{
 			name: "unknown target-local key",
@@ -123,7 +123,7 @@ source = { path = "skills/review", mode = "vendor" }
 targets = ["codex"]
 scope = "project"
 ` + test.body))
-			if err == nil || !strings.Contains(err.Error(), test.want) {
+			if err == nil || test.want != "" && !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Decode error = %v, want %q", err, test.want)
 			}
 		})

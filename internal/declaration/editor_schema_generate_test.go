@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/encoding/toml"
 
 	"github.com/isty2e/daem/internal/target"
 )
@@ -141,7 +141,7 @@ func (builder *editorSchemaBuilder) node(typ reflect.Type) (*editorSchemaNode, e
 
 func editorSchemaCustomDecoder(typ reflect.Type) bool {
 	for _, contract := range []reflect.Type{
-		reflect.TypeFor[toml.Unmarshaler](), reflect.TypeFor[encoding.TextUnmarshaler](),
+		reflect.TypeFor[tomlsyntax.Unmarshaler](), reflect.TypeFor[encoding.TextUnmarshaler](),
 	} {
 		if typ.Implements(contract) || reflect.PointerTo(typ).Implements(contract) {
 			return true

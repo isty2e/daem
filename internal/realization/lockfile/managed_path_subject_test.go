@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -140,7 +140,7 @@ func TestManagedPathRealizationTOMLPreservesExplicitExactModeZero(t *testing.T) 
 	dto := realizationToDTO(exactManagedPathRealization(t, 0), true)
 
 	var encoded bytes.Buffer
-	if err := toml.NewEncoder(&encoded).Encode(dto.ManagedPath); err != nil {
+	if err := tomlsyntax.Encode(&encoded, dto.ManagedPath); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(encoded.String(), "exact_permission_mode = 0") {
@@ -148,7 +148,7 @@ func TestManagedPathRealizationTOMLPreservesExplicitExactModeZero(t *testing.T) 
 	}
 
 	var decoded managedPathProjectionDTO
-	if _, err := toml.Decode(encoded.String(), &decoded); err != nil {
+	if _, err := tomlsyntax.Decode(encoded.String(), &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.ExactPermissionMode == nil || *decoded.ExactPermissionMode != 0 {
@@ -160,7 +160,7 @@ func TestManagedPathRealizationTOMLRejectsMalformedExactModes(t *testing.T) {
 	for _, value := range []string{"-1", "4294967296", `"0700"`, "1.5"} {
 		t.Run(value, func(t *testing.T) {
 			var decoded managedPathProjectionDTO
-			if _, err := toml.Decode("exact_permission_mode = "+value, &decoded); err == nil {
+			if _, err := tomlsyntax.Decode("exact_permission_mode = "+value, &decoded); err == nil {
 				t.Fatalf("TOML decoder accepted exact_permission_mode = %s", value)
 			}
 		})

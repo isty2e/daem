@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	"github.com/isty2e/daem/internal/desired/entity"
+	desiredhook "github.com/isty2e/daem/internal/desired/hook"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -29,6 +30,17 @@ func BuildAddHookChange(document ManifestDocument, request AddHookRequest) (Chan
 	hook, warnings, err := HookFromAddRequest(request, header)
 	if err != nil {
 		return Change{}, err
+	}
+	text := desiredhook.Spec{
+		Name: hook.Name, Event: hook.Event, Matcher: hook.Matcher,
+		Command: hook.Command, StatusMessage: hook.StatusMessage,
+		TargetOverrides: make(map[target.Target]desiredhook.TargetOverride, len(hook.TargetOverrides)),
+	}
+	for _, override := range hook.TargetOverrides {
+		text.TargetOverrides[target.Target(override.Target)] = desiredhook.NewTargetOverride(override.Condition, override.Matcher)
+	}
+	if err := text.ValidateText(); err != nil {
+		return Change{}, fmt.Errorf("resulting manifest is invalid: %w", err)
 	}
 
 	content, changeKind, err := ApplyAddHookToManifest(document.Content, hook, header)

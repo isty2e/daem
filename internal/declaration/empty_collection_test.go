@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/encoding/toml"
 )
 
 func TestAppendDocumentBlockAddsToEmptyRootCollections(t *testing.T) {
@@ -38,25 +38,19 @@ func TestAppendDocumentBlockAddsToEmptyRootCollections(t *testing.T) {
 					t.Fatalf("append discarded a placeholder comment: %q", updated)
 				}
 
-				var document map[string]toml.Primitive
-				metadata, err := toml.Decode(string(updated), &document)
+				var document map[string]any
+				_, err := tomlsyntax.Decode(string(updated), &document)
 				if err != nil {
 					t.Fatalf("appended declaration is not valid TOML: %v\n%s", err, updated)
 				}
 				if root == "instructions" {
-					var members map[string]struct{ Source string }
-					if err := metadata.PrimitiveDecode(document[root], &members); err != nil {
-						t.Fatal(err)
-					}
-					if len(members) != 1 || members["alpha"].Source != "AGENTS.md" {
+					members := document[root].(map[string]any)
+					if len(members) != 1 || members["alpha"].(map[string]any)["source"] != "AGENTS.md" {
 						t.Fatalf("instruction members = %#v", members)
 					}
 				} else {
-					var members []struct{ Name string }
-					if err := metadata.PrimitiveDecode(document[root], &members); err != nil {
-						t.Fatal(err)
-					}
-					if len(members) != 1 || members[0].Name != "alpha" {
+					members := document[root].([]any)
+					if len(members) != 1 || members[0].(map[string]any)["name"] != "alpha" {
 						t.Fatalf("%s members = %#v", root, members)
 					}
 				}
@@ -102,7 +96,7 @@ func TestAppendDocumentBlockIgnoresHeadersInsideIncomingStrings(t *testing.T) {
 		Skill []struct{ Name string }
 		Hook  []struct{ Command string }
 	}
-	if _, err := toml.Decode(string(updated), &result); err != nil {
+	if _, err := tomlsyntax.Decode(string(updated), &result); err != nil {
 		t.Fatalf("appended hook is not valid TOML: %v\n%s", err, updated)
 	}
 	if len(result.Skill) != 0 || len(result.Hook) != 1 || result.Hook[0].Command != "[[skill]]\n" {
@@ -119,7 +113,7 @@ func TestAppendDocumentBlockReplacesOnlyIntroducedRoots(t *testing.T) {
 		Skill        []struct{ Name string }
 		Hook         []struct{ Name string }
 	}
-	if _, err := toml.Decode(string(updated), &document); err != nil {
+	if _, err := tomlsyntax.Decode(string(updated), &document); err != nil {
 		t.Fatalf("combined root definitions are invalid: %v\n%s", err, updated)
 	}
 	if len(document.Instructions) != 1 || document.Instructions["alpha"].Source != "guide.md" || len(document.Skill) != 1 || document.Skill[0].Name != "alpha" || len(document.Hook) != 0 {
@@ -142,7 +136,7 @@ func TestAppendDocumentBlockPreservesArrayRootThroughNestedHeaders(t *testing.T)
 			Source struct{ Path string }
 		}
 	}
-	if _, err := toml.Decode(string(updated), &document); err != nil {
+	if _, err := tomlsyntax.Decode(string(updated), &document); err != nil {
 		t.Fatalf("nested header replaced the array root classification: %v\n%s", err, updated)
 	}
 	if len(document.Skill) != 1 || document.Skill[0].Name != "alpha" || document.Skill[0].Source.Path != "local" || !bytes.Contains(updated, []byte("instructions = {}\n")) {

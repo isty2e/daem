@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
+
 	"github.com/isty2e/daem/internal/declaration"
 )
 
@@ -17,7 +19,7 @@ type HookBlock struct {
 func ScanHookBlocks(content []byte) ([]HookBlock, error) {
 	ranges := declaration.ScanDocumentRanges(
 		content,
-		func(trimmed string) bool { return declaration.StartsArrayTableRoot(trimmed, "hook") },
+		func(trimmed string) bool { return tomlsyntax.StartsArrayTableRoot(trimmed, "hook") },
 		startsNewHookTable,
 	)
 	blocks := make([]HookBlock, 0)
@@ -32,7 +34,7 @@ func ScanHookBlocks(content []byte) ([]HookBlock, error) {
 }
 
 func startsNewHookTable(trimmedLine string) bool {
-	return declaration.StartsTableOutsideRoot(trimmedLine, "hook")
+	return tomlsyntax.StartsTableOutsideRoot(trimmedLine, "hook")
 }
 
 func parseHookBlock(content []byte, start int, end int) (HookBlock, error) {
@@ -191,7 +193,7 @@ func UpdateHookTargets(block string, existing declaration.Hook, updated declarat
 
 	rewritten := string(content)
 	if len(updated.Targets) == 0 {
-		removed, ok, err := declaration.RemoveRootAssignment(rewritten, "targets")
+		removed, ok, err := tomlsyntax.RemoveRootAssignment(rewritten, "targets")
 		if err != nil {
 			return "", fmt.Errorf("update hook targets: %w", err)
 		}
@@ -199,14 +201,14 @@ func UpdateHookTargets(block string, existing declaration.Hook, updated declarat
 			rewritten = removed
 		}
 	} else {
-		replaced, ok, err := declaration.ReplaceRootAssignment(rewritten, "targets", renderStringArray(updated.Targets))
+		replaced, ok, err := tomlsyntax.ReplaceRootAssignment(rewritten, "targets", renderStringArray(updated.Targets))
 		if err != nil {
 			return "", fmt.Errorf("update hook targets: %w", err)
 		}
 		if ok {
 			rewritten = replaced
 		} else {
-			inserted, insertErr := declaration.InsertRootAssignment(rewritten, "targets", renderStringArray(updated.Targets))
+			inserted, insertErr := tomlsyntax.InsertRootAssignment(rewritten, "targets", renderStringArray(updated.Targets))
 			if insertErr != nil {
 				return "", fmt.Errorf("update hook targets: %w", insertErr)
 			}
@@ -228,14 +230,14 @@ func hookTargetOverrideRanges(block string) []declaration.DocumentRange {
 	return declaration.ScanDocumentRanges(
 		[]byte(block),
 		func(trimmed string) bool {
-			header, ok := declaration.ParseTableHeader(trimmed)
+			header, ok := tomlsyntax.ParseTableHeader(trimmed)
 			return ok && header.Array &&
 				len(header.Segments) == 2 &&
 				header.Segments[0] == "hook" &&
 				header.Segments[1] == "target_override"
 		},
 		func(trimmed string) bool {
-			_, ok := declaration.ParseTableHeader(trimmed)
+			_, ok := tomlsyntax.ParseTableHeader(trimmed)
 			return ok
 		},
 	)

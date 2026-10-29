@@ -35,8 +35,8 @@ type Source struct {
 	Format    string `toml:"format"`
 }
 
-// UnmarshalTOML decodes the strict inline-table grammar used by skill sources.
-func (source *Source) UnmarshalTOML(value any) error {
+// decodeTOMLValue interprets the strict inline-table shape of skill sources.
+func (source *Source) decodeTOMLValue(value any) error {
 	values, ok := value.(map[string]any)
 	if !ok {
 		return fmt.Errorf("source must be an inline table")
@@ -109,7 +109,7 @@ type HookAssetSource struct {
 	Set    bool
 }
 
-func (source *HookAssetSource) UnmarshalTOML(value any) error {
+func (source *HookAssetSource) decodeTOMLValue(value any) error {
 	source.Set = true
 
 	raw, err := SourceFromTOMLValue(value)
@@ -135,7 +135,7 @@ type MCPEnvReference struct {
 	FromEnv string
 }
 
-func (reference *MCPEnvReference) UnmarshalTOML(value any) error {
+func (reference *MCPEnvReference) decodeTOMLValue(value any) error {
 	values, ok := value.(map[string]any)
 	if !ok {
 		return fmt.Errorf("env reference must be an inline table with from_env")
@@ -189,7 +189,7 @@ type InstructionSource struct {
 	Set    bool
 }
 
-func (source *InstructionSource) UnmarshalTOML(value any) error {
+func (source *InstructionSource) decodeTOMLValue(value any) error {
 	source.Set = true
 
 	raw, err := SourceFromTOMLValue(value)

@@ -188,7 +188,7 @@ type editorRecursiveFixture struct {
 
 type editorUnprojectedFixture struct{}
 
-func (*editorUnprojectedFixture) UnmarshalTOML(any) error { return nil }
+func (*editorUnprojectedFixture) UnmarshalTOML([]byte) error { return nil }
 
 func TestManifestEditorSchemaRejectsUnsupportedDefinitions(t *testing.T) {
 	for _, typ := range []reflect.Type{

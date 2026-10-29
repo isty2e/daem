@@ -1,13 +1,17 @@
 package declaration
 
-import "strings"
+import (
+	"strings"
+
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
+)
 
 // RemoveEmptyRootCollections removes empty root placeholders extended by
 // table headers in block, preserving comments and unrelated document bytes.
 func RemoveEmptyRootCollections(original []byte, block string) []byte {
 	roots := make(map[string]byte)
 	WalkStructuralLines([]byte(block), func(_ int, trimmed string) bool {
-		header, ok := ParseTableHeader(trimmed)
+		header, ok := tomlsyntax.ParseTableHeader(trimmed)
 		if !ok || len(header.Segments) == 0 {
 			return false
 		}
@@ -26,11 +30,11 @@ func RemoveEmptyRootCollections(original []byte, block string) []byte {
 	content := string(original)
 	var changes []DocumentChange
 	WalkStructuralLines(original, func(lineStart int, trimmed string) bool {
-		if _, table := ParseTableHeader(trimmed); table {
+		if _, table := tomlsyntax.ParseTableHeader(trimmed); table {
 			return true
 		}
-		keyStart := skipHorizontalSpace(content, lineStart, len(content))
-		path, equals, ok := readAssignmentKey(content, keyStart, len(content))
+		keyStart := tomlsyntax.SkipHorizontalSpace(content, lineStart, len(content))
+		path, equals, ok := tomlsyntax.ReadAssignmentKey(content, keyStart, len(content))
 		if !ok || len(path) != 1 {
 			return false
 		}
@@ -38,7 +42,7 @@ func RemoveEmptyRootCollections(original []byte, block string) []byte {
 		if !wanted {
 			return false
 		}
-		valueEnd, ok := skipTOMLValue(content, equals+1, len(content), 0)
+		valueEnd, ok := tomlsyntax.SkipValue(content, equals+1, len(content), 0)
 		if !ok {
 			return false
 		}
@@ -47,11 +51,11 @@ func RemoveEmptyRootCollections(original []byte, block string) []byte {
 			return false
 		}
 
-		lineEnd := skipLine(content, valueEnd)
+		lineEnd := tomlsyntax.SkipLine(content, valueEnd)
 		preserved := content[lineStart:keyStart] + string(trivia) + content[valueEnd:lineEnd]
 		var replacement []byte
 		for len(preserved) > 0 {
-			end := skipLine(preserved, 0)
+			end := tomlsyntax.SkipLine(preserved, 0)
 			line := preserved[:end]
 			if strings.Trim(line, " \t\r\n") != "" {
 				replacement = append(replacement, line...)
@@ -74,7 +78,7 @@ func RemoveEmptyRootCollections(original []byte, block string) []byte {
 }
 
 func emptyCollectionTrivia(content string, start int, end int, opening byte) ([]byte, bool) {
-	valueStart := skipSpaceAndComments(content, start, end)
+	valueStart := tomlsyntax.SkipSpaceAndComments(content, start, end)
 	if valueStart >= end || content[valueStart] != opening {
 		return nil, false
 	}
@@ -82,7 +86,7 @@ func emptyCollectionTrivia(content string, start int, end int, opening byte) ([]
 	if opening == '[' {
 		closing = ']'
 	}
-	valueClose := skipSpaceAndComments(content, valueStart+1, end)
+	valueClose := tomlsyntax.SkipSpaceAndComments(content, valueStart+1, end)
 	if valueClose+1 != end || content[valueClose] != closing {
 		return nil, false
 	}

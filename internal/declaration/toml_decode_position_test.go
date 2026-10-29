@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/encoding/toml"
 )
 
 func TestUnknownManifestKeyPositionPreservesSelectedKeyAndError(t *testing.T) {
@@ -15,20 +15,20 @@ func TestUnknownManifestKeyPositionPreservesSelectedKeyAndError(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		content string
-		key     toml.Key
+		key     tomlsyntax.Key
 		line    int
 		column  int
 	}{
-		{"root", "version=1\n  bogus=true\n", toml.Key{"bogus"}, 2, 3},
-		{"group", "version=1\n [ bogus . \"dotted.key\" ]\nflag=true\n", toml.Key{"bogus", "dotted.key"}, 2, 4},
-		{"dotted", "version=1\n instructions.guide.bogus=true\n", toml.Key{"instructions", "guide", "bogus"}, 2, 2},
-		{"inline", "version=1\n" + inlinePrefix + "bogus=true}\n", toml.Key{"instructions", "guide", "bogus"}, 2, utf8.RuneCountInString(inlinePrefix) + 1},
-		{"quoted root", "version=1\n\"instructions.guide\"=true\n", toml.Key{"instructions.guide"}, 2, 1},
-		{"repeated array table", "version=1\n[[skill]]\nname=\"one\"\n bogus=1\n[[skill]]\nname=\"two\"\n bogus=2\n", toml.Key{"skill", "bogus"}, 4, 2},
-		{"inline array", "version=1\n" + arrayPrefix + "bogus=true}, {name=\"two\", bogus=false}]\n", toml.Key{"skill", "bogus"}, 2, utf8.RuneCountInString(arrayPrefix) + 1},
-		{"BOM and quoted Unicode", "\ufeffversion=1\r\n\t\"가.b\"=1\r\n", toml.Key{"가.b"}, 2, 2},
-		{"decoy text", "version=1\n[instructions.guide]\nsource=\"\"\"\nbogus=not-a-key\n\"\"\"\n  bogus=true\n", toml.Key{"instructions", "guide", "bogus"}, 6, 3},
-		{"first unknown order", "version=1\nlater=1\nearlier=2\n", toml.Key{"later"}, 2, 1},
+		{"root", "version=1\n  bogus=true\n", tomlsyntax.Key{"bogus"}, 2, 3},
+		{"group", "version=1\n [ bogus . \"dotted.key\" ]\nflag=true\n", tomlsyntax.Key{"bogus", "dotted.key"}, 2, 4},
+		{"dotted", "version=1\n instructions.guide.bogus=true\n", tomlsyntax.Key{"instructions", "guide", "bogus"}, 2, 2},
+		{"inline", "version=1\n" + inlinePrefix + "bogus=true}\n", tomlsyntax.Key{"instructions", "guide", "bogus"}, 2, utf8.RuneCountInString(inlinePrefix) + 1},
+		{"quoted root", "version=1\n\"instructions.guide\"=true\n", tomlsyntax.Key{"instructions.guide"}, 2, 1},
+		{"repeated array table", "version=1\n[[skill]]\nname=\"one\"\n bogus=1\n[[skill]]\nname=\"two\"\n bogus=2\n", tomlsyntax.Key{"skill", "bogus"}, 4, 2},
+		{"inline array", "version=1\n" + arrayPrefix + "bogus=true}, {name=\"two\", bogus=false}]\n", tomlsyntax.Key{"skill", "bogus"}, 2, utf8.RuneCountInString(arrayPrefix) + 1},
+		{"BOM and quoted Unicode", "\ufeffversion=1\r\n\t\"가.b\"=1\r\n", tomlsyntax.Key{"가.b"}, 2, 2},
+		{"decoy text", "version=1\n[instructions.guide]\nsource=\"\"\"\nbogus=not-a-key\n\"\"\"\n  bogus=true\n", tomlsyntax.Key{"instructions", "guide", "bogus"}, 6, 3},
+		{"first unknown order", "version=1\nlater=1\nearlier=2\n", tomlsyntax.Key{"later"}, 2, 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := DecodeManifest([]byte(test.content))

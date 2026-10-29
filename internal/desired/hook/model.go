@@ -113,20 +113,8 @@ func New(spec Spec) (Hook, error) {
 	if err != nil {
 		return Hook{}, fmt.Errorf("hook %q command: %w", name, err)
 	}
-	for _, text := range []struct {
-		label string
-		value string
-	}{
-		{label: "matcher", value: spec.Matcher},
-		{label: "command", value: command},
-		{label: "status message", value: spec.StatusMessage},
-	} {
-		if !utf8.ValidString(text.value) {
-			return Hook{}, fmt.Errorf("hook %q: %s must be valid UTF-8", name, text.label)
-		}
-		if strings.IndexFunc(text.value, isBidiControl) >= 0 {
-			return Hook{}, fmt.Errorf("hook %q: %s must not contain bidirectional control characters", name, text.label)
-		}
+	if err := spec.ValidateText(); err != nil {
+		return Hook{}, err
 	}
 	if spec.TimeoutSeconds < 0 {
 		return Hook{}, fmt.Errorf("hook %q: timeout must not be negative", name)
@@ -159,6 +147,48 @@ func New(spec Spec) (Hook, error) {
 	}, nil
 }
 
+// ValidateText rejects invalid text before serialization can change its meaning.
+func (spec Spec) ValidateText() error {
+	for _, text := range []struct {
+		label string
+		value string
+	}{
+		{label: "name", value: spec.Name},
+		{label: "event", value: spec.Event},
+		{label: "matcher", value: spec.Matcher},
+		{label: "command", value: strings.TrimSpace(spec.Command)},
+		{label: "status message", value: spec.StatusMessage},
+	} {
+		if !utf8.ValidString(text.value) {
+			return fmt.Errorf("hook %q: %s must be valid UTF-8", strings.TrimSpace(spec.Name), text.label)
+		}
+		if strings.IndexFunc(text.value, isBidiControl) >= 0 {
+			return fmt.Errorf("hook %q: %s must not contain bidirectional control characters", strings.TrimSpace(spec.Name), text.label)
+		}
+	}
+	keys := make([]target.Target, 0, len(spec.TargetOverrides))
+	for selected := range spec.TargetOverrides {
+		keys = append(keys, selected)
+	}
+	slices.Sort(keys)
+	for _, selected := range keys {
+		if err := spec.TargetOverrides[selected].validateText(strings.TrimSpace(spec.Name), selected); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (override TargetOverride) validateText(name string, selected target.Target) error {
+	if !utf8.ValidString(override.condition) || !utf8.ValidString(override.matcher) {
+		return fmt.Errorf("hook %q target override %q must contain valid UTF-8", name, selected)
+	}
+	if strings.IndexFunc(override.condition, isBidiControl) >= 0 || strings.IndexFunc(override.matcher, isBidiControl) >= 0 {
+		return fmt.Errorf("hook %q target override %q must not contain bidirectional control characters", name, selected)
+	}
+	return nil
+}
+
 func validateOverrides(name string, targets target.Set, values map[target.Target]TargetOverride) (map[target.Target]TargetOverride, error) {
 	overrides := make(map[target.Target]TargetOverride, len(values))
 	keys := make([]target.Target, 0, len(values))
@@ -175,11 +205,8 @@ func validateOverrides(name string, targets target.Set, values map[target.Target
 		if !targets.Contains(parsed) {
 			return nil, fmt.Errorf("hook %q target override %q is not declared for hook", name, selected)
 		}
-		if !utf8.ValidString(override.condition) || !utf8.ValidString(override.matcher) {
-			return nil, fmt.Errorf("hook %q target override %q must contain valid UTF-8", name, selected)
-		}
-		if strings.IndexFunc(override.condition, isBidiControl) >= 0 || strings.IndexFunc(override.matcher, isBidiControl) >= 0 {
-			return nil, fmt.Errorf("hook %q target override %q must not contain bidirectional control characters", name, selected)
+		if err := override.validateText(name, selected); err != nil {
+			return nil, err
 		}
 		overrides[parsed] = override
 	}

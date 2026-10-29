@@ -234,7 +234,12 @@ var packagePlacementRows = []packagePlacementRow{
 	{
 		id:        "codec.strict-toml",
 		placement: specializedPlacement(affinityNone, roleCodec, specializationFormat, "strict TOML"),
-		packages:  []string{"internal/encoding/tomlstrict"},
+		packages:  []string{"internal/encoding/toml"},
+	},
+	{
+		id:        "codec.native-config",
+		placement: specializedPlacement(affinityNone, roleCodec, specializationFormat, "native configuration"),
+		packages:  []string{"internal/encoding/configdocument"},
 	},
 	{
 		id:        "codec.hook-document",

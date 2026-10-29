@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
+
 	"github.com/isty2e/daem/internal/declaration"
 )
 
@@ -114,7 +116,7 @@ func RemoveSkillTargetTables(block string, root string, selectedTargets []string
 }
 
 func parseSkillTargetHeader(line string, root string) (string, bool) {
-	header, ok := declaration.ParseTableHeader(line)
+	header, ok := tomlsyntax.ParseTableHeader(line)
 	if !ok || header.Array || len(header.Segments) != 3 ||
 		header.Segments[0] != root || header.Segments[1] != "target" {
 		return "", false
