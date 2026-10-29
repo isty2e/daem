@@ -44,6 +44,19 @@ func TestTOML11EscapesInValuesAndKeys(t *testing.T) {
 	assertEqual(t, lookup(t, result, "/new"), lookup(t, json, "/v"))
 }
 
+func TestTOMLRootInsertionPreservesByteOrderMark(t *testing.T) {
+	value := lookup(t, parse(t, configdocument.JSON, `{"v":true}`), "/v")
+	for _, input := range []string{"\ufeff[tui]\nkeep=1\n", "\ufeffkeep=1\n", "\ufeff", "\ufeff# leading comment"} {
+		document := parse(t, configdocument.TOML, input)
+		result := edit(t, document, set(t, "/new", value))
+		if !strings.HasPrefix(string(result.Bytes()), "\ufeff") {
+			t.Fatal("root insertion moved the byte order mark", string(result.Bytes()))
+		}
+		assertEqual(t, value, lookup(t, result, "/new"))
+		assertComments(t, document, result)
+	}
+}
+
 func TestEditsRejectOversizedResultsAndPathsBeforeRendering(t *testing.T) {
 	value := lookup(t, parse(t, configdocument.JSON, `{"v":"`+strings.Repeat("x", 1000)+`"}`), "/v")
 	for _, syntax := range []configdocument.Syntax{configdocument.JSON, configdocument.TOML} {

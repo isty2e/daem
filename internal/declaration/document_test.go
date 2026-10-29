@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
 )
 
 func TestScanDocumentRangesKeepsByteStableBlockRanges(t *testing.T) {
@@ -143,12 +145,12 @@ func TestDocumentChangeSetKeepsAdjacentChangesAndNoOpDeterministic(t *testing.T)
 func TestReplaceRootAssignmentPreservesIndentAndLineEnding(t *testing.T) {
 	block := "[[skill]]\r\n\t targets = [\"codex\", \"claude-code\"]\r\nname = \"alpha\"\r\n"
 
-	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	updated, ok, err := tomlsyntax.ReplaceRootAssignment(block, "targets", "[\"codex\"]")
 	if err != nil {
-		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+		t.Fatalf("tomlsyntax.ReplaceRootAssignment() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("ReplaceRootAssignment() ok = false, want true")
+		t.Fatalf("tomlsyntax.ReplaceRootAssignment() ok = false, want true")
 	}
 	want := "[[skill]]\r\n\t targets = [\"codex\"]\r\nname = \"alpha\"\r\n"
 	if updated != want {
@@ -159,12 +161,12 @@ func TestReplaceRootAssignmentPreservesIndentAndLineEnding(t *testing.T) {
 func TestReplaceRootAssignmentReportsMissingKey(t *testing.T) {
 	block := "[[skill]]\nname = \"alpha\"\n"
 
-	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	updated, ok, err := tomlsyntax.ReplaceRootAssignment(block, "targets", "[\"codex\"]")
 	if err != nil {
-		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+		t.Fatalf("tomlsyntax.ReplaceRootAssignment() error = %v", err)
 	}
 	if ok {
-		t.Fatalf("ReplaceRootAssignment() ok = true, want false")
+		t.Fatalf("tomlsyntax.ReplaceRootAssignment() ok = true, want false")
 	}
 	if updated != block {
 		t.Fatalf("updated block = %q, want original %q", updated, block)
@@ -200,12 +202,12 @@ func TestReplaceRootAssignmentCoversCompactMultilineAndComments(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			updated, ok, err := ReplaceRootAssignment(test.block, "targets", "[\"claude-code\"]")
+			updated, ok, err := tomlsyntax.ReplaceRootAssignment(test.block, "targets", "[\"claude-code\"]")
 			if err != nil {
-				t.Fatalf("ReplaceRootAssignment() error = %v", err)
+				t.Fatalf("tomlsyntax.ReplaceRootAssignment() error = %v", err)
 			}
 			if !ok {
-				t.Fatal("ReplaceRootAssignment() ok = false, want true")
+				t.Fatal("tomlsyntax.ReplaceRootAssignment() ok = false, want true")
 			}
 			if updated != test.want {
 				t.Fatalf("updated block = %q, want %q", updated, test.want)
@@ -216,9 +218,9 @@ func TestReplaceRootAssignmentCoversCompactMultilineAndComments(t *testing.T) {
 
 func TestReplaceRootAssignmentIgnoresNestedTableKeys(t *testing.T) {
 	block := "[[hook]]\nname = \"lint\"\ncommand = \"run\"\n\n[[hook.target_override]]\ntarget = \"codex\"\n"
-	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	updated, ok, err := tomlsyntax.ReplaceRootAssignment(block, "targets", "[\"codex\"]")
 	if err != nil {
-		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+		t.Fatalf("tomlsyntax.ReplaceRootAssignment() error = %v", err)
 	}
 	if ok {
 		t.Fatalf("replaced nested table key: %q", updated)
@@ -227,20 +229,20 @@ func TestReplaceRootAssignmentIgnoresNestedTableKeys(t *testing.T) {
 
 func TestReplaceRootAssignmentRejectsIncompleteValue(t *testing.T) {
 	block := "[[skill]]\nname = \"alpha\"\ntargets = [\n"
-	_, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	_, ok, err := tomlsyntax.ReplaceRootAssignment(block, "targets", "[\"codex\"]")
 	if err == nil || ok {
-		t.Fatalf("ReplaceRootAssignment() = (%v, %v), want malformed error", ok, err)
+		t.Fatalf("tomlsyntax.ReplaceRootAssignment() = (%v, %v), want malformed error", ok, err)
 	}
 }
 
 func TestRemoveRootAssignmentRemovesInheritedOverrideLine(t *testing.T) {
 	block := "[[hook]]\nname = \"lint\"\ntargets = [\"codex\"] # keep\ncommand = \"run\"\n"
-	updated, ok, err := RemoveRootAssignment(block, "targets")
+	updated, ok, err := tomlsyntax.RemoveRootAssignment(block, "targets")
 	if err != nil {
-		t.Fatalf("RemoveRootAssignment() error = %v", err)
+		t.Fatalf("tomlsyntax.RemoveRootAssignment() error = %v", err)
 	}
 	if !ok {
-		t.Fatal("RemoveRootAssignment() ok = false, want true")
+		t.Fatal("tomlsyntax.RemoveRootAssignment() ok = false, want true")
 	}
 	want := "[[hook]]\nname = \"lint\"\ncommand = \"run\"\n"
 	if updated != want {
@@ -250,12 +252,12 @@ func TestRemoveRootAssignmentRemovesInheritedOverrideLine(t *testing.T) {
 
 func TestReplaceRootAssignmentSkipsDottedKeysAndRewritesTargets(t *testing.T) {
 	block := "[[skill]]\nname = \"oracle\"\ntarget.codex.install_to = \"skills/oracle\"\ntargets = [\"codex\", \"claude-code\"]\n"
-	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	updated, ok, err := tomlsyntax.ReplaceRootAssignment(block, "targets", "[\"codex\"]")
 	if err != nil {
-		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+		t.Fatalf("tomlsyntax.ReplaceRootAssignment() error = %v", err)
 	}
 	if !ok {
-		t.Fatal("ReplaceRootAssignment() ok = false, want true")
+		t.Fatal("tomlsyntax.ReplaceRootAssignment() ok = false, want true")
 	}
 	want := "[[skill]]\nname = \"oracle\"\ntarget.codex.install_to = \"skills/oracle\"\ntargets = [\"codex\"]\n"
 	if updated != want {
@@ -265,12 +267,12 @@ func TestReplaceRootAssignmentSkipsDottedKeysAndRewritesTargets(t *testing.T) {
 
 func TestReplaceRootAssignmentIgnoresTableLikeMultilineString(t *testing.T) {
 	block := "[[skill]]\nname = \"oracle\"\nnote = \"\"\"\n[skill.codex]\n\"\"\"\ntargets = [\"codex\", \"claude-code\"]\n"
-	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	updated, ok, err := tomlsyntax.ReplaceRootAssignment(block, "targets", "[\"codex\"]")
 	if err != nil {
-		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+		t.Fatalf("tomlsyntax.ReplaceRootAssignment() error = %v", err)
 	}
 	if !ok {
-		t.Fatal("ReplaceRootAssignment() ok = false, want true")
+		t.Fatal("tomlsyntax.ReplaceRootAssignment() ok = false, want true")
 	}
 	if !strings.Contains(updated, `targets = ["codex"]`) || strings.Contains(updated, `targets = ["codex", "claude-code"]`) {
 		t.Fatalf("updated block = %q", updated)
@@ -284,13 +286,13 @@ func TestReplaceRootAssignmentLinearOnLongStringValue(t *testing.T) {
 	long := strings.Repeat("a", 32*1024)
 	block := "[[skill]]\nname = \"" + long + "\"\ntargets = [\"codex\"]\n"
 	start := time.Now()
-	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"claude-code\"]")
+	updated, ok, err := tomlsyntax.ReplaceRootAssignment(block, "targets", "[\"claude-code\"]")
 	elapsed := time.Since(start)
 	if err != nil {
-		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+		t.Fatalf("tomlsyntax.ReplaceRootAssignment() error = %v", err)
 	}
 	if !ok {
-		t.Fatal("ReplaceRootAssignment() ok = false, want true")
+		t.Fatal("tomlsyntax.ReplaceRootAssignment() ok = false, want true")
 	}
 	if !strings.Contains(updated, `targets = ["claude-code"]`) {
 		t.Fatalf("updated block missing rewritten targets")
@@ -306,7 +308,7 @@ func TestScanDocumentRangesIgnoresTableHeadersInsideMultilineStrings(t *testing.
 		content,
 		func(trimmed string) bool { return trimmed == "[[item]]" || trimmed == "[[other]]" },
 		func(trimmed string) bool {
-			header, ok := ParseTableHeader(trimmed)
+			header, ok := tomlsyntax.ParseTableHeader(trimmed)
 			return ok && header.Array
 		},
 	)
@@ -347,12 +349,12 @@ func TestReplaceRootAssignmentAcceptsFourAndFiveQuoteMultilineEndings(t *testing
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			updated, ok, err := ReplaceRootAssignment(test.block, "targets", "[\"codex\"]")
+			updated, ok, err := tomlsyntax.ReplaceRootAssignment(test.block, "targets", "[\"codex\"]")
 			if err != nil {
-				t.Fatalf("ReplaceRootAssignment() error = %v", err)
+				t.Fatalf("tomlsyntax.ReplaceRootAssignment() error = %v", err)
 			}
 			if !ok {
-				t.Fatal("ReplaceRootAssignment() ok = false, want true")
+				t.Fatal("tomlsyntax.ReplaceRootAssignment() ok = false, want true")
 			}
 			if !strings.Contains(updated, `targets = ["codex"]`) || strings.Contains(updated, `targets = ["codex", "claude-code"]`) {
 				t.Fatalf("updated block = %q", updated)
@@ -363,9 +365,9 @@ func TestReplaceRootAssignmentAcceptsFourAndFiveQuoteMultilineEndings(t *testing
 
 func TestInsertRootAssignmentSeparatesNoFinalNewlineAndPreservesCRLF(t *testing.T) {
 	block := "[[hook]]\nname = \"lint\"\nscope = \"project\""
-	updated, err := InsertRootAssignment(block, "targets", "[\"codex\"]")
+	updated, err := tomlsyntax.InsertRootAssignment(block, "targets", "[\"codex\"]")
 	if err != nil {
-		t.Fatalf("InsertRootAssignment() error = %v", err)
+		t.Fatalf("tomlsyntax.InsertRootAssignment() error = %v", err)
 	}
 	want := "[[hook]]\nname = \"lint\"\nscope = \"project\"\ntargets = [\"codex\"]\n"
 	if updated != want {
@@ -373,9 +375,9 @@ func TestInsertRootAssignmentSeparatesNoFinalNewlineAndPreservesCRLF(t *testing.
 	}
 
 	crlf := "[[hook]]\r\nname = \"lint\"\r\n\r\n[[hook.target_override]]\r\ntarget = \"codex\"\r\n"
-	inserted, err := InsertRootAssignment(crlf, "targets", "[\"codex\"]")
+	inserted, err := tomlsyntax.InsertRootAssignment(crlf, "targets", "[\"codex\"]")
 	if err != nil {
-		t.Fatalf("InsertRootAssignment(crlf) error = %v", err)
+		t.Fatalf("tomlsyntax.InsertRootAssignment(crlf) error = %v", err)
 	}
 	if !strings.Contains(inserted, "\r\ntargets = [\"codex\"]\r\n[[hook.target_override]]") {
 		t.Fatalf("CRLF insert = %q", inserted)

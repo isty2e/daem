@@ -1,38 +1,37 @@
 package configdocument
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"math"
-	"slices"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/pelletier/go-toml/v2"
-	"github.com/pelletier/go-toml/v2/unstable"
-
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 )
 
 func parseTOML(ctx context.Context, content []byte, limits Limits) (Value, []string, error) {
 	if uint64(len(content)) > math.MaxUint32 {
 		return Value{}, nil, ErrLimitExceeded
 	}
-	structure := tomlstrict.StandardLimits()
-	structure.MaximumDepth = limits.MaximumDepth
-	if err := tomlstrict.Admit(ctx, content, structure); err != nil {
+	structure, err := tomlsyntax.DocumentLimits(int64(len(content)), limits.MaximumDepth)
+	if err != nil {
+		return Value{}, nil, ErrLimitExceeded
+	}
+	if err := tomlsyntax.Admit(ctx, content, structure); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return Value{}, nil, err
 		}
-		if errors.Is(err, tomlstrict.ErrMalformed) {
+		if errors.Is(err, tomlsyntax.ErrMalformed) {
 			return Value{}, nil, ErrInvalidDocument
 		}
 		return Value{}, nil, ErrLimitExceeded
 	}
-	var decoded map[string]any
-	if err := toml.Unmarshal(content, &decoded); err != nil {
+	decoded, err := tomlsyntax.Native(ctx, content)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return Value{}, nil, err
+		}
 		return Value{}, nil, ErrInvalidDocument
 	}
 	value, err := fromTOML(ctx, decoded, limits.MaximumDepth, 0)
@@ -89,14 +88,8 @@ func fromTOML(ctx context.Context, decoded any, maximumDepth, depth int) (Value,
 		return Value{data: integerNode(value)}, nil
 	case float64:
 		return Value{data: floatNode(value)}, nil
-	case time.Time:
-		return newTemporal("offset-date-time", value.Format(time.RFC3339Nano))
-	case toml.LocalDate:
-		return newTemporal("local-date", value.String())
-	case toml.LocalTime:
-		return newTemporal("local-time", value.String())
-	case toml.LocalDateTime:
-		return newTemporal("local-date-time", value.String())
+	case tomlsyntax.Temporal:
+		return newTemporal(value.Kind, value.Text)
 	default:
 		return Value{}, ErrInvalidValue
 	}
@@ -106,7 +99,7 @@ type sourceSpan struct{ start, end int }
 
 type tomlExpression struct {
 	path  []string
-	kind  unstable.Kind
+	kind  tomlsyntax.ExpressionKind
 	span  sourceSpan
 	value sourceSpan
 }
@@ -117,83 +110,21 @@ type tomlIndex struct {
 }
 
 func indexTOML(ctx context.Context, content []byte) (tomlIndex, error) {
-	var parser unstable.Parser
-	parser.KeepComments = true
-	parser.Reset(content)
+	parsed, err := tomlsyntax.IndexDocument(ctx, content)
+	if err != nil {
+		return tomlIndex{}, err
+	}
 	var index tomlIndex
-	var table []string
-	for parser.NextExpression() {
-		if err := ctx.Err(); err != nil {
-			return tomlIndex{}, err
-		}
-		node := parser.Expression()
-		collectTOMLComments(node, &index.comments)
-		switch node.Kind {
-		case unstable.Table, unstable.ArrayTable:
-			table = nil
-			keys := node.Key()
-			var first, last unstable.Range
-			for keys.Next() {
-				key := keys.Node()
-				if len(table) == 0 {
-					first = key.Raw
-				}
-				last = key.Raw
-				table = append(table, string(key.Data))
-			}
-			start := bytes.LastIndexByte(content[:first.Offset], '\n') + 1
-			for start < int(first.Offset) && (content[start] == ' ' || content[start] == '\t' || content[start] == '\r') {
-				start++
-			}
-			end := int(last.Offset) + int(last.Length)
-			closers := 1
-			if node.Kind == unstable.ArrayTable {
-				closers = 2
-			}
-			for end < len(content) && closers > 0 {
-				if content[end] == ']' {
-					closers--
-				}
-				end++
-			}
-			index.expressions = append(index.expressions, tomlExpression{
-				path: slices.Clone(table), kind: node.Kind, span: sourceSpan{start, end},
-			})
-		case unstable.KeyValue:
-			path := slices.Clone(table)
-			keys := node.Key()
-			keyEnd := 0
-			for keys.Next() {
-				key := keys.Node()
-				path = append(path, string(key.Data))
-				keyEnd = int(key.Raw.Offset) + int(key.Raw.Length)
-			}
-			end := int(node.Raw.Offset) + int(node.Raw.Length)
-			// Array nodes have no Raw span. Locate the value after the final
-			// parsed key so quoted keys containing '=' cannot mask the separator.
-			separator := keyEnd + bytes.IndexByte(content[keyEnd:end], '=')
-			start := end - len(bytes.TrimLeft(content[separator+1:end], " \t"))
-			index.expressions = append(index.expressions, tomlExpression{
-				path: path, kind: node.Kind,
-				span: sourceSpan{int(node.Raw.Offset), end}, value: sourceSpan{start, end},
-			})
-		}
+	for _, expression := range parsed.Expressions() {
+		index.expressions = append(index.expressions, tomlExpression{
+			path: expression.Path, kind: expression.Kind,
+			span: sourceSpan{expression.Span.Start, expression.Span.End}, value: sourceSpan{expression.Value.Start, expression.Value.End},
+		})
 	}
-	if parser.Error() != nil {
-		return tomlIndex{}, ErrInvalidDocument
+	for _, span := range parsed.Comments() {
+		index.comments = append(index.comments, sourceSpan{span.Start, span.End})
 	}
-	slices.SortFunc(index.comments, func(left, right sourceSpan) int { return left.start - right.start })
 	return index, ctx.Err()
-}
-
-func collectTOMLComments(node *unstable.Node, spans *[]sourceSpan) {
-	for node.Valid() {
-		if node.Kind == unstable.Comment {
-			*spans = append(*spans, sourceSpan{int(node.Raw.Offset), int(node.Raw.Offset) + int(node.Raw.Length)})
-		}
-		collectTOMLComments(node.Child(), spans)
-		node = node.Next()
-	}
 }
 
 func editTOML(ctx context.Context, document Document, expected Value) ([]byte, error) {

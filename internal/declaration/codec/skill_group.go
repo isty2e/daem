@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
+
 	"github.com/isty2e/daem/internal/declaration"
 )
 
@@ -29,7 +31,7 @@ type SkillGroupBlock struct {
 func ScanSkillGroupBlocks(content []byte) ([]SkillGroupBlock, error) {
 	ranges := declaration.ScanDocumentRanges(
 		content,
-		func(trimmed string) bool { return declaration.StartsArrayTableRoot(trimmed, "skill_group") },
+		func(trimmed string) bool { return tomlsyntax.StartsArrayTableRoot(trimmed, "skill_group") },
 		startsNewSkillGroupTopLevelTable,
 	)
 	blocks := make([]SkillGroupBlock, 0)
@@ -78,11 +80,11 @@ func parseSkillGroupBlock(content []byte, start int, end int) (SkillGroupBlock, 
 }
 
 func startsNewSkillGroupTopLevelTable(trimmedLine string) bool {
-	return declaration.StartsTableOutsideRoot(trimmedLine, "skill_group")
+	return tomlsyntax.StartsTableOutsideRoot(trimmedLine, "skill_group")
 }
 
 func ReplaceSkillGroupNames(block string, names []string) (string, error) {
-	updated, ok, err := declaration.ReplaceRootAssignment(block, "names", renderStringArray(names))
+	updated, ok, err := tomlsyntax.ReplaceRootAssignment(block, "names", renderStringArray(names))
 	if err != nil {
 		return "", err
 	}

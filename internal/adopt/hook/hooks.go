@@ -11,12 +11,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/adopt"
 	desiredhook "github.com/isty2e/daem/internal/desired/hook"
 	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
+	tomlfields "github.com/isty2e/daem/internal/encoding/toml/fields"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
@@ -174,18 +174,18 @@ func importCodexInlineHookSkip(
 	if !exists {
 		return adopt.Skipped{}, nil
 	}
-	if err := tomlstrict.Admit(ctx, content, tomlstrict.StandardLimits()); err != nil {
+	if err := tomlsyntax.Admit(ctx, content, tomlsyntax.StandardLimits()); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return adopt.Skipped{}, err
 		}
 		reason := adopt.SkipReason(importHookSkipInlineConfigStructure)
-		if errors.Is(err, tomlstrict.ErrMalformed) {
+		if errors.Is(err, tomlsyntax.ErrMalformed) {
 			reason = "inline_config_malformed"
 		}
 		return adopt.Skipped{LivePath: configDestination.String(), Reason: reason}, nil
 	}
-	var decoded map[string]toml.Primitive
-	metadata, err := tomlstrict.DecodeAdmitted(ctx, content, &decoded)
+	var decoded map[string]any
+	metadata, err := tomlfields.DecodeAdmitted(ctx, content, &decoded)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return adopt.Skipped{}, err

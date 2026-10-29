@@ -1,4 +1,4 @@
-package tomlstrict
+package fields
 
 import (
 	"fmt"

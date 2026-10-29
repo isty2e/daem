@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 )
 
 func TestDecodeNormalDocumentUsesNullishAliasSemantics(t *testing.T) {
@@ -79,11 +79,11 @@ func TestDecodeCodexImportUsesFallbackOnlyForNullishPrimary(t *testing.T) {
 }
 
 func TestDecodeCodexImportRejectsExcessiveTOMLStructure(t *testing.T) {
-	content := []byte("root = " + strings.Repeat("{ k = ", tomlstrict.MaximumDepth) +
-		"1" + strings.Repeat(" }", tomlstrict.MaximumDepth) + "\n")
+	content := []byte("root = " + strings.Repeat("{ k = ", tomlsyntax.MaximumDepth) +
+		"1" + strings.Repeat(" }", tomlsyntax.MaximumDepth) + "\n")
 
 	_, err := decodeCodexImportServerNames(content, true)
-	if !errors.Is(err, tomlstrict.ErrMaximumDepthExceeded) {
+	if !errors.Is(err, tomlsyntax.ErrMaximumDepthExceeded) {
 		t.Fatalf("decode Codex TOML import = %v, want depth rejection", err)
 	}
 }

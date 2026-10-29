@@ -1,4 +1,4 @@
-package tomlstrict
+package tomlsyntax
 
 import (
 	"context"
@@ -535,7 +535,7 @@ type cancelingTOMLValue struct {
 	err    error
 }
 
-func (value *cancelingTOMLValue) UnmarshalTOML(any) error {
+func (value *cancelingTOMLValue) UnmarshalTOML([]byte) error {
 	value.cancel()
 	return value.err
 }

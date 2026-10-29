@@ -12,7 +12,7 @@ import (
 
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/diagnose"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit/doctorenv"
@@ -104,11 +104,11 @@ func TestRunOverDepthManifestBecomesParseFailureWithoutManifestFacts(t *testing.
 	manifestPath := filepath.Join(root, "daem.toml")
 	var content strings.Builder
 	content.WriteString("version = 1\ntargets = [\"codex\"]\nextra = ")
-	for range tomlstrict.MaximumDepth {
+	for range tomlsyntax.MaximumDepth {
 		content.WriteString("{ k = ")
 	}
 	content.WriteByte('1')
-	for range tomlstrict.MaximumDepth {
+	for range tomlsyntax.MaximumDepth {
 		content.WriteString(" }")
 	}
 	content.WriteByte('\n')
@@ -126,7 +126,7 @@ func TestRunOverDepthManifestBecomesParseFailureWithoutManifestFacts(t *testing.
 	if !ok || manifest.Status != findings.CheckError {
 		t.Fatalf("manifest check = %#v, want manifest error", result.Checks)
 	}
-	if !strings.Contains(manifest.Detail, tomlstrict.ErrMaximumDepthExceeded.Error()) {
+	if !strings.Contains(manifest.Detail, tomlsyntax.ErrMaximumDepthExceeded.Error()) {
 		t.Fatalf("manifest detail = %q, want depth exceeded", manifest.Detail)
 	}
 	if !hasCheckNamed(result.Checks, "git") {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 )
 
 func TestErrorRedactsCredentialShapedText(t *testing.T) {
@@ -51,8 +51,8 @@ func TestErrorBoundsInputDetailAndKeepsSyntaxGuidance(t *testing.T) {
 		t.Error("bounded error lost its field context or truncation indication")
 	}
 
-	positioned := tomlstrict.Admit(context.Background(), []byte("broken=[\n"), tomlstrict.StandardLimits())
-	line, column, located := tomlstrict.ErrorPosition(positioned)
+	positioned := tomlsyntax.Admit(context.Background(), []byte("broken=[\n"), tomlsyntax.StandardLimits())
+	line, column, located := tomlsyntax.ErrorPosition(positioned)
 	if !located {
 		t.Fatal("fixture did not produce a positioned syntax error")
 	}

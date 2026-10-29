@@ -9,9 +9,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
+	tomlfields "github.com/isty2e/daem/internal/encoding/toml/fields"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/findings"
 )
@@ -86,16 +86,16 @@ func parseConfigFileBytes(ctx context.Context, configFile doctorConfigFile, cont
 	}
 	switch configFile.Format {
 	case ConfigFormatTOML:
-		if err := tomlstrict.Admit(ctx, content, tomlstrict.StandardLimits()); err != nil {
+		if err := tomlsyntax.Admit(ctx, content, tomlsyntax.StandardLimits()); err != nil {
 			return err
 		}
-		var decoded map[string]toml.Primitive
-		if _, err := tomlstrict.DecodeAdmitted(ctx, content, &decoded); err != nil {
+		var decoded map[string]any
+		if _, err := tomlfields.DecodeAdmitted(ctx, content, &decoded); err != nil {
 			return err
 		}
 		return nil
 	case ConfigFormatJSON:
-		if err := jsonstrict.Validate(content, "host config", tomlstrict.MaximumDepth); err != nil {
+		if err := jsonstrict.Validate(content, "host config", tomlsyntax.MaximumDepth); err != nil {
 			return err
 		}
 		decoder := json.NewDecoder(bytes.NewReader(content))

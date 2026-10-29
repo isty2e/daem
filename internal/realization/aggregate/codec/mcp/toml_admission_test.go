@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 )
 
 func TestCodexTOMLDecodersRejectExcessiveStructure(t *testing.T) {
-	content := deeplyNestedCodexTOML(tomlstrict.MaximumDepth)
+	content := deeplyNestedCodexTOML(tomlsyntax.MaximumDepth)
 	tests := []struct {
 		name   string
 		decode func() error
@@ -44,7 +44,7 @@ func TestCodexTOMLDecodersRejectExcessiveStructure(t *testing.T) {
 			err := test.decode()
 			reason, ok := MCPProjectionReasonCodeOf(err)
 			if !ok || reason != test.want ||
-				!strings.Contains(err.Error(), tomlstrict.ErrMaximumDepthExceeded.Error()) {
+				!strings.Contains(err.Error(), tomlsyntax.ErrMaximumDepthExceeded.Error()) {
 				t.Fatalf("decode error = %v, reason = %q, want %q depth rejection", err, reason, test.want)
 			}
 		})

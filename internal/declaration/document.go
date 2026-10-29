@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
 )
 
 type DocumentRange struct {
@@ -97,36 +99,36 @@ func WalkStructuralLines(content []byte, visit func(lineStart int, trimmed strin
 	offset := 0
 	for offset < len(block) {
 		lineStart := offset
-		offset = skipHorizontalSpace(block, offset, len(block))
+		offset = tomlsyntax.SkipHorizontalSpace(block, offset, len(block))
 		if offset >= len(block) {
 			return
 		}
 		switch block[offset] {
 		case '\n', '\r':
-			offset = skipLine(block, offset)
+			offset = tomlsyntax.SkipLine(block, offset)
 			continue
 		case '#':
-			offset = skipLine(block, offset)
+			offset = tomlsyntax.SkipLine(block, offset)
 			continue
 		}
-		lineEnd := skipLine(block, lineStart)
+		lineEnd := tomlsyntax.SkipLine(block, lineStart)
 		if visit(lineStart, strings.TrimSpace(block[lineStart:lineEnd])) {
 			return
 		}
-		if looksLikeTableHeader(block, offset) {
-			offset = skipLine(block, offset)
+		if tomlsyntax.LooksLikeTableHeader(block, offset) {
+			offset = tomlsyntax.SkipLine(block, offset)
 			continue
 		}
-		_, equals, ok := readAssignmentKey(block, offset, len(block))
+		_, equals, ok := tomlsyntax.ReadAssignmentKey(block, offset, len(block))
 		if !ok {
-			offset = skipLine(block, offset)
+			offset = tomlsyntax.SkipLine(block, offset)
 			continue
 		}
-		valueEnd, valueOK := skipTOMLValue(block, equals+1, len(block), 0)
+		valueEnd, valueOK := tomlsyntax.SkipValue(block, equals+1, len(block), 0)
 		if !valueOK {
 			return
 		}
-		offset = skipTrailingCommentAndNewline(block, valueEnd)
+		offset = tomlsyntax.SkipTrailingCommentAndNewline(block, valueEnd)
 	}
 }
 

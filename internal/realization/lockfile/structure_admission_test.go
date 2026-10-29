@@ -9,11 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	"github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/supply/source"
@@ -34,23 +33,23 @@ func TestCurrentLockfileRejectsOverLimitTOMLStructure(t *testing.T) {
 	}{
 		{
 			name:    "depth",
-			content: currentLockfileWithNestedInlineTables(tomlstrict.MaximumDepth),
-			want:    tomlstrict.ErrMaximumDepthExceeded,
+			content: currentLockfileWithNestedInlineTables(tomlsyntax.MaximumDepth),
+			want:    tomlsyntax.ErrMaximumDepthExceeded,
 		},
 		{
 			name:    "containers",
 			content: currentLockfileWithRepeatedTables(25_000),
-			want:    tomlstrict.ErrMaximumContainersExceeded,
+			want:    tomlsyntax.ErrMaximumContainersExceeded,
 		},
 		{
 			name:    "work",
 			content: currentLockfileWithDenseArrayValues(250_000),
-			want:    tomlstrict.ErrMaximumWorkExceeded,
+			want:    tomlsyntax.ErrMaximumWorkExceeded,
 		},
 		{
 			name:    "path work",
 			content: currentLockfileWithLongAncestorSiblings(512),
-			want:    tomlstrict.ErrMaximumPathWorkExceeded,
+			want:    tomlsyntax.ErrMaximumPathWorkExceeded,
 		},
 	}
 
@@ -67,20 +66,20 @@ func TestCurrentLockfileRejectsOverLimitTOMLStructure(t *testing.T) {
 }
 
 func TestCurrentLockfileAcceptsExactTOMLDepthBeforeSemanticValidation(t *testing.T) {
-	err := validateReplacementContent(t.Context(), currentLockfileWithNestedInlineTables(tomlstrict.MaximumDepth-1))
-	if errors.Is(err, tomlstrict.ErrMaximumDepthExceeded) {
+	err := validateReplacementContent(t.Context(), currentLockfileWithNestedInlineTables(tomlsyntax.MaximumDepth-1))
+	if errors.Is(err, tomlsyntax.ErrMaximumDepthExceeded) {
 		t.Fatalf("ValidateReplacementContent exact-depth error = %v", err)
 	}
 }
 
 func TestLockfileVersionPolicyDoesNotInterpretOpaqueBodies(t *testing.T) {
-	legacy := lockfileWithVersionAndNestedInlineTables(3, tomlstrict.MaximumDepth+128)
+	legacy := lockfileWithVersionAndNestedInlineTables(3, tomlsyntax.MaximumDepth+128)
 	if err := validateReplacementContent(t.Context(), legacy); err != nil {
 		t.Fatalf("legacy opaque body error = %v", err)
 	}
 
 	futureVersion := lock.CurrentVersion + 1
-	future := lockfileWithVersionAndNestedInlineTables(futureVersion, tomlstrict.MaximumDepth+128)
+	future := lockfileWithVersionAndNestedInlineTables(futureVersion, tomlsyntax.MaximumDepth+128)
 	err := validateReplacementContent(t.Context(), future)
 	var versionErr UnsupportedVersionError
 	if !errors.As(err, &versionErr) || versionErr.Found != int64(futureVersion) {
@@ -110,14 +109,14 @@ func TestCurrentLockfileRejectsDeepTOMLBeforeDecoderAllocation(t *testing.T) {
 	testscale.Require(t)
 
 	content := currentLockfileWithNestedInlineTables(256)
-	assertRejectedLockfileAllocationBound(t, content, tomlstrict.ErrMaximumDepthExceeded)
+	assertRejectedLockfileAllocationBound(t, content, tomlsyntax.ErrMaximumDepthExceeded)
 }
 
 func TestCurrentLockfileRejectsDenseWorkBeforeDecoderAllocation(t *testing.T) {
 	testscale.Require(t)
 
 	content := currentLockfileWithDenseArrayValues(250_000)
-	assertRejectedLockfileAllocationBound(t, content, tomlstrict.ErrMaximumWorkExceeded)
+	assertRejectedLockfileAllocationBound(t, content, tomlsyntax.ErrMaximumWorkExceeded)
 }
 
 func TestCurrentLockfileTriviaDoesNotExpandStructureBudget(t *testing.T) {
@@ -133,15 +132,15 @@ func TestCurrentLockfileTriviaDoesNotExpandStructureBudget(t *testing.T) {
 		{name: "comment padded", content: padded},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if err := validateReplacementContent(t.Context(), test.content); !errors.Is(err, tomlstrict.ErrMaximumWorkExceeded) {
+			if err := validateReplacementContent(t.Context(), test.content); !errors.Is(err, tomlsyntax.ErrMaximumWorkExceeded) {
 				t.Fatalf("ValidateReplacementContent error = %v, want work exceeded", err)
 			}
-			if _, err := Load(t.Context(), writeLockfileText(t, string(test.content))); !errors.Is(err, tomlstrict.ErrMaximumWorkExceeded) {
+			if _, err := Load(t.Context(), writeLockfileText(t, string(test.content))); !errors.Is(err, tomlsyntax.ErrMaximumWorkExceeded) {
 				t.Fatalf("Load error = %v, want work exceeded", err)
 			}
 		})
 	}
-	assertRejectedLockfileAllocationBound(t, padded, tomlstrict.ErrMaximumWorkExceeded)
+	assertRejectedLockfileAllocationBound(t, padded, tomlsyntax.ErrMaximumWorkExceeded)
 }
 
 func assertRejectedLockfileAllocationBound(t *testing.T, content []byte, want error) {
@@ -253,7 +252,7 @@ func encodeCurrentLockfileWithoutStructureAdmission(t *testing.T, file lock.File
 	if err != nil {
 		t.Fatalf("dtoFromSnapshot: %v", err)
 	}
-	if err := toml.NewEncoder(&output).Encode(dto); err != nil {
+	if err := tomlsyntax.Encode(&output, dto); err != nil {
 		t.Fatalf("encode pre-admission lockfile: %v", err)
 	}
 	return append([]byte(nil), output.Bytes()...)
@@ -320,7 +319,7 @@ func currentLockfileWithDenseArrayValues(count int) []byte {
 func currentLockfileWithLongAncestorSiblings(siblings int) []byte {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "version = %d\n[", lock.CurrentVersion)
-	builder.WriteString(strings.Repeat("a", tomlstrict.MaximumKeyBytes))
+	builder.WriteString(strings.Repeat("a", tomlsyntax.MaximumKeyBytes))
 	builder.WriteString("]\n")
 	for range siblings {
 		builder.WriteString("k = 1\n")

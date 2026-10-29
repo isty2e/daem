@@ -2,6 +2,7 @@ package declaration_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v5"
 )
 
@@ -70,11 +71,7 @@ func editorSchemaAccepts(t *testing.T, schema *jsonschema.Schema, value any) boo
 }
 
 func editorTOMLValues(content []byte) (map[string]any, error) {
-	var value map[string]any
-	if _, err := toml.Decode(string(content), &value); err != nil {
-		return nil, err
-	}
-	return value, nil
+	return tomlsyntax.Native(context.Background(), content)
 }
 
 func editorJSONValue(value any) (any, error) {
@@ -88,6 +85,18 @@ func editorJSONValue(value any) (any, error) {
 		return typed, nil
 	case time.Time:
 		return typed.Format(time.RFC3339Nano), nil
+	case tomlsyntax.Temporal:
+		layouts := map[string]string{
+			"offset-date-time": time.RFC3339Nano,
+			"local-date-time":  "2006-01-02T15:04:05.999999999",
+			"local-date":       "2006-01-02",
+			"local-time":       "15:04:05.999999999",
+		}
+		parsed, err := time.Parse(layouts[typed.Kind], typed.Text)
+		if err != nil {
+			return nil, err
+		}
+		return parsed.Format(time.RFC3339Nano), nil
 	case map[string]any:
 		result := make(map[string]any, len(typed))
 		for key, child := range typed {

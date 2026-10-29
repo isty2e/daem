@@ -184,6 +184,7 @@ func analyzeImports(packagePath string, imports []string) []GuardrailFinding {
 		}
 
 		if !isInternal {
+			violations = append(violations, analyzeTOMLImports(packagePath, importPath)...)
 			continue
 		}
 		if packagePath == "internal/effect/storage/commit" && !isAllowedStorageCommitImport(importInternalPath) {

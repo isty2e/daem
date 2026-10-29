@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/pelletier/go-toml/v2/unstable"
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
 )
 
 // Each node owns its decoded path and lexical representation. Assignment values
@@ -64,11 +64,11 @@ func patchTOML(ctx context.Context, document Document, expected Value, index tom
 		}
 		node.expressions = append(node.expressions, expression)
 		switch expression.kind {
-		case unstable.Table:
+		case tomlsyntax.Table:
 			node.header = expression
-		case unstable.ArrayTable:
+		case tomlsyntax.ArrayTable:
 			node.coupled = true
-		case unstable.KeyValue:
+		case tomlsyntax.KeyValue:
 			node.assignment = expression
 		}
 	}
@@ -256,7 +256,9 @@ func (editor *tomlEditor) apply() ([]byte, error) {
 			if len(editor.index.expressions) != 0 {
 				position = bytes.LastIndexByte(content[:editor.index.expressions[0].span.start], '\n') + 1
 			}
-			if position > 0 && content[position-1] != '\n' {
+			prefix := len(content) - len(bytes.TrimPrefix(content, []byte{0xef, 0xbb, 0xbf}))
+			position = max(position, prefix)
+			if position > prefix && content[position-1] != '\n' {
 				if err := editor.renderer.charge(int64(len(editor.newline))); err != nil {
 					return nil, err
 				}

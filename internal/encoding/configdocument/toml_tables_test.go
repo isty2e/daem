@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
-	"github.com/pelletier/go-toml/v2/unstable"
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
 )
 
 func TestTOMLStandardTableAddRemoveRestoresOriginalBytes(t *testing.T) {
@@ -52,23 +52,16 @@ func TestTOMLMissingSectionsAppendAtEnd(t *testing.T) {
 	}
 	manual := parse(t, configdocument.TOML, string(result.Bytes())+"manual = false\n")
 	assertEqual(t, lookup(t, manual, "/profiles/a.b/tui/added"), value)
-	var parser unstable.Parser
-	parser.Reset(result.Bytes()[len(content):])
+	index, err := tomlsyntax.IndexDocument(t.Context(), result.Bytes()[len(content):])
+	if err != nil {
+		t.Fatalf("appended sections do not parse: %v", err)
+	}
 	var sections [][]string
-	for parser.NextExpression() {
-		node := parser.Expression()
-		if node.Kind != unstable.Table {
+	for _, expression := range index.Expressions() {
+		if expression.Kind != tomlsyntax.Table {
 			continue
 		}
-		var parts []string
-		keys := node.Key()
-		for keys.Next() {
-			parts = append(parts, string(keys.Node().Data))
-		}
-		sections = append(sections, parts)
-	}
-	if err := parser.Error(); err != nil {
-		t.Fatalf("appended sections do not parse: %v", err)
+		sections = append(sections, expression.Path)
 	}
 	for _, expected := range [][]string{{"features"}, {"profiles", "a.b", "tui"}} {
 		if !slices.ContainsFunc(sections, func(parts []string) bool { return slices.Equal(parts, expected) }) {
