@@ -18,6 +18,12 @@ func (registry Registry) TransferAuthority(from, to stateauthority.Authority) (R
 	if err := to.Validate(); err != nil {
 		return Registry{}, err
 	}
+	if err := registry.RequireOwnerSettled(from.Key()); err != nil {
+		return Registry{}, err
+	}
+	if err := registry.RequireOwnerSettled(to.Key()); err != nil {
+		return Registry{}, err
+	}
 	next := registry.Claims()
 	for index, claim := range next {
 		if !claim.OwnedBy(from) {
@@ -51,5 +57,5 @@ func (registry Registry) TransferAuthority(from, to stateauthority.Authority) (R
 		}
 		bindings[index] = replacement
 	}
-	return NewRegistry(next, bindings...)
+	return registry.withFacts(next, bindings)
 }

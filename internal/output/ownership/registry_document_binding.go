@@ -101,6 +101,9 @@ func (registry Registry) ApplyDocumentBinding(owner stateauthority.Key, destinat
 			}
 		}
 	}
+	if err := registry.requireBindingWritable(expected, replacement); err != nil {
+		return Registry{}, err
+	}
 	actual := NoDocumentBinding()
 	if binding, present := registry.DocumentBinding(owner, destination); present {
 		actual, _ = PresentDocumentBinding(binding)
@@ -117,5 +120,5 @@ func (registry Registry) ApplyDocumentBinding(owner stateauthority.Key, destinat
 	if binding, present := replacement.Get(); present {
 		bindings = append(bindings, binding)
 	}
-	return NewRegistry(registry.claims, bindings...)
+	return registry.withFacts(registry.claims, bindings)
 }

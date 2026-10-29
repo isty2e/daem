@@ -152,6 +152,7 @@ var packagePlacementRows = []packagePlacementRow{
 			"internal/assurance/stateauthority",
 			"internal/contractversion",
 			"internal/credentialtext",
+			"internal/executionidentity",
 			"internal/findings",
 			"internal/output",
 			"internal/output/ownership",

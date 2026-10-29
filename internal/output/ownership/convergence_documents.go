@@ -62,6 +62,11 @@ func (convergence ClaimConvergence) applyDocumentChanges(registry Registry) (Reg
 	}
 	updates := make(map[ManagedAddress]ClaimValue)
 	for index, change := range convergence.documents {
+		for _, address := range change.cover {
+			if err := current.RequireWritable(address.PathAuthority()); err != nil {
+				return Registry{}, false, err
+			}
+		}
 		actual := fragments[index]
 		if sameDocumentClaims(actual, change.target) {
 			continue
@@ -90,7 +95,7 @@ func (convergence ClaimConvergence) applyDocumentChanges(registry Registry) (Reg
 			claims = append(claims, claim)
 		}
 	}
-	next, err := NewRegistry(claims, current.bindings...)
+	next, err := current.withFacts(claims, current.bindings)
 	if err != nil {
 		return Registry{}, false, err
 	}

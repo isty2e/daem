@@ -116,6 +116,9 @@ func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, er
 	}
 	changedAddresses := make(map[ManagedAddress]ClaimValue, len(convergence.changes))
 	for _, change := range convergence.changes {
+		if err := registry.RequireWritable(change.address.PathAuthority()); err != nil {
+			return Registry{}, false, err
+		}
 		actual := NoClaim()
 		if claim, present := currentByAddress[change.address]; present {
 			actual, _ = PresentClaim(claim)
@@ -163,7 +166,7 @@ func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, er
 			nextClaims = append(nextClaims, claim)
 		}
 	}
-	next, err := NewRegistry(nextClaims, registry.bindings...)
+	next, err := registry.withFacts(nextClaims, registry.bindings)
 	if err != nil {
 		return Registry{}, false, err
 	}

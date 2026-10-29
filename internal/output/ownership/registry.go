@@ -7,11 +7,12 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 )
 
-// Registry retains independent ownership claims and document identity evidence.
-// Only claims participate in overlap exclusion.
+// Registry retains claims, document identity evidence and pending protection.
+// Claim exclusion and document-wide safety fences remain distinct.
 type Registry struct {
 	claims         []Claim
 	bindings       []DocumentBinding
+	protections    []PendingProtection
 	bindingIndices map[documentBindingKey]int
 	overlaps       addressOverlapIndex
 	initialized    bool
@@ -47,7 +48,7 @@ func NewRegistry(claims []Claim, bindings ...DocumentBinding) (Registry, error) 
 	return Registry{claims: normalized, bindings: canonicalBindings, bindingIndices: bindingIndices, overlaps: overlaps, initialized: true}, nil
 }
 
-// EmptyRegistry returns a valid registry with no claims.
+// EmptyRegistry returns a valid registry with no retained facts.
 func EmptyRegistry() Registry {
 	return Registry{claims: []Claim{}, initialized: true}
 }
@@ -59,7 +60,7 @@ func (registry Registry) Claims() []Claim {
 
 // Equal reports semantic equality between two canonical registries.
 func (registry Registry) Equal(other Registry) bool {
-	if !registry.initialized || !other.initialized || len(registry.claims) != len(other.claims) || len(registry.bindings) != len(other.bindings) {
+	if !registry.initialized || !other.initialized || len(registry.claims) != len(other.claims) || len(registry.bindings) != len(other.bindings) || len(registry.protections) != len(other.protections) {
 		return false
 	}
 	for index := range registry.claims {
@@ -69,6 +70,11 @@ func (registry Registry) Equal(other Registry) bool {
 	}
 	for index := range registry.bindings {
 		if !registry.bindings[index].Equal(other.bindings[index]) {
+			return false
+		}
+	}
+	for index := range registry.protections {
+		if !registry.protections[index].Equal(other.protections[index]) {
 			return false
 		}
 	}
@@ -124,6 +130,9 @@ func (registry Registry) Apply(address ManagedAddress, expected ClaimValue, repl
 	if err := validateClaimValueAddress("replacement", address, replacement); err != nil {
 		return Registry{}, err
 	}
+	if err := registry.RequireWritable(address.PathAuthority()); err != nil {
+		return Registry{}, err
+	}
 
 	current, present := registry.Exact(address)
 	currentValue := NoClaim()
@@ -148,7 +157,7 @@ func (registry Registry) Apply(address ManagedAddress, expected ClaimValue, repl
 		}
 		next = append(next, claim)
 	}
-	return NewRegistry(next, registry.bindings...)
+	return registry.withFacts(next, registry.bindings)
 }
 
 // ConflictError reports an overlapping claim owned by an existing authority.

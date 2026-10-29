@@ -608,9 +608,10 @@ func (store Store) loadForCommit(
 }
 
 type file struct {
-	Version          int                     `json:"version"`
-	Claims           []claimRecord           `json:"claims"`
-	DocumentBindings []documentBindingRecord `json:"document_bindings"`
+	Version            int                     `json:"version"`
+	Claims             []claimRecord           `json:"claims"`
+	DocumentBindings   []documentBindingRecord `json:"document_bindings"`
+	PendingProtections json.RawMessage         `json:"pending_protections,omitempty"`
 }
 
 type claimRecord struct {
@@ -675,7 +676,11 @@ func decodeCurrent(content []byte) (ownership.Registry, error) {
 	if err != nil {
 		return ownership.Registry{}, err
 	}
-	return ownership.NewRegistry(registry.Claims(), bindings...)
+	protections, err := decodePendingProtections(persisted.PendingProtections)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	return ownership.NewRegistryWithProtections(registry.Claims(), bindings, protections)
 }
 
 func decodeRegistryJSON(content []byte, target any) error {
@@ -753,7 +758,7 @@ func unsupportedOwnershipRegistryVersion(version int) error {
 // Marshal validates and encodes the complete registry for a leased, journaled
 // metadata transaction. Serialization does not authorize publication.
 func Marshal(registry ownership.Registry) ([]byte, error) {
-	canonical, err := ownership.NewRegistry(registry.Claims(), registry.DocumentBindings()...)
+	canonical, err := ownership.NewRegistryWithProtections(registry.Claims(), registry.DocumentBindings(), registry.PendingProtections())
 	if err != nil {
 		return nil, err
 	}
@@ -770,6 +775,11 @@ func encode(registry ownership.Registry) ([]byte, error) {
 		return claims[left].Address().Less(claims[right].Address())
 	})
 	persisted := file{Version: currentVersion, Claims: make([]claimRecord, 0, len(claims)), DocumentBindings: persistedDocumentBindings(registry.DocumentBindings())}
+	protections, err := encodePendingProtections(registry.PendingProtections())
+	if err != nil {
+		return nil, err
+	}
+	persisted.PendingProtections = protections
 	for _, claim := range claims {
 		path := claim.Address().PathAuthority()
 		statefile := claim.Owner().StatefileAuthority()

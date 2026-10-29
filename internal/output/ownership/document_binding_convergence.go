@@ -54,6 +54,9 @@ func (convergence DocumentBindingConvergence) Apply(registry Registry) (Registry
 
 	replacements := make(map[documentBindingKey]DocumentBindingValue)
 	for _, intent := range convergence.intents {
+		if err := registry.requireBindingWritable(intent.before, intent.after); err != nil {
+			return Registry{}, false, err
+		}
 		actual := NoDocumentBinding()
 		if binding, present := registry.DocumentBinding(intent.owner.Key(), intent.destination); present {
 			actual, _ = PresentDocumentBinding(binding)
@@ -83,7 +86,7 @@ func (convergence DocumentBindingConvergence) Apply(registry Registry) (Registry
 			}
 		}
 	}
-	next, err := NewRegistry(registry.claims, bindings...)
+	next, err := registry.withFacts(registry.claims, bindings)
 	if err != nil {
 		return Registry{}, false, err
 	}
