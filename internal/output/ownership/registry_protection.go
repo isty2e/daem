@@ -82,14 +82,11 @@ func (registry Registry) RequireWritable(physical pathauthority.Exact) error {
 	if err := physical.Validate(); err != nil {
 		return err
 	}
-	for _, protection := range registry.protections {
-		for _, document := range protection.documents {
-			if protectionPathsOverlap(document.PathAuthority(), physical) {
-				return &ProtectionPendingError{Protection: protection, Path: physical}
-			}
-		}
+	scope, err := NewDocumentScope([]pathauthority.Exact{physical}, nil)
+	if err != nil {
+		return err
 	}
-	return nil
+	return scope.RequireWritable(registry)
 }
 
 // RequireOwnerSettled refuses a destructive owner transition even when its

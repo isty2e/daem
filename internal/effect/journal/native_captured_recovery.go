@@ -41,8 +41,12 @@ func (captured CapturedNativeJournal) OpenRecovery(ctx context.Context, codec du
 	}
 	qualified := assessment.assessment.qualified
 	observed := assessment.assessment
+	scope, err := observed.registryScope()
+	if err != nil {
+		return nil, err
+	}
 	observed.qualified = nativeQualifiedDocumentRecords{records: qualified.records}
-	plan := NativeRecoveryPlan{journal: captured.journal, capture: captured.capture, active: captured.active, inventory: inv, assessment: observed}
+	plan := NativeRecoveryPlan{journal: captured.journal, capture: captured.capture, active: captured.active, inventory: inv, assessment: observed, registryScope: scope}
 	return &NativeRecoveryOperation{
 		plan:    plan,
 		profile: NativeRecoveryProfile{StateCodec: codec, Codecs: options.Codecs, Limits: captured.publication.limits, Budget: captured.budget},

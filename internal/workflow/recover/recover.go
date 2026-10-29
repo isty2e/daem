@@ -15,6 +15,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -309,6 +310,31 @@ func Execute(
 		return result, mutation.StaleSnapshotError{}
 	}
 
+	documentScope, err := recoverygate.DocumentScope(current.authorityEvidence.documentWrites)
+	if err != nil {
+		return result, err
+	}
+	documentView, err := ownership.EmptyRegistry().Documents(documentScope)
+	if err != nil {
+		return result, err
+	}
+	namespaces, err := current.authorityEvidence.documentWrites.Namespaces()
+	if err != nil {
+		return result, err
+	}
+	if len(namespaces) != 0 {
+		if native, ok := current.plan.(journal.NativeRecoveryPlan); ok {
+			documentView, err = native.ObservedDocuments(documentScope)
+		} else {
+			documentView, err = recoverygate.ObserveDocumentRegistry(ctx, effectPaths.OwnershipRegistryPath, current.authorityEvidence.documentWrites)
+		}
+		if err != nil {
+			return result, err
+		}
+	}
+	if err := documentView.RequireProtectionClear(); err != nil {
+		return result, err
+	}
 	validateCurrentAuthority := func(ctx context.Context) error {
 		matches, err := leases.DomainsMatchCurrent(ctx)
 		if err != nil {
@@ -336,7 +362,14 @@ func Execute(
 		if !covered {
 			return mutation.StaleSnapshotError{}
 		}
-		return nil
+		covered, err = leases.CoversPhysicalAuthority(current.authorityEvidence.documentWrites)
+		if err != nil {
+			return err
+		}
+		if !covered {
+			return mutation.StaleSnapshotError{}
+		}
+		return documentView.RequireProtectionClear()
 	}
 	validateVisibilityAuthority := func(ctx context.Context) error {
 		matches, err := leases.VisibilityAuthorityMatchesCurrent(ctx)

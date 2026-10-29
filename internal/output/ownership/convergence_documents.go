@@ -62,14 +62,14 @@ func (convergence ClaimConvergence) applyDocumentChanges(registry Registry) (Reg
 	}
 	updates := make(map[ManagedAddress]ClaimValue)
 	for index, change := range convergence.documents {
+		actual := fragments[index]
+		if sameDocumentClaims(actual, change.target) {
+			continue
+		}
 		for _, address := range change.cover {
 			if err := current.RequireWritable(address.PathAuthority()); err != nil {
 				return Registry{}, false, err
 			}
-		}
-		actual := fragments[index]
-		if sameDocumentClaims(actual, change.target) {
-			continue
 		}
 		if !sameDocumentClaims(actual, change.expected) {
 			return Registry{}, false, documentClaimMismatch(change.expected, actual)

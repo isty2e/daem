@@ -38,6 +38,7 @@ type nativeApplyWork struct {
 	mutating           []bool
 	promoting          []bool
 	changed            bool
+	registryScope      ownership.DocumentScope
 }
 
 func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
@@ -65,6 +66,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		documents: documents, promoting: promoting, mutating: make([]bool, len(namespaces)),
 		managed: input.Preparation.ManagedPathEffects(), changed: !input.CurrentState.Equal(input.Preparation.AfterState()),
 	}
+	var registryAliases []aggregate.DocumentAddress
 	for _, effect := range input.Preparation.AggregateEffects() {
 		group := -1
 		for index, namespace := range namespaces {
@@ -81,6 +83,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 			work.changed = true
 			continue
 		}
+		registryAliases = append(registryAliases, effect.DocumentAddress())
 		selection, err := effect.BeforeSnapshot().Selection()
 		if err != nil {
 			return nativeApplyWork{}, err
@@ -105,6 +108,10 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		work.changed = true
 	}
 	work.changed = work.changed || len(work.managed) != 0
+	work.registryScope, err = documents.RegistryScopeFor(registryAliases)
+	if err != nil {
+		return nativeApplyWork{}, err
+	}
 	return work, nil
 }
 
@@ -250,9 +257,17 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return ApplyResult{}, err
 	}
 	actualRegistry, err := input.Documents.ReadRegistry(ctx, store)
-	if err != nil || !actualRegistry.Equal(input.Registry) {
+	if err != nil {
 		return ApplyResult{}, errors.Join(fmt.Errorf("native Registry changed before execution"), err)
 	}
+	registryScope := work.registryScope
+	if err := registryScope.RequireWritable(actualRegistry); err != nil {
+		return ApplyResult{}, err
+	}
+	if same, err := registryScope.Matches(input.Registry, actualRegistry); err != nil || !same {
+		return ApplyResult{}, errors.Join(fmt.Errorf("native Registry scope changed before execution"), err)
+	}
+	input.Registry = actualRegistry
 	for _, namespace := range work.documents.Namespaces() {
 		for _, alias := range namespace.Addresses() {
 			path, err := input.Resolver(alias.AggregateRoot())

@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/output/ownership"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -47,6 +48,13 @@ type Assessment struct {
 	SelectedTargets        reconcile.SelectedTargets
 	NativeSources          []lockobserve.NativeSourceObservation
 	NativeApproval         []journal.NativeDocumentApprovalEvidence
+	nativeRegistry         ownership.Registry
+}
+
+// NativeObservedDocuments exposes only comparison facts from the already
+// qualified native read, not closed roots or a publishable Registry candidate.
+func (assessment Assessment) NativeObservedDocuments(scope ownership.DocumentScope) (ownership.DocumentRegistryView, error) {
+	return assessment.nativeRegistry.Documents(scope)
 }
 
 // Input contains canonical inputs for shared non-mutating apply/status
@@ -262,7 +270,7 @@ func buildAssessment(
 	if len(native) != 0 {
 		nativeSources = native[0].sources
 	}
-	return assembleAssessment(assessmentPlanInput{
+	assessment, err := assembleAssessment(assessmentPlanInput{
 		paths:                  paths,
 		environment:            environment,
 		locked:                 locked,
@@ -287,6 +295,13 @@ func buildAssessment(
 		mcpContracts:           mcpContracts,
 		nativeSources:          nativeSources,
 	})
+	if err != nil {
+		return Assessment{}, err
+	}
+	if len(native) != 0 && native[0].input != nil {
+		assessment.nativeRegistry = native[0].input.Registry
+	}
+	return assessment, nil
 }
 
 func blockedProjectionDependencies(

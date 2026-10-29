@@ -54,15 +54,15 @@ func (convergence DocumentBindingConvergence) Apply(registry Registry) (Registry
 
 	replacements := make(map[documentBindingKey]DocumentBindingValue)
 	for _, intent := range convergence.intents {
-		if err := registry.requireBindingWritable(intent.before, intent.after); err != nil {
-			return Registry{}, false, err
-		}
 		actual := NoDocumentBinding()
 		if binding, present := registry.DocumentBinding(intent.owner.Key(), intent.destination); present {
 			actual, _ = PresentDocumentBinding(binding)
 		}
 		if actual.Equal(intent.after) {
 			continue
+		}
+		if err := registry.requireBindingWritable(intent.before, intent.after); err != nil {
+			return Registry{}, false, err
 		}
 		if !actual.Equal(intent.before) {
 			return Registry{}, false, fmt.Errorf("document binding differs from both before and target records")

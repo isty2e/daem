@@ -18,6 +18,7 @@ import (
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
@@ -103,16 +104,28 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 		}
 	}
 	resolver := destinationResolver(paths)
+	writeAliases, err := plan.DocumentWriteAliases()
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
+	writes := make(map[aggregate.DocumentAddress]struct{})
+	for _, group := range writeAliases {
+		for _, alias := range group {
+			writes[alias] = struct{}{}
+		}
+	}
 	for _, group := range plan.DocumentAliases() {
 		for _, alias := range group {
 			path, err := resolver.Resolve(alias.AggregateRoot())
 			if err != nil {
 				return recoveryAuthorityEvidence{}, err
 			}
-			for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
-				if err := builder.AddPhysical(path, mutation.AccessExclusive, effect, string(alias.Target()), string(alias.Scope())); err != nil {
+			if _, write := writes[alias]; write {
+				if err := builder.AddDocumentWritePair(path, string(alias.Target()), string(alias.Scope())); err != nil {
 					return recoveryAuthorityEvidence{}, err
 				}
+			} else if err := builder.AddPhysicalPair(path, mutation.AccessExclusive, string(alias.Target()), string(alias.Scope())); err != nil {
+				return recoveryAuthorityEvidence{}, err
 			}
 		}
 	}
@@ -130,10 +143,8 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 			targets = []target.Target{action.Target}
 		}
 		for _, selectedTarget := range targets {
-			for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
-				if err := builder.AddPhysical(path, mutation.AccessExclusive, effect, string(selectedTarget), string(action.Scope)); err != nil {
-					return recoveryAuthorityEvidence{}, err
-				}
+			if err := builder.AddDocumentWritePair(path, string(selectedTarget), string(action.Scope)); err != nil {
+				return recoveryAuthorityEvidence{}, err
 			}
 		}
 	}
@@ -158,6 +169,10 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 		}
 	}
 	compiled := builder.Compile()
+	documentWrites, err := mutation.NewPhysicalAuthoritySet(compiled.DocumentWriteRequests()...)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	domains, err := lowerRecoveryAuthorityDomainSteps(compiled.DomainSteps())
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
@@ -166,5 +181,5 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	return recoveryAuthorityEvidence{domains: domains, authorityFingerprint: fingerprint}, nil
+	return recoveryAuthorityEvidence{domains: domains, documentWrites: documentWrites, authorityFingerprint: fingerprint}, nil
 }

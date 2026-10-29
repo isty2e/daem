@@ -123,6 +123,71 @@ func TestStoreRefusesEitherStaleFamilyWithoutPublishingTheOther(t *testing.T) {
 	}
 }
 
+func TestPendingProtectionAllowsOnlyExactAtTargetConvergenceWithoutStoreReplacement(t *testing.T) {
+	root := canonicalTestRoot(t)
+	store := mustStore(t, filepath.Join(root, "claims.json"))
+	claim := testActiveClaim(t, root, "owner", filepath.Join(root, "settings.json"), "/model")
+	binding := storedDocumentBinding(t, claim, "@pi-agent/settings.json")
+	pending := storedPendingProtection(t, binding)
+	initial, err := ownership.NewRegistryWithProtections([]ownership.Claim{claim}, []ownership.DocumentBinding{binding}, []ownership.PendingProtection{pending})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := Marshal(initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.Path(), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(store.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := storeClaimValue(t, claim)
+	independent, err := ownership.NewClaimConvergence([]ownership.ClaimChange{mustStoreClaimChange(t, claim.Address(), row, row)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := ownership.NewDocumentClaimChange([]ownership.Claim{claim}, []ownership.Claim{claim})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, _ := ownership.NewClaimConvergence(nil)
+	group, err = group.WithDocumentChanges([]ownership.DocumentClaimChange{document})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings := mustStoreBindingConvergence(t, storeBindingIntent(t, binding, true, true))
+	for _, convergence := range []ownership.ClaimConvergence{independent, group} {
+		got, err := store.ConvergeRegistry(t.Context(), convergence, bindings)
+		if err != nil || !got.Equal(initial) {
+			t.Fatal("read-only at-target convergence lost complete facts", err)
+		}
+		after, err := os.Stat(store.Path())
+		if err != nil || !os.SameFile(before, after) || !bytes.Equal(content, mustReadRegistryBytes(t, store.Path())) {
+			t.Fatal("at-target convergence replaced the protected Registry", err)
+		}
+	}
+	remove, _ := ownership.NewClaimConvergence([]ownership.ClaimChange{mustStoreClaimChange(t, claim.Address(), row, ownership.NoClaim())})
+	var blocked *ownership.ProtectionPendingError
+	if _, err := store.ConvergeRegistry(t.Context(), remove, bindings); !errors.As(err, &blocked) {
+		t.Fatalf("actual mutation acquired an at-target exemption: %v", err)
+	}
+	if !bytes.Equal(content, mustReadRegistryBytes(t, store.Path())) {
+		t.Fatal("refused mutation changed the Registry")
+	}
+}
+
+func mustReadRegistryBytes(t *testing.T, path string) []byte {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return content
+}
+
 func TestStoreCreatesBindingOnlyRegistryAndRetiresRemovedClaimTogether(t *testing.T) {
 	root := canonicalTestRoot(t)
 	store := mustStore(t, filepath.Join(root, "data", "claims.json"))

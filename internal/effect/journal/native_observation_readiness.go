@@ -26,8 +26,17 @@ func (batch NativeDocumentObservationBatch) ValidateBefore(ctx context.Context) 
 // ValidatePlanningContext binds shared planner facts to the retained observation;
 // equal values do not supply freshness or execution authority.
 func (batch NativeDocumentObservationBatch) ValidatePlanningContext(ctx context.Context, owner stateauthority.Authority, registry ownership.Registry, budget *recovery.PhysicalWorkBudget) error {
-	if !batch.initialized || !batch.owner.Equal(owner) || !batch.registry.Equal(registry) || batch.budget != budget {
+	if !batch.initialized || !batch.owner.Equal(owner) || batch.budget != budget {
 		return fmt.Errorf("native planning context differs from its observed owner, registry or allocation")
+	}
+	scope, err := batch.RegistryScope()
+	if err != nil {
+		return err
+	}
+	if same, err := scope.Matches(batch.registry, registry); err != nil {
+		return err
+	} else if !same {
+		return fmt.Errorf("native planning ownership scope differs from its observation")
 	}
 	return batch.ValidateBefore(ctx)
 }

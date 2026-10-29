@@ -88,6 +88,10 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		}
 	}
 	initial := operation.InitialAssessment()
+	registryScope, err := operation.RegistryScope()
+	if err != nil {
+		return err
+	}
 	if !initial.CleanBefore() && !initial.CleanAfter() && !initial.RequiresRollback() && !initial.RequiresFinalization() {
 		return fmt.Errorf("native recovery has no admitted execution phase")
 	}
@@ -100,8 +104,14 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 			return errors.Join(fmt.Errorf("joint recovery state changed before restoration"), err)
 		}
 		registry, err := nativeRecoveryRegistry(ctx, operation, initial, store)
-		if err != nil || !registry.Equal(operation.ObservedRegistry()) {
+		if err != nil {
 			return errors.Join(fmt.Errorf("joint recovery Registry changed before restoration"), err)
+		}
+		if err := registryScope.RequireWritable(registry); err != nil {
+			return err
+		}
+		if same, err := registryScope.Matches(operation.ObservedRegistry(), registry); err != nil || !same {
+			return errors.Join(fmt.Errorf("joint recovery Registry scope changed before restoration"), err)
 		}
 		return nil
 	}

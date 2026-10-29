@@ -10,13 +10,17 @@ import (
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/output/ownership"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 )
 
 const delegateRouteFamilyPrefix = "delegate-runner."
 
 type applyAuthorityEvidence struct {
-	domains []mutation.Domain
+	domains        []mutation.Domain
+	documentWrites mutation.PhysicalAuthoritySet
+	documentView   ownership.DocumentRegistryView
 	// Declaration revisions are owned by PreparedWrite's bounded witness.
 	firstEffectRevisions []mutation.RevisionRequest
 	facts                []operationplan.Fact
@@ -39,6 +43,8 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		0,
 	)
 	physicalOccupancies := make(physicalOccupancyIndex)
+	registryAccess := mutation.AccessShared
+	requiresRegistry := planned.nativePlan != nil
 	if err := builder.AddLogicalPair(result.ManifestPath, mutation.AccessShared, mutation.AccessShared); err != nil {
 		return applyAuthorityEvidence{}, err
 	}
@@ -82,21 +88,13 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		return applyAuthorityEvidence{}, err
 	}
 	if planned.nativePlan != nil {
-		if err := builder.AddLogicalPair(planned.context.Paths.OwnershipRegistryPath, mutation.AccessExclusive, mutation.AccessExclusive); err != nil {
-			return applyAuthorityEvidence{}, err
-		}
+		registryAccess = mutation.AccessExclusive
 	}
 	for _, decision := range planned.assessment.Reconciliation.MutatingManagedPaths() {
 		if !decision.InvolvesScope(target.ScopeGlobal) {
 			continue
 		}
-		if err := builder.AddLogicalPair(
-			planned.context.Paths.OwnershipRegistryPath,
-			mutation.AccessExclusive,
-			mutation.AccessExclusive,
-		); err != nil {
-			return applyAuthorityEvidence{}, err
-		}
+		requiresRegistry, registryAccess = true, mutation.AccessExclusive
 		break
 	}
 	localSources, err := localEntityArtifactSourceAuthorityPaths(
@@ -161,6 +159,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		consumers []target.Target,
 		kind physicalOccupancyKind,
 		aggregateTarget target.Target,
+		write bool,
 	) error {
 		if err := observeProjectDestinationAuthorityFor(ctx, planned, scope, destination); err != nil {
 			return err
@@ -175,6 +174,12 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			return err
 		}
 		for _, consumer := range consumers {
+			if write {
+				if err := builder.AddDocumentWritePair(path, string(consumer), string(scope)); err != nil {
+					return err
+				}
+				continue
+			}
 			if err := builder.AddPhysicalPair(
 				path,
 				mutation.AccessExclusive,
@@ -193,13 +198,13 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			consumers = previous.ConsumerTargets()
 		}
 		if err := addManagedPath(
-			decision.Scope(), decision.Destination(), consumers, physicalOccupancyWholePath, "",
+			decision.Scope(), decision.Destination(), consumers, physicalOccupancyWholePath, "", true,
 		); err != nil {
 			return applyAuthorityEvidence{}, err
 		}
 		if hasPrevious && (previous.Scope() != decision.Scope() || previous.Destination() != decision.Destination()) {
 			if err := addManagedPath(
-				previous.Scope(), previous.Destination(), previous.ConsumerTargets(), physicalOccupancyWholePath, "",
+				previous.Scope(), previous.Destination(), previous.ConsumerTargets(), physicalOccupancyWholePath, "", true,
 			); err != nil {
 				return applyAuthorityEvidence{}, err
 			}
@@ -213,6 +218,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			[]target.Target{document.Target()},
 			physicalOccupancyAggregate,
 			document.Target(),
+			true,
 		); err != nil {
 			return applyAuthorityEvidence{}, err
 		}
@@ -224,6 +230,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 				[]target.Target{document.Target()},
 				physicalOccupancyAggregate,
 				document.Target(),
+				false,
 			); err != nil {
 				return applyAuthorityEvidence{}, err
 			}
@@ -239,7 +246,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 				continue
 			}
 			for _, document := range evidence.Aliases {
-				if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target()); err != nil {
+				if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), false); err != nil {
 					return applyAuthorityEvidence{}, err
 				}
 			}
@@ -321,6 +328,39 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		}
 	}
 
+	requests := builder.Compile().DocumentWriteRequests()
+	physical, err := mutation.NewPhysicalAuthoritySet(requests...)
+	if err != nil {
+		return applyAuthorityEvidence{}, err
+	}
+	scope, err := recoverygate.DocumentScope(physical)
+	if err != nil {
+		return applyAuthorityEvidence{}, err
+	}
+	view, err := ownership.EmptyRegistry().Documents(scope)
+	if err != nil {
+		return applyAuthorityEvidence{}, err
+	}
+	if requiresRegistry || len(requests) != 0 {
+		if planned.nativePlan != nil {
+			view, err = planned.assessment.NativeObservedDocuments(scope)
+		} else {
+			view, err = recoverygate.ObserveDocumentRegistry(ctx, planned.context.Paths.OwnershipRegistryPath, physical)
+		}
+		if err != nil {
+			return applyAuthorityEvidence{}, err
+		}
+		if err := view.RequireProtectionClear(); err != nil {
+			return applyAuthorityEvidence{}, err
+		}
+		identity, err := view.Fingerprint()
+		if err != nil {
+			return applyAuthorityEvidence{}, err
+		}
+		if err := builder.AddOwnershipRegistry(planned.context.Paths.OwnershipRegistryPath, registryAccess, identity); err != nil {
+			return applyAuthorityEvidence{}, err
+		}
+	}
 	plan := builder.Compile()
 	domains, err := lowerApplyAuthorityDomainSteps(plan.DomainSteps())
 	if err != nil {
@@ -339,6 +379,8 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	}
 	return applyAuthorityEvidence{
 		domains:              domains,
+		documentWrites:       physical,
+		documentView:         view,
 		firstEffectRevisions: plan.Revisions(),
 		facts:                plan.Facts(),
 		authorityFingerprint: fingerprint,

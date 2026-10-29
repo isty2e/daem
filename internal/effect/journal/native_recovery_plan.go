@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -35,13 +36,14 @@ type NativeRecoveryProfile struct {
 // NativeRecoveryPlan retains immutable observations, not live root capabilities.
 // Execution must reopen and requalify the complete operation under its leases.
 type NativeRecoveryPlan struct {
-	journal    nativeJournalSnapshots
-	capture    CaptureResult
-	active     ActiveJournalAuthority
-	inventory  recoverableInventoryAuthority
-	assessment nativeDocumentAssessment
-	blocked    bool
-	cleanup    []recovery.RemovalCleanupObligation
+	journal       nativeJournalSnapshots
+	capture       CaptureResult
+	active        ActiveJournalAuthority
+	inventory     recoverableInventoryAuthority
+	assessment    nativeDocumentAssessment
+	registryScope ownership.DocumentScope
+	blocked       bool
+	cleanup       []recovery.RemovalCleanupObligation
 }
 
 func (NativeRecoveryPlan) recoverablePlan()            {}
@@ -97,7 +99,14 @@ func (plan NativeRecoveryPlan) Classification() recovery.Classification {
 
 func (plan NativeRecoveryPlan) SameExecutionAuthority(other RecoverablePlan) bool {
 	typed, ok := other.(NativeRecoveryPlan)
-	if !ok || plan.blocked != typed.blocked || !plan.sameCleanup(typed) || plan.capture != typed.capture || !plan.active.equal(typed.active) || !plan.inventory.equal(typed.inventory) || plan.assessment.disposition != typed.assessment.disposition || !plan.assessment.state.Equal(typed.assessment.state) || !plan.assessment.registry.Equal(typed.assessment.registry) || plan.assessment.ordinary.observationFingerprint() != typed.assessment.ordinary.observationFingerprint() || len(plan.assessment.stages) != len(typed.assessment.stages) {
+	if !ok || plan.blocked != typed.blocked || !plan.sameCleanup(typed) || plan.capture != typed.capture || !plan.active.equal(typed.active) || !plan.inventory.equal(typed.inventory) || plan.assessment.disposition != typed.assessment.disposition || !plan.assessment.state.Equal(typed.assessment.state) || plan.assessment.ordinary.observationFingerprint() != typed.assessment.ordinary.observationFingerprint() || len(plan.assessment.stages) != len(typed.assessment.stages) {
+		return false
+	}
+	scope := plan.registryScope
+	if !scope.Equal(typed.registryScope) {
+		return false
+	}
+	if same, err := scope.Matches(plan.assessment.registry, typed.assessment.registry); err != nil || !same {
 		return false
 	}
 	for index, stage := range plan.assessment.stages {
@@ -114,7 +123,8 @@ func sameNativeRecoveryMode(left, right *recovery.PermissionMode) bool {
 }
 
 // ObservationFingerprint supplements the durable record revision with actual
-// phase and host observations. Full state and Registry equality is also required.
+// phase and host observations. Complete state and scoped Registry equality are
+// additionally required by SameExecutionAuthority.
 func (plan NativeRecoveryPlan) ObservationFingerprint() string {
 	hash := sha256.New()
 	fmt.Fprintf(hash, "%s\x00%s\x00", plan.capture.RecordFingerprint, plan.assessment.disposition)
@@ -407,8 +417,15 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 		return nil, err
 	}
 	operation.qualified = assessment.qualified
+	scope, err := ownership.NewDocumentScope(nil, nil)
+	if !blocked {
+		scope, err = assessment.registryScope()
+	}
+	if err != nil {
+		return nil, err
+	}
 	assessment.qualified = nativeQualifiedDocumentRecords{records: assessment.qualified.records}
-	operation.plan = NativeRecoveryPlan{blocked: blocked, journal: journal, capture: CaptureResult{OperationID: journal.record.OperationID, Directory: active.operationDir, JournalPath: filepath.Join(active.operationDir, recoveryJournalFileName), RecordFingerprint: active.identity.JournalAuthorityFingerprint()}, active: active.physicalAuthority, inventory: inv, assessment: assessment}
+	operation.plan = NativeRecoveryPlan{blocked: blocked, journal: journal, capture: CaptureResult{OperationID: journal.record.OperationID, Directory: active.operationDir, JournalPath: filepath.Join(active.operationDir, recoveryJournalFileName), RecordFingerprint: active.identity.JournalAuthorityFingerprint()}, active: active.physicalAuthority, inventory: inv, assessment: assessment, registryScope: scope}
 	operation.plan, err = operation.plan.assessCleanup(ctx, options, profile.Budget)
 	if err != nil {
 		return nil, err

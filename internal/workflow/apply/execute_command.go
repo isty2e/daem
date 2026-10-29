@@ -358,12 +358,28 @@ func executeWithDependencies(
 			if err != nil || !matches {
 				return matches, err
 			}
-			return leases.CoversPhysicalAuthority(authority)
+			covered, err := leases.CoversPhysicalAuthority(authority)
+			if err != nil || !covered {
+				return covered, err
+			}
+			covered, err = leases.CoversPhysicalAuthority(currentAuthority.documentWrites)
+			if err != nil || !covered {
+				return covered, err
+			}
+			return true, currentAuthority.documentView.RequireProtectionClear()
 		})
 	}
 	validatePhysicalAuthorityRequests := func(ctx context.Context, requests []mutation.PhysicalAuthorityRequest) error {
 		return validateBeforeEffectsWith(ctx, func(ctx context.Context) (bool, error) {
-			return leases.MatchCurrentPhysicalRequests(ctx, requests...)
+			matches, err := leases.MatchCurrentPhysicalRequests(ctx, requests...)
+			if err != nil || !matches {
+				return matches, err
+			}
+			covered, err := leases.CoversPhysicalAuthority(currentAuthority.documentWrites)
+			if err != nil || !covered {
+				return covered, err
+			}
+			return true, currentAuthority.documentView.RequireProtectionClear()
 		})
 	}
 	validateCompensationAuthority := func(ctx context.Context) error {

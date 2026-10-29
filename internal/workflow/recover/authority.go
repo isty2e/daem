@@ -22,6 +22,7 @@ import (
 
 type recoveryAuthorityEvidence struct {
 	domains              []mutation.Domain
+	documentWrites       mutation.PhysicalAuthoritySet
 	authorityFingerprint mutation.OperationFingerprint
 }
 
@@ -348,17 +349,9 @@ func buildActiveRecoveryAuthorityEvidence(
 			return recoveryAuthorityEvidence{}, fmt.Errorf("recovery guarded action destination: %w", err)
 		}
 		resolved := resolvedDestinations[recoveryDestinationKey{scope: action.Scope, destination: destination}]
-		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
-			for _, selected := range targets {
-				if err := builder.AddPhysical(
-					resolved,
-					mutation.AccessExclusive,
-					effect,
-					string(selected),
-					string(action.Scope),
-				); err != nil {
-					return recoveryAuthorityEvidence{}, err
-				}
+		for _, selected := range targets {
+			if err := builder.AddDocumentWritePair(resolved, string(selected), string(action.Scope)); err != nil {
+				return recoveryAuthorityEvidence{}, err
 			}
 		}
 	}
@@ -402,6 +395,10 @@ func buildActiveRecoveryAuthorityEvidence(
 		}
 	}
 	compiled := builder.Compile()
+	documentWrites, err := mutation.NewPhysicalAuthoritySet(compiled.DocumentWriteRequests()...)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	domains, err := lowerRecoveryAuthorityDomainSteps(compiled.DomainSteps())
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
@@ -412,6 +409,7 @@ func buildActiveRecoveryAuthorityEvidence(
 	}
 	return recoveryAuthorityEvidence{
 		domains:              domains,
+		documentWrites:       documentWrites,
 		authorityFingerprint: fingerprint,
 	}, nil
 }
