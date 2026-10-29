@@ -1,6 +1,7 @@
 package output
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -36,11 +37,41 @@ func ParseKeyPath(pointer string) (KeyPath, error) {
 
 // NewKeyPath constructs a path from literal object keys, including empty keys.
 func NewKeyPath(keys ...string) (KeyPath, error) {
-	var pointer strings.Builder
+	return NewKeyPathWithinBytes(int64(^uint(0)>>1), keys...)
+}
+
+// ErrKeyPathLimitExceeded reports a pointer refused before encoding allocation.
+var ErrKeyPathLimitExceeded = errors.New("configuration key path exceeds byte limit")
+
+// NewKeyPathWithinBytes bounds the encoded pointer, not decoded key lengths.
+// A zero limit permits the root; the caller owns the resource policy.
+func NewKeyPathWithinBytes(maximumBytes int64, keys ...string) (KeyPath, error) {
+	if maximumBytes < 0 {
+		return KeyPath{}, fmt.Errorf("configuration key path byte limit must be non-negative")
+	}
+	remaining := maximumBytes
 	for index, key := range keys {
 		if !utf8.ValidString(key) {
 			return KeyPath{}, fmt.Errorf("configuration key %d must be valid UTF-8", index)
 		}
+		if remaining == 0 || int64(len(key)) > remaining-1 {
+			return KeyPath{}, ErrKeyPathLimitExceeded
+		}
+		remaining -= int64(len(key)) + 1
+		escapes := int64(strings.Count(key, "~") + strings.Count(key, "/"))
+		if escapes > remaining {
+			return KeyPath{}, ErrKeyPathLimitExceeded
+		}
+		remaining -= escapes
+	}
+	size := maximumBytes - remaining
+	if size > int64(^uint(0)>>1) {
+		return KeyPath{}, ErrKeyPathLimitExceeded
+	}
+
+	var pointer strings.Builder
+	pointer.Grow(int(size))
+	for _, key := range keys {
 		pointer.WriteByte('/')
 		pointer.WriteString(keyEscaper.Replace(key))
 	}

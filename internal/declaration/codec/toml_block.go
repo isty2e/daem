@@ -1,15 +1,13 @@
 package codec
 
 import (
-	"github.com/BurntSushi/toml"
+	"context"
+
 	"github.com/isty2e/daem/internal/declaration"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	tomlfields "github.com/isty2e/daem/internal/encoding/toml/fields"
 )
 
 func decodeBlockFields(content []byte, span declaration.DocumentRange, target any) error {
-	metadata, err := toml.Decode(string(content[span.Start:span.End]), target)
-	if err == nil {
-		err = tomlstrict.ValidateCanonicalKeys(metadata, target)
-	}
+	metadata, err := tomlfields.DecodeAdmitted(context.Background(), content[span.Start:span.End], target)
 	return declaration.PositionManifestKeyError(content, span, metadata, err)
 }

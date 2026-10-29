@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/pelletier/go-toml/v2/unstable"
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
 )
 
 // Each node owns its decoded path and lexical representation. Assignment values
@@ -47,6 +47,7 @@ type tomlEditor struct {
 	patches  []tomlPatch
 	pending  []*tomlSyntaxNode
 	newline  string
+	renderer literalRenderer
 }
 
 func patchTOML(ctx context.Context, document Document, expected Value, index tomlIndex) ([]byte, error) {
@@ -63,16 +64,19 @@ func patchTOML(ctx context.Context, document Document, expected Value, index tom
 		}
 		node.expressions = append(node.expressions, expression)
 		switch expression.kind {
-		case unstable.Table:
+		case tomlsyntax.Table:
 			node.header = expression
-		case unstable.ArrayTable:
+		case tomlsyntax.ArrayTable:
 			node.coupled = true
-		case unstable.KeyValue:
+		case tomlsyntax.KeyValue:
 			node.assignment = expression
 		}
 	}
 
-	editor := tomlEditor{ctx: ctx, document: document, index: index, newline: "\n"}
+	editor := tomlEditor{
+		ctx: ctx, document: document, index: index, newline: "\n",
+		renderer: newLiteralRenderer(ctx, TOML, document.limits),
+	}
 	if bytes.Contains(document.content, []byte("\r\n")) {
 		editor.newline = "\r\n"
 	}
@@ -94,15 +98,22 @@ func (editor *tomlEditor) visit(node *tomlSyntaxNode, before, after Value) error
 	}
 	if node.assignment != nil {
 		var rendered strings.Builder
-		if err := appendTOMLValue(&rendered, after); err != nil {
+		if err := editor.renderer.value(&rendered, after, len(node.path)); err != nil {
 			return err
 		}
 		expression := node.assignment
-		comments := editor.commentsWithin(expression.value)
+		comments, err := editor.commentsWithin(expression.value)
+		if err != nil {
+			return err
+		}
 		if comments == "" {
 			editor.patches = append(editor.patches, tomlPatch{expression.value, rendered.String()})
 		} else {
-			text := comments + string(editor.document.content[expression.span.start:expression.value.start]) + rendered.String()
+			prefix := editor.document.content[expression.span.start:expression.value.start]
+			if err := editor.renderer.charge(int64(len(prefix))); err != nil {
+				return err
+			}
+			text := comments + string(prefix) + rendered.String()
 			editor.patches = append(editor.patches, tomlPatch{expression.span, text})
 		}
 		return nil
@@ -157,19 +168,24 @@ func (editor *tomlEditor) insertValue(node *tomlSyntaxNode, value Value) error {
 	editor.section(scope)
 	for i, key := range node.path[len(scope.path):] {
 		if i > 0 {
-			scope.insert.WriteByte('.')
+			if err := editor.renderer.raw(&scope.insert, "."); err != nil {
+				return err
+			}
 		}
-		appendTOMLKey(&scope.insert, key)
+		if err := editor.renderer.key(&scope.insert, key); err != nil {
+			return err
+		}
 	}
-	scope.insert.WriteString(" = ")
-	if err := appendTOMLValue(&scope.insert, value); err != nil {
+	if err := editor.renderer.raw(&scope.insert, " = "); err != nil {
 		return err
 	}
-	scope.insert.WriteString(editor.newline)
-	return nil
+	if err := editor.renderer.value(&scope.insert, value, len(node.path)); err != nil {
+		return err
+	}
+	return editor.renderer.raw(&scope.insert, editor.newline)
 }
 
-func (editor *tomlEditor) commentsWithin(span sourceSpan) string {
+func (editor *tomlEditor) commentsWithin(span sourceSpan) (string, error) {
 	var result strings.Builder
 	start, _ := slices.BinarySearchFunc(editor.index.comments, span.start, func(comment sourceSpan, start int) int {
 		return comment.start - start
@@ -178,10 +194,13 @@ func (editor *tomlEditor) commentsWithin(span sourceSpan) string {
 		if comment.start >= span.end {
 			break
 		}
+		if err := editor.renderer.charge(int64(comment.end-comment.start) + int64(len(editor.newline))); err != nil {
+			return "", err
+		}
 		result.Write(editor.document.content[comment.start:comment.end])
 		result.WriteString(editor.newline)
 	}
-	return result.String()
+	return result.String(), nil
 }
 
 func (editor *tomlEditor) remove(node *tomlSyntaxNode) error {
@@ -190,7 +209,10 @@ func (editor *tomlEditor) remove(node *tomlSyntaxNode) error {
 	}
 	for _, expression := range node.expressions {
 		span := expression.span
-		text := editor.commentsWithin(span)
+		text, err := editor.commentsWithin(span)
+		if err != nil {
+			return err
+		}
 		content := editor.document.content
 		lineStart := bytes.LastIndexByte(content[:span.start], '\n') + 1
 		if len(bytes.Trim(content[lineStart:span.start], " \t\r")) == 0 {
@@ -234,7 +256,12 @@ func (editor *tomlEditor) apply() ([]byte, error) {
 			if len(editor.index.expressions) != 0 {
 				position = bytes.LastIndexByte(content[:editor.index.expressions[0].span.start], '\n') + 1
 			}
-			if position > 0 && content[position-1] != '\n' {
+			prefix := len(content) - len(bytes.TrimPrefix(content, []byte{0xef, 0xbb, 0xbf}))
+			position = max(position, prefix)
+			if position > prefix && content[position-1] != '\n' {
+				if err := editor.renderer.charge(int64(len(editor.newline))); err != nil {
+					return nil, err
+				}
 				text = editor.newline + text
 			}
 		case node.header != nil:
@@ -243,23 +270,36 @@ func (editor *tomlEditor) apply() ([]byte, error) {
 				position += next + 1
 			} else {
 				position = len(content)
+				if err := editor.renderer.charge(int64(len(editor.newline))); err != nil {
+					return nil, err
+				}
 				text = editor.newline + text
 			}
 		default:
 			position = len(content)
 			var section strings.Builder
 			if position > 0 && content[position-1] != '\n' {
-				section.WriteString(editor.newline)
+				if err := editor.renderer.raw(&section, editor.newline); err != nil {
+					return nil, err
+				}
 			}
-			section.WriteByte('[')
+			if err := editor.renderer.raw(&section, "["); err != nil {
+				return nil, err
+			}
 			for i, key := range node.path {
 				if i > 0 {
-					section.WriteByte('.')
+					if err := editor.renderer.raw(&section, "."); err != nil {
+						return nil, err
+					}
 				}
-				appendTOMLKey(&section, key)
+				if err := editor.renderer.key(&section, key); err != nil {
+					return nil, err
+				}
 			}
-			section.WriteByte(']')
-			section.WriteString(editor.newline)
+			if err := editor.renderer.raw(&section, "]"+editor.newline); err != nil {
+				return nil, err
+			}
+			// The inserted body was admitted while being produced, not again here.
 			section.WriteString(text)
 			text = section.String()
 		}

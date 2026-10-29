@@ -10,7 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -20,7 +20,7 @@ import (
 func DocumentLimits() configdocument.Limits {
 	return configdocument.Limits{
 		MaximumBytes: recovery.MaximumRecoveryBackupFileBytes,
-		MaximumDepth: tomlstrict.MaximumDepth,
+		MaximumDepth: tomlsyntax.MaximumDepth,
 	}
 }
 

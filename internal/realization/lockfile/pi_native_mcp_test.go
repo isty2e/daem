@@ -6,9 +6,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/BurntSushi/toml"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
@@ -182,7 +182,7 @@ func nativePiServer(t *testing.T, name string, scopes ...target.Scope) desiredmc
 
 func encodeNativeLockDTO(dto fileDTO) ([]byte, error) {
 	var output bytes.Buffer
-	if err := toml.NewEncoder(&output).Encode(dto); err != nil {
+	if err := tomlsyntax.Encode(&output, dto); err != nil {
 		return nil, err
 	}
 	return output.Bytes(), nil

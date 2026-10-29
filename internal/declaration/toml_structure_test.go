@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	testscale "github.com/isty2e/daem/test/scale"
 )
 
@@ -22,23 +22,23 @@ func TestManifestDecodersRejectOverLimitTOMLStructure(t *testing.T) {
 	}{
 		{
 			name:    "depth",
-			content: manifestWithNestedInlineTables(tomlstrict.MaximumDepth),
-			want:    tomlstrict.ErrMaximumDepthExceeded,
+			content: manifestWithNestedInlineTables(tomlsyntax.MaximumDepth),
+			want:    tomlsyntax.ErrMaximumDepthExceeded,
 		},
 		{
 			name:    "containers",
-			content: manifestWithTables(tomlstrict.MaximumContainers + 1),
-			want:    tomlstrict.ErrMaximumContainersExceeded,
+			content: manifestWithTables(tomlsyntax.MaximumContainers + 1),
+			want:    tomlsyntax.ErrMaximumContainersExceeded,
 		},
 		{
 			name:    "work",
-			content: manifestWithArrayValues(tomlstrict.MaximumWork),
-			want:    tomlstrict.ErrMaximumWorkExceeded,
+			content: manifestWithArrayValues(tomlsyntax.MaximumWork),
+			want:    tomlsyntax.ErrMaximumWorkExceeded,
 		},
 		{
 			name:    "path work",
-			content: manifestWithLongAncestorSiblings(tomlstrict.MaximumPathWork/tomlstrict.MaximumKeyBytes + 1),
-			want:    tomlstrict.ErrMaximumPathWorkExceeded,
+			content: manifestWithLongAncestorSiblings(tomlsyntax.MaximumPathWork/tomlsyntax.MaximumKeyBytes + 1),
+			want:    tomlsyntax.ErrMaximumPathWorkExceeded,
 		},
 	}
 
@@ -52,8 +52,8 @@ func TestManifestDecodersRejectOverLimitTOMLStructure(t *testing.T) {
 }
 
 func TestDecodeManifestHeaderRejectsOverLimitTOMLStructure(t *testing.T) {
-	_, err := DecodeManifestHeader(manifestWithNestedInlineTables(tomlstrict.MaximumDepth))
-	if !errors.Is(err, tomlstrict.ErrMaximumDepthExceeded) {
+	_, err := DecodeManifestHeader(manifestWithNestedInlineTables(tomlsyntax.MaximumDepth))
+	if !errors.Is(err, tomlsyntax.ErrMaximumDepthExceeded) {
 		t.Fatalf("DecodeManifestHeader error = %v, want depth exceeded", err)
 	}
 	if err == nil || !strings.HasPrefix(err.Error(), "parse manifest header:") {
@@ -62,8 +62,8 @@ func TestDecodeManifestHeaderRejectsOverLimitTOMLStructure(t *testing.T) {
 }
 
 func TestManifestDecodersAcceptExactTOMLDepthBeforeSemanticValidation(t *testing.T) {
-	content := manifestWithNestedInlineTables(tomlstrict.MaximumDepth - 1)
-	if _, err := DecodeManifest(content); errors.Is(err, tomlstrict.ErrMaximumDepthExceeded) {
+	content := manifestWithNestedInlineTables(tomlsyntax.MaximumDepth - 1)
+	if _, err := DecodeManifest(content); errors.Is(err, tomlsyntax.ErrMaximumDepthExceeded) {
 		t.Fatalf("DecodeManifest exact-depth error = %v", err)
 	}
 	if _, err := DecodeManifestHeader(content); err != nil {
@@ -131,7 +131,7 @@ func manifestWithArrayValues(count int) []byte {
 func manifestWithLongAncestorSiblings(siblings int) []byte {
 	var builder strings.Builder
 	builder.WriteString("version = 1\n[")
-	builder.WriteString(strings.Repeat("a", tomlstrict.MaximumKeyBytes))
+	builder.WriteString(strings.Repeat("a", tomlsyntax.MaximumKeyBytes))
 	builder.WriteString("]\n")
 	for range siblings {
 		builder.WriteString("k = 1\n")

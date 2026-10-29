@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/declaration"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
@@ -31,7 +31,7 @@ func TestRecognizedInputErrorKeepsFallbackWithItsCaller(t *testing.T) {
 		}
 	}
 	_, unknownKey := declaration.DecodeManifest([]byte("version=1\nbogus=true\n"))
-	positioned := tomlstrict.Admit(context.Background(), []byte("broken=[\n"), tomlstrict.StandardLimits())
+	positioned := tomlsyntax.Admit(context.Background(), []byte("broken=[\n"), tomlsyntax.StandardLimits())
 	for _, err := range []error{unknownKey, positioned, authoring.ErrMissingGitRef} {
 		if err == nil {
 			t.Fatal("fixture did not produce a known input error")
@@ -48,7 +48,7 @@ func TestUnknownKeyPositionsKeepRepairGuidanceAndSourceContext(t *testing.T) {
 	if cause == nil {
 		t.Fatal("unknown key fixture was accepted")
 	}
-	if _, _, ok := tomlstrict.ErrorPosition(cause); ok {
+	if _, _, ok := tomlsyntax.ErrorPosition(cause); ok {
 		t.Fatal("unknown key was relabeled as malformed syntax")
 	}
 	prospective := fmt.Errorf("invalid prospective manifest: %w", cause)
@@ -71,7 +71,7 @@ func TestUnknownKeyPositionsKeepRepairGuidanceAndSourceContext(t *testing.T) {
 		}
 	}
 
-	malformed := tomlstrict.Admit(context.Background(), []byte("broken=[\n"), tomlstrict.StandardLimits())
+	malformed := tomlsyntax.Admit(context.Background(), []byte("broken=[\n"), tomlsyntax.StandardLimits())
 	message := Error(fmt.Errorf("invalid manifest: %w", malformed))
 	if !strings.Contains(message, "check TOML brackets") || strings.Contains(message, "next: correct or remove") {
 		t.Fatalf("syntax diagnostic changed classification: %q", message)
@@ -90,7 +90,7 @@ func TestInputGuidanceUsesOwnedFailuresNotText(t *testing.T) {
 			t.Fatalf("unowned error gained guidance: %q", got)
 		}
 	}
-	invalidUTF8 := tomlstrict.Admit(context.Background(), []byte{0xff}, tomlstrict.StandardLimits())
+	invalidUTF8 := tomlsyntax.Admit(context.Background(), []byte{0xff}, tomlsyntax.StandardLimits())
 	if got := Error(invalidUTF8); got != Escape(invalidUTF8.Error()) {
 		t.Fatalf("encoding failure got syntax advice: %q", got)
 	}

@@ -2,7 +2,10 @@ package nativefragment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 
 	desiredhostconfig "github.com/isty2e/daem/internal/desired/hostconfig"
@@ -176,5 +179,57 @@ func TestNativeConfigRefinementRejectsCompleteInvalidInputWithoutPartialContribu
 	items, err = HostConfigKeyContributions(t.Context(), config, []byte(`{"theme":"dark"}`), configdocument.Limits{MaximumBytes: 4, MaximumDepth: 512})
 	if !errors.Is(err, configdocument.ErrLimitExceeded) || len(items) != 0 {
 		t.Fatalf("caller admission limit was ignored: %v", err)
+	}
+}
+
+func TestNativeConfigRefinementBoundsExpandedPaths(t *testing.T) {
+	config := nativeConfig(t, target.TargetPi, "settings.json")
+	prefix := strings.Repeat("a/b~", 16)
+	children := make(map[string]int)
+	var pathBytes int64 = int64(len("/a"))
+	for index := range 16 {
+		name := strconv.Itoa(index)
+		children[name] = index
+		path, err := output.NewKeyPath(prefix, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pathBytes += int64(len(path.String()))
+	}
+	content, err := json.Marshal(map[string]any{"a": 0, prefix: children})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pathBytes <= int64(len(content)) {
+		t.Fatal("fixture does not expand encoded paths")
+	}
+	limits := configdocument.Limits{MaximumBytes: pathBytes, MaximumDepth: 16}
+	items, err := HostConfigKeyContributions(t.Context(), config, content, limits)
+	if err != nil || len(items) != len(children)+1 {
+		t.Fatalf("exact path allowance refused valid contributions: count=%d, %v", len(items), err)
+	}
+
+	limits.MaximumBytes = int64(len(content))
+	items, err = HostConfigKeyContributions(t.Context(), config, content, limits)
+	if !errors.Is(err, configdocument.ErrLimitExceeded) || items != nil {
+		t.Fatalf("expanded paths returned partial or unbounded contributions: count=%d, %v", len(items), err)
+	}
+}
+
+func TestNativeConfigRefinementBoundsCanonicalExpansion(t *testing.T) {
+	config := nativeConfig(t, target.TargetCodex, "config.toml")
+	content := []byte("a=1\nz=\"" + strings.Repeat(`\e`, 16) + "\"\n")
+	items, err := HostConfigKeyContributions(t.Context(), config, content, nativeRefinementTestLimits)
+	if err != nil || len(items) != 2 {
+		t.Fatalf("valid TOML control refused: count=%d, %v", len(items), err)
+	}
+	byKey := nativeContributionsByKey(t, config, items)
+	if len(byKey["/a"].CanonicalContribution()) > len(content) || len(byKey["/z"].CanonicalContribution()) <= len(content) {
+		t.Fatal("fixture does not isolate a late canonical expansion")
+	}
+	limits := configdocument.Limits{MaximumBytes: int64(len(content)), MaximumDepth: 16}
+	items, err = HostConfigKeyContributions(t.Context(), config, content, limits)
+	if !errors.Is(err, configdocument.ErrLimitExceeded) || items != nil {
+		t.Fatalf("canonical expansion returned partial or unbounded contributions: count=%d, %v", len(items), err)
 	}
 }

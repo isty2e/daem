@@ -95,7 +95,7 @@ func TestBoundedQuotedSizerMatchesPinnedJSONProducer(t *testing.T) {
 	for _, text := range []string{"", "plain", "\b\f\n\r\t\\\"\x00\x1f", "한글日本語", "<>&\u2028\u2029\u202e", strings.Repeat("\x00", 1000)} {
 		want := int64(len(hujson.String(text)))
 		size, err := quotedSizeWithin(t.Context(), text, want)
-		if err != nil || size != want || quotedSize(text) != want {
+		if err != nil || size != want {
 			t.Fatalf("quoted-size admission disagrees with actual producer: %v", err)
 		}
 		if _, err := quotedSizeWithin(t.Context(), text, want-1); !errors.Is(err, ErrLimitExceeded) {

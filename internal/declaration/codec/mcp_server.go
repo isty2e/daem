@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
+
 	"github.com/isty2e/daem/internal/declaration"
 )
 
@@ -52,7 +54,7 @@ type MCPServerBlock struct {
 func ScanMCPServerBlocks(content []byte) ([]MCPServerBlock, error) {
 	ranges := declaration.ScanDocumentRanges(
 		content,
-		func(trimmed string) bool { return declaration.StartsArrayTableRoot(trimmed, "mcp_server") },
+		func(trimmed string) bool { return tomlsyntax.StartsArrayTableRoot(trimmed, "mcp_server") },
 		startsNewMCPServerTable,
 	)
 	blocks := make([]MCPServerBlock, 0, len(ranges))
@@ -67,7 +69,7 @@ func ScanMCPServerBlocks(content []byte) ([]MCPServerBlock, error) {
 }
 
 func startsNewMCPServerTable(trimmedLine string) bool {
-	return declaration.StartsTableOutsideRoot(trimmedLine, "mcp_server")
+	return tomlsyntax.StartsTableOutsideRoot(trimmedLine, "mcp_server")
 }
 
 func parseMCPServerBlock(content []byte, start int, end int) (MCPServerBlock, error) {

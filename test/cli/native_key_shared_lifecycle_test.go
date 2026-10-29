@@ -182,7 +182,7 @@ func requireNativeSharedValues(t *testing.T, syntax configdocument.Syntax, conte
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := expected.Leaves()
+	entries, err := expected.Leaves(t.Context(), nativeLifecycleLimits().MaximumBytes)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	"github.com/isty2e/daem/internal/findings"
 )
 
@@ -76,7 +76,7 @@ func TestConfigFileCheckParsesBoundedTOML(t *testing.T) {
 
 func TestConfigFileCheckRejectsDeepTOMLBeforeDecode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte(nestedDoctorInlineTables(tomlstrict.MaximumDepth)), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(nestedDoctorInlineTables(tomlsyntax.MaximumDepth)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	check := configFileCheck(context.Background(), "target=codex config_file", doctorConfigFile{
@@ -91,7 +91,7 @@ func TestConfigFileCheckRejectsDeepTOMLBeforeDecode(t *testing.T) {
 
 func TestConfigFileCheckAcceptsExactTOMLDepth(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte(nestedDoctorInlineTables(tomlstrict.MaximumDepth-1)), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(nestedDoctorInlineTables(tomlsyntax.MaximumDepth-1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	check := configFileCheck(context.Background(), "target=codex config_file", doctorConfigFile{
@@ -106,7 +106,7 @@ func TestConfigFileCheckAcceptsExactTOMLDepth(t *testing.T) {
 
 func TestConfigFileCheckRejectsDeepJSON(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, nestedDoctorJSONObjects(tomlstrict.MaximumDepth+1), 0o600); err != nil {
+	if err := os.WriteFile(path, nestedDoctorJSONObjects(tomlsyntax.MaximumDepth+1), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	check := configFileCheck(context.Background(), "target=claude-code config_file", doctorConfigFile{
@@ -121,7 +121,7 @@ func TestConfigFileCheckRejectsDeepJSON(t *testing.T) {
 
 func TestConfigFileCheckRejectsDeepJSONEvenWhenSyntaxIsWarning(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "opencode.json")
-	if err := os.WriteFile(path, nestedDoctorJSONObjects(tomlstrict.MaximumDepth+1), 0o600); err != nil {
+	if err := os.WriteFile(path, nestedDoctorJSONObjects(tomlsyntax.MaximumDepth+1), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	check := configFileCheck(context.Background(), "target=opencode config_file", doctorConfigFile{
@@ -183,7 +183,7 @@ func TestConfigFileCheckAcceptsSpaceSeparatedTOMLDatetime(t *testing.T) {
 
 func TestConfigFileCheckRejectsDottedInlinePathBeforeDecode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	content := "k = { " + strings.Repeat("a.", tomlstrict.MaximumDepth-1) + "a = 1 }\n"
+	content := "k = { " + strings.Repeat("a.", tomlsyntax.MaximumDepth-1) + "a = 1 }\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -199,8 +199,8 @@ func TestConfigFileCheckRejectsDottedInlinePathBeforeDecode(t *testing.T) {
 
 func TestConfigFileCheckRejectsLongAncestorSiblingRecopyBeforeDecode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	siblings := tomlstrict.MaximumPathWork/tomlstrict.MaximumKeyBytes + 1
-	content := "[" + strings.Repeat("a", tomlstrict.MaximumKeyBytes) + "]\n" + strings.Repeat("k = 1\n", siblings)
+	siblings := tomlsyntax.MaximumPathWork/tomlsyntax.MaximumKeyBytes + 1
+	content := "[" + strings.Repeat("a", tomlsyntax.MaximumKeyBytes) + "]\n" + strings.Repeat("k = 1\n", siblings)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -216,8 +216,8 @@ func TestConfigFileCheckRejectsLongAncestorSiblingRecopyBeforeDecode(t *testing.
 
 func TestConfigFileCheckRejectsLongAncestorAnonymousArraysBeforeDecode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	elements := tomlstrict.MaximumPathWork/tomlstrict.MaximumKeyBytes + 1
-	content := longKeyDoctorArrayElements(tomlstrict.MaximumKeyBytes, elements, "[]")
+	elements := tomlsyntax.MaximumPathWork/tomlsyntax.MaximumKeyBytes + 1
+	content := longKeyDoctorArrayElements(tomlsyntax.MaximumKeyBytes, elements, "[]")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}

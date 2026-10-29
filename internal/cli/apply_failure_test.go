@@ -12,7 +12,7 @@ import (
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/effect/fileset"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
 
@@ -50,7 +50,7 @@ func TestApplyFailureDetailPreservesPostEffectDeadline(t *testing.T) {
 }
 
 func TestApplyFailureRejectsUnownedInputLookalikes(t *testing.T) {
-	positioned := tomlstrict.Admit(context.Background(), []byte("private=[\n"), tomlstrict.StandardLimits())
+	positioned := tomlsyntax.Admit(context.Background(), []byte("private=[\n"), tomlsyntax.StandardLimits())
 	if positioned == nil {
 		t.Fatal("fixture did not produce a positioned error")
 	}

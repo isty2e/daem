@@ -10,7 +10,8 @@ import (
 
 	observeconfig "github.com/isty2e/daem/internal/assurance/observe/config"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
+	tomlfields "github.com/isty2e/daem/internal/encoding/toml/fields"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -58,12 +59,12 @@ func observeConfigFile(
 		return observeconfig.Observation{}, err
 	}
 
-	if err := tomlstrict.Admit(ctx, result.Content, tomlstrict.StandardLimits()); err != nil {
+	if err := tomlsyntax.Admit(ctx, result.Content, tomlsyntax.StandardLimits()); err != nil {
 		return existingObservation, err
 	}
 
 	var decoded map[string]any
-	if _, err := tomlstrict.DecodeAdmitted(ctx, result.Content, &decoded); err != nil {
+	if _, err := tomlfields.DecodeAdmitted(ctx, result.Content, &decoded); err != nil {
 		return existingObservation, err
 	}
 

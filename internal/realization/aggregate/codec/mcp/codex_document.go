@@ -4,7 +4,7 @@ import (
 	"sort"
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	"github.com/isty2e/daem/internal/output"
 )
 
@@ -27,7 +27,7 @@ func (config codexProjectMCPConfig) encodePreservingMCPParent(parentExistedBefor
 	if err := config.ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	limits := configdocument.Limits{MaximumBytes: maximumDocumentBytes, MaximumDepth: tomlstrict.MaximumDepth}
+	limits := configdocument.Limits{MaximumBytes: maximumDocumentBytes, MaximumDepth: tomlsyntax.MaximumDepth}
 	document, err := configdocument.Absent(configdocument.TOML, limits)
 	if config.source != nil {
 		document, err = configdocument.Parse(config.ctx, config.source, configdocument.TOML, limits)
@@ -44,14 +44,10 @@ func (config codexProjectMCPConfig) encodePreservingMCPParent(parentExistedBefor
 		return nil, false, config.documentEncodingError(err)
 	}
 
-	leaves, err := updated.Leaves()
-	if err != nil {
-		return nil, false, config.documentEncodingError(err)
-	}
 	if err := config.ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	if len(leaves) == 0 && len(updated.Comments()) == 0 && !parentExistedBefore {
+	if !updated.HasValues() && len(updated.Comments()) == 0 && !parentExistedBefore {
 		return nil, false, nil
 	}
 	return updated.Bytes(), true, nil

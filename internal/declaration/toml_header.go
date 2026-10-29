@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	tomlfields "github.com/isty2e/daem/internal/encoding/toml/fields"
 )
 
 type ManifestHeader struct {
@@ -38,7 +38,7 @@ func DecodeManifestHeader(content []byte) (ManifestHeader, error) {
 	}
 
 	var header ManifestHeader
-	metadata, err := tomlstrict.DecodeAdmitted(context.Background(), content, &header)
+	metadata, err := tomlfields.DecodeAdmitted(context.Background(), content, &header)
 	if err != nil {
 		return ManifestHeader{}, fmt.Errorf("parse manifest header: %w", PositionManifestKeyError(content, DocumentRange{End: len(content)}, metadata, err))
 	}

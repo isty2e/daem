@@ -1,4 +1,4 @@
-package declaration
+package tomlsyntax
 
 import (
 	"fmt"
@@ -48,7 +48,7 @@ func RemoveRootAssignment(block string, key string) (string, bool, error) {
 		for start > 0 && block[start-1] != '\n' {
 			start--
 		}
-		end := skipTrailingCommentAndNewline(block, assignment.valueEnd)
+		end := SkipTrailingCommentAndNewline(block, assignment.valueEnd)
 		return block[:start] + block[end:], true, nil
 	}
 }
@@ -100,31 +100,31 @@ func walkRootTable(block string, visit func(keyStart int, valueEnd int, path []s
 	offset := 0
 	seenRootHeader := false
 	for offset < len(block) {
-		offset = skipSpaceAndComments(block, offset, len(block))
+		offset = SkipSpaceAndComments(block, offset, len(block))
 		if offset >= len(block) {
 			return len(block), false
 		}
-		if looksLikeTableHeader(block, offset) {
+		if LooksLikeTableHeader(block, offset) {
 			if !seenRootHeader {
 				seenRootHeader = true
-				offset = skipLine(block, offset)
+				offset = SkipLine(block, offset)
 				continue
 			}
 			return offset, false
 		}
 		keyStart := offset
-		path, equals, ok := readAssignmentKey(block, offset, len(block))
+		path, equals, ok := ReadAssignmentKey(block, offset, len(block))
 		if !ok {
 			return offset, true
 		}
-		valueEnd, valueOK := skipTOMLValue(block, equals+1, len(block), 0)
+		valueEnd, valueOK := SkipValue(block, equals+1, len(block), 0)
 		if !valueOK {
 			return offset, true
 		}
 		if visit(keyStart, valueEnd, path) {
 			return valueEnd, false
 		}
-		offset = skipTrailingCommentAndNewline(block, valueEnd)
+		offset = SkipTrailingCommentAndNewline(block, valueEnd)
 	}
 	return len(block), false
 }

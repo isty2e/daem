@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/tailscale/hujson"
 
@@ -178,8 +178,17 @@ func fromJSONTree(ctx context.Context, tree hujson.Value) (Value, error) {
 
 func editJSON(ctx context.Context, document Document, changes *changeTree) ([]byte, error) {
 	content := document.content
+	renderer := newLiteralRenderer(ctx, document.syntax, document.limits)
 	if !document.exists {
 		content = []byte("{}")
+		if err := renderer.charge(2); err != nil {
+			return nil, err
+		}
+	}
+	if len(content) == 0 || content[len(content)-1] != '\n' {
+		if err := renderer.charge(1); err != nil {
+			return nil, err
+		}
 	}
 	trivia, err := scanJSON(ctx, content, document.syntax, document.limits.MaximumDepth)
 	if err != nil {
@@ -189,30 +198,45 @@ func editJSON(ctx context.Context, document Document, changes *changeTree) ([]by
 	if err != nil {
 		return nil, err
 	}
-	if err := changeJSONTree(ctx, &tree, changes, document); err != nil {
+	if err := changeJSONTree(&tree, changes, &renderer, 0); err != nil {
 		return nil, err
 	}
-	return tree.Pack(), nil
+	result := tree.Pack()
+	if int64(len(result)) > document.limits.MaximumBytes {
+		return nil, ErrLimitExceeded
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
-func changeJSONTree(ctx context.Context, tree *hujson.Value, changes *changeTree, document Document) error {
+func changeJSONTree(tree *hujson.Value, changes *changeTree, renderer *literalRenderer, depth int) error {
+	ctx := renderer.ctx
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if changes.exact != nil {
 		removed := (hujson.Value{Value: tree.Value}).Pack()
-		trivia, err := scanJSON(ctx, removed, JSONC, document.limits.MaximumDepth)
+		trivia, err := scanJSON(ctx, removed, JSONC, renderer.maximumDepth)
 		if err != nil {
 			return err
 		}
 		for _, comment := range trivia.comments {
+			if err := renderer.charge(int64(len(comment)) + 2); err != nil {
+				return err
+			}
 			tree.BeforeExtra = append(tree.BeforeExtra, []byte("\n"+comment+"\n")...)
 		}
-		replacement, err := toJSONTree(changes.exact.value)
+		var literal strings.Builder
+		if err := renderer.value(&literal, changes.exact.value, depth); err != nil {
+			return err
+		}
+		replacement, err := parseJSONTree([]byte(literal.String()))
 		if err != nil {
 			return err
 		}
-		tree.Value = replacement
+		tree.Value = replacement.Value
 		return nil
 	}
 	object, ok := tree.Value.(*hujson.Object)
@@ -237,16 +261,19 @@ func changeJSONTree(ctx context.Context, tree *hujson.Value, changes *changeTree
 		}
 		if branch.exact != nil && branch.exact.remove {
 			removed := append(member.Name.Pack(), member.Value.Pack()...)
-			trivia, err := scanJSON(ctx, removed, JSONC, document.limits.MaximumDepth)
+			trivia, err := scanJSON(ctx, removed, JSONC, renderer.maximumDepth)
 			if err != nil {
 				return err
 			}
 			for _, comment := range trivia.comments {
+				if err := renderer.charge(int64(len(comment)) + 2); err != nil {
+					return err
+				}
 				object.AfterExtra = append(object.AfterExtra, []byte("\n"+comment+"\n")...)
 			}
 			continue
 		}
-		if err := changeJSONTree(ctx, &member.Value, branch, document); err != nil {
+		if err := changeJSONTree(&member.Value, branch, renderer, depth+1); err != nil {
 			return err
 		}
 		retained = append(retained, member)
@@ -261,57 +288,34 @@ func changeJSONTree(ctx context.Context, tree *hujson.Value, changes *changeTree
 		if _, found := seen[key]; found || !branch.containsSet {
 			continue
 		}
+		punctuation := int64(3) // Newline, colon and value-leading space.
+		if len(retained) != 0 {
+			punctuation++
+		}
+		if branch.exact == nil {
+			punctuation += 2 // A newly created intermediate object.
+		}
+		if err := renderer.charge(punctuation); err != nil {
+			return err
+		}
+		var name strings.Builder
+		if err := renderer.key(&name, key); err != nil {
+			return err
+		}
 		member := hujson.ObjectMember{
-			Name:  hujson.Value{BeforeExtra: hujson.Extra("\n"), Value: hujson.String(key)},
+			Name:  hujson.Value{BeforeExtra: hujson.Extra("\n"), Value: hujson.Literal(name.String())},
 			Value: hujson.Value{BeforeExtra: hujson.Extra(" "), Value: &hujson.Object{}},
 		}
-		if err := changeJSONTree(ctx, &member.Value, branch, document); err != nil {
+		if err := changeJSONTree(&member.Value, branch, renderer, depth+1); err != nil {
 			return err
 		}
 		retained = append(retained, member)
 	}
 	object.Members = retained
-	if document.syntax == JSON && len(object.Members) > 0 {
+	if renderer.syntax == JSON && len(object.Members) > 0 {
 		last := &object.Members[len(object.Members)-1].Value
 		object.AfterExtra = append(last.AfterExtra, object.AfterExtra...)
 		last.AfterExtra = nil
 	}
 	return nil
-}
-
-func toJSONTree(value Value) (hujson.ValueTrimmed, error) {
-	switch node := value.data.(type) {
-	case nullNode:
-		return hujson.Literal("null"), nil
-	case boolNode:
-		return hujson.Bool(bool(node)), nil
-	case stringNode:
-		return hujson.String(string(node)), nil
-	case jsonNumberNode:
-		return hujson.Literal(node), nil
-	case arrayNode:
-		array := &hujson.Array{}
-		for _, child := range node {
-			encoded, err := toJSONTree(child)
-			if err != nil {
-				return nil, err
-			}
-			array.Elements = append(array.Elements, hujson.Value{Value: encoded})
-		}
-		return array, nil
-	case objectNode:
-		object := &hujson.Object{}
-		for _, member := range node {
-			encoded, err := toJSONTree(member.value)
-			if err != nil {
-				return nil, err
-			}
-			object.Members = append(object.Members, hujson.ObjectMember{
-				Name: hujson.Value{Value: hujson.String(member.key)}, Value: hujson.Value{Value: encoded},
-			})
-		}
-		return object, nil
-	default:
-		return nil, fmt.Errorf("%w: native type is not representable in JSON", ErrInvalidValue)
-	}
 }

@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v5"
 
 	"github.com/isty2e/daem/internal/declaration/manifest"
@@ -195,7 +195,7 @@ source = "/missing/settings.json"
 				}
 				matched = true
 				var baseline bytes.Buffer
-				if err := toml.NewEncoder(&baseline).Encode(raw); err != nil {
+				if err := tomlsyntax.Encode(&baseline, raw); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := manifest.Decode(baseline.Bytes()); err != nil {
@@ -218,7 +218,7 @@ source = "/missing/settings.json"
 					t.Fatal(err)
 				}
 				var mutated bytes.Buffer
-				if err := toml.NewEncoder(&mutated).Encode(raw); err != nil {
+				if err := tomlsyntax.Encode(&mutated, raw); err != nil {
 					t.Fatal(err)
 				}
 				actual := editorSchemaInstance(t, mutated.Bytes())

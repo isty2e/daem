@@ -42,7 +42,7 @@ func HostConfigKeyContributions(ctx context.Context, config desiredhostconfig.Co
 	if err != nil {
 		return nil, err
 	}
-	leaves, err := document.Leaves()
+	leaves, err := document.Leaves(ctx, limits.MaximumBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,11 @@ func HostConfigKeyContributions(ctx context.Context, config desiredhostconfig.Co
 		if err != nil {
 			return nil, err
 		}
-		contribution, err := aggregate.NewManagedContribution(contract, leaf.Value.Canonical())
+		canonical, err := leaf.Value.CanonicalContext(ctx, limits)
+		if err != nil {
+			return nil, err
+		}
+		contribution, err := aggregate.NewManagedContribution(contract, canonical)
 		if err != nil {
 			return nil, err
 		}

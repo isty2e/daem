@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BurntSushi/toml"
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -558,7 +558,11 @@ func (fixture *codexRemovalLifecycleFixture) assertRemovalBoundaries(t *testing.
 	fixture.assertRetainedCanaries(t)
 
 	var document map[string]any
-	if _, err := toml.DecodeFile(fixture.configPath, &document); err != nil {
+	content, err := os.ReadFile(fixture.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tomlsyntax.DecodeAdmitted(t.Context(), content, &document); err != nil {
 		t.Fatal(err)
 	}
 	plugins, ok := document["plugins"].(map[string]any)
@@ -593,7 +597,11 @@ func (fixture *codexRemovalLifecycleFixture) assertSelectedPresent(t *testing.T)
 	testkit.AssertFileContent(t, fixture.selectedCacheFile, "selected cache\n")
 
 	var document map[string]any
-	if _, err := toml.DecodeFile(fixture.configPath, &document); err != nil {
+	content, err := os.ReadFile(fixture.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tomlsyntax.DecodeAdmitted(t.Context(), content, &document); err != nil {
 		t.Fatal(err)
 	}
 	plugins, ok := document["plugins"].(map[string]any)

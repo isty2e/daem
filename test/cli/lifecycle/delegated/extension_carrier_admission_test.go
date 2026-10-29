@@ -286,7 +286,7 @@ id = "context7"
 carrier = "claude-code-plugin"
 source = "marketplace:context7"
 `,
-			want: "expected table but found string",
+			want: `decode TOML key "extension.source"`,
 		},
 		{
 			name: "empty source table",

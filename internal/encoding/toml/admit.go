@@ -1,20 +1,17 @@
-// Package tomlstrict admits untrusted TOML structure before BurntSushi decode.
-package tomlstrict
+// Package tomlsyntax owns TOML grammar, source facts and bounded admission.
+package tomlsyntax
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math"
 	"unicode/utf8"
-
-	"github.com/BurntSushi/toml"
 )
 
 const (
-	// MaximumDepth bounds container nesting and the semantic key path BurntSushi
-	// walks from the document root, including implicit dotted-key prefixes.
+	// MaximumDepth bounds container nesting and the semantic key path walked
+	// from the document root, including implicit dotted-key prefixes.
 	MaximumDepth = 64
 	// MaximumContainers bounds tables, inline tables, and arrays. It stays
 	// above the Codex plugin observation entry budget so key overflow remains
@@ -45,7 +42,7 @@ var (
 	ErrMalformed = errors.New("malformed TOML structure")
 )
 
-// Limits are positive structure ceilings applied before toml.Unmarshal.
+// Limits are positive structure ceilings applied before typed decoding.
 type Limits struct {
 	MaximumDepth      int
 	MaximumContainers int
@@ -130,30 +127,6 @@ func ValidateUTF8(ctx context.Context, content []byte) error {
 	return ctx.Err()
 }
 
-// DecodeAdmitted decodes bytes that the caller has already admitted with the
-// appropriate TOML structure limits and enforces canonical decoded field names.
-// Decoder errors retain precedence; caller cancellation observed after a
-// successful decode is returned instead.
-func DecodeAdmitted(ctx context.Context, content []byte, target any) (toml.MetaData, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return toml.MetaData{}, err
-	}
-	metadata, err := toml.NewDecoder(bytes.NewReader(content)).Decode(target)
-	if err != nil {
-		return metadata, err
-	}
-	if err := ctx.Err(); err != nil {
-		return metadata, err
-	}
-	if err := ValidateCanonicalKeys(metadata, target); err != nil {
-		return metadata, err
-	}
-	return metadata, ctx.Err()
-}
-
 // Admit checks TOML nesting, container count, aggregate token work, and
 // ancestor-path byte recopies for keyed values and anonymous nested containers
 // without building a decoded document. Callers must still parse admitted bytes.
@@ -166,10 +139,6 @@ func Admit(ctx context.Context, content []byte, limits Limits) error {
 // observation. The supplied limits must bound the scan itself; callers may
 // apply a stricter policy to the returned usage before decoding.
 func AdmitWithUsage(ctx context.Context, content []byte, limits Limits) (StructureUsage, error) {
-	return admitWithKeyObserver(ctx, content, limits, nil)
-}
-
-func admitWithKeyObserver(ctx context.Context, content []byte, limits Limits, observeKey func(int)) (StructureUsage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -187,10 +156,9 @@ func admitWithKeyObserver(ctx context.Context, content []byte, limits Limits, ob
 	}
 
 	scanner := scanner{
-		src:        content,
-		ctx:        ctx,
-		limits:     limits,
-		observeKey: observeKey,
+		src:    content,
+		ctx:    ctx,
+		limits: limits,
 	}
 	if len(content) >= 3 && content[0] == 0xef && content[1] == 0xbb && content[2] == 0xbf {
 		scanner.index = 3
@@ -234,7 +202,6 @@ type scanner struct {
 	limits     Limits
 	ctx        context.Context
 	cancelAt   int
-	observeKey func(int)
 }
 
 func (s *scanner) document() error {
@@ -322,9 +289,6 @@ func (s *scanner) headerKey() (int, int, error) {
 				return 0, 0, fmt.Errorf("%w: truncated table header", ErrMalformed)
 			}
 		}
-		if parts == 0 && s.observeKey != nil {
-			s.observeKey(s.index)
-		}
 		partBytes, err := s.keyPart()
 		if err != nil {
 			return 0, 0, err
@@ -361,9 +325,6 @@ func (s *scanner) assignmentKey() (int, int, error) {
 		}
 		if s.done() {
 			return 0, 0, fmt.Errorf("%w: truncated key", ErrMalformed)
-		}
-		if parts == 0 && s.observeKey != nil {
-			s.observeKey(s.index)
 		}
 		partBytes, err := s.keyPart()
 		if err != nil {

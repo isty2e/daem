@@ -19,7 +19,7 @@ func TestJournalV15RefusesNativeSnapshotsDespiteExplicitStateCodec(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaves, err := parsed.Leaves()
+	leaves, err := parsed.Leaves(t.Context(), 4096)
 	if err != nil || len(leaves) != 1 {
 		t.Fatalf("native value fixture differs: %v", err)
 	}

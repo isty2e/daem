@@ -56,11 +56,8 @@ func Edit(ctx context.Context, document Document, changes []Change) (Document, e
 
 	var content []byte
 	if document.syntax == TOML {
-		content, err = editTOML(ctx, document, expected, tree)
+		content, err = editTOML(ctx, document, expected)
 	} else {
-		if err := checkRenderBudget(ctx, document.syntax, expected, document.limits); err != nil {
-			return Document{}, err
-		}
 		content, err = editJSON(ctx, document, tree)
 	}
 	if err != nil {

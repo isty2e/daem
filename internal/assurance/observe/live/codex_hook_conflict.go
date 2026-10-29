@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/BurntSushi/toml"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
+	tomlfields "github.com/isty2e/daem/internal/encoding/toml/fields"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/output"
 	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
@@ -58,7 +58,7 @@ func ValidateAggregateReadPreconditions(
 	if !exists {
 		return nil
 	}
-	if err := tomlstrict.Admit(ctx, content, tomlstrict.StandardLimits()); err != nil {
+	if err := tomlsyntax.Admit(ctx, content, tomlsyntax.StandardLimits()); err != nil {
 		return fmt.Errorf(
 			"observe destination %q: parse %q for Codex inline hooks: %w",
 			destination,
@@ -67,8 +67,8 @@ func ValidateAggregateReadPreconditions(
 		)
 	}
 
-	var decoded map[string]toml.Primitive
-	metadata, err := tomlstrict.DecodeAdmitted(ctx, content, &decoded)
+	var decoded map[string]any
+	metadata, err := tomlfields.DecodeAdmitted(ctx, content, &decoded)
 	if err != nil {
 		return fmt.Errorf(
 			"observe destination %q: parse %q for Codex inline hooks: %w",

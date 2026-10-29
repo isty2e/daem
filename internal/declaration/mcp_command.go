@@ -51,9 +51,9 @@ func (command MCPCommand) Value() string {
 	return command.value
 }
 
-// UnmarshalTOML admits either a portable command string or a command object
+// decodeTOMLValue admits either a portable command string or a command object
 // containing exactly one path key.
-func (command *MCPCommand) UnmarshalTOML(value any) error {
+func (command *MCPCommand) decodeTOMLValue(value any) error {
 	decoded, err := mcpCommandFromTOMLValue(value)
 	if err != nil {
 		return err

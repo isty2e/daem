@@ -5,7 +5,8 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/contractversion"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
+	tomlfields "github.com/isty2e/daem/internal/encoding/toml/fields"
 )
 
 // CurrentManifestVersion is the manifest schema version emitted and accepted by daem.
@@ -32,14 +33,14 @@ func DecodeManifest(content []byte) (Manifest, error) {
 	}
 
 	var manifest Manifest
-	metadata, err := tomlstrict.DecodeAdmitted(context.Background(), content, &manifest)
+	metadata, err := tomlfields.DecodeAdmitted(context.Background(), content, &manifest)
 	if err != nil {
 		return Manifest{}, PositionManifestKeyError(content, DocumentRange{End: len(content)}, metadata, err)
 	}
 
 	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
 		key := undecoded[0]
-		line, column, _ := tomlstrict.KeyPosition(content, metadata, key)
+		line, column, _ := tomlsyntax.KeyPosition(content, metadata, key)
 		return Manifest{}, UnknownManifestKeyError{
 			cause:  fmt.Errorf("unknown manifest key %q", key.String()),
 			line:   line,
@@ -51,5 +52,5 @@ func DecodeManifest(content []byte) (Manifest, error) {
 }
 
 func admitManifestStructure(content []byte) error {
-	return tomlstrict.Admit(context.Background(), content, tomlstrict.StandardLimits())
+	return tomlsyntax.Admit(context.Background(), content, tomlsyntax.StandardLimits())
 }

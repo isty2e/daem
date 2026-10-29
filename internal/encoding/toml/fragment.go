@@ -1,14 +1,12 @@
-package declaration
+package tomlsyntax
 
 import (
 	"strings"
-
-	burnttoml "github.com/BurntSushi/toml"
 )
 
 const maximumTOMLValueDepth = 64
 
-func readAssignmentKey(block string, start int, limit int) ([]string, int, bool) {
+func ReadAssignmentKey(block string, start int, limit int) ([]string, int, bool) {
 	index := start
 	for {
 		index = skipKeyWhitespace(block, index, limit)
@@ -67,7 +65,7 @@ func assignmentKeyPath(keyText string) ([]string, bool) {
 		return nil, false
 	}
 	var decoded map[string]any
-	if _, err := burnttoml.Decode(trimmed+" = 1\n", &decoded); err != nil {
+	if _, err := Decode(trimmed+" = 1\n", &decoded); err != nil {
 		return nil, false
 	}
 	return nestedKeyPath(decoded)
@@ -95,11 +93,11 @@ func sameRootKey(path []string, key string) bool {
 	return len(path) == 1 && path[0] == key
 }
 
-func skipTOMLValue(block string, start int, limit int, depth int) (int, bool) {
+func SkipValue(block string, start int, limit int, depth int) (int, bool) {
 	if depth > maximumTOMLValueDepth {
 		return -1, false
 	}
-	index := skipSpaceAndComments(block, start, limit)
+	index := SkipSpaceAndComments(block, start, limit)
 	if index >= limit {
 		return -1, false
 	}
@@ -182,7 +180,7 @@ func skipTOMLArray(block string, start int, limit int, depth int) (int, bool) {
 	index := start + 1
 	expectValue := true
 	for index < limit {
-		index = skipSpaceAndComments(block, index, limit)
+		index = SkipSpaceAndComments(block, index, limit)
 		if index >= limit {
 			return -1, false
 		}
@@ -197,7 +195,7 @@ func skipTOMLArray(block string, start int, limit int, depth int) (int, bool) {
 			expectValue = true
 			continue
 		}
-		next, ok := skipTOMLValue(block, index, limit, depth)
+		next, ok := SkipValue(block, index, limit, depth)
 		if !ok {
 			return -1, false
 		}
@@ -214,7 +212,7 @@ func skipTOMLInlineTable(block string, start int, limit int, depth int) (int, bo
 	index := start + 1
 	expectPair := true
 	for index < limit {
-		index = skipSpaceAndComments(block, index, limit)
+		index = SkipSpaceAndComments(block, index, limit)
 		if index >= limit {
 			return -1, false
 		}
@@ -229,11 +227,11 @@ func skipTOMLInlineTable(block string, start int, limit int, depth int) (int, bo
 			expectPair = true
 			continue
 		}
-		_, equals, ok := readAssignmentKey(block, index, limit)
+		_, equals, ok := ReadAssignmentKey(block, index, limit)
 		if !ok {
 			return -1, false
 		}
-		next, valueOK := skipTOMLValue(block, equals+1, limit, depth)
+		next, valueOK := SkipValue(block, equals+1, limit, depth)
 		if !valueOK {
 			return -1, false
 		}
@@ -257,22 +255,6 @@ func skipTOMLBareValue(block string, start int, limit int) (int, bool) {
 	return index, true
 }
 
-func isBareKeyByte(char byte) bool {
-	return char == '_' || char == '-' ||
-		(char >= 'A' && char <= 'Z') ||
-		(char >= 'a' && char <= 'z') ||
-		(char >= '0' && char <= '9')
-}
-
-func isBareValueDelimiter(char byte) bool {
-	switch char {
-	case ' ', '\t', '\n', '\r', '#', ',', ']', '}':
-		return true
-	default:
-		return false
-	}
-}
-
 func skipKeyWhitespace(block string, offset int, limit int) int {
 	index := offset
 	for index < limit {
@@ -286,7 +268,7 @@ func skipKeyWhitespace(block string, offset int, limit int) int {
 	return index
 }
 
-func skipHorizontalSpace(block string, offset int, limit int) int {
+func SkipHorizontalSpace(block string, offset int, limit int) int {
 	index := offset
 	for index < limit && (block[index] == ' ' || block[index] == '\t') {
 		index++
@@ -294,14 +276,14 @@ func skipHorizontalSpace(block string, offset int, limit int) int {
 	return index
 }
 
-func skipSpaceAndComments(block string, offset int, limit int) int {
+func SkipSpaceAndComments(block string, offset int, limit int) int {
 	index := offset
 	for index < limit {
 		switch block[index] {
 		case ' ', '\t', '\n', '\r':
 			index++
 		case '#':
-			index = skipLine(block, index)
+			index = SkipLine(block, index)
 		default:
 			return index
 		}
@@ -309,7 +291,7 @@ func skipSpaceAndComments(block string, offset int, limit int) int {
 	return index
 }
 
-func skipLine(block string, offset int) int {
+func SkipLine(block string, offset int) int {
 	index := offset
 	for index < len(block) && block[index] != '\n' {
 		index++
@@ -326,7 +308,7 @@ func skipTrailingComment(block string, offset int) int {
 		index++
 	}
 	if index < len(block) && block[index] == '#' {
-		end := skipLine(block, index)
+		end := SkipLine(block, index)
 		if end > 0 && block[end-1] == '\n' {
 			end--
 			if end > 0 && block[end-1] == '\r' {
@@ -338,7 +320,7 @@ func skipTrailingComment(block string, offset int) int {
 	return offset
 }
 
-func skipTrailingCommentAndNewline(block string, offset int) int {
+func SkipTrailingCommentAndNewline(block string, offset int) int {
 	end := skipTrailingComment(block, offset)
 	if end < len(block) && block[end] == '\r' {
 		end++
@@ -349,8 +331,8 @@ func skipTrailingCommentAndNewline(block string, offset int) int {
 	return end
 }
 
-func looksLikeTableHeader(block string, offset int) bool {
-	lineEnd := skipLine(block, offset)
+func LooksLikeTableHeader(block string, offset int) bool {
+	lineEnd := SkipLine(block, offset)
 	trimmed := strings.TrimSpace(block[offset:lineEnd])
 	_, ok := ParseTableHeader(trimmed)
 	return ok

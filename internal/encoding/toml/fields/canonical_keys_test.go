@@ -1,4 +1,4 @@
-package tomlstrict
+package fields
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/encoding/toml"
 )
 
 type canonicalTestField struct {
@@ -17,7 +17,11 @@ type canonicalTestCustom struct {
 	Raw map[string]any
 }
 
-func (value *canonicalTestCustom) UnmarshalTOML(raw any) error {
+func (value *canonicalTestCustom) UnmarshalTOML(content []byte) error {
+	raw, err := tomlsyntax.DecodeValue(content)
+	if err != nil {
+		return err
+	}
 	value.Raw = raw.(map[string]any)
 	return nil
 }
@@ -37,16 +41,16 @@ func TestCanonicalKeysPreserveTypedMapsCustomLeavesAndUndecoded(t *testing.T) {
 		Items   []*canonicalTestField          `toml:"items"`
 		Custom  canonicalTestCustom            `toml:"custom"`
 		Text    canonicalTestText              `toml:"text"`
-		Opaque  toml.Primitive                 `toml:"opaque"`
+		Opaque  map[string]any                 `toml:"opaque"`
 		Ignored string                         `toml:"-"`
 	}
-	metadata, err := toml.Decode(`unknown = 1
+	metadata, err := DecodeAdmitted(t.Context(), []byte(`unknown = 1
 items = [{ value = "first" }]
 rows = { TOKEN = { value = "upper" }, Token = { value = "mixed" } }
 custom = { MiXeD = "owned" }
 text = "custom text"
 opaque = { Unchecked = "primitive" }
-`, &target)
+`), &target)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,8 +67,11 @@ opaque = { Unchecked = "primitive" }
 	for _, key := range metadata.Undecoded() {
 		undecoded[key.String()] = true
 	}
-	if !undecoded["unknown"] || !undecoded["opaque.Unchecked"] {
+	if !undecoded["unknown"] {
 		t.Fatalf("caller-owned undecoded paths changed: %v", undecoded)
+	}
+	if target.Opaque["Unchecked"] != "primitive" {
+		t.Fatal("caller-owned opaque values changed")
 	}
 }
 
@@ -77,7 +84,7 @@ func TestCanonicalKeysRejectTypedValueAliasesWithoutEchoingValues(t *testing.T) 
 			Rows  map[string]*canonicalTestField `toml:"rows"`
 			Items []*canonicalTestField          `toml:"items"`
 		}
-		metadata, err := toml.Decode(content, &target)
+		metadata, err := tomlsyntax.Decode(content, &target)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -126,7 +133,7 @@ func TestCanonicalKeysRefuseUnsupportedStructDefinitions(t *testing.T) {
 		}{}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			metadata, err := toml.Decode("", test.target)
+			metadata, err := tomlsyntax.Decode("", test.target)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -140,7 +147,7 @@ func TestCanonicalKeysRefuseUnsupportedStructDefinitions(t *testing.T) {
 		canonicalTestField `toml:"-"`
 		Value              string `toml:"value"`
 	}
-	metadata, err := toml.Decode(`value = "kept"`, &ignored)
+	metadata, err := tomlsyntax.Decode(`value = "kept"`, &ignored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +166,7 @@ type canonicalRecursiveSlice []canonicalRecursiveSlice
 
 func TestCanonicalKeysAcceptRecursiveTypeGraphs(t *testing.T) {
 	var target canonicalRecursiveNode
-	metadata, err := toml.Decode(`value = "root"
+	metadata, err := tomlsyntax.Decode(`value = "root"
 next = { value = "next" }
 children = { child = [{ value = "child" }] }
 `, &target)
@@ -173,7 +180,7 @@ children = { child = [{ value = "child" }] }
 	var collections struct {
 		Values canonicalRecursiveSlice `toml:"values"`
 	}
-	metadata, err = toml.Decode("values = []\n", &collections)
+	metadata, err = tomlsyntax.Decode("values = []\n", &collections)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +207,7 @@ func TestCanonicalTypeCachePreservesConcurrentDocumentChecks(t *testing.T) {
 				content = `node = { Value = "invalid" }`
 			}
 			var target root
-			metadata, err := toml.Decode(content, &target)
+			metadata, err := tomlsyntax.Decode(content, &target)
 			ready.Done()
 			<-start
 			if err != nil {

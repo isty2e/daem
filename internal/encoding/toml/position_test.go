@@ -1,4 +1,4 @@
-package tomlstrict
+package tomlsyntax
 
 import (
 	"context"

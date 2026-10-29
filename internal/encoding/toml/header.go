@@ -1,10 +1,8 @@
-package declaration
+package tomlsyntax
 
 import (
 	"reflect"
 	"strings"
-
-	burnttoml "github.com/BurntSushi/toml"
 )
 
 type TableHeader struct {
@@ -12,7 +10,7 @@ type TableHeader struct {
 	Array    bool
 }
 
-// ParseTableHeader reads a single TOML table-header line through BurntSushi/toml.
+// ParseTableHeader reads exactly one standalone table-header line.
 func ParseTableHeader(trimmedLine string) (TableHeader, bool) {
 	line := strings.TrimSpace(trimmedLine)
 	if !strings.HasPrefix(line, "[") {
@@ -20,7 +18,7 @@ func ParseTableHeader(trimmedLine string) (TableHeader, bool) {
 	}
 
 	var decoded map[string]any
-	if _, err := burnttoml.Decode(line+"\n", &decoded); err != nil {
+	if _, err := Decode(line+"\n", &decoded); err != nil {
 		return TableHeader{}, false
 	}
 	segments, array, ok := singleHeaderPath(decoded)

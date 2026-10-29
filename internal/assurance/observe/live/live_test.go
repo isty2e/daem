@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/test/outputtest"
@@ -107,14 +107,14 @@ func TestRejectCodexInlineHooksConflictBoundsTOMLBeforeDecode(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	deep := "root = " + strings.Repeat("{ k = ", tomlstrict.MaximumDepth) +
-		"1" + strings.Repeat(" }", tomlstrict.MaximumDepth) + "\n"
+	deep := "root = " + strings.Repeat("{ k = ", tomlsyntax.MaximumDepth) +
+		"1" + strings.Repeat(" }", tomlsyntax.MaximumDepth) + "\n"
 	if err := os.WriteFile(configPath, []byte(deep), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	err := ValidateAggregateReadPreconditions(context.Background(), destination, testDestinationResolver(root))
-	if !errors.Is(err, tomlstrict.ErrMaximumDepthExceeded) {
+	if !errors.Is(err, tomlsyntax.ErrMaximumDepthExceeded) {
 		t.Fatalf("ValidateAggregateReadPreconditions(deep TOML) = %v, want depth rejection", err)
 	}
 

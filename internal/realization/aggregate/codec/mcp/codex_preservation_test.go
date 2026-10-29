@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -16,7 +16,7 @@ import (
 func codexNativeDocument(t *testing.T, content []byte) configdocument.Document {
 	t.Helper()
 	document, err := configdocument.Parse(context.Background(), content, configdocument.TOML, configdocument.Limits{
-		MaximumBytes: maximumDocumentBytes, MaximumDepth: tomlstrict.MaximumDepth,
+		MaximumBytes: maximumDocumentBytes, MaximumDepth: tomlsyntax.MaximumDepth,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -152,16 +152,32 @@ func assertCodexMissingValue(t *testing.T, content []byte, segments ...string) {
 	}
 }
 
-func TestCodexMCPMergeBoundsTouchedRootExpansion(t *testing.T) {
+func TestCodexMCPMergeDoesNotChargePreservedSiblingExpansion(t *testing.T) {
 	host := []byte("[mcp_servers.foreign]\nnote = '''" + strings.Repeat("\n", 2_200_000) + "'''\n")
 	if int64(len(host)) >= maximumDocumentBytes {
 		t.Fatalf("host fixture bytes = %d, want below document limit", len(host))
 	}
 	canonical := mustCanonicalCodexProjectMCPServerEntry(t, validCodexMCPProjection("context7"))
 	merged, err := mergeCodexProjectMCPServerCanonicalEntry(host, "context7", canonical)
-	assertMCPProjectionReason(t, err, MCPProjectionReasonCanonicalInvalid)
-	if merged != nil {
-		t.Fatal("oversized native edit returned a writable candidate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCodexPreservation(t, host, merged, []string{"mcp_servers", "foreign"})
+	entry, present, err := ExtractCodexProjectMCPServerProjection(merged, "context7")
+	if err != nil || !present || entry.Command != "npx" {
+		t.Fatalf("selected entry was not written: %#v, %v", entry, err)
+	}
+}
+
+func TestCodexMCPRemovalRetainsUnmanagedEmptyValues(t *testing.T) {
+	for _, value := range []string{"unmanaged = {}\n", "unmanaged = []\n", "[unmanaged]\n"} {
+		input := []byte(value + "[mcp_servers.demo]\ncommand=\"old\"\nargs=[]\n")
+		updated, keepFile, err := restoreRemoveCodexProjectMCPServerProjection(input, "demo", false)
+		if err != nil || !keepFile {
+			t.Fatalf("unmanaged document was refused or removed: keep=%v, %v", keepFile, err)
+		}
+		assertCodexPreservation(t, input, updated, []string{"unmanaged"})
+		assertCodexMissingValue(t, updated, "mcp_servers")
 	}
 }
 

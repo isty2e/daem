@@ -5,7 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 )
@@ -24,6 +24,6 @@ func currentContributions(ctx context.Context) (aggregate.ContributionCatalog, e
 	}
 	return aggregatecodec.ForContributions(ctx, required, configdocument.Limits{
 		MaximumBytes: declarationartifact.MaximumBytes,
-		MaximumDepth: tomlstrict.MaximumDepth,
+		MaximumDepth: tomlsyntax.MaximumDepth,
 	})
 }

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/declarationartifact"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
+	tomlfields "github.com/isty2e/daem/internal/encoding/toml/fields"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 )
@@ -24,8 +24,8 @@ const (
 	lockfileContextCheckInterval                   = 4096
 )
 
-func currentLockfileStructureLimits(structuralUnits int) tomlstrict.Limits {
-	limits := tomlstrict.StandardLimits()
+func currentLockfileStructureLimits(structuralUnits int) tomlsyntax.Limits {
+	limits := tomlsyntax.StandardLimits()
 	limits.MaximumContainers += structuralUnits / lockfileStructuralUnitsPerExtraContainer
 	if structuralUnits%lockfileStructuralUnitsPerExtraContainer != 0 {
 		limits.MaximumContainers++
@@ -37,7 +37,7 @@ func currentLockfileStructureLimits(structuralUnits int) tomlstrict.Limits {
 
 func admitCurrentLockfileStructure(ctx context.Context, content []byte) error {
 	maximumLimits := currentLockfileStructureLimits(int(declarationartifact.MaximumBytes))
-	usage, err := tomlstrict.AdmitWithUsage(ctx, content, maximumLimits)
+	usage, err := tomlsyntax.AdmitWithUsage(ctx, content, maximumLimits)
 	if err != nil {
 		return err
 	}
@@ -162,7 +162,7 @@ func lockfileVersion(ctx context.Context, content []byte) (int64, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := tomlstrict.ValidateUTF8(ctx, content); err != nil {
+	if err := tomlsyntax.ValidateUTF8(ctx, content); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return 0, err
 		}
@@ -175,11 +175,11 @@ func lockfileVersion(ctx context.Context, content []byte) (int64, error) {
 	if len(envelope) == 0 {
 		return 0, fmt.Errorf("lockfile version envelope is required")
 	}
-	if err := tomlstrict.Admit(ctx, envelope, tomlstrict.StandardLimits()); err != nil {
+	if err := tomlsyntax.Admit(ctx, envelope, tomlsyntax.StandardLimits()); err != nil {
 		return 0, err
 	}
 	var header versionEnvelopeDTO
-	metadata, err := tomlstrict.DecodeAdmitted(ctx, envelope, &header)
+	metadata, err := tomlfields.DecodeAdmitted(ctx, envelope, &header)
 	if err != nil {
 		return 0, err
 	}
@@ -258,7 +258,7 @@ func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, contrib
 	}
 
 	var header versionEnvelopeDTO
-	headerMetadata, err := tomlstrict.DecodeAdmitted(ctx, content, &header)
+	headerMetadata, err := tomlfields.DecodeAdmitted(ctx, content, &header)
 	if err != nil {
 		return lock.File{}, err
 	}
@@ -267,7 +267,7 @@ func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, contrib
 	}
 
 	var dto fileDTO
-	metadata, err := tomlstrict.DecodeAdmitted(ctx, content, &dto)
+	metadata, err := tomlfields.DecodeAdmitted(ctx, content, &dto)
 	if err != nil {
 		return lock.File{}, err
 	}
@@ -326,7 +326,7 @@ func marshalValidatedWithCatalog(ctx context.Context, file lock.File, contributi
 	if err != nil {
 		return nil, err
 	}
-	if err := toml.NewEncoder(&output).Encode(dto); err != nil {
+	if err := tomlsyntax.Encode(&output, dto); err != nil {
 		return nil, err
 	}
 	content := output.Bytes()

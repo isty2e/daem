@@ -172,7 +172,7 @@ func TestHookAuthoringEdgeHuntRoundThreeDefersCanonicalTextValidation(t *testing
 			mutate: func(request *AddHookRequest) {
 				request.StatusMessage = string([]byte{'b', 'a', 'd', 0xff})
 			},
-			want: "invalid escape in string",
+			want: "status message must be valid UTF-8",
 		},
 		{
 			name: "bidirectional command",
@@ -223,5 +223,38 @@ func TestHookAuthoringEdgeHuntRoundThreeDefersCanonicalTextValidation(t *testing
 		!strings.Contains(warnings[0], `target "pi"`) ||
 		!strings.Contains(warnings[1], `target "opencode"`) {
 		t.Fatalf("inherited target warnings = %#v, want manifest target order", warnings)
+	}
+}
+
+func TestHookAuthoringRejectsInvalidTextBeforeSerialization(t *testing.T) {
+	invalid := string([]byte{'b', 'a', 'd', 0xff})
+	for _, test := range []struct {
+		name   string
+		mutate func(*AddHookRequest)
+	}{
+		{"name", func(request *AddHookRequest) { request.Name = invalid }},
+		{"event", func(request *AddHookRequest) { request.Event = invalid }},
+		{"matcher", func(request *AddHookRequest) { request.Matcher = invalid }},
+		{"command", func(request *AddHookRequest) { request.Command = invalid }},
+		{"status", func(request *AddHookRequest) { request.StatusMessage = invalid }},
+		{"override matcher", func(request *AddHookRequest) {
+			request.TargetOverrides = []declaration.HookTargetOverride{{Target: "claude-code", Matcher: invalid}}
+		}},
+		{"override condition", func(request *AddHookRequest) {
+			request.TargetOverrides = []declaration.HookTargetOverride{{Target: "claude-code", Condition: invalid}}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := AddHookRequest{Name: "safe", Event: "PreToolUse", Command: "true", Targets: []string{"claude-code"}}
+			document := ManifestDocument{Content: []byte("version=1\ntargets=['claude-code']\n")}
+			if _, err := BuildAddHookChange(document, request); err != nil {
+				t.Fatal("valid control hook was not admitted", err)
+			}
+			test.mutate(&request)
+			change, err := BuildAddHookChange(document, request)
+			if err == nil || len(change.Content) != 0 || change.ResourceID != "" {
+				t.Fatal("invalid text was transformed into an authoring change", change, err)
+			}
+		})
 	}
 }

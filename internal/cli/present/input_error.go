@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/declaration"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/supply/source/backend/localfs"
 	"github.com/isty2e/daem/internal/workflow/authoring"
@@ -58,7 +58,7 @@ func RecognizedInputDiagnostic(err error) (FailureDiagnostic, bool) {
 	}
 
 	diagnostic := NewFailureDiagnostic(err.Error())
-	if line, column, ok := tomlstrict.ErrorPosition(err); ok {
+	if line, column, ok := tomlsyntax.ErrorPosition(err); ok {
 		diagnostic.message += fmt.Sprintf(" (line %d, column %d)", line, column)
 		return diagnostic.WithGuidance(InstructionGuidance("check TOML brackets, quotes, and key/value assignments")), true
 	}

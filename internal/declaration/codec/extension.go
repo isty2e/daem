@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
+
 	"github.com/isty2e/daem/internal/declaration"
 )
 
@@ -17,7 +19,7 @@ type ExtensionBlock struct {
 func ScanExtensionBlocks(content []byte) ([]ExtensionBlock, error) {
 	ranges := declaration.ScanDocumentRanges(
 		content,
-		func(trimmed string) bool { return declaration.StartsArrayTableRoot(trimmed, "extension") },
+		func(trimmed string) bool { return tomlsyntax.StartsArrayTableRoot(trimmed, "extension") },
 		startsNewExtensionTable,
 	)
 	blocks := make([]ExtensionBlock, 0, len(ranges))
@@ -32,7 +34,7 @@ func ScanExtensionBlocks(content []byte) ([]ExtensionBlock, error) {
 }
 
 func startsNewExtensionTable(trimmedLine string) bool {
-	return declaration.StartsTableOutsideRoot(trimmedLine, "extension")
+	return tomlsyntax.StartsTableOutsideRoot(trimmedLine, "extension")
 }
 
 func parseExtensionBlock(content []byte, start int, end int) (ExtensionBlock, error) {

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
+
 	"github.com/isty2e/daem/internal/declaration"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -63,7 +65,7 @@ func ScanInstructionBlocks(content []byte) ([]InstructionBlock, error) {
 }
 
 func startsUnrelatedInstructionTable(trimmedLine string, activeName string, parsedName string, underInstruction bool) bool {
-	if _, ok := declaration.ParseTableHeader(trimmedLine); !ok {
+	if _, ok := tomlsyntax.ParseTableHeader(trimmedLine); !ok {
 		return false
 	}
 	return !underInstruction || parsedName != activeName
@@ -91,7 +93,7 @@ func parseInstructionBlock(content []byte, start int, end int) (InstructionBlock
 }
 
 func parseInstructionHeader(trimmedLine string) (string, bool, bool) {
-	header, ok := declaration.ParseTableHeader(trimmedLine)
+	header, ok := tomlsyntax.ParseTableHeader(trimmedLine)
 	if !ok || header.Array || len(header.Segments) < 2 || header.Segments[0] != "instructions" {
 		return "", false, false
 	}
@@ -99,7 +101,7 @@ func parseInstructionHeader(trimmedLine string) (string, bool, bool) {
 }
 
 func parseInstructionTargetHeader(trimmedLine string) (string, string, bool) {
-	header, ok := declaration.ParseTableHeader(trimmedLine)
+	header, ok := tomlsyntax.ParseTableHeader(trimmedLine)
 	if !ok || header.Array || len(header.Segments) != 4 ||
 		header.Segments[0] != "instructions" || header.Segments[2] != "target" {
 		return "", "", false
@@ -108,11 +110,11 @@ func parseInstructionTargetHeader(trimmedLine string) (string, string, bool) {
 }
 
 func isSingleTOMLTableHeader(trimmedLine string) bool {
-	header, ok := declaration.ParseTableHeader(trimmedLine)
+	header, ok := tomlsyntax.ParseTableHeader(trimmedLine)
 	return ok && !header.Array
 }
 
-func (source *InstructionSource) UnmarshalTOML(value any) error {
+func (source *InstructionSource) decodeTOMLValue(value any) error {
 	decoded, err := declaration.SourceFromTOMLValue(value)
 	if err != nil {
 		return err
@@ -202,14 +204,14 @@ func effectiveInstructionScope(rawScope string, header declaration.ManifestHeade
 
 func ReplaceInstructionTargets(block string, instructionName string, targets []string) (string, error) {
 	_ = instructionName
-	updated, ok, err := declaration.ReplaceRootAssignment(block, "targets", renderStringArray(targets))
+	updated, ok, err := tomlsyntax.ReplaceRootAssignment(block, "targets", renderStringArray(targets))
 	if err != nil {
 		return "", err
 	}
 	if ok {
 		return updated, nil
 	}
-	return declaration.InsertRootAssignment(block, "targets", renderStringArray(targets))
+	return tomlsyntax.InsertRootAssignment(block, "targets", renderStringArray(targets))
 }
 
 func RemoveInstructionTargetTables(block string, instructionName string, selectedTargets []string) string {

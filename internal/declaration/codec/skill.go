@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	tomlsyntax "github.com/isty2e/daem/internal/encoding/toml"
+
 	"github.com/isty2e/daem/internal/declaration"
 )
 
@@ -15,8 +17,8 @@ type SkillSource struct {
 	Mode string `toml:"mode"`
 }
 
-// UnmarshalTOML enforces source-key grammar before projecting authoring-owned fields.
-func (source *SkillSource) UnmarshalTOML(value any) error {
+// decodeTOMLValue enforces source keys before projecting authoring-owned fields.
+func (source *SkillSource) decodeTOMLValue(value any) error {
 	if _, ok := value.(map[string]any); !ok {
 		return fmt.Errorf("skill source must be an inline table")
 	}
@@ -34,7 +36,7 @@ func (source *SkillSource) UnmarshalTOML(value any) error {
 }
 
 func startsNewSkillTopLevelTable(trimmedLine string) bool {
-	return declaration.StartsTableOutsideRoot(trimmedLine, "skill")
+	return tomlsyntax.StartsTableOutsideRoot(trimmedLine, "skill")
 }
 
 type Skill struct {
@@ -57,7 +59,7 @@ type SkillBlock struct {
 func ScanSkillBlocks(content []byte) ([]SkillBlock, error) {
 	ranges := declaration.ScanDocumentRanges(
 		content,
-		func(trimmed string) bool { return declaration.StartsArrayTableRoot(trimmed, "skill") },
+		func(trimmed string) bool { return tomlsyntax.StartsArrayTableRoot(trimmed, "skill") },
 		startsNewSkillTopLevelTable,
 	)
 	blocks := make([]SkillBlock, 0)
@@ -182,14 +184,14 @@ func ReplaceSkillTargets(block string, targets []string) (string, error) {
 }
 
 func replaceSkillTargets(block string, root string, targets []string) (string, error) {
-	updated, ok, err := declaration.ReplaceRootAssignment(block, "targets", renderStringArray(targets))
+	updated, ok, err := tomlsyntax.ReplaceRootAssignment(block, "targets", renderStringArray(targets))
 	if err != nil {
 		return "", fmt.Errorf("replace %s targets: %w", root, err)
 	}
 	if ok {
 		return updated, nil
 	}
-	inserted, err := declaration.InsertRootAssignment(block, "targets", renderStringArray(targets))
+	inserted, err := tomlsyntax.InsertRootAssignment(block, "targets", renderStringArray(targets))
 	if err != nil {
 		return "", fmt.Errorf("replace %s targets: %w", root, err)
 	}

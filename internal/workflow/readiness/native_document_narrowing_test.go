@@ -146,7 +146,7 @@ func TestNativeDocumentNarrowingDoesNotTurnLaterKeyRemovalIntoFileRemoval(t *tes
 	if failure != nil || !after.Document().Exists() {
 		t.Fatalf("last managed-key retirement removed the file: %v", failure)
 	}
-	leaves, err := narrowingParse(t, configdocument.JSON, after.Document().Content()).Leaves()
+	leaves, err := narrowingParse(t, configdocument.JSON, after.Document().Content()).Leaves(t.Context(), 4096)
 	if err != nil || len(leaves) != 0 {
 		t.Fatalf("last managed key was not deleted: %v", err)
 	}
@@ -240,7 +240,7 @@ func narrowingInput(t *testing.T, syntax configdocument.Syntax, baseline, curren
 	if !ok {
 		t.Fatal("fixture syntax lacks native codec")
 	}
-	leaves, err := narrowingParse(t, syntax, []byte(desired)).Leaves()
+	leaves, err := narrowingParse(t, syntax, []byte(desired)).Leaves(t.Context(), 4096)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,7 +25,7 @@ func TestAtomicValueAndFragmentLeavesUseOneStructuralRule(t *testing.T) {
 		if value.IsAtomic() != test.atomic {
 			t.Fatalf("atomic boundary changed for %s", test.value)
 		}
-		leaves, err := document.Leaves()
+		leaves, err := document.Leaves(t.Context(), testLimits.MaximumBytes)
 		if err != nil || len(leaves) != 1 {
 			t.Fatalf("fragment did not retain its structural leaf: %v", err)
 		}
@@ -40,7 +40,7 @@ func TestAtomicValueAndFragmentLeavesUseOneStructuralRule(t *testing.T) {
 	if (configdocument.Value{}).IsAtomic() {
 		t.Fatal("invalid zero value became a supported atomic value")
 	}
-	leaves, err := parse(t, configdocument.JSON, `{}`).Leaves()
+	leaves, err := parse(t, configdocument.JSON, `{}`).Leaves(t.Context(), 0)
 	if err != nil || len(leaves) != 0 {
 		t.Fatal("empty root became a managed leaf")
 	}

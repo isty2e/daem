@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/declaration"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	"github.com/isty2e/daem/internal/supply/source"
 )
 
@@ -21,7 +22,7 @@ type HostConfigBlock struct {
 func ScanHostConfigBlocks(content []byte) ([]HostConfigBlock, error) {
 	ranges := declaration.ScanDocumentRanges(
 		content,
-		func(trimmed string) bool { return declaration.StartsArrayTableRoot(trimmed, "host_config") },
+		func(trimmed string) bool { return tomlsyntax.StartsArrayTableRoot(trimmed, "host_config") },
 		startsNewHostConfigTable,
 	)
 	blocks := make([]HostConfigBlock, 0, len(ranges))
@@ -36,7 +37,7 @@ func ScanHostConfigBlocks(content []byte) ([]HostConfigBlock, error) {
 }
 
 func startsNewHostConfigTable(trimmedLine string) bool {
-	return declaration.StartsTableOutsideRoot(trimmedLine, "host_config")
+	return tomlsyntax.StartsTableOutsideRoot(trimmedLine, "host_config")
 }
 
 func parseHostConfigBlock(content []byte, start int, end int) (HostConfigBlock, error) {

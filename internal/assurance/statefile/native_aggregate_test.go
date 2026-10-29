@@ -39,7 +39,7 @@ func nativeAggregateState(t testing.TB, keys ...string) durable.ManagedAggregate
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := document.Leaves()
+	entries, err := document.Leaves(t.Context(), 4096)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("native value fixture = %#v, %v", entries, err)
 	}

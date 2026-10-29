@@ -119,7 +119,7 @@ func TestJSONGrammarAdmission(t *testing.T) {
 
 func TestFragmentLeavesAndLiteralKeyPaths(t *testing.T) {
 	document := parse(t, configdocument.JSON, `{"a/b":{"~":{"":null}},"a.b":{},"array":[{"nested":1}],"0":true}`)
-	entries, err := document.Leaves()
+	entries, err := document.Leaves(t.Context(), testLimits.MaximumBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestFragmentLeavesAndLiteralKeyPaths(t *testing.T) {
 		if syntax == configdocument.TOML {
 			content = ""
 		}
-		entries, err := parse(t, syntax, content).Leaves()
+		entries, err := parse(t, syntax, content).Leaves(t.Context(), testLimits.MaximumBytes)
 		if err != nil || len(entries) != 0 {
 			t.Fatalf("empty root contributes ownership: %v, %v", entries, err)
 		}
@@ -275,7 +275,7 @@ second
 }
 `)
 	result := edit(t, document, set(t, "/root/new", lookup(t, parse(t, configdocument.TOML, "v = true"), "/v")))
-	entries, err := document.Leaves()
+	entries, err := document.Leaves(t.Context(), testLimits.MaximumBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestDocumentBoundsCancellationAndInvalidAuthority(t *testing.T) {
 	if _, err := configdocument.Edit(context.Background(), configdocument.Document{}, nil); err == nil {
 		t.Fatal("zero document accepted")
 	}
-	if _, err := parse(t, configdocument.JSON, "[]").Leaves(); err == nil {
+	if _, err := parse(t, configdocument.JSON, "[]").Leaves(t.Context(), testLimits.MaximumBytes); err == nil {
 		t.Fatal("array root treated as contribution fragment")
 	}
 }

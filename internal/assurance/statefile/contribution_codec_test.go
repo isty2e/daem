@@ -204,7 +204,7 @@ func contributionCodecState(t *testing.T, syntax configdocument.Syntax) durable.
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaves, err := parsed.Leaves()
+	leaves, err := parsed.Leaves(t.Context(), 4096)
 	if err != nil || len(leaves) != 1 {
 		t.Fatalf("native fixture does not have one atomic value: %v", err)
 	}

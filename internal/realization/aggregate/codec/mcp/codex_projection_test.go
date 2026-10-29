@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -67,7 +67,7 @@ func TestCodexGlobalMCPProjectionFactsAndCanonicalEntry(t *testing.T) {
 }
 
 func TestCodexCanonicalProducersMatchTOMLRenderContract(t *testing.T) {
-	maximumServerIDBytes := tomlstrict.MaximumKeyBytes - len(codexProjectMCPManagedField)
+	maximumServerIDBytes := tomlsyntax.MaximumKeyBytes - len(codexProjectMCPManagedField)
 	project := func(serverID string, args []string) error {
 		projection := validCodexMCPProjection(serverID)
 		projection.Args = args
@@ -103,7 +103,7 @@ func TestCodexCanonicalProducersMatchTOMLRenderContract(t *testing.T) {
 			)
 			assertMCPProjectionReason(
 				t,
-				producer.call("context7", make([]string, tomlstrict.MaximumWork+1)),
+				producer.call("context7", make([]string, tomlsyntax.MaximumWork+1)),
 				MCPProjectionReasonCode("CANONICAL_INVALID"),
 			)
 		})

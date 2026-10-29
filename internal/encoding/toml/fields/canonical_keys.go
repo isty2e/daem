@@ -1,13 +1,15 @@
-package tomlstrict
+// Package fields applies explicit-tag mapping policy at daem-owned DTO boundaries.
+package fields
 
 import (
+	"context"
 	"encoding"
 	"fmt"
 	"reflect"
 	"slices"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+	toml "github.com/isty2e/daem/internal/encoding/toml"
 )
 
 // NonCanonicalKeyError retains the authored metadata path for source positioning.
@@ -29,31 +31,37 @@ func (err *NonCanonicalKeyError) Key() toml.Key { return slices.Clone(err.key) }
 // ValidateCanonicalKeys validates all statically reachable struct definitions,
 // then decoded key spellings. Undecoded paths retain the caller's policy.
 // Non-ignored exported fields require named tags; non-ignored anonymous fields
-// are unsupported. Custom decoders and Primitive own their grammar.
-func ValidateCanonicalKeys(metadata toml.MetaData, target any) error {
+// are unsupported. Custom decoders own their value interpretation.
+func ValidateCanonicalKeys(metadata toml.Metadata, target any) error {
+	_, err := classifyKeys(context.Background(), metadata, target)
+	return err
+}
+
+func classifyKeys(ctx context.Context, metadata toml.Metadata, target any) ([]toml.Key, error) {
 	typ := reflect.TypeOf(target)
 	if typ == nil {
-		return fmt.Errorf("canonical TOML keys require a decoded target")
+		return nil, fmt.Errorf("canonical TOML keys require a decoded target")
 	}
 	compiled := canonicalMetadataFor(typ)
 	if compiled.err != nil {
-		return compiled.err
+		return nil, compiled.err
 	}
 	validator := canonicalKeyValidator{fields: compiled.fields}
 
-	undecoded := make(map[string]struct{})
-	for _, key := range metadata.Undecoded() {
-		undecoded[key.String()] = struct{}{}
-	}
+	var undecoded []toml.Key
 	for _, key := range metadata.Keys() {
-		if _, skipped := undecoded[key.String()]; skipped {
-			continue
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		if err := validator.validateKey(typ, key); err != nil {
-			return err
+		known, err := validator.classifyKey(typ, key)
+		if err != nil {
+			return nil, err
+		}
+		if !known {
+			undecoded = append(undecoded, key)
 		}
 	}
-	return nil
+	return undecoded, nil
 }
 
 type canonicalField struct {
@@ -65,16 +73,16 @@ type canonicalKeyValidator struct {
 	fields map[reflect.Type][]canonicalField
 }
 
-func (validator *canonicalKeyValidator) validateKey(typ reflect.Type, key toml.Key) error {
+func (validator *canonicalKeyValidator) classifyKey(typ reflect.Type, key toml.Key) (bool, error) {
 	remaining := key
 	for {
 		if len(remaining) == 0 {
-			return nil
+			return true, nil
 		}
 		var custom bool
 		typ, custom = canonicalKeyType(typ)
 		if custom {
-			return nil
+			return true, nil
 		}
 		switch typ.Kind() {
 		case reflect.Struct:
@@ -87,15 +95,13 @@ func (validator *canonicalKeyValidator) validateKey(typ reflect.Type, key toml.K
 				}
 			}
 			if next == nil {
-				failure := &NonCanonicalKeyError{key: slices.Clone(key)}
 				for _, field := range fields {
 					// Folding supplies repair guidance, never field admission.
 					if strings.EqualFold(field.name, remaining[0]) {
-						failure.canonical = field.name
-						break
+						return false, &NonCanonicalKeyError{key: slices.Clone(key), canonical: field.name}
 					}
 				}
-				return failure
+				return false, nil
 			}
 			typ = next
 			remaining = remaining[1:]
@@ -103,7 +109,7 @@ func (validator *canonicalKeyValidator) validateKey(typ reflect.Type, key toml.K
 			typ = typ.Elem()
 			remaining = remaining[1:]
 		default:
-			return nil
+			return true, nil
 		}
 	}
 }
@@ -123,8 +129,7 @@ func canonicalKeyType(typ reflect.Type) (reflect.Type, bool) {
 }
 
 func canonicalKeyLeaf(typ reflect.Type) bool {
-	if typ == reflect.TypeFor[toml.Primitive]() ||
-		typ.Implements(reflect.TypeFor[toml.Unmarshaler]()) ||
+	if typ.Implements(reflect.TypeFor[toml.Unmarshaler]()) ||
 		typ.Implements(reflect.TypeFor[encoding.TextUnmarshaler]()) {
 		return true
 	}

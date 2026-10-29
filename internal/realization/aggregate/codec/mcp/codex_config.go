@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/BurntSushi/toml"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
+	tomlfields "github.com/isty2e/daem/internal/encoding/toml/fields"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	nativetoml "github.com/pelletier/go-toml/v2"
 )
 
 func mergeCodexProjectMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) ([]byte, error) {
@@ -344,7 +343,7 @@ type codexProjectMCPConfig struct {
 	changedServers map[string]struct{}
 }
 
-const maximumCodexMCPServerIDBytes = tomlstrict.MaximumKeyBytes - len(codexProjectMCPManagedField)
+const maximumCodexMCPServerIDBytes = tomlsyntax.MaximumKeyBytes - len(codexProjectMCPManagedField)
 
 func admitCodexTOML(content []byte) error {
 	return admitCodexTOMLContext(context.Background(), content)
@@ -360,7 +359,7 @@ func admitCodexTOMLContext(ctx context.Context, content []byte) error {
 	if err := validateMCPDocumentSize(content); err != nil {
 		return err
 	}
-	return tomlstrict.Admit(ctx, content, tomlstrict.StandardLimits())
+	return tomlsyntax.Admit(ctx, content, tomlsyntax.StandardLimits())
 }
 
 func decodeCodexTOMLMap(content []byte) (map[string]any, error) {
@@ -372,7 +371,7 @@ func decodeCodexTOMLMapContext(ctx context.Context, content []byte) (map[string]
 		return nil, err
 	}
 	var decoded map[string]any
-	if err := nativetoml.Unmarshal(content, &decoded); err != nil {
+	if _, err := tomlfields.DecodeAdmitted(ctx, content, &decoded); err != nil {
 		return nil, err
 	}
 	return decoded, ctx.Err()
@@ -387,7 +386,7 @@ func canonicalCodexTOMLError(subject string, operation string, err error) error 
 }
 
 func encodeCodexTOMLValue(value any, subject string, operation string) ([]byte, error) {
-	content, err := toml.Marshal(value)
+	content, err := tomlsyntax.Marshal(value)
 	if err != nil {
 		return nil, canonicalCodexTOMLError(subject, operation, err)
 	}
@@ -421,11 +420,11 @@ func validateCodexMCPEntryInput(
 		return err
 	}
 	subject := CodexProjectMCPContentPath(serverID)
-	if len(args) > tomlstrict.MaximumWork || len(envVars) > tomlstrict.MaximumWork-len(args) {
+	if len(args) > tomlsyntax.MaximumWork || len(envVars) > tomlsyntax.MaximumWork-len(args) {
 		return newMCPProjectionError(
 			MCPProjectionReasonCanonicalInvalid,
 			subject,
-			fmt.Sprintf("Codex MCP entry exceeds the TOML work budget of %d values", tomlstrict.MaximumWork),
+			fmt.Sprintf("Codex MCP entry exceeds the TOML work budget of %d values", tomlsyntax.MaximumWork),
 		)
 	}
 	remaining := maximumDocumentBytes

@@ -8,7 +8,8 @@ import (
 	"maps"
 
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
+	tomlfields "github.com/isty2e/daem/internal/encoding/toml/fields"
 	"github.com/tailscale/hujson"
 )
 
@@ -145,10 +146,10 @@ func decodeCodexImportServerNames(
 		if int64(len(content)) > maximumConfigBytes {
 			return nil, fmt.Errorf("Codex MCP import exceeds %d bytes", maximumConfigBytes)
 		}
-		if err := tomlstrict.Admit(context.Background(), content, tomlstrict.StandardLimits()); err != nil {
+		if err := tomlsyntax.Admit(context.Background(), content, tomlsyntax.StandardLimits()); err != nil {
 			return nil, err
 		}
-		if _, err := tomlstrict.DecodeAdmitted(context.Background(), content, &root); err != nil {
+		if _, err := tomlfields.DecodeAdmitted(context.Background(), content, &root); err != nil {
 			return nil, err
 		}
 	} else {

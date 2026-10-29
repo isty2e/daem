@@ -2,6 +2,7 @@ package configdocument
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -68,6 +69,16 @@ func Absent(syntax Syntax, limits Limits) (Document, error) {
 
 func (document Document) Exists() bool { return document.exists }
 
+// HasValues excludes missing documents, empty root objects and comments.
+// Nested empty objects and arrays are values.
+func (document Document) HasValues() bool {
+	if !document.exists {
+		return false
+	}
+	members, object := document.root.data.(objectNode)
+	return !object || len(members) != 0
+}
+
 // Bytes returns an independent copy, not mutable access to the observation.
 func (document Document) Bytes() []byte { return slices.Clone(document.content) }
 
@@ -107,8 +118,19 @@ type Entry struct {
 	Value Value
 }
 
-// Leaves expands a fragment root. An empty root contributes nothing.
-func (document Document) Leaves() ([]Entry, error) {
+// Leaves expands a fragment root under a caller-owned total encoded-path byte
+// allowance. Values are retained, not serialized. Refusal returns no entries;
+// an empty root contributes nothing and needs no path allowance.
+func (document Document) Leaves(ctx context.Context, maximumPathBytes int64) ([]Entry, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("configuration projection context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if maximumPathBytes < 0 {
+		return nil, fmt.Errorf("configuration projection path byte limit must be non-negative")
+	}
 	if !document.root.IsObject() {
 		return nil, ErrInvalidDocument
 	}
@@ -116,25 +138,39 @@ func (document Document) Leaves() ([]Entry, error) {
 		return nil, nil
 	}
 	var entries []Entry
-	var visit func(Value, output.KeyPath) error
-	visit = func(value Value, path output.KeyPath) error {
+	var segments []string
+	remaining := maximumPathBytes
+	var visit func(Value) error
+	visit = func(value Value) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		members, _ := value.data.(objectNode)
-		if value.IsAtomic() && !path.IsRoot() {
+		if value.IsAtomic() && len(segments) != 0 {
+			path, err := output.NewKeyPathWithinBytes(remaining, segments...)
+			if errors.Is(err, output.ErrKeyPathLimitExceeded) {
+				return ErrLimitExceeded
+			}
+			if err != nil {
+				return err
+			}
+			remaining -= int64(len(path.String()))
 			entries = append(entries, Entry{Path: path, Value: value})
 			return nil
 		}
 		for _, member := range members {
-			child, err := path.Append(member.key)
-			if err != nil {
+			segments = append(segments, member.key)
+			if err := visit(member.value); err != nil {
 				return err
 			}
-			if err := visit(member.value, child); err != nil {
-				return err
-			}
+			segments = segments[:len(segments)-1]
 		}
 		return nil
 	}
-	if err := visit(document.root, output.KeyPath{}); err != nil {
+	if err := visit(document.root); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return entries, nil

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	observeconfig "github.com/isty2e/daem/internal/assurance/observe/config"
-	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/encoding/toml"
 )
 
 func TestObserveConfigFileReportsMissingConfigWithoutError(t *testing.T) {
@@ -257,18 +257,18 @@ enabled = true
 func TestObserveConfigFileRejectsDeepInlineTablesBeforeDecode(t *testing.T) {
 	var builder strings.Builder
 	builder.WriteString("k = ")
-	for range tomlstrict.MaximumDepth + 1 {
+	for range tomlsyntax.MaximumDepth + 1 {
 		builder.WriteString("{k = ")
 	}
 	builder.WriteByte('1')
-	for range tomlstrict.MaximumDepth + 1 {
+	for range tomlsyntax.MaximumDepth + 1 {
 		builder.WriteByte('}')
 	}
 	builder.WriteByte('\n')
 	configPath := writeCodexConfig(t, builder.String())
 
 	observation, err := ObserveConfigFile(configPath)
-	if !errors.Is(err, tomlstrict.ErrMaximumDepthExceeded) {
+	if !errors.Is(err, tomlsyntax.ErrMaximumDepthExceeded) {
 		t.Fatalf("ObserveConfigFile = %v, want depth exceeded", err)
 	}
 	if !observation.ConfigExists() {
@@ -277,12 +277,12 @@ func TestObserveConfigFileRejectsDeepInlineTablesBeforeDecode(t *testing.T) {
 }
 
 func TestObserveConfigFileRejectsLongAncestorSiblingRecopyBeforeDecode(t *testing.T) {
-	siblings := tomlstrict.MaximumPathWork/tomlstrict.MaximumKeyBytes + 1
-	content := "[" + strings.Repeat("a", tomlstrict.MaximumKeyBytes) + "]\n" + strings.Repeat("k = 1\n", siblings)
+	siblings := tomlsyntax.MaximumPathWork/tomlsyntax.MaximumKeyBytes + 1
+	content := "[" + strings.Repeat("a", tomlsyntax.MaximumKeyBytes) + "]\n" + strings.Repeat("k = 1\n", siblings)
 	configPath := writeCodexConfig(t, content)
 
 	observation, err := ObserveConfigFile(configPath)
-	if !errors.Is(err, tomlstrict.ErrMaximumPathWorkExceeded) {
+	if !errors.Is(err, tomlsyntax.ErrMaximumPathWorkExceeded) {
 		t.Fatalf("ObserveConfigFile = %v, want path recopy exceeded", err)
 	}
 	if !observation.ConfigExists() {
@@ -291,8 +291,8 @@ func TestObserveConfigFileRejectsLongAncestorSiblingRecopyBeforeDecode(t *testin
 }
 
 func TestObserveConfigFileAcceptsExactLongAncestorAnonymousInlineTablePathWork(t *testing.T) {
-	elements := tomlstrict.MaximumPathWork / tomlstrict.MaximumKeyBytes
-	content := longKeyCodexArrayElements(tomlstrict.MaximumKeyBytes, elements, "{}")
+	elements := tomlsyntax.MaximumPathWork / tomlsyntax.MaximumKeyBytes
+	content := longKeyCodexArrayElements(tomlsyntax.MaximumKeyBytes, elements, "{}")
 	configPath := writeCodexConfig(t, content)
 
 	observation, err := ObserveConfigFile(configPath)
@@ -305,12 +305,12 @@ func TestObserveConfigFileAcceptsExactLongAncestorAnonymousInlineTablePathWork(t
 }
 
 func TestObserveConfigFileRejectsLongAncestorAnonymousArraysBeforeDecode(t *testing.T) {
-	elements := tomlstrict.MaximumPathWork/tomlstrict.MaximumKeyBytes + 1
-	content := longKeyCodexArrayElements(tomlstrict.MaximumKeyBytes, elements, "[]")
+	elements := tomlsyntax.MaximumPathWork/tomlsyntax.MaximumKeyBytes + 1
+	content := longKeyCodexArrayElements(tomlsyntax.MaximumKeyBytes, elements, "[]")
 	configPath := writeCodexConfig(t, content)
 
 	observation, err := ObserveConfigFile(configPath)
-	if !errors.Is(err, tomlstrict.ErrMaximumPathWorkExceeded) {
+	if !errors.Is(err, tomlsyntax.ErrMaximumPathWorkExceeded) {
 		t.Fatalf("ObserveConfigFile = %v, want anonymous-container path recopy exceeded", err)
 	}
 	if !observation.ConfigExists() {
