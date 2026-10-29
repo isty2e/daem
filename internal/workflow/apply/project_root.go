@@ -31,6 +31,13 @@ func requiresProjectRootAuthority(planned commandPlan) bool {
 			return true
 		}
 	}
+	if planned.nativePlan != nil {
+		for _, document := range planned.nativePlan.stateDocuments {
+			if document.Scope() == target.ScopeProject {
+				return true
+			}
+		}
+	}
 	for _, action := range planned.assessment.Reconciliation.Relations() {
 		if action.InvokesHostRoute() ||
 			isGlobalCarrierPromotionCandidate(planned.assessment.CurrentState, action) {

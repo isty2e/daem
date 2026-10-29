@@ -236,19 +236,10 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			}
 		}
 	}
-	if planned.nativePlan != nil && !planned.nativePlan.state.AfterState().Equal(planned.assessment.CurrentState) {
-		for _, evidence := range planned.assessment.NativeApproval {
-			member, err := evidence.HasMembers(ctx, planned.assessment.CurrentState, planned.nativePlan.state.AfterState())
-			if err != nil {
+	if planned.nativePlan != nil {
+		for _, document := range planned.nativePlan.stateDocuments {
+			if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), false); err != nil {
 				return applyAuthorityEvidence{}, err
-			}
-			if !member {
-				continue
-			}
-			for _, document := range evidence.Aliases {
-				if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), false); err != nil {
-					return applyAuthorityEvidence{}, err
-				}
 			}
 		}
 	}

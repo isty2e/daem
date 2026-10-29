@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -97,6 +98,48 @@ func TestNativeOrdinaryRecoveryAfterProcessLoss(t *testing.T) {
 			if !strings.Contains(string(testkit.ReadFile(t, instruction)), "after instructions\n") {
 				t.Fatal("retry omitted the ordinary declaration")
 			}
+			runNativeRecoveryCommand(t, fixture, "none", "status", "--check", "--json")
+		})
+	}
+}
+
+func TestNativeProjectGlobalOnlyRecoveryAfterProcessLoss(t *testing.T) {
+	for _, boundary := range []string{"host", "state"} {
+		t.Run(boundary, func(t *testing.T) {
+			fixture, instruction := nativeOrdinaryRecoveryFixture(t)
+			workspace := filepath.Dir(fixture.manifest)
+			native := fixture.destination
+			testkit.WriteFile(t, workspace, "instructions.md", "before instructions\n")
+			testkit.WriteFile(t, workspace, "preferences.toml", "model='before-model'\n")
+			globalSource := filepath.Join(workspace, "global.md")
+			testkit.WriteFile(t, workspace, "global.md", "global instructions\n")
+			manifest := string(testkit.ReadFile(t, fixture.manifest)) + fmt.Sprintf("\n[instructions.global]\nsource=%q\n", globalSource)
+			testkit.WriteFile(t, workspace, filepath.Base(fixture.manifest), manifest)
+			runNativeRecoveryCommand(t, fixture, "none", "lock")
+			fixture.destination = filepath.Join(os.Getenv("HOME"), ".codex", "AGENTS.md")
+			before := snapshotNativeRecoveryPaths(t, native, instruction, fixture.destination, fixture.paths.StatefilePath, fixture.paths.OwnershipRegistryPath)
+			nativeBefore := testkit.ReadFile(t, native)
+			code, stdout, stderr := invokeNativeRecoveryCommand(t, fixture, boundary, "apply", "--yes")
+			if code != nativeRecoveryExit {
+				t.Fatalf("global-only operation did not reach %s publication: %d %s %s", boundary, code, stdout, stderr)
+			}
+			classification := "needs_rollback"
+			if boundary == "state" {
+				classification = "needs_finalize"
+			}
+			requireNativeRecoveryDryRun(t, fixture, classification)
+			runNativeRecoveryCommand(t, fixture, "none", "recover", "--yes")
+			testkit.AssertNoRecoveryArtifacts(t, workspace)
+			if !reflect.DeepEqual(nativeBefore, testkit.ReadFile(t, native)) {
+				t.Fatal("recovery changed the unchanged project-native document")
+			}
+			if boundary == "host" && !reflect.DeepEqual(before, snapshotNativeRecoveryPaths(t, native, instruction, fixture.destination, fixture.paths.StatefilePath, fixture.paths.OwnershipRegistryPath)) {
+				t.Fatal("Before recovery did not restore the complete mixed snapshot")
+			}
+			if boundary == "state" && string(testkit.ReadFile(t, fixture.destination)) != "global instructions\n" {
+				t.Fatal("After recovery lost the committed global output")
+			}
+			runNativeRecoveryCommand(t, fixture, "none", "apply", "--yes")
 			runNativeRecoveryCommand(t, fixture, "none", "status", "--check", "--json")
 		})
 	}

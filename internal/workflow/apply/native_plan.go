@@ -24,9 +24,10 @@ import (
 )
 
 type nativePlanInputs struct {
-	state      execute.NativeApplyStatePreparation
-	codecs     aggregate.CodecCatalog
-	stateCodec durable.SnapshotCodec
+	state          execute.NativeApplyStatePreparation
+	codecs         aggregate.CodecCatalog
+	stateCodec     durable.SnapshotCodec
+	stateDocuments []aggregate.DocumentAddress
 }
 
 func rejectUnsupportedCommandPlan(planned commandPlan) error {
@@ -84,8 +85,34 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
-	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec}
+	documents, err := nativeStateDocuments(ctx, assessment, state.AfterState())
+	if err != nil {
+		return err
+	}
+	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents}
 	return nil
+}
+
+// nativeStateDocuments includes unchanged namespace actors needed to publish a
+// complete successor. Membership does not grant permission to write a document.
+func nativeStateDocuments(ctx context.Context, assessment readiness.Assessment, after durable.Snapshot) ([]aggregate.DocumentAddress, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if after.Equal(assessment.CurrentState) {
+		return nil, nil
+	}
+	var documents []aggregate.DocumentAddress
+	for _, evidence := range assessment.NativeApproval {
+		member, err := evidence.HasMembers(ctx, assessment.CurrentState, after)
+		if err != nil {
+			return nil, err
+		}
+		if member {
+			documents = append(documents, evidence.Aliases...)
+		}
+	}
+	return documents, nil
 }
 
 func nativeApplyInputFor(current commandPlan) (execute.NativeApplyInput, error) {
