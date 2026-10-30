@@ -32,14 +32,18 @@ const (
 	Linux  Platform = "linux"
 )
 
-// Context retains a qualified host/namespace realm digest and boot epoch.
-// Only platform adapters can qualify how these observations were obtained.
+// Context retains independent stable-realm, boot and process-visibility facts.
+// Earlier unqualified records have no visibility; only platform adapters can
+// qualify how any of these observations were obtained.
 type Context struct {
-	platform Platform
-	realm    string
-	epoch    string
+	platform   Platform
+	realm      string
+	epoch      string
+	visibility string
 }
 
+// NewContext reconstructs the earlier unqualified context without inventing a
+// process-visibility fact. Such a value is not comparable for group observation.
 func NewContext(platform Platform, realm, epoch string) (Context, error) {
 	if platform != Darwin && platform != Linux {
 		return Context{}, fmt.Errorf("unsupported execution identity platform %q", platform)
@@ -54,14 +58,32 @@ func NewContext(platform Platform, realm, epoch string) (Context, error) {
 	return Context{platform: platform, realm: realm, epoch: epoch}, nil
 }
 
+func NewContextWithVisibility(platform Platform, realm, epoch, visibility string) (Context, error) {
+	value, err := NewContext(platform, realm, epoch)
+	if err != nil {
+		return Context{}, err
+	}
+	if !canonicalHex(visibility, 64) {
+		return Context{}, fmt.Errorf("execution visibility requires a nonzero lowercase SHA-256 digest")
+	}
+	value.visibility = visibility
+	return value, nil
+}
+
 func (context Context) Validate() error {
+	if context.HasVisibility() {
+		_, err := NewContextWithVisibility(context.platform, context.realm, context.epoch, context.visibility)
+		return err
+	}
 	_, err := NewContext(context.platform, context.realm, context.epoch)
 	return err
 }
 
-func (context Context) Platform() Platform { return context.platform }
-func (context Context) Realm() string      { return context.realm }
-func (context Context) Epoch() string      { return context.epoch }
+func (context Context) Platform() Platform  { return context.platform }
+func (context Context) Realm() string       { return context.realm }
+func (context Context) Epoch() string       { return context.epoch }
+func (context Context) Visibility() string  { return context.visibility }
+func (context Context) HasVisibility() bool { return context.visibility != "" }
 
 type ContextRelation uint8
 
@@ -75,10 +97,14 @@ const (
 // of local restart, and SameEpoch says nothing about group occupancy.
 func (context Context) Relation(other Context) ContextRelation {
 	if context.Validate() != nil || other.Validate() != nil ||
+		!context.HasVisibility() || !other.HasVisibility() ||
 		context.platform != other.platform || context.realm != other.realm {
 		return Incomparable
 	}
 	if context.epoch == other.epoch {
+		if context.visibility != other.visibility {
+			return Incomparable
+		}
 		return SameEpoch
 	}
 	return DifferentEpoch

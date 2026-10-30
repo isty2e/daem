@@ -32,10 +32,11 @@ type protectedDocumentRecord struct {
 }
 
 type executionBindingRecord struct {
-	Platform executionidentity.Platform `json:"platform"`
-	Realm    string                     `json:"realm"`
-	Epoch    string                     `json:"epoch"`
-	Group    int64                      `json:"group"`
+	Platform   executionidentity.Platform `json:"platform"`
+	Realm      string                     `json:"realm"`
+	Epoch      string                     `json:"epoch"`
+	Visibility string                     `json:"visibility,omitempty"`
+	Group      int64                      `json:"group"`
 }
 
 func decodePendingProtections(content json.RawMessage) ([]ownership.PendingProtection, error) {
@@ -117,11 +118,16 @@ func decodePendingProtection(record *pendingProtectionRecord) (ownership.Pending
 		if record.Execution == nil {
 			return ownership.PendingProtection{}, fmt.Errorf("bound protection requires execution identity")
 		}
-		context, err := executionidentity.NewContext(record.Execution.Platform, record.Execution.Realm, record.Execution.Epoch)
+		var executionContext executionidentity.Context
+		if record.Execution.Visibility == "" {
+			executionContext, err = executionidentity.NewContext(record.Execution.Platform, record.Execution.Realm, record.Execution.Epoch)
+		} else {
+			executionContext, err = executionidentity.NewContextWithVisibility(record.Execution.Platform, record.Execution.Realm, record.Execution.Epoch, record.Execution.Visibility)
+		}
 		if err != nil {
 			return ownership.PendingProtection{}, err
 		}
-		execution, err := executionidentity.NewBinding(invocation, context, record.Execution.Group)
+		execution, err := executionidentity.NewBinding(invocation, executionContext, record.Execution.Group)
 		if err != nil {
 			return ownership.PendingProtection{}, err
 		}
@@ -156,7 +162,7 @@ func encodePendingProtections(protections []ownership.PendingProtection) (json.R
 		if binding, present := protection.Execution(); present {
 			context := binding.Context()
 			record.Execution = &executionBindingRecord{
-				Platform: context.Platform(), Realm: context.Realm(), Epoch: context.Epoch(), Group: binding.Group(),
+				Platform: context.Platform(), Realm: context.Realm(), Epoch: context.Epoch(), Group: binding.Group(), Visibility: context.Visibility(),
 			}
 		}
 		records = append(records, record)

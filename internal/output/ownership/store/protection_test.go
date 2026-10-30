@@ -193,6 +193,70 @@ func TestProtectionDecoderRejectsMalformedPhasesScopeAndUnknownFields(t *testing
 	}
 }
 
+func TestProtectionExecutionVisibilityRoundTripPreservesLegacyUncertainty(t *testing.T) {
+	root := canonicalTestRoot(t)
+	claim := testActiveClaim(t, root, "owner", filepath.Join(root, "settings.json"), "/model")
+	binding := storedDocumentBinding(t, claim, "@pi-agent/settings.json")
+	armed := storedPendingProtection(t, binding)
+	legacy := storedProtectionExecution(t, armed)
+	context, err := executionidentity.NewContextWithVisibility(legacy.Context().Platform(), legacy.Context().Realm(), legacy.Context().Epoch(), strings.Repeat("e", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualified, err := executionidentity.NewBinding(armed.Invocation(), context, legacy.Group())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, execution := range []executionidentity.Binding{legacy, qualified} {
+		bound, err := armed.Bind(execution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		registry, err := ownership.NewRegistryWithProtections([]ownership.Claim{claim}, []ownership.DocumentBinding{binding}, []ownership.PendingProtection{bound})
+		if err != nil {
+			t.Fatal(err)
+		}
+		content, err := Marshal(registry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := decode(content)
+		if err != nil || !decoded.Equal(registry) {
+			t.Fatal("execution visibility was lost or invented by persistence", err)
+		}
+		stored, present := decoded.PendingProtections()[0].Execution()
+		if !present || stored.Context().HasVisibility() != execution.Context().HasVisibility() || stored.Context() != execution.Context() {
+			t.Fatal("pending execution context changed its qualification facts")
+		}
+		reencoded, err := Marshal(decoded)
+		if err != nil || !bytes.Equal(content, reencoded) {
+			t.Fatal("unpublished context round-trip changed its persisted representation", err)
+		}
+		if !execution.Context().HasVisibility() && stored.Context().Relation(context) != executionidentity.Incomparable {
+			t.Fatal("legacy execution acquired a current namespace")
+		}
+		if execution.Context().HasVisibility() {
+			for _, invalid := range []any{nil, false, 12, strings.Repeat("0", 64), strings.Repeat("E", 64), "invalid"} {
+				var top map[string]any
+				if err := json.Unmarshal(content, &top); err != nil {
+					t.Fatal(err)
+				}
+				row := top["pending_protections"].([]any)[0].(map[string]any)
+				row["execution"].(map[string]any)["visibility"] = invalid
+				malformed, err := json.Marshal(top)
+				if err != nil {
+					t.Fatal(err)
+				}
+				unusable, err := decode(malformed)
+				if err == nil {
+					t.Fatal("malformed visibility produced a usable registry")
+				}
+				assertUnusableRegistry(t, unusable)
+			}
+		}
+	}
+}
+
 func TestStoreProtectionTransitionsPreserveDisjointWritersAndRefuseScopeRelease(t *testing.T) {
 	root := canonicalTestRoot(t)
 	store := mustStore(t, filepath.Join(root, "claims.json"))

@@ -10,7 +10,7 @@ func TestIdentityAdmissionAndContextComparison(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	context, err := NewContext(Darwin, strings.Repeat("b", 64), "12345678-1234-1234-1234-123456789abc")
+	context, err := NewContextWithVisibility(Darwin, strings.Repeat("b", 64), "12345678-1234-1234-1234-123456789abc", strings.Repeat("d", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -18,15 +18,15 @@ func TestIdentityAdmissionAndContextComparison(t *testing.T) {
 	if err != nil || binding.Invocation() != invocation || binding.Context() != context || binding.Group() != 123 {
 		t.Fatalf("binding did not preserve its observed identity: %v", err)
 	}
-	otherEpoch, err := NewContext(Darwin, context.Realm(), "22345678-1234-1234-1234-123456789abc")
+	otherEpoch, err := NewContextWithVisibility(Darwin, context.Realm(), "22345678-1234-1234-1234-123456789abc", strings.Repeat("e", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherRealm, err := NewContext(Darwin, strings.Repeat("c", 64), context.Epoch())
+	otherRealm, err := NewContextWithVisibility(Darwin, strings.Repeat("c", 64), context.Epoch(), context.Visibility())
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherPlatform, err := NewContext(Linux, context.Realm(), context.Epoch())
+	otherPlatform, err := NewContextWithVisibility(Linux, context.Realm(), context.Epoch(), context.Visibility())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,5 +81,43 @@ func TestIdentityRefusesMalformedOrIncompleteObservations(t *testing.T) {
 	}
 	if _, err := NewBinding(invocation, Context{}, 123); err == nil {
 		t.Fatal("zero execution context was admitted")
+	}
+}
+
+func TestContextVisibilityIsIndependentFromStableRealmAndBoot(t *testing.T) {
+	realm := strings.Repeat("a", 64)
+	epoch := "12345678-1234-1234-1234-123456789abc"
+	visibility := strings.Repeat("b", 64)
+	known, err := NewContextWithVisibility(Linux, realm, epoch, visibility)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := NewContext(Linux, realm, epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherNamespace, err := NewContextWithVisibility(Linux, realm, epoch, strings.Repeat("c", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterRestart, err := NewContextWithVisibility(Linux, realm, "22345678-1234-1234-1234-123456789abc", otherNamespace.Visibility())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		other Context
+		want  ContextRelation
+	}{{known, SameEpoch}, {legacy, Incomparable}, {otherNamespace, Incomparable}, {afterRestart, DifferentEpoch}} {
+		if known.Relation(test.other) != test.want || test.other.Relation(known) != test.want {
+			t.Fatal("context comparison collapsed host, boot or namespace facts")
+		}
+	}
+	if !known.HasVisibility() || known.Visibility() != visibility || legacy.HasVisibility() || legacy.Relation(legacy) != Incomparable {
+		t.Fatal("legacy context acquired process-visibility evidence")
+	}
+	for _, invalid := range []string{"", strings.Repeat("0", 64), strings.Repeat("B", 64), strings.Repeat("b", 63)} {
+		if _, err := NewContextWithVisibility(Linux, realm, epoch, invalid); err == nil {
+			t.Fatal("invalid visibility was admitted as a qualified fact")
+		}
 	}
 }
