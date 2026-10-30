@@ -7,6 +7,7 @@ import (
 	"io/fs"
 
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -116,6 +117,11 @@ func (store Store) TransitionProtection(ctx context.Context, owner stateauthorit
 	if err != nil {
 		return ownership.Registry{}, err
 	}
+	if _, accountsPayload := store.physicalWorkBudget.(mutation.PhysicalObservationBudget); capability != nil && accountsPayload {
+		if err := capability.AdmitPhysicalWork(0, 1, int64(len(content))); err != nil {
+			return ownership.Registry{}, fmt.Errorf("admit ownership protection publication: %w", err)
+		}
+	}
 	var request storagecommit.FileCommit
 	if capability != nil && exists {
 		request, err = storagecommit.NewRootedFileReplacement(capability, content, 0o600, expectedEntry)
@@ -157,7 +163,11 @@ func (store Store) loadForProtection(ctx context.Context) (ownership.Registry, s
 		if err != nil {
 			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
 		}
-		content, mode, identity, err = storagecommit.ReadRootedRegularFileUpTo(ctx, capability, maximumOwnershipRegistryBytes)
+		if _, accountsPayload := store.physicalWorkBudget.(mutation.PhysicalObservationBudget); accountsPayload {
+			content, mode, identity, err = storagecommit.ReadRootedRegularFileWithWorkBudget(ctx, capability, maximumOwnershipRegistryBytes)
+		} else {
+			content, mode, identity, err = storagecommit.ReadRootedRegularFileUpTo(ctx, capability, maximumOwnershipRegistryBytes)
+		}
 	} else {
 		snapshot, readErr := storagecommit.ReadRegularFileSnapshotUpTo(ctx, store.path, maximumOwnershipRegistryBytes)
 		err = readErr

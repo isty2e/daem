@@ -145,7 +145,7 @@ func TestBoundedSnapshotNeverTransfersPastAllowance(t *testing.T) {
 					return count, err
 				},
 			}
-			content, _, _, err := readRegularFileSnapshotWithin(t.Context(), path, nil, &limit, faults)
+			content, _, _, err := readRegularFileSnapshotWithin(t.Context(), path, nil, &limit, faults, false)
 			var readLimit *RegularFileReadLimitError
 			if content != nil || !errors.As(err, &readLimit) || readLimit.Limit() != limit || readLimit.Observed() != int64(len(grown)) {
 				t.Fatalf("growth result: content=%d error=%v", len(content), err)

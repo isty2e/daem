@@ -4,6 +4,7 @@ package store
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,5 +66,84 @@ func TestRootedProtectionStoreSharesPhysicalBudgetAndRetainsCapability(t *testin
 	budget.remaining = 1 << 25
 	if _, err := rooted.TransitionProtection(t.Context(), protection.Owner(), clear); err != nil {
 		t.Fatalf("failed attempt consumed or leaked retained root authority: %v", err)
+	}
+}
+
+func TestRootedProtectionPublicationConsumesActualPayloadWork(t *testing.T) {
+	for _, clear := range []bool{false, true} {
+		for _, allowance := range []string{"read-entry", "read-bytes", "write-entry", "write-bytes", "exact"} {
+			t.Run(fmt.Sprintf("clear=%t/%s", clear, allowance), func(t *testing.T) {
+				root := canonicalTestRoot(t)
+				store := mustStore(t, filepath.Join(root, "claims.json"))
+				claim := testActiveClaim(t, root, "owner", filepath.Join(root, "settings.json"), "/model")
+				binding := storedDocumentBinding(t, claim, "@pi-agent/settings.json")
+				seedConvergenceRegistry(t, store, nil, binding)
+				protection := storedPendingProtection(t, binding)
+				transition, err := ownership.NewArmProtection(protection)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if clear {
+					if _, err := store.TransitionProtection(t.Context(), protection.Owner(), transition); err != nil {
+						t.Fatal(err)
+					}
+					transition, err = ownership.NewClearProtection(protection)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				current, err := store.LoadProtectionRegistry(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				expected, changed, err := current.ApplyProtection(protection.Owner(), transition)
+				if err != nil || !changed {
+					t.Fatal("fixture has no actual protection transition", err)
+				}
+				after, err := encode(expected)
+				if err != nil {
+					t.Fatal(err)
+				}
+				before := mustReadRegistryBytes(t, store.Path())
+				entries := 2
+				payloadBytes := int64(len(before) + len(after))
+				switch allowance {
+				case "read-entry":
+					entries = 0
+				case "read-bytes":
+					payloadBytes = int64(len(before) - 1)
+				case "write-entry":
+					entries = 1
+				case "write-bytes":
+					payloadBytes--
+				}
+				budget := recovery.NewPhysicalCaptureBudget(nil)
+				if err := budget.AdmitPhysicalWork(0, recovery.MaximumPhysicalEntries-entries, recovery.MaximumPhysicalBytes-payloadBytes); err != nil {
+					t.Fatal(err)
+				}
+				captured, destination, err := rootedpath.CaptureDestination(store.Path())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer captured.Close()
+				rooted, err := NewRooted(captured, destination, recovery.MaximumPhysicalPathDepth, budget)
+				if err != nil {
+					t.Fatal(err)
+				}
+				actual, err := rooted.TransitionProtection(t.Context(), protection.Owner(), transition)
+				if allowance != "exact" {
+					if err == nil || !bytes.Equal(before, mustReadRegistryBytes(t, store.Path())) {
+						t.Fatal("unadmitted protection work changed the registry", err)
+					}
+					return
+				}
+				if err != nil || !actual.Equal(expected) || !bytes.Equal(after, mustReadRegistryBytes(t, store.Path())) {
+					t.Fatal("exact payload allowance did not publish the complete transition", err)
+				}
+				if budget.RemainingEntries() != 0 || budget.RemainingBytes() != 0 {
+					t.Fatal("protection publication bypassed or overcharged its payload allowance")
+				}
+			})
+		}
 	}
 }

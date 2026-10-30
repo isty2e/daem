@@ -180,7 +180,7 @@ func ReadRegularFileSnapshotUpTo(
 		return mutationfs.RegularFileSnapshot{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, err)
 	}
 	defer capability.Close()
-	content, mode, identity, err := readWindowsRegularFile(ctx, capability, maximumBytes)
+	content, mode, identity, err := readWindowsRegularFile(ctx, capability, maximumBytes, false)
 	if err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
 	}
@@ -221,7 +221,7 @@ func ReadRootedRegularFile(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 ) ([]byte, fs.FileMode, EntryIdentity, error) {
-	return readWindowsRegularFile(ctx, capability, int64(^uint64(0)>>1))
+	return readWindowsRegularFile(ctx, capability, int64(^uint64(0)>>1), false)
 }
 
 // ReadRootedRegularFileUpTo returns one bounded rooted regular-file snapshot
@@ -234,17 +234,35 @@ func ReadRootedRegularFileUpTo(
 	if maximumBytes < 0 {
 		return nil, 0, EntryIdentity{}, fmt.Errorf("rooted regular file maximum bytes must not be negative")
 	}
-	return readWindowsRegularFile(ctx, capability, maximumBytes)
+	return readWindowsRegularFile(ctx, capability, maximumBytes, false)
+}
+
+// ReadRootedRegularFileWithWorkBudget retains capability and charges the entry
+// and observed payload size before reading; growth cannot spend extra credit.
+func ReadRootedRegularFileWithWorkBudget(ctx context.Context, capability rootedpath.CommitCapability, maximumBytes int64) ([]byte, fs.FileMode, EntryIdentity, error) {
+	if maximumBytes < 0 {
+		return nil, 0, EntryIdentity{}, fmt.Errorf("rooted regular file maximum bytes must not be negative")
+	}
+	return readWindowsRegularFile(ctx, capability, maximumBytes, true)
 }
 
 func readWindowsRegularFile(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	maximumBytes int64,
+	chargeWork bool,
 ) ([]byte, fs.FileMode, EntryIdentity, error) {
 	path, err := rootedCapabilityPath(capability)
 	if err != nil {
 		return nil, 0, EntryIdentity{}, err
+	}
+	if chargeWork {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, EntryIdentity{}, err
+		}
+		if err := capability.AdmitPhysicalWork(0, 1, 0); err != nil {
+			return nil, 0, EntryIdentity{}, windowsFailureBeforeVisibility(phaseReadPayload, path, err)
+		}
 	}
 	anchor, err := openWindowsDestinationAnchor(ctx, capability, false)
 	if anchor != nil {
@@ -268,6 +286,16 @@ func readWindowsRegularFile(
 	}
 	if err := validateWindowsCanonicalEntryAttributes(observed.facts.attribute.attributes, false); err != nil {
 		return nil, 0, EntryIdentity{}, windowsFailureBeforeVisibility(phaseCaptureMetadata, path, err)
+	}
+	if chargeWork {
+		size := observed.facts.standard.endOfFile
+		if size < 0 || size > maximumBytes {
+			return nil, 0, EntryIdentity{}, windowsFailureBeforeVisibility(phaseReadPayload, path, newRegularFileReadLimitError(maximumBytes, size))
+		}
+		if err := capability.AdmitPhysicalWork(0, 0, size); err != nil {
+			return nil, 0, EntryIdentity{}, windowsFailureBeforeVisibility(phaseReadPayload, path, err)
+		}
+		maximumBytes = size
 	}
 	content, err := readWindowsPayloadUpTo(ctx, observed.handle.Handle(), maximumBytes)
 	if err != nil {

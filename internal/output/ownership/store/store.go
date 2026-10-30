@@ -90,6 +90,8 @@ func newLexicalStore(path string) (Store, error) {
 // NewRooted constructs a rooted store whose every physical authority
 // observation consumes the supplied operation-wide budget. The caller owns
 // root and must keep it open for the store's lifetime.
+// Full physical-work allocations also charge protection payload reads and writes;
+// traversal-only allocations retain their path-only contract.
 func NewRooted(
 	root *rootedpath.CapturedRoot,
 	destination rootedpath.Destination,

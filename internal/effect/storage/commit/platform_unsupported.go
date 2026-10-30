@@ -267,6 +267,11 @@ func ReadRootedRegularFileUpTo(
 	return nil, 0, EntryIdentity{}, newUnsupportedPlatformFailure(path)
 }
 
+// ReadRootedRegularFileWithWorkBudget returns unsupported_guarantee without reading.
+func ReadRootedRegularFileWithWorkBudget(ctx context.Context, capability rootedpath.CommitCapability, maximumBytes int64) ([]byte, fs.FileMode, EntryIdentity, error) {
+	return ReadRootedRegularFileUpTo(ctx, capability, maximumBytes)
+}
+
 // ReadRootedSymlinkTarget returns unsupported_guarantee without reading.
 func ReadRootedSymlinkTarget(
 	_ context.Context,
