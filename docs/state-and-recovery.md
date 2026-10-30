@@ -204,10 +204,11 @@ host observer's byte limit. Recovery has separate physical-work limits.
 ## Permission-Only Recovery
 
 `apply`, `status` and `doctor` discover protection records for the selected state
-authority without requiring valid manifest, lockfile or state payloads. Keep the
-same manifest selection when inspecting or recovering a removed manifest. Their
-reports identify records observed during the command, not a fresh assertion that
-each remains pending when output is delivered. Discovery does not itself block
+authority without requiring valid manifest, lockfile or state payloads. If the
+manifest was removed, select its original path explicitly with `--manifest` when
+inspecting or recovering it. Reports identify records observed during the command,
+not a fresh assertion that each remains pending when output is delivered.
+Discovery does not itself block
 an unrelated write or no-op Apply; actual writes still respect document fences.
 
 A permission-protection record is separate from an apply journal. When one
