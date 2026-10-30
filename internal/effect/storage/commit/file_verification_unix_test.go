@@ -75,14 +75,11 @@ func TestCommitFileVerifiesFinalMode(t *testing.T) {
 	assertNoPrivateEntries(t, root)
 }
 
-func TestCommitFilePreservesMetadataBeforeRestrictiveMode(t *testing.T) {
+func TestCommitFilePublishesBeforeRestrictiveMode(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("requires an unprivileged owner to exercise mode-dependent metadata access")
 	}
-	name := "user.daem.test"
-	if runtime.GOOS == "darwin" {
-		name = "com.daem.test"
-	}
+	const name = "user.daem.test"
 	for _, mode := range []fs.FileMode{0o000, 0o200, 0o400, 0o644} {
 		t.Run(fmt.Sprintf("%04o", mode), func(t *testing.T) {
 			root := canonicalTempDir(t)
@@ -90,8 +87,10 @@ func TestCommitFilePreservesMetadataBeforeRestrictiveMode(t *testing.T) {
 			writeTestFile(t, path, "before", 0o600)
 			t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
 			attribute := []byte("preserved")
-			if err := unix.Setxattr(path, name, attribute, 0); err != nil {
-				t.Fatal(err)
+			if runtime.GOOS == "linux" {
+				if err := unix.Setxattr(path, name, attribute, 0); err != nil {
+					t.Fatal(err)
+				}
 			}
 			identity, err := CaptureEntryIdentity(t.Context(), path)
 			if err != nil {
@@ -111,10 +110,12 @@ func TestCommitFilePreservesMetadataBeforeRestrictiveMode(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertFile(t, path, "after", 0o600)
-			actual := make([]byte, len(attribute)+1)
-			count, err := unix.Getxattr(path, name, actual)
-			if err != nil || !bytes.Equal(actual[:count], attribute) {
-				t.Fatalf("supported metadata was not preserved: %v", err)
+			if runtime.GOOS == "linux" {
+				actual := make([]byte, len(attribute)+1)
+				count, err := unix.Getxattr(path, name, actual)
+				if err != nil || !bytes.Equal(actual[:count], attribute) {
+					t.Fatalf("supported metadata was not preserved: %v", err)
+				}
 			}
 			assertNoPrivateEntries(t, root)
 		})
