@@ -28,6 +28,10 @@ func (set *LeaseSet) MatchCurrentExclusiveRequestsBounded(ctx context.Context, c
 	}
 	set.mu.RLock()
 	defer set.mu.RUnlock()
+	return set.matchCurrentExclusiveRequestsBounded(ctx, controls, documents, depth, budget, newBoundedPathIdentityObserver(ctx, depth, budget))
+}
+
+func (set *LeaseSet) matchCurrentExclusiveRequestsBounded(ctx context.Context, controls []string, documents []PhysicalAuthorityRequest, depth int, budget PhysicalObservationBudget, observe pathIdentityObserver) (bool, error) {
 	if set.released || len(set.held) == 0 || len(set.domains) == 0 {
 		return false, fmt.Errorf("mutation lease set is not active")
 	}
@@ -35,7 +39,6 @@ func (set *LeaseSet) MatchCurrentExclusiveRequestsBounded(ctx context.Context, c
 	if !supported {
 		return false, fmt.Errorf("bounded mutation lease namespace is unavailable")
 	}
-	observe := newBoundedPathIdentityObserver(ctx, depth, budget)
 	if err := namespace.validateCurrentBounded(ctx, depth, budget, observe); err != nil {
 		return false, err
 	}

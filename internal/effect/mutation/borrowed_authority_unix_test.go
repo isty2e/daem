@@ -106,6 +106,17 @@ func TestBorrowedAuthorityRequiresExactKindsEffectsAndRouteFacts(t *testing.T) {
 			if budget.components == 0 || budget.entries == 0 {
 				t.Fatal("borrowed validation bypassed allocation")
 			}
+			prepared, prepareErr := set.PrepareCurrentExclusiveRequestsBounded(t.Context(), []string{control}, []PhysicalAuthorityRequest{{Path: document, Target: "codex", Scope: "project"}}, 256, budget)
+			if mode == "complete" {
+				if prepareErr != nil {
+					t.Fatal("complete coverage could not be prepared", prepareErr)
+				}
+				if matched, err := prepared.MatchCurrent(t.Context(), budget); err != nil || !matched {
+					t.Fatal("prepared coverage differed from legacy exact coverage", err)
+				}
+			} else if prepareErr == nil {
+				t.Fatal("incomplete authority produced prepared coverage")
+			}
 		})
 	}
 }

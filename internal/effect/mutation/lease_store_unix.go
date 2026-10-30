@@ -488,6 +488,33 @@ func (namespace *unixLeaseNamespace) validateCurrentBounded(ctx context.Context,
 	})
 }
 
+func (namespace *unixLeaseNamespace) preparedObservationPaths() ([]string, error) {
+	if namespace == nil {
+		return nil, fmt.Errorf("mutation lease namespace is not initialized")
+	}
+	namespace.mu.Lock()
+	defer namespace.mu.Unlock()
+	if namespace.closed || len(namespace.directories) != len(leaseNamespaceComponents)+1 {
+		return nil, fmt.Errorf("mutation lease namespace is not active")
+	}
+	return []string{namespace.directories[0].path, namespace.rootPath}, nil
+}
+
+func (namespace *unixLeaseNamespace) reserveCurrentObservation(depth int, budget PhysicalObservationBudget) error {
+	if namespace == nil {
+		return fmt.Errorf("mutation lease namespace is not initialized")
+	}
+	namespace.mu.Lock()
+	defer namespace.mu.Unlock()
+	if namespace.closed || len(namespace.directories) != len(leaseNamespaceComponents)+1 {
+		return fmt.Errorf("mutation lease namespace is not active")
+	}
+	if err := admitPlatformPathTraversal(namespace.directories[0].path, depth, budget); err != nil {
+		return err
+	}
+	return budget.AdmitPhysicalWork(0, 2+3*(len(namespace.directories)-1), 0)
+}
+
 func (namespace *unixLeaseNamespace) validateCurrent(observe pathIdentityObserver, admitPath func(string) error, admitMetadata func(int) error) error {
 	if namespace == nil {
 		return fmt.Errorf("mutation lease namespace is not initialized")

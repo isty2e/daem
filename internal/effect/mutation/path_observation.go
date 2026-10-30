@@ -13,15 +13,17 @@ import (
 
 type pathIdentityObserver func(string, PathEffect) (canonicalPath, error)
 
+type pathObservationKey struct {
+	path   string
+	effect PathEffect
+}
+
 func newBoundedPathIdentityObserver(ctx context.Context, depth int, budget PhysicalObservationBudget) pathIdentityObserver {
 	return cachePathIdentities(func(path string, effect PathEffect) (canonicalPath, error) {
 		if err := ctx.Err(); err != nil {
 			return canonicalPath{}, err
 		}
-		if strings.TrimSpace(path) == "" || strings.ContainsRune(path, '\x00') {
-			return canonicalPath{}, fmt.Errorf("mutation path is invalid")
-		}
-		if err := effect.validate(); err != nil {
+		if err := validatePathObservation(path, effect); err != nil {
 			return canonicalPath{}, err
 		}
 		var selection pathSelection
@@ -60,6 +62,13 @@ func newBoundedPathIdentityObserver(ctx context.Context, depth int, budget Physi
 		}
 		return canonicalPathIdentityFromSelectionBounded(path, selection, effect, depth, budget)
 	})
+}
+
+func validatePathObservation(path string, effect PathEffect) error {
+	if strings.TrimSpace(path) == "" || strings.ContainsRune(path, '\x00') {
+		return fmt.Errorf("mutation path is invalid")
+	}
+	return effect.validate()
 }
 
 // newPathIdentityObserver shares successful observations within one read-only
@@ -121,13 +130,9 @@ func newPathSelectionResolver(
 // cachePathIdentities retains complete successful values within one read-only pass.
 // Its lifetime must end before any effect or another validation invocation.
 func cachePathIdentities(observe pathIdentityObserver) pathIdentityObserver {
-	type observationKey struct {
-		path   string
-		effect PathEffect
-	}
-	observed := make(map[observationKey]canonicalPath)
+	observed := make(map[pathObservationKey]canonicalPath)
 	return func(path string, effect PathEffect) (canonicalPath, error) {
-		key := observationKey{path: path, effect: effect}
+		key := pathObservationKey{path: path, effect: effect}
 		if identity, exists := observed[key]; exists {
 			return identity, nil
 		}
