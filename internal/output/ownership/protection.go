@@ -90,6 +90,18 @@ func (document ProtectedDocument) Restriction(userID, groupID, observedMode uint
 	return restricted, restricted != observedMode, nil
 }
 
+// InitialRestriction requires the frozen ceiling to match invocation-start
+// permissions. Recovery's Restriction may instead preserve an already tighter mode.
+func (document ProtectedDocument) InitialRestriction(userID, groupID, observedMode uint32) (uint32, bool, error) {
+	if _, _, err := document.Restriction(userID, groupID, observedMode); err != nil {
+		return 0, false, err
+	}
+	if observedMode != document.modeCap {
+		return 0, false, &ProtectionRefusal{kind: ProtectionModeChanged}
+	}
+	return observedMode, false, nil
+}
+
 func (document ProtectedDocument) Equal(other ProtectedDocument) bool {
 	return document.userID == other.userID && document.groupID == other.groupID && document.modeCap == other.modeCap &&
 		slices.EqualFunc(document.bindings, other.bindings, DocumentBinding.Equal)

@@ -112,6 +112,31 @@ func TestPermissionRestrictionNeverRestoresRemovedRights(t *testing.T) {
 	}
 }
 
+func TestInitialProtectionCeilingDoesNotAdoptAChangedMode(t *testing.T) {
+	root := t.TempDir()
+	binding := testDocumentBinding(t, root, "owner", "@pi-agent/settings.json", filepath.Join(root, "settings.json"))
+	document, err := NewProtectedDocument([]DocumentBinding{binding}, 501, 20, 0o640)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode, expanded, err := document.Restriction(501, 20, 0o600); err != nil || expanded || mode != 0o600 {
+		t.Fatal("recovery stopped preserving an already tighter mode", err)
+	}
+	if _, _, err := document.InitialRestriction(501, 20, 0o600); err == nil {
+		t.Fatal("an old ceiling was adopted over changed invocation-start permissions")
+	}
+	if mode, expanded, err := document.InitialRestriction(501, 20, 0o640); err != nil || expanded || mode != 0o640 {
+		t.Fatal("matching invocation-start permissions were refused", err)
+	}
+	zero, err := NewProtectedDocument([]DocumentBinding{binding}, 501, 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode, expanded, err := zero.InitialRestriction(501, 20, 0); err != nil || expanded || mode != 0 {
+		t.Fatal("explicit mode000 was defaulted or treated as missing", err)
+	}
+}
+
 func TestProtectionRejectsIncompleteOrOverlappingScope(t *testing.T) {
 	root := t.TempDir()
 	binding := testDocumentBinding(t, root, "owner", "@pi-agent/settings.json", filepath.Join(root, "config"))

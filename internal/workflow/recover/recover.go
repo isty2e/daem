@@ -20,7 +20,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/recoverygate"
-	"github.com/isty2e/daem/internal/workflow/recover/permissions"
+	permissions "github.com/isty2e/daem/internal/workflow/protection"
 )
 
 type PlanInput struct {

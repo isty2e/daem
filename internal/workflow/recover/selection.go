@@ -10,7 +10,7 @@ import (
 	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/recoverygate"
-	"github.com/isty2e/daem/internal/workflow/recover/permissions"
+	permissions "github.com/isty2e/daem/internal/workflow/protection"
 )
 
 func planRecoveryOperation(ctx context.Context, input PlanInput) (*PreparedRecovery, error) {

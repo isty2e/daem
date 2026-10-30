@@ -6,7 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
-	"github.com/isty2e/daem/internal/workflow/recover/permissions"
+	permissions "github.com/isty2e/daem/internal/workflow/protection"
 )
 
 // ExecutionPhase is the public projection of post-execution durable authority

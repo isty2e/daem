@@ -1,4 +1,4 @@
-package permissions
+package protection
 
 import (
 	"context"
@@ -16,12 +16,13 @@ import (
 )
 
 // Prepared contains frozen operation inputs, not retained roots or live grants.
-// The parent Recover capability owns its single execution lifecycle.
+// The containing operation owns its single execution lifecycle.
 type Prepared struct {
 	paths      daempaths.Paths
 	owner      stateauthority.Authority
 	rows       []ownership.PendingProtection
 	budget     rootedpath.PhysicalTraversalBudget
+	contexts   map[stateauthority.Authority]daempaths.Paths
 	disclosure Plan
 }
 

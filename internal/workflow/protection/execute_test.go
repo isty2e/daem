@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package permissions
+package protection
 
 import (
 	"context"

@@ -12,7 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/subprocess/executioncontext"
-	"github.com/isty2e/daem/internal/workflow/recover/permissions"
+	permissions "github.com/isty2e/daem/internal/workflow/protection"
 )
 
 type permissionRecoverOutput struct {

@@ -1,6 +1,6 @@
-// Package permissions performs frozen, source-independent permission recovery.
-// It never replays a command or restores document content.
-package permissions
+// Package protection owns permission containment and settlement for invocations
+// and source-independent recovery. It never restores document content.
+package protection
 
 import (
 	"errors"
@@ -39,7 +39,7 @@ type Target struct {
 func (target Target) Destination() output.Destination { return target.destination }
 func (target Target) State() TargetState              { return target.state }
 
-// Expanded reports expansion observed during this recovery, not earlier history.
+// Expanded reports expansion observed during this operation, not earlier history.
 func (target Target) Expanded() bool { return target.expanded }
 func (target Target) Cause() error   { return target.cause }
 

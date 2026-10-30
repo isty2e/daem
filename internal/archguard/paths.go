@@ -130,7 +130,7 @@ func isAllowedPresentWorkflowResultImport(packagePath string, importPath string)
 		"internal/workflow/migrate",
 		"internal/workflow/probe",
 		"internal/workflow/recover",
-		"internal/workflow/recover/permissions",
+		"internal/workflow/protection",
 		"internal/workflow/refresh",
 		"internal/workflow/status":
 		return true
@@ -201,8 +201,11 @@ func isForbiddenNestedWorkflowImport(packagePath string, importPath string) bool
 	if !isWorkflowPackage(packagePath) || !matchesInternalImport(importPath, "internal/workflow") {
 		return false
 	}
-	if importPath == "internal/workflow/recover/permissions" {
-		return packagePath != "internal/workflow/recover"
+	if importPath == "internal/workflow/protection" {
+		return packagePath != "internal/workflow/recover" &&
+			packagePath != "internal/workflow/apply" &&
+			packagePath != "internal/workflow/refresh" &&
+			packagePath != "internal/workflow/nativeconfig"
 	}
 	if importPath == "internal/workflow/lock/generate" {
 		return packagePath != "internal/workflow/lock" && packagePath != "internal/workflow/authoring"

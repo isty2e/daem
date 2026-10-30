@@ -1,4 +1,4 @@
-package permissions
+package protection
 
 import (
 	"context"
@@ -38,10 +38,11 @@ func Execute(ctx context.Context, prepared Prepared) (result Result, returnErr e
 	if err != nil {
 		return result, err
 	}
+	prepared.paths = paths
 	eligibility := make(map[string]error)
 	for _, row := range prepared.rows {
 		for _, document := range row.Documents() {
-			root, _, err := qualifyTarget(ctx, paths, prepared.owner, document, prepared.budget)
+			root, _, err := qualifyTarget(ctx, prepared, document)
 			if root != nil {
 				err = errors.Join(err, root.Close())
 			}
@@ -76,7 +77,6 @@ func Execute(ctx context.Context, prepared Prepared) (result Result, returnErr e
 	if err != nil {
 		return result, err
 	}
-	prepared.paths = paths
 	for index, row := range prepared.rows {
 		record := &result.records[index]
 		current, err := registryStore.LoadProtectionRegistry(ctx)
@@ -93,28 +93,7 @@ func Execute(ctx context.Context, prepared Prepared) (result Result, returnErr e
 			continue
 		}
 		record.settlement = SettlementPending
-		record.cause = requireQuiescence(ctx, row)
-		for targetIndex, document := range row.Documents() {
-			target := Target{destination: record.targets[targetIndex].destination, state: TargetBlocked, cause: errors.Join(record.cause, eligibility[document.PathAuthority().Key()])}
-			if target.cause == nil {
-				target = restrictTarget(ctx, prepared, registryStore, row, document)
-			}
-			record.targets[targetIndex] = target
-		}
-		if !recordTargetsSecure(*record) {
-			continue
-		}
-		// Settlement requires a new complete proof, not cached success for earlier targets.
-		record.cause = requireQuiescence(ctx, row)
-		if record.cause != nil {
-			continue
-		}
-		for targetIndex, document := range row.Documents() {
-			target := restrictTarget(ctx, prepared, registryStore, row, document)
-			target.expanded = target.expanded || record.targets[targetIndex].expanded
-			record.targets[targetIndex] = target
-		}
-		if !recordTargetsSecure(*record) {
+		if !restrictProtectionTargets(ctx, prepared, registryStore, row, record, eligibility, nil) {
 			continue
 		}
 		if matches, err := leases.DomainsMatchCurrent(ctx); err != nil || !matches {
@@ -127,6 +106,39 @@ func Execute(ctx context.Context, prepared Prepared) (result Result, returnErr e
 		return result, errors.Join(fmt.Errorf("permission recovery remains pending"), result.Failure())
 	}
 	return result, nil
+}
+
+func restrictProtectionTargets(ctx context.Context, prepared Prepared, store ownershipstore.Store, row ownership.PendingProtection, record *Record, eligibility map[string]error, beforeTarget func(context.Context) error) bool {
+	// Settlement needs a fresh complete proof after the restriction pass.
+	for pass := range 2 {
+		record.cause = requireQuiescence(ctx, row)
+		if record.cause != nil {
+			if pass == 0 {
+				for index := range record.targets {
+					record.targets[index].state = TargetBlocked
+					record.targets[index].cause = record.cause
+				}
+			}
+			return false
+		}
+		for index, document := range row.Documents() {
+			target := Target{destination: record.targets[index].destination, state: TargetBlocked, cause: eligibility[document.PathAuthority().Key()]}
+			if target.cause == nil && beforeTarget != nil {
+				target.cause = beforeTarget(ctx)
+			}
+			if target.cause == nil {
+				target = restrictTarget(ctx, prepared, store, row, document)
+			}
+			if pass != 0 {
+				target.expanded = target.expanded || record.targets[index].expanded
+			}
+			record.targets[index] = target
+		}
+		if !recordTargetsSecure(*record) {
+			return false
+		}
+	}
+	return true
 }
 
 func settleProtection(ctx context.Context, store ownershipmutation.ProtectionRegistryStore, owner stateauthority.Authority, row ownership.PendingProtection) (Settlement, error) {
@@ -170,7 +182,7 @@ func restrictTarget(ctx context.Context, prepared Prepared, registryStore owners
 		target.cause = err
 		return target
 	}
-	root, destination, err := qualifyTarget(ctx, prepared.paths, prepared.owner, document, prepared.budget)
+	root, destination, err := qualifyTarget(ctx, prepared, document)
 	if err != nil {
 		target.cause = err
 		return target

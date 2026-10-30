@@ -1,4 +1,4 @@
-package permissions
+package protection
 
 type FailureKind string
 

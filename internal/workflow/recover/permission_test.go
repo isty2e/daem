@@ -25,7 +25,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/subprocess/executioncontext"
-	"github.com/isty2e/daem/internal/workflow/recover/permissions"
+	permissions "github.com/isty2e/daem/internal/workflow/protection"
 	"github.com/isty2e/daem/test/ownershiptest"
 	"golang.org/x/sys/unix"
 )
