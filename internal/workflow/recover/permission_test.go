@@ -14,7 +14,10 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/executionidentity"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -486,14 +489,18 @@ func TestPermissionRecoverAfterRealGatedInvocationAndDurableBinding(t *testing.T
 		}
 		return &permissionCommandDirectory{directory: directory}, nil
 	}
-	attempt := (subprocess.CommandExecutor{}).ExecuteProtectedInWorkingDirectory(t.Context(), subprocess.CommandAttemptRequest{Command: "/bin/chmod", Args: []string{"644", fixture.Documents[0]}}, bindDirectory, fixture.Protection.Invocation(), func(ctx context.Context, binding executionidentity.Binding) error {
+	unfinished := errors.New("safety settlement was interrupted")
+	attempt, finalizationErr := (subprocess.CommandExecutor{}).ExecuteProtectedInWorkingDirectory(t.Context(), subprocess.CommandAttemptRequest{Command: "/bin/chmod", Args: []string{"644", fixture.Documents[0]}}, bindDirectory, fixture.Protection.Invocation(), func(ctx context.Context, binding executionidentity.Binding) error {
 		transition, err := ownership.NewBindProtection(fixture.Protection, binding)
 		if err != nil {
 			return err
 		}
 		_, err = fixture.Store.TransitionProtection(ctx, fixture.Owner, transition)
 		return err
-	})
+	}, func(context.Context, subprocess.ProtectedCommandCompletion) error { return unfinished })
+	if !errors.Is(finalizationErr, unfinished) {
+		t.Fatal("unfinished safety was hidden", finalizationErr)
+	}
 	if !attempt.ReleaseAttempted() || !attempt.Attempt().Succeeded() {
 		t.Fatal("gated target did not execute after binding publication", attempt.Attempt().ErrorDetail())
 	}
@@ -519,5 +526,159 @@ func TestPermissionRecoverAfterRealGatedInvocationAndDurableBinding(t *testing.T
 	info, err := os.Stat(fixture.Documents[0])
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatal("real invocation permissions remained expanded", err)
+	}
+}
+
+func TestProtectedFinalizerContainsAndSettlesBeforeReturningMalformedCapture(t *testing.T) {
+	fixture := ownershiptest.PermissionRecovery(t, ".codex/config.toml")
+	if err := os.Chmod(fixture.Documents[0], 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	forward := journalrecovery.NewPhysicalCaptureBudget(nil)
+	safety := journalrecovery.NewPhysicalCaptureBudget(nil)
+	root, destination, err := rootedpath.CaptureDestinationBounded(fixture.Paths.OwnershipRegistryPath, journalrecovery.MaximumPhysicalPathDepth, forward)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	forwardStore, err := ownershipstore.NewRooted(root, destination, journalrecovery.MaximumPhysicalPathDepth, forward)
+	if err != nil {
+		t.Fatal(err)
+	}
+	safetyStore, err := ownershipstore.NewRooted(root, destination, journalrecovery.MaximumPhysicalPathDepth, safety)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mutations, err := mutation.NewStore(fixture.Paths.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var domains []mutation.Domain
+	for _, path := range []string{fixture.Paths.StatefilePath, fixture.Paths.OwnershipRegistryPath, fixture.Paths.RecoveryDir, fixture.Documents[0]} {
+		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+			domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: path, Access: mutation.AccessExclusive, Effect: effect})
+			if err != nil {
+				t.Fatal(err)
+			}
+			domains = append(domains, domain)
+		}
+	}
+	leases, err := mutations.Acquire(t.Context(), domains...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leases.Release()
+
+	bindDirectory := func() (subprocess.WorkingDirectoryBinding, error) {
+		directory, err := os.Open(fixture.Paths.ManifestRoot)
+		if err != nil {
+			return nil, err
+		}
+		return &permissionCommandDirectory{directory: directory}, nil
+	}
+
+	var bound ownership.PendingProtection
+	widened := errors.New("contained expansion still requires a non-success outcome")
+	finalized := 0
+	result, err := (subprocess.CommandExecutor{}).ExecuteProtectedInWorkingDirectory(t.Context(), subprocess.CommandAttemptRequest{Command: "/bin/sh", Args: []string{"-c", `/bin/chmod 644 "$1"; printf '[malformed'`, "protected", fixture.Documents[0]}}, bindDirectory, fixture.Protection.Invocation(), func(ctx context.Context, binding executionidentity.Binding) error {
+		transition, err := ownership.NewBindProtection(fixture.Protection, binding)
+		if err != nil {
+			return err
+		}
+		registry, err := forwardStore.TransitionProtection(ctx, fixture.Owner, transition)
+		if err == nil {
+			bound, _ = registry.Protection(fixture.Protection.Invocation())
+		}
+		return err
+	}, func(ctx context.Context, completion subprocess.ProtectedCommandCompletion) error {
+		finalized++
+		binding, present := completion.Binding()
+		proof, err := completion.Quiescence()
+		if !present || err != nil || proof.Require(binding) != nil {
+			return errors.New("native quiescence is unavailable")
+		}
+
+		if matches, err := leases.DomainsMatchCurrent(ctx); err != nil || !matches {
+			return errors.Join(mutation.StaleSnapshotError{}, err)
+		}
+
+		document := bound.Documents()[0]
+		registry, err := safetyStore.LoadProtectionRegistry(ctx)
+		if err != nil {
+			return err
+		}
+		if err := registry.RequireProtectedDocument(bound, document); err != nil {
+			return err
+		}
+
+		namespace, err := mutation.ObservePersistedDirectoryEntryAuthorityBounded(fixture.Documents[0], journalrecovery.MaximumPhysicalPathDepth, safety)
+		if err != nil {
+			return err
+		}
+		if !namespace.Exact().Equal(document.PathAuthority()) {
+			return mutation.StaleSnapshotError{}
+		}
+
+		documentRoot, entry, err := rootedpath.CaptureDestinationBounded(fixture.Documents[0], journalrecovery.MaximumPhysicalPathDepth, safety)
+		if err != nil {
+			return err
+		}
+		defer documentRoot.Close()
+		capability, err := documentRoot.AcquireBounded(entry, journalrecovery.MaximumPhysicalPathDepth, safety)
+		if err != nil {
+			return err
+		}
+		request, err := storagecommit.NewRootedPermissionRestriction(capability, document.Restriction)
+		if err != nil {
+			return errors.Join(err, capability.Close())
+		}
+		contained, err := storagecommit.RestrictRootedFilePermissions(ctx, request)
+		if err != nil {
+			return err
+		}
+		if !contained.Expanded() {
+			return errors.New("native command did not exercise the containment fixture")
+		}
+
+		fresh, err := executioncontext.ObserveExecutionQuiescence(ctx, binding)
+		if err != nil {
+			return err
+		}
+		if err := fresh.Require(binding); err != nil {
+			return err
+		}
+
+		registry, err = safetyStore.LoadProtectionRegistry(ctx)
+		if err != nil {
+			return err
+		}
+		if err := registry.RequireProtectedDocument(bound, document); err != nil {
+			return err
+		}
+		clear, err := ownership.NewClearProtection(bound)
+		if err != nil {
+			return err
+		}
+		if _, err = safetyStore.TransitionProtection(ctx, fixture.Owner, clear); err != nil {
+			return err
+		}
+		return widened
+	})
+	if !errors.Is(err, widened) || finalized != 1 || !result.Attempt().Succeeded() || result.Attempt().Stdout() != "[malformed" {
+		t.Fatalf("lost separate safety and process outcomes: finalized=%d err=%v reason=%s", finalized, err, result.Attempt().Reason())
+	}
+
+	info, err := os.Stat(fixture.Documents[0])
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatal("capture returned before containment", err)
+	}
+	rows, err := fixture.Store.LoadPendingProtections(t.Context())
+	if err != nil || len(rows) != 0 {
+		t.Fatal("finalizer did not confirm settlement", err)
+	}
+	if payload, err := os.ReadFile(fixture.Documents[0]); err != nil || string(payload) != "malformed host payload\n" {
+		t.Fatal("metadata containment changed payload", err)
 	}
 }

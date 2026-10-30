@@ -20,7 +20,13 @@ type protectedInvocationRun struct {
 // ProtectedCommandAttemptResult keeps mechanical outcome separate from a release
 // attempt and fresh writer-group evidence. None of them settles a safety record.
 type ProtectedCommandAttemptResult struct {
-	attempt          CommandAttemptResult
+	attempt    CommandAttemptResult
+	completion ProtectedCommandCompletion
+}
+
+// ProtectedCommandCompletion carries runner evidence, never captured output or
+// a certificate that the caller's protection record has been settled.
+type ProtectedCommandCompletion struct {
 	binding          executionidentity.Binding
 	quiescence       executioncontext.ExecutionQuiescence
 	quiescenceErr    error
@@ -28,40 +34,60 @@ type ProtectedCommandAttemptResult struct {
 }
 
 func (result ProtectedCommandAttemptResult) Attempt() CommandAttemptResult { return result.attempt }
-func (result ProtectedCommandAttemptResult) ReleaseAttempted() bool        { return result.releaseAttempted }
+func (result ProtectedCommandAttemptResult) ReleaseAttempted() bool {
+	return result.completion.ReleaseAttempted()
+}
 
-// Binding is the observed helper binding, not proof of its durable publication.
 func (result ProtectedCommandAttemptResult) Binding() (executionidentity.Binding, bool) {
-	return result.binding, result.binding.Validate() == nil
+	return result.completion.Binding()
 }
 
 func (result ProtectedCommandAttemptResult) Quiescence() (executioncontext.ExecutionQuiescence, error) {
-	if result.quiescenceErr == nil {
-		if err := result.quiescence.Require(result.binding); err != nil {
+	return result.completion.Quiescence()
+}
+
+func (completion ProtectedCommandCompletion) ReleaseAttempted() bool {
+	return completion.releaseAttempted
+}
+
+// Binding is the observed helper binding, not proof of its durable publication.
+func (completion ProtectedCommandCompletion) Binding() (executionidentity.Binding, bool) {
+	return completion.binding, completion.binding.Validate() == nil
+}
+
+func (completion ProtectedCommandCompletion) Quiescence() (executioncontext.ExecutionQuiescence, error) {
+	if completion.quiescenceErr == nil {
+		if err := completion.quiescence.Require(completion.binding); err != nil {
 			return executioncontext.ExecutionQuiescence{}, err
 		}
 	}
-	return result.quiescence, result.quiescenceErr
+	return completion.quiescence, completion.quiescenceErr
 }
 
 // ExecuteProtectedInWorkingDirectory requires the caller's already-Armed
 // invocation. confirm must return nil only after exact durable binding publication.
 // An ordinary injected runner cannot substitute for this native launch protocol.
+// finalize runs once before capture processing for every admitted call, including
+// pre-run failure. Its context ignores normal cancellation; the caller must supply
+// pre-admitted safety work and fresh settlement proofs. The returned error is
+// finalization/admission failure, independent of the mechanical attempt outcome.
 func (executor CommandExecutor) ExecuteProtectedInWorkingDirectory(
 	ctx context.Context,
 	request CommandAttemptRequest,
 	bind WorkingDirectoryBinder,
 	invocation executionidentity.Invocation,
 	confirm func(context.Context, executionidentity.Binding) error,
-) ProtectedCommandAttemptResult {
+	finalize func(context.Context, ProtectedCommandCompletion) error,
+) (ProtectedCommandAttemptResult, error) {
 	executor = executor.withDefaults()
-	if ctx == nil || !executor.nativeRunner || invocation.Validate() != nil || confirm == nil {
-		raw := CommandResult{RunnerSetupFailed: true, Err: errors.New("protected execution requires a native runner, invocation and durable binding confirmation")}
+	if ctx == nil || !executor.nativeRunner || invocation.Validate() != nil || confirm == nil || finalize == nil {
+		cause := errors.New("protected execution requires a context, native runner, invocation, durable binding confirmation and safety finalizer")
+		raw := CommandResult{RunnerSetupFailed: true, Err: cause}
 		capture := sanitizeCapture(raw, nil, executor.outputLimit)
 		return ProtectedCommandAttemptResult{
-			attempt:       newCommandAttemptResult(executor.clock(), false, CommandReasonRunnerError, raw, capture),
-			quiescenceErr: errors.New("protected helper was not started"),
-		}
+			attempt:    newCommandAttemptResult(executor.clock(), false, CommandReasonRunnerError, raw, capture),
+			completion: ProtectedCommandCompletion{quiescenceErr: errors.New("protected helper was not started")},
+		}, cause
 	}
 	state := &protectedInvocationRun{
 		invocation: invocation, confirm: confirm,
@@ -70,9 +96,18 @@ func (executor CommandExecutor) ExecuteProtectedInWorkingDirectory(
 	executor.runner = func(runCtx context.Context, prepared CommandRequest) CommandResult {
 		return protectedCommandRunner(runCtx, prepared, state)
 	}
-	attempt := executor.ExecuteInWorkingDirectory(ctx, request, bind)
-	return ProtectedCommandAttemptResult{
-		attempt: attempt, binding: state.binding, quiescence: state.quiescence,
-		quiescenceErr: state.quiescenceErr, releaseAttempted: state.releaseAttempted,
+	if bind == nil {
+		bind = func() (WorkingDirectoryBinding, error) {
+			return nil, errors.New("working-directory binder is required")
+		}
 	}
+	var completion ProtectedCommandCompletion
+	var finalizationErr error
+	attempt := executor.execute(ctx, request, bind, func() {
+		completion = ProtectedCommandCompletion{binding: state.binding, quiescence: state.quiescence, quiescenceErr: state.quiescenceErr, releaseAttempted: state.releaseAttempted}
+		finalizationErr = finalize(context.WithoutCancel(ctx), completion)
+	})
+	return ProtectedCommandAttemptResult{
+		attempt: attempt, completion: completion,
+	}, finalizationErr
 }
