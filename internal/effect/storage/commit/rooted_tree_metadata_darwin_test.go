@@ -145,14 +145,3 @@ func TestPreparedTreeXattrCaptureRefusesUnknownOrUnreadable(t *testing.T) {
 		})
 	}
 }
-
-func TestPreparedTreeMACLAdmissionDoesNotPermitReplacementExtras(t *testing.T) {
-	err := verifyObservedXattrs(
-		preservedMetadata{xattrs: map[string][]byte{"com.apple.macl": []byte("observed")}},
-		preservedMetadata{xattrs: make(map[string][]byte), replacement: true},
-		isAllowedReplacementXattr,
-	)
-	if !isUnsupported(err) {
-		t.Fatalf("new MACL replacement extra was admitted: %v", err)
-	}
-}

@@ -77,14 +77,6 @@ func applyXattrs(fd int, metadata preservedMetadata) error {
 	return nil
 }
 
-func verifyXattrs(fd int, metadata preservedMetadata, allowExtra func(string) bool) error {
-	observed, err := captureXattrs(fd)
-	if err != nil {
-		return err
-	}
-	return verifyObservedXattrs(observed, metadata, allowExtra)
-}
-
 func verifyObservedXattrs(
 	observed preservedMetadata,
 	metadata preservedMetadata,

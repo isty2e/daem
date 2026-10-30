@@ -87,13 +87,17 @@ attributes. Before publishing this data, daem rejects unreadable values or
 changes, additions and removals since its initial inspection. Unknown
 attributes, ACLs and file flags remain unsupported here.
 
-Replacing an existing manifest, lockfile or managed output uses a separate write
-path. Daem preserves the original file's extended attributes, including MACL when
-macOS permits reading, copying and verification. If verification finds MACL on
-the replacement that was not observed on the original, the write still fails,
-even if macOS added it when the temporary replacement file was created. A
-failure during final verification can occur after a replacement has become
-visible. A successful `--dry-run` does not exercise either of these write paths.
+Ordinary file creation and replacement, including manifests, lockfiles, state,
+claim registries and managed outputs, use a separate write path. On macOS these
+writes enforce the requested permissions, invoking-user ownership, supported
+ACL/file-flag boundary, target identity and durable publication. They do not copy
+or require equality of extended attributes; byte-for-byte xattr preservation is
+not part of this contract. New files retain attributes assigned by macOS instead
+of rewriting them from the old inode. This also avoids opaque attribute failures
+while validating newly created parent directories. ACLs and file flags remain
+unsupported rather than silently discarded. Linux replacement metadata policy is
+unchanged. A failure during final verification can still occur after a replacement
+has become visible. A successful `--dry-run` does not exercise these write paths.
 
 ## Unsupported Builds
 
