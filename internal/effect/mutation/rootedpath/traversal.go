@@ -73,8 +73,11 @@ func ChargeDestinationPath(
 }
 
 type physicalTraversal struct {
-	maximumDepth int
-	budget       PhysicalTraversalBudget
+	maximumDepth   int
+	budget         PhysicalTraversalBudget
+	captureAliases bool
+	rejectAliases  bool
+	aliases        []layoutAlias
 }
 
 func newPhysicalTraversal(

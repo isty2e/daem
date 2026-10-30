@@ -253,6 +253,9 @@ func resolveNativePathPlatform(
 			return fail(newFailure(FailureRootUnavailable, candidatePath, "inspect destination ancestor", inspectErr))
 		}
 		if stat.Mode&unix.S_IFMT == unix.S_IFLNK {
+			if traversal != nil && traversal.rejectAliases {
+				return fail(newFailure(FailureAncestorSymlink, candidatePath, "prepared physical path contains an alias", nil))
+			}
 			symlinks++
 			if symlinks > maximumPathSymlinkExpansions {
 				return fail(newFailure(
@@ -273,6 +276,13 @@ func resolveNativePathPlatform(
 					"selected root alias target is unavailable",
 					unix.ENOENT,
 				))
+			}
+			if traversal != nil && traversal.captureAliases {
+				anchor, err := captureLayoutAnchor(parent)
+				if err != nil {
+					return fail(err)
+				}
+				traversal.aliases = append(traversal.aliases, layoutAlias{parent: anchor, name: component.name, target: target})
 			}
 			absoluteTarget, targetNames := rawPathComponents(target)
 			if absoluteTarget {
