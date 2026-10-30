@@ -288,7 +288,7 @@ func TestProtectedEarlyFailureFinalizesBeforeDiagnosticFormatting(t *testing.T) 
 }
 
 func TestProtectedFinalizerRunsOnceOnEveryAdmittedEarlyFailure(t *testing.T) {
-	for _, failure := range []string{"env", "nil binder", "nil binding", "bind", "validate", "open", "lookup", "already canceled"} {
+	for _, failure := range []string{"env", "nil binder", "nil binding", "bind", "validate", "nil directory", "open error", "lookup", "already canceled"} {
 		t.Run(failure, func(t *testing.T) {
 			root := t.TempDir()
 			ctx, cancel := context.WithCancel(context.WithValue(t.Context(), protectedFinalizerContextKey{}, "retained"))
@@ -305,7 +305,7 @@ func TestProtectedFinalizerRunsOnceOnEveryAdmittedEarlyFailure(t *testing.T) {
 				binder = func() (WorkingDirectoryBinding, error) { return nil, nil }
 			case "bind":
 				binder = func() (WorkingDirectoryBinding, error) { return nil, errors.New("bind refused") }
-			case "validate", "open":
+			case "validate", "nil directory", "open error":
 				directory, err := os.Open(root)
 				if err != nil {
 					t.Fatal(err)
@@ -313,6 +313,11 @@ func TestProtectedFinalizerRunsOnceOnEveryAdmittedEarlyFailure(t *testing.T) {
 				binding := &testWorkingDirectoryBinding{directory: directory}
 				if failure == "validate" {
 					binding.validate = func() error { return errors.New("validation refused") }
+				} else if failure == "open error" {
+					if err := directory.Close(); err != nil {
+						t.Fatal(err)
+					}
+					binding.directory = nil
 				} else {
 					binding.nilDirectory = true
 				}
