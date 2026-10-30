@@ -34,11 +34,12 @@ func NewCommandExecutor(options CommandOptions) CommandExecutor {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
 	return CommandExecutor{
-		timeout:     timeout,
-		outputLimit: outputLimit,
-		lookupEnv:   lookupEnv,
-		runner:      runner,
-		clock:       clock,
+		timeout:      timeout,
+		outputLimit:  outputLimit,
+		lookupEnv:    lookupEnv,
+		runner:       runner,
+		nativeRunner: options.Runner == nil,
+		clock:        clock,
 	}
 }
 
@@ -182,13 +183,15 @@ func (executor CommandExecutor) workDirAuthorityFailure(
 }
 
 func (executor CommandExecutor) withDefaults() CommandExecutor {
-	return NewCommandExecutor(CommandOptions{
+	normalized := NewCommandExecutor(CommandOptions{
 		Timeout:     executor.timeout,
 		OutputLimit: executor.outputLimit,
 		LookupEnv:   executor.lookupEnv,
 		Runner:      executor.runner,
 		Clock:       executor.clock,
 	})
+	normalized.nativeRunner = executor.runner == nil || executor.nativeRunner
+	return normalized
 }
 
 func (executor CommandExecutor) resolveEnv(envRefs []CommandEnvRef) ([]string, []string, []string) {

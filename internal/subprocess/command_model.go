@@ -92,11 +92,12 @@ type CommandOptions struct {
 
 // CommandExecutor executes already-authorized command attempts.
 type CommandExecutor struct {
-	timeout     time.Duration
-	outputLimit int
-	lookupEnv   CommandEnvLookup
-	runner      CommandRunner
-	clock       CommandClock
+	timeout      time.Duration
+	outputLimit  int
+	lookupEnv    CommandEnvLookup
+	runner       CommandRunner
+	nativeRunner bool
+	clock        CommandClock
 }
 
 // CommandAttemptResult is the sanitized mechanical result of one command attempt.
