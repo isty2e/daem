@@ -15,6 +15,41 @@ import (
 
 var _ ownershipmutation.ProtectionRegistryStore = Store{}
 
+// ReadPendingProtectionsBounded authenticates only the registry and control
+// separation. Referenced documents and claims gain no live qualification.
+func ReadPendingProtectionsBounded(
+	ctx context.Context,
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (rows []ownership.PendingProtection, returnErr error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("ownership protection context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	lexical, err := newLexicalStore(path)
+	if err != nil {
+		return nil, err
+	}
+	root, destination, err := rootedpath.CaptureDestinationBounded(lexical.path, maximumPhysicalDepth, budget)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, root.Close(), ctx.Err())
+		if returnErr != nil {
+			rows = nil
+		}
+	}()
+	store, err := NewRooted(root, destination, maximumPhysicalDepth, budget)
+	if err != nil {
+		return nil, err
+	}
+	return store.LoadPendingProtections(ctx)
+}
+
 func (store Store) LoadPendingProtections(ctx context.Context) ([]ownership.PendingProtection, error) {
 	registry, _, _, capability, err := store.loadForProtection(ctx)
 	if capability != nil {

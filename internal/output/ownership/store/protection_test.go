@@ -12,6 +12,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/executionidentity"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
@@ -360,6 +361,11 @@ func TestProtectionDiscoveryAndSettlementDoNotDependOnUnrelatedLiveClaims(t *tes
 	rows, err := store.LoadPendingProtections(t.Context())
 	if err != nil || len(rows) != 1 || !rows[0].Equal(protection) {
 		t.Fatalf("unrelated authority drift hid safety work: %v", err)
+	}
+	budget := &documentSettlementCountingBudget{}
+	rows, err = ReadPendingProtectionsBounded(t.Context(), store.Path(), journalrecovery.MaximumPhysicalPathDepth, budget)
+	if err != nil || len(rows) != 1 || !rows[0].Equal(protection) || budget.calls == 0 {
+		t.Fatal("bounded artifact-only read qualified unrelated paths or bypassed traversal admission", err)
 	}
 	clear, _ := ownership.NewClearProtection(protection)
 	settled, err := store.TransitionProtection(t.Context(), protection.Owner(), clear)
