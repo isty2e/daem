@@ -25,33 +25,27 @@ func syncDirectory(fd int) error {
 }
 
 func capturePreservedMetadata(fd int, stat *unix.Stat_t) (preservedMetadata, error) {
-	if stat.Flags != 0 {
-		return preservedMetadata{}, unsupported(fmt.Sprintf("file flags 0x%x cannot be preserved", stat.Flags), nil)
+	if err := validateDarwinFileMetadata(fd, stat); err != nil {
+		return preservedMetadata{}, err
 	}
-	hasACL, err := hasDarwinACL(fd)
-	if err != nil {
-		return preservedMetadata{}, unsupported("ACL and extended security metadata cannot be inspected", err)
-	}
-	if hasACL {
-		return preservedMetadata{}, unsupported("ACL or extended security metadata cannot be preserved", nil)
-	}
-	metadata, err := captureXattrs(fd)
-	metadata.replacement = true
-	return metadata, err
+	return preservedMetadata{}, nil
 }
 
-func applyPreservedMetadata(fd int, metadata preservedMetadata) error {
-	if err := applyXattrs(fd, metadata); err != nil {
-		return err
-	}
-	return verifyPreservedMetadata(fd, metadata)
+func applyPreservedMetadata(fd int, _ preservedMetadata) error {
+	return verifyPreservedMetadata(fd, preservedMetadata{})
 }
 
-func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
+func verifyPreservedMetadata(fd int, _ preservedMetadata) error {
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil {
 		return err
 	}
+	return validateDarwinFileMetadata(fd, &stat)
+}
+
+// Ordinary file writes validate their access envelope, not opaque xattr fidelity.
+// Newly created objects retain attributes assigned by the OS or environment.
+func validateDarwinFileMetadata(fd int, stat *unix.Stat_t) error {
 	if stat.Flags != 0 {
 		return unsupported(fmt.Sprintf("file flags 0x%x cannot be preserved", stat.Flags), nil)
 	}
@@ -62,13 +56,7 @@ func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 	if hasACL {
 		return unsupported("ACL or extended security metadata cannot be preserved", nil)
 	}
-	return verifyXattrs(fd, metadata, func(name string) bool {
-		return isAllowedReplacementXattr(name)
-	})
-}
-
-func isAllowedReplacementXattr(name string) bool {
-	return name == "com.apple.provenance"
+	return nil
 }
 
 func isAllowedPreparedTreeXattr(name string) bool {
