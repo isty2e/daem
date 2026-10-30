@@ -5,6 +5,7 @@ package commit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -16,29 +17,104 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestCommitFilePreservesExtendedAttributes(t *testing.T) {
-	root := canonicalTempDir(t)
-	target := filepath.Join(root, "state.json")
-	if err := os.WriteFile(target, []byte("before"), 0o600); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
+func TestCommitFileKeepsCreatedXattrsIndependentOfPreviousInode(t *testing.T) {
+	for _, name := range []string{"daem.lock.toml", "state.json", "claims.json", "settings.json"} {
+		for _, rooted := range []bool{false, true} {
+			for _, exists := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/rooted=%t/existing=%t", name, rooted, exists), func(t *testing.T) {
+					root := canonicalTempDir(t)
+					target := filepath.Join(root, name)
+					if exists {
+						if err := os.WriteFile(target, []byte("before"), 0o600); err != nil {
+							t.Fatal(err)
+						}
+						if err := unix.Setxattr(target, "com.daem.test", []byte("previous-inode"), 0); err != nil {
+							t.Fatal(err)
+						}
+					}
+
+					var request FileCommit
+					var err error
+					if rooted {
+						captured := captureRootForCommitTest(t, root)
+						capability := rootedCapabilityForCommitTest(t, captured, name)
+						if exists {
+							request, err = NewRootedFileReplacement(capability, []byte("after"), 0o600, captureIdentity(t, target))
+						} else {
+							request, err = NewRootedFileCreate(capability, []byte("after"), 0o600)
+						}
+					} else if exists {
+						request, err = NewFileReplacement(target, []byte("after"), 0o600, captureIdentity(t, target))
+					} else {
+						request, err = NewFileCreate(target, []byte("after"), 0o600)
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+
+					created := false
+					faults := faultPlan{actions: map[phase]func(){phaseApplyMetadata: func() {
+						entries, err := os.ReadDir(root)
+						if err != nil {
+							t.Fatal(err)
+						}
+						for _, entry := range entries {
+							if !strings.HasPrefix(entry.Name(), temporaryPrefix) {
+								continue
+							}
+							if err := unix.Setxattr(filepath.Join(root, entry.Name()), "com.daem.test", []byte("created-inode"), 0); err != nil {
+								t.Fatal(err)
+							}
+							created = true
+							return
+						}
+						t.Fatal("prepared file was not available before metadata admission")
+					}}}
+					if err := commitFileWithFaults(t.Context(), request, faults); err != nil {
+						t.Fatal(err)
+					}
+					if !created {
+						t.Fatal("fixture did not attach creation metadata")
+					}
+					assertFile(t, target, "after", 0o600)
+					var value [32]byte
+					size, err := unix.Getxattr(target, "com.daem.test", value[:])
+					if err != nil || string(value[:size]) != "created-inode" {
+						t.Fatal("publication rewrote creation metadata from the previous inode", err)
+					}
+				})
+			}
+		}
 	}
-	if err := unix.Setxattr(target, "com.daem.test", []byte("value"), 0); err != nil {
-		t.Fatalf("Setxattr returned error: %v", err)
+}
+
+func TestDarwinFileMetadataDoesNotCopyOrRequireOpaqueAttributes(t *testing.T) {
+	path := filepath.Join(canonicalTempDir(t), "prepared")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
-	request, err := NewFileReplacement(target, []byte("after"), 0o600, captureIdentity(t, target))
+	if err := unix.Setxattr(path, "com.daem.test", []byte("created-inode"), 0); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
-		t.Fatalf("NewFileReplacement returned error: %v", err)
+		t.Fatal(err)
 	}
-	if err := CommitFile(context.Background(), request); err != nil {
-		t.Fatalf("CommitFile returned error: %v", err)
+	defer file.Close()
+	old := preservedMetadata{xattrs: map[string][]byte{
+		"com.daem.test":             []byte("previous-inode"),
+		"com.daem.only-on-previous": []byte("not-required"),
+	}, replacement: true}
+	if err := verifyPreservedMetadata(int(file.Fd()), old); err != nil {
+		t.Fatal("old opaque attributes became a verification requirement", err)
 	}
-	buffer := make([]byte, 16)
-	size, err := unix.Getxattr(target, "com.daem.test", buffer)
-	if err != nil {
-		t.Fatalf("Getxattr returned error: %v", err)
+	if err := applyPreservedMetadata(int(file.Fd()), old); err != nil {
+		t.Fatal("opaque metadata blocked preparation", err)
 	}
-	if got := string(buffer[:size]); got != "value" {
-		t.Fatalf("xattr = %q, want value", got)
+	var value [32]byte
+	size, err := unix.Getxattr(path, "com.daem.test", value[:])
+	if err != nil || string(value[:size]) != "created-inode" {
+		t.Fatal("preparation rewrote unrelated creation metadata", err)
 	}
 }
 
