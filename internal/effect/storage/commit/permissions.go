@@ -55,6 +55,7 @@ func (request RootedPermissionRestriction) validate() error {
 type PermissionRestrictionResult struct {
 	expanded   bool
 	restricted bool
+	absent     bool
 }
 
 func (result PermissionRestrictionResult) Expanded() bool { return result.expanded }
@@ -62,3 +63,6 @@ func (result PermissionRestrictionResult) Expanded() bool { return result.expand
 // Restricted reports an acknowledged chmod, not durable safety settlement.
 // Any returned error still requires the caller to retain its protection fence.
 func (result PermissionRestrictionResult) Restricted() bool { return result.restricted }
+
+// ObservedAbsent is a read-only fact, not durable absence or safety settlement.
+func (result PermissionRestrictionResult) ObservedAbsent() bool { return result.absent }

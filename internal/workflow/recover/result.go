@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/workflow/recover/permissions"
 )
 
 // ExecutionPhase is the public projection of post-execution durable authority
@@ -30,10 +31,11 @@ const (
 	durableAuthorityUnknown
 )
 
-// ExecutionResult is a path-neutral post-execution fact. A retained state owns
-// a fresh disclosure; terminal and unknown states deliberately carry no stale
-// plan or action authority.
+// ExecutionResult retains journal lifecycle facts or a separate PermissionResult.
+// Retained journal states own fresh disclosures; terminal and unknown journal
+// states carry no stale plan or action authority.
 type ExecutionResult struct {
+	permission         *permissions.Result
 	authorityState     durableAuthorityState
 	disclosure         journal.RecoverablePlan
 	operationID        string
@@ -133,6 +135,9 @@ func (result ExecutionResult) HasNonClearFileSetObservation() bool {
 
 // Phase returns the public post-execution lifecycle projection.
 func (result ExecutionResult) Phase() ExecutionPhase {
+	if result.permission != nil {
+		return ExecutionPhase("permission_safety_" + string(result.permission.Phase()))
+	}
 	switch result.authorityState {
 	case durableAuthorityActive:
 		return ExecutionPhaseActiveAuthorityRetained
@@ -150,7 +155,14 @@ func (result ExecutionResult) Phase() ExecutionPhase {
 	}
 }
 
-// AuthorityKind returns the freshly observed retained authority kind.
+func (result ExecutionResult) PermissionResult() (permissions.Result, bool) {
+	if result.permission == nil {
+		return permissions.Result{}, false
+	}
+	return *result.permission, true
+}
+
+// AuthorityKind returns the freshly observed retained journal authority kind.
 func (result ExecutionResult) AuthorityKind() journal.RecoveryAuthorityKind {
 	switch result.authorityState {
 	case durableAuthorityActive:
@@ -174,8 +186,8 @@ func (result ExecutionResult) CurrentDisclosure() (journal.RecoverablePlan, bool
 	return result.disclosure.Clone(), true
 }
 
-// AuthorityRetained reports whether a freshly classified retry authority is
-// available.
+// AuthorityRetained reports freshly classified journal retry authority.
+// Permission authority is reported separately by PermissionResult.
 func (result ExecutionResult) AuthorityRetained() bool {
 	return result.authorityState == durableAuthorityActive ||
 		result.authorityState == durableAuthorityCleanup

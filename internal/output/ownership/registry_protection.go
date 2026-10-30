@@ -73,6 +73,33 @@ func (registry Registry) ProtectionsForOwner(owner stateauthority.Key) []Pending
 	return result
 }
 
+// RequireProtectedDocument compares one frozen obligation with current recorded
+// facts. It grants no live namespace, process or permission authority.
+func (registry Registry) RequireProtectedDocument(expected PendingProtection, document ProtectedDocument) error {
+	if err := expected.Validate(); err != nil {
+		return err
+	}
+	current, present := registry.Protection(expected.Invocation())
+	if !present || !current.Equal(expected) {
+		return &ProtectionRefusal{kind: ProtectionRecordChanged}
+	}
+	if !slices.ContainsFunc(expected.documents, document.Equal) {
+		return &ProtectionRefusal{kind: ProtectionDocumentOutsideScope}
+	}
+	return registry.requireDocumentCohort(document)
+}
+
+func (registry Registry) requireDocumentCohort(document ProtectedDocument) error {
+	bindings, err := registry.DocumentBindingsAt(document.PathAuthority())
+	if err != nil {
+		return &ProtectionRefusal{kind: ProtectionCohortChanged, cause: err}
+	}
+	if !slices.EqualFunc(bindings, document.bindings, DocumentBinding.Equal) {
+		return &ProtectionRefusal{kind: ProtectionCohortChanged}
+	}
+	return nil
+}
+
 // RequireWritable admits only document scopes without unresolved protection.
 // The protection's own owner has no exemption for ordinary content/claim writes.
 func (registry Registry) RequireWritable(physical pathauthority.Exact) error {

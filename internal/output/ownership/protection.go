@@ -70,10 +70,10 @@ func (document ProtectedDocument) Restriction(userID, groupID, observedMode uint
 		return 0, false, err
 	}
 	if document.userID != userID || document.groupID != groupID {
-		return 0, false, fmt.Errorf("protected document owner or group changed")
+		return 0, false, &ProtectionRefusal{kind: ProtectionOwnerChanged}
 	}
 	if observedMode & ^uint32(0o777) != 0 || observedMode&0o700 != document.modeCap&0o700 || observedMode&0o111 != document.modeCap&0o111 {
-		return 0, false, fmt.Errorf("protected document owner or non-access mode bits changed")
+		return 0, false, &ProtectionRefusal{kind: ProtectionModeChanged}
 	}
 	restricted := observedMode & document.modeCap
 	return restricted, restricted != observedMode, nil

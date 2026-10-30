@@ -4,6 +4,7 @@ package commit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"golang.org/x/sys/unix"
@@ -15,7 +16,17 @@ func RestrictRootedFilePermissions(ctx context.Context, request RootedPermission
 	return restrictRootedFilePermissions(ctx, request, faultPlan{})
 }
 
+// InspectRootedFilePermissions shares the same-FD qualification but performs no
+// chmod, payload read, sync or durable absence confirmation.
+func InspectRootedFilePermissions(ctx context.Context, request RootedPermissionRestriction) (PermissionRestrictionResult, error) {
+	return inspectOrRestrictRootedPermissions(ctx, request, faultPlan{}, false)
+}
+
 func restrictRootedFilePermissions(ctx context.Context, request RootedPermissionRestriction, faults faultPlan) (PermissionRestrictionResult, error) {
+	return inspectOrRestrictRootedPermissions(ctx, request, faults, true)
+}
+
+func inspectOrRestrictRootedPermissions(ctx context.Context, request RootedPermissionRestriction, faults faultPlan, mutate bool) (PermissionRestrictionResult, error) {
 	var result PermissionRestrictionResult
 	if request.capability != nil {
 		defer request.capability.Close()
@@ -37,10 +48,16 @@ func restrictRootedFilePermissions(ctx context.Context, request RootedPermission
 		defer anchor.close()
 	}
 	if err != nil {
+		if !mutate && errors.Is(err, unix.ENOENT) {
+			return inspectPermissionAbsence(ctx, request, err)
+		}
 		return result, failureBeforeVisibility(phaseCaptureIdentity, request.path, err)
 	}
 	expected, _, err := anchor.observe(anchor.base, request.path)
 	if err != nil {
+		if !mutate && errors.Is(err, unix.ENOENT) {
+			return inspectPermissionAbsence(ctx, request, err)
+		}
 		return result, failureBeforeVisibility(phaseCaptureIdentity, request.path, err)
 	}
 	if expected.kind == entryKindSymlink {
@@ -76,6 +93,15 @@ func restrictRootedFilePermissions(ctx context.Context, request RootedPermission
 		return result, failureBeforeVisibility(phaseCaptureMetadata, request.path, err)
 	}
 	result.expanded = expanded
+	if !mutate {
+		if _, _, err := anchor.requireExpected(anchor.base, request.path, expected); err != nil {
+			return result, failureBeforeVisibility(phaseRevalidateEntry, request.path, err)
+		}
+		if err := anchor.verifyChain(); err != nil {
+			return result, failureBeforeVisibility(phaseRevalidateEntry, request.path, err)
+		}
+		return result, nil
+	}
 	attempted := false
 	fail := func(current phase, cause error) (PermissionRestrictionResult, error) {
 		if attempted {
@@ -142,6 +168,17 @@ func restrictRootedFilePermissions(ctx context.Context, request RootedPermission
 		return fail(phaseVerifyEntry, err)
 	}
 	return result, nil
+}
+
+func inspectPermissionAbsence(ctx context.Context, request RootedPermissionRestriction, cause error) (PermissionRestrictionResult, error) {
+	observation, err := observeRootedAbsence(ctx, request.capability)
+	if observation != nil {
+		defer observation.close()
+		if err == nil && observation.absent {
+			return PermissionRestrictionResult{absent: true}, nil
+		}
+	}
+	return PermissionRestrictionResult{}, failureBeforeVisibility(phaseCaptureIdentity, request.path, errors.Join(cause, err))
 }
 
 func validatePermissionTargetMetadata(stat *unix.Stat_t) error {

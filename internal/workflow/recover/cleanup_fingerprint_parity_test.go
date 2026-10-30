@@ -27,7 +27,7 @@ func TestCompiledCleanupRecoveryFingerprintMatchesLegacyProjection(t *testing.T)
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = prepared.Close() })
-			planned := prepared.lifecycle.planned
+			planned := prepared.lifecycle.planned.(recoveryPreparation)
 			cleanup, ok := journal.JournalCleanupPlan(planned.plan)
 			if !ok {
 				t.Fatalf("authority kind = %q, want cleanup", planned.plan.AuthorityKind())

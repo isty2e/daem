@@ -55,6 +55,49 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 		if err := response.selectOrdinaryResult(); err != nil {
 			return response.failure(operationFailure, humanFailureDiagnostic(err))
 		}
+		if safety, selected := prepared.PermissionDisclosure(); selected {
+			if arguments.output != requestedJSON {
+				clipresent.PrintPermissionRecoverPlan(stdout, safety)
+			}
+			if *dryRun {
+				if arguments.output == requestedJSON {
+					if err := clipresent.PrintPermissionRecoverJSON(stdout, "dry-run", safety, nil, nil); err != nil {
+						return response.failure(operationFailure, humanFailureDiagnostic(err))
+					}
+				}
+				if safety.HasErrors() {
+					return 1
+				}
+				return 0
+			}
+			if interactiveConfirmation {
+				confirmed, err := options.confirmation.prompt("recover")
+				if err != nil {
+					printConfirmationFailure(stderr, "recover", err)
+					return 1
+				}
+				if !confirmed {
+					fmt.Fprintln(stderr, "recover canceled")
+					return 1
+				}
+			}
+			execution, executeErr := recoverworkflow.Execute(options.context, prepared, options.recoverExecuteOptions)
+			result, selected := execution.PermissionResult()
+			if !selected {
+				return response.failure(operationFailure, humanFailureDiagnostic(executeErr))
+			}
+			if arguments.output == requestedJSON {
+				if err := clipresent.PrintPermissionRecoverJSON(stdout, "write", safety, &result, executeErr); err != nil {
+					return response.failure(operationFailure, humanFailureDiagnostic(err))
+				}
+			} else {
+				clipresent.PrintPermissionRecoverResult(stdout, result, executeErr)
+			}
+			if executeErr != nil {
+				return 1
+			}
+			return 0
+		}
 		plan := prepared.Disclosure()
 		fileSetFence, _ := prepared.ContinuingFileSetFence()
 

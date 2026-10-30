@@ -20,6 +20,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/recoverygate"
+	"github.com/isty2e/daem/internal/workflow/recover/permissions"
 )
 
 type PlanInput struct {
@@ -33,17 +34,13 @@ type ExecuteOptions struct {
 	Filesystem mutationfs.Store
 }
 
-// Plan prepares one pointer-owned recovery capability. Its Disclosure method
-// returns a defensive presentation snapshot.
+// Plan prepares one pointer-owned recovery capability. Journal and permission
+// disclosures are independent presentation facts, not execution authority.
 func Plan(ctx context.Context, input PlanInput) (*PreparedRecovery, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("recovery context is required")
 	}
-	planned, err := planRecovery(ctx, input)
-	if err != nil {
-		return nil, err
-	}
-	return newPreparedRecovery(planned), nil
+	return planRecoveryOperation(ctx, input)
 }
 
 func planRecovery(ctx context.Context, input PlanInput) (recoveryPreparation, error) {
@@ -213,9 +210,22 @@ func Execute(
 	prepared *PreparedRecovery,
 	options ExecuteOptions,
 ) (result ExecutionResult, returnErr error) {
-	execution, err := prepared.beginExecution()
+	selected, err := prepared.beginExecution()
 	if err != nil {
 		return ExecutionResult{}, err
+	}
+	if safety, ok := selected.(permissionPreparation); ok {
+		if options.Filesystem != nil {
+			err := fmt.Errorf("permission recovery requires the qualified native metadata adapter; an ordinary filesystem override is unsupported")
+			outcome := safety.prepared.RefusedResult(err)
+			return ExecutionResult{permission: &outcome}, err
+		}
+		outcome, err := permissions.Execute(ctx, safety.prepared)
+		return ExecutionResult{permission: &outcome}, err
+	}
+	execution, ok := selected.(recoveryPreparation)
+	if !ok {
+		return ExecutionResult{}, ErrPreparedRecoveryUnavailable
 	}
 	result, err = retainedExecutionResult(execution.plan)
 	result = result.withFileSetFence(execution.fileSetFence)

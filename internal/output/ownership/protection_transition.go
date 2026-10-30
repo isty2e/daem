@@ -2,7 +2,6 @@ package ownership
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/executionidentity"
@@ -117,14 +116,8 @@ func (registry Registry) ApplyProtection(owner stateauthority.Authority, transit
 			if err := registry.RequireWritable(document.PathAuthority()); err != nil {
 				return Registry{}, false, err
 			}
-			var current []DocumentBinding
-			for _, binding := range registry.bindings {
-				if binding.PathAuthority().Key() == document.PathAuthority().Key() {
-					current = append(current, binding)
-				}
-			}
-			if !slices.EqualFunc(current, document.bindings, DocumentBinding.Equal) {
-				return Registry{}, false, fmt.Errorf("protection binding cohort changed before arming")
+			if err := registry.requireDocumentCohort(document); err != nil {
+				return Registry{}, false, err
 			}
 		}
 	} else if !present || !actual.Equal(transition.expected) {

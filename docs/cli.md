@@ -1615,6 +1615,17 @@ even in verbose mode. Pre-1.0 `.daem-tombstone-<32 lowercase hex>` evidence is
 blocked before plan disclosure, neither inspected nor migrated; other
 reserved-namespace names are blocked as malformed.
 
+Permission-only recovery uses `authority_kind = "permission_safety"` instead of
+a journal classification. Its JSON contains `protections`, each with an invocation,
+armed/bound `phase`, `settlement` (`pending`, `cleared` or `unknown`) and per-document
+`targets`. Targets report the logical `destination`, `state`, safe typed `reason`
+when blocked, and `observed_access_expansion` for this recovery only. That flag
+does not describe earlier exposure. Dry-run has `phase = "planned"`; execution
+uses `completed`, `pending` or `unknown`, with `has_errors` independent of those
+authority facts. Partial containment and failed publication return nonzero.
+See [Permission-Only Recovery](state-and-recovery.md#permission-only-recovery)
+for its no-content-repair boundary.
+
 Both `--dry-run --json` and `--yes --json` use the
 [recovery family](#json-schema-contract). Every result declares one `phase`.
 Dry-run results and write attempts rejected before execution use `planned`.
@@ -1630,7 +1641,7 @@ includes its operation directory and typed action facts: resource-owned actions 
 inventing a primary target. Entity-backed projection subjects also report the
 correlated resource identity for user-facing attribution.
 
-After execution, successful write results use `completed`. A failure after
+For journal recovery, successful write results use `completed`. A failure after
 durable authority retirement uses `authority_retired`. If post-execution
 inventory cannot classify whether active, cleanup-only, or no authority remains,
 the result uses `authority_unknown`, exposes no retry plan, and instructs the

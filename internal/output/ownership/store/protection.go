@@ -23,42 +23,62 @@ func ReadPendingProtectionsBounded(
 	maximumPhysicalDepth int,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (rows []ownership.PendingProtection, returnErr error) {
+	registry, err := ReadProtectionRegistryBounded(ctx, path, maximumPhysicalDepth, budget)
+	if err != nil {
+		return nil, err
+	}
+	return registry.PendingProtections(), nil
+}
+
+// ReadProtectionRegistryBounded reads raw comparison facts under one caller
+// allocation. It does not qualify unrelated claims or grant mutation authority.
+func ReadProtectionRegistryBounded(ctx context.Context, path string, maximumPhysicalDepth int, budget rootedpath.PhysicalTraversalBudget) (registry ownership.Registry, returnErr error) {
 	if ctx == nil {
-		return nil, fmt.Errorf("ownership protection context is required")
+		return ownership.Registry{}, fmt.Errorf("ownership protection context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return ownership.Registry{}, err
 	}
 	lexical, err := newLexicalStore(path)
 	if err != nil {
-		return nil, err
+		return ownership.Registry{}, err
 	}
 	root, destination, err := rootedpath.CaptureDestinationBounded(lexical.path, maximumPhysicalDepth, budget)
 	if err != nil {
-		return nil, err
+		return ownership.Registry{}, err
 	}
 	defer func() {
 		returnErr = errors.Join(returnErr, root.Close(), ctx.Err())
 		if returnErr != nil {
-			rows = nil
+			registry = ownership.Registry{}
 		}
 	}()
 	store, err := NewRooted(root, destination, maximumPhysicalDepth, budget)
 	if err != nil {
-		return nil, err
+		return ownership.Registry{}, err
 	}
-	return store.LoadPendingProtections(ctx)
+	return store.LoadProtectionRegistry(ctx)
 }
 
 func (store Store) LoadPendingProtections(ctx context.Context) ([]ownership.PendingProtection, error) {
+	registry, err := store.LoadProtectionRegistry(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return registry.PendingProtections(), nil
+}
+
+// LoadProtectionRegistry reads recorded comparison facts without qualifying
+// unrelated claim paths. Permission recovery must qualify its own live targets.
+func (store Store) LoadProtectionRegistry(ctx context.Context) (ownership.Registry, error) {
 	registry, _, _, capability, err := store.loadForProtection(ctx)
 	if capability != nil {
 		err = errors.Join(err, capability.Close())
 	}
 	if err != nil {
-		return nil, err
+		return ownership.Registry{}, err
 	}
-	return registry.PendingProtections(), nil
+	return registry, nil
 }
 
 func (store Store) TransitionProtection(ctx context.Context, owner stateauthority.Authority, transition ownership.ProtectionTransition) (ownership.Registry, error) {
