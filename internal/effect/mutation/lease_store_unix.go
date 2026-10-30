@@ -468,6 +468,27 @@ func validateCurrentLeaseRecord(root *os.File, name string, want unixLeaseObject
 }
 
 func (namespace *unixLeaseNamespace) ValidateCurrent() error {
+	return namespace.validateCurrent(canonicalPathIdentity, nil, nil)
+}
+
+func (namespace *unixLeaseNamespace) validateCurrentBounded(ctx context.Context, depth int, budget PhysicalObservationBudget, observe pathIdentityObserver) error {
+	return namespace.validateCurrent(observe, func(path string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := observe(path, PathEffectReferent); err != nil {
+			return err
+		}
+		return admitPlatformPathTraversal(path, depth, budget)
+	}, func(entries int) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return budget.AdmitPhysicalWork(0, entries, 0)
+	})
+}
+
+func (namespace *unixLeaseNamespace) validateCurrent(observe pathIdentityObserver, admitPath func(string) error, admitMetadata func(int) error) error {
 	if namespace == nil {
 		return fmt.Errorf("mutation lease namespace is not initialized")
 	}
@@ -477,6 +498,16 @@ func (namespace *unixLeaseNamespace) ValidateCurrent() error {
 		return fmt.Errorf("mutation lease namespace is not active")
 	}
 	data := namespace.directories[0]
+	if admitPath != nil {
+		if err := admitPath(data.path); err != nil {
+			return err
+		}
+	}
+	if admitMetadata != nil {
+		if err := admitMetadata(2); err != nil {
+			return err
+		}
+	}
 	pathInfo, err := os.Lstat(data.path)
 	if err != nil {
 		return fmt.Errorf("inspect selected mutation data root %q: %w", data.path, err)
@@ -489,6 +520,11 @@ func (namespace *unixLeaseNamespace) ValidateCurrent() error {
 		return fmt.Errorf("selected mutation data root %q changed", data.path)
 	}
 	for _, directory := range namespace.directories[1:] {
+		if admitMetadata != nil {
+			if err := admitMetadata(3); err != nil {
+				return err
+			}
+		}
 		var current unix.Stat_t
 		if err := unix.Fstatat(
 			int(directory.parent.Fd()),
@@ -509,7 +545,7 @@ func (namespace *unixLeaseNamespace) ValidateCurrent() error {
 			return fmt.Errorf("validate mutation lease namespace mount for %q: %w", directory.path, err)
 		}
 	}
-	identity, err := canonicalPathIdentity(namespace.rootPath, PathEffectReferent)
+	identity, err := observe(namespace.rootPath, PathEffectReferent)
 	if err != nil {
 		return fmt.Errorf("observe current mutation lease root: %w", err)
 	}

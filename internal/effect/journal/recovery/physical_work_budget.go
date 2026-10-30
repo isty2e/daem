@@ -86,6 +86,7 @@ func (work ArtifactWork) Equal(other ArtifactWork) bool {
 // ownership, backup, and cleanup evidence to the same operation ceilings;
 // execution receives only capacity reserved before its first effect.
 type PhysicalWorkBudget struct {
+	invocationReservations           *invocationReservationLedger
 	removalAdmissionPending          bool
 	observations                     int
 	observationLimit                 int

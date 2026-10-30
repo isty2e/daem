@@ -530,13 +530,47 @@ func TestPermissionRecoverAfterRealGatedInvocationAndDurableBinding(t *testing.T
 }
 
 func TestProtectedFinalizerContainsAndSettlesBeforeReturningMalformedCapture(t *testing.T) {
+	testProtectedFinalizerWithPrepaidWork(t, true)
+}
+
+func TestProtectedFinalizerLeavesProtectionWhenPrepaidSafetyIsUnavailable(t *testing.T) {
+	testProtectedFinalizerWithPrepaidWork(t, false)
+}
+
+func testProtectedFinalizerWithPrepaidWork(t *testing.T, prepaySafety bool) {
+	t.Helper()
 	fixture := ownershiptest.PermissionRecovery(t, ".codex/config.toml")
 	if err := os.Chmod(fixture.Documents[0], 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	forward := journalrecovery.NewPhysicalCaptureBudget(nil)
-	safety := journalrecovery.NewPhysicalCaptureBudget(nil)
+	// This fixture reserves a finite native-adapter envelope. The complete
+	// producer still owns compiling demand from its frozen cohort and schedule.
+	var passes []int
+	for range 1024 {
+		passes = append(passes, journalrecovery.MaximumPhysicalPathDepth)
+	}
+	artifact, err := journalrecovery.NewArtifactWork(4096, 64<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forwardWork, err := journalrecovery.NewInvocationWork(passes, artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	safetyWork := journalrecovery.InvocationWork{}
+	if prepaySafety {
+		safetyWork = forwardWork
+	}
+	parent := journalrecovery.NewPhysicalCaptureBudget(journalrecovery.NewPhysicalPathBudget())
+	reservation, err := parent.ReserveInvocation(forwardWork, safetyWork)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forward, safety, err := reservation.Take()
+	if err != nil {
+		t.Fatal(err)
+	}
 	root, destination, err := rootedpath.CaptureDestinationBounded(fixture.Paths.OwnershipRegistryPath, journalrecovery.MaximumPhysicalPathDepth, forward)
 	if err != nil {
 		t.Fatal(err)
@@ -546,17 +580,15 @@ func TestProtectedFinalizerContainsAndSettlesBeforeReturningMalformedCapture(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	safetyStore, err := ownershipstore.NewRooted(root, destination, journalrecovery.MaximumPhysicalPathDepth, safety)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	mutations, err := mutation.NewStore(fixture.Paths.DataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var domains []mutation.Domain
-	for _, path := range []string{fixture.Paths.StatefilePath, fixture.Paths.OwnershipRegistryPath, fixture.Paths.RecoveryDir, fixture.Documents[0]} {
+	controls := []string{fixture.Paths.StatefilePath, fixture.Paths.OwnershipRegistryPath, fixture.Paths.RecoveryDir}
+	documents := []mutation.PhysicalAuthorityRequest{{Path: fixture.Documents[0], Target: "codex", Scope: "project"}}
+	for _, path := range controls {
 		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
 			domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: path, Access: mutation.AccessExclusive, Effect: effect})
 			if err != nil {
@@ -564,6 +596,13 @@ func TestProtectedFinalizerContainsAndSettlesBeforeReturningMalformedCapture(t *
 			}
 			domains = append(domains, domain)
 		}
+	}
+	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+		domain, err := mutation.NewPhysicalPathDomain(mutation.PhysicalPathRequest{Path: fixture.Documents[0], Access: mutation.AccessExclusive, Effect: effect, Target: "codex", Scope: "project"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		domains = append(domains, domain)
 	}
 	leases, err := mutations.Acquire(t.Context(), domains...)
 	if err != nil {
@@ -583,6 +622,9 @@ func TestProtectedFinalizerContainsAndSettlesBeforeReturningMalformedCapture(t *
 	widened := errors.New("contained expansion still requires a non-success outcome")
 	finalized := 0
 	result, err := (subprocess.CommandExecutor{}).ExecuteProtectedInWorkingDirectory(t.Context(), subprocess.CommandAttemptRequest{Command: "/bin/sh", Args: []string{"-c", `/bin/chmod 644 "$1"; printf '[malformed'`, "protected", fixture.Documents[0]}}, bindDirectory, fixture.Protection.Invocation(), func(ctx context.Context, binding executionidentity.Binding) error {
+		if matches, err := leases.MatchCurrentExclusiveRequestsBounded(ctx, controls, documents, journalrecovery.MaximumPhysicalPathDepth, forward); err != nil || !matches {
+			return errors.Join(mutation.StaleSnapshotError{}, err)
+		}
 		transition, err := ownership.NewBindProtection(fixture.Protection, binding)
 		if err != nil {
 			return err
@@ -600,10 +642,17 @@ func TestProtectedFinalizerContainsAndSettlesBeforeReturningMalformedCapture(t *
 			return errors.New("native quiescence is unavailable")
 		}
 
-		if matches, err := leases.DomainsMatchCurrent(ctx); err != nil || !matches {
+		if err := forward.AdmitPhysicalWork(len(passes)*journalrecovery.MaximumPhysicalPathDepth, 0, 0); err == nil {
+			return errors.New("forward overdraw did not exercise allocation failure")
+		}
+		if matches, err := leases.MatchCurrentExclusiveRequestsBounded(ctx, controls, documents, journalrecovery.MaximumPhysicalPathDepth, safety); err != nil || !matches {
 			return errors.Join(mutation.StaleSnapshotError{}, err)
 		}
 
+		safetyStore, err := ownershipstore.NewRooted(root, destination, journalrecovery.MaximumPhysicalPathDepth, safety)
+		if err != nil {
+			return err
+		}
 		document := bound.Documents()[0]
 		registry, err := safetyStore.LoadProtectionRegistry(ctx)
 		if err != nil {
@@ -649,6 +698,9 @@ func TestProtectedFinalizerContainsAndSettlesBeforeReturningMalformedCapture(t *
 		if err := fresh.Require(binding); err != nil {
 			return err
 		}
+		if matches, err := leases.MatchCurrentExclusiveRequestsBounded(ctx, controls, documents, journalrecovery.MaximumPhysicalPathDepth, safety); err != nil || !matches {
+			return errors.Join(mutation.StaleSnapshotError{}, err)
+		}
 
 		registry, err = safetyStore.LoadProtectionRegistry(ctx)
 		if err != nil {
@@ -666,8 +718,40 @@ func TestProtectedFinalizerContainsAndSettlesBeforeReturningMalformedCapture(t *
 		}
 		return widened
 	})
-	if !errors.Is(err, widened) || finalized != 1 || !result.Attempt().Succeeded() || result.Attempt().Stdout() != "[malformed" {
+	if finalized != 1 || !result.Attempt().Succeeded() || result.Attempt().Stdout() != "[malformed" {
 		t.Fatalf("lost separate safety and process outcomes: finalized=%d err=%v reason=%s", finalized, err, result.Attempt().Reason())
+	}
+	if prepaySafety && !errors.Is(err, widened) {
+		t.Fatal("prepaid containment did not finish", err)
+	}
+	if !prepaySafety {
+		if err == nil || errors.Is(err, widened) {
+			t.Fatal("unavailable safety allowance pretended to settle", err)
+		}
+		info, statErr := os.Stat(fixture.Documents[0])
+		if statErr != nil || info.Mode().Perm() != 0o644 {
+			t.Fatal("unadmitted containment changed permissions", statErr)
+		}
+		rows, loadErr := fixture.Store.LoadPendingProtections(t.Context())
+		if loadErr != nil || len(rows) != 1 || !rows[0].Equal(bound) {
+			t.Fatal("failed safety work lost the bound fence", loadErr)
+		}
+		if err := leases.Release(); err != nil {
+			t.Fatal(err)
+		}
+		prepared, err := Plan(t.Context(), PlanInput{ManifestPath: fixture.Paths.ManifestPath})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer prepared.Close()
+		recovered, err := Execute(t.Context(), prepared, ExecuteOptions{})
+		if err != nil {
+			t.Fatal("fresh recovery could not finish retained protection", err)
+		}
+		outcome, selected := recovered.PermissionResult()
+		if !selected || !outcome.Complete() {
+			t.Fatal("fresh recovery left the fence unresolved")
+		}
 	}
 
 	info, err := os.Stat(fixture.Documents[0])

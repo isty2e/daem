@@ -1,8 +1,66 @@
 package mutation
 
-import "path/filepath"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+)
 
 type pathIdentityObserver func(string, PathEffect) (canonicalPath, error)
+
+func newBoundedPathIdentityObserver(ctx context.Context, depth int, budget PhysicalObservationBudget) pathIdentityObserver {
+	return cachePathIdentities(func(path string, effect PathEffect) (canonicalPath, error) {
+		if err := ctx.Err(); err != nil {
+			return canonicalPath{}, err
+		}
+		if strings.TrimSpace(path) == "" || strings.ContainsRune(path, '\x00') {
+			return canonicalPath{}, fmt.Errorf("mutation path is invalid")
+		}
+		if err := effect.validate(); err != nil {
+			return canonicalPath{}, err
+		}
+		var selection pathSelection
+		if effect == PathEffectDirectoryEntry {
+			value, err := selectDirectoryEntryPathBounded(path, depth, budget)
+			if err != nil {
+				return canonicalPath{}, err
+			}
+			selection = value
+		} else {
+			absolute, err := filepath.Abs(filepath.Clean(path))
+			if err != nil {
+				return canonicalPath{}, err
+			}
+			resolved, err := rootedpath.ResolveReferentPathBounded(absolute, depth, budget)
+			if err != nil {
+				return canonicalPath{}, err
+			}
+			if err := admitPlatformPathTraversal(resolved, depth, budget); err != nil {
+				return canonicalPath{}, err
+			}
+			if err := budget.AdmitPhysicalWork(0, 1, 0); err != nil {
+				return canonicalPath{}, err
+			}
+			_, err = os.Lstat(resolved)
+			if err == nil {
+				selection = pathSelection{anchorPath: resolved}
+			} else if errors.Is(err, os.ErrNotExist) {
+				selection, err = selectDirectoryEntryPathBounded(resolved, depth, budget)
+				if err != nil {
+					return canonicalPath{}, err
+				}
+			} else {
+				return canonicalPath{}, err
+			}
+		}
+		return canonicalPathIdentityFromSelectionBounded(path, selection, effect, depth, budget)
+	})
+}
 
 // newPathIdentityObserver shares successful observations within one read-only
 // pass. It must not survive a visibility effect or another validation call.
