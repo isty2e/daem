@@ -320,7 +320,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
 			ClaimTransitions: ordinary.ownership.transitions, ProvisionalAcquires: ordinary.ownership.provisional, RemovalDemands: ordinary.demands,
 			Resolver: authority.rootedJournalResolver(input.Resolver), RootedCapability: authority.rootedJournalCapability,
-		}})
+		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions()})
 		if err != nil {
 			return err
 		}

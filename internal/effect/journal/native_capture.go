@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
@@ -19,7 +20,8 @@ import (
 
 type NativeCaptureOptions struct {
 	CaptureOptions
-	OrderObservations []pipackage.OrderObservation
+	OrderObservations         []pipackage.OrderObservation
+	ProjectCarrierCompletions []durablecarrier.ManagedCarrierClaim
 }
 
 // NativeJournalPublicationError retains the storage conclusion when a commit
@@ -95,7 +97,7 @@ func CaptureNativeJournalWithOptions(
 	if err := validateNativeCaptureContext(ctx, paths, batch, options.CaptureOptions); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if err := validateNativeCaptureWork(batch.before, after, edits, mutations); err != nil {
+	if err := validateNativeCaptureWork(batch.before, after, edits, mutations, options.ProjectCarrierCompletions); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	if err := ensureNoActive(ctx, paths.RecoveryDir, inventoryOptions{

@@ -22,6 +22,7 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/subprocess"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/test/testkit"
@@ -565,9 +566,26 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 		Adapter: storagecommit.Adapter{}, boundary: boundary,
 		host: host, state: paths.StatefilePath, cancel: cancel,
 	}
+	execution := applyworkflow.ExecuteOptions{NativeFilesystem: store}
+	execution.HostRouteExecutor = subprocess.NewCommandExecutor(subprocess.CommandOptions{Runner: func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+		if boundary != "carrier-install" || request.Command != "pi" || len(request.Args) != 3 || request.Args[0] != "install" || request.Args[2] != "-l" {
+			t.Fatalf("native recovery fixture invoked an unexpected host route: %#v", request)
+		}
+		pending := nativeExtensionCompletionState(t, paths)
+		if len(pending.PendingCarrierInstalls()) != 1 || len(pending.ManagedCarrierClaims()) != 0 {
+			t.Fatal("host invocation preceded its exact durable pending install")
+		}
+		content, err := json.Marshal(map[string]any{"packages": []string{request.Args[1]}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		testkit.WriteFile(t, filepath.Dir(manifest), ".pi/settings.json", string(content))
+		os.Exit(nativeRecoveryExit)
+		return subprocess.CommandResult{}
+	}})
 	code := clipkg.RunWithOptions(os.Args[separator+3:], clipkg.RunOptions{
 		Context: ctx, Stdout: os.Stdout, Stderr: os.Stderr,
-		ApplyExecuteOptions: applyworkflow.ExecuteOptions{NativeFilesystem: store},
+		ApplyExecuteOptions: execution,
 	})
 	os.Exit(code)
 }

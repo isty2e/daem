@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -15,12 +16,13 @@ import (
 )
 
 type NativeApplyStateInput struct {
-	Before       durable.Snapshot
-	ManagedPaths []reconcile.ManagedPathDecision
-	Aggregates   []reconcile.AggregateDecision
-	Narrowings   []reconcile.NativeNarrowingAction
-	WholeSources []lock.LockedSubjectContract
-	StateCodec   durable.SnapshotCodec
+	Before                   durable.Snapshot
+	ManagedPaths             []reconcile.ManagedPathDecision
+	Aggregates               []reconcile.AggregateDecision
+	Narrowings               []reconcile.NativeNarrowingAction
+	WholeSources             []lock.LockedSubjectContract
+	StateCodec               durable.SnapshotCodec
+	ConfirmedRelationActions []reconcile.RelationAction
 }
 
 // NativeWholeAdoption binds an actual matching whole Record to state-only key
@@ -44,14 +46,21 @@ func (adoption NativeWholeAdoption) RetiredKeys() []durable.ManagedAggregateStat
 // NativeApplyStatePreparation keeps derived state and its actual logical effects
 // together. It is not a containing operation seal or permission to publish state.
 type NativeApplyStatePreparation struct {
-	before           durable.Snapshot
-	after            durable.Snapshot
-	managed          []ManagedPathEffect
-	aggregates       []AggregateEffect
-	nativeOperations []profile.NativeAggregateOperationContract
-	narrowings       []reconcile.NativeNarrowingAction
-	adoptions        []NativeWholeAdoption
-	initialized      bool
+	before             durable.Snapshot
+	after              durable.Snapshot
+	managed            []ManagedPathEffect
+	aggregates         []AggregateEffect
+	nativeOperations   []profile.NativeAggregateOperationContract
+	narrowings         []reconcile.NativeNarrowingAction
+	adoptions          []NativeWholeAdoption
+	projectCompletions []durablecarrier.ManagedCarrierClaim
+	initialized        bool
+}
+
+// ProjectCarrierCompletions declares the carrier delta derived with this
+// successor; journal capture must not infer it from arbitrary After fields.
+func (preparation NativeApplyStatePreparation) ProjectCarrierCompletions() []durablecarrier.ManagedCarrierClaim {
+	return append([]durablecarrier.ManagedCarrierClaim(nil), preparation.projectCompletions...)
 }
 
 func (preparation NativeApplyStatePreparation) Validate() error {
@@ -201,6 +210,11 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
+	completion, err := completeProjectCarrierInstalls(after, input.ConfirmedRelationActions)
+	if err != nil {
+		return NativeApplyStatePreparation{}, err
+	}
+	after = completion.after
 	if after.Equal(input.Before) && len(managed)+len(aggregates) != 0 {
 		after, err = after.AdvanceNativeDocumentCommit()
 		if err != nil {
@@ -215,8 +229,9 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	}
 	return NativeApplyStatePreparation{
 		before: input.Before, after: after, managed: managed, aggregates: aggregates,
-		nativeOperations: nativeOperations,
-		narrowings:       append([]reconcile.NativeNarrowingAction(nil), input.Narrowings...), adoptions: adoptions, initialized: true,
+		nativeOperations:   nativeOperations,
+		projectCompletions: completion.claims,
+		narrowings:         append([]reconcile.NativeNarrowingAction(nil), input.Narrowings...), adoptions: adoptions, initialized: true,
 	}, nil
 }
 

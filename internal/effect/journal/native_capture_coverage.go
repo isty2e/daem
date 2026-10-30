@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
@@ -62,12 +63,16 @@ func validateNativeCaptureContext(ctx context.Context, paths Paths, batch Native
 	return ctx.Err()
 }
 
-func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.ProjectionEdit, mutations []pathMutation) error {
+func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.ProjectionEdit, mutations []pathMutation, completions []durablecarrier.ManagedCarrierClaim) error {
 	projected, err := before.WithManagedPaths(after.ManagedPaths())
 	if err != nil {
 		return err
 	}
 	projected, err = projected.WithManagedAggregates(after.ManagedAggregates())
+	if err != nil {
+		return err
+	}
+	projected, _, err = projected.WithPromotedCarrierClaims(completions)
 	if err != nil {
 		return err
 	}

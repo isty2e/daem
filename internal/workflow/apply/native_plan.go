@@ -81,6 +81,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	state, err := execute.PrepareNativeApplyState(ctx, execute.NativeApplyStateInput{
 		Before: assessment.CurrentState, ManagedPaths: assessment.Reconciliation.ManagedPaths(),
 		Aggregates: assessment.Reconciliation.Aggregates(), StateCodec: codec,
+		ConfirmedRelationActions: assessment.Reconciliation.Relations(),
 	})
 	if err != nil {
 		return err

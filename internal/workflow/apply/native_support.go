@@ -1,7 +1,11 @@
 package apply
 
 import (
+	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -52,7 +56,9 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	}
 	for _, adoption := range result.CarrierAdoptions() {
 		if adoption.BlocksOrdinaryApply() || adoption.StateOnly() {
-			return nativeSupportError{nativeSupportRoutes}
+			if !nativeAdoptionCompletedByPending(assessment.CurrentState, result.Relations(), adoption) {
+				return nativeSupportError{nativeSupportRoutes}
+			}
 		}
 	}
 	for _, order := range result.RelationOrders() {
@@ -66,4 +72,20 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 		return nativeSupportError{nativeSupportCarrierState}
 	}
 	return nil
+}
+
+func nativeAdoptionCompletedByPending(current durable.Snapshot, actions []reconcile.RelationAction, adoption carrieradoption.Action) bool {
+	if adoption.Result() != carrieradoption.ResultPresentUnclaimed && adoption.Result() != carrieradoption.ResultEligibleExactRelation {
+		return false
+	}
+	for _, action := range actions {
+		if !action.CarrierIdentity().ExactEqual(adoption.CarrierIdentity()) || !action.RouteRequest().Equal(adoption.AcquisitionRequest()) {
+			continue
+		}
+		pending, _, matched := execute.MatchPendingCarrierInstallCompletion(current, action, target.ScopeProject)
+		if matched && pending.Owner().ExactEqual(adoption.CurrentOwner()) {
+			return true
+		}
+	}
+	return false
 }
