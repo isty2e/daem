@@ -9,7 +9,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -271,7 +270,7 @@ func runDelegatesAndPersistAttemptRecords(
 		entry,
 		current,
 		persistedAttempts,
-		statefile.Codec{},
+		options.stateCodec(),
 	)
 	if persistErr == nil {
 		persistErr = stateAuthority.Validate(ctx)

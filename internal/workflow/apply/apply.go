@@ -63,6 +63,7 @@ type runOptions struct {
 	statefileAuthority                *statefileEffectAuthority
 	applyEffectPlan                   *execute.ApplyEffectPlan
 	nativeInput                       *execute.NativeApplyInput
+	persistenceCodec                  durable.SnapshotCodec
 	preparedContinuation              applyContinuationPlan
 	currentContinuation               applyContinuationPlan
 	requireContinuation               bool
@@ -78,6 +79,13 @@ func (options runOptions) markAttempted() {
 	if options.markExecutionAttempted != nil {
 		options.markExecutionAttempted()
 	}
+}
+
+func (options runOptions) stateCodec() durable.SnapshotCodec {
+	if options.persistenceCodec != nil {
+		return options.persistenceCodec
+	}
+	return statefile.Codec{}
 }
 
 // HostRouteObserver returns a post-attempt observation fact for one host route
@@ -204,7 +212,7 @@ func runWithOptions(
 			ProjectRoot:                 options.projectRoot,
 			Codecs:                      aggregatecodec.Catalog(),
 			OwnershipRegistryBinder:     ownershipstore.BindRooted,
-			StateCodec:                  statefile.Codec{},
+			StateCodec:                  options.stateCodec(),
 			Filesystem:                  filesystem,
 		}, execute.ApplyOptions{
 			Events:                              options.ExecuteEvents,
@@ -274,7 +282,7 @@ func runWithOptions(
 		ProjectRoot:                 options.projectRoot,
 		Codecs:                      aggregatecodec.Catalog(),
 		OwnershipRegistryBinder:     ownershipstore.BindRooted,
-		StateCodec:                  statefile.Codec{},
+		StateCodec:                  options.stateCodec(),
 		Filesystem:                  filesystem,
 	}, execute.ApplyOptions{
 		Events:                              options.ExecuteEvents,

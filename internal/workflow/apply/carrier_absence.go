@@ -8,7 +8,6 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
@@ -304,7 +303,7 @@ func retireClaim(
 					entry,
 					result.State,
 					pending,
-					statefile.Codec{},
+					input.stateEncoder(),
 				)
 			} else {
 				next, err = execute.CommitClearedGlobalCarrierRemovalPending(
@@ -313,7 +312,7 @@ func retireClaim(
 					entry,
 					result.State,
 					pending,
-					statefile.Codec{},
+					input.stateEncoder(),
 				)
 			}
 			if err != nil {
@@ -426,6 +425,7 @@ func runAfterCarrierClaimRetirements(
 		StatePath:              stateResult.StatePath,
 		SelectedRoot:           paths.ManifestRoot,
 		Current:                stateResult.State,
+		StateEncoder:           options.stateCodec(),
 		GlobalClaims:           nextGlobalClaims,
 		Actions:                reconciliation.CarrierAbsences(),
 		RelationAuthorityPaths: relationObservations.AuthorityPaths(),

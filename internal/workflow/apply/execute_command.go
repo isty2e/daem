@@ -479,6 +479,7 @@ func executeWithDependencies(
 			native.ApplyInput.Filesystem = options.NativeFilesystem
 		}
 		executionOptions.nativeInput = &native
+		executionOptions.persistenceCodec = current.nativePlan.stateCodec
 	}
 	providerPhase, err := runMCPProviderPrerequisitePhase(
 		ctx,

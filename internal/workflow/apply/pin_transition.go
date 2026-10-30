@@ -10,7 +10,6 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
@@ -57,7 +56,7 @@ func runPinTransition(
 		if entryErr != nil {
 			return state, claims, nil, entryErr
 		}
-		state, err = execute.CommitReservedProjectPinTransition(ctx, storagecommit.Adapter{}, entry, state, transition, statefile.Codec{})
+		state, err = execute.CommitReservedProjectPinTransition(ctx, storagecommit.Adapter{}, entry, state, transition, options.stateCodec())
 	}
 	if err != nil {
 		return state, claims, nil, fmt.Errorf("reserve Pi pin transition: %w", err)
@@ -108,7 +107,7 @@ func runPinTransition(
 			if entryErr != nil {
 				return state, claims, records, entryErr
 			}
-			state, err = execute.CommitCompletedProjectPinTransition(ctx, storagecommit.Adapter{}, entry, state, transition, correlation, statefile.Codec{})
+			state, err = execute.CommitCompletedProjectPinTransition(ctx, storagecommit.Adapter{}, entry, state, transition, correlation, options.stateCodec())
 		}
 		if err != nil {
 			return state, claims, records, fmt.Errorf("complete Pi pin transition management: %w", err)
@@ -122,7 +121,7 @@ func runPinTransition(
 	if err != nil {
 		return state, claims, records, err
 	}
-	state, err = execute.CommitHostRouteAttempts(ctx, storagecommit.Adapter{}, entry, state, records, statefile.Codec{})
+	state, err = execute.CommitHostRouteAttempts(ctx, storagecommit.Adapter{}, entry, state, records, options.stateCodec())
 	if err != nil {
 		return state, claims, records, err
 	}

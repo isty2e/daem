@@ -13,7 +13,6 @@ import (
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -296,7 +295,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 				entry,
 				nextState,
 				records,
-				statefile.Codec{},
+				options.stateCodec(),
 			)
 			return err
 		}
@@ -439,7 +438,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 			nextState,
 			owner,
 			[]reconciliation.RelationAction{item.action},
-			statefile.Codec{},
+			options.stateCodec(),
 		)
 		if err != nil {
 			_ = binding.Close()
@@ -569,7 +568,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 				nextState,
 				owner,
 				item.action,
-				statefile.Codec{},
+				options.stateCodec(),
 			)
 			if err != nil {
 				return nextState, globalCarrierClaims, records, errors.Join(
@@ -611,7 +610,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 				entry,
 				nextState,
 				[]durableattempt.HostRouteAttempt{record},
-				statefile.Codec{},
+				options.stateCodec(),
 			)
 			if err != nil {
 				return nextState, globalCarrierClaims, records, errors.Join(
@@ -712,7 +711,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 					nextState,
 					item.action,
 					correlation,
-					statefile.Codec{},
+					options.stateCodec(),
 				)
 			}
 			if err != nil {
@@ -753,7 +752,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 			nextState,
 			owner,
 			item.action,
-			statefile.Codec{},
+			options.stateCodec(),
 		)
 		if err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(
@@ -791,7 +790,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 			entry,
 			nextState,
 			[]durableattempt.HostRouteAttempt{record},
-			statefile.Codec{},
+			options.stateCodec(),
 		)
 		if err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), fmt.Errorf("persist host route attempt record: %w", err), bindingReleaseErr)
