@@ -27,6 +27,15 @@ func NewInvocationWork(pathPasses []int, artifact ArtifactWork) (InvocationWork,
 	return InvocationWork{paths: slices.Clone(pathPasses), components: total, artifact: artifact}, nil
 }
 
+// Plus composes independently projected work under the same operation limits.
+func (work InvocationWork) Plus(additional InvocationWork) (InvocationWork, error) {
+	if additional.artifact.entries > MaximumPhysicalEntries-work.artifact.entries || additional.artifact.bytes > MaximumPhysicalBytes-work.artifact.bytes {
+		return InvocationWork{}, fmt.Errorf("combined invocation artifact work exceeds operation limits")
+	}
+	artifact := ArtifactWork{entries: work.artifact.entries + additional.artifact.entries, bytes: work.artifact.bytes + additional.artifact.bytes}
+	return NewInvocationWork(append(slices.Clone(work.paths), additional.paths...), artifact)
+}
+
 type invocationReservationLedger struct {
 	transferring bool
 }

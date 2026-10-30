@@ -199,3 +199,59 @@ func TestPathLayoutRejectsAReplacedExistingParent(t *testing.T) {
 		t.Fatal("new parent inode was treated as the prepared root")
 	}
 }
+
+func TestPathLayoutProjectsFreshDestinationCapture(t *testing.T) {
+	root := t.TempDir()
+	real, alias := filepath.Join(root, "real"), filepath.Join(root, "alias")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", alias); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(alias, "nested", "config")
+	layout, err := rootedpath.CaptureDirectoryEntryLayoutBounded(path, 256, layoutBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection := layoutBudget()
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := layout.ReserveDestinationCapture(256, projection); err != nil {
+		t.Fatal("capture projection performed filesystem I/O", err)
+	}
+	if err := os.Symlink("real", alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(real, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	allocation := &layoutTestBudget{pathLimit: projection.paths, entryLimit: projection.entries, byteLimit: projection.bytes}
+	captured, destination, err := layout.CaptureDestinationBounded(256, allocation)
+	if err != nil {
+		t.Fatal("fresh destination exceeded its projected work", err)
+	}
+	defer captured.Close()
+	physical, err := destination.LexicalPath()
+	if err != nil || physical != layout.CanonicalPath() {
+		t.Fatal("captured destination escaped the prepared namespace", err)
+	}
+	capability, err := captured.AcquireBounded(destination, 256, layoutBudget())
+	if err != nil {
+		t.Fatal("fresh capture did not retain native authority", err)
+	}
+	if err := capability.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("alias", alias); err != nil {
+		t.Fatal(err)
+	}
+	if unexpected, _, err := layout.CaptureDestinationBounded(256, layoutBudget()); err == nil {
+		unexpected.Close()
+		t.Fatal("fresh destination followed an unprepared alias loop")
+	}
+}

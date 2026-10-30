@@ -36,6 +36,51 @@ func TestDarwinSharedObservationCoalescesAncestorReads(t *testing.T) {
 	}
 }
 
+func TestDarwinStoredNamespaceDoesNotRequirePayloadReadPermission(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "MixedCase")
+	if err := os.WriteFile(path, []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	query := filepath.Join(root, "mixedcase")
+	if _, err := os.Stat(query); errors.Is(err, os.ErrNotExist) {
+		query = path
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	before, err := ObserveDirectoryEntryAuthority(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []os.FileMode{0, 0o200} {
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+		observed, err := ObserveDirectoryEntryAuthority(query)
+		actual, exact := observed.Exact()
+		expected, wasExact := before.Exact()
+		if err != nil || !exact || !wasExact || !actual.Equal(expected) {
+			t.Fatal("payload permission changed namespace authority", err)
+		}
+		stored, err := canonicalPathIdentity(query, PathEffectDirectoryEntry)
+		if err != nil || filepath.Base(stored.accessPath) != "MixedCase" {
+			t.Fatal("metadata observation lost stored entry spelling", err)
+		}
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink("MixedCase", link); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := canonicalPathIdentity(link, PathEffectDirectoryEntry)
+	if err != nil || filepath.Base(stored.accessPath) != "link" {
+		t.Fatal("directory-entry observation followed the final alias", err)
+	}
+	stored, err = canonicalPathIdentity(link, PathEffectReferent)
+	if err != nil || filepath.Base(stored.accessPath) != "MixedCase" {
+		t.Fatal("referent observation failed to resolve the selected alias", err)
+	}
+}
+
 func TestDarwinSharedObservationKeepsFollowModeDistinct(t *testing.T) {
 	calls := 0
 	observation := darwinPathObservation{

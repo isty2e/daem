@@ -31,11 +31,12 @@ const (
 
 // Store owns strict serialization and atomic guarded writes for one registry path.
 type Store struct {
-	path                 string
-	root                 *rootedpath.CapturedRoot
-	destination          rootedpath.Destination
-	maximumPhysicalDepth int
-	physicalWorkBudget   rootedpath.PhysicalTraversalBudget
+	protectionObservation *mutation.DirectoryEntryObservationPlan
+	path                  string
+	root                  *rootedpath.CapturedRoot
+	destination           rootedpath.Destination
+	maximumPhysicalDepth  int
+	physicalWorkBudget    rootedpath.PhysicalTraversalBudget
 }
 
 var _ ownershipmutation.RegistryStore = Store{}

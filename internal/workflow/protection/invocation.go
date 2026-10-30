@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -14,7 +13,6 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
@@ -23,11 +21,11 @@ var ErrInvocationPermissionsExpanded = errors.New("protected file permissions ex
 // InvocationInput borrows the containing operation's exact leases and complete
 // prepaid work. Selection, approval, prefix/suffix and lease lifetime stay there.
 type InvocationInput struct {
-	Paths      daempaths.Paths
-	Protection ownership.PendingProtection
-	Leases     *mutation.LeaseSet
-	Requests   []mutation.PhysicalAuthorityRequest
-	Work       journalrecovery.InvocationWorkReservation
+	Paths         daempaths.Paths
+	Protection    ownership.PendingProtection
+	Leases        *mutation.LeaseSet
+	Requests      []mutation.PhysicalAuthorityRequest
+	qualification *invocationQualification
 }
 
 type InvocationResult struct {
@@ -53,20 +51,18 @@ func (result InvocationResult) Protection() (Record, bool) {
 // correction or containing-operation completion. Correlation publication, when
 // needed, runs after Arm and must use only the supplied forward allocation.
 func ExecuteInvocation(ctx context.Context, input InvocationInput, executor subprocess.CommandExecutor, request subprocess.CommandAttemptRequest, bind subprocess.WorkingDirectoryBinder, prepareCorrelation func(context.Context, *journalrecovery.PhysicalWorkBudget) error) (result InvocationResult, returnErr error) {
-	if ctx == nil || input.Protection.Validate() != nil || input.Protection.Phase() != ownership.ProtectionArmed || input.Leases == nil {
+	if ctx == nil || !input.matchesPreparation() {
 		return result, fmt.Errorf("protected invocation requires an armed candidate and containing authority")
 	}
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	input.Requests = slices.Clone(input.Requests)
-	forward, safety, err := input.Work.Take()
+	forward, safety, err := input.qualification.work.Take()
 	if err != nil {
 		return result, err
 	}
-	controls := []string{input.Paths.StatefilePath, input.Paths.OwnershipRegistryPath, input.Paths.RecoveryDir}
 	gate := func(ctx context.Context, budget *journalrecovery.PhysicalWorkBudget) error {
-		matches, err := input.Leases.MatchCurrentExclusiveRequestsBounded(ctx, controls, input.Requests, journalrecovery.MaximumPhysicalPathDepth, budget)
+		matches, err := input.qualification.authority.MatchCurrent(ctx, budget)
 		if err != nil || !matches {
 			return errors.Join(mutation.StaleSnapshotError{}, err)
 		}
@@ -75,33 +71,17 @@ func ExecuteInvocation(ctx context.Context, input InvocationInput, executor subp
 	if err := gate(ctx, forward); err != nil {
 		return result, err
 	}
-	if err := recoverygate.ObserveBounded(ctx, input.Paths, forward); err != nil {
-		return result, err
-	}
-	prepared := Prepared{paths: input.Paths, owner: input.Protection.Owner(), budget: forward}
-	owner, err := observeOwner(input.Paths, forward)
-	if err != nil || !owner.Equal(prepared.owner) {
-		return result, errors.Join(mutation.StaleSnapshotError{}, err)
-	}
-	if err := prepared.freezeBindingContexts(ctx, input.Protection); err != nil {
-		return result, err
-	}
-	if err := requireInvocationCoverage(ctx, input, controls, forward); err != nil {
-		return result, err
-	}
-	root, destination, err := rootedpath.CaptureDestinationBounded(input.Paths.OwnershipRegistryPath, journalrecovery.MaximumPhysicalPathDepth, forward)
+	prepared := Prepared{paths: input.Paths, owner: input.Protection.Owner(), budget: forward, qualification: input.qualification}
+	forwardStore, root, err := input.qualification.registry.OpenBounded(ctx, forward)
 	if err != nil {
 		return result, err
 	}
 	defer func() { returnErr = errors.Join(returnErr, root.Close()) }()
-	forwardStore, err := ownershipstore.NewRooted(root, destination, journalrecovery.MaximumPhysicalPathDepth, forward)
+	safetyStore, safetyRoot, err := input.qualification.registry.OpenBounded(ctx, safety)
 	if err != nil {
 		return result, err
 	}
-	safetyStore, err := ownershipstore.NewRooted(root, destination, journalrecovery.MaximumPhysicalPathDepth, safety)
-	if err != nil {
-		return result, err
-	}
+	defer func() { returnErr = errors.Join(returnErr, safetyRoot.Close()) }()
 	current, err := forwardStore.LoadProtectionRegistry(ctx)
 	if err != nil {
 		return result, err

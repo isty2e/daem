@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -110,7 +111,7 @@ func (store Store) TransitionProtection(ctx context.Context, owner stateauthorit
 	if !changed {
 		return next, nil
 	}
-	if err := store.validateProtectionSeparation(next); err != nil {
+	if err := store.validateProtectionSeparation(ctx, next); err != nil {
 		return ownership.Registry{}, err
 	}
 	content, err := encode(next)
@@ -192,7 +193,7 @@ func (store Store) loadForProtection(ctx context.Context) (ownership.Registry, s
 		registry, err = decode(content)
 	}
 	if err == nil {
-		err = store.validateProtectionSeparation(registry)
+		err = store.validateProtectionSeparation(ctx, registry)
 	}
 	if err == nil {
 		err = ctx.Err()
@@ -206,16 +207,12 @@ func (store Store) loadForProtection(ctx context.Context) (ownership.Registry, s
 	return registry, identity, true, capability, nil
 }
 
-func (store Store) validateProtectionSeparation(registry ownership.Registry) error {
+func (store Store) validateProtectionSeparation(ctx context.Context, registry ownership.Registry) error {
 	protections := registry.PendingProtections()
 	if len(protections) == 0 {
 		return nil
 	}
-	observations, err := store.newPathAuthorityObservationSession()
-	if err != nil {
-		return err
-	}
-	control, err := observations.observePersisted(store.path)
+	control, err := store.protectionControlAuthority(ctx)
 	if err != nil {
 		return err
 	}
@@ -228,4 +225,26 @@ func (store Store) validateProtectionSeparation(registry ownership.Registry) err
 		}
 	}
 	return nil
+}
+
+func (store Store) protectionControlAuthority(ctx context.Context) (pathauthority.Exact, error) {
+	if store.protectionObservation != nil {
+		budget, supported := store.physicalWorkBudget.(mutation.PhysicalObservationBudget)
+		if !supported {
+			return pathauthority.Exact{}, fmt.Errorf("prepared protection store requires complete physical allocation")
+		}
+		observed, err := store.protectionObservation.ObserveBounded(ctx, budget)
+		if err != nil {
+			return pathauthority.Exact{}, err
+		}
+		if exact, present := observed.Exact(); present {
+			return exact, nil
+		}
+		return pathauthority.Exact{}, fmt.Errorf("protection registry namespace is provisional")
+	}
+	observations, err := store.newPathAuthorityObservationSession()
+	if err != nil {
+		return pathauthority.Exact{}, err
+	}
+	return observations.observePersisted(store.path)
 }

@@ -75,30 +75,13 @@ func invocationFixture(t *testing.T, names ...string) (ownershiptest.PermissionR
 	}
 	t.Cleanup(func() { _ = leases.Release() })
 
-	// This tests lifecycle consumption, not the containing schedule's demand compiler.
-	passes := make([]int, 1024)
-	for index := range passes {
-		passes[index] = journalrecovery.MaximumPhysicalPathDepth
-	}
-	artifact, err := journalrecovery.NewArtifactWork(4096, 64<<20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	work, err := journalrecovery.NewInvocationWork(passes, artifact)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reservation, err := journalrecovery.NewPhysicalCaptureBudget(nil).ReserveInvocation(work, work)
-	if err != nil {
-		t.Fatal(err)
-	}
 	cwd, err := rootedpath.CaptureRoot(fixture.Paths.ManifestRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cwd.Close() })
 	bind := func() (subprocess.WorkingDirectoryBinding, error) { return cwd.AcquireWorkingDirectory() }
-	return fixture, InvocationInput{Paths: fixture.Paths, Protection: fixture.Protection, Leases: leases, Requests: requests, Work: reservation}, bind
+	return fixture, InvocationInput{Paths: fixture.Paths, Protection: fixture.Protection, Leases: leases, Requests: requests}, bind
 }
 
 func assertInvocationSettled(t *testing.T, fixture ownershiptest.PermissionRecoveryFixture, result InvocationResult) Record {
@@ -123,10 +106,27 @@ func assertInvocationSettled(t *testing.T, fixture ownershiptest.PermissionRecov
 	return record
 }
 
+func prepareInvocationFixture(ctx context.Context, input InvocationInput) (InvocationInput, error) {
+	budget := journalrecovery.NewPhysicalCaptureBudget(nil)
+	prepared, err := PrepareInvocation(ctx, input, budget)
+	if err != nil {
+		return InvocationInput{}, err
+	}
+	return prepared.ReserveWork(budget, journalrecovery.InvocationWork{})
+}
+
+func invokeFixture(ctx context.Context, input InvocationInput, executor subprocess.CommandExecutor, request subprocess.CommandAttemptRequest, bind subprocess.WorkingDirectoryBinder, correlation func(context.Context, *journalrecovery.PhysicalWorkBudget) error) (InvocationResult, error) {
+	prepared, err := prepareInvocationFixture(ctx, input)
+	if err != nil {
+		return InvocationResult{}, err
+	}
+	return ExecuteInvocation(ctx, prepared, executor, request, bind, correlation)
+}
+
 func TestInvocationArmsBindsAndContainsBeforeReturningCapture(t *testing.T) {
 	fixture, input, bind := invocationFixture(t)
 	sawArmed := false
-	result, err := ExecuteInvocation(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{
+	result, err := invokeFixture(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{
 		Command: "/bin/sh", Args: []string{"-c", `/bin/chmod 644 "$1" "$2"; printf '[malformed'`, "protected", fixture.Documents[0], fixture.Documents[1]},
 	}, bind, func(ctx context.Context, _ *journalrecovery.PhysicalWorkBudget) error {
 		rows, err := fixture.Store.LoadPendingProtections(ctx)
@@ -151,6 +151,10 @@ func TestInvocationArmsBindsAndContainsBeforeReturningCapture(t *testing.T) {
 
 func TestInvocationNormalCompletionAndSingleUseReservation(t *testing.T) {
 	fixture, input, bind := invocationFixture(t)
+	input, err := prepareInvocationFixture(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
 	marker := filepath.Join(fixture.Paths.ManifestRoot, "command-count")
 	request := subprocess.CommandAttemptRequest{Command: "/bin/sh", Args: []string{"-c", `printf x >> "$1"`, "protected", marker}}
 	result, err := ExecuteInvocation(t.Context(), input, subprocess.CommandExecutor{}, request, bind, nil)
@@ -172,7 +176,7 @@ func TestInvocationNormalCompletionAndSingleUseReservation(t *testing.T) {
 func TestInvocationSettlesArmedProtectionAfterCorrelationFailure(t *testing.T) {
 	fixture, input, bind := invocationFixture(t)
 	failure := errors.New("correlation publication failed")
-	result, err := ExecuteInvocation(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/bin/false"}, bind, func(context.Context, *journalrecovery.PhysicalWorkBudget) error { return failure })
+	result, err := invokeFixture(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/bin/false"}, bind, func(context.Context, *journalrecovery.PhysicalWorkBudget) error { return failure })
 	if !errors.Is(err, failure) {
 		t.Fatal("correlation failure was discarded", err)
 	}
@@ -191,7 +195,7 @@ func TestInvocationCancellationOrForwardExhaustionCannotSpendSafety(t *testing.T
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			marker := filepath.Join(fixture.Paths.ManifestRoot, "must-not-run")
-			result, err := ExecuteInvocation(ctx, input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/usr/bin/touch", Args: []string{marker}}, bind, func(_ context.Context, forward *journalrecovery.PhysicalWorkBudget) error {
+			result, err := invokeFixture(ctx, input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/usr/bin/touch", Args: []string{marker}}, bind, func(_ context.Context, forward *journalrecovery.PhysicalWorkBudget) error {
 				if cancelBeforeLaunch {
 					cancel()
 					return nil
@@ -223,7 +227,7 @@ func TestInvocationRefusesStaleModeOrIncompleteCoverageBeforeArm(t *testing.T) {
 			} else {
 				input.Requests = input.Requests[:1]
 			}
-			result, err := ExecuteInvocation(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/bin/false"}, bind, nil)
+			result, err := invokeFixture(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/bin/false"}, bind, nil)
 			if err == nil {
 				t.Fatal("stale invocation input was admitted")
 			}
@@ -249,7 +253,7 @@ func TestInvocationCannotReplayOrClearAnAlreadyPendingIdentity(t *testing.T) {
 	if _, err := fixture.Store.TransitionProtection(t.Context(), fixture.Owner, arm); err != nil {
 		t.Fatal(err)
 	}
-	result, err := ExecuteInvocation(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/bin/true"}, bind, nil)
+	result, err := invokeFixture(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/bin/true"}, bind, nil)
 	if err == nil {
 		t.Fatal("pending identity was admitted as a fresh invocation")
 	}
@@ -275,7 +279,7 @@ func TestInvocationUnpublishedArmHasNoReportedObligation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(parent, info.Mode().Perm()) })
-	result, err := ExecuteInvocation(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/bin/true"}, bind, nil)
+	result, err := invokeFixture(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/bin/true"}, bind, nil)
 	if !errors.Is(err, os.ErrPermission) {
 		t.Fatal("fixture did not refuse protection publication", err)
 	}
@@ -296,7 +300,7 @@ func TestInvocationUnreadableProtectionIsNotReportedAsUnpublished(t *testing.T) 
 	}
 	fixture, input, bind := invocationFixture(t)
 	t.Cleanup(func() { _ = os.Chmod(fixture.Store.Path(), 0o600) })
-	result, err := ExecuteInvocation(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/bin/true"}, bind, func(context.Context, *journalrecovery.PhysicalWorkBudget) error {
+	result, err := invokeFixture(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{Command: "/bin/true"}, bind, func(context.Context, *journalrecovery.PhysicalWorkBudget) error {
 		return os.Chmod(fixture.Store.Path(), 0)
 	})
 	record, present := result.Protection()
@@ -385,7 +389,7 @@ func TestInvocationSharedCohortUsesEachOwnersRootAndRetainsPartialSafety(t *test
 			if invalidateForeign {
 				script += `; /bin/mv "$3" "$4"; /bin/ln -s "$5" "$3"`
 			}
-			result, err := ExecuteInvocation(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{
+			result, err := invokeFixture(t.Context(), input, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{
 				Command: "/bin/sh", Args: []string{"-c", script, "protected", fixture.Documents[0], fixture.Documents[1], foreign.StateDir, moved, redirected},
 			}, bind, nil)
 			if process, present := result.Process(); !present || !process.Attempt().Succeeded() {

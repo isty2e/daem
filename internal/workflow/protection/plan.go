@@ -18,12 +18,12 @@ import (
 // Prepared contains frozen operation inputs, not retained roots or live grants.
 // The containing operation owns its single execution lifecycle.
 type Prepared struct {
-	paths      daempaths.Paths
-	owner      stateauthority.Authority
-	rows       []ownership.PendingProtection
-	budget     rootedpath.PhysicalTraversalBudget
-	contexts   map[stateauthority.Authority]daempaths.Paths
-	disclosure Plan
+	paths         daempaths.Paths
+	owner         stateauthority.Authority
+	rows          []ownership.PendingProtection
+	budget        rootedpath.PhysicalTraversalBudget
+	qualification *invocationQualification
+	disclosure    Plan
 }
 
 func (prepared Prepared) Disclosure() Plan { return prepared.disclosure.Clone() }

@@ -171,3 +171,41 @@ func TestInvocationReservationRefusesAggregateOverdrawBeforeSharedCharge(t *test
 		})
 	}
 }
+
+func TestInvocationWorkCompositionRetainsBothOwnersCredit(t *testing.T) {
+	left, err := NewInvocationWork([]int{2}, ArtifactWork{entries: 1, bytes: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := NewInvocationWork([]int{4}, ArtifactWork{entries: 5, bytes: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined, err := left.Plus(right)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation, err := NewPhysicalCaptureBudget(nil).ReserveInvocation(combined, InvocationWork{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forward, _, err := reservation.Take()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := forward.AdmitPhysicalWork(6, 6, 10); err != nil {
+		t.Fatal("composition lost projected work", err)
+	}
+	if err := forward.AdmitPhysicalWork(1, 0, 0); err == nil {
+		t.Fatal("composition minted additional path credit")
+	}
+	for _, bound := range []ArtifactWork{{entries: MaximumPhysicalEntries}, {bytes: MaximumPhysicalBytes}} {
+		full, err := NewInvocationWork(nil, bound)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := full.Plus(left); err == nil {
+			t.Fatal("composition bypassed operation capacity")
+		}
+	}
+}

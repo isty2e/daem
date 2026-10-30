@@ -53,6 +53,42 @@ func (layout PathLayout) ResolveBounded(maximumPhysicalDepth int, budget PathObs
 	return resolvePathLayoutPlatform(layout, maximumPhysicalDepth, budget)
 }
 
+// CaptureDestinationBounded validates the prepared layout, then captures a
+// fresh destination without resolving any newly introduced alias.
+func (layout PathLayout) CaptureDestinationBounded(maximumPhysicalDepth int, budget PathObservationBudget) (*CapturedRoot, Destination, error) {
+	if _, _, err := layout.ResolveBounded(maximumPhysicalDepth, budget); err != nil {
+		return nil, Destination{}, err
+	}
+	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
+	if err != nil {
+		return nil, Destination{}, err
+	}
+	traversal.rejectAliases = true
+	return captureCanonicalDestinationBounded(layout.path, traversal)
+}
+
+// ReserveDestinationCapture projects validation plus fresh destination capture.
+func (layout PathLayout) ReserveDestinationCapture(maximumPhysicalDepth int, budget PathObservationBudget) error {
+	if err := layout.ReserveObservation(maximumPhysicalDepth, budget); err != nil {
+		return err
+	}
+	return ChargeAbsolutePath(filepath.Dir(layout.path), maximumPhysicalDepth, budget)
+}
+
+// ReserveDestinationAccess bounds acquisition plus one rooted operation even
+// when planned missing parents become directories before that acquisition.
+func (layout PathLayout) ReserveDestinationAccess(maximumPhysicalDepth int, budget PathObservationBudget) error {
+	if err := layout.validate(); err != nil {
+		return err
+	}
+	for range 2 {
+		if err := ChargeAbsolutePath(filepath.Dir(layout.path), maximumPhysicalDepth, budget); err != nil {
+			return err
+		}
+	}
+	return ChargeAbsolutePath(layout.path, maximumPhysicalDepth, budget)
+}
+
 // ReserveObservation projects the complete validation and no-follow resolution
 // from immutable layout facts. It performs no filesystem I/O.
 func (layout PathLayout) ReserveObservation(maximumPhysicalDepth int, budget PathObservationBudget) error {

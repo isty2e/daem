@@ -21,6 +21,10 @@ func requireNamespace(path string, expected pathauthority.Exact, budget rootedpa
 	if err != nil {
 		return refusal(DocumentNamespaceUnqualified, err)
 	}
+	return requireNamespaceObservation(current, expected)
+}
+
+func requireNamespaceObservation(current mutation.DirectoryEntryAuthorityObservation, expected pathauthority.Exact) error {
 	if exact, present := current.Exact(); present && exact.Equal(expected) {
 		return nil
 	}
@@ -31,13 +35,20 @@ func requireNamespace(path string, expected pathauthority.Exact, budget rootedpa
 }
 
 func qualifyTarget(ctx context.Context, prepared Prepared, document ownership.ProtectedDocument) (*rootedpath.CapturedRoot, rootedpath.Destination, error) {
+	if prepared.qualification != nil {
+		budget, supported := prepared.budget.(mutation.PhysicalObservationBudget)
+		if !supported {
+			return nil, rootedpath.Destination{}, fmt.Errorf("prepared qualification requires complete physical allocation")
+		}
+		return prepared.qualification.qualifyTarget(ctx, document, budget)
+	}
 	budget := prepared.budget
 	var selected string
 	for _, binding := range document.Bindings() {
 		if err := ctx.Err(); err != nil {
 			return nil, rootedpath.Destination{}, err
 		}
-		contextPaths, err := prepared.bindingContext(binding.Owner())
+		contextPaths, err := bindingContext(prepared.paths, prepared.owner, binding.Owner(), prepared.budget)
 		if err != nil {
 			return nil, rootedpath.Destination{}, refusal(ResolutionContextUnqualified, err)
 		}
@@ -73,40 +84,24 @@ func qualifyTarget(ctx context.Context, prepared Prepared, document ownership.Pr
 	return root, destination, nil
 }
 
-func (prepared Prepared) bindingContext(owner stateauthority.Authority) (daempaths.Paths, error) {
-	if prepared.contexts == nil {
-		return bindingContext(prepared.paths, prepared.owner, owner, prepared.budget)
-	}
-	paths, present := prepared.contexts[owner]
-	if !present {
-		return daempaths.Paths{}, fmt.Errorf("protected binding has no prepared resolution context")
-	}
-	actual, err := observeOwner(paths, prepared.budget)
-	if err != nil || !actual.Equal(owner) {
-		return daempaths.Paths{}, errors.Join(fmt.Errorf("prepared binding resolution context changed"), err)
-	}
-	return paths, nil
-}
-
-func (prepared *Prepared) freezeBindingContexts(ctx context.Context, row ownership.PendingProtection) error {
+func (prepared Prepared) bindingContexts(ctx context.Context, row ownership.PendingProtection) (map[stateauthority.Authority]daempaths.Paths, error) {
 	contexts := make(map[stateauthority.Authority]daempaths.Paths)
 	for _, document := range row.Documents() {
 		for _, binding := range document.Bindings() {
 			if err := ctx.Err(); err != nil {
-				return err
+				return nil, err
 			}
 			if _, present := contexts[binding.Owner()]; present {
 				continue
 			}
 			paths, err := bindingContext(prepared.paths, prepared.owner, binding.Owner(), prepared.budget)
 			if err != nil {
-				return refusal(ResolutionContextUnqualified, err)
+				return nil, refusal(ResolutionContextUnqualified, err)
 			}
 			contexts[binding.Owner()] = paths
 		}
 	}
-	prepared.contexts = contexts
-	return nil
+	return contexts, nil
 }
 
 func bindingContext(selected daempaths.Paths, selectedOwner, owner stateauthority.Authority, budget rootedpath.PhysicalTraversalBudget) (daempaths.Paths, error) {
