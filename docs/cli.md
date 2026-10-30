@@ -1242,11 +1242,21 @@ still return `1` before or while emitting their applicable result contract.
 | Invocation | Exit `0` | Exit `1` |
 | --- | --- | --- |
 | `status` | any valid report | never because of reported state |
-| `status --check` | lockfile present, no pending or blocked output action, exact extension order, and no blocked relation, adoption, or extension-removal action | lockfile missing; pending or blocked output action, including an unqualified MCP host; non-exact extension order; or blocked relation, adoption, or extension-removal action |
+| `status --check` | lockfile present, known-clear owner permission protection, no pending or blocked output action, exact extension order, and no blocked relation, adoption, or extension-removal action | lockfile missing; pending or unavailable owner permission protection; pending or blocked output action, including an unqualified MCP host; non-exact extension order; or blocked relation, adoption, or extension-removal action |
 
 Diagnostic grades, including `error`, do not by themselves affect the `--check`
 exit code or `check_clean`. The `diagnostics` array carries the reported grades;
 error-grade diagnostics contribute to `has_errors`.
+
+Owner permission protection is checked independently of `--target`. Apply,
+status and doctor JSON include optional `permission_protection` when pending
+records were observed or inventory is unavailable or unsupported. It records
+the observation state, invocation and phase, and owning logical document
+destinations; it does not certify present settlement. Known-clear inventory
+omits the field. It also survives source and planning failures in the common
+error result. Doctor reports a separate `permission_protection` check. This
+reporting does not turn a pending owner record into an Apply action or block
+unrelated writes. See [Permission-Only Recovery](state-and-recovery.md#permission-only-recovery).
 
 Selected missing extension relations and observe-only relation rows do not make
 `--check` fail. A blocked removal of a managed extension relation does fail. A

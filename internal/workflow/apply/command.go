@@ -12,6 +12,7 @@ import (
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/desired"
@@ -373,6 +374,7 @@ type CommandInput struct {
 }
 
 type CommandResult struct {
+	PermissionProtection   ownershipobserve.ProtectionObservation
 	ManifestPath           string
 	LockfilePath           string
 	LockfileExplicit       bool
@@ -479,6 +481,15 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 	if err != nil {
 		return unavailablePreparedWrite(CommandResult{}), err
 	}
+	// Early barrier and declaration refusals precede normal input observation.
+	// Retain diagnostic facts without granting an execution capability.
+	defer func() {
+		if returnErr != nil && prepared != nil && prepared.PermissionProtection.State() == ownershipobserve.ProtectionUnobserved {
+			prepared.ManifestPath = paths.ManifestPath
+			prepared.StatefilePath = paths.StatefilePath
+			prepared.PermissionProtection = ownershipobserve.ObservePendingProtections(ctx, paths)
+		}
+	}()
 	barrier, err := recoverygate.NewEffectAuthority(ctx, paths)
 	if err != nil {
 		return unavailablePreparedWrite(CommandResult{}), err
@@ -779,16 +790,17 @@ func loadCommandInputsAtPaths(
 	barrier *recoverygate.EffectAuthority,
 	validateBarrier func(context.Context) error,
 ) (commandContext, CommandResult, error) {
+	result := CommandResult{
+		ManifestPath:         paths.ManifestPath,
+		StatefilePath:        paths.StatefilePath,
+		LockfileExplicit:     input.LockfilePath != "",
+		PermissionProtection: ownershipobserve.ObservePendingProtections(ctx, paths),
+	}
 	lockfilePath, err := selectedLockfilePath(paths, input.LockfilePath)
 	if err != nil {
-		return commandContext{}, CommandResult{}, err
+		return commandContext{}, result, err
 	}
-	result := CommandResult{
-		ManifestPath:     paths.ManifestPath,
-		LockfilePath:     lockfilePath,
-		LockfileExplicit: input.LockfilePath != "",
-		StatefilePath:    paths.StatefilePath,
-	}
+	result.LockfilePath = lockfilePath
 
 	if barrier != nil {
 		if validateBarrier == nil {

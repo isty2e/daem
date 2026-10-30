@@ -9,6 +9,7 @@ import (
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/desired"
@@ -36,22 +37,23 @@ type CommandInput struct {
 }
 
 type CommandResult struct {
-	ManifestPath      string
-	LockfilePath      string
-	LockfileExplicit  bool
-	StatefilePath     string
-	LockfileMissing   bool
-	Reconciliation    reconcile.Result
-	Diagnostics       []findings.Diagnostic
-	LockOnly          []readiness.UnsupportedProjection
-	MCPProjections    []mcpobserve.LockedProjectionObservation
-	HostRouteAttempts []durableattempt.HostRouteAttempt
+	PermissionProtection ownershipobserve.ProtectionObservation
+	ManifestPath         string
+	LockfilePath         string
+	LockfileExplicit     bool
+	StatefilePath        string
+	LockfileMissing      bool
+	Reconciliation       reconcile.Result
+	Diagnostics          []findings.Diagnostic
+	LockOnly             []readiness.UnsupportedProjection
+	MCPProjections       []mcpobserve.LockedProjectionObservation
+	HostRouteAttempts    []durableattempt.HostRouteAttempt
 }
 
 // CheckClean evaluates the status --check predicate for this observation.
 // It does not certify runtime readiness or permission to apply.
 func (result CommandResult) CheckClean() bool {
-	return !result.LockfileMissing &&
+	return result.PermissionProtection.KnownClear() && !result.LockfileMissing &&
 		len(result.Reconciliation.PendingManagedPaths()) == 0 &&
 		len(result.Reconciliation.PendingAggregates()) == 0 &&
 		len(result.Reconciliation.NativeNarrowings()) == 0 &&
@@ -132,10 +134,11 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		return commandInputs{}, CommandResult{}, err
 	}
 	result := CommandResult{
-		ManifestPath:     paths.ManifestPath,
-		LockfilePath:     selectedLockfilePath(paths, input.LockfilePath),
-		LockfileExplicit: input.LockfilePath != "",
-		StatefilePath:    paths.StatefilePath,
+		ManifestPath:         paths.ManifestPath,
+		LockfilePath:         selectedLockfilePath(paths, input.LockfilePath),
+		LockfileExplicit:     input.LockfilePath != "",
+		StatefilePath:        paths.StatefilePath,
+		PermissionProtection: ownershipobserve.ObservePendingProtections(ctx, paths),
 	}
 
 	if err := refuseJournalAndFileSet(ctx, paths); err != nil {

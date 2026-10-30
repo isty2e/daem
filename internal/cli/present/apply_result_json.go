@@ -6,6 +6,7 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
@@ -63,6 +64,7 @@ func recoveryBarrierJSONFor(state recoverygate.State) *recoveryBarrierJSON {
 }
 
 type ApplyResultJSONInput struct {
+	PermissionProtection   ownershipobserve.ProtectionObservation
 	ActionCount            int
 	StatefilePath          string
 	LockOnly               LockOnlyResources
@@ -98,6 +100,7 @@ type applyResultJSONOutput struct {
 	Diagnostics          []planJSONDiagnostic        `json:"diagnostics"`
 	HasErrors            bool                        `json:"has_errors"`
 	Errors               []applyResultJSONError      `json:"errors"`
+	PermissionProtection *permissionProtectionJSON   `json:"permission_protection,omitempty"`
 }
 
 type applyResultJSONError struct {
@@ -116,6 +119,7 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 		return err
 	}
 	payload := applyResultJSONOutput{
+		PermissionProtection: permissionProtectionJSONFor(input.PermissionProtection),
 		SchemaVersion:        contractversion.ApplyResultJSON,
 		Command:              "apply",
 		Mode:                 "write",

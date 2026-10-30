@@ -142,7 +142,7 @@ func TestStatusCheckExitCodeFailsForCarrierAdoptionClaimConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile.NewResult: %v", err)
 	}
-	result := statusworkflow.CommandResult{Reconciliation: reconciliation}
+	result := statusworkflow.CommandResult{Reconciliation: reconciliation, PermissionProtection: knownClearStatusProtection(t)}
 	if got := statusCheckExitCode(result.CheckClean(), true); got != 1 {
 		t.Fatalf("statusCheckExitCode = %d, want 1 for adoption claim conflict", got)
 	}
@@ -294,7 +294,7 @@ func cliClaudePluginCarrierCommandResultForSubject(
 	if err != nil {
 		t.Fatalf("NewResult returned error: %v", err)
 	}
-	return statusworkflow.CommandResult{Reconciliation: reconciliation}
+	return statusworkflow.CommandResult{Reconciliation: reconciliation, PermissionProtection: knownClearStatusProtection(t)}
 }
 
 func cliClaudePluginCarrierManagedRow(t *testing.T, subjectKey string, managedKey string) observeclaudeplugin.Row {

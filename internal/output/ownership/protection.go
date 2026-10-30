@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/executionidentity"
+	"github.com/isty2e/daem/internal/output"
 )
 
 // ProtectedDocument freezes one existing document's binding cohort and metadata
@@ -50,6 +51,16 @@ func (document ProtectedDocument) Validate() error {
 
 func (document ProtectedDocument) Bindings() []DocumentBinding {
 	return slices.Clone(document.bindings)
+}
+
+func (document ProtectedDocument) DestinationsForOwner(owner stateauthority.Key) []output.Destination {
+	var result []output.Destination
+	for _, binding := range document.bindings {
+		if binding.Owner().Key() == owner {
+			result = append(result, binding.Destination())
+		}
+	}
+	return result
 }
 
 func (document ProtectedDocument) PathAuthority() pathauthority.Exact {

@@ -42,7 +42,7 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 			TargetValues: targetValues.strings(),
 		})
 		if err != nil {
-			diagnostic := humanFailureDiagnostic(err).WithPrefix("status failed: ")
+			diagnostic := humanFailureDiagnostic(err).WithPermissionProtection(result.PermissionProtection).WithPrefix("status failed: ")
 			if guidance, present := missingManifestInitGuidance(*manifestPath, err); present {
 				diagnostic = diagnostic.WithGuidance(guidance)
 			}
@@ -66,16 +66,17 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 				mode = "check"
 			}
 			if err := clipresent.PrintPlanJSON(stdout, clipresent.PlanJSONInput{
-				Command:           "status",
-				Mode:              mode,
-				LockfilePath:      result.LockfilePath,
-				LockfileMissing:   result.LockfileMissing,
-				CheckClean:        &checkClean,
-				LockOnly:          clipresent.LockOnlyResourcesFrom(result.LockOnly),
-				Reconciliation:    result.Reconciliation,
-				HostRouteAttempts: result.HostRouteAttempts,
-				Diagnostics:       result.Diagnostics,
-				MCPStatuses:       mcpStatuses,
+				PermissionProtection: result.PermissionProtection,
+				Command:              "status",
+				Mode:                 mode,
+				LockfilePath:         result.LockfilePath,
+				LockfileMissing:      result.LockfileMissing,
+				CheckClean:           &checkClean,
+				LockOnly:             clipresent.LockOnlyResourcesFrom(result.LockOnly),
+				Reconciliation:       result.Reconciliation,
+				HostRouteAttempts:    result.HostRouteAttempts,
+				Diagnostics:          result.Diagnostics,
+				MCPStatuses:          mcpStatuses,
 			}); err != nil {
 				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("status failed: write json: "))
 			}
@@ -86,6 +87,7 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 			printLockCommandHint(stdout, result.ManifestPath, *manifestPath)
 		}
 		humanOptions := clipresent.HumanOptions{Verbose: *verbose}
+		clipresent.PrintPermissionProtection(stdout, result.PermissionProtection)
 		clipresent.PrintStatusPlanWithOptions(stdout, clipresent.HumanPlanInput{
 			Reconciliation: result.Reconciliation,
 			MCPStatuses:    mcpStatuses,
