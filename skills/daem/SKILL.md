@@ -1,26 +1,26 @@
 ---
 name: daem
-description: Manage agent environments with daem. Use when asked to install, add, remove, update, import, inspect, repair, or synchronize agent instructions, skills, skill groups, hooks, MCP servers, plugins, or extensions. Route managed changes through the selected manifest, lockfile, and apply workflow instead of editing agent configuration or installation directories directly.
+description: Use daem for declared agent-environment management when requested or no other method is specified. Do not trigger on mere mentions, skill-source editing/review, or temporary local experiments; honor the user's chosen method.
 ---
 
 # Daem
 
-Use `daem` as the authority for declared agent-environment changes: translate user intent into the current CLI surface, preview the plan, and verify convergence. Do not reproduce host-specific configuration or installer logic in this skill.
+Use `daem` by default for persistent declared environment management. This skill governs daem operations, not other user-authorized workflows, including temporary patches to installed packages.
 
 ## Operating Contract
 
-- Before planning a mutation, check `command -v daem` and `daem version`. If the executable is unavailable, explain the bootstrap requirement and stop; do not bypass daem.
+- Before a daem mutation, check `command -v daem` and `daem version`. If unavailable, report that limitation; use another method if the user has authorized it.
 - Before relying on a leaf command, run `daem help <command>` or `daem help <command> <resource>`. The installed executable owns current target, scope, source, and capability support—not this skill.
 - Preserve the user's explicit `--manifest`; otherwise omit it. Existing-workspace commands select `./daem.toml`, then the user manifest. `init` and non-merge `import` instead create `./daem.toml`; `import --merge` uses existing-workspace selection. Never search parent directories or invent a workspace.
 - Add target/scope selectors only if requested or required by daem to resolve ambiguity; omission may preserve manifest inheritance.
-- Never write agent installation directories or host configuration directly. Do not silently fall back to direct file writes or host-native commands, including plugin installers.
+- Do not silently substitute direct edits or host-native commands for daem; follow an explicitly authorized choice of method.
 - Do not hardcode agent paths, host commands, or a capability matrix. Report daem's diagnostics for unsupported or ambiguous routes.
 
 ## Safety Gates
 
 - Successful authoring does not authorize host effects. Always inspect the apply or runtime-operation preview before execution.
 - An explicit request to perform an exact install, update, or removal authorizes only its ordinary matching effects.
-- Obtain additional approval before adopting existing state with `--manage-existing`, deleting shared/global state not named in the request, or accepting a materially different destructive plan.
+- Obtain approval for adoption with `--manage-existing`, unnamed shared/global deletion, or materially different destructive effects unless already authorized.
 - Never use `--yes` to bypass a blocker, stale state, failed validation, or unsupported capability.
 - Do not infer current installation, ownership, runtime readiness, or removal success from historical command evidence.
 
@@ -101,7 +101,7 @@ For extensions, distinguish the user's removal intents:
 
 ## Manual Manifest Edits
 
-For a kind with curated authoring, re-read `daem help add <resource>` before editing. Proceed only if no curated flag represents the request. `hook_asset` has no curated add/remove route; edit its declaration and any affected references through this flow, preserving reference validity.
+Prefer curated authoring when it represents the request, unless the user chooses manual editing. `hook_asset` has no curated add/remove route; preserve declarations and references when editing it.
 
 For syntax, consult the [Manifest Reference](https://github.com/isty2e/daem/blob/main/docs/manifest.md). That link follows `main`; select the matching Git tag for a released executable, or the matching source revision for a source build (`daem version`).
 
@@ -116,7 +116,7 @@ Never apply with a stale or failed lock.
 ## Update, Import, And Recovery
 
 - Lockable source updates: run `daem outdated`, preview with `daem lock --dry-run`, write with `daem lock`, then follow the apply workflow.
-- Managed Pi Git commit-pin changes: when supported by the installed daem, keep the extension ID, repository locator and scope unchanged, then use manual manifest edit → lock → apply. Inspect the disclosed old/new pins, checkout reset/clean and dependency-script effects. Do not substitute refresh, unmanage, or remove/reinstall.
+- Managed Pi Git commit-pin changes: when supported by the installed daem, keep the extension ID, repository locator and scope unchanged, then use manual manifest edit → lock → apply. Inspect the disclosed old/new pins, checkout reset/clean and dependency-script effects. Do not silently substitute refresh, unmanage, or remove/reinstall.
 - An uncertain pin attempt retains management and its exact target. Obtain a new preview and authorization before retrying that same target; settings alone do not complete it. Report unreadable or conflicting settings instead of guessing. Metadata recovery is not native package rollback.
 - Use `daem refresh extension` only for an explicitly selected extension route supported by the installed daem. Preview before execution.
 - Existing host state under declaration: start with `daem import --target <target> --dry-run`; repeat `--target` when needed. Import writes no lockfile. After successful import, run lock and apply previews separately.
@@ -126,5 +126,5 @@ Never apply with a stale or failed lock.
 
 ## Failure Rules
 
-- Do not repair manifest or host state by hand after add/remove failure; these authoring commands are transactional.
-- When daem rejects or cannot represent a route, explain the unsupported boundary and preserve the user's environment.
+- After failed daem authoring, inspect the transaction before proposing repairs; do not make unapproved manifest or host changes.
+- A daem limitation is not a prohibition on the user's task; explain it and honor an authorized alternative.
