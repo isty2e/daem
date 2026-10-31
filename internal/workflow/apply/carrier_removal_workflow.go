@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/configrelation"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -75,6 +76,7 @@ type carrierRemovalInput struct {
 	CloseStatefileAuthority   func(*statefileEffectAuthority) error
 	MarkExecutionAttempted    func()
 	Clock                     func() time.Time
+	NativeInvocations         *nativeInvocationProgram
 }
 
 func (input carrierRemovalInput) markAttempted() {
@@ -610,75 +612,90 @@ func runOne(
 		return err
 	}
 	var pending durablecarrier.PendingCarrierRemoval
-	if err := scheduledCarrierRemovalStatefilePublication(
-		execution,
-		preparedRef+"/statefile/pending",
-		func() error {
-			entry, err := stateAuthority.EntryForCommit()
-			if err != nil {
-				return err
-			}
-			input.markAttempted()
-			next, nextPending, err := execute.CommitPendingCarrierRemoval(
-				ctx,
-				filesystem(input),
-				entry,
-				result.State,
-				result.GlobalClaims,
-				action,
-				baselines,
-				input.stateEncoder(),
-			)
-			if err != nil {
-				return err
-			}
-			result.State = next
-			pending = nextPending
-			return nil
-		},
-		closeBinding,
-	); err != nil {
-		return err
-	}
-	if err := scheduledCarrierRemovalCallWithFailureCleanup(
-		execution,
-		preparedRef+"/context-before-host",
-		operationplan.EffectStepObservation,
-		ctx.Err,
-		closeBinding,
-	); err != nil {
-		return err
-	}
-	if err := scheduledCarrierRemovalStatefileValidation(
-		ctx,
-		execution,
-		preparedRef+"/statefile/pre-host",
-		stateAuthority,
-		closeBinding,
-	); err != nil {
-		return fmt.Errorf("validate StateDir before carrier removal command: %w", err)
-	}
-	if execution != nil {
-		if err := execution.consume(
-			preparedRef+"/host",
-			operationplan.EffectStepExternal,
+	prepareCorrelation := func(ctx context.Context, budget *recovery.PhysicalWorkBudget) error {
+		if err := scheduledCarrierRemovalStatefilePublication(
+			execution,
+			preparedRef+"/statefile/pending",
+			func() error {
+				entry, err := stateAuthority.EntryForCommit()
+				if err != nil {
+					return err
+				}
+				input.markAttempted()
+				commit := func(entry *rootedpath.EntryAuthority) (durable.Snapshot, error) {
+					next, nextPending, err := execute.CommitPendingCarrierRemoval(ctx, filesystem(input), entry, result.State, result.GlobalClaims, action, baselines, input.stateEncoder())
+					if err == nil {
+						pending = nextPending
+					}
+					return next, err
+				}
+				var next durable.Snapshot
+				if budget == nil {
+					next, err = commit(entry)
+				} else {
+					next, err = input.NativeInvocations.commitCorrelation(ctx, budget, commit)
+				}
+				if err != nil {
+					return err
+				}
+				result.State = next
+				return nil
+			},
+			closeBinding,
 		); err != nil {
-			return errors.Join(err, closeBinding())
+			return err
 		}
+		if err := scheduledCarrierRemovalCallWithFailureCleanup(
+			execution,
+			preparedRef+"/context-before-host",
+			operationplan.EffectStepObservation,
+			ctx.Err,
+			closeBinding,
+		); err != nil {
+			return err
+		}
+		if err := scheduledCarrierRemovalStatefileValidation(
+			ctx,
+			execution,
+			preparedRef+"/statefile/pre-host",
+			stateAuthority,
+			closeBinding,
+		); err != nil {
+			return fmt.Errorf("validate StateDir before carrier removal command: %w", err)
+		}
+		if execution != nil {
+			if err := execution.consume(
+				preparedRef+"/host",
+				operationplan.EffectStepExternal,
+			); err != nil {
+				return errors.Join(err, closeBinding())
+			}
+		}
+		return nil
 	}
-	transferred := false
-	attempt := input.Executor.ExecuteInWorkingDirectory(
-		ctx,
-		command.AttemptRequest(),
-		func() (subprocess.WorkingDirectoryBinding, error) {
+
+	var attempt subprocess.CommandAttemptResult
+	var releaseErr error
+	if input.NativeInvocations != nil {
+		bindingOwned = false
+		var observed bool
+		attempt, observed, releaseErr = input.NativeInvocations.execute(ctx, input.Executor, command.AttemptRequest(), binding, prepareCorrelation)
+		if !observed {
+			return errors.Join(fmt.Errorf("protected carrier removal did not issue a command"), releaseErr)
+		}
+	} else {
+		if err := prepareCorrelation(ctx, nil); err != nil {
+			return err
+		}
+		transferred := false
+		attempt = input.Executor.ExecuteInWorkingDirectory(ctx, command.AttemptRequest(), func() (subprocess.WorkingDirectoryBinding, error) {
 			transferred = true
 			bindingOwned = false
 			return binding, nil
-		},
-	)
-	var releaseErr error
-	if !transferred {
-		releaseErr = closeBinding()
+		})
+		if !transferred {
+			releaseErr = closeBinding()
+		}
 	}
 	if execution != nil {
 		if err := execution.consume(
@@ -769,7 +786,7 @@ func runOne(
 	observation := assurancehostroute.ObservationUnavailable(
 		assurancehostroute.ResultReasonObservationUnavailable,
 	)
-	if input.Observer != nil {
+	if input.Observer != nil && !(input.NativeInvocations != nil && releaseErr != nil) {
 		observation = input.Observer(
 			ctx,
 			pending,

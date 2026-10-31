@@ -131,6 +131,9 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	for _, action := range assessment.Reconciliation.Relations() {
 		opaque = opaque || action.InvokesHostRoute()
 	}
+	for _, action := range assessment.Reconciliation.CarrierAbsences() {
+		opaque = opaque || action.InvokesHostRoute()
+	}
 	var prefix execute.NativeApplyStatePreparation
 	var suffix []execute.AggregateEffect
 	if opaque {

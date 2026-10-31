@@ -453,6 +453,7 @@ func runAfterCarrierClaimRetirements(
 		ReserveStatefileAuthority: options.reserveStatefileAuthority,
 		StatefileAuthority:        options.statefileAuthority,
 		MarkExecutionAttempted:    options.markExecutionAttempted,
+		NativeInvocations:         options.nativeInvocations,
 	}
 	var removalResult carrierRemovalResult
 	if options.requireContinuation {

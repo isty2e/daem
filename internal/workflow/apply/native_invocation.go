@@ -14,6 +14,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -25,7 +26,6 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
-	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
@@ -84,7 +84,7 @@ func nativeInvocationCommandKey(request subprocess.CommandAttemptRequest) (strin
 	return string(encoded), err
 }
 
-func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *mutation.LeaseSet, requests []mutation.PhysicalAuthorityRequest) (*nativeInvocationProgram, error) {
+func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *mutation.LeaseSet, requests []mutation.PhysicalAuthorityRequest, removalAdapter executehostroute.RemovalAdapter) (*nativeInvocationProgram, error) {
 	if current.nativePlan == nil || !current.nativePlan.opaque {
 		return nil, nil
 	}
@@ -135,15 +135,12 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 		return nil, err
 	}
 	selectionFingerprint := strings.TrimPrefix(string(artifact.HashFileContent(selection)), "sha256:")
-	for _, action := range current.assessment.Reconciliation.Relations() {
-		if !action.InvokesHostRoute() {
-			continue
-		}
-		command, err := executehostroute.BuildCommand(executehostroute.BuildInput{Action: action, Lockfile: current.context.Lockfile, WorkDir: current.context.Paths.ManifestRoot})
-		if err != nil {
-			return nil, err
-		}
-		rewrite, err := nativePiInvocationRewrite(current, action)
+	commands, err := nativeInvocationCommands(current, removalAdapter)
+	if err != nil {
+		return nil, err
+	}
+	for _, command := range commands {
+		rewrite, err := nativePiInvocationRewrite(current, command.carrier)
 		if err != nil {
 			return nil, err
 		}
@@ -181,7 +178,7 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 			if err != nil {
 				return nil, err
 			}
-			correlation, err := ownership.NewProtectionCorrelation(operationID, strings.TrimPrefix(action.RouteRequest().CanonicalRequestHash(), "sha256:"), selectionFingerprint)
+			correlation, err := ownership.NewProtectionCorrelation(operationID, strings.TrimPrefix(command.command.RouteRequest().CanonicalRequestHash(), "sha256:"), selectionFingerprint)
 			if err != nil {
 				return nil, err
 			}
@@ -209,7 +206,7 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 		if err != nil {
 			return nil, err
 		}
-		key, err := nativeInvocationCommandKey(command.AttemptRequest())
+		key, err := nativeInvocationCommandKey(command.command.AttemptRequest())
 		if err != nil {
 			return nil, err
 		}
@@ -243,9 +240,8 @@ func nativeInvocationSyntax(current commandPlan, aliases []aggregate.DocumentAdd
 	return 0, fmt.Errorf("native invocation document has no selected syntax")
 }
 
-func nativePiInvocationRewrite(current commandPlan, action reconcile.RelationAction) (nativeInvocationRewrite, error) {
-	key := action.CarrierIdentity().Carrier().Key()
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: action.Target(), Scope: action.Scope(), Path: "settings.json", Ownership: hostconfig.OwnershipKeys})
+func nativePiInvocationRewrite(current commandPlan, key desiredextension.CarrierKey) (nativeInvocationRewrite, error) {
+	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: key.Target(), Scope: key.Scope(), Path: "settings.json", Ownership: hostconfig.OwnershipKeys})
 	if err != nil {
 		return nativeInvocationRewrite{}, err
 	}

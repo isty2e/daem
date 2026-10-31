@@ -72,6 +72,9 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	}
 	for _, absence := range result.CarrierAbsences() {
 		if absence.BlocksOrdinaryApply() || absence.InvokesHostRoute() || absence.MutatesDirectProjection() || absence.RetiresClaim() {
+			if absence.Claim().Identity().Carrier().Key().Carrier() == desiredextension.CarrierPiPackage && !absence.MutatesDirectProjection() {
+				continue
+			}
 			if !absence.InvokesHostRoute() && !absence.MutatesDirectProjection() {
 				return nativeSupportError{nativeSupportCarrierState}
 			}
@@ -92,6 +95,11 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 			}
 			for _, relation := range result.Relations() {
 				if relation.InvokesHostRoute() {
+					return nativeSupportError{nativeSupportOrderCommands}
+				}
+			}
+			for _, removal := range result.CarrierAbsences() {
+				if removal.InvokesHostRoute() {
 					return nativeSupportError{nativeSupportOrderCommands}
 				}
 			}

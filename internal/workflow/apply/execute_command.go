@@ -247,7 +247,11 @@ func executeWithDependencies(
 	if err != nil {
 		return disclose(current), err
 	}
-	nativeInvocations, err := prepareNativeInvocations(ctx, current, leases, currentAuthority.metadataRequests)
+	carrierRemovalAdapter := options.CarrierRemovalAdapter
+	if carrierRemovalAdapter == nil {
+		carrierRemovalAdapter = executehostroute.BuildDelegatedRemovalAttempt
+	}
+	nativeInvocations, err := prepareNativeInvocations(ctx, current, leases, currentAuthority.metadataRequests, carrierRemovalAdapter)
 	if err != nil {
 		return disclose(current), err
 	}
@@ -438,10 +442,6 @@ func executeWithDependencies(
 			current.context.Lockfile,
 			current.context.Selection,
 		)
-	}
-	carrierRemovalAdapter := options.CarrierRemovalAdapter
-	if carrierRemovalAdapter == nil {
-		carrierRemovalAdapter = executehostroute.BuildDelegatedRemovalAttempt
 	}
 	carrierRemovalObserver := options.CarrierRemovalObserver
 	if carrierRemovalObserver == nil {
