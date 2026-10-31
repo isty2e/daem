@@ -21,6 +21,7 @@ type applyAuthorityEvidence struct {
 	domains               []mutation.Domain
 	documentWrites        mutation.PhysicalAuthoritySet
 	documentWriteRequests []mutation.PhysicalAuthorityRequest
+	metadataRequests      []mutation.PhysicalAuthorityRequest
 	documentView          ownership.DocumentRegistryView
 	// Declaration revisions are owned by PreparedWrite's bounded witness.
 	firstEffectRevisions []mutation.RevisionRequest
@@ -52,7 +53,11 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	if err := builder.AddLogicalPair(result.LockfilePath, mutation.AccessShared, mutation.AccessShared); err != nil {
 		return applyAuthorityEvidence{}, err
 	}
-	if err := builder.AddLogicalPair(planned.assessment.StatePath, mutation.AccessExclusive, mutation.AccessShared); err != nil {
+	stateReferentAccess := mutation.AccessShared
+	if planned.nativePlan != nil && planned.nativePlan.opaque {
+		stateReferentAccess = mutation.AccessExclusive
+	}
+	if err := builder.AddLogicalPair(planned.assessment.StatePath, mutation.AccessExclusive, stateReferentAccess); err != nil {
 		return applyAuthorityEvidence{}, err
 	}
 	for _, path := range []struct {
@@ -244,6 +249,21 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			}
 		}
 	}
+	var metadataRequests []mutation.PhysicalAuthorityRequest
+	if planned.nativePlan != nil && planned.nativePlan.opaque {
+		for _, group := range planned.assessment.NativeApproval {
+			for _, document := range group.Aliases {
+				if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), false); err != nil {
+					return applyAuthorityEvidence{}, err
+				}
+				path, err := projectDestinationAuthorityPathFor(planned, document.Scope(), document.AggregateRoot())
+				if err != nil {
+					return applyAuthorityEvidence{}, err
+				}
+				metadataRequests = append(metadataRequests, mutation.PhysicalAuthorityRequest{Path: path, Target: string(document.Target()), Scope: string(document.Scope())})
+			}
+		}
+	}
 	carrierRegistryAdded := false
 	for _, action := range planned.assessment.Reconciliation.Relations() {
 		if action.Scope() == target.ScopeGlobal && !carrierRegistryAdded {
@@ -373,6 +393,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		domains:               domains,
 		documentWrites:        physical,
 		documentWriteRequests: requests,
+		metadataRequests:      metadataRequests,
 		documentView:          view,
 		firstEffectRevisions:  plan.Revisions(),
 		facts:                 plan.Facts(),

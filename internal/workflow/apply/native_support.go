@@ -2,6 +2,7 @@ package apply
 
 import (
 	"github.com/isty2e/daem/internal/assurance/durable"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
@@ -41,7 +42,12 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	}
 	for _, relation := range result.Relations() {
 		if relation.Execution() != reconcile.ExecutionNoMutation {
-			return nativeSupportError{nativeSupportRoutes}
+			if !relation.InvokesHostRoute() || relation.Target() != target.TargetPi || relation.CarrierIdentity().Carrier().Key().Carrier() != desiredextension.CarrierPiPackage {
+				return nativeSupportError{nativeSupportRoutes}
+			}
+			if _, pin := relation.PinTransition(); pin {
+				return nativeSupportError{nativeSupportRoutes}
+			}
 		}
 	}
 	for _, delegate := range result.Delegates() {

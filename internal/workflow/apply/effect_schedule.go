@@ -100,6 +100,16 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 	if err != nil {
 		return applyForwardEffectSchedule{}, err
 	}
+	if current.nativePlan != nil && current.nativePlan.opaque {
+		prefixGates, err := maximumCommandForwardValidationCount(current, applyInput)
+		if err != nil {
+			return applyForwardEffectSchedule{}, err
+		}
+		if prefixGates != 0 {
+			input.positivePrefix = &applyDirectPrefix{segment: effectPlan.Segment(), gates: prefixGates}
+			input.core, input.coreChanged = operationplan.EffectSequence(), false
+		}
+	}
 	schedule, err := compileApplySchedule(input, envelope.Demand())
 	if err != nil {
 		return applyForwardEffectSchedule{}, err

@@ -706,7 +706,7 @@ func planReadinessAtPathsWithAssessor(
 
 	planned.result = result
 	planned.assessment = planning
-	if operationContext == reconcile.ContextApply {
+	if operationContext == reconcile.ContextApply || operationContext == reconcile.ContextDryRun {
 		if err := admitNativeCommandPlan(ctx, &planned); err != nil {
 			return planned, err
 		}

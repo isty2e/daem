@@ -218,6 +218,11 @@ func PrepareNativeApplyEffectPlan(input NativeApplyInput) (ApplyEffectPlan, erro
 // ApplyNativeWithEffectPlan settles failed published effects from the observed
 // durable phase. Unqualified or changed recovery evidence remains retained.
 func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan ApplyEffectPlan, options ApplyOptions) (result ApplyResult, resultErr error) {
+	defer func() {
+		if resultErr != nil {
+			result.nativeSettlement = nil
+		}
+	}()
 	if ctx == nil || input.Filesystem == nil || input.StateCodec == nil || input.OwnershipRegistryBinder == nil || options.AcceptVisibilityChanges == nil || options.ValidateBeforeEffects == nil && options.ValidatePhysicalAuthorityRequests == nil {
 		return ApplyResult{}, fmt.Errorf("native execution requires its containing authority, visibility callbacks and selected persistence ports")
 	}
@@ -475,5 +480,14 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			return result, execution.settleFailureWithoutCompensation(err)
 		}
 	}
+	state, registry, observed := assessment.ObservedPersistence()
+	if !observed {
+		return result, fmt.Errorf("native settlement has no final persistence observation")
+	}
+	documents, err := registry.Documents(registryScope)
+	if err != nil {
+		return result, err
+	}
+	result.nativeSettlement = &NativeApplySettlement{state: state, scope: registryScope, documents: documents}
 	return result, nil
 }

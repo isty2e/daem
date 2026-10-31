@@ -105,6 +105,10 @@ func applyEnvelopeFor(
 	if err != nil {
 		return operationplan.Envelope{}, 0, err
 	}
+	prefixGates := 0
+	if current.nativePlan != nil && current.nativePlan.opaque && executeGates != 0 {
+		prefixGates, executeGates = executeGates, 0
+	}
 	orderClasses, err := admittedOrderClasses(current)
 	if err != nil {
 		return operationplan.Envelope{}, 0, err
@@ -127,8 +131,9 @@ func applyEnvelopeFor(
 		return operationplan.Envelope{}, 0, err
 	}
 	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
-		ExecuteGates:    executeGates,
-		ProviderActions: routeWorks(current.assessment.CurrentState, providerActions),
+		ExecuteGates:       executeGates,
+		PrefixExecuteGates: prefixGates,
+		ProviderActions:    routeWorks(current.assessment.CurrentState, providerActions),
 		FinalRoutes: routeWorks(
 			applyInput.CurrentState,
 			finalRelations,

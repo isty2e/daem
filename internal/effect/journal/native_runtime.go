@@ -84,6 +84,10 @@ func (assessment NativeRecoveryAssessment) FinalizeBindings() ownership.Document
 	return assessment.assessment.bindings
 }
 
+func (assessment NativeRecoveryAssessment) ObservedPersistence() (durable.Snapshot, ownership.Registry, bool) {
+	return assessment.assessment.state, assessment.assessment.registry, assessment.valid
+}
+
 // NativeJournalRetirement owns the existing bounded retirement mechanism, but
 // accepts only a clean native assessment of its exact published record.
 type NativeJournalRetirement struct {

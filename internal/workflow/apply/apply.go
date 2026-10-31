@@ -63,6 +63,8 @@ type runOptions struct {
 	statefileAuthority                *statefileEffectAuthority
 	applyEffectPlan                   *execute.ApplyEffectPlan
 	nativeInput                       *execute.NativeApplyInput
+	nativeInvocations                 *nativeInvocationProgram
+	afterNativeCore                   func(context.Context, execute.ApplyResult) (readiness.Assessment, applyContinuationPlan, error)
 	persistenceCodec                  durable.SnapshotCodec
 	preparedContinuation              applyContinuationPlan
 	currentContinuation               applyContinuationPlan

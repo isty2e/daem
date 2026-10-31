@@ -60,6 +60,18 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 	if err != nil {
 		return runResult{ActionCount: applied.ActionCount, State: applied.State, StatePath: applied.StatePath, GlobalCarrierClaims: assessment.GlobalCarrierClaims}, err
 	}
+	if options.afterNativeCore != nil {
+		refreshed, continuation, err := options.afterNativeCore(ctx, applied)
+		if err != nil {
+			return runResult{ActionCount: applied.ActionCount, State: applied.State, StatePath: applied.StatePath, GlobalCarrierClaims: assessment.GlobalCarrierClaims}, err
+		}
+		assessment = refreshed
+		applied.State = refreshed.CurrentState
+		options.currentContinuation = continuation
+		if err := bindApplyContinuationPlans(assessment.Reconciliation, options.preparedContinuation, continuation); err != nil {
+			return runResult{ActionCount: applied.ActionCount, State: applied.State, StatePath: applied.StatePath, GlobalCarrierClaims: assessment.GlobalCarrierClaims}, err
+		}
+	}
 	return runAfterCarrierClaimRetirements(
 		ctx, paths, locked, selection, applied, assessment.Owner, assessment.GlobalCarrierClaims,
 		globalRetirements, globalAdoptions, assessment.Reconciliation, assessment.RelationObservations, options,

@@ -1479,9 +1479,12 @@ MCP configuration changes. These direct changes share one recovery operation;
 failure before state commit can restore them together. Same-file Codex MCP and
 key changes are composed into one document write.
 
-Extension lifecycle changes and changed Pi package order are not yet executable
-with key-mode changes in the same selected plan; preview and confirmed apply both
-refuse such a plan before effects. An extension that is already current does not
+Pi package installs and reinstalls can accompany key additions and updates when no
+other direct changes are needed. Keys settle before execution and are checked
+after each command; changed values stop the operation without automatic repair.
+Other extension lifecycle changes, key removals in an installation plan and
+changed Pi package order remain unsupported. Preview and confirmed apply refuse
+unsupported combinations before effects. An already-current extension does not
 by itself block direct changes or trigger another installation.
 Whole-document mode, switching ownership
 modes and capturing current host configuration as a source remain unsupported.

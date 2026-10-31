@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/execute"
@@ -17,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
+	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
 type ExecuteOptions struct {
@@ -239,6 +241,10 @@ func executeWithDependencies(
 		current,
 		dependencies.recoveryProvenancePreflight,
 	)
+	if err != nil {
+		return disclose(current), err
+	}
+	nativeInvocations, err := prepareNativeInvocations(ctx, current, leases, currentAuthority.metadataRequests)
 	if err != nil {
 		return disclose(current), err
 	}
@@ -480,6 +486,73 @@ func executeWithDependencies(
 		}
 		executionOptions.nativeInput = &native
 		executionOptions.persistenceCodec = current.nativePlan.stateCodec
+		executionOptions.nativeInvocations = nativeInvocations
+		if current.nativePlan.opaque {
+			executionOptions.afterNativeCore = func(ctx context.Context, applied execute.ApplyResult) (_ readiness.Assessment, _ applyContinuationPlan, returnErr error) {
+				if !applied.ExecutionAttempted {
+					return current.assessment, stateDirPlan.schedule.continuation, nil
+				}
+				if err := executionGuard.requireDeclarationsCurrent(ctx, "post-native-prefix replan"); err != nil {
+					return readiness.Assessment{}, applyContinuationPlan{}, err
+				}
+				refreshed, err := planReadinessAtPathsWithAssessor(ctx, currentInput, execution.operationContext, current.context.Paths, &current.barrier, forwardAuthority.Validate, retainedReadiness)
+				if err != nil {
+					return readiness.Assessment{}, applyContinuationPlan{}, err
+				}
+				keep := false
+				defer func() {
+					if !keep {
+						refreshed.projectRoot = nil
+						returnErr = errors.Join(returnErr, closeCommandPlan(&refreshed))
+					}
+				}()
+				refreshed.projectRoot = planned.projectRoot
+				fresh, err := nativeApplyInputFor(refreshed)
+				if err != nil {
+					return readiness.Assessment{}, applyContinuationPlan{}, err
+				}
+				settled, present := applied.NativeSettlement()
+				if !present {
+					return readiness.Assessment{}, applyContinuationPlan{}, fmt.Errorf("native prefix has no observed settlement")
+				}
+				if matches, err := settled.Matches(refreshed.assessment.CurrentState, fresh.Registry); err != nil || !matches {
+					return readiness.Assessment{}, applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+				}
+
+				gates, err := execute.MaximumNativeForwardEffectValidationCount(fresh)
+				if err != nil || gates != 0 {
+					return readiness.Assessment{}, applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+				}
+				schedule, err := compileApplyForwardEffectSchedule(refreshed, nil, fresh.ApplyInput)
+				if err != nil {
+					return readiness.Assessment{}, applyContinuationPlan{}, err
+				}
+				if err := bindApplyContinuationPlans(refreshed.assessment.Reconciliation, stateDirPlan.schedule.continuation, schedule.continuation); err != nil {
+					return readiness.Assessment{}, applyContinuationPlan{}, err
+				}
+				refreshedAuthority, err := buildApplyAuthorityEvidence(ctx, refreshed)
+				if err != nil {
+					return readiness.Assessment{}, applyContinuationPlan{}, err
+				}
+				matches, err := leases.MatchCurrentPhysicalRequests(ctx, refreshedAuthority.metadataRequests...)
+				if err != nil || !matches {
+					return readiness.Assessment{}, applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+				}
+				refreshedRevisions, err := mutation.CaptureRevisionSet(ctx, refreshedAuthority.firstEffectRevisions...)
+				if err != nil {
+					return readiness.Assessment{}, applyContinuationPlan{}, err
+				}
+				previous := current
+				previous.projectRoot = nil
+				if err := closeCommandPlan(&previous); err != nil {
+					return readiness.Assessment{}, applyContinuationPlan{}, err
+				}
+				refreshed.result.Reconciliation = current.result.Reconciliation
+				current, currentAuthority, keep = refreshed, refreshedAuthority, true
+				firstEffectRevisions, revisionBoundaryValidated = refreshedRevisions, false
+				return current.assessment, schedule.continuation, nil
+			}
+		}
 	}
 	providerPhase, err := runMCPProviderPrerequisitePhase(
 		ctx,
@@ -518,6 +591,9 @@ func executeWithDependencies(
 		current.assessment,
 		executionOptions,
 	)
+	if nativeInvocations != nil {
+		current.result.PermissionProtection = ownershipobserve.ObservePendingProtections(context.WithoutCancel(ctx), current.context.Paths)
+	}
 	if err != nil {
 		current.result.DelegateAttempts = runResult.DelegateAttempts
 		current.result.RelationOrderResults = runResult.RelationOrderResults

@@ -97,6 +97,7 @@ type ApplyResult struct {
 	// ExecutionAttempted reports whether apply reached journal capture or a
 	// later mutation boundary.
 	ExecutionAttempted bool
+	nativeSettlement   *NativeApplySettlement
 }
 
 // ApplyWithOptions commits typed executable effects and emits observational execution events.

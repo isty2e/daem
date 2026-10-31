@@ -16,6 +16,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
+	projectionbuild "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/topology"
@@ -28,6 +29,7 @@ type nativePlanInputs struct {
 	codecs         aggregate.CodecCatalog
 	stateCodec     durable.SnapshotCodec
 	stateDocuments []aggregate.DocumentAddress
+	opaque         bool
 }
 
 func rejectUnsupportedCommandPlan(planned commandPlan) error {
@@ -86,11 +88,42 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
+	opaque := false
+	for _, action := range assessment.Reconciliation.Relations() {
+		opaque = opaque || action.InvokesHostRoute()
+	}
+	if opaque {
+		positive, err := projectionbuild.BuildPositiveNativePrefix(ctx, assessment.Reconciliation.Aggregates())
+		if err != nil {
+			return err
+		}
+		prefix, err := execute.PrepareNativeApplyState(ctx, execute.NativeApplyStateInput{Before: assessment.CurrentState, Aggregates: positive, StateCodec: codec})
+		if err != nil {
+			return err
+		}
+		if len(state.ManagedPathEffects()) != 0 || !prefix.AfterState().Equal(state.AfterState()) {
+			return nativeSupportError{nativeSupportRoutes}
+		}
+		for _, effect := range state.AggregateEffects() {
+			if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); !native {
+				return nativeSupportError{nativeSupportRoutes}
+			}
+		}
+		for _, prerequisite := range assessment.MCPProviders {
+			_, present, err := prerequisite.InstallAction()
+			if err != nil {
+				return err
+			}
+			if present {
+				return nativeSupportError{nativeSupportRoutes}
+			}
+		}
+	}
 	documents, err := nativeStateDocuments(ctx, assessment, state.AfterState())
 	if err != nil {
 		return err
 	}
-	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents}
+	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents, opaque: opaque}
 	return nil
 }
 
