@@ -57,11 +57,15 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	if len(input.Preparation.Narrowings())+len(input.Preparation.WholeAdoptions()) != 0 {
 		return nativeApplyWork{}, fmt.Errorf("native whole-document effects require their execution integration")
 	}
-	documents, promoting, err := input.Documents.CaptureMembers(input.Preparation.AfterState(), forwardEffectPlanningOperationID())
+	documents, members, err := input.Documents.CaptureMembers(input.Preparation.AfterState(), forwardEffectPlanningOperationID())
 	if err != nil {
 		return nativeApplyWork{}, err
 	}
 	namespaces := documents.Namespaces()
+	promoting := make([]bool, len(members))
+	for index, member := range members {
+		promoting[index] = member.RequiresPromotion()
+	}
 	work := nativeApplyWork{
 		documents: documents, promoting: promoting, mutating: make([]bool, len(namespaces)),
 		managed: input.Preparation.ManagedPathEffects(), changed: !input.CurrentState.Equal(input.Preparation.AfterState()),

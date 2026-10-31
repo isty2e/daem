@@ -2,10 +2,31 @@ package journal
 
 import (
 	"context"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
+
+// NativeDocumentMember projects prospective membership, not live protection
+// metadata or write authority. Its namespace roots remain borrowed from the batch.
+type NativeDocumentMember struct {
+	namespace NativeDocumentNamespace
+	bindings  []ownership.DocumentBindingIntent
+	scope     ownership.DocumentScope
+	promoting bool
+}
+
+func (member NativeDocumentMember) Namespace() NativeDocumentNamespace { return member.namespace }
+
+func (member NativeDocumentMember) BindingIntents() []ownership.DocumentBindingIntent {
+	return slices.Clone(member.bindings)
+}
+
+func (member NativeDocumentMember) RegistryScope() ownership.DocumentScope { return member.scope }
+
+func (member NativeDocumentMember) RequiresPromotion() bool { return member.promoting }
 
 func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, after durable.Snapshot) (NativeDocumentObservationBatch, error) {
 	indexes, err := indexDocumentSnapshots(ctx, batch.before, after)
@@ -31,7 +52,7 @@ func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, 
 
 // CaptureMembers derives actual actors and pending metadata from the retained
 // snapshots and Registry. It performs no filesystem observation or publication.
-func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapshot, operationID string) (NativeDocumentObservationBatch, []bool, error) {
+func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapshot, operationID string) (NativeDocumentObservationBatch, []NativeDocumentMember, error) {
 	ctx := context.Background()
 	selected, err := batch.captureMembers(ctx, after)
 	if err != nil {
@@ -45,16 +66,23 @@ func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapsho
 	if err != nil {
 		return NativeDocumentObservationBatch{}, nil, err
 	}
-	promoting := make([]bool, len(members))
+	result := make([]NativeDocumentMember, 0, len(members))
 	for index, member := range members {
-		promoting[index] = len(member.provisional) != 0
+		scope, err := nativeNamespaceScope([]NativeDocumentNamespace{selected.namespaces[index]})
+		if err != nil {
+			return NativeDocumentObservationBatch{}, nil, err
+		}
+		promoting := len(member.provisional) != 0
 		for _, binding := range member.bindings {
 			if _, exact := binding.KnownAfter(); !exact {
-				promoting[index] = true
+				promoting = true
 			}
 		}
+		result = append(result, NativeDocumentMember{
+			namespace: selected.namespaces[index], bindings: slices.Clone(member.bindings), scope: scope, promoting: promoting,
+		})
 	}
-	return selected, promoting, nil
+	return selected, result, nil
 }
 
 func (indexes documentSnapshotIndexes) hasMembers(ctx context.Context, aliases []aggregate.DocumentAddress) (bool, error) {

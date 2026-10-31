@@ -6,9 +6,39 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
 )
+
+// ObserveRootedFilePermissionMetadata consumes the capability and returns actual
+// same-FD facts without changing permissions, reading payload or syncing.
+func ObserveRootedFilePermissionMetadata(ctx context.Context, capability rootedpath.CommitCapability) (FilePermissionMetadata, error) {
+	return observeRootedFilePermissionMetadata(ctx, capability, faultPlan{})
+}
+
+func observeRootedFilePermissionMetadata(ctx context.Context, capability rootedpath.CommitCapability, faults faultPlan) (FilePermissionMetadata, error) {
+	var metadata FilePermissionMetadata
+	request, err := NewRootedPermissionRestriction(capability, func(uid, gid, mode uint32) (uint32, bool, error) {
+		metadata = FilePermissionMetadata{UserID: uid, GroupID: gid, Mode: mode}
+		return mode, false, nil
+	})
+	if err != nil {
+		if capability != nil {
+			err = errors.Join(err, capability.Close())
+		}
+		return FilePermissionMetadata{}, err
+	}
+	result, err := inspectOrRestrictRootedPermissions(ctx, request, faults, false)
+	if err != nil {
+		return FilePermissionMetadata{}, err
+	}
+	if result.ObservedAbsent() {
+		return FilePermissionMetadata{}, failureBeforeVisibility(phaseCaptureMetadata, request.path, fs.ErrNotExist)
+	}
+	return metadata, nil
+}
 
 // RestrictRootedFilePermissions reads metadata only and never restores removed
 // access. ctx must carry the caller's independently admitted safety allowance.

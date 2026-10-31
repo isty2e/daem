@@ -10,6 +10,12 @@ import (
 // The canonical protection model supplies this pure query, not storage policy.
 type PermissionRestrictionPolicy func(userID, groupID, observedMode uint32) (restrictedMode uint32, expanded bool, err error)
 
+type FilePermissionMetadata struct {
+	UserID  uint32
+	GroupID uint32
+	Mode    uint32
+}
+
 // RootedPermissionRestriction applies one canonical protection policy under
 // caller-supplied current quiescence and writer exclusion.
 type RootedPermissionRestriction struct {
