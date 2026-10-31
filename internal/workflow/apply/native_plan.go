@@ -31,6 +31,7 @@ type nativePlanInputs struct {
 	stateDocuments []aggregate.DocumentAddress
 	opaque         bool
 	prefix         execute.NativeApplyStatePreparation
+	suffix         []execute.AggregateEffect
 }
 
 func rejectUnsupportedCommandPlan(planned commandPlan) error {
@@ -94,6 +95,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		opaque = opaque || action.InvokesHostRoute()
 	}
 	var prefix execute.NativeApplyStatePreparation
+	var suffix []execute.AggregateEffect
 	if opaque {
 		positive, err := projectionbuild.BuildPositiveNativePrefix(ctx, assessment.Reconciliation.Aggregates())
 		if err != nil {
@@ -103,7 +105,15 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		if err != nil {
 			return err
 		}
-		if _, err := state.AggregateEffectsAfterPositivePrefix(prefix); err != nil {
+		remaining, err := projectionbuild.BuildNativeApplySuffix(ctx, assessment.Reconciliation.Aggregates())
+		if err != nil {
+			return err
+		}
+		suffix, err = execute.AggregateEffectsForNativeOperation(remaining)
+		if err != nil {
+			return err
+		}
+		if err := state.ValidateAggregatePhaseSplit(prefix, suffix); err != nil {
 			return nativeSupportError{nativeSupportRoutes}
 		}
 		for _, prerequisite := range assessment.MCPProviders {
@@ -120,7 +130,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
-	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents, opaque: opaque, prefix: prefix}
+	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents, opaque: opaque, prefix: prefix, suffix: suffix}
 	return nil
 }
 

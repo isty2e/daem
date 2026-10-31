@@ -1479,14 +1479,14 @@ MCP configuration changes. These direct changes share one recovery operation;
 failure before state commit can restore them together. Same-file Codex MCP and
 key changes are composed into one document write.
 
-Pi package installs and reinstalls can accompany key additions, updates and
-ordinary file, skill or direct MCP changes. Keys settle before execution and are
-checked after each command; other direct changes follow the commands and their
-settings checks. Changed values stop the operation without automatic repair.
+Pi package installs and reinstalls can accompany key additions, updates, removals
+and ordinary file, skill or direct MCP changes. Desired key values settle before
+execution and are checked after each command; key removals and other direct
+changes follow the commands and their settings checks. Unexpected settings
+changes stop the operation without automatic repair.
 Pi adapter-backed MCP, provider prerequisite installations, other extension
-lifecycle changes, key removals in an installation plan and changed Pi package
-order remain unsupported. Preview and confirmed apply
-refuse unsupported combinations before effects. An already-current extension does not
+lifecycle changes and changed Pi package order remain unsupported. Preview and
+confirmed apply refuse unsupported combinations before effects. An already-current extension does not
 by itself block direct changes or trigger another installation.
 Whole-document mode, switching ownership
 modes and capturing current host configuration as a source remain unsupported.

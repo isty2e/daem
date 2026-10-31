@@ -163,8 +163,11 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 		if err := program.state.ReserveDestinationCapture(recovery.MaximumPhysicalPathDepth, &correlation); err != nil {
 			return nil, err
 		}
-		if err := program.state.ReserveDestinationAccess(recovery.MaximumPhysicalPathDepth, &correlation); err != nil {
-			return nil, err
+		// Correlation captures identity and then publishes: two rooted operations.
+		for range 2 {
+			if err := program.state.ReserveDestinationAccess(recovery.MaximumPhysicalPathDepth, &correlation); err != nil {
+				return nil, err
+			}
 		}
 		correlationWork, err := correlation.compile()
 		if err != nil {

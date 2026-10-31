@@ -56,7 +56,11 @@ if [ "$DAEM_TEST_SCOPE" = project ]; then
 else
   [ "$#" -eq 2 ] || exit 97
 fi
-/bin/cp "$DAEM_TEST_SETTINGS" "$DAEM_TEST_COMMAND_BEFORE"
+if [ -f "$DAEM_TEST_SETTINGS" ]; then
+  /bin/cp "$DAEM_TEST_SETTINGS" "$DAEM_TEST_COMMAND_BEFORE"
+else
+  printf '{}\n' > "$DAEM_TEST_COMMAND_BEFORE"
+fi
 if [ -f "$DAEM_TEST_INSTRUCTIONS_TARGET" ]; then
   { printf 'present\n'; /bin/cat "$DAEM_TEST_INSTRUCTIONS_TARGET"; } > "$DAEM_TEST_INSTRUCTIONS_BEFORE"
 else
@@ -69,6 +73,7 @@ else
   /bin/cp .daem/state.json "$DAEM_TEST_LAUNCH_STATE"
   /bin/cp "$DAEM_TEST_REGISTRY" "$DAEM_TEST_LAUNCH_REGISTRY"
   printf '%s\n' '{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}' > "$DAEM_TEST_SETTINGS"
+  if [ -n "${DAEM_TEST_NATIVE_RESULT:-}" ]; then /bin/cp "$DAEM_TEST_NATIVE_RESULT" "$DAEM_TEST_SETTINGS"; fi
   case "$DAEM_TEST_MUTATION" in
     initial) printf '%s\n' '{"theme":"fixture-theme","packages":["git:github.com/acme/pi-tools@v1"]}' > "$DAEM_TEST_SETTINGS" ;;
     key) printf '%s\n' '{"theme":"changed","foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}' > "$DAEM_TEST_SETTINGS" ;;
@@ -104,6 +109,7 @@ fi
 	t.Setenv("DAEM_TEST_LAUNCH_STATE", fixture.launchState)
 	t.Setenv("DAEM_TEST_LAUNCH_REGISTRY", fixture.launchRegistry)
 	t.Setenv("DAEM_TEST_MUTATION", mutation)
+	t.Setenv("DAEM_TEST_NATIVE_RESULT", "")
 	fixture.require(t, "lock")
 	fixture.require(t, "add", "extension", "tools", source, "--target", "pi", "--scope", string(scope))
 	fixture.require(t, "lock")

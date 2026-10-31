@@ -18,41 +18,35 @@ type NativeManagedSuffixShape struct {
 	aggregates  []AggregateEffect
 }
 
-// AggregateEffectsAfterPositivePrefix partitions effects without manufacturing a
+// ValidateAggregatePhaseSplit checks the combined successor without manufacturing a
 // post-prefix observation or granting execution authority.
-func (preparation NativeApplyStatePreparation) AggregateEffectsAfterPositivePrefix(prefix NativeApplyStatePreparation) ([]AggregateEffect, error) {
+func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefix NativeApplyStatePreparation, residual []AggregateEffect) error {
 	if err := preparation.Validate(); err != nil {
-		return nil, err
+		return err
 	}
 	if err := prefix.Validate(); err != nil {
-		return nil, err
+		return err
 	}
 	if !prefix.before.Equal(preparation.before) || len(prefix.managed)+len(prefix.narrowings)+len(prefix.adoptions)+len(prefix.projectCompletions)+len(preparation.projectCompletions) != 0 {
-		return nil, fmt.Errorf("native suffix requires a positive-only prefix from the same complete Before")
+		return fmt.Errorf("native suffix requires a positive-only prefix from the same complete Before")
 	}
 	for _, effect := range prefix.aggregates {
 		if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); !native {
-			return nil, fmt.Errorf("positive native prefix contains ordinary aggregate work")
-		}
-	}
-	var residual []AggregateEffect
-	for _, effect := range preparation.aggregates {
-		if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); !native {
-			residual = append(residual, effect)
+			return fmt.Errorf("positive native prefix contains ordinary aggregate work")
 		}
 	}
 	after, err := snapshotAfterAggregateEffects(prefix.after, residual)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !slices.EqualFunc(after.ManagedAggregates(), preparation.after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
-		return nil, fmt.Errorf("positive native prefix does not settle every native aggregate effect")
+		return fmt.Errorf("native aggregate phases do not produce the complete successor")
 	}
-	return residual, nil
+	return nil
 }
 
-func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStatePreparation) (NativeManagedSuffixShape, error) {
-	residual, err := input.Preparation.AggregateEffectsAfterPositivePrefix(prefix)
+func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStatePreparation, residual []AggregateEffect) (NativeManagedSuffixShape, error) {
+	err := input.Preparation.ValidateAggregatePhaseSplit(prefix, residual)
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
 	}
@@ -121,7 +115,11 @@ func sameAggregateSuffixEffect(left, right AggregateEffect) bool {
 	if left.documentAddress != right.documentAddress || left.codecContractID != right.codecContractID {
 		return false
 	}
-	return slices.EqualFunc(left.projections, right.projections, func(a, b AggregateProjectionEffect) bool {
+	// No-op projections remain codec validation context, not suffix actors.
+	validationOnly := func(projection AggregateProjectionEffect) bool { return !projection.isJournaled() }
+	leftActors := slices.DeleteFunc(slices.Clone(left.projections), validationOnly)
+	rightActors := slices.DeleteFunc(slices.Clone(right.projections), validationOnly)
+	return slices.EqualFunc(leftActors, rightActors, func(a, b AggregateProjectionEffect) bool {
 		if a.kind != b.kind || !a.contract.Equal(b.contract) ||
 			!a.before.SelectedValueEqual(b.before) || !a.expected.SelectedValueEqual(b.expected) ||
 			!slices.EqualFunc(a.previous, b.previous, durable.ManagedAggregateState.Equal) ||

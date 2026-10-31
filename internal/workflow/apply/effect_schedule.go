@@ -118,7 +118,7 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 		if err != nil {
 			return applyForwardEffectSchedule{}, err
 		}
-		shape, err := execute.ProjectNativeManagedSuffix(full, current.nativePlan.prefix)
+		shape, err := execute.ProjectNativeManagedSuffix(full, current.nativePlan.prefix, current.nativePlan.suffix)
 		if err != nil {
 			return applyForwardEffectSchedule{}, err
 		}

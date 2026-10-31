@@ -188,4 +188,16 @@ func TestPositiveNativePrefixAndFreshSuffixPreserveDistinctRetirements(t *testin
 	if err != nil || !settled.AfterState().Equal(whole.AfterState()) || !suffix[0].Rendered().Expected().Equal(complete[0].Rendered().Expected()) {
 		t.Fatal("fresh suffix diverged from the complete selected result", err)
 	}
+
+	remaining, err := projectionbuild.BuildNativeApplySuffix(t.Context(), complete)
+	if err != nil {
+		t.Fatal(err)
+	}
+	residual, err := execute.AggregateEffectsForNativeOperation(remaining)
+	if err != nil || whole.ValidateAggregatePhaseSplit(prepared, residual) != nil {
+		t.Fatal("prefix and residual did not preserve the complete aggregate successor", err)
+	}
+	if whole.ValidateAggregatePhaseSplit(prepared, nil) == nil {
+		t.Fatal("phase validation omitted a native retirement")
+	}
 }

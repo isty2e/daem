@@ -106,7 +106,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		}
 		work.edits = append(work.edits, edit)
 		work.mutating[group] = work.mutating[group] || effect.Kind() != AggregateEffectRecord
-		if !effect.Rendered().Document().Exists() {
+		if effect.BeforeDocument().Exists() && !effect.Rendered().Document().Exists() {
 			return nativeApplyWork{}, fmt.Errorf("native root removal requires its bounded document removal integration")
 		}
 		work.changed = true

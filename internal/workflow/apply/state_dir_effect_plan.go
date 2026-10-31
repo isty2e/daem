@@ -112,7 +112,7 @@ func applyEnvelopeFor(
 		if err != nil {
 			return operationplan.Envelope{}, 0, err
 		}
-		shape, err := execute.ProjectNativeManagedSuffix(input, current.nativePlan.prefix)
+		shape, err := execute.ProjectNativeManagedSuffix(input, current.nativePlan.prefix, current.nativePlan.suffix)
 		if err != nil {
 			return operationplan.Envelope{}, 0, err
 		}
