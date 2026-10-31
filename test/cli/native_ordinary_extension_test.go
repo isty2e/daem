@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -24,20 +25,46 @@ import (
 )
 
 func TestNativeOrdinaryApplyWithCurrentExtension(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		sources []string
+	}{
+		{name: "single", sources: []string{"git:github.com/acme/pi-tools@v1"}},
+		{name: "ordered pair", sources: []string{"git:github.com/acme/pi-tools@v1", "git:github.com/acme/pi-more@v1"}},
+	} {
+		t.Run(test.name, func(t *testing.T) { testNativeOrdinaryApplyWithCurrentExtensions(t, test.sources) })
+	}
+}
+
+func testNativeOrdinaryApplyWithCurrentExtensions(t *testing.T, sources []string) {
+	t.Helper()
 	fixture := nativePresentationFixture(t, "model='native-test'\n", "foreign=true\n")
 	workspace := filepath.Dir(fixture.manifest)
-	const source = "git:github.com/acme/pi-tools@v1"
 	testkit.WriteFile(t, workspace, filepath.Base(fixture.manifest), "version=1\ntargets=['codex','pi']\n")
 	runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
-	runNativeLifecycleCommand(t, "add", "extension", "tools", source, "--manifest", fixture.manifest, "--target", "pi", "--scope", "project")
+	for index, source := range sources {
+		id := "tools"
+		if index == 1 {
+			id = "more"
+		}
+		runNativeLifecycleCommand(t, "add", "extension", id, source, "--manifest", fixture.manifest, "--target", "pi", "--scope", "project")
+	}
 	runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
 	routes := 0
+	var installed []string
 	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{Runner: func(ctx context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
 		routes++
-		if request.Command != "pi" || !reflect.DeepEqual(request.Args, []string{"install", source, "-l"}) {
+		if request.Command != "pi" || len(request.Args) != 3 || request.Args[0] != "install" || request.Args[2] != "-l" || !slices.Contains(sources, request.Args[1]) {
 			t.Fatalf("unexpected host route: %#v", request)
 		}
-		testkit.WriteFile(t, workspace, ".pi/settings.json", `{"packages":["`+source+`"]}`)
+		installed = append(installed, request.Args[1])
+		content, err := json.Marshal(struct {
+			Packages []string `json:"packages"`
+		}{installed})
+		if err != nil {
+			t.Fatal(err)
+		}
+		testkit.WriteFile(t, workspace, ".pi/settings.json", string(content))
 		return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
 	}})
 	run := func(mode string, jsonOutput bool) (int, string, string) {
@@ -50,7 +77,7 @@ func TestNativeOrdinaryApplyWithCurrentExtension(t *testing.T) {
 		code := testkit.RunVerboseCLIWithOptions(args, clipkg.RunOptions{Stdout: &stdout, Stderr: &stderr, ApplyExecuteOptions: applyworkflow.ExecuteOptions{HostRouteExecutor: executor}})
 		return code, stdout.String(), stderr.String()
 	}
-	if code, stdout, stderr := run("--yes", false); code != 0 || routes != 1 {
+	if code, stdout, stderr := run("--yes", false); code != 0 || routes != len(sources) {
 		t.Fatalf("extension-only baseline failed: %d %s %s routes=%d", code, stdout, stderr, routes)
 	}
 	manifest := string(testkit.ReadFile(t, fixture.manifest)) + "\n[instructions.project]\nsource='./instructions.md'\n[[host_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
@@ -59,8 +86,28 @@ func TestNativeOrdinaryApplyWithCurrentExtension(t *testing.T) {
 		testkit.WriteFile(t, workspace, "instructions.md", content)
 		runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
 		for _, mode := range []string{"--dry-run", "--yes"} {
-			if code, stdout, stderr := run(mode, true); code != 0 || !json.Valid([]byte(stdout)) || routes != 1 {
+			code, stdout, stderr := run(mode, true)
+			if code != 0 || !json.Valid([]byte(stdout)) || routes != len(sources) {
 				t.Fatalf("current extension blocked mixed Apply or was rerun: %d %s %s routes=%d", code, stdout, stderr, routes)
+			}
+			if mode == "--yes" {
+				var result struct {
+					Order []struct {
+						Target  string                             `json:"target"`
+						Scope   string                             `json:"scope"`
+						Outcome applyworkflow.RelationOrderOutcome `json:"outcome"`
+						Changed bool                               `json:"changed"`
+					} `json:"relation_order_results"`
+				}
+				if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+					t.Fatal(err)
+				}
+				if len(sources) == 1 && len(result.Order) != 0 {
+					t.Fatal("singleton manufactured an order execution result", stdout)
+				}
+				if len(sources) > 1 && (len(result.Order) != 1 || result.Order[0].Target != "pi" || result.Order[0].Scope != "project" || result.Order[0].Outcome != applyworkflow.RelationOrderExact || result.Order[0].Changed) {
+					t.Fatal("native direct Apply skipped the planned exact-order continuation", stdout)
+				}
 			}
 		}
 		if !bytes.Contains(testkit.ReadFile(t, filepath.Join(workspace, "AGENTS.md")), []byte(content)) {
@@ -74,7 +121,7 @@ func TestNativeOrdinaryApplyWithCurrentExtension(t *testing.T) {
 	before := snapshotNativeRecoveryPaths(t, fixture.destination, filepath.Join(workspace, "AGENTS.md"), filepath.Join(workspace, ".daem"))
 	for _, mode := range []string{"--dry-run", "--yes"} {
 		code, stdout, stderr := run(mode, false)
-		if code == 0 || routes != 1 || !strings.Contains(stdout+stderr, "extension or host-registration changes") {
+		if code == 0 || routes != len(sources) || !strings.Contains(stdout+stderr, "extension or host-registration changes") {
 			t.Fatalf("changed extension escaped the unsupported-route boundary: %d %s %s routes=%d", code, stdout, stderr, routes)
 		}
 		if mode == "--dry-run" && (!strings.Contains(stdout, "not executable") || !strings.Contains(stderr, "apply preview failed:")) {

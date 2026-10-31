@@ -146,22 +146,12 @@ func runWithOptions(
 		return runResult{}, err
 	}
 	if options.requireContinuation {
-		if err := bindApplyFinalRoutePlans(
+		if err := bindApplyContinuationPlans(
+			assessment.Reconciliation,
 			options.preparedContinuation,
 			options.currentContinuation,
 		); err != nil {
 			return runResult{}, err
-		}
-		_, currentRemoval, _, err := bindCarrierRemovalPlans(
-			assessment.Reconciliation.CarrierAbsences(),
-			options.preparedContinuation,
-			options.currentContinuation,
-		)
-		if err != nil {
-			return runResult{}, err
-		}
-		if !currentRemoval.valid() {
-			return runResult{}, fmt.Errorf("scheduled carrier removal plan is unavailable")
 		}
 	}
 	statefileAuthority := options.statefileAuthority
