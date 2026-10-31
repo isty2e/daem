@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -63,8 +64,13 @@ func PrepareInvocation(ctx context.Context, input InvocationInput, budget *journ
 	if err != nil {
 		return InvocationInput{}, err
 	}
-	if err := requireInvocationCoverage(ctx, input, controls, budget); err != nil {
-		return InvocationInput{}, err
+	var documents []pathauthority.Exact
+	for _, document := range input.Protection.Documents() {
+		documents = append(documents, document.PathAuthority())
+	}
+	covered, err := authority.MatchCurrentExclusiveDocuments(ctx, documents, budget)
+	if err != nil || !covered {
+		return InvocationInput{}, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
 	qualification := &invocationQualification{
 		paths: input.Paths, leases: input.Leases, row: input.Protection, requests: requests, authority: authority,

@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/executionidentity"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
@@ -161,43 +159,6 @@ func qualifyInvocationStart(ctx context.Context, prepared Prepared, row ownershi
 		observation, err := inspectPermissions(ctx, prepared, document, document.InitialRestriction)
 		if err != nil || observation.ObservedAbsent() {
 			return errors.Join(fmt.Errorf("protected document changed before invocation"), err)
-		}
-	}
-	return nil
-}
-
-func requireInvocationCoverage(ctx context.Context, input InvocationInput, controls []string, budget *journalrecovery.PhysicalWorkBudget) error {
-	covered := make(map[pathauthority.Exact]bool)
-	for _, request := range input.Requests {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		path, err := rootedpath.ResolveReferentPathBounded(request.Path, journalrecovery.MaximumPhysicalPathDepth, budget)
-		if err != nil {
-			return err
-		}
-		physical, err := mutation.ObservePersistedDirectoryEntryAuthorityBounded(path, journalrecovery.MaximumPhysicalPathDepth, budget)
-		if err != nil {
-			return err
-		}
-		covered[physical.Exact()] = true
-	}
-	controlAuthorities := make([]pathauthority.Exact, 0, len(controls))
-	for _, control := range controls {
-		physical, err := mutation.ObservePersistedDirectoryEntryAuthorityBounded(control, journalrecovery.MaximumPhysicalPathDepth, budget)
-		if err != nil {
-			return err
-		}
-		controlAuthorities = append(controlAuthorities, physical.Exact())
-	}
-	for _, document := range input.Protection.Documents() {
-		if !covered[document.PathAuthority()] {
-			return fmt.Errorf("protected document has no admitted physical request")
-		}
-		for _, control := range controlAuthorities {
-			if document.PathAuthority().Contains(control) || control.Contains(document.PathAuthority()) {
-				return fmt.Errorf("protected document overlaps a control artifact")
-			}
 		}
 	}
 	return nil

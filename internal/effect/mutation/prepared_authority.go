@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
@@ -139,6 +140,21 @@ func (prepared PreparedExclusiveRequests) ReserveCheck(budget PhysicalObservatio
 }
 
 func (prepared PreparedExclusiveRequests) MatchCurrent(ctx context.Context, budget PhysicalObservationBudget) (bool, error) {
+	return prepared.matchCurrentDocuments(ctx, nil, budget)
+}
+
+// MatchCurrentExclusiveDocuments also requires each exact document to be a
+// requested referent disjoint from controls. ReserveCheck covers this same pass.
+func (prepared PreparedExclusiveRequests) MatchCurrentExclusiveDocuments(ctx context.Context, documents []pathauthority.Exact, budget PhysicalObservationBudget) (bool, error) {
+	for _, document := range documents {
+		if err := document.Validate(); err != nil {
+			return false, err
+		}
+	}
+	return prepared.matchCurrentDocuments(ctx, documents, budget)
+}
+
+func (prepared PreparedExclusiveRequests) matchCurrentDocuments(ctx context.Context, documents []pathauthority.Exact, budget PhysicalObservationBudget) (bool, error) {
 	if ctx == nil || prepared.leases == nil || budget == nil {
 		return false, fmt.Errorf("prepared exclusive authority is unavailable")
 	}
@@ -148,7 +164,54 @@ func (prepared PreparedExclusiveRequests) MatchCurrent(ctx context.Context, budg
 	set := prepared.leases
 	set.mu.RLock()
 	defer set.mu.RUnlock()
-	return set.matchCurrentExclusiveRequestsBounded(ctx, prepared.controls, prepared.documents, prepared.depth, budget, prepared.observer(ctx, budget))
+	observe := prepared.observer(ctx, budget)
+	matched, err := set.matchCurrentExclusiveRequestsBounded(ctx, prepared.controls, prepared.documents, prepared.depth, budget, observe)
+	if err != nil || !matched || len(documents) == 0 {
+		return matched, err
+	}
+	covered := make(map[pathauthority.Exact]bool)
+	for _, request := range prepared.documents {
+		identity, err := observe(request.Path, PathEffectReferent)
+		if err != nil {
+			return false, err
+		}
+		observation, err := directoryEntryAuthorityObservation(identity)
+		if err != nil {
+			return false, err
+		}
+		if exact, present := observation.Exact(); present {
+			covered[exact] = true
+		}
+	}
+	var controls []pathauthority.Exact
+	for _, path := range prepared.controls {
+		for _, effect := range []PathEffect{PathEffectDirectoryEntry, PathEffectReferent} {
+			identity, err := observe(path, effect)
+			if err != nil {
+				return false, err
+			}
+			observation, err := directoryEntryAuthorityObservation(identity)
+			if err != nil {
+				return false, err
+			}
+			exact, present := observation.Exact()
+			if !present {
+				return false, fmt.Errorf("control namespace is not exact")
+			}
+			controls = append(controls, exact)
+		}
+	}
+	for _, document := range documents {
+		if !covered[document] {
+			return false, fmt.Errorf("document has no admitted physical request")
+		}
+		for _, control := range controls {
+			if document.Contains(control) || control.Contains(document) {
+				return false, fmt.Errorf("document overlaps a control artifact")
+			}
+		}
+	}
+	return true, ctx.Err()
 }
 
 func (prepared PreparedExclusiveRequests) observer(ctx context.Context, budget PhysicalObservationBudget) pathIdentityObserver {
