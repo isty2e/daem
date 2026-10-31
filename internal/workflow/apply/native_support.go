@@ -86,7 +86,7 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 		}
 	}
 	for _, order := range result.RelationOrders() {
-		if !order.IsExact() {
+		if order.RequiresMutation() {
 			if order.Target() != target.TargetPi {
 				return nativeSupportError{nativeSupportOrder}
 			}

@@ -1489,14 +1489,17 @@ execution and are checked after each command; key removals and other direct
 changes follow the commands and their settings checks. Unexpected settings
 changes stop the operation without automatic repair.
 Pi adapter-backed MCP, provider prerequisite installations, extension removals
-and other hosts' extension changes remain unsupported. Pi order changes cannot
-yet accompany an install or reinstall. Preview and confirmed apply refuse
-unsupported combinations before effects. An already-current extension does not
+and other hosts' extension changes remain unsupported. An existing Pi package-order
+change cannot yet accompany an install or reinstall. Preview and confirmed apply
+refuse unsupported combinations before effects. An already-current extension does not
 by itself block direct changes or trigger another installation.
-In particular, adding a second Pi extension or removing an installed extension
-is currently refused while that settings file contains managed keys, even if
-their values are unchanged. Defer the extension change and retain its previous
-declaration; splitting off a key-value update does not remove this restriction.
+Adding another Pi extension is supported when installation leaves the declared
+package order correct, including when managed key values are unchanged. If the
+command instead leaves a permutation to perform, Apply stops after recording the
+actual command outcome; inspect a fresh dry-run before retrying the remaining order
+change. Removing an installed extension is still refused while that settings file
+contains managed keys. Defer that removal and retain its previous declaration;
+splitting off a key-value update does not remove this restriction.
 Whole-document mode, switching ownership
 modes and capturing current host configuration as a source remain unsupported.
 
