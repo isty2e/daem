@@ -17,6 +17,7 @@ import (
 // later migration units.
 type applyForwardEffectSchedule struct {
 	full         operationplan.EffectStructure
+	prefix       operationplan.EffectStructure
 	final        operationplan.EffectStructure
 	continuation applyContinuationPlan
 	effectPlan   execute.ApplyEffectPlan

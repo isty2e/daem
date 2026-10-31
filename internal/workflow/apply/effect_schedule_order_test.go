@@ -317,6 +317,82 @@ func TestApplyScheduleProviderBarriersPrecedeFinalSuffix(t *testing.T) {
 	finalCursor.finish()
 }
 
+func TestApplySchedulePositivePrefixPrecedesProvidersAndRetainsContinuation(t *testing.T) {
+	t.Parallel()
+	input := syntheticApplyScheduleInput(t, 1)
+	input.providerRoutes = []applyRouteScheduleFact{{ref: "provider-route", work: operationplan.RouteWork{InvokesHost: true}}}
+	input.hasGlobalAdoption = true
+	withoutPrefix := mustCompileSyntheticApplySchedule(t, input)
+	input.positivePrefix = &applyDirectPrefix{segment: input.core, gates: 1}
+	schedule := mustCompileSyntheticApplySchedule(t, input)
+	if !schedule.final.Equal(withoutPrefix.final) || !schedule.continuation.equal(withoutPrefix.continuation) {
+		t.Fatal("prefix changed the separately bound remaining continuation")
+	}
+	cursor := applyScheduleTestCursor{t: t, cursor: schedule.full.Begin()}
+	if err := cursor.cursor.Consume("provider-route/host", operationplan.EffectStepExternal); err == nil {
+		t.Fatal("provider command preceded the prefix")
+	}
+	cursor.consume("apply/native-prefix/apply/effect-segment/forward", operationplan.EffectStepForwardEffect)
+	cursor.consume("apply/native-prefix/apply/effect-segment/settlement", operationplan.EffectStepPersistence)
+	cursor.consume("apply/native-prefix/replan-barrier", operationplan.EffectStepValidateBarrier)
+	cursor.consume("apply/provider/pre-barrier", operationplan.EffectStepValidateBarrier)
+	cursor.consume("provider-route/forward", operationplan.EffectStepForwardEffect)
+	cursor.bindInitialStatefileAuthority("provider-route/statefile")
+	cursor.consume("provider-route/statefile/pending/publish", operationplan.EffectStepPublishDescendant)
+	cursor.consume("provider-route/statefile/pre-host/validate", operationplan.EffectStepValidateDescendant)
+	cursor.consume("provider-route/host", operationplan.EffectStepExternal)
+	cursor.consumeRepeated("provider-route/statefile/post-host/validate", operationplan.EffectStepValidateDescendant, 5)
+	cursor.consumeRepeated("provider-route/statefile/settlement/publish", operationplan.EffectStepPublishDescendant, 3)
+	cursor.selectAlternative("provider-route/outcome", 0)
+	cursor.consume("provider-route/outcome/success", operationplan.EffectStepNoOp)
+	cursor.consume("apply/provider/post-barrier", operationplan.EffectStepValidateBarrier)
+	cursor.consume("apply/provider/replan-barrier", operationplan.EffectStepValidateBarrier)
+	cursor.consume("apply/effect-segment", operationplan.EffectStepNoOp)
+	cursor.consume("apply/effect-segment/forward", operationplan.EffectStepForwardEffect)
+	cursor.consume("apply/effect-segment/settlement", operationplan.EffectStepPersistence)
+	cursor.checkedSuccess("apply/global-claim-adoptions/pre-registry", operationplan.EffectStepForwardEffect)
+	cursor.checkedSuccess("apply/global-claim-adoptions/persistence", operationplan.EffectStepPersistence)
+	cursor.checkedSuccess("apply/global-claim-adoptions/post-registry", operationplan.EffectStepForwardEffect)
+	cursor.finish()
+	demand, err := schedule.full.LegacyDemand()
+	if err != nil || demand.EnsureCalls() != 3 || demand.DescendantBindings() != 1 {
+		t.Fatal("prefix omitted work or duplicated statefile authority", err)
+	}
+}
+
+func TestApplyScheduleFailedPrefixStopsBeforeProvider(t *testing.T) {
+	t.Parallel()
+	input := syntheticApplyScheduleInput(t, 0)
+	var builder operationplan.EffectStructureBuilder
+	input.positivePrefix = &applyDirectPrefix{gates: 1, segment: builder.Choice(
+		"result",
+		builder.Step("failed", operationplan.EffectStepTerminal),
+		builder.Step("forward", operationplan.EffectStepForwardEffect),
+	)}
+	input.providerRoutes = []applyRouteScheduleFact{{ref: "provider-route", work: operationplan.RouteWork{InvokesHost: true}}}
+	schedule := mustCompileSyntheticApplySchedule(t, input)
+	cursor := applyScheduleTestCursor{t: t, cursor: schedule.full.Begin()}
+	cursor.selectAlternative("apply/native-prefix/result", 0)
+	cursor.consume("apply/native-prefix/failed", operationplan.EffectStepTerminal)
+	cursor.finish()
+	if err := cursor.cursor.Consume("provider-route/host", operationplan.EffectStepExternal); err == nil {
+		t.Fatal("failed prefix released a provider")
+	}
+}
+
+func TestApplyScheduleRefusesEmptyPositivePrefix(t *testing.T) {
+	t.Parallel()
+	input := syntheticApplyScheduleInput(t, 0)
+	input.positivePrefix = &applyDirectPrefix{}
+	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compileApplySchedule(input, envelope.Demand()); err == nil {
+		t.Fatal("empty prefix manufactured a scheduled phase")
+	}
+}
+
 func TestApplyScheduleNoChangeContinuesWithoutForwardDemand(t *testing.T) {
 	t.Parallel()
 	input := syntheticApplyScheduleInput(t, 0)
@@ -601,6 +677,9 @@ func mustCompileSyntheticApplySchedule(
 	}
 	if input.coreChanged {
 		work.ExecuteGates = 1
+	}
+	if input.positivePrefix != nil {
+		work.PrefixExecuteGates = input.positivePrefix.gates
 	}
 	for _, route := range input.providerRoutes {
 		work.ProviderActions = append(work.ProviderActions, route.work)

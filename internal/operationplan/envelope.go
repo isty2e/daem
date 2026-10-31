@@ -77,10 +77,11 @@ type DelegateWork struct {
 	Blocked          bool
 }
 
-// ApplyWork is the I/O-free apply envelope input. ExecuteGates is Effect-owned
-// visibility-gate demand; remaining slices are workflow-normalized facts.
+// ApplyWork is the I/O-free apply envelope input. Gate counts are Effect-owned
+// visibility demand; remaining slices are workflow-normalized facts.
 type ApplyWork struct {
 	ExecuteGates            int
+	PrefixExecuteGates      int
 	ProviderActions         []RouteWork
 	FinalRoutes             []RouteWork
 	CarrierRemovals         []CarrierWork
@@ -181,12 +182,16 @@ func (envelope Envelope) Demand() Demand { return envelope.demand }
 
 // CompileApply compiles the apply forward-effect envelope from normalized work.
 func CompileApply(work ApplyWork) (Envelope, error) {
-	if work.ExecuteGates < 0 {
+	if work.ExecuteGates < 0 || work.PrefixExecuteGates < 0 {
 		return Envelope{}, fmt.Errorf("operationplan: execute visibility gates must not be negative")
 	}
+	executeGates, err := checkedAdd(work.ExecuteGates, work.PrefixExecuteGates)
+	if err != nil {
+		return Envelope{}, err
+	}
 	builder := envelopeBuilder{kind: EnvelopeApply}
-	if work.ExecuteGates != 0 {
-		builder.add(ObligationExecuteVisibility, work.ExecuteGates)
+	if executeGates != 0 {
+		builder.add(ObligationExecuteVisibility, executeGates)
 	}
 
 	hostCalls, err := finalHostStateDirCalls(work.FinalRoutes)
@@ -267,6 +272,9 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 	}
 
 	ensureCalls := 0
+	if work.PrefixExecuteGates != 0 {
+		ensureCalls++
+	}
 	if providerCalls != 0 {
 		ensureCalls++
 	}
@@ -274,6 +282,10 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 		ensureCalls++
 	}
 	stateDirEffectCalls, err := checkedAdd(providerCalls, finalEffectCalls)
+	if err != nil {
+		return Envelope{}, err
+	}
+	stateDirEffectCalls, err = checkedAdd(stateDirEffectCalls, work.PrefixExecuteGates)
 	if err != nil {
 		return Envelope{}, err
 	}
@@ -285,6 +297,9 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 	barrierCalls := 0
 	if providerCalls != 0 {
 		barrierCalls = 3
+	}
+	if work.PrefixExecuteGates != 0 {
+		barrierCalls++
 	}
 	if ensureCalls != 0 {
 		builder.add(ObligationStateDirEnsure, ensureCalls)

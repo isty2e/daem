@@ -12,6 +12,7 @@ import (
 )
 
 type applyScheduleInput struct {
+	positivePrefix      *applyDirectPrefix
 	providerRoutes      []applyRouteScheduleFact
 	coreChanged         bool
 	core                operationplan.EffectNode
@@ -22,6 +23,11 @@ type applyScheduleInput struct {
 	mayReclassifyOrder  bool
 	delegates           []applyDelegateScheduleFact
 	hasGlobalAdoption   bool
+}
+
+type applyDirectPrefix struct {
+	segment operationplan.EffectNode
+	gates   int
 }
 
 type applyRouteScheduleFact struct {
@@ -71,6 +77,19 @@ func compileApplySchedule(
 	}
 	var builder operationplan.EffectStructureBuilder
 	statefile := applyStatefileSchedule{builder: &builder}
+	var prefixPhase operationplan.EffectNode
+	var prefixStructure operationplan.EffectStructure
+	if input.positivePrefix != nil {
+		if input.positivePrefix.gates <= 0 {
+			return applyForwardEffectSchedule{}, fmt.Errorf("positive prefix requires nonzero direct work")
+		}
+		prefixPhase = builder.ForwardPhase("apply/native-prefix", builder.Namespace("apply/native-prefix", input.positivePrefix.segment))
+		var err error
+		prefixStructure, err = builder.Compile(prefixPhase)
+		if err != nil {
+			return applyForwardEffectSchedule{}, err
+		}
+	}
 	providerNode := compileApplyProviderSchedule(&builder, &statefile, input.providerRoutes)
 	continuation, err := compileApplyContinuationPlan(&builder, &statefile, input)
 	if err != nil {
@@ -85,7 +104,10 @@ func compileApplySchedule(
 	if err != nil {
 		return applyForwardEffectSchedule{}, err
 	}
-	fullNodes := make([]operationplan.EffectNode, 0, 5)
+	fullNodes := make([]operationplan.EffectNode, 0, 7)
+	if input.positivePrefix != nil {
+		fullNodes = append(fullNodes, prefixPhase, builder.Step("apply/native-prefix/replan-barrier", operationplan.EffectStepValidateBarrier))
+	}
 	if len(input.providerRoutes) != 0 {
 		fullNodes = append(
 			fullNodes,
@@ -105,6 +127,7 @@ func compileApplySchedule(
 	}
 	return applyForwardEffectSchedule{
 		full:         fullStructure,
+		prefix:       prefixStructure,
 		final:        finalStructure,
 		continuation: continuation,
 	}, nil

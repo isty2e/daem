@@ -45,6 +45,37 @@ func TestCompileApplyExecuteGatesReserveOneEnsure(t *testing.T) {
 	}
 }
 
+func TestCompileApplyPrefixAddsOnePhaseWithoutAnotherDescendant(t *testing.T) {
+	t.Parallel()
+	work := ApplyWork{
+		ExecuteGates: 2, ProviderActions: []RouteWork{{InvokesHost: true}},
+		FinalRoutes: []RouteWork{{InvokesHost: true}}, StatefilePath: "/state.json",
+		GlobalCarrierRetirement: true, GlobalCarrierAdoption: true,
+		Delegates: []DelegateWork{{SchedulesAttempt: true}},
+	}
+	base, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work.PrefixExecuteGates = 3
+	withPrefix, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, actual := base.Demand(), withPrefix.Demand()
+	if actual.EnsureCalls() != want.EnsureCalls()+1 || actual.StateDirValidationCalls() != want.StateDirValidationCalls()+2 || actual.BarrierValidationCalls() != want.BarrierValidationCalls()+1 {
+		t.Fatal("prefix work was omitted or merged into another phase")
+	}
+	if actual.DescendantBindings() != want.DescendantBindings() || actual.DescendantPath() != want.DescendantPath() || actual.DescendantValidations() != want.DescendantValidations() || actual.DescendantFileCommits() != want.DescendantFileCommits() {
+		t.Fatal("prefix changed continuation persistence ownership")
+	}
+	for _, invalid := range []ApplyWork{{PrefixExecuteGates: -1}, {ExecuteGates: int(^uint(0) >> 1), PrefixExecuteGates: 1}} {
+		if _, err := CompileApply(invalid); err == nil {
+			t.Fatal("invalid combined direct work produced a reservation")
+		}
+	}
+}
+
 func TestCompileApplyProviderActionsReserveBarrierEnvelope(t *testing.T) {
 	t.Parallel()
 	envelope, err := CompileApply(ApplyWork{
