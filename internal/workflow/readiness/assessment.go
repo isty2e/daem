@@ -244,6 +244,7 @@ func buildAssessment(
 		currentState,
 		selection,
 		codecs,
+		native,
 	)
 	if err != nil {
 		return Assessment{}, err

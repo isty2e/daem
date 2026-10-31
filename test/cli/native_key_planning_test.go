@@ -463,7 +463,7 @@ ownership = "keys"
 }
 
 func TestNativeKeyCLIPlanningRefusesUnjoinedModesAndProviderReads(t *testing.T) {
-	for _, variant := range []string{"document mode", "provider overlap"} {
+	for _, variant := range []string{"document mode", "dynamic adapter reads"} {
 		t.Run(variant, func(t *testing.T) {
 			root := t.TempDir()
 			t.Setenv("HOME", filepath.Join(root, "home"))
@@ -480,7 +480,7 @@ ownership = "document"
 `
 			fragment := "model = \"native-test\"\n"
 			want := "native document mode"
-			if variant == "provider overlap" {
+			if variant == "dynamic adapter reads" {
 				body = `version = 1
 targets = ["pi"]
 [[host_config]]
@@ -488,14 +488,20 @@ id = "preferences"
 path = "settings.json"
 source = "./fragment"
 ownership = "keys"
+[[extension]]
+id = "adapter-provider"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "npm:pi-mcp-adapter@^2.13.0" }
 [[mcp_server]]
 name = "context7"
-backend = "native"
+backend = "adapter"
 transport = "stdio"
 command = "must-not-run-daem-planning-test"
 `
 				fragment = `{"model":"native-test"}`
-				want = "retained native document read integration"
+				want = "unqualified dynamic read coverage"
 			}
 			testkit.WriteFile(t, workspace, "daem.toml", body)
 			testkit.WriteFile(t, workspace, "fragment", fragment)

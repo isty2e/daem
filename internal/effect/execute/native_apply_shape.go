@@ -15,25 +15,52 @@ type NativeManagedSuffixShape struct {
 	plan        ApplyEffectPlan
 	validations int
 	managed     []ManagedPathEffect
+	aggregates  []AggregateEffect
+}
+
+// AggregateEffectsAfterPositivePrefix partitions effects without manufacturing a
+// post-prefix observation or granting execution authority.
+func (preparation NativeApplyStatePreparation) AggregateEffectsAfterPositivePrefix(prefix NativeApplyStatePreparation) ([]AggregateEffect, error) {
+	if err := preparation.Validate(); err != nil {
+		return nil, err
+	}
+	if err := prefix.Validate(); err != nil {
+		return nil, err
+	}
+	if !prefix.before.Equal(preparation.before) || len(prefix.managed)+len(prefix.narrowings)+len(prefix.adoptions)+len(prefix.projectCompletions)+len(preparation.projectCompletions) != 0 {
+		return nil, fmt.Errorf("native suffix requires a positive-only prefix from the same complete Before")
+	}
+	for _, effect := range prefix.aggregates {
+		if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); !native {
+			return nil, fmt.Errorf("positive native prefix contains ordinary aggregate work")
+		}
+	}
+	var residual []AggregateEffect
+	for _, effect := range preparation.aggregates {
+		if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); !native {
+			residual = append(residual, effect)
+		}
+	}
+	after, err := snapshotAfterAggregateEffects(prefix.after, residual)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.EqualFunc(after.ManagedAggregates(), preparation.after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
+		return nil, fmt.Errorf("positive native prefix does not settle every native aggregate effect")
+	}
+	return residual, nil
 }
 
 func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStatePreparation) (NativeManagedSuffixShape, error) {
-	work, err := nativeApplyWorkFor(input)
+	residual, err := input.Preparation.AggregateEffectsAfterPositivePrefix(prefix)
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
 	}
-	if err := prefix.Validate(); err != nil {
+	projection := input
+	projection.Preparation.aggregates = residual
+	work, err := nativeApplyWorkFor(projection)
+	if err != nil {
 		return NativeManagedSuffixShape{}, err
-	}
-	if !prefix.BeforeState().Equal(input.CurrentState) || len(prefix.ManagedPathEffects()) != 0 ||
-		len(input.Preparation.ProjectCarrierCompletions()) != 0 || len(work.ordinaryAggregates) != 0 ||
-		!slices.EqualFunc(prefix.AfterState().ManagedAggregates(), input.Preparation.AfterState().ManagedAggregates(), durable.ManagedAggregateState.Equal) {
-		return NativeManagedSuffixShape{}, fmt.Errorf("native suffix requires unchanged managed-path actors after a positive-only prefix")
-	}
-	for _, effect := range input.Preparation.AggregateEffects() {
-		if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); !native {
-			return NativeManagedSuffixShape{}, fmt.Errorf("native managed suffix cannot contain aggregate work")
-		}
 	}
 	prefixInput := input
 	prefixInput.Preparation = prefix
@@ -43,7 +70,6 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 	}
 
 	for index, namespace := range work.documents.Namespaces() {
-		work.mutating[index] = false
 		if !prefixWork.changed {
 			continue
 		}
@@ -53,8 +79,7 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 			}
 		}
 	}
-	work.edits = nil
-	work.changed = len(work.managed) != 0
+	work.changed = len(work.managed)+len(residual) != 0
 	plan, err := prepareNativeApplyEffectPlan(input, work)
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
@@ -63,7 +88,7 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
 	}
-	return NativeManagedSuffixShape{plan: plan, validations: validations, managed: slices.Clone(work.managed)}, nil
+	return NativeManagedSuffixShape{plan: plan, validations: validations, managed: slices.Clone(work.managed), aggregates: residual}, nil
 }
 
 func (shape NativeManagedSuffixShape) Segment() operationplan.EffectNode { return shape.plan.Segment() }
@@ -72,23 +97,44 @@ func (shape NativeManagedSuffixShape) ForwardValidationCount() int { return shap
 
 func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectPlan, error) {
 	if !shape.plan.valid {
-		return ApplyEffectPlan{}, fmt.Errorf("native managed suffix shape is unavailable")
+		return ApplyEffectPlan{}, fmt.Errorf("native suffix shape is unavailable")
 	}
 	work, err := nativeApplyWorkFor(input)
 	if err != nil {
 		return ApplyEffectPlan{}, err
 	}
-	if len(input.Preparation.AggregateEffects()) != 0 || !slices.EqualFunc(shape.managed, work.managed, sameManagedPathEffect) {
-		return ApplyEffectPlan{}, fmt.Errorf("native managed suffix actors changed")
+	if !slices.EqualFunc(shape.managed, work.managed, sameManagedPathEffect) ||
+		!slices.EqualFunc(shape.aggregates, input.Preparation.AggregateEffects(), sameAggregateSuffixEffect) {
+		return ApplyEffectPlan{}, fmt.Errorf("native suffix actors changed")
 	}
 	plan, err := prepareNativeApplyEffectPlan(input, work)
 	if err != nil {
 		return ApplyEffectPlan{}, err
 	}
 	if !shape.plan.structure.Equal(plan.structure) {
-		return ApplyEffectPlan{}, fmt.Errorf("native managed suffix structure changed")
+		return ApplyEffectPlan{}, fmt.Errorf("native suffix structure changed")
 	}
 	return plan, nil
+}
+
+func sameAggregateSuffixEffect(left, right AggregateEffect) bool {
+	if left.documentAddress != right.documentAddress || left.codecContractID != right.codecContractID {
+		return false
+	}
+	return slices.EqualFunc(left.projections, right.projections, func(a, b AggregateProjectionEffect) bool {
+		if a.kind != b.kind || !a.contract.Equal(b.contract) ||
+			!a.before.SelectedValueEqual(b.before) || !a.expected.SelectedValueEqual(b.expected) ||
+			!slices.EqualFunc(a.previous, b.previous, durable.ManagedAggregateState.Equal) ||
+			!slices.EqualFunc(a.subjects, b.subjects, func(a, b AggregateSubjectEffect) bool {
+				return a.kind == b.kind && a.subject == b.subject && a.contract.Equal(b.contract)
+			}) {
+			return false
+		}
+		if a.desired == nil || b.desired == nil {
+			return a.desired == nil && b.desired == nil
+		}
+		return a.desired.Equal(*b.desired)
+	})
 }
 
 func sameManagedPathEffect(left, right ManagedPathEffect) bool {

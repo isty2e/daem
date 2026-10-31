@@ -13,7 +13,6 @@ import (
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
-	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -21,7 +20,6 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
-	"github.com/isty2e/daem/internal/topology"
 )
 
 // NativeAssessmentInput borrows observation-only facts for this assessment.
@@ -119,7 +117,6 @@ func rejectNativeProviderReadOverlap(native []nativeAssessmentSources, contracts
 		return err
 	}
 	var projections []aggregate.SubjectContribution
-	current := make(map[topology.SubjectID]struct{})
 	for _, contract := range contracts {
 		contribution, present, err := contract.ManagedAggregateContribution()
 		if err != nil {
@@ -127,48 +124,11 @@ func rejectNativeProviderReadOverlap(native []nativeAssessmentSources, contracts
 		}
 		if present {
 			projections = append(projections, contribution)
-			current[contribution.SubjectID()] = struct{}{}
 		}
 	}
 	projections = append(projections, retiringMCPProjections(contracts, previous)...)
 	for _, projection := range projections {
-		view, admitted := catalog.Product().LookupMCPBySubject(projection.SubjectID())
-		if !admitted || !view.SupportsObservation(catalog.ObservationEffectiveConfiguration) {
-			continue
-		}
-		addresses := []aggregate.DocumentAddress{projection.Contribution().Contract().Address().Document()}
 		pi, isPi := profile.PiMCPContractForCodec(projection.Contribution().CodecContractID())
-		if isPi {
-			for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-				placement, err := pi.Placement(scope)
-				if err != nil {
-					return err
-				}
-				address, err := aggregate.NewDocumentAddress(target.TargetPi, scope, placement.ConfigPath())
-				if err != nil {
-					return err
-				}
-				addresses = append(addresses, address)
-				if _, desired := current[projection.SubjectID()]; desired && pi.Backend() == desiredmcp.BackendNative {
-					settings, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
-						Target: target.TargetPi, Scope: scope, Path: "settings.json", Ownership: hostconfig.OwnershipKeys,
-					})
-					if err != nil {
-						return err
-					}
-					address, err := aggregate.NewDocumentAddress(target.TargetPi, scope, settings.Destination())
-					if err != nil {
-						return err
-					}
-					addresses = append(addresses, address)
-				}
-			}
-		}
-		for _, address := range addresses {
-			if _, _, retained := retainedNativeDocument(native, address); retained {
-				return fmt.Errorf("provider-effective MCP observation for %q requires retained native document read integration at %q", projection.SubjectID(), address.AggregateRoot())
-			}
-		}
 		if isPi && pi.Backend() == desiredmcp.BackendAdapter {
 			return fmt.Errorf("provider-effective MCP adapter observation for %q has unqualified dynamic read coverage against retained native documents", projection.SubjectID())
 		}

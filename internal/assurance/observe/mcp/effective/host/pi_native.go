@@ -2,13 +2,14 @@ package host
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
-	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -17,6 +18,8 @@ import (
 
 // PiNativeInput observes the conditional two-file native envelope, not an activated Pi session.
 type PiNativeInput struct {
+	Context      context.Context
+	ReadFile     func(context.Context, string, int64) ([]byte, bool, error)
 	Projection   aggregate.SubjectContribution
 	Codecs       aggregate.CodecCatalog
 	WorkDir      string
@@ -56,7 +59,10 @@ func observePiNative(input PiNativeInput, sourceContext piNativeSourceContext) (
 	sources := make([]mcpeffective.SourceObservation, 0, len(specs))
 	for index, spec := range specs {
 		precedence := relativePrecedence(index, selectedIndex)
-		content, exists, readErr := filesnapshot.ReadRegularFile(spec.path, maximumConfigBytes)
+		content, exists, readErr := configFileReader(input.ReadFile).read(input.Context, spec.path, maximumConfigBytes)
+		if errors.Is(readErr, context.Canceled) || errors.Is(readErr, context.DeadlineExceeded) {
+			return mcpeffective.Observation{}, readErr
+		}
 		source := mcpeffective.SourceObservationInput{
 			ID: spec.id, Path: spec.path, Kind: mcpeffective.SourceNormal, Precedence: precedence,
 			Shared: spec.shared, State: mcpeffective.SourceAbsent,

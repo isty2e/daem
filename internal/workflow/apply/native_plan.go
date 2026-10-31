@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -104,13 +103,8 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		if err != nil {
 			return err
 		}
-		if len(state.ProjectCarrierCompletions()) != 0 || !slices.EqualFunc(prefix.AfterState().ManagedAggregates(), state.AfterState().ManagedAggregates(), durable.ManagedAggregateState.Equal) {
+		if _, err := state.AggregateEffectsAfterPositivePrefix(prefix); err != nil {
 			return nativeSupportError{nativeSupportRoutes}
-		}
-		for _, effect := range state.AggregateEffects() {
-			if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); !native {
-				return nativeSupportError{nativeSupportRoutes}
-			}
 		}
 		for _, prerequisite := range assessment.MCPProviders {
 			_, present, err := prerequisite.InstallAction()
