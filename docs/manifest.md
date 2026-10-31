@@ -1483,20 +1483,21 @@ Already-installed Pi packages can be reordered with keys in the same Pi settings
 layer, including when the keys are already current. The combined document shares
 one recovery operation; package options and unrelated package positions are retained.
 
-Pi package installs, reinstalls and removals can accompany key additions, updates, removals
-and ordinary file, skill or direct MCP changes. Desired key values settle before
+Pi package installs, reinstalls and removals can accompany key additions, updates,
+removals and ordinary file, skill or direct MCP changes. Desired key values settle before
 execution and are checked after each command; key removals and other direct
 changes follow the commands and their settings checks. Unexpected settings
 changes stop the operation without automatic repair.
 Pi adapter-backed MCP, provider prerequisite installations
-and other hosts' extension changes remain unsupported. An existing Pi package-order
-change cannot yet accompany an extension command. Preview and confirmed apply
+and other hosts' extension changes remain unsupported. Preview and confirmed apply
 refuse unsupported combinations before effects. An already-current extension does not
 by itself block direct changes or trigger another installation.
-Adding another Pi extension is supported when installation leaves the declared
-package order correct, including when managed key values are unchanged. If the
-command instead leaves a permutation to perform, Apply stops after recording the
-actual command outcome; inspect a fresh dry-run before retrying the remaining order
+For a Pi settings layer containing managed keys, package order is reconciled from
+the settings observed after extension commands, together with remaining direct work.
+Newly discovered managed/foreign precedence
+changes still require renewed interactive authorization; `--yes` does not grant
+that additional consent. In a noninteractive run, inspect a fresh dry-run and retry.
+Completed extension commands are not repeated just to finish the remaining order
 change. An unverified removal retains its pending record and management claim.
 A retry that confirms absence can settle that removal without repeating the command.
 Whole-document mode, switching ownership

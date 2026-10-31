@@ -34,6 +34,7 @@ type nativePlanInputs struct {
 	opaque         bool
 	prefix         execute.NativeApplyStatePreparation
 	suffix         []execute.AggregateEffect
+	orders         []pipackage.OrderObservation
 }
 
 func rejectUnsupportedCommandPlan(planned commandPlan) error {
@@ -93,29 +94,35 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
+	var nativeOrders []pipackage.OrderObservation
+	for _, order := range assessment.PiOrders {
+		alias, err := pipackage.SettingsDocumentAddress(order.Scope())
+		if err != nil {
+			return err
+		}
+		for _, evidence := range assessment.NativeApproval {
+			member, err := evidence.HasMembers(ctx, assessment.CurrentState, state.AfterState())
+			if err != nil {
+				return err
+			}
+			if member && slices.Contains(evidence.Aliases, alias) {
+				nativeOrders = append(nativeOrders, order)
+				break
+			}
+		}
+	}
+
 	for _, decision := range assessment.Reconciliation.RelationOrders() {
 		if !decision.RequiresMutation() {
 			continue
 		}
 		found := false
-		for _, order := range assessment.PiOrders {
+		for _, order := range nativeOrders {
 			if order.Sequence().SequenceID() != decision.SequenceID() || !order.Changed() {
 				continue
 			}
-			alias, err := pipackage.SettingsDocumentAddress(order.Scope())
-			if err != nil {
-				return err
-			}
-			for _, evidence := range assessment.NativeApproval {
-				member, err := evidence.HasMembers(ctx, assessment.CurrentState, state.AfterState())
-				if err != nil {
-					return err
-				}
-				if member && slices.Contains(evidence.Aliases, alias) {
-					stateInput.PiOrders = append(stateInput.PiOrders, order)
-					found = true
-				}
-			}
+			stateInput.PiOrders = append(stateInput.PiOrders, order)
+			found = true
 		}
 		if !found {
 			return nativeSupportError{nativeSupportOrder}
@@ -136,7 +143,10 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	}
 	var prefix execute.NativeApplyStatePreparation
 	var suffix []execute.AggregateEffect
+	var orders []pipackage.OrderObservation
 	if opaque {
+		orders = nativeOrders
+
 		positive, err := projectionbuild.BuildPositiveNativePrefix(ctx, assessment.Reconciliation.Aggregates())
 		if err != nil {
 			return err
@@ -170,7 +180,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
-	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents, opaque: opaque, prefix: prefix, suffix: suffix}
+	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents, opaque: opaque, prefix: prefix, suffix: suffix, orders: orders}
 	return nil
 }
 

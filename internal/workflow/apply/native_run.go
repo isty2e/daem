@@ -11,9 +11,15 @@ import (
 	payloadbuild "github.com/isty2e/daem/internal/effect/payload/build"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/reconcile"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
+
+type nativeSegmentResult struct {
+	applied execute.ApplyResult
+	orders  relationOrderRunResult
+}
 
 func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, selection targetselection.Selection, assessment readiness.Assessment, options runOptions) (runResult, error) {
 	if options.nativeInput == nil || options.applyEffectPlan == nil || !options.nativeInput.Preparation.BeforeState().Equal(assessment.CurrentState) {
@@ -33,25 +39,18 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 		return runResult{}, err
 	}
 	orders := options.nativeInput.Preparation.PiOrders()
-	var orderResult relationOrderRunResult
+	var segment nativeSegmentResult
 	if len(orders) != 0 {
-		orderResult, err = prepareNativeOrderConvergence(ctx, paths, locked, assessment.Reconciliation, orders, options)
-		if err != nil {
-			return runResult{RelationOrderResults: orderResult.results}, err
-		}
-		recordNativeOrderEvents(&orderResult, configrelation.OrderSequenceStarted, false, nil, options)
+		segment, err = executeNativeOrderedSegment(ctx, paths, environment, locked, selection, assessment.Reconciliation, *options.nativeInput, *options.applyEffectPlan, options)
+	} else {
+		segment.applied, err = executeNativeSegment(ctx, paths, environment, locked, selection, *options.nativeInput, *options.applyEffectPlan, options)
 	}
-	applied, err := executeNativeSegment(ctx, paths, environment, locked, selection, *options.nativeInput, *options.applyEffectPlan, options)
+	applied := segment.applied
 	if err != nil {
-		if len(orders) != 0 {
-			changed := applied.State.Equal(options.nativeInput.Preparation.AfterState())
-			recordNativeOrderEvents(&orderResult, configrelation.OrderSequenceFailed, changed, err, options)
-		}
-		return runResult{ActionCount: applied.ActionCount, State: applied.State, StatePath: applied.StatePath, GlobalCarrierClaims: assessment.GlobalCarrierClaims, RelationOrderResults: orderResult.results}, err
+		return runResult{ActionCount: applied.ActionCount, State: applied.State, StatePath: applied.StatePath, GlobalCarrierClaims: assessment.GlobalCarrierClaims, RelationOrderResults: segment.orders.results}, err
 	}
 	if len(orders) != 0 {
-		recordNativeOrderEvents(&orderResult, configrelation.OrderSequenceDone, true, nil, options)
-		options.nativeOrderResult = &orderResult
+		options.nativeOrderResult = &segment.orders
 	}
 	if options.afterNativeCore != nil {
 		refreshed, continuation, err := options.afterNativeCore(ctx, applied)
@@ -69,6 +68,24 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 		ctx, paths, locked, selection, applied, assessment.Owner, assessment.GlobalCarrierClaims,
 		globalRetirements, globalAdoptions, assessment.Reconciliation, assessment.RelationObservations, options,
 	)
+}
+
+func executeNativeOrderedSegment(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, selection targetselection.Selection, reconciliation reconcile.Result, input execute.NativeApplyInput, plan execute.ApplyEffectPlan, options runOptions) (segment nativeSegmentResult, err error) {
+	options.nativeInput = &input
+	segment.orders, err = prepareNativeOrderConvergence(ctx, paths, locked, reconciliation, input.Preparation.PiOrders(), options)
+	if err != nil {
+		return segment, err
+	}
+	recordNativeOrderEvents(&segment.orders, configrelation.OrderSequenceStarted, false, nil, options)
+	segment.applied, err = executeNativeSegment(ctx, paths, environment, locked, selection, input, plan, options)
+
+	if err != nil {
+		changed := segment.applied.State.Equal(input.Preparation.AfterState())
+		recordNativeOrderEvents(&segment.orders, configrelation.OrderSequenceFailed, changed, err, options)
+	} else {
+		recordNativeOrderEvents(&segment.orders, configrelation.OrderSequenceDone, true, nil, options)
+	}
+	return segment, err
 }
 
 func executeNativeSegment(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, selection targetselection.Selection, input execute.NativeApplyInput, plan execute.ApplyEffectPlan, options runOptions) (result execute.ApplyResult, resultErr error) {

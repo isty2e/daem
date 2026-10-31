@@ -220,7 +220,7 @@ func prepareRelationOrderConvergence(
 			Lockfile:   locked,
 			Constraint: constraint,
 		}
-		if selectedTarget == target.TargetPi && options.nativeInput != nil && len(options.nativeInput.Preparation.PiOrders()) != 0 {
+		if selectedTarget == target.TargetPi && options.nativeInput != nil {
 			alias, err := pipackage.SettingsDocumentAddress(capability.Scope())
 			if err != nil {
 				return relationOrderRunResult{}, err

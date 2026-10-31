@@ -28,7 +28,7 @@ func (reason nativeSupportReason) detail() string {
 	case nativeSupportRoutes:
 		return "this extension or host-registration operation can rewrite settings containing managed keys and does not yet support key-protected execution"
 	case nativeSupportOrder:
-		return "key-mode package-order changes require the same Pi settings layer and no extension command"
+		return "key-mode package-order changes require ownership of the same Pi settings layer"
 	case nativeSupportCarrierState:
 		return "extension ownership settlement is not yet supported while settings keys are managed"
 	case nativeSupportOrderCommands:
@@ -93,16 +93,6 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 			if order.Target() != target.TargetPi {
 				return nativeSupportError{nativeSupportOrder}
 			}
-			for _, relation := range result.Relations() {
-				if relation.InvokesHostRoute() {
-					return nativeSupportError{nativeSupportOrderCommands}
-				}
-			}
-			for _, removal := range result.CarrierAbsences() {
-				if removal.InvokesHostRoute() {
-					return nativeSupportError{nativeSupportOrderCommands}
-				}
-			}
 			for _, prerequisite := range assessment.MCPProviders {
 				_, present, err := prerequisite.InstallAction()
 				if err != nil {
@@ -127,7 +117,7 @@ func (reason nativeSupportReason) repairInstruction() string {
 	case nativeSupportRoutes, nativeSupportOrderCommands:
 		return "defer this extension change and retain its previous declaration; splitting off a key-value update does not bypass managed-key ownership"
 	case nativeSupportOrder:
-		return "apply only same-layer Pi package-order changes without an extension command, or defer this order change"
+		return "apply only same-layer Pi package-order changes, or defer this order change"
 	case nativeSupportCarrierState:
 		return "retain the existing extension declarations and defer this ownership change while settings keys are managed"
 	default:

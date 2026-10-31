@@ -112,7 +112,7 @@ func applyEnvelopeFor(
 		if err != nil {
 			return operationplan.Envelope{}, 0, err
 		}
-		shape, err := execute.ProjectNativeManagedSuffix(input, current.nativePlan.prefix, current.nativePlan.suffix)
+		shape, err := execute.ProjectNativeManagedSuffix(input, current.nativePlan.prefix, current.nativePlan.suffix, current.nativePlan.orders)
 		if err != nil {
 			return operationplan.Envelope{}, 0, err
 		}
@@ -337,6 +337,9 @@ func admittedOrderClassFacts(current commandPlan) ([]admittedOrderClass, error) 
 		native := false
 		if current.nativePlan != nil {
 			for _, order := range current.nativePlan.state.PiOrders() {
+				native = native || order.Sequence().ClassID() == constraint.ClassID()
+			}
+			for _, order := range current.nativePlan.orders {
 				native = native || order.Sequence().ClassID() == constraint.ClassID()
 			}
 		}

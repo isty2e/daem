@@ -26,6 +26,22 @@ func SettingsDocumentAddress(scope target.Scope) (aggregate.DocumentAddress, err
 	return aggregate.NewDocumentAddress(target.TargetPi, scope, destination)
 }
 
+// SameSelection compares replayable order intent, not observed bytes or candidates.
+func (observation OrderObservation) SameSelection(other OrderObservation) bool {
+	left, err := observation.CaptureInput()
+	if err != nil {
+		return false
+	}
+	right, err := other.CaptureInput()
+	if err != nil || left.Scope != right.Scope || left.SettingsContext != right.SettingsContext || !left.Constraint.Equal(right.Constraint) {
+		return false
+	}
+	return slices.EqualFunc(left.Relations, right.Relations, func(a, b ScopedRelation) bool {
+		return a.key.Subject() == b.key.Subject() && a.key.ExpectedRelation().Equal(b.key.ExpectedRelation()) &&
+			a.scope == b.scope && a.sourceContext != nil && b.sourceContext != nil && *a.sourceContext == *b.sourceContext
+	})
+}
+
 // CaptureInput projects the actual immutable observation, including its original
 // document and explicit lexical contexts. Ambient observations are not replayable.
 func (observation OrderObservation) CaptureInput() (LoadedOrderInput, error) {

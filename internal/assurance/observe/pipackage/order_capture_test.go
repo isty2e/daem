@@ -8,7 +8,41 @@ import (
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
+
+func TestOrderSelectionComparisonSeparatesIntentFromObservedContent(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	input, _ := loadedOrderFixture(t, target.ScopeProject, filepath.Join(root, ".pi"), root, home,
+		[]orderSpec{{id: "a", source: "npm:a"}, {id: "b", source: "npm:b"}},
+		aggregate.ExistingDocument([]byte(`{"packages":["npm:b","npm:a"],"theme":"day"}`)))
+	before, err := observepipackage.ReconstructOrder(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.Document = aggregate.ExistingDocument([]byte(`{"packages":["npm:a","npm:foreign","npm:b"],"theme":"night"}`))
+	fresh, err := observepipackage.ReconstructOrder(input)
+	if err != nil || !before.SameSelection(fresh) {
+		t.Fatal("actual post-command membership or candidate changed locked order intent", err)
+	}
+	if before.SameSelection(observepipackage.OrderObservation{}) {
+		t.Fatal("an invalid observation became order intent")
+	}
+	input.SettingsContext, err = extensiontopology.NewLocalSourceContext(input.SettingsContext.BaseRoot(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherContext, err := observepipackage.ReconstructOrder(input)
+	if err != nil || before.SameSelection(otherContext) {
+		t.Fatal("changed settings interpretation became the same order intent", err)
+	}
+	otherInput, _ := loadedOrderFixture(t, target.ScopeProject, filepath.Join(root, ".pi"), root, home,
+		[]orderSpec{{id: "b", source: "npm:b"}, {id: "a", source: "npm:a"}}, input.Document)
+	otherOrder, err := observepipackage.ReconstructOrder(otherInput)
+	if err != nil || before.SameSelection(otherOrder) {
+		t.Fatal("changed locked precedence became the same order intent", err)
+	}
+}
 
 func TestOrderCaptureAndProjectionPreserveActualInputAndExplicitContexts(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()

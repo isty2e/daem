@@ -580,13 +580,13 @@ func executeWithDependencies(
 				return current.assessment, schedule.continuation, nil
 			}
 			if stateDirPlan.schedule.managedSuffix != nil {
-				executionOptions.afterHostRoutes = func(ctx context.Context, state durable.Snapshot, claims durablecarrier.GlobalCarrierClaims) (_ execute.ApplyResult, returnErr error) {
+				executionOptions.afterHostRoutes = func(ctx context.Context, state durable.Snapshot, claims durablecarrier.GlobalCarrierClaims) (_ nativeSegmentResult, returnErr error) {
 					if err := executionGuard.requireDeclarationsCurrent(ctx, "post-host-route native suffix"); err != nil {
-						return execute.ApplyResult{}, err
+						return nativeSegmentResult{}, err
 					}
 					refreshed, err := planReadinessAtPathsWithAssessor(ctx, replanInput, execution.operationContext, current.context.Paths, &current.barrier, forwardAuthority.Validate, retainedReadiness)
 					if err != nil {
-						return execute.ApplyResult{}, err
+						return nativeSegmentResult{}, err
 					}
 					keep := false
 					defer func() {
@@ -597,38 +597,39 @@ func executeWithDependencies(
 					}()
 					refreshed.projectRoot = planned.projectRoot
 					if !refreshed.assessment.CurrentState.Equal(state) || !refreshed.assessment.GlobalCarrierClaims.Equal(claims) {
-						return execute.ApplyResult{}, staleApplyError(options.PlanWasDisclosed, nil)
+						return nativeSegmentResult{}, staleApplyError(options.PlanWasDisclosed, nil)
 					}
 					refreshed.assessment.Ownership = originalOwnership
 					input, err := nativeApplyInputFor(refreshed)
 					if err != nil {
-						return execute.ApplyResult{}, err
+						return nativeSegmentResult{}, err
 					}
 					if matches, err := prefixRegistryScope.Matches(prefixRegistry, input.Registry); err != nil || !matches {
-						return execute.ApplyResult{}, staleApplyError(options.PlanWasDisclosed, err)
+						return nativeSegmentResult{}, staleApplyError(options.PlanWasDisclosed, err)
 					}
 					plan, err := stateDirPlan.schedule.managedSuffix.Bind(input)
 					if err != nil {
-						return execute.ApplyResult{}, staleApplyError(options.PlanWasDisclosed, err)
+						return nativeSegmentResult{}, staleApplyError(options.PlanWasDisclosed, err)
 					}
 					refreshedAuthority, err := buildApplyAuthorityEvidence(ctx, refreshed)
 					if err != nil {
-						return execute.ApplyResult{}, err
+						return nativeSegmentResult{}, err
 					}
 					if covered, err := leases.CoversPhysicalAuthority(refreshedAuthority.documentWrites); err != nil || !covered {
-						return execute.ApplyResult{}, staleApplyError(options.PlanWasDisclosed, err)
+						return nativeSegmentResult{}, staleApplyError(options.PlanWasDisclosed, err)
 					}
+					reconciliation := current.assessment.Reconciliation
 					previous := current
 					previous.projectRoot = nil
 					if err := closeCommandPlan(&previous); err != nil {
-						return execute.ApplyResult{}, err
+						return nativeSegmentResult{}, err
 					}
 					refreshed.result.Reconciliation = current.result.Reconciliation
 					current, currentAuthority, keep = refreshed, refreshedAuthority, true
 					if options.NativeFilesystem != nil {
 						input.Filesystem = options.NativeFilesystem
 					}
-					return executeNativeSegment(ctx, current.context.Paths, current.context.RuntimeEnvironment, current.context.Lockfile, current.context.Selection, input, plan, executionOptions)
+					return executeNativeOrderedSegment(ctx, current.context.Paths, current.context.RuntimeEnvironment, current.context.Lockfile, current.context.Selection, reconciliation, input, plan, executionOptions)
 				}
 			}
 		}

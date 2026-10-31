@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -12,10 +13,12 @@ import (
 // NativeManagedSuffixShape describes residual work, never a live observation or
 // executable plan. Bind requires fresh complete input after the preceding effects.
 type NativeManagedSuffixShape struct {
-	plan        ApplyEffectPlan
+	plans       []ApplyEffectPlan
+	segment     operationplan.EffectNode
 	validations int
 	managed     []ManagedPathEffect
 	aggregates  []AggregateEffect
+	orders      []pipackage.OrderObservation
 }
 
 // ValidateAggregatePhaseSplit checks the combined successor without manufacturing a
@@ -27,8 +30,8 @@ func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefi
 	if err := prefix.Validate(); err != nil {
 		return err
 	}
-	if len(preparation.orders)+len(prefix.orders) != 0 {
-		return fmt.Errorf("Pi order work requires its post-route native suffix integration")
+	if len(prefix.orders) != 0 {
+		return fmt.Errorf("positive native prefix contains Pi order work")
 	}
 	if !prefix.before.Equal(preparation.before) || len(prefix.managed)+len(prefix.narrowings)+len(prefix.adoptions)+len(prefix.projectCompletions)+len(preparation.projectCompletions) != 0 {
 		return fmt.Errorf("native suffix requires a positive-only prefix from the same complete Before")
@@ -48,13 +51,14 @@ func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefi
 	return nil
 }
 
-func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStatePreparation, residual []AggregateEffect) (NativeManagedSuffixShape, error) {
+func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStatePreparation, residual []AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, error) {
 	err := input.Preparation.ValidateAggregatePhaseSplit(prefix, residual)
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
 	}
 	projection := input
 	projection.Preparation.aggregates = residual
+	projection.Preparation.orders = nil
 	work, err := nativeApplyWorkFor(projection)
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
@@ -77,23 +81,72 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 		}
 	}
 	work.changed = len(work.managed)+len(residual) != 0
-	plan, err := prepareNativeApplyEffectPlan(input, work)
-	if err != nil {
+
+	groups := make([]int, 0, len(orders))
+	for _, order := range orders {
+		if _, err := order.CaptureInput(); err != nil {
+			return NativeManagedSuffixShape{}, err
+		}
+		alias, err := pipackage.SettingsDocumentAddress(order.Scope())
+		if err != nil {
+			return NativeManagedSuffixShape{}, err
+		}
+		found := false
+		for index, namespace := range work.documents.Namespaces() {
+			if slices.Contains(namespace.Addresses(), alias) {
+				found = true
+				if !work.mutating[index] && !slices.Contains(groups, index) {
+					groups = append(groups, index)
+				}
+			}
+		}
+		if !found {
+			return NativeManagedSuffixShape{}, fmt.Errorf("Pi order suffix has no retained native settings member")
+		}
+	}
+
+	variants := []nativeApplyWork{work}
+	for _, group := range groups {
+		for _, previous := range slices.Clone(variants) {
+			previous.mutating = slices.Clone(previous.mutating)
+			previous.mutating[group], previous.changed = true, true
+			variants = append(variants, previous)
+		}
+	}
+
+	shape := NativeManagedSuffixShape{managed: slices.Clone(work.managed), aggregates: slices.Clone(residual), orders: slices.Clone(orders)}
+	var builder operationplan.EffectStructureBuilder
+	segments := make([]operationplan.EffectNode, 0, len(variants))
+	for index, variant := range variants {
+		plan, err := prepareNativeApplyEffectPlan(input, variant)
+		if err != nil {
+			return NativeManagedSuffixShape{}, err
+		}
+		validations, err := maximumNativeWorkValidationCount(input, variant)
+		if err != nil {
+			return NativeManagedSuffixShape{}, err
+		}
+		shape.plans = append(shape.plans, plan)
+		shape.validations = max(shape.validations, validations)
+		segments = append(segments, builder.Namespace(fmt.Sprintf("native-suffix/variant/%d", index), plan.Segment()))
+	}
+
+	shape.segment = segments[0]
+	if len(segments) > 1 {
+		shape.segment = builder.Choice("native-suffix/variant", segments...)
+	}
+	if _, err := builder.Compile(builder.ForwardPhase("native-suffix", shape.segment)); err != nil {
 		return NativeManagedSuffixShape{}, err
 	}
-	validations, err := maximumNativeWorkValidationCount(input, work)
-	if err != nil {
-		return NativeManagedSuffixShape{}, err
-	}
-	return NativeManagedSuffixShape{plan: plan, validations: validations, managed: slices.Clone(work.managed), aggregates: residual}, nil
+	return shape, nil
 }
 
-func (shape NativeManagedSuffixShape) Segment() operationplan.EffectNode { return shape.plan.Segment() }
+func (shape NativeManagedSuffixShape) Segment() operationplan.EffectNode { return shape.segment }
 
 func (shape NativeManagedSuffixShape) ForwardValidationCount() int { return shape.validations }
 
 func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectPlan, error) {
-	if !shape.plan.valid {
+	if len(shape.plans) == 0 {
 		return ApplyEffectPlan{}, fmt.Errorf("native suffix shape is unavailable")
 	}
 	work, err := nativeApplyWorkFor(input)
@@ -104,14 +157,22 @@ func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectP
 		!slices.EqualFunc(shape.aggregates, input.Preparation.AggregateEffects(), sameAggregateSuffixEffect) {
 		return ApplyEffectPlan{}, fmt.Errorf("native suffix actors changed")
 	}
+	for _, order := range input.Preparation.PiOrders() {
+		if !slices.ContainsFunc(shape.orders, order.SameSelection) {
+			return ApplyEffectPlan{}, fmt.Errorf("native suffix order selection changed")
+		}
+	}
+
 	plan, err := prepareNativeApplyEffectPlan(input, work)
 	if err != nil {
 		return ApplyEffectPlan{}, err
 	}
-	if !shape.plan.structure.Equal(plan.structure) {
-		return ApplyEffectPlan{}, fmt.Errorf("native suffix structure changed")
+	for _, reserved := range shape.plans {
+		if reserved.structure.Equal(plan.structure) {
+			return plan, nil
+		}
 	}
-	return plan, nil
+	return ApplyEffectPlan{}, fmt.Errorf("native suffix structure changed")
 }
 
 func sameAggregateSuffixEffect(left, right AggregateEffect) bool {

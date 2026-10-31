@@ -566,7 +566,7 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 		Adapter: storagecommit.Adapter{}, boundary: boundary,
 		host: host, state: paths.StatefilePath, cancel: cancel,
 	}
-	nativeInvocation := boundary == "native-ordinary-host" || boundary == "native-ordinary-state" || boundary == "native-removal-command"
+	nativeInvocation := strings.HasPrefix(boundary, "native-ordinary-") || boundary == "native-removal-command"
 	if boundary == "native-removal-command" {
 		if err := os.Setenv("DAEM_TEST_REMOVAL_PARENT_PID", fmt.Sprint(os.Getpid())); err != nil {
 			t.Fatal(err)
