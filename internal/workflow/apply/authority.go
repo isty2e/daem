@@ -18,9 +18,10 @@ import (
 const delegateRouteFamilyPrefix = "delegate-runner."
 
 type applyAuthorityEvidence struct {
-	domains        []mutation.Domain
-	documentWrites mutation.PhysicalAuthoritySet
-	documentView   ownership.DocumentRegistryView
+	domains               []mutation.Domain
+	documentWrites        mutation.PhysicalAuthoritySet
+	documentWriteRequests []mutation.PhysicalAuthorityRequest
+	documentView          ownership.DocumentRegistryView
 	// Declaration revisions are owned by PreparedWrite's bounded witness.
 	firstEffectRevisions []mutation.RevisionRequest
 	facts                []operationplan.Fact
@@ -369,12 +370,13 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		return applyAuthorityEvidence{}, err
 	}
 	return applyAuthorityEvidence{
-		domains:              domains,
-		documentWrites:       physical,
-		documentView:         view,
-		firstEffectRevisions: plan.Revisions(),
-		facts:                plan.Facts(),
-		authorityFingerprint: fingerprint,
+		domains:               domains,
+		documentWrites:        physical,
+		documentWriteRequests: requests,
+		documentView:          view,
+		firstEffectRevisions:  plan.Revisions(),
+		facts:                 plan.Facts(),
+		authorityFingerprint:  fingerprint,
 	}, nil
 }
 

@@ -53,6 +53,13 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 	if len(evidence.domains) != 17 {
 		t.Fatalf("domain count = %d, want 17 with recovery, state-directory and Registry pairs", len(evidence.domains))
 	}
+	wantDocumentRequest := mutation.PhysicalAuthorityRequest{
+		Path:   filepath.Join(rootAuthority.PhysicalRoot(), ".claude", "skills", "review"),
+		Target: string(target.TargetClaudeCode), Scope: string(target.ScopeProject),
+	}
+	if len(evidence.documentWriteRequests) != 1 || evidence.documentWriteRequests[0] != wantDocumentRequest {
+		t.Fatalf("compiled document requests = %#v, want %#v", evidence.documentWriteRequests, wantDocumentRequest)
+	}
 	if len(evidence.firstEffectRevisions) != 9 {
 		t.Fatalf(
 			"first-effect revision count = %d, want 9: %#v",
