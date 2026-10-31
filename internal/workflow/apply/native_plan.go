@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -30,6 +31,7 @@ type nativePlanInputs struct {
 	stateCodec     durable.SnapshotCodec
 	stateDocuments []aggregate.DocumentAddress
 	opaque         bool
+	prefix         execute.NativeApplyStatePreparation
 }
 
 func rejectUnsupportedCommandPlan(planned commandPlan) error {
@@ -57,7 +59,7 @@ func prepareCommandApplyEffectPlan(current commandPlan, ordinary execute.ApplyIn
 	if current.nativePlan == nil {
 		return execute.PrepareApplyEffectPlan(ordinary)
 	}
-	input, err := nativeApplyInputFor(current)
+	input, err := nativePrefixApplyInputFor(current)
 	if err != nil {
 		return execute.ApplyEffectPlan{}, err
 	}
@@ -92,16 +94,17 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	for _, action := range assessment.Reconciliation.Relations() {
 		opaque = opaque || action.InvokesHostRoute()
 	}
+	var prefix execute.NativeApplyStatePreparation
 	if opaque {
 		positive, err := projectionbuild.BuildPositiveNativePrefix(ctx, assessment.Reconciliation.Aggregates())
 		if err != nil {
 			return err
 		}
-		prefix, err := execute.PrepareNativeApplyState(ctx, execute.NativeApplyStateInput{Before: assessment.CurrentState, Aggregates: positive, StateCodec: codec})
+		prefix, err = execute.PrepareNativeApplyState(ctx, execute.NativeApplyStateInput{Before: assessment.CurrentState, Aggregates: positive, StateCodec: codec})
 		if err != nil {
 			return err
 		}
-		if len(state.ManagedPathEffects()) != 0 || !prefix.AfterState().Equal(state.AfterState()) {
+		if len(state.ProjectCarrierCompletions()) != 0 || !slices.EqualFunc(prefix.AfterState().ManagedAggregates(), state.AfterState().ManagedAggregates(), durable.ManagedAggregateState.Equal) {
 			return nativeSupportError{nativeSupportRoutes}
 		}
 		for _, effect := range state.AggregateEffects() {
@@ -123,7 +126,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
-	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents, opaque: opaque}
+	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents, opaque: opaque, prefix: prefix}
 	return nil
 }
 
@@ -167,6 +170,14 @@ func nativeApplyInputFor(current commandPlan) (execute.NativeApplyInput, error) 
 		},
 		Preparation: current.nativePlan.state, Documents: *input.Documents, Registry: input.Registry, Budget: input.Budget, RecoveryCodecs: nativePersistenceCodecs,
 	}, nil
+}
+
+func nativePrefixApplyInputFor(current commandPlan) (execute.NativeApplyInput, error) {
+	input, err := nativeApplyInputFor(current)
+	if err == nil && current.nativePlan.opaque {
+		input.Preparation = current.nativePlan.prefix
+	}
+	return input, err
 }
 
 type readinessAssessor func(context.Context, readiness.Input) (readiness.Assessment, *nativeconfig.AssessmentOperation, error)

@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -252,6 +255,10 @@ func executeWithDependencies(
 	if err != nil {
 		return disclose(current), err
 	}
+	replanInput := currentInput
+	if stateDirPlan.schedule.managedSuffix != nil {
+		replanInput.persistenceBudget = recovery.NewPhysicalCaptureBudget(nil)
+	}
 	reserveForwardEffects := dependencies.reserveForwardEffects
 	if reserveForwardEffects == nil {
 		reserveForwardEffects = func(
@@ -477,7 +484,7 @@ func executeWithDependencies(
 	}
 
 	if current.nativePlan != nil {
-		native, err := nativeApplyInputFor(current)
+		native, err := nativePrefixApplyInputFor(current)
 		if err != nil {
 			return disclose(current), err
 		}
@@ -488,6 +495,12 @@ func executeWithDependencies(
 		executionOptions.persistenceCodec = current.nativePlan.stateCodec
 		executionOptions.nativeInvocations = nativeInvocations
 		if current.nativePlan.opaque {
+			originalOwnership := current.assessment.Ownership
+			prefixRegistry := native.Registry
+			prefixRegistryScope, err := native.Documents.RegistryScope()
+			if err != nil {
+				return disclose(current), err
+			}
 			executionOptions.afterNativeCore = func(ctx context.Context, applied execute.ApplyResult) (_ readiness.Assessment, _ applyContinuationPlan, returnErr error) {
 				if !applied.ExecutionAttempted {
 					return current.assessment, stateDirPlan.schedule.continuation, nil
@@ -495,7 +508,7 @@ func executeWithDependencies(
 				if err := executionGuard.requireDeclarationsCurrent(ctx, "post-native-prefix replan"); err != nil {
 					return readiness.Assessment{}, applyContinuationPlan{}, err
 				}
-				refreshed, err := planReadinessAtPathsWithAssessor(ctx, currentInput, execution.operationContext, current.context.Paths, &current.barrier, forwardAuthority.Validate, retainedReadiness)
+				refreshed, err := planReadinessAtPathsWithAssessor(ctx, replanInput, execution.operationContext, current.context.Paths, &current.barrier, forwardAuthority.Validate, retainedReadiness)
 				if err != nil {
 					return readiness.Assessment{}, applyContinuationPlan{}, err
 				}
@@ -507,6 +520,9 @@ func executeWithDependencies(
 					}
 				}()
 				refreshed.projectRoot = planned.projectRoot
+				if stateDirPlan.schedule.managedSuffix != nil {
+					refreshed.assessment.Ownership = originalOwnership
+				}
 				fresh, err := nativeApplyInputFor(refreshed)
 				if err != nil {
 					return readiness.Assessment{}, applyContinuationPlan{}, err
@@ -519,9 +535,15 @@ func executeWithDependencies(
 					return readiness.Assessment{}, applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
 				}
 
-				gates, err := execute.MaximumNativeForwardEffectValidationCount(fresh)
-				if err != nil || gates != 0 {
-					return readiness.Assessment{}, applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+				if stateDirPlan.schedule.managedSuffix != nil {
+					if _, err := stateDirPlan.schedule.managedSuffix.Bind(fresh); err != nil {
+						return readiness.Assessment{}, applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+					}
+				} else {
+					gates, err := execute.MaximumNativeForwardEffectValidationCount(fresh)
+					if err != nil || gates != 0 {
+						return readiness.Assessment{}, applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+					}
 				}
 				schedule, err := compileApplyForwardEffectSchedule(refreshed, nil, fresh.ApplyInput)
 				if err != nil {
@@ -548,9 +570,66 @@ func executeWithDependencies(
 					return readiness.Assessment{}, applyContinuationPlan{}, err
 				}
 				refreshed.result.Reconciliation = current.result.Reconciliation
+				prefixRegistry = fresh.Registry
+				prefixRegistryScope, err = fresh.Documents.RegistryScope()
+				if err != nil {
+					return readiness.Assessment{}, applyContinuationPlan{}, err
+				}
 				current, currentAuthority, keep = refreshed, refreshedAuthority, true
 				firstEffectRevisions, revisionBoundaryValidated = refreshedRevisions, false
 				return current.assessment, schedule.continuation, nil
+			}
+			if stateDirPlan.schedule.managedSuffix != nil {
+				executionOptions.afterHostRoutes = func(ctx context.Context, state durable.Snapshot, claims durablecarrier.GlobalCarrierClaims) (_ execute.ApplyResult, returnErr error) {
+					if err := executionGuard.requireDeclarationsCurrent(ctx, "post-host-route native suffix"); err != nil {
+						return execute.ApplyResult{}, err
+					}
+					refreshed, err := planReadinessAtPathsWithAssessor(ctx, replanInput, execution.operationContext, current.context.Paths, &current.barrier, forwardAuthority.Validate, retainedReadiness)
+					if err != nil {
+						return execute.ApplyResult{}, err
+					}
+					keep := false
+					defer func() {
+						if !keep {
+							refreshed.projectRoot = nil
+							returnErr = errors.Join(returnErr, closeCommandPlan(&refreshed))
+						}
+					}()
+					refreshed.projectRoot = planned.projectRoot
+					if !refreshed.assessment.CurrentState.Equal(state) || !refreshed.assessment.GlobalCarrierClaims.Equal(claims) {
+						return execute.ApplyResult{}, staleApplyError(options.PlanWasDisclosed, nil)
+					}
+					refreshed.assessment.Ownership = originalOwnership
+					input, err := nativeApplyInputFor(refreshed)
+					if err != nil {
+						return execute.ApplyResult{}, err
+					}
+					if matches, err := prefixRegistryScope.Matches(prefixRegistry, input.Registry); err != nil || !matches {
+						return execute.ApplyResult{}, staleApplyError(options.PlanWasDisclosed, err)
+					}
+					plan, err := stateDirPlan.schedule.managedSuffix.Bind(input)
+					if err != nil {
+						return execute.ApplyResult{}, staleApplyError(options.PlanWasDisclosed, err)
+					}
+					refreshedAuthority, err := buildApplyAuthorityEvidence(ctx, refreshed)
+					if err != nil {
+						return execute.ApplyResult{}, err
+					}
+					if covered, err := leases.CoversPhysicalAuthority(refreshedAuthority.documentWrites); err != nil || !covered {
+						return execute.ApplyResult{}, staleApplyError(options.PlanWasDisclosed, err)
+					}
+					previous := current
+					previous.projectRoot = nil
+					if err := closeCommandPlan(&previous); err != nil {
+						return execute.ApplyResult{}, err
+					}
+					refreshed.result.Reconciliation = current.result.Reconciliation
+					current, currentAuthority, keep = refreshed, refreshedAuthority, true
+					if options.NativeFilesystem != nil {
+						input.Filesystem = options.NativeFilesystem
+					}
+					return executeNativeSegment(ctx, current.context.Paths, current.context.RuntimeEnvironment, current.context.Lockfile, current.context.Selection, input, plan, executionOptions)
+				}
 			}
 		}
 	}

@@ -14,7 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
-func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, selection targetselection.Selection, assessment readiness.Assessment, options runOptions) (result runResult, resultErr error) {
+func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, selection targetselection.Selection, assessment readiness.Assessment, options runOptions) (runResult, error) {
 	if options.nativeInput == nil || options.applyEffectPlan == nil || !options.nativeInput.Preparation.BeforeState().Equal(assessment.CurrentState) {
 		return runResult{}, fmt.Errorf("native command execution requires its exact reserved plan and live observation")
 	}
@@ -31,32 +31,7 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 	if err != nil {
 		return runResult{}, err
 	}
-	input := *options.nativeInput
-	input.Paths = executePaths(paths, assessment.StatePath)
-	input.ProjectRoot = options.projectRoot
-	subjects := managedPathPayloadSubjects(input.Preparation.ManagedPathEffects())
-	if len(subjects) != 0 {
-		payloads, err := payloadbuild.PayloadSet(ctx, payloadbuild.Input{
-			Paths: paths, Environment: environment, Lockfile: locked, Selection: selection, ManagedPathPayloadSubjects: subjects,
-		})
-		if err != nil {
-			return runResult{}, err
-		}
-		input.Payloads = payloads
-		defer func() { resultErr = errors.Join(resultErr, payloads.Cleanup()) }()
-	}
-	validate := options.validateBeforeEffects
-	if options.validatePhysicalAuthorityRequests != nil {
-		validate = nil
-	}
-	applied, err := execute.ApplyNativeWithEffectPlan(ctx, input, *options.applyEffectPlan, execute.ApplyOptions{
-		Events: options.ExecuteEvents, ValidateBeforeEffects: validate, ValidatePhysicalAuthorityRequests: options.validatePhysicalAuthorityRequests,
-		AcceptVisibilityChanges: options.acceptVisibilityChanges, ValidateCompensationAuthority: options.validateCompensationAuthority,
-		AcceptCompensationVisibilityChanges: options.acceptCompensationChanges,
-	})
-	if applied.ExecutionAttempted {
-		options.markAttempted()
-	}
+	applied, err := executeNativeSegment(ctx, paths, environment, locked, selection, *options.nativeInput, *options.applyEffectPlan, options)
 	if err != nil {
 		return runResult{ActionCount: applied.ActionCount, State: applied.State, StatePath: applied.StatePath, GlobalCarrierClaims: assessment.GlobalCarrierClaims}, err
 	}
@@ -76,4 +51,36 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 		ctx, paths, locked, selection, applied, assessment.Owner, assessment.GlobalCarrierClaims,
 		globalRetirements, globalAdoptions, assessment.Reconciliation, assessment.RelationObservations, options,
 	)
+}
+
+func executeNativeSegment(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, selection targetselection.Selection, input execute.NativeApplyInput, plan execute.ApplyEffectPlan, options runOptions) (result execute.ApplyResult, resultErr error) {
+	input.Paths = executePaths(paths, input.Paths.StatefilePath)
+	input.ProjectRoot = options.projectRoot
+	subjects := managedPathPayloadSubjects(input.Preparation.ManagedPathEffects())
+	if len(subjects) != 0 {
+		payloads, err := payloadbuild.PayloadSet(ctx, payloadbuild.Input{
+			Paths: paths, Environment: environment, Lockfile: locked, Selection: selection, ManagedPathPayloadSubjects: subjects,
+		})
+		if err != nil {
+			return execute.ApplyResult{StatePath: input.Paths.StatefilePath, State: input.CurrentState}, err
+		}
+		input.Payloads = payloads
+		defer func() { resultErr = errors.Join(resultErr, payloads.Cleanup()) }()
+	}
+	validate := options.validateBeforeEffects
+	if options.validatePhysicalAuthorityRequests != nil {
+		validate = nil
+	}
+	result, resultErr = execute.ApplyNativeWithEffectPlan(ctx, input, plan, execute.ApplyOptions{
+		Events: options.ExecuteEvents, ValidateBeforeEffects: validate, ValidatePhysicalAuthorityRequests: options.validatePhysicalAuthorityRequests,
+		AcceptVisibilityChanges: options.acceptVisibilityChanges, ValidateCompensationAuthority: options.validateCompensationAuthority,
+		AcceptCompensationVisibilityChanges: options.acceptCompensationChanges,
+	})
+	if result.ExecutionAttempted {
+		options.markAttempted()
+	}
+	if result.StatePath == "" {
+		result.StatePath, result.State = input.Paths.StatefilePath, input.CurrentState
+	}
+	return result, resultErr
 }

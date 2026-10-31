@@ -121,8 +121,15 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 
 func MaximumNativeForwardEffectValidationCount(input NativeApplyInput) (int, error) {
 	work, err := nativeApplyWorkFor(input)
-	if err != nil || !work.changed {
+	if err != nil {
 		return 0, err
+	}
+	return maximumNativeWorkValidationCount(input, work)
+}
+
+func maximumNativeWorkValidationCount(input NativeApplyInput, work nativeApplyWork) (int, error) {
+	if !work.changed {
+		return 0, nil
 	}
 	ordinary, err := nativeOrdinaryApplyFor(input, work, forwardEffectPlanningOperationID())
 	if err != nil {
@@ -158,6 +165,10 @@ func PrepareNativeApplyEffectPlan(input NativeApplyInput) (ApplyEffectPlan, erro
 	if err != nil {
 		return ApplyEffectPlan{}, err
 	}
+	return prepareNativeApplyEffectPlan(input, work)
+}
+
+func prepareNativeApplyEffectPlan(input NativeApplyInput, work nativeApplyWork) (ApplyEffectPlan, error) {
 	var builder operationplan.EffectStructureBuilder
 	if !work.changed {
 		return compileApplyEffectPlan(applyStateTransition{}, managedPathExecutionSchedule{}, ownershipMutationState{}, nil)

@@ -119,12 +119,13 @@ func testNativeOrdinaryApplyWithCurrentExtensions(t *testing.T, sources []string
 		t.Fatal(err)
 	}
 	testkit.WriteFile(t, workspace, "instructions.md", "third\n")
+	testkit.WriteFile(t, workspace, "preferences.toml", "")
 	runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
 	before := snapshotNativeRecoveryPaths(t, fixture.destination, filepath.Join(workspace, "AGENTS.md"), filepath.Join(workspace, ".daem"))
 	for _, mode := range []string{"--dry-run", "--yes"} {
 		code, stdout, stderr := run(mode, false)
 		if code == 0 || routes != len(sources) {
-			t.Fatalf("changed extension with pending ordinary work escaped its unsupported boundary: %d %s %s routes=%d", code, stdout, stderr, routes)
+			t.Fatalf("changed extension with pending key retirement escaped its unsupported boundary: %d %s %s routes=%d", code, stdout, stderr, routes)
 		}
 		if mode == "--dry-run" && (!strings.Contains(stdout, "not executable") || !strings.Contains(stderr, "apply preview failed:")) {
 			t.Fatalf("refused preview lost its phase or affected plan: %s %s", stdout, stderr)

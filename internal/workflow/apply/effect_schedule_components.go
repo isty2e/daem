@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -13,6 +14,7 @@ import (
 
 type applyScheduleInput struct {
 	positivePrefix      *applyDirectPrefix
+	managedSuffix       *execute.NativeManagedSuffixShape
 	providerRoutes      []applyRouteScheduleFact
 	coreChanged         bool
 	core                operationplan.EffectNode
@@ -313,6 +315,13 @@ func compileApplyContinuationSchedule(
 		input.finalRoutes,
 	)
 	nodes = append(nodes, finalRoutes.whole...)
+	if input.managedSuffix != nil {
+		nodes = append(
+			nodes,
+			builder.Step("apply/native-suffix/replan-barrier", operationplan.EffectStepValidateBarrier),
+			builder.Namespace("apply/native-suffix", input.managedSuffix.Segment()),
+		)
+	}
 	if len(input.orderClasses) != 0 {
 		nodes = append(
 			nodes,

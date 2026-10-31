@@ -82,6 +82,7 @@ type DelegateWork struct {
 type ApplyWork struct {
 	ExecuteGates            int
 	PrefixExecuteGates      int
+	PostRouteExecuteGates   int
 	ProviderActions         []RouteWork
 	FinalRoutes             []RouteWork
 	CarrierRemovals         []CarrierWork
@@ -182,10 +183,14 @@ func (envelope Envelope) Demand() Demand { return envelope.demand }
 
 // CompileApply compiles the apply forward-effect envelope from normalized work.
 func CompileApply(work ApplyWork) (Envelope, error) {
-	if work.ExecuteGates < 0 || work.PrefixExecuteGates < 0 {
+	if work.ExecuteGates < 0 || work.PrefixExecuteGates < 0 || work.PostRouteExecuteGates < 0 {
 		return Envelope{}, fmt.Errorf("operationplan: execute visibility gates must not be negative")
 	}
 	executeGates, err := checkedAdd(work.ExecuteGates, work.PrefixExecuteGates)
+	if err != nil {
+		return Envelope{}, err
+	}
+	executeGates, err = checkedAdd(executeGates, work.PostRouteExecuteGates)
 	if err != nil {
 		return Envelope{}, err
 	}
@@ -208,7 +213,10 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 	}
 	persistDelegates := delegatePersistenceRequired(work.Delegates)
 
-	finalEffectCalls := work.ExecuteGates
+	finalEffectCalls, err := checkedAdd(work.ExecuteGates, work.PostRouteExecuteGates)
+	if err != nil {
+		return Envelope{}, err
+	}
 	finalEffectCalls, err = checkedAdd(finalEffectCalls, hostCalls)
 	if err != nil {
 		return Envelope{}, err
@@ -299,6 +307,9 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 		barrierCalls = 3
 	}
 	if work.PrefixExecuteGates != 0 {
+		barrierCalls++
+	}
+	if work.PostRouteExecuteGates != 0 {
 		barrierCalls++
 	}
 	if ensureCalls != 0 {

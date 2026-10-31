@@ -19,6 +19,15 @@ func Codecs(ctx context.Context) (aggregate.CodecCatalog, error) {
 // LoadPersistenceEpoch selects native-capable decoding at the CLI boundary.
 // The allocation starts before the state read and stays pending through assessment.
 func LoadPersistenceEpoch(ctx context.Context, paths daempaths.Paths) (readiness.PersistenceEpoch, error) {
+	return LoadPersistenceEpochWithBudget(ctx, paths, recovery.NewPhysicalCaptureBudget(nil))
+}
+
+// LoadPersistenceEpochWithBudget keeps repeated observation and its eventual
+// native journal in the caller's retained segment allocation.
+func LoadPersistenceEpochWithBudget(ctx context.Context, paths daempaths.Paths, budget *recovery.PhysicalWorkBudget) (readiness.PersistenceEpoch, error) {
+	if err := budget.RequireCapturePending(); err != nil {
+		return readiness.PersistenceEpoch{}, err
+	}
 	codecs, err := Codecs(ctx)
 	if err != nil {
 		return readiness.PersistenceEpoch{}, err
@@ -27,7 +36,6 @@ func LoadPersistenceEpoch(ctx context.Context, paths daempaths.Paths) (readiness
 	if err != nil {
 		return readiness.PersistenceEpoch{}, err
 	}
-	budget := recovery.NewPhysicalCaptureBudget(nil)
 	state, err := statefile.LoadOptionalWithOptions(ctx, paths.StatefilePath, statefile.ReadOptions{
 		Codec: codec, PhysicalPathBudget: budget,
 	})

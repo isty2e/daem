@@ -566,6 +566,11 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 		Adapter: storagecommit.Adapter{}, boundary: boundary,
 		host: host, state: paths.StatefilePath, cancel: cancel,
 	}
+	nativeInvocation := boundary == "native-ordinary-host" || boundary == "native-ordinary-state"
+	if nativeInvocation {
+		store.boundary = strings.TrimPrefix(boundary, "native-ordinary-")
+		store.waitHost = true
+	}
 	execution := applyworkflow.ExecuteOptions{NativeFilesystem: store}
 	execution.HostRouteExecutor = subprocess.NewCommandExecutor(subprocess.CommandOptions{Runner: func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
 		if boundary != "carrier-install" || request.Command != "pi" || len(request.Args) != 3 || request.Args[0] != "install" || request.Args[2] != "-l" {
@@ -583,6 +588,9 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 		os.Exit(nativeRecoveryExit)
 		return subprocess.CommandResult{}
 	}})
+	if nativeInvocation {
+		execution.HostRouteExecutor = subprocess.NewCommandExecutor(subprocess.CommandOptions{})
+	}
 	code := clipkg.RunWithOptions(os.Args[separator+3:], clipkg.RunOptions{
 		Context: ctx, Stdout: os.Stdout, Stderr: os.Stderr,
 		ApplyExecuteOptions: execution,
@@ -592,11 +600,13 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 
 type nativeRecoveryStore struct {
 	storagecommit.Adapter
-	boundary string
-	host     string
-	state    string
-	failed   bool
-	cancel   context.CancelFunc
+	boundary      string
+	host          string
+	state         string
+	failed        bool
+	cancel        context.CancelFunc
+	waitHost      bool
+	hostPublished bool
 }
 
 func (store *nativeRecoveryStore) CreateRootedFile(ctx context.Context, capability rootedpath.CommitCapability, content []byte, mode fs.FileMode) error {
@@ -641,6 +651,13 @@ func (store *nativeRecoveryStore) afterPublication(path string, expected []byte,
 		return fmt.Errorf("native recovery publication was not confirmed at %s", path)
 	}
 	fmt.Fprintln(os.Stderr, nativeRecoveryReceipt(path))
+	if path == store.host {
+		store.hostPublished = true
+	}
+	if store.waitHost && !store.hostPublished {
+		// A suffix checkpoint must not exit at the prefix's state publication.
+		return nil
+	}
 	if store.boundary == "host" && path == store.host || store.boundary == "state" && path == store.state {
 		// Exit here, without returning to Apply or running its deferred cleanup.
 		os.Exit(nativeRecoveryExit)

@@ -21,6 +21,7 @@ import (
 	executedelegate "github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/findings"
@@ -371,6 +372,7 @@ type CommandInput struct {
 	ManageUnmanagedMatches bool
 	environmentPresent     environmentSourcePresence
 	nativeReplacement      *topologyprojection.HostConfigKeySelection
+	persistenceBudget      *recovery.PhysicalWorkBudget
 }
 
 type CommandResult struct {
@@ -857,7 +859,12 @@ func loadCommandInputsAtPaths(
 
 	// Each planning pass owns one persistence epoch. Execute performs a new pass
 	// after acquiring mutation leases rather than reusing the disclosed plan.
-	persistenceEpoch, err := nativeconfig.LoadPersistenceEpoch(ctx, paths)
+	var persistenceEpoch readiness.PersistenceEpoch
+	if input.persistenceBudget == nil {
+		persistenceEpoch, err = nativeconfig.LoadPersistenceEpoch(ctx, paths)
+	} else {
+		persistenceEpoch, err = nativeconfig.LoadPersistenceEpochWithBudget(ctx, paths, input.persistenceBudget)
+	}
 	if err != nil {
 		return commandContext{}, result, err
 	}

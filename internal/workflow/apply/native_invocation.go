@@ -88,7 +88,7 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 	if current.nativePlan == nil || !current.nativePlan.opaque {
 		return nil, nil
 	}
-	input, err := nativeApplyInputFor(current)
+	input, err := nativePrefixApplyInputFor(current)
 	if err != nil {
 		return nil, err
 	}

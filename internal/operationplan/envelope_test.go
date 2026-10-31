@@ -76,6 +76,32 @@ func TestCompileApplyPrefixAddsOnePhaseWithoutAnotherDescendant(t *testing.T) {
 	}
 }
 
+func TestCompileApplyPostRouteWorkSharesFinalPhaseAndReservesReplan(t *testing.T) {
+	work := ApplyWork{PrefixExecuteGates: 3, FinalRoutes: []RouteWork{{InvokesHost: true}}, StatefilePath: "/state.json"}
+	base, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work.PostRouteExecuteGates = 5
+	suffix, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, after := base.Demand(), suffix.Demand()
+	if after.EnsureCalls() != before.EnsureCalls() || after.BarrierValidationCalls() != before.BarrierValidationCalls()+1 ||
+		after.StateDirValidationCalls() != before.StateDirValidationCalls()+5 ||
+		after.DescendantBindings() != before.DescendantBindings() || after.DescendantValidations() != before.DescendantValidations() ||
+		after.DescendantFileCommits() != before.DescendantFileCommits() {
+		t.Fatalf("post-route demand = %+v, base %+v", after, before)
+	}
+	maximum := int(^uint(0) >> 1)
+	for _, invalid := range []ApplyWork{{PostRouteExecuteGates: -1}, {PostRouteExecuteGates: maximum, ExecuteGates: 1}, {PostRouteExecuteGates: maximum, PrefixExecuteGates: 1}} {
+		if _, err := CompileApply(invalid); err == nil {
+			t.Fatal("invalid post-route work was admitted")
+		}
+	}
+}
+
 func TestCompileApplyProviderActionsReserveBarrierEnvelope(t *testing.T) {
 	t.Parallel()
 	envelope, err := CompileApply(ApplyWork{

@@ -16,11 +16,12 @@ import (
 // Effect-owned core is consumed here; rollback and outer continuations remain
 // later migration units.
 type applyForwardEffectSchedule struct {
-	full         operationplan.EffectStructure
-	prefix       operationplan.EffectStructure
-	final        operationplan.EffectStructure
-	continuation applyContinuationPlan
-	effectPlan   execute.ApplyEffectPlan
+	full          operationplan.EffectStructure
+	prefix        operationplan.EffectStructure
+	final         operationplan.EffectStructure
+	continuation  applyContinuationPlan
+	effectPlan    execute.ApplyEffectPlan
+	managedSuffix *execute.NativeManagedSuffixShape
 }
 
 type applyFinalScheduleBinding struct {
@@ -101,13 +102,28 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 		return applyForwardEffectSchedule{}, err
 	}
 	if current.nativePlan != nil && current.nativePlan.opaque {
-		prefixGates, err := maximumCommandForwardValidationCount(current, applyInput)
+		prefix, err := nativePrefixApplyInputFor(current)
+		if err != nil {
+			return applyForwardEffectSchedule{}, err
+		}
+		prefixGates, err := execute.MaximumNativeForwardEffectValidationCount(prefix)
 		if err != nil {
 			return applyForwardEffectSchedule{}, err
 		}
 		if prefixGates != 0 {
 			input.positivePrefix = &applyDirectPrefix{segment: effectPlan.Segment(), gates: prefixGates}
-			input.core, input.coreChanged = operationplan.EffectSequence(), false
+		}
+		input.core, input.coreChanged = operationplan.EffectSequence(), false
+		full, err := nativeApplyInputFor(current)
+		if err != nil {
+			return applyForwardEffectSchedule{}, err
+		}
+		shape, err := execute.ProjectNativeManagedSuffix(full, current.nativePlan.prefix)
+		if err != nil {
+			return applyForwardEffectSchedule{}, err
+		}
+		if shape.ForwardValidationCount() != 0 {
+			input.managedSuffix = &shape
 		}
 	}
 	schedule, err := compileApplySchedule(input, envelope.Demand())
@@ -115,6 +131,7 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 		return applyForwardEffectSchedule{}, err
 	}
 	schedule.effectPlan = effectPlan
+	schedule.managedSuffix = input.managedSuffix
 	return schedule, nil
 }
 

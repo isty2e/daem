@@ -65,6 +65,7 @@ type runOptions struct {
 	nativeInput                       *execute.NativeApplyInput
 	nativeInvocations                 *nativeInvocationProgram
 	afterNativeCore                   func(context.Context, execute.ApplyResult) (readiness.Assessment, applyContinuationPlan, error)
+	afterHostRoutes                   func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims) (execute.ApplyResult, error)
 	persistenceCodec                  durable.SnapshotCodec
 	preparedContinuation              applyContinuationPlan
 	currentContinuation               applyContinuationPlan
@@ -385,6 +386,16 @@ func runHostRoutesOrderDelegatesAndPersistAttemptRecords(
 	}
 	if hostRouteErr != nil {
 		return result, hostRouteErr
+	}
+	if options.afterHostRoutes != nil {
+		applied, err := options.afterHostRoutes(ctx, nextState, nextGlobalClaims)
+		result.ActionCount += applied.ActionCount
+		if applied.StatePath != "" {
+			result.State, nextState = applied.State, applied.State
+		}
+		if err != nil {
+			return result, err
+		}
 	}
 
 	orderResult, orderErr := runRelationOrderConvergence(
