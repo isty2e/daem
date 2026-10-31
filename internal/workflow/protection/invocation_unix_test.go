@@ -46,8 +46,20 @@ func invocationFixture(t *testing.T, names ...string) (ownershiptest.PermissionR
 		}
 		requests = append(requests, mutation.PhysicalAuthorityRequest{Path: path, Target: target, Scope: "project"})
 	}
+	leases := invocationFixtureLeases(t, fixture.Paths, requests)
+	cwd, err := rootedpath.CaptureRoot(fixture.Paths.ManifestRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cwd.Close() })
+	bind := func() (subprocess.WorkingDirectoryBinding, error) { return cwd.AcquireWorkingDirectory() }
+	return fixture, InvocationInput{Paths: fixture.Paths, Protection: fixture.Protection, Leases: leases, Requests: requests}, bind
+}
+
+func invocationFixtureLeases(t *testing.T, paths daempaths.Paths, requests []mutation.PhysicalAuthorityRequest) *mutation.LeaseSet {
+	t.Helper()
 	var domains []mutation.Domain
-	for _, path := range []string{fixture.Paths.StatefilePath, fixture.Paths.OwnershipRegistryPath, fixture.Paths.RecoveryDir} {
+	for _, path := range []string{paths.StatefilePath, paths.OwnershipRegistryPath, paths.RecoveryDir} {
 		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
 			domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: path, Access: mutation.AccessExclusive, Effect: effect})
 			if err != nil {
@@ -65,7 +77,7 @@ func invocationFixture(t *testing.T, names ...string) (ownershiptest.PermissionR
 			domains = append(domains, domain)
 		}
 	}
-	store, err := mutation.NewStore(fixture.Paths.DataDir)
+	store, err := mutation.NewStore(paths.DataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,14 +86,7 @@ func invocationFixture(t *testing.T, names ...string) (ownershiptest.PermissionR
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = leases.Release() })
-
-	cwd, err := rootedpath.CaptureRoot(fixture.Paths.ManifestRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = cwd.Close() })
-	bind := func() (subprocess.WorkingDirectoryBinding, error) { return cwd.AcquireWorkingDirectory() }
-	return fixture, InvocationInput{Paths: fixture.Paths, Protection: fixture.Protection, Leases: leases, Requests: requests}, bind
+	return leases
 }
 
 func assertInvocationSettled(t *testing.T, fixture ownershiptest.PermissionRecoveryFixture, result InvocationResult) Record {
