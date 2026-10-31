@@ -215,7 +215,7 @@ func qualifyNativePiContext(ctx context.Context, record recoveryDocumentPiOrder,
 	if err != nil {
 		return err
 	}
-	if !sameNativeDocumentObservation(observation, namespace.observation) {
+	if !observation.Equal(namespace.observation) {
 		return fmt.Errorf("captured Pi settings context does not identify the current settings referent")
 	}
 	return ctx.Err()

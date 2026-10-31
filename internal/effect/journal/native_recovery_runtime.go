@@ -134,7 +134,7 @@ func (namespace NativeDocumentNamespace) WriterBinding(ctx context.Context, budg
 	if err != nil {
 		return nil, rootedpath.Destination{}, err
 	}
-	if !sameNativeDocumentObservation(namespace.observation, current.observation) {
+	if !namespace.observation.Equal(current.observation) {
 		return nil, rootedpath.Destination{}, fmt.Errorf("native document writer namespace changed")
 	}
 	return current.writerRoot, current.writer, nil

@@ -155,7 +155,7 @@ func observeNativeDocumentGroups(ctx context.Context, input NativeDocumentObserv
 			groups = append(groups, []aggregate.DocumentAddress{alias})
 			continue
 		}
-		if !sameNativeDocumentObservation(representatives[index].observation, namespace.observation) {
+		if !representatives[index].observation.Equal(namespace.observation) {
 			return nil, fmt.Errorf("native aliases disagree on the same comparison identity")
 		}
 		groups[index] = append(groups[index], alias)
@@ -166,7 +166,7 @@ func observeNativeDocumentGroups(ctx context.Context, input NativeDocumentObserv
 		if err != nil {
 			return nil, err
 		}
-		if !sameNativeDocumentObservation(representatives[index].observation, namespace.observation) {
+		if !representatives[index].observation.Equal(namespace.observation) {
 			return nil, fmt.Errorf("native namespace changed while coalescing aliases")
 		}
 		result = append(result, namespace)

@@ -7,7 +7,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/output/ownership"
 )
 
 type invocationWorkProjection struct {
@@ -53,108 +52,117 @@ func (input InvocationInput) ReserveWork(budget *journalrecovery.PhysicalWorkBud
 	if input.qualification.work != (journalrecovery.InvocationWorkReservation{}) {
 		return InvocationInput{}, fmt.Errorf("invocation work was already reserved")
 	}
-	forward := &invocationWorkProjection{budget: journalrecovery.NewPhysicalCaptureBudget(nil)}
-	safety := &invocationWorkProjection{budget: journalrecovery.NewPhysicalCaptureBudget(nil)}
-	qualified := input.qualification
-	// Initial admission, immediately before Arm, and immediately before Bind.
-	for range 3 {
-		if err := qualified.authority.ReserveCheck(forward); err != nil {
-			return InvocationInput{}, err
-		}
-	}
-	if err := qualified.registry.ReserveOpen(forward); err != nil {
-		return InvocationInput{}, err
-	}
-	if err := qualified.registry.ReserveRead(forward); err != nil {
-		return InvocationInput{}, err
-	}
-	for range 2 { // Arm and Bind.
-		if err := qualified.registry.ReserveTransition(forward); err != nil {
-			return InvocationInput{}, err
-		}
-	}
-	if err := qualified.registry.ReserveOpen(safety); err != nil {
-		return InvocationInput{}, err
-	}
-	if err := qualified.registry.ReserveRead(safety); err != nil { // Finalizer lookup.
-		return InvocationInput{}, err
-	}
+	var targets []invocationDocument
 	for _, document := range input.Protection.Documents() {
-		for range 2 { // Initial inspection and the launch-edge inspection.
-			if err := qualified.reserveTargetQualification(document, forward); err != nil {
-				return InvocationInput{}, err
-			}
-			if err := qualified.reserveTargetInspection(document, forward); err != nil {
-				return InvocationInput{}, err
-			}
-		}
-		for range 2 { // Restriction and fresh complete proof.
-			if err := qualified.authority.ReserveCheck(safety); err != nil {
-				return InvocationInput{}, err
-			}
-			if err := qualified.registry.ReserveRead(safety); err != nil {
-				return InvocationInput{}, err
-			}
-			if err := qualified.reserveTargetQualification(document, safety); err != nil {
-				return InvocationInput{}, err
-			}
-			layout := qualified.documents[document.PathAuthority().Key()].layout
-			if err := layout.ReserveDestinationAccess(journalrecovery.MaximumPhysicalPathDepth, safety); err != nil {
-				return InvocationInput{}, err
-			}
-			for range mutationfs.RootedAbsencePathObservationCount - 1 {
-				if err := rootedpath.ChargeAbsolutePath(layout.CanonicalPath(), journalrecovery.MaximumPhysicalPathDepth, safety); err != nil {
-					return InvocationInput{}, err
-				}
-			}
-			if err := qualified.reserveTargetInspection(document, safety); err != nil {
-				return InvocationInput{}, err
-			}
-		}
+		targets = append(targets, input.qualification.documents[document.PathAuthority().Key()])
 	}
-	if err := qualified.authority.ReserveCheck(safety); err != nil { // Clear edge.
-		return InvocationInput{}, err
-	}
-	if err := qualified.registry.ReserveTransition(safety); err != nil {
-		return InvocationInput{}, err
-	}
-	if err := qualified.registry.ReserveRead(safety); err != nil { // Failed Clear readback.
-		return InvocationInput{}, err
-	}
-	forwardWork, err := forward.compiled()
-	if err == nil {
-		forwardWork, err = forwardWork.Plus(correlation)
-	}
+	forward, safety, err := input.qualification.compileWork(targets, correlation)
 	if err != nil {
 		return InvocationInput{}, err
 	}
-	safetyWork, err := safety.compiled()
-	if err != nil {
-		return InvocationInput{}, err
-	}
-	input.qualification.work, err = budget.ReserveInvocation(forwardWork, safetyWork)
+	input.qualification.work, err = budget.ReserveInvocation(forward, safety)
 	if err != nil {
 		return InvocationInput{}, err
 	}
 	return input, nil
 }
 
-func (qualified *invocationQualification) reserveTargetQualification(document ownership.ProtectedDocument, budget mutation.PhysicalObservationBudget) error {
-	target := qualified.documents[document.PathAuthority().Key()]
-	for index, binding := range document.Bindings() {
-		if err := target.bindings[index].ReserveObservation(budget); err != nil {
+func (qualified *invocationQualification) compileWork(targets []invocationDocument, correlation journalrecovery.InvocationWork) (journalrecovery.InvocationWork, journalrecovery.InvocationWork, error) {
+	forward := &invocationWorkProjection{budget: journalrecovery.NewPhysicalCaptureBudget(nil)}
+	safety := &invocationWorkProjection{budget: journalrecovery.NewPhysicalCaptureBudget(nil)}
+	// Initial admission, immediately before Arm, and immediately before Bind.
+	for range 3 {
+		if err := qualified.authority.ReserveCheck(forward); err != nil {
+			return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+		}
+	}
+	if err := qualified.registry.ReserveOpen(forward); err != nil {
+		return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+	}
+	if err := qualified.registry.ReserveRead(forward); err != nil {
+		return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+	}
+	for range 2 { // Arm and Bind.
+		if err := qualified.registry.ReserveTransition(forward); err != nil {
+			return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+		}
+	}
+	if err := qualified.registry.ReserveOpen(safety); err != nil {
+		return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+	}
+	if err := qualified.registry.ReserveRead(safety); err != nil { // Finalizer lookup.
+		return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+	}
+	for _, target := range targets {
+		for range 2 { // Initial inspection and the launch-edge inspection.
+			if err := qualified.reserveTargetQualification(target, forward); err != nil {
+				return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+			}
+			if err := reserveTargetInspection(target, forward); err != nil {
+				return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+			}
+		}
+		for range 2 { // Restriction and fresh complete proof.
+			if err := qualified.authority.ReserveCheck(safety); err != nil {
+				return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+			}
+			if err := qualified.registry.ReserveRead(safety); err != nil {
+				return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+			}
+			if err := qualified.reserveTargetQualification(target, safety); err != nil {
+				return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+			}
+			layout := target.layout
+			if err := layout.ReserveDestinationAccess(journalrecovery.MaximumPhysicalPathDepth, safety); err != nil {
+				return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+			}
+			for range mutationfs.RootedAbsencePathObservationCount - 1 {
+				if err := rootedpath.ChargeAbsolutePath(layout.CanonicalPath(), journalrecovery.MaximumPhysicalPathDepth, safety); err != nil {
+					return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+				}
+			}
+			if err := reserveTargetInspection(target, safety); err != nil {
+				return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+			}
+		}
+	}
+	if err := qualified.authority.ReserveCheck(safety); err != nil { // Clear edge.
+		return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+	}
+	if err := qualified.registry.ReserveTransition(safety); err != nil {
+		return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+	}
+	if err := qualified.registry.ReserveRead(safety); err != nil { // Failed Clear readback.
+		return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+	}
+	forwardWork, err := forward.compiled()
+	if err == nil {
+		forwardWork, err = forwardWork.Plus(correlation)
+	}
+	if err != nil {
+		return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+	}
+	safetyWork, err := safety.compiled()
+	if err != nil {
+		return journalrecovery.InvocationWork{}, journalrecovery.InvocationWork{}, err
+	}
+	return forwardWork, safetyWork, nil
+}
+
+func (qualified *invocationQualification) reserveTargetQualification(target invocationDocument, budget mutation.PhysicalObservationBudget) error {
+	for _, binding := range target.bindings {
+		if err := binding.observation.ReserveObservation(budget); err != nil {
 			return err
 		}
-		if err := qualified.owners[binding.Owner()].ReserveObservation(budget); err != nil {
+		if err := qualified.owners[binding.owner].ReserveObservation(budget); err != nil {
 			return err
 		}
 	}
 	return target.layout.ReserveDestinationCapture(journalrecovery.MaximumPhysicalPathDepth, budget)
 }
 
-func (qualified *invocationQualification) reserveTargetInspection(document ownership.ProtectedDocument, budget mutation.PhysicalObservationBudget) error {
-	layout := qualified.documents[document.PathAuthority().Key()].layout
-	if err := layout.ReserveDestinationAccess(journalrecovery.MaximumPhysicalPathDepth, budget); err != nil {
+func reserveTargetInspection(target invocationDocument, budget mutation.PhysicalObservationBudget) error {
+	if err := target.layout.ReserveDestinationAccess(journalrecovery.MaximumPhysicalPathDepth, budget); err != nil {
 		return err
 	}
 	return budget.AdmitPhysicalWork(0, 1, 0)

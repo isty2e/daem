@@ -102,6 +102,20 @@ func (observation DirectoryEntryAuthorityObservation) Provisional() (pathauthori
 	return observation.provisional, !observation.provisional.IsZero()
 }
 
+// Equal compares exact and provisional states without promoting either.
+func (observation DirectoryEntryAuthorityObservation) Equal(other DirectoryEntryAuthorityObservation) bool {
+	if observation.Validate() != nil || other.Validate() != nil {
+		return false
+	}
+	if exact, known := observation.Exact(); known {
+		candidate, known := other.Exact()
+		return known && exact.Equal(candidate)
+	}
+	provisional, _ := observation.Provisional()
+	candidate, known := other.Provisional()
+	return known && provisional.Equal(candidate)
+}
+
 // ObservePersistedDirectoryEntryAuthority captures the current canonical key
 // and filesystem-semantics witness in one observation epoch.
 func ObservePersistedDirectoryEntryAuthority(path string) (PersistedDirectoryEntryAuthority, error) {

@@ -81,7 +81,7 @@ func (namespace NativeDocumentNamespace) AcquireReferent(ctx context.Context, bu
 	if err != nil {
 		return nil, err
 	}
-	if !sameNativeDocumentObservation(namespace.observation, current.observation) {
+	if !namespace.observation.Equal(current.observation) {
 		return nil, fmt.Errorf("native document namespace changed before referent acquisition")
 	}
 	capability, err := current.writerRoot.AcquireBounded(current.writer, recovery.MaximumPhysicalPathDepth, budget)
@@ -137,7 +137,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 		}
 		if len(result.aliases) == 0 {
 			result.observation, referent = observation, physical
-		} else if !sameNativeDocumentObservation(result.observation, observation) {
+		} else if !result.observation.Equal(observation) {
 			return NativeDocumentNamespace{}, fmt.Errorf("native document aliases do not identify one physical referent")
 		}
 		result.aliases = append(result.aliases, nativeDocumentAliasObservation{address: address, root: grant, observation: observation})
@@ -161,7 +161,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 	if err != nil {
 		return NativeDocumentNamespace{}, err
 	}
-	if !sameNativeDocumentObservation(result.observation, observedWriter) {
+	if !result.observation.Equal(observedWriter) {
 		return NativeDocumentNamespace{}, fmt.Errorf("native document writer does not identify the aliased referent")
 	}
 	capability, err := writerGrant.selection.Root.AcquireBounded(writer, recovery.MaximumPhysicalPathDepth, budget)
@@ -276,19 +276,6 @@ func nativeDocumentWriterGrant(grants map[output.RootRole]nativeDocumentRootGran
 		return nativeDocumentRootGrant{}, rootedpath.RelativeDestination{}, fmt.Errorf("native document referent has no explicitly supplied trusted writer root")
 	}
 	return selected, relative, nil
-}
-
-func sameNativeDocumentObservation(left, right mutation.DirectoryEntryAuthorityObservation) bool {
-	if left.Validate() != nil || right.Validate() != nil {
-		return false
-	}
-	if exact, known := left.Exact(); known {
-		other, known := right.Exact()
-		return known && exact.Equal(other)
-	}
-	provisional, _ := left.Provisional()
-	other, known := right.Provisional()
-	return known && provisional.Equal(other)
 }
 
 func persistedNativeRoot(provenance rootedpath.AuthorityProvenance) recoveryRootProvenance {

@@ -31,8 +31,13 @@ type invocationQualification struct {
 }
 
 type invocationDocument struct {
-	bindings []mutation.DirectoryEntryObservationPlan
+	bindings []invocationBinding
 	layout   rootedpath.PathLayout
+}
+
+type invocationBinding struct {
+	owner       stateauthority.Authority
+	observation mutation.DirectoryEntryObservationPlan
 }
 
 func (input InvocationInput) matchesPreparation() bool {
@@ -89,7 +94,7 @@ func PrepareInvocation(ctx context.Context, input InvocationInput, budget *journ
 			if err != nil {
 				return InvocationInput{}, err
 			}
-			target.bindings = append(target.bindings, observation)
+			target.bindings = append(target.bindings, invocationBinding{owner: binding.Owner(), observation: observation})
 			if len(target.bindings) == 1 {
 				target.layout, err = rootedpath.CaptureDirectoryEntryLayoutBounded(path, journalrecovery.MaximumPhysicalPathDepth, budget)
 				if err != nil {
@@ -125,7 +130,7 @@ func (qualification *invocationQualification) qualifyTarget(ctx context.Context,
 		return nil, rootedpath.Destination{}, fmt.Errorf("protected document was not prepared")
 	}
 	for index, binding := range document.Bindings() {
-		observed, err := target.bindings[index].ObserveBounded(ctx, budget)
+		observed, err := target.bindings[index].observation.ObserveBounded(ctx, budget)
 		if err != nil {
 			return nil, rootedpath.Destination{}, refusal(DocumentNamespaceUnqualified, err)
 		}
