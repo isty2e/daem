@@ -64,8 +64,39 @@ func TestNativeSupportFailureRetainsClosedSafeFacts(t *testing.T) {
 		if strings.Contains(failure.Detail(), "private-unrelated-detail") {
 			t.Fatal("support diagnosis copied unclassified error text")
 		}
+		if failure.NativeSupportRepairInstruction() == "" || strings.Contains(failure.NativeSupportRepairInstruction(), "private-unrelated-detail") {
+			t.Fatal("support guidance was missing or copied unclassified error text")
+		}
 	}
 	if failure := ClassifyFailure(errors.Join(unsupported, context.Canceled), CommandResult{}); failure.Reason() != FailureReasonCancelled {
 		t.Fatal("support reason overrode cancellation precedence")
+	}
+	if failure := ClassifyFailure(errors.Join(unsupported, context.Canceled), CommandResult{}); failure.NativeSupportRepairInstruction() != "" {
+		t.Fatal("cancellation gained unrelated native-support repair advice")
+	}
+}
+
+func TestNativeSupportPreservesAnIndependentlyBlockedRelation(t *testing.T) {
+	input, before := nativeAggregatePlanningInput(t, reconcile.AggregateCreate)
+	decisions, err := projectionbuild.BuildAggregateDecisions(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, relation := applyClaudePluginCarrierContractWithDeclarationID(t, target.ScopeProject, "context7")
+	action := applyClaudePluginCarrierActionForSubject(t, record, relation, observeclaudeplugin.InventorySpec{
+		Availability: observerelation.InventorySupported, Freshness: observerelation.EvidenceStale,
+	})
+	if action.Execution() != reconcile.ExecutionBlocked {
+		t.Fatal("stale relation fixture did not establish the ordinary blocker")
+	}
+	result, err := reconcile.NewResult(reconcile.ResultInput{
+		Context: reconcile.ContextApply, Aggregates: decisions, Relations: []reconcile.RelationAction{action},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = checkNativeCommandSupport(readiness.Assessment{CurrentState: before, Reconciliation: result})
+	if !errors.Is(err, ErrRelationActionBlock) || ClassifyFailure(err, CommandResult{}).Reason() != FailureReasonRelationActionBlocked {
+		t.Fatal("managed keys masked the independently blocked relation", err)
 	}
 }

@@ -426,6 +426,8 @@ func applyFailureDiagnostic(
 	diagnostic = diagnostic.WithPermissionProtection(result.PermissionProtection)
 	var instruction string
 	switch reason {
+	case applyworkflow.FailureReasonApplyRefused:
+		instruction = applyworkflow.ClassifyFailure(err, result).NativeSupportRepairInstruction()
 	case applyworkflow.FailureReasonRelationOrderRiskExpanded:
 		instruction = "inspect a fresh dry-run with daem apply --dry-run, then rerun interactively to authorize the updated extension order"
 	case applyworkflow.FailureReasonInterruptedApply:

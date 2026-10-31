@@ -283,6 +283,13 @@ func (failure Failure) MCPBackendRepairInstruction() string {
 	return "retire the existing binding before re-authoring"
 }
 
+func (failure Failure) NativeSupportRepairInstruction() string {
+	if failure.reason != FailureReasonApplyRefused {
+		return ""
+	}
+	return failure.nativeSupport.repairInstruction()
+}
+
 func (failure Failure) withOutcomeFacts(detail string) string {
 	if failure.barrier.JournalObserved() && !failure.barrier.JournalKnown() {
 		detail += "; journal recovery authority could not be classified"

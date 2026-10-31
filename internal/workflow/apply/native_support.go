@@ -16,6 +16,7 @@ const (
 	nativeSupportRoutes nativeSupportReason = iota + 1
 	nativeSupportOrder
 	nativeSupportCarrierState
+	nativeSupportOrderCommands
 )
 
 type nativeSupportError struct{ reason nativeSupportReason }
@@ -25,11 +26,13 @@ func (err nativeSupportError) Error() string { return err.reason.detail() }
 func (reason nativeSupportReason) detail() string {
 	switch reason {
 	case nativeSupportRoutes:
-		return "settings keys and extension or host-registration changes cannot yet be applied together"
+		return "this extension or host-registration operation can rewrite settings containing managed keys and does not yet support key-protected execution"
 	case nativeSupportOrder:
 		return "key-mode package-order changes require the same Pi settings layer and no extension command"
 	case nativeSupportCarrierState:
-		return "settings keys and extension ownership settlement cannot yet be applied together"
+		return "extension ownership settlement is not yet supported while settings keys are managed"
+	case nativeSupportOrderCommands:
+		return "adding or reordering packages across an extension command is not yet supported while settings keys are managed"
 	default:
 		return "the selected settings-key execution is not supported"
 	}
@@ -39,6 +42,18 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	result := assessment.Reconciliation
 	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsHostConfig() && !result.ContainsHostConfig() {
 		return nil
+	}
+	if err := rejectBlockedRelationActions(result); err != nil {
+		return err
+	}
+	if err := rejectBlockedRelationOrders(result); err != nil {
+		return err
+	}
+	if err := rejectBlockedCarrierAdoptions(result); err != nil {
+		return err
+	}
+	if err := rejectBlockedCarrierAbsences(result.CarrierAbsences()); err != nil {
+		return err
 	}
 	for _, relation := range result.Relations() {
 		if relation.Execution() != reconcile.ExecutionNoMutation {
@@ -57,13 +72,16 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	}
 	for _, absence := range result.CarrierAbsences() {
 		if absence.BlocksOrdinaryApply() || absence.InvokesHostRoute() || absence.MutatesDirectProjection() || absence.RetiresClaim() {
+			if !absence.InvokesHostRoute() && !absence.MutatesDirectProjection() {
+				return nativeSupportError{nativeSupportCarrierState}
+			}
 			return nativeSupportError{nativeSupportRoutes}
 		}
 	}
 	for _, adoption := range result.CarrierAdoptions() {
 		if adoption.BlocksOrdinaryApply() || adoption.StateOnly() {
 			if !nativeAdoptionCompletedByPending(assessment.CurrentState, result.Relations(), adoption) {
-				return nativeSupportError{nativeSupportRoutes}
+				return nativeSupportError{nativeSupportCarrierState}
 			}
 		}
 	}
@@ -74,7 +92,7 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 			}
 			for _, relation := range result.Relations() {
 				if relation.InvokesHostRoute() {
-					return nativeSupportError{nativeSupportOrder}
+					return nativeSupportError{nativeSupportOrderCommands}
 				}
 			}
 			for _, prerequisite := range assessment.MCPProviders {
@@ -83,7 +101,7 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 					return err
 				}
 				if present {
-					return nativeSupportError{nativeSupportOrder}
+					return nativeSupportError{nativeSupportOrderCommands}
 				}
 			}
 		}
@@ -94,6 +112,19 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 		return nativeSupportError{nativeSupportCarrierState}
 	}
 	return nil
+}
+
+func (reason nativeSupportReason) repairInstruction() string {
+	switch reason {
+	case nativeSupportRoutes, nativeSupportOrderCommands:
+		return "defer this extension change and retain its previous declaration; splitting off a key-value update does not bypass managed-key ownership"
+	case nativeSupportOrder:
+		return "apply only same-layer Pi package-order changes without an extension command, or defer this order change"
+	case nativeSupportCarrierState:
+		return "retain the existing extension declarations and defer this ownership change while settings keys are managed"
+	default:
+		return ""
+	}
 }
 
 func nativeAdoptionCompletedByPending(current durable.Snapshot, actions []reconcile.RelationAction, adoption carrieradoption.Action) bool {

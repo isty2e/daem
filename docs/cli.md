@@ -362,6 +362,10 @@ siblings as blocked. Grouping does not change JSON actions or output-entry count
 Quoted dotted-path segments distinguish `ext."a/b"` and `"a.b"` from nested keys.
 `--verbose` retains per-key detail.
 
+`list outputs` displays native keys by declaration and literal key path too.
+Its JSON adds `resource` and `key_path` for native rows while retaining the
+existing machine `subject`, optional `resource_id`, row counts and other fields.
+
 The resource-name cutover replaces the v0.5.x envelopes for manifest authoring
 (`6`), resource inventory (`2`), output inventory (`4`), agent location inventory
 (`1`), reconciliation plans (`14`), apply results (`21`) and recovery (`9`).
