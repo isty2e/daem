@@ -60,7 +60,7 @@ func observeVisibilityDomainRange(
 		switch domain.kind {
 		case domainLogicalPath, domainPhysicalPath:
 			if !domain.namespaceLease.isZero() {
-				matches, err := domain.namespaceLease.matchesCurrent()
+				matches, err := domain.namespaceLease.matchesCurrentUsing(observe)
 				if err != nil {
 					return false, err
 				}
