@@ -41,19 +41,31 @@ type invocationReservationLedger struct {
 }
 
 type invocationWorkTransfer struct {
-	ledger  *invocationReservationLedger
-	forward InvocationWork
-	safety  InvocationWork
-	taken   bool
+	ledger          *invocationReservationLedger
+	attachment      *InvocationWork
+	attachmentTaken bool
+	forward         InvocationWork
+	safety          InvocationWork
+	taken           bool
 }
 
-// InvocationWorkReservation copies share one transfer under the operation's
+// InvocationWorkReservation copies share one transfer per phase under the operation's
 // single writer. Child consumption cannot spend its peer's prepaid credit.
 type InvocationWorkReservation struct{ state *invocationWorkTransfer }
 
-// ReserveInvocation and Take share the parent's single-writer ownership. Take
+// Reservations and transfers share the parent's single-writer ownership. Transfer
 // closes admission while allowing already prepaid handles to transfer.
 func (budget *PhysicalWorkBudget) ReserveInvocation(forward, safety InvocationWork) (InvocationWorkReservation, error) {
+	return budget.reserveInvocation(nil, forward, safety)
+}
+
+// ReserveInvocationWithAttachment prepays post-prefix observation separately
+// from command and safety work. All scheduled invocations share admission.
+func (budget *PhysicalWorkBudget) ReserveInvocationWithAttachment(attachment, forward, safety InvocationWork) (InvocationWorkReservation, error) {
+	return budget.reserveInvocation(&attachment, forward, safety)
+}
+
+func (budget *PhysicalWorkBudget) reserveInvocation(attachment *InvocationWork, forward, safety InvocationWork) (InvocationWorkReservation, error) {
 	if budget == nil {
 		return InvocationWorkReservation{}, fmt.Errorf("physical work budget is required")
 	}
@@ -64,25 +76,51 @@ func (budget *PhysicalWorkBudget) ReserveInvocation(forward, safety InvocationWo
 	if ledger.transferring {
 		return InvocationWorkReservation{}, fmt.Errorf("invocation admission is closed after transfer")
 	}
-	if forward.components > budget.pathComponentLimit-budget.pathComponents || safety.components > budget.pathComponentLimit-budget.pathComponents-forward.components {
-		return InvocationWorkReservation{}, fmt.Errorf("invocation path work exceeds remaining operation capacity")
+	work := []InvocationWork{forward, safety}
+	if attachment != nil {
+		work = append([]InvocationWork{*attachment}, work...)
 	}
-	if forward.artifact.entries > budget.RemainingEntries() || safety.artifact.entries > budget.RemainingEntries()-forward.artifact.entries || forward.artifact.bytes > budget.RemainingBytes() || safety.artifact.bytes > budget.RemainingBytes()-forward.artifact.bytes {
-		return InvocationWorkReservation{}, fmt.Errorf("invocation artifact work exceeds remaining operation capacity")
+	var paths, entries int
+	var bytes int64
+	for _, phase := range work {
+		if phase.components > budget.pathComponentLimit-budget.pathComponents-paths {
+			return InvocationWorkReservation{}, fmt.Errorf("invocation path work exceeds remaining operation capacity")
+		}
+		if phase.artifact.entries > budget.RemainingEntries()-entries || phase.artifact.bytes > budget.RemainingBytes()-bytes {
+			return InvocationWorkReservation{}, fmt.Errorf("invocation artifact work exceeds remaining operation capacity")
+		}
+		paths += phase.components
+		entries += phase.artifact.entries
+		bytes += phase.artifact.bytes
 	}
 
 	// Failed shared admission retains successful earlier charges, but publishes
 	// no reservation. Rejection cannot replenish operation credit on a retry.
-	for _, work := range []InvocationWork{forward, safety} {
-		for _, count := range work.paths {
+	for _, phase := range work {
+		for _, count := range phase.paths {
 			if err := budget.AdmitPathComponents(count); err != nil {
 				return InvocationWorkReservation{}, err
 			}
 		}
 	}
-	budget.entries += forward.artifact.entries + safety.artifact.entries
-	budget.bytes += forward.artifact.bytes + safety.artifact.bytes
-	return InvocationWorkReservation{state: &invocationWorkTransfer{ledger: ledger, forward: forward, safety: safety}}, nil
+	budget.entries += entries
+	budget.bytes += bytes
+	return InvocationWorkReservation{state: &invocationWorkTransfer{ledger: ledger, attachment: attachment, forward: forward, safety: safety}}, nil
+}
+
+// TakeAttachment transfers only the prepaid observation phase. Copied handles
+// share this transfer, while command and safety credit remain unavailable here.
+func (reservation InvocationWorkReservation) TakeAttachment() (*PhysicalWorkBudget, error) {
+	state := reservation.state
+	if state == nil || state.ledger == nil || state.attachment == nil {
+		return nil, fmt.Errorf("invocation attachment reservation is unavailable")
+	}
+	if state.attachmentTaken {
+		return nil, fmt.Errorf("invocation attachment work was already transferred")
+	}
+	state.ledger.transferring = true
+	state.attachmentTaken = true
+	return invocationAllocation(*state.attachment), nil
 }
 
 func (reservation InvocationWorkReservation) Take() (*PhysicalWorkBudget, *PhysicalWorkBudget, error) {
@@ -93,10 +131,14 @@ func (reservation InvocationWorkReservation) Take() (*PhysicalWorkBudget, *Physi
 	if state.taken {
 		return nil, nil, fmt.Errorf("invocation work was already transferred")
 	}
+	if state.attachment != nil && !state.attachmentTaken {
+		return nil, nil, fmt.Errorf("invocation attachment work has not transferred")
+	}
 	state.ledger.transferring = true
 	state.taken = true
-	allocation := func(work InvocationWork) *PhysicalWorkBudget {
-		return &PhysicalWorkBudget{pathComponentLimit: work.components, entryLimit: work.artifact.entries, byteLimit: work.artifact.bytes}
-	}
-	return allocation(state.forward), allocation(state.safety), nil
+	return invocationAllocation(state.forward), invocationAllocation(state.safety), nil
+}
+
+func invocationAllocation(work InvocationWork) *PhysicalWorkBudget {
+	return &PhysicalWorkBudget{pathComponentLimit: work.components, entryLimit: work.artifact.entries, byteLimit: work.artifact.bytes}
 }
