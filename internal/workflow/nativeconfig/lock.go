@@ -12,7 +12,6 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/encoding/toml"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
@@ -22,21 +21,6 @@ func DocumentLimits() configdocument.Limits {
 		MaximumBytes: recovery.MaximumRecoveryBackupFileBytes,
 		MaximumDepth: tomlsyntax.MaximumDepth,
 	}
-}
-
-func codecIDs() []aggregate.CodecContractID {
-	var required []aggregate.CodecContractID
-	for _, placement := range aggregate.ImplementedHookPlacements() {
-		required = append(required, placement.CodecContractID())
-	}
-	for _, placement := range aggregate.ImplementedMCPContracts() {
-		required = append(required, placement.CodecContractID())
-	}
-	for _, syntax := range []string{"json", "jsonc", "json-line-comments", "toml"} {
-		id, _ := aggregate.HostConfigCodecForSyntax(syntax)
-		required = append(required, id)
-	}
-	return required
 }
 
 func ResolveSourceEpoch(ctx context.Context, paths daempaths.Paths, environment desired.Environment, file lock.File, selection targetselection.Selection) (lockobserve.SourceEpoch, error) {

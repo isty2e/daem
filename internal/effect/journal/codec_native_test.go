@@ -60,11 +60,18 @@ func TestNativeJournalRecordRoundtripsFullStateAndActualImages(t *testing.T) {
 	if retry, err := loaded.groups[0].comparison.RestoreBefore(t.Context(), restored.Document(), mode); err != nil || !retry.Document().Equal(restored.Document()) {
 		t.Fatalf("record-backed restore is not retry-safe: %v", err)
 	}
-	if result, err := decodeNativeJournalRecord(t.Context(), content, statefile.Codec{}); err == nil || result.record.Version != 0 {
-		t.Fatal("native record silently fell back to the frozen Snapshot codec")
+	if result, err := decodeNativeJournalRecord(t.Context(), content, statefile.Codec{}); err != nil || !result.before.Equal(fixture.before) || !result.after.Equal(fixture.after) {
+		t.Fatalf("current Snapshot codec lost native journal state: %v", err)
 	}
-	if result, err := marshalNativeJournalRecord(t.Context(), fixture.record, fixture.before, fixture.after, statefile.Codec{}); err == nil || result != nil {
-		t.Fatal("frozen Snapshot codec emitted native baselines")
+	restricted, err := statefile.NewCodec(aggregatecodec.Catalog().Contributions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := decodeNativeJournalRecord(t.Context(), content, restricted); err == nil || result.record.Version != 0 {
+		t.Fatal("native record bypassed explicitly restricted Snapshot admission")
+	}
+	if result, err := marshalNativeJournalRecord(t.Context(), fixture.record, fixture.before, fixture.after, restricted); err == nil || result != nil {
+		t.Fatal("restricted Snapshot codec emitted native baselines")
 	}
 }
 

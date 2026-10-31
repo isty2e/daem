@@ -14,7 +14,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
-	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 )
 
 const (
@@ -29,7 +28,7 @@ func Load(ctx context.Context, path string) (durable.Snapshot, error) {
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	snapshot, err := decodePersisted(content)
+	snapshot, err := decodePersisted(ctx, content)
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("decode statefile %q: %w", path, err)
 	}
@@ -57,7 +56,11 @@ func LoadOptional(ctx context.Context, path string) (durable.Snapshot, error) {
 
 // Decode decodes one strict current or explicitly supported legacy state JSON value.
 func Decode(content []byte) (durable.Snapshot, error) {
-	return decodeSnapshot(content, snapshotCodec{contributions: aggregatecodec.Catalog().Contributions()})
+	codec, err := currentSnapshotCodec(context.Background())
+	if err != nil {
+		return durable.Snapshot{}, err
+	}
+	return decodeSnapshot(content, codec)
 }
 
 func decodeSnapshot(content []byte, codec snapshotCodec) (durable.Snapshot, error) {
@@ -71,14 +74,18 @@ func decodeSnapshot(content []byte, codec snapshotCodec) (durable.Snapshot, erro
 	return decodeSupported(content, version, codec)
 }
 
-func decodePersisted(content []byte) (durable.Snapshot, error) {
+func decodePersisted(ctx context.Context, content []byte) (durable.Snapshot, error) {
 	version, err := statefileDocumentVersion(content)
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
 	switch version {
 	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion:
-		return decodeSupported(content, version, snapshotCodec{contributions: aggregatecodec.Catalog().Contributions()})
+		codec, err := currentSnapshotCodec(ctx)
+		if err != nil {
+			return durable.Snapshot{}, err
+		}
+		return decodeSupported(content, version, codec)
 	case retiredStatefileVersion:
 		return decodeRetiredStatefile(content)
 	default:
@@ -139,7 +146,11 @@ func unsupportedStatefileVersion(version int) error {
 
 // Marshal renders one canonical Snapshot as deterministic current JSON.
 func Marshal(snapshot durable.Snapshot) ([]byte, error) {
-	return marshalSnapshot(snapshot, snapshotCodec{contributions: aggregatecodec.Catalog().Contributions()})
+	codec, err := currentSnapshotCodec(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	return marshalSnapshot(snapshot, codec)
 }
 
 func marshalSnapshot(snapshot durable.Snapshot, codec snapshotCodec) ([]byte, error) {

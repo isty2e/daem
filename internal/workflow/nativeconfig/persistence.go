@@ -13,7 +13,7 @@ import (
 )
 
 func Codecs(ctx context.Context) (aggregate.CodecCatalog, error) {
-	return aggregatecodec.ForOperation(ctx, codecIDs(), DocumentLimits(), DocumentLimits())
+	return aggregatecodec.ForOperation(ctx, aggregatecodec.ContractIDs(), DocumentLimits(), DocumentLimits())
 }
 
 // LoadPersistenceEpoch selects native-capable decoding at the CLI boundary.

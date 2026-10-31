@@ -79,6 +79,34 @@ func prepareNativeAssessmentSources(ctx context.Context, input Input, before dur
 			return nativeAssessmentSources{}, err
 		}
 	}
+
+	requireDocument := func(address aggregate.DocumentAddress) error {
+		if _, _, present := retainedNativeDocument([]nativeAssessmentSources{facts}, address); !present {
+			return fmt.Errorf("native aggregate requires its retained rooted document observation")
+		}
+		return nil
+	}
+	for _, state := range before.ManagedAggregates() {
+		if _, native := aggregate.HostConfigSyntaxForCodec(state.Contribution().CodecContractID()); native && input.Selection.Includes(state.Contribution().Target()) {
+			if err := requireDocument(state.Contribution().Contract().Address().Document()); err != nil {
+				return nativeAssessmentSources{}, err
+			}
+		}
+	}
+
+	for _, source := range facts.sources {
+		if len(source.Projections()) == 0 {
+			continue
+		}
+		placement, _ := source.SourceContract().HostConfigPlacement()
+		address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
+		if err != nil {
+			return nativeAssessmentSources{}, err
+		}
+		if err := requireDocument(address); err != nil {
+			return nativeAssessmentSources{}, err
+		}
+	}
 	return facts, nil
 }
 

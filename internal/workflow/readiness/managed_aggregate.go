@@ -261,9 +261,6 @@ func observeAggregateDocuments(
 	}
 	for _, address := range documents {
 		retained, retainedMode, hasRetained := retainedNativeDocument(native, address.DocumentAddress())
-		if _, isNative := aggregate.HostConfigSyntaxForCodec(address.CodecContractID()); isNative && !hasRetained {
-			return aggregateDocumentObservations{}, fmt.Errorf("native aggregate requires its retained rooted document observation")
-		}
 		contracts := make([]aggregate.ProjectionContract, 0, len(contractsByDocument[address]))
 		for _, contract := range contractsByDocument[address] {
 			contracts = append(contracts, contract)

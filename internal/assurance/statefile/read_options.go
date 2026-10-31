@@ -13,8 +13,7 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
-// ReadOptions binds filesystem loading to an operation-selected codec and path
-// budget. It does not change the frozen Load and LoadOptional readers.
+// ReadOptions binds filesystem loading to an operation-selected codec and path budget.
 type ReadOptions struct {
 	Codec              durable.SnapshotCodec
 	PhysicalPathBudget rootedpath.PhysicalTraversalBudget

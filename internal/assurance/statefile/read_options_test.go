@@ -14,7 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func TestSelectedStatefileReaderPreservesNativeStateWithoutWideningDefaults(t *testing.T) {
+func TestSelectedAndDefaultStatefileReadersPreserveNativeState(t *testing.T) {
 	codec, err := NewNativeCodec(aggregatecodec.Catalog().Contributions())
 	if err != nil {
 		t.Fatal(err)
@@ -35,8 +35,8 @@ func TestSelectedStatefileReaderPreservesNativeStateWithoutWideningDefaults(t *t
 	if err != nil || !loaded.Equal(state) {
 		t.Fatalf("selected filesystem reader lost complete native state: %v", err)
 	}
-	if snapshot, err := LoadOptional(t.Context(), path); err == nil || !snapshot.Equal(durable.EmptySnapshot()) {
-		t.Fatal("selected reader widened the default or default returned partial state")
+	if snapshot, err := LoadOptional(t.Context(), path); err != nil || !snapshot.Equal(state) {
+		t.Fatalf("default reader lost native whole-file state: %v", err)
 	}
 	actual, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(actual, content) {

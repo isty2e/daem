@@ -28,8 +28,7 @@ func ForOperation(ctx context.Context, required []aggregate.CodecContractID, nat
 	return aggregate.NewCodecCatalog(codecs)
 }
 
-// ForContributions admits required native values without a document capability
-// or budget. It does not widen contextless state/journal family admission.
+// ForContributions admits selected values without document or effect capabilities.
 func ForContributions(ctx context.Context, required []aggregate.CodecContractID, nativeValueLimits configdocument.Limits) (aggregate.ContributionCatalog, error) {
 	validators, err := collectRequired(ctx, required, func(id aggregate.CodecContractID) (aggregate.ContributionValidator, error) {
 		if _, native := aggregate.HostConfigSyntaxForCodec(id); native {
@@ -45,6 +44,22 @@ func ForContributions(ctx context.Context, required []aggregate.CodecContractID,
 		return aggregate.ContributionCatalog{}, err
 	}
 	return aggregate.NewContributionCatalog(validators)
+}
+
+// ContractIDs returns all supported contracts, including context-bound native codecs.
+func ContractIDs() []aggregate.CodecContractID {
+	var required []aggregate.CodecContractID
+	for _, placement := range aggregate.ImplementedHookPlacements() {
+		required = append(required, placement.CodecContractID())
+	}
+	for _, placement := range aggregate.ImplementedMCPContracts() {
+		required = append(required, placement.CodecContractID())
+	}
+	for _, syntax := range []string{"json", "jsonc", "json-line-comments", "toml"} {
+		id, _ := aggregate.HostConfigCodecForSyntax(syntax)
+		required = append(required, id)
+	}
+	return required
 }
 
 func collectRequired[Port aggregate.ContributionValidator](ctx context.Context, required []aggregate.CodecContractID, resolve func(aggregate.CodecContractID) (Port, error)) ([]Port, error) {

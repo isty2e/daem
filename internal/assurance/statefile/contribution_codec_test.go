@@ -17,7 +17,7 @@ import (
 	"github.com/isty2e/daem/test/outputtest"
 )
 
-func TestContributionBoundStateCodecRoundTripsNativeGrammarsWithoutDefaultAdmission(t *testing.T) {
+func TestStateCodecRoundTripsAllNativeGrammars(t *testing.T) {
 	for _, syntax := range []configdocument.Syntax{configdocument.JSON, configdocument.JSONC, configdocument.JSONLineComments, configdocument.TOML} {
 		t.Run(syntax.String(), func(t *testing.T) {
 			state := contributionCodecState(t, syntax)
@@ -35,11 +35,11 @@ func TestContributionBoundStateCodecRoundTripsNativeGrammarsWithoutDefaultAdmiss
 			if err != nil || !bytes.Equal(content, reencoded) {
 				t.Fatalf("scoped native state encoding is not deterministic: %v", err)
 			}
-			if rejected, err := Marshal(snapshot); err == nil || len(rejected) != 0 {
-				t.Fatal("scoped admission widened default state encoding")
+			if encoded, err := Marshal(snapshot); err != nil || !bytes.Equal(content, encoded) {
+				t.Fatalf("default encoding differs from selected encoding: %v", err)
 			}
-			if rejected, err := Decode(content); err == nil || len(rejected.ManagedAggregates()) != 0 {
-				t.Fatal("scoped admission widened default state decoding or returned partial rows")
+			if decoded, err := Decode(content); err != nil || !decoded.Equal(snapshot) {
+				t.Fatalf("default decoding lost native state: %v", err)
 			}
 		})
 	}
@@ -117,8 +117,10 @@ func TestContributionBoundStateCodecRefusesUnselectedInvalidLimitedAndCanceledVa
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, err := jsonOnly.Encode(contributionCodecSnapshot(t, invalid)); err == nil || len(result) != 0 {
-		t.Fatal("malformed native value bypassed explicit admission")
+	for _, codec := range []durable.SnapshotCodec{jsonOnly, Codec{}} {
+		if result, err := codec.Encode(contributionCodecSnapshot(t, invalid)); err == nil || len(result) != 0 {
+			t.Fatal("malformed native value bypassed contribution validation")
+		}
 	}
 }
 

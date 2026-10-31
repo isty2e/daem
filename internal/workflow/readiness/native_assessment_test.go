@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
+	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
@@ -50,6 +51,19 @@ func (reader *assessmentRegistryReader) LoadForDocuments(ctx context.Context, ow
 		reader.loads++
 	}
 	return actual, err
+}
+
+func TestNativeAssessmentRequiresRetainedStateDocumentsBeforeRetirementPlanning(t *testing.T) {
+	fixture := newNativePlanningFixture(t, target.ScopeProject, "extension-settings/test.json")
+	environment, err := declarationmanifest.Decode([]byte("version=1\ntargets=['pi']\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := Input{Environment: environment, Selection: fixture.input.Selection}
+	facts, err := prepareNativeAssessmentSources(t.Context(), input, fixture.observation.Before, lockobserve.SourceEpoch{})
+	if err == nil || facts.input != nil || len(facts.sources) != 0 {
+		t.Fatal("native state retirement planning did not require retained document evidence", err)
+	}
 }
 
 func TestNativeAssessmentBorrowsLiveBatchAndOriginalAllocation(t *testing.T) {

@@ -56,15 +56,19 @@ func TestNativeDocumentCodecRoundTripsMixedSnapshotsWithoutOrdinaryAdmission(t *
 					if err != nil || !bytes.Equal(content, reencoded) {
 						t.Fatalf("native encoding is not deterministic: %v", err)
 					}
-					for _, encode := range []func(durable.Snapshot) ([]byte, error){Marshal, Codec{}.Encode, ordinary.Encode} {
-						if result, err := encode(snapshot); err == nil || len(result) != 0 {
-							t.Fatal("native factory widened ordinary whole-file encoding")
+					for _, complete := range []durable.SnapshotCodec{Codec{}, codec} {
+						if result, err := complete.Encode(snapshot); err != nil || !bytes.Equal(result, content) {
+							t.Fatalf("complete snapshot encoding differs: %v", err)
+						}
+						if result, err := complete.Decode(content); err != nil || !result.Equal(snapshot) {
+							t.Fatalf("complete snapshot decoding lost native baselines: %v", err)
 						}
 					}
-					for _, decode := range []func([]byte) (durable.Snapshot, error){Decode, Codec{}.Decode, ordinary.Decode} {
-						if result, err := decode(content); err == nil || !result.Equal(durable.EmptySnapshot()) {
-							t.Fatal("ordinary reader admitted native ownership or returned partial state")
-						}
+					if result, err := ordinary.Encode(snapshot); err == nil || len(result) != 0 {
+						t.Fatal("restricted codec admitted native whole-file encoding")
+					}
+					if result, err := ordinary.Decode(content); err == nil || !result.Equal(durable.EmptySnapshot()) {
+						t.Fatal("restricted codec admitted native ownership or returned partial state")
 					}
 				})
 			}
