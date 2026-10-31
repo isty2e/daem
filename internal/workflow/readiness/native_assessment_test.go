@@ -2,7 +2,6 @@ package readiness
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
@@ -23,7 +22,6 @@ import (
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lockbuild "github.com/isty2e/daem/internal/realization/lock/build"
-	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/reconcile"
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/target"
@@ -141,31 +139,6 @@ func TestNativeAssessmentBorrowsLiveBatchAndOriginalAllocation(t *testing.T) {
 	root := fixture.observation.Roots.Manifest
 	if err := root.Root.ValidateSelectionBounded(root.SelectedPath, recovery.MaximumPhysicalPathDepth, fixture.observation.Budget); err != nil {
 		t.Fatalf("assessment closed the externally owned root: %v", err)
-	}
-	adapterEnvironment, err := declarationmanifest.Decode([]byte(`version = 1
-targets = ["pi"]
-[[extension]]
-id = "adapter-provider"
-carrier = "pi-package"
-targets = ["pi"]
-scope = "project"
-source = { host_source = "npm:pi-mcp-adapter@^2.13.0" }
-[[mcp_server]]
-name = "adapter"
-backend = "adapter"
-transport = "stdio"
-command = "node"
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	adapter, err := lockrefine.MCPSubjects(adapterEnvironment.MCPServers(), adapterEnvironment.Extensions(), mcpcodec.CanonicalMCPBindingContribution)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = rejectNativeProviderReadOverlap([]nativeAssessmentSources{{input: input.Native}}, adapter, fixture.observation.Before, fixture.input.Selection)
-	if err == nil || !strings.Contains(err.Error(), "unqualified dynamic read coverage") || reader.loads != 1 || fixture.observation.Budget.RemainingBytes() != remaining {
-		t.Fatalf("unqualified adapter coverage was admitted or reread native observations: %v", err)
 	}
 	input.Native = nil
 	if result, err := Assess(t.Context(), input); err == nil || len(result.NativeSources) != 0 || len(result.Reconciliation.Aggregates()) != 0 {

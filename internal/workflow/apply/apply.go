@@ -66,6 +66,7 @@ type runOptions struct {
 	nativeInput                       *execute.NativeApplyInput
 	nativeInvocations                 *nativeInvocationProgram
 	afterNativeCore                   func(context.Context, execute.ApplyResult) (readiness.Assessment, applyContinuationPlan, error)
+	afterNativeProviders              func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims, mutation.OperationFingerprint) (applyContinuationPlan, error)
 	afterHostRoutes                   func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error)
 	persistenceCodec                  durable.SnapshotCodec
 	preparedContinuation              applyContinuationPlan

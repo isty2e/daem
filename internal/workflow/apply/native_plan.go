@@ -141,46 +141,50 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	for _, action := range assessment.Reconciliation.CarrierAbsences() {
 		opaque = opaque || action.InvokesHostRoute()
 	}
-	var prefix execute.NativeApplyStatePreparation
-	var suffix []execute.AggregateEffect
-	var orders []pipackage.OrderObservation
-	if opaque {
-		orders = nativeOrders
-
-		positive, err := projectionbuild.BuildPositiveNativePrefix(ctx, assessment.Reconciliation.Aggregates())
+	for _, prerequisite := range assessment.MCPProviders {
+		_, present, err := prerequisite.InstallAction()
 		if err != nil {
 			return err
 		}
-		prefix, err = execute.PrepareNativeApplyState(ctx, execute.NativeApplyStateInput{Before: assessment.CurrentState, Aggregates: positive, StateCodec: codec})
-		if err != nil {
-			return err
-		}
-		remaining, err := projectionbuild.BuildNativeApplySuffix(ctx, assessment.Reconciliation.Aggregates())
-		if err != nil {
-			return err
-		}
-		suffix, err = execute.AggregateEffectsForNativeOperation(remaining)
-		if err != nil {
-			return err
-		}
-		if err := state.ValidateAggregatePhaseSplit(prefix, suffix); err != nil {
-			return nativeSupportError{nativeSupportRoutes}
-		}
-		for _, prerequisite := range assessment.MCPProviders {
-			_, present, err := prerequisite.InstallAction()
-			if err != nil {
-				return err
-			}
-			if present {
-				return nativeSupportError{nativeSupportRoutes}
-			}
-		}
+		opaque = opaque || present
 	}
 	documents, err := nativeStateDocuments(ctx, assessment, state.AfterState())
 	if err != nil {
 		return err
 	}
-	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents, opaque: opaque, prefix: prefix, suffix: suffix, orders: orders}
+	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents, orders: nativeOrders}
+	if opaque {
+		return prepareNativeInvocationRemainder(ctx, planned)
+	}
+	return nil
+}
+
+// prepareNativeInvocationRemainder retains the containing invocation phases on
+// an actual baseline; preparing the prefix does not execute or reserve it again.
+func prepareNativeInvocationRemainder(ctx context.Context, planned *commandPlan) error {
+	if planned.nativePlan == nil {
+		return fmt.Errorf("native invocation continuation requires its native plan")
+	}
+	positive, err := projectionbuild.BuildPositiveNativePrefix(ctx, planned.assessment.Reconciliation.Aggregates())
+	if err != nil {
+		return err
+	}
+	prefix, err := execute.PrepareNativeApplyState(ctx, execute.NativeApplyStateInput{Before: planned.assessment.CurrentState, Aggregates: positive, StateCodec: planned.nativePlan.stateCodec})
+	if err != nil {
+		return err
+	}
+	remaining, err := projectionbuild.BuildNativeApplySuffix(ctx, planned.assessment.Reconciliation.Aggregates())
+	if err != nil {
+		return err
+	}
+	suffix, err := execute.AggregateEffectsForNativeOperation(remaining)
+	if err != nil {
+		return err
+	}
+	if err := planned.nativePlan.state.ValidateAggregatePhaseSplit(prefix, suffix); err != nil {
+		return nativeSupportError{nativeSupportRoutes}
+	}
+	planned.nativePlan.opaque, planned.nativePlan.prefix, planned.nativePlan.suffix = true, prefix, suffix
 	return nil
 }
 

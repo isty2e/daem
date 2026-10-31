@@ -235,9 +235,6 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
-	if err := rejectNativeProviderReadOverlap(native, mcpContracts, currentState, selection); err != nil {
-		return Assessment{}, err
-	}
 	mcpEffective, err := observeProviderEffectiveMCP(
 		ctx,
 		paths,

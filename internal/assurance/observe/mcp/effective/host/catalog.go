@@ -159,6 +159,7 @@ func Observe(input Input) (ObservationSet, error) {
 				}
 			}
 			observation, err := ObservePiAdapter(PiAdapterInput{
+				Context: input.Context, ReadFile: input.ReadFile,
 				Projection:   projection,
 				Codecs:       input.Codecs,
 				HomeDir:      piHomeDir,

@@ -10,14 +10,11 @@ import (
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
-	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/lock"
-	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
@@ -106,34 +103,6 @@ func prepareNativeAssessmentSources(ctx context.Context, input Input, before dur
 		}
 	}
 	return facts, nil
-}
-
-func rejectNativeProviderReadOverlap(native []nativeAssessmentSources, contracts []lock.LockedSubjectContract, before durable.Snapshot, selection targetselection.Selection) error {
-	if len(native) == 0 || native[0].input == nil || native[0].input.Documents == nil {
-		return nil
-	}
-	previous, err := managedMCPProjections(before, selection)
-	if err != nil {
-		return err
-	}
-	var projections []aggregate.SubjectContribution
-	for _, contract := range contracts {
-		contribution, present, err := contract.ManagedAggregateContribution()
-		if err != nil {
-			return err
-		}
-		if present {
-			projections = append(projections, contribution)
-		}
-	}
-	projections = append(projections, retiringMCPProjections(contracts, previous)...)
-	for _, projection := range projections {
-		pi, isPi := profile.PiMCPContractForCodec(projection.Contribution().CodecContractID())
-		if isPi && pi.Backend() == desiredmcp.BackendAdapter {
-			return fmt.Errorf("provider-effective MCP adapter observation for %q has unqualified dynamic read coverage against retained native documents", projection.SubjectID())
-		}
-	}
-	return nil
 }
 
 func nativeOwnershipObservations(ctx context.Context, paths daempaths.Paths, resolver liveDestinationResolver, managed managedPathPlanningInputs, aggregates managedAggregatePlanningInputs, before durable.Snapshot, selection targetselection.Selection, native *NativeAssessmentInput) (stateauthority.Authority, []observe.OwnershipObservation, error) {

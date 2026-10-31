@@ -483,6 +483,7 @@ func executeWithDependencies(
 		recoveryProvenancePreflight:   dependencies.recoveryProvenancePreflight,
 	}
 
+	var providerPhase providerPhaseExecution
 	if current.nativePlan != nil {
 		native, err := nativePrefixApplyInputFor(current)
 		if err != nil {
@@ -545,7 +546,7 @@ func executeWithDependencies(
 						return readiness.Assessment{}, applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
 					}
 				}
-				schedule, err := compileApplyForwardEffectSchedule(refreshed, nil, fresh.ApplyInput)
+				schedule, err := compileApplyForwardEffectSchedule(refreshed, providerActions, fresh.ApplyInput)
 				if err != nil {
 					return readiness.Assessment{}, applyContinuationPlan{}, err
 				}
@@ -632,24 +633,130 @@ func executeWithDependencies(
 					return executeNativeOrderedSegment(ctx, current.context.Paths, current.context.RuntimeEnvironment, current.context.Lockfile, current.context.Selection, reconciliation, input, plan, executionOptions)
 				}
 			}
+			executionOptions.afterNativeProviders = func(ctx context.Context, state durable.Snapshot, claims durablecarrier.GlobalCarrierClaims, stable mutation.OperationFingerprint) (_ applyContinuationPlan, returnErr error) {
+				if err := executionGuard.requireDeclarationsCurrent(ctx, "post-native-provider replan"); err != nil {
+					return applyContinuationPlan{}, err
+				}
+				refreshed, err := planReadinessAtPathsWithAssessor(ctx, replanInput, execution.operationContext, current.context.Paths, &current.barrier, forwardAuthority.Validate, retainedReadiness)
+				if err != nil {
+					return applyContinuationPlan{}, err
+				}
+				keep := false
+				defer func() {
+					if !keep {
+						refreshed.projectRoot = nil
+						returnErr = errors.Join(returnErr, closeCommandPlan(&refreshed))
+					}
+				}()
+				refreshed.projectRoot = planned.projectRoot
+				if stateDirPlan.schedule.managedSuffix != nil {
+					refreshed.assessment.Ownership = originalOwnership
+				}
+				if !refreshed.assessment.CurrentState.Equal(state) || !refreshed.assessment.GlobalCarrierClaims.Equal(claims) {
+					return applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, nil)
+				}
+				if err := validatePostProviderPlan(refreshed); err != nil {
+					return applyContinuationPlan{}, err
+				}
+				if err := requireCurrentMCPProviders(refreshed.assessment.MCPProviders); err != nil {
+					return applyContinuationPlan{}, err
+				}
+				observedStable, err := providerStableFingerprint(refreshed, execution.operationContext)
+				if err != nil || !observedStable.Equal(stable) {
+					return applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+				}
+				if err := prepareNativeInvocationRemainder(ctx, &refreshed); err != nil {
+					return applyContinuationPlan{}, err
+				}
+				prefix, err := nativePrefixApplyInputFor(refreshed)
+				if err != nil {
+					return applyContinuationPlan{}, err
+				}
+				if gates, err := execute.MaximumNativeForwardEffectValidationCount(prefix); err != nil || gates != 0 {
+					return applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+				}
+				fresh, err := nativeApplyInputFor(refreshed)
+				if err != nil {
+					return applyContinuationPlan{}, err
+				}
+				if matches, err := prefixRegistryScope.Matches(prefixRegistry, fresh.Registry); err != nil || !matches {
+					return applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+				}
+				if stateDirPlan.schedule.managedSuffix != nil {
+					if _, err := stateDirPlan.schedule.managedSuffix.Bind(fresh); err != nil {
+						return applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+					}
+				} else if gates, err := execute.MaximumNativeForwardEffectValidationCount(fresh); err != nil || gates != 0 {
+					return applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+				}
+				schedule, err := equivalentProviderFinalSchedule(stateDirPlan.schedule.finalBinding(), refreshed, providerActions)
+				if err != nil {
+					return applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+				}
+				refreshedAuthority, err := buildApplyAuthorityEvidence(ctx, refreshed)
+				if err != nil {
+					return applyContinuationPlan{}, err
+				}
+				if !operationplan.FactsCover(currentAuthority.facts, refreshedAuthority.facts) {
+					return applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, nil)
+				}
+				if covered, err := leases.CoversPhysicalAuthority(refreshedAuthority.documentWrites); err != nil || !covered {
+					return applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+				}
+				if matches, err := leases.MatchCurrentPhysicalRequests(ctx, refreshedAuthority.metadataRequests...); err != nil || !matches {
+					return applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
+				}
+				refreshedRevisions, err := mutation.CaptureRevisionSet(ctx, refreshedAuthority.firstEffectRevisions...)
+				if err != nil {
+					return applyContinuationPlan{}, err
+				}
+				previous := current
+				previous.projectRoot = nil
+				if err := closeCommandPlan(&previous); err != nil {
+					return applyContinuationPlan{}, err
+				}
+				refreshed.result.Reconciliation = current.result.Reconciliation
+				current, currentAuthority, keep = refreshed, refreshedAuthority, true
+				firstEffectRevisions, revisionBoundaryValidated = refreshedRevisions, false
+				return schedule.continuation, nil
+			}
 		}
 	}
-	providerPhase, err := runMCPProviderPrerequisitePhase(
-		ctx,
-		&current,
-		providerActions,
-		stateDirPlan.schedule.finalBinding(),
-		currentInput,
-		execution,
-		execution.authorityEvidence,
-		effectPaths,
-		store,
-		leases,
-		firstEffectRevisions,
-		executionGuard,
-		executionOptions,
-		options.PlanWasDisclosed,
-	)
+	runProviders := func(ctx context.Context, phaseOptions runOptions) (providerPhaseExecution, error) {
+		return runMCPProviderPrerequisitePhase(
+			ctx,
+			&current,
+			providerActions,
+			stateDirPlan.schedule.finalBinding(),
+			currentInput,
+			execution,
+			execution.authorityEvidence,
+			effectPaths,
+			store,
+			leases,
+			firstEffectRevisions,
+			executionGuard,
+			phaseOptions,
+			options.PlanWasDisclosed,
+		)
+	}
+	if executionOptions.afterNativeProviders != nil && len(providerActions) != 0 {
+		afterPrefix := executionOptions.afterNativeCore
+		executionOptions.afterNativeCore = func(ctx context.Context, applied execute.ApplyResult) (readiness.Assessment, applyContinuationPlan, error) {
+			_, continuation, prefixErr := afterPrefix(ctx, applied)
+			if prefixErr != nil {
+				return readiness.Assessment{}, applyContinuationPlan{}, prefixErr
+			}
+			phaseOptions := executionOptions
+			phaseOptions.currentContinuation = continuation
+			phase, phaseErr := runProviders(ctx, phaseOptions)
+			providerPhase = phase
+			uncompensatedEffectsAttempted = phase.uncompensatedEffectsAttempted
+			return current.assessment, phase.currentContinuation, phaseErr
+		}
+	} else {
+		providerPhase, err = runProviders(ctx, executionOptions)
+	}
 	uncompensatedEffectsAttempted = providerPhase.uncompensatedEffectsAttempted
 	if err != nil {
 		current.result.HostRouteAttempts = providerPhase.attempts

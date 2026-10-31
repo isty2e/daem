@@ -16,7 +16,6 @@ const (
 	nativeSupportRoutes nativeSupportReason = iota + 1
 	nativeSupportOrder
 	nativeSupportCarrierState
-	nativeSupportOrderCommands
 )
 
 type nativeSupportError struct{ reason nativeSupportReason }
@@ -31,8 +30,6 @@ func (reason nativeSupportReason) detail() string {
 		return "key-mode package-order changes require ownership of the same Pi settings layer"
 	case nativeSupportCarrierState:
 		return "extension ownership settlement is not yet supported while settings keys are managed"
-	case nativeSupportOrderCommands:
-		return "adding or reordering packages across an extension command is not yet supported while settings keys are managed"
 	default:
 		return "the selected settings-key execution is not supported"
 	}
@@ -93,28 +90,14 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 			if order.Target() != target.TargetPi {
 				return nativeSupportError{nativeSupportOrder}
 			}
-			for _, prerequisite := range assessment.MCPProviders {
-				_, present, err := prerequisite.InstallAction()
-				if err != nil {
-					return err
-				}
-				if present {
-					return nativeSupportError{nativeSupportOrderCommands}
-				}
-			}
 		}
-	}
-	if _, changed, err := assessment.CurrentState.WithConvergedGlobalCarrierClaims(assessment.GlobalCarrierClaims); err != nil {
-		return err
-	} else if changed {
-		return nativeSupportError{nativeSupportCarrierState}
 	}
 	return nil
 }
 
 func (reason nativeSupportReason) repairInstruction() string {
 	switch reason {
-	case nativeSupportRoutes, nativeSupportOrderCommands:
+	case nativeSupportRoutes:
 		return "defer this extension change and retain its previous declaration; splitting off a key-value update does not bypass managed-key ownership"
 	case nativeSupportOrder:
 		return "apply only same-layer Pi package-order changes, or defer this order change"
@@ -133,7 +116,7 @@ func nativeAdoptionCompletedByPending(current durable.Snapshot, actions []reconc
 		if !action.CarrierIdentity().ExactEqual(adoption.CarrierIdentity()) || !action.RouteRequest().Equal(adoption.AcquisitionRequest()) {
 			continue
 		}
-		pending, _, matched := execute.MatchPendingCarrierInstallCompletion(current, action, target.ScopeProject)
+		pending, _, matched := execute.MatchPendingCarrierInstallCompletion(current, action, action.Scope())
 		if matched && pending.Owner().ExactEqual(adoption.CurrentOwner()) {
 			return true
 		}

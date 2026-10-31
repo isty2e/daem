@@ -12,7 +12,12 @@ type nativeInvocationCommand struct {
 
 func nativeInvocationCommands(current commandPlan, removalAdapter executehostroute.RemovalAdapter) ([]nativeInvocationCommand, error) {
 	var commands []nativeInvocationCommand
-	for _, action := range current.assessment.Reconciliation.Relations() {
+	actions, err := providerInstallActions(current.assessment.MCPProviders)
+	if err != nil {
+		return nil, err
+	}
+	actions = append(actions, nonProviderRelationActions(current)...)
+	for _, action := range actions {
 		if !action.InvokesHostRoute() {
 			continue
 		}

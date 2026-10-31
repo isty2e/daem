@@ -231,9 +231,9 @@ func finalRelationActions(
 	result := make([]reconcile.RelationAction, 0)
 	for _, action := range planned.assessment.Reconciliation.Relations() {
 		if isGlobalCarrierPromotionCandidate(current, action) {
-			// Committed global claims settle in the core; only outstanding
-			// promotions need final registry and statefile work.
-			if isGlobalCarrierPromotionCandidate(converged, action) {
+			// Ordinary core consumes committed-claim completions. Native plans
+			// keep them as explicit final registry and statefile work.
+			if planned.nativePlan != nil || isGlobalCarrierPromotionCandidate(converged, action) {
 				result = append(result, action)
 			}
 			continue
@@ -340,6 +340,9 @@ func runMCPProviderPrerequisitePhase(
 	if options.validateRecoveryBarrier == nil {
 		return result, fmt.Errorf("post-provider recovery barrier validation is required")
 	}
+	if options.nativeInvocations != nil && options.afterNativeProviders == nil {
+		return result, fmt.Errorf("native provider execution requires its retained continuation")
+	}
 	stableBefore, err := providerStableFingerprint(*current, execution.operationContext)
 	if err != nil {
 		return result, err
@@ -371,6 +374,11 @@ func runMCPProviderPrerequisitePhase(
 		}
 	}
 	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if options.afterNativeProviders != nil {
+		// Native invocation layouts borrow this held set through the remaining work.
+		result.currentContinuation, err = options.afterNativeProviders(ctx, providerState, providerClaims, stableBefore)
 		return result, err
 	}
 	if err := leases.Release(); err != nil {
@@ -599,7 +607,7 @@ func validatePostProviderPlan(planned commandPlan) error {
 	if err := rejectLocalSourceMutationOverlap(planned); err != nil {
 		return err
 	}
-	if err := execute.RejectUnsupportedActions(planned.assessment.Reconciliation); err != nil {
+	if err := rejectUnsupportedCommandPlan(planned); err != nil {
 		return err
 	}
 	if err := rejectBlockedRelationActions(planned.assessment.Reconciliation); err != nil {

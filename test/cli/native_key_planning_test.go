@@ -462,15 +462,13 @@ ownership = "keys"
 	}
 }
 
-func TestNativeKeyCLIPlanningRefusesUnjoinedModesAndProviderReads(t *testing.T) {
-	for _, variant := range []string{"document mode", "dynamic adapter reads"} {
-		t.Run(variant, func(t *testing.T) {
-			root := t.TempDir()
-			t.Setenv("HOME", filepath.Join(root, "home"))
-			t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
-			workspace := filepath.Join(root, "workspace")
-			manifest := filepath.Join(workspace, "daem.toml")
-			body := `version = 1
+func TestNativeKeyCLIPlanningRefusesUnjoinedDocumentMode(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	workspace := filepath.Join(root, "workspace")
+	manifest := filepath.Join(workspace, "daem.toml")
+	body := `version = 1
 targets = ["codex"]
 [[host_config]]
 id = "preferences"
@@ -478,53 +476,28 @@ path = "extension/preferences.toml"
 source = "./fragment"
 ownership = "document"
 `
-			fragment := "model = \"native-test\"\n"
-			want := "native document mode"
-			if variant == "dynamic adapter reads" {
-				body = `version = 1
-targets = ["pi"]
-[[host_config]]
-id = "preferences"
-path = "settings.json"
-source = "./fragment"
-ownership = "keys"
-[[extension]]
-id = "adapter-provider"
-carrier = "pi-package"
-targets = ["pi"]
-scope = "project"
-source = { host_source = "npm:pi-mcp-adapter@^2.13.0" }
-[[mcp_server]]
-name = "context7"
-backend = "adapter"
-transport = "stdio"
-command = "must-not-run-daem-planning-test"
-`
-				fragment = `{"model":"native-test"}`
-				want = "unqualified dynamic read coverage"
-			}
-			testkit.WriteFile(t, workspace, "daem.toml", body)
-			testkit.WriteFile(t, workspace, "fragment", fragment)
-			if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
-				t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
-			}
-			for _, args := range [][]string{
-				{"status", "--manifest", manifest, "--json"},
-				{"apply", "--manifest", manifest, "--dry-run", "--json"},
-			} {
-				code, stdout, stderr := runOwnershipCLI(args...)
-				if code == 0 || (args[0] == "status" && !strings.Contains(stdout+stderr, want)) || strings.Contains(stdout, `"actions"`) {
-					t.Fatalf("unjoined operation returned a usable or misclassified assessment: %d %s %s", code, stdout, stderr)
-				}
-			}
-			if _, err := apply.PlanDryRun(t.Context(), apply.CommandInput{ManifestPath: manifest}); err == nil || !strings.Contains(err.Error(), want) {
-				t.Fatalf("dry-run lost the actual refusal cause: %v", err)
-			}
-			for _, relative := range []string{".pi", ".codex", ".daem/state.json"} {
-				if _, err := os.Stat(filepath.Join(workspace, relative)); !os.IsNotExist(err) {
-					t.Fatalf("refused planning created %s: %v", relative, err)
-				}
-			}
-		})
+	fragment := "model = \"native-test\"\n"
+	want := "native document mode"
+	testkit.WriteFile(t, workspace, "daem.toml", body)
+	testkit.WriteFile(t, workspace, "fragment", fragment)
+	if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
+		t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
+	}
+	for _, args := range [][]string{
+		{"status", "--manifest", manifest, "--json"},
+		{"apply", "--manifest", manifest, "--dry-run", "--json"},
+	} {
+		code, stdout, stderr := runOwnershipCLI(args...)
+		if code == 0 || (args[0] == "status" && !strings.Contains(stdout+stderr, want)) || strings.Contains(stdout, `"actions"`) {
+			t.Fatalf("unjoined operation returned a usable or misclassified assessment: %d %s %s", code, stdout, stderr)
+		}
+	}
+	if _, err := apply.PlanDryRun(t.Context(), apply.CommandInput{ManifestPath: manifest}); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("dry-run lost the actual refusal cause: %v", err)
+	}
+	for _, relative := range []string{".pi", ".codex", ".daem/state.json"} {
+		if _, err := os.Stat(filepath.Join(workspace, relative)); !os.IsNotExist(err) {
+			t.Fatalf("refused planning created %s: %v", relative, err)
+		}
 	}
 }

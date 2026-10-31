@@ -1488,8 +1488,11 @@ removals and ordinary file, skill or direct MCP changes. Desired key values sett
 execution and are checked after each command; key removals and other direct
 changes follow the commands and their settings checks. Unexpected settings
 changes stop the operation without automatic repair.
-Pi adapter-backed MCP, provider prerequisite installations
-and other hosts' extension changes remain unsupported. Preview and confirmed apply
+Pi adapter-backed MCP and required provider installations use the same sequence:
+selected keys first, qualified provider installation if needed, then MCP configuration
+and other remaining direct work. An unobservable or incompatible installed provider
+version blocks application; it is not treated as a missing package to reinstall.
+Other hosts' extension changes remain unsupported. Preview and confirmed apply
 refuse unsupported combinations before effects. An already-current extension does not
 by itself block direct changes or trigger another installation.
 For a Pi settings layer containing managed keys, package order is reconciled from
