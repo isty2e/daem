@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -82,13 +84,48 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
-	state, err := execute.PrepareNativeApplyState(ctx, execute.NativeApplyStateInput{
+	stateInput := execute.NativeApplyStateInput{
 		Before: assessment.CurrentState, ManagedPaths: assessment.Reconciliation.ManagedPaths(),
 		Aggregates: assessment.Reconciliation.Aggregates(), StateCodec: codec,
 		ConfirmedRelationActions: assessment.Reconciliation.Relations(),
-	})
+	}
+	state, err := execute.PrepareNativeApplyState(ctx, stateInput)
 	if err != nil {
 		return err
+	}
+	for _, decision := range assessment.Reconciliation.RelationOrders() {
+		if !decision.RequiresMutation() {
+			continue
+		}
+		found := false
+		for _, order := range assessment.PiOrders {
+			if order.Sequence().SequenceID() != decision.SequenceID() || !order.Changed() {
+				continue
+			}
+			alias, err := pipackage.SettingsDocumentAddress(order.Scope())
+			if err != nil {
+				return err
+			}
+			for _, evidence := range assessment.NativeApproval {
+				member, err := evidence.HasMembers(ctx, assessment.CurrentState, state.AfterState())
+				if err != nil {
+					return err
+				}
+				if member && slices.Contains(evidence.Aliases, alias) {
+					stateInput.PiOrders = append(stateInput.PiOrders, order)
+					found = true
+				}
+			}
+		}
+		if !found {
+			return nativeSupportError{nativeSupportOrder}
+		}
+	}
+	if len(stateInput.PiOrders) != 0 {
+		state, err = execute.PrepareNativeApplyState(ctx, stateInput)
+		if err != nil {
+			return err
+		}
 	}
 	opaque := false
 	for _, action := range assessment.Reconciliation.Relations() {

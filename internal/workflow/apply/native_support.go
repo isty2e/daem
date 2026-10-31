@@ -27,7 +27,7 @@ func (reason nativeSupportReason) detail() string {
 	case nativeSupportRoutes:
 		return "settings keys and extension or host-registration changes cannot yet be applied together"
 	case nativeSupportOrder:
-		return "settings keys and package-order changes cannot yet be applied together"
+		return "key-mode package-order changes require the same Pi settings layer and no extension command"
 	case nativeSupportCarrierState:
 		return "settings keys and extension ownership settlement cannot yet be applied together"
 	default:
@@ -69,7 +69,23 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	}
 	for _, order := range result.RelationOrders() {
 		if !order.IsExact() {
-			return nativeSupportError{nativeSupportOrder}
+			if order.Target() != target.TargetPi {
+				return nativeSupportError{nativeSupportOrder}
+			}
+			for _, relation := range result.Relations() {
+				if relation.InvokesHostRoute() {
+					return nativeSupportError{nativeSupportOrder}
+				}
+			}
+			for _, prerequisite := range assessment.MCPProviders {
+				_, present, err := prerequisite.InstallAction()
+				if err != nil {
+					return err
+				}
+				if present {
+					return nativeSupportError{nativeSupportOrder}
+				}
+			}
 		}
 	}
 	if _, changed, err := assessment.CurrentState.WithConvergedGlobalCarrierClaims(assessment.GlobalCarrierClaims); err != nil {

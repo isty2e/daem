@@ -4,8 +4,27 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/target"
 )
+
+// SettingsDocumentAddress identifies the independently selected Pi settings layer.
+// It grants no filesystem observation or publication authority.
+func SettingsDocumentAddress(scope target.Scope) (aggregate.DocumentAddress, error) {
+	if scope != target.ScopeProject && scope != target.ScopeGlobal {
+		return aggregate.DocumentAddress{}, fmt.Errorf("Pi settings scope is invalid")
+	}
+	path := "@pi-agent/settings.json"
+	if scope == target.ScopeProject {
+		path = ".pi/settings.json"
+	}
+	destination, err := output.Parse(path)
+	if err != nil {
+		return aggregate.DocumentAddress{}, err
+	}
+	return aggregate.NewDocumentAddress(target.TargetPi, scope, destination)
+}
 
 // CaptureInput projects the actual immutable observation, including its original
 // document and explicit lexical contexts. Ambient observations are not replayable.

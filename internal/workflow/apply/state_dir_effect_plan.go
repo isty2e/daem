@@ -287,6 +287,7 @@ type admittedOrderClass struct {
 	classID     string
 	fingerprint string
 	decisions   []reconcile.RelationOrderDecision
+	native      bool
 }
 
 func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, error) {
@@ -297,7 +298,7 @@ func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, 
 	works := make([]operationplan.OrderClassWork, 0, len(classes))
 	for _, class := range classes {
 		works = append(works, operationplan.OrderClassWork{
-			RequiresMutation: relationOrderMutationRequired(class.decisions),
+			RequiresMutation: relationOrderMutationRequired(class.decisions) && !class.native,
 		})
 	}
 	return works, nil
@@ -333,12 +334,19 @@ func admittedOrderClassFacts(current commandPlan) ([]admittedOrderClass, error) 
 		if _, ok := selected[string(selectedTarget)]; !ok {
 			continue
 		}
+		native := false
+		if current.nativePlan != nil {
+			for _, order := range current.nativePlan.state.PiOrders() {
+				native = native || order.Sequence().ClassID() == constraint.ClassID()
+			}
+		}
 		result = append(result, admittedOrderClass{
 			target:      selectedTarget,
 			scope:       capability.Scope(),
 			classID:     classID,
 			fingerprint: constraint.Fingerprint(),
 			decisions:   append([]reconcile.RelationOrderDecision(nil), classDecisions...),
+			native:      native,
 		})
 	}
 	if len(result) != len(classes) {

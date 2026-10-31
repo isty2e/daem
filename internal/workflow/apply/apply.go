@@ -54,6 +54,7 @@ type runOptions struct {
 	DelegateExecutor                  delegate.Executor
 	RelationOrderRiskAuthorizer       RelationOrderRiskAuthorizer
 	orderRiskBaseline                 relationOrderRiskBaseline
+	nativeOrderResult                 *relationOrderRunResult
 	executionGuard                    applyExecutionGuard
 	validateBeforeEffects             func(context.Context, mutation.PhysicalAuthoritySet) error
 	validatePhysicalAuthorityRequests func(context.Context, []mutation.PhysicalAuthorityRequest) error

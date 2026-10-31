@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/configrelation"
 	payloadbuild "github.com/isty2e/daem/internal/effect/payload/build"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -31,9 +32,26 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 	if err != nil {
 		return runResult{}, err
 	}
+	orders := options.nativeInput.Preparation.PiOrders()
+	var orderResult relationOrderRunResult
+	if len(orders) != 0 {
+		orderResult, err = prepareNativeOrderConvergence(ctx, paths, locked, assessment.Reconciliation, orders, options)
+		if err != nil {
+			return runResult{RelationOrderResults: orderResult.results}, err
+		}
+		recordNativeOrderEvents(&orderResult, configrelation.OrderSequenceStarted, false, nil, options)
+	}
 	applied, err := executeNativeSegment(ctx, paths, environment, locked, selection, *options.nativeInput, *options.applyEffectPlan, options)
 	if err != nil {
-		return runResult{ActionCount: applied.ActionCount, State: applied.State, StatePath: applied.StatePath, GlobalCarrierClaims: assessment.GlobalCarrierClaims}, err
+		if len(orders) != 0 {
+			changed := applied.State.Equal(options.nativeInput.Preparation.AfterState())
+			recordNativeOrderEvents(&orderResult, configrelation.OrderSequenceFailed, changed, err, options)
+		}
+		return runResult{ActionCount: applied.ActionCount, State: applied.State, StatePath: applied.StatePath, GlobalCarrierClaims: assessment.GlobalCarrierClaims, RelationOrderResults: orderResult.results}, err
+	}
+	if len(orders) != 0 {
+		recordNativeOrderEvents(&orderResult, configrelation.OrderSequenceDone, true, nil, options)
+		options.nativeOrderResult = &orderResult
 	}
 	if options.afterNativeCore != nil {
 		refreshed, continuation, err := options.afterNativeCore(ctx, applied)

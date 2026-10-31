@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -112,6 +113,22 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		work.changed = true
 	}
 	work.changed = work.changed || len(work.managed) != 0
+	for _, order := range input.Preparation.PiOrders() {
+		alias, err := pipackage.SettingsDocumentAddress(order.Scope())
+		if err != nil {
+			return nativeApplyWork{}, err
+		}
+		found := false
+		for index, namespace := range namespaces {
+			if slices.Contains(namespace.Addresses(), alias) {
+				work.mutating[index], work.changed, found = true, true, true
+				registryAliases = append(registryAliases, alias)
+			}
+		}
+		if !found {
+			return nativeApplyWork{}, fmt.Errorf("Pi order has no retained native settings member")
+		}
+	}
 	work.registryScope, err = documents.RegistryScopeFor(registryAliases)
 	if err != nil {
 		return nativeApplyWork{}, err
@@ -340,7 +357,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
 			ClaimTransitions: ordinary.ownership.transitions, ProvisionalAcquires: ordinary.ownership.provisional, RemovalDemands: ordinary.demands,
 			Resolver: authority.rootedJournalResolver(input.Resolver), RootedCapability: authority.rootedJournalCapability,
-		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions()})
+		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), OrderObservations: input.Preparation.PiOrders()})
 		if err != nil {
 			return err
 		}
@@ -453,7 +470,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			return fmt.Errorf("native state commit: %w", commit.failure())
 		}
 		result.State, result.StatePath = input.Preparation.AfterState(), input.Paths.StatefilePath
-		result.ActionCount = len(work.managed) + aggregateSubjectCount(input.Preparation.AggregateEffects())
+		result.ActionCount = input.Preparation.actionCount()
 		return nil
 	}); err != nil {
 		return result, settle(err)

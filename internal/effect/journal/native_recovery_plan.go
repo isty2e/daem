@@ -337,7 +337,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 		return nil, fmt.Errorf("native recovery requires a native16 inventory record")
 	}
 	for _, group := range journal.record.DocumentGroups {
-		if group.Extent != "selected" || group.PiOrder != nil {
+		if group.Extent != "selected" {
 			return nil, fmt.Errorf("native recovery variant requires its owning execution integration")
 		}
 	}

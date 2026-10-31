@@ -19,6 +19,7 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
+	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -43,6 +44,7 @@ type Assessment struct {
 	MCPProviders           []MCPProviderPrerequisite
 	Reconciliation         reconcile.Result
 	RelationObservations   relationobserve.Batch
+	PiOrders               []pipackage.OrderObservation
 	Owner                  stateauthority.Authority
 	Ownership              []observe.OwnershipObservation
 	SelectedTargets        reconcile.SelectedTargets
@@ -262,7 +264,7 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, fmt.Errorf("observe MCP provider versions: %w", err)
 	}
-	extensionOrderFacts, err := observeExtensionOrderFacts(paths, locked, selectedTargets)
+	extensionOrderFacts, err := observeExtensionOrderFacts(paths, locked, selectedTargets, native...)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("plan extension order: %w", err)
 	}
@@ -301,6 +303,13 @@ func buildAssessment(
 	}
 	if len(native) != 0 && native[0].input != nil {
 		assessment.nativeRegistry = native[0].input.Registry
+	}
+	for _, fact := range extensionOrderFacts {
+		if fact.observeErr == nil {
+			if order, pi := fact.observation.Pi(); pi {
+				assessment.PiOrders = append(assessment.PiOrders, order)
+			}
+		}
 	}
 	return assessment, nil
 }

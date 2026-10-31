@@ -3,6 +3,8 @@ package relationhost
 import (
 	"cmp"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
@@ -11,18 +13,21 @@ import (
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
-// OrderInput identifies one locked extension-order class and the host roots
-// from which its admitted physical sequences must be observed.
+// OrderInput selects one locked class and its host roots. PiDocument reuses
+// an already observed settings image instead of reading that layer again.
 type OrderInput struct {
 	Paths      daempaths.Paths
 	Lockfile   lock.File
 	Constraint hostrelation.RelationOrderConstraint
+	PiDocument *aggregate.Document
 }
 
 // OrderAuthorityPath is one target-visible path whose existence or content can
@@ -165,15 +170,19 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 		if err != nil {
 			return OrderObservation{}, err
 		}
-		observation, err := observepipackage.ReadOrder(observepipackage.OrderInput{
-			Settings: observepipackage.SettingsInput{
-				WorkDir:     input.Paths.ManifestRoot,
-				ProjectRoot: input.Paths.ManifestRoot,
-				Scope:       capability.Scope(),
-			},
-			Constraint: input.Constraint,
-			Relations:  relations,
-		})
+		settings := observepipackage.SettingsInput{
+			WorkDir: input.Paths.ManifestRoot, ProjectRoot: input.Paths.ManifestRoot, Scope: capability.Scope(),
+		}
+		var observation observepipackage.OrderObservation
+		if input.PiDocument != nil {
+			observation, err = reconstructPiOrder(input, settings, relations)
+		} else {
+			observation, err = observepipackage.ReadOrder(observepipackage.OrderInput{
+				Settings:   settings,
+				Constraint: input.Constraint,
+				Relations:  relations,
+			})
+		}
 		if err != nil {
 			return OrderObservation{}, err
 		}
@@ -220,6 +229,38 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 		piObservation,
 		openCodeObservation,
 	)
+}
+
+func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInput, relations []observepipackage.ScopedRelation) (observepipackage.OrderObservation, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return observepipackage.OrderObservation{}, err
+	}
+	path, err := observepipackage.SettingsPath(settings)
+	if err != nil {
+		return observepipackage.OrderObservation{}, err
+	}
+	settingsContext, err := extensiontopology.NewLocalSourceContext(filepath.Dir(path), home)
+	if err != nil {
+		return observepipackage.OrderObservation{}, err
+	}
+	commandContext, err := extensiontopology.NewLocalSourceContext(input.Paths.ManifestRoot, home)
+	if err != nil {
+		return observepipackage.OrderObservation{}, err
+	}
+
+	bound := make([]observepipackage.ScopedRelation, 0, len(relations))
+	for _, relation := range relations {
+		value, err := observepipackage.NewScopedRelationWithContext(relation.CorrelationKey(), relation.Scope(), commandContext)
+		if err != nil {
+			return observepipackage.OrderObservation{}, err
+		}
+		bound = append(bound, value)
+	}
+
+	return observepipackage.ReconstructOrder(observepipackage.LoadedOrderInput{
+		Scope: settings.Scope, SettingsContext: settingsContext, Document: *input.PiDocument, Constraint: input.Constraint, Relations: bound,
+	})
 }
 
 func newOrderObservation(

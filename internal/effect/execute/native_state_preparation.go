@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -23,6 +24,7 @@ type NativeApplyStateInput struct {
 	WholeSources             []lock.LockedSubjectContract
 	StateCodec               durable.SnapshotCodec
 	ConfirmedRelationActions []reconcile.RelationAction
+	PiOrders                 []pipackage.OrderObservation
 }
 
 // NativeWholeAdoption binds an actual matching whole Record to state-only key
@@ -54,6 +56,7 @@ type NativeApplyStatePreparation struct {
 	narrowings         []reconcile.NativeNarrowingAction
 	adoptions          []NativeWholeAdoption
 	projectCompletions []durablecarrier.ManagedCarrierClaim
+	orders             []pipackage.OrderObservation
 	initialized        bool
 }
 
@@ -86,6 +89,14 @@ func (preparation NativeApplyStatePreparation) AggregateEffects() []AggregateEff
 	return append([]AggregateEffect(nil), preparation.aggregates...)
 }
 
+func (preparation NativeApplyStatePreparation) PiOrders() []pipackage.OrderObservation {
+	return append([]pipackage.OrderObservation(nil), preparation.orders...)
+}
+
+func (preparation NativeApplyStatePreparation) actionCount() int {
+	return len(preparation.managed) + aggregateSubjectCount(preparation.aggregates) + len(preparation.orders)
+}
+
 // NativeAggregateOperations retains static admission for every selected native
 // aggregate, including no-ops. It supplies no fresh observation or runtime grant.
 func (preparation NativeApplyStatePreparation) NativeAggregateOperations() []profile.NativeAggregateOperationContract {
@@ -110,6 +121,26 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	if _, err := input.StateCodec.Encode(input.Before); err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
+
+	orders := make([]pipackage.OrderObservation, 0, len(input.PiOrders))
+	for _, order := range input.PiOrders {
+		if err := order.Validate(); err != nil {
+			return NativeApplyStatePreparation{}, err
+		}
+		if !order.Changed() {
+			continue
+		}
+		if _, err := order.CaptureInput(); err != nil {
+			return NativeApplyStatePreparation{}, err
+		}
+		for _, previous := range orders {
+			if previous.Sequence().SequenceID() == order.Sequence().SequenceID() {
+				return NativeApplyStatePreparation{}, fmt.Errorf("native Pi order sequence is duplicated")
+			}
+		}
+		orders = append(orders, order)
+	}
+
 	managed, err := ManagedPathEffects(input.ManagedPaths)
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
@@ -215,7 +246,7 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 		return NativeApplyStatePreparation{}, err
 	}
 	after = completion.after
-	if after.Equal(input.Before) && len(managed)+len(aggregates) != 0 {
+	if after.Equal(input.Before) && len(managed)+len(aggregates)+len(orders) != 0 {
 		after, err = after.AdvanceNativeDocumentCommit()
 		if err != nil {
 			return NativeApplyStatePreparation{}, err
@@ -230,6 +261,7 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	return NativeApplyStatePreparation{
 		before: input.Before, after: after, managed: managed, aggregates: aggregates,
 		nativeOperations:   nativeOperations,
+		orders:             orders,
 		projectCompletions: completion.claims,
 		narrowings:         append([]reconcile.NativeNarrowingAction(nil), input.Narrowings...), adoptions: adoptions, initialized: true,
 	}, nil

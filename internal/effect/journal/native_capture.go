@@ -84,9 +84,6 @@ func CaptureNativeJournalWithOptions(
 		if err := order.Validate(); err != nil {
 			return CapturedNativeJournal{}, err
 		}
-		if order.Changed() {
-			return CapturedNativeJournal{}, fmt.Errorf("changed Pi order requires its native publication integration")
-		}
 	}
 	if !isSafeRecoveryOperationID(operationID) {
 		return CapturedNativeJournal{}, fmt.Errorf("native recovery operation id must be a safe path component")
@@ -129,7 +126,7 @@ func CaptureNativeJournalWithOptions(
 	if err := validateNativePublicationPartition(ctx, directory, members, mutations, options.Resolver); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	journal, comparisons, err := prepareNativeCapture(ctx, operationID, createdAt, members, after, edits, options.RemovalDemands)
+	journal, comparisons, err := prepareNativeCapture(ctx, operationID, createdAt, members, after, edits, options.OrderObservations, options.RemovalDemands)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
@@ -175,7 +172,7 @@ func CaptureNativeJournalWithOptions(
 	return result, nil
 }
 
-func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, ordinary recovery.RemovalDemandSet) (nativeJournalSnapshots, []DocumentComparison, error) {
+func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, orders []pipackage.OrderObservation, ordinary recovery.RemovalDemandSet) (nativeJournalSnapshots, []DocumentComparison, error) {
 	inputs, err := batch.prepareOwnership(ctx, after, operationID)
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
@@ -200,10 +197,33 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 		}
 	}
 	candidates := make([]nativeDocumentCaptureCandidate, 0, len(inputs))
+	groupOrders := make([]*pipackage.OrderObservation, len(inputs))
+	for _, order := range orders {
+		if !order.Changed() {
+			continue
+		}
+		alias, err := piOrderDocumentAlias(order.Scope())
+		if err != nil {
+			return nativeJournalSnapshots{}, nil, err
+		}
+		found := false
+		for index, namespace := range batch.namespaces {
+			if !slices.Contains(namespace.Addresses(), alias) {
+				continue
+			}
+			if groupOrders[index] != nil {
+				return nativeJournalSnapshots{}, nil, fmt.Errorf("selected document has duplicate Pi order actors")
+			}
+			groupOrders[index], found = &order, true
+		}
+		if !found {
+			return nativeJournalSnapshots{}, nil, fmt.Errorf("Pi order has no selected native settings group")
+		}
+	}
 	work := !batch.before.Equal(after)
 	documentWork := false
 	for index, input := range inputs {
-		candidate, err := prepareSelectedDocumentCandidate(ctx, batch.namespaces[index], selectedDocumentCaptureInput{nativeDocumentCaptureInput: input, edits: groupEdits[index]}, subjects)
+		candidate, err := prepareSelectedDocumentCandidate(ctx, batch.namespaces[index], selectedDocumentCaptureInput{nativeDocumentCaptureInput: input, edits: groupEdits[index], order: groupOrders[index]}, subjects)
 		if err != nil {
 			return nativeJournalSnapshots{}, nil, err
 		}

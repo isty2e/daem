@@ -27,6 +27,9 @@ func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefi
 	if err := prefix.Validate(); err != nil {
 		return err
 	}
+	if len(preparation.orders)+len(prefix.orders) != 0 {
+		return fmt.Errorf("Pi order work requires its post-route native suffix integration")
+	}
 	if !prefix.before.Equal(preparation.before) || len(prefix.managed)+len(prefix.narrowings)+len(prefix.adoptions)+len(prefix.projectCompletions)+len(preparation.projectCompletions) != 0 {
 		return fmt.Errorf("native suffix requires a positive-only prefix from the same complete Before")
 	}

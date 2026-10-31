@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
@@ -165,15 +166,7 @@ func (record recoveryDocumentGroup) validate(manifest recoveryRootProvenance) er
 }
 
 func piOrderDocumentAlias(scope target.Scope) (aggregate.DocumentAddress, error) {
-	path := "@pi-agent/settings.json"
-	if scope == target.ScopeProject {
-		path = ".pi/settings.json"
-	}
-	destination, err := output.Parse(path)
-	if err != nil {
-		return aggregate.DocumentAddress{}, err
-	}
-	return aggregate.NewDocumentAddress(target.TargetPi, scope, destination)
+	return pipackage.SettingsDocumentAddress(scope)
 }
 
 func (record recoveryDocumentAliasRef) canonical() (aggregate.DocumentAddress, error) {

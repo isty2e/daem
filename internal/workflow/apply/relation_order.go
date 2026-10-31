@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/effect/execute"
@@ -166,6 +167,7 @@ type relationOrderRunResult struct {
 	actionCount     int
 	updated         bool
 	planFingerprint mutation.OperationFingerprint
+	observed        []observedOrderClass
 }
 
 type observedOrderClass struct {
@@ -173,7 +175,7 @@ type observedOrderClass struct {
 	decisions   []reconcile.RelationOrderDecision
 }
 
-func runRelationOrderConvergence(
+func prepareRelationOrderConvergence(
 	ctx context.Context,
 	paths daempaths.Paths,
 	locked lock.File,
@@ -213,11 +215,21 @@ func runRelationOrderConvergence(
 				constraint.ClassID(),
 			)
 		}
-		observation, err := relationhost.ObserveOrder(relationhost.OrderInput{
+		orderInput := relationhost.OrderInput{
 			Paths:      paths,
 			Lockfile:   locked,
 			Constraint: constraint,
-		})
+		}
+		if selectedTarget == target.TargetPi && options.nativeInput != nil && len(options.nativeInput.Preparation.PiOrders()) != 0 {
+			alias, err := pipackage.SettingsDocumentAddress(capability.Scope())
+			if err != nil {
+				return relationOrderRunResult{}, err
+			}
+			if document, _, retained := options.nativeInput.Documents.Document(alias); retained {
+				orderInput.PiDocument = &document
+			}
+		}
+		observation, err := relationhost.ObserveOrder(orderInput)
 		if err != nil {
 			for _, sequenceID := range capability.PhysicalSequenceIDs() {
 				blocked, blockErr := reconcile.NewBlockedRelationOrderDecision(
@@ -310,11 +322,29 @@ func runRelationOrderConvergence(
 		}
 	}
 
+	result.observed = observed
+	return result, nil
+}
+
+func runRelationOrderConvergence(
+	ctx context.Context,
+	paths daempaths.Paths,
+	locked lock.File,
+	reconciliation reconcile.Result,
+	options runOptions,
+) (relationOrderRunResult, error) {
+	if options.nativeOrderResult != nil {
+		return *options.nativeOrderResult, nil
+	}
+	result, err := prepareRelationOrderConvergence(ctx, paths, locked, reconciliation, options)
+	if err != nil {
+		return result, err
+	}
 	resultBySequence := make(map[hostrelation.PhysicalSequenceID]int, len(result.results))
 	for index := range result.results {
 		resultBySequence[result.results[index].sequenceID] = index
 	}
-	for _, class := range observed {
+	for _, class := range result.observed {
 		if !relationOrderMutationRequired(class.decisions) {
 			continue
 		}
