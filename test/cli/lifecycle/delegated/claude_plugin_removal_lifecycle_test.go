@@ -98,6 +98,55 @@ func TestClaudePluginFailedAttemptWithVerifiedAbsenceConverges(t *testing.T) {
 	}
 }
 
+func TestClaudePluginFailedRemovalRetainsClaimUntilVerifiedAbsence(t *testing.T) {
+	results := []struct {
+		name   string
+		result subprocess.CommandResult
+	}{
+		{"nonzero", subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 17}},
+		{"timeout", subprocess.CommandResult{Started: true, TimedOut: true, Err: context.DeadlineExceeded}},
+	}
+	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		for _, failure := range results {
+			t.Run(string(scope)+"/"+failure.name, func(t *testing.T) {
+				fixture := newClaudeRemovalLifecycleFixture(t, scope)
+				fixture.install(t)
+				fixture.removeDeclaration(t)
+
+				inventory := filepath.Join(fixture.configRoot, "plugins", "installed_plugins.json")
+				before, err := os.ReadFile(inventory)
+				if err != nil {
+					t.Fatal(err)
+				}
+				exitCode, stdout, stderr := fixture.runApplyWithRunner(
+					t,
+					func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+						fixture.assertRequest(t, request, "uninstall", true)
+						return failure.result
+					},
+				)
+				fixture.assertClaimCount(t, 1)
+				fixture.assertPendingRemovalCount(t, 1)
+				if exitCode != 1 || stderr != "" {
+					t.Fatalf("failed removal exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+				}
+				after, err := os.ReadFile(inventory)
+				if err != nil || !bytes.Equal(before, after) {
+					t.Fatal("failed removal changed the retained inventory", err)
+				}
+
+				fixture.runApply(t)
+				if len(fixture.requests) != 3 {
+					t.Fatalf("requests=%#v, want install, failed removal and retry", fixture.requests)
+				}
+				fixture.assertClaimCount(t, 0)
+				fixture.assertPendingRemovalCount(t, 0)
+				fixture.assertRetainedBoundaries(t)
+			})
+		}
+	}
+}
+
 func TestClaudePluginMalformedPostObservationSettlesAfterRepairWithoutReinvocation(
 	t *testing.T,
 ) {
