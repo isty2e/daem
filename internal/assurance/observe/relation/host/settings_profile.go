@@ -85,10 +85,26 @@ func (profile NativeSettingsProfile) FencePaths(paths daempaths.Paths) ([]relati
 	if err != nil {
 		return nil, err
 	}
+	rewrite, err := profile.RewritePaths(paths)
+	if err != nil {
+		return nil, err
+	}
+	return append(result, rewrite...), nil
+}
+
+func (profile NativeSettingsProfile) RewritePaths(paths daempaths.Paths) ([]relationobserve.AuthorityPath, error) {
+	if err := profile.validate(); err != nil {
+		return nil, err
+	}
+	var result []relationobserve.AuthorityPath
 	var addresses []aggregate.DocumentAddress
 	switch profile.key.Carrier() {
 	case desiredextension.CarrierPiPackage:
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		scopes := []target.Scope{profile.key.Scope()}
+		if profile.operation == lock.OperationRefresh {
+			scopes = []target.Scope{target.ScopeProject, target.ScopeGlobal}
+		}
+		for _, scope := range scopes {
 			address, err := pipackage.SettingsDocumentAddress(scope)
 			if err != nil {
 				return nil, err

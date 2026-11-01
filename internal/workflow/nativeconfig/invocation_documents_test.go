@@ -38,7 +38,7 @@ func TestInvocationDocumentsQualifyKeysOutsideContentAndCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	documents := InvocationDocuments{keys: []invocationKey{{document: alias, path: path, value: value}}, documents: []invocationRead{{aliases: []aggregate.DocumentAddress{alias}}}}
+	documents := InvocationDocuments{keys: []invocationKey{{document: alias, path: path, value: value}}, documents: []invocationRead{{invocationLayout: invocationLayout{aliases: []aggregate.DocumentAddress{alias}}}}}
 	before := InvocationBaseline{documents: map[aggregate.DocumentAddress]configdocument.Document{alias: original}}
 	for _, test := range []struct {
 		name, content string
@@ -108,7 +108,7 @@ func TestInvocationDocumentsUseOnlyTheirProfileRewriteArea(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	documents := InvocationDocuments{documents: []invocationRead{{aliases: []aggregate.DocumentAddress{alias}}, {aliases: []aggregate.DocumentAddress{other}}}}
+	documents := InvocationDocuments{documents: []invocationRead{{invocationLayout: invocationLayout{aliases: []aggregate.DocumentAddress{alias}}}, {invocationLayout: invocationLayout{aliases: []aggregate.DocumentAddress{other}}}}}
 	after := InvocationBaseline{documents: map[aggregate.DocumentAddress]configdocument.Document{alias: updated, other: old}}
 	if err := documents.Qualify(t.Context(), before, after, rewrite); err != nil {
 		t.Fatal("exact profile rewrite was refused", err)
@@ -116,5 +116,40 @@ func TestInvocationDocumentsUseOnlyTheirProfileRewriteArea(t *testing.T) {
 	after.documents[other] = updated
 	if err := documents.Qualify(t.Context(), before, after, rewrite); !errors.Is(err, ErrInvocationOutsideChanged) {
 		t.Fatal("one layer's rewrite authority leaked to another", err)
+	}
+}
+
+func TestInvocationWholeDocumentsRequireExactPresenceAndBytes(t *testing.T) {
+	alias, err := pipackage.SettingsDocumentAddress(target.ScopeProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := InvocationDocuments{whole: []invocationLayout{{aliases: []aggregate.DocumentAddress{alias}}}}
+	original := aggregate.ExistingDocument([]byte("opaque\x00\xff\r\n"))
+	before := InvocationBaseline{whole: map[aggregate.DocumentAddress]aggregate.Document{alias: original}}
+	for _, test := range []struct {
+		name     string
+		document aggregate.Document
+		allowed  bool
+	}{
+		{"same opaque bytes", original, true},
+		{"changed bytes", aggregate.ExistingDocument([]byte("opaque\x00\xff\n")), false},
+		{"missing file", aggregate.AbsentDocument(), false},
+		{"empty file", aggregate.ExistingDocument(nil), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			after := InvocationBaseline{whole: map[aggregate.DocumentAddress]aggregate.Document{alias: test.document}}
+			err := selected.Qualify(t.Context(), before, after, relationhost.NativeSettingsRewrites{})
+			if test.allowed && err != nil || !test.allowed && !errors.Is(err, ErrInvocationOutsideChanged) {
+				t.Fatal("whole-file preservation used parsed-key semantics", err)
+			}
+		})
+	}
+	if err := selected.Qualify(t.Context(), InvocationBaseline{}, InvocationBaseline{}, relationhost.NativeSettingsRewrites{}); !errors.Is(err, ErrInvocationOutsideChanged) {
+		t.Fatal("missing whole-file observations became preservation evidence", err)
+	}
+	absent := InvocationBaseline{whole: map[aggregate.DocumentAddress]aggregate.Document{alias: aggregate.AbsentDocument()}}
+	if err := selected.Qualify(t.Context(), absent, absent, relationhost.NativeSettingsRewrites{}); err != nil {
+		t.Fatal("unchanged planned absence was refused", err)
 	}
 }

@@ -1515,10 +1515,14 @@ that additional consent. In a noninteractive run, inspect a fresh dry-run and re
 Completed extension commands are not repeated just to finish the remaining order
 change. An unverified removal retains its pending record and management claim.
 A retry that confirms absence can settle that removal without repeating the command.
-Whole-document ownership and ownership-mode changes cannot yet accompany
-extension commands, even when the whole file is already current. Defer the
-extension commands while whole-document ownership is active, or narrow to keys
-in a separate apply before retrying.
+Dedicated whole-file ownership can accompany extension changes during apply when the
+file is physically separate from settings the command can rewrite and from the
+host's private plugin paths. Key changes settle first; whole-file creation,
+updates and removal follow the commands with the other direct file changes.
+Unexpected whole-file changes stop the operation before that file phase.
+Changes between key and whole-file ownership still require a separate apply
+before retrying the extension change.
+Refreshing extensions while whole files are managed is not yet supported.
 
 ### Whole Files And Ownership Changes
 

@@ -393,15 +393,18 @@ func TestNativeDocumentNarrowingReturnedErrors(t *testing.T) {
 	}
 }
 
-func TestNativeDocumentRefusesUnjoinedOpaqueWork(t *testing.T) {
-	for _, narrow := range []bool{false, true} {
-		t.Run(fmt.Sprintf("narrow=%t", narrow), func(t *testing.T) {
-			f := newNativeDocumentTransitionFixture(t, target.TargetCodex, target.ScopeProject)
+func TestNativeDocumentRefusesOwnershipTransitionWithOpaqueWork(t *testing.T) {
+	for _, transition := range []string{"narrow", "adopt"} {
+		t.Run(transition, func(t *testing.T) {
+			var f nativeDocumentTransitionFixture
 			mode := "document"
-			if narrow {
+			if transition == "narrow" {
+				f = newNativeDocumentTransitionFixture(t, target.TargetCodex, target.ScopeProject)
 				f.applyWhole(t)
 				f.narrow(t, f.changed)
 				mode = "keys"
+			} else {
+				f = prepareNativeKeyToWholeFixture(t, target.TargetCodex, target.ScopeProject)
 			}
 			bin := filepath.Join(f.workspace, "bin")
 			called := filepath.Join(f.workspace, "called")
@@ -415,7 +418,7 @@ func TestNativeDocumentRefusesUnjoinedOpaqueWork(t *testing.T) {
 			testkit.WriteFile(t, f.workspace, "daem.toml", declaration)
 			runNativeLifecycleCommand(t, "lock", "--manifest", f.manifest)
 			before := snapshotNativeRecoveryEvidence(t, f.nativeRecoveryFixture)
-			code, _, _ := invokeNativeRecoveryCommand(t, f.nativeRecoveryFixture, "none", "apply", "--yes")
+			code, _, _ := invokeNativeRecoveryCommand(t, f.nativeRecoveryFixture, "none", "apply", "--yes", "--manage-existing")
 			if code == 0 || !reflect.DeepEqual(before, snapshotNativeRecoveryEvidence(t, f.nativeRecoveryFixture)) {
 				t.Fatal("unjoined document/opaque work had effects")
 			}

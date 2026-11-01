@@ -1,6 +1,7 @@
 package relationhost
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -102,6 +103,29 @@ func TestNativeSettingsProfileOperationMatrix(t *testing.T) {
 					_, err = selected.BindInvocationRewrites(paths, nil)
 					if (err == nil) != (want == lock.ActuationDelegatedHostRoute) {
 						t.Fatal("direct removal gained an invocation rewrite", err)
+					}
+					rewrite, err := selected.RewritePaths(paths)
+					var expectedRewrite []string
+					switch row.carrier {
+					case desiredextension.CarrierPiPackage:
+						path := filepath.Join(paths.ManifestRoot, ".pi", "settings.json")
+						if scope == target.ScopeGlobal {
+							path = filepath.Join(os.Getenv("PI_CODING_AGENT_DIR"), "settings.json")
+						}
+						expectedRewrite = []string{path}
+						if operation == lock.OperationRefresh {
+							expectedRewrite = []string{filepath.Join(paths.ManifestRoot, ".pi", "settings.json"), filepath.Join(os.Getenv("PI_CODING_AGENT_DIR"), "settings.json")}
+						}
+					case desiredextension.CarrierCodexPlugin:
+						expectedRewrite = []string{filepath.Join(os.Getenv("CODEX_HOME"), "config.toml")}
+					}
+					if err != nil || len(rewrite) != len(expectedRewrite) {
+						t.Fatal("wrong operation rewrite paths", err, rewrite)
+					}
+					for index, path := range expectedRewrite {
+						if rewrite[index].Path() != path {
+							t.Fatalf("rewrite path = %s, want %s", rewrite[index].Path(), path)
+						}
 					}
 					if operation == lock.OperationRefresh {
 						fence, err := selected.FencePaths(paths)

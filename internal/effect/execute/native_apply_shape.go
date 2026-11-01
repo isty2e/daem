@@ -17,12 +17,13 @@ type NativeManagedSuffixShape struct {
 	segment     operationplan.EffectNode
 	validations int
 	managed     []ManagedPathEffect
+	whole       []ManagedPathEffect
 	aggregates  []AggregateEffect
 	orders      []pipackage.OrderObservation
 }
 
-// ValidateAggregatePhaseSplit checks the combined successor without manufacturing a
-// post-prefix observation or granting execution authority.
+// ValidateAggregatePhaseSplit checks both managed projection families without
+// manufacturing a post-prefix observation or granting execution authority.
 func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefix NativeApplyStatePreparation, residual []AggregateEffect) error {
 	if err := preparation.Validate(); err != nil {
 		return err
@@ -41,12 +42,16 @@ func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefi
 			return fmt.Errorf("positive native prefix contains ordinary aggregate work")
 		}
 	}
-	after, err := snapshotAfterAggregateEffects(prefix.after, residual)
+	after, err := snapshotAfterManagedPathEffects(prefix.after, preparation.managed)
 	if err != nil {
 		return err
 	}
-	if !slices.EqualFunc(after.ManagedAggregates(), preparation.after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
-		return fmt.Errorf("native aggregate phases do not produce the complete successor")
+	after, err = snapshotAfterAggregateEffects(after, residual)
+	if err != nil {
+		return err
+	}
+	if !slices.EqualFunc(after.ManagedPaths(), preparation.after.ManagedPaths(), durable.ManagedPathState.Equal) || !slices.EqualFunc(after.ManagedAggregates(), preparation.after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
+		return fmt.Errorf("native phases do not produce the complete managed successor")
 	}
 	return nil
 }
@@ -80,7 +85,7 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 			}
 		}
 	}
-	work.changed = len(work.managed)+len(residual) != 0
+	work.changed = len(work.managed)+len(work.whole)+len(residual) != 0
 
 	groups := make([]int, 0, len(orders))
 	for _, order := range orders {
@@ -114,7 +119,7 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 		}
 	}
 
-	shape := NativeManagedSuffixShape{managed: slices.Clone(work.managed), aggregates: slices.Clone(residual), orders: slices.Clone(orders)}
+	shape := NativeManagedSuffixShape{managed: slices.Clone(work.managed), whole: slices.Clone(work.whole), aggregates: slices.Clone(residual), orders: slices.Clone(orders)}
 	var builder operationplan.EffectStructureBuilder
 	segments := make([]operationplan.EffectNode, 0, len(variants))
 	for index, variant := range variants {
@@ -154,6 +159,7 @@ func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectP
 		return ApplyEffectPlan{}, err
 	}
 	if !slices.EqualFunc(shape.managed, work.managed, sameManagedPathEffect) ||
+		!slices.EqualFunc(shape.whole, work.whole, sameManagedPathEffect) ||
 		!slices.EqualFunc(shape.aggregates, input.Preparation.AggregateEffects(), sameAggregateSuffixEffect) {
 		return ApplyEffectPlan{}, fmt.Errorf("native suffix actors changed")
 	}

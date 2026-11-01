@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -35,21 +36,27 @@ type invocationKey struct {
 	value    configdocument.Value
 }
 
-type invocationRead struct {
+type invocationLayout struct {
 	layout  rootedpath.PathLayout
 	aliases []aggregate.DocumentAddress
-	syntax  configdocument.Syntax
 }
 
-// InvocationDocuments retains selected key intent and observation layouts, not
-// mutation authority or an executable command.
+type invocationRead struct {
+	invocationLayout
+	syntax configdocument.Syntax
+}
+
+// InvocationDocuments retains key intent, whole-file preservation scopes and
+// observation layouts, not mutation authority or an executable command.
 type InvocationDocuments struct {
 	keys      []invocationKey
 	documents []invocationRead
+	whole     []invocationLayout
 }
 
 type InvocationBaseline struct {
 	documents map[aggregate.DocumentAddress]configdocument.Document
+	whole     map[aggregate.DocumentAddress]aggregate.Document
 }
 
 func PrepareInvocationDocuments(ctx context.Context, paths daempaths.Paths, input readiness.NativeAssessmentInput, sources []lockobserve.NativeSourceObservation) (InvocationDocuments, error) {
@@ -58,6 +65,10 @@ func PrepareInvocationDocuments(ctx context.Context, paths daempaths.Paths, inpu
 	}
 	var result InvocationDocuments
 	for _, source := range sources {
+		placement, _ := source.SourceContract().HostConfigPlacement()
+		if placement.Ownership() == hostconfig.OwnershipDocument {
+			continue
+		}
 		for _, projection := range source.Projections() {
 			item, present, err := projection.ManagedAggregateContribution()
 			if err != nil || !present {
@@ -93,13 +104,37 @@ func PrepareInvocationDocuments(ctx context.Context, paths daempaths.Paths, inpu
 		if err != nil {
 			return InvocationDocuments{}, err
 		}
+		selected := invocationLayout{layout: layout, aliases: aliases}
+		if IsWholeInvocationDocument(aliases, sources, input.Documents.BeforeState()) {
+			result.whole = append(result.whole, selected)
+			continue
+		}
 		syntax, err := invocationSyntax(aliases, sources, input.Documents.BeforeState())
 		if err != nil {
 			return InvocationDocuments{}, err
 		}
-		result.documents = append(result.documents, invocationRead{layout: layout, aliases: aliases, syntax: syntax})
+		result.documents = append(result.documents, invocationRead{invocationLayout: selected, syntax: syntax})
 	}
 	return result, ctx.Err()
+}
+
+func IsWholeInvocationDocument(aliases []aggregate.DocumentAddress, sources []lockobserve.NativeSourceObservation, before durable.Snapshot) bool {
+	for _, source := range sources {
+		placement, present := source.SourceContract().HostConfigPlacement()
+		if present && placement.Ownership() == hostconfig.OwnershipDocument && slices.ContainsFunc(aliases, func(alias aggregate.DocumentAddress) bool {
+			return alias.Target() == placement.Target() && alias.Scope() == placement.Scope() && alias.AggregateRoot() == placement.Destination()
+		}) {
+			return true
+		}
+	}
+	for _, state := range before.ManagedPaths() {
+		if aggregate.IsHostConfigDocumentSubject(state.Subject()) && slices.ContainsFunc(aliases, func(alias aggregate.DocumentAddress) bool {
+			return slices.Contains(state.ConsumerTargets(), alias.Target()) && alias.Scope() == state.Scope() && alias.AggregateRoot() == state.Destination()
+		}) {
+			return true
+		}
+	}
+	return false
 }
 
 func invocationSyntax(aliases []aggregate.DocumentAddress, sources []lockobserve.NativeSourceObservation, before durable.Snapshot) (configdocument.Syntax, error) {
@@ -123,6 +158,9 @@ func invocationSyntax(aliases []aggregate.DocumentAddress, sources []lockobserve
 // RequireManagedState checks prior settlement without granting ownership or
 // interpreting an externally matching value as an Apply completion.
 func (documents InvocationDocuments) RequireManagedState(before durable.Snapshot) error {
+	if len(documents.whole) != 0 {
+		return fmt.Errorf("refresh with whole-file ownership is not yet supported")
+	}
 	states := make(map[topology.SubjectID]durable.ManagedAggregateState)
 	for _, state := range before.ManagedAggregates() {
 		states[state.Subject()] = state
@@ -138,8 +176,12 @@ func (documents InvocationDocuments) RequireManagedState(before durable.Snapshot
 
 func (documents InvocationDocuments) ReserveReads(budget *recovery.PhysicalWorkBudget, extra recovery.InvocationWork) (recovery.InvocationWorkReservation, error) {
 	var work invocationReadWork
+	layouts := slices.Clone(documents.whole)
+	for _, document := range documents.documents {
+		layouts = append(layouts, document.invocationLayout)
+	}
 	for range 2 {
-		for _, document := range documents.documents {
+		for _, document := range layouts {
 			if err := document.layout.ReserveDestinationCapture(recovery.MaximumPhysicalPathDepth, &work); err != nil {
 				return recovery.InvocationWorkReservation{}, err
 			}
@@ -183,7 +225,7 @@ func (work *invocationReadWork) AdmitPhysicalWork(paths, entries int, bytes int6
 }
 
 func (documents InvocationDocuments) Read(ctx context.Context, budget *recovery.PhysicalWorkBudget) (InvocationBaseline, error) {
-	result := InvocationBaseline{documents: make(map[aggregate.DocumentAddress]configdocument.Document)}
+	result := InvocationBaseline{documents: make(map[aggregate.DocumentAddress]configdocument.Document), whole: make(map[aggregate.DocumentAddress]aggregate.Document)}
 	for _, selected := range documents.documents {
 		document, err := selected.read(ctx, budget)
 		if err != nil {
@@ -193,10 +235,30 @@ func (documents InvocationDocuments) Read(ctx context.Context, budget *recovery.
 			result.documents[alias] = document
 		}
 	}
+	for _, selected := range documents.whole {
+		document, err := selected.read(ctx, budget)
+		if err != nil {
+			return InvocationBaseline{}, err
+		}
+		for _, alias := range selected.aliases {
+			result.whole[alias] = document
+		}
+	}
 	return result, ctx.Err()
 }
 
-func (selected invocationRead) read(ctx context.Context, budget *recovery.PhysicalWorkBudget) (document configdocument.Document, returnErr error) {
+func (selected invocationRead) read(ctx context.Context, budget *recovery.PhysicalWorkBudget) (configdocument.Document, error) {
+	document, err := selected.invocationLayout.read(ctx, budget)
+	if err != nil {
+		return configdocument.Document{}, err
+	}
+	if !document.Exists() {
+		return configdocument.Absent(selected.syntax, DocumentLimits())
+	}
+	return configdocument.Parse(ctx, document.Content(), selected.syntax, DocumentLimits())
+}
+
+func (selected invocationLayout) read(ctx context.Context, budget *recovery.PhysicalWorkBudget) (document aggregate.Document, returnErr error) {
 	root, destination, err := selected.layout.CaptureDestinationBounded(recovery.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		return document, err
@@ -220,17 +282,33 @@ func (selected invocationRead) read(ctx context.Context, budget *recovery.Physic
 		return document, err
 	}
 	if errors.Is(readErr, fs.ErrNotExist) {
-		return configdocument.Absent(selected.syntax, DocumentLimits())
+		return aggregate.AbsentDocument(), nil
 	}
 	if readErr != nil {
 		return document, readErr
 	}
-	return configdocument.Parse(ctx, content, selected.syntax, DocumentLimits())
+	return aggregate.ExistingDocument(content), nil
 }
 
 func (documents InvocationDocuments) Qualify(ctx context.Context, before, after InvocationBaseline, rewrites relationhost.NativeSettingsRewrites) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if len(before.whole) != len(after.whole) {
+		return fmt.Errorf("%w: whole-file membership changed", ErrInvocationOutsideChanged)
+	}
+	for _, selected := range documents.whole {
+		for _, alias := range selected.aliases {
+			if _, present := before.whole[alias]; !present {
+				return fmt.Errorf("%w: whole file was not observed", ErrInvocationOutsideChanged)
+			}
+		}
+	}
+	for alias, original := range before.whole {
+		current, present := after.whole[alias]
+		if !present || !original.Equal(current) {
+			return fmt.Errorf("%w: whole file %q changed", ErrInvocationOutsideChanged, alias.AggregateRoot())
+		}
 	}
 	for _, selected := range documents.documents {
 		for _, alias := range selected.aliases {

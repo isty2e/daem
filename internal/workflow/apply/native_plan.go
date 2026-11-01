@@ -83,18 +83,24 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err := checkNativeCommandSupport(assessment); err != nil {
 		return err
 	}
-	checkPaths := func(paths []relationobserve.AuthorityPath) error {
+	var native, whole []mutation.DirectoryEntryAuthorityObservation
+	for _, evidence := range assessment.NativeApproval {
+		native = append(native, evidence.Authority)
+		if nativeconfig.IsWholeInvocationDocument(evidence.Aliases, assessment.NativeSources, assessment.CurrentState) {
+			whole = append(whole, evidence.Authority)
+		}
+	}
+	checkPaths := func(paths []relationobserve.AuthorityPath, selected []mutation.DirectoryEntryAuthorityObservation, reason nativeSupportReason) error {
+		if len(selected) == 0 || len(paths) == 0 {
+			return nil
+		}
 		budget, err := planned.context.PersistenceEpoch.PhysicalBudget()
 		if err != nil {
 			return err
 		}
-		var native []mutation.DirectoryEntryAuthorityObservation
-		for _, evidence := range assessment.NativeApproval {
-			native = append(native, evidence.Authority)
-		}
-		err = nativeconfig.RequireDisjointOpaqueNamespaces(ctx, native, paths, budget)
+		err = nativeconfig.RequireDisjointOpaqueNamespaces(ctx, selected, paths, budget)
 		if errors.Is(err, nativeconfig.ErrOpaqueNamespaceOverlap) {
-			return nativeSupportError{nativeSupportNamespace}
+			return nativeSupportError{reason}
 		}
 		return err
 	}
@@ -107,7 +113,14 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		if err != nil {
 			return err
 		}
-		return checkPaths(paths)
+		if err := checkPaths(paths, native, nativeSupportNamespace); err != nil {
+			return err
+		}
+		rewrite, err := profile.RewritePaths(planned.context.Paths)
+		if err != nil {
+			return err
+		}
+		return checkPaths(rewrite, whole, nativeSupportWholeRewrite)
 	}
 	for _, action := range assessment.Reconciliation.Relations() {
 		if action.InvokesHostRoute() {
@@ -194,7 +207,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 					}
 					paths = append(paths, path)
 				}
-				if err := checkPaths(paths); err != nil {
+				if err := checkPaths(paths, native, nativeSupportNamespace); err != nil {
 					return err
 				}
 				found = true
@@ -226,13 +239,10 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		opaque = opaque || present
 	}
 	if opaque {
-		documentOperation := len(state.Narrowings()) != 0 || len(state.WholeAdoptions()) != 0 || len(stateInput.WholeSources) != 0
-		for _, previous := range assessment.CurrentState.ManagedPaths() {
-			if aggregate.IsHostConfigDocumentSubject(previous.Subject()) && slices.ContainsFunc(previous.ConsumerTargets(), planned.context.Selection.Includes) {
-				documentOperation = true
-			}
-		}
-		if documentOperation {
+		keyRetirement := slices.ContainsFunc(state.WholeAdoptions(), func(adoption execute.NativeWholeAdoption) bool {
+			return len(adoption.RetiredKeys()) != 0
+		})
+		if len(state.Narrowings()) != 0 || keyRetirement {
 			return nativeSupportError{nativeSupportDocumentRoutes}
 		}
 	}

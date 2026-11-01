@@ -77,35 +77,51 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 			ordinaryManaged = append(ordinaryManaged, effect)
 			continue
 		}
-		consumers := effect.ConsumerTargets()
-		if previous, present := effect.PreviousState(); len(consumers) == 0 && present {
-			consumers = previous.ConsumerTargets()
-		}
-		if len(consumers) != 1 {
-			return nativeApplyWork{}, fmt.Errorf("native whole effect requires one consumer")
-		}
-		address, err := aggregate.NewDocumentAddress(consumers[0], effect.Scope(), effect.Destination())
-		if err != nil {
-			return nativeApplyWork{}, err
-		}
-		found := false
-		for index, namespace := range namespaces {
-			if !slices.Contains(namespace.Addresses(), address) {
-				continue
-			}
-			if _, duplicate := wholeGroups[index]; duplicate {
-				return nativeApplyWork{}, fmt.Errorf("native document has multiple whole writers")
-			}
-			wholeGroups[index] = struct{}{}
-			work.mutating[index], found = effect.Kind() != ManagedPathEffectRecord, true
-		}
-		if !found {
-			return nativeApplyWork{}, fmt.Errorf("native whole effect has no retained namespace")
-		}
 		work.whole = append(work.whole, effect)
-		registryAliases = append(registryAliases, address)
 	}
 	work.managed = ordinaryManaged
+	wholeSchedule, err := newManagedPathExecutionSchedule(work.whole)
+	if err != nil {
+		return nativeApplyWork{}, err
+	}
+	for _, phase := range []managedPathPhase{managedPathPublishPhase, managedPathRetirePhase} {
+		operations := wholeSchedule.publish
+		if phase == managedPathRetirePhase {
+			operations = wholeSchedule.retire
+		}
+		for _, operation := range operations {
+			effect := wholeSchedule.effects[operation.effectIndex]
+			consumers, scope, destination := effect.ConsumerTargets(), effect.Scope(), effect.Destination()
+			if previous, present := effect.PreviousState(); present && (len(consumers) == 0 || operation.relocation && phase == managedPathRetirePhase) {
+				consumers = previous.ConsumerTargets()
+				if operation.relocation && phase == managedPathRetirePhase {
+					scope, destination = previous.Scope(), previous.Destination()
+				}
+			}
+			if len(consumers) != 1 {
+				return nativeApplyWork{}, fmt.Errorf("native whole effect requires one consumer")
+			}
+			address, err := aggregate.NewDocumentAddress(consumers[0], scope, destination)
+			if err != nil {
+				return nativeApplyWork{}, err
+			}
+			found := false
+			for index, namespace := range namespaces {
+				if !slices.Contains(namespace.Addresses(), address) {
+					continue
+				}
+				if _, duplicate := wholeGroups[index]; duplicate {
+					return nativeApplyWork{}, fmt.Errorf("native document has multiple whole writers")
+				}
+				wholeGroups[index] = struct{}{}
+				work.mutating[index], found = effect.Kind() != ManagedPathEffectRecord, true
+			}
+			if !found {
+				return nativeApplyWork{}, fmt.Errorf("native whole effect has no retained namespace")
+			}
+			registryAliases = append(registryAliases, address)
+		}
+	}
 	for _, action := range input.Preparation.Narrowings() {
 		placement, _ := action.SourceContract().HostConfigPlacement()
 		address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
