@@ -73,8 +73,11 @@ func ChargeDestinationPath(
 }
 
 type physicalTraversal struct {
-	maximumDepth int
-	budget       PhysicalTraversalBudget
+	maximumDepth   int
+	budget         PhysicalTraversalBudget
+	captureAliases bool
+	rejectAliases  bool
+	aliases        []layoutAlias
 }
 
 func newPhysicalTraversal(
@@ -388,4 +391,45 @@ func splitAbsolutePath(value string) (string, []string, error) {
 func absolutePathDepth(value string) (int, error) {
 	_, components, err := splitAbsolutePath(value)
 	return len(components), err
+}
+
+// ResolveReferentPathBounded follows ancestor and final aliases without
+// retaining mutation authority. Missing ordinary suffixes remain path data;
+// missing alias targets and non-directory intermediate entries are refused.
+func ResolveReferentPathBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (string, error) {
+	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
+	if err != nil {
+		return "", err
+	}
+	absolute, err := canonicalPathOnlyDestinationPath(path)
+	if err != nil {
+		return "", err
+	}
+	physicalRoot, platform, _, _, suffix, err := resolveNativePathPlatform(
+		absolute,
+		true,
+		false,
+		true,
+		traversal,
+	)
+	if err != nil {
+		return "", err
+	}
+	closePlatform := func() error { return closeCapturedRootPlatform(&platform) }
+	physicalPath := filepath.Join(physicalRoot, filepath.Join(suffix...))
+	depth, err := absolutePathDepth(physicalPath)
+	if err != nil {
+		return "", errors.Join(err, closePlatform())
+	}
+	if err := traversal.validateResolvedDepth(depth); err != nil {
+		return "", errors.Join(err, closePlatform())
+	}
+	if err := closePlatform(); err != nil {
+		return "", err
+	}
+	return physicalPath, nil
 }

@@ -77,3 +77,18 @@ func capturedRootValidationPathComponents(_ *capturedRootPlatform) (int, error) 
 		nil,
 	)
 }
+
+func resolveNativePathPlatform(
+	selectedPath string,
+	_ bool,
+	_ bool,
+	_ bool,
+	_ *physicalTraversal,
+) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
+	return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, nil, newFailure(
+		FailureUnsupportedPlatform,
+		selectedPath,
+		"native path resolution is unavailable",
+		nil,
+	)
+}

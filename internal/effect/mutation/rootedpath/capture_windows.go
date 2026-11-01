@@ -201,6 +201,7 @@ type windowsReparseFrame struct {
 	parentCaseSensitive bool
 	name                string
 	path                string
+	requiresDirectory   bool
 	observation         windowsReparseObservation
 }
 
@@ -685,7 +686,17 @@ func splitWindowsAbsolutePath(value string) (string, []string, error) {
 func resolveDirectoryPathPlatform(
 	selectedPath string,
 	allowMissing bool,
+	readableFinal bool,
+	traversal *physicalTraversal,
+) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
+	return resolveNativePathPlatform(selectedPath, allowMissing, readableFinal, false, traversal)
+}
+
+func resolveNativePathPlatform(
+	selectedPath string,
+	allowMissing bool,
 	_ bool,
+	allowFinalEntry bool,
 	traversal *physicalTraversal,
 ) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
 	absolute, names, err := prepareWindowsAbsolutePath(selectedPath, traversal)
@@ -702,7 +713,7 @@ func resolveDirectoryPathPlatform(
 	}
 	pending := newWindowsPendingPath(names, false)
 	expansions := 0
-	missing, resolveErr := resolveWindowsPendingPath(&platform, &pending, allowMissing, traversal, &expansions)
+	missing, resolveErr := resolveWindowsPendingPath(&platform, &pending, allowMissing, allowFinalEntry, traversal, &expansions)
 	if resolveErr != nil {
 		return fail(errors.Join(resolveErr, pending.closeFrames()))
 	}
@@ -716,19 +727,39 @@ func resolveDirectoryPathPlatform(
 	return resolved, resolvedPlatform, object, mount, missingSuffix, nil
 }
 
+type windowsResolvedLeaf struct {
+	name   string
+	handle windows.Handle
+	facts  windowsDirectoryFacts
+}
+
 func resolveWindowsPendingPath(
 	platform *capturedRootPlatform,
 	pending *windowsPendingPath,
 	allowMissing bool,
+	allowFinalEntry bool,
 	traversal *physicalTraversal,
 	expansions *int,
-) ([]string, error) {
+) (suffix []string, err error) {
 	if platform == nil || len(platform.directories) == 0 {
 		return nil, newFailure(FailureRootUnavailable, "", "Windows root witness is not initialized", nil)
 	}
+	var leaf *windowsResolvedLeaf
+	defer func() {
+		if leaf != nil {
+			err = errors.Join(err, closeWindowsHandle(leaf.handle))
+			if err != nil {
+				suffix = nil
+			}
+		}
+	}()
+
 	for {
 		component, ok := pending.pop()
 		if !ok {
+			if leaf != nil {
+				return []string{leaf.name}, nil
+			}
 			return nil, nil
 		}
 		if component.frameIndex >= 0 {
@@ -751,7 +782,10 @@ func resolveWindowsPendingPath(
 				return nil, windowsReparseFailure(frame.path, "close reparse parent witness", err, allowMissing)
 			}
 			pending.frames[component.frameIndex].parent = windows.InvalidHandle
-			if err := verifyWindowsResolvedTarget(platform); err != nil {
+			if leaf != nil && frame.requiresDirectory {
+				return nil, newFailure(FailureAncestorNotDirectory, frame.path, "reparse target requires a directory", nil)
+			}
+			if err := verifyWindowsResolvedTarget(platform, leaf); err != nil {
 				return nil, windowsReparseFailure(frame.path, "revalidate resolved reparse target", err, allowMissing)
 			}
 			continue
@@ -760,6 +794,9 @@ func resolveWindowsPendingPath(
 			if err := traversal.visitComponent(); err != nil {
 				return nil, err
 			}
+		}
+		if leaf != nil {
+			return nil, newFailure(FailureAncestorNotDirectory, leaf.facts.path, "destination ancestor is not a directory", nil)
 		}
 		switch component.name {
 		case "", ".":
@@ -825,12 +862,15 @@ func resolveWindowsPendingPath(
 				name:                component.name,
 				path:                candidatePath,
 				observation:         observation,
+				requiresDirectory: probe.facts.isDirectory ||
+					strings.HasSuffix(observation.target.path, `\`) ||
+					strings.HasSuffix(observation.target.path, "/"),
 			})
 			continue
 		}
 
 		handle, facts := probe.handle, probe.facts
-		if !facts.isDirectory {
+		if !facts.isDirectory && !allowFinalEntry {
 			failureKind := FailureRootUnavailable
 			if allowMissing {
 				failureKind = FailureAncestorNotDirectory
@@ -848,6 +888,10 @@ func resolveWindowsPendingPath(
 				newFailure(FailureMountChanged, facts.path, "destination crosses an admitted volume", nil),
 				closeWindowsHandle(handle),
 			)
+		}
+		if !facts.isDirectory {
+			leaf = &windowsResolvedLeaf{name: component.name, handle: handle, facts: facts}
+			continue
 		}
 		platform.directories = append(platform.directories, capturedDirectory{
 			handle:        handle,
@@ -902,17 +946,35 @@ func verifyWindowsReparseObservation(
 	return nil
 }
 
-func verifyWindowsResolvedTarget(platform *capturedRootPlatform) error {
-	if platform == nil || len(platform.directories) < 2 {
+func verifyWindowsResolvedTarget(platform *capturedRootPlatform, leaf *windowsResolvedLeaf) error {
+	if platform == nil || len(platform.directories) == 0 {
 		return nil
 	}
-	last := platform.directories[len(platform.directories)-1]
-	parent := platform.directories[len(platform.directories)-2]
-	handle, facts, err := openWindowsChild(parent.handle, parent.caseSensitive, last.name)
+	var parent capturedDirectory
+	var name string
+	var expectedObject identityToken
+	var expectedCaseSensitive bool
+	if leaf != nil {
+		parent = platform.directories[len(platform.directories)-1]
+		name = leaf.name
+		expectedObject = leaf.facts.object
+		expectedCaseSensitive = leaf.facts.caseSensitive
+	} else {
+		if len(platform.directories) < 2 {
+			return nil
+		}
+		last := platform.directories[len(platform.directories)-1]
+		parent = platform.directories[len(platform.directories)-2]
+		name = last.name
+		expectedObject = last.object
+		expectedCaseSensitive = last.caseSensitive
+	}
+
+	handle, facts, err := openWindowsChild(parent.handle, parent.caseSensitive, name)
 	if err != nil {
 		return fmt.Errorf("%w: reopen final target component: %w", errWindowsReparseChanged, err)
 	}
-	if facts.reparse || facts.object != last.object || facts.caseSensitive != last.caseSensitive {
+	if facts.reparse || facts.object != expectedObject || facts.caseSensitive != expectedCaseSensitive {
 		return errors.Join(
 			fmt.Errorf("%w: final target incarnation changed", errWindowsReparseChanged),
 			closeWindowsHandle(handle),
