@@ -94,7 +94,7 @@ func executeNativeSegment(ctx context.Context, paths daempaths.Paths, environmen
 	input.ProjectRoot = options.projectRoot
 	subjects := managedPathPayloadSubjects(input.Preparation.ManagedPathEffects())
 	if len(subjects) != 0 {
-		payloads, err := payloadbuild.PayloadSet(ctx, payloadbuild.Input{
+		payloads, err := payloadbuild.NativeDocumentPayloadSet(ctx, payloadbuild.Input{
 			Paths: paths, Environment: environment, Lockfile: locked, Selection: selection, ManagedPathPayloadSubjects: subjects,
 		})
 		if err != nil {

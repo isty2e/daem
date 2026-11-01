@@ -182,7 +182,13 @@ func buildAssessment(
 		globalCarrierClaims.Claims()...,
 	)
 
-	managedInputs, err := buildManagedPathPlanningInputs(locked, currentState, selection)
+	states := currentState.ManagedPaths()
+	var narrowings []reconcile.NativeNarrowingAction
+	if len(native) != 0 && native[0].preparation != nil {
+		states = native[0].preparation.RemainingManagedPaths()
+		narrowings = native[0].preparation.Narrowings()
+	}
+	managedInputs, err := buildManagedPathPlanningInputs(locked, states, selection)
 	if err != nil {
 		return Assessment{}, err
 	}
@@ -299,6 +305,7 @@ func buildAssessment(
 		extensionOrderFacts:    extensionOrderFacts,
 		mcpContracts:           mcpContracts,
 		nativeSources:          nativeSources,
+		nativeNarrowings:       narrowings,
 	})
 	if err != nil {
 		return Assessment{}, err

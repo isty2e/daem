@@ -13,8 +13,8 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-// restoreDocumentDestination is only rooted publication. Its caller must supply
-// the admitted recovery phase and full journal/state/ownership authority.
+// restoreDocumentDestination derives comparison-based restoration. Its caller
+// supplies the admitted recovery phase and full journal/state/ownership authority.
 func restoreDocumentDestination(
 	ctx context.Context,
 	authority *mutationAuthority,
@@ -26,10 +26,32 @@ func restoreDocumentDestination(
 	if ctx == nil {
 		return fileMutationOutcome{err: fmt.Errorf("document restoration context is required")}
 	}
+	if err := comparison.Validate(); err != nil {
+		return fileMutationOutcome{err: err}
+	}
+	restored, err := comparison.RestoreBefore(ctx, staged, stagedMode)
+	if err != nil {
+		return fileMutationOutcome{err: err}
+	}
+	return publishDocumentRestoration(ctx, authority, destination, comparison.MaximumDocumentBytes(), staged, stagedMode, restored)
+}
+
+func publishDocumentRestoration(
+	ctx context.Context,
+	authority *mutationAuthority,
+	destination mutationDestination,
+	maximumBytes int64,
+	staged aggregate.Document,
+	stagedMode *recovery.PermissionMode,
+	restored journal.DocumentRestoration,
+) (outcome fileMutationOutcome) {
+	if ctx == nil {
+		return fileMutationOutcome{err: fmt.Errorf("document restoration context is required")}
+	}
 	if err := ctx.Err(); err != nil {
 		return fileMutationOutcome{err: err}
 	}
-	if err := comparison.Validate(); err != nil {
+	if err := restored.Validate(); err != nil {
 		return fileMutationOutcome{err: err}
 	}
 	if err := staged.Validate(); err != nil {
@@ -54,7 +76,7 @@ func restoreDocumentDestination(
 		}
 	}()
 
-	current, mode, identity, err := readRootedRestorationDocument(ctx, authority, capability, comparison.MaximumDocumentBytes())
+	current, mode, identity, err := readRootedRestorationDocument(ctx, authority, capability, maximumBytes)
 	if err != nil {
 		return fileMutationOutcome{err: err}
 	}
@@ -66,18 +88,11 @@ func restoreDocumentDestination(
 		return fileMutationOutcome{err: fmt.Errorf("document changed after recovery staging")}
 	}
 
-	restored, err := comparison.RestoreBefore(ctx, current, mode)
-	if err != nil {
-		return fileMutationOutcome{err: err}
-	}
-	if err := restored.Validate(); err != nil {
-		return fileMutationOutcome{err: err}
-	}
 	if !restored.Changed() {
 		return fileMutationOutcome{}
 	}
 
-	fresh, freshMode, freshIdentity, err := readRootedRestorationDocument(ctx, authority, capability, comparison.MaximumDocumentBytes())
+	fresh, freshMode, freshIdentity, err := readRootedRestorationDocument(ctx, authority, capability, maximumBytes)
 	if err != nil {
 		return fileMutationOutcome{err: err}
 	}

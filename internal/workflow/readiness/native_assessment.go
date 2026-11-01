@@ -9,7 +9,6 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -29,26 +28,19 @@ type NativeAssessmentInput struct {
 }
 
 type nativeAssessmentSources struct {
-	input   *NativeAssessmentInput
-	sources []lockobserve.NativeSourceObservation
+	input       *NativeAssessmentInput
+	sources     []lockobserve.NativeSourceObservation
+	preparation *NativeSourcePreparation
 }
 
 func prepareNativeAssessmentSources(ctx context.Context, input Input, before durable.Snapshot, epoch lockobserve.SourceEpoch) (nativeAssessmentSources, error) {
 	facts := nativeAssessmentSources{input: input.Native}
-	for _, state := range before.ManagedPaths() {
-		if aggregate.IsHostConfigDocumentSubject(state.Subject()) && selectedManagedPathConsumers(state.ConsumerTargets(), input.Selection) {
-			return nativeAssessmentSources{}, fmt.Errorf("native whole-document history and ownership transitions require their containing operation")
-		}
-	}
 	for _, config := range input.Environment.HostConfigs() {
 		if !input.Selection.Includes(config.Target()) {
 			continue
 		}
 		if input.Native == nil || input.Native.Documents == nil {
 			return nativeAssessmentSources{}, fmt.Errorf("native source requires its selected document observation")
-		}
-		if config.Ownership() != hostconfig.OwnershipKeys {
-			return nativeAssessmentSources{}, fmt.Errorf("native document mode and ownership transitions require their containing operation")
 		}
 		source, err := epoch.NativeSource(ctx, config)
 		if err != nil {
@@ -101,6 +93,14 @@ func prepareNativeAssessmentSources(ctx context.Context, input Input, before dur
 		if err := requireDocument(address); err != nil {
 			return nativeAssessmentSources{}, err
 		}
+	}
+	if input.Native != nil && input.Native.Documents != nil {
+		limits := input.Native.Documents.DocumentLimits()
+		prepared, err := PrepareNativeSources(ctx, NativeSourcePreparationInput{Environment: input.Environment, Selection: input.Selection, SourceEpoch: epoch, Documents: *input.Native.Documents, DocumentLimits: limits, ValueLimits: limits})
+		if err != nil {
+			return nativeAssessmentSources{}, err
+		}
+		facts.preparation = &prepared
 	}
 	return facts, nil
 }

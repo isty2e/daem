@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -107,6 +108,22 @@ func buildManagedAggregatePlanningInputs(
 	desiredContributions = append(desiredContributions, mcpDesired...)
 	if len(native) != 0 {
 		for _, source := range native[0].sources {
+			placement, _ := source.SourceContract().HostConfigPlacement()
+			if placement.Ownership() != hostconfig.OwnershipKeys {
+				continue
+			}
+			narrowed := false
+			if native[0].preparation != nil {
+				for _, action := range native[0].preparation.Narrowings() {
+					if action.SourceContract().EntityID() == source.SourceContract().EntityID() {
+						narrowed = true
+						break
+					}
+				}
+			}
+			if narrowed {
+				continue
+			}
 			contracts := source.Projections()
 			contributions, err := aggregateContributionsFromContracts(contracts)
 			if err != nil {

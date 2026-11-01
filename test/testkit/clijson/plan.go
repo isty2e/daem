@@ -96,6 +96,7 @@ type Plan struct {
 	RelationOrders    []RelationOrderAction   `json:"relation_order_actions"`
 	CarrierAdoptions  []CarrierAdoptionAction `json:"carrier_adoption_actions"`
 	CarrierAbsences   []CarrierAbsenceAction  `json:"carrier_absence_actions"`
+	NativeNarrowings  []NativeNarrowingAction `json:"native_narrowing_actions"`
 	HostRouteAttempts []HostRouteAttempt      `json:"host_route_attempts"`
 	MCPStatuses       []MCPStatus             `json:"mcp_statuses"`
 	Diagnostics       []struct {

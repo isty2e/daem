@@ -198,7 +198,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 					return err
 				}
 				current, mode := document.Current()
-				outcome := restoreDocumentDestination(ctx, authority, destination, document.Comparison(), current, mode)
+				outcome := publishDocumentRestoration(ctx, authority, destination, document.Comparison().MaximumDocumentBytes(), current, mode, document.Restoration())
 				if outcome.err != nil {
 					return outcome.err
 				}

@@ -19,10 +19,9 @@ type managedPathPlanningInputs struct {
 
 func buildManagedPathPlanningInputs(
 	locked lock.File,
-	currentState durable.Snapshot,
+	states []durable.ManagedPathState,
 	selection targetselection.Selection,
 ) (managedPathPlanningInputs, error) {
-	states := currentState.ManagedPaths()
 	inputs := managedPathPlanningInputs{states: states}
 	for _, contract := range locked.Locked.Subjects() {
 		realization, realized := contract.Realization()

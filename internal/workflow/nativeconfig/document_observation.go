@@ -11,7 +11,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -73,9 +72,6 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 		if !input.Selection.Includes(config.Target()) {
 			continue
 		}
-		if config.Ownership() != hostconfig.OwnershipKeys {
-			return nil, fmt.Errorf("native document mode and ownership transitions require their containing operation")
-		}
 		placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
 			Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax(),
 		})
@@ -93,9 +89,6 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 			continue
 		}
 		if placement, native := contract.HostConfigPlacement(); native && input.Selection.Includes(placement.Target()) {
-			if placement.Ownership() != hostconfig.OwnershipKeys {
-				return nil, fmt.Errorf("native document mode and ownership transitions require their containing operation")
-			}
 			address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
 			if err != nil {
 				return nil, err
@@ -111,7 +104,14 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 			}
 		}
 		if aggregate.IsHostConfigDocumentSubject(state.Subject()) && slices.ContainsFunc(state.ConsumerTargets(), input.Selection.Includes) {
-			return nil, fmt.Errorf("native whole-document history and ownership transitions require their containing operation")
+			if len(state.ConsumerTargets()) != 1 {
+				return nil, fmt.Errorf("native whole history requires one canonical consumer")
+			}
+			address, err := aggregate.NewDocumentAddress(state.ConsumerTargets()[0], state.Scope(), state.Destination())
+			if err != nil {
+				return nil, err
+			}
+			add(address)
 		}
 	}
 	for _, state := range before.ManagedAggregates() {

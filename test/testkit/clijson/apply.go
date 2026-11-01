@@ -92,6 +92,7 @@ type ApplyResult struct {
 	RelationOrderResults []RelationOrderResult   `json:"relation_order_results"`
 	CarrierAdoptions     []CarrierAdoptionAction `json:"carrier_adoption_actions"`
 	CarrierAbsences      []CarrierAbsenceAction  `json:"carrier_absence_actions"`
+	NativeNarrowings     []NativeNarrowingAction `json:"native_narrowing_actions"`
 	DelegateAttempts     []DelegateAttempt       `json:"delegate_attempts"`
 	HostRouteAttempts    []HostRouteAttempt      `json:"host_route_attempts"`
 	MCPStatuses          []MCPStatus             `json:"mcp_statuses"`
@@ -124,6 +125,15 @@ type ApplyResult struct {
 			FileSet string `json:"file_set,omitempty"`
 		} `json:"recovery_barrier,omitempty"`
 	} `json:"errors"`
+}
+
+type NativeNarrowingAction struct {
+	Name            string `json:"name"`
+	Target          string `json:"target"`
+	Scope           string `json:"scope"`
+	Destination     string `json:"destination"`
+	DesiredKeyCount int    `json:"desired_key_count"`
+	ValuesOmitted   bool   `json:"values_omitted"`
 }
 
 func DecodeApplyResult(t *testing.T, content []byte) ApplyResult {

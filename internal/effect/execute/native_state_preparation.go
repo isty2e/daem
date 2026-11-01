@@ -94,7 +94,7 @@ func (preparation NativeApplyStatePreparation) PiOrders() []pipackage.OrderObser
 }
 
 func (preparation NativeApplyStatePreparation) actionCount() int {
-	return len(preparation.managed) + aggregateSubjectCount(preparation.aggregates) + len(preparation.orders)
+	return len(preparation.managed) + aggregateSubjectCount(preparation.aggregates) + len(preparation.orders) + len(preparation.narrowings)
 }
 
 // NativeAggregateOperations retains static admission for every selected native

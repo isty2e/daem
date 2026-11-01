@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -229,14 +230,21 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		if len(consumers) == 0 && hasPrevious {
 			consumers = previous.ConsumerTargets()
 		}
+		kind, documentTarget := physicalOccupancyWholePath, target.Target("")
+		if aggregate.IsHostConfigDocumentSubject(decision.Subject()) {
+			if len(consumers) != 1 {
+				return applyAuthorityEvidence{}, fmt.Errorf("native whole authority requires one consumer")
+			}
+			kind, documentTarget = physicalOccupancyAggregate, consumers[0]
+		}
 		if err := addManagedPath(
-			decision.Scope(), decision.Destination(), consumers, physicalOccupancyWholePath, "", true,
+			decision.Scope(), decision.Destination(), consumers, kind, documentTarget, true,
 		); err != nil {
 			return applyAuthorityEvidence{}, err
 		}
 		if hasPrevious && (previous.Scope() != decision.Scope() || previous.Destination() != decision.Destination()) {
 			if err := addManagedPath(
-				previous.Scope(), previous.Destination(), previous.ConsumerTargets(), physicalOccupancyWholePath, "", true,
+				previous.Scope(), previous.Destination(), previous.ConsumerTargets(), kind, documentTarget, true,
 			); err != nil {
 				return applyAuthorityEvidence{}, err
 			}

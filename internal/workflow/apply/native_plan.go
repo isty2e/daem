@@ -12,6 +12,7 @@ import (
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -129,6 +130,13 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		Before: assessment.CurrentState, ManagedPaths: assessment.Reconciliation.ManagedPaths(),
 		Aggregates: assessment.Reconciliation.Aggregates(), StateCodec: codec,
 		ConfirmedRelationActions: assessment.Reconciliation.Relations(),
+		Narrowings:               assessment.Reconciliation.NativeNarrowings(),
+	}
+	for _, source := range assessment.NativeSources {
+		placement, _ := source.SourceContract().HostConfigPlacement()
+		if placement.Ownership() == hostconfig.OwnershipDocument {
+			stateInput.WholeSources = append(stateInput.WholeSources, source.SourceContract())
+		}
 	}
 	state, err := execute.PrepareNativeApplyState(ctx, stateInput)
 	if err != nil {
@@ -211,6 +219,17 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 			return err
 		}
 		opaque = opaque || present
+	}
+	if opaque {
+		documentOperation := len(state.Narrowings()) != 0 || len(state.WholeAdoptions()) != 0 || len(stateInput.WholeSources) != 0
+		for _, previous := range assessment.CurrentState.ManagedPaths() {
+			if aggregate.IsHostConfigDocumentSubject(previous.Subject()) && slices.ContainsFunc(previous.ConsumerTargets(), planned.context.Selection.Includes) {
+				documentOperation = true
+			}
+		}
+		if documentOperation {
+			return nativeSupportError{nativeSupportDocumentRoutes}
+		}
 	}
 	documents, err := nativeStateDocuments(ctx, assessment, state.AfterState())
 	if err != nil {

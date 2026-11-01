@@ -1368,8 +1368,8 @@ explicit `apply`.
 
 ## Host Configuration
 
-`[[host_config]]` manages selected keys in a Codex or Pi configuration file.
-Declare only values you want daem to keep consistent. Other settings, such as
+`[[host_config]]` manages selected keys or a dedicated whole configuration file
+for Codex or Pi. In key mode, declare only values you want daem to keep consistent. Other settings, such as
 a model or reasoning-effort choice changed by the host, remain unmanaged unless
 you include them in the source.
 
@@ -1424,7 +1424,7 @@ host has loaded the file or that a particular extension recognizes its values.
 | `scope` | string | no | `defaults.scope` | `project` or `global`. |
 | `path` | string | yes | none | Canonical slash-separated path relative to the selected host root. |
 | `source` | string or source object | yes | none | Local regular file, Git file source, or S3 file object; see [Sources](#sources). Local sources use vendor mode; global local sources must be absolute. |
-| `ownership` | string | no | `keys` | `keys` is executable. `document` is parsed but not executable; ownership-mode transitions are unsupported. |
+| `ownership` | string | no | `keys` | `keys` manages selected values; `document` manages a dedicated whole file. See the ownership limits below. |
 | `syntax` | string | no | host/path default | `json`, `jsonc`, `json-line-comments`, or `toml`. This selects parsing, not a host-schema validator. |
 
 Project paths are beneath `<manifest-directory>/.codex` or
@@ -1515,8 +1515,35 @@ that additional consent. In a noninteractive run, inspect a fresh dry-run and re
 Completed extension commands are not repeated just to finish the remaining order
 change. An unverified removal retains its pending record and management claim.
 A retry that confirms absence can settle that removal without repeating the command.
-Whole-document mode, switching ownership
-modes and capturing current host configuration as a source remain unsupported.
+Whole-document ownership and ownership-mode changes cannot yet accompany
+extension commands, even when the whole file is already current. Defer the
+extension commands while whole-document ownership is active, or narrow to keys
+in a separate apply before retrying.
+
+### Whole Files And Narrowing Ownership
+
+Use `ownership = "document"` for a dedicated file such as `prefs.toml` or
+`prefs.jsonc`. Lock and apply copy its complete source, with exact `0600`
+permissions. Source updates replace the managed file; removing the declaration
+removes it. A changed host file is not silently overwritten or deleted.
+Shared host files such as Codex `config.toml` and Pi `settings.json`, along with
+the reserved paths listed above, cannot use whole-document ownership.
+
+To retain only selected keys from a managed whole file, keep the declaration's
+`id`, target, scope and path, change `ownership` to `keys`, and revise its source
+to contain the values you want to retain. Then relock, preview and apply. Released
+keys remain in the host file but are no longer managed; an empty selection releases
+the whole file without deleting it. If the host file has changed since its whole-file
+baseline, retained values must already match the source. Changing or adding values
+in that case requires host-to-source capture, which is not yet available.
+
+Interrupted narrowing follows the existing state-commit boundary. Before commit,
+if the file still equals the recorded post-apply image, rollback restores the exact
+pre-operation bytes and permissions. Otherwise it restores only selected values,
+preserving edits to released keys and unrelated comments; a third selected value
+blocks recovery. After commit, recovery finalizes without replaying host writes.
+Switching from key ownership to whole-file ownership and capturing current host
+configuration as a source remain unsupported.
 
 ## Lock Behavior
 

@@ -12,6 +12,7 @@ import (
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/reconcile"
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
+	"github.com/isty2e/daem/internal/topology"
 )
 
 type projectionPlanningInput struct {
@@ -33,6 +34,7 @@ type projectionPlanningInput struct {
 	owner                   stateauthority.Authority
 	ownership               []observe.OwnershipObservation
 	codecs                  aggregate.CodecCatalog
+	nativeNarrowings        []reconcile.NativeNarrowingAction
 }
 
 func buildProjectionDecisions(input projectionPlanningInput) (
@@ -54,8 +56,27 @@ func buildProjectionDecisions(input projectionPlanningInput) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("build managed path decisions: %w", err)
 	}
+	aggregateLocked := input.locked
+	if len(input.nativeNarrowings) != 0 {
+		consumed := make(map[topology.SubjectID]struct{})
+		for _, action := range input.nativeNarrowings {
+			for _, item := range action.DesiredContributions() {
+				consumed[item.SubjectID()] = struct{}{}
+			}
+		}
+		var remaining []lock.LockedSubjectContract
+		for _, subject := range input.locked.Subjects() {
+			if _, found := consumed[subject.SubjectID()]; !found {
+				remaining = append(remaining, subject)
+			}
+		}
+		aggregateLocked, err = lock.NewLockedSection(remaining, input.locked.OrderConstraints())
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	aggregates, err := reconcileprojection.BuildAggregateDecisions(reconcileprojection.AggregateInput{
-		Locked: input.locked, Expected: input.aggregateExpected, Desired: input.aggregateDesired,
+		Locked: aggregateLocked, Expected: input.aggregateExpected, Desired: input.aggregateDesired,
 		Constraints:    input.aggregateConstraints,
 		RemovalNotices: input.aggregateRemovalNotices,
 		States:         input.aggregateStates, Evidence: input.aggregateEvidence,

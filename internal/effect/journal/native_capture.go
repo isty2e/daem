@@ -15,6 +15,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/payload"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 )
 
@@ -22,6 +24,8 @@ type NativeCaptureOptions struct {
 	CaptureOptions
 	OrderObservations         []pipackage.OrderObservation
 	ProjectCarrierCompletions []durablecarrier.ManagedCarrierClaim
+	WholeDocuments            []ManagedPathMutation
+	Payloads                  payload.PayloadSet
 }
 
 // NativeJournalPublicationError retains the storage conclusion when a commit
@@ -94,7 +98,11 @@ func CaptureNativeJournalWithOptions(
 	if err := validateNativeCaptureContext(ctx, paths, batch, options.CaptureOptions); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if err := validateNativeCaptureWork(batch.before, after, edits, mutations, options.ProjectCarrierCompletions); err != nil {
+	wholeMutations, err := pathMutations(options.WholeDocuments, nil, options.ManagedPathEvidence)
+	if err != nil {
+		return CapturedNativeJournal{}, err
+	}
+	if err := validateNativeCaptureWork(batch.before, after, edits, append(slices.Clone(mutations), wholeMutations...), options.ProjectCarrierCompletions); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	if err := ensureNoActive(ctx, paths.RecoveryDir, inventoryOptions{
@@ -126,7 +134,7 @@ func CaptureNativeJournalWithOptions(
 	if err := validateNativePublicationPartition(ctx, directory, members, mutations, options.Resolver); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	journal, comparisons, err := prepareNativeCapture(ctx, operationID, createdAt, members, after, edits, options.OrderObservations, options.RemovalDemands)
+	journal, comparisons, err := prepareNativeCapture(ctx, operationID, createdAt, members, after, edits, options.OrderObservations, options.RemovalDemands, options.WholeDocuments, options.Payloads)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
@@ -172,7 +180,7 @@ func CaptureNativeJournalWithOptions(
 	return result, nil
 }
 
-func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, orders []pipackage.OrderObservation, ordinary recovery.RemovalDemandSet) (nativeJournalSnapshots, []DocumentComparison, error) {
+func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, orders []pipackage.OrderObservation, ordinary recovery.RemovalDemandSet, whole []ManagedPathMutation, payloads payload.PayloadSet) (nativeJournalSnapshots, []DocumentComparison, error) {
 	inputs, err := batch.prepareOwnership(ctx, after, operationID)
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
@@ -198,6 +206,33 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	}
 	candidates := make([]nativeDocumentCaptureCandidate, 0, len(inputs))
 	groupOrders := make([]*pipackage.OrderObservation, len(inputs))
+	groupWhole := make([]*ManagedPathMutation, len(inputs))
+	for index, mutation := range whole {
+		facts, err := wholeDocumentMutationFacts(mutation)
+		if err != nil {
+			return nativeJournalSnapshots{}, nil, err
+		}
+		if !aggregate.IsHostConfigDocumentSubject(facts.subject) {
+			return nativeJournalSnapshots{}, nil, fmt.Errorf("whole capture requires its canonical native subject")
+		}
+		address, err := aggregate.NewDocumentAddress(facts.consumerTargets[0], facts.scope, facts.destination)
+		if err != nil {
+			return nativeJournalSnapshots{}, nil, err
+		}
+		found := false
+		for group, namespace := range batch.namespaces {
+			if !slices.Contains(namespace.Addresses(), address) {
+				continue
+			}
+			if groupWhole[group] != nil {
+				return nativeJournalSnapshots{}, nil, fmt.Errorf("native document has duplicate whole writers")
+			}
+			groupWhole[group], found = &whole[index], true
+		}
+		if !found {
+			return nativeJournalSnapshots{}, nil, fmt.Errorf("native whole writer has no retained namespace")
+		}
+	}
 	for _, order := range orders {
 		if !order.Changed() {
 			continue
@@ -223,7 +258,16 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	work := !batch.before.Equal(after)
 	documentWork := false
 	for index, input := range inputs {
-		candidate, err := prepareSelectedDocumentCandidate(ctx, batch.namespaces[index], selectedDocumentCaptureInput{nativeDocumentCaptureInput: input, edits: groupEdits[index], order: groupOrders[index]}, subjects)
+		var candidate nativeDocumentCaptureCandidate
+		var err error
+		if groupWhole[index] != nil {
+			if len(groupEdits[index]) != 0 || groupOrders[index] != nil {
+				return nativeJournalSnapshots{}, nil, fmt.Errorf("whole writer overlaps selected document work")
+			}
+			candidate, err = prepareWholeDocumentCandidate(ctx, batch.namespaces[index], wholeDocumentCaptureInput{nativeDocumentCaptureInput: input, mutation: *groupWhole[index], payloads: payloads})
+		} else {
+			candidate, err = prepareSelectedDocumentCandidate(ctx, batch.namespaces[index], selectedDocumentCaptureInput{nativeDocumentCaptureInput: input, edits: groupEdits[index], order: groupOrders[index]}, subjects)
+		}
 		if err != nil {
 			return nativeJournalSnapshots{}, nil, err
 		}

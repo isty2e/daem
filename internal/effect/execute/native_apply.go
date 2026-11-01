@@ -34,6 +34,7 @@ type NativeApplyInput struct {
 type nativeApplyWork struct {
 	documents          journal.NativeDocumentObservationBatch
 	managed            []ManagedPathEffect
+	whole              []ManagedPathEffect
 	ordinaryAggregates []AggregateEffect
 	edits              []compose.ProjectionEdit
 	mutating           []bool
@@ -55,9 +56,6 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	if !input.Preparation.BeforeState().Equal(input.CurrentState) || !input.Documents.BeforeState().Equal(input.CurrentState) || input.Budget == nil {
 		return nativeApplyWork{}, fmt.Errorf("native execution inputs differ from their complete observed Before")
 	}
-	if len(input.Preparation.Narrowings())+len(input.Preparation.WholeAdoptions()) != 0 {
-		return nativeApplyWork{}, fmt.Errorf("native whole-document effects require their execution integration")
-	}
 	documents, members, err := input.Documents.CaptureMembers(input.Preparation.AfterState(), forwardEffectPlanningOperationID())
 	if err != nil {
 		return nativeApplyWork{}, err
@@ -72,6 +70,83 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		managed: input.Preparation.ManagedPathEffects(), changed: !input.CurrentState.Equal(input.Preparation.AfterState()),
 	}
 	var registryAliases []aggregate.DocumentAddress
+	wholeGroups := make(map[int]struct{})
+	ordinaryManaged := work.managed[:0:0]
+	for _, effect := range work.managed {
+		if !aggregate.IsHostConfigDocumentSubject(effect.Subject()) {
+			ordinaryManaged = append(ordinaryManaged, effect)
+			continue
+		}
+		consumers := effect.ConsumerTargets()
+		if previous, present := effect.PreviousState(); len(consumers) == 0 && present {
+			consumers = previous.ConsumerTargets()
+		}
+		if len(consumers) != 1 {
+			return nativeApplyWork{}, fmt.Errorf("native whole effect requires one consumer")
+		}
+		address, err := aggregate.NewDocumentAddress(consumers[0], effect.Scope(), effect.Destination())
+		if err != nil {
+			return nativeApplyWork{}, err
+		}
+		found := false
+		for index, namespace := range namespaces {
+			if !slices.Contains(namespace.Addresses(), address) {
+				continue
+			}
+			if _, duplicate := wholeGroups[index]; duplicate {
+				return nativeApplyWork{}, fmt.Errorf("native document has multiple whole writers")
+			}
+			wholeGroups[index] = struct{}{}
+			work.mutating[index], found = effect.Kind() != ManagedPathEffectRecord, true
+		}
+		if !found {
+			return nativeApplyWork{}, fmt.Errorf("native whole effect has no retained namespace")
+		}
+		work.whole = append(work.whole, effect)
+		registryAliases = append(registryAliases, address)
+	}
+	work.managed = ordinaryManaged
+	for _, action := range input.Preparation.Narrowings() {
+		placement, _ := action.SourceContract().HostConfigPlacement()
+		address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
+		if err != nil {
+			return nativeApplyWork{}, err
+		}
+		registryAliases = append(registryAliases, address)
+		plan, present := action.KeyPlan()
+		if !present {
+			continue
+		}
+		selection, err := plan.Before().Selection()
+		if err != nil {
+			return nativeApplyWork{}, err
+		}
+		participant, err := journal.NativeJournalParticipant(selection, input.Codecs)
+		if err != nil {
+			return nativeApplyWork{}, err
+		}
+		codec, ok := input.Codecs.Lookup(selection.CodecContractID())
+		if !ok {
+			return nativeApplyWork{}, fmt.Errorf("native narrowing codec is not admitted")
+		}
+		edit, err := compose.NewProjectionEdit(codec, plan, participant.Syntax(), participant.RewriteAreas())
+		if err != nil {
+			return nativeApplyWork{}, err
+		}
+		work.edits = append(work.edits, edit)
+		rendered, failure := codec.Render(action.CurrentDocument(), plan)
+		if failure != nil {
+			return nativeApplyWork{}, failure
+		}
+		for index, namespace := range namespaces {
+			if slices.Contains(namespace.Addresses(), address) {
+				if _, whole := wholeGroups[index]; whole {
+					return nativeApplyWork{}, fmt.Errorf("whole document overlaps ownership narrowing")
+				}
+				work.mutating[index] = !rendered.Document().Equal(action.CurrentDocument())
+			}
+		}
+	}
 	for _, effect := range input.Preparation.AggregateEffects() {
 		group := -1
 		for index, namespace := range namespaces {
@@ -87,6 +162,9 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 			work.ordinaryAggregates = append(work.ordinaryAggregates, effect)
 			work.changed = true
 			continue
+		}
+		if _, whole := wholeGroups[group]; whole {
+			return nativeApplyWork{}, fmt.Errorf("whole document overlaps selected effects")
 		}
 		registryAliases = append(registryAliases, effect.DocumentAddress())
 		selection, err := effect.BeforeSnapshot().Selection()
@@ -121,6 +199,9 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		found := false
 		for index, namespace := range namespaces {
 			if slices.Contains(namespace.Addresses(), alias) {
+				if _, whole := wholeGroups[index]; whole {
+					return nativeApplyWork{}, fmt.Errorf("whole document overlaps package ordering")
+				}
 				work.mutating[index], work.changed, found = true, true, true
 				registryAliases = append(registryAliases, alias)
 			}
@@ -344,6 +425,10 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return ApplyResult{}, err
 	}
 	ordinaryPromoting := len(ordinary.ownership.provisional) != 0
+	wholeMutations, err := ManagedPathJournalMutations(work.whole)
+	if err != nil {
+		return result, err
+	}
 	var captured journal.CapturedNativeJournal
 	if err := run("apply/native-journal-publication", func() error {
 		result.ExecutionAttempted = true
@@ -357,7 +442,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
 			ClaimTransitions: ordinary.ownership.transitions, ProvisionalAcquires: ordinary.ownership.provisional, RemovalDemands: ordinary.demands,
 			Resolver: authority.rootedJournalResolver(input.Resolver), RootedCapability: authority.rootedJournalCapability,
-		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), OrderObservations: input.Preparation.PiOrders()})
+		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), OrderObservations: input.Preparation.PiOrders(), WholeDocuments: wholeMutations, Payloads: input.Payloads})
 		if err != nil {
 			return err
 		}
@@ -390,7 +475,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		prefix := fmt.Sprintf("apply/native-document/%d", index)
 		var err error
 		if work.mutating[index] {
-			err = run(prefix, func() error { return publishNativeDocument(ctx, input, document) })
+			err = run(prefix, func() error { return publishNativeDocument(ctx, input, document, authority) })
 		} else {
 			err = execution.runObservation(prefix+"/record", applyForwardFailureGuardedRecovery, func() error { return ctx.Err() })
 		}

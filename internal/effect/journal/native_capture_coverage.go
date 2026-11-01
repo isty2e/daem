@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -117,6 +118,9 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 			unchangedPaths[row.Subject()] = row
 		}
 		for _, row := range snapshot.ManagedPaths() {
+			if _, retained := unchangedPaths[row.Subject()]; side == 0 && !retained && aggregate.IsHostConfigDocumentSubject(row.Subject()) {
+				continue
+			}
 			if previous, found := unchangedPaths[row.Subject()]; found && previous.Equal(row) {
 				continue
 			}

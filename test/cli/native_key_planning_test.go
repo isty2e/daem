@@ -462,7 +462,7 @@ ownership = "keys"
 	}
 }
 
-func TestNativeKeyCLIPlanningRefusesUnjoinedDocumentMode(t *testing.T) {
+func TestNativeDocumentCLIPlanningIsReadOnly(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", filepath.Join(root, "home"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
@@ -477,7 +477,6 @@ source = "./fragment"
 ownership = "document"
 `
 	fragment := "model = \"native-test\"\n"
-	want := "native document mode"
 	testkit.WriteFile(t, workspace, "daem.toml", body)
 	testkit.WriteFile(t, workspace, "fragment", fragment)
 	if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
@@ -488,16 +487,20 @@ ownership = "document"
 		{"apply", "--manifest", manifest, "--dry-run", "--json"},
 	} {
 		code, stdout, stderr := runOwnershipCLI(args...)
-		if code == 0 || (args[0] == "status" && !strings.Contains(stdout+stderr, want)) || strings.Contains(stdout, `"actions"`) {
-			t.Fatalf("unjoined operation returned a usable or misclassified assessment: %d %s %s", code, stdout, stderr)
+		if code != 0 {
+			t.Fatalf("whole document planning failed: %d %s %s", code, stdout, stderr)
+		}
+		plan := clijson.DecodePlan(t, []byte(stdout))
+		if plan.HasErrors || len(plan.Actions) != 1 || plan.Actions[0].Kind != "create" {
+			t.Fatalf("whole document creation was not disclosed: %+v", plan)
 		}
 	}
-	if _, err := apply.PlanDryRun(t.Context(), apply.CommandInput{ManifestPath: manifest}); err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("dry-run lost the actual refusal cause: %v", err)
+	if plan, err := apply.PlanDryRun(t.Context(), apply.CommandInput{ManifestPath: manifest}); err != nil || !plan.ReconciliationReady || plan.Reconciliation.ProjectionDecisionCount() != 1 {
+		t.Fatalf("dry-run lost the actual whole document plan: %v", err)
 	}
 	for _, relative := range []string{".pi", ".codex", ".daem/state.json"} {
 		if _, err := os.Stat(filepath.Join(workspace, relative)); !os.IsNotExist(err) {
-			t.Fatalf("refused planning created %s: %v", relative, err)
+			t.Fatalf("read-only planning created %s: %v", relative, err)
 		}
 	}
 }

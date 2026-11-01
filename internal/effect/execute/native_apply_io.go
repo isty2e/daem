@@ -12,13 +12,13 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-func publishNativeDocument(ctx context.Context, input NativeApplyInput, document journal.CapturedNativeDocument) (resultErr error) {
+func publishNativeDocument(ctx context.Context, input NativeApplyInput, document journal.CapturedNativeDocument, authority *mutationAuthority) (resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	expected, expectedMode := document.Expected()
-	if !expected.Exists() || expectedMode == nil {
-		return fmt.Errorf("native document removal requires its bounded removal execution")
+	if expected.Exists() != (expectedMode != nil) {
+		return fmt.Errorf("native document has inconsistent expected root metadata")
 	}
 	capability, err := document.Namespace().AcquireReferent(ctx, input.Budget)
 	if err != nil {
@@ -59,12 +59,28 @@ func publishNativeDocument(ctx context.Context, input NativeApplyInput, document
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if actual.Exists() && identity == nil {
+		return fmt.Errorf("native document has no exact entry identity")
+	}
+	if !expected.Exists() {
+		removal, present, err := document.Removal()
+		if err != nil || !present {
+			return errors.Join(err, fmt.Errorf("native removal requires its captured physical intent"))
+		}
+		intent, err := removal.PhysicalIntent()
+		if err != nil {
+			return err
+		}
+		destination, err := authority.removalDestinationFor(intent.Scope(), intent.Destination())
+		if err != nil {
+			return err
+		}
+		open = false
+		_, err = authority.removeJournaledRootedEntry(ctx, destination, capability, identity)
+		return err
+	}
 	open = false
 	if actual.Exists() {
-		if identity == nil {
-			open = true
-			return fmt.Errorf("native document has no exact entry identity")
-		}
 		return input.Filesystem.ReplaceRootedFile(ctx, capability, expected.Content(), expectedMode.FileMode(), identity)
 	}
 	return input.Filesystem.CreateRootedFile(ctx, capability, expected.Content(), expectedMode.FileMode())

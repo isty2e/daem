@@ -45,6 +45,7 @@ type assessmentPlanInput struct {
 	extensionOrderFacts    []extensionOrderObservation
 	mcpContracts           []lock.LockedSubjectContract
 	nativeSources          []lockobserve.NativeSourceObservation
+	nativeNarrowings       []reconcile.NativeNarrowingAction
 }
 
 // assembleAssessment classifies observed facts into Assessment. It performs
@@ -105,6 +106,7 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 		owner:                   input.owner,
 		ownership:               input.ownershipObservations,
 		codecs:                  input.codecs,
+		nativeNarrowings:        input.nativeNarrowings,
 	})
 	if err != nil {
 		return Assessment{}, err
@@ -157,6 +159,7 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 	result, err := reconcile.NewResult(reconcile.ResultInput{
 		Context:          input.operationContext,
 		ManagedPaths:     managedPaths,
+		NativeNarrowings: input.nativeNarrowings,
 		Aggregates:       aggregates,
 		Relations:        relationActions,
 		RelationOrders:   relationOrderDecisions,

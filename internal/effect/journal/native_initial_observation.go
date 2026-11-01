@@ -55,6 +55,10 @@ func (batch NativeDocumentObservationBatch) Namespaces() []NativeDocumentNamespa
 	return slices.Clone(batch.namespaces)
 }
 
+func (batch NativeDocumentObservationBatch) DocumentLimits() configdocument.Limits {
+	return batch.limits
+}
+
 // ObserveNativeDocuments borrows the selected roots and pending budget. The
 // resulting evidence requires separate ownership and operation qualification.
 func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservationInput) (NativeDocumentObservationBatch, error) {

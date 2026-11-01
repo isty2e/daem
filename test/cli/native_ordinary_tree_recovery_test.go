@@ -131,11 +131,15 @@ func (store *nativeRecoveryStore) RemoveRootedEntryWithResidue(ctx context.Conte
 		return mutationfs.CommitOutcome{}, err
 	}
 	outcome, err := store.Adapter.RemoveRootedEntryWithResidue(ctx, capability, expected, names, limits)
-	if err == nil && path == store.host && store.boundary == "skill-removal" {
+	if err == nil && path == store.host && (store.boundary == "skill-removal" || store.boundary == "host-removal") {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			return outcome, fmt.Errorf("ordinary retirement was not confirmed: %v", err)
 		}
-		fmt.Fprintln(os.Stderr, "native recovery confirmed ordinary retirement")
+		if store.boundary == "host-removal" {
+			fmt.Fprintln(os.Stderr, "native recovery confirmed document retirement")
+		} else {
+			fmt.Fprintln(os.Stderr, "native recovery confirmed ordinary retirement")
+		}
 		os.Exit(nativeRecoveryExit)
 	}
 	return outcome, err
