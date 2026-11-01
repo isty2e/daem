@@ -3,6 +3,7 @@
 package rootedpath_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -197,6 +198,76 @@ func TestPathLayoutRejectsAReplacedExistingParent(t *testing.T) {
 	}
 	if _, _, err := layout.ResolveBounded(256, layoutBudget()); err == nil {
 		t.Fatal("new parent inode was treated as the prepared root")
+	}
+}
+
+type layoutCaptureInterleaveBudget struct {
+	*layoutTestBudget
+	validationPaths int
+	interleave      func()
+	interleaved     bool
+}
+
+func (budget *layoutCaptureInterleaveBudget) AdmitPathComponents(count int) error {
+	if !budget.interleaved && budget.paths >= budget.validationPaths {
+		budget.interleaved = true
+		budget.interleave()
+	}
+	return budget.layoutTestBudget.AdmitPathComponents(count)
+}
+
+func TestPathLayoutFreshCaptureRejectsParentChangeAfterValidation(t *testing.T) {
+	for _, referent := range []bool{false, true} {
+		for _, missing := range []bool{false, true} {
+			for _, replace := range []bool{false, true} {
+				t.Run(fmt.Sprintf("referent=%t/missing=%t/replace=%t", referent, missing, replace), func(t *testing.T) {
+					parent := filepath.Join(t.TempDir(), "parent")
+					if err := os.Mkdir(parent, 0o700); err != nil {
+						t.Fatal(err)
+					}
+					path := filepath.Join(parent, "config")
+					if missing {
+						path = filepath.Join(parent, "new", "nested", "config")
+					} else if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					capture := rootedpath.CaptureDirectoryEntryLayoutBounded
+					if referent {
+						capture = rootedpath.CaptureReferentLayoutBounded
+					}
+					layout, err := capture(path, 256, layoutBudget())
+					if err != nil {
+						t.Fatal(err)
+					}
+					validation := layoutBudget()
+					if _, _, err := layout.ResolveBounded(256, validation); err != nil {
+						t.Fatal(err)
+					}
+					budget := &layoutCaptureInterleaveBudget{
+						layoutTestBudget: layoutBudget(), validationPaths: validation.paths,
+						interleave: func() {
+							if err := os.Rename(parent, parent+"-original"); err != nil {
+								t.Fatal(err)
+							}
+							if replace {
+								if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+									t.Fatal(err)
+								}
+							}
+						},
+					}
+					captured, _, err := layout.CaptureDestinationBounded(256, budget)
+					if captured != nil {
+						captured.Close()
+						t.Fatal("fresh capture returned authority after its prepared parent changed")
+					}
+					var failure *rootedpath.Failure
+					if !budget.interleaved || !errors.As(err, &failure) || failure.Kind() != rootedpath.FailureRootReplaced {
+						t.Fatal("capture did not refuse the controlled post-validation parent change", err)
+					}
+				})
+			}
+		}
 	}
 }
 
