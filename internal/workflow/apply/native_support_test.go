@@ -46,9 +46,8 @@ func TestNativeSupportUsesActualExtensionExecution(t *testing.T) {
 				t.Fatal("a qualified no-op extension blocked native work", err)
 			}
 		} else {
-			var unsupported nativeSupportError
-			if !errors.As(err, &unsupported) || unsupported.reason != nativeSupportRoutes {
-				t.Fatal("actual extension work was not classified as an unsupported route combination", err)
+			if !action.InvokesHostRoute() || err != nil {
+				t.Fatal("supported Claude execution did not reach protected native admission", err)
 			}
 		}
 	}

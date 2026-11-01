@@ -5,6 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe/codexplugin"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -22,7 +23,7 @@ type refreshProtectionFence struct {
 
 // observeRefreshProtectionFence also covers callers without native declarations:
 // removing a declaration cannot authorize bypassing existing safety work.
-func observeRefreshProtectionFence(ctx context.Context, paths daempaths.Paths, selected target.Target) (refreshProtectionFence, error) {
+func observeRefreshProtectionFence(ctx context.Context, paths daempaths.Paths, selected target.Target, selectedScope target.Scope) (refreshProtectionFence, error) {
 	budget := recovery.NewPhysicalCaptureBudget(nil)
 	registry, err := ownershipstore.ReadProtectionRegistryBounded(ctx, paths.OwnershipRegistryPath, recovery.MaximumPhysicalPathDepth, budget)
 	if err != nil {
@@ -40,6 +41,13 @@ func observeRefreshProtectionFence(ctx context.Context, paths daempaths.Paths, s
 		return refreshProtectionFence{}, err
 	}
 	var result refreshProtectionFence
+	opaque, _, err := relationhost.OpaquePluginNamespaces(paths, selected, selectedScope)
+	if err != nil {
+		return refreshProtectionFence{}, err
+	}
+	for _, namespace := range opaque {
+		result.requests = append(result.requests, mutation.PhysicalAuthorityRequest{Path: namespace.Path(), Target: string(namespace.Target()), Scope: string(namespace.Scope())})
+	}
 	if selected == target.TargetCodex {
 		address, err := codexplugin.ConfigDocumentAddress()
 		if err != nil {

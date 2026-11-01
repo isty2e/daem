@@ -22,6 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
+	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 )
 
 // PlanDryRun builds one capability-free immutable refresh plan.
@@ -420,14 +421,17 @@ func planAtPathsWithBarrier(
 		currentState:      currentState,
 		timeout:           timeout,
 	}
-	planned.native, err = planNativeRefresh(ctx, paths, environment, locked, currentState)
+	planned.native, err = planNativeRefresh(ctx, paths, environment, locked, currentState, selected.Target(), selected.Scope())
 	if err != nil {
+		if errors.Is(err, nativeconfig.ErrOpaqueNamespaceOverlap) {
+			return refusedPlan(result, ReasonRefreshUnsupported, err, "inspect resolved configuration-root aliases; this overlap requires an explicit rewrite profile before refresh")
+		}
 		return refusedPlan(result, ReasonNativeSettings, err, "run daem status and daem recover --dry-run; apply selected settings before refresh; resolve host-value drift through explicit replace host-config")
 	}
-	if planned.native != nil && selected.Target() != target.TargetPi && selected.Target() != target.TargetCodex {
+	if planned.native != nil && selected.Target() != target.TargetPi && selected.Target() != target.TargetCodex && selected.Target() != target.TargetClaudeCode && selected.Target() != target.TargetAntigravityCLI {
 		return refusedPlan(result, ReasonRefreshUnsupported, fmt.Errorf("native settings protection for this refresh host is not connected"), "this host refresh cannot yet run with managed settings; use status and preserve the current settings")
 	}
-	planned.protectionFence, err = observeRefreshProtectionFence(ctx, paths, selected.Target())
+	planned.protectionFence, err = observeRefreshProtectionFence(ctx, paths, selected.Target(), selected.Scope())
 	if err != nil {
 		return refusedPlan(result, ReasonNativeSettings, err, "run daem recover --dry-run before another refresh; changing declarations does not clear pending permission protection")
 	}

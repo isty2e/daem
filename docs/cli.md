@@ -1888,15 +1888,19 @@ host-owned, and trust refusal or no match is a host failure. Daem adds no
 approval, self-update, model-update, or bulk-update flags. See [host
 integrations](host-integrations.md) for route details.
 
-With managed settings keys, Pi and Codex refresh require those keys to be already
-applied and current; they do not apply changed settings sources. They check selected
+With managed settings keys, Pi, Codex, Claude Code and Antigravity CLI refresh
+require those keys to be already applied and current; they do not apply changed
+settings sources. They check selected
 values in each managed settings layer and preserve other captured content outside the
 refreshed package's rows (Pi) or marketplace entry (Codex). Codex refresh does not
 admit plugin-entry changes. Unexpected key/content changes or broadened file access
 make refresh fail without automatic content repair. Broadened access is restricted
 even when the host command fails; interruption may require `daem recover` before
-another refresh. Other hosts' refresh routes are not yet supported alongside
-managed settings keys.
+another refresh. Claude Code and Antigravity CLI require physical separation
+between their private plugin namespaces and the managed settings; aliases or
+nested overlaps without an admitted rewrite profile refuse before execution.
+Their commands do not receive permission to change captured native settings.
+OpenCode refresh is not yet supported alongside managed settings keys.
 
 Antigravity explicit-global refresh repeats the locked install route rather than
 using a dedicated update command. Local evidence can show bundle replacement and

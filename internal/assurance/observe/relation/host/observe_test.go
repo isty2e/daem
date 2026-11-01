@@ -459,7 +459,7 @@ func TestObserveAntigravityPluginsRequiresCompleteHostPair(t *testing.T) {
 	}
 	for _, path := range []string{
 		filepath.Join(configRoot, "import_manifest.json"),
-		filepath.Join(pluginRoot, "plugin.json"),
+		filepath.Join(configRoot, "plugins"),
 	} {
 		if !gotPaths[path] {
 			t.Fatalf("Antigravity authority paths = %#v, missing %q", gotPaths, path)

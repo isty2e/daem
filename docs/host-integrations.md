@@ -478,6 +478,11 @@ unrelated resources. It does not prove runtime unload or approve trust. Bundled
 contributions, ordinary update reconciliation, prune and runtime readiness remain
 deferred or blocked.
 
+Plugin commands can run alongside Codex/Pi settings keys when the private Claude
+config root (and project `.claude` namespace for project commands) is physically
+separate from those managed files. Overlapping root aliases refuse before effects.
+See [host configuration](manifest.md#host-configuration) for sequencing and recovery.
+
 ## OpenCode/Pi Plugin-Package Route Summary
 
 `opencode-plugin` and `pi-package` use `source.host_source` for project or
@@ -565,6 +570,11 @@ Removal retains siblings/import rows, credentials, trust/sessions, unrelated
 stores, marketplace/source setup and IDE state. Opaque/local-source removal,
 project plugins, import/link, enable/disable, dedicated or ordinary update,
 prune, bundled contribution ownership and runtime readiness are not supported.
+
+Plugin commands can run alongside Codex/Pi settings keys when the shared config
+and plugin-store namespaces are physically separate from those managed files.
+Overlapping root aliases refuse before effects. See
+[host configuration](manifest.md#host-configuration) for sequencing and recovery.
 
 ## Deferred Product Surfaces
 

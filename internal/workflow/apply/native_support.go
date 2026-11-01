@@ -16,6 +16,7 @@ const (
 	nativeSupportRoutes nativeSupportReason = iota + 1
 	nativeSupportOrder
 	nativeSupportCarrierState
+	nativeSupportNamespace
 )
 
 type nativeSupportError struct{ reason nativeSupportReason }
@@ -30,6 +31,8 @@ func (reason nativeSupportReason) detail() string {
 		return "key-mode package-order changes require ownership of the same Pi settings layer"
 	case nativeSupportCarrierState:
 		return "extension ownership settlement is not yet supported while settings keys are managed"
+	case nativeSupportNamespace:
+		return "selected settings overlap the plugin host's private namespace without a supported rewrite contract"
 	default:
 		return "the selected settings-key execution is not supported"
 	}
@@ -79,7 +82,7 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 		}
 	}
 	for _, adoption := range result.CarrierAdoptions() {
-		if adoption.BlocksOrdinaryApply() || adoption.StateOnly() {
+		if adoption.StateOnly() {
 			if !nativeAdoptionCompletedByPending(assessment.CurrentState, result.Relations(), adoption) {
 				return nativeSupportError{nativeSupportCarrierState}
 			}
@@ -101,6 +104,10 @@ func nativeInvocationCarrierSupported(key desiredextension.CarrierKey) bool {
 		return key.Target() == target.TargetPi
 	case desiredextension.CarrierCodexPlugin:
 		return key.Target() == target.TargetCodex && key.Scope() == target.ScopeGlobal
+	case desiredextension.CarrierClaudeCodePlugin:
+		return key.Target() == target.TargetClaudeCode && (key.Scope() == target.ScopeProject || key.Scope() == target.ScopeGlobal)
+	case desiredextension.CarrierAntigravityCLIPlugin:
+		return key.Target() == target.TargetAntigravityCLI && key.Scope() == target.ScopeGlobal
 	default:
 		return false
 	}
@@ -114,6 +121,8 @@ func (reason nativeSupportReason) repairInstruction() string {
 		return "apply only same-layer Pi package-order changes, or defer this order change"
 	case nativeSupportCarrierState:
 		return "retain the existing extension declarations and defer this ownership change while settings keys are managed"
+	case nativeSupportNamespace:
+		return "inspect resolved configuration-root aliases; this overlap requires an explicit rewrite profile before apply"
 	default:
 		return ""
 	}

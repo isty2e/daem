@@ -3,12 +3,15 @@ package apply
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -76,6 +79,39 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	}
 	if err := checkNativeCommandSupport(assessment); err != nil {
 		return err
+	}
+	checkNamespaces := func(key desiredextension.CarrierKey) error {
+		paths, handled, err := relationhost.OpaquePluginNamespaces(planned.context.Paths, key.Target(), key.Scope())
+		if err != nil || !handled {
+			return err
+		}
+		budget, err := planned.context.PersistenceEpoch.PhysicalBudget()
+		if err != nil {
+			return err
+		}
+		var native []mutation.DirectoryEntryAuthorityObservation
+		for _, evidence := range assessment.NativeApproval {
+			native = append(native, evidence.Authority)
+		}
+		err = nativeconfig.RequireDisjointOpaqueNamespaces(ctx, native, paths, budget)
+		if errors.Is(err, nativeconfig.ErrOpaqueNamespaceOverlap) {
+			return nativeSupportError{nativeSupportNamespace}
+		}
+		return err
+	}
+	for _, action := range assessment.Reconciliation.Relations() {
+		if action.InvokesHostRoute() {
+			if err := checkNamespaces(action.CarrierIdentity().Carrier().Key()); err != nil {
+				return err
+			}
+		}
+	}
+	for _, action := range assessment.Reconciliation.CarrierAbsences() {
+		if action.InvokesHostRoute() {
+			if err := checkNamespaces(action.Claim().Identity().Carrier().Key()); err != nil {
+				return err
+			}
+		}
 	}
 	codecs, err := nativeconfig.Codecs(ctx)
 	if err != nil {

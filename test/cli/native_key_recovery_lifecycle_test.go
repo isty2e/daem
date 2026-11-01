@@ -582,6 +582,11 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if boundary == "native-opaque-command" {
+		if err := os.Setenv("DAEM_TEST_OPAQUE_PARENT_PID", fmt.Sprint(os.Getpid())); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if nativeInvocation {
 		store.boundary = strings.TrimPrefix(boundary, "native-ordinary-")
 		store.waitHost = true
@@ -603,7 +608,7 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 		os.Exit(nativeRecoveryExit)
 		return subprocess.CommandResult{}
 	}})
-	if nativeInvocation || boundary == "native-codex-command" {
+	if nativeInvocation || boundary == "native-codex-command" || boundary == "native-opaque-command" {
 		execution.HostRouteExecutor = subprocess.NewCommandExecutor(subprocess.CommandOptions{})
 	}
 	code := clipkg.RunWithOptions(os.Args[separator+3:], clipkg.RunOptions{

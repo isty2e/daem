@@ -2,7 +2,6 @@ package apply
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -81,9 +80,8 @@ func TestInvocationStateCodecPreservesNativeStateAroundHostRoute(t *testing.T) {
 	current, codec := invocationNativeState(t, planned.planned.assessment.CurrentState)
 	assessment := planned.planned.assessment
 	assessment.CurrentState = current
-	var unsupported nativeSupportError
-	if err := checkNativeCommandSupport(assessment); !errors.As(err, &unsupported) || unsupported.reason != nativeSupportRoutes {
-		t.Fatal("codec custody activated an unsupported native/host-route operation", err)
+	if err := checkNativeCommandSupport(assessment); err != nil {
+		t.Fatal("admitted opaque route lost native codec custody", err)
 	}
 	options := applyDelegateRunOptions(t, paths, runOptions{persistenceCodec: codec})
 	saveInvocationState(t, paths.StatefilePath, current, codec)

@@ -115,6 +115,32 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			return applyAuthorityEvidence{}, err
 		}
 	}
+	addOpaqueNamespaces := func(selected target.Target, scope target.Scope) error {
+		paths, _, err := relationhost.OpaquePluginNamespaces(planned.context.Paths, selected, scope)
+		if err != nil {
+			return err
+		}
+		for _, path := range paths {
+			if err := builder.AddDocumentWritePair(path.Path(), string(path.Target()), string(path.Scope())); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, action := range planned.assessment.Reconciliation.Relations() {
+		if action.InvokesHostRoute() {
+			if err := addOpaqueNamespaces(action.Target(), action.Scope()); err != nil {
+				return applyAuthorityEvidence{}, err
+			}
+		}
+	}
+	for _, action := range planned.assessment.Reconciliation.CarrierAbsences() {
+		if action.InvokesHostRoute() {
+			if err := addOpaqueNamespaces(action.Target(), action.Scope()); err != nil {
+				return applyAuthorityEvidence{}, err
+			}
+		}
+	}
 	for _, authority := range relationAuthorityPathFacts(
 		planned.assessment.Reconciliation.CarrierAbsences(),
 		planned.assessment.RelationObservations.AuthorityPaths(),

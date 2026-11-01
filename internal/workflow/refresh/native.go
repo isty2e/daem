@@ -17,6 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe/codexplugin"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/effect/journal"
@@ -165,12 +166,25 @@ func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environmen
 	return &nativeRefreshObservation{operation: operation, documents: documents, inputs: inputs}, nil
 }
 
-func planNativeRefresh(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, before durable.Snapshot) (*nativeRefreshInputs, error) {
+func planNativeRefresh(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, before durable.Snapshot, selected target.Target, scope target.Scope) (*nativeRefreshInputs, error) {
 	observed, err := observeNativeRefresh(ctx, paths, environment, locked, before)
 	if err != nil || observed == nil {
 		return nil, err
 	}
-	return &observed.inputs, observed.operation.Close()
+	namespaces, handled, err := relationhost.OpaquePluginNamespaces(paths, selected, scope)
+	if err == nil && handled {
+		input, _ := observed.operation.NativeInput()
+		var native []mutation.DirectoryEntryAuthorityObservation
+		for _, namespace := range input.Documents.Namespaces() {
+			native = append(native, namespace.Observation())
+		}
+		err = nativeconfig.RequireDisjointOpaqueNamespaces(ctx, native, namespaces, input.Budget)
+	}
+	err = errors.Join(err, observed.operation.Close())
+	if err != nil {
+		return nil, err
+	}
+	return &observed.inputs, nil
 }
 
 type nativeRefreshInvocation struct {
@@ -244,14 +258,25 @@ func prepareNativeRefreshInvocation(ctx context.Context, current plan, leases *m
 		}
 		result.protection = &layout
 	}
-	result.rewrites, err = nativeRefreshRewrites(current, input.Documents)
+	result.rewrites, err = nativeRefreshRewrites(ctx, current, input.Documents, input.Budget)
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-func nativeRefreshRewrites(current plan, documents *journal.NativeDocumentObservationBatch) ([]nativeconfig.InvocationRewrite, error) {
+func nativeRefreshRewrites(ctx context.Context, current plan, documents *journal.NativeDocumentObservationBatch, budget *recovery.PhysicalWorkBudget) ([]nativeconfig.InvocationRewrite, error) {
+	namespaces, handled, err := relationhost.OpaquePluginNamespaces(current.paths, current.result.Selection.Target, current.result.Selection.Scope)
+	if err != nil {
+		return nil, err
+	}
+	if handled {
+		var native []mutation.DirectoryEntryAuthorityObservation
+		for _, namespace := range documents.Namespaces() {
+			native = append(native, namespace.Observation())
+		}
+		return nil, nativeconfig.RequireDisjointOpaqueNamespaces(ctx, native, namespaces, budget)
+	}
 	if current.result.Selection.Target != target.TargetPi && current.result.Selection.Target != target.TargetCodex {
 		return nil, fmt.Errorf("native settings protection for this refresh host is not connected")
 	}
