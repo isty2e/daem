@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
@@ -14,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 func (batch NativeDocumentObservationBatch) manifest(ctx context.Context) (nativeDocumentRootGrant, error) {
@@ -65,11 +67,7 @@ func validateNativeCaptureContext(ctx context.Context, paths Paths, batch Native
 }
 
 func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.ProjectionEdit, mutations []pathMutation, completions []durablecarrier.ManagedCarrierClaim) error {
-	projected, err := before.WithManagedPaths(after.ManagedPaths())
-	if err != nil {
-		return err
-	}
-	projected, err = projected.WithManagedAggregates(after.ManagedAggregates())
+	projected, err := before.WithManagedProjections(after.ManagedPaths(), after.ManagedAggregates())
 	if err != nil {
 		return err
 	}
@@ -92,6 +90,7 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 
 	contracts := make(map[documentCaptureContractKey]struct{})
 	paths := make(map[topology.SubjectID]struct{})
+	wholeRecords := make(map[aggregate.DocumentAddress]topology.SubjectID)
 	for _, edit := range edits {
 		for _, contract := range edit.Participant().Selection().Contracts() {
 			contracts[documentCaptureContractKey{address: contract.Address(), codec: contract.CodecContractID()}] = struct{}{}
@@ -104,6 +103,21 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 			continue
 		}
 		paths[mutation.Subject] = struct{}{}
+		if mutation.Kind == pathMutationRecord && mutation.PreviousState == nil && aggregate.IsHostConfigDocumentSubject(mutation.Subject) {
+			for _, state := range after.ManagedPaths() {
+				if state.Subject() != mutation.Subject || len(state.ConsumerTargets()) != 1 || state.Scope() != mutation.Scope || state.Destination() != mutation.Destination || !slices.Equal(state.ConsumerTargets(), mutation.ConsumerTargets) {
+					continue
+				}
+				if state.ContentHash() != mutation.DesiredHash || state.ContentKind() != mutation.ContentKind || state.FileMode() != mutation.ExpectedPathMode {
+					continue
+				}
+				address, err := aggregate.NewDocumentAddress(state.ConsumerTargets()[0], state.Scope(), state.Destination())
+				if err != nil {
+					return err
+				}
+				wholeRecords[address] = state.Subject()
+			}
+		}
 		if mutation.PreviousState != nil {
 			paths[mutation.PreviousState.Subject] = struct{}{}
 		}
@@ -137,6 +151,13 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 				continue
 			}
 			contract := row.Contribution().Contract()
+			if whole, present := wholeRecords[contract.Address().Document()]; side == 0 && present {
+				keyOwner, _, key := topologyprojection.HostConfigKeyIdentity(row.Subject())
+				wholeOwner, entityBacked := topologyprojection.EntityID(whole)
+				if key && entityBacked && keyOwner == wholeOwner {
+					continue
+				}
+			}
 			if _, joined := contracts[documentCaptureContractKey{address: contract.Address(), codec: contract.CodecContractID()}]; !joined {
 				return fmt.Errorf("changed aggregate %q has no selected capture actor", row.Subject())
 			}

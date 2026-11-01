@@ -105,6 +105,12 @@ func BuildNativeWholeAdoption(ctx context.Context, input NativeWholeAdoptionInpu
 		rows[row.Subject()] = row
 	}
 	retired := input.Ownership.BeforeSubjects()
+	for subject, row := range rows {
+		owner, _, native := topologyprojection.HostConfigKeyIdentity(subject)
+		if native && owner == input.Source.EntityID() && (row.Contribution().Contract().Address().Document() != document || !slices.Contains(retired, subject)) {
+			return block(reconcile.ReasonOwnershipStateConflict, "native whole adoption cannot retarget or omit its prior key ownership")
+		}
+	}
 	footprints := make(map[output.Footprint]struct{})
 	for _, subject := range retired {
 		if err := ctx.Err(); err != nil {

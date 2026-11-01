@@ -482,21 +482,180 @@ func TestNativeDocumentWholeRecovery(t *testing.T) {
 	}
 }
 
-func TestNativeDocumentRefusesUnjoinedKeyToWholeAdoption(t *testing.T) {
+func prepareNativeKeyToWholeFixture(t *testing.T, selected target.Target, scope target.Scope) nativeDocumentTransitionFixture {
+	t.Helper()
+	f := newNativeDocumentTransitionFixture(t, selected, scope)
+	testkit.WriteFile(t, filepath.Dir(f.destination), filepath.Base(f.destination), f.original)
+	if err := os.Chmod(f.destination, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.narrow(t, f.retained)
+	runNativeLifecycleCommand(t, "apply", "--manifest", f.manifest, "--yes", "--manage-existing")
+	before, err := statefile.Decode(testkit.ReadFile(t, f.paths.StatefilePath))
+	if err != nil || len(before.ManagedPaths()) != 0 || len(before.ManagedAggregates()) != 1 {
+		t.Fatal("real keyed producer did not establish the adoption baseline", err)
+	}
+	testkit.AssertFileContent(t, f.destination, f.original)
+	testkit.WriteFile(t, f.workspace, filepath.Base(f.source), string(testkit.ReadFile(t, f.destination)))
+	f.writeMode(t, "document")
+	runNativeLifecycleCommand(t, "lock", "--manifest", f.manifest)
+	return f
+}
+
+func TestNativeDocumentKeyToWholeMatchingAdoption(t *testing.T) {
 	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
-		t.Run(string(selected), func(t *testing.T) {
-			f := newNativeDocumentTransitionFixture(t, selected, target.ScopeGlobal)
-			f.applyWhole(t)
-			f.narrow(t, f.changed)
-			runNativeLifecycleCommand(t, "apply", "--manifest", f.manifest, "--yes")
-			testkit.WriteFile(t, f.workspace, filepath.Base(f.source), string(testkit.ReadFile(t, f.destination)))
-			f.writeMode(t, "document")
-			runNativeLifecycleCommand(t, "lock", "--manifest", f.manifest)
-			before := snapshotNativeRecoveryEvidence(t, f.nativeRecoveryFixture)
-			code, _, _ := invokeNativeRecoveryCommand(t, f.nativeRecoveryFixture, "none", "apply", "--yes", "--manage-existing")
-			if code == 0 || !reflect.DeepEqual(before, snapshotNativeRecoveryEvidence(t, f.nativeRecoveryFixture)) {
-				t.Fatal("unjoined widening reset keys or published state")
+		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
+				f := prepareNativeKeyToWholeFixture(t, selected, scope)
+				before, err := os.Stat(f.destination)
+				if err != nil {
+					t.Fatal(err)
+				}
+				preview := snapshotNativeRecoveryEvidence(t, f.nativeRecoveryFixture)
+				runNativeLifecycleCommand(t, "apply", "--manifest", f.manifest, "--dry-run", "--manage-existing")
+				if !reflect.DeepEqual(preview, snapshotNativeRecoveryEvidence(t, f.nativeRecoveryFixture)) {
+					t.Fatal("whole adoption preview changed host or management evidence")
+				}
+				code, stdout, stderr := invokeNativeRecoveryCommand(t, f.nativeRecoveryFixture, "none", "apply", "--yes", "--manage-existing", "--verbose")
+				if code != 0 {
+					t.Fatalf("matching whole adoption failed: %d %s %s", code, stdout, stderr)
+				}
+				after, err := os.Stat(f.destination)
+				if err != nil || !os.SameFile(before, after) || before.Mode() != after.Mode() || !before.ModTime().Equal(after.ModTime()) {
+					t.Fatal("record-only adoption rewrote the host file or permissions", err)
+				}
+				testkit.AssertFileContent(t, f.destination, f.original)
+				stateBytes := testkit.ReadFile(t, f.paths.StatefilePath)
+				state, err := statefile.Decode(stateBytes)
+				if err != nil || len(state.ManagedAggregates()) != 0 || len(state.ManagedPaths()) != 1 || state.ManagedPaths()[0].ContentHash() != artifact.HashFileContent([]byte(f.original)) {
+					t.Fatal("whole adoption lost its actual baseline or retained key ownership", err)
+				}
+				runNativeLifecycleCommand(t, "status", "--manifest", f.manifest, "--check", "--json")
+				runNativeLifecycleCommand(t, "apply", "--manifest", f.manifest, "--yes")
+				if !bytes.Equal(stateBytes, testkit.ReadFile(t, f.paths.StatefilePath)) {
+					t.Fatal("whole adoption retry changed its completed state")
+				}
+				testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+			})
+		}
+	}
+}
+
+func TestNativeDocumentKeyToWholeRefusesUnsafeAdoption(t *testing.T) {
+	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
+		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+			for _, fault := range []string{"no consent", "different bytes", "stale lock", "mode mismatch", "missing file", "retarget"} {
+				t.Run(string(selected)+"/"+string(scope)+"/"+fault, func(t *testing.T) {
+					f := prepareNativeKeyToWholeFixture(t, selected, scope)
+					other := filepath.Join(filepath.Dir(f.destination), "other"+filepath.Ext(f.destination))
+					switch fault {
+					case "stale lock":
+						testkit.WriteFile(t, filepath.Dir(f.destination), filepath.Base(f.destination), f.changed)
+						testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.changed)
+					case "different bytes":
+						testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.original+"\n")
+						runNativeLifecycleCommand(t, "lock", "--manifest", f.manifest)
+					case "mode mismatch":
+						if err := os.Chmod(f.destination, 0o644); err != nil {
+							t.Fatal(err)
+						}
+					case "missing file":
+						if err := os.Remove(f.destination); err != nil {
+							t.Fatal(err)
+						}
+					case "retarget":
+						testkit.WriteFile(t, filepath.Dir(other), filepath.Base(other), f.original)
+						if err := os.Chmod(other, 0o600); err != nil {
+							t.Fatal(err)
+						}
+						f.declaration = strings.Replace(f.declaration, filepath.Base(f.destination), filepath.Base(other), 1)
+						f.writeMode(t, "document")
+						runNativeLifecycleCommand(t, "lock", "--manifest", f.manifest)
+					}
+					before := snapshotNativeRecoveryPaths(t, f.destination, other, f.paths.StatefilePath, f.paths.OwnershipRegistryPath, f.paths.RecoveryDir)
+					args := []string{"apply", "--yes", "--json"}
+					if fault != "no consent" {
+						args = append(args, "--manage-existing")
+					}
+					code, stdout, stderr := invokeNativeRecoveryCommand(t, f.nativeRecoveryFixture, "none", args...)
+					if code == 0 || !reflect.DeepEqual(before, snapshotNativeRecoveryPaths(t, f.destination, other, f.paths.StatefilePath, f.paths.OwnershipRegistryPath, f.paths.RecoveryDir)) {
+						t.Fatalf("unsafe adoption was accepted or had effects: %d %s %s", code, stdout, stderr)
+					}
+				})
 			}
-		})
+		}
+	}
+}
+
+func TestNativeDocumentKeyToWholePreservesMatchingCurrentDrift(t *testing.T) {
+	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
+		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
+				f := prepareNativeKeyToWholeFixture(t, selected, scope)
+				testkit.WriteFile(t, filepath.Dir(f.destination), filepath.Base(f.destination), f.changed)
+				testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.changed)
+				runNativeLifecycleCommand(t, "lock", "--manifest", f.manifest)
+				before, err := os.Stat(f.destination)
+				if err != nil {
+					t.Fatal(err)
+				}
+				runNativeLifecycleCommand(t, "apply", "--manifest", f.manifest, "--yes", "--manage-existing")
+				after, err := os.Stat(f.destination)
+				if err != nil || !os.SameFile(before, after) || before.Mode() != after.Mode() || !before.ModTime().Equal(after.ModTime()) {
+					t.Fatal("matching current drift was overwritten during whole adoption", err)
+				}
+				testkit.AssertFileContent(t, f.destination, f.changed)
+				runNativeLifecycleCommand(t, "status", "--manifest", f.manifest, "--check")
+			})
+		}
+	}
+}
+
+func TestNativeDocumentKeyToWholeRecovery(t *testing.T) {
+	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
+		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+			for _, boundary := range []string{"before-state", "state"} {
+				t.Run(string(selected)+"/"+string(scope)+"/"+boundary, func(t *testing.T) {
+					f := prepareNativeKeyToWholeFixture(t, selected, scope)
+					beforeState := testkit.ReadFile(t, f.paths.StatefilePath)
+					original, err := os.Stat(f.destination)
+					if err != nil {
+						t.Fatal(err)
+					}
+					code, stdout, stderr := invokeNativeRecoveryCommand(t, f.nativeRecoveryFixture, boundary, "apply", "--yes", "--manage-existing")
+					if code != nativeRecoveryExit {
+						t.Fatalf("adoption did not reach state boundary: %d %s %s", code, stdout, stderr)
+					}
+					if boundary == "before-state" && !bytes.Equal(beforeState, testkit.ReadFile(t, f.paths.StatefilePath)) {
+						t.Fatal("pre-state crash committed the whole baseline")
+					}
+					crashed, err := statefile.Decode(testkit.ReadFile(t, f.paths.StatefilePath))
+					if err != nil {
+						t.Fatal(err)
+					}
+					beforeRecovery := snapshotNativeRecoveryEvidence(t, f.nativeRecoveryFixture)
+					runNativeLifecycleCommand(t, "recover", "--manifest", f.manifest, "--dry-run")
+					if !reflect.DeepEqual(beforeRecovery, snapshotNativeRecoveryEvidence(t, f.nativeRecoveryFixture)) {
+						t.Fatal("adoption recovery dry-run changed retained evidence")
+					}
+					runNativeLifecycleCommand(t, "recover", "--manifest", f.manifest, "--yes")
+					state, err := statefile.Decode(testkit.ReadFile(t, f.paths.StatefilePath))
+					if err != nil || boundary == "before-state" && (len(state.ManagedPaths()) != 0 || len(state.ManagedAggregates()) != 1) || boundary == "state" && (len(state.ManagedPaths()) != 1 || len(state.ManagedAggregates()) != 0) {
+						t.Fatal("adoption recovery confused key/whole commit phases", err)
+					}
+					if !state.Equal(crashed) {
+						t.Fatal("record-only recovery changed the complete committed state")
+					}
+					after, err := os.Stat(f.destination)
+					if err != nil || !os.SameFile(original, after) || original.Mode() != after.Mode() || !original.ModTime().Equal(after.ModTime()) {
+						t.Fatal("adoption recovery replayed a host write", err)
+					}
+					testkit.AssertFileContent(t, f.destination, f.original)
+					runNativeLifecycleCommand(t, "apply", "--manifest", f.manifest, "--yes", "--manage-existing")
+					runNativeLifecycleCommand(t, "status", "--manifest", f.manifest, "--check")
+					testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+				})
+			}
+		}
 	}
 }

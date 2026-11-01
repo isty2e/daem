@@ -27,6 +27,7 @@ import (
 	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/reconcile"
 	reconcilehostroute "github.com/isty2e/daem/internal/reconcile/build/hostroute"
+	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -184,9 +185,11 @@ func buildAssessment(
 
 	states := currentState.ManagedPaths()
 	var narrowings []reconcile.NativeNarrowingAction
+	var wholeAdoptions []reconcileprojection.NativeWholeAdoptionPlan
 	if len(native) != 0 && native[0].preparation != nil {
 		states = native[0].preparation.RemainingManagedPaths()
 		narrowings = native[0].preparation.Narrowings()
+		wholeAdoptions = native[0].preparation.WholeAdoptions()
 	}
 	managedInputs, err := buildManagedPathPlanningInputs(locked, states, selection)
 	if err != nil {
@@ -306,6 +309,7 @@ func buildAssessment(
 		mcpContracts:           mcpContracts,
 		nativeSources:          nativeSources,
 		nativeNarrowings:       narrowings,
+		nativeWholeAdoptions:   wholeAdoptions,
 	})
 	if err != nil {
 		return Assessment{}, err

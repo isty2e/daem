@@ -14,18 +14,20 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/reconcile/build/projection"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 type NativeSourcePreparationInput struct {
-	Environment    desired.Environment
-	Selection      targetselection.Selection
-	SourceEpoch    lockobserve.SourceEpoch
-	Documents      journal.NativeDocumentObservationBatch
-	DocumentLimits configdocument.Limits
-	ValueLimits    configdocument.Limits
+	Environment            desired.Environment
+	Selection              targetselection.Selection
+	SourceEpoch            lockobserve.SourceEpoch
+	Documents              journal.NativeDocumentObservationBatch
+	DocumentLimits         configdocument.Limits
+	ValueLimits            configdocument.Limits
+	ManageUnmanagedMatches bool
 }
 
 // NativeSourcePreparation partitions declaration-mode transitions before generic
@@ -34,6 +36,8 @@ type NativeSourcePreparation struct {
 	sources     []lockobserve.NativeSourceObservation
 	narrowings  []reconcile.NativeNarrowingAction
 	remaining   []durable.ManagedPathState
+	adoptions   []projection.NativeWholeAdoptionPlan
+	aggregates  []durable.ManagedAggregateState
 	initialized bool
 }
 
@@ -50,6 +54,16 @@ func (preparation NativeSourcePreparation) Sources() []lockobserve.NativeSourceO
 
 func (preparation NativeSourcePreparation) Narrowings() []reconcile.NativeNarrowingAction {
 	return slices.Clone(preparation.narrowings)
+}
+
+func (preparation NativeSourcePreparation) WholeAdoptions() []projection.NativeWholeAdoptionPlan {
+	return slices.Clone(preparation.adoptions)
+}
+
+// RemainingManagedAggregates excludes successful state-only whole adoptions
+// from generic key removal. The document batch retains the complete Before.
+func (preparation NativeSourcePreparation) RemainingManagedAggregates() []durable.ManagedAggregateState {
+	return slices.Clone(preparation.aggregates)
 }
 
 // RemainingManagedPaths excludes only baselines consumed by typed narrowings.
@@ -140,10 +154,42 @@ func PrepareNativeSources(ctx context.Context, input NativeSourcePreparationInpu
 			remaining = append(remaining, state)
 		}
 	}
+	beforeKeys := input.Documents.BeforeState().ManagedAggregates()
+	retiredKeys := make(map[topology.SubjectID]struct{})
+	var adoptions []projection.NativeWholeAdoptionPlan
+	for _, source := range sources {
+		placement, _ := source.SourceContract().HostConfigPlacement()
+		if placement.Ownership() != hostconfig.OwnershipDocument || !slices.ContainsFunc(beforeKeys, func(state durable.ManagedAggregateState) bool {
+			owner, _, native := topologyprojection.HostConfigKeyIdentity(state.Subject())
+			return native && owner == source.SourceContract().EntityID()
+		}) {
+			continue
+		}
+		adoption, err := PrepareNativeWholeAdoption(ctx, NativeWholeAdoptionInput{
+			Source: source, Documents: input.Documents, ManageUnmanagedMatches: input.ManageUnmanagedMatches,
+		})
+		if err != nil {
+			return NativeSourcePreparation{}, err
+		}
+		for _, subject := range adoption.RetiredSubjects() {
+			if _, duplicate := retiredKeys[subject]; duplicate {
+				return NativeSourcePreparation{}, fmt.Errorf("native whole adoptions repeat a retiring key")
+			}
+			retiredKeys[subject] = struct{}{}
+		}
+		adoptions = append(adoptions, adoption)
+	}
+	remainingKeys := make([]durable.ManagedAggregateState, 0, len(beforeKeys)-len(retiredKeys))
+	for _, state := range beforeKeys {
+		if _, retired := retiredKeys[state.Subject()]; !retired {
+			remainingKeys = append(remainingKeys, state)
+		}
+	}
 	if err := input.Documents.ValidateBefore(ctx); err != nil {
 		return NativeSourcePreparation{}, err
 	}
 	return NativeSourcePreparation{
-		sources: sources, narrowings: actions, remaining: remaining, initialized: true,
+		sources: sources, narrowings: actions, remaining: remaining,
+		adoptions: adoptions, aggregates: remainingKeys, initialized: true,
 	}, nil
 }

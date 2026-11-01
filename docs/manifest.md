@@ -1520,7 +1520,7 @@ extension commands, even when the whole file is already current. Defer the
 extension commands while whole-document ownership is active, or narrow to keys
 in a separate apply before retrying.
 
-### Whole Files And Narrowing Ownership
+### Whole Files And Ownership Changes
 
 Use `ownership = "document"` for a dedicated file such as `prefs.toml` or
 `prefs.jsonc`. Lock and apply copy its complete source, with exact `0600`
@@ -1542,8 +1542,18 @@ if the file still equals the recorded post-apply image, rollback restores the ex
 pre-operation bytes and permissions. Otherwise it restores only selected values,
 preserving edits to released keys and unrelated comments; a third selected value
 blocks recovery. After commit, recovery finalizes without replaying host writes.
-Switching from key ownership to whole-file ownership and capturing current host
-configuration as a source remain unsupported.
+
+To switch from key ownership to whole-file ownership, keep the declaration's `id`,
+target, scope and path, and set `ownership` to `document`. Its source must exactly
+match the current host file, including comments and formatting, and the host file
+must already have `0600` permissions. Relock and preview with
+`daem apply --dry-run --manage-existing`, then run `daem apply --manage-existing`.
+This records whole-file ownership and retires the declaration's
+key records without rewriting the file or changing its permissions. A missing file,
+different content, or another declaration's ownership blocks the switch; this is
+not a way to reset a changed host file.
+
+Capturing current host configuration as a source remains unsupported.
 
 ## Lock Behavior
 

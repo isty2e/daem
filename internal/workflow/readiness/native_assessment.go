@@ -96,7 +96,7 @@ func prepareNativeAssessmentSources(ctx context.Context, input Input, before dur
 	}
 	if input.Native != nil && input.Native.Documents != nil {
 		limits := input.Native.Documents.DocumentLimits()
-		prepared, err := PrepareNativeSources(ctx, NativeSourcePreparationInput{Environment: input.Environment, Selection: input.Selection, SourceEpoch: epoch, Documents: *input.Native.Documents, DocumentLimits: limits, ValueLimits: limits})
+		prepared, err := PrepareNativeSources(ctx, NativeSourcePreparationInput{Environment: input.Environment, Selection: input.Selection, SourceEpoch: epoch, Documents: *input.Native.Documents, DocumentLimits: limits, ValueLimits: limits, ManageUnmanagedMatches: input.ManageUnmanagedMatches})
 		if err != nil {
 			return nativeAssessmentSources{}, err
 		}

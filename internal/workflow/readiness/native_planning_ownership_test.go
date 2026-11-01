@@ -30,6 +30,35 @@ func nativePlanningKey(t *testing.T, names ...string) output.Footprint {
 	return footprint
 }
 
+func TestNativeSourcePreparationJoinsOnlySuccessfulWholeAdoptions(t *testing.T) {
+	for _, variant := range []string{"matched", "no consent", "foreign claim", "reserved claim"} {
+		t.Run(variant, func(t *testing.T) {
+			fixture := newNativePlanningFixture(t, target.ScopeGlobal, "extension-settings/test.json")
+			if variant == "foreign claim" || variant == "reserved claim" {
+				fixture.persistBefore(t, fixture.observation.Before, []ownership.Claim{fixture.foreignClaim(t, variant == "reserved claim")})
+			}
+			fixture.input.ManageUnmanagedMatches = variant != "no consent"
+			before := fixture.input.Documents.BeforeState()
+			reads, remaining := fixture.reader.reads, fixture.observation.Budget.RemainingBytes()
+			prepared, err := PrepareNativeSources(t.Context(), fixture.input)
+			if err != nil || prepared.Validate() != nil || len(prepared.WholeAdoptions()) != 1 {
+				t.Fatal("source partition did not join its real whole-adoption decision", err)
+			}
+			adoption := prepared.WholeAdoptions()[0]
+			if variant == "matched" {
+				if adoption.Decision().Kind() != reconcile.ManagedPathRecord || len(adoption.RetiredSubjects()) != 1 || len(prepared.RemainingManagedAggregates()) != 0 {
+					t.Fatal("matched adoption sent retired ownership through generic key deletion")
+				}
+			} else if !adoption.Decision().IsBlocked() || len(adoption.RetiredSubjects()) != 0 || len(prepared.RemainingManagedAggregates()) != 1 || !prepared.RemainingManagedAggregates()[0].Equal(before.ManagedAggregates()[0]) {
+				t.Fatal("blocked adoption consumed its prior ownership baseline")
+			}
+			if !fixture.input.Documents.BeforeState().Equal(before) || fixture.reader.reads != reads || fixture.observation.Budget.RemainingBytes() != remaining || fixture.observation.Budget.RequireCapturePending() != nil {
+				t.Fatal("source partition replaced complete Before, reread ownership or advanced capture")
+			}
+		})
+	}
+}
+
 func TestNativeWholeProducerUsesActualBeforeWithoutHostMutation(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		for _, oldKeyDrift := range []bool{false, true} {

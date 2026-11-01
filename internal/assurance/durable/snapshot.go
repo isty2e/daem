@@ -211,6 +211,13 @@ func (snapshot Snapshot) HostRouteAttempts() []durableattempt.HostRouteAttempt {
 	return append([]durableattempt.HostRouteAttempt(nil), snapshot.hostRouteAttempts...)
 }
 
+// WithManagedProjections replaces both projection families as one valid state.
+func (snapshot Snapshot) WithManagedProjections(paths []ManagedPathState, aggregates []ManagedAggregateState) (Snapshot, error) {
+	input := snapshot.input()
+	input.ManagedPaths, input.ManagedAggregates = paths, aggregates
+	return NewSnapshot(input)
+}
+
 // WithManagedPaths replaces the complete managed-path baseline family.
 func (snapshot Snapshot) WithManagedPaths(values []ManagedPathState) (Snapshot, error) {
 	input := snapshot.input()

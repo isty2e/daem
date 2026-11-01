@@ -46,6 +46,7 @@ type assessmentPlanInput struct {
 	mcpContracts           []lock.LockedSubjectContract
 	nativeSources          []lockobserve.NativeSourceObservation
 	nativeNarrowings       []reconcile.NativeNarrowingAction
+	nativeWholeAdoptions   []reconcileprojection.NativeWholeAdoptionPlan
 }
 
 // assembleAssessment classifies observed facts into Assessment. It performs
@@ -107,6 +108,7 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 		ownership:               input.ownershipObservations,
 		codecs:                  input.codecs,
 		nativeNarrowings:        input.nativeNarrowings,
+		nativeWholeAdoptions:    input.nativeWholeAdoptions,
 	})
 	if err != nil {
 		return Assessment{}, err

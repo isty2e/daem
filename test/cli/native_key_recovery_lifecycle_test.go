@@ -645,6 +645,9 @@ func (store *nativeRecoveryStore) ReplaceRootedFile(ctx context.Context, capabil
 	if err != nil {
 		return err
 	}
+	if store.boundary == "before-state" && path == store.state {
+		os.Exit(nativeRecoveryExit)
+	}
 	if err := store.Adapter.ReplaceRootedFile(ctx, capability, content, mode, expected); err != nil {
 		return err
 	}

@@ -134,6 +134,9 @@ func buildManagedAggregatePlanningInputs(
 		}
 	}
 	states := currentState.ManagedAggregates()
+	if len(native) != 0 && native[0].preparation != nil {
+		states = native[0].preparation.RemainingManagedAggregates()
+	}
 	observations, err := observeAggregateDocuments(
 		ctx,
 		resolver,
