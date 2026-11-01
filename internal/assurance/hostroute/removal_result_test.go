@@ -69,6 +69,24 @@ func TestClassifyResultAbsentPostconditionRejectsStillPresentRelation(t *testing
 	)
 }
 
+func TestFailedRemovalAttemptDoesNotSatisfyAnObservedPresentRelation(t *testing.T) {
+	fixture, command := resultFixture(t)
+	result, err := ClassifyResult(ResultInput{
+		Subject: command.Subject(), RouteRequest: command.RouteRequest(), Attempt: failedAttempt(t),
+		Observation: observationFact(t, fixture, observeclaudeplugin.InventorySpec{
+			Availability: observerelation.InventorySupported, Freshness: observerelation.EvidenceFresh,
+			Rows: []observeclaudeplugin.Row{mustClaudeRow(t, "context7@market", string(fixture.subject.ExpectedRelation().ManagedInstanceKey()), true)},
+		}),
+		RequiredPostcondition: RequireRelationPostcondition(RelationPostconditionAbsent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Class() != ResultFailed || result.PostconditionsSatisfied() || result.PostconditionSummary() != observerelation.PostconditionFailed {
+		t.Fatalf("failed removal confused fresh presence with required absence: %+v", result.StateSummary())
+	}
+}
+
 func TestClassifyResultAbsentPostconditionDoesNotAcceptExternalSameSubject(t *testing.T) {
 	fixture, command := resultFixture(t)
 	result, err := ClassifyResult(ResultInput{

@@ -426,6 +426,9 @@ func postconditionSummary(
 	if requiredPostcondition.Accepts(observation.result.State()) {
 		return observerelation.PostconditionObserved
 	}
+	if observation.result.State() == observerelation.StateExactCorrelation {
+		return observerelation.PostconditionFailed
+	}
 	return observerelation.SummarizePostcondition(observation.result.State())
 }
 
