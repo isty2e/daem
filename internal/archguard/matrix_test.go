@@ -301,7 +301,7 @@ func TestWorkflowReadinessCompositionEdgesAreExact(t *testing.T) {
 }
 
 func TestWorkflowNativeConfigCompositionEdgesAreExact(t *testing.T) {
-	for _, packagePath := range []string{"internal/workflow/lock", "internal/workflow/apply", "internal/workflow/status", "internal/workflow/recover"} {
+	for _, packagePath := range []string{"internal/workflow/lock", "internal/workflow/apply", "internal/workflow/status", "internal/workflow/refresh", "internal/workflow/recover"} {
 		violations := analyzeImports(packagePath, []string{"example.com/project/internal/workflow/nativeconfig"})
 		if len(violations) != 0 {
 			t.Errorf("admitted native composition edge %s: %+v", packagePath, violations)
@@ -318,6 +318,8 @@ func TestWorkflowNativeConfigCompositionEdgesAreExact(t *testing.T) {
 		{"internal/workflow/nativeconfig", "internal/workflow/status"},
 		{"internal/workflow/recover", "internal/workflow/nativeconfig/private"},
 		{"internal/workflow/recover/other", "internal/workflow/nativeconfig"},
+		{"internal/workflow/refresh/other", "internal/workflow/nativeconfig"},
+		{"internal/workflow/refresh", "internal/workflow/readiness"},
 	} {
 		violations := analyzeImports(edge.from, []string{"example.com/project/" + edge.to})
 		assertViolationRule(t, violations, ruleWorkflowNestedImport)

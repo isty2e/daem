@@ -1495,6 +1495,8 @@ version blocks application; it is not treated as a missing package to reinstall.
 Other hosts' extension changes remain unsupported. Preview and confirmed apply
 refuse unsupported combinations before effects. An already-current extension does not
 by itself block direct changes or trigger another installation.
+Pi refresh also supports already-applied keys; it does not apply pending settings
+changes. See [refresh extension](cli.md#refresh-extension) for its checks and limits.
 For a Pi settings layer containing managed keys, package order is reconciled from
 the settings observed after extension commands, together with remaining direct work.
 Newly discovered managed/foreign precedence

@@ -55,6 +55,7 @@ const (
 	ReasonObservationUnavailable        ReasonCode = "observation_unavailable"
 	ReasonStalePlan                     ReasonCode = "stale_plan"
 	ReasonMutationAuthority             ReasonCode = "mutation_authority"
+	ReasonNativeSettings                ReasonCode = "native_settings_unqualified"
 	ReasonInterruptedApply              ReasonCode = "interrupted_apply"
 	ReasonInterruptedApplyFileSetFence  ReasonCode = "interrupted_apply_file_set_fence"
 	ReasonJournalCleanupIncomplete      ReasonCode = "journal_cleanup_incomplete"
@@ -321,4 +322,6 @@ type plan struct {
 	authority         authorityEvidence
 	revisions         mutation.RevisionSet
 	barrier           recoverygate.EffectAuthority
+	native            *nativeRefreshInputs
+	protectionFence   refreshProtectionFence
 }

@@ -572,6 +572,11 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if boundary == "native-refresh-command" {
+		if err := os.Setenv("DAEM_TEST_REFRESH_PARENT_PID", fmt.Sprint(os.Getpid())); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if nativeInvocation {
 		store.boundary = strings.TrimPrefix(boundary, "native-ordinary-")
 		store.waitHost = true

@@ -1888,6 +1888,15 @@ host-owned, and trust refusal or no match is a host failure. Daem adds no
 approval, self-update, model-update, or bulk-update flags. See [host
 integrations](host-integrations.md) for route details.
 
+With managed settings keys, Pi refresh requires those keys to be already applied
+and current; it does not apply changed settings sources. It checks selected values
+in each managed settings layer and preserves other captured content outside the
+refreshed package's rows. Unexpected key/content changes or broadened file access
+make refresh fail without automatic content repair. Broadened access is restricted
+even when the host command fails; interruption may require `daem recover` before
+another refresh. Other hosts' refresh routes are not yet supported alongside
+managed settings keys.
+
 Antigravity explicit-global refresh repeats the locked install route rather than
 using a dedicated update command. Local evidence can show bundle replacement and
 malformed `plugin.json` rejection; remote and marketplace resolution remains

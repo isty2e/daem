@@ -301,6 +301,12 @@ func (environment Environment) HostConfigOnly(id entity.ID) (Environment, error)
 	return Environment{}, fmt.Errorf("host-config declaration %q was not found", id)
 }
 
+// HostConfigsOnly retains native declarations and canonical defaults without
+// introducing source work for another resource family.
+func (environment Environment) HostConfigsOnly() (Environment, error) {
+	return New(Spec{Targets: environment.Targets(), Defaults: environment.defaults, HostConfigs: environment.HostConfigs()})
+}
+
 // Targets returns normalized top-level targets in authored order.
 func (environment Environment) Targets() []target.Target { return environment.targets.Values() }
 

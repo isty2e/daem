@@ -111,6 +111,8 @@ func (result CommandResult) failureDetail() string {
 		return "the authorized refresh plan is stale"
 	case ReasonMutationAuthority:
 		return "required mutation authority is unavailable"
+	case ReasonNativeSettings:
+		return "managed settings are not current or could not be qualified for refresh"
 	case ReasonInterruptedApply:
 		return "interrupted apply journal is present; run daem recover first"
 	case ReasonInterruptedApplyFileSetFence:

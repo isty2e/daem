@@ -20,6 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/recoverygate"
+	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
@@ -418,6 +419,17 @@ func planAtPathsWithBarrier(
 		pinClaimRegistry:  pinClaimRegistry,
 		currentState:      currentState,
 		timeout:           timeout,
+	}
+	planned.native, err = planNativeRefresh(ctx, paths, environment, locked, currentState)
+	if err != nil {
+		return refusedPlan(result, ReasonNativeSettings, err, "run daem status and daem recover --dry-run; apply selected settings before refresh; resolve host-value drift through explicit replace host-config")
+	}
+	if planned.native != nil && selected.Target() != target.TargetPi {
+		return refusedPlan(result, ReasonRefreshUnsupported, fmt.Errorf("native settings protection for this refresh host is not connected"), "this host refresh cannot yet run with managed settings; use status and preserve the current settings")
+	}
+	planned.protectionFence, err = observeRefreshProtectionFence(ctx, paths, selected.Target())
+	if err != nil {
+		return refusedPlan(result, ReasonNativeSettings, err, "run daem recover --dry-run before another refresh; changing declarations does not clear pending permission protection")
 	}
 	if barrier != nil {
 		planned.barrier = *barrier

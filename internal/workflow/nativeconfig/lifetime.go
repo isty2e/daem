@@ -12,9 +12,15 @@ import (
 // execution finishes. It supplies no mutation authority.
 type AssessmentOperation struct {
 	assessment readiness.Assessment
-	native     *readiness.NativeAssessmentInput
-	roots      []*rootedpath.CapturedRoot
-	closed     bool
+	documents  *DocumentObservation
+}
+
+// DocumentObservation retains native roots and loaded evidence only. The
+// containing operation owns the borrowed persistence allocation and authority.
+type DocumentObservation struct {
+	native *readiness.NativeAssessmentInput
+	roots  []*rootedpath.CapturedRoot
+	closed bool
 }
 
 func AssessRetained(ctx context.Context, input readiness.Input) (*AssessmentOperation, error) {
@@ -47,6 +53,13 @@ func (operation *AssessmentOperation) Assessment() readiness.Assessment {
 }
 
 func (operation *AssessmentOperation) NativeInput() (readiness.NativeAssessmentInput, bool) {
+	if operation == nil {
+		return readiness.NativeAssessmentInput{}, false
+	}
+	return operation.documents.NativeInput()
+}
+
+func (operation *DocumentObservation) NativeInput() (readiness.NativeAssessmentInput, bool) {
 	if operation == nil || operation.closed || operation.native == nil {
 		return readiness.NativeAssessmentInput{}, false
 	}
@@ -54,6 +67,13 @@ func (operation *AssessmentOperation) NativeInput() (readiness.NativeAssessmentI
 }
 
 func (operation *AssessmentOperation) Close() error {
+	if operation == nil {
+		return nil
+	}
+	return operation.documents.Close()
+}
+
+func (operation *DocumentObservation) Close() error {
 	if operation == nil || operation.closed {
 		return nil
 	}

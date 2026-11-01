@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +19,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/executionidentity"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -34,22 +32,15 @@ import (
 )
 
 type nativeInvocationProgram struct {
-	keys      []nativeInvocationKey
-	documents []nativeInvocationRead
+	documents nativeconfig.InvocationDocuments
 	state     rootedpath.PathLayout
 	commands  map[string]*nativePreparedInvocation
-}
-
-type nativeInvocationRead struct {
-	layout  rootedpath.PathLayout
-	aliases []aggregate.DocumentAddress
-	syntax  configdocument.Syntax
 }
 
 type nativePreparedInvocation struct {
 	protection *protection.InvocationLayout
 	reads      recovery.InvocationWorkReservation
-	rewrite    nativeInvocationRewrite
+	rewrite    nativeconfig.InvocationRewrite
 	used       bool
 }
 
@@ -93,29 +84,17 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 		return nil, err
 	}
 	program := &nativeInvocationProgram{commands: make(map[string]*nativePreparedInvocation)}
-	program.keys, err = nativeInvocationKeys(ctx, current.assessment.NativeSources)
+	native, present := current.nativeOperation.NativeInput()
+	if !present {
+		return nil, fmt.Errorf("native invocation requires its retained document operation")
+	}
+	program.documents, err = nativeconfig.PrepareInvocationDocuments(ctx, current.context.Paths, native, current.assessment.NativeSources)
 	if err != nil {
 		return nil, err
 	}
 	program.state, err = rootedpath.CaptureDirectoryEntryLayoutBounded(current.context.Paths.StatefilePath, recovery.MaximumPhysicalPathDepth, input.Budget)
 	if err != nil {
 		return nil, err
-	}
-	for _, namespace := range input.Documents.Namespaces() {
-		aliases := namespace.Addresses()
-		path, err := destinationResolver(current.context.Paths).Resolve(aliases[0].AggregateRoot())
-		if err != nil {
-			return nil, err
-		}
-		layout, err := rootedpath.CaptureDirectoryEntryLayoutBounded(path, recovery.MaximumPhysicalPathDepth, input.Budget)
-		if err != nil {
-			return nil, err
-		}
-		syntax, err := nativeInvocationSyntax(current, aliases)
-		if err != nil {
-			return nil, err
-		}
-		program.documents = append(program.documents, nativeInvocationRead{layout: layout, aliases: aliases, syntax: syntax})
 	}
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
@@ -145,18 +124,7 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 			return nil, err
 		}
 		prepared := &nativePreparedInvocation{rewrite: rewrite}
-		var reads, correlation nativeInvocationWork
-		for range 2 {
-			for _, document := range program.documents {
-				if err := document.layout.ReserveDestinationCapture(recovery.MaximumPhysicalPathDepth, &reads); err != nil {
-					return nil, err
-				}
-				if err := document.layout.ReserveDestinationAccess(recovery.MaximumPhysicalPathDepth, &reads); err != nil {
-					return nil, err
-				}
-				reads.bytes += nativeconfig.DocumentLimits().MaximumBytes
-			}
-		}
+		var correlation nativeInvocationWork
 		if err := program.state.ReserveDestinationCapture(recovery.MaximumPhysicalPathDepth, &correlation); err != nil {
 			return nil, err
 		}
@@ -193,16 +161,9 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 				return nil, err
 			}
 			prepared.protection = &layout
-		} else {
-			reads.paths = append(reads.paths, correlation.paths...)
-			reads.entries += correlation.entries
-			reads.bytes += correlation.bytes
+			correlationWork = recovery.InvocationWork{}
 		}
-		readWork, err := reads.compile()
-		if err != nil {
-			return nil, err
-		}
-		prepared.reads, err = input.Budget.ReserveInvocation(readWork, recovery.InvocationWork{})
+		prepared.reads, err = program.documents.ReserveReads(input.Budget, correlationWork)
 		if err != nil {
 			return nil, err
 		}
@@ -218,121 +179,53 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 	return program, nil
 }
 
-func nativeInvocationSyntax(current commandPlan, aliases []aggregate.DocumentAddress) (configdocument.Syntax, error) {
-	for _, source := range current.assessment.NativeSources {
-		placement, _ := source.SourceContract().HostConfigPlacement()
-		for _, alias := range aliases {
-			if alias.Target() == placement.Target() && alias.Scope() == placement.Scope() && alias.AggregateRoot() == placement.Destination() {
-				return configdocument.ParseSyntax(string(placement.Grammar()))
-			}
-		}
-	}
-	for _, state := range current.assessment.CurrentState.ManagedAggregates() {
-		name, native := aggregate.HostConfigSyntaxForCodec(state.Contribution().CodecContractID())
-		if native {
-			for _, alias := range aliases {
-				if alias == state.Contribution().Contract().Address().Document() {
-					return configdocument.ParseSyntax(name)
-				}
-			}
-		}
-	}
-	return 0, fmt.Errorf("native invocation document has no selected syntax")
-}
-
-func nativePiInvocationRewrite(current commandPlan, key desiredextension.CarrierKey) (nativeInvocationRewrite, error) {
+func nativePiInvocationRewrite(current commandPlan, key desiredextension.CarrierKey) (nativeconfig.InvocationRewrite, error) {
 	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: key.Target(), Scope: key.Scope(), Path: "settings.json", Ownership: hostconfig.OwnershipKeys})
 	if err != nil {
-		return nativeInvocationRewrite{}, err
+		return nativeconfig.InvocationRewrite{}, err
 	}
 	wanted, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
 	if err != nil {
-		return nativeInvocationRewrite{}, err
+		return nativeconfig.InvocationRewrite{}, err
 	}
 	physical, err := destinationResolver(current.context.Paths).Resolve(placement.Destination())
 	if err != nil {
-		return nativeInvocationRewrite{}, err
+		return nativeconfig.InvocationRewrite{}, err
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nativeInvocationRewrite{}, err
+		return nativeconfig.InvocationRewrite{}, err
 	}
 	sourceContext, err := extensiontopology.NewLocalSourceContext(filepath.Dir(physical), home)
 	if err != nil {
-		return nativeInvocationRewrite{}, err
+		return nativeconfig.InvocationRewrite{}, err
 	}
 	selectedSource := key.Source().Ref()
 	interpreted, err := extensiontopology.InterpretCarrierSource(key)
 	if err != nil {
-		return nativeInvocationRewrite{}, err
+		return nativeconfig.InvocationRewrite{}, err
 	}
 	if interpreted.Class() == extensiontopology.CarrierSourceLocal {
 		commandContext, err := extensiontopology.NewLocalSourceContext(current.context.Paths.ManifestRoot, home)
 		if err != nil {
-			return nativeInvocationRewrite{}, err
+			return nativeconfig.InvocationRewrite{}, err
 		}
 		absolute, err := interpreted.ResolveLocal(commandContext)
 		if err != nil {
-			return nativeInvocationRewrite{}, err
+			return nativeconfig.InvocationRewrite{}, err
 		}
 		selectedSource = absolute.Path()
 	}
 	for _, group := range current.assessment.NativeApproval {
 		for _, address := range group.Aliases {
 			if address == wanted {
-				return nativeInvocationRewrite{aliases: append([]aggregate.DocumentAddress(nil), group.Aliases...), preserve: func(ctx context.Context, before, after configdocument.Document) (bool, error) {
+				return nativeconfig.InvocationRewrite{Aliases: append([]aggregate.DocumentAddress(nil), group.Aliases...), Preserve: func(ctx context.Context, before, after configdocument.Document) (bool, error) {
 					return pipackage.PreservesOutsidePackageRewrite(ctx, before, after, selectedSource, key.Scope(), sourceContext)
 				}}, nil
 			}
 		}
 	}
-	return nativeInvocationRewrite{}, nil
-}
-
-func (program *nativeInvocationProgram) read(ctx context.Context, budget *recovery.PhysicalWorkBudget) (map[aggregate.DocumentAddress]configdocument.Document, error) {
-	documents := make(map[aggregate.DocumentAddress]configdocument.Document)
-	for _, selected := range program.documents {
-		document, err := selected.read(ctx, budget)
-		if err != nil {
-			return nil, err
-		}
-		for _, alias := range selected.aliases {
-			documents[alias] = document
-		}
-	}
-	return documents, nil
-}
-
-func (selected nativeInvocationRead) read(ctx context.Context, budget *recovery.PhysicalWorkBudget) (document configdocument.Document, returnErr error) {
-	root, destination, err := selected.layout.CaptureDestinationBounded(recovery.MaximumPhysicalPathDepth, budget)
-	if err != nil {
-		return document, err
-	}
-	defer func() { returnErr = errors.Join(returnErr, root.Close()) }()
-	capability, err := root.AcquireBounded(destination, recovery.MaximumPhysicalPathDepth, budget)
-	if err != nil {
-		return document, err
-	}
-	content, _, _, readErr := storagecommit.ReadRootedRegularFileUpTo(ctx, capability, nativeconfig.DocumentLimits().MaximumBytes)
-	closeErr := capability.Close()
-	charged := int64(len(content))
-	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
-		charged = nativeconfig.DocumentLimits().MaximumBytes
-	}
-	work, err := recovery.NewArtifactWork(0, charged)
-	if err == nil {
-		err = budget.AdmitTree(work)
-	}
-	if err := errors.Join(closeErr, err, ctx.Err()); err != nil {
-		return document, err
-	}
-	if errors.Is(readErr, fs.ErrNotExist) {
-		return configdocument.Absent(selected.syntax, nativeconfig.DocumentLimits())
-	}
-	if readErr != nil {
-		return document, readErr
-	}
-	return configdocument.Parse(ctx, content, selected.syntax, nativeconfig.DocumentLimits())
+	return nativeconfig.InvocationRewrite{}, nil
 }
 
 func (program *nativeInvocationProgram) commitCorrelation(ctx context.Context, budget *recovery.PhysicalWorkBudget, commit func(*rootedpath.EntryAuthority) (durable.Snapshot, error)) (state durable.Snapshot, returnErr error) {
@@ -369,16 +262,18 @@ func (program *nativeInvocationProgram) execute(ctx context.Context, executor su
 	if err != nil {
 		return attempt, false, err
 	}
-	var before map[aggregate.DocumentAddress]configdocument.Document
+	var before nativeconfig.InvocationBaseline
+	preparedContent := false
 	prepare := func(ctx context.Context, budget *recovery.PhysicalWorkBudget) error {
 		var err error
-		before, err = program.read(ctx, reads)
+		before, err = program.documents.Read(ctx, reads)
 		if err != nil {
 			return err
 		}
-		if err := qualifyNativeInvocationDocuments(ctx, program.keys, before, before, nativeInvocationRewrite{}); err != nil {
+		if err := program.documents.Qualify(ctx, before, before, nil); err != nil {
 			return err
 		}
+		preparedContent = true
 		return correlation(ctx, budget)
 	}
 	if prepared.protection != nil {
@@ -404,10 +299,10 @@ func (program *nativeInvocationProgram) execute(ctx context.Context, executor su
 		})
 		observed = true
 	}
-	if observed && before != nil {
-		after, err := program.read(ctx, reads)
+	if observed && preparedContent {
+		after, err := program.documents.Read(ctx, reads)
 		if err == nil {
-			err = qualifyNativeInvocationDocuments(ctx, program.keys, before, after, prepared.rewrite)
+			err = program.documents.Qualify(ctx, before, after, []nativeconfig.InvocationRewrite{prepared.rewrite})
 		}
 		returnErr = errors.Join(returnErr, err)
 	}
