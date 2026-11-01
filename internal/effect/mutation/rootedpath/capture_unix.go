@@ -160,6 +160,16 @@ func resolveDirectoryPathPlatform(
 	readableFinal bool,
 	traversal *physicalTraversal,
 ) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
+	return resolveNativePathPlatform(selectedPath, allowMissing, readableFinal, false, traversal)
+}
+
+func resolveNativePathPlatform(
+	selectedPath string,
+	allowMissing bool,
+	readableFinal bool,
+	allowFinalEntry bool,
+	traversal *physicalTraversal,
+) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
 	root, names, err := splitAbsoluteRawPath(selectedPath)
 	if err != nil {
 		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, nil, err
@@ -243,6 +253,9 @@ func resolveDirectoryPathPlatform(
 			return fail(newFailure(FailureRootUnavailable, candidatePath, "inspect destination ancestor", inspectErr))
 		}
 		if stat.Mode&unix.S_IFMT == unix.S_IFLNK {
+			if traversal != nil && traversal.rejectAliases {
+				return fail(newFailure(FailureAncestorSymlink, candidatePath, "prepared physical path contains an alias", nil))
+			}
 			symlinks++
 			if symlinks > maximumPathSymlinkExpansions {
 				return fail(newFailure(
@@ -264,6 +277,13 @@ func resolveDirectoryPathPlatform(
 					unix.ENOENT,
 				))
 			}
+			if traversal != nil && traversal.captureAliases {
+				anchor, err := captureLayoutAnchor(parent)
+				if err != nil {
+					return fail(err)
+				}
+				traversal.aliases = append(traversal.aliases, layoutAlias{parent: anchor, name: component.name, target: target})
+			}
 			absoluteTarget, targetNames := rawPathComponents(target)
 			if absoluteTarget {
 				for len(platform.directories) > 1 {
@@ -278,6 +298,16 @@ func resolveDirectoryPathPlatform(
 			continue
 		}
 		if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
+			if allowFinalEntry && len(pending) == 0 {
+				if err := traversal.validateResolvedDepth(len(platform.directories)); err != nil {
+					return fail(err)
+				}
+				object, mount, suffix, identityErr := resolvedDirectoryIdentity(platform, []string{component.name})
+				if identityErr != nil {
+					return fail(identityErr)
+				}
+				return resolvedDirectoryPath(platform), platform, object, mount, suffix, nil
+			}
 			return fail(newFailure(
 				FailureRootUnavailable,
 				candidatePath,
