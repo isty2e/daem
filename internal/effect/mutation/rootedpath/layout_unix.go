@@ -100,14 +100,24 @@ func validateLayoutAnchor(anchor layoutAnchor, traversal *physicalTraversal) (re
 		return err
 	}
 	defer func() { returnErr = errors.Join(returnErr, closeCapturedRootPlatform(&platform)) }()
-	current, err := captureLayoutAnchor(platform.directories[len(platform.directories)-1])
-	if err != nil {
-		return err
+	return validateCapturedLayoutAnchorPlatform(platform, anchor)
+}
+
+func validateCapturedLayoutAnchorPlatform(platform capturedRootPlatform, anchor layoutAnchor) error {
+	for _, directory := range platform.directories {
+		if directory.path != anchor.path {
+			continue
+		}
+		current, err := captureLayoutAnchor(directory)
+		if err != nil {
+			return err
+		}
+		if current != anchor {
+			return newFailure(FailureRootReplaced, anchor.path, "prepared path parent changed", nil)
+		}
+		return nil
 	}
-	if current != anchor {
-		return newFailure(FailureRootReplaced, anchor.path, "prepared path parent changed", nil)
-	}
-	return nil
+	return newFailure(FailureRootReplaced, anchor.path, "captured root does not retain the prepared parent", nil)
 }
 
 func validateLayoutAlias(alias layoutAlias, traversal *physicalTraversal, budget PathObservationBudget) (returnErr error) {

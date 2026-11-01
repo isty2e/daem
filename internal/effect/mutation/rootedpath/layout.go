@@ -1,6 +1,7 @@
 package rootedpath
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 )
@@ -53,8 +54,8 @@ func (layout PathLayout) ResolveBounded(maximumPhysicalDepth int, budget PathObs
 	return resolvePathLayoutPlatform(layout, maximumPhysicalDepth, budget)
 }
 
-// CaptureDestinationBounded validates the prepared layout, then captures a
-// fresh destination without resolving any newly introduced alias.
+// CaptureDestinationBounded binds a fresh destination to the prepared parent
+// identity without resolving any newly introduced alias.
 func (layout PathLayout) CaptureDestinationBounded(maximumPhysicalDepth int, budget PathObservationBudget) (*CapturedRoot, Destination, error) {
 	if _, _, err := layout.ResolveBounded(maximumPhysicalDepth, budget); err != nil {
 		return nil, Destination{}, err
@@ -64,7 +65,14 @@ func (layout PathLayout) CaptureDestinationBounded(maximumPhysicalDepth int, bud
 		return nil, Destination{}, err
 	}
 	traversal.rejectAliases = true
-	return captureCanonicalDestinationBounded(layout.path, traversal)
+	captured, destination, err := captureCanonicalDestinationBounded(layout.path, traversal)
+	if err != nil {
+		return nil, Destination{}, err
+	}
+	if err := validateCapturedLayoutAnchorPlatform(captured.platform, layout.anchor); err != nil {
+		return nil, Destination{}, errors.Join(err, captured.Close())
+	}
+	return captured, destination, nil
 }
 
 // ReserveDestinationCapture projects validation plus fresh destination capture.
