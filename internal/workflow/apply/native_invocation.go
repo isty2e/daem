@@ -199,7 +199,7 @@ func nativeInvocationRewrite(current commandPlan, key desiredextension.CarrierKe
 			}
 		}
 		return nativeconfig.InvocationRewrite{}, nil
-	case desiredextension.CarrierClaudeCodePlugin, desiredextension.CarrierAntigravityCLIPlugin:
+	case desiredextension.CarrierClaudeCodePlugin, desiredextension.CarrierAntigravityCLIPlugin, desiredextension.CarrierOpenCodePlugin:
 		return nativeconfig.InvocationRewrite{}, nil
 	default:
 		return nativeconfig.InvocationRewrite{}, fmt.Errorf("native invocation rewrite profile is unavailable")

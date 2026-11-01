@@ -513,6 +513,12 @@ its selected source-kind effects do not grant prune. Explicit refresh remains
 separate from selecting a new Pi Git pin in apply. No per-contribution disable is
 supported.
 
+OpenCode installation, explicit refresh, direct removal and order updates can
+accompany managed Codex/Pi settings keys when its four config candidates are
+physically separate from those managed files. Missing alternatives remain absent;
+an unverified removal stays pending. See
+[host configuration](manifest.md#host-configuration) for sequencing and recovery.
+
 ### Managed Pi Git Pins
 
 For an already managed Pi Git package, change only the commit in

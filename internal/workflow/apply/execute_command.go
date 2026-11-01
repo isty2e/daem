@@ -630,7 +630,9 @@ func executeWithDependencies(
 					if options.NativeFilesystem != nil {
 						input.Filesystem = options.NativeFilesystem
 					}
-					return executeNativeOrderedSegment(ctx, current.context.Paths, current.context.RuntimeEnvironment, current.context.Lockfile, current.context.Selection, reconciliation, input, plan, executionOptions)
+					// Exact classes also need fresh qualification; journal mutations
+					// alone do not cover the final order checks.
+					return executeNativeOrderedSegment(ctx, current.context.Paths, current.context.RuntimeEnvironment, current.context.Lockfile, current.context.Selection, reconciliation, input, plan, current.nativePlan.orders, executionOptions)
 				}
 			}
 			executionOptions.afterNativeProviders = func(ctx context.Context, state durable.Snapshot, claims durablecarrier.GlobalCarrierClaims, stable mutation.OperationFingerprint) (_ applyContinuationPlan, returnErr error) {

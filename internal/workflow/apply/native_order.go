@@ -14,6 +14,24 @@ import (
 )
 
 func prepareNativeOrderConvergence(ctx context.Context, paths daempaths.Paths, locked lock.File, reconciliation reconcile.Result, orders []pipackage.OrderObservation, options runOptions) (relationOrderRunResult, error) {
+	classes := make(map[hostrelation.OrderClassID]struct{}, len(orders))
+	expectedMutations := 0
+	for _, order := range orders {
+		classes[order.Sequence().ClassID()] = struct{}{}
+		if order.Changed() {
+			expectedMutations++
+		}
+	}
+	var selected []reconcile.RelationOrderDecision
+	for _, decision := range reconciliation.RelationOrders() {
+		if _, owned := classes[decision.ClassID()]; owned {
+			selected = append(selected, decision)
+		}
+	}
+	reconciliation, err := reconciliation.WithRelationOrders(selected)
+	if err != nil {
+		return relationOrderRunResult{}, err
+	}
 	prepared, err := prepareRelationOrderConvergence(ctx, paths, locked, reconciliation, options)
 	if err != nil {
 		return prepared, err
@@ -51,7 +69,7 @@ func prepareNativeOrderConvergence(ctx context.Context, paths daempaths.Paths, l
 			return prepared, fmt.Errorf("native Pi order has no reserved actor")
 		}
 	}
-	if matched != len(orders) {
+	if matched != expectedMutations {
 		return prepared, fmt.Errorf("native Pi order actors changed before publication")
 	}
 	return prepared, nil

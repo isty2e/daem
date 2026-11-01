@@ -9,9 +9,9 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -24,6 +24,7 @@ import (
 	projectionbuild "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/supply/artifact"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/internal/workflow/readiness"
@@ -80,11 +81,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err := checkNativeCommandSupport(assessment); err != nil {
 		return err
 	}
-	checkNamespaces := func(key desiredextension.CarrierKey) error {
-		paths, handled, err := relationhost.OpaquePluginNamespaces(planned.context.Paths, key.Target(), key.Scope())
-		if err != nil || !handled {
-			return err
-		}
+	checkPaths := func(paths []relationobserve.AuthorityPath) error {
 		budget, err := planned.context.PersistenceEpoch.PhysicalBudget()
 		if err != nil {
 			return err
@@ -99,16 +96,23 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		}
 		return err
 	}
+	checkNamespaces := func(selected target.Target, scope target.Scope) error {
+		paths, handled, err := relationhost.OpaquePluginNamespaces(planned.context.Paths, selected, scope)
+		if err != nil || !handled {
+			return err
+		}
+		return checkPaths(paths)
+	}
 	for _, action := range assessment.Reconciliation.Relations() {
 		if action.InvokesHostRoute() {
-			if err := checkNamespaces(action.CarrierIdentity().Carrier().Key()); err != nil {
+			if err := checkNamespaces(action.Target(), action.Scope()); err != nil {
 				return err
 			}
 		}
 	}
 	for _, action := range assessment.Reconciliation.CarrierAbsences() {
-		if action.InvokesHostRoute() {
-			if err := checkNamespaces(action.Claim().Identity().Carrier().Key()); err != nil {
+		if action.InvokesHostRoute() || action.MutatesDirectProjection() {
+			if err := checkNamespaces(action.Target(), action.Scope()); err != nil {
 				return err
 			}
 		}
@@ -161,7 +165,31 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 			found = true
 		}
 		if !found {
-			return nativeSupportError{nativeSupportOrder}
+			for _, constraint := range planned.context.Lockfile.Locked.OrderConstraints() {
+				if constraint.ClassID() != decision.ClassID() {
+					continue
+				}
+				authority, err := relationhost.OrderAuthorityPaths(relationhost.OrderInput{Paths: planned.context.Paths, Lockfile: planned.context.Lockfile, Constraint: constraint})
+				if err != nil {
+					return err
+				}
+				var paths []relationobserve.AuthorityPath
+				for _, selected := range authority {
+					path, err := relationobserve.NewAuthorityPath(selected.Path(), selected.Target(), selected.Scope())
+					if err != nil {
+						return err
+					}
+					paths = append(paths, path)
+				}
+				if err := checkPaths(paths); err != nil {
+					return err
+				}
+				found = true
+				break
+			}
+			if !found {
+				return nativeSupportError{nativeSupportOrder}
+			}
 		}
 	}
 	if len(stateInput.PiOrders) != 0 {

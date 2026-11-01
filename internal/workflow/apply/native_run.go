@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/configrelation"
@@ -41,7 +42,7 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 	orders := options.nativeInput.Preparation.PiOrders()
 	var segment nativeSegmentResult
 	if len(orders) != 0 {
-		segment, err = executeNativeOrderedSegment(ctx, paths, environment, locked, selection, assessment.Reconciliation, *options.nativeInput, *options.applyEffectPlan, options)
+		segment, err = executeNativeOrderedSegment(ctx, paths, environment, locked, selection, assessment.Reconciliation, *options.nativeInput, *options.applyEffectPlan, orders, options)
 	} else {
 		segment.applied, err = executeNativeSegment(ctx, paths, environment, locked, selection, *options.nativeInput, *options.applyEffectPlan, options)
 	}
@@ -70,9 +71,9 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 	)
 }
 
-func executeNativeOrderedSegment(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, selection targetselection.Selection, reconciliation reconcile.Result, input execute.NativeApplyInput, plan execute.ApplyEffectPlan, options runOptions) (segment nativeSegmentResult, err error) {
+func executeNativeOrderedSegment(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, selection targetselection.Selection, reconciliation reconcile.Result, input execute.NativeApplyInput, plan execute.ApplyEffectPlan, orders []pipackage.OrderObservation, options runOptions) (segment nativeSegmentResult, err error) {
 	options.nativeInput = &input
-	segment.orders, err = prepareNativeOrderConvergence(ctx, paths, locked, reconciliation, input.Preparation.PiOrders(), options)
+	segment.orders, err = prepareNativeOrderConvergence(ctx, paths, locked, reconciliation, orders, options)
 	if err != nil {
 		return segment, err
 	}

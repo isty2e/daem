@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe/antigravityplugin"
 	"github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
+	"github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
@@ -27,6 +28,16 @@ func OpaquePluginNamespaces(paths daempaths.Paths, selected target.Target, scope
 		return nil
 	}
 	switch selected {
+	case target.TargetOpenCode:
+		candidates, err := opencodeplugin.OrderAuthorityPaths(opencodeplugin.InventoryInput{ManifestRoot: paths.ManifestRoot, Scope: scope})
+		if err != nil {
+			return nil, true, err
+		}
+		for _, path := range candidates {
+			if err := add(path, scope); err != nil {
+				return nil, true, err
+			}
+		}
 	case target.TargetClaudeCode:
 		inventory, err := claudeplugin.InstalledInventoryPath(claudeplugin.InstalledInventoryInput{WorkDir: paths.ManifestRoot, ProjectRoot: paths.ManifestRoot})
 		if err != nil {

@@ -1495,15 +1495,17 @@ version blocks application; it is not treated as a missing package to reinstall.
 Codex global plugin installs and removals also support managed project/global
 keys, with the same before/after checks and permission recovery. Codex may replace
 its user config and tighten its access permissions; daem retains that tightening.
-Claude Code and Antigravity CLI plugin commands can also accompany managed keys
-when their private write namespaces do not overlap the managed configuration
+Claude Code, OpenCode and Antigravity CLI plugin commands can also accompany
+managed keys when their private write namespaces do not overlap the managed configuration
 files. Aliased or nested overlaps without a supported rewrite profile refuse
 before effects; different host names alone do not establish separation.
-OpenCode extension changes with managed keys remain unsupported. Preview and confirmed apply
-refuse unsupported combinations before effects. An already-current extension does not
-by itself block direct changes or trigger another installation.
-Pi, Codex, Claude Code and Antigravity CLI refresh also support already-applied
-keys; they do not apply pending settings changes. See
+OpenCode's direct removal and order updates retain their exact-source and
+per-document rules. Physically separate order updates use the existing direct
+execution path, including Pi order when only another settings layer is managed.
+Preview and confirmed apply refuse unsupported combinations before effects.
+An already-current extension does not by itself block direct changes or trigger
+another installation. Pi, Codex, Claude Code, OpenCode and Antigravity CLI refresh
+also support already-applied keys; they do not apply pending settings changes. See
 [refresh extension](cli.md#refresh-extension) for their checks and limits.
 For a Pi settings layer containing managed keys, package order is reconciled from
 the settings observed after extension commands, together with remaining direct work.

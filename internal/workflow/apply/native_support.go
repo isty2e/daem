@@ -28,7 +28,7 @@ func (reason nativeSupportReason) detail() string {
 	case nativeSupportRoutes:
 		return "this extension or host-registration operation can rewrite settings containing managed keys and does not yet support key-protected execution"
 	case nativeSupportOrder:
-		return "key-mode package-order changes require ownership of the same Pi settings layer"
+		return "settings-key order changes require a reserved native actor or a physically disjoint direct actor"
 	case nativeSupportCarrierState:
 		return "extension ownership settlement is not yet supported while settings keys are managed"
 	case nativeSupportNamespace:
@@ -72,7 +72,7 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	}
 	for _, absence := range result.CarrierAbsences() {
 		if absence.BlocksOrdinaryApply() || absence.InvokesHostRoute() || absence.MutatesDirectProjection() || absence.RetiresClaim() {
-			if nativeInvocationCarrierSupported(absence.Claim().Identity().Carrier().Key()) && !absence.MutatesDirectProjection() {
+			if nativeInvocationCarrierSupported(absence.Claim().Identity().Carrier().Key()) && (!absence.MutatesDirectProjection() || absence.Claim().Identity().Carrier().Key().Carrier() == desiredextension.CarrierOpenCodePlugin) {
 				continue
 			}
 			if !absence.InvokesHostRoute() && !absence.MutatesDirectProjection() {
@@ -88,13 +88,6 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 			}
 		}
 	}
-	for _, order := range result.RelationOrders() {
-		if order.RequiresMutation() {
-			if order.Target() != target.TargetPi {
-				return nativeSupportError{nativeSupportOrder}
-			}
-		}
-	}
 	return nil
 }
 
@@ -102,6 +95,8 @@ func nativeInvocationCarrierSupported(key desiredextension.CarrierKey) bool {
 	switch key.Carrier() {
 	case desiredextension.CarrierPiPackage:
 		return key.Target() == target.TargetPi
+	case desiredextension.CarrierOpenCodePlugin:
+		return key.Target() == target.TargetOpenCode && (key.Scope() == target.ScopeProject || key.Scope() == target.ScopeGlobal)
 	case desiredextension.CarrierCodexPlugin:
 		return key.Target() == target.TargetCodex && key.Scope() == target.ScopeGlobal
 	case desiredextension.CarrierClaudeCodePlugin:
@@ -118,7 +113,7 @@ func (reason nativeSupportReason) repairInstruction() string {
 	case nativeSupportRoutes:
 		return "defer this extension change and retain its previous declaration; splitting off a key-value update does not bypass managed-key ownership"
 	case nativeSupportOrder:
-		return "apply only same-layer Pi package-order changes, or defer this order change"
+		return "inspect a fresh order preview; defer order work that cannot bind to its reserved native or disjoint direct actor"
 	case nativeSupportCarrierState:
 		return "retain the existing extension declarations and defer this ownership change while settings keys are managed"
 	case nativeSupportNamespace:

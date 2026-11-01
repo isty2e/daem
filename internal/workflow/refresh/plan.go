@@ -20,7 +20,6 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/recoverygate"
-	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 )
@@ -427,9 +426,6 @@ func planAtPathsWithBarrier(
 			return refusedPlan(result, ReasonRefreshUnsupported, err, "inspect resolved configuration-root aliases; this overlap requires an explicit rewrite profile before refresh")
 		}
 		return refusedPlan(result, ReasonNativeSettings, err, "run daem status and daem recover --dry-run; apply selected settings before refresh; resolve host-value drift through explicit replace host-config")
-	}
-	if planned.native != nil && selected.Target() != target.TargetPi && selected.Target() != target.TargetCodex && selected.Target() != target.TargetClaudeCode && selected.Target() != target.TargetAntigravityCLI {
-		return refusedPlan(result, ReasonRefreshUnsupported, fmt.Errorf("native settings protection for this refresh host is not connected"), "this host refresh cannot yet run with managed settings; use status and preserve the current settings")
 	}
 	planned.protectionFence, err = observeRefreshProtectionFence(ctx, paths, selected.Target(), selected.Scope())
 	if err != nil {

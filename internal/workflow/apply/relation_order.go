@@ -206,6 +206,19 @@ func prepareRelationOrderConvergence(
 			continue
 		}
 		matchedClasses++
+		completed := false
+		if options.nativeOrderResult != nil {
+			for _, class := range options.nativeOrderResult.observed {
+				if len(class.decisions) != 0 && class.decisions[0].ClassID() == constraint.ClassID() {
+					freshDecisions = append(freshDecisions, class.decisions...)
+					completed = true
+					break
+				}
+			}
+		}
+		if completed {
+			continue
+		}
 		selectedTarget, capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
 			constraint.ClassID(),
 		)
@@ -292,7 +305,11 @@ func prepareRelationOrderConvergence(
 		return result, err
 	}
 
-	expansion := options.orderRiskBaseline.expansion(freshDecisions)
+	var remaining []reconcile.RelationOrderDecision
+	for _, class := range observed {
+		remaining = append(remaining, class.decisions...)
+	}
+	expansion := options.orderRiskBaseline.expansion(remaining)
 	if expansion.AddedRiskCount() != 0 {
 		if options.RelationOrderRiskAuthorizer == nil {
 			return result, fmt.Errorf(
@@ -333,10 +350,22 @@ func runRelationOrderConvergence(
 	reconciliation reconcile.Result,
 	options runOptions,
 ) (relationOrderRunResult, error) {
-	if options.nativeOrderResult != nil {
-		return *options.nativeOrderResult, nil
-	}
 	result, err := prepareRelationOrderConvergence(ctx, paths, locked, reconciliation, options)
+	if options.nativeOrderResult != nil {
+		for _, completed := range options.nativeOrderResult.results {
+			found := false
+			for index, row := range result.results {
+				if row.sequenceID == completed.sequenceID {
+					result.results[index] = completed
+					found = true
+					break
+				}
+			}
+			if !found {
+				result.results = append(result.results, completed)
+			}
+		}
+	}
 	if err != nil {
 		return result, err
 	}
