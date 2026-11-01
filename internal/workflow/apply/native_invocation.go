@@ -7,27 +7,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/codexplugin"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/executionidentity"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/supply/artifact"
-	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/internal/workflow/protection"
 )
@@ -41,7 +35,7 @@ type nativeInvocationProgram struct {
 type nativePreparedInvocation struct {
 	protection *protection.InvocationLayout
 	reads      recovery.InvocationWorkReservation
-	rewrite    nativeconfig.InvocationRewrite
+	rewrite    relationhost.NativeSettingsRewrites
 	used       bool
 }
 
@@ -120,7 +114,7 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 		return nil, err
 	}
 	for _, command := range commands {
-		rewrite, err := nativeInvocationRewrite(current, command.carrier)
+		rewrite, err := nativeInvocationRewrite(current, command.carrier, command.operation)
 		if err != nil {
 			return nil, err
 		}
@@ -180,79 +174,16 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 	return program, nil
 }
 
-func nativeInvocationRewrite(current commandPlan, key desiredextension.CarrierKey) (nativeconfig.InvocationRewrite, error) {
-	switch key.Carrier() {
-	case desiredextension.CarrierPiPackage:
-		return nativePiInvocationRewrite(current, key)
-	case desiredextension.CarrierCodexPlugin:
-		wanted, err := codexplugin.ConfigDocumentAddress()
-		if err != nil {
-			return nativeconfig.InvocationRewrite{}, err
-		}
-		for _, group := range current.assessment.NativeApproval {
-			for _, address := range group.Aliases {
-				if address == wanted {
-					return nativeconfig.InvocationRewrite{Aliases: append([]aggregate.DocumentAddress(nil), group.Aliases...), Preserve: func(ctx context.Context, before, after configdocument.Document) (bool, error) {
-						return codexplugin.PreservesOutsidePluginRewrite(ctx, before, after, key.Source())
-					}}, nil
-				}
-			}
-		}
-		return nativeconfig.InvocationRewrite{}, nil
-	case desiredextension.CarrierClaudeCodePlugin, desiredextension.CarrierAntigravityCLIPlugin, desiredextension.CarrierOpenCodePlugin:
-		return nativeconfig.InvocationRewrite{}, nil
-	default:
-		return nativeconfig.InvocationRewrite{}, fmt.Errorf("native invocation rewrite profile is unavailable")
-	}
-}
-
-func nativePiInvocationRewrite(current commandPlan, key desiredextension.CarrierKey) (nativeconfig.InvocationRewrite, error) {
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: key.Target(), Scope: key.Scope(), Path: "settings.json", Ownership: hostconfig.OwnershipKeys})
+func nativeInvocationRewrite(current commandPlan, key desiredextension.CarrierKey, operation lock.OperationKind) (relationhost.NativeSettingsRewrites, error) {
+	profile, err := relationhost.NativeSettingsProfileFor(key, operation)
 	if err != nil {
-		return nativeconfig.InvocationRewrite{}, err
+		return relationhost.NativeSettingsRewrites{}, err
 	}
-	wanted, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
-	if err != nil {
-		return nativeconfig.InvocationRewrite{}, err
-	}
-	physical, err := destinationResolver(current.context.Paths).Resolve(placement.Destination())
-	if err != nil {
-		return nativeconfig.InvocationRewrite{}, err
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nativeconfig.InvocationRewrite{}, err
-	}
-	sourceContext, err := extensiontopology.NewLocalSourceContext(filepath.Dir(physical), home)
-	if err != nil {
-		return nativeconfig.InvocationRewrite{}, err
-	}
-	selectedSource := key.Source().Ref()
-	interpreted, err := extensiontopology.InterpretCarrierSource(key)
-	if err != nil {
-		return nativeconfig.InvocationRewrite{}, err
-	}
-	if interpreted.Class() == extensiontopology.CarrierSourceLocal {
-		commandContext, err := extensiontopology.NewLocalSourceContext(current.context.Paths.ManifestRoot, home)
-		if err != nil {
-			return nativeconfig.InvocationRewrite{}, err
-		}
-		absolute, err := interpreted.ResolveLocal(commandContext)
-		if err != nil {
-			return nativeconfig.InvocationRewrite{}, err
-		}
-		selectedSource = absolute.Path()
-	}
+	var groups [][]aggregate.DocumentAddress
 	for _, group := range current.assessment.NativeApproval {
-		for _, address := range group.Aliases {
-			if address == wanted {
-				return nativeconfig.InvocationRewrite{Aliases: append([]aggregate.DocumentAddress(nil), group.Aliases...), Preserve: func(ctx context.Context, before, after configdocument.Document) (bool, error) {
-					return pipackage.PreservesOutsidePackageRewrite(ctx, before, after, selectedSource, key.Scope(), sourceContext)
-				}}, nil
-			}
-		}
+		groups = append(groups, group.Aliases)
 	}
-	return nativeconfig.InvocationRewrite{}, nil
+	return profile.BindInvocationRewrites(current.context.Paths, groups)
 }
 
 func (program *nativeInvocationProgram) commitCorrelation(ctx context.Context, budget *recovery.PhysicalWorkBudget, commit func(*rootedpath.EntryAuthority) (durable.Snapshot, error)) (state durable.Snapshot, returnErr error) {
@@ -297,7 +228,7 @@ func (program *nativeInvocationProgram) execute(ctx context.Context, executor su
 		if err != nil {
 			return err
 		}
-		if err := program.documents.Qualify(ctx, before, before, nil); err != nil {
+		if err := program.documents.Qualify(ctx, before, before, relationhost.NativeSettingsRewrites{}); err != nil {
 			return err
 		}
 		preparedContent = true
@@ -329,7 +260,7 @@ func (program *nativeInvocationProgram) execute(ctx context.Context, executor su
 	if observed && preparedContent {
 		after, err := program.documents.Read(ctx, reads)
 		if err == nil {
-			err = program.documents.Qualify(ctx, before, after, []nativeconfig.InvocationRewrite{prepared.rewrite})
+			err = program.documents.Qualify(ctx, before, after, prepared.rewrite)
 		}
 		returnErr = errors.Join(returnErr, err)
 	}

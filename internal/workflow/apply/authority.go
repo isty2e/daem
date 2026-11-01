@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
@@ -12,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -116,8 +118,12 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			return applyAuthorityEvidence{}, err
 		}
 	}
-	addOpaqueNamespaces := func(selected target.Target, scope target.Scope) error {
-		paths, _, err := relationhost.OpaquePluginNamespaces(planned.context.Paths, selected, scope)
+	addOpaqueNamespaces := func(key desiredextension.CarrierKey, operation lock.OperationKind) error {
+		profile, err := relationhost.NativeSettingsProfileFor(key, operation)
+		if err != nil {
+			return err
+		}
+		paths, err := profile.ExclusionPaths(planned.context.Paths)
 		if err != nil {
 			return err
 		}
@@ -130,14 +136,14 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	}
 	for _, action := range planned.assessment.Reconciliation.Relations() {
 		if action.InvokesHostRoute() {
-			if err := addOpaqueNamespaces(action.Target(), action.Scope()); err != nil {
+			if err := addOpaqueNamespaces(action.CarrierIdentity().Carrier().Key(), lock.OperationInstall); err != nil {
 				return applyAuthorityEvidence{}, err
 			}
 		}
 	}
 	for _, action := range planned.assessment.Reconciliation.CarrierAbsences() {
 		if action.InvokesHostRoute() {
-			if err := addOpaqueNamespaces(action.Target(), action.Scope()); err != nil {
+			if err := addOpaqueNamespaces(action.Claim().Identity().Carrier().Key(), lock.OperationRemove); err != nil {
 				return applyAuthorityEvidence{}, err
 			}
 		}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -324,4 +325,5 @@ type plan struct {
 	barrier           recoverygate.EffectAuthority
 	native            *nativeRefreshInputs
 	protectionFence   refreshProtectionFence
+	settingsProfile   relationhost.NativeSettingsProfile
 }

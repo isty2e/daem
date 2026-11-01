@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -339,6 +341,17 @@ func planAtPathsWithBarrier(
 	if err != nil {
 		return refusedPlan(result, ReasonRefreshUnsupported, err, "run daem lock with a version that supports this refresh route")
 	}
+	identity, admitted, err := durablecarrier.ManagedCarrierIdentityFromLockedRecord(contract)
+	if err != nil || !admitted {
+		return refusedPlan(result, ReasonLockMismatch, errors.Join(fmt.Errorf("refresh carrier identity is unavailable"), err), "run daem lock and review the refreshed lockfile")
+	}
+	settingsProfile, err := relationhost.NativeSettingsProfileFor(identity.Carrier().Key(), lock.OperationRefresh)
+	if err != nil {
+		return refusedPlan(result, ReasonRefreshUnsupported, err, "use the host directly for this carrier")
+	}
+	if err := settingsProfile.RequireActuation(operationContract.Actuation()); err != nil {
+		return refusedPlan(result, ReasonRefreshUnsupported, err, "use the host directly for this carrier")
+	}
 	routeRequest, err := lock.DelegatedOperationRequest(contract, lock.OperationRefresh)
 	if err != nil {
 		return refusedPlan(result, ReasonLockMismatch, err, "run daem lock and review the refreshed lockfile")
@@ -411,6 +424,7 @@ func planAtPathsWithBarrier(
 		lockfile:          locked,
 		subject:           subject,
 		contract:          contract,
+		settingsProfile:   settingsProfile,
 		routeRequest:      routeRequest,
 		operationContract: operationContract,
 		command:           command,
@@ -420,14 +434,14 @@ func planAtPathsWithBarrier(
 		currentState:      currentState,
 		timeout:           timeout,
 	}
-	planned.native, err = planNativeRefresh(ctx, paths, environment, locked, currentState, selected.Target(), selected.Scope())
+	planned.native, err = planNativeRefresh(ctx, paths, environment, locked, currentState, settingsProfile)
 	if err != nil {
 		if errors.Is(err, nativeconfig.ErrOpaqueNamespaceOverlap) {
 			return refusedPlan(result, ReasonRefreshUnsupported, err, "inspect resolved configuration-root aliases; this overlap requires an explicit rewrite profile before refresh")
 		}
 		return refusedPlan(result, ReasonNativeSettings, err, "run daem status and daem recover --dry-run; apply selected settings before refresh; resolve host-value drift through explicit replace host-config")
 	}
-	planned.protectionFence, err = observeRefreshProtectionFence(ctx, paths, selected.Target(), selected.Scope())
+	planned.protectionFence, err = observeRefreshProtectionFence(ctx, paths, settingsProfile)
 	if err != nil {
 		return refusedPlan(result, ReasonNativeSettings, err, "run daem recover --dry-run before another refresh; changing declarations does not clear pending permission protection")
 	}

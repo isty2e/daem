@@ -8,22 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
-	"github.com/isty2e/daem/internal/assurance/observe/codexplugin"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/executionidentity"
 	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -32,9 +26,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
-	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
-	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/internal/workflow/protection"
 )
@@ -109,7 +101,7 @@ func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environmen
 	if err != nil {
 		return nil, err
 	}
-	if err := documents.Qualify(ctx, baseline, baseline, nil); err != nil {
+	if err := documents.Qualify(ctx, baseline, baseline, relationhost.NativeSettingsRewrites{}); err != nil {
 		return nil, err
 	}
 	inputs := nativeRefreshInputs{environment: nativeOnly}
@@ -166,13 +158,13 @@ func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environmen
 	return &nativeRefreshObservation{operation: operation, documents: documents, inputs: inputs}, nil
 }
 
-func planNativeRefresh(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, before durable.Snapshot, selected target.Target, scope target.Scope) (*nativeRefreshInputs, error) {
+func planNativeRefresh(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, before durable.Snapshot, profile relationhost.NativeSettingsProfile) (*nativeRefreshInputs, error) {
 	observed, err := observeNativeRefresh(ctx, paths, environment, locked, before)
 	if err != nil || observed == nil {
 		return nil, err
 	}
-	namespaces, handled, err := relationhost.OpaquePluginNamespaces(paths, selected, scope)
-	if err == nil && handled {
+	namespaces, err := profile.ExclusionPaths(paths)
+	if err == nil && len(namespaces) != 0 {
 		input, _ := observed.operation.NativeInput()
 		var native []mutation.DirectoryEntryAuthorityObservation
 		for _, namespace := range input.Documents.Namespaces() {
@@ -191,7 +183,7 @@ type nativeRefreshInvocation struct {
 	observation *nativeRefreshObservation
 	reads       recovery.InvocationWorkReservation
 	protection  *protection.InvocationLayout
-	rewrites    []nativeconfig.InvocationRewrite
+	rewrites    relationhost.NativeSettingsRewrites
 }
 
 func prepareNativeRefreshInvocation(ctx context.Context, current plan, leases *mutation.LeaseSet) (result *nativeRefreshInvocation, returnErr error) {
@@ -265,89 +257,25 @@ func prepareNativeRefreshInvocation(ctx context.Context, current plan, leases *m
 	return result, nil
 }
 
-func nativeRefreshRewrites(ctx context.Context, current plan, documents *journal.NativeDocumentObservationBatch, budget *recovery.PhysicalWorkBudget) ([]nativeconfig.InvocationRewrite, error) {
-	namespaces, handled, err := relationhost.OpaquePluginNamespaces(current.paths, current.result.Selection.Target, current.result.Selection.Scope)
+func nativeRefreshRewrites(ctx context.Context, current plan, documents *journal.NativeDocumentObservationBatch, budget *recovery.PhysicalWorkBudget) (relationhost.NativeSettingsRewrites, error) {
+	namespaces, err := current.settingsProfile.ExclusionPaths(current.paths)
 	if err != nil {
-		return nil, err
+		return relationhost.NativeSettingsRewrites{}, err
 	}
-	if handled {
+	if len(namespaces) != 0 {
 		var native []mutation.DirectoryEntryAuthorityObservation
 		for _, namespace := range documents.Namespaces() {
 			native = append(native, namespace.Observation())
 		}
-		return nil, nativeconfig.RequireDisjointOpaqueNamespaces(ctx, native, namespaces, budget)
-	}
-	if current.result.Selection.Target != target.TargetPi && current.result.Selection.Target != target.TargetCodex {
-		return nil, fmt.Errorf("native settings protection for this refresh host is not connected")
-	}
-	identity, admitted, err := durablecarrier.ManagedCarrierIdentityFromLockedRecord(current.contract)
-	if err != nil || !admitted {
-		return nil, errors.Join(fmt.Errorf("refresh carrier identity is unavailable"), err)
-	}
-	key := identity.Carrier().Key()
-	if current.result.Selection.Target == target.TargetCodex {
-		wanted, err := codexplugin.ConfigDocumentAddress()
-		if err != nil {
-			return nil, err
+		if err := nativeconfig.RequireDisjointOpaqueNamespaces(ctx, native, namespaces, budget); err != nil {
+			return relationhost.NativeSettingsRewrites{}, err
 		}
-		for _, namespace := range documents.Namespaces() {
-			for _, alias := range namespace.Addresses() {
-				if alias == wanted {
-					return []nativeconfig.InvocationRewrite{{Aliases: namespace.Addresses(), Preserve: func(ctx context.Context, before, after configdocument.Document) (bool, error) {
-						return codexplugin.PreservesOutsideMarketplaceRewrite(ctx, before, after, key.Source())
-					}}}, nil
-				}
-			}
-		}
-		return nil, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-	selectedSource := key.Source().Ref()
-	interpreted, err := extensiontopology.InterpretCarrierSource(key)
-	if err != nil {
-		return nil, err
-	}
-	if interpreted.Class() == extensiontopology.CarrierSourceLocal {
-		commandContext, err := extensiontopology.NewLocalSourceContext(current.paths.ManifestRoot, home)
-		if err != nil {
-			return nil, err
-		}
-		absolute, err := interpreted.ResolveLocal(commandContext)
-		if err != nil {
-			return nil, err
-		}
-		selectedSource = absolute.Path()
-	}
-	var rewrites []nativeconfig.InvocationRewrite
+	var groups [][]aggregate.DocumentAddress
 	for _, namespace := range documents.Namespaces() {
-		for _, alias := range namespace.Addresses() {
-			if alias.Target() != target.TargetPi {
-				continue
-			}
-			wanted, err := pipackage.SettingsDocumentAddress(alias.Scope())
-			if err != nil {
-				return nil, err
-			}
-			if alias != wanted {
-				continue
-			}
-			path, err := managedhostpath.Resolver(current.paths).Resolve(alias.AggregateRoot())
-			if err != nil {
-				return nil, err
-			}
-			sourceContext, err := extensiontopology.NewLocalSourceContext(filepath.Dir(path), home)
-			if err != nil {
-				return nil, err
-			}
-			rewrites = append(rewrites, nativeconfig.InvocationRewrite{Aliases: []aggregate.DocumentAddress{alias}, Preserve: func(ctx context.Context, before, after configdocument.Document) (bool, error) {
-				return pipackage.PreservesOutsidePackageRewrite(ctx, before, after, selectedSource, alias.Scope(), sourceContext)
-			}})
-		}
+		groups = append(groups, namespace.Addresses())
 	}
-	return rewrites, nil
+	return current.settingsProfile.BindInvocationRewrites(current.paths, groups)
 }
 
 func (invocation *nativeRefreshInvocation) execute(ctx context.Context, executor subprocess.CommandExecutor, request subprocess.CommandAttemptRequest, bind subprocess.WorkingDirectoryBinder) (attempt subprocess.CommandAttemptResult, observed bool, returnErr error) {
@@ -363,7 +291,7 @@ func (invocation *nativeRefreshInvocation) execute(ctx context.Context, executor
 		if err != nil {
 			return err
 		}
-		if err := invocation.observation.documents.Qualify(ctx, before, before, nil); err != nil {
+		if err := invocation.observation.documents.Qualify(ctx, before, before, relationhost.NativeSettingsRewrites{}); err != nil {
 			return err
 		}
 		prepared = true

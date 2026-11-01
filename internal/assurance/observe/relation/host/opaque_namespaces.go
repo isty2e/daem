@@ -12,9 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-// OpaquePluginNamespaces supplies private write-exclusion envelopes, not rewrite
-// permission. Unhandled hosts retain their separate operation-specific profiles.
-func OpaquePluginNamespaces(paths daempaths.Paths, selected target.Target, scope target.Scope) ([]relationobserve.AuthorityPath, bool, error) {
+func opaquePluginNamespaces(paths daempaths.Paths, selected target.Target, scope target.Scope) ([]relationobserve.AuthorityPath, bool, error) {
 	if _, err := target.ParseScope(string(scope)); err != nil {
 		return nil, false, err
 	}

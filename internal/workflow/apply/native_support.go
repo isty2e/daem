@@ -2,11 +2,12 @@ package apply
 
 import (
 	"github.com/isty2e/daem/internal/assurance/durable"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
-	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -60,7 +61,7 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	}
 	for _, relation := range result.Relations() {
 		if relation.Execution() != reconcile.ExecutionNoMutation {
-			if !relation.InvokesHostRoute() || !nativeInvocationCarrierSupported(relation.CarrierIdentity().Carrier().Key()) {
+			if !relation.InvokesHostRoute() || !nativeInvocationCarrierSupported(relation.CarrierIdentity().Carrier().Key(), lock.OperationInstall) {
 				return nativeSupportError{nativeSupportRoutes}
 			}
 			if _, pin := relation.PinTransition(); pin {
@@ -75,7 +76,8 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	}
 	for _, absence := range result.CarrierAbsences() {
 		if absence.BlocksOrdinaryApply() || absence.InvokesHostRoute() || absence.MutatesDirectProjection() || absence.RetiresClaim() {
-			if nativeInvocationCarrierSupported(absence.Claim().Identity().Carrier().Key()) && (!absence.MutatesDirectProjection() || absence.Claim().Identity().Carrier().Key().Carrier() == desiredextension.CarrierOpenCodePlugin) {
+			profile, err := relationhost.NativeSettingsProfileFor(absence.Claim().Identity().Carrier().Key(), lock.OperationRemove)
+			if err == nil && (!absence.MutatesDirectProjection() || profile.RequireActuation(lock.ActuationDirectProjection) == nil) {
 				continue
 			}
 			if !absence.InvokesHostRoute() && !absence.MutatesDirectProjection() {
@@ -94,21 +96,9 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	return nil
 }
 
-func nativeInvocationCarrierSupported(key desiredextension.CarrierKey) bool {
-	switch key.Carrier() {
-	case desiredextension.CarrierPiPackage:
-		return key.Target() == target.TargetPi
-	case desiredextension.CarrierOpenCodePlugin:
-		return key.Target() == target.TargetOpenCode && (key.Scope() == target.ScopeProject || key.Scope() == target.ScopeGlobal)
-	case desiredextension.CarrierCodexPlugin:
-		return key.Target() == target.TargetCodex && key.Scope() == target.ScopeGlobal
-	case desiredextension.CarrierClaudeCodePlugin:
-		return key.Target() == target.TargetClaudeCode && (key.Scope() == target.ScopeProject || key.Scope() == target.ScopeGlobal)
-	case desiredextension.CarrierAntigravityCLIPlugin:
-		return key.Target() == target.TargetAntigravityCLI && key.Scope() == target.ScopeGlobal
-	default:
-		return false
-	}
+func nativeInvocationCarrierSupported(key desiredextension.CarrierKey, operation lock.OperationKind) bool {
+	profile, err := relationhost.NativeSettingsProfileFor(key, operation)
+	return err == nil && profile.RequireActuation(lock.ActuationDelegatedHostRoute) == nil
 }
 
 func (reason nativeSupportReason) repairInstruction() string {

@@ -3,14 +3,18 @@ package nativeconfig
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/target"
-	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
 func TestInvocationDocumentsQualifyKeysOutsideContentAndCoverage(t *testing.T) {
@@ -46,21 +50,21 @@ func TestInvocationDocumentsQualifyKeysOutsideContentAndCoverage(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			after := InvocationBaseline{documents: map[aggregate.DocumentAddress]configdocument.Document{alias: parse(test.content)}}
-			if err := documents.Qualify(t.Context(), before, after, nil); !errors.Is(err, test.cause) {
+			if err := documents.Qualify(t.Context(), before, after, relationhost.NativeSettingsRewrites{}); !errors.Is(err, test.cause) {
 				t.Fatalf("qualification error = %v, want %v", err, test.cause)
 			}
 		})
 	}
 	retiring := InvocationDocuments{documents: documents.documents}
-	if err := retiring.Qualify(t.Context(), InvocationBaseline{}, InvocationBaseline{}, nil); !errors.Is(err, ErrInvocationOutsideChanged) {
+	if err := retiring.Qualify(t.Context(), InvocationBaseline{}, InvocationBaseline{}, relationhost.NativeSettingsRewrites{}); !errors.Is(err, ErrInvocationOutsideChanged) {
 		t.Fatal("empty evidence passed a selected document boundary", err)
 	}
-	if err := retiring.Qualify(t.Context(), before, InvocationBaseline{}, nil); !errors.Is(err, ErrInvocationOutsideChanged) {
+	if err := retiring.Qualify(t.Context(), before, InvocationBaseline{}, relationhost.NativeSettingsRewrites{}); !errors.Is(err, ErrInvocationOutsideChanged) {
 		t.Fatal("missing post-invocation evidence passed", err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if err := documents.Qualify(ctx, before, before, nil); !errors.Is(err, context.Canceled) {
+	if err := documents.Qualify(ctx, before, before, relationhost.NativeSettingsRewrites{}); !errors.Is(err, context.Canceled) {
 		t.Fatal("cancellation became usable qualification", err)
 	}
 }
@@ -84,20 +88,33 @@ func TestInvocationDocumentsUseOnlyTheirProfileRewriteArea(t *testing.T) {
 	old := parse(`{"packages":["npm:@acme/keep@1"],"foreign":1}`)
 	updated := parse(`{"packages":["npm:@acme/keep@1","npm:@acme/tools@1"],"foreign":1}`)
 	before := InvocationBaseline{documents: map[aggregate.DocumentAddress]configdocument.Document{alias: old, other: old}}
-	sourceContext, err := extensiontopology.NewLocalSourceContext("/workspace/.pi", "/home")
+	paths, err := daempaths.Resolve(filepath.Join(t.TempDir(), "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	rewrite := InvocationRewrite{Aliases: []aggregate.DocumentAddress{alias}, Preserve: func(ctx context.Context, before, after configdocument.Document) (bool, error) {
-		return pipackage.PreservesOutsidePackageRewrite(ctx, before, after, "npm:@acme/tools@1", target.ScopeProject, sourceContext)
-	}}
+	source, err := desiredextension.NewSourceRef(desiredextension.SourceKindHostSource, "npm:@acme/tools@1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := desiredextension.NewCarrierKey(desiredextension.CarrierPiPackage, target.TargetPi, target.ScopeProject, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := relationhost.NativeSettingsProfileFor(key, lock.OperationInstall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewrite, err := profile.BindInvocationRewrites(paths, [][]aggregate.DocumentAddress{{alias}, {other}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	documents := InvocationDocuments{documents: []invocationRead{{aliases: []aggregate.DocumentAddress{alias}}, {aliases: []aggregate.DocumentAddress{other}}}}
 	after := InvocationBaseline{documents: map[aggregate.DocumentAddress]configdocument.Document{alias: updated, other: old}}
-	if err := documents.Qualify(t.Context(), before, after, []InvocationRewrite{rewrite}); err != nil {
+	if err := documents.Qualify(t.Context(), before, after, rewrite); err != nil {
 		t.Fatal("exact profile rewrite was refused", err)
 	}
 	after.documents[other] = updated
-	if err := documents.Qualify(t.Context(), before, after, []InvocationRewrite{rewrite}); !errors.Is(err, ErrInvocationOutsideChanged) {
+	if err := documents.Qualify(t.Context(), before, after, rewrite); !errors.Is(err, ErrInvocationOutsideChanged) {
 		t.Fatal("one layer's rewrite authority leaked to another", err)
 	}
 }

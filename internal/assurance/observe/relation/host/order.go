@@ -3,7 +3,6 @@ package relationhost
 import (
 	"cmp"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 
@@ -232,7 +231,7 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 }
 
 func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInput, relations []observepipackage.ScopedRelation) (observepipackage.OrderObservation, error) {
-	home, err := os.UserHomeDir()
+	home, err := input.Paths.UserHomeDir()
 	if err != nil {
 		return observepipackage.OrderObservation{}, err
 	}

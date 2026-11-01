@@ -3,11 +3,13 @@ package apply
 import (
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
+	"github.com/isty2e/daem/internal/realization/lock"
 )
 
 type nativeInvocationCommand struct {
-	command executehostroute.Command
-	carrier desiredextension.CarrierKey
+	command   executehostroute.Command
+	carrier   desiredextension.CarrierKey
+	operation lock.OperationKind
 }
 
 func nativeInvocationCommands(current commandPlan, removalAdapter executehostroute.RemovalAdapter) ([]nativeInvocationCommand, error) {
@@ -25,7 +27,7 @@ func nativeInvocationCommands(current commandPlan, removalAdapter executehostrou
 		if err != nil {
 			return nil, err
 		}
-		commands = append(commands, nativeInvocationCommand{command: command, carrier: action.CarrierIdentity().Carrier().Key()})
+		commands = append(commands, nativeInvocationCommand{command: command, carrier: action.CarrierIdentity().Carrier().Key(), operation: lock.OperationInstall})
 	}
 
 	for _, action := range current.assessment.Reconciliation.CarrierAbsences() {
@@ -36,7 +38,7 @@ func nativeInvocationCommands(current commandPlan, removalAdapter executehostrou
 		if err != nil {
 			return nil, err
 		}
-		commands = append(commands, nativeInvocationCommand{command: command, carrier: action.Claim().Identity().Carrier().Key()})
+		commands = append(commands, nativeInvocationCommand{command: command, carrier: action.Claim().Identity().Carrier().Key(), operation: lock.OperationRemove})
 	}
 
 	return commands, nil

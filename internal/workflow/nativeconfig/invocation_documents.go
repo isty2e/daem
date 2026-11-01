@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -49,13 +50,6 @@ type InvocationDocuments struct {
 
 type InvocationBaseline struct {
 	documents map[aggregate.DocumentAddress]configdocument.Document
-}
-
-// InvocationRewrite is the exact profile-owned rewrite area for one command.
-// Documents outside these aliases retain the ordinary complete-content check.
-type InvocationRewrite struct {
-	Aliases  []aggregate.DocumentAddress
-	Preserve func(context.Context, configdocument.Document, configdocument.Document) (bool, error)
 }
 
 func PrepareInvocationDocuments(ctx context.Context, paths daempaths.Paths, input readiness.NativeAssessmentInput, sources []lockobserve.NativeSourceObservation) (InvocationDocuments, error) {
@@ -234,7 +228,7 @@ func (selected invocationRead) read(ctx context.Context, budget *recovery.Physic
 	return configdocument.Parse(ctx, content, selected.syntax, DocumentLimits())
 }
 
-func (documents InvocationDocuments) Qualify(ctx context.Context, before, after InvocationBaseline, rewrites []InvocationRewrite) error {
+func (documents InvocationDocuments) Qualify(ctx context.Context, before, after InvocationBaseline, rewrites relationhost.NativeSettingsRewrites) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -275,16 +269,7 @@ func (documents InvocationDocuments) Qualify(ctx context.Context, before, after 
 		if !present {
 			return fmt.Errorf("%w: document %q was not observed", ErrInvocationOutsideChanged, address.AggregateRoot())
 		}
-		preserve := func(ctx context.Context, old, current configdocument.Document) (bool, error) {
-			return old.PreservesOutside(ctx, current, nil, nil)
-		}
-		for _, rewrite := range rewrites {
-			if rewrite.Preserve != nil && slices.Contains(rewrite.Aliases, address) {
-				preserve = rewrite.Preserve
-				break
-			}
-		}
-		same, err := preserve(ctx, before.documents[address], current)
+		same, err := rewrites.PreservesOutside(ctx, address, before.documents[address], current)
 		if err != nil || !same {
 			return errors.Join(fmt.Errorf("%w: %q", ErrInvocationOutsideChanged, address.AggregateRoot()), err)
 		}

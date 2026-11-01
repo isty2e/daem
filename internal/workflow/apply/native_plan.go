@@ -12,6 +12,7 @@ import (
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -21,11 +22,11 @@ import (
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	projectionbuild "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/supply/artifact"
-	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/internal/workflow/readiness"
@@ -97,23 +98,27 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		}
 		return err
 	}
-	checkNamespaces := func(selected target.Target, scope target.Scope) error {
-		paths, handled, err := relationhost.OpaquePluginNamespaces(planned.context.Paths, selected, scope)
-		if err != nil || !handled {
+	checkNamespaces := func(key desiredextension.CarrierKey, operation lock.OperationKind) error {
+		profile, err := relationhost.NativeSettingsProfileFor(key, operation)
+		if err != nil {
+			return err
+		}
+		paths, err := profile.ExclusionPaths(planned.context.Paths)
+		if err != nil {
 			return err
 		}
 		return checkPaths(paths)
 	}
 	for _, action := range assessment.Reconciliation.Relations() {
 		if action.InvokesHostRoute() {
-			if err := checkNamespaces(action.Target(), action.Scope()); err != nil {
+			if err := checkNamespaces(action.CarrierIdentity().Carrier().Key(), lock.OperationInstall); err != nil {
 				return err
 			}
 		}
 	}
 	for _, action := range assessment.Reconciliation.CarrierAbsences() {
 		if action.InvokesHostRoute() || action.MutatesDirectProjection() {
-			if err := checkNamespaces(action.Target(), action.Scope()); err != nil {
+			if err := checkNamespaces(action.Claim().Identity().Carrier().Key(), lock.OperationRemove); err != nil {
 				return err
 			}
 		}
