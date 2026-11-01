@@ -32,7 +32,7 @@ func observeProviderEffectiveMCP(
 	if err != nil {
 		return mcpeffectivehost.ObservationSet{}, err
 	}
-	readFile, err := nativeMCPConfigReader(native, resolver)
+	readFile, err := nativeConfigReader(native, resolver)
 	if err != nil {
 		return mcpeffectivehost.ObservationSet{}, err
 	}

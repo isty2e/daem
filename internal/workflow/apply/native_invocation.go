@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/observe/codexplugin"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
@@ -119,7 +120,7 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 		return nil, err
 	}
 	for _, command := range commands {
-		rewrite, err := nativePiInvocationRewrite(current, command.carrier)
+		rewrite, err := nativeInvocationRewrite(current, command.carrier)
 		if err != nil {
 			return nil, err
 		}
@@ -177,6 +178,30 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 		program.commands[key] = prepared
 	}
 	return program, nil
+}
+
+func nativeInvocationRewrite(current commandPlan, key desiredextension.CarrierKey) (nativeconfig.InvocationRewrite, error) {
+	switch key.Carrier() {
+	case desiredextension.CarrierPiPackage:
+		return nativePiInvocationRewrite(current, key)
+	case desiredextension.CarrierCodexPlugin:
+		wanted, err := codexplugin.ConfigDocumentAddress()
+		if err != nil {
+			return nativeconfig.InvocationRewrite{}, err
+		}
+		for _, group := range current.assessment.NativeApproval {
+			for _, address := range group.Aliases {
+				if address == wanted {
+					return nativeconfig.InvocationRewrite{Aliases: append([]aggregate.DocumentAddress(nil), group.Aliases...), Preserve: func(ctx context.Context, before, after configdocument.Document) (bool, error) {
+						return codexplugin.PreservesOutsidePluginRewrite(ctx, before, after, key.Source())
+					}}, nil
+				}
+			}
+		}
+		return nativeconfig.InvocationRewrite{}, nil
+	default:
+		return nativeconfig.InvocationRewrite{}, fmt.Errorf("native invocation rewrite profile is unavailable")
+	}
 }
 
 func nativePiInvocationRewrite(current commandPlan, key desiredextension.CarrierKey) (nativeconfig.InvocationRewrite, error) {

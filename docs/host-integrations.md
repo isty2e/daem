@@ -448,6 +448,13 @@ inspection uses configured
 `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/.codex-plugin/plugin.json`
 and is separate from relation authority.
 
+Install, managed removal and explicit refresh support selected project/global
+settings keys. Apply establishes desired keys before the command and checks them
+afterward; Refresh instead requires them already applied and current. Plugin
+add/remove may replace the user config with tighter permissions. Unexpected changes
+in managed settings stop the operation without automatic content repair; interrupted
+permission protection is settled through `daem recover`, not command replay.
+
 ## Claude Code Plugin Carrier Route Summary
 
 `claude-code-plugin` marketplace rows support project and explicit global scope.

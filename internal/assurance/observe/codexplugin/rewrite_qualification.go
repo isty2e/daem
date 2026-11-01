@@ -7,7 +7,18 @@ import (
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/target"
 )
+
+// ConfigDocumentAddress projects the Codex-owned user config into native document identity.
+func ConfigDocumentAddress() (aggregate.DocumentAddress, error) {
+	destination, err := output.Parse("@codex-home/config.toml")
+	if err != nil {
+		return aggregate.DocumentAddress{}, err
+	}
+	return aggregate.NewDocumentAddress(target.TargetCodex, target.ScopeGlobal, destination)
+}
 
 // PreservesOutsidePluginRewrite compares values and comments outside the selected
 // plugin entry. It does not qualify membership or grant write authority.

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	codexhostpath "github.com/isty2e/daem/internal/output/hostpath/codex"
 )
 
 // HostPaths is the resolved Codex-owned config and plugin-cache boundary.
@@ -16,15 +16,25 @@ type HostPaths struct {
 
 // ResolveHostPaths mirrors Codex's CODEX_HOME resolution contract.
 func ResolveHostPaths() (HostPaths, error) {
+	return ResolveHostPathsForWorkDir("")
+}
+
+// ResolveHostPathsForWorkDir binds relative CODEX_HOME to the host command's CWD.
+// Configured roots still require the same existing canonical directory.
+func ResolveHostPathsForWorkDir(workDir string) (HostPaths, error) {
+	root, err := codexhostpath.ResolveHomeRoot(workDir)
+	if err != nil {
+		return HostPaths{}, err
+	}
 	if configured := os.Getenv("CODEX_HOME"); configured != "" {
-		info, err := os.Stat(configured)
+		info, err := os.Stat(root)
 		if err != nil {
 			return HostPaths{}, fmt.Errorf("resolve CODEX_HOME %q: %w", configured, err)
 		}
 		if !info.IsDir() {
 			return HostPaths{}, fmt.Errorf("CODEX_HOME %q is not a directory", configured)
 		}
-		resolved, err := filepath.EvalSymlinks(configured)
+		resolved, err := filepath.EvalSymlinks(root)
 		if err != nil {
 			return HostPaths{}, fmt.Errorf("canonicalize CODEX_HOME %q: %w", configured, err)
 		}
@@ -35,14 +45,7 @@ func ResolveHostPaths() (HostPaths, error) {
 		return HostPaths{home: filepath.Clean(absolute)}, nil
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return HostPaths{}, fmt.Errorf("resolve user home for Codex: %w", err)
-	}
-	if strings.TrimSpace(home) == "" {
-		return HostPaths{}, fmt.Errorf("resolved user home for Codex is empty")
-	}
-	return HostPaths{home: filepath.Join(home, ".codex")}, nil
+	return HostPaths{home: root}, nil
 }
 
 // ConfigPath returns the selected Codex config file.

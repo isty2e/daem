@@ -33,7 +33,7 @@ func TestNativeMCPReaderReusesObservedAliasesWithoutIO(t *testing.T) {
 		t.Fatal(err)
 	}
 	native := []nativeAssessmentSources{{input: &NativeAssessmentInput{Documents: &documents}}}
-	reader, err := nativeMCPConfigReader(native, liveobserve.DestinationResolver(managedhostpath.Resolver(fixture.paths).Resolve))
+	reader, err := nativeConfigReader(native, liveobserve.DestinationResolver(managedhostpath.Resolver(fixture.paths).Resolve))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/observe/codexplugin"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -251,18 +252,34 @@ func prepareNativeRefreshInvocation(ctx context.Context, current plan, leases *m
 }
 
 func nativeRefreshRewrites(current plan, documents *journal.NativeDocumentObservationBatch) ([]nativeconfig.InvocationRewrite, error) {
-	if current.result.Selection.Target != target.TargetPi {
+	if current.result.Selection.Target != target.TargetPi && current.result.Selection.Target != target.TargetCodex {
 		return nil, fmt.Errorf("native settings protection for this refresh host is not connected")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
 	}
 	identity, admitted, err := durablecarrier.ManagedCarrierIdentityFromLockedRecord(current.contract)
 	if err != nil || !admitted {
 		return nil, errors.Join(fmt.Errorf("refresh carrier identity is unavailable"), err)
 	}
 	key := identity.Carrier().Key()
+	if current.result.Selection.Target == target.TargetCodex {
+		wanted, err := codexplugin.ConfigDocumentAddress()
+		if err != nil {
+			return nil, err
+		}
+		for _, namespace := range documents.Namespaces() {
+			for _, alias := range namespace.Addresses() {
+				if alias == wanted {
+					return []nativeconfig.InvocationRewrite{{Aliases: namespace.Addresses(), Preserve: func(ctx context.Context, before, after configdocument.Document) (bool, error) {
+						return codexplugin.PreservesOutsideMarketplaceRewrite(ctx, before, after, key.Source())
+					}}}, nil
+				}
+			}
+		}
+		return nil, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
 	selectedSource := key.Source().Ref()
 	interpreted, err := extensiontopology.InterpretCarrierSource(key)
 	if err != nil {

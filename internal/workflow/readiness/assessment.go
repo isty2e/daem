@@ -248,11 +248,16 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
+	configReader, err := nativeConfigReader(native, resolver)
+	if err != nil {
+		return Assessment{}, err
+	}
 	relationObservations, err := resolveCarrierObservations(ctx, relationhost.Input{
 		Paths:                paths,
 		Lockfile:             locked,
 		ManagedCarrierClaims: allCarrierClaims,
 		Selection:            selection,
+		ReadFile:             configReader,
 	}, providedRelationObservations)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("inspect carrier relation inventory: %w", err)

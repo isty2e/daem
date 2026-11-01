@@ -10,7 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-func nativeMCPConfigReader(native []nativeAssessmentSources, resolver liveobserve.DestinationResolver) (func(context.Context, string, int64) ([]byte, bool, error), error) {
+func nativeConfigReader(native []nativeAssessmentSources, resolver liveobserve.DestinationResolver) (func(context.Context, string, int64) ([]byte, bool, error), error) {
 	if len(native) == 0 || native[0].input == nil || native[0].input.Documents == nil {
 		return nil, nil
 	}
@@ -24,7 +24,7 @@ func nativeMCPConfigReader(native []nativeAssessmentSources, resolver liveobserv
 			}
 			document, _, observed := batch.Document(alias)
 			if !observed {
-				return nil, fmt.Errorf("MCP read requires its retained native document")
+				return nil, fmt.Errorf("configuration read requires its retained native document")
 			}
 			documents[filepath.Clean(path)] = document
 			if exact, present := namespace.Observation().Exact(); present {

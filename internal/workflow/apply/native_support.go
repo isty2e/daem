@@ -54,7 +54,7 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	}
 	for _, relation := range result.Relations() {
 		if relation.Execution() != reconcile.ExecutionNoMutation {
-			if !relation.InvokesHostRoute() || relation.Target() != target.TargetPi || relation.CarrierIdentity().Carrier().Key().Carrier() != desiredextension.CarrierPiPackage {
+			if !relation.InvokesHostRoute() || !nativeInvocationCarrierSupported(relation.CarrierIdentity().Carrier().Key()) {
 				return nativeSupportError{nativeSupportRoutes}
 			}
 			if _, pin := relation.PinTransition(); pin {
@@ -69,7 +69,7 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	}
 	for _, absence := range result.CarrierAbsences() {
 		if absence.BlocksOrdinaryApply() || absence.InvokesHostRoute() || absence.MutatesDirectProjection() || absence.RetiresClaim() {
-			if absence.Claim().Identity().Carrier().Key().Carrier() == desiredextension.CarrierPiPackage && !absence.MutatesDirectProjection() {
+			if nativeInvocationCarrierSupported(absence.Claim().Identity().Carrier().Key()) && !absence.MutatesDirectProjection() {
 				continue
 			}
 			if !absence.InvokesHostRoute() && !absence.MutatesDirectProjection() {
@@ -93,6 +93,17 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 		}
 	}
 	return nil
+}
+
+func nativeInvocationCarrierSupported(key desiredextension.CarrierKey) bool {
+	switch key.Carrier() {
+	case desiredextension.CarrierPiPackage:
+		return key.Target() == target.TargetPi
+	case desiredextension.CarrierCodexPlugin:
+		return key.Target() == target.TargetCodex && key.Scope() == target.ScopeGlobal
+	default:
+		return false
+	}
 }
 
 func (reason nativeSupportReason) repairInstruction() string {

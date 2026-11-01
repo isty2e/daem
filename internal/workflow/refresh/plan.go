@@ -424,7 +424,7 @@ func planAtPathsWithBarrier(
 	if err != nil {
 		return refusedPlan(result, ReasonNativeSettings, err, "run daem status and daem recover --dry-run; apply selected settings before refresh; resolve host-value drift through explicit replace host-config")
 	}
-	if planned.native != nil && selected.Target() != target.TargetPi {
+	if planned.native != nil && selected.Target() != target.TargetPi && selected.Target() != target.TargetCodex {
 		return refusedPlan(result, ReasonRefreshUnsupported, fmt.Errorf("native settings protection for this refresh host is not connected"), "this host refresh cannot yet run with managed settings; use status and preserve the current settings")
 	}
 	planned.protectionFence, err = observeRefreshProtectionFence(ctx, paths, selected.Target())

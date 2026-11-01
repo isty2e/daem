@@ -3,6 +3,7 @@ package refresh
 import (
 	"context"
 
+	"github.com/isty2e/daem/internal/assurance/observe/codexplugin"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -39,6 +40,17 @@ func observeRefreshProtectionFence(ctx context.Context, paths daempaths.Paths, s
 		return refreshProtectionFence{}, err
 	}
 	var result refreshProtectionFence
+	if selected == target.TargetCodex {
+		address, err := codexplugin.ConfigDocumentAddress()
+		if err != nil {
+			return refreshProtectionFence{}, err
+		}
+		path, err := managedhostpath.Resolver(paths).Resolve(address.AggregateRoot())
+		if err != nil {
+			return refreshProtectionFence{}, err
+		}
+		result.requests = append(result.requests, mutation.PhysicalAuthorityRequest{Path: path, Target: string(selected), Scope: string(address.Scope())})
+	}
 	if selected == target.TargetPi {
 		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 			address, err := pipackage.SettingsDocumentAddress(scope)

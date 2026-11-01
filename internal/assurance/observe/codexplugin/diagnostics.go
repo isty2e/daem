@@ -19,7 +19,7 @@ func ObserveConfiguredPluginDiagnostics(
 		ctx = context.Background()
 	}
 	budget := &observationBudget{}
-	observation, err := observeConfigFile(ctx, configPath, budget)
+	observation, err := observeConfigFileWithReader(ctx, configPath, budget, nil)
 	if err != nil || !observation.ConfigExists() || !observation.EntrySetObserved() {
 		return observation, nil, err
 	}
