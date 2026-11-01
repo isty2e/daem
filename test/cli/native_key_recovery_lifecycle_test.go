@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,6 +23,7 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/subprocess"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
@@ -371,7 +373,7 @@ func requireNativeRecoveryJournalState(t *testing.T, fixture nativeRecoveryFixtu
 	t.Logf("actual v16 journal retained; persisted state is %s", map[string]string{"host": "Before", "state": "After"}[boundary])
 }
 
-func requireNativeRecoveryDryRun(t *testing.T, fixture nativeRecoveryFixture, classification string) {
+func requireNativeRecoveryDryRun(t *testing.T, fixture nativeRecoveryFixture, classification string, alternatives ...string) recoverJSONTestPayload {
 	t.Helper()
 	before := snapshotNativeRecoveryEvidence(t, fixture)
 	code, stdout, stderr := invokeNativeRecoveryCommand(t, fixture, "none", "recover", "--dry-run", "--json")
@@ -382,9 +384,11 @@ func requireNativeRecoveryDryRun(t *testing.T, fixture nativeRecoveryFixture, cl
 		t.Fatalf("fresh recover --dry-run failed after actual producer interruption (want %s): exit=%d stdout=%s stderr=%s", classification, code, stdout, stderr)
 	}
 	payload := decodeRecoverJSONTestPayload(t, []byte(stdout))
-	if payload.Classification != classification || payload.HasErrors || payload.Phase != "planned" {
-		t.Fatalf("fresh recovery did not classify the actual producer transition as %s: %s", classification, stdout)
+	classifications := append([]string{classification}, alternatives...)
+	if !slices.Contains(classifications, payload.Classification) || payload.HasErrors || payload.Phase != "planned" {
+		t.Fatalf("fresh recovery did not classify the actual producer transition as one of %v: %s", classifications, stdout)
 	}
+	return payload
 }
 
 func requireNativeRecoveryBeforeHost(t *testing.T, fixture nativeRecoveryFixture, later bool) {
@@ -566,7 +570,8 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 		Adapter: storagecommit.Adapter{}, boundary: boundary,
 		host: host, state: paths.StatefilePath, cancel: cancel,
 	}
-	nativeInvocation := strings.HasPrefix(boundary, "native-ordinary-") || boundary == "native-removal-command"
+	nativeAdoption := strings.HasPrefix(boundary, "native-adoption-")
+	nativeInvocation := strings.HasPrefix(boundary, "native-ordinary-") || boundary == "native-removal-command" || nativeAdoption
 	if boundary == "native-removal-command" {
 		if err := os.Setenv("DAEM_TEST_REMOVAL_PARENT_PID", fmt.Sprint(os.Getpid())); err != nil {
 			t.Fatal(err)
@@ -590,6 +595,10 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 	if nativeInvocation {
 		store.boundary = strings.TrimPrefix(boundary, "native-ordinary-")
 		store.waitHost = true
+		if nativeAdoption {
+			store.boundary = strings.TrimPrefix(boundary, "native-adoption-")
+			store.waitHost, store.waitWholeRecord = false, true
+		}
 	}
 	execution := applyworkflow.ExecuteOptions{NativeFilesystem: store}
 	execution.HostRouteExecutor = subprocess.NewCommandExecutor(subprocess.CommandOptions{Runner: func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
@@ -620,13 +629,14 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 
 type nativeRecoveryStore struct {
 	storagecommit.Adapter
-	boundary      string
-	host          string
-	state         string
-	failed        bool
-	cancel        context.CancelFunc
-	waitHost      bool
-	hostPublished bool
+	boundary        string
+	host            string
+	state           string
+	failed          bool
+	cancel          context.CancelFunc
+	waitHost        bool
+	hostPublished   bool
+	waitWholeRecord bool
 }
 
 func (store *nativeRecoveryStore) CreateRootedFile(ctx context.Context, capability rootedpath.CommitCapability, content []byte, mode fs.FileMode) error {
@@ -645,7 +655,7 @@ func (store *nativeRecoveryStore) ReplaceRootedFile(ctx context.Context, capabil
 	if err != nil {
 		return err
 	}
-	if store.boundary == "before-state" && path == store.state {
+	if store.boundary == "before-state" && path == store.state && store.acceptsStatePublication(content) {
 		os.Exit(nativeRecoveryExit)
 	}
 	if err := store.Adapter.ReplaceRootedFile(ctx, capability, content, mode, expected); err != nil {
@@ -656,6 +666,22 @@ func (store *nativeRecoveryStore) ReplaceRootedFile(ctx context.Context, capabil
 
 func nativeRecoveryReceipt(path string) string {
 	return fmt.Sprintf("native recovery confirmed rooted publication %q", path)
+}
+
+func (store *nativeRecoveryStore) acceptsStatePublication(content []byte) bool {
+	if !store.waitWholeRecord {
+		return true
+	}
+	state, err := statefile.Decode(content)
+	if err != nil {
+		return false
+	}
+	for _, record := range state.ManagedPaths() {
+		if aggregate.IsHostConfigDocumentSubject(record.Subject()) {
+			return true
+		}
+	}
+	return false
 }
 
 func (store *nativeRecoveryStore) afterPublication(path string, expected []byte, mode fs.FileMode) error {
@@ -679,6 +705,9 @@ func (store *nativeRecoveryStore) afterPublication(path string, expected []byte,
 	}
 	if store.waitHost && !store.hostPublished {
 		// A suffix checkpoint must not exit at the prefix's state publication.
+		return nil
+	}
+	if path == store.state && !store.acceptsStatePublication(content) {
 		return nil
 	}
 	if store.boundary == "host" && path == store.host || store.boundary == "state" && path == store.state {

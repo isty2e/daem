@@ -7,12 +7,82 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/reconcile"
 	projectionbuild "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/workflow/readiness"
 )
+
+func TestNativeNarrowingPhaseSplitRequiresTheExactPositiveTransition(t *testing.T) {
+	for _, fragment := range []string{`{}`, `{"a":2}`} {
+		t.Run(fragment, func(t *testing.T) {
+			input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1,"released":9}`, `{"a":1,"released":9}`, fragment, hostconfig.OwnershipKeys)
+			action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := durable.NewSnapshot(durable.SnapshotInput{ManagedPaths: []durable.ManagedPathState{action.Baseline(), nativePreparationOtherWholeState(t)}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			codec := nativePreparationStateCodec(t)
+			full, err := execute.PrepareNativeApplyState(t.Context(), execute.NativeApplyStateInput{Before: before, Narrowings: []reconcile.NativeNarrowingAction{action}, StateCodec: codec})
+			if err != nil {
+				t.Fatal(err)
+			}
+			prefixInput := execute.NativeApplyStateInput{Before: before, Narrowings: full.PositiveNarrowings(), StateCodec: codec}
+			prefix, err := execute.PrepareNativeApplyState(t.Context(), prefixInput)
+			if err != nil || full.ValidateAggregatePhaseSplit(prefix, nil) != nil {
+				t.Fatal("native transition phases lost their complete successor", err)
+			}
+			if fragment == `{}` {
+				if !prefix.AfterState().Equal(before) {
+					t.Fatal("empty narrowing released ownership before the command")
+				}
+				prefixInput.Narrowings = []reconcile.NativeNarrowingAction{action}
+			} else {
+				if len(prefix.AfterState().ManagedPaths()) != 1 || len(prefix.AfterState().ManagedAggregates()) != 1 {
+					t.Fatal("positive narrowing did not preserve unrelated state and settle its keys")
+				}
+				prefixInput.Narrowings = nil
+			}
+			wrong, err := execute.PrepareNativeApplyState(t.Context(), prefixInput)
+			if err != nil || full.ValidateAggregatePhaseSplit(wrong, nil) == nil {
+				t.Fatal("missing positive or prematurely retiring narrowing passed phase coverage", err)
+			}
+			if fragment != `{}` {
+				changed := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1,"released":9}`, `{"a":1,"released":9}`, `{"a":3}`, hostconfig.OwnershipKeys)
+				other, err := readiness.BuildNativeNarrowingAction(t.Context(), changed)
+				if err != nil {
+					t.Fatal(err)
+				}
+				prefixInput.Narrowings = []reconcile.NativeNarrowingAction{other}
+				wrong, err = execute.PrepareNativeApplyState(t.Context(), prefixInput)
+				if err != nil || action.Equal(other) || full.ValidateAggregatePhaseSplit(wrong, nil) == nil {
+					t.Fatal("changed source/selected plan was mistaken for the reserved narrowing", err)
+				}
+			}
+		})
+	}
+}
+
+func TestNativeWholeAdoptionPhaseCoverageRetiresKeysOnlyInSuffix(t *testing.T) {
+	_, input, _ := nativeStateAdoptionFixture(t, `{"a":1,"b":2}`)
+	full, err := execute.PrepareNativeApplyState(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix, err := execute.PrepareNativeApplyState(t.Context(), execute.NativeApplyStateInput{Before: input.Before, StateCodec: input.StateCodec})
+	if err != nil || full.ValidateAggregatePhaseSplit(prefix, nil) != nil || !prefix.AfterState().Equal(input.Before) {
+		t.Fatal("phase projection failed to preserve keys before exact whole adoption", err)
+	}
+	if err := full.ValidateAggregatePhaseSplit(full, nil); err == nil {
+		t.Fatal("whole adoption was admitted as positive key preconfiguration")
+	}
+}
 
 func TestPositiveNativePrefixPreparesOnlyItsActualStateProgress(t *testing.T) {
 	for _, kind := range []reconcile.AggregateDecisionKind{

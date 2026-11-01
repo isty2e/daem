@@ -238,14 +238,6 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		}
 		opaque = opaque || present
 	}
-	if opaque {
-		keyRetirement := slices.ContainsFunc(state.WholeAdoptions(), func(adoption execute.NativeWholeAdoption) bool {
-			return len(adoption.RetiredKeys()) != 0
-		})
-		if len(state.Narrowings()) != 0 || keyRetirement {
-			return nativeSupportError{nativeSupportDocumentRoutes}
-		}
-	}
 	documents, err := nativeStateDocuments(ctx, assessment, state.AfterState())
 	if err != nil {
 		return err
@@ -267,7 +259,10 @@ func prepareNativeInvocationRemainder(ctx context.Context, planned *commandPlan)
 	if err != nil {
 		return err
 	}
-	prefix, err := execute.PrepareNativeApplyState(ctx, execute.NativeApplyStateInput{Before: planned.assessment.CurrentState, Aggregates: positive, StateCodec: planned.nativePlan.stateCodec})
+	prefix, err := execute.PrepareNativeApplyState(ctx, execute.NativeApplyStateInput{
+		Before: planned.assessment.CurrentState, Aggregates: positive,
+		Narrowings: planned.nativePlan.state.PositiveNarrowings(), StateCodec: planned.nativePlan.stateCodec,
+	})
 	if err != nil {
 		return err
 	}

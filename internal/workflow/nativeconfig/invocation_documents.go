@@ -118,14 +118,25 @@ func PrepareInvocationDocuments(ctx context.Context, paths daempaths.Paths, inpu
 	return result, ctx.Err()
 }
 
+// IsWholeInvocationDocument selects preservation after positive keys settle.
+// Nonempty narrowing reads keys; empty narrowing retains whole preservation
+// until its final ownership retirement. This does not prove prefix settlement.
 func IsWholeInvocationDocument(aliases []aggregate.DocumentAddress, sources []lockobserve.NativeSourceObservation, before durable.Snapshot) bool {
+	positiveKeys := false
 	for _, source := range sources {
 		placement, present := source.SourceContract().HostConfigPlacement()
-		if present && placement.Ownership() == hostconfig.OwnershipDocument && slices.ContainsFunc(aliases, func(alias aggregate.DocumentAddress) bool {
+		if !present || !slices.ContainsFunc(aliases, func(alias aggregate.DocumentAddress) bool {
 			return alias.Target() == placement.Target() && alias.Scope() == placement.Scope() && alias.AggregateRoot() == placement.Destination()
 		}) {
+			continue
+		}
+		if placement.Ownership() == hostconfig.OwnershipDocument {
 			return true
 		}
+		positiveKeys = positiveKeys || len(source.Projections()) != 0
+	}
+	if positiveKeys {
+		return false
 	}
 	for _, state := range before.ManagedPaths() {
 		if aggregate.IsHostConfigDocumentSubject(state.Subject()) && slices.ContainsFunc(aliases, func(alias aggregate.DocumentAddress) bool {

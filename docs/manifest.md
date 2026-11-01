@@ -1520,8 +1520,11 @@ file is physically separate from settings the command can rewrite and from the
 host's private plugin paths. Key changes settle first; whole-file creation,
 updates and removal follow the commands with the other direct file changes.
 Unexpected whole-file changes stop the operation before that file phase.
-Changes between key and whole-file ownership still require a separate apply
-before retrying the extension change.
+When narrowing a whole file to keys, retained keys and their ownership settle
+before extension commands; released content is preserved. An empty key source
+releases whole-file ownership after the commands. Matching key-to-whole adoption
+also settles afterward and still requires `--manage-existing` and an exact
+whole-source match.
 Refreshing extensions while whole files are managed is not yet supported.
 
 ### Whole Files And Ownership Changes

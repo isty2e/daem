@@ -18,7 +18,6 @@ const (
 	nativeSupportOrder
 	nativeSupportCarrierState
 	nativeSupportNamespace
-	nativeSupportDocumentRoutes
 	nativeSupportWholeRewrite
 )
 
@@ -36,8 +35,6 @@ func (reason nativeSupportReason) detail() string {
 		return "extension ownership settlement is not yet supported while settings keys are managed"
 	case nativeSupportNamespace:
 		return "selected settings overlap the plugin host's private namespace without a supported rewrite contract"
-	case nativeSupportDocumentRoutes:
-		return "changes between key and whole-file ownership cannot yet accompany extension commands"
 	case nativeSupportWholeRewrite:
 		return "whole-file ownership overlaps settings rewritten by an extension command"
 	default:
@@ -114,8 +111,6 @@ func (reason nativeSupportReason) repairInstruction() string {
 		return "retain the existing extension declarations and defer this ownership change while settings keys are managed"
 	case nativeSupportNamespace:
 		return "inspect resolved configuration-root aliases; this overlap requires an explicit rewrite profile before apply"
-	case nativeSupportDocumentRoutes:
-		return "apply the ownership-mode change separately before retrying the extension change"
 	case nativeSupportWholeRewrite:
 		return "use key ownership for the shared settings file, or choose a separate dedicated file"
 	default:

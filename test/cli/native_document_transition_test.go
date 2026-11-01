@@ -393,40 +393,6 @@ func TestNativeDocumentNarrowingReturnedErrors(t *testing.T) {
 	}
 }
 
-func TestNativeDocumentRefusesOwnershipTransitionWithOpaqueWork(t *testing.T) {
-	for _, transition := range []string{"narrow", "adopt"} {
-		t.Run(transition, func(t *testing.T) {
-			var f nativeDocumentTransitionFixture
-			mode := "document"
-			if transition == "narrow" {
-				f = newNativeDocumentTransitionFixture(t, target.TargetCodex, target.ScopeProject)
-				f.applyWhole(t)
-				f.narrow(t, f.changed)
-				mode = "keys"
-			} else {
-				f = prepareNativeKeyToWholeFixture(t, target.TargetCodex, target.ScopeProject)
-			}
-			bin := filepath.Join(f.workspace, "bin")
-			called := filepath.Join(f.workspace, "called")
-			testkit.WriteFile(t, bin, "opencode", "#!/bin/sh\nif [ \"$1\" = --version ]; then printf '1.0.0\\n'; else touch \"$DAEM_TEST_DOC_CALLED\"; fi\n")
-			if err := os.Chmod(filepath.Join(bin, "opencode"), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-			t.Setenv("DAEM_TEST_DOC_CALLED", called)
-			declaration := strings.Replace(f.declaration, `targets=["codex"]`, `targets=["codex","opencode"]`, 1) + fmt.Sprintf("%q\n", mode) + "\n[[extension]]\nid='tools'\ntargets=['opencode']\ncarrier='opencode-plugin'\nscope='project'\nsource={host_source='@acme/tools@1'}\n"
-			testkit.WriteFile(t, f.workspace, "daem.toml", declaration)
-			runNativeLifecycleCommand(t, "lock", "--manifest", f.manifest)
-			before := snapshotNativeRecoveryEvidence(t, f.nativeRecoveryFixture)
-			code, _, _ := invokeNativeRecoveryCommand(t, f.nativeRecoveryFixture, "none", "apply", "--yes", "--manage-existing")
-			if code == 0 || !reflect.DeepEqual(before, snapshotNativeRecoveryEvidence(t, f.nativeRecoveryFixture)) {
-				t.Fatal("unjoined document/opaque work had effects")
-			}
-			testkit.AssertPathMissing(t, called)
-		})
-	}
-}
-
 func TestNativeDocumentWholeRecovery(t *testing.T) {
 	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
 		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {

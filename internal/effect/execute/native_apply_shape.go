@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/reconcile"
 )
 
 // NativeManagedSuffixShape describes residual work, never a live observation or
@@ -19,6 +20,8 @@ type NativeManagedSuffixShape struct {
 	managed     []ManagedPathEffect
 	whole       []ManagedPathEffect
 	aggregates  []AggregateEffect
+	narrowings  []reconcile.NativeNarrowingAction
+	adoptions   []NativeWholeAdoption
 	orders      []pipackage.OrderObservation
 }
 
@@ -34,19 +37,20 @@ func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefi
 	if len(prefix.orders) != 0 {
 		return fmt.Errorf("positive native prefix contains Pi order work")
 	}
-	if !prefix.before.Equal(preparation.before) || len(prefix.managed)+len(prefix.narrowings)+len(prefix.adoptions)+len(prefix.projectCompletions)+len(preparation.projectCompletions) != 0 {
+	if !prefix.before.Equal(preparation.before) || len(prefix.managed)+len(prefix.adoptions)+len(prefix.projectCompletions)+len(preparation.projectCompletions) != 0 {
 		return fmt.Errorf("native suffix requires a positive-only prefix from the same complete Before")
+	}
+	if !slices.EqualFunc(prefix.narrowings, preparation.PositiveNarrowings(), reconcile.NativeNarrowingAction.Equal) {
+		return fmt.Errorf("native prefix does not cover its positive ownership transitions")
 	}
 	for _, effect := range prefix.aggregates {
 		if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); !native {
 			return fmt.Errorf("positive native prefix contains ordinary aggregate work")
 		}
 	}
-	after, err := snapshotAfterManagedPathEffects(prefix.after, preparation.managed)
-	if err != nil {
-		return err
-	}
-	after, err = snapshotAfterAggregateEffects(after, residual)
+	remaining := preparation
+	remaining.aggregates, remaining.narrowings = residual, preparation.narrowingPhase(false)
+	after, err := remaining.managedSuccessor(prefix.after)
 	if err != nil {
 		return err
 	}
@@ -64,6 +68,7 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 	projection := input
 	projection.Preparation.aggregates = residual
 	projection.Preparation.orders = nil
+	projection.Preparation.narrowings = input.Preparation.narrowingPhase(false)
 	work, err := nativeApplyWorkFor(projection)
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
@@ -85,7 +90,7 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 			}
 		}
 	}
-	work.changed = len(work.managed)+len(work.whole)+len(residual) != 0
+	work.changed = len(work.managed)+len(work.whole)+len(residual)+len(projection.Preparation.narrowings) != 0
 
 	groups := make([]int, 0, len(orders))
 	for _, order := range orders {
@@ -119,7 +124,10 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 		}
 	}
 
-	shape := NativeManagedSuffixShape{managed: slices.Clone(work.managed), whole: slices.Clone(work.whole), aggregates: slices.Clone(residual), orders: slices.Clone(orders)}
+	shape := NativeManagedSuffixShape{
+		managed: slices.Clone(work.managed), whole: slices.Clone(work.whole), aggregates: slices.Clone(residual), orders: slices.Clone(orders),
+		narrowings: slices.Clone(projection.Preparation.narrowings), adoptions: input.Preparation.WholeAdoptions(),
+	}
 	var builder operationplan.EffectStructureBuilder
 	segments := make([]operationplan.EffectNode, 0, len(variants))
 	for index, variant := range variants {
@@ -160,6 +168,8 @@ func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectP
 	}
 	if !slices.EqualFunc(shape.managed, work.managed, sameManagedPathEffect) ||
 		!slices.EqualFunc(shape.whole, work.whole, sameManagedPathEffect) ||
+		!slices.EqualFunc(shape.narrowings, input.Preparation.narrowings, reconcile.NativeNarrowingAction.Equal) ||
+		!slices.EqualFunc(shape.adoptions, input.Preparation.adoptions, sameNativeWholeAdoption) ||
 		!slices.EqualFunc(shape.aggregates, input.Preparation.AggregateEffects(), sameAggregateSuffixEffect) {
 		return ApplyEffectPlan{}, fmt.Errorf("native suffix actors changed")
 	}
@@ -179,6 +189,11 @@ func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectP
 		}
 	}
 	return ApplyEffectPlan{}, fmt.Errorf("native suffix structure changed")
+}
+
+func sameNativeWholeAdoption(left, right NativeWholeAdoption) bool {
+	return left.source.Equal(right.source) && sameManagedPathEffect(left.record, right.record) &&
+		slices.EqualFunc(left.retired, right.retired, durable.ManagedAggregateState.Equal)
 }
 
 func sameAggregateSuffixEffect(left, right AggregateEffect) bool {

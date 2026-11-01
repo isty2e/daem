@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/realization"
@@ -125,6 +126,20 @@ func (action NativeNarrowingAction) SourceContract() lock.LockedSubjectContract 
 func (action NativeNarrowingAction) Baseline() durable.ManagedPathState { return action.baseline }
 
 func (action NativeNarrowingAction) CurrentDocument() aggregate.Document { return action.current }
+
+func (action NativeNarrowingAction) Equal(other NativeNarrowingAction) bool {
+	if !action.source.Equal(other.source) || !action.baseline.Equal(other.baseline) || !action.current.Equal(other.current) {
+		return false
+	}
+	if action.plan == nil || other.plan == nil {
+		return action.plan == nil && other.plan == nil
+	}
+	return action.plan.Before().Equal(other.plan.Before()) && slices.EqualFunc(action.plan.Intents(), other.plan.Intents(), func(a, b aggregate.ProjectionIntent) bool {
+		x, hasX := a.Desired()
+		y, hasY := b.Desired()
+		return a.Before().Equal(b.Before()) && hasX == hasY && (!hasX || x.Equal(y))
+	})
+}
 
 func (action NativeNarrowingAction) KeyPlan() (aggregate.Plan, bool) {
 	if action.plan == nil {

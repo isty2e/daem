@@ -107,6 +107,21 @@ func (preparation NativeApplyStatePreparation) Narrowings() []reconcile.NativeNa
 	return append([]reconcile.NativeNarrowingAction(nil), preparation.narrowings...)
 }
 
+// PositiveNarrowings leaves empty-source ownership releases for the final phase.
+func (preparation NativeApplyStatePreparation) PositiveNarrowings() []reconcile.NativeNarrowingAction {
+	return preparation.narrowingPhase(true)
+}
+
+func (preparation NativeApplyStatePreparation) narrowingPhase(positive bool) []reconcile.NativeNarrowingAction {
+	var result []reconcile.NativeNarrowingAction
+	for _, action := range preparation.narrowings {
+		if _, hasKeys := action.KeyPlan(); hasKeys == positive {
+			result = append(result, action)
+		}
+	}
+	return result
+}
+
 func (preparation NativeApplyStatePreparation) WholeAdoptions() []NativeWholeAdoption {
 	return append([]NativeWholeAdoption(nil), preparation.adoptions...)
 }
@@ -199,45 +214,12 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 		return NativeApplyStatePreparation{}, err
 	}
 
-	paths := input.Before.ManagedPaths()
-	remainingPaths := make([]durable.ManagedPathState, 0, len(paths))
-	for _, state := range paths {
-		if _, retired := retiredPaths[state.Subject()]; !retired {
-			remainingPaths = append(remainingPaths, state)
-		}
+	preparation := NativeApplyStatePreparation{
+		before: input.Before, managed: managed, aggregates: aggregates,
+		nativeOperations: nativeOperations, orders: orders,
+		narrowings: append([]reconcile.NativeNarrowingAction(nil), input.Narrowings...), adoptions: adoptions,
 	}
-	keys := input.Before.ManagedAggregates()
-	remainingKeys := make([]durable.ManagedAggregateState, 0, len(keys))
-	for _, state := range keys {
-		if _, retired := retiredKeys[state.Subject()]; !retired {
-			remainingKeys = append(remainingKeys, state)
-		}
-	}
-	after, err := input.Before.WithManagedPaths(remainingPaths)
-	if err != nil {
-		return NativeApplyStatePreparation{}, err
-	}
-	after, err = after.WithManagedAggregates(remainingKeys)
-	if err != nil {
-		return NativeApplyStatePreparation{}, err
-	}
-	after, err = snapshotAfterManagedPathEffects(after, managed)
-	if err != nil {
-		return NativeApplyStatePreparation{}, err
-	}
-	after, err = snapshotAfterAggregateEffects(after, aggregates)
-	if err != nil {
-		return NativeApplyStatePreparation{}, err
-	}
-	newKeys := after.ManagedAggregates()
-	for _, item := range desired {
-		state, err := durable.NewManagedAggregateState(item.SubjectID(), item.Contribution())
-		if err != nil {
-			return NativeApplyStatePreparation{}, err
-		}
-		newKeys = append(newKeys, state)
-	}
-	after, err = after.WithManagedAggregates(newKeys)
+	after, err := preparation.managedSuccessor(input.Before)
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
@@ -258,13 +240,59 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	if err := ctx.Err(); err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
-	return NativeApplyStatePreparation{
-		before: input.Before, after: after, managed: managed, aggregates: aggregates,
-		nativeOperations:   nativeOperations,
-		orders:             orders,
-		projectCompletions: completion.claims,
-		narrowings:         append([]reconcile.NativeNarrowingAction(nil), input.Narrowings...), adoptions: adoptions, initialized: true,
-	}, nil
+	preparation.after, preparation.projectCompletions, preparation.initialized = after, completion.claims, true
+	return preparation, nil
+}
+
+func (preparation NativeApplyStatePreparation) managedSuccessor(before durable.Snapshot) (durable.Snapshot, error) {
+	retiredPaths := make(map[topology.SubjectID]struct{})
+	retiredKeys := make(map[topology.SubjectID]struct{})
+	var desired []aggregate.SubjectContribution
+	for _, action := range preparation.narrowings {
+		retiredPaths[action.Baseline().Subject()] = struct{}{}
+		desired = append(desired, action.DesiredContributions()...)
+	}
+	for _, adoption := range preparation.adoptions {
+		for _, state := range adoption.retired {
+			retiredKeys[state.Subject()] = struct{}{}
+		}
+	}
+
+	var paths []durable.ManagedPathState
+	for _, state := range before.ManagedPaths() {
+		if _, retired := retiredPaths[state.Subject()]; !retired {
+			paths = append(paths, state)
+		}
+	}
+
+	var keys []durable.ManagedAggregateState
+	for _, state := range before.ManagedAggregates() {
+		if _, retired := retiredKeys[state.Subject()]; !retired {
+			keys = append(keys, state)
+		}
+	}
+
+	after, err := before.WithManagedProjections(paths, keys)
+	if err != nil {
+		return durable.Snapshot{}, err
+	}
+	after, err = snapshotAfterManagedPathEffects(after, preparation.managed)
+	if err != nil {
+		return durable.Snapshot{}, err
+	}
+	after, err = snapshotAfterAggregateEffects(after, preparation.aggregates)
+	if err != nil {
+		return durable.Snapshot{}, err
+	}
+	keys = after.ManagedAggregates()
+	for _, item := range desired {
+		state, err := durable.NewManagedAggregateState(item.SubjectID(), item.Contribution())
+		if err != nil {
+			return durable.Snapshot{}, err
+		}
+		keys = append(keys, state)
+	}
+	return after.WithManagedAggregates(keys)
 }
 
 type nativeWholeStateSource struct {
