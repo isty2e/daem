@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -31,6 +32,11 @@ func newNativePiInvocationFixture(t *testing.T, mutation string) nativePiInvocat
 
 func newNativePiInvocationFixtureAtScope(t *testing.T, mutation string, scope target.Scope) nativePiInvocationFixture {
 	t.Helper()
+	return nativePiInvocationFixtureForSource(t, mutation, scope, "git:github.com/acme/pi-tools@v1")
+}
+
+func nativePiInvocationFixtureForSource(t *testing.T, mutation string, scope target.Scope, source string) nativePiInvocationFixture {
+	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +49,6 @@ func newNativePiInvocationFixtureAtScope(t *testing.T, mutation string, scope ta
 		settings = filepath.Join(os.Getenv("PI_CODING_AGENT_DIR"), "settings.json")
 	}
 	beforeCommand, calls := filepath.Join(root, "command-before.json"), filepath.Join(root, "command-calls")
-	const source = "git:github.com/acme/pi-tools@v1"
 	testkit.WriteFile(t, workspace, "daem.toml", "version=1\ntargets=['pi']\n")
 	testkit.WriteFile(t, workspace, "preferences.json", `{"theme":"fixture-theme"}`)
 	testkit.WriteFile(t, filepath.Dir(settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1"]}`)
@@ -72,6 +77,7 @@ if [ "$DAEM_TEST_INSTALL_PHASE" = baseline ]; then
 else
   /bin/cp .daem/state.json "$DAEM_TEST_LAUNCH_STATE"
   /bin/cp "$DAEM_TEST_REGISTRY" "$DAEM_TEST_LAUNCH_REGISTRY"
+  if [ -n "${DAEM_TEST_PIN_CLAIMS:-}" ]; then /bin/cp "$DAEM_TEST_PIN_CLAIMS" "$DAEM_TEST_PIN_LAUNCH_CLAIMS"; fi
   printf '%s\n' '{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}' > "$DAEM_TEST_SETTINGS"
   if [ -n "${DAEM_TEST_NATIVE_RESULT:-}" ]; then /bin/cp "$DAEM_TEST_NATIVE_RESULT" "$DAEM_TEST_SETTINGS"; fi
   case "$DAEM_TEST_MUTATION" in
@@ -83,11 +89,12 @@ else
     tighten) /bin/chmod 600 "$DAEM_TEST_SETTINGS" ;;
     inaccessible) /bin/chmod 000 "$DAEM_TEST_SETTINGS" ;;
     command) exit 23 ;;
+    pin-parent-loss) /bin/chmod 666 "$DAEM_TEST_SETTINGS"; kill -KILL "${DAEM_TEST_OPAQUE_PARENT_PID:?}" ;;
     ordinary) printf 'host-produced\n' > "$DAEM_TEST_INSTRUCTIONS_TARGET" ;;
   esac
 fi
 `
-	testkit.WriteFile(t, bin, "pi", script)
+	testkit.WriteFile(t, bin, "pi", strings.ReplaceAll(script, "git:github.com/acme/pi-tools@v1", source))
 	if err := os.Chmod(filepath.Join(bin, "pi"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +117,7 @@ fi
 	t.Setenv("DAEM_TEST_LAUNCH_REGISTRY", fixture.launchRegistry)
 	t.Setenv("DAEM_TEST_MUTATION", mutation)
 	t.Setenv("DAEM_TEST_NATIVE_RESULT", "")
+	t.Setenv("DAEM_TEST_PIN_CLAIMS", "")
 	fixture.require(t, "lock")
 	fixture.require(t, "add", "extension", "tools", source, "--target", "pi", "--scope", string(scope))
 	fixture.require(t, "lock")
@@ -146,6 +154,11 @@ func (fixture nativePiInvocationFixture) launchProtection(t *testing.T) ownershi
 	if err != nil || len(snapshot.PendingCarrierInstalls()) != 1 {
 		t.Fatal("actual command was released without its exact pending install", err)
 	}
+	return fixture.launchNativeProtection(t)
+}
+
+func (fixture nativePiInvocationFixture) launchNativeProtection(t *testing.T) ownership.PendingProtection {
+	t.Helper()
 	store, err := ownershipstore.New(fixture.launchRegistry)
 	if err != nil {
 		t.Fatal(err)

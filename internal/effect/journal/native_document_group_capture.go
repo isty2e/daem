@@ -79,6 +79,32 @@ func prepareWholeDocumentCandidate(ctx context.Context, namespace NativeDocument
 	return nativeDocumentCaptureCandidate{group: group, comparison: comparison, namespace: namespace, manifest: manifest, relations: []aggregate.DocumentAddress{address}, budget: input.budget}, nil
 }
 
+func prepareRetainedWholeDocumentCandidate(ctx context.Context, namespace NativeDocumentNamespace, input nativeDocumentCaptureInput) (nativeDocumentCaptureCandidate, error) {
+	if err := validateNativeDocumentCaptureInput(ctx, input); err != nil {
+		return nativeDocumentCaptureCandidate{}, err
+	}
+	group, manifest, err := nativeDocumentGroupMetadata(ctx, namespace, input)
+	if err != nil {
+		return nativeDocumentCaptureCandidate{}, err
+	}
+	original, mode, _, err := readNativeRecoveryDocument(ctx, namespace, min(input.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.budget)
+	if err != nil {
+		return nativeDocumentCaptureCandidate{}, err
+	}
+	comparison, err := NewWholeDocumentComparison(ctx, DocumentComparisonInput{
+		Before: original, Expected: original, BeforeMode: mode, ExpectedMode: mode, Limits: input.limits,
+	})
+	if err != nil {
+		return nativeDocumentCaptureCandidate{}, err
+	}
+	_, group.Original, group.Expected, err = documentImageReferences(comparison, input.groupIndex)
+	if err != nil {
+		return nativeDocumentCaptureCandidate{}, err
+	}
+	group.Extent = "whole"
+	return nativeDocumentCaptureCandidate{group: group, comparison: comparison, namespace: namespace, manifest: manifest, relations: namespace.Addresses(), budget: input.budget}, nil
+}
+
 func validateNativeDocumentCaptureInput(ctx context.Context, input nativeDocumentCaptureInput) error {
 	if ctx == nil || input.budget == nil || input.groupIndex < 0 {
 		return fmt.Errorf("native document capture requires context, budget and a nonnegative ordinal")

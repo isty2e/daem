@@ -72,6 +72,32 @@ esac
 	return f, g, source
 }
 
+func TestNativeCurrentWholeDocumentWithOrdinaryChange(t *testing.T) {
+	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
+		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
+				f, whole, _ := nativeWholeRefreshFixture(t, selected, scope, scope)
+				f.require(t, "apply", "--yes")
+				before := testkit.ReadFile(t, whole.destination)
+				calls := string(testkit.ReadFile(t, f.calls))
+				f.addInstructions(t, "independent ordinary change\n")
+				f.require(t, "apply", "--yes")
+				if got := testkit.ReadFile(t, whole.destination); !reflect.DeepEqual(got, before) {
+					t.Fatal("ordinary change rewrote its retained whole document")
+				}
+				if got := string(testkit.ReadFile(t, f.calls)); got != calls {
+					t.Fatal("ordinary change repeated an already-current host command")
+				}
+				if got := string(testkit.ReadFile(t, filepath.Join(f.workspace, "AGENTS.md"))); got != "independent ordinary change\n" {
+					t.Fatal("ordinary write was omitted from whole-document capture")
+				}
+				f.require(t, "status", "--check", "--json")
+				testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+			})
+		}
+	}
+}
+
 func TestNativeWholeRefreshPreservesCurrentOwnership(t *testing.T) {
 	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
 		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {

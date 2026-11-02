@@ -189,6 +189,10 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
 	}
+	afterIndex, err := indexDocumentSnapshot(ctx, after)
+	if err != nil {
+		return nativeJournalSnapshots{}, nil, err
+	}
 	groupEdits := make([][]compose.ProjectionEdit, len(batch.namespaces))
 	for _, edit := range edits {
 		address := edit.Participant().Selection().DocumentAddress()
@@ -260,11 +264,24 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	for index, input := range inputs {
 		var candidate nativeDocumentCaptureCandidate
 		var err error
+		members, err := afterIndex.documentSubjects(ctx, batch.namespaces[index].Addresses())
+		if err != nil {
+			return nativeJournalSnapshots{}, nil, err
+		}
+		wholeAfter := false
+		for _, subject := range members {
+			if _, whole := afterIndex.paths[subject]; whole {
+				wholeAfter = true
+				break
+			}
+		}
 		if groupWhole[index] != nil {
 			if len(groupEdits[index]) != 0 || groupOrders[index] != nil {
 				return nativeJournalSnapshots{}, nil, fmt.Errorf("whole writer overlaps selected document work")
 			}
 			candidate, err = prepareWholeDocumentCandidate(ctx, batch.namespaces[index], wholeDocumentCaptureInput{nativeDocumentCaptureInput: input, mutation: *groupWhole[index], payloads: payloads})
+		} else if wholeAfter && len(groupEdits[index]) == 0 && groupOrders[index] == nil {
+			candidate, err = prepareRetainedWholeDocumentCandidate(ctx, batch.namespaces[index], input)
 		} else {
 			candidate, err = prepareSelectedDocumentCandidate(ctx, batch.namespaces[index], selectedDocumentCaptureInput{nativeDocumentCaptureInput: input, edits: groupEdits[index], order: groupOrders[index]}, subjects)
 		}

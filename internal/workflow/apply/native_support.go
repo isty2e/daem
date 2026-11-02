@@ -64,9 +64,6 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 			if !relation.InvokesHostRoute() || !nativeInvocationCarrierSupported(relation.CarrierIdentity().Carrier().Key(), lock.OperationInstall) {
 				return nativeSupportError{nativeSupportRoutes}
 			}
-			if _, pin := relation.PinTransition(); pin {
-				return nativeSupportError{nativeSupportRoutes}
-			}
 		}
 	}
 	for _, delegate := range result.Delegates() {

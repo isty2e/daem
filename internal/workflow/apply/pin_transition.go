@@ -11,10 +11,13 @@ import (
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -48,25 +51,60 @@ func runPinTransition(
 		}
 	}()
 
-	options.markAttempted()
-	if item.action.Scope() == target.ScopeGlobal {
-		claims, err = publishGlobalPinTransition(ctx, paths, authority, claims, transition, observerelation.CorrelationResult{}, false, options)
-	} else {
-		entry, entryErr := authority.EntryForCommit()
-		if entryErr != nil {
-			return state, claims, nil, entryErr
+	prepareCorrelation := func(ctx context.Context, budget *recovery.PhysicalWorkBudget) error {
+		options.markAttempted()
+		if item.action.Scope() == target.ScopeGlobal {
+			claims, err = publishGlobalPinTransition(ctx, paths, authority, claims, transition, observerelation.CorrelationResult{}, false, options)
+		} else {
+			entry, entryErr := authority.EntryForCommit()
+			if entryErr != nil {
+				return entryErr
+			}
+			commit := func(entry *rootedpath.EntryAuthority) (durable.Snapshot, error) {
+				return execute.CommitReservedProjectPinTransition(ctx, storagecommit.Adapter{}, entry, state, transition, options.stateCodec())
+			}
+			if budget == nil {
+				state, err = commit(entry)
+			} else {
+				state, err = options.nativeInvocations.commitCorrelation(ctx, budget, commit)
+			}
 		}
-		state, err = execute.CommitReservedProjectPinTransition(ctx, storagecommit.Adapter{}, entry, state, transition, options.stateCodec())
-	}
-	if err != nil {
-		return state, claims, nil, fmt.Errorf("reserve Pi pin transition: %w", err)
-	}
-	if err := authority.Validate(ctx); err != nil {
-		return state, claims, nil, err
+		if err != nil {
+			return fmt.Errorf("reserve Pi pin transition: %w", err)
+		}
+		return authority.Validate(ctx)
 	}
 
-	attempt, releaseErr := executeHostRouteAttempt(ctx, options.HostRouteExecutor, item.command.AttemptRequest(), binding)
-	binding = nil
+	var attempt subprocess.CommandAttemptResult
+	var releaseErr error
+	if options.nativeInvocations != nil {
+		var observed bool
+		attempt, observed, err = options.nativeInvocations.execute(ctx, options.HostRouteExecutor, item.command.AttemptRequest(), binding, prepareCorrelation)
+		binding = nil
+		if err != nil {
+			if observed {
+				result, classifyErr := assurancehostroute.ClassifyResult(assurancehostroute.ResultInput{
+					Subject: item.command.Subject(), RouteRequest: item.command.RouteRequest(), Attempt: observedHostRouteAttempt(attempt),
+					Observation: assurancehostroute.ObservationUnavailable(assurancehostroute.ResultReasonObservationUnavailable), RequiredPostcondition: installRelationPostcondition(item.action),
+				})
+				if classifyErr != nil {
+					return state, claims, nil, errors.Join(err, classifyErr)
+				}
+				record, recordErr := durableAttemptFromHostRouteResult(item.action, result, false)
+				if recordErr != nil {
+					return state, claims, nil, errors.Join(err, recordErr)
+				}
+				records = []durableattempt.HostRouteAttempt{record}
+			}
+			return state, claims, records, errors.Join(err, options.executionGuard.requireDeclarationsCurrent(ctx, "after Pi pin transition"))
+		}
+	} else {
+		if err := prepareCorrelation(ctx, nil); err != nil {
+			return state, claims, nil, err
+		}
+		attempt, releaseErr = executeHostRouteAttempt(ctx, options.HostRouteExecutor, item.command.AttemptRequest(), binding)
+		binding = nil
+	}
 	defer func() {
 		returnErr = errors.Join(returnErr, releaseErr, options.executionGuard.requireDeclarationsCurrent(ctx, "after Pi pin transition"))
 	}()
