@@ -1901,6 +1901,15 @@ separation between their private plugin namespaces and the managed settings;
 aliases or nested overlaps without an admitted rewrite profile refuse before execution.
 Their commands do not receive permission to change captured native settings.
 
+Dedicated whole files must already be applied, with contents and permissions
+matching their recorded ownership. Refresh does not adopt externally matching
+files, apply changed sources or complete key/whole-file ownership changes.
+Removing a declaration does not make Refresh delete its file or release its
+ownership; use Apply for that change. Whole-owned files must be physically
+separate from the configuration the refresh command can rewrite, including
+through aliases. Unexpected byte changes fail without automatic content repair;
+permission safety and recovery follow the same rules as managed keys.
+
 Antigravity explicit-global refresh repeats the locked install route rather than
 using a dedicated update command. Local evidence can show bundle replacement and
 malformed `plugin.json` rejection; remote and marketplace resolution remains

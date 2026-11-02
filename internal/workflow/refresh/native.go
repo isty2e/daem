@@ -15,7 +15,6 @@ import (
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/executionidentity"
@@ -41,6 +40,7 @@ type nativeRefreshInputs struct {
 type nativeRefreshObservation struct {
 	operation *nativeconfig.DocumentObservation
 	documents nativeconfig.InvocationDocuments
+	sources   []lockobserve.NativeSourceObservation
 	inputs    nativeRefreshInputs
 }
 
@@ -94,7 +94,7 @@ func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environmen
 	if err != nil {
 		return nil, err
 	}
-	if err := documents.RequireManagedState(before); err != nil {
+	if err := documents.RequireManagedState(input, sources); err != nil {
 		return nil, err
 	}
 	baseline, err := documents.Read(ctx, input.Budget)
@@ -155,7 +155,7 @@ func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environmen
 	}
 	digest := sha256.Sum256(encoded)
 	inputs.approvalFingerprint = hex.EncodeToString(digest[:])
-	return &nativeRefreshObservation{operation: operation, documents: documents, inputs: inputs}, nil
+	return &nativeRefreshObservation{operation: operation, documents: documents, sources: sources, inputs: inputs}, nil
 }
 
 func planNativeRefresh(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, before durable.Snapshot, profile relationhost.NativeSettingsProfile) (*nativeRefreshInputs, error) {
@@ -163,15 +163,7 @@ func planNativeRefresh(ctx context.Context, paths daempaths.Paths, environment d
 	if err != nil || observed == nil {
 		return nil, err
 	}
-	namespaces, err := profile.ExclusionPaths(paths)
-	if err == nil && len(namespaces) != 0 {
-		input, _ := observed.operation.NativeInput()
-		var native []mutation.DirectoryEntryAuthorityObservation
-		for _, namespace := range input.Documents.Namespaces() {
-			native = append(native, namespace.Observation())
-		}
-		err = nativeconfig.RequireDisjointOpaqueNamespaces(ctx, native, namespaces, input.Budget)
-	}
+	_, err = observed.rewrites(ctx, paths, profile)
 	err = errors.Join(err, observed.operation.Close())
 	if err != nil {
 		return nil, err
@@ -250,32 +242,47 @@ func prepareNativeRefreshInvocation(ctx context.Context, current plan, leases *m
 		}
 		result.protection = &layout
 	}
-	result.rewrites, err = nativeRefreshRewrites(ctx, current, input.Documents, input.Budget)
+	result.rewrites, err = observed.rewrites(ctx, current.paths, current.settingsProfile)
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-func nativeRefreshRewrites(ctx context.Context, current plan, documents *journal.NativeDocumentObservationBatch, budget *recovery.PhysicalWorkBudget) (relationhost.NativeSettingsRewrites, error) {
-	namespaces, err := current.settingsProfile.ExclusionPaths(current.paths)
+func (observed *nativeRefreshObservation) rewrites(ctx context.Context, paths daempaths.Paths, profile relationhost.NativeSettingsProfile) (relationhost.NativeSettingsRewrites, error) {
+	input, present := observed.operation.NativeInput()
+	if !present {
+		return relationhost.NativeSettingsRewrites{}, fmt.Errorf("native refresh observation was closed")
+	}
+	var native, whole []mutation.DirectoryEntryAuthorityObservation
+	var groups [][]aggregate.DocumentAddress
+	for _, namespace := range input.Documents.Namespaces() {
+		aliases := namespace.Addresses()
+		groups = append(groups, aliases)
+		native = append(native, namespace.Observation())
+		if nativeconfig.IsWholeInvocationDocument(aliases, observed.sources, input.Documents.BeforeState()) {
+			whole = append(whole, namespace.Observation())
+		}
+	}
+	namespaces, err := profile.ExclusionPaths(paths)
 	if err != nil {
 		return relationhost.NativeSettingsRewrites{}, err
 	}
 	if len(namespaces) != 0 {
-		var native []mutation.DirectoryEntryAuthorityObservation
-		for _, namespace := range documents.Namespaces() {
-			native = append(native, namespace.Observation())
-		}
-		if err := nativeconfig.RequireDisjointOpaqueNamespaces(ctx, native, namespaces, budget); err != nil {
+		if err := nativeconfig.RequireDisjointOpaqueNamespaces(ctx, native, namespaces, input.Budget); err != nil {
 			return relationhost.NativeSettingsRewrites{}, err
 		}
 	}
-	var groups [][]aggregate.DocumentAddress
-	for _, namespace := range documents.Namespaces() {
-		groups = append(groups, namespace.Addresses())
+	if len(whole) != 0 {
+		rewrite, err := profile.RewritePaths(paths)
+		if err != nil {
+			return relationhost.NativeSettingsRewrites{}, err
+		}
+		if err := nativeconfig.RequireDisjointOpaqueNamespaces(ctx, whole, rewrite, input.Budget); err != nil {
+			return relationhost.NativeSettingsRewrites{}, fmt.Errorf("whole-file settings overlap configuration rewritten by refresh: %w", err)
+		}
 	}
-	return current.settingsProfile.BindInvocationRewrites(current.paths, groups)
+	return profile.BindInvocationRewrites(paths, groups)
 }
 
 func (invocation *nativeRefreshInvocation) execute(ctx context.Context, executor subprocess.CommandExecutor, request subprocess.CommandAttemptRequest, bind subprocess.WorkingDirectoryBinder) (attempt subprocess.CommandAttemptResult, observed bool, returnErr error) {

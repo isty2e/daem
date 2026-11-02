@@ -33,6 +33,16 @@ func TestNativeSourceObservationPreservesWholeAndEmptyKeyIntent(t *testing.T) {
 		if !observed.SourceContract().Equal(exact) || observed.SourceContract().EntityID() != fixture.resource.ID() || placement.Ownership() != fixture.resource.Ownership() {
 			t.Fatal("native source identity or explicit ownership mode was lost")
 		}
+		desired, whole, err := observed.DesiredWholeState()
+		if err != nil || whole != (placement.Ownership() == hostconfig.OwnershipDocument) {
+			t.Fatal("desired whole-state projection changed the explicit source mode", err)
+		}
+		if whole {
+			identity, materialized := observed.SourceContract().MaterializedFileIdentity()
+			if !materialized || desired.Subject() != observed.Projections()[0].SubjectID() || desired.Scope() != placement.Scope() || desired.Destination() != placement.Destination() || desired.ContentHash() != identity.ContentHash() || desired.FileMode() != 0o600 {
+				t.Fatal("desired whole state lost its actual projection, exact bytes or private mode")
+			}
+		}
 		want := fixture.locked.Locked.Len() - 1
 		projections := observed.Projections()
 		if len(projections) != want {
@@ -45,6 +55,9 @@ func TestNativeSourceObservationPreservesWholeAndEmptyKeyIntent(t *testing.T) {
 				t.Fatal("caller altered the observed projection set")
 			}
 		}
+	}
+	if _, _, err := (NativeSourceObservation{}).DesiredWholeState(); err == nil {
+		t.Fatal("unobserved source produced a desired whole state")
 	}
 }
 

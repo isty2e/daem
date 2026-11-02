@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -36,6 +37,31 @@ func (observation NativeSourceObservation) SourceContract() lock.LockedSubjectCo
 
 func (observation NativeSourceObservation) Projections() []lock.LockedSubjectContract {
 	return append([]lock.LockedSubjectContract(nil), observation.projections...)
+}
+
+// DesiredWholeState projects matched intent, not observed ownership or freshness.
+func (observation NativeSourceObservation) DesiredWholeState() (durable.ManagedPathState, bool, error) {
+	if err := observation.Validate(); err != nil {
+		return durable.ManagedPathState{}, false, err
+	}
+	placement, _ := observation.source.HostConfigPlacement()
+	if placement.Ownership() != hostconfig.OwnershipDocument {
+		return durable.ManagedPathState{}, false, nil
+	}
+	identity, materialized := observation.source.MaterializedFileIdentity()
+	if !materialized || len(observation.projections) != 1 {
+		return durable.ManagedPathState{}, true, fmt.Errorf("whole source requires its exact materialized projection")
+	}
+	contract := observation.projections[0]
+	spec, _ := contract.Realization()
+	path, present := spec.ManagedPathProjection()
+	mode, exact := path.ExactPermissionMode()
+	if !present || !exact {
+		return durable.ManagedPathState{}, true, fmt.Errorf("whole source requires its exact path and permissions")
+	}
+	state, err := durable.NewManagedPathState(contract.SubjectID(), path.ConsumerTargets(), path.Scope(), path.Destination(),
+		identity.ContentHash(), path.ContentKind(), path.PermissionPolicy(), mode.FileMode())
+	return state, true, err
 }
 
 // NativeSource rechecks the retained view for the exact selected declaration.

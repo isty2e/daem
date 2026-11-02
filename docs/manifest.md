@@ -1505,7 +1505,8 @@ execution path, including Pi order when only another settings layer is managed.
 Preview and confirmed apply refuse unsupported combinations before effects.
 An already-current extension does not by itself block direct changes or trigger
 another installation. Pi, Codex, Claude Code, OpenCode and Antigravity CLI refresh
-also support already-applied keys; they do not apply pending settings changes. See
+also support already-applied keys and dedicated whole files; they do not apply
+pending settings or ownership changes. See
 [refresh extension](cli.md#refresh-extension) for their checks and limits.
 For a Pi settings layer containing managed keys, package order is reconciled from
 the settings observed after extension commands, together with remaining direct work.
@@ -1525,7 +1526,6 @@ before extension commands; released content is preserved. An empty key source
 releases whole-file ownership after the commands. Matching key-to-whole adoption
 also settles afterward and still requires `--manage-existing` and an exact
 whole-source match.
-Refreshing extensions while whole files are managed is not yet supported.
 
 ### Whole Files And Ownership Changes
 

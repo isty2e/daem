@@ -190,34 +190,6 @@ func TestNativeWholeDocumentRefusesPhysicalHostRewriteAlias(t *testing.T) {
 	}
 }
 
-func TestNativeWholeDocumentDoesNotImplicitlyEnableRefresh(t *testing.T) {
-	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-		t.Run(string(scope), func(t *testing.T) {
-			f := newNativePiRefreshFixture(t, scope, "")
-			desired := `{"dedicated":true}`
-			testkit.WriteFile(t, f.workspace, "whole.json", desired)
-			declaration := string(testkit.ReadFile(t, f.manifest)) + fmt.Sprintf("\n[[host_config]]\nid='whole'\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.workspace, "whole.json"))
-			testkit.WriteFile(t, f.workspace, "daem.toml", declaration)
-			f.require(t, "lock")
-			f.require(t, "apply", "--yes")
-			paths, err := daempaths.Resolve(f.manifest)
-			if err != nil {
-				t.Fatal(err)
-			}
-			document := filepath.Join(filepath.Dir(f.settings), "dedicated.json")
-			fixture := nativeRecoveryFixture{manifest: f.manifest, destination: document, paths: paths, kind: "whole"}
-			before := snapshotNativeRecoveryEvidence(t, fixture)
-			code, _, _ := f.run("refresh", "extension", "tools", "--yes")
-			if code == 0 || !reflect.DeepEqual(before, snapshotNativeRecoveryEvidence(t, fixture)) {
-				t.Fatal("shared invocation reads enabled unjoined whole-file Refresh or changed management evidence")
-			}
-			testkit.AssertFileContent(t, document, desired)
-			testkit.AssertFileContent(t, f.calls, "install\ninstall\n")
-			testkit.AssertNoRecoveryArtifacts(t, f.workspace)
-		})
-	}
-}
-
 func TestNativeWholeDocumentSuffixRecoveryDoesNotRepeatPiInstall(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		for _, boundary := range []string{"host", "state"} {

@@ -20,7 +20,9 @@ import (
 	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -168,10 +170,12 @@ func invocationSyntax(aliases []aggregate.DocumentAddress, sources []lockobserve
 
 // RequireManagedState checks prior settlement without granting ownership or
 // interpreting an externally matching value as an Apply completion.
-func (documents InvocationDocuments) RequireManagedState(before durable.Snapshot) error {
-	if len(documents.whole) != 0 {
-		return fmt.Errorf("refresh with whole-file ownership is not yet supported")
+func (documents InvocationDocuments) RequireManagedState(input readiness.NativeAssessmentInput, sources []lockobserve.NativeSourceObservation) error {
+	if input.Documents == nil {
+		return fmt.Errorf("refresh requires its retained settings observation")
 	}
+	before := input.Documents.BeforeState()
+
 	states := make(map[topology.SubjectID]durable.ManagedAggregateState)
 	for _, state := range before.ManagedAggregates() {
 		states[state.Subject()] = state
@@ -180,6 +184,43 @@ func (documents InvocationDocuments) RequireManagedState(before durable.Snapshot
 		state, present := states[key.state.Subject()]
 		if !present || !key.state.Equal(state) {
 			return fmt.Errorf("selected settings require apply before refresh")
+		}
+	}
+
+	whole := make(map[topology.SubjectID]durable.ManagedPathState)
+	for _, state := range before.ManagedPaths() {
+		if !aggregate.IsHostConfigDocumentSubject(state.Subject()) {
+			continue
+		}
+		whole[state.Subject()] = state
+		for _, consumer := range state.ConsumerTargets() {
+			alias, err := aggregate.NewDocumentAddress(consumer, state.Scope(), state.Destination())
+			if err != nil {
+				return err
+			}
+			document, mode, observed := input.Documents.Document(alias)
+			if !observed || !document.Exists() || mode == nil || mode.FileMode() != state.FileMode() || artifact.HashFileContent(document.Content()) != state.ContentHash() {
+				return fmt.Errorf("whole-file settings require apply before refresh")
+			}
+		}
+	}
+
+	for _, source := range sources {
+		desired, entire, err := source.DesiredWholeState()
+		if err != nil {
+			return err
+		}
+		if entire {
+			if current, present := whole[desired.Subject()]; !present || !current.Equal(desired) {
+				return fmt.Errorf("whole-file settings require apply before refresh")
+			}
+			continue
+		}
+		for _, state := range whole {
+			owner, _ := topologyprojection.EntityID(state.Subject())
+			if owner == source.SourceContract().EntityID() {
+				return fmt.Errorf("settings ownership changes require apply before refresh")
+			}
 		}
 	}
 	return nil
