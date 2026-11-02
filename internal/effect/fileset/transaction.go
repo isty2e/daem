@@ -65,6 +65,24 @@ func CommitFileSet4WithReference(ctx context.Context, input FileSetInput) error 
 	)
 }
 
+// CommitFreshFileSet4WithReference refuses pending evidence instead of recovering
+// and then starting another operation. The caller must hold the complete leases
+// across the fence observation and publication, including StateDir authority.
+func CommitFreshFileSet4WithReference(ctx context.Context, input FileSetInput) error {
+	if ctx == nil {
+		return fmt.Errorf("file-set transaction context is required")
+	}
+	budget := &fenceObservationBudget{}
+	canonical, err := canonicalStateDirBounded(input.StateDir, mutationfs.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return err
+	}
+	if err := ObserveClearFenceAt4(ctx, canonical, mutationfs.MaximumPhysicalPathDepth, budget); err != nil {
+		return err
+	}
+	return CommitFileSet4WithReference(ctx, input)
+}
+
 func commitWithOperations(ctx context.Context, input FileSetInput, ops operations) error {
 	return commitWithOperationsVersion(ctx, input, ops, contractversion.MetadataTransaction, false)
 }
