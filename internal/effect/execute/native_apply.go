@@ -613,10 +613,14 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	if !observed {
 		return result, fmt.Errorf("native settlement has no final persistence observation")
 	}
-	documents, err := registry.Documents(registryScope)
+	observedScope, err := work.documents.RegistryScope()
 	if err != nil {
 		return result, err
 	}
-	result.nativeSettlement = &NativeApplySettlement{state: state, scope: registryScope, documents: documents}
+	documents, err := registry.Documents(observedScope)
+	if err != nil {
+		return result, err
+	}
+	result.nativeSettlement = &NativeApplySettlement{state: state, scope: observedScope, documents: documents}
 	return result, nil
 }

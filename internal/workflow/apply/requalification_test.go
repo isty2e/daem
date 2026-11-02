@@ -30,7 +30,7 @@ func (probe *requalificationLeaseProbe) MatchCurrentPhysicalRequests(context.Con
 }
 
 func TestPostEffectRequalificationChecksEveryPhase(t *testing.T) {
-	for _, phase := range []applyRequalificationPhase{requalificationAfterNativePrefix, requalificationAfterHostRoutes, requalificationAfterProviders} {
+	for _, phase := range []applyRequalificationPhase{requalificationAfterNativePrefix, requalificationAfterHostRoutes, requalificationAfterProviders, requalificationAfterDelegates} {
 		label, err := phase.label()
 		if err != nil {
 			t.Fatal(err)
@@ -93,7 +93,7 @@ func TestPostEffectRequalificationUsesExplicitAuthorityBasis(t *testing.T) {
 		facts:                builder.Compile().Facts(),
 		firstEffectRevisions: []mutation.RevisionRequest{mutation.NewBoundedContentRevisionRequest(filepath.Join(root, "metadata"), mutation.PathEffectDirectoryEntry)},
 	}
-	for _, phase := range []applyRequalificationPhase{requalificationAfterNativePrefix, requalificationAfterHostRoutes, requalificationAfterProviders} {
+	for _, phase := range []applyRequalificationPhase{requalificationAfterNativePrefix, requalificationAfterHostRoutes, requalificationAfterProviders, requalificationAfterDelegates} {
 		probe := &requalificationLeaseProbe{documents: true, metadata: true}
 		_, err := qualifyPostEffectAuthority(t.Context(), phase, applyAuthorityEvidence{}, fresh, probe, false)
 		if phase == requalificationAfterProviders {

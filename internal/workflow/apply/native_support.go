@@ -66,11 +66,6 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 			}
 		}
 	}
-	for _, delegate := range result.Delegates() {
-		if delegate.Disposition() != reconcile.DelegateSkipped {
-			return nativeSupportError{nativeSupportRoutes}
-		}
-	}
 	for _, absence := range result.CarrierAbsences() {
 		if absence.BlocksOrdinaryApply() || absence.InvokesHostRoute() || absence.MutatesDirectProjection() || absence.RetiresClaim() {
 			profile, err := relationhost.NativeSettingsProfileFor(absence.Claim().Identity().Carrier().Key(), lock.OperationRemove)
@@ -91,6 +86,15 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 		}
 	}
 	return nil
+}
+
+func nativeDelegatesScheduled(actions []reconcile.DelegateAction) bool {
+	for _, action := range actions {
+		if action.SchedulesAttempt() {
+			return true
+		}
+	}
+	return false
 }
 
 func nativeInvocationCarrierSupported(key desiredextension.CarrierKey, operation lock.OperationKind) bool {

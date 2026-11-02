@@ -117,6 +117,12 @@ func (settlement NativeApplySettlement) Matches(state durable.Snapshot, registry
 	if !settlement.state.Equal(state) {
 		return false, nil
 	}
+	return settlement.MatchesRegistry(registry)
+}
+
+// MatchesRegistry permits later actor-owned diagnostic checkpoints while
+// retaining the exact document/ownership settlement boundary.
+func (settlement NativeApplySettlement) MatchesRegistry(registry ownership.Registry) (bool, error) {
 	documents, err := registry.Documents(settlement.scope)
 	return err == nil && settlement.documents.Equal(documents), err
 }

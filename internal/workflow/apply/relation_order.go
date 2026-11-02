@@ -206,6 +206,14 @@ func prepareRelationOrderConvergence(
 			continue
 		}
 		matchedClasses++
+		if slices.Contains(options.deferredNativeOrders, constraint.ClassID()) {
+			for _, decision := range initial {
+				if decision.ClassID() == constraint.ClassID() {
+					freshDecisions = append(freshDecisions, decision)
+				}
+			}
+			continue
+		}
 		completed := false
 		if options.nativeOrderResult != nil {
 			for _, class := range options.nativeOrderResult.observed {

@@ -107,16 +107,18 @@ func applyEnvelopeFor(
 	}
 	prefixGates := 0
 	postRouteGates := 0
+	postDelegateGates := 0
 	if current.nativePlan != nil && current.nativePlan.opaque {
 		input, err := nativeApplyInputFor(current)
 		if err != nil {
 			return operationplan.Envelope{}, 0, err
 		}
-		shape, err := execute.ProjectNativeManagedSuffix(input, current.nativePlan.prefix, current.nativePlan.suffix, current.nativePlan.orders)
+		shape, late, err := nativeInvocationSuffixes(current, input)
 		if err != nil {
 			return operationplan.Envelope{}, 0, err
 		}
 		postRouteGates = shape.ForwardValidationCount()
+		postDelegateGates = late.ForwardValidationCount()
 		input.Preparation = current.nativePlan.prefix
 		prefixGates, err = execute.MaximumNativeForwardEffectValidationCount(input)
 		if err != nil {
@@ -146,10 +148,11 @@ func applyEnvelopeFor(
 		return operationplan.Envelope{}, 0, err
 	}
 	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
-		ExecuteGates:          executeGates,
-		PrefixExecuteGates:    prefixGates,
-		PostRouteExecuteGates: postRouteGates,
-		ProviderActions:       routeWorks(current.assessment.CurrentState, providerActions),
+		ExecuteGates:             executeGates,
+		PrefixExecuteGates:       prefixGates,
+		PostRouteExecuteGates:    postRouteGates,
+		PostDelegateExecuteGates: postDelegateGates,
+		ProviderActions:          routeWorks(current.assessment.CurrentState, providerActions),
 		FinalRoutes: routeWorks(
 			applyInput.CurrentState,
 			finalRelations,

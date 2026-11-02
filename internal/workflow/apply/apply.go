@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/subprocess"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -55,6 +56,7 @@ type runOptions struct {
 	RelationOrderRiskAuthorizer       RelationOrderRiskAuthorizer
 	orderRiskBaseline                 relationOrderRiskBaseline
 	nativeOrderResult                 *relationOrderRunResult
+	deferredNativeOrders              []hostrelation.OrderClassID
 	executionGuard                    applyExecutionGuard
 	validateBeforeEffects             func(context.Context, mutation.PhysicalAuthoritySet) error
 	validatePhysicalAuthorityRequests func(context.Context, []mutation.PhysicalAuthorityRequest) error
@@ -68,6 +70,7 @@ type runOptions struct {
 	afterNativeCore                   func(context.Context, execute.ApplyResult) (readiness.Assessment, applyContinuationPlan, error)
 	afterNativeProviders              func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims, mutation.OperationFingerprint) (applyContinuationPlan, error)
 	afterHostRoutes                   func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error)
+	afterDelegates                    func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error)
 	persistenceCodec                  durable.SnapshotCodec
 	preparedContinuation              applyContinuationPlan
 	currentContinuation               applyContinuationPlan
@@ -435,5 +438,25 @@ func runHostRoutesOrderDelegatesAndPersistAttemptRecords(
 	delegateResult.RelationOrderResults = orderResult.results
 	delegateResult.Reconciliation = orderResult.reconciliation
 	delegateResult.ReconciliationUpdated = orderResult.updated
+	if delegateErr == nil && options.afterDelegates != nil {
+		segment, err := options.afterDelegates(ctx, delegateResult.State, nextGlobalClaims)
+		delegateResult.ActionCount += segment.applied.ActionCount
+		if segment.applied.StatePath != "" {
+			delegateResult.State, delegateResult.StatePath = segment.applied.State, segment.applied.StatePath
+		}
+		for _, completed := range segment.orders.results {
+			found := false
+			for index, row := range delegateResult.RelationOrderResults {
+				if row.sequenceID == completed.sequenceID {
+					delegateResult.RelationOrderResults[index], found = completed, true
+					break
+				}
+			}
+			if !found {
+				delegateResult.RelationOrderResults = append(delegateResult.RelationOrderResults, completed)
+			}
+		}
+		delegateErr = err
+	}
 	return delegateResult, delegateErr
 }

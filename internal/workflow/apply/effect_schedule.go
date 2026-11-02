@@ -16,12 +16,13 @@ import (
 // Effect-owned core is consumed here; rollback and outer continuations remain
 // later migration units.
 type applyForwardEffectSchedule struct {
-	full          operationplan.EffectStructure
-	prefix        operationplan.EffectStructure
-	final         operationplan.EffectStructure
-	continuation  applyContinuationPlan
-	effectPlan    execute.ApplyEffectPlan
-	managedSuffix *execute.NativeManagedSuffixShape
+	full           operationplan.EffectStructure
+	prefix         operationplan.EffectStructure
+	final          operationplan.EffectStructure
+	continuation   applyContinuationPlan
+	effectPlan     execute.ApplyEffectPlan
+	managedSuffix  *execute.NativeManagedSuffixShape
+	delegateSuffix *execute.NativeManagedSuffixShape
 }
 
 type applyFinalScheduleBinding struct {
@@ -118,12 +119,15 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 		if err != nil {
 			return applyForwardEffectSchedule{}, err
 		}
-		shape, err := execute.ProjectNativeManagedSuffix(full, current.nativePlan.prefix, current.nativePlan.suffix, current.nativePlan.orders)
+		shape, late, err := nativeInvocationSuffixes(current, full)
 		if err != nil {
 			return applyForwardEffectSchedule{}, err
 		}
 		if shape.ForwardValidationCount() != 0 {
 			input.managedSuffix = &shape
+		}
+		if late.ForwardValidationCount() != 0 {
+			input.delegateSuffix = &late
 		}
 	}
 	schedule, err := compileApplySchedule(input, envelope.Demand())
@@ -132,7 +136,27 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 	}
 	schedule.effectPlan = effectPlan
 	schedule.managedSuffix = input.managedSuffix
+	schedule.delegateSuffix = input.delegateSuffix
 	return schedule, nil
+}
+
+func nativeInvocationSuffixes(current commandPlan, full execute.NativeApplyInput) (execute.NativeManagedSuffixShape, execute.NativeManagedSuffixShape, error) {
+	if nativeDelegatesScheduled(current.assessment.Reconciliation.Delegates()) {
+		return execute.ProjectNativeDelegateSuffixes(full, current.nativePlan.prefix, current.nativePlan.suffix, current.nativePlan.orders)
+	}
+	shape, err := execute.ProjectNativeManagedSuffix(full, current.nativePlan.prefix, current.nativePlan.suffix, current.nativePlan.orders)
+	return shape, execute.NativeManagedSuffixShape{}, err
+}
+
+func nativeBeforeDelegateInput(current commandPlan) (execute.NativeApplyInput, error) {
+	input, err := nativeApplyInputFor(current)
+	if err != nil {
+		return execute.NativeApplyInput{}, err
+	}
+	if nativeDelegatesScheduled(current.assessment.Reconciliation.Delegates()) {
+		return input.DelegatePrerequisites()
+	}
+	return input, nil
 }
 
 func applyScheduleInputFor(

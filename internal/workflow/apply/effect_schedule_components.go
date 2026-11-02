@@ -15,6 +15,7 @@ import (
 type applyScheduleInput struct {
 	positivePrefix      *applyDirectPrefix
 	managedSuffix       *execute.NativeManagedSuffixShape
+	delegateSuffix      *execute.NativeManagedSuffixShape
 	providerRoutes      []applyRouteScheduleFact
 	coreChanged         bool
 	core                operationplan.EffectNode
@@ -345,6 +346,13 @@ func compileApplyContinuationSchedule(
 			statefile,
 			input.delegates,
 		))
+	}
+	if input.delegateSuffix != nil {
+		nodes = append(
+			nodes,
+			builder.Step("apply/native-delegate-suffix/replan-barrier", operationplan.EffectStepValidateBarrier),
+			builder.Namespace("apply/native-delegate-suffix", input.delegateSuffix.Segment()),
+		)
 	}
 	if input.hasGlobalAdoption {
 		nodes = append(nodes, compileApplyGlobalCarrierBatchSettlementSchedule(

@@ -80,18 +80,113 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 		return NativeManagedSuffixShape{}, err
 	}
 
-	for index, namespace := range work.documents.Namespaces() {
-		if !prefixWork.changed {
-			continue
+	suppressNativePrefixPromotions(&work, prefixWork)
+	work.changed = len(work.managed)+len(work.whole)+len(residual)+len(projection.Preparation.narrowings) != 0
+	return projectNativeSuffixWork(projection, work, orders)
+}
+
+// DelegatePrerequisites retains ordinary/MCP actors in their existing phase,
+// leaving native retirement, ownership transitions and order for later.
+func (input NativeApplyInput) DelegatePrerequisites() (NativeApplyInput, error) {
+	return nativeDelegatePrerequisites(input, input.CurrentState)
+}
+
+func nativeDelegatePrerequisites(input NativeApplyInput, baseline durable.Snapshot) (NativeApplyInput, error) {
+	if err := input.Preparation.Validate(); err != nil {
+		return NativeApplyInput{}, err
+	}
+	preparation := input.Preparation
+	preparation.managed = slices.DeleteFunc(slices.Clone(preparation.managed), func(effect ManagedPathEffect) bool {
+		return aggregate.IsHostConfigDocumentSubject(effect.Subject())
+	})
+	preparation.aggregates = slices.DeleteFunc(slices.Clone(preparation.aggregates), func(effect AggregateEffect) bool {
+		_, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID())
+		return native
+	})
+	preparation.narrowings, preparation.adoptions, preparation.orders, preparation.projectCompletions, preparation.nativeOperations = nil, nil, nil, nil, nil
+	after, err := preparation.managedSuccessor(baseline)
+	if err != nil {
+		return NativeApplyInput{}, err
+	}
+	if after.Equal(baseline) && len(preparation.managed)+len(preparation.aggregates) != 0 {
+		after, err = after.AdvanceNativeDocumentCommit()
+		if err != nil {
+			return NativeApplyInput{}, err
 		}
-		for prefixIndex, selected := range prefixWork.documents.Namespaces() {
-			if slices.Equal(namespace.Addresses(), selected.Addresses()) && prefixWork.promoting[prefixIndex] {
+	}
+	preparation.after = after
+	input.Preparation = preparation
+	return input, nil
+}
+
+// ProjectNativeDelegateSuffixes partitions an admitted suffix without inventing
+// live intermediate observations. Both shapes require fresh input when bound.
+func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix NativeApplyStatePreparation, residual []AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, NativeManagedSuffixShape, error) {
+	if err := input.Preparation.ValidateAggregatePhaseSplit(prefix, residual); err != nil {
+		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
+	}
+	prerequisites, err := nativeDelegatePrerequisites(input, prefix.AfterState())
+	if err != nil {
+		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
+	}
+	late := input
+	late.Preparation.managed = slices.DeleteFunc(slices.Clone(input.Preparation.managed), func(effect ManagedPathEffect) bool {
+		return !aggregate.IsHostConfigDocumentSubject(effect.Subject())
+	})
+	late.Preparation.aggregates = slices.DeleteFunc(slices.Clone(residual), func(effect AggregateEffect) bool {
+		_, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID())
+		return !native
+	})
+	late.Preparation.narrowings, late.Preparation.orders = input.Preparation.narrowingPhase(false), nil
+	projected, err := late.Preparation.managedSuccessor(prerequisites.Preparation.AfterState())
+	if err != nil {
+		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
+	}
+	if !slices.EqualFunc(projected.ManagedPaths(), input.Preparation.after.ManagedPaths(), durable.ManagedPathState.Equal) ||
+		!slices.EqualFunc(projected.ManagedAggregates(), input.Preparation.after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
+		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, fmt.Errorf("delegate phases do not preserve the complete managed successor")
+	}
+	prefixInput := input
+	prefixInput.Preparation = prefix
+	prefixWork, err := nativeApplyWorkFor(prefixInput)
+	if err != nil {
+		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
+	}
+	firstWork, err := nativeApplyWorkFor(prerequisites)
+	if err != nil {
+		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
+	}
+	suppressNativePrefixPromotions(&firstWork, prefixWork)
+	firstWork.changed = len(firstWork.managed)+len(firstWork.ordinaryAggregates) != 0
+	first, err := projectNativeSuffixWork(prerequisites, firstWork, nil)
+	if err != nil {
+		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
+	}
+	lastWork, err := nativeApplyWorkFor(late)
+	if err != nil {
+		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
+	}
+	suppressNativePrefixPromotions(&lastWork, prefixWork)
+	suppressNativePrefixPromotions(&lastWork, firstWork)
+	lastWork.changed = len(lastWork.managed)+len(lastWork.whole)+len(late.Preparation.aggregates)+len(late.Preparation.narrowings) != 0
+	last, err := projectNativeSuffixWork(late, lastWork, orders)
+	return first, last, err
+}
+
+func suppressNativePrefixPromotions(work *nativeApplyWork, prefix nativeApplyWork) {
+	if !prefix.changed {
+		return
+	}
+	for index, namespace := range work.documents.Namespaces() {
+		for earlier, selected := range prefix.documents.Namespaces() {
+			if slices.Equal(namespace.Addresses(), selected.Addresses()) && prefix.promoting[earlier] {
 				work.promoting[index] = false
 			}
 		}
 	}
-	work.changed = len(work.managed)+len(work.whole)+len(residual)+len(projection.Preparation.narrowings) != 0
+}
 
+func projectNativeSuffixWork(input NativeApplyInput, work nativeApplyWork, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, error) {
 	groups := make([]int, 0, len(orders))
 	for _, order := range orders {
 		if _, err := order.CaptureInput(); err != nil {
@@ -125,8 +220,8 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 	}
 
 	shape := NativeManagedSuffixShape{
-		managed: slices.Clone(work.managed), whole: slices.Clone(work.whole), aggregates: slices.Clone(residual), orders: slices.Clone(orders),
-		narrowings: slices.Clone(projection.Preparation.narrowings), adoptions: input.Preparation.WholeAdoptions(),
+		managed: slices.Clone(work.managed), whole: slices.Clone(work.whole), aggregates: input.Preparation.AggregateEffects(), orders: slices.Clone(orders),
+		narrowings: input.Preparation.Narrowings(), adoptions: input.Preparation.WholeAdoptions(),
 	}
 	var builder operationplan.EffectStructureBuilder
 	segments := make([]operationplan.EffectNode, 0, len(variants))

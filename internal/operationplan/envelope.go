@@ -80,17 +80,18 @@ type DelegateWork struct {
 // ApplyWork is the I/O-free apply envelope input. Gate counts are Effect-owned
 // visibility demand; remaining slices are workflow-normalized facts.
 type ApplyWork struct {
-	ExecuteGates            int
-	PrefixExecuteGates      int
-	PostRouteExecuteGates   int
-	ProviderActions         []RouteWork
-	FinalRoutes             []RouteWork
-	CarrierRemovals         []CarrierWork
-	GlobalCarrierRetirement bool
-	GlobalCarrierAdoption   bool
-	OrderClasses            []OrderClassWork
-	Delegates               []DelegateWork
-	StatefilePath           string
+	ExecuteGates             int
+	PrefixExecuteGates       int
+	PostRouteExecuteGates    int
+	PostDelegateExecuteGates int
+	ProviderActions          []RouteWork
+	FinalRoutes              []RouteWork
+	CarrierRemovals          []CarrierWork
+	GlobalCarrierRetirement  bool
+	GlobalCarrierAdoption    bool
+	OrderClasses             []OrderClassWork
+	Delegates                []DelegateWork
+	StatefilePath            string
 }
 
 // Demand is the multidimensional semantic reservation projection. The State
@@ -183,7 +184,7 @@ func (envelope Envelope) Demand() Demand { return envelope.demand }
 
 // CompileApply compiles the apply forward-effect envelope from normalized work.
 func CompileApply(work ApplyWork) (Envelope, error) {
-	if work.ExecuteGates < 0 || work.PrefixExecuteGates < 0 || work.PostRouteExecuteGates < 0 {
+	if work.ExecuteGates < 0 || work.PrefixExecuteGates < 0 || work.PostRouteExecuteGates < 0 || work.PostDelegateExecuteGates < 0 {
 		return Envelope{}, fmt.Errorf("operationplan: execute visibility gates must not be negative")
 	}
 	executeGates, err := checkedAdd(work.ExecuteGates, work.PrefixExecuteGates)
@@ -191,6 +192,10 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 		return Envelope{}, err
 	}
 	executeGates, err = checkedAdd(executeGates, work.PostRouteExecuteGates)
+	if err != nil {
+		return Envelope{}, err
+	}
+	executeGates, err = checkedAdd(executeGates, work.PostDelegateExecuteGates)
 	if err != nil {
 		return Envelope{}, err
 	}
@@ -214,6 +219,10 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 	persistDelegates := delegatePersistenceRequired(work.Delegates)
 
 	finalEffectCalls, err := checkedAdd(work.ExecuteGates, work.PostRouteExecuteGates)
+	if err != nil {
+		return Envelope{}, err
+	}
+	finalEffectCalls, err = checkedAdd(finalEffectCalls, work.PostDelegateExecuteGates)
 	if err != nil {
 		return Envelope{}, err
 	}
@@ -310,6 +319,9 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 		barrierCalls++
 	}
 	if work.PostRouteExecuteGates != 0 {
+		barrierCalls++
+	}
+	if work.PostDelegateExecuteGates != 0 {
 		barrierCalls++
 	}
 	if ensureCalls != 0 {

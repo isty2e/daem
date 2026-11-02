@@ -225,6 +225,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		}
 	}
 	opaque := false
+	opaque = nativeDelegatesScheduled(assessment.Reconciliation.Delegates())
 	for _, action := range assessment.Reconciliation.Relations() {
 		opaque = opaque || action.InvokesHostRoute()
 	}

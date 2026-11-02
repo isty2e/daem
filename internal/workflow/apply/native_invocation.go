@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -20,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
@@ -70,7 +72,7 @@ func nativeInvocationCommandKey(request subprocess.CommandAttemptRequest) (strin
 	return string(encoded), err
 }
 
-func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *mutation.LeaseSet, requests []mutation.PhysicalAuthorityRequest, removalAdapter executehostroute.RemovalAdapter) (*nativeInvocationProgram, error) {
+func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *mutation.LeaseSet, requests []mutation.PhysicalAuthorityRequest, removalAdapter executehostroute.RemovalAdapter, executor delegate.Executor) (*nativeInvocationProgram, error) {
 	if current.nativePlan == nil || !current.nativePlan.opaque {
 		return nil, nil
 	}
@@ -109,24 +111,22 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 		return nil, err
 	}
 	selectionFingerprint := strings.TrimPrefix(string(artifact.HashFileContent(selection)), "sha256:")
-	commands, err := nativeInvocationCommands(current, removalAdapter)
+	commands, err := nativeInvocationCommands(current, removalAdapter, executor)
 	if err != nil {
 		return nil, err
 	}
 	for _, command := range commands {
-		rewrite, err := nativeInvocationRewrite(current, command.carrier, command.operation)
-		if err != nil {
-			return nil, err
-		}
-		prepared := &nativePreparedInvocation{rewrite: rewrite}
+		prepared := &nativePreparedInvocation{rewrite: command.rewrite}
 		var correlation nativeInvocationWork
-		if err := program.state.ReserveDestinationCapture(recovery.MaximumPhysicalPathDepth, &correlation); err != nil {
-			return nil, err
-		}
-		// Correlation captures identity and then publishes: two rooted operations.
-		for range 2 {
-			if err := program.state.ReserveDestinationAccess(recovery.MaximumPhysicalPathDepth, &correlation); err != nil {
+		if command.correlation {
+			if err := program.state.ReserveDestinationCapture(recovery.MaximumPhysicalPathDepth, &correlation); err != nil {
 				return nil, err
+			}
+			// Correlation captures identity and then publishes: two rooted operations.
+			for range 2 {
+				if err := program.state.ReserveDestinationAccess(recovery.MaximumPhysicalPathDepth, &correlation); err != nil {
+					return nil, err
+				}
 			}
 		}
 		correlationWork, err := correlation.compile()
@@ -141,7 +141,7 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 			if err != nil {
 				return nil, err
 			}
-			correlation, err := ownership.NewProtectionCorrelation(operationID, strings.TrimPrefix(command.command.RouteRequest().CanonicalRequestHash(), "sha256:"), selectionFingerprint)
+			correlation, err := ownership.NewProtectionCorrelation(operationID, command.fingerprint, selectionFingerprint)
 			if err != nil {
 				return nil, err
 			}
@@ -162,14 +162,10 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 		if err != nil {
 			return nil, err
 		}
-		key, err := nativeInvocationCommandKey(command.command.AttemptRequest())
-		if err != nil {
-			return nil, err
-		}
-		if _, duplicate := program.commands[key]; duplicate {
+		if _, duplicate := program.commands[command.key]; duplicate {
 			return nil, fmt.Errorf("native invocation schedule repeats one exact command")
 		}
-		program.commands[key] = prepared
+		program.commands[command.key] = prepared
 	}
 	return program, nil
 }
@@ -201,21 +197,36 @@ func (program *nativeInvocationProgram) commitCorrelation(ctx context.Context, b
 }
 
 func (program *nativeInvocationProgram) execute(ctx context.Context, executor subprocess.CommandExecutor, request subprocess.CommandAttemptRequest, binding subprocess.WorkingDirectoryBinding, correlation func(context.Context, *recovery.PhysicalWorkBudget) error) (attempt subprocess.CommandAttemptResult, observed bool, returnErr error) {
-	key, err := nativeInvocationCommandKey(request)
-	if err != nil {
-		return attempt, false, errors.Join(err, binding.Close())
-	}
-	prepared, present := program.commands[key]
-	if !present || prepared.used {
-		return attempt, false, errors.Join(fmt.Errorf("native command is not available in its reserved invocation schedule"), binding.Close())
-	}
-	prepared.used = true
 	transferred := false
 	defer func() {
 		if !transferred {
 			returnErr = errors.Join(returnErr, binding.Close())
 		}
 	}()
+	key, err := nativeInvocationCommandKey(request)
+	if err != nil {
+		return attempt, false, err
+	}
+	return program.executeCommand(ctx, key, executor, request, func() (subprocess.WorkingDirectoryBinding, error) {
+		transferred = true
+		return binding, nil
+	}, correlation)
+}
+
+func (program *nativeInvocationProgram) executeDelegate(ctx context.Context, action reconcile.DelegateAction, executor subprocess.CommandExecutor, request subprocess.CommandAttemptRequest, bind subprocess.WorkingDirectoryBinder) (subprocess.CommandAttemptResult, bool, error) {
+	key, err := nativeDelegateInvocationKey(action, request)
+	if err != nil {
+		return subprocess.CommandAttemptResult{}, false, err
+	}
+	return program.executeCommand(ctx, key, executor, request, bind, nil)
+}
+
+func (program *nativeInvocationProgram) executeCommand(ctx context.Context, key string, executor subprocess.CommandExecutor, request subprocess.CommandAttemptRequest, bind subprocess.WorkingDirectoryBinder, correlation func(context.Context, *recovery.PhysicalWorkBudget) error) (attempt subprocess.CommandAttemptResult, observed bool, returnErr error) {
+	prepared, present := program.commands[key]
+	if !present || prepared.used {
+		return attempt, false, fmt.Errorf("native command is not available in its reserved invocation schedule")
+	}
+	prepared.used = true
 	reads, _, err := prepared.reads.Take()
 	if err != nil {
 		return attempt, false, err
@@ -232,17 +243,17 @@ func (program *nativeInvocationProgram) execute(ctx context.Context, executor su
 			return err
 		}
 		preparedContent = true
-		return correlation(ctx, budget)
+		if correlation != nil {
+			return correlation(ctx, budget)
+		}
+		return nil
 	}
 	if prepared.protection != nil {
 		input, err := prepared.protection.AttachProtection(ctx)
 		if err != nil {
 			return attempt, false, err
 		}
-		result, err := protection.ExecuteInvocation(ctx, input, executor, request, func() (subprocess.WorkingDirectoryBinding, error) {
-			transferred = true
-			return binding, nil
-		}, prepare)
+		result, err := protection.ExecuteInvocation(ctx, input, executor, request, bind, prepare)
 		returnErr = err
 		if process, present := result.Process(); present {
 			attempt, observed = process.Attempt(), true
@@ -251,10 +262,7 @@ func (program *nativeInvocationProgram) execute(ctx context.Context, executor su
 		if err := prepare(ctx, reads); err != nil {
 			return attempt, false, err
 		}
-		attempt = executor.ExecuteInWorkingDirectory(ctx, request, func() (subprocess.WorkingDirectoryBinding, error) {
-			transferred = true
-			return binding, nil
-		})
+		attempt = executor.ExecuteInWorkingDirectory(ctx, request, bind)
 		observed = true
 	}
 	if observed && preparedContent {

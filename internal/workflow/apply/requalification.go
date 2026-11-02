@@ -19,6 +19,7 @@ const (
 	requalificationAfterNativePrefix applyRequalificationPhase = iota + 1
 	requalificationAfterHostRoutes
 	requalificationAfterProviders
+	requalificationAfterDelegates
 )
 
 func (phase applyRequalificationPhase) label() (string, error) {
@@ -29,6 +30,8 @@ func (phase applyRequalificationPhase) label() (string, error) {
 		return "post-host-route native suffix", nil
 	case requalificationAfterProviders:
 		return "post-native-provider replan", nil
+	case requalificationAfterDelegates:
+		return "post-native-delegate suffix", nil
 	default:
 		return "", fmt.Errorf("unknown apply requalification phase")
 	}
@@ -117,7 +120,7 @@ func requalifyApplyPlan[T any](
 	keep = true
 	return requalifiedApplyPlan{
 		plan: fresh, authority: authority, revisions: revisions,
-		stateDirBoundaryValidated: phase == requalificationAfterHostRoutes && input.stateDirBoundaryValidated,
+		stateDirBoundaryValidated: (phase == requalificationAfterHostRoutes || phase == requalificationAfterDelegates) && input.stateDirBoundaryValidated,
 	}, remainder, nil
 }
 

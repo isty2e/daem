@@ -102,6 +102,30 @@ func TestCompileApplyPostRouteWorkSharesFinalPhaseAndReservesReplan(t *testing.T
 	}
 }
 
+func TestCompileApplyPostDelegateWorkSharesEstablishedStateDir(t *testing.T) {
+	work := ApplyWork{PostRouteExecuteGates: 4, Delegates: []DelegateWork{{SchedulesAttempt: true}}, StatefilePath: "/state.json"}
+	base, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work.PostDelegateExecuteGates = 5
+	late, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, after := base.Demand(), late.Demand()
+	if after.EnsureCalls() != before.EnsureCalls() || after.StateDirValidationCalls() != before.StateDirValidationCalls()+5 || after.BarrierValidationCalls() != before.BarrierValidationCalls()+1 ||
+		after.DescendantBindings() != before.DescendantBindings() || after.DescendantValidations() != before.DescendantValidations() || after.DescendantFileCommits() != before.DescendantFileCommits() {
+		t.Fatalf("post-delegate demand=%+v base=%+v", after, before)
+	}
+	maximum := int(^uint(0) >> 1)
+	for _, invalid := range []ApplyWork{{PostDelegateExecuteGates: -1}, {PostDelegateExecuteGates: maximum, PostRouteExecuteGates: 1}, {PostDelegateExecuteGates: maximum, PrefixExecuteGates: 1}} {
+		if _, err := CompileApply(invalid); err == nil {
+			t.Fatal("invalid post-delegate work was admitted")
+		}
+	}
+}
+
 func TestCompileApplyProviderActionsReserveBarrierEnvelope(t *testing.T) {
 	t.Parallel()
 	envelope, err := CompileApply(ApplyWork{

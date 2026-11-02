@@ -251,7 +251,7 @@ func executeWithDependencies(
 	if carrierRemovalAdapter == nil {
 		carrierRemovalAdapter = executehostroute.BuildDelegatedRemovalAttempt
 	}
-	nativeInvocations, err := prepareNativeInvocations(ctx, current, leases, currentAuthority.metadataRequests, carrierRemovalAdapter)
+	nativeInvocations, err := prepareNativeInvocations(ctx, current, leases, currentAuthority.metadataRequests, carrierRemovalAdapter, options.DelegateExecutor)
 	if err != nil {
 		return disclose(current), err
 	}
@@ -262,6 +262,10 @@ func executeWithDependencies(
 	replanInput := currentInput
 	if stateDirPlan.schedule.managedSuffix != nil {
 		replanInput.persistenceBudget = recovery.NewPhysicalCaptureBudget(nil)
+	}
+	delegateReplanInput := currentInput
+	if stateDirPlan.schedule.delegateSuffix != nil {
+		delegateReplanInput.persistenceBudget = recovery.NewPhysicalCaptureBudget(nil)
 	}
 	reserveForwardEffects := dependencies.reserveForwardEffects
 	if reserveForwardEffects == nil {
@@ -512,6 +516,7 @@ func executeWithDependencies(
 				}
 			}
 			prefixRegistry := native.Registry
+			var prerequisiteSettlement *execute.NativeApplySettlement
 			prefixRegistryScope, err := native.Documents.RegistryScope()
 			if err != nil {
 				return disclose(current), err
@@ -522,7 +527,7 @@ func executeWithDependencies(
 				}
 				updated, remainder, err := requalifyApplyPlan(ctx, requalificationInput(), requalificationAfterNativePrefix, func(ctx context.Context, candidate *commandPlan) (requalifiedNativePrefix, error) {
 					refreshed := *candidate
-					fresh, err := nativeApplyInputFor(refreshed)
+					fresh, err := nativeBeforeDelegateInput(refreshed)
 					if err != nil {
 						return requalifiedNativePrefix{}, err
 					}
@@ -571,7 +576,7 @@ func executeWithDependencies(
 						if !refreshed.assessment.CurrentState.Equal(state) || !refreshed.assessment.GlobalCarrierClaims.Equal(claims) {
 							return requalifiedNativeSuffix{}, staleApplyError(options.PlanWasDisclosed, nil)
 						}
-						input, err := nativeApplyInputFor(refreshed)
+						input, err := nativeBeforeDelegateInput(refreshed)
 						if err != nil {
 							return requalifiedNativeSuffix{}, err
 						}
@@ -595,7 +600,58 @@ func executeWithDependencies(
 					}
 					// Exact classes also need fresh qualification; journal mutations
 					// alone do not cover the final order checks.
-					return executeNativeOrderedSegment(ctx, current.context.Paths, current.context.RuntimeEnvironment, current.context.Lockfile, current.context.Selection, reconciliation, input, plan, current.nativePlan.orders, executionOptions)
+					orders := current.nativePlan.orders
+					if nativeDelegatesScheduled(reconciliation.Delegates()) {
+						orders = nil
+					}
+					segment, err := executeNativeOrderedSegment(ctx, current.context.Paths, current.context.RuntimeEnvironment, current.context.Lockfile, current.context.Selection, reconciliation, input, plan, orders, executionOptions)
+					if err == nil && segment.applied.ExecutionAttempted {
+						settled, present := segment.applied.NativeSettlement()
+						if !present {
+							return segment, fmt.Errorf("native prerequisites have no observed settlement")
+						}
+						prerequisiteSettlement = &settled
+					}
+					return segment, err
+				}
+			}
+			if stateDirPlan.schedule.delegateSuffix != nil {
+				for _, order := range current.nativePlan.orders {
+					executionOptions.deferredNativeOrders = append(executionOptions.deferredNativeOrders, order.Sequence().ClassID())
+				}
+				executionOptions.afterDelegates = func(ctx context.Context, state durable.Snapshot, claims durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error) {
+					qualification := requalificationInput()
+					qualification.request = delegateReplanInput
+					updated, remainder, err := requalifyApplyPlan(ctx, qualification, requalificationAfterDelegates, func(ctx context.Context, candidate *commandPlan) (requalifiedNativeSuffix, error) {
+						if !candidate.assessment.CurrentState.Equal(state) || !candidate.assessment.GlobalCarrierClaims.Equal(claims) {
+							return requalifiedNativeSuffix{}, staleApplyError(options.PlanWasDisclosed, nil)
+						}
+						input, err := nativeApplyInputFor(*candidate)
+						if err != nil {
+							return requalifiedNativeSuffix{}, err
+						}
+						matches, err := prefixRegistryScope.Matches(prefixRegistry, input.Registry)
+						if prerequisiteSettlement != nil {
+							matches, err = prerequisiteSettlement.MatchesRegistry(input.Registry)
+						}
+						if err != nil || !matches {
+							return requalifiedNativeSuffix{}, staleApplyError(options.PlanWasDisclosed, err)
+						}
+						plan, err := stateDirPlan.schedule.delegateSuffix.Bind(input)
+						return requalifiedNativeSuffix{input: input, plan: plan}, err
+					})
+					if err != nil {
+						return nativeSegmentResult{}, err
+					}
+					reconciliation := current.assessment.Reconciliation
+					current, currentAuthority, firstEffectRevisions, stateDirBoundaryValidated, revisionsValidated = updated.plan, updated.authority, updated.revisions, updated.stateDirBoundaryValidated, false
+					input := remainder.input
+					if options.NativeFilesystem != nil {
+						input.Filesystem = options.NativeFilesystem
+					}
+					phaseOptions := executionOptions
+					phaseOptions.deferredNativeOrders = nil
+					return executeNativeOrderedSegment(ctx, current.context.Paths, current.context.RuntimeEnvironment, current.context.Lockfile, current.context.Selection, reconciliation, input, remainder.plan, current.nativePlan.orders, phaseOptions)
 				}
 			}
 			executionOptions.afterNativeProviders = func(ctx context.Context, state durable.Snapshot, claims durablecarrier.GlobalCarrierClaims, stable mutation.OperationFingerprint) (_ applyContinuationPlan, returnErr error) {
@@ -623,7 +679,7 @@ func executeWithDependencies(
 					if gates, err := execute.MaximumNativeForwardEffectValidationCount(prefix); err != nil || gates != 0 {
 						return applyContinuationPlan{}, staleApplyError(options.PlanWasDisclosed, err)
 					}
-					fresh, err := nativeApplyInputFor(*refreshed)
+					fresh, err := nativeBeforeDelegateInput(*refreshed)
 					if err != nil {
 						return applyContinuationPlan{}, err
 					}
