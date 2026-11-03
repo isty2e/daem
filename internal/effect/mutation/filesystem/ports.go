@@ -97,7 +97,9 @@ type RootedReader interface {
 }
 
 // RootedCommitter performs guarded publication through retained-root
-// authority. Every mutating method consumes the supplied capability.
+// authority. Successful file publication verifies content, exact mode, supported
+// metadata and namespace at commit; it grants no lease against later changes.
+// Every mutating method consumes the supplied capability.
 type RootedCommitter interface {
 	CreateRootedFile(
 		ctx context.Context,

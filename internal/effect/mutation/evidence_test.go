@@ -67,6 +67,39 @@ func TestRevisionSetRejectsInvalidStateAndCancellation(t *testing.T) {
 	}
 }
 
+func TestRevisionBatchMatchesFreshObservations(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "value")
+	missing := filepath.Join(root, "missing")
+	if err := os.WriteFile(path, []byte("value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requests, err := BoundedFileRevisionRequests(64, path, missing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests = append(
+		requests,
+		NewBoundedContentRevisionRequest(root, PathEffectReferent),
+		NewBoundedDirectoryListingRevisionRequest(root),
+		NewRequiredAbsentRevisionRequest(missing),
+		requests[0],
+	)
+	batch, err := CaptureRevisionSet(t.Context(), requests...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, request := range requests {
+		fresh, err := NewRevisionObservationPass().Capture(t.Context(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !batch.observations[index].revision.Equal(fresh) {
+			t.Fatalf("batch request %d differs from a fresh capture", index)
+		}
+	}
+}
+
 func TestRevisionSetSubsetReusesCapturedEvidence(t *testing.T) {
 	root := t.TempDir()
 	stablePath := filepath.Join(root, "stable")

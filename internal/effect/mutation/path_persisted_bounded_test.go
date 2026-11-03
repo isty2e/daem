@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 )
 
 type pathAuthorityTestBudget struct {
@@ -71,5 +74,36 @@ func TestDirectoryEntryAuthorityBoundedRequiresCapacityBeforeObservation(t *test
 	}
 	if persistedBudget.visits == 0 {
 		t.Fatal("bounded persisted authority performed no charged path work")
+	}
+}
+
+func TestDirectoryEntryObservationEqualityDoesNotPromoteProvisionalPaths(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "Futuré.json")
+	observe := func(path string) DirectoryEntryAuthorityObservation {
+		t.Helper()
+		provisional, err := pathauthority.NewProvisional(path, pathtest.DarwinCaseSensitive(path).Witness(), root, pathtest.DarwinCaseSensitive(root).Witness())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return DirectoryEntryAuthorityObservation{provisional: provisional}
+	}
+	missing := observe(path)
+	sibling := observe(filepath.Join(root, "Autré.json"))
+	if !missing.Equal(observe(path)) || missing.Equal(sibling) || sibling.Equal(missing) {
+		t.Fatal("missing observations lost their namespace distinction")
+	}
+
+	physical, err := pathauthority.NewExact(path, pathtest.DarwinCaseSensitive(path).Witness())
+	if err != nil {
+		t.Fatal(err)
+	}
+	exact := DirectoryEntryAuthorityObservation{exact: physical}
+	if !exact.Equal(exact) || exact.Equal(missing) || missing.Equal(exact) {
+		t.Fatal("equality promoted a missing observation to an exact path")
+	}
+	var invalid DirectoryEntryAuthorityObservation
+	if invalid.Equal(invalid) || exact.Equal(invalid) || invalid.Equal(missing) {
+		t.Fatal("invalid observation compared equal")
 	}
 }

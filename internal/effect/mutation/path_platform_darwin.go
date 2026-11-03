@@ -4,6 +4,7 @@ package mutation
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,14 +29,14 @@ type darwinPathObservation struct {
 
 func platformCanonicalPath(selection pathSelection, effect PathEffect) (canonicalPath, error) {
 	return canonicalDarwinPath(selection, effect, darwinPathObservation{
-		descriptorPath: darwinDescriptorPath,
+		descriptorPath: darwinStoredPath,
 		directoryCase:  darwinDirectoryCaseSemantics,
 	})
 }
 
 func newPlatformPathObservation() func(pathSelection, PathEffect) (canonicalPath, error) {
 	observation := darwinPathObservation{
-		descriptorPath: darwinDescriptorPath,
+		descriptorPath: darwinStoredPath,
 		directoryCase:  darwinDirectoryCaseSemantics,
 	}.shared()
 	return func(selection pathSelection, effect PathEffect) (canonicalPath, error) {
@@ -86,7 +87,7 @@ func platformCanonicalPathBounded(
 			if err := admitPlatformPathTraversal(path, maximumPhysicalDepth, budget); err != nil {
 				return "", err
 			}
-			return darwinDescriptorPath(path, noFollow)
+			return darwinStoredPath(path, noFollow)
 		},
 		directoryCase: func(path string) (pathCaseSemantics, error) {
 			if err := admitPlatformPathTraversal(path, maximumPhysicalDepth, budget); err != nil {
@@ -230,37 +231,45 @@ func darwinDirectoryCaseSemantics(path string) (pathCaseSemantics, error) {
 	}
 }
 
-func darwinDescriptorPath(path string, noFollow bool) (string, error) {
-	flags := unix.O_EVTONLY | unix.O_CLOEXEC | unix.O_NONBLOCK
-	if noFollow {
-		flags |= unix.O_SYMLINK
-	}
-	fd, err := unix.Open(path, flags, 0)
-	if err != nil && !noFollow {
-		fd, err = unix.Open(path, darwinPathOpenSearch|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
-	}
+// Namespace identity needs stored spelling, not permission to read the payload.
+func darwinStoredPath(path string, noFollow bool) (string, error) {
+	name, err := unix.BytePtrFromString(path)
 	if err != nil {
 		return "", err
 	}
-	defer unix.Close(fd)
-
-	buffer := make([]byte, unix.PathMax)
-	_, _, errno := unix.Syscall(
-		unix.SYS_FCNTL,
-		uintptr(fd),
-		uintptr(unix.F_GETPATH),
+	attributes := unix.Attrlist{Bitmapcount: unix.ATTR_BIT_MAP_COUNT, Commonattr: unix.ATTR_CMN_FULLPATH}
+	options := uintptr(0)
+	if noFollow {
+		options = unix.FSOPT_NOFOLLOW
+	}
+	const headerBytes = 12
+	buffer := make([]byte, unix.PathMax+headerBytes)
+	_, _, errno := unix.Syscall6(
+		unix.SYS_GETATTRLIST,
+		uintptr(unsafe.Pointer(name)),
+		uintptr(unsafe.Pointer(&attributes)),
 		uintptr(unsafe.Pointer(&buffer[0])),
+		uintptr(len(buffer)), options, 0,
 	)
+	runtime.KeepAlive(name)
+	runtime.KeepAlive(attributes)
 	runtime.KeepAlive(buffer)
 	if errno != 0 {
 		return "", errno
 	}
-	if index := bytes.IndexByte(buffer, 0); index >= 0 {
-		buffer = buffer[:index]
+	total := int64(binary.LittleEndian.Uint32(buffer[:4]))
+	start := 4 + int64(int32(binary.LittleEndian.Uint32(buffer[4:8])))
+	length := int64(binary.LittleEndian.Uint32(buffer[8:12]))
+	if total < headerBytes || total > int64(len(buffer)) || start < headerBytes || length <= 1 || start+length > total {
+		return "", fmt.Errorf("getattrlist returned an invalid full-path attribute")
 	}
-	observed := string(buffer)
+	value := buffer[start : start+length]
+	if bytes.IndexByte(value, 0) != len(value)-1 {
+		return "", fmt.Errorf("getattrlist returned an unterminated full path")
+	}
+	observed := string(value[:len(value)-1])
 	if observed == "" || !filepath.IsAbs(observed) || filepath.Clean(observed) != observed {
-		return "", fmt.Errorf("F_GETPATH returned invalid path %q", observed)
+		return "", fmt.Errorf("getattrlist returned invalid path %q", observed)
 	}
 	return observed, nil
 }
