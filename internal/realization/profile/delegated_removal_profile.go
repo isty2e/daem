@@ -209,26 +209,24 @@ func validateDelegatedRemovalDossier(dossier DelegatedRemovalDossier) error {
 	if len(dossier.removedEffects) == 0 {
 		return fmt.Errorf("removed effects are required")
 	}
-	owners := make(map[string]string)
-	for _, field := range []struct {
+	disclosures := [...]struct {
 		label  string
 		values []string
 	}{
 		{label: "removed effect", values: dossier.removedEffects},
 		{label: "retained effect", values: dossier.retainedEffects},
 		{label: "removal non-claim", values: dossier.nonClaims},
-	} {
+	}
+	for index, field := range disclosures {
 		if err := validateStringSet(field.values, field.label); err != nil {
 			return err
 		}
-		if !slices.Equal(field.values, canonicalStringSet(field.values)) {
-			return fmt.Errorf("%s values must be canonical", field.label)
-		}
 		for _, value := range field.values {
-			if owner, exists := owners[value]; exists {
-				return fmt.Errorf("%s %q conflicts with %s", field.label, value, owner)
+			for _, validated := range disclosures[:index] {
+				if _, exists := slices.BinarySearch(validated.values, value); exists {
+					return fmt.Errorf("%s %q conflicts with %s", field.label, value, validated.label)
+				}
 			}
-			owners[value] = field.label
 		}
 	}
 	return nil
