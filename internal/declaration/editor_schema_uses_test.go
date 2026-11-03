@@ -172,7 +172,7 @@ func editorRequiredUses(root map[string]any) ([]editorRequiredUse, error) {
 						return err
 					}
 				}
-			case "$schema", "definitions", "type", "enum", "description":
+			case "$schema", "definitions", "type", "enum", "description", "maxItems":
 			default:
 				return fmt.Errorf("unsupported traversal keyword %q at %s", keyword, origin)
 			}

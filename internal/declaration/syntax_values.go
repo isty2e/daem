@@ -18,6 +18,14 @@ func (source *HookAssetSource) UnmarshalTOML(content []byte) error {
 	return source.decodeTOMLValue(value)
 }
 
+func (source *HostConfigSource) UnmarshalTOML(content []byte) error {
+	value, err := tomlsyntax.DecodeValue(content)
+	if err != nil {
+		return err
+	}
+	return source.decodeTOMLValue(value)
+}
+
 func (reference *MCPEnvReference) UnmarshalTOML(content []byte) error {
 	value, err := tomlsyntax.DecodeValue(content)
 	if err != nil {

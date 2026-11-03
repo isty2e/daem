@@ -9,7 +9,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -179,11 +178,23 @@ func runDelegatesAndPersistAttemptRecords(
 		if bindForAction != nil {
 			bind = bindForAction(action)
 		}
-		attempt := options.DelegateExecutor.Execute(ctx, action, bind)
+		var invoke delegate.Invocation
+		if options.nativeInvocations != nil {
+			invoke = func(ctx context.Context, executor subprocess.CommandExecutor, request subprocess.CommandAttemptRequest, bind subprocess.WorkingDirectoryBinder) (subprocess.CommandAttemptResult, bool, error) {
+				return options.nativeInvocations.executeDelegate(ctx, action, executor, request, bind)
+			}
+		}
+		attempt, observed, boundaryErr := options.DelegateExecutor.ExecuteWithInvocation(ctx, action, bind, invoke)
 		if attempt.RunnerInvoked() {
 			options.markAttempted()
 		}
-		delegateAttempts = append(delegateAttempts, attempt)
+		if observed {
+			delegateAttempts = append(delegateAttempts, attempt)
+		}
+		if boundaryErr != nil {
+			declarationErr = boundaryErr
+			break
+		}
 		if stateAuthority != nil {
 			declarationErr = stateAuthority.Validate(ctx)
 		} else {
@@ -271,7 +282,7 @@ func runDelegatesAndPersistAttemptRecords(
 		entry,
 		current,
 		persistedAttempts,
-		statefile.Codec{},
+		options.stateCodec(),
 	)
 	if persistErr == nil {
 		persistErr = stateAuthority.Validate(ctx)

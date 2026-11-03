@@ -299,7 +299,7 @@ func TestAcquireTransitionRejectsUnsafeOperationIdentity(t *testing.T) {
 
 func mustAddress(t *testing.T, path string, contentPath string) outputownership.ManagedAddress {
 	t.Helper()
-	address, err := outputownership.NewManagedAddress(pathtest.Exact(path), contentPath)
+	address, err := outputownership.NewManagedAddressFromLegacy(pathtest.Exact(path), contentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}

@@ -213,7 +213,7 @@ func newPromotionFixture(t *testing.T, filesystem mutationfs.Store) promotionFix
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent, err := outputownership.NewProvisionalAcquireIntent(
+	intent, err := outputownership.NewProvisionalAcquireIntentFromLegacy(
 		destination,
 		"",
 		provisional,
@@ -227,7 +227,7 @@ func newPromotionFixture(t *testing.T, filesystem mutationfs.Store) promotionFix
 	if err != nil {
 		t.Fatal(err)
 	}
-	address, err := outputownership.NewManagedAddress(exact, "")
+	address, err := outputownership.NewManagedAddressFromLegacy(exact, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -71,7 +71,7 @@ type recoveryRemovalIntent struct {
 	States      []recoveryRemovalState            `json:"states"`
 }
 
-// recoveryEntry is the exact journal-v13 persistence DTO. Subject is the sole
+// recoveryEntry is the exact journal persistence DTO. Subject is the sole
 // semantic identity carried across the recovery boundary. GlobalPathBinding
 // binds a global logical destination to its capture-time physical root
 // incarnation; OwnershipPathAuthority is a separate foreign key to one exact
@@ -101,7 +101,7 @@ type recoveryManagedMembership struct {
 	ContentHash string `json:"content_hash,omitempty"`
 }
 
-// recoveryStateIdentity is the exact nested journal-v13 persistence DTO used to
+// recoveryStateIdentity is the exact nested journal persistence DTO used to
 // correlate statefile rows.
 type recoveryStateIdentity struct {
 	Subject     persistedSubjectRef `json:"subject"`

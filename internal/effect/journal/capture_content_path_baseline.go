@@ -105,14 +105,18 @@ func newRecoveryContentPathBaselineCache(
 		}
 		contract := action.AggregateContract.Clone()
 		address := contract.Address()
+		contentPath, err := address.LegacyContentPath()
+		if err != nil {
+			return nil, err
+		}
 		document := address.Document()
 		if document.Scope() != action.Scope ||
 			document.AggregateRoot() != action.Destination ||
-			address.ContentPath() != aggregate.ContentPath(action.ContentPath) {
+			contentPath != aggregate.ContentPath(action.ContentPath) {
 			return nil, fmt.Errorf(
 				"recovery aggregate contract address %q%q does not match baseline %q%q",
 				document.AggregateRoot(),
-				address.ContentPath(),
+				contentPath,
 				action.Destination,
 				action.ContentPath,
 			)
@@ -267,16 +271,20 @@ func deriveRecoveryContentPathProjections(
 	selected := make(map[output.ContentPath]struct{}, len(contracts))
 	for _, contract := range contracts {
 		address := contract.Address()
+		contentPath, err := address.LegacyContentPath()
+		if err != nil {
+			return nil, err
+		}
 		if address.Document().AggregateRoot() != destination ||
 			address.Document() != request.selection.DocumentAddress() {
 			return nil, fmt.Errorf(
 				"recovery aggregate contract address %q%q does not match baseline document %q",
 				address.Document().AggregateRoot(),
-				address.ContentPath(),
+				contentPath,
 				request.selection.DocumentAddress().AggregateRoot(),
 			)
 		}
-		selected[output.ContentPath(address.ContentPath())] = struct{}{}
+		selected[output.ContentPath(contentPath)] = struct{}{}
 	}
 	snapshot, failure := request.codec.Read(aggregate.ExistingDocument(content), request.selection)
 	if failure != nil {
@@ -291,7 +299,11 @@ func deriveRecoveryContentPathProjections(
 		)
 	}
 	for _, state := range states {
-		contentPath := output.ContentPath(state.Contract().Address().ContentPath())
+		legacyPath, err := state.Contract().Address().LegacyContentPath()
+		if err != nil {
+			return nil, err
+		}
+		contentPath := output.ContentPath(legacyPath)
 		if _, ok := selected[contentPath]; !ok {
 			return nil, fmt.Errorf(
 				"recovery aggregate codec returned unselected content path %q",

@@ -3,8 +3,10 @@ package build
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/entity"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 
 	"github.com/isty2e/daem/internal/effect/payload"
@@ -12,6 +14,7 @@ import (
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 // Input carries canonical inputs needed to materialize host output payloads.
@@ -27,6 +30,15 @@ type Input struct {
 
 // PayloadSet materializes selected instruction, skill, and hook host payloads.
 func PayloadSet(ctx context.Context, input Input) (result payload.PayloadSet, resultErr error) {
+	for _, subject := range input.ManagedPathPayloadSubjects {
+		if id, present := topologyprojection.EntityID(subject); present && id.Kind() == entity.KindHostConfig {
+			return payload.PayloadSet{}, fmt.Errorf("native document payload requires explicit native preparation")
+		}
+	}
+	return payloadSet(ctx, input, nil)
+}
+
+func payloadSet(ctx context.Context, input Input, documents []nativeDocumentPayloadInput) (result payload.PayloadSet, resultErr error) {
 	var values []payload.Payload
 	var cleanups []func() error
 	committed := false
@@ -36,7 +48,7 @@ func PayloadSet(ctx context.Context, input Input) (result payload.PayloadSet, re
 		}
 	}()
 
-	managedPaths, err := buildManagedPathPayloads(ctx, input)
+	managedPaths, err := buildManagedPathPayloads(ctx, input, documents)
 	cleanups = append(cleanups, managedPaths.cleanups...)
 	if err != nil {
 		return payload.PayloadSet{}, err
@@ -47,6 +59,11 @@ func PayloadSet(ctx context.Context, input Input) (result payload.PayloadSet, re
 	if err != nil {
 		return payload.PayloadSet{}, err
 	}
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return payload.PayloadSet{}, err
+		}
+	}
 	committed = true
 	return set, nil
 }
@@ -56,7 +73,7 @@ type managedPathPayloads struct {
 	cleanups []func() error
 }
 
-func buildManagedPathPayloads(ctx context.Context, input Input) (managedPathPayloads, error) {
+func buildManagedPathPayloads(ctx context.Context, input Input, documents []nativeDocumentPayloadInput) (managedPathPayloads, error) {
 	resolvers := sourceResolverOnce{paths: input.Paths}
 	instructionPayloads, err := buildInstructionPayloads(
 		ctx,
@@ -95,6 +112,11 @@ func buildManagedPathPayloads(ctx context.Context, input Input) (managedPathPayl
 		return result, hookAssetErr
 	}
 	result.payloads = append(result.payloads, hookAssetPayloads...)
+	documentPayloads, err := buildNativeDocumentPayloads(ctx, &resolvers, documents)
+	if err != nil {
+		return result, err
+	}
+	result.payloads = append(result.payloads, documentPayloads...)
 	return result, nil
 }
 

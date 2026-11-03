@@ -19,6 +19,12 @@ const (
 )
 
 func init() {
+	if os.Getenv(descriptorHelperEnv) == descriptorGateMode && len(os.Args) >= 2 && os.Args[1] == descriptorGateArg {
+		if len(os.Args) >= 4 {
+			runGatedDescriptorHelper()
+		}
+		os.Exit(126)
+	}
 	if os.Getenv(descriptorHelperEnv) != "1" || len(os.Args) < 3 || os.Args[1] != descriptorHelperArg {
 		return
 	}
@@ -26,9 +32,12 @@ func init() {
 		writeDescriptorHelperError("working-directory setup", err)
 		os.Exit(126)
 	}
+	execDescriptorTarget(os.Args[2], os.Args[3:])
+}
+
+func execDescriptorTarget(target string, args []string) {
 	env := removeEnvName(os.Environ(), descriptorHelperEnv)
-	target := os.Args[2]
-	argv := append([]string{target}, os.Args[3:]...)
+	argv := append([]string{target}, args...)
 	if err := unix.Exec(target, argv, env); err != nil {
 		writeDescriptorHelperError("target exec", err)
 		os.Exit(126)

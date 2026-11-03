@@ -180,7 +180,7 @@ func freshMissingProjectionEvidence(
 	preconditions := make([]observe.AggregatePreconditionEvidence, 0, len(expected))
 	for _, precondition := range expected {
 		item, err := observe.NewAggregatePreconditionEvidence(
-			projection.Address().Document(),
+			projection.DocumentCodecKey(),
 			precondition,
 			true,
 		)

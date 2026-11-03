@@ -38,7 +38,10 @@ func TestJSONRealizationKeepsDelegatedAndAggregateFieldAxesSeparate(t *testing.T
 		t.Fatal(err)
 	}
 
-	projected := jsonRealizationFor(realization)
+	projected, err := jsonRealizationFor(realization)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if projected.RouteContractVersion != "codex-plugin-v1" ||
 		!reflect.DeepEqual(projected.VerifiedRelationFields, []string{"marketplace", "name"}) {
 		t.Fatalf("delegated JSON realization = %#v", projected)
@@ -68,7 +71,10 @@ func TestJSONRealizationPreservesExplicitExactPermissionModeZero(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	projected := jsonRealizationFor(realization)
+	projected, err := jsonRealizationFor(realization)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if projected.ExactPermissionMode == nil || *projected.ExactPermissionMode != 0 {
 		t.Fatalf("exact permission mode = %#v, want explicit zero", projected.ExactPermissionMode)
 	}

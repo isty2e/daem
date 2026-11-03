@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestAggregateSubjectConstraintBlocksAnOtherwiseWritableProjection(t *testing.T) {
@@ -141,7 +142,7 @@ func TestAggregateSubjectConstraintDoesNotBecomeLockBlockerOnPreconditionFailure
 		t.Fatalf("operation preconditions = %#v admitted=%t, want one", preconditions, admitted)
 	}
 	preconditionEvidence, err := observe.NewAggregatePreconditionEvidence(
-		selection.DocumentAddress(),
+		selection.DocumentCodecKey(),
 		preconditions[0],
 		false,
 	)
@@ -303,9 +304,9 @@ func aggregateConstraintObservationFailure(
 	if err != nil {
 		t.Fatal(err)
 	}
-	failure, err := aggregate.NewCodecFailure(
+	failure, err := aggregate.NewCodecFailureFromLegacy(
 		aggregate.CodecFailureSelectedShapeUnsupported,
-		contracts[0].Address().ContentPath(),
+		outputtest.LegacyContentPath(t, contracts[0].Address()),
 	)
 	if err != nil {
 		t.Fatal(err)

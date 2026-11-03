@@ -528,7 +528,7 @@ func assertStatusMCPAggregatePlanSubject(
 				if contract.Address().Document().Target() != placement.Target() ||
 					contract.Address().Document().Scope() != placement.Scope() ||
 					contract.Address().Document().AggregateRoot() != placement.ConfigPath() ||
-					contract.Address().ContentPath() != contentPath ||
+					outputtest.LegacyContentPath(t, contract.Address()) != contentPath ||
 					projection.Kind() != wantKind ||
 					projection.Reason() != wantReason {
 					t.Fatalf(
@@ -662,7 +662,7 @@ func writeStatusOwnershipClaim(t *testing.T, manifestPath string, destination ou
 	if err != nil {
 		t.Fatalf("resolve ownership destination: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, physical), string(contentPath))
+	address, err := ownership.NewManagedAddressFromLegacy(mustObservedPathAuthority(t, physical), string(contentPath))
 	if err != nil {
 		t.Fatalf("NewManagedAddress: %v", err)
 	}

@@ -7,6 +7,8 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
@@ -199,6 +201,19 @@ func Combine(journalErr error, fileSetErr error) error {
 // Observe reads the independent RecoveryDir journal and StateDir file-set facts
 // without allowing a later observation to hide caller cancellation.
 func Observe(ctx context.Context, paths daempaths.Paths) error {
+	return observe(ctx, paths, nil)
+}
+
+// ObserveBounded preserves the joint barrier policy without allocating fresh
+// physical work during an already-admitted operation.
+func ObserveBounded(ctx context.Context, paths daempaths.Paths, budget rootedpath.PhysicalTraversalBudget) error {
+	if budget == nil {
+		return fmt.Errorf("recovery barrier physical work budget is required")
+	}
+	return observe(ctx, paths, budget)
+}
+
+func observe(ctx context.Context, paths daempaths.Paths, budget rootedpath.PhysicalTraversalBudget) error {
 	if ctx == nil {
 		return fmt.Errorf("recovery barrier context is required")
 	}
@@ -208,11 +223,22 @@ func Observe(ctx context.Context, paths daempaths.Paths) error {
 	if err := RequireUserStateMigrated(ctx, paths); err != nil {
 		return err
 	}
-	stateDir, stateDirErr := CaptureStateDir(ctx, paths.StateDir)
+	var stateDir StateDirAuthority
+	var stateDirErr error
+	if budget == nil {
+		stateDir, stateDirErr = CaptureStateDir(ctx, paths.StateDir)
+	} else {
+		stateDir, stateDirErr = CaptureStateDirBounded(ctx, paths.StateDir, journalrecovery.MaximumPhysicalPathDepth, budget)
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	journalErr := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir)
+	var journalErr error
+	if budget == nil {
+		journalErr = journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir)
+	} else {
+		journalErr = journal.RequireNoInterruptedApplyBounded(ctx, paths.RecoveryDir, budget)
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

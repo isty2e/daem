@@ -164,8 +164,8 @@ func (budget *PhysicalWorkBudget) ReserveRetirementFilePasses(
 // BeginReservedRetirementExecution transfers only capacity reserved for one
 // prepared retirement continuation.
 func (budget *PhysicalWorkBudget) BeginReservedRetirementExecution() (*PhysicalWorkBudget, error) {
-	if budget == nil {
-		return nil, fmt.Errorf("physical work budget is required")
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
 	}
 	if budget.retirementDisposition != retirementPending {
 		return nil, fmt.Errorf("journal retirement disposition was already established")

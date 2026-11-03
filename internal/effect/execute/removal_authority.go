@@ -112,11 +112,10 @@ func (authority *mutationAuthority) prepareRemovalDemands(
 	return nil
 }
 
-func (authority *mutationAuthority) bindRemovalIntents(plan recovery.Plan) error {
+func (authority *mutationAuthority) bindRemovalIntentList(intents []recovery.RemovalIntent) error {
 	if authority == nil {
 		return fmt.Errorf("removal mutation authority is unavailable")
 	}
-	intents := plan.RemovalIntents()
 	if authority.removalAuthorityBound {
 		return authority.validateReloadedRemovalIntents(intents)
 	}
@@ -391,11 +390,12 @@ type removalSlotObservation struct {
 // cleanupRemovalResidues performs a complete read-only retirement preflight
 // before executing any removal-slot action. This prevents one blocked intent from
 // being discovered after another intent has already been mutated.
-func (authority *mutationAuthority) cleanupRemovalResidues(
+func (authority *mutationAuthority) cleanupRemovalIntentList(
 	ctx context.Context,
-	plan recovery.Plan,
+	intents []recovery.RemovalIntent,
+	capturedNamespaceReservation bool,
+	retirementReady func([]recovery.RemovalCleanupObligation) bool,
 ) ([]recovery.RemovalCleanupObligation, error) {
-	intents := plan.RemovalIntents()
 	budget := authority.physicalWorkBudget
 	if authority.generalExecutionWorkBudget != nil {
 		budget = authority.removalCleanupExecution
@@ -479,13 +479,15 @@ func (authority *mutationAuthority) cleanupRemovalResidues(
 			cleanupRecursive = residue.entry.Kind() == recovery.PathKindDirectory
 		}
 		if obligation.Readiness() == recovery.RemovalCleanupReady {
-			if err := journal.ReserveRemovalExecutionObservationWork(
-				budget,
-				destination.hostPath,
-				residuePath,
-				cleanupPath,
-			); err != nil {
-				return nil, fmt.Errorf("reserve removal intent[%d] execution observations: %w", index, err)
+			if !capturedNamespaceReservation {
+				if err := journal.ReserveRemovalExecutionObservationWork(
+					budget,
+					destination.hostPath,
+					residuePath,
+					cleanupPath,
+				); err != nil {
+					return nil, fmt.Errorf("reserve removal intent[%d] execution observations: %w", index, err)
+				}
 			}
 			var reserveErr error
 			if cleanupRecursive {
@@ -552,7 +554,7 @@ func (authority *mutationAuthority) cleanupRemovalResidues(
 		return nil, execution.finish(err)
 	}
 	var completionErr error
-	if !plan.RetirementReady(discharged) {
+	if !retirementReady(discharged) {
 		completionErr = fmt.Errorf("complete removal cleanup authority was not discharged")
 	}
 	if err := execution.settleCompletion(completionErr == nil); err != nil {
@@ -1011,4 +1013,12 @@ func (authority *mutationAuthority) acquireRemovalSlot(
 		recovery.MaximumPhysicalPathDepth,
 		budget,
 	)
+}
+
+func (authority *mutationAuthority) bindRemovalIntents(plan recovery.Plan) error {
+	return authority.bindRemovalIntentList(plan.RemovalIntents())
+}
+
+func (authority *mutationAuthority) cleanupRemovalResidues(ctx context.Context, plan recovery.Plan) ([]recovery.RemovalCleanupObligation, error) {
+	return authority.cleanupRemovalIntentList(ctx, plan.RemovalIntents(), false, plan.RetirementReady)
 }

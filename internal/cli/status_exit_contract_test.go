@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
@@ -17,9 +18,9 @@ import (
 )
 
 func TestStatusExitContractSeparatesReportOnlyFromCheck(t *testing.T) {
-	clean := statusworkflow.CommandResult{}
-	pending := statusworkflow.CommandResult{Reconciliation: statusPendingManagedPathPlan(t)}
-	missingLock := statusworkflow.CommandResult{LockfileMissing: true}
+	clean := statusworkflow.CommandResult{PermissionProtection: knownClearStatusProtection(t)}
+	pending := statusworkflow.CommandResult{Reconciliation: statusPendingManagedPathPlan(t), PermissionProtection: knownClearStatusProtection(t)}
+	missingLock := statusworkflow.CommandResult{LockfileMissing: true, PermissionProtection: knownClearStatusProtection(t)}
 
 	tests := []struct {
 		name   string
@@ -42,6 +43,15 @@ func TestStatusExitContractSeparatesReportOnlyFromCheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+func knownClearStatusProtection(t *testing.T) ownershipobserve.ProtectionObservation {
+	t.Helper()
+	observation, err := ownershipobserve.KnownProtections(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
 }
 
 func statusPendingManagedPathPlan(t *testing.T) reconcile.Result {

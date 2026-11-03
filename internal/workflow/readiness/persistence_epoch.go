@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
@@ -16,7 +17,33 @@ import (
 type PersistenceEpoch struct {
 	currentState        durable.Snapshot
 	globalCarrierClaims durablecarrier.GlobalCarrierClaims
+	physicalBudget      *recovery.PhysicalWorkBudget
 	initialized         bool
+}
+
+// NewPersistenceEpochWithBudget retains the allocation used by the selected
+// state reader; it does not admit removals or replenish that allocation.
+func NewPersistenceEpochWithBudget(currentState durable.Snapshot, globalCarrierClaims durablecarrier.GlobalCarrierClaims, budget *recovery.PhysicalWorkBudget) PersistenceEpoch {
+	epoch := NewPersistenceEpoch(currentState, globalCarrierClaims)
+	epoch.physicalBudget = budget
+	return epoch
+}
+
+func (epoch PersistenceEpoch) Snapshot() (durable.Snapshot, error) {
+	state, _, err := epoch.facts()
+	return state, err
+}
+
+func (epoch PersistenceEpoch) CarrierClaims() (durablecarrier.GlobalCarrierClaims, error) {
+	_, claims, err := epoch.facts()
+	return claims, err
+}
+
+func (epoch PersistenceEpoch) PhysicalBudget() (*recovery.PhysicalWorkBudget, error) {
+	if !epoch.initialized || epoch.physicalBudget == nil {
+		return nil, fmt.Errorf("selected persistence epoch requires its original physical allocation")
+	}
+	return epoch.physicalBudget, epoch.physicalBudget.RequireCapturePending()
 }
 
 // NewPersistenceEpoch binds already-loaded canonical persistence facts.

@@ -3,15 +3,25 @@
 package managed
 
 import (
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
+	codexhostpath "github.com/isty2e/daem/internal/output/hostpath/codex"
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
 // Resolver returns the operation's managed-output destination resolver.
 func Resolver(paths daempaths.Paths) hostpath.Resolver {
+	piOverride := pihostpath.DestinationOverride(paths.ManifestRoot)
+	codexOverride := codexhostpath.DestinationOverride(paths.ManifestRoot)
 	return hostpath.NewResolverWithManagedDataRoot(
 		paths.ManifestRoot,
 		paths.DataDir,
-	).WithDestinationOverride(pihostpath.DestinationOverride(paths.ManifestRoot))
+	).WithDestinationOverride(func(destination output.Destination) (string, bool, error) {
+		path, matched, err := piOverride(destination)
+		if err != nil || matched {
+			return path, matched, err
+		}
+		return codexOverride(destination)
+	})
 }

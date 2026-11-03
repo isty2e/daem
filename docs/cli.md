@@ -18,9 +18,11 @@ or [Use An Existing Environment](migration.md).
 - [Preview, write, and confirmation modes](#execution-modes)
 - [Output flags, flag inventory, and JSON versions](#presentation-flags)
 - Commands: [`version`](#version), [`init`](#init), [`import`](#import),
+  [`import host-config`](#import-host-config),
   [`add`](#add), [`remove`](#remove), [`unmanage extension`](#unmanage-extension),
   [`lock`](#lock), [`outdated`](#outdated), [`list`](#list), [`status`](#status),
-  [`apply`](#apply), [`recover`](#recover), [`migrate state`](#migrate-state), [`doctor`](#doctor),
+  [`replace host-config`](#replace-host-config), [`apply`](#apply),
+  [`recover`](#recover), [`migrate state`](#migrate-state), [`doctor`](#doctor),
   [`probe mcp-server`](#probe-mcp-server), [`refresh extension`](#refresh-extension)
 - [Authoring JSON](#authoring-json), [progress](#progress),
   [streams and exit codes](#streams-and-exit-codes),
@@ -181,6 +183,7 @@ Commands use effect-tiered modes:
 | --- | --- | --- | --- | --- |
 | Read-only | `list`, `outdated`, `status`, `doctor`, `version` | query | rejected | rejected |
 | Desired/derived state | `init`, `import`, `add`, `remove`, `unmanage extension`, `lock` | write | preview | rejected |
+| Named source-file edit | `import host-config` | three-stream TTY confirmation | preview | requires `--expect-plan` from reviewed preview |
 | Host/runtime effect | `apply`, `recover`, `probe mcp-server`, `refresh extension` | three-stream TTY confirmation | preview | non-interactive execution |
 | Management authority | `migrate state` | three-stream TTY confirmation | preview | non-interactive execution |
 
@@ -304,6 +307,7 @@ flags.
 | `apply` | `--diff`, `--dry-run`, `--json`, `--manage-existing`, `--manifest`, `--target`, `--verbose`, `--yes` |
 | `doctor` | `--all-targets`, `--json`, `--manifest`, `--target`, `--verbose` |
 | `import` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--merge`, `--scope`, `--source-dir`, `--target`, `--verbose` |
+| `import host-config` | `--diff`, `--dry-run`, `--expect-plan`, `--host-path`, `--json`, `--key`, `--manifest`, `--merge`, `--ownership`, `--scope`, `--source`, `--source-dir`, `--syntax`, `--target`, `--update-source`, `--verbose`, `--yes` |
 | `init` | `--dry-run`, `--force`, `--json`, `--manifest`, `--verbose` |
 | `list outputs` | `--json`, `--manifest`, `--target`, `--verbose` |
 | `list paths` | `--json`, `--manifest`, `--target`, `--verbose` |
@@ -319,6 +323,7 @@ flags.
 | `remove instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove mcp-server` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove skill` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `replace host-config` | `--diff`, `--dry-run`, `--expect-plan`, `--json`, `--key`, `--manifest`, `--verbose`, `--yes` |
 | `status` | `--check`, `--json`, `--manifest`, `--target`, `--verbose` |
 | `unmanage extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `version` | `--json` |
@@ -333,18 +338,37 @@ are unrelated and must not be compared as a product-wide sequence:
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
 | `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `7` |
-| `lock`, `outdated` | Lock comparison | `4` |
+| `lock`, `outdated` | Lock comparison | `5` |
 | `list resources` | Resource inventory | `4` |
 | `list outputs` | Output inventory | `5` |
 | `list paths` | Agent location inventory | `2` |
-| `status`, `apply --dry-run` | Reconciliation plan | `17` |
-| confirmed `apply` | Apply result | `23` |
+| `status`, `apply --dry-run` | Reconciliation plan | `18` |
+| confirmed `apply` | Apply result | `24` |
+| `replace host-config` | Selected-key replacement | `1` |
+| `import host-config` | Selected physical-value capture or its terminal recovery | `1` |
 | `recover` | Recovery plan/result | `10` |
 | `migrate state` | State-authority migration | `1` |
 | `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
 | Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `1` |
+
+Native host-configuration key addresses use a `key_path` array of literal names
+in lock comparisons, reconciliation actions/projections/previous state, and
+apply results. For example, `["ext", "a/b"]` selects a property literally named
+`a/b`, and `[""]` selects an empty property name. Legacy aggregate rows retain
+`content_path`; native rows do not encode their names in that field.
+
+Default human status, previews and apply results group native keys by declaration,
+target, scope and destination. Each displayed key retains its action or status.
+A blocked document names the keys preventing Apply without marking current
+siblings as blocked. Grouping does not change JSON actions or output-entry counts.
+Quoted dotted-path segments distinguish `ext."a/b"` and `"a.b"` from nested keys.
+`--verbose` retains per-key detail.
+
+`list outputs` displays native keys by declaration and literal key path too.
+Its JSON adds `resource` and `key_path` for native rows while retaining the
+existing machine `subject`, optional `resource_id`, row counts and other fields.
 
 The resource-name cutover replaces the v0.5.x envelopes for manifest authoring
 (`6`), resource inventory (`2`), output inventory (`4`), agent location inventory
@@ -369,6 +393,16 @@ Both use `state: "unobserved"`; `EFFECTIVE_OBSERVER_UNSUPPORTED` replaces the
 previous `EFFECTIVE_STATE_UNOBSERVED` reason only for the unsupported case.
 Consumers of the earlier versions must not interpret the new reason as an
 observation failure or a claim that no shadowing definition exists.
+
+Plan version `18` and apply-result version `24` add the optional
+`native_narrowing_actions` array for document-to-key ownership transitions.
+Each row identifies the declaration, target, scope, destination and desired key
+count; zero keys explicitly means releasing whole-file ownership. Native values,
+key selectors and source contents are omitted, with `values_omitted: true`.
+These transitions are separate from projection `actions` and do not increase
+the plan's projection `action_count`. A transition row describes planned intent,
+not proof that a host write occurred. Ordinary results omit the array, but all
+results use the new envelope version.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject
@@ -630,6 +664,74 @@ duplicate host load identities, or contradictory native and manifest order
 fail before mutation. Antigravity installed state does not retain enough source
 provenance to reconstruct a declaration, so those rows are reported as
 `source_provenance_unrecoverable` skips.
+
+## `import host-config`
+
+Capture explicitly selected values from one physically stored native document
+into a local source. It does not collect defaults or effective layered settings,
+resolve environment references, run commands, or discover generic settings during
+ordinary `import`.
+
+```bash
+# Initial capture; add --merge only when the selected manifest already exists.
+daem import host-config pi-ui --target pi --scope global \
+  --host-path settings.json --key /quietStartup --key /tuiMode \
+  --source-dir ./daem.d --dry-run --diff
+
+# Existing declaration: use only its declared source membership.
+daem import host-config pi-ui --update-source --dry-run --json
+```
+
+Initial capture requires exactly one target and scope, a host-root-relative
+`--host-path`, and one or more RFC 6901 `--key` selectors or explicit
+`--ownership document`. A selected object expands into its current atomic leaves;
+arrays, nulls and nested empty objects remain atomic. Missing initial values fail
+the complete operation. Whole-document capture preserves raw bytes under the
+destination's admitted grammar. The preview omits arbitrary whole-file contents.
+Initial capture creates a new id and a new local file under
+`<source-dir>/host-config/`; it never overwrites a source destination. Without
+`--source-dir`, the directory is the manifest's basename with `.d` instead of its
+extension. Initial-only placement and source-directory flags cannot accompany
+`--update-source`.
+
+An update selects the existing source's declared keys; optional `--key` selectors
+may narrow that selection, not acquire host siblings. Missing managed values are
+removed from the source, including newly empty structural parents. Unselected
+source values and comments remain intact. A missing whole document instead
+previews declaration retirement and leaves its old source file untouched.
+
+Capture edits a **named source file**, not a resource-private copy. The preview
+shows its exact path and referent, known affected references in the selected
+manifest, and warns that other manifests or programs may also read it. It does
+not enumerate every reader or establish exclusive ownership. To isolate an
+update, specify `--source NEW_LOCAL_SOURCE`; that destination must not exist and
+the declaration switches to it. Only writable local vendor sources may be
+updated; Git, S3 and cache material are not edited.
+
+Literal values, including credentials, may be saved as plaintext or committed
+to version control. Selected values are masked for display, but storage retains
+the original values; masking is not a secret-free certification. Approval and
+stale checks use actual data before masking. Interactive writes require terminal
+stdin, stdout and stderr. For noninteractive writes, review `--dry-run --json`,
+then repeat the same request with `--yes --expect-plan FINGERPRINT`, using its
+`fingerprint`. A changed plan requires another review. `--diff` requires
+`--dry-run` and shows selected values only, not unrelated source or manifest data.
+
+Only source/declaration artifacts change. Capture does not change host files,
+regenerate the lock, register ownership, or apply settings. After initial capture,
+run `lock`, `apply --manage-existing --dry-run`, then `apply --manage-existing`.
+After an update, run `lock`, `apply --dry-run`, then ordinary `apply`. Inspect the
+printed manifest-scoped commands. Capturing during a whole-to-keys handoff
+replaces old desired source values; it does not save those values for automatic
+restoration. Complete narrowing before making a separate desired-value update.
+
+If publication was interrupted, repeat the same explicit request and dry-run.
+The command previews only the selected source/declaration transaction's recovery.
+After approval it either restores before-images or finalizes completed writes,
+then exits without reading new host values or rerunning capture. Review a new
+dry-run afterward. A source target that cannot be independently selected from
+the invocation or current declaration, mismatching evidence, or other pending
+work is refused rather than recovered from marker-supplied paths.
 
 ## `add`
 
@@ -1216,11 +1318,21 @@ still return `1` before or while emitting their applicable result contract.
 | Invocation | Exit `0` | Exit `1` |
 | --- | --- | --- |
 | `status` | any valid report | never because of reported state |
-| `status --check` | lockfile present, no pending or blocked output action, exact extension order, and no blocked relation, adoption, or extension-removal action | lockfile missing; pending or blocked output action, including an unqualified MCP host; non-exact extension order; or blocked relation, adoption, or extension-removal action |
+| `status --check` | lockfile present, known-clear owner permission protection, no pending or blocked output action, exact extension order, and no blocked relation, adoption, or extension-removal action | lockfile missing; pending or unavailable owner permission protection; pending or blocked output action, including an unqualified MCP host; non-exact extension order; or blocked relation, adoption, or extension-removal action |
 
 Diagnostic grades, including `error`, do not by themselves affect the `--check`
 exit code or `check_clean`. The `diagnostics` array carries the reported grades;
 error-grade diagnostics contribute to `has_errors`.
+
+Owner permission protection is checked independently of `--target`. Apply,
+status and doctor JSON include optional `permission_protection` when pending
+records were observed or inventory is unavailable or unsupported. It records
+the observation state, invocation and phase, and owning logical document
+destinations; it does not certify present settlement. Known-clear inventory
+omits the field. It also survives source and planning failures in the common
+error result. Doctor reports a separate `permission_protection` check. This
+reporting does not turn a pending owner record into an Apply action or block
+unrelated writes. See [Permission-Only Recovery](state-and-recovery.md#permission-only-recovery).
 
 Selected missing extension relations and observe-only relation rows do not make
 `--check` fail. A blocked removal of a managed extension relation does fail. A
@@ -1242,6 +1354,56 @@ instead of fabricating an assessment. `apply --dry-run` omits this field: its
 planning context, including `--manage-existing`, is not a status observation.
 Both commands emit the current reconciliation-plan version in the
 [version table](#json-schema-contract); other result families are unchanged.
+
+## `replace host-config`
+
+Use this command to set selected native configuration keys to their locked
+declaration values, either when first taking over a different existing value or
+after a managed key has changed. Ordinary `apply` still refuses those conflicts;
+`--manage-existing` remains exact-match adoption, not replacement.
+
+With the [example host-configuration declaration](manifest.md#host-configuration):
+
+```bash
+daem replace host-config codex-preferences --key /tui/notifications --dry-run
+daem replace host-config codex-preferences --key /tui/notifications
+```
+
+The first command is read-only. The second requires terminal stdin/stdout/stderr,
+shows the selected current and declared values, and asks once. No extension CLI
+runs, and other resources and unselected keys are not applied. Without `--key`,
+the command selects the declaration's current atomic key set. Repeat `--key` to
+narrow it using RFC 6901 pointers. Selecting an object selects only its currently
+declared atomic descendants, not future or undeclared children. Array elements
+cannot be selected independently. Whole-document ownership, ownership-mode
+changes, and moving recorded ownership to another host, scope or file are refused.
+
+For noninteractive execution, first inspect `--dry-run --json`. Copy its opaque
+`fingerprint` into `--expect-plan` and execute with both `--yes` and
+`--expect-plan`. Bare `--yes` is refused. The declaration, source, selected values,
+ownership and file protection must still match the approved plan. A mismatch
+requires a fresh preview; `--yes` does not override it. Unselected values, comments
+and formatting can change: execution rereads and preserves them rather than
+replaying saved file bytes. Replacing a file inode alone does not invalidate
+consent when the selected namespace, values and protection still match.
+
+The JSON envelope is schema version 1 with `command = "replace host-config"`,
+`mode` (`dry-run` or `executed`), `fingerprint`, `declaration`, `action_count` and
+`keys`. Each key has a literal-name `key_path` array, destination `file`, `action`
+(`create`, `recreate`, `adopt`, `takeover`, `replace`, `record`, or `current`),
+`current_present`, optional `current`, and `desired`. Value strings use host
+syntax; sensitive or oversized display values are masked without weakening the
+approval fingerprint. `action_count` counts selected state or host mutations;
+already-current keys do not count. `record` refreshes stale management state when
+the host value already matches the declaration without rewriting that value.
+`--diff` adds a selected-value diff to human
+dry-run output; it cannot be combined with `--json`.
+
+Replacement uses normal interrupted-operation recovery. Before state commit,
+rollback restores the selected value that actually existed immediately before
+replacement, not an older managed baseline. After commit, recovery finalizes
+without replaying host writes. Unknown third values block recovery. A successful
+replacement does not retain an undo backup. See [state and recovery](state-and-recovery.md).
 
 ## `apply`
 
@@ -1539,6 +1701,17 @@ even in verbose mode. Pre-1.0 `.daem-tombstone-<32 lowercase hex>` evidence is
 blocked before plan disclosure, neither inspected nor migrated; other
 reserved-namespace names are blocked as malformed.
 
+Permission-only recovery uses `authority_kind = "permission_safety"` instead of
+a journal classification. Its JSON contains `protections`, each with an invocation,
+armed/bound `phase`, `settlement` (`pending`, `cleared` or `unknown`) and per-document
+`targets`. Targets report the logical `destination`, `state`, safe typed `reason`
+when blocked, and `observed_access_expansion` for this recovery only. That flag
+does not describe earlier exposure. Dry-run has `phase = "planned"`; execution
+uses `completed`, `pending` or `unknown`, with `has_errors` independent of those
+authority facts. Partial containment and failed publication return nonzero.
+See [Permission-Only Recovery](state-and-recovery.md#permission-only-recovery)
+for its no-content-repair boundary.
+
 Both `--dry-run --json` and `--yes --json` use the
 [recovery family](#json-schema-contract). Every result declares one `phase`.
 Dry-run results and write attempts rejected before execution use `planned`.
@@ -1554,7 +1727,7 @@ includes its operation directory and typed action facts: resource-owned actions 
 inventing a primary target. Entity-backed projection subjects also report the
 correlated resource identity for user-facing attribution.
 
-After execution, successful write results use `completed`. A failure after
+For journal recovery, successful write results use `completed`. A failure after
 durable authority retirement uses `authority_retired`. If post-execution
 inventory cannot classify whether active, cleanup-only, or no authority remains,
 the result uses `authority_unknown`, exposes no retry plan, and instructs the
@@ -1786,6 +1959,28 @@ update matching user and trusted-project rows. Success remains
 host-owned, and trust refusal or no match is a host failure. Daem adds no
 approval, self-update, model-update, or bulk-update flags. See [host
 integrations](host-integrations.md) for route details.
+
+With managed settings keys, Pi, Codex, Claude Code, OpenCode and Antigravity CLI
+refresh require those keys to be already applied and current; they do not apply
+changed settings sources. They check selected values in each managed settings
+layer and preserve other captured content outside the refreshed package's rows
+(Pi) or marketplace entry (Codex). Codex refresh does not
+admit plugin-entry changes. Unexpected key/content changes or broadened file access
+make refresh fail without automatic content repair. Broadened access is restricted
+even when the host command fails; interruption may require `daem recover` before
+another refresh. Claude Code, OpenCode and Antigravity CLI require physical
+separation between their private plugin namespaces and the managed settings;
+aliases or nested overlaps without an admitted rewrite profile refuse before execution.
+Their commands do not receive permission to change captured native settings.
+
+Dedicated whole files must already be applied, with contents and permissions
+matching their recorded ownership. Refresh does not adopt externally matching
+files, apply changed sources or complete key/whole-file ownership changes.
+Removing a declaration does not make Refresh delete its file or release its
+ownership; use Apply for that change. Whole-owned files must be physically
+separate from the configuration the refresh command can rewrite, including
+through aliases. Unexpected byte changes fail without automatic content repair;
+permission safety and recovery follow the same rules as managed keys.
 
 Antigravity explicit-global refresh repeats the locked install route rather than
 using a dedicated update command. Local evidence can show bundle replacement and

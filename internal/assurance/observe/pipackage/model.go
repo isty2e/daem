@@ -5,14 +5,16 @@ import (
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/target"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
 // ScopedRelation pairs one exact daem relation expectation with the command
 // root from which Pi interprets an operator-provided local source.
 type ScopedRelation struct {
-	key         observerelation.CorrelationKey
-	scope       target.Scope
-	commandRoot string
+	key           observerelation.CorrelationKey
+	scope         target.Scope
+	commandRoot   string
+	sourceContext *extensiontopology.LocalSourceContext
 }
 
 // NewScopedRelation validates one Pi settings correlation request.
@@ -40,6 +42,31 @@ func NewScopedRelation(
 	return ScopedRelation{key: key, scope: parsedScope, commandRoot: root}, nil
 }
 
+// NewScopedRelationWithContext binds lexical source interpretation without
+// selecting roots from the process environment.
+func NewScopedRelationWithContext(key observerelation.CorrelationKey, scope target.Scope, context extensiontopology.LocalSourceContext) (ScopedRelation, error) {
+	if err := context.Validate(); err != nil {
+		return ScopedRelation{}, err
+	}
+	relation, err := NewScopedRelation(key, scope, context.BaseRoot())
+	if err != nil {
+		return ScopedRelation{}, err
+	}
+	relation.sourceContext = &context
+	return relation, nil
+}
+
+func (relation ScopedRelation) CorrelationKey() observerelation.CorrelationKey { return relation.key }
+
+func (relation ScopedRelation) Scope() target.Scope { return relation.scope }
+
+func (relation ScopedRelation) SourceContext() (extensiontopology.LocalSourceContext, bool) {
+	if relation.sourceContext == nil {
+		return extensiontopology.LocalSourceContext{}, false
+	}
+	return *relation.sourceContext, true
+}
+
 // Correlate classifies one scope-specific settings inventory against an exact
 // locked source. Pi-equivalent but textually different rows are deliberately
 // surfaced as unkeyed same-subject rows; they can never receive the exact
@@ -57,16 +84,11 @@ func Correlate(
 	}
 	expectedRelation := expected.key.ExpectedRelation()
 	lockedSource := string(expectedRelation.SubjectKey())
-	storedSource, err := expectedSettingsSource(
-		lockedSource,
-		expected.commandRoot,
-		inventory.settingsBase,
-		expected.scope,
-	)
+	storedSource, err := expectedSettingsSource(expected, inventory.settingsBase)
 	if err != nil {
 		return observerelation.CorrelationResult{}, fmt.Errorf("derive expected Pi settings source: %w", err)
 	}
-	expectedIdentity, err := sourceIdentityForInput(lockedSource, expected.commandRoot, expected.scope)
+	expectedIdentity, err := sourceIdentityForRelation(expected)
 	if err != nil {
 		return observerelation.CorrelationResult{}, fmt.Errorf("parse expected Pi source: %w", err)
 	}
@@ -75,7 +97,7 @@ func Correlate(
 	rows := make([]observerelation.Row, 0, len(documentEntries))
 	for index, entry := range documentEntries {
 		source := entry.Source()
-		observedIdentity, err := sourceIdentityForSettings(source, inventory.settingsBase, inventory.scope)
+		observedIdentity, err := inventory.sourceIdentity(source)
 		if err != nil {
 			return observerelation.CorrelationResult{}, fmt.Errorf(
 				"parse Pi settings package source[%d]: %w",

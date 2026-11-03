@@ -39,34 +39,62 @@ func (executor Executor) Execute(
 	action reconcile.DelegateAction,
 	bind subprocess.WorkingDirectoryBinder,
 ) AttemptRecord {
+	record, _, _ := executor.ExecuteWithInvocation(ctx, action, bind, nil)
+	return record
+}
+
+// ScheduledRequest projects the exact request used by Execute; state-only
+// actions have no subprocess request.
+func (executor Executor) ScheduledRequest(action reconcile.DelegateAction) (subprocess.CommandAttemptRequest, bool) {
+	if !action.SchedulesAttempt() {
+		return subprocess.CommandAttemptRequest{}, false
+	}
+	executor = executor.withDefaults()
+	return subprocess.CommandAttemptRequest{
+		Command: action.Plan().Command().Executable(), Args: action.Plan().Command().Args(),
+		EnvRefs: commandEnvRefs(action.Plan().Env().Bindings()), OutputLimit: executor.outputLimit,
+	}, true
+}
+
+// ExecuteWithInvocation retains delegate result classification while allowing
+// the containing workflow to qualify each actual command boundary.
+func (executor Executor) ExecuteWithInvocation(ctx context.Context, action reconcile.DelegateAction, bind subprocess.WorkingDirectoryBinder, invoke Invocation) (AttemptRecord, bool, error) {
 	executor = executor.withDefaults()
 	if !action.SchedulesAttempt() {
 		if action.Disposition() == reconcile.DelegateBlocked {
-			return newAttemptRecord(action, AttemptBlocked, ReasonPolicyBlocked, subprocess.CommandAttemptResult{})
+			return newAttemptRecord(action, AttemptBlocked, ReasonPolicyBlocked, subprocess.CommandAttemptResult{}), true, nil
 		}
-		return newAttemptRecord(action, AttemptSkipped, ReasonNotScheduled, subprocess.CommandAttemptResult{})
+		return newAttemptRecord(action, AttemptSkipped, ReasonNotScheduled, subprocess.CommandAttemptResult{}), true, nil
 	}
 
-	plan := action.Plan()
-	command := plan.Command()
 	if bind == nil {
 		bind = func() (subprocess.WorkingDirectoryBinding, error) {
 			return nil, errors.New("working-directory binding is required")
 		}
 	}
-	result := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+	command := subprocess.NewCommandExecutor(subprocess.CommandOptions{
 		Timeout:     executor.timeout,
 		OutputLimit: executor.outputLimit,
 		LookupEnv:   executor.lookupEnv,
 		Runner:      executor.runner,
-	}).ExecuteInWorkingDirectory(ctx, subprocess.CommandAttemptRequest{
-		Command:     command.Executable(),
-		Args:        command.Args(),
-		EnvRefs:     commandEnvRefs(plan.Env().Bindings()),
-		OutputLimit: executor.outputLimit,
-	}, bind)
+	})
+	request, _ := executor.ScheduledRequest(action)
+	var result subprocess.CommandAttemptResult
+	var err error
+	if invoke == nil {
+		result = command.ExecuteInWorkingDirectory(ctx, request, bind)
+	} else {
+		var observed bool
+		result, observed, err = invoke(ctx, command, request, bind)
+		if !observed {
+			if err == nil {
+				err = errors.New("delegate invocation returned no observation")
+			}
+			return AttemptRecord{}, false, err
+		}
+	}
 	status, reason := classifyResult(result)
-	return newAttemptRecord(action, status, reason, result)
+	return newAttemptRecord(action, status, reason, result), true, err
 }
 
 // FailedAttemptError returns one combined execution error for failed records,

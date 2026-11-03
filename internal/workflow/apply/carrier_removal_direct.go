@@ -8,7 +8,6 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	executeconfigrelation "github.com/isty2e/daem/internal/effect/execute/configrelation"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -179,7 +178,7 @@ func runDirectProjectionRemoval(
 				result.GlobalClaims,
 				action,
 				baselines,
-				statefile.Codec{},
+				input.stateEncoder(),
 			)
 			if err != nil {
 				return err

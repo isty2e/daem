@@ -417,9 +417,5 @@ func equalObservedSequence(
 	left observerelation.ObservedRelationSequence,
 	right observerelation.ObservedRelationSequence,
 ) bool {
-	return left.ClassID() == right.ClassID() &&
-		left.SequenceID() == right.SequenceID() &&
-		left.Authority() == right.Authority() &&
-		left.Revision() == right.Revision() &&
-		slices.Equal(left.OrderedRows(), right.OrderedRows())
+	return left.SameOrdering(right) && left.Revision() == right.Revision()
 }

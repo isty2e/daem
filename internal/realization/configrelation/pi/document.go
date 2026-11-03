@@ -17,9 +17,10 @@ const maximumSettingsDepth = 32
 
 // Document is one parsed Pi settings document with exact package-row spans.
 type Document struct {
-	content []byte
-	entries []Entry
-	spans   []rowSpan
+	content     []byte
+	entries     []Entry
+	spans       []valueSpan
+	packageSpan valueSpan
 }
 
 // Entry is one exact Pi package source in physical settings order.
@@ -27,7 +28,7 @@ type Entry struct {
 	source string
 }
 
-type rowSpan struct {
+type valueSpan struct {
 	start int
 	end   int
 }
@@ -46,13 +47,21 @@ func Parse(content []byte) (Document, error) {
 	if !ok {
 		return Document{}, fmt.Errorf("Pi settings root must be an object")
 	}
-	array, err := packageArray(object)
-	if err != nil || array == nil {
-		return Document{content: owned}, err
+	value, err := packageArray(object)
+	if err != nil {
+		return Document{}, err
 	}
+	if value == nil {
+		return Document{content: owned}, nil
+	}
+	start, end := value.StartOffset, value.EndOffset
+	if start < 0 || end <= start || end > len(owned) {
+		return Document{}, fmt.Errorf("Pi package array has invalid syntax offsets")
+	}
+	array := value.Value.(*hujson.Array)
 
 	entries := make([]Entry, 0, len(array.Elements))
-	spans := make([]rowSpan, 0, len(array.Elements))
+	spans := make([]valueSpan, 0, len(array.Elements))
 	for index, value := range array.Elements {
 		start, end := value.StartOffset, value.EndOffset
 		if start < 0 || end < start || end > len(owned) {
@@ -63,9 +72,14 @@ func Parse(content []byte) (Document, error) {
 			return Document{}, fmt.Errorf("packages[%d]: %w", index, err)
 		}
 		entries = append(entries, Entry{source: source})
-		spans = append(spans, rowSpan{start: start, end: end})
+		spans = append(spans, valueSpan{start: start, end: end})
 	}
-	return Document{content: owned, entries: entries, spans: spans}, nil
+	return Document{
+		content:     owned,
+		entries:     entries,
+		spans:       spans,
+		packageSpan: valueSpan{start: start, end: end},
+	}, nil
 }
 
 // Source returns the exact source spelling stored in this row.
@@ -74,6 +88,25 @@ func (entry Entry) Source() string { return entry.source }
 // Entries returns package rows in exact physical order.
 func (document Document) Entries() []Entry {
 	return append([]Entry(nil), document.entries...)
+}
+
+// HasPackages distinguishes a present array from an absent packages property.
+func (document Document) HasPackages() bool { return document.packageSpan.end != 0 }
+
+// PackageArrayEqual compares the entire literal array, including row options
+// and slot whitespace, while ignoring other root properties. Unparsed documents
+// are not evidence of an absent array.
+func (document Document) PackageArrayEqual(other Document) bool {
+	if document.content == nil || other.content == nil || document.HasPackages() != other.HasPackages() {
+		return false
+	}
+	if !document.HasPackages() {
+		return true
+	}
+	return bytes.Equal(
+		document.content[document.packageSpan.start:document.packageSpan.end],
+		other.content[other.packageSpan.start:other.packageSpan.end],
+	)
 }
 
 // PermutePackageRows returns a document whose destination row i contains the
@@ -144,8 +177,9 @@ func ValidatePackageSource(source string) error {
 	return nil
 }
 
-func packageArray(object *hujson.Object) (*hujson.Array, error) {
-	for _, member := range object.Members {
+func packageArray(object *hujson.Object) (*hujson.Value, error) {
+	for index := range object.Members {
+		member := &object.Members[index]
 		name, ok := member.Name.Value.(hujson.Literal)
 		if !ok || name.Kind() != '"' {
 			return nil, fmt.Errorf("Pi settings object member name must be a string")
@@ -153,7 +187,7 @@ func packageArray(object *hujson.Object) (*hujson.Array, error) {
 		if name.String() != "packages" {
 			continue
 		}
-		array, ok := member.Value.Value.(*hujson.Array)
+		_, ok = member.Value.Value.(*hujson.Array)
 		if !ok {
 			if literal, literalOK := member.Value.Value.(hujson.Literal); literalOK &&
 				literal.Kind() == 'n' {
@@ -161,7 +195,7 @@ func packageArray(object *hujson.Object) (*hujson.Array, error) {
 			}
 			return nil, fmt.Errorf("packages: cannot unmarshal non-array value")
 		}
-		return array, nil
+		return &member.Value, nil
 	}
 	return nil, nil
 }

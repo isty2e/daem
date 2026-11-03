@@ -265,8 +265,8 @@ mode = "symlink"
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1", exitCode)
 	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
+	if !strings.Contains(stdout.String(), "Apply preview (not executable)") || strings.Contains(stdout.String(), "--- ") {
+		t.Fatalf("stdout = %q, want a non-executable preview without a diff", stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "symlink mode") || !strings.Contains(stderr.String(), "AGENTS.md") {
 		t.Fatalf("stderr = %q, want symlink diagnostic", stderr.String())

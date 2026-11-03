@@ -38,6 +38,17 @@ func (contract LockedSubjectContract) validate() error {
 	if err := contract.validateExactFileUse(); err != nil {
 		return err
 	}
+	if placement, present := contract.HostConfigPlacement(); present {
+		if err := placement.Validate(); err != nil {
+			return err
+		}
+		if contract.entityID.Kind() != entity.KindHostConfig || contract.subjectID.Kind() != topology.SubjectResource ||
+			contract.exactSupply == nil || contract.exactFileUse == nil ||
+			contract.exactSupply.Kind() != artifact.ArtifactKindFile || contract.exactFileUse.Scope() != placement.Scope() ||
+			contract.exactFileUse.Executable() {
+			return fmt.Errorf("host configuration placement requires its non-executable exact-file resource")
+		}
+	}
 	if err := contract.validateSubjectFacets(); err != nil {
 		return err
 	}

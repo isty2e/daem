@@ -5,9 +5,11 @@ Use this page to interpret stored ownership, recovery results and size limits.
 [Troubleshooting](troubleshooting.md#apply-was-interrupted) gives recovery commands.
 
 - [Statefile](#statefile)
+- [Key-only configuration containers](#key-only-configuration-containers)
 - [User-state authority migration](#user-state-authority-migration)
 - [Shared global ownership](#shared-global-ownership)
 - [Mutation revision evidence](#mutation-revision-evidence)
+- [Permission-only recovery](#permission-only-recovery)
 - [Recovery journal](#recovery-journal)
 - [Retained cleanup](#retained-cleanup)
 - [Forward-operation barriers](#forward-operation-barriers)
@@ -23,8 +25,17 @@ package/cache convergence, runtime health, tool inventory, credentials or trust.
 
 Host-route diagnostics retain only the latest request per subject, target,
 scope and route id; a changed request hash replaces the prior diagnostic.
-Statefile v9 separates mechanical process reason from post-attempt working-
-directory authority. Daem reads v8's legacy combined reason and writes v9.
+Mechanical process reasons and post-attempt working-directory authority are
+separate facts. The v8 reader translates the older combined reason.
+
+Statefile v10 records aggregate key paths as RFC 6901 `key_path` values. Daem
+reads v8 and v9 without rewriting them; subsequent state writes use v10.
+Older binaries cannot read v10. Its optional `native_document_commit` counter
+distinguishes state-neutral native file changes, such as replacing a changed key
+with the same value already recorded in state. It advances only when a real native
+file mutation would otherwise leave state unchanged; already-current operations
+do not advance it. This makes pre-commit rollback distinguishable from committed
+finalization without introducing another recovery-journal format.
 
 The statefile is private authority data. Daem writes and accepts it only as an
 invoking-user-owned regular file with exact mode `0600`; final symlinks,
@@ -44,6 +55,32 @@ Import does not claim host state. Supported `apply --manage-existing` adoption
 requires an exact live match and fresh validation. Carrier adoption records
 future bounded relation-removal authority without invoking the host route; it
 does not grant package/cache ownership, runtime readiness or ambient exclusivity.
+
+### Key-Only Configuration Containers
+
+Removing managed configuration keys retains their containing document and empty
+ancestor objects or tables, including parents created while adding those keys.
+For example, an empty TOML `[features]` table or JSON `"retry": {}` can remain
+after its last managed child is removed. Removal is not undo and does not promise
+the original file bytes when a parent was absent. Successful state records do
+not retain parent-construction or formatting history.
+
+An empty object explicitly selected as a managed value is different: removing
+that selection deletes the value itself. Unrelated values, empty objects and
+comments are preserved. TOML dotted siblings keep their dotted representation;
+already implicit parents do not gain redundant explicit headers after a temporary
+child is added and removed. Adding and removing an atomic key directly in an
+existing newline-terminated ordinary section preserves its original bytes when no
+additional parent is created. An EOF-only header may retain the separator newline
+needed to insert its first child.
+
+An empty table may still have meaning to the host: an empty profile table can
+continue to define that profile. Remove an unwanted empty parent manually only
+after checking its host-specific meaning. While daem manages a dotted child of
+an implicit TOML parent, declaring that same parent with an explicit header may
+make the document invalid. Remove the managed child before changing that parent
+representation. See [Host Configuration](manifest.md#host-configuration) for
+declarations and the apply workflow.
 
 ### Pending Pi Pin Changes
 
@@ -129,6 +166,11 @@ managed-output registry permits one owner per whole path or overlapping config
 projection; equal bytes do not permit co-ownership. Losslessly disjoint
 projections, such as separate MCP entries, may have different owners.
 
+Document identity bindings in the same registry map an owning state authority's
+logical destination to a recorded physical namespace. They do not reserve a
+path or grant mutation authority. A stored binding is not proof that the current
+file or root still matches it.
+
 The separate carrier registry permits multiple known manifest consumers of one
 carrier while retaining exact target, scope, source, route and owner identity
 for each relation. Neither registry proves exclusive host ownership or
@@ -158,6 +200,33 @@ Enumeration and byte streaming honor cancellation. Complete-content files,
 required absence and immediate listings do not inherit the per-tree byte cap.
 Declaration reads use the 64 MiB limit below; extension inventories use their
 host observer's byte limit. Recovery has separate physical-work limits.
+
+## Permission-Only Recovery
+
+`apply`, `status` and `doctor` discover protection records for the selected state
+authority without requiring valid manifest, lockfile or state payloads. If the
+manifest was removed, select its original path explicitly with `--manifest` when
+inspecting or recovering it. Reports identify records observed during the command,
+not a fresh assertion that each remains pending when output is delivered.
+Discovery does not itself block
+an unrelated write or no-op Apply; actual writes still respect document fences.
+
+A permission-protection record is separate from an apply journal. When one
+belongs to the selected state authority, `recover` can plan permission-only work
+without a journal, manifest or lockfile payload. It checks the recorded document
+bindings, current namespace and supported metadata. A bound invocation also
+requires fresh process quiescence before access is restricted. Recovery never
+parses or rewrites protected host content, replays a command, recreates a deleted
+document or finishes an installation.
+
+Dry-run reports actions and blockers without changing permissions. Confirmed
+recovery can restrict independently qualified documents even when another is
+blocked, but succeeds only after every selected protection is confirmed cleared.
+It removes newly granted access without restoring rights already removed.
+Failed or uncertain qualification leaves unresolved work; an `unknown` result
+does not assert that the old record is still present. Clearing a protection is
+not proof that temporary access never occurred. Permission-only recovery does
+not enable otherwise unsupported native Apply or Refresh combinations.
 
 ## Recovery Journal
 

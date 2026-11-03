@@ -23,6 +23,7 @@ For setup steps, use [Getting Started](getting-started.md) or
 - [Hooks](#hooks)
 - [Hook Assets](#hook-assets)
 - [Instructions](#instructions)
+- [Host Configuration](#host-configuration)
 - [Lock Behavior](#lock-behavior)
 - [Complete Example](#complete-example)
 - [Extension Carriers](#extension-carriers)
@@ -48,6 +49,7 @@ targets = ["codex"]
 | `hook` | array of tables | no | Hook resources. |
 | `hook_asset` | table of tables | no | Source-backed executable file assets referenced explicitly from supported Codex and Claude Code hook commands. |
 | `mcp_server` | array of tables | no | Supported MCP exact-projection relations; see [MCP Servers](#mcp-servers). |
+| `host_config` | array of tables | no | Selected native configuration keys for Codex or Pi; see [Host Configuration](#host-configuration). |
 | `extension` | array of tables | no | Supported host plugin/package carrier declarations; see [Extension Carriers](#extension-carriers). |
 
 Unimplemented executable lifecycle declaration families such as `[[local_parameter]]`,
@@ -1167,7 +1169,7 @@ read or write may therefore produce several subject-level status rows.
 
 State ownership for supported hook aggregates is partial and subject-owned.
 Each managed Hook row records its lossless aggregate contribution contract,
-including the physical document address, `content_path = "/hooks"`, codec, and
+including the physical document address, `key_path = "/hooks"`, codec, and
 canonical contribution. Current convergence always comes from a fresh codec
 snapshot of `/hooks`, never from state alone or a whole-file hash. `apply`
 preserves unrelated top-level keys; edits to those unrelated keys do not count
@@ -1177,7 +1179,7 @@ exactly match the rendered desired Hook set and the user runs
 removing the final managed contribution removes `/hooks`, and the now-empty host
 file is removed only when no unrelated settings remain.
 
-Codex hook reconciliation manages `content_path = "/hooks"` inside `hooks.json`
+Codex hook reconciliation manages `key_path = "/hooks"` inside `hooks.json`
 and rejects same-layer inline `[hooks]` in `config.toml` as unmanaged hook
 content. Codex hooks written by `daem` are still non-managed Codex hooks,
 so Codex may require the user to review and trust them through `/hooks` before
@@ -1364,6 +1366,202 @@ targets, including matching target-specific rendering tables, then refreshes
 the lockfile from the prospective manifest. Host deletion still requires
 explicit `apply`.
 
+## Host Configuration
+
+`[[host_config]]` manages selected keys or a dedicated whole configuration file
+for Codex or Pi. In key mode, declare only values you want daem to keep consistent. Other settings, such as
+a model or reasoning-effort choice changed by the host, remain unmanaged unless
+you include them in the source.
+
+### Manage Selected Settings
+
+For a project-scoped Codex setting, create `codex-preferences.toml` beside your
+manifest:
+
+```toml
+[tui]
+notifications = false
+```
+
+Add this declaration to `daem.toml`:
+
+```toml
+[[host_config]]
+id = "codex-preferences"
+targets = ["codex"]
+scope = "project"
+path = "config.toml"
+source = "./codex-preferences.toml"
+ownership = "keys"
+```
+
+Then lock, preview, apply and check:
+
+```sh
+daem lock
+daem apply --dry-run
+daem apply --yes
+daem status --check
+```
+
+This manages `tui.notifications` in `.codex/config.toml` under the manifest
+directory. It does not copy the source over the entire file or add management
+markers to the host document. Change the source and rerun `lock` and `apply` to
+update the managed value. Remove a key from the source, or remove its declaration,
+and rerun those commands to remove its managed value. Unrelated settings remain.
+
+For Pi, use `targets = ["pi"]` and a JSON fragment such as
+`{"retry":{"enabled":true}}` with `path = "settings.json"`; project placement
+is `.pi/settings.json`. Configuration convergence does not establish that the
+host has loaded the file or that a particular extension recognizes its values.
+
+### Declaration Fields
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | none | Unique host-configuration declaration name. |
+| `targets` | array of strings | no | top-level `targets` | Must resolve to exactly one target: `codex` or `pi`. |
+| `scope` | string | no | `defaults.scope` | `project` or `global`. |
+| `path` | string | yes | none | Canonical slash-separated path relative to the selected host root. |
+| `source` | string or source object | yes | none | Local regular file, Git file source, or S3 file object; see [Sources](#sources). Local sources use vendor mode; global local sources must be absolute. |
+| `ownership` | string | no | `keys` | `keys` manages selected values; `document` manages a dedicated whole file. See the ownership limits below. |
+| `syntax` | string | no | host/path default | `json`, `jsonc`, `json-line-comments`, or `toml`. This selects parsing, not a host-schema validator. |
+
+Project paths are beneath `<manifest-directory>/.codex` or
+`<manifest-directory>/.pi`. Global paths are beneath the selected Codex home
+(`CODEX_HOME`, normally `~/.codex`) or Pi agent root (`PI_CODING_AGENT_DIR`, normally
+`~/.pi/agent`). Do not put those prefixes in `path`. Absolute paths, `..`, `.`
+components, empty components and backslashes are rejected. Preview does not create
+missing host directories; confirmed apply creates the selected directories as
+needed. Empty directory scaffolding can remain after removal or rollback.
+
+Codex `config.toml` and global `<name>.config.toml` files use TOML. Pi
+`settings.json` uses strict JSON; global `models.json` permits line comments.
+For other configuration paths, `.json`, `.jsonc` and `.toml` select their matching
+grammar; specify `syntax` for a path without a recognized extension. A known
+host document cannot override its required grammar.
+
+### Ownership And Limits
+
+Nonempty objects or tables expand into selected leaf keys. Scalars, JSON `null`,
+arrays and explicitly empty objects are atomic values: daem manages each entire
+value, not individual array elements. Multiple declarations may share a document
+only with nonoverlapping ownership. Whole-file ownership cannot overlap key
+ownership of the same physical file, including aliases.
+
+Use dedicated resources for reserved configuration: Codex `mcp_servers`, `hooks`,
+`plugins` and `marketplaces`, and Pi `packages`, `extensions` and `skills` cannot
+be authored through `host_config`. Host-owned authentication, runtime/cache,
+package code and loader-control paths are also reserved. These exclusions do not
+certify other keys as safe for credentials; do not put secrets in source files or
+locks.
+
+Existing key-only documents keep their permission bits; newly created documents
+use `0600`. When Codex MCP and key declarations share `config.toml`, the MCP
+document policy requires `0600`, and the preview includes that permission change.
+Both sets of changes are applied and recovered together.
+
+Selected-value drift is not silently overwritten. To take over a different
+existing value or replace a changed managed value, use
+[`replace host-config`](cli.md#replace-host-config) with explicit plan-bound
+consent; ordinary `apply` does not gain replacement authority. Interrupted apply
+can roll back the selected changes before state commit, or finalize a committed operation
+without replaying host writes. A selected value outside both recorded versions
+blocks recovery. See [State And Recovery](state-and-recovery.md) and
+[interruption troubleshooting](troubleshooting.md#apply-was-interrupted).
+
+Removal retains empty structural parents; it is not formatting undo. See
+[key-only containers](state-and-recovery.md#key-only-configuration-containers)
+for TOML representation and manual-editing limits.
+
+Key-mode changes can be applied together with instructions, skills and independent
+MCP configuration changes. These direct changes share one recovery operation;
+failure before state commit can restore them together. Same-file Codex MCP and
+key changes are composed into one document write.
+
+Already-installed Pi packages can be reordered with keys in the same Pi settings
+layer, including when the keys are already current. The combined document shares
+one recovery operation; package options and unrelated package positions are retained.
+
+Pi package installs, reinstalls and removals can accompany key additions, updates,
+removals and ordinary file, skill or direct MCP changes. Desired key values settle before
+execution and are checked after each command; key removals and other direct
+changes follow the commands and their settings checks. Unexpected settings
+changes stop the operation without automatic repair.
+Pi adapter-backed MCP and required provider installations use the same sequence:
+selected keys first, qualified provider installation if needed, then MCP configuration
+and other remaining direct work. An unobservable or incompatible installed provider
+version blocks application; it is not treated as a missing package to reinstall.
+Codex global plugin installs and removals also support managed project/global
+keys, with the same before/after checks and permission recovery. Codex may replace
+its user config and tighten its access permissions; daem retains that tightening.
+Claude Code, OpenCode and Antigravity CLI plugin commands can also accompany
+managed keys when their private write namespaces do not overlap the managed configuration
+files. Aliased or nested overlaps without a supported rewrite profile refuse
+before effects; different host names alone do not establish separation.
+OpenCode's direct removal and order updates retain their exact-source and
+per-document rules. Physically separate order updates use the existing direct
+execution path, including Pi order when only another settings layer is managed.
+Preview and confirmed apply refuse unsupported combinations before effects.
+An already-current extension does not by itself block direct changes or trigger
+another installation. Pi, Codex, Claude Code, OpenCode and Antigravity CLI refresh
+also support already-applied keys and dedicated whole files; they do not apply
+pending settings or ownership changes. See
+[refresh extension](cli.md#refresh-extension) for their checks and limits.
+For a Pi settings layer containing managed keys, package order is reconciled from
+the settings observed after extension commands, together with remaining direct work.
+Newly discovered managed/foreign precedence
+changes still require renewed interactive authorization; `--yes` does not grant
+that additional consent. In a noninteractive run, inspect a fresh dry-run and retry.
+Completed extension commands are not repeated just to finish the remaining order
+change. An unverified removal retains its pending record and management claim.
+A retry that confirms absence can settle that removal without repeating the command.
+Dedicated whole-file ownership can accompany extension changes during apply when the
+file is physically separate from settings the command can rewrite and from the
+host's private plugin paths. Key changes settle first; whole-file creation,
+updates and removal follow the commands with the other direct file changes.
+Unexpected whole-file changes stop the operation before that file phase.
+When narrowing a whole file to keys, retained keys and their ownership settle
+before extension commands; released content is preserved. An empty key source
+releases whole-file ownership after the commands. Matching key-to-whole adoption
+also settles afterward and still requires `--manage-existing` and an exact
+whole-source match.
+
+### Whole Files And Ownership Changes
+
+Use `ownership = "document"` for a dedicated file such as `prefs.toml` or
+`prefs.jsonc`. Lock and apply copy its complete source, with exact `0600`
+permissions. Source updates replace the managed file; removing the declaration
+removes it. A changed host file is not silently overwritten or deleted.
+Shared host files such as Codex `config.toml` and Pi `settings.json`, along with
+the reserved paths listed above, cannot use whole-document ownership.
+
+To retain only selected keys from a managed whole file, keep the declaration's
+`id`, target, scope and path, change `ownership` to `keys`, and revise its source
+to contain the values you want to retain. Then relock, preview and apply. Released
+keys remain in the host file but are no longer managed; an empty selection releases
+the whole file without deleting it. If the host file has changed since its whole-file
+baseline, retained values must already match the source. Changing or adding values
+in that case requires host-to-source capture, which is not yet available.
+
+Interrupted narrowing follows the existing state-commit boundary. Before commit,
+if the file still equals the recorded post-apply image, rollback restores the exact
+pre-operation bytes and permissions. Otherwise it restores only selected values,
+preserving edits to released keys and unrelated comments; a third selected value
+blocks recovery. After commit, recovery finalizes without replaying host writes.
+
+To switch from key ownership to whole-file ownership, keep the declaration's `id`,
+target, scope and path, and set `ownership` to `document`. Its source must exactly
+match the current host file, including comments and formatting, and the host file
+must already have `0600` permissions. Relock and preview with
+`daem apply --dry-run --manage-existing`, then run `daem apply --manage-existing`.
+This records whole-file ownership and retires the declaration's
+key records without rewriting the file or changing its permissions. A missing file,
+different content, or another declaration's ownership blocks the switch; this is
+not a way to reset a changed host file.
+
+Capturing current host configuration as a source remains unsupported.
+
 ## Lock Behavior
 
 `daem lock` reads the selected manifest, resolves lockable sources, and writes
@@ -1396,7 +1594,7 @@ Current lock behavior:
   files. S3 prefix directory sources are unsupported.
 - Skill sources are validated as directories with a regular `SKILL.md`.
 - Command-only supported Hooks lock no source artifact; each admitted target
-  locks one canonical managed-aggregate contribution. Schema version 6 admits it
+  locks one canonical managed-aggregate contribution. Schema version 7 admits it
   only when the Hook codec can produce a structurally valid host document within
   enforced byte, depth, event, group, and handler bounds; rendered aggregate
   content is tracked separately.
@@ -1437,22 +1635,26 @@ Current lock behavior:
 - Each Instructions resource locks one exact Supply subject with a
   non-executable file-use contract and deterministic materialization, plus one
   managed-file projection per supported placement. Shared files coalesce into
-  one consumer set. Schema-v6 Supply without a structurally valid file
+  one consumer set. Schema-v7 Supply without a structurally valid file
   projection is rejected; apply/status require the projection set to match the
   manifest/profile refinement.
 - Existing lockfile entries that are no longer declared by the manifest are removed by normal lockfile regeneration.
-- Lock readers accept only schema version 6 and reject unsupported versions,
+- Managed-aggregate realizations store a non-root RFC6901 `key_path`; an empty
+  property is `/`, while `/a~1b` identifies the literal property `a/b`. The field
+  records canonical key identity, not permission to mutate that key. The old
+  `content_path` wire field is not accepted in the current schema.
+- Lock readers accept only schema version 7 and reject unsupported versions,
   invalid UTF-8, unknown keys/shapes, duplicate or zero-facet subjects, unknown
   realizations, invalid correlations, unsupported exact-Supply forms, malformed
   identities/contracts, missing `exact_permission_mode` for exact projections,
-  and noncanonical persisted values. Schemas 3–5 are not interpreted: `status`,
+  and noncanonical persisted values. Schemas 3–6 are not interpreted: `status`,
   `apply`, and `outdated` require regeneration; `daem lock` and transactional
   authoring may atomically replace them. Schema 3 was published by daem v0.1.0;
   earlier unknown and future schemas are not replacement-authorized, and future
   schemas require newer daem.
-- Schema version 6 does not admit `generated_at`; readers reject it as an
+- Schema version 7 does not admit `generated_at`; readers reject it as an
   unknown key rather than treating timestamp metadata as lock authority.
-- Schema v6 records canonical delegated package inputs recognized from argv and
+- Schema v7 records canonical delegated package inputs recognized from argv and
   an ecosystem-derived `pin_policy`. Legacy rows are not interpreted because
   version-like tags, ranges, or unmodeled inputs can overstate `pinned`; the
   public manifest remains schema version 1 and needs no migration.

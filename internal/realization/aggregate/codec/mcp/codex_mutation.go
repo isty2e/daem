@@ -135,7 +135,7 @@ func applyCodexMCPProjectionMutations[T any](
 
 		switch mutation.kind {
 		case mcpProjectionMutationRemove:
-			delete(config.servers, mutation.serverID)
+			config.removeServer(mutation.serverID)
 		case mcpProjectionMutationInsert, mcpProjectionMutationUpsert:
 			desired, err := contract.decodeCanonical(mutation.canonical, mutation.serverID)
 			if err != nil {
@@ -144,7 +144,7 @@ func applyCodexMCPProjectionMutations[T any](
 			if exists && mutation.kind == mcpProjectionMutationInsert {
 				return mcpProjectionReplacementAuthorityError(label, mutation.serverID)
 			}
-			config.servers[mutation.serverID] = contract.entryMap(desired)
+			config.setServer(mutation.serverID, contract.entryMap(desired))
 		default:
 			return fmt.Errorf("unsupported MCP projection mutation kind %d", mutation.kind)
 		}

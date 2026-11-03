@@ -324,11 +324,27 @@ func (store *countingOwnershipRegistryStore) Path() string {
 }
 
 func (store *countingOwnershipRegistryStore) Converge(
-	_ context.Context,
+	ctx context.Context,
 	convergence ownership.ClaimConvergence,
 ) (ownership.Registry, error) {
+	bindings, err := ownership.NewDocumentBindingConvergence(nil)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	return store.ConvergeRegistry(ctx, convergence, bindings)
+}
+
+func (store *countingOwnershipRegistryStore) ConvergeRegistry(
+	_ context.Context,
+	claims ownership.ClaimConvergence,
+	bindings ownership.DocumentBindingConvergence,
+) (ownership.Registry, error) {
 	store.convergences++
-	next, _, err := convergence.Apply(store.registry)
+	next, _, err := claims.Apply(store.registry)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	next, _, err = bindings.Apply(next)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -374,7 +390,7 @@ func ownershipBatchTransitions(t *testing.T, count int) []ownershipmutation.Clai
 	}
 	transitions := make([]ownershipmutation.ClaimTransition, 0, count)
 	for index := range count {
-		address, err := ownership.NewManagedAddress(
+		address, err := ownership.NewManagedAddressFromLegacy(
 			mustObservedPathAuthority(t, filepath.Join(root, "output", string(rune('a'+index)))),
 			"",
 		)
@@ -409,14 +425,14 @@ func mixedProvenanceOwnershipBatch(t *testing.T) mixedProvenanceOwnershipBatchFi
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldAddress, err := ownership.NewManagedAddress(
+	oldAddress, err := ownership.NewManagedAddressFromLegacy(
 		mustObservedPathAuthority(t, filepath.Join(root, "old")),
 		"",
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	currentAddress, err := ownership.NewManagedAddress(
+	currentAddress, err := ownership.NewManagedAddressFromLegacy(
 		mustObservedPathAuthority(t, filepath.Join(root, "current")),
 		"",
 	)

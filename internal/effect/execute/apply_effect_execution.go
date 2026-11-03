@@ -295,9 +295,9 @@ func (execution *applyEffectExecution) selectPromotion(
 	index, present := execution.promotionIndexes[key]
 	if !present {
 		return fmt.Errorf(
-			"apply ownership promotion for %q content path %q is not scheduled",
+			"apply ownership promotion for %q footprint %s is not scheduled",
 			key.destination,
-			key.contentPath,
+			key.scopeLabel(),
 		)
 	}
 	prefix := applyOwnershipPromotionScheduleReference(index)
@@ -323,9 +323,9 @@ func (execution *applyEffectExecution) promotionReference(
 	index, present := execution.promotionIndexes[key]
 	if !present {
 		return "", fmt.Errorf(
-			"apply ownership promotion for %q content path %q is not scheduled",
+			"apply ownership promotion for %q footprint %s is not scheduled",
 			key.destination,
-			key.contentPath,
+			key.scopeLabel(),
 		)
 	}
 	return applyOwnershipPromotionScheduleReference(index), nil

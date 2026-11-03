@@ -27,9 +27,11 @@ func TestCommitFileFaultClassification(t *testing.T) {
 		{phase: phaseApplyMode, kind: failureUncommitted},
 		{phase: phaseApplyMetadata, kind: failureUncommitted},
 		{phase: phaseSyncPayload, kind: failureUncommitted},
+		{phase: phaseRetainVerification, kind: failureUncommitted},
 		{phase: phaseClosePayload, kind: failureUncommitted},
 		{phase: phaseCommitEntry, kind: failureUncommitted},
 		{phase: phaseVerifyEntry, kind: failureIndeterminateCommit, seen: true},
+		{phase: phaseCloseVerification, kind: failureIndeterminateCommit, seen: true},
 		{phase: phaseSyncParent, kind: failureIndeterminateCommit, seen: true},
 		{phase: phaseSyncAncestors, kind: failureIndeterminateCommit, seen: true},
 	}

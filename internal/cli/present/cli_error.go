@@ -17,11 +17,12 @@ const (
 )
 
 type cliErrorJSONOutput struct {
-	SchemaVersion int                    `json:"schema_version"`
-	ResultType    string                 `json:"result_type"`
-	Command       string                 `json:"command"`
-	Error         cliErrorJSONDetail     `json:"error"`
-	Guidance      []cliErrorJSONGuidance `json:"guidance"`
+	SchemaVersion        int                       `json:"schema_version"`
+	ResultType           string                    `json:"result_type"`
+	Command              string                    `json:"command"`
+	Error                cliErrorJSONDetail        `json:"error"`
+	Guidance             []cliErrorJSONGuidance    `json:"guidance"`
+	PermissionProtection *permissionProtectionJSON `json:"permission_protection,omitempty"`
 }
 
 type cliErrorJSONDetail struct {
@@ -51,11 +52,12 @@ func PrintCLIErrorJSON(output io.Writer, command string, kind CLIErrorKind, diag
 		})
 	}
 	payload := cliErrorJSONOutput{
-		SchemaVersion: contractversion.CLIErrorJSON,
-		ResultType:    "cli_error",
-		Command:       command,
-		Error:         cliErrorJSONDetail{Kind: kind, Message: diagnostic.message},
-		Guidance:      guidance,
+		PermissionProtection: permissionProtectionJSONFor(diagnostic.permissionProtection),
+		SchemaVersion:        contractversion.CLIErrorJSON,
+		ResultType:           "cli_error",
+		Command:              command,
+		Error:                cliErrorJSONDetail{Kind: kind, Message: diagnostic.message},
+		Guidance:             guidance,
 	}
 
 	encoder := json.NewEncoder(output)

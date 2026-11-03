@@ -157,6 +157,18 @@ func Execute(
 	} else if !matches {
 		return staleBeforeAttempt(result, mutation.StalePlanError{})
 	}
+	nativeInvocation, err := prepareNativeRefreshInvocation(ctx, current, leases)
+	if err != nil {
+		return refusedBeforeAttempt(result, ReasonNativeSettings, err)
+	}
+	if nativeInvocation != nil {
+		defer func() {
+			if err := nativeInvocation.observation.operation.Close(); err != nil {
+				result = resultWithCleanupFailure(result, attemptStarted)
+				returnErr = errors.Join(returnErr, err)
+			}
+		}()
+	}
 	persistenceRevisions, err := mutation.CaptureRevisionSet(
 		ctx,
 		refreshAttemptPersistenceRevisionRequests(current)...,
@@ -212,15 +224,28 @@ func Execute(
 	); err != nil {
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
 	}
-	attempt := executor.ExecuteInWorkingDirectory(
-		ctx,
-		current.command.attemptRequest(),
-		func() (subprocess.WorkingDirectoryBinding, error) {
-			return execution.root.AcquireSelectedWorkingDirectory(
-				current.paths.ManifestRoot,
-			)
-		},
-	)
+	bind := func() (subprocess.WorkingDirectoryBinding, error) {
+		return execution.root.AcquireSelectedWorkingDirectory(current.paths.ManifestRoot)
+	}
+	var attempt subprocess.CommandAttemptResult
+	var nativeErr error
+	if nativeInvocation != nil {
+		var observed bool
+		attempt, observed, nativeErr = nativeInvocation.execute(ctx, executor, current.command.attemptRequest(), bind)
+		if !observed {
+			if err := forwardExecution.SelectAlternative(refreshAttemptOutcomeChoice, 0); err != nil {
+				return refusedBeforeAttempt(result, ReasonNativeSettings, errors.Join(nativeErr, err))
+			}
+			if err := forwardExecution.ConsumeLifecycle(refreshStepNotStartedObservation, operationplan.EffectStepObservation); err != nil {
+				return refusedBeforeAttempt(result, ReasonNativeSettings, errors.Join(nativeErr, err))
+			}
+			_, err := continueRefreshEffect(forwardExecution, refreshNotStartedClassificationChoice, false, refreshStepNotStartedClassificationFailed)
+			nativeErr = errors.Join(nativeErr, err)
+			return refusedBeforeAttempt(result, ReasonNativeSettings, nativeErr)
+		}
+	} else {
+		attempt = executor.ExecuteInWorkingDirectory(ctx, current.command.attemptRequest(), bind)
+	}
 	attemptStarted = attempt.Started()
 	result.Attempted = attemptStarted
 	result.ProcessOutcome = processOutcome(attempt)
@@ -626,11 +651,25 @@ func Execute(
 		result.Remediation = []string{
 			"inspect daem status and the statefile before retrying refresh",
 		}
+		if nativeErr != nil {
+			result.ReasonCode = ReasonNativeSettings
+			result.Remediation = []string{"run daem recover --dry-run and inspect changed settings before retrying refresh; pending protection must not become a new baseline"}
+		}
 		failure := errors.Join(
 			fmt.Errorf("persist refresh attempt history: %w", persistenceErr),
 			postObservationErr,
+			nativeErr,
 		)
 		return result, failure
+	}
+	if nativeErr != nil {
+		result.ResultClass = ResultRefused
+		if attemptStarted {
+			result.ResultClass = ResultPartial
+		}
+		result.ReasonCode = ReasonNativeSettings
+		result.Remediation = []string{"run daem status and recover --dry-run; inspect changed settings before retrying; only explicit replace host-config may replace selected values"}
+		return result, errors.Join(nativeErr, postObservationErr)
 	}
 	if postObservationErr != nil && attempt.Succeeded() && !attempt.WorkDirAuthorityFailed() {
 		result.ResultClass = ResultPartial

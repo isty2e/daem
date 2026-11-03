@@ -7,8 +7,11 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/output/ownership"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -16,6 +19,7 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
+	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -23,6 +27,7 @@ import (
 	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/reconcile"
 	reconcilehostroute "github.com/isty2e/daem/internal/reconcile/build/hostroute"
+	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -40,9 +45,19 @@ type Assessment struct {
 	MCPProviders           []MCPProviderPrerequisite
 	Reconciliation         reconcile.Result
 	RelationObservations   relationobserve.Batch
+	PiOrders               []pipackage.OrderObservation
 	Owner                  stateauthority.Authority
 	Ownership              []observe.OwnershipObservation
 	SelectedTargets        reconcile.SelectedTargets
+	NativeSources          []lockobserve.NativeSourceObservation
+	NativeApproval         []journal.NativeDocumentApprovalEvidence
+	nativeRegistry         ownership.Registry
+}
+
+// NativeObservedDocuments exposes only comparison facts from the already
+// qualified native read, not closed roots or a publishable Registry candidate.
+func (assessment Assessment) NativeObservedDocuments(scope ownership.DocumentScope) (ownership.DocumentRegistryView, error) {
+	return assessment.nativeRegistry.Documents(scope)
 }
 
 // Input contains canonical inputs for shared non-mutating apply/status
@@ -61,11 +76,19 @@ type Input struct {
 	Codecs                  aggregate.CodecCatalog
 	HookContributionEncoder commandhook.ContributionEncoder
 	MCPContributionEncoder  lockrefine.MCPContributionEncoder
+	Native                  *NativeAssessmentInput
+	NativeReplacement       *topologyprojection.HostConfigKeySelection
 }
 
 // Assess sequences fresh observations and persistence reads, then delegates
 // pure decisions to plan without rendering payload bytes or mutating the host.
 func Assess(ctx context.Context, input Input) (Assessment, error) {
+	if input.NativeReplacement != nil {
+		return assessNativeReplacement(ctx, input)
+	}
+	if input.Lockfile.ContainsHostConfig() && input.Native == nil {
+		return Assessment{}, fmt.Errorf("native configuration assessment requires its containing observation operation")
+	}
 	selectedTargets, err := reconcile.NewSelectedTargets(input.Selection.Targets())
 	if err != nil {
 		return Assessment{}, fmt.Errorf("normalize selected targets: %w", err)
@@ -100,8 +123,15 @@ func Assess(ctx context.Context, input Input) (Assessment, error) {
 	if err != nil {
 		return Assessment{}, err
 	}
+	if currentState.ContainsHostConfig() && input.Native == nil {
+		return Assessment{}, fmt.Errorf("native configuration history requires its containing observation operation")
+	}
 
-	return buildAssessment(
+	native, err := prepareNativeAssessmentSources(ctx, input, currentState, *sourceEpoch)
+	if err != nil {
+		return Assessment{}, err
+	}
+	assessment, err := buildAssessment(
 		ctx,
 		input.Paths,
 		input.Resolver,
@@ -118,7 +148,15 @@ func Assess(ctx context.Context, input Input) (Assessment, error) {
 		input.MCPContributionEncoder,
 		input.Context,
 		input.RelationObservations,
+		native,
 	)
+	if err != nil {
+		return Assessment{}, err
+	}
+	if _, err := prepareNativeAssessmentSources(ctx, input, currentState, *sourceEpoch); err != nil {
+		return Assessment{}, err
+	}
+	return assessment, nil
 }
 
 func buildAssessment(
@@ -138,13 +176,22 @@ func buildAssessment(
 	mcpEncoder lockrefine.MCPContributionEncoder,
 	operationContext reconcile.OperationContext,
 	providedRelationObservations *relationobserve.Batch,
+	native ...nativeAssessmentSources,
 ) (Assessment, error) {
 	allCarrierClaims := append(
 		currentState.ManagedCarrierClaims(),
 		globalCarrierClaims.Claims()...,
 	)
 
-	managedInputs, err := buildManagedPathPlanningInputs(locked, currentState, selection)
+	states := currentState.ManagedPaths()
+	var narrowings []reconcile.NativeNarrowingAction
+	var wholeAdoptions []reconcileprojection.NativeWholeAdoptionPlan
+	if len(native) != 0 && native[0].preparation != nil {
+		states = native[0].preparation.RemainingManagedPaths()
+		narrowings = native[0].preparation.Narrowings()
+		wholeAdoptions = native[0].preparation.WholeAdoptions()
+	}
+	managedInputs, err := buildManagedPathPlanningInputs(locked, states, selection)
 	if err != nil {
 		return Assessment{}, err
 	}
@@ -158,6 +205,7 @@ func buildAssessment(
 		hookEncoder,
 		mcpEncoder,
 		codecs,
+		native...,
 	)
 	if err != nil {
 		return Assessment{}, err
@@ -178,15 +226,21 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, fmt.Errorf("observe managed paths: %w", err)
 	}
-	owner, ownershipObservations, err := buildOwnershipObservations(
-		ctx,
-		paths,
-		liveDestinationResolver(resolver),
-		managedInputs.ownership,
-		aggregateInputs.ownershipProjections(),
-		currentState,
-		selection,
-	)
+	var owner stateauthority.Authority
+	var ownershipObservations []observe.OwnershipObservation
+	if len(native) != 0 && native[0].input != nil && native[0].input.Documents != nil {
+		owner, ownershipObservations, err = nativeOwnershipObservations(ctx, paths, liveDestinationResolver(resolver), managedInputs, aggregateInputs, currentState, selection, native[0].input)
+	} else {
+		owner, ownershipObservations, err = buildOwnershipObservations(
+			ctx,
+			paths,
+			liveDestinationResolver(resolver),
+			managedInputs.ownership,
+			aggregateInputs.ownershipProjections(),
+			currentState,
+			selection,
+		)
+	}
 	if err != nil {
 		return Assessment{}, err
 	}
@@ -198,7 +252,12 @@ func buildAssessment(
 		currentState,
 		selection,
 		codecs,
+		native,
 	)
+	if err != nil {
+		return Assessment{}, err
+	}
+	configReader, err := nativeConfigReader(native, resolver)
 	if err != nil {
 		return Assessment{}, err
 	}
@@ -207,6 +266,7 @@ func buildAssessment(
 		Lockfile:             locked,
 		ManagedCarrierClaims: allCarrierClaims,
 		Selection:            selection,
+		ReadFile:             configReader,
 	}, providedRelationObservations)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("inspect carrier relation inventory: %w", err)
@@ -215,12 +275,16 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, fmt.Errorf("observe MCP provider versions: %w", err)
 	}
-	extensionOrderFacts, err := observeExtensionOrderFacts(paths, locked, selectedTargets)
+	extensionOrderFacts, err := observeExtensionOrderFacts(paths, locked, selectedTargets, native...)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("plan extension order: %w", err)
 	}
 
-	return assembleAssessment(assessmentPlanInput{
+	var nativeSources []lockobserve.NativeSourceObservation
+	if len(native) != 0 {
+		nativeSources = native[0].sources
+	}
+	assessment, err := assembleAssessment(assessmentPlanInput{
 		paths:                  paths,
 		environment:            environment,
 		locked:                 locked,
@@ -243,7 +307,24 @@ func buildAssessment(
 		providerObservations:   providerObservations,
 		extensionOrderFacts:    extensionOrderFacts,
 		mcpContracts:           mcpContracts,
+		nativeSources:          nativeSources,
+		nativeNarrowings:       narrowings,
+		nativeWholeAdoptions:   wholeAdoptions,
 	})
+	if err != nil {
+		return Assessment{}, err
+	}
+	if len(native) != 0 && native[0].input != nil {
+		assessment.nativeRegistry = native[0].input.Registry
+	}
+	for _, fact := range extensionOrderFacts {
+		if fact.observeErr == nil {
+			if order, pi := fact.observation.Pi(); pi {
+				assessment.PiOrders = append(assessment.PiOrders, order)
+			}
+		}
+	}
+	return assessment, nil
 }
 
 func blockedProjectionDependencies(

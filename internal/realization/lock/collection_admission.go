@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -22,6 +23,7 @@ type lockedCollectionIndex struct {
 	exactSupplyByEntity         map[entity.ID]LockedSubjectContract
 	pathProjectionCountByEntity map[entity.ID]int
 	pathProjectionContracts     map[topology.SubjectID]LockedSubjectContract
+	nativeKeyProjections        map[entity.ID][]LockedSubjectContract
 	delegatedCarriers           map[topology.SubjectID]extensiontopology.Carrier
 	mcpProviderContracts        []LockedSubjectContract
 	piMCPContracts              []profile.PiMCPContract
@@ -35,7 +37,7 @@ type managedPathOccupancy struct {
 type managedAggregateOccupancy struct {
 	scope         target.Scope
 	aggregateRoot string
-	contentPath   string
+	footprint     output.Footprint
 }
 
 type managedAggregateOccupant struct {
@@ -58,6 +60,7 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 	pathProjectionEntities := make(map[topology.SubjectID]entity.ID)
 	pathProjectionContracts := make(map[topology.SubjectID]LockedSubjectContract)
 	pathProjectionCountByEntity := make(map[entity.ID]int)
+	nativeKeyProjections := make(map[entity.ID][]LockedSubjectContract)
 	delegatedCarriers := make(map[topology.SubjectID]extensiontopology.Carrier)
 	mcpProviderContracts := make([]LockedSubjectContract, 0)
 	piMCPContracts := make([]profile.PiMCPContract, 0)
@@ -102,6 +105,9 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			continue
 		}
 		if contribution, ok := realization.ManagedAggregateContribution(); ok {
+			if subject.EntityID().Kind() == entity.KindHostConfig {
+				nativeKeyProjections[subject.EntityID()] = append(nativeKeyProjections[subject.EntityID()], subject)
+			}
 			if piContract, pi := profile.PiMCPContractForCodec(contribution.CodecContractID()); pi {
 				piMCPContracts = append(piMCPContracts, piContract)
 				if !piContract.RequiresProvider() {
@@ -110,19 +116,20 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			}
 			key := managedAggregateOccupancy{
 				scope:         contribution.Scope(),
-				aggregateRoot: contribution.AggregateRoot().String(), contentPath: contribution.ContentPath(),
+				aggregateRoot: contribution.AggregateRoot().String(), footprint: contribution.Footprint(),
 			}
 			if existing, duplicate := seenContributions[key]; duplicate {
+				nativeKey, _ := key.footprint.Key()
 				if !existing.contract.Equal(contribution.Contract()) {
 					return lockedCollectionIndex{}, fmt.Errorf(
 						"conflicting managed aggregate occupancy scope=%q aggregate_root=%q content_path=%q for subjects %q and %q",
-						key.scope, key.aggregateRoot, key.contentPath, existing.subject, subject.SubjectID(),
+						key.scope, key.aggregateRoot, nativeKey.String(), existing.subject, subject.SubjectID(),
 					)
 				}
 				if contribution.Cardinality() == aggregate.ContributionExclusive {
 					return lockedCollectionIndex{}, fmt.Errorf(
 						"duplicate exclusive managed aggregate occupancy scope=%q aggregate_root=%q content_path=%q for subjects %q and %q",
-						key.scope, key.aggregateRoot, key.contentPath, existing.subject, subject.SubjectID(),
+						key.scope, key.aggregateRoot, nativeKey.String(), existing.subject, subject.SubjectID(),
 					)
 				}
 				continue
@@ -187,6 +194,7 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 		exactSupplyByEntity:         exactSupplyByEntity,
 		pathProjectionCountByEntity: pathProjectionCountByEntity,
 		pathProjectionContracts:     pathProjectionContracts,
+		nativeKeyProjections:        nativeKeyProjections,
 		delegatedCarriers:           delegatedCarriers,
 		mcpProviderContracts:        mcpProviderContracts,
 		piMCPContracts:              piMCPContracts,

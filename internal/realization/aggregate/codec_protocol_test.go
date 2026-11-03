@@ -43,7 +43,7 @@ func TestSelectionCanonicalizesOneDocumentAndRejectsPhysicalAlias(t *testing.T) 
 		t.Fatalf("NewSelection returned error: %v", err)
 	}
 	contracts := selection.Contracts()
-	if len(contracts) != 2 || contracts[0].Address().ContentPath() != "/hooks/left" || contracts[1].Address().ContentPath() != "/hooks/right" {
+	if len(contracts) != 2 || string(outputtest.LegacyContentPath(t, contracts[0].Address())) != "/hooks/left" || string(outputtest.LegacyContentPath(t, contracts[1].Address())) != "/hooks/right" {
 		t.Fatalf("canonical selection = %#v", contracts)
 	}
 
@@ -264,18 +264,18 @@ func TestCodecFailureCarriesOnlyClosedReasonAndCanonicalPath(t *testing.T) {
 		CodecFailureCanonicalInvalid,
 	}
 	for _, reason := range reasons {
-		failure, err := NewCodecFailure(reason, "/hooks")
+		failure, err := NewCodecFailureFromLegacy(reason, "/hooks")
 		if err != nil {
-			t.Fatalf("NewCodecFailure(%q) returned error: %v", reason, err)
+			t.Fatalf("NewCodecFailureFromLegacy(%q) returned error: %v", reason, err)
 		}
 		if failure.Reason() != reason || strings.Contains(failure.Error(), "SECRET_CANARY") {
 			t.Fatalf("failure = %q", failure.Error())
 		}
 	}
-	if _, err := NewCodecFailure("parser_failed", "/hooks"); err == nil || !strings.Contains(err.Error(), "unsupported") {
+	if _, err := NewCodecFailureFromLegacy("parser_failed", "/hooks"); err == nil || !strings.Contains(err.Error(), "unsupported") {
 		t.Fatalf("unknown reason error = %v", err)
 	}
-	if _, err := NewCodecFailure(CodecFailureDuplicateKey, "hooks"); err == nil || !strings.Contains(err.Error(), "absolute") {
+	if _, err := NewCodecFailureFromLegacy(CodecFailureDuplicateKey, "hooks"); err == nil || !strings.Contains(err.Error(), "absolute") {
 		t.Fatalf("malformed path error = %v", err)
 	}
 }

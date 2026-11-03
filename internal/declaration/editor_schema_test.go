@@ -150,7 +150,7 @@ func checkEditorSchemaNode(node map[string]json.RawMessage, root bool) error {
 			if err := checkEditorSchemaNode(child, false); err != nil {
 				return err
 			}
-		case "type", "required", "enum", "description":
+		case "type", "required", "enum", "description", "maxItems":
 		default:
 			return fmt.Errorf("unsupported editor schema keyword %q", key)
 		}

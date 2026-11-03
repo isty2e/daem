@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -231,7 +232,7 @@ func enforceManagedPathOwnership(
 		return newManagedPathBlocked(input, reconcile.ReasonOwnershipObservationMissing, "durable ownership owner authority is required for a global output")
 	}
 	if previousGlobal {
-		previousKey := ownershipObservationKey{destination: input.Previous.Destination()}
+		previousKey := ownershipObservationKey{destination: input.Previous.Destination(), footprint: output.WholePathFootprint()}
 		previousObservation, present := observations[previousKey]
 		if !present {
 			if preblocked {
@@ -242,7 +243,7 @@ func enforceManagedPathOwnership(
 		if _, conflicted := conflicts[previousKey]; conflicted {
 			return newManagedPathBlocked(input, reconcile.ReasonOwnershipConflict, "previous global output overlaps another managed address")
 		}
-		if reason, detail, blocked := managedPathActiveClaimBlock(previousObservation, owner); blocked {
+		if reason, detail, blocked := managedPathActiveClaimBlock(previousObservation, owner, input.Previous.Subject()); blocked {
 			return newManagedPathBlocked(input, reason, detail)
 		}
 	}
@@ -250,7 +251,7 @@ func enforceManagedPathOwnership(
 		if !currentGlobal {
 			return decision
 		}
-		key := ownershipObservationKey{destination: input.Destination}
+		key := ownershipObservationKey{destination: input.Destination, footprint: output.WholePathFootprint()}
 		observation, present := observations[key]
 		if !present {
 			if preblocked {
@@ -271,7 +272,7 @@ func enforceManagedPathOwnership(
 		return decision
 	}
 
-	key := ownershipObservationKey{destination: input.Destination}
+	key := ownershipObservationKey{destination: input.Destination, footprint: output.WholePathFootprint()}
 	observation, present := observations[key]
 	if !present {
 		if preblocked {
@@ -289,7 +290,7 @@ func enforceManagedPathOwnership(
 		}
 		return decision
 	}
-	if reason, detail, blocked := managedPathActiveClaimBlock(observation, owner); blocked {
+	if reason, detail, blocked := managedPathActiveClaimBlock(observation, owner, input.Subject); blocked {
 		return newManagedPathBlocked(input, reason, detail)
 	}
 	if !hasState {
@@ -301,13 +302,18 @@ func enforceManagedPathOwnership(
 func managedPathActiveClaimBlock(
 	observation observe.OwnershipObservation,
 	owner stateauthority.Authority,
+	subject topology.SubjectID,
 ) (reconcile.ActionReason, string, bool) {
 	claim, claimed := observation.Claim().Get()
 	if !claimed {
 		return reconcile.ReasonOwnershipClaimMissing, "managed global state has no durable ownership claim", true
 	}
 	address, exact := observation.ExactAddress()
-	if !exact || !claim.Address().Equal(address) || !claim.OwnedBy(owner) {
+	matches := exact && claim.Address().Equal(address)
+	if aggregate.IsHostConfigDocumentSubject(subject) {
+		matches = observation.CorrelatesClaimAddress()
+	}
+	if !matches || !claim.OwnedBy(owner) {
 		return reconcile.ReasonOwnershipConflict, fmt.Sprintf("managed address is claimed by manifest %q", claim.Owner().ManifestPath()), true
 	}
 	if claim.State() == ownership.ClaimReserved {

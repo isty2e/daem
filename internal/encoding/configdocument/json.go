@@ -120,6 +120,7 @@ func scanJSON(ctx context.Context, content []byte, syntax Syntax, maximumDepth i
 				return jsonLexical{}, ErrInvalidDocument
 			}
 			trivia.comments = append(trivia.comments, string(content[start:index]))
+			trivia.spans = append(trivia.spans, sourceSpan{start, index})
 		default:
 			index++
 		}

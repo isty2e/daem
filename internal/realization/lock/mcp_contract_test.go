@@ -51,7 +51,7 @@ func TestMCPProjectionSubjectContractCoversEveryPlacement(t *testing.T) {
 				contribution.Target() != placement.Target() ||
 				contribution.Scope() != placement.Scope() ||
 				contribution.AggregateRoot() != placement.ConfigPath() ||
-				contribution.ContentPath() != string(contentPath) ||
+				contribution.Address().KeyPath().String() != string(contentPath) ||
 				contribution.CodecContractID() != placement.CodecContractID() ||
 				contribution.CanonicalContribution() != input.CanonicalProjection {
 				t.Fatalf("aggregate contribution = %#v", contribution)

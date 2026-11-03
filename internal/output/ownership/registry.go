@@ -7,15 +7,19 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 )
 
-// Registry is a canonical, overlap-free set of durable ownership claims.
+// Registry retains claims, document identity evidence and pending protection.
+// Claim exclusion and document-wide safety fences remain distinct.
 type Registry struct {
-	claims      []Claim
-	overlaps    addressOverlapIndex
-	initialized bool
+	claims         []Claim
+	bindings       []DocumentBinding
+	protections    []PendingProtection
+	bindingIndices map[documentBindingKey]int
+	overlaps       addressOverlapIndex
+	initialized    bool
 }
 
-// NewRegistry validates, copies, and canonically orders claims.
-func NewRegistry(claims []Claim) (Registry, error) {
+// NewRegistry validates, copies, and orders claims and optional document bindings.
+func NewRegistry(claims []Claim, bindings ...DocumentBinding) (Registry, error) {
 	normalized := append([]Claim(nil), claims...)
 	for index, claim := range normalized {
 		if err := claim.Validate(); err != nil {
@@ -25,6 +29,10 @@ func NewRegistry(claims []Claim) (Registry, error) {
 	sort.Slice(normalized, func(left int, right int) bool {
 		return normalized[left].Address().Less(normalized[right].Address())
 	})
+	canonicalBindings, bindingIndices, err := canonicalDocumentBindings(bindings)
+	if err != nil {
+		return Registry{}, err
+	}
 	overlaps := addressOverlapIndex{}
 	if len(normalized) != 0 {
 		overlaps.roots = make(map[string]*physicalAddressNode)
@@ -37,10 +45,10 @@ func NewRegistry(claims []Claim) (Registry, error) {
 			}
 		}
 	}
-	return Registry{claims: normalized, overlaps: overlaps, initialized: true}, nil
+	return Registry{claims: normalized, bindings: canonicalBindings, bindingIndices: bindingIndices, overlaps: overlaps, initialized: true}, nil
 }
 
-// EmptyRegistry returns a valid registry with no claims.
+// EmptyRegistry returns a valid registry with no retained facts.
 func EmptyRegistry() Registry {
 	return Registry{claims: []Claim{}, initialized: true}
 }
@@ -52,11 +60,21 @@ func (registry Registry) Claims() []Claim {
 
 // Equal reports semantic equality between two canonical registries.
 func (registry Registry) Equal(other Registry) bool {
-	if !registry.initialized || !other.initialized || len(registry.claims) != len(other.claims) {
+	if !registry.initialized || !other.initialized || len(registry.claims) != len(other.claims) || len(registry.bindings) != len(other.bindings) || len(registry.protections) != len(other.protections) {
 		return false
 	}
 	for index := range registry.claims {
 		if !registry.claims[index].Equal(other.claims[index]) {
+			return false
+		}
+	}
+	for index := range registry.bindings {
+		if !registry.bindings[index].Equal(other.bindings[index]) {
+			return false
+		}
+	}
+	for index := range registry.protections {
+		if !registry.protections[index].Equal(other.protections[index]) {
 			return false
 		}
 	}
@@ -75,10 +93,11 @@ func (registry Registry) Exact(address ManagedAddress) (Claim, bool) {
 
 // Conflict returns the first canonically ordered claim overlapping address.
 func (registry Registry) Conflict(address ManagedAddress) (Claim, bool) {
-	for _, claim := range registry.claims {
-		if claim.Address().Overlaps(address) {
-			return claim, true
-		}
+	if address.Validate() != nil {
+		return Claim{}, false
+	}
+	if index, found := registry.overlaps.first(address); found {
+		return registry.claims[index], true
 	}
 	return Claim{}, false
 }
@@ -87,10 +106,11 @@ func (registry Registry) Conflict(address ManagedAddress) (Claim, bool) {
 // footprint contains a provisional candidate. It never treats the candidate
 // itself as exact authority.
 func (registry Registry) ProvisionalAncestorConflict(candidate pathauthority.Provisional) (Claim, bool) {
-	for _, claim := range registry.claims {
-		if candidate.CandidateWithin(claim.Address().PathAuthority()) {
-			return claim, true
-		}
+	if candidate.Validate() != nil {
+		return Claim{}, false
+	}
+	if index, found := registry.overlaps.firstPhysicalAncestor(candidate.CandidateKey()); found {
+		return registry.claims[index], true
 	}
 	return Claim{}, false
 }
@@ -108,6 +128,9 @@ func (registry Registry) Apply(address ManagedAddress, expected ClaimValue, repl
 		return Registry{}, err
 	}
 	if err := validateClaimValueAddress("replacement", address, replacement); err != nil {
+		return Registry{}, err
+	}
+	if err := registry.RequireWritable(address.PathAuthority()); err != nil {
 		return Registry{}, err
 	}
 
@@ -134,7 +157,7 @@ func (registry Registry) Apply(address ManagedAddress, expected ClaimValue, repl
 		}
 		next = append(next, claim)
 	}
-	return NewRegistry(next)
+	return registry.withFacts(next, registry.bindings)
 }
 
 // ConflictError reports an overlapping claim owned by an existing authority.
@@ -145,9 +168,9 @@ type ConflictError struct {
 
 func (err *ConflictError) Error() string {
 	return fmt.Sprintf(
-		"managed address %q content path %q overlaps claim owned by state authority %q",
+		"managed address %q footprint %s overlaps claim owned by state authority %q",
 		err.Requested.Path(),
-		err.Requested.ContentPath(),
+		addressFootprintLabel(err.Requested),
 		err.Existing.Owner().StatefileKey(),
 	)
 }
@@ -160,7 +183,7 @@ type StaleClaimError struct {
 }
 
 func (err *StaleClaimError) Error() string {
-	return fmt.Sprintf("managed address %q content path %q claim changed", err.Address.Path(), err.Address.ContentPath())
+	return fmt.Sprintf("managed address %q footprint %s claim changed", err.Address.Path(), addressFootprintLabel(err.Address))
 }
 
 func validateClaimValueAddress(name string, address ManagedAddress, value ClaimValue) error {

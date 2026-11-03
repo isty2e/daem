@@ -31,9 +31,16 @@ func TestSkillGroupMemberKeysOnlyExistForExplicitNames(t *testing.T) {
 
 func TestTargetValuesReturnsCopy(t *testing.T) {
 	skill := Skill{Targets: []string{"codex"}}
-	values := skill.TargetValues()
-	values[0] = "mutated"
+	skillValues := skill.TargetValues()
+	skillValues[0] = "mutated"
 	if skill.Targets[0] != "codex" {
-		t.Fatalf("TargetValues mutated declaration targets: %#v", skill.Targets)
+		t.Fatalf("TargetValues mutated skill targets: %#v", skill.Targets)
+	}
+
+	hostConfig := HostConfig{Targets: []string{"codex"}}
+	hostConfigValues := hostConfig.TargetValues()
+	hostConfigValues[0] = "mutated"
+	if hostConfig.Targets[0] != "codex" {
+		t.Fatalf("TargetValues mutated host_config target values: %#v", hostConfig.Targets)
 	}
 }

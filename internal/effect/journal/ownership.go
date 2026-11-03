@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	footprintcodec "github.com/isty2e/daem/internal/encoding/footprint"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/target"
@@ -28,13 +29,13 @@ type recoveryClaimTransition struct {
 }
 
 type recoveryClaimValue struct {
-	Present            bool              `json:"present"`
-	PathAuthority      *pathAuthorityDTO `json:"path_authority,omitempty"`
-	ContentPath        string            `json:"content_path,omitempty"`
-	StatefileAuthority *pathAuthorityDTO `json:"statefile_authority,omitempty"`
-	ManifestPath       string            `json:"manifest_path,omitempty"`
-	State              string            `json:"state,omitempty"`
-	OperationID        string            `json:"operation_id,omitempty"`
+	Present            bool                   `json:"present"`
+	PathAuthority      *pathAuthorityDTO      `json:"path_authority,omitempty"`
+	Footprint          *footprintcodec.Record `json:"footprint,omitempty"`
+	StatefileAuthority *pathAuthorityDTO      `json:"statefile_authority,omitempty"`
+	ManifestPath       string                 `json:"manifest_path,omitempty"`
+	State              string                 `json:"state,omitempty"`
+	OperationID        string                 `json:"operation_id,omitempty"`
 }
 
 type pathAuthorityDTO struct {
@@ -106,8 +107,8 @@ func canonicalClaimTransitions(persisted []recoveryClaimTransition) ([]ownership
 
 func validateNonOverlappingRecoveryAddresses(addresses []ownership.ManagedAddress) error {
 	type addressGroup struct {
-		witness      string
-		contentPaths []string
+		witness    string
+		footprints []output.Footprint
 	}
 	groups := make(map[string]addressGroup, len(addresses))
 	for _, address := range addresses {
@@ -117,7 +118,7 @@ func validateNonOverlappingRecoveryAddresses(addresses []ownership.ManagedAddres
 			return fmt.Errorf("recovery claim transitions contain overlapping addresses")
 		}
 		group.witness = address.PathAuthority().Witness()
-		group.contentPaths = append(group.contentPaths, address.ContentPath())
+		group.footprints = append(group.footprints, address.Footprint())
 		groups[path] = group
 	}
 	pathRoots := make(map[string]*recoveryPathPrefixSet)
@@ -131,7 +132,7 @@ func validateNonOverlappingRecoveryAddresses(addresses []ownership.ManagedAddres
 		if !root.insertDisjoint(components) {
 			return fmt.Errorf("recovery claim transitions contain overlapping addresses")
 		}
-		if err := validateNonOverlappingRecoveryContentPaths(group.contentPaths); err != nil {
+		if err := validateNonOverlappingRecoveryFootprints(group.footprints); err != nil {
 			return fmt.Errorf("recovery claim transitions contain overlapping addresses")
 		}
 	}
@@ -139,15 +140,43 @@ func validateNonOverlappingRecoveryAddresses(addresses []ownership.ManagedAddres
 }
 
 func validateNonOverlappingRecoveryContentPaths(contentPaths []string) error {
-	paths := recoveryPathPrefixSet{}
+	footprints := make([]output.Footprint, 0, len(contentPaths))
 	for _, contentPath := range contentPaths {
-		components := []string(nil)
-		if contentPath != "" {
-			components = strings.Split(strings.TrimPrefix(contentPath, "/"), "/")
+		footprint, err := output.FootprintFromLegacy(output.ContentPath(contentPath))
+		if err != nil {
+			return err
 		}
-		if !paths.insertDisjoint(components) {
-			return fmt.Errorf("overlapping recovery content path")
+		footprints = append(footprints, footprint)
+	}
+	return validateNonOverlappingRecoveryFootprints(footprints)
+}
+
+func validateNonOverlappingRecoveryFootprints(footprints []output.Footprint) error {
+	ordered := append([]output.Footprint(nil), footprints...)
+	for _, footprint := range ordered {
+		if err := footprint.Validate(); err != nil {
+			return err
 		}
+	}
+	sort.Slice(ordered, func(left, right int) bool {
+		return output.CompareFootprints(ordered[left], ordered[right]) < 0
+	})
+
+	ancestors := make([]output.Footprint, 0, len(ordered))
+	for _, footprint := range ordered {
+		key, _ := footprint.Key()
+		for len(ancestors) != 0 {
+			previous := ancestors[len(ancestors)-1]
+			if previous.Contains(footprint) {
+				return fmt.Errorf("overlapping recovery footprint")
+			}
+			previousKey, _ := previous.Key()
+			if strings.HasPrefix(key.String(), previousKey.String()) {
+				break
+			}
+			ancestors = ancestors[:len(ancestors)-1]
+		}
+		ancestors = append(ancestors, footprint)
 	}
 	return nil
 }
@@ -234,10 +263,10 @@ func bindRecoveryClaimCoverage(
 	}
 	intentKeys := make(map[string]struct{}, len(intents))
 	for index, intent := range intents {
-		if err := intent.Validate(); err != nil {
+		key, err := legacyProvisionalAcquireIntentKey(intent)
+		if err != nil {
 			return nil, fmt.Errorf("recovery provisional acquisition intents[%d]: %w", index, err)
 		}
-		key := provisionalAcquireIntentKey(intent.Destination(), intent.ContentPath())
 		if _, duplicate := intentKeys[key]; duplicate {
 			return nil, fmt.Errorf("recovery journal has duplicate provisional acquisition intent")
 		}
@@ -277,7 +306,7 @@ func bindRecoveryClaimCoverage(
 		if !present {
 			return nil, fmt.Errorf("recovery entries[%d] global output lacks exact ownership authority", index)
 		}
-		address, err := ownership.NewManagedAddress(exact, entry.ContentPath)
+		address, err := ownership.NewManagedAddressFromLegacy(exact, entry.ContentPath)
 		if err != nil {
 			return nil, fmt.Errorf("recovery entries[%d] ownership address: %w", index, err)
 		}
@@ -309,13 +338,16 @@ func validateRecoveryClaimCoverage(
 		}
 		remaining[key] = transition
 	}
-	remainingIntents := make(map[string]ownership.ProvisionalAcquireIntent, len(intents))
+	remainingIntents := make(map[string]struct{}, len(intents))
 	for _, intent := range intents {
-		key := provisionalAcquireIntentKey(intent.Destination(), intent.ContentPath())
+		key, err := legacyProvisionalAcquireIntentKey(intent)
+		if err != nil {
+			return fmt.Errorf("recovery provisional acquisition intent: %w", err)
+		}
 		if _, duplicate := remainingIntents[key]; duplicate {
 			return fmt.Errorf("recovery journal has duplicate provisional acquisition intent")
 		}
-		remainingIntents[key] = intent
+		remainingIntents[key] = struct{}{}
 	}
 	for index, entry := range entries {
 		if !recoveryEntryRequiresOwnership(entry) {
@@ -329,7 +361,7 @@ func validateRecoveryClaimCoverage(
 			return fmt.Errorf("recovery entries[%d] destination: %w", index, err)
 		}
 		intentKey := provisionalAcquireIntentKey(destination, output.ContentPath(entry.ContentPath))
-		if intent, present := remainingIntents[intentKey]; present {
+		if _, present := remainingIntents[intentKey]; present {
 			if entry.OwnershipPathAuthority != nil {
 				return fmt.Errorf("recovery entries[%d] provisional acquisition must not carry exact ownership path authority", index)
 			}
@@ -345,9 +377,6 @@ func validateRecoveryClaimCoverage(
 					wantKind,
 				)
 			}
-			if intent.Destination() != destination || string(intent.ContentPath()) != entry.ContentPath {
-				return fmt.Errorf("recovery entries[%d] provisional acquisition identity changed", index)
-			}
 			delete(remainingIntents, intentKey)
 			continue
 		}
@@ -358,7 +387,7 @@ func validateRecoveryClaimCoverage(
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] ownership_path_authority: %w", index, err)
 		}
-		address, err := ownership.NewManagedAddress(exact, entry.ContentPath)
+		address, err := ownership.NewManagedAddressFromLegacy(exact, entry.ContentPath)
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] ownership address: %w", index, err)
 		}
@@ -454,7 +483,9 @@ func recoveryEntryTransitionKind(entry recoveryEntry) (ownershipmutation.Transit
 }
 
 func ownershipAddressKey(address ownership.ManagedAddress) string {
-	return address.Path() + "\x00" + address.PathAuthority().Witness() + "\x00" + address.ContentPath()
+	footprint := address.Footprint()
+	key, _ := footprint.Key()
+	return address.Path() + "\x00" + address.PathAuthority().Witness() + "\x00" + footprint.Kind().String() + "\x00" + key.String()
 }
 
 func canonicalTransition(
@@ -474,12 +505,16 @@ func recoveryClaimValueFrom(value ownership.ClaimValue) (recoveryClaimValue, err
 	if err := claim.Validate(); err != nil {
 		return recoveryClaimValue{}, err
 	}
+	footprint, err := footprintcodec.Encode(claim.Address().Footprint())
+	if err != nil {
+		return recoveryClaimValue{}, err
+	}
 	path := claim.Address().PathAuthority()
 	statefile := claim.Owner().StatefileAuthority()
 	return recoveryClaimValue{
 		Present:            true,
 		PathAuthority:      persistedPathAuthority(path),
-		ContentPath:        claim.Address().ContentPath(),
+		Footprint:          &footprint,
 		StatefileAuthority: persistedPathAuthority(statefile),
 		ManifestPath:       claim.Owner().ManifestPath(),
 		State:              string(claim.State()),
@@ -489,23 +524,24 @@ func recoveryClaimValueFrom(value ownership.ClaimValue) (recoveryClaimValue, err
 
 func canonicalClaimValue(record recoveryClaimValue) (ownership.ClaimValue, error) {
 	if !record.Present {
-		if record.PathAuthority != nil || record.ContentPath != "" ||
-			record.StatefileAuthority != nil ||
-			record.ManifestPath != "" || record.State != "" || record.OperationID != "" {
+		if record.PathAuthority != nil || record.Footprint != nil ||
+			record.StatefileAuthority != nil || record.ManifestPath != "" || record.State != "" || record.OperationID != "" {
 			return ownership.ClaimValue{}, fmt.Errorf("absent claim must not retain claim fields")
 		}
 		return ownership.NoClaim(), nil
 	}
-	if record.PathAuthority == nil || record.StatefileAuthority == nil {
-		return ownership.ClaimValue{}, fmt.Errorf(
-			"present claim requires path_authority and statefile_authority",
-		)
+	if record.PathAuthority == nil || record.StatefileAuthority == nil || record.Footprint == nil {
+		return ownership.ClaimValue{}, fmt.Errorf("present claim requires path_authority, footprint and statefile_authority")
 	}
 	path, err := canonicalPathAuthority(*record.PathAuthority)
 	if err != nil {
 		return ownership.ClaimValue{}, fmt.Errorf("path authority: %w", err)
 	}
-	address, err := ownership.NewManagedAddress(path, record.ContentPath)
+	footprint, err := footprintcodec.Decode(*record.Footprint)
+	if err != nil {
+		return ownership.ClaimValue{}, err
+	}
+	address, err := ownership.NewManagedAddress(path, footprint)
 	if err != nil {
 		return ownership.ClaimValue{}, err
 	}
@@ -546,10 +582,17 @@ func canonicalPathAuthority(record pathAuthorityDTO) (pathauthority.Exact, error
 func recoveryTransitionAddress(transition recoveryClaimTransition) (string, string) {
 	for _, value := range []recoveryClaimValue{transition.Prepared, transition.Before, transition.After} {
 		if value.Present {
-			if value.PathAuthority == nil {
-				return "", value.ContentPath
+			footprint := ""
+			if value.Footprint != nil {
+				footprint = value.Footprint.Kind + "\x00"
+				if value.Footprint.KeyPath != nil {
+					footprint += *value.Footprint.KeyPath
+				}
 			}
-			return value.PathAuthority.Key + "\x00" + value.PathAuthority.Witness, value.ContentPath
+			if value.PathAuthority == nil {
+				return "", footprint
+			}
+			return value.PathAuthority.Key + "\x00" + value.PathAuthority.Witness, footprint
 		}
 	}
 	return "", ""

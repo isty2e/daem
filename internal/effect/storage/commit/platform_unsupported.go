@@ -213,8 +213,8 @@ func ReadRegularFileSnapshotUpTo(
 	path string,
 	maximumBytes int64,
 ) (mutationfs.RegularFileSnapshot, error) {
-	if maximumBytes <= 0 {
-		return mutationfs.RegularFileSnapshot{}, fmt.Errorf("regular file snapshot maximum bytes must be positive")
+	if maximumBytes < 0 {
+		return mutationfs.RegularFileSnapshot{}, fmt.Errorf("regular file snapshot maximum bytes must not be negative")
 	}
 	if err := validateCommitPath(path); err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
@@ -257,14 +257,19 @@ func ReadRootedRegularFileUpTo(
 	capability rootedpath.CommitCapability,
 	maximumBytes int64,
 ) ([]byte, fs.FileMode, EntryIdentity, error) {
-	if maximumBytes <= 0 {
-		return nil, 0, EntryIdentity{}, fmt.Errorf("rooted regular file maximum bytes must be positive")
+	if maximumBytes < 0 {
+		return nil, 0, EntryIdentity{}, fmt.Errorf("rooted regular file maximum bytes must not be negative")
 	}
 	path, err := rootedCapabilityPath(capability)
 	if err != nil {
 		return nil, 0, EntryIdentity{}, err
 	}
 	return nil, 0, EntryIdentity{}, newUnsupportedPlatformFailure(path)
+}
+
+// ReadRootedRegularFileWithWorkBudget returns unsupported_guarantee without reading.
+func ReadRootedRegularFileWithWorkBudget(ctx context.Context, capability rootedpath.CommitCapability, maximumBytes int64) ([]byte, fs.FileMode, EntryIdentity, error) {
+	return ReadRootedRegularFileUpTo(ctx, capability, maximumBytes)
 }
 
 // ReadRootedSymlinkTarget returns unsupported_guarantee without reading.

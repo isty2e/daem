@@ -473,11 +473,9 @@ func TestMCPPublicCLICodexGlobalApplyPreflightsSameNameEnvironment(t *testing.T)
 				strings.TrimPrefix(aggregate.CodexGlobalMCPConfigPath, "~/"),
 			)
 			config := string(testkit.ReadFile(t, configPath))
-			if !strings.Contains(config, `env_vars = ["`+sourceName+`"]`) {
-				t.Fatalf("Codex config = %q, want canonical env_vars name", config)
-			}
-			if strings.Contains(config, "\nenv =") {
-				t.Fatalf("Codex config = %q, want no literal environment table", config)
+			entry, present, err := mcpcodec.ExtractCodexGlobalMCPServerProjection([]byte(config), "context7")
+			if err != nil || !present || len(entry.EnvVars) != 1 || entry.EnvVars[0] != sourceName {
+				t.Fatalf("Codex projection = %#v, present=%t, error=%v; want the environment variable name and no literal environment", entry, present, err)
 			}
 			statePath := filepath.Join(project.root, ".daem", "state.json")
 			state := string(testkit.ReadFile(t, statePath))

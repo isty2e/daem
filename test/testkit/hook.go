@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func WriteHookManifestAndLock(t *testing.T, root string, content string) {
@@ -79,7 +80,7 @@ func AssertHookAggregateState(
 		contribution := aggregateState.Contribution()
 		if string(contribution.Target()) != targetValue ||
 			string(contribution.Scope()) != scopeValue || contribution.AggregateRoot().String() != destination ||
-			contribution.ContentPath() != "/hooks" {
+			outputtest.LegacyContentPath(t, contribution) != "/hooks" {
 			t.Fatalf("Hook aggregate state = %#v", aggregateState)
 		}
 		return

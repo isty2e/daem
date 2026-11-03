@@ -23,6 +23,8 @@ type Input struct {
 	ManagedCarrierClaims []durablecarrier.ManagedCarrierClaim
 	Selection            targetselection.Selection
 	OnlyCorrelation      *relationobserve.CorrelationKey
+	ReadFile             func(context.Context, string, int64) ([]byte, bool, error)
+	context              context.Context
 }
 
 // Observe reads admitted host-private inventories and returns only generic
@@ -34,6 +36,7 @@ func Observe(ctx context.Context, input Input) (relationobserve.Batch, error) {
 	if err := ctx.Err(); err != nil {
 		return relationobserve.Batch{}, err
 	}
+	input.context = ctx
 
 	records, err := selectedCarrierRecords(
 		input.Lockfile,

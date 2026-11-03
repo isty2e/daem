@@ -25,6 +25,7 @@ type ResultInput struct {
 	Context          OperationContext
 	ManagedPaths     []ManagedPathDecision
 	Aggregates       []AggregateDecision
+	NativeNarrowings []NativeNarrowingAction
 	Relations        []RelationAction
 	RelationOrders   []RelationOrderDecision
 	CarrierAdoptions []carrieradoption.Action
@@ -34,14 +35,15 @@ type ResultInput struct {
 
 // Result is the immutable, canonically ordered reconciliation result.
 type Result struct {
-	managedPaths   []ManagedPathDecision
-	aggregates     []AggregateDecision
-	relations      []RelationAction
-	relationOrders []RelationOrderDecision
-	adoptions      []carrieradoption.Action
-	absences       []carrierabsence.Action
-	delegates      []DelegateAction
-	context        OperationContext
+	managedPaths     []ManagedPathDecision
+	aggregates       []AggregateDecision
+	nativeNarrowings []NativeNarrowingAction
+	relations        []RelationAction
+	relationOrders   []RelationOrderDecision
+	adoptions        []carrieradoption.Action
+	absences         []carrierabsence.Action
+	delegates        []DelegateAction
+	context          OperationContext
 }
 
 // NewResult validates, orders, and defensively copies one complete
@@ -86,6 +88,11 @@ func NewResult(input ResultInput) (Result, error) {
 				canonicalAggregates[index].CodecContractID(),
 			)
 		}
+	}
+
+	canonicalNarrowings, err := canonicalNativeNarrowings(input.NativeNarrowings, canonicalManagedPaths, canonicalAggregates)
+	if err != nil {
+		return Result{}, err
 	}
 
 	canonicalRelations := append([]RelationAction(nil), input.Relations...)
@@ -204,14 +211,15 @@ func NewResult(input ResultInput) (Result, error) {
 	}
 
 	return Result{
-		managedPaths:   canonicalManagedPaths,
-		aggregates:     canonicalAggregates,
-		relations:      canonicalRelations,
-		relationOrders: canonicalRelationOrders,
-		adoptions:      canonicalAdoptions,
-		absences:       canonicalAbsences,
-		delegates:      canonicalDelegates,
-		context:        input.Context,
+		managedPaths:     canonicalManagedPaths,
+		aggregates:       canonicalAggregates,
+		nativeNarrowings: canonicalNarrowings,
+		relations:        canonicalRelations,
+		relationOrders:   canonicalRelationOrders,
+		adoptions:        canonicalAdoptions,
+		absences:         canonicalAbsences,
+		delegates:        canonicalDelegates,
+		context:          input.Context,
 	}, nil
 }
 
@@ -260,6 +268,7 @@ func (result Result) WithRelationOrders(
 		Context:          result.context,
 		ManagedPaths:     result.ManagedPaths(),
 		Aggregates:       result.Aggregates(),
+		NativeNarrowings: result.NativeNarrowings(),
 		Relations:        result.Relations(),
 		RelationOrders:   decisions,
 		CarrierAdoptions: result.CarrierAdoptions(),
@@ -288,14 +297,15 @@ func (result Result) Delegates() []DelegateAction {
 // sufficient.
 func (result Result) Clone() Result {
 	return Result{
-		managedPaths:   result.ManagedPaths(),
-		aggregates:     result.Aggregates(),
-		relations:      result.Relations(),
-		relationOrders: result.RelationOrders(),
-		adoptions:      result.CarrierAdoptions(),
-		absences:       result.CarrierAbsences(),
-		delegates:      result.Delegates(),
-		context:        result.context,
+		managedPaths:     result.ManagedPaths(),
+		aggregates:       result.Aggregates(),
+		nativeNarrowings: result.NativeNarrowings(),
+		relations:        result.Relations(),
+		relationOrders:   result.RelationOrders(),
+		adoptions:        result.CarrierAdoptions(),
+		absences:         result.CarrierAbsences(),
+		delegates:        result.Delegates(),
+		context:          result.context,
 	}
 }
 
@@ -505,7 +515,7 @@ func validateAggregateDecision(decision AggregateDecision) error {
 			seenSubjects[subject] = struct{}{}
 		}
 	}
-	return nil
+	return validateNativeAggregateOperation(decision)
 }
 
 func validateAggregateDecisionKind(kind AggregateDecisionKind) error {

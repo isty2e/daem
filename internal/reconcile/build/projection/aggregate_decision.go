@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -24,6 +25,7 @@ type aggregateDecision struct {
 	rendered        aggregate.RenderedDocument
 	evidence        observe.AggregateEvidence
 	preconditions   []aggregate.OperationPrecondition
+	nativeOperation *profile.NativeAggregateOperationContract
 }
 
 type aggregateProjectionDecision struct {
@@ -82,6 +84,7 @@ func (decision aggregateDecision) canonical() (reconcile.AggregateDecision, erro
 		Rendered:        decision.rendered,
 		Evidence:        decision.evidence,
 		Preconditions:   decision.preconditions,
+		NativeOperation: decision.nativeOperation,
 	})
 }
 

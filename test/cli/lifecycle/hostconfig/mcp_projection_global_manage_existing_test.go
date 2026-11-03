@@ -9,6 +9,7 @@ import (
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 )
@@ -490,7 +491,7 @@ func assertGlobalMCPStateSubject(t *testing.T, file durable.Snapshot, want globa
 		if contribution.Target() != want.target ||
 			contribution.Scope() != want.scope ||
 			contribution.AggregateRoot().String() != want.path ||
-			contribution.ContentPath() != want.contentPath ||
+			outputtest.LegacyContentPath(t, contribution) != want.contentPath ||
 			contribution.CanonicalContribution() == "" {
 			t.Fatalf("MCP aggregate state = %#v, want global MCP state subject %#v", state, want)
 		}

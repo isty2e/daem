@@ -43,12 +43,13 @@ func (paths Paths) journalPaths() journal.Paths {
 	}
 }
 
-// ApplyInput contains typed executable effects and prepared payloads for one apply mutation.
+// ApplyInput retains typed effects, native transition intents and prepared payloads.
 type ApplyInput struct {
 	Paths                       Paths
 	Resolver                    DestinationResolver
 	ManagedPathEffects          []ManagedPathEffect
 	AggregateEffects            []AggregateEffect
+	NativeNarrowings            []reconciliation.NativeNarrowingAction
 	ManagedPathEvidence         []observe.ManagedPathEvidence
 	CurrentState                durable.Snapshot
 	GlobalCarrierClaims         durablecarrier.GlobalCarrierClaims
@@ -96,6 +97,7 @@ type ApplyResult struct {
 	// ExecutionAttempted reports whether apply reached journal capture or a
 	// later mutation boundary.
 	ExecutionAttempted bool
+	nativeSettlement   *NativeApplySettlement
 }
 
 // ApplyWithOptions commits typed executable effects and emits observational execution events.
@@ -192,7 +194,7 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("marshal statefile: %w", err)
 	}
-	managedMutations, err := managedPathJournalMutations(input.ManagedPathEffects)
+	managedMutations, err := ManagedPathJournalMutations(input.ManagedPathEffects)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -533,9 +535,10 @@ func applyWithOptions(
 		visibilityGate,
 		effectExecution,
 		func(ctx context.Context, effect AggregateEffect) error {
+			keys := provisionalAcquireKeysForAggregate(effect)
 			return ownershipState.promoteVisibleAcquires(
 				ctx,
-				provisionalAcquireKeysForAggregate(effect),
+				keys,
 				mutationAuthority,
 				registryStore,
 				input.StateCodec,

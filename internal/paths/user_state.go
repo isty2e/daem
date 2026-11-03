@@ -13,7 +13,7 @@ func selectUserStorage(selected Paths) (Paths, error) {
 		return selected, nil
 	}
 
-	configDir, err := defaultRootConfigDir()
+	configDir, err := defaultRootConfigDir(selected.home)
 	if err != nil {
 		// A selected project does not require a valid default-user address.
 		return selected, nil
@@ -27,7 +27,7 @@ func selectUserStorage(selected Paths) (Paths, error) {
 		return selected, nil
 	}
 
-	user, err := defaultPaths()
+	user, err := defaultPaths(selected.home)
 	if err != nil {
 		return Paths{}, err
 	}

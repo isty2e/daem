@@ -57,6 +57,20 @@ func (plan applyContinuationPlan) valid() bool {
 	return plan.available
 }
 
+func bindApplyContinuationPlans(reconciliation reconcile.Result, prepared, current applyContinuationPlan) error {
+	if err := bindApplyFinalRoutePlans(prepared, current); err != nil {
+		return err
+	}
+	_, removal, _, err := bindCarrierRemovalPlans(reconciliation.CarrierAbsences(), prepared, current)
+	if err != nil {
+		return err
+	}
+	if !removal.valid() {
+		return fmt.Errorf("scheduled carrier removal plan is unavailable")
+	}
+	return nil
+}
+
 func (plan applyContinuationPlan) equal(other applyContinuationPlan) bool {
 	return plan.statefileInitiallyBound == other.statefileInitiallyBound &&
 		plan.phaseEstablished == other.phaseEstablished &&

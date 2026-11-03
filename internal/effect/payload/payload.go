@@ -23,6 +23,9 @@ type FilePayload struct {
 // Bytes returns an independent copy of the effect-ready file bytes.
 func (payload FilePayload) Bytes() []byte { return append([]byte(nil), payload.content...) }
 
+// ContentSize permits bounded consumers to check size without copying the payload.
+func (payload FilePayload) ContentSize() int64 { return int64(len(payload.content)) }
+
 // Hash returns the content identity including executable class.
 func (payload FilePayload) Hash() artifact.ContentHash { return payload.hash }
 

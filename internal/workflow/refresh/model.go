@@ -11,6 +11,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -55,6 +56,7 @@ const (
 	ReasonObservationUnavailable        ReasonCode = "observation_unavailable"
 	ReasonStalePlan                     ReasonCode = "stale_plan"
 	ReasonMutationAuthority             ReasonCode = "mutation_authority"
+	ReasonNativeSettings                ReasonCode = "native_settings_unqualified"
 	ReasonInterruptedApply              ReasonCode = "interrupted_apply"
 	ReasonInterruptedApplyFileSetFence  ReasonCode = "interrupted_apply_file_set_fence"
 	ReasonJournalCleanupIncomplete      ReasonCode = "journal_cleanup_incomplete"
@@ -321,4 +323,7 @@ type plan struct {
 	authority         authorityEvidence
 	revisions         mutation.RevisionSet
 	barrier           recoverygate.EffectAuthority
+	native            *nativeRefreshInputs
+	protectionFence   refreshProtectionFence
+	settingsProfile   relationhost.NativeSettingsProfile
 }

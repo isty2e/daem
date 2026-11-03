@@ -110,6 +110,7 @@ type LockRealization struct {
 	ExactPermissionMode        *uint32  `json:"exact_permission_mode"`
 	AggregateRoot              string   `json:"aggregate_root"`
 	ContentPath                string   `json:"content_path"`
+	KeyPath                    []string `json:"key_path"`
 	MergeUnit                  string   `json:"merge_unit"`
 	SiblingRetention           string   `json:"sibling_retention"`
 	Equivalence                string   `json:"equivalence"`

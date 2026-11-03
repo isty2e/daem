@@ -258,32 +258,6 @@ func TestBindRejectsConflictingProcessGroupPolicy(t *testing.T) {
 	}
 }
 
-func TestClassifyProcessGroupProbeIsThreeValued(t *testing.T) {
-	tests := []struct {
-		err        error
-		occupancy  processGroupOccupancy
-		recognized bool
-	}{
-		{err: nil, occupancy: processGroupSignalable, recognized: true},
-		{err: unix.ESRCH, occupancy: processGroupAbsent, recognized: true},
-		{err: unix.EPERM, occupancy: processGroupUnsignalable, recognized: true},
-		{err: unix.EINVAL, occupancy: processGroupAbsent, recognized: false},
-	}
-	for _, test := range tests {
-		occupancy, recognized := classifyProcessGroupProbe(test.err)
-		if occupancy != test.occupancy || recognized != test.recognized {
-			t.Fatalf(
-				"classifyProcessGroupProbe(%v) = %d,%t, want %d,%t",
-				test.err,
-				occupancy,
-				recognized,
-				test.occupancy,
-				test.recognized,
-			)
-		}
-	}
-}
-
 func TestGroupCancelLeavesSetsidChildAlive(t *testing.T) {
 	executable, err := os.Executable()
 	if err != nil {

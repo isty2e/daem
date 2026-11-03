@@ -49,6 +49,10 @@ func applyEffectInput(
 	current commandPlan,
 	providerActions []reconcile.RelationAction,
 ) (execute.ApplyInput, error) {
+	if current.nativePlan != nil {
+		input, err := nativeApplyInputFor(current)
+		return input.ApplyInput, err
+	}
 	postProviderState, err := postProviderPlanningState(current.assessment.CurrentState, providerActions)
 	if err != nil {
 		return execute.ApplyInput{}, err
@@ -81,6 +85,7 @@ func applyEffectInput(
 	return execute.ApplyInput{
 		ManagedPathEffects:          managedEffects,
 		AggregateEffects:            aggregateEffects,
+		NativeNarrowings:            current.assessment.Reconciliation.NativeNarrowings(),
 		CurrentState:                postProviderState,
 		GlobalCarrierClaims:         current.assessment.GlobalCarrierClaims,
 		RetiredProjectCarrierClaims: projectRetirements,
@@ -96,9 +101,30 @@ func applyEnvelopeFor(
 	providerActions []reconcile.RelationAction,
 	applyInput execute.ApplyInput,
 ) (operationplan.Envelope, int, error) {
-	executeGates, err := execute.MaximumForwardEffectValidationCount(applyInput)
+	executeGates, err := maximumCommandForwardValidationCount(current, applyInput)
 	if err != nil {
 		return operationplan.Envelope{}, 0, err
+	}
+	prefixGates := 0
+	postRouteGates := 0
+	postDelegateGates := 0
+	if current.nativePlan != nil && current.nativePlan.opaque {
+		input, err := nativeApplyInputFor(current)
+		if err != nil {
+			return operationplan.Envelope{}, 0, err
+		}
+		shape, late, err := nativeInvocationSuffixes(current, input)
+		if err != nil {
+			return operationplan.Envelope{}, 0, err
+		}
+		postRouteGates = shape.ForwardValidationCount()
+		postDelegateGates = late.ForwardValidationCount()
+		input.Preparation = current.nativePlan.prefix
+		prefixGates, err = execute.MaximumNativeForwardEffectValidationCount(input)
+		if err != nil {
+			return operationplan.Envelope{}, 0, err
+		}
+		executeGates = 0
 	}
 	orderClasses, err := admittedOrderClasses(current)
 	if err != nil {
@@ -122,8 +148,11 @@ func applyEnvelopeFor(
 		return operationplan.Envelope{}, 0, err
 	}
 	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
-		ExecuteGates:    executeGates,
-		ProviderActions: routeWorks(current.assessment.CurrentState, providerActions),
+		ExecuteGates:             executeGates,
+		PrefixExecuteGates:       prefixGates,
+		PostRouteExecuteGates:    postRouteGates,
+		PostDelegateExecuteGates: postDelegateGates,
+		ProviderActions:          routeWorks(current.assessment.CurrentState, providerActions),
 		FinalRoutes: routeWorks(
 			applyInput.CurrentState,
 			finalRelations,
@@ -261,6 +290,7 @@ type admittedOrderClass struct {
 	classID     string
 	fingerprint string
 	decisions   []reconcile.RelationOrderDecision
+	native      bool
 }
 
 func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, error) {
@@ -271,7 +301,7 @@ func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, 
 	works := make([]operationplan.OrderClassWork, 0, len(classes))
 	for _, class := range classes {
 		works = append(works, operationplan.OrderClassWork{
-			RequiresMutation: relationOrderMutationRequired(class.decisions),
+			RequiresMutation: relationOrderMutationRequired(class.decisions) && !class.native,
 		})
 	}
 	return works, nil
@@ -307,12 +337,22 @@ func admittedOrderClassFacts(current commandPlan) ([]admittedOrderClass, error) 
 		if _, ok := selected[string(selectedTarget)]; !ok {
 			continue
 		}
+		native := false
+		if current.nativePlan != nil {
+			for _, order := range current.nativePlan.state.PiOrders() {
+				native = native || order.Sequence().ClassID() == constraint.ClassID()
+			}
+			for _, order := range current.nativePlan.orders {
+				native = native || order.Sequence().ClassID() == constraint.ClassID()
+			}
+		}
 		result = append(result, admittedOrderClass{
 			target:      selectedTarget,
 			scope:       capability.Scope(),
 			classID:     classID,
 			fingerprint: constraint.Fingerprint(),
 			decisions:   append([]reconcile.RelationOrderDecision(nil), classDecisions...),
+			native:      native,
 		})
 	}
 	if len(result) != len(classes) {

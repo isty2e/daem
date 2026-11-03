@@ -55,7 +55,7 @@ const (
 // CodecContractID identifies one exact private aggregate codec contract.
 type CodecContractID string
 
-// ContentPath identifies one canonical managed projection inside a document.
+// ContentPath is the frozen legacy aggregate address, not an RFC 6901 key path.
 type ContentPath string
 
 // DocumentAddress identifies one portable host aggregate document.
@@ -70,11 +70,11 @@ type ProjectionAddress struct {
 	document    DocumentAddress
 	placementID string
 	mergeUnit   MergeUnit
-	contentPath ContentPath
+	footprint   output.Footprint
 }
 
-// ManagedContributionInput carries one subject's locked aggregate realization.
-type ManagedContributionInput struct {
+// LegacyManagedContributionInput uses the frozen slash-delimited aggregate address grammar.
+type LegacyManagedContributionInput struct {
 	PlacementID           string
 	Target                target.Target
 	Scope                 target.Scope
@@ -113,9 +113,9 @@ type ProjectionContract struct {
 	comparedFields      []string
 }
 
-// NewManagedContribution constructs a validated aggregate realization body.
-func NewManagedContribution(input ManagedContributionInput) (ManagedContribution, error) {
-	address, err := newProjectionAddress(
+// NewManagedContributionFromLegacy validates legacy fields before canonical construction.
+func NewManagedContributionFromLegacy(input LegacyManagedContributionInput) (ManagedContribution, error) {
+	address, err := newLegacyProjectionAddress(
 		input.PlacementID,
 		input.Target,
 		input.Scope,
@@ -126,15 +126,29 @@ func NewManagedContribution(input ManagedContributionInput) (ManagedContribution
 	if err != nil {
 		return ManagedContribution{}, fmt.Errorf("managed aggregate contribution: %w", err)
 	}
+	contract := ProjectionContract{
+		address:             address,
+		cardinality:         input.Cardinality,
+		siblingRetention:    input.SiblingRetention,
+		siblingPreservation: input.SiblingPreservation,
+		equivalence:         input.Equivalence,
+		codecContractID:     input.CodecContractID,
+		comparedFields:      canonicalTokenSet(input.ComparedFields),
+	}
+	return NewManagedContribution(contract, input.CanonicalContribution)
+}
+
+// NewManagedContribution binds desired content to a static projection contract.
+func NewManagedContribution(contract ProjectionContract, canonicalContent string) (ManagedContribution, error) {
 	contribution := ManagedContribution{
-		address:               address,
-		cardinality:           input.Cardinality,
-		siblingRetention:      input.SiblingRetention,
-		siblingPreservation:   input.SiblingPreservation,
-		equivalence:           input.Equivalence,
-		canonicalContribution: input.CanonicalContribution,
-		codecContractID:       input.CodecContractID,
-		comparedFields:        canonicalTokenSet(input.ComparedFields),
+		address:               contract.address,
+		cardinality:           contract.cardinality,
+		siblingRetention:      contract.siblingRetention,
+		siblingPreservation:   contract.siblingPreservation,
+		equivalence:           contract.equivalence,
+		canonicalContribution: canonicalContent,
+		codecContractID:       contract.codecContractID,
+		comparedFields:        append([]string(nil), contract.comparedFields...),
 	}
 	if err := contribution.Validate(); err != nil {
 		return ManagedContribution{}, err
@@ -142,7 +156,7 @@ func NewManagedContribution(input ManagedContributionInput) (ManagedContribution
 	return contribution, nil
 }
 
-func newProjectionAddress(
+func newLegacyProjectionAddress(
 	placementID string,
 	selectedTarget target.Target,
 	scope target.Scope,
@@ -153,24 +167,18 @@ func newProjectionAddress(
 	if err := validateToken("aggregate placement id", placementID); err != nil {
 		return ProjectionAddress{}, err
 	}
-	document, err := newDocumentAddress(selectedTarget, scope, aggregateRoot)
-	if err != nil {
+	if _, err := NewDocumentAddress(selectedTarget, scope, aggregateRoot); err != nil {
 		return ProjectionAddress{}, err
 	}
 	parsedPath, err := ParseContentPath(contentPath)
 	if err != nil {
 		return ProjectionAddress{}, err
 	}
-	canonicalMergeUnit := mergeUnit
-	if err := validateToken("aggregate merge unit", string(canonicalMergeUnit)); err != nil {
+	footprint, err := output.FootprintFromLegacy(output.ContentPath(parsedPath))
+	if err != nil {
 		return ProjectionAddress{}, err
 	}
-	return ProjectionAddress{
-		document:    document,
-		placementID: placementID,
-		mergeUnit:   canonicalMergeUnit,
-		contentPath: parsedPath,
-	}, nil
+	return newProjectionAddress(placementID, selectedTarget, scope, aggregateRoot, mergeUnit, footprint)
 }
 
 // ParseContentPath parses the canonical slash-delimited projection address.
@@ -222,7 +230,7 @@ func (address ProjectionAddress) Validate() error {
 		address.document.scope,
 		address.document.root,
 		address.mergeUnit,
-		string(address.contentPath),
+		address.footprint,
 	)
 	if err != nil {
 		return err
@@ -261,10 +269,6 @@ func (contribution ManagedContribution) Scope() target.Scope {
 
 func (contribution ManagedContribution) AggregateRoot() output.Destination {
 	return contribution.address.document.root
-}
-
-func (contribution ManagedContribution) ContentPath() string {
-	return string(contribution.address.contentPath)
 }
 
 func (contribution ManagedContribution) MergeUnit() MergeUnit { return contribution.address.mergeUnit }
@@ -317,7 +321,6 @@ func (contribution ManagedContribution) Equal(other ManagedContribution) bool {
 func (address ProjectionAddress) Document() DocumentAddress { return address.document }
 func (address ProjectionAddress) PlacementID() string       { return address.placementID }
 func (address ProjectionAddress) MergeUnit() MergeUnit      { return address.mergeUnit }
-func (address ProjectionAddress) ContentPath() ContentPath  { return address.contentPath }
 
 func (address DocumentAddress) Target() target.Target             { return address.target }
 func (address DocumentAddress) Scope() target.Scope               { return address.scope }
@@ -341,7 +344,7 @@ func validateProjectionContract(contract ProjectionContract) error {
 		return fmt.Errorf("managed aggregate contribution sibling retention %q is unsupported", contract.siblingRetention)
 	}
 	switch contract.siblingPreservation {
-	case PreserveSiblingsByteExact, PreserveSiblingsSemantic:
+	case PreserveSiblingsByteExact, PreserveSiblingsSemantic, PreserveSiblingsNativeValuesComments:
 	default:
 		return fmt.Errorf("managed aggregate contribution sibling preservation %q is unsupported", contract.siblingPreservation)
 	}
@@ -419,7 +422,7 @@ func compareProjectionAddress(left ProjectionAddress, right ProjectionAddress) i
 		strings.Compare(left.document.root.String(), right.document.root.String()),
 		strings.Compare(left.placementID, right.placementID),
 		strings.Compare(string(left.mergeUnit), string(right.mergeUnit)),
-		strings.Compare(string(left.contentPath), string(right.contentPath)),
+		output.CompareFootprints(left.footprint, right.footprint),
 	} {
 		if comparison != 0 {
 			return comparison

@@ -29,6 +29,9 @@ func ExistingDocument(content []byte) Document {
 func (document Document) Exists() bool    { return document.exists }
 func (document Document) Content() []byte { return bytes.Clone(document.content) }
 
+// ContentSize reports payload bytes without copying the document.
+func (document Document) ContentSize() int64 { return int64(len(document.content)) }
+
 // Equal compares document presence and bytes.
 func (document Document) Equal(other Document) bool {
 	return document.exists == other.exists && bytes.Equal(document.content, other.content)
@@ -48,9 +51,8 @@ func cloneDocument(document Document) Document {
 
 // Codec is the pure host-aggregate boundary protocol. Implementations must not perform I/O.
 type Codec interface {
-	ContractID() CodecContractID
+	ContributionValidator
 	MaximumDocumentBytes() int64
-	ValidateContributions(ContributionSet) error
 	Read(Document, Selection) (Snapshot, *CodecFailure)
 	ClassifyContributionOccupancy(ProjectionState, ContributionSet) (ContributionOccupancySet, error)
 	Render(Document, Plan) (RenderedDocument, *CodecFailure)
@@ -78,7 +80,7 @@ func newOperationPrecondition(
 	scope target.Scope,
 	root output.Destination,
 ) (OperationPrecondition, error) {
-	document, err := newDocumentAddress(selectedTarget, scope, root)
+	document, err := NewDocumentAddress(selectedTarget, scope, root)
 	if err != nil {
 		return OperationPrecondition{}, err
 	}
@@ -177,7 +179,8 @@ func OperationPreconditionsForSelection(
 	return OperationPreconditionsForContract(contracts[0])
 }
 
-func newDocumentAddress(
+// NewDocumentAddress constructs a portable document identity without selecting keys.
+func NewDocumentAddress(
 	selectedTarget target.Target,
 	scope target.Scope,
 	aggregateRoot output.Destination,
@@ -198,7 +201,7 @@ func newDocumentAddress(
 
 // Validate rejects zero or forged aggregate document addresses.
 func (address DocumentAddress) Validate() error {
-	canonical, err := newDocumentAddress(address.target, address.scope, address.root)
+	canonical, err := NewDocumentAddress(address.target, address.scope, address.root)
 	if err != nil {
 		return err
 	}
@@ -222,6 +225,9 @@ func ValidateSubjectContract(subject topology.SubjectID, contract ProjectionCont
 	if err := contract.Validate(); err != nil {
 		return err
 	}
+	if _, native := HostConfigSyntaxForCodec(contract.CodecContractID()); native {
+		return validateHostConfigSubjectContract(subject, contract)
+	}
 	if placement, ok := HookPlacementForCodec(contract.CodecContractID()); ok {
 		expected, err := placement.Contribution("subject-contract")
 		if err != nil {
@@ -241,7 +247,11 @@ func ValidateSubjectContract(subject topology.SubjectID, contract ProjectionCont
 	if !ok || placement.CodecContractID() != contract.CodecContractID() {
 		return fmt.Errorf("aggregate subject contract codec %q is not admitted", contract.CodecContractID())
 	}
-	serverID, ok := placement.ServerIDFromContentPath(contract.Address().ContentPath())
+	contentPath, err := contract.Address().LegacyContentPath()
+	if err != nil {
+		return fmt.Errorf("MCP aggregate legacy scope: %w", err)
+	}
+	serverID, ok := placement.ServerIDFromContentPath(contentPath)
 	if !ok {
 		return fmt.Errorf("MCP aggregate subject contract content path is outside its placement")
 	}

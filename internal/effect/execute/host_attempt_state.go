@@ -501,6 +501,24 @@ func MatchPendingCarrierInstallCompletion(
 	return pending, correlation, true
 }
 
+type projectCarrierCompletion struct {
+	after   durable.Snapshot
+	claims  []durablecarrier.ManagedCarrierClaim
+	changed bool
+}
+
+func completeProjectCarrierInstalls(current durable.Snapshot, actions []reconciliation.RelationAction) (projectCarrierCompletion, error) {
+	claims, err := promotedProjectCarrierClaims(current, actions)
+	if err != nil {
+		return projectCarrierCompletion{}, err
+	}
+	after, changed, err := current.WithPromotedCarrierClaims(claims)
+	if err != nil {
+		return projectCarrierCompletion{}, err
+	}
+	return projectCarrierCompletion{after: after, claims: claims, changed: changed}, nil
+}
+
 func promotedProjectCarrierClaims(
 	current durable.Snapshot,
 	actions []reconciliation.RelationAction,

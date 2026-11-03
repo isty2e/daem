@@ -26,8 +26,13 @@ func observeProviderEffectiveMCP(
 	currentState durable.Snapshot,
 	selection targetselection.Selection,
 	codecs aggregate.CodecCatalog,
+	native []nativeAssessmentSources,
 ) (mcpeffectivehost.ObservationSet, error) {
 	previous, err := managedMCPProjections(currentState, selection)
+	if err != nil {
+		return mcpeffectivehost.ObservationSet{}, err
+	}
+	readFile, err := nativeConfigReader(native, resolver)
 	if err != nil {
 		return mcpeffectivehost.ObservationSet{}, err
 	}
@@ -39,6 +44,7 @@ func observeProviderEffectiveMCP(
 		Codecs:             codecs,
 		WorkDir:            paths.ManifestRoot,
 		ResolveDestination: resolver,
+		ReadFile:           readFile,
 	})
 }
 

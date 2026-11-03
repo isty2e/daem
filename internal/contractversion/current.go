@@ -5,11 +5,15 @@ package contractversion
 // Manifest and lockfile schemas evolve independently.
 const (
 	ManifestSchema = 1
-	LockfileSchema = 6
+	LockfileSchema = 7
 )
 
 // MetadataTransaction identifies bounded file-set recovery evidence.
 const MetadataTransaction = 3
+
+// MetadataTransactionReference identifies file-set evidence with one retained
+// commit-point after-image.
+const MetadataTransactionReference = 4
 
 // StateRelocation identifies a retired statefile's authority-transfer receipt.
 const StateRelocation = 1
@@ -21,12 +25,12 @@ const (
 	VersionJSON            = 1
 	InitJSON               = 1
 	ManifestAuthoringJSON  = 7
-	LockComparisonJSON     = 4
+	LockComparisonJSON     = 5
 	ResourceInventoryJSON  = 4
 	OutputInventoryJSON    = 5
 	PathInventoryJSON      = 2
-	ReconciliationPlanJSON = 17
-	ApplyResultJSON        = 23
+	ReconciliationPlanJSON = 18
+	ApplyResultJSON        = 24
 	RecoveryJSON           = 10
 	StateMigrationJSON     = 1
 	DoctorJSON             = 2

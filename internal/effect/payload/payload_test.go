@@ -39,6 +39,9 @@ func TestFilePayloadIsClosedImmutableEffectReadyContent(t *testing.T) {
 	}
 	returned := file.Bytes()
 	returned[0] = 'O'
+	if file.ContentSize() != int64(len("oracle")) {
+		t.Fatal("payload byte size changed with caller-owned buffers")
+	}
 	if got := string(file.Bytes()); got != "oracle" {
 		t.Fatalf("file bytes = %q after caller mutation, want immutable output", got)
 	}

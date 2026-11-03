@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 )
 
 // GuidanceKind distinguishes context, manual work and a concrete command.
@@ -95,8 +97,14 @@ func (guidance Guidance) HumanText() string {
 // FailureDiagnostic separates the primary cause from presenter-owned annotations.
 // Construction projects text once; neither renderer interprets error prose.
 type FailureDiagnostic struct {
-	message  string
-	guidance []Guidance
+	message              string
+	guidance             []Guidance
+	permissionProtection ownershipobserve.ProtectionObservation
+}
+
+func (diagnostic FailureDiagnostic) WithPermissionProtection(observation ownershipobserve.ProtectionObservation) FailureDiagnostic {
+	diagnostic.permissionProtection = observation
+	return diagnostic
 }
 
 func NewFailureDiagnostic(message string) FailureDiagnostic {
@@ -133,6 +141,10 @@ func (diagnostic FailureDiagnostic) WithGuidance(values ...Guidance) FailureDiag
 func (diagnostic FailureDiagnostic) HumanText() string {
 	var output strings.Builder
 	output.WriteString(diagnostic.message)
+	if permissionProtectionJSONFor(diagnostic.permissionProtection) != nil {
+		output.WriteByte('\n')
+		PrintPermissionProtection(&output, diagnostic.permissionProtection)
+	}
 	for _, guidance := range diagnostic.guidance {
 		output.WriteByte('\n')
 		output.WriteString(guidance.HumanText())

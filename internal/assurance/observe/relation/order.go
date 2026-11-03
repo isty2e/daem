@@ -3,6 +3,7 @@ package relation
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -310,6 +311,15 @@ func (sequence ObservedRelationSequence) Revision() SequenceRevision {
 // OrderedRows returns a defensive copy in observed physical order.
 func (sequence ObservedRelationSequence) OrderedRows() []ObservedRelationRow {
 	return append([]ObservedRelationRow(nil), sequence.orderedRows...)
+}
+
+// SameOrdering compares sequence identity, authority and correlated physical
+// rows, excluding the revision that witnesses the whole host surface.
+func (sequence ObservedRelationSequence) SameOrdering(other ObservedRelationSequence) bool {
+	return sequence.classID == other.classID &&
+		sequence.sequenceID == other.sequenceID &&
+		sequence.authority == other.authority &&
+		slices.Equal(sequence.orderedRows, other.orderedRows)
 }
 
 // ValidateOrderConstraintBudget rejects desired membership that cannot be

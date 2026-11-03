@@ -9,7 +9,7 @@ import (
 )
 
 func TestAppendDocumentBlockAddsToEmptyRootCollections(t *testing.T) {
-	for _, root := range []string{"skill", "skill_group", "hook", "mcp_server", "extension", "instructions"} {
+	for _, root := range []string{"skill", "skill_group", "hook", "mcp_server", "extension", "host_config", "instructions"} {
 		for _, syntax := range []struct {
 			name string
 			key  string
@@ -19,7 +19,11 @@ func TestAppendDocumentBlockAddsToEmptyRootCollections(t *testing.T) {
 			{name: "literal quoted", key: "'" + root + "'"},
 		} {
 			t.Run(root+"/"+syntax.name, func(t *testing.T) {
-				empty, block := "[\n # retained placeholder note\n]", "[["+root+"]]\nname = \"alpha\"\n"
+				block := "[[" + root + "]]\nname = \"alpha\"\n"
+				if root == "host_config" {
+					block = "[[host_config]]\nid = \"alpha\"\n"
+				}
+				empty := "[\n # retained placeholder note\n]"
 				if root == "instructions" {
 					empty, block = "{}", "[instructions.alpha]\nsource = \"AGENTS.md\"\n"
 				}
@@ -47,6 +51,11 @@ func TestAppendDocumentBlockAddsToEmptyRootCollections(t *testing.T) {
 					members := document[root].(map[string]any)
 					if len(members) != 1 || members["alpha"].(map[string]any)["source"] != "AGENTS.md" {
 						t.Fatalf("instruction members = %#v", members)
+					}
+				} else if root == "host_config" {
+					members := document[root].([]any)
+					if len(members) != 1 || members[0].(map[string]any)["id"] != "alpha" {
+						t.Fatalf("%s members = %#v", root, members)
 					}
 				} else {
 					members := document[root].([]any)

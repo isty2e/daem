@@ -3,9 +3,11 @@
 package commit
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path/filepath"
 
@@ -242,27 +244,8 @@ func commitFileWithFaultsAndParentRefresh(
 		closed = true
 		return failFileBeforeVisibility(request.path, phaseWritePayload, err, anchor, temporaryName, temporaryIdentity, faults)
 	}
-	err = faults.run(ctx, phaseApplyMode, func() error {
-		return unix.Fchmod(temporaryFD, uint32(request.mode.Perm()))
-	})
-	temporaryIdentity, err = refreshedTemporaryIdentity(temporaryFD, temporaryIdentity, err)
-	if err != nil {
-		_ = unix.Close(temporaryFD)
-		closed = true
-		return failFileBeforeVisibility(request.path, phaseApplyMode, err, anchor, temporaryName, temporaryIdentity, faults)
-	}
 	err = faults.run(ctx, phaseApplyMetadata, func() error {
-		if err := applyPreservedMetadata(temporaryFD, metadata); err != nil {
-			return err
-		}
-		var stat unix.Stat_t
-		if err := unix.Fstat(temporaryFD, &stat); err != nil {
-			return err
-		}
-		if fs.FileMode(stat.Mode).Perm() != request.mode.Perm() {
-			return unsupported("preserved metadata changed the requested file mode", nil)
-		}
-		return nil
+		return applyPreservedMetadata(temporaryFD, metadata)
 	})
 	temporaryIdentity, err = refreshedTemporaryIdentity(temporaryFD, temporaryIdentity, err)
 	if err != nil {
@@ -270,11 +253,47 @@ func commitFileWithFaultsAndParentRefresh(
 		closed = true
 		return failFileBeforeVisibility(request.path, phaseApplyMetadata, err, anchor, temporaryName, temporaryIdentity, faults)
 	}
+	err = faults.run(ctx, phaseApplyMode, func() error {
+		if err := unix.Fchmod(temporaryFD, uint32(request.mode.Perm())); err != nil {
+			return err
+		}
+		var stat unix.Stat_t
+		if err := unix.Fstat(temporaryFD, &stat); err != nil {
+			return err
+		}
+		if fs.FileMode(stat.Mode).Perm() != request.mode.Perm() {
+			return unsupported("prepared file mode differs from the requested mode", nil)
+		}
+		return nil
+	})
+	temporaryIdentity, err = refreshedTemporaryIdentity(temporaryFD, temporaryIdentity, err)
+	if err != nil {
+		_ = unix.Close(temporaryFD)
+		closed = true
+		return failFileBeforeVisibility(request.path, phaseApplyMode, err, anchor, temporaryName, temporaryIdentity, faults)
+	}
 	err = faults.run(ctx, phaseSyncPayload, func() error { return syncPayload(temporaryFD) })
 	if err != nil {
 		_ = unix.Close(temporaryFD)
 		closed = true
 		return failFileBeforeVisibility(request.path, phaseSyncPayload, err, anchor, temporaryName, temporaryIdentity, faults)
+	}
+	// Keep a readable handle without moving payload-close failures past visibility.
+	verificationFD := -1
+	defer func() {
+		if verificationFD >= 0 {
+			_ = unix.Close(verificationFD)
+		}
+	}()
+	err = faults.run(ctx, phaseRetainVerification, func() error {
+		var err error
+		verificationFD, err = unix.FcntlInt(uintptr(temporaryFD), unix.F_DUPFD_CLOEXEC, 0)
+		return err
+	})
+	if err != nil {
+		_ = unix.Close(temporaryFD)
+		closed = true
+		return failFileBeforeVisibility(request.path, phaseRetainVerification, err, anchor, temporaryName, temporaryIdentity, faults)
 	}
 	err = faults.run(ctx, phaseClosePayload, func() error { return unix.Close(temporaryFD) })
 	if err != nil {
@@ -334,15 +353,6 @@ func commitFileWithFaultsAndParentRefresh(
 		return failFileBeforeVisibility(request.path, phaseCommitEntry, err, anchor, temporaryName, temporaryIdentity, faults)
 	}
 
-	err = faults.run(ctx, phaseVerifyEntry, func() error {
-		if err := anchor.verifyChain(); err != nil {
-			return err
-		}
-		return verifyCommittedFile(anchor, request, temporaryIdentity, metadata)
-	})
-	if err != nil {
-		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
-	}
 	err = faults.run(ctx, phaseSyncParent, func() error { return syncDirectory(anchor.parentFD()) })
 	if err != nil {
 		return newFailure(failureIndeterminateCommit, phaseSyncParent, request.path, err)
@@ -355,6 +365,23 @@ func commitFileWithFaultsAndParentRefresh(
 	}
 	if err := anchor.verifyChain(); err != nil {
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
+	err = faults.run(ctx, phaseVerifyEntry, func() error {
+		if err := anchor.verifyChain(); err != nil {
+			return err
+		}
+		return verifyCommittedFile(ctx, anchor, request, temporaryIdentity, metadata, verificationFD)
+	})
+	if err != nil {
+		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
+	err = faults.run(ctx, phaseCloseVerification, func() error {
+		err := unix.Close(verificationFD)
+		verificationFD = -1
+		return err
+	})
+	if err != nil {
+		return newFailure(failureIndeterminateCommit, phaseCloseVerification, request.path, err)
 	}
 	return nil
 }
@@ -484,7 +511,7 @@ func createTemporaryFile(anchor *anchoredParent) (string, int, EntryIdentity, er
 		fd, err := unix.Openat(
 			anchor.parentFD(),
 			name,
-			unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+			unix.O_RDWR|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW,
 			0o600,
 		)
 		if errors.Is(err, unix.EEXIST) {
@@ -505,10 +532,12 @@ func createTemporaryFile(anchor *anchoredParent) (string, int, EntryIdentity, er
 }
 
 func verifyCommittedFile(
+	ctx context.Context,
 	anchor *anchoredParent,
 	request FileCommit,
 	temporary EntryIdentity,
 	metadata preservedMetadata,
+	verificationFD int,
 ) error {
 	observed, stat, err := anchor.observe(anchor.base, request.path)
 	if err != nil {
@@ -523,12 +552,62 @@ func verifyCommittedFile(
 	if fs.FileMode(stat.Mode).Perm() != request.mode.Perm() {
 		return fmt.Errorf("committed mode is %04o, want %04o", fs.FileMode(stat.Mode).Perm(), request.mode.Perm())
 	}
-	fd, _, err := anchor.openExpected(anchor.base, request.path, observed)
+	if err := validateOwnedStat(request.path, &stat); err != nil {
+		return err
+	}
+	opened, err := refreshOpenedIdentity(verificationFD, request.path)
 	if err != nil {
 		return err
 	}
-	defer unix.Close(fd)
-	return verifyPreservedMetadata(fd, metadata)
+	if !observed.sameEntry(opened) {
+		return fmt.Errorf("committed entry differs from retained payload descriptor")
+	}
+	if stat.Size != int64(len(request.payload)) {
+		return fmt.Errorf("committed payload size differs")
+	}
+	if err := verifyCommittedPayload(ctx, verificationFD, request.payload); err != nil {
+		return err
+	}
+	// Supported metadata was verified on this inode before the restrictive mode;
+	// ACLs are refused rather than rewritten by chmod.
+	if request.mode&0o400 != 0 {
+		if err := verifyPreservedMetadata(verificationFD, metadata); err != nil {
+			return err
+		}
+	}
+	after, err := refreshOpenedIdentity(verificationFD, request.path)
+	if err != nil {
+		return err
+	}
+	if !observed.sameEntry(after) {
+		return fmt.Errorf("committed payload changed during verification")
+	}
+	_, _, err = anchor.requireExpected(anchor.base, request.path, observed)
+	return err
+}
+
+func verifyCommittedPayload(ctx context.Context, fd int, payload []byte) error {
+	buffer := make([]byte, min(32<<10, len(payload)))
+	for offset := 0; offset < len(payload); {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		count, err := unix.Pread(fd, buffer[:min(len(buffer), len(payload)-offset)], int64(offset))
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return io.ErrUnexpectedEOF
+		}
+		if !bytes.Equal(buffer[:count], payload[offset:offset+count]) {
+			return fmt.Errorf("committed payload differs")
+		}
+		offset += count
+	}
+	return ctx.Err()
 }
 
 type fdWriter struct{ fd int }

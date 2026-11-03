@@ -7,6 +7,9 @@ import (
 
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -60,13 +63,18 @@ func RunOutputs(ctx context.Context, input Input) (OutputResult, error) {
 	}
 
 	resolver := managedhostpath.Resolver(paths)
+	limits := configdocument.Limits{MaximumBytes: recovery.MaximumRecoveryBackupFileBytes, MaximumDepth: tomlsyntax.MaximumDepth}
+	codecs, err := aggregatecodec.ForOperation(ctx, aggregatecodec.ContractIDs(), limits, limits)
+	if err != nil {
+		return result, err
+	}
 	assessment, err := readiness.AssessOutputInventory(ctx, readiness.OutputInventoryInput{
 		Paths:                   paths,
 		Resolver:                liveobserve.DestinationResolver(resolver.Resolve),
 		Environment:             environment,
 		Lockfile:                locked,
 		TargetValues:            input.TargetValues,
-		Codecs:                  aggregatecodec.Catalog(),
+		Codecs:                  codecs,
 		HookContributionEncoder: hookcodec.CanonicalHookContribution,
 		MCPContributionEncoder:  mcpcodec.CanonicalMCPBindingContribution,
 	})

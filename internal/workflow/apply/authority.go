@@ -5,18 +5,27 @@ import (
 	"fmt"
 
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/output/ownership"
+	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 )
 
 const delegateRouteFamilyPrefix = "delegate-runner."
 
 type applyAuthorityEvidence struct {
-	domains []mutation.Domain
+	domains               []mutation.Domain
+	documentWrites        mutation.PhysicalAuthoritySet
+	documentWriteRequests []mutation.PhysicalAuthorityRequest
+	metadataRequests      []mutation.PhysicalAuthorityRequest
+	documentView          ownership.DocumentRegistryView
 	// Declaration revisions are owned by PreparedWrite's bounded witness.
 	firstEffectRevisions []mutation.RevisionRequest
 	facts                []operationplan.Fact
@@ -39,13 +48,19 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		0,
 	)
 	physicalOccupancies := make(physicalOccupancyIndex)
+	registryAccess := mutation.AccessShared
+	requiresRegistry := planned.nativePlan != nil
 	if err := builder.AddLogicalPair(result.ManifestPath, mutation.AccessShared, mutation.AccessShared); err != nil {
 		return applyAuthorityEvidence{}, err
 	}
 	if err := builder.AddLogicalPair(result.LockfilePath, mutation.AccessShared, mutation.AccessShared); err != nil {
 		return applyAuthorityEvidence{}, err
 	}
-	if err := builder.AddLogicalPair(planned.assessment.StatePath, mutation.AccessExclusive, mutation.AccessShared); err != nil {
+	stateReferentAccess := mutation.AccessShared
+	if planned.nativePlan != nil && planned.nativePlan.opaque {
+		stateReferentAccess = mutation.AccessExclusive
+	}
+	if err := builder.AddLogicalPair(planned.assessment.StatePath, mutation.AccessExclusive, stateReferentAccess); err != nil {
 		return applyAuthorityEvidence{}, err
 	}
 	for _, path := range []struct {
@@ -81,17 +96,14 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	if err := builder.AddLogical(metadataTransactionPath, mutation.AccessExclusive, mutation.PathEffectDirectoryEntry); err != nil {
 		return applyAuthorityEvidence{}, err
 	}
+	if planned.nativePlan != nil {
+		registryAccess = mutation.AccessExclusive
+	}
 	for _, decision := range planned.assessment.Reconciliation.MutatingManagedPaths() {
 		if !decision.InvolvesScope(target.ScopeGlobal) {
 			continue
 		}
-		if err := builder.AddLogicalPair(
-			planned.context.Paths.OwnershipRegistryPath,
-			mutation.AccessExclusive,
-			mutation.AccessExclusive,
-		); err != nil {
-			return applyAuthorityEvidence{}, err
-		}
+		requiresRegistry, registryAccess = true, mutation.AccessExclusive
 		break
 	}
 	localSources, err := localEntityArtifactSourceAuthorityPaths(
@@ -104,6 +116,36 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	for _, path := range localSources {
 		if err := builder.AddLogicalPair(path, mutation.AccessShared, mutation.AccessShared); err != nil {
 			return applyAuthorityEvidence{}, err
+		}
+	}
+	addOpaqueNamespaces := func(key desiredextension.CarrierKey, operation lock.OperationKind) error {
+		profile, err := relationhost.NativeSettingsProfileFor(key, operation)
+		if err != nil {
+			return err
+		}
+		paths, err := profile.ExclusionPaths(planned.context.Paths)
+		if err != nil {
+			return err
+		}
+		for _, path := range paths {
+			if err := builder.AddDocumentWritePair(path.Path(), string(path.Target()), string(path.Scope())); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, action := range planned.assessment.Reconciliation.Relations() {
+		if action.InvokesHostRoute() {
+			if err := addOpaqueNamespaces(action.CarrierIdentity().Carrier().Key(), lock.OperationInstall); err != nil {
+				return applyAuthorityEvidence{}, err
+			}
+		}
+	}
+	for _, action := range planned.assessment.Reconciliation.CarrierAbsences() {
+		if action.InvokesHostRoute() {
+			if err := addOpaqueNamespaces(action.Claim().Identity().Carrier().Key(), lock.OperationRemove); err != nil {
+				return applyAuthorityEvidence{}, err
+			}
 		}
 	}
 	for _, authority := range relationAuthorityPathFacts(
@@ -156,6 +198,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		consumers []target.Target,
 		kind physicalOccupancyKind,
 		aggregateTarget target.Target,
+		write bool,
 	) error {
 		if err := observeProjectDestinationAuthorityFor(ctx, planned, scope, destination); err != nil {
 			return err
@@ -170,6 +213,12 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			return err
 		}
 		for _, consumer := range consumers {
+			if write {
+				if err := builder.AddDocumentWritePair(path, string(consumer), string(scope)); err != nil {
+					return err
+				}
+				continue
+			}
 			if err := builder.AddPhysicalPair(
 				path,
 				mutation.AccessExclusive,
@@ -187,14 +236,21 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		if len(consumers) == 0 && hasPrevious {
 			consumers = previous.ConsumerTargets()
 		}
+		kind, documentTarget := physicalOccupancyWholePath, target.Target("")
+		if aggregate.IsHostConfigDocumentSubject(decision.Subject()) {
+			if len(consumers) != 1 {
+				return applyAuthorityEvidence{}, fmt.Errorf("native whole authority requires one consumer")
+			}
+			kind, documentTarget = physicalOccupancyAggregate, consumers[0]
+		}
 		if err := addManagedPath(
-			decision.Scope(), decision.Destination(), consumers, physicalOccupancyWholePath, "",
+			decision.Scope(), decision.Destination(), consumers, kind, documentTarget, true,
 		); err != nil {
 			return applyAuthorityEvidence{}, err
 		}
 		if hasPrevious && (previous.Scope() != decision.Scope() || previous.Destination() != decision.Destination()) {
 			if err := addManagedPath(
-				previous.Scope(), previous.Destination(), previous.ConsumerTargets(), physicalOccupancyWholePath, "",
+				previous.Scope(), previous.Destination(), previous.ConsumerTargets(), kind, documentTarget, true,
 			); err != nil {
 				return applyAuthorityEvidence{}, err
 			}
@@ -208,6 +264,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			[]target.Target{document.Target()},
 			physicalOccupancyAggregate,
 			document.Target(),
+			true,
 		); err != nil {
 			return applyAuthorityEvidence{}, err
 		}
@@ -219,8 +276,31 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 				[]target.Target{document.Target()},
 				physicalOccupancyAggregate,
 				document.Target(),
+				false,
 			); err != nil {
 				return applyAuthorityEvidence{}, err
+			}
+		}
+	}
+	if planned.nativePlan != nil {
+		for _, document := range planned.nativePlan.stateDocuments {
+			if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), false); err != nil {
+				return applyAuthorityEvidence{}, err
+			}
+		}
+	}
+	var metadataRequests []mutation.PhysicalAuthorityRequest
+	if planned.nativePlan != nil && planned.nativePlan.opaque {
+		for _, group := range planned.assessment.NativeApproval {
+			for _, document := range group.Aliases {
+				if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), false); err != nil {
+					return applyAuthorityEvidence{}, err
+				}
+				path, err := projectDestinationAuthorityPathFor(planned, document.Scope(), document.AggregateRoot())
+				if err != nil {
+					return applyAuthorityEvidence{}, err
+				}
+				metadataRequests = append(metadataRequests, mutation.PhysicalAuthorityRequest{Path: path, Target: string(document.Target()), Scope: string(document.Scope())})
 			}
 		}
 	}
@@ -300,6 +380,39 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		}
 	}
 
+	requests := builder.Compile().DocumentWriteRequests()
+	physical, err := mutation.NewPhysicalAuthoritySet(requests...)
+	if err != nil {
+		return applyAuthorityEvidence{}, err
+	}
+	scope, err := recoverygate.DocumentScope(physical)
+	if err != nil {
+		return applyAuthorityEvidence{}, err
+	}
+	view, err := ownership.EmptyRegistry().Documents(scope)
+	if err != nil {
+		return applyAuthorityEvidence{}, err
+	}
+	if requiresRegistry || len(requests) != 0 {
+		if planned.nativePlan != nil {
+			view, err = planned.assessment.NativeObservedDocuments(scope)
+		} else {
+			view, err = recoverygate.ObserveDocumentRegistry(ctx, planned.context.Paths.OwnershipRegistryPath, physical)
+		}
+		if err != nil {
+			return applyAuthorityEvidence{}, err
+		}
+		if err := view.RequireProtectionClear(); err != nil {
+			return applyAuthorityEvidence{}, err
+		}
+		identity, err := view.Fingerprint()
+		if err != nil {
+			return applyAuthorityEvidence{}, err
+		}
+		if err := builder.AddOwnershipRegistry(planned.context.Paths.OwnershipRegistryPath, registryAccess, identity); err != nil {
+			return applyAuthorityEvidence{}, err
+		}
+	}
 	plan := builder.Compile()
 	domains, err := lowerApplyAuthorityDomainSteps(plan.DomainSteps())
 	if err != nil {
@@ -317,10 +430,14 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		return applyAuthorityEvidence{}, err
 	}
 	return applyAuthorityEvidence{
-		domains:              domains,
-		firstEffectRevisions: plan.Revisions(),
-		facts:                plan.Facts(),
-		authorityFingerprint: fingerprint,
+		domains:               domains,
+		documentWrites:        physical,
+		documentWriteRequests: requests,
+		metadataRequests:      metadataRequests,
+		documentView:          view,
+		firstEffectRevisions:  plan.Revisions(),
+		facts:                 plan.Facts(),
+		authorityFingerprint:  fingerprint,
 	}, nil
 }
 

@@ -96,6 +96,10 @@ func (namespace *fallbackLeaseNamespace) ValidateCurrent() error {
 	return nil
 }
 
+func (namespace *fallbackLeaseNamespace) validateCurrentBounded(context.Context, int, PhysicalObservationBudget, pathIdentityObserver) error {
+	return fmt.Errorf("bounded mutation lease namespace is unsupported on this platform")
+}
+
 func (namespace *fallbackLeaseNamespace) Close() error {
 	return nil
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestPlanDryRunConsumesPublicMCPManifestLockSubject(t *testing.T) {
@@ -147,7 +148,7 @@ func assertApplyMCPPlanSubject(t *testing.T, result reconcile.Result, serverID s
 	decision := requireApplyMCPAggregateDecision(t, result, serverID)
 	if decision.Target() != targetpkg.TargetClaudeCode ||
 		decision.Destination().String() != aggregate.ClaudeProjectMCPConfigPath ||
-		decision.ContentPath() != outputpkg.ContentPath(mcpcodec.ClaudeProjectMCPContentPath(serverID)) {
+		outputpkg.ContentPath(outputtest.LegacyContentPath(t, decision.Contract().Address())) != outputpkg.ContentPath(mcpcodec.ClaudeProjectMCPContentPath(serverID)) {
 		t.Fatalf("aggregate decision = %#v, want Claude project MCP projection subject %q", decision, serverID)
 	}
 }

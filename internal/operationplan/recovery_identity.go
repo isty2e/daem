@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
+	footprintcodec "github.com/isty2e/daem/internal/encoding/footprint"
 )
 
 // RecoveryPathAuthorityFingerprint is one owner-supplied exact path-authority
@@ -28,7 +29,7 @@ type ActiveRecoveryCleanupObligation struct {
 type ActiveRecoveryClaimTransition struct {
 	Kind                    string
 	PathAuthority           RecoveryPathAuthorityFingerprint
-	ContentPath             string
+	Footprint               footprintcodec.Record
 	OwnerStatefileAuthority RecoveryPathAuthorityFingerprint
 	OwnerManifestPath       string
 	OperationID             string
@@ -52,7 +53,7 @@ type ActiveRecoveryIdentityInput struct {
 	ClaimTransitions             []ActiveRecoveryClaimTransition
 }
 
-// ActiveRecoveryOperationFingerprint hashes the historical active-journal
+// ActiveRecoveryOperationFingerprint hashes the current active-journal
 // recovery projection without interpreting journal or StateDir semantics.
 func ActiveRecoveryOperationFingerprint(
 	input ActiveRecoveryIdentityInput,

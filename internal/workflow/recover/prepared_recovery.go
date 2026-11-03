@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/recoverygate"
+	permissions "github.com/isty2e/daem/internal/workflow/protection"
 )
 
 var (
@@ -39,12 +40,18 @@ type recoveryPreparation struct {
 	physicalPathBudget rootedpath.PhysicalTraversalBudget
 }
 
-// PreparedRecovery owns one exact recovery operation. Disclosure returns only
-// an independent journal-plan snapshot; execution consumes the private
-// operation and its evidence exactly once. Value copies remain aliases of one
-// shared lifecycle and cannot duplicate execution authority.
+type preparedRecoveryOperation interface{ recoveryOperation() }
+
+func (recoveryPreparation) recoveryOperation() {}
+
+type permissionPreparation struct{ prepared permissions.Prepared }
+
+func (permissionPreparation) recoveryOperation() {}
+
+// PreparedRecovery owns one exact journal or permission recovery operation.
+// Value copies share its single execution lifecycle; disclosures grant no rights.
 type PreparedRecovery struct {
-	disclosure   journal.RecoverablePlan
+	disclosure   preparedRecoveryOperation
 	fileSetFence fileset.FileSetFenceKind
 	lifecycle    *preparedRecoveryLifecycle
 }
@@ -52,22 +59,25 @@ type PreparedRecovery struct {
 type preparedRecoveryLifecycle struct {
 	mu      sync.Mutex
 	state   preparedRecoveryState
-	planned recoveryPreparation
+	planned preparedRecoveryOperation
 }
 
-func newPreparedRecovery(planned recoveryPreparation) *PreparedRecovery {
-	return &PreparedRecovery{
-		disclosure:   planned.plan.Clone(),
-		fileSetFence: planned.fileSetFence,
+func newPreparedRecovery(planned preparedRecoveryOperation) *PreparedRecovery {
+	prepared := &PreparedRecovery{
+		disclosure: planned,
 		lifecycle: &preparedRecoveryLifecycle{
 			state:   preparedRecoveryReady,
 			planned: planned,
 		},
 	}
+	if journalPlan, ok := planned.(recoveryPreparation); ok {
+		journalPlan.plan = journalPlan.plan.Clone()
+		prepared.disclosure = journalPlan
+		prepared.fileSetFence = journalPlan.fileSetFence
+	}
+	return prepared
 }
 
-// Disclosure returns an independent recovery snapshot for presentation.
-// It grants no authority to execute the disclosed actions.
 // ContinuingFileSetFence returns the separate file-set fence that active
 // journal recovery does not clear.
 func (prepared *PreparedRecovery) ContinuingFileSetFence() (fileset.FileSetFenceKind, bool) {
@@ -84,6 +94,8 @@ func (prepared *PreparedRecovery) ContinuingFileSetFence() (fileset.FileSetFence
 	}
 }
 
+// Disclosure returns the independent journal snapshot, or nil for permission
+// recovery. PermissionDisclosure explicitly selects the other closed variant.
 func (prepared *PreparedRecovery) Disclosure() journal.RecoverablePlan {
 	if prepared == nil || prepared.lifecycle == nil {
 		return nil
@@ -91,12 +103,28 @@ func (prepared *PreparedRecovery) Disclosure() journal.RecoverablePlan {
 
 	prepared.lifecycle.mu.Lock()
 	defer prepared.lifecycle.mu.Unlock()
-	return prepared.disclosure.Clone()
+	if journalPlan, ok := prepared.disclosure.(recoveryPreparation); ok {
+		return journalPlan.plan.Clone()
+	}
+	return nil
 }
 
-func (prepared *PreparedRecovery) beginExecution() (recoveryPreparation, error) {
+func (prepared *PreparedRecovery) PermissionDisclosure() (permissions.Plan, bool) {
 	if prepared == nil || prepared.lifecycle == nil {
-		return recoveryPreparation{}, ErrPreparedRecoveryUnavailable
+		return permissions.Plan{}, false
+	}
+	prepared.lifecycle.mu.Lock()
+	defer prepared.lifecycle.mu.Unlock()
+	selection, ok := prepared.disclosure.(permissionPreparation)
+	if !ok {
+		return permissions.Plan{}, false
+	}
+	return selection.prepared.Disclosure(), true
+}
+
+func (prepared *PreparedRecovery) beginExecution() (preparedRecoveryOperation, error) {
+	if prepared == nil || prepared.lifecycle == nil {
+		return nil, ErrPreparedRecoveryUnavailable
 	}
 
 	lifecycle := prepared.lifecycle
@@ -107,14 +135,14 @@ func (prepared *PreparedRecovery) beginExecution() (recoveryPreparation, error) 
 	case preparedRecoveryReady:
 		execution := lifecycle.planned
 		lifecycle.state = preparedRecoveryConsumed
-		lifecycle.planned = recoveryPreparation{}
+		lifecycle.planned = nil
 		return execution, nil
 	case preparedRecoveryClosed:
-		return recoveryPreparation{}, ErrPreparedRecoveryClosed
+		return nil, ErrPreparedRecoveryClosed
 	case preparedRecoveryConsumed:
-		return recoveryPreparation{}, ErrPreparedRecoveryConsumed
+		return nil, ErrPreparedRecoveryConsumed
 	default:
-		return recoveryPreparation{}, ErrPreparedRecoveryUnavailable
+		return nil, ErrPreparedRecoveryUnavailable
 	}
 }
 
@@ -132,6 +160,6 @@ func (prepared *PreparedRecovery) Close() error {
 		return nil
 	}
 	lifecycle.state = preparedRecoveryClosed
-	lifecycle.planned = recoveryPreparation{}
+	lifecycle.planned = nil
 	return nil
 }

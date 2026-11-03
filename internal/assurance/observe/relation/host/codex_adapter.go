@@ -16,12 +16,12 @@ func codexPluginObserver() passiveObserver {
 	}
 }
 
-func observeCodexPlugins(_ Input, records []carrierRecord) (relationobserve.BatchSpec, error) {
-	paths, err := observecodexplugin.ResolveHostPaths()
+func observeCodexPlugins(input Input, records []carrierRecord) (relationobserve.BatchSpec, error) {
+	paths, err := observecodexplugin.ResolveHostPathsForWorkDir(input.Paths.ManifestRoot)
 	if err != nil {
 		return relationobserve.BatchSpec{}, err
 	}
-	observation, err := observecodexplugin.ObserveConfigFile(paths.ConfigPath())
+	observation, err := observecodexplugin.ObserveConfigFileWithReader(input.context, paths.ConfigPath(), input.ReadFile)
 	if err != nil {
 		return relationobserve.BatchSpec{}, err
 	}

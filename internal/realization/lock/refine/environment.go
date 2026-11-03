@@ -4,7 +4,9 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/realization/profile"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
 )
 
@@ -17,6 +19,20 @@ func ExpectedManagedPaths(
 		return nil, fmt.Errorf("desired environment: %w", err)
 	}
 	contracts := make([]lock.LockedSubjectContract, 0)
+	for _, config := range environment.HostConfigs() {
+		if config.Ownership() != hostconfig.OwnershipDocument {
+			continue
+		}
+		placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
+		if err != nil {
+			return nil, err
+		}
+		contract, err := lock.NewHostConfigDocumentSubjectContract(config.ID(), placement)
+		if err != nil {
+			return nil, err
+		}
+		contracts = append(contracts, contract)
+	}
 	for _, value := range environment.Skills() {
 		projections, err := SkillPathProjections(value)
 		if err != nil {

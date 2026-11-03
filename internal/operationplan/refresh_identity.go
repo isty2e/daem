@@ -84,44 +84,47 @@ type RefreshOperationContract struct {
 // RefreshIdentityInput contains the already-normalized facts whose exact JSON
 // projection is the refresh operation identity. It grants no effect authority.
 type RefreshIdentityInput struct {
-	Mode          string
-	ManifestPath  string
-	LockfilePath  string
-	StatefilePath string
-	Selection     RefreshSelection
-	Route         RefreshRoute
-	Disclosure    RefreshDisclosure
-	Observation   *RefreshObservation
-	Operation     RefreshOperationContract
+	Mode           string
+	ManifestPath   string
+	LockfilePath   string
+	StatefilePath  string
+	Selection      RefreshSelection
+	Route          RefreshRoute
+	Disclosure     RefreshDisclosure
+	Observation    *RefreshObservation
+	Operation      RefreshOperationContract
+	NativeSettings string
 }
 
 type refreshIdentityPayload struct {
-	Command       string
-	Mode          string
-	ManifestPath  string
-	LockfilePath  string
-	StatefilePath string
-	Selection     RefreshSelection
-	Route         RefreshRoute
-	Disclosure    RefreshDisclosure
-	Observation   *RefreshObservation
-	Operation     RefreshOperationContract
+	Command        string
+	Mode           string
+	ManifestPath   string
+	LockfilePath   string
+	StatefilePath  string
+	Selection      RefreshSelection
+	Route          RefreshRoute
+	Disclosure     RefreshDisclosure
+	Observation    *RefreshObservation
+	Operation      RefreshOperationContract
+	NativeSettings string `json:",omitempty"`
 }
 
-// RefreshOperationFingerprint hashes the exact historical refresh operation
-// projection without observing state or acquiring authority.
+// RefreshOperationFingerprint preserves the historical ordinary projection and
+// binds native approval facts when the operation selects them.
 func RefreshOperationFingerprint(input RefreshIdentityInput) (mutation.OperationFingerprint, error) {
 	payload, err := json.Marshal(refreshIdentityPayload{
-		Command:       "refresh extension",
-		Mode:          input.Mode,
-		ManifestPath:  input.ManifestPath,
-		LockfilePath:  input.LockfilePath,
-		StatefilePath: input.StatefilePath,
-		Selection:     input.Selection,
-		Route:         input.Route,
-		Disclosure:    input.Disclosure,
-		Observation:   input.Observation,
-		Operation:     input.Operation,
+		Command:        "refresh extension",
+		Mode:           input.Mode,
+		ManifestPath:   input.ManifestPath,
+		LockfilePath:   input.LockfilePath,
+		StatefilePath:  input.StatefilePath,
+		Selection:      input.Selection,
+		Route:          input.Route,
+		Disclosure:     input.Disclosure,
+		Observation:    input.Observation,
+		Operation:      input.Operation,
+		NativeSettings: input.NativeSettings,
 	})
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint refresh plan: %w", err)

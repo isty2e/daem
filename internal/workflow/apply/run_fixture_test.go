@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute"
 	targetpkg "github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func assertHookAggregateState(t *testing.T, snapshot durable.Snapshot, expectedSubject topology.SubjectID) {
@@ -18,7 +19,7 @@ func assertHookAggregateState(t *testing.T, snapshot durable.Snapshot, expectedS
 		}
 		contribution := stateResource.Contribution()
 		if contribution.Target() != targetpkg.TargetCodex || contribution.Scope() != targetpkg.ScopeProject ||
-			contribution.AggregateRoot().String() != ".codex/hooks.json" || contribution.ContentPath() != "/hooks" ||
+			contribution.AggregateRoot().String() != ".codex/hooks.json" || outputtest.LegacyContentPath(t, contribution) != "/hooks" ||
 			!strings.Contains(contribution.CanonicalContribution(), "python3 hooks/protect.py") {
 			t.Fatalf("managed Hook aggregate state = %#v", stateResource)
 		}

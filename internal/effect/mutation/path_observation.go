@@ -1,8 +1,75 @@
 package mutation
 
-import "path/filepath"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+)
 
 type pathIdentityObserver func(string, PathEffect) (canonicalPath, error)
+
+type pathObservationKey struct {
+	path   string
+	effect PathEffect
+}
+
+func newBoundedPathIdentityObserver(ctx context.Context, depth int, budget PhysicalObservationBudget) pathIdentityObserver {
+	return cachePathIdentities(func(path string, effect PathEffect) (canonicalPath, error) {
+		if err := ctx.Err(); err != nil {
+			return canonicalPath{}, err
+		}
+		if err := validatePathObservation(path, effect); err != nil {
+			return canonicalPath{}, err
+		}
+		var selection pathSelection
+		if effect == PathEffectDirectoryEntry {
+			value, err := selectDirectoryEntryPathBounded(path, depth, budget)
+			if err != nil {
+				return canonicalPath{}, err
+			}
+			selection = value
+		} else {
+			absolute, err := filepath.Abs(filepath.Clean(path))
+			if err != nil {
+				return canonicalPath{}, err
+			}
+			resolved, err := rootedpath.ResolveReferentPathBounded(absolute, depth, budget)
+			if err != nil {
+				return canonicalPath{}, err
+			}
+			if err := admitPlatformPathTraversal(resolved, depth, budget); err != nil {
+				return canonicalPath{}, err
+			}
+			if err := budget.AdmitPhysicalWork(0, 1, 0); err != nil {
+				return canonicalPath{}, err
+			}
+			_, err = os.Lstat(resolved)
+			if err == nil {
+				selection = pathSelection{anchorPath: resolved}
+			} else if errors.Is(err, os.ErrNotExist) {
+				selection, err = selectDirectoryEntryPathBounded(resolved, depth, budget)
+				if err != nil {
+					return canonicalPath{}, err
+				}
+			} else {
+				return canonicalPath{}, err
+			}
+		}
+		return canonicalPathIdentityFromSelectionBounded(path, selection, effect, depth, budget)
+	})
+}
+
+func validatePathObservation(path string, effect PathEffect) error {
+	if strings.TrimSpace(path) == "" || strings.ContainsRune(path, '\x00') {
+		return fmt.Errorf("mutation path is invalid")
+	}
+	return effect.validate()
+}
 
 // newPathIdentityObserver shares successful observations within one read-only
 // pass. It must not survive a visibility effect or another validation call.
@@ -63,13 +130,9 @@ func newPathSelectionResolver(
 // cachePathIdentities retains complete successful values within one read-only pass.
 // Its lifetime must end before any effect or another validation invocation.
 func cachePathIdentities(observe pathIdentityObserver) pathIdentityObserver {
-	type observationKey struct {
-		path   string
-		effect PathEffect
-	}
-	observed := make(map[observationKey]canonicalPath)
+	observed := make(map[pathObservationKey]canonicalPath)
 	return func(path string, effect PathEffect) (canonicalPath, error) {
-		key := observationKey{path: path, effect: effect}
+		key := pathObservationKey{path: path, effect: effect}
 		if identity, exists := observed[key]; exists {
 			return identity, nil
 		}

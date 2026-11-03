@@ -48,6 +48,7 @@ func captureProjectContentPathRecoveryBeforePath(
 	filesystem mutationfs.Reader,
 	manifestAuthority *manifestAuthoritySession,
 	contentPathBaselines *recoveryContentPathBaselineCache,
+	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
 	if action.Kind == pathMutationCreate {
 		if action.LiveExists {
@@ -120,7 +121,7 @@ func captureProjectContentPathRecoveryBeforePath(
 	backupIndex++
 	backupPath := filepath.ToSlash(filepath.Join("files", fmt.Sprintf("%06d", backupIndex)))
 	absoluteBackupPath := filepath.Join(operationDir, filepath.FromSlash(backupPath))
-	if err := writeRecoveryBackupFile(absoluteBackupPath, projection, 0o600); err != nil {
+	if err := work.writeFile(absoluteBackupPath, projection, 0o600); err != nil {
 		return recovery.BeforePathState{}, backupIndex, fmt.Errorf(
 			"copy recovery projection backup for %q content path %q: %w",
 			action.Destination,
@@ -179,6 +180,7 @@ func captureProjectExistingRecoveryBeforePath(
 	backupIndex int,
 	action pathMutation,
 	manifestAuthority *manifestAuthoritySession,
+	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
 	capability, err := manifestAuthority.acquire(action.Destination)
 	if err != nil {
@@ -191,6 +193,7 @@ func captureProjectExistingRecoveryBeforePath(
 		backupIndex,
 		action,
 		capability,
+		work,
 	)
 	closeErr := capability.Close()
 	if captureErr != nil || closeErr != nil {
@@ -206,6 +209,7 @@ func captureRootedExistingWithCapability(
 	backupIndex int,
 	action pathMutation,
 	capability rootedpath.CommitCapability,
+	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
 	identity, err := filesystem.CaptureRootedEntryIdentity(ctx, capability)
 	if err != nil {
@@ -243,13 +247,13 @@ func captureRootedExistingWithCapability(
 				action.LivePathHash,
 			)
 		}
-		if err := writeRecoveryBackupFile(absoluteBackupPath, content, mode); err != nil {
+		if err := work.writeFile(absoluteBackupPath, content, mode); err != nil {
 			return recovery.BeforePathState{}, backupIndex, err
 		}
 		before.PathMode = recovery.NewPermissionMode(mode)
 		before.Kind = recovery.PathKindFile
 	case mutationfs.EntryKindDirectory:
-		sink := newRootedTreeBackupSink(ctx, absoluteBackupPath)
+		sink := newRootedTreeBackupSink(ctx, absoluteBackupPath, work)
 		if _, err := filesystem.SnapshotRootedDirectory(
 			ctx,
 			capability,

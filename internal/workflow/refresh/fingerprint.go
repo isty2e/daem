@@ -6,11 +6,16 @@ import (
 )
 
 func refreshFingerprint(planned plan) (mutation.OperationFingerprint, error) {
+	native := ""
+	if planned.native != nil {
+		native = planned.native.approvalFingerprint
+	}
 	return operationplan.RefreshOperationFingerprint(operationplan.RefreshIdentityInput{
-		Mode:          string(planned.result.Mode),
-		ManifestPath:  planned.result.ManifestPath,
-		LockfilePath:  planned.result.LockfilePath,
-		StatefilePath: planned.result.StatefilePath,
+		NativeSettings: native,
+		Mode:           string(planned.result.Mode),
+		ManifestPath:   planned.result.ManifestPath,
+		LockfilePath:   planned.result.LockfilePath,
+		StatefilePath:  planned.result.StatefilePath,
 		Selection: operationplan.RefreshSelection{
 			ID:      planned.result.Selection.ID,
 			Target:  string(planned.result.Selection.Target),

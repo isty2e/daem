@@ -66,7 +66,7 @@ func AssessOutputInventory(
 		return OutputInventoryAssessment{}, fmt.Errorf("normalize selected targets: %w", err)
 	}
 
-	managedInputs, err := buildManagedPathPlanningInputs(input.Lockfile, currentState, selection)
+	managedInputs, err := buildManagedPathPlanningInputs(input.Lockfile, currentState.ManagedPaths(), selection)
 	if err != nil {
 		return OutputInventoryAssessment{}, err
 	}

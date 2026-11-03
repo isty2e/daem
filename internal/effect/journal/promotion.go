@@ -220,53 +220,16 @@ func recoveryJournalAfterPromotion(
 	transition ownershipmutation.ClaimTransition,
 	stateCodec durable.SnapshotCodec,
 ) (recoveryJournal, error) {
-	if current.OperationID != intent.OperationID() {
-		return recoveryJournal{}, fmt.Errorf("recovery journal operation differs from ownership intent")
+	material := ordinaryCaptureMaterial{
+		OperationID: current.OperationID, Entries: current.Entries,
+		ClaimTransitions: current.ClaimTransitions, ProvisionalAcquires: current.ProvisionalAcquires,
 	}
-	intents, err := canonicalProvisionalAcquireIntents(current.ProvisionalAcquires)
-	if err != nil {
-		return recoveryJournal{}, err
-	}
-	remaining := make([]outputownership.ProvisionalAcquireIntent, 0, len(intents))
-	matched := 0
-	for _, candidate := range intents {
-		if candidate.Equal(intent) {
-			matched++
-			continue
-		}
-		remaining = append(remaining, candidate)
-	}
-	if matched != 1 {
-		return recoveryJournal{}, fmt.Errorf(
-			"recovery journal contains %d matching provisional ownership intents, want 1",
-			matched,
-		)
-	}
-	entryIndex, err := promotedIntentEntryIndex(current.Entries, intent)
-	if err != nil {
-		return recoveryJournal{}, err
-	}
-
-	transitions, err := canonicalClaimTransitions(current.ClaimTransitions)
-	if err != nil {
-		return recoveryJournal{}, err
-	}
-	transitions = append(transitions, transition)
-	persistedTransitions, err := recoveryClaimTransitions(transitions)
-	if err != nil {
-		return recoveryJournal{}, err
-	}
-	persistedIntents, err := recoveryProvisionalAcquireIntents(remaining)
+	promoted, err := material.promoteOwnership(intent, transition)
 	if err != nil {
 		return recoveryJournal{}, err
 	}
 	candidate := current
-	candidate.Entries = append([]recoveryEntry(nil), current.Entries...)
-	candidate.Entries[entryIndex].OwnershipPathAuthority = persistedPathAuthority(
-		transition.Address().PathAuthority(),
-	)
-	candidate.ClaimTransitions = persistedTransitions
-	candidate.ProvisionalAcquires = persistedIntents
+	candidate.Entries, candidate.ClaimTransitions, candidate.ProvisionalAcquires = promoted.Entries, promoted.ClaimTransitions, promoted.ProvisionalAcquires
 	if err := validateRecoveryJournal(candidate, stateCodec); err != nil {
 		return recoveryJournal{}, fmt.Errorf("validate promoted recovery journal: %w", err)
 	}
@@ -277,10 +240,14 @@ func promotedIntentEntryIndex(
 	entries []recoveryEntry,
 	intent outputownership.ProvisionalAcquireIntent,
 ) (int, error) {
+	contentPath, err := intent.LegacyContentPath()
+	if err != nil {
+		return -1, err
+	}
 	matchedIndex := -1
 	for index, entry := range entries {
 		if entry.Path != intent.Destination().String() ||
-			entry.ContentPath != string(intent.ContentPath()) {
+			entry.ContentPath != string(contentPath) {
 			continue
 		}
 		if matchedIndex >= 0 {

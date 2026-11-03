@@ -47,7 +47,12 @@ func PrintActionPlanWithOptions(output io.Writer, label string, input HumanPlanI
 
 	facts := resourcePlanFactsFrom(input)
 	matched := make(map[resourcePlanKey]bool)
-	for _, decision := range decisions {
+	for _, group := range groupHumanDecisions(decisions, options) {
+		if group.native {
+			printNativeGroupPlan(output, group, facts, matched, options)
+			continue
+		}
+		decision := group.decisions[0]
 		if managed, ok := decision.ManagedPath(); ok {
 			if !managed.IsNoOp() || options.Verbose {
 				printManagedResourcePlan(output, managed, options)
@@ -67,18 +72,7 @@ func PrintActionPlanWithOptions(output io.Writer, label string, input HumanPlanI
 		if documentBlocked {
 			printConfigurationBlock(output, block, aggregate.Subject())
 		}
-		for _, status := range statuses {
-			if options.Verbose {
-				fmt.Fprintf(output, "    MCP observation: subject=%s target=%s scope=%s",
-					Quote(mcpSubjectString(status.Subject)), Escape(status.Target), Escape(status.Scope))
-				printMCPStatusMetadata(output, status)
-				fmt.Fprintln(output)
-			}
-			printMCPStatusDimensions(output, status, options)
-		}
-		for _, plan := range plans {
-			printDelegateActionBody(output, plan, options)
-		}
+		printResourcePlanExtras(output, statuses, plans, options)
 	}
 
 	var unmatchedStatuses []MCPStatus
@@ -101,6 +95,7 @@ func PrintActionPlanWithOptions(output io.Writer, label string, input HumanPlanI
 		fmt.Fprintf(output, "MCP command plans: %s\n", CountLabel(len(input.Reconciliation.Delegates()), "plan", "plans"))
 		printDelegatePlanLimitations(output, input.Reconciliation.Delegates())
 	}
+	printNativeNarrowingActions(output, input.Reconciliation.NativeNarrowings())
 }
 
 func resourcePlanFactsFrom(input HumanPlanInput) resourcePlanFacts {
@@ -183,6 +178,7 @@ func printAggregateResourcePlan(output io.Writer, decision reconcile.AggregateSu
 		return
 	}
 	fmt.Fprintln(output, aggregateLabel(decision))
+	printNativeKeyLocation(output, decision)
 	if decision.IsBlocked() {
 		fmt.Fprintf(output, "    blocked: %s\n", actionReasonLabel(decision.Reason()))
 	} else if decision.Kind() == reconcile.AggregateRemove && decision.Detail() != "" {
@@ -197,10 +193,10 @@ func printConfigurationBlock(output io.Writer, block configurationBlock, current
 		if subject == current {
 			continue
 		}
-		_, reference := projectionIdentityLabel(subject)
+		reference := configurationCauseDisplay(subject)
 		if !seen[reference] {
 			seen[reference] = true
-			causes = append(causes, Quote(reference))
+			causes = append(causes, reference)
 		}
 	}
 	if len(block.causes) != 0 && len(causes) == 0 {
@@ -218,4 +214,18 @@ func printConfigurationBlock(output io.Writer, block configurationBlock, current
 		fmt.Fprintf(output, " (%s)", actionReasonLabel(block.reason))
 	}
 	fmt.Fprintln(output, "; apply will be refused until resolved")
+}
+
+func printResourcePlanExtras(output io.Writer, statuses []MCPStatus, plans []reconcile.DelegateAction, options HumanOptions) {
+	for _, status := range statuses {
+		if options.Verbose {
+			fmt.Fprintf(output, "    MCP observation: subject=%s target=%s scope=%s", Quote(mcpSubjectString(status.Subject)), Escape(status.Target), Escape(status.Scope))
+			printMCPStatusMetadata(output, status)
+			fmt.Fprintln(output)
+		}
+		printMCPStatusDimensions(output, status, options)
+	}
+	for _, plan := range plans {
+		printDelegateActionBody(output, plan, options)
+	}
 }

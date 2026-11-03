@@ -151,6 +151,13 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 	if err != nil {
 		return Result{}, err
 	}
+	if input.PrepareResult != nil {
+		if err := input.PrepareResult(built.Result); err != nil {
+			errorContext.Err = err
+			return Result{}, errorContext
+		}
+	}
+
 	lockfileTarget, err := declarationartifact.CaptureMutationTarget(ctx, outputPath)
 	if err != nil {
 		errorContext.Err = err

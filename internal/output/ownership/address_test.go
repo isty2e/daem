@@ -61,7 +61,7 @@ func TestManagedAddressRejectsInvalidValues(t *testing.T) {
 	exact := mustPathAuthority(t, root)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := NewManagedAddress(exact, test.contentPath); err == nil {
+			if _, err := NewManagedAddressFromLegacy(exact, test.contentPath); err == nil {
 				t.Fatal("NewManagedAddress returned nil error")
 			}
 		})
@@ -80,7 +80,7 @@ func TestManagedAddressDeterministicOrder(t *testing.T) {
 
 func mustAddress(t *testing.T, path string, contentPath string) ManagedAddress {
 	t.Helper()
-	address, err := NewManagedAddress(mustPathAuthority(t, filepath.Clean(path)), contentPath)
+	address, err := NewManagedAddressFromLegacy(mustPathAuthority(t, filepath.Clean(path)), contentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}

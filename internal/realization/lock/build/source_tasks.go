@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/hookasset"
+	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/desired/instructions"
 	"github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -91,6 +92,15 @@ func newInstructionsResolveTask(ordinal int, instruction instructions.Instructio
 		succeededEvent: EventResourceResolved,
 		failedEvent:    EventResourceResolveFailed,
 		errorPrefix:    fmt.Sprintf("resolve instructions %q source", entityID.Name()),
+	}
+}
+
+func newHostConfigResolveTask(ordinal int, config hostconfig.Config) sourceTask {
+	return sourceTask{
+		stage: EventStageHostConfig, ordinal: ordinal, operation: acquisition.OperationResolve,
+		sourceSpec: config.Source(), entityID: config.ID(),
+		startedEvent: EventResourceResolveStarted, succeededEvent: EventResourceResolved, failedEvent: EventResourceResolveFailed,
+		errorPrefix: fmt.Sprintf("resolve host_config %q source", config.ID().Name()),
 	}
 }
 

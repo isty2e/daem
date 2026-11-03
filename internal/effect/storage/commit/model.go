@@ -31,9 +31,19 @@ const (
 // EntryIdentity is ephemeral evidence for revalidating one directory entry.
 // It is not a durable revision, lease, or atomic compare-and-swap token.
 type EntryIdentity struct {
-	path     string
-	kind     entryKind
-	platform platformIdentity
+	path       string
+	kind       entryKind
+	platform   platformIdentity
+	protection string
+}
+
+// ProtectionFingerprint describes observed ownership and mode, not file identity.
+func (identity EntryIdentity) ProtectionFingerprint() (string, error) {
+	if !identity.valid() || identity.protection == "" {
+		return "", fmt.Errorf("entry protection evidence is unavailable")
+	}
+	digest := sha256.Sum256([]byte(identity.protection))
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
 func (identity EntryIdentity) valid() bool {

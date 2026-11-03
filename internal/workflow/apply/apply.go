@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/subprocess"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -54,6 +55,8 @@ type runOptions struct {
 	DelegateExecutor                  delegate.Executor
 	RelationOrderRiskAuthorizer       RelationOrderRiskAuthorizer
 	orderRiskBaseline                 relationOrderRiskBaseline
+	nativeOrderResult                 *relationOrderRunResult
+	deferredNativeOrders              []hostrelation.OrderClassID
 	executionGuard                    applyExecutionGuard
 	validateBeforeEffects             func(context.Context, mutation.PhysicalAuthoritySet) error
 	validatePhysicalAuthorityRequests func(context.Context, []mutation.PhysicalAuthorityRequest) error
@@ -62,6 +65,13 @@ type runOptions struct {
 	reserveStatefileAuthority         reserveStatefileEffectAuthority
 	statefileAuthority                *statefileEffectAuthority
 	applyEffectPlan                   *execute.ApplyEffectPlan
+	nativeInput                       *execute.NativeApplyInput
+	nativeInvocations                 *nativeInvocationProgram
+	afterNativeCore                   func(context.Context, execute.ApplyResult) (readiness.Assessment, applyContinuationPlan, error)
+	afterNativeProviders              func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims, mutation.OperationFingerprint) (applyContinuationPlan, error)
+	afterHostRoutes                   func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error)
+	afterDelegates                    func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error)
+	persistenceCodec                  durable.SnapshotCodec
 	preparedContinuation              applyContinuationPlan
 	currentContinuation               applyContinuationPlan
 	requireContinuation               bool
@@ -77,6 +87,13 @@ func (options runOptions) markAttempted() {
 	if options.markExecutionAttempted != nil {
 		options.markExecutionAttempted()
 	}
+}
+
+func (options runOptions) stateCodec() durable.SnapshotCodec {
+	if options.persistenceCodec != nil {
+		return options.persistenceCodec
+	}
+	return statefile.Codec{}
 }
 
 // HostRouteObserver returns a post-attempt observation fact for one host route
@@ -99,6 +116,9 @@ func runWithOptions(
 	assessment readiness.Assessment,
 	options runOptions,
 ) (result runResult, resultErr error) {
+	if options.nativeInput != nil {
+		return runNativeWithOptions(ctx, paths, environment, locked, selection, assessment, options)
+	}
 	filesystem := storagecommit.Adapter{}
 	validateBeforeEffects := options.validateBeforeEffects
 	if options.validatePhysicalAuthorityRequests != nil {
@@ -106,6 +126,9 @@ func runWithOptions(
 	}
 	if err := execute.RejectUnsupportedActions(assessment.Reconciliation); err != nil {
 		return runResult{}, err
+	}
+	if assessment.CurrentState.ContainsHostConfig() {
+		return runResult{}, execute.ErrNativeOperationRequired
 	}
 
 	managedPathEffects, err := execute.ManagedPathEffects(assessment.Reconciliation.ManagedPaths())
@@ -131,22 +154,12 @@ func runWithOptions(
 		return runResult{}, err
 	}
 	if options.requireContinuation {
-		if err := bindApplyFinalRoutePlans(
+		if err := bindApplyContinuationPlans(
+			assessment.Reconciliation,
 			options.preparedContinuation,
 			options.currentContinuation,
 		); err != nil {
 			return runResult{}, err
-		}
-		_, currentRemoval, _, err := bindCarrierRemovalPlans(
-			assessment.Reconciliation.CarrierAbsences(),
-			options.preparedContinuation,
-			options.currentContinuation,
-		)
-		if err != nil {
-			return runResult{}, err
-		}
-		if !currentRemoval.valid() {
-			return runResult{}, fmt.Errorf("scheduled carrier removal plan is unavailable")
 		}
 	}
 	statefileAuthority := options.statefileAuthority
@@ -189,6 +202,7 @@ func runWithOptions(
 			AdoptedProjectCarrierClaims: projectCarrierAdoptions,
 			ManagedPathEffects:          managedPathEffects,
 			AggregateEffects:            aggregateEffects,
+			NativeNarrowings:            assessment.Reconciliation.NativeNarrowings(),
 			ManagedPathEvidence:         assessment.ManagedPathEvidence,
 			ConfirmedRelationActions:    assessment.Reconciliation.Relations(),
 			Owner:                       assessment.Owner,
@@ -196,7 +210,7 @@ func runWithOptions(
 			ProjectRoot:                 options.projectRoot,
 			Codecs:                      aggregatecodec.Catalog(),
 			OwnershipRegistryBinder:     ownershipstore.BindRooted,
-			StateCodec:                  statefile.Codec{},
+			StateCodec:                  options.stateCodec(),
 			Filesystem:                  filesystem,
 		}, execute.ApplyOptions{
 			Events:                              options.ExecuteEvents,
@@ -253,6 +267,7 @@ func runWithOptions(
 		Resolver:                    destinationResolver(paths).Resolve,
 		ManagedPathEffects:          managedPathEffects,
 		AggregateEffects:            aggregateEffects,
+		NativeNarrowings:            assessment.Reconciliation.NativeNarrowings(),
 		ManagedPathEvidence:         assessment.ManagedPathEvidence,
 		CurrentState:                assessment.CurrentState,
 		GlobalCarrierClaims:         assessment.GlobalCarrierClaims,
@@ -265,7 +280,7 @@ func runWithOptions(
 		ProjectRoot:                 options.projectRoot,
 		Codecs:                      aggregatecodec.Catalog(),
 		OwnershipRegistryBinder:     ownershipstore.BindRooted,
-		StateCodec:                  statefile.Codec{},
+		StateCodec:                  options.stateCodec(),
 		Filesystem:                  filesystem,
 	}, execute.ApplyOptions{
 		Events:                              options.ExecuteEvents,
@@ -377,6 +392,19 @@ func runHostRoutesOrderDelegatesAndPersistAttemptRecords(
 	if hostRouteErr != nil {
 		return result, hostRouteErr
 	}
+	if options.afterHostRoutes != nil {
+		segment, err := options.afterHostRoutes(ctx, nextState, nextGlobalClaims)
+		applied := segment.applied
+		result.ActionCount += applied.ActionCount
+		result.RelationOrderResults = segment.orders.results
+		if applied.StatePath != "" {
+			result.State, nextState = applied.State, applied.State
+		}
+		if err != nil {
+			return result, err
+		}
+		options.nativeOrderResult = &segment.orders
+	}
 
 	orderResult, orderErr := runRelationOrderConvergence(
 		ctx,
@@ -410,5 +438,25 @@ func runHostRoutesOrderDelegatesAndPersistAttemptRecords(
 	delegateResult.RelationOrderResults = orderResult.results
 	delegateResult.Reconciliation = orderResult.reconciliation
 	delegateResult.ReconciliationUpdated = orderResult.updated
+	if delegateErr == nil && options.afterDelegates != nil {
+		segment, err := options.afterDelegates(ctx, delegateResult.State, nextGlobalClaims)
+		delegateResult.ActionCount += segment.applied.ActionCount
+		if segment.applied.StatePath != "" {
+			delegateResult.State, delegateResult.StatePath = segment.applied.State, segment.applied.StatePath
+		}
+		for _, completed := range segment.orders.results {
+			found := false
+			for index, row := range delegateResult.RelationOrderResults {
+				if row.sequenceID == completed.sequenceID {
+					delegateResult.RelationOrderResults[index], found = completed, true
+					break
+				}
+			}
+			if !found {
+				delegateResult.RelationOrderResults = append(delegateResult.RelationOrderResults, completed)
+			}
+		}
+		delegateErr = err
+	}
 	return delegateResult, delegateErr
 }

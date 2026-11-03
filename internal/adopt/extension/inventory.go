@@ -63,7 +63,7 @@ func (collector *importCollector) collectClaude() error {
 }
 
 func (collector *importCollector) collectCodex() error {
-	paths, err := observecodex.ResolveHostPaths()
+	paths, err := observecodex.ResolveHostPathsForWorkDir(collector.input.ManifestRoot)
 	if err != nil {
 		return err
 	}

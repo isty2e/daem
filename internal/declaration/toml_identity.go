@@ -35,3 +35,12 @@ func (hook Hook) TargetValues() Targets {
 func (instructions Instructions) TargetValues() Targets {
 	return Targets(instructions.Targets).Values()
 }
+
+// Key returns the document-local identity of the host configuration declaration.
+func (hostConfig HostConfig) Key() Key {
+	return Key{Kind: KindHostConfig, Name: hostConfig.ID}
+}
+
+func (hostConfig HostConfig) TargetValues() Targets {
+	return Targets(hostConfig.Targets).Values()
+}

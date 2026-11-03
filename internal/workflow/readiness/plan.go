@@ -6,6 +6,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpeffectivehost "github.com/isty2e/daem/internal/assurance/observe/mcp/effective/host"
 	mcpprovider "github.com/isty2e/daem/internal/assurance/observe/mcp/provider"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
@@ -43,6 +44,9 @@ type assessmentPlanInput struct {
 	providerObservations   []mcpprovider.Observation
 	extensionOrderFacts    []extensionOrderObservation
 	mcpContracts           []lock.LockedSubjectContract
+	nativeSources          []lockobserve.NativeSourceObservation
+	nativeNarrowings       []reconcile.NativeNarrowingAction
+	nativeWholeAdoptions   []reconcileprojection.NativeWholeAdoptionPlan
 }
 
 // assembleAssessment classifies observed facts into Assessment. It performs
@@ -103,6 +107,8 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 		owner:                   input.owner,
 		ownership:               input.ownershipObservations,
 		codecs:                  input.codecs,
+		nativeNarrowings:        input.nativeNarrowings,
+		nativeWholeAdoptions:    input.nativeWholeAdoptions,
 	})
 	if err != nil {
 		return Assessment{}, err
@@ -155,6 +161,7 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 	result, err := reconcile.NewResult(reconcile.ResultInput{
 		Context:          input.operationContext,
 		ManagedPaths:     managedPaths,
+		NativeNarrowings: input.nativeNarrowings,
 		Aggregates:       aggregates,
 		Relations:        relationActions,
 		RelationOrders:   relationOrderDecisions,
@@ -195,6 +202,7 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 		Owner:                  input.owner,
 		Ownership:              input.ownershipObservations,
 		SelectedTargets:        input.selectedTargets,
+		NativeSources:          input.nativeSources,
 	}, nil
 }
 

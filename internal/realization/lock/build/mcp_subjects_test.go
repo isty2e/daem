@@ -76,7 +76,7 @@ func TestBuildLocksMCPServersAsExactProjectionSubjectsWithoutSourceTasks(t *test
 	}
 	projection := mustAggregateContribution(t, record)
 	if projection.AggregateRoot().String() != aggregate.ClaudeProjectMCPConfigPath ||
-		projection.ContentPath() != mcpcodec.ClaudeProjectMCPContentPath("context7") ||
+		projection.Address().KeyPath().String() != mcpcodec.ClaudeProjectMCPContentPath("context7") ||
 		projection.Equivalence() != aggregate.EquivalenceCanonicalSemantic ||
 		string(projection.CodecContractID()) != aggregate.ClaudeProjectMCPStdioAdapterV1 {
 		t.Fatalf("projection = %#v, want Claude project MCP aggregate contribution", projection)
@@ -200,7 +200,7 @@ func TestBuildLocksAntigravityGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 	if projection.Target() != target.TargetAntigravityCLI ||
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.AntigravityGlobalMCPConfigPath ||
-		projection.ContentPath() != mcpcodec.AntigravityGlobalMCPContentPath("context7") ||
+		projection.Address().KeyPath().String() != mcpcodec.AntigravityGlobalMCPContentPath("context7") ||
 		string(projection.CodecContractID()) != aggregate.AntigravityGlobalMCPAmbientEnvV1 {
 		t.Fatalf("projection = %#v, want Antigravity global MCP aggregate contribution", projection)
 	}
@@ -341,7 +341,7 @@ func TestBuildLocksClaudeGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 	if projection.Target() != target.TargetClaudeCode ||
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.ClaudeGlobalMCPConfigPath ||
-		projection.ContentPath() != mcpcodec.ClaudeGlobalMCPContentPath("context7") ||
+		projection.Address().KeyPath().String() != mcpcodec.ClaudeGlobalMCPContentPath("context7") ||
 		string(projection.CodecContractID()) != aggregate.ClaudeGlobalMCPStdioEnvAdapterV1 {
 		t.Fatalf("projection = %#v, want Claude global MCP aggregate contribution", projection)
 	}
@@ -396,7 +396,7 @@ func TestBuildLocksOpenCodeProjectMCPServerWithoutDelegatePlan(t *testing.T) {
 	if projection.Target() != target.TargetOpenCode ||
 		projection.Scope() != target.ScopeProject ||
 		projection.AggregateRoot().String() != aggregate.OpenCodeProjectMCPConfigPath ||
-		projection.ContentPath() != mcpcodec.OpenCodeProjectMCPContentPath("context7") ||
+		projection.Address().KeyPath().String() != mcpcodec.OpenCodeProjectMCPContentPath("context7") ||
 		string(projection.CodecContractID()) != aggregate.OpenCodeProjectMCPLocalCommandV1 {
 		t.Fatalf("projection = %#v, want OpenCode project MCP aggregate contribution", projection)
 	}
@@ -450,7 +450,7 @@ func TestBuildLocksOpenCodeGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 	if projection.Target() != target.TargetOpenCode ||
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.OpenCodeGlobalMCPConfigPath ||
-		projection.ContentPath() != mcpcodec.OpenCodeGlobalMCPContentPath("context7") ||
+		projection.Address().KeyPath().String() != mcpcodec.OpenCodeGlobalMCPContentPath("context7") ||
 		string(projection.CodecContractID()) != aggregate.OpenCodeGlobalMCPLocalEnvV1 {
 		t.Fatalf("projection = %#v, want OpenCode global MCP aggregate contribution", projection)
 	}
@@ -514,7 +514,7 @@ func TestBuildLocksCodexGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 	if projection.Target() != target.TargetCodex ||
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.CodexGlobalMCPConfigPath ||
-		projection.ContentPath() != mcpcodec.CodexGlobalMCPContentPath("context7") ||
+		projection.Address().KeyPath().String() != mcpcodec.CodexGlobalMCPContentPath("context7") ||
 		string(projection.CodecContractID()) != aggregate.CodexGlobalMCPStdioEnvVarsV1 {
 		t.Fatalf("projection = %#v, want Codex global MCP aggregate contribution", projection)
 	}

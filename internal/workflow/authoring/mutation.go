@@ -12,7 +12,10 @@ import (
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/encoding/toml"
 	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -111,6 +114,10 @@ func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (Lockfi
 		HookEncoder:            hookcodec.CanonicalHookContribution,
 		MCPEncoder:             mcpcodec.CanonicalMCPBindingContribution,
 		ExtensionOrderIdentity: aggregatecodec.ExtensionOrderIdentityResolver(paths),
+		NativeDocumentLimits: configdocument.Limits{
+			MaximumBytes: recovery.MaximumRecoveryBackupFileBytes,
+			MaximumDepth: tomlsyntax.MaximumDepth,
+		},
 	})
 	if err != nil {
 		return LockfileChange{}, err

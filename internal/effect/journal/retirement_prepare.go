@@ -58,6 +58,7 @@ type retirementContinuationState struct {
 	maximumPhysicalDepth int
 	filesystem           mutationfs.RootedStore
 	stateCodec           durable.SnapshotCodec
+	journalDecoder       inventoryJournalDecoder
 	rebased              bool
 	consumed             bool
 	closed               bool

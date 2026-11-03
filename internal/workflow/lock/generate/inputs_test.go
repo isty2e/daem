@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/desired"
 	hookassetresource "github.com/isty2e/daem/internal/desired/hookasset"
+	"github.com/isty2e/daem/internal/desired/hostconfig"
 	instructionsresource "github.com/isty2e/daem/internal/desired/instructions"
 	skillresource "github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
@@ -24,10 +25,19 @@ func TestConsumedLocalPathsCoversEveryLocalSnapshotInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	native, err := hostconfig.New(hostconfig.Spec{
+		Name: "preferences", Source: sourcetest.Local(t, "native/preferences.toml", source.LocalSourceModeVendor),
+		Target: target.TargetCodex, Scope: target.ScopeProject, Path: "config.toml",
+		Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxTOML,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	environment := desiredtest.Environment(t, desired.Spec{
-		Targets:  []target.Target{target.TargetCodex},
-		Defaults: desiredtest.Defaults(t, target.ScopeProject, skillresource.InstallModeCopy),
+		HostConfigs: []hostconfig.Config{native},
+		Targets:     []target.Target{target.TargetCodex},
+		Defaults:    desiredtest.Defaults(t, target.ScopeProject, skillresource.InstallModeCopy),
 		Skills: []skillresource.Skill{
 			desiredtest.Skill(t, skillresource.Spec{Name: "shared", Source: shared, Targets: []target.Target{target.TargetCodex}, Scope: target.ScopeProject, InstallMode: skillresource.InstallModeCopy}),
 			desiredtest.Skill(t, skillresource.Spec{Name: "other", Source: other, Targets: []target.Target{target.TargetCodex}, Scope: target.ScopeProject, InstallMode: skillresource.InstallModeCopy}),
@@ -58,6 +68,7 @@ func TestConsumedLocalPathsCoversEveryLocalSnapshotInput(t *testing.T) {
 	want := []string{
 		filepath.Join(root, "groups"),
 		filepath.Join(root, "hooks", "run.sh"),
+		filepath.Join(root, "native", "preferences.toml"),
 		filepath.Join(root, "other"),
 		filepath.Join(root, "shared"),
 	}

@@ -212,6 +212,7 @@ func TestCommandAdmissionCatalogRoutesEveryRegisteredRoot(t *testing.T) {
 		"recover":   {"recover", "--help"},
 		"refresh":   {"refresh", "--help"},
 		"remove":    {"remove", "--help"},
+		"replace":   {"replace", "--help"},
 		"status":    {"status", "--help"},
 		"unmanage":  {"unmanage", "--help"},
 		"version":   {"version", "--help"},

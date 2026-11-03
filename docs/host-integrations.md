@@ -25,6 +25,7 @@ commands and [Platform Support](platforms.md) owns OS/architecture coverage.
 | Skills and skill groups | `supported` | `supported` | `supported` | `supported` | `supported` |
 | Command hooks | `supported` | `supported` | `diagnostic` | `diagnostic` | `unsupported` |
 | MCP config | project/global | project/global | project/global | project/global Native or Adapter | global |
+| Native configuration keys | project/global | `unsupported` | `unsupported` | project/global | `unsupported` |
 | Delegated executable execution | `deferred` | project MCP | `deferred` | `deferred` | `deferred` |
 | Carrier declaration, observation and lifecycle | global | project/global | project/global | project/global package | global; observation/removal require selector |
 | Provider contribution diagnostics | cache diagnostics | `deferred` | `deferred` | admitted MCP provider only | `deferred` |
@@ -98,12 +99,26 @@ Codex/Claude Code manage native command-hook aggregates and same-scope
 Antigravity direct hooks are unsupported. Daem does not infer or install
 undeclared scripts, directories, tools, trust approval or bundled hooks.
 
+### Native Configuration Keys
+
+Codex and Pi support selected-key configuration management through
+[`host_config`](manifest.md#host-configuration). It preserves unselected values
+and uses the same journaled document operation for Codex MCP changes in that
+file. The manifest reference owns supported syntax, reserved fields, permissions
+and mixed-plan limits. This is file convergence, not host-schema validation or
+evidence of runtime loading.
+
 ### MCP Server Config
 
 Supported stdio rows manage one entry and preserve unrelated configuration.
 The [MCP schema](manifest.md#mcp-servers) defines exact destinations, fields and
 rejections. Import covers supported non-Pi core-native rows; Pi import is unsupported.
 `apply --manage-existing` may register exact matching projections.
+
+Codex TOML edits preserve unmanaged values and existing comments, including
+comments within a removed server entry. Formatting and comment placement may
+change. Removing the last server retains a comments-only file rather than
+discarding its comments.
 
 | Host/scope | Environment references |
 | --- | --- |
@@ -433,6 +448,13 @@ inspection uses configured
 `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/.codex-plugin/plugin.json`
 and is separate from relation authority.
 
+Install, managed removal and explicit refresh support selected project/global
+settings keys. Apply establishes desired keys before the command and checks them
+afterward; Refresh instead requires them already applied and current. Plugin
+add/remove may replace the user config with tighter permissions. Unexpected changes
+in managed settings stop the operation without automatic content repair; interrupted
+permission protection is settled through `daem recover`, not command replay.
+
 ## Claude Code Plugin Carrier Route Summary
 
 `claude-code-plugin` marketplace rows support project and explicit global scope.
@@ -455,6 +477,11 @@ metadata, plugin data, dependencies, credentials, trust/sessions, siblings and
 unrelated resources. It does not prove runtime unload or approve trust. Bundled
 contributions, ordinary update reconciliation, prune and runtime readiness remain
 deferred or blocked.
+
+Plugin commands can run alongside Codex/Pi settings keys when the private Claude
+config root (and project `.claude` namespace for project commands) is physically
+separate from those managed files. Overlapping root aliases refuse before effects.
+See [host configuration](manifest.md#host-configuration) for sequencing and recovery.
 
 ## OpenCode/Pi Plugin-Package Route Summary
 
@@ -485,6 +512,12 @@ remain outside that removal. Pi retains other-scope state and unrelated stores;
 its selected source-kind effects do not grant prune. Explicit refresh remains
 separate from selecting a new Pi Git pin in apply. No per-contribution disable is
 supported.
+
+OpenCode installation, explicit refresh, direct removal and order updates can
+accompany managed Codex/Pi settings keys when its four config candidates are
+physically separate from those managed files. Missing alternatives remain absent;
+an unverified removal stays pending. See
+[host configuration](manifest.md#host-configuration) for sequencing and recovery.
 
 ### Managed Pi Git Pins
 
@@ -543,6 +576,11 @@ Removal retains siblings/import rows, credentials, trust/sessions, unrelated
 stores, marketplace/source setup and IDE state. Opaque/local-source removal,
 project plugins, import/link, enable/disable, dedicated or ordinary update,
 prune, bundled contribution ownership and runtime readiness are not supported.
+
+Plugin commands can run alongside Codex/Pi settings keys when the shared config
+and plugin-store namespaces are physically separate from those managed files.
+Overlapping root aliases refuse before effects. See
+[host configuration](manifest.md#host-configuration) for sequencing and recovery.
 
 ## Deferred Product Surfaces
 

@@ -2,8 +2,6 @@ package cli_test
 
 import (
 	"bytes"
-	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,52 +11,6 @@ import (
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 )
-
-type recoverJSONTestPayload struct {
-	SchemaVersion          int    `json:"schema_version"`
-	Command                string `json:"command"`
-	Mode                   string `json:"mode"`
-	Phase                  string `json:"phase"`
-	AuthorityKind          string `json:"authority_kind"`
-	OperationID            string `json:"operation_id"`
-	OperationDir           string `json:"operation_dir"`
-	Classification         string `json:"classification"`
-	ActionCount            int    `json:"action_count"`
-	CleanupObligationCount int    `json:"cleanup_obligation_count"`
-	HasErrors              bool   `json:"has_errors"`
-	ContinuingFileSetFence string `json:"continuing_file_set_fence"`
-	Actions                []struct {
-		Kind    string `json:"kind"`
-		Reason  string `json:"reason"`
-		Subject struct {
-			Kind      string `json:"kind"`
-			Namespace string `json:"namespace"`
-			Name      string `json:"name"`
-		} `json:"subject"`
-		ResourceID string `json:"resource_id"`
-		Resource   struct {
-			Kind string `json:"kind"`
-			Name string `json:"name"`
-		} `json:"resource"`
-		Target      string   `json:"target"`
-		Targets     []string `json:"targets"`
-		Scope       string   `json:"scope"`
-		Destination string   `json:"destination"`
-		ContentKind string   `json:"content_kind"`
-		BackupPath  string   `json:"backup_path"`
-		BackupHash  string   `json:"backup_hash"`
-		BackupKind  string   `json:"backup_kind"`
-		Detail      string   `json:"detail"`
-	} `json:"actions"`
-	CleanupObligations []struct {
-		Action      string `json:"action"`
-		Readiness   string `json:"readiness"`
-		Reason      string `json:"reason"`
-		Scope       string `json:"scope"`
-		Destination string `json:"destination"`
-		Detail      string `json:"detail"`
-	} `json:"cleanup_obligations"`
-}
 
 func TestRecoverJSONCarriesContinuingFileSetFenceThroughCompletion(t *testing.T) {
 	root := t.TempDir()
@@ -81,7 +33,7 @@ func TestRecoverJSONCarriesContinuingFileSetFenceThroughCompletion(t *testing.T)
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("dry-run exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	planned := decodeRecoverJSONTestPayload(t, stdout.Bytes())
+	planned := clijson.DecodeRecover(t, stdout.Bytes())
 	if planned.Phase != "planned" || planned.ContinuingFileSetFence != "abandoned_residue" {
 		t.Fatalf("planned payload = %#v", planned)
 	}
@@ -96,7 +48,7 @@ func TestRecoverJSONCarriesContinuingFileSetFenceThroughCompletion(t *testing.T)
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("write exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	completed := decodeRecoverJSONTestPayload(t, stdout.Bytes())
+	completed := clijson.DecodeRecover(t, stdout.Bytes())
 	if completed.Phase != "completed" || completed.HasErrors ||
 		completed.ContinuingFileSetFence != "abandoned_residue" {
 		t.Fatalf("completed payload = %#v", completed)
@@ -119,7 +71,7 @@ func TestRunRecoverDryRunJSONPreservesManagedSkillSubjectAndConsumers(t *testing
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("recover exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	payload := decodeRecoverJSONTestPayload(t, stdout.Bytes())
+	payload := clijson.DecodeRecover(t, stdout.Bytes())
 	if payload.SchemaVersion != contractversion.RecoveryJSON ||
 		payload.Phase != "planned" ||
 		payload.AuthorityKind != "active_journal" ||
@@ -180,7 +132,7 @@ func TestRecoverBlocksRelocatedRemovalParentAndRetainsJournal(t *testing.T) {
 	if exitCode != 1 || stderr.Len() != 0 {
 		t.Fatalf("dry-run exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	payload := decodeRecoverJSONTestPayload(t, stdout.Bytes())
+	payload := clijson.DecodeRecover(t, stdout.Bytes())
 	if !payload.HasErrors || len(payload.CleanupObligations) != 1 {
 		t.Fatalf("relocated-parent recovery payload = %#v", payload)
 	}
@@ -230,7 +182,7 @@ func TestRunRecoverDryRunJSONReportsRollbackPlan(t *testing.T) {
 		t.Fatalf("stdout = %q, want JSON without human output", stdout.String())
 	}
 
-	payload := decodeRecoverJSONTestPayload(t, stdout.Bytes())
+	payload := clijson.DecodeRecover(t, stdout.Bytes())
 	if payload.SchemaVersion != contractversion.RecoveryJSON ||
 		payload.Command != "recover" ||
 		payload.Mode != "dry-run" ||
@@ -274,7 +226,7 @@ func TestRunRecoverDryRunJSONReportsBlockedPlan(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 
-	payload := decodeRecoverJSONTestPayload(t, stdout.Bytes())
+	payload := clijson.DecodeRecover(t, stdout.Bytes())
 	if payload.Classification != "blocked" || !payload.HasErrors {
 		t.Fatalf("payload = %#v, want blocked errors", payload)
 	}
@@ -294,21 +246,4 @@ func TestRunRecoverJSONRequiresNonInteractiveMode(t *testing.T) {
 	if !strings.Contains(diagnostic, "--json requires --dry-run or --yes") {
 		t.Fatalf("stderr = %q, want json mode diagnostic", stderr.String())
 	}
-}
-
-func decodeRecoverJSONTestPayload(t *testing.T, content []byte) recoverJSONTestPayload {
-	t.Helper()
-
-	var payload recoverJSONTestPayload
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
-		t.Fatalf("Decode returned error: %v\ncontent=%s", err, content)
-	}
-	var extra json.RawMessage
-	if err := decoder.Decode(&extra); err != io.EOF {
-		t.Fatalf("unexpected trailing JSON content: %s", content)
-	}
-
-	return payload
 }

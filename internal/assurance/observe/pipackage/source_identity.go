@@ -37,6 +37,16 @@ func HostLoadIdentityForInput(
 	return identity.hostLoadIdentity(scope), nil
 }
 
+// HostLoadIdentityForContext uses selected lexical roots without consulting the
+// process environment or filesystem. It supplies no package or path authority.
+func HostLoadIdentityForContext(source string, scope target.Scope, context extensiontopology.LocalSourceContext) (string, error) {
+	identity, err := sourceIdentityForContext(source, scope, context)
+	if err != nil {
+		return "", err
+	}
+	return identity.hostLoadIdentity(scope), nil
+}
+
 func (identity sourceIdentity) hostLoadIdentity(scope target.Scope) string {
 	if identity.kind == sourceKindLocal {
 		return string(identity.kind) + ":" + string(scope) + ":" + identity.key
@@ -48,22 +58,29 @@ func sourceIdentityForInput(source string, commandRoot string, scope target.Scop
 	return parseSourceIdentity(source, commandRoot, scope)
 }
 
-func sourceIdentityForSettings(source string, settingsBase string, scope target.Scope) (sourceIdentity, error) {
-	return parseSourceIdentity(source, settingsBase, scope)
+func sourceIdentityForContext(source string, scope target.Scope, context extensiontopology.LocalSourceContext) (sourceIdentity, error) {
+	interpreted, err := interpretPackageSource(source, scope)
+	if err != nil {
+		return sourceIdentity{}, err
+	}
+	return sourceIdentityForCarrier(interpreted, context)
 }
 
-func expectedSettingsSource(
-	source string,
-	commandRoot string,
-	settingsBase string,
-	scope target.Scope,
-) (string, error) {
-	identity, err := sourceIdentityForInput(source, commandRoot, scope)
+func sourceIdentityForRelation(relation ScopedRelation) (sourceIdentity, error) {
+	source := string(relation.key.ExpectedRelation().SubjectKey())
+	if relation.sourceContext != nil {
+		return sourceIdentityForContext(source, relation.scope, *relation.sourceContext)
+	}
+	return sourceIdentityForInput(source, relation.commandRoot, relation.scope)
+}
+
+func expectedSettingsSource(relation ScopedRelation, settingsBase string) (string, error) {
+	identity, err := sourceIdentityForRelation(relation)
 	if err != nil {
 		return "", err
 	}
 	if identity.kind != sourceKindLocal {
-		return source, nil
+		return string(relation.key.ExpectedRelation().SubjectKey()), nil
 	}
 	relative, err := filepath.Rel(settingsBase, identity.key)
 	if err != nil {
@@ -76,34 +93,12 @@ func expectedSettingsSource(
 }
 
 func parseSourceIdentity(source string, base string, scope target.Scope) (sourceIdentity, error) {
-	if _, err := validateSourceText(source); err != nil {
-		return sourceIdentity{}, err
-	}
-	ref, err := desiredextension.NewSourceRef(desiredextension.SourceKindHostSource, source)
+	interpreted, err := interpretPackageSource(source, scope)
 	if err != nil {
 		return sourceIdentity{}, err
 	}
-	key, err := desiredextension.NewCarrierKey(
-		desiredextension.CarrierPiPackage,
-		target.TargetPi,
-		scope,
-		ref,
-	)
-	if err != nil {
-		return sourceIdentity{}, err
-	}
-	interpreted, err := extensiontopology.InterpretCarrierSource(key)
-	if err != nil {
-		return sourceIdentity{}, err
-	}
-	switch interpreted.Class() {
-	case extensiontopology.CarrierSourceNPM:
-		return sourceIdentity{kind: sourceKindNPM, key: interpreted.Identity()}, nil
-	case extensiontopology.CarrierSourceGit:
-		return sourceIdentity{kind: sourceKindGit, key: interpreted.Identity()}, nil
-	case extensiontopology.CarrierSourceLocal:
-	default:
-		return sourceIdentity{}, fmt.Errorf("unsupported Pi package source class %q", interpreted.Class())
+	if interpreted.Class() != extensiontopology.CarrierSourceLocal {
+		return sourceIdentityForCarrier(interpreted, extensiontopology.LocalSourceContext{})
 	}
 	root, err := cleanAbsoluteRoot("Pi package source base", base)
 	if err != nil {
@@ -116,6 +111,39 @@ func parseSourceIdentity(source string, base string, scope target.Scope) (source
 	context, err := extensiontopology.NewLocalSourceContext(root, homeRoot)
 	if err != nil {
 		return sourceIdentity{}, err
+	}
+	return sourceIdentityForCarrier(interpreted, context)
+}
+
+func interpretPackageSource(source string, scope target.Scope) (extensiontopology.CarrierSource, error) {
+	if _, err := validateSourceText(source); err != nil {
+		return extensiontopology.CarrierSource{}, err
+	}
+	ref, err := desiredextension.NewSourceRef(desiredextension.SourceKindHostSource, source)
+	if err != nil {
+		return extensiontopology.CarrierSource{}, err
+	}
+	key, err := desiredextension.NewCarrierKey(
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		scope,
+		ref,
+	)
+	if err != nil {
+		return extensiontopology.CarrierSource{}, err
+	}
+	return extensiontopology.InterpretCarrierSource(key)
+}
+
+func sourceIdentityForCarrier(interpreted extensiontopology.CarrierSource, context extensiontopology.LocalSourceContext) (sourceIdentity, error) {
+	switch interpreted.Class() {
+	case extensiontopology.CarrierSourceNPM:
+		return sourceIdentity{kind: sourceKindNPM, key: interpreted.Identity()}, nil
+	case extensiontopology.CarrierSourceGit:
+		return sourceIdentity{kind: sourceKindGit, key: interpreted.Identity()}, nil
+	case extensiontopology.CarrierSourceLocal:
+	default:
+		return sourceIdentity{}, fmt.Errorf("unsupported Pi package source class %q", interpreted.Class())
 	}
 	identity, err := interpreted.ResolveLocal(context)
 	if err != nil {

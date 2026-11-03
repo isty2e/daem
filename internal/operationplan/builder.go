@@ -63,6 +63,31 @@ func (builder *Builder) AddLogicalPair(path string, entryAccess, referentAccess 
 	return builder.AddLogical(path, referentAccess, mutation.PathEffectReferent)
 }
 
+// AddOwnershipRegistry retains store lease domains while binding scoped
+// semantic evidence instead of the shared file's approval-time bytes.
+func (builder *Builder) AddOwnershipRegistry(path string, access mutation.AccessMode, identity string) error {
+	if identity == "" {
+		return fmt.Errorf("ownership Registry requires its scoped semantic identity")
+	}
+	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+		if err := builder.addPathFact(FactOwnershipRegistry, path, access, effect, "", "", "", 0, identity, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AddDocumentWritePair distinguishes mutation/baseline intent from an
+// exclusive physical observation that must not become a protection scope.
+func (builder *Builder) AddDocumentWritePair(path, targetName, scope string) error {
+	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+		if err := builder.addPathFact(FactDocumentWrite, path, mutation.AccessExclusive, effect, targetName, scope, "", 0, "", true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // AddPhysical records a physical path fact and domain step, including target/scope.
 func (builder *Builder) AddPhysical(
 	path string,
@@ -199,16 +224,19 @@ func (builder *Builder) addPathFact(
 		return nil
 	}
 	switch kind {
-	case FactLogical, FactRemovalContinuation:
+	case FactLogical, FactRemovalContinuation, FactOwnershipRegistry:
 		builder.domainSteps = append(builder.domainSteps, newPathDomainStep(
 			newLogicalPathDomainRequest(path, access, effect),
 		))
-	case FactPhysical:
+	case FactPhysical, FactDocumentWrite:
 		builder.domainSteps = append(builder.domainSteps, newPathDomainStep(
 			newPhysicalPathDomainRequest(path, access, effect, targetName, scope),
 		))
 	default:
 		return fmt.Errorf("operationplan: fact %d has no path domain", kind)
+	}
+	if kind == FactOwnershipRegistry {
+		return nil
 	}
 	return builder.maybeAddRevision(path, effect)
 }
@@ -269,6 +297,24 @@ type Plan struct {
 // Facts returns a copy of compiled authority facts in admission order.
 func (plan Plan) Facts() []Fact {
 	return append([]Fact(nil), plan.facts...)
+}
+
+// DocumentWriteRequests excludes read-only/exclusive observations and control
+// paths. Both mutation and new ownership-baseline intents select documents.
+func (plan Plan) DocumentWriteRequests() []mutation.PhysicalAuthorityRequest {
+	seen := make(map[mutation.PhysicalAuthorityRequest]struct{})
+	var requests []mutation.PhysicalAuthorityRequest
+	for _, fact := range plan.facts {
+		request, write := fact.documentWrite()
+		if !write {
+			continue
+		}
+		if _, duplicate := seen[request]; !duplicate {
+			requests = append(requests, request)
+			seen[request] = struct{}{}
+		}
+	}
+	return requests
 }
 
 // DomainSteps returns mutation-domain lowering steps in admission order.

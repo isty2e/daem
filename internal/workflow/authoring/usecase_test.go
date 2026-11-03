@@ -12,6 +12,7 @@ import (
 
 	daempaths "github.com/isty2e/daem/internal/paths"
 	lockmodel "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/realization/lockfile"
 )
 
 func TestAuthoringUseCasesCoverResourceFamilies(t *testing.T) {
@@ -362,7 +363,8 @@ func TestAuthoringOperationRejectsFutureLockfileBeforeTransactionalWrite(t *test
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
 	originalManifest := "version = 1\ntargets = [\"claude-code\"]\n"
-	futureLockfile := "version = 7\nfuture_payload = \"preserve\"\n"
+	futureVersion := int64(lockmodel.CurrentVersion + 1)
+	futureLockfile := fmt.Sprintf("version = %d\nfuture_payload = \"preserve\"\n", futureVersion)
 	writeTestFile(t, tempDir, "daem.toml", originalManifest)
 	writeTestFile(t, tempDir, "daem.lock.toml", futureLockfile)
 
@@ -384,10 +386,9 @@ func TestAuthoringOperationRejectsFutureLockfileBeforeTransactionalWrite(t *test
 	if operationErr.Phase != OperationPhaseBuildLockfile {
 		t.Fatalf("phase = %q, want %q", operationErr.Phase, OperationPhaseBuildLockfile)
 	}
-	for _, want := range []string{"unsupported lockfile version 7", "newer daem"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("err = %q, want %q", err, want)
-		}
+	var versionErr lockfile.UnsupportedVersionError
+	if !errors.As(err, &versionErr) || versionErr.Found != futureVersion || versionErr.RelockSupported() {
+		t.Fatalf("transaction did not preserve future-version refusal: %v", err)
 	}
 	assertFileContent(t, manifestPath, originalManifest)
 	assertFileContent(t, lockfilePath, futureLockfile)

@@ -15,8 +15,10 @@ import (
 )
 
 func TestRecoveryRejectsNewDescendantMountBeforeEffects(t *testing.T) {
-	if _, err := exec.LookPath("hdiutil"); err != nil {
-		t.Skipf("hdiutil is unavailable: %v", err)
+	for _, tool := range []string{"hdiutil", "diskutil"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is unavailable: %v", tool, err)
+		}
 	}
 	fixture := newGlobalFileRecoveryFixture(t, output.Destination{}, false)
 	mountPoint := filepath.Dir(fixture.admittedPath)
@@ -48,9 +50,9 @@ func TestRecoveryRejectsNewDescendantMountBeforeEffects(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		command := exec.CommandContext(ctx, "hdiutil", "detach", mountPoint)
+		command := exec.CommandContext(ctx, "diskutil", "eject", mountPoint)
 		if output, err := command.CombinedOutput(); err != nil {
-			t.Errorf("detach temporary recovery mount: %v: %s", err, output)
+			t.Errorf("eject temporary recovery mount: %v: %s", err, output)
 		}
 	})
 	runHDIUtil(

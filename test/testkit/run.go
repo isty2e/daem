@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"bytes"
 	"io"
 	"slices"
 	"testing"
@@ -11,6 +12,12 @@ import (
 
 func RunCLI(args []string, stdout io.Writer, stderr io.Writer) int {
 	return clipkg.RunWithOptions(args, clipkg.RunOptions{Stdout: stdout, Stderr: stderr})
+}
+
+func RunCapturedCLI(args ...string) (int, string, string) {
+	var stdout, stderr bytes.Buffer
+	exitCode := RunCLI(args, &stdout, &stderr)
+	return exitCode, stdout.String(), stderr.String()
 }
 
 // RunVerboseCLI preserves exhaustive human evidence assertions while default-output tests use RunCLI.
