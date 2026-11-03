@@ -67,14 +67,18 @@ func writeWindowsPayload(ctx context.Context, handle windows.Handle, payload []b
 }
 
 func readWindowsPayloadUpTo(ctx context.Context, handle windows.Handle, maximumBytes int64) ([]byte, error) {
+	return readWindowsPayloadWithFaults(ctx, handle, maximumBytes, faultPlan{})
+}
+
+func readWindowsPayloadWithFaults(ctx context.Context, handle windows.Handle, maximumBytes int64, faults faultPlan) ([]byte, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("Windows payload context is required")
 	}
 	if handle == 0 || handle == windows.InvalidHandle {
 		return nil, fmt.Errorf("Windows payload handle is required")
 	}
-	if maximumBytes <= 0 {
-		return nil, fmt.Errorf("Windows payload maximum bytes must be positive")
+	if maximumBytes < 0 {
+		return nil, fmt.Errorf("Windows payload maximum bytes must not be negative")
 	}
 	standard, err := queryWindowsStandardFacts(handle)
 	if err != nil {
@@ -98,26 +102,40 @@ func readWindowsPayloadUpTo(ctx context.Context, handle windows.Handle, maximumB
 	}
 	content := make([]byte, 0, int(standard.endOfFile))
 	for {
-		if err := ctx.Err(); err != nil {
+		if err := faults.check(ctx, phaseReadPayload); err != nil {
 			return nil, err
 		}
-		chunk := make([]byte, windowsPayloadChunkSize)
-		var read uint32
-		if err := windows.ReadFile(handle, chunk, &read, nil); err != nil {
-			return nil, normalizeWindowsNativeError(windowsNativePhaseRead, err, false)
+		remaining := maximumBytes - int64(len(content))
+		if remaining == 0 {
+			break
+		}
+		chunk := make([]byte, int(min(int64(windowsPayloadChunkSize), remaining)))
+		read, err := faults.readPayload(chunk, func(value []byte) (int, error) {
+			var count uint32
+			if err := windows.ReadFile(handle, value, &count, nil); err != nil {
+				return int(count), normalizeWindowsNativeError(windowsNativePhaseRead, err, false)
+			}
+			return int(count), nil
+		})
+		if err != nil {
+			return nil, err
 		}
 		if read == 0 {
 			break
 		}
-		if int64(len(content))+int64(read) > maximumBytes {
-			return nil, newRegularFileReadLimitError(maximumBytes, int64(len(content))+int64(read))
-		}
 		content = append(content, chunk[:read]...)
-		if read < uint32(len(chunk)) {
+		if read < len(chunk) {
 			break
 		}
 	}
-	if int64(len(content)) != standard.endOfFile {
+	final, err := queryWindowsStandardFacts(handle)
+	if err != nil {
+		return nil, normalizeWindowsNativeError(windowsNativePhaseRead, err, false)
+	}
+	if final.endOfFile > maximumBytes {
+		return nil, newRegularFileReadLimitError(maximumBytes, final.endOfFile)
+	}
+	if int64(len(content)) != standard.endOfFile || int64(len(content)) != final.endOfFile {
 		return nil, fmt.Errorf("Windows payload size changed during bounded read")
 	}
 	return content, nil

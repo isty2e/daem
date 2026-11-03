@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"golang.org/x/sys/windows"
 )
 
 func TestWindowsFileCreateReplaceAndReadRoundTrip(t *testing.T) {
@@ -308,6 +309,52 @@ func TestWindowsFileCommitRejectsAncestorReplacementAtCommitPoint(t *testing.T) 
 		}
 	}
 	assertNoWindowsStorageResidue(t, moved)
+}
+
+func TestWindowsFileExcludesWriterUntilPublicationCompletes(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config")
+	request, err := NewFileCreate(path, []byte("payload"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	overwrite := func() error {
+		handle, err := windows.CreateFile(
+			name, windows.GENERIC_WRITE,
+			windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+			nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0,
+		)
+		if err != nil {
+			return err
+		}
+		file := os.NewFile(uintptr(handle), path)
+		_, writeErr := file.Write([]byte("changed"))
+		return errors.Join(writeErr, file.Close())
+	}
+
+	var writerErr error
+	faults := faultPlan{actions: map[phase]func(){
+		phaseSyncParent: func() { writerErr = overwrite() },
+	}}
+	_, err = commitWindowsFileWithFaults(t.Context(), request, faults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(writerErr, windows.ERROR_SHARING_VIOLATION) {
+		t.Fatalf("concurrent writer error = %v, want ERROR_SHARING_VIOLATION", writerErr)
+	}
+	assertWindowsRegularFileSnapshot(t, path, "payload", 0o600)
+	assertNoWindowsStorageResidue(t, root)
+
+	if err := overwrite(); err != nil {
+		t.Fatalf("writer after publication: %v", err)
+	}
+	assertWindowsRegularFileSnapshot(t, path, "changed", 0o600)
 }
 
 func TestWindowsFileCommitHonorsCancellationBeforeEffects(t *testing.T) {
