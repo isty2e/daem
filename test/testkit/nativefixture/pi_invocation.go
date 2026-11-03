@@ -117,9 +117,7 @@ fi
 	t.Setenv("DAEM_TEST_MUTATION", mutation)
 	t.Setenv("DAEM_TEST_NATIVE_RESULT", "")
 	t.Setenv("DAEM_TEST_PIN_CLAIMS", "")
-	fixture.Require(t, "lock")
 	fixture.Require(t, "add", "extension", "tools", source, "--target", "pi", "--scope", string(scope))
-	fixture.Require(t, "lock")
 	fixture.Require(t, "apply", "--yes")
 	if got := string(testkit.ReadFile(t, calls)); got != "install\n" {
 		t.Fatal("real extension-only fixture did not invoke its command once")

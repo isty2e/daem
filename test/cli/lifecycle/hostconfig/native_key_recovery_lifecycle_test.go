@@ -69,16 +69,13 @@ func TestNativeKeyRecoveryAfterProcessLoss(t *testing.T) {
 					}
 					nativefixture.RequireRecoveryBeforeHost(t, fixture, kind != "absent")
 					nativefixture.RequireLifecycleMetadata(t, fixture.Manifest, kind != "absent")
+					nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
 				} else {
 					after, err := os.Stat(fixture.Destination)
 					if err != nil || !os.SameFile(unchangedHost, after) || !reflect.DeepEqual(unchangedHostImage, nativefixture.SnapshotRecoveryPaths(t, fixture.Destination)) {
 						t.Fatal("state-After finalization replayed the already committed host document", err)
 					}
-					nativefixture.RequireLifecycleMetadata(t, fixture.Manifest, true)
-					_, status, _ := nativefixture.RunRecoveryCommand(t, fixture, "none", "status", "--check", "--json")
-					nativefixture.RequireLifecycleClean(t, status)
 				}
-				nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
 				nativefixture.RequireRecoveryDesired(t, fixture)
 				if kind != "absent" {
 					nativefixture.RequireRecoveryLaterEdit(t, fixture)

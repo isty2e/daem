@@ -55,9 +55,11 @@ func TestNativeKeyScopeCLILifecycle(t *testing.T) {
 		for _, existing := range []bool{true, false} {
 			t.Run(selected.name+"/"+nativeKeyScopeFileKind(existing), func(t *testing.T) {
 				fixture := newNativeKeyScopeFixture(t, selected, existing)
-				for _, model := range []string{"after-model", "updated-model"} {
-					writeNativeKeyScopeDesired(t, fixture, model)
-					nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
+				for index, model := range []string{"after-model", "updated-model"} {
+					if index != 0 {
+						writeNativeKeyScopeDesired(t, fixture, model)
+						nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
+					}
 					_, _, stderr := nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes", "--verbose")
 					if !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Paths.StatefilePath)) {
 						t.Fatal("Apply did not confirm real host and state publications", stderr)

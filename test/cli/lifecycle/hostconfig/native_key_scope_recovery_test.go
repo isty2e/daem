@@ -48,14 +48,13 @@ func TestNativeKeyScopeRecoveryAfterProcessLoss(t *testing.T) {
 						}
 						requireNativeKeyScopeBefore(t, fixture, existing)
 						requireNativeKeyScopeMetadata(t, fixture, existing)
+						nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
 					} else {
 						after, err := os.Stat(fixture.Destination)
 						if err != nil || !os.SameFile(unchangedHost, after) || !reflect.DeepEqual(unchangedImage, nativefixture.SnapshotRecoveryPaths(t, fixture.Destination)) {
 							t.Fatal("state-After finalization replayed the host document", err)
 						}
-						requireNativeKeyScopeDesired(t, fixture, "after-model")
 					}
-					nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
 					requireNativeKeyScopeDesired(t, fixture, "after-model")
 					if existing {
 						requireNativeKeyScopeUserEdit(t, fixture)
