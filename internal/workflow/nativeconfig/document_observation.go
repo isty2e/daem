@@ -53,6 +53,20 @@ func ObserveDocuments(ctx context.Context, input DocumentObservationInput) (*Doc
 	return operation, nil
 }
 
+// ObserveSelectedDocuments retains explicit native addresses using the same
+// roots and complete persistence epoch as ordinary observation, without reading
+// unrelated declared documents. It grants no ownership or mutation authority.
+func ObserveSelectedDocuments(ctx context.Context, paths daempaths.Paths, epoch *readiness.PersistenceEpoch, addresses []aggregate.DocumentAddress) (*DocumentObservation, error) {
+	if ctx == nil || epoch == nil || len(addresses) == 0 {
+		return nil, fmt.Errorf("selected native observation requires context, persistence and addresses")
+	}
+	operation := &DocumentObservation{}
+	if _, err := observeDocumentAddresses(ctx, paths, epoch, slices.Clone(addresses), operation); err != nil {
+		return nil, errors.Join(err, operation.Close())
+	}
+	return operation, nil
+}
+
 func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, operation *DocumentObservation) (result *readiness.NativeAssessmentInput, resultErr error) {
 	if input.PersistenceEpoch == nil {
 		return nil, fmt.Errorf("native observation requires its selected persistence epoch")
@@ -122,8 +136,19 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 	if len(aliases) == 0 && !input.Lockfile.ContainsHostConfig() && !before.ContainsHostConfig() {
 		return nil, nil
 	}
+	addresses := make([]aggregate.DocumentAddress, 0, len(aliases))
+	for alias := range aliases {
+		addresses = append(addresses, alias)
+	}
+	return observeDocumentAddresses(ctx, input.Paths, input.PersistenceEpoch, addresses, operation)
+}
 
-	budget, err := input.PersistenceEpoch.PhysicalBudget()
+func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch *readiness.PersistenceEpoch, addresses []aggregate.DocumentAddress, operation *DocumentObservation) (result *readiness.NativeAssessmentInput, resultErr error) {
+	before, err := epoch.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+	budget, err := epoch.PhysicalBudget()
 	if err != nil {
 		return nil, err
 	}
@@ -141,31 +166,27 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 			result = nil
 		}
 	}()
-	addresses := make([]aggregate.DocumentAddress, 0, len(aliases))
-	for alias := range aliases {
-		addresses = append(addresses, alias)
-	}
 	slices.SortFunc(addresses, func(left, right aggregate.DocumentAddress) int {
 		return strings.Compare(string(left.Target())+"\x00"+string(left.Scope())+"\x00"+left.AggregateRoot().String(), string(right.Target())+"\x00"+string(right.Scope())+"\x00"+right.AggregateRoot().String())
 	})
-	manifestRoot, err := rootedpath.CaptureCanonicalRootBounded(input.Paths.ManifestRoot, recovery.MaximumPhysicalPathDepth, budget)
+	manifestRoot, err := rootedpath.CaptureCanonicalRootBounded(paths.ManifestRoot, recovery.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		return nil, err
 	}
 	retained = append(retained, manifestRoot)
-	roots.Manifest = journal.NativeDocumentRoot{SelectedPath: input.Paths.ManifestRoot, Root: manifestRoot}
+	roots.Manifest = journal.NativeDocumentRoot{SelectedPath: paths.ManifestRoot, Root: manifestRoot}
 	for _, alias := range addresses {
 		var selected *journal.NativeDocumentRoot
 		var path string
 		switch alias.AggregateRoot().RootRole() {
 		case output.RootProject:
-			selected, path = &roots.Manifest, input.Paths.ManifestRoot
+			selected, path = &roots.Manifest, paths.ManifestRoot
 		case output.RootPiAgent:
 			selected = &roots.PiAgent
-			path, err = pihostpath.ResolveAgentRoot(pihostpath.AgentRootInput{WorkDir: input.Paths.ManifestRoot})
+			path, err = pihostpath.ResolveAgentRoot(pihostpath.AgentRootInput{WorkDir: paths.ManifestRoot})
 		case output.RootCodexHome:
 			selected = &roots.CodexHome
-			path, err = codexhostpath.ResolveHomeRoot(input.Paths.ManifestRoot)
+			path, err = codexhostpath.ResolveHomeRoot(paths.ManifestRoot)
 		default:
 			return nil, fmt.Errorf("native document has no selected host root")
 		}
@@ -183,15 +204,15 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 		retained = append(retained, selection.Root)
 		*selected = selection
 	}
-	stateAuthority, err := mutation.ObservePersistedDirectoryEntryAuthorityBounded(input.Paths.StatefilePath, recovery.MaximumPhysicalPathDepth, budget)
+	stateAuthority, err := mutation.ObservePersistedDirectoryEntryAuthorityBounded(paths.StatefilePath, recovery.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		return nil, err
 	}
-	owner, err := stateauthority.New(stateAuthority.Exact(), input.Paths.ManifestPath)
+	owner, err := stateauthority.New(stateAuthority.Exact(), paths.ManifestPath)
 	if err != nil {
 		return nil, err
 	}
-	reader, err := ownershipstore.NewRecoveryReader(input.Paths.OwnershipRegistryPath)
+	reader, err := ownershipstore.NewRecoveryReader(paths.OwnershipRegistryPath)
 	if err != nil {
 		return nil, err
 	}
@@ -203,13 +224,13 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 	if err != nil {
 		return nil, err
 	}
-	input.Native = &readiness.NativeAssessmentInput{
+	native := &readiness.NativeAssessmentInput{
 		Documents: &documents, Registry: registry.actual, Owner: owner, Budget: budget,
 	}
 	if operation != nil {
-		operation.native = input.Native
+		operation.native = native
 	}
-	return input.Native, nil
+	return native, nil
 }
 
 type observedRegistry struct {
