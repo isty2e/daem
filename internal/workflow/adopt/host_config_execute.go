@@ -46,7 +46,7 @@ func ExecuteHostConfigCapture(ctx context.Context, plan *HostConfigCapturePlan, 
 	if err := plan.qualifyCapturePaths(ctx); err != nil {
 		return result, err
 	}
-	current, err := BuildHostConfigUpdatePlan(ctx, plan.input)
+	current, err := buildHostConfigCapturePlan(ctx, plan.input, plan.initial)
 	if err != nil {
 		return result, err
 	}

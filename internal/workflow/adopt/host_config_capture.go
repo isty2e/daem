@@ -42,10 +42,18 @@ type HostConfigUpdateInput struct {
 	Keys       []output.KeyPath
 }
 
+type HostConfigInitialInput struct {
+	Paths  daempaths.Paths
+	Config hostconfig.Config
+	Keys   []output.KeyPath
+	Merge  bool
+}
+
 // HostConfigCapturePlan retains actual data and roots for one named-file edit.
 // Its inspection data is not display-safe; presentation must project and redact.
 type HostConfigCapturePlan struct {
 	input          HostConfigUpdateInput
+	initial        *HostConfigInitialInput
 	barrier        recoverygate.EffectAuthority
 	manifest       declarationartifact.MutationTarget
 	originalSource declarationartifact.MutationTarget
@@ -73,7 +81,10 @@ func (plan *HostConfigCapturePlan) SourcePath() string {
 	path, _ := localCaptureSourcePath(plan.input.Paths.ManifestRoot, plan.config.Source())
 	return path
 }
-func (plan *HostConfigCapturePlan) SourceReferent() string { return plan.source.Path() }
+func (plan *HostConfigCapturePlan) SourceReferent() string    { return plan.source.Path() }
+func (plan *HostConfigCapturePlan) ManifestPath() string      { return plan.input.Paths.ManifestPath }
+func (plan *HostConfigCapturePlan) Initial() bool             { return plan.initial != nil }
+func (plan *HostConfigCapturePlan) Config() hostconfig.Config { return plan.config }
 func (plan *HostConfigCapturePlan) KnownReferences() []HostConfigSourceReference {
 	return slices.Clone(plan.references)
 }
@@ -117,8 +128,24 @@ func (plan *HostConfigCapturePlan) Close() error {
 // without remote materialization, leases, recovery or writes. Callers must Close
 // the retained plan. An export preserves unselected desired source values.
 func BuildHostConfigUpdatePlan(ctx context.Context, input HostConfigUpdateInput) (plan *HostConfigCapturePlan, resultErr error) {
+	return buildHostConfigCapturePlan(ctx, input, nil)
+}
+
+func BuildHostConfigInitialPlan(ctx context.Context, input HostConfigInitialInput) (*HostConfigCapturePlan, error) {
+	if err := input.Config.Validate(); err != nil {
+		return nil, err
+	}
+	input.Keys = slices.Clone(input.Keys)
+	path, err := localCaptureSourcePath(input.Paths.ManifestRoot, input.Config.Source())
+	if err != nil {
+		return nil, err
+	}
+	return buildHostConfigCapturePlan(ctx, HostConfigUpdateInput{Paths: input.Paths, Name: input.Config.ID().Name(), SourcePath: path, Keys: input.Keys}, &input)
+}
+
+func buildHostConfigCapturePlan(ctx context.Context, input HostConfigUpdateInput, initial *HostConfigInitialInput) (plan *HostConfigCapturePlan, resultErr error) {
 	if ctx == nil || input.Paths.ManifestPath == "" || input.Name == "" {
-		return nil, fmt.Errorf("capture update requires context, selected paths and declaration name")
+		return nil, fmt.Errorf("capture requires context, selected paths and declaration name")
 	}
 	input.Keys = slices.Clone(input.Keys)
 	if input.SourcePath != "" && !filepath.IsAbs(input.SourcePath) {
@@ -134,7 +161,7 @@ func BuildHostConfigUpdatePlan(ctx context.Context, input HostConfigUpdateInput)
 	if err := barrier.Validate(ctx); err != nil {
 		return nil, err
 	}
-	plan = &HostConfigCapturePlan{input: input, barrier: barrier}
+	plan = &HostConfigCapturePlan{input: input, initial: initial, barrier: barrier}
 	defer func() {
 		if resultErr != nil {
 			resultErr = errors.Join(resultErr, plan.Close())
@@ -145,11 +172,26 @@ func BuildHostConfigUpdatePlan(ctx context.Context, input HostConfigUpdateInput)
 	if err != nil {
 		return plan, err
 	}
-	plan.manifestBefore, err = declarationartifact.Read(ctx, input.Paths.ManifestPath)
+	manifestSnapshot, manifestExists, err := filesnapshot.ReadRegularFileSnapshotContext(ctx, plan.manifest.Path(), declarationartifact.MaximumBytes)
 	if err != nil {
 		return plan, err
 	}
-	environment, err := declarationmanifest.Decode(plan.manifestBefore)
+	plan.manifestBefore = manifestSnapshot.Content()
+	manifestContent := plan.manifestBefore
+	if initial != nil {
+		if manifestExists && !initial.Merge {
+			return plan, fmt.Errorf("capture into an existing manifest requires --merge")
+		}
+		if !manifestExists {
+			manifestContent, err = declarationcodec.RenderImportManifest([]string{string(initial.Config.Target())}, declarationcodec.ImportManifestBody{})
+			if err != nil {
+				return plan, err
+			}
+		}
+	} else if !manifestExists {
+		return plan, fmt.Errorf("capture update requires an existing manifest")
+	}
+	environment, err := declarationmanifest.Decode(manifestContent)
 	if err != nil {
 		return plan, err
 	}
@@ -167,13 +209,19 @@ func BuildHostConfigUpdatePlan(ctx context.Context, input HostConfigUpdateInput)
 			break
 		}
 	}
-	if !found {
+	if initial != nil {
+		if found {
+			return plan, fmt.Errorf("host_config %q already exists; use --update-source", input.Name)
+		}
+		plan.config = initial.Config
+	} else if !found {
 		return plan, fmt.Errorf("host_config %q is not declared", input.Name)
 	}
 	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: plan.config.Target(), Scope: plan.config.Scope(), Path: plan.config.Path(), Ownership: plan.config.Ownership(), Syntax: plan.config.Syntax()})
 	if err != nil {
 		return plan, err
 	}
+	plan.hostOutputs = append(plan.hostOutputs, placement.Destination())
 	oldSourcePath, err := localCaptureSourcePath(input.Paths.ManifestRoot, plan.config.Source())
 	if err != nil {
 		return plan, err
@@ -186,7 +234,10 @@ func BuildHostConfigUpdatePlan(ctx context.Context, input HostConfigUpdateInput)
 	if err != nil {
 		return plan, fmt.Errorf("read declared local capture source: %w", err)
 	}
-	if !exists && plan.config.Ownership() == hostconfig.OwnershipKeys {
+	if initial != nil && exists {
+		return plan, fmt.Errorf("capture source destination already exists")
+	}
+	if !exists && initial == nil && plan.config.Ownership() == hostconfig.OwnershipKeys {
 		return plan, fmt.Errorf("declared capture source is missing")
 	}
 	plan.source = plan.originalSource
@@ -237,6 +288,9 @@ func BuildHostConfigUpdatePlan(ctx context.Context, input HostConfigUpdateInput)
 			return plan, fmt.Errorf("whole-document capture cannot select keys")
 		}
 		plan.retire = !plan.native.Exists()
+		if plan.retire && initial != nil {
+			return plan, fmt.Errorf("initial whole-document capture requires an existing host document")
+		}
 		if plan.retire && input.SourcePath != "" {
 			return plan, fmt.Errorf("missing whole document cannot be exported; preview retirement without a new source")
 		}
@@ -248,7 +302,10 @@ func BuildHostConfigUpdatePlan(ctx context.Context, input HostConfigUpdateInput)
 			}
 		}
 	} else {
-		sourceDocument, err := configdocument.Parse(ctx, plan.desiredBefore, syntax, nativeconfig.DocumentLimits())
+		sourceDocument, err := configdocument.Absent(syntax, nativeconfig.DocumentLimits())
+		if initial == nil {
+			sourceDocument, err = configdocument.Parse(ctx, plan.desiredBefore, syntax, nativeconfig.DocumentLimits())
+		}
 		if err != nil {
 			return plan, err
 		}
@@ -259,7 +316,15 @@ func BuildHostConfigUpdatePlan(ctx context.Context, input HostConfigUpdateInput)
 		if err != nil {
 			return plan, err
 		}
-		result, err := captureconfig.Update(ctx, sourceDocument, hostDocument, input.Keys, nativeconfig.DocumentLimits().MaximumBytes)
+		var result captureconfig.Result
+		if initial != nil {
+			if len(input.Keys) == 0 {
+				return plan, fmt.Errorf("initial capture requires --key or explicit document ownership")
+			}
+			result, err = captureconfig.Initial(ctx, hostDocument, sourceDocument, input.Keys, nativeconfig.DocumentLimits().MaximumBytes)
+		} else {
+			result, err = captureconfig.Update(ctx, sourceDocument, hostDocument, input.Keys, nativeconfig.DocumentLimits().MaximumBytes)
+		}
 		if err != nil {
 			return plan, err
 		}
@@ -286,7 +351,16 @@ func BuildHostConfigUpdatePlan(ctx context.Context, input HostConfigUpdateInput)
 		return plan, err
 	}
 	plan.manifestAfter = bytes.Clone(plan.manifestBefore)
-	if plan.retire || input.SourcePath != "" {
+	if initial != nil {
+		block, err := declarationcodec.RenderHostConfigBlock(plan.config)
+		if err != nil {
+			return plan, err
+		}
+		plan.manifestAfter = declaration.AppendDocumentBlock(manifestContent, block)
+		if _, err := declarationmanifest.Decode(plan.manifestAfter); err != nil {
+			return plan, err
+		}
+	} else if plan.retire || input.SourcePath != "" {
 		plan.manifestAfter, err = captureManifestChange(plan.manifestBefore, plan.config, input.SourcePath, plan.retire)
 		if err != nil {
 			return plan, err

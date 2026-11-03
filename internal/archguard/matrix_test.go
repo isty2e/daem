@@ -441,6 +441,20 @@ func TestProgressPresentationMayConsumeOnlyAdmittedWorkflowFacts(t *testing.T) {
 	}
 }
 
+func TestCapturePresentationConsumesOnlyTheAdmittedWorkflowResult(t *testing.T) {
+	if violations := analyzeImports("internal/cli/present", []string{"example.com/project/internal/workflow/adopt"}); containsFindingRule(violations, rulePresentWorkflowImport) {
+		t.Fatal("capture result projection was refused", violations)
+	}
+	for _, edge := range []struct{ from, to string }{
+		{"internal/cli/present", "internal/workflow/adopt/private"},
+		{"internal/cli/present/other", "internal/workflow/adopt"},
+	} {
+		if violations := analyzeImports(edge.from, []string{"example.com/project/" + edge.to}); !containsFindingRule(violations, rulePresentWorkflowImport) {
+			t.Fatal("capture result exception leaked across its boundary", edge)
+		}
+	}
+}
+
 func TestLockGenerateBoundaryAllowsFrozenDependencies(t *testing.T) {
 	for _, importPath := range []string{
 		"example.com/project/internal/supply/artifact",

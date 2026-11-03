@@ -123,7 +123,8 @@ func isAllowedPresentWorkflowResultImport(packagePath string, importPath string)
 		return false
 	}
 	switch importPath {
-	case "internal/workflow/apply",
+	case "internal/workflow/adopt",
+		"internal/workflow/apply",
 		"internal/workflow/authoring",
 		"internal/workflow/init",
 		"internal/workflow/list",
