@@ -21,6 +21,7 @@ import (
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 type nativeOpenCodeFixture struct {
@@ -39,7 +40,7 @@ func newNativeOpenCodeFixtureWithPi(t *testing.T, scope, nativeScope target.Scop
 	if err != nil {
 		t.Fatal(err)
 	}
-	setNativeRecoveryEnvironment(t, root)
+	nativefixture.SetRecoveryEnvironment(t, root)
 	workspace := filepath.Join(root, "workspace")
 	f := nativeOpenCodeFixture{nativeOpaqueFixture: nativeOpaqueFixture{workspace: workspace, manifest: filepath.Join(workspace, "daem.toml"), calls: filepath.Join(root, "calls"), keyBefore: filepath.Join(root, "before.toml"), launchState: filepath.Join(root, "launch-state.json")}, payload: filepath.Join(root, "payload.jsonc")}
 	f.config = filepath.Join(workspace, ".opencode")
@@ -210,7 +211,7 @@ func TestNativeOpenCodeAndPiOrderCompletionIsPerClass(t *testing.T) {
 	settings := filepath.Join(f.workspace, ".pi", "settings.json")
 	testkit.WriteFile(t, filepath.Dir(settings), "settings.json", `{"packages":["npm:@acme/pi-beta@1","npm:@acme/pi-alpha@1"],"foreign":{"retained":true}}`)
 	f.require(t, "apply", "--yes", "--json")
-	requireNativePiOrderValues(t, settings, "", "npm:@acme/pi-alpha@1", "npm:@acme/pi-beta@1")
+	nativefixture.RequirePiOrderValues(t, settings, "", "npm:@acme/pi-alpha@1", "npm:@acme/pi-beta@1")
 	testkit.WriteFile(t, filepath.Dir(settings), "settings.json", `{"packages":["npm:@acme/pi-beta@1","npm:@acme/pi-alpha@1"],"foreign":{"retained":true}}`)
 	f.declaration += fmt.Sprintf("\n[[host_config]]\nid='pi-prefs'\ntargets=['pi']\nscope='project'\npath='settings.json'\nsource=%q\nownership='keys'\n", filepath.Join(f.workspace, "pi-prefs.json"))
 	testkit.WriteFile(t, f.workspace, "pi-prefs.json", `{"theme":"next-theme"}`)
@@ -238,7 +239,7 @@ func TestNativeOpenCodeAndPiOrderCompletionIsPerClass(t *testing.T) {
 		t.Fatalf("missing order classes: %s", stdout)
 	}
 	f.requireSources(t, "@acme/alpha@1", "@acme/beta@1", "@acme/foreign@1")
-	requireNativePiOrderValues(t, settings, "next-theme", "npm:@acme/pi-alpha@1", "npm:@acme/pi-beta@1")
+	nativefixture.RequirePiOrderValues(t, settings, "next-theme", "npm:@acme/pi-alpha@1", "npm:@acme/pi-beta@1")
 	f.require(t, "status", "--check", "--json")
 	f.require(t, "apply", "--yes")
 	testkit.AssertFileContent(t, f.calls, "@acme/alpha@1\n@acme/beta@1\n")
@@ -295,8 +296,8 @@ func TestNativeOpenCodeRemovalRetainsPendingUntilVerified(t *testing.T) {
 func TestNativeOpenCodeInterruptedCommandRecoversWithoutSourceOrReplay(t *testing.T) {
 	f := newNativeOpenCodeFixture(t, target.ScopeGlobal, target.ScopeGlobal, false)
 	t.Setenv("DAEM_TEST_OC_FAULT", "terminate")
-	code, stdout, stderr := invokeNativeRecoveryCommand(t, nativeRecoveryFixture{manifest: f.manifest, destination: f.keyFile}, "native-opaque-command", "apply", "--yes")
-	if code == 0 || code == nativeRecoveryExit {
+	code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, nativefixture.RecoveryFixture{Manifest: f.manifest, Destination: f.keyFile}, "native-opaque-command", "apply", "--yes")
+	if code == 0 || code == nativefixture.RecoveryExit {
 		t.Fatalf("command did not kill its parent: %d %s %s", code, stdout, stderr)
 	}
 	if err := os.Remove(filepath.Join(f.workspace, "preferences.toml")); err != nil {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeKeyHumanDeclarationAndLocation(t *testing.T) {
@@ -34,13 +35,13 @@ source = "./preferences.toml"
 ownership = "keys"
 `)
 			testkit.WriteFile(t, workspace, "preferences.toml", test.source)
-			runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
 			for _, args := range [][]string{
 				{"status", "--manifest", manifest},
 				{"apply", "--manifest", manifest, "--dry-run"},
 				{"apply", "--manifest", manifest, "--yes"},
 			} {
-				output := runNativeLifecycleCommand(t, args...)
+				output := nativefixture.RunLifecycleCommand(t, args...)
 				for _, expected := range []string{`resource="host_config/preferences"`, `.codex/config.toml`, "key: " + test.display} {
 					if !strings.Contains(output, expected) {
 						t.Fatalf("%q omitted native declaration/location %q: %s", args, expected, output)

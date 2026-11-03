@@ -5,12 +5,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeOutputInventoryDisplaysDeclarationAndLiteralKey(t *testing.T) {
-	fixture := nativePresentationFixture(t, "model='native-test'\n[ext]\n'a/b'='retained'\n", "foreign=true\n")
-	runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes")
-	human := runNativeLifecycleCommand(t, "list", "outputs", "--manifest", fixture.manifest)
+	fixture := nativefixture.NewPresentation(t, "model='native-test'\n[ext]\n'a/b'='retained'\n", "foreign=true\n")
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+	human := nativefixture.RunLifecycleCommand(t, "list", "outputs", "--manifest", fixture.Manifest)
 	if !strings.Contains(human, `resource="host_config/preferences"`) || !strings.Contains(human, "key: model") || !strings.Contains(human, `key: ext."a/b"`) || strings.Contains(human, "key-v1.") {
 		t.Fatalf("output inventory did not use readable key identity: %s", human)
 	}
@@ -25,7 +27,7 @@ func TestNativeOutputInventoryDisplaysDeclarationAndLiteralKey(t *testing.T) {
 			KeyPath []string `json:"key_path"`
 		} `json:"managed"`
 	}
-	content := runNativeLifecycleCommand(t, "list", "outputs", "--manifest", fixture.manifest, "--json")
+	content := nativefixture.RunLifecycleCommand(t, "list", "outputs", "--manifest", fixture.Manifest, "--json")
 	if err := json.Unmarshal([]byte(content), &payload); err != nil {
 		t.Fatal(err)
 	}

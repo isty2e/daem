@@ -19,6 +19,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 type nativeOpaqueHost struct {
@@ -49,7 +50,7 @@ func newNativeOpaqueFixtureWithHistory(t *testing.T, host nativeOpaqueHost, nati
 	if err != nil {
 		t.Fatal(err)
 	}
-	setNativeRecoveryEnvironment(t, root)
+	nativefixture.SetRecoveryEnvironment(t, root)
 	workspace := filepath.Join(root, "workspace")
 	fixture := nativeOpaqueFixture{workspace: workspace, manifest: filepath.Join(workspace, "daem.toml"), calls: filepath.Join(root, "calls"), keyBefore: filepath.Join(root, "key-before.toml"), launchState: filepath.Join(root, "launch-state.json"), launchRegistry: filepath.Join(root, "launch-registry.json"), host: host}
 	fixture.keyFile = filepath.Join(workspace, ".codex", "config.toml")
@@ -314,8 +315,8 @@ func TestNativeOpaqueInterruptedCommandsRecoverWithoutReplay(t *testing.T) {
 		t.Run(string(host.target), func(t *testing.T) {
 			fixture := newNativeOpaqueFixture(t, host, target.ScopeGlobal)
 			t.Setenv("DAEM_TEST_OPAQUE_FAULT", "terminate")
-			code, stdout, stderr := invokeNativeRecoveryCommand(t, nativeRecoveryFixture{manifest: fixture.manifest, destination: fixture.keyFile}, "native-opaque-command", "apply", "--yes", "--json")
-			if code == 0 || code == nativeRecoveryExit {
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, nativefixture.RecoveryFixture{Manifest: fixture.manifest, Destination: fixture.keyFile}, "native-opaque-command", "apply", "--yes", "--json")
+			if code == 0 || code == nativefixture.RecoveryExit {
 				t.Fatalf("opaque Apply was not interrupted: %d %s %s", code, stdout, stderr)
 			}
 			store, err := ownershipstore.New(os.Getenv("DAEM_TEST_OPAQUE_REGISTRY"))

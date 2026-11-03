@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeMixedPreviewAndWriteShareSupportAdmission(t *testing.T) {
@@ -29,14 +30,14 @@ ownership = "keys"
 `)
 	testkit.WriteFile(t, workspace, "instructions.md", "project instructions\n")
 	testkit.WriteFile(t, workspace, "preferences.toml", "[tui]\ntheme = 'test'\n")
-	runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
 
 	for _, jsonOutput := range []bool{false, true} {
 		arguments := []string{"apply", "--manifest", manifest, "--dry-run"}
 		if jsonOutput {
 			arguments = append(arguments, "--json")
 		}
-		code, stdout, stderr := runOwnershipCLI(arguments...)
+		code, stdout, stderr := testkit.RunCapturedCLI(arguments...)
 		if code != 0 || jsonOutput && !json.Valid([]byte(stdout)) {
 			t.Fatalf("mixed preview was not executable: %q code=%d stdout=%s stderr=%s", arguments, code, stdout, stderr)
 		}
@@ -46,9 +47,9 @@ ownership = "keys"
 			}
 		}
 	}
-	runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes", "--json")
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes", "--json")
 	if actual := string(testkit.ReadFile(t, filepath.Join(workspace, "AGENTS.md"))); actual != "project instructions\n" {
 		t.Fatalf("confirmed mixed Apply omitted the ordinary output: %q", actual)
 	}
-	requireNativeLifecycleClean(t, runNativeLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+	nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
 }

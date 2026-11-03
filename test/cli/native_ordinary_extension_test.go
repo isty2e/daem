@@ -11,17 +11,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	clipkg "github.com/isty2e/daem/internal/cli"
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/subprocess"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
-	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeOrdinaryApplyWithCurrentExtension(t *testing.T) {
@@ -38,18 +36,18 @@ func TestNativeOrdinaryApplyWithCurrentExtension(t *testing.T) {
 
 func testNativeOrdinaryApplyWithCurrentExtensions(t *testing.T, sources []string) {
 	t.Helper()
-	fixture := nativePresentationFixture(t, "model='native-test'\n", "foreign=true\n")
-	workspace := filepath.Dir(fixture.manifest)
-	testkit.WriteFile(t, workspace, filepath.Base(fixture.manifest), "version=1\ntargets=['codex','pi']\n")
-	runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
+	fixture := nativefixture.NewPresentation(t, "model='native-test'\n", "foreign=true\n")
+	workspace := filepath.Dir(fixture.Manifest)
+	testkit.WriteFile(t, workspace, filepath.Base(fixture.Manifest), "version=1\ntargets=['codex','pi']\n")
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
 	for index, source := range sources {
 		id := "tools"
 		if index == 1 {
 			id = "more"
 		}
-		runNativeLifecycleCommand(t, "add", "extension", id, source, "--manifest", fixture.manifest, "--target", "pi", "--scope", "project")
+		nativefixture.RunLifecycleCommand(t, "add", "extension", id, source, "--manifest", fixture.Manifest, "--target", "pi", "--scope", "project")
 	}
-	runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
 	routes := 0
 	var installed []string
 	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{Runner: func(ctx context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
@@ -69,7 +67,7 @@ func testNativeOrdinaryApplyWithCurrentExtensions(t *testing.T, sources []string
 	}})
 	run := func(mode string, jsonOutput bool) (int, string, string) {
 		t.Helper()
-		args := []string{"apply", "--manifest", fixture.manifest, mode}
+		args := []string{"apply", "--manifest", fixture.Manifest, mode}
 		if jsonOutput {
 			args = append(args, "--json")
 		}
@@ -80,11 +78,11 @@ func testNativeOrdinaryApplyWithCurrentExtensions(t *testing.T, sources []string
 	if code, stdout, stderr := run("--yes", false); code != 0 || routes != len(sources) {
 		t.Fatalf("extension-only baseline failed: %d %s %s routes=%d", code, stdout, stderr, routes)
 	}
-	manifest := string(testkit.ReadFile(t, fixture.manifest)) + "\n[instructions.project]\nsource='./instructions.md'\n[[host_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
-	testkit.WriteFile(t, workspace, filepath.Base(fixture.manifest), manifest)
+	manifest := string(testkit.ReadFile(t, fixture.Manifest)) + "\n[instructions.project]\nsource='./instructions.md'\n[[host_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
+	testkit.WriteFile(t, workspace, filepath.Base(fixture.Manifest), manifest)
 	for _, content := range []string{"first\n", "second\n"} {
 		testkit.WriteFile(t, workspace, "instructions.md", content)
-		runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
+		nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
 		for _, mode := range []string{"--dry-run", "--yes"} {
 			code, stdout, stderr := run(mode, true)
 			if code != 0 || !json.Valid([]byte(stdout)) || routes != len(sources) {
@@ -113,15 +111,15 @@ func testNativeOrdinaryApplyWithCurrentExtensions(t *testing.T, sources []string
 		if !bytes.Contains(testkit.ReadFile(t, filepath.Join(workspace, "AGENTS.md")), []byte(content)) {
 			t.Fatal("current extension prevented the selected instruction update")
 		}
-		runNativeLifecycleCommand(t, "status", "--manifest", fixture.manifest, "--check", "--json")
+		nativefixture.RunLifecycleCommand(t, "status", "--manifest", fixture.Manifest, "--check", "--json")
 	}
 	if err := os.Remove(filepath.Join(workspace, ".pi", "settings.json")); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WriteFile(t, workspace, "instructions.md", "third\n")
 	testkit.WriteFile(t, workspace, "preferences.toml", "model.child=true\n")
-	runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
-	before := snapshotNativeRecoveryPaths(t, fixture.destination, filepath.Join(workspace, "AGENTS.md"), filepath.Join(workspace, ".daem"))
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+	before := nativefixture.SnapshotRecoveryPaths(t, fixture.Destination, filepath.Join(workspace, "AGENTS.md"), filepath.Join(workspace, ".daem"))
 	for _, mode := range []string{"--dry-run", "--yes"} {
 		code, stdout, stderr := run(mode, false)
 		if code == 0 || routes != len(sources) {
@@ -130,29 +128,10 @@ func testNativeOrdinaryApplyWithCurrentExtensions(t *testing.T, sources []string
 		if mode == "--dry-run" && (!strings.Contains(stdout, "not executable") || !strings.Contains(stderr, "apply preview failed:")) {
 			t.Fatalf("refused preview lost its phase or affected plan: %s %s", stdout, stderr)
 		}
-		if !reflect.DeepEqual(before, snapshotNativeRecoveryPaths(t, fixture.destination, filepath.Join(workspace, "AGENTS.md"), filepath.Join(workspace, ".daem"))) {
+		if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Destination, filepath.Join(workspace, "AGENTS.md"), filepath.Join(workspace, ".daem"))) {
 			t.Fatal("unsupported-route refusal changed the direct operation")
 		}
 	}
-}
-
-func nativeExtensionCompletionState(t *testing.T, paths daempaths.Paths) durable.Snapshot {
-	t.Helper()
-	codecs, err := nativeconfig.Codecs(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	codec, err := statefile.NewNativeCodec(codecs.Contributions())
-	if err != nil {
-		t.Fatal(err)
-	}
-	state, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{
-		Codec: codec, PhysicalPathBudget: recovery.NewPhysicalCaptureBudget(nil),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return state
 }
 
 func TestNativePendingProjectCompletionAfterInstallInterruption(t *testing.T) {
@@ -166,24 +145,24 @@ func TestNativePendingProjectCompletionAfterInstallInterruption(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			setNativeRecoveryEnvironment(t, root)
+			nativefixture.SetRecoveryEnvironment(t, root)
 			workspace := filepath.Join(root, "workspace")
-			fixture := nativeRecoveryFixture{
-				manifest: filepath.Join(workspace, "daem.toml"), destination: filepath.Join(workspace, ".codex", "config.toml"),
+			fixture := nativefixture.RecoveryFixture{
+				Manifest: filepath.Join(workspace, "daem.toml"), Destination: filepath.Join(workspace, ".codex", "config.toml"),
 			}
 			testkit.WriteFile(t, workspace, "daem.toml", "version=1\ntargets=['codex','pi']\n")
 			testkit.WriteFile(t, workspace, "preferences.toml", "model='native-test'\n")
-			fixture.paths, err = daempaths.Resolve(fixture.manifest)
+			fixture.Paths, err = daempaths.Resolve(fixture.Manifest)
 			if err != nil {
 				t.Fatal(err)
 			}
-			runNativeRecoveryCommand(t, fixture, "none", "lock")
-			runNativeRecoveryCommand(t, fixture, "none", "add", "extension", "tools", "git:github.com/acme/pi-tools@v1", "--target", "pi", "--scope", "project")
-			runNativeRecoveryCommand(t, fixture, "none", "lock")
-			if code, stdout, stderr := invokeNativeRecoveryCommand(t, fixture, "carrier-install", "apply", "--yes"); code != nativeRecoveryExit {
+			nativefixture.RunRecoveryCommand(t, fixture, "none", "lock")
+			nativefixture.RunRecoveryCommand(t, fixture, "none", "add", "extension", "tools", "git:github.com/acme/pi-tools@v1", "--target", "pi", "--scope", "project")
+			nativefixture.RunRecoveryCommand(t, fixture, "none", "lock")
+			if code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, "carrier-install", "apply", "--yes"); code != nativefixture.RecoveryExit {
 				t.Fatalf("installation did not stop after host publication: %d %s %s", code, stdout, stderr)
 			}
-			before := nativeExtensionCompletionState(t, fixture.paths)
+			before := nativefixture.ExtensionCompletionState(t, fixture.Paths)
 			if len(before.PendingCarrierInstalls()) != 1 || len(before.ManagedCarrierClaims()) != 0 {
 				t.Fatal("interrupted installation did not retain its exact pending fact")
 			}
@@ -213,15 +192,15 @@ func TestNativePendingProjectCompletionAfterInstallInterruption(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				testkit.WriteFile(t, filepath.Dir(fixture.paths.StatefilePath), filepath.Base(fixture.paths.StatefilePath), string(encoded))
+				testkit.WriteFile(t, filepath.Dir(fixture.Paths.StatefilePath), filepath.Base(fixture.Paths.StatefilePath), string(encoded))
 			}
-			manifest := string(testkit.ReadFile(t, fixture.manifest)) + "\n[[host_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
+			manifest := string(testkit.ReadFile(t, fixture.Manifest)) + "\n[[host_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
 			testkit.WriteFile(t, workspace, "daem.toml", manifest)
-			runNativeRecoveryCommand(t, fixture, "none", "lock")
-			beforeRefusal := snapshotNativeRecoveryEvidence(t, fixture)
-			code, stdout, stderr := invokeNativeRecoveryCommand(t, fixture, boundary, "apply", "--yes", "--verbose")
+			nativefixture.RunRecoveryCommand(t, fixture, "none", "lock")
+			beforeRefusal := nativefixture.SnapshotRecoveryEvidence(t, fixture)
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, boundary, "apply", "--yes", "--verbose")
 			if scenario == "no pending" || scenario == "different request" {
-				if code == 0 || code == nativeRecoveryExit || !reflect.DeepEqual(beforeRefusal, snapshotNativeRecoveryEvidence(t, fixture)) {
+				if code == 0 || code == nativefixture.RecoveryExit || !reflect.DeepEqual(beforeRefusal, nativefixture.SnapshotRecoveryEvidence(t, fixture)) {
 					t.Fatalf("unmatched pending history admitted effects: %d %s %s", code, stdout, stderr)
 				}
 				return
@@ -231,17 +210,17 @@ func TestNativePendingProjectCompletionAfterInstallInterruption(t *testing.T) {
 					t.Fatalf("mixed completion failed: %d %s %s", code, stdout, stderr)
 				}
 			} else {
-				if code != nativeRecoveryExit {
+				if code != nativefixture.RecoveryExit {
 					t.Fatalf("mixed completion did not reach %s publication: %d %s %s", boundary, code, stdout, stderr)
 				}
 				classification := "needs_rollback"
 				if boundary == "state" {
 					classification = "needs_finalize"
 				}
-				published := nativeExtensionCompletionState(t, fixture.paths)
-				requireNativeRecoveryDryRun(t, fixture, classification)
-				runNativeRecoveryCommand(t, fixture, "none", "recover", "--yes")
-				recovered := nativeExtensionCompletionState(t, fixture.paths)
+				published := nativefixture.ExtensionCompletionState(t, fixture.Paths)
+				nativefixture.RequireRecoveryDryRun(t, fixture, classification)
+				nativefixture.RunRecoveryCommand(t, fixture, "none", "recover", "--yes")
+				recovered := nativefixture.ExtensionCompletionState(t, fixture.Paths)
 				if boundary == "host" {
 					if !recovered.Equal(before) {
 						t.Fatal("Before recovery lost pending completion provenance")
@@ -249,9 +228,9 @@ func TestNativePendingProjectCompletionAfterInstallInterruption(t *testing.T) {
 				} else if !recovered.Equal(published) || len(recovered.PendingCarrierInstalls()) != 0 || len(recovered.ManagedCarrierClaims()) != 1 {
 					t.Fatal("After recovery did not preserve the complete published completion")
 				}
-				runNativeRecoveryCommand(t, fixture, "none", "apply", "--yes")
+				nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
 			}
-			after := nativeExtensionCompletionState(t, fixture.paths)
+			after := nativefixture.ExtensionCompletionState(t, fixture.Paths)
 			if len(after.PendingCarrierInstalls()) != 0 || len(after.ManagedCarrierClaims()) != 1 || after.ContainsHostConfig() != (scenario != "empty fragment") {
 				t.Fatalf("mixed successor lost completion: pending=%d claims=%d native=%t", len(after.PendingCarrierInstalls()), len(after.ManagedCarrierClaims()), after.ContainsHostConfig())
 			}
@@ -259,12 +238,12 @@ func TestNativePendingProjectCompletionAfterInstallInterruption(t *testing.T) {
 			if !claim.Owner().ExactEqual(pending.Owner()) || !claim.Identity().ExactEqual(pending.Identity()) || !claim.InstallRequest().Equal(pending.InstallRequest()) || claim.Provenance() != durablecarrier.ClaimProvenanceInstalledObserved {
 				t.Fatal("completion changed exact installation or acquisition provenance")
 			}
-			stateBeforeRepeat := testkit.ReadFile(t, fixture.paths.StatefilePath)
-			runNativeRecoveryCommand(t, fixture, "none", "apply", "--yes")
-			if !bytes.Equal(stateBeforeRepeat, testkit.ReadFile(t, fixture.paths.StatefilePath)) || !bytes.Equal(installed, testkit.ReadFile(t, filepath.Join(workspace, ".pi", "settings.json"))) {
+			stateBeforeRepeat := testkit.ReadFile(t, fixture.Paths.StatefilePath)
+			nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
+			if !bytes.Equal(stateBeforeRepeat, testkit.ReadFile(t, fixture.Paths.StatefilePath)) || !bytes.Equal(installed, testkit.ReadFile(t, filepath.Join(workspace, ".pi", "settings.json"))) {
 				t.Fatal("repeat completion rewrote state or the installed extension")
 			}
-			runNativeRecoveryCommand(t, fixture, "none", "status", "--check", "--json")
+			nativefixture.RunRecoveryCommand(t, fixture, "none", "status", "--check", "--json")
 			testkit.AssertNoRecoveryArtifacts(t, workspace)
 		})
 	}

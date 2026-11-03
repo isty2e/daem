@@ -14,40 +14,40 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
-func nativeDelegateFixture(t *testing.T, scope target.Scope, mode, fault string) nativePiInvocationFixture {
+func nativeDelegateFixture(t *testing.T, scope target.Scope, mode, fault string) nativefixture.PiInvocation {
 	t.Helper()
-	f := newNativePiInvocationFixtureAtScope(t, "", scope)
+	f := nativefixture.NewPiInvocationAtScope(t, "", scope)
 	base := fmt.Sprintf("version=1\ntargets=['pi','claude-code']\n[[extension]]\nid='tools'\ncarrier='pi-package'\ntargets=['pi']\nscope=%q\nsource={host_source='git:github.com/acme/pi-tools@v1'}\n", scope)
-	keys := fmt.Sprintf("\n[[host_config]]\nid='preferences'\ntargets=['pi']\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", scope, filepath.Join(f.workspace, "preferences.json"))
-	testkit.WriteFile(t, f.workspace, "daem.toml", base+keys)
-	f.require(t, "lock")
+	keys := fmt.Sprintf("\n[[host_config]]\nid='preferences'\ntargets=['pi']\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", scope, filepath.Join(f.Workspace, "preferences.json"))
+	testkit.WriteFile(t, f.Workspace, "daem.toml", base+keys)
+	f.Require(t, "lock")
 	if mode != "new" {
-		f.require(t, "apply", "--yes")
+		f.Require(t, "apply", "--yes")
 	}
 	if mode == "changed" {
-		testkit.WriteFile(t, f.workspace, "preferences.json", `{"theme":"updated-theme"}`)
+		testkit.WriteFile(t, f.Workspace, "preferences.json", `{"theme":"updated-theme"}`)
 	}
 	if mode == "retiring" {
 		keys = ""
 	}
 	body := base + keys
 	if mode == "whole" {
-		testkit.WriteFile(t, f.workspace, "dedicated.json", `{"enabled":true}`)
-		body += fmt.Sprintf("\n[[host_config]]\nid='whole'\ntargets=['pi']\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.workspace, "dedicated.json"))
-		testkit.WriteFile(t, f.workspace, "daem.toml", body)
-		f.require(t, "lock")
-		f.require(t, "apply", "--yes")
+		testkit.WriteFile(t, f.Workspace, "dedicated.json", `{"enabled":true}`)
+		body += fmt.Sprintf("\n[[host_config]]\nid='whole'\ntargets=['pi']\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "dedicated.json"))
+		testkit.WriteFile(t, f.Workspace, "daem.toml", body)
+		f.Require(t, "lock")
+		f.Require(t, "apply", "--yes")
 	}
 	for _, name := range []string{"first", "second"} {
 		body += fmt.Sprintf("\n[[mcp_server]]\nname=%q\ntargets=['claude-code']\nscope='project'\ntransport='stdio'\ncommand='native-mcp-fixture'\nargs=['serve']\nenv={API_TOKEN={from_env='DAEM_TEST_DELEGATE_SECRET'}}\n", name)
 	}
-	testkit.WriteFile(t, f.workspace, "daem.toml", body)
+	testkit.WriteFile(t, f.Workspace, "daem.toml", body)
 	script := `#!/bin/sh
 set -eu
 [ "$#" -eq 1 ] && [ "$1" = serve ] || exit 97
@@ -74,12 +74,12 @@ if [ "$n" -eq 1 ]; then
   esac
 fi
 `
-	bin := filepath.Join(filepath.Dir(f.calls), "bin")
+	bin := filepath.Join(filepath.Dir(f.Calls), "bin")
 	testkit.WriteFile(t, bin, "native-mcp-fixture", script)
 	if err := os.Chmod(filepath.Join(bin, "native-mcp-fixture"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	capture := filepath.Join(filepath.Dir(f.calls), "delegate-capture")
+	capture := filepath.Join(filepath.Dir(f.Calls), "delegate-capture")
 	if err := os.Mkdir(capture, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -87,15 +87,15 @@ fi
 	t.Setenv("DAEM_TEST_DELEGATE_CAPTURE", capture)
 	t.Setenv("DAEM_TEST_DELEGATE_FAULT", fault)
 	t.Setenv("DAEM_TEST_DELEGATE_SECRET", "fixture-credential-not-for-output")
-	f.addInstructions(t, "delegate prerequisite\n")
+	f.AddInstructions(t, "delegate prerequisite\n")
 	return f
 }
 
-func nativeDelegateLaunch(t *testing.T, f nativePiInvocationFixture, index int, theme string) durable.Snapshot {
+func nativeDelegateLaunch(t *testing.T, f nativefixture.PiInvocation, index int, theme string) durable.Snapshot {
 	t.Helper()
 	capture := os.Getenv("DAEM_TEST_DELEGATE_CAPTURE")
-	f.launchRegistry = filepath.Join(capture, fmt.Sprintf("registry-%d.json", index))
-	f.launchNativeProtection(t)
+	f.LaunchRegistry = filepath.Join(capture, fmt.Sprintf("registry-%d.json", index))
+	f.LaunchNativeProtection(t)
 	var before struct {
 		Theme string `json:"theme"`
 	}
@@ -126,7 +126,7 @@ func TestNativeDelegatesProtectDistinctActorsWithIdenticalCommands(t *testing.T)
 		for _, mode := range []string{"new", "current", "changed", "retiring", "whole"} {
 			t.Run(string(scope)+"/"+mode, func(t *testing.T) {
 				f := nativeDelegateFixture(t, scope, mode, "")
-				code, stdout, stderr := f.run("apply", "--yes")
+				code, stdout, stderr := f.Run("apply", "--yes")
 				if code != 0 {
 					t.Fatalf("native delegate Apply failed: %d %s %s", code, stdout, stderr)
 				}
@@ -146,7 +146,7 @@ func TestNativeDelegatesProtectDistinctActorsWithIdenticalCommands(t *testing.T)
 						t.Fatal("delegate checkpoint discarded its retained whole document")
 					}
 				}
-				state, err := statefile.LoadOptional(t.Context(), filepath.Join(f.workspace, ".daem", "state.json"))
+				state, err := statefile.LoadOptional(t.Context(), filepath.Join(f.Workspace, ".daem", "state.json"))
 				if err != nil || len(state.DelegateAttempts()) != 2 {
 					t.Fatal("delegate diagnostics lost their exact actors", err)
 				}
@@ -163,9 +163,9 @@ func TestNativeDelegatesProtectDistinctActorsWithIdenticalCommands(t *testing.T)
 				if native != want {
 					t.Fatal("final native membership did not reflect late retirement")
 				}
-				f.require(t, "status", "--check", "--json")
+				f.Require(t, "status", "--check", "--json")
 				if mode == "current" {
-					f.require(t, "apply", "--yes")
+					f.Require(t, "apply", "--yes")
 					if got := string(testkit.ReadFile(t, os.Getenv("DAEM_TEST_DELEGATE_CALLS"))); got != "delegate\ndelegate\ndelegate\ndelegate\n" {
 						t.Fatal("current native/MCP state acquired delegate skip authority")
 					}
@@ -173,7 +173,7 @@ func TestNativeDelegatesProtectDistinctActorsWithIdenticalCommands(t *testing.T)
 						nativeDelegateLaunch(t, f, index, theme)
 					}
 				}
-				testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+				testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 			})
 		}
 	}
@@ -184,11 +184,11 @@ func TestNativeDelegateBoundaryFailureStopsNextActorWithoutFalsifyingProcess(t *
 		for _, fault := range []string{"key", "outside", "mode", "exit"} {
 			t.Run(string(scope)+"/"+fault, func(t *testing.T) {
 				f := nativeDelegateFixture(t, scope, "retiring", fault)
-				initial, err := os.Stat(f.settings)
+				initial, err := os.Stat(f.Settings)
 				if err != nil {
 					t.Fatal(err)
 				}
-				code, stdout, stderr := f.run("apply", "--yes", "--json")
+				code, stdout, stderr := f.Run("apply", "--yes", "--json")
 				if code == 0 {
 					t.Fatalf("failed delegate Apply succeeded: %s %s", stdout, stderr)
 				}
@@ -200,11 +200,11 @@ func TestNativeDelegateBoundaryFailureStopsNextActorWithoutFalsifyingProcess(t *
 				if got := string(testkit.ReadFile(t, os.Getenv("DAEM_TEST_DELEGATE_CALLS"))); got != calls {
 					t.Fatal("native failure did not stop before command2, or ordinary process failure changed continuation")
 				}
-				state, err := statefile.LoadOptional(t.Context(), filepath.Join(f.workspace, ".daem", "state.json"))
+				state, err := statefile.LoadOptional(t.Context(), filepath.Join(f.Workspace, ".daem", "state.json"))
 				if err != nil || len(state.ManagedAggregates()) != 3 || len(state.DelegateAttempts()) != strings.Count(calls, "delegate") {
 					t.Fatal("partial delegate diagnostics or retiring native baseline were discarded", err)
 				}
-				if info, err := os.Stat(f.settings); err != nil || info.Mode().Perm() != initial.Mode().Perm() {
+				if info, err := os.Stat(f.Settings); err != nil || info.Mode().Perm() != initial.Mode().Perm() {
 					t.Fatal("delegate permission containment failed", err)
 				}
 				var result struct {
@@ -222,7 +222,7 @@ func TestNativeDelegateBoundaryFailureStopsNextActorWithoutFalsifyingProcess(t *
 				if result.Attempts[0].Status != want {
 					t.Fatal("native qualification changed the mechanical process result")
 				}
-				testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+				testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 			})
 		}
 	}
@@ -232,93 +232,93 @@ func TestNativeDelegateProcessLossRecoversPermissionsWithoutReplayingCommands(t 
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		t.Run(string(scope), func(t *testing.T) {
 			f := nativeDelegateFixture(t, scope, "retiring", "loss")
-			initial, err := os.Stat(f.settings)
+			initial, err := os.Stat(f.Settings)
 			if err != nil {
 				t.Fatal(err)
 			}
-			recovery := nativeRecoveryFixture{manifest: f.manifest, destination: f.settings}
-			if code, stdout, stderr := invokeNativeRecoveryCommand(t, recovery, "native-opaque-command", "apply", "--yes"); code == 0 {
+			recovery := nativefixture.RecoveryFixture{Manifest: f.Manifest, Destination: f.Settings}
+			if code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, recovery, "native-opaque-command", "apply", "--yes"); code == 0 {
 				t.Fatalf("lost delegate parent reported success: %s %s", stdout, stderr)
 			}
 			nativeDelegateLaunch(t, f, 1, "fixture-theme")
-			if code, _, _ := f.run("apply", "--yes"); code == 0 {
+			if code, _, _ := f.Run("apply", "--yes"); code == 0 {
 				t.Fatal("pending delegate protection did not block another invocation")
 			}
 			if got := string(testkit.ReadFile(t, os.Getenv("DAEM_TEST_DELEGATE_CALLS"))); got != "delegate\n" {
 				t.Fatal("pending safety work launched command2")
 			}
-			f.require(t, "recover", "--dry-run")
-			f.require(t, "recover", "--yes")
-			if info, err := os.Stat(f.settings); err != nil || info.Mode().Perm() != initial.Mode().Perm() {
+			f.Require(t, "recover", "--dry-run")
+			f.Require(t, "recover", "--yes")
+			if info, err := os.Stat(f.Settings); err != nil || info.Mode().Perm() != initial.Mode().Perm() {
 				t.Fatal("recovery did not contain delegate-introduced access", err)
 			}
 			if got := string(testkit.ReadFile(t, os.Getenv("DAEM_TEST_DELEGATE_CALLS"))); got != "delegate\n" {
 				t.Fatal("permission recovery replayed a delegate")
 			}
 			t.Setenv("DAEM_TEST_DELEGATE_FAULT", "")
-			f.require(t, "apply", "--yes")
+			f.Require(t, "apply", "--yes")
 			if got := string(testkit.ReadFile(t, os.Getenv("DAEM_TEST_DELEGATE_CALLS"))); got != "delegate\ndelegate\ndelegate\n" {
 				t.Fatal("explicit Apply retry changed ordinary delegate replay semantics")
 			}
-			f.require(t, "status", "--check", "--json")
-			testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+			f.Require(t, "status", "--check", "--json")
+			testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 		})
 	}
 }
 
 func TestNativeBlockedDelegatePersistsWithoutFabricatingInvocation(t *testing.T) {
 	f := nativeDelegateFixture(t, target.ScopeProject, "current", "")
-	body := strings.ReplaceAll(string(testkit.ReadFile(t, f.manifest)), "command='native-mcp-fixture'", "command='absent-native-delegate-fixture'")
-	testkit.WriteFile(t, f.workspace, "daem.toml", body)
-	f.require(t, "lock")
-	if code, _, _ := f.run("apply", "--yes", "--json"); code == 0 {
+	body := strings.ReplaceAll(string(testkit.ReadFile(t, f.Manifest)), "command='native-mcp-fixture'", "command='absent-native-delegate-fixture'")
+	testkit.WriteFile(t, f.Workspace, "daem.toml", body)
+	f.Require(t, "lock")
+	if code, _, _ := f.Run("apply", "--yes", "--json"); code == 0 {
 		t.Fatal("policy-blocked delegates reported success")
 	}
 	if _, err := os.Stat(os.Getenv("DAEM_TEST_DELEGATE_CALLS")); !os.IsNotExist(err) {
 		t.Fatal("blocked delegate launched a runner", err)
 	}
-	state, err := statefile.LoadOptional(t.Context(), filepath.Join(f.workspace, ".daem", "state.json"))
+	state, err := statefile.LoadOptional(t.Context(), filepath.Join(f.Workspace, ".daem", "state.json"))
 	if err != nil || !state.ContainsHostConfig() || len(state.DelegateAttempts()) != 2 {
 		t.Fatal("blocked diagnostic checkpoint lost complete native state", err)
 	}
-	f.require(t, "apply", "--dry-run", "--json")
+	f.Require(t, "apply", "--dry-run", "--json")
 	if _, err := os.Stat(os.Getenv("DAEM_TEST_DELEGATE_CALLS")); !os.IsNotExist(err) {
 		t.Fatal("dry run invoked a delegate", err)
 	}
-	testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+	testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 }
 
 func TestNativeDelegatesPreserveCodexValuesUntilLateRetirement(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		t.Run(string(scope), func(t *testing.T) {
 			f := nativeDelegateFixture(t, scope, "new", "")
-			testkit.WriteFile(t, filepath.Dir(f.settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
-			f.settings = filepath.Join(f.workspace, ".codex", "config.toml")
+			testkit.WriteFile(t, filepath.Dir(f.Settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
+			f.Settings = filepath.Join(f.Workspace, ".codex", "config.toml")
 			if scope == target.ScopeGlobal {
-				f.settings = filepath.Join(os.Getenv("CODEX_HOME"), "config.toml")
+				f.Settings = filepath.Join(os.Getenv("CODEX_HOME"), "config.toml")
 			}
-			testkit.WriteFile(t, f.workspace, "preferences.toml", "[ui]\ntheme='fixture-theme'\n")
-			body := string(testkit.ReadFile(t, f.manifest))
+			testkit.WriteFile(t, f.Workspace, "preferences.toml", "[ui]\ntheme='fixture-theme'\n")
+			body := string(testkit.ReadFile(t, f.Manifest))
 			body = strings.Replace(body, "targets=['pi','claude-code']", "targets=['pi','claude-code','codex']", 1)
 			body = strings.Replace(body, "id='preferences'\ntargets=['pi']", "id='preferences'\ntargets=['codex']", 1)
 			body = strings.Replace(body, "path='settings.json'", "path='config.toml'", 1)
-			body = strings.Replace(body, filepath.Join(f.workspace, "preferences.json"), filepath.Join(f.workspace, "preferences.toml"), 1)
-			testkit.WriteFile(t, f.workspace, "daem.toml", body)
-			t.Setenv("DAEM_TEST_SETTINGS", f.settings)
-			f.require(t, "lock")
-			f.require(t, "apply", "--yes")
+			body = strings.Replace(body, filepath.Join(f.Workspace, "preferences.json"), filepath.Join(f.Workspace, "preferences.toml"), 1)
+			testkit.WriteFile(t, f.Workspace, "daem.toml", body)
+			t.Setenv("DAEM_TEST_SETTINGS", f.Settings)
+			f.Require(t, "lock")
+			f.Require(t, "apply", "--yes")
 			before, rest, found := strings.Cut(body, "\n[[host_config]]")
 			_, mcp, next := strings.Cut(rest, "\n[[mcp_server]]")
 			if !found || !next {
 				t.Fatal("invalid Codex delegate fixture")
 			}
-			testkit.WriteFile(t, f.workspace, "daem.toml", before+"\n[[mcp_server]]"+mcp)
-			f.require(t, "lock")
-			f.require(t, "apply", "--yes")
+			testkit.WriteFile(t, f.Workspace, "daem.toml", before+"\n[[mcp_server]]"+mcp)
+			f.Require(t, "lock")
+			f.Require(t, "apply", "--yes")
 			for index := 1; index <= 4; index++ {
 				capture := os.Getenv("DAEM_TEST_DELEGATE_CAPTURE")
-				f.launchRegistry = filepath.Join(capture, fmt.Sprintf("registry-%d.json", index))
-				f.launchNativeProtection(t)
+				f.LaunchRegistry = filepath.Join(capture, fmt.Sprintf("registry-%d.json", index))
+				f.LaunchNativeProtection(t)
 				var values struct {
 					UI struct{ Theme string } `toml:"ui"`
 				}
@@ -326,12 +326,12 @@ func TestNativeDelegatesPreserveCodexValuesUntilLateRetirement(t *testing.T) {
 					t.Fatal("Codex value was absent before its delegate finished", err)
 				}
 			}
-			state, err := statefile.LoadOptional(t.Context(), filepath.Join(f.workspace, ".daem", "state.json"))
+			state, err := statefile.LoadOptional(t.Context(), filepath.Join(f.Workspace, ".daem", "state.json"))
 			if err != nil || len(state.ManagedAggregates()) != 2 || len(state.DelegateAttempts()) != 2 {
 				t.Fatal("Codex retirement lost complete delegate/MCP state", err)
 			}
-			f.require(t, "status", "--check", "--json")
-			testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+			f.Require(t, "status", "--check", "--json")
+			testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 		})
 	}
 }
@@ -341,59 +341,26 @@ func TestNativeDelegateRetirementSuffixProcessLossDoesNotReplayDuringRecovery(t 
 		for _, boundary := range []string{"host", "state"} {
 			t.Run(string(scope)+"/"+boundary, func(t *testing.T) {
 				f := nativeDelegateFixture(t, scope, "retiring", "")
-				recovery := nativeRecoveryFixture{manifest: f.manifest, destination: f.settings}
-				code, stdout, stderr := invokeNativeRecoveryCommand(t, recovery, "native-ordinary-"+boundary, "apply", "--yes")
-				if code != nativeRecoveryExit {
+				recovery := nativefixture.RecoveryFixture{Manifest: f.Manifest, Destination: f.Settings}
+				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, recovery, "native-ordinary-"+boundary, "apply", "--yes")
+				if code != nativefixture.RecoveryExit {
 					t.Fatalf("late native suffix did not reach process-loss boundary: %d %s %s", code, stdout, stderr)
 				}
 				for index := 1; index <= 2; index++ {
 					nativeDelegateLaunch(t, f, index, "fixture-theme")
 				}
-				f.require(t, "recover", "--dry-run")
-				f.require(t, "recover", "--yes")
+				f.Require(t, "recover", "--dry-run")
+				f.Require(t, "recover", "--yes")
 				if got := string(testkit.ReadFile(t, os.Getenv("DAEM_TEST_DELEGATE_CALLS"))); got != "delegate\ndelegate\n" {
 					t.Fatal("native journal recovery replayed an opaque delegate")
 				}
-				f.require(t, "apply", "--yes")
+				f.Require(t, "apply", "--yes")
 				if got := string(testkit.ReadFile(t, os.Getenv("DAEM_TEST_DELEGATE_CALLS"))); got != "delegate\ndelegate\ndelegate\ndelegate\n" {
 					t.Fatal("explicit retry changed existing delegate invocation policy")
 				}
-				f.require(t, "status", "--check", "--json")
-				testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+				f.Require(t, "status", "--check", "--json")
+				testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 			})
 		}
-	}
-}
-
-func TestNativeOrderPublishesAfterDelegateConsumers(t *testing.T) {
-	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-		t.Run(string(scope), func(t *testing.T) {
-			order := newNativePiOrderFixture(t, scope)
-			workspace := filepath.Dir(order.manifest)
-			bin := filepath.Join(filepath.Dir(workspace), "bin")
-			testkit.WriteFile(t, bin, "native-order-reader-fixture", "#!/bin/sh\nset -eu\n[ -f .mcp.json ]\n/bin/cp \"$DAEM_TEST_ORDER_SETTINGS\" \"$DAEM_TEST_ORDER_BEFORE\"\n/bin/cp \"$DAEM_TEST_ORDER_REGISTRY\" \"$DAEM_TEST_ORDER_BOUND\"\n")
-			if err := os.Chmod(filepath.Join(bin, "native-order-reader-fixture"), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-			paths, err := daempaths.Resolve(order.manifest)
-			if err != nil {
-				t.Fatal(err)
-			}
-			before, bound := filepath.Join(workspace, "order-before.json"), filepath.Join(workspace, "order-bound.json")
-			t.Setenv("DAEM_TEST_ORDER_SETTINGS", order.destination)
-			t.Setenv("DAEM_TEST_ORDER_BEFORE", before)
-			t.Setenv("DAEM_TEST_ORDER_REGISTRY", paths.OwnershipRegistryPath)
-			t.Setenv("DAEM_TEST_ORDER_BOUND", bound)
-			runNativeLifecycleCommand(t, "add", "mcp-server", "order-reader", "native-order-reader-fixture", "--target", "claude-code", "--scope", "project", "--manifest", order.manifest)
-			runNativeLifecycleCommand(t, "lock", "--manifest", order.manifest)
-			result := runNativeLifecycleCommand(t, "apply", "--manifest", order.manifest, "--yes", "--json")
-			requireNativePiOrderResult(t, result, "converged", true, 3)
-			nativePiInvocationFixture{launchRegistry: bound}.launchNativeProtection(t)
-			requireNativePiOrderValues(t, before, "next-theme", "npm:@acme/beta@1", "npm:@acme/foreign@1", "npm:@acme/alpha@1")
-			requireNativePiOrderValues(t, order.destination, "next-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
-			runNativeLifecycleCommand(t, "status", "--manifest", order.manifest, "--check", "--json")
-			testkit.AssertNoRecoveryArtifacts(t, workspace)
-		})
 	}
 }

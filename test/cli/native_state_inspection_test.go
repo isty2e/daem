@@ -8,11 +8,12 @@ import (
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/doctorenv"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeStateSupportsOutputInventoryAndDoctor(t *testing.T) {
-	fixture := nativePresentationFixture(t, "model='native-test'\n", "foreign=true\n")
-	workspace := filepath.Dir(fixture.manifest)
+	fixture := nativefixture.NewPresentation(t, "model='native-test'\n", "foreign=true\n")
+	workspace := filepath.Dir(fixture.Manifest)
 	testkit.WriteFile(t, workspace, "skills/sample/SKILL.md", "---\nname: sample\ndescription: Sample.\n---\n")
 	testkit.WriteFile(t, workspace, "daem.toml", `version=1
 targets=['codex']
@@ -25,17 +26,17 @@ ownership='keys'
 name='sample'
 source={path='skills/sample',mode='vendor'}
 `)
-	runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
-	runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes")
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
 	doctorenv.WithFakeGit(t, "git version test")
 
 	for _, command := range []string{"outputs", "doctor"} {
 		t.Run(command, func(t *testing.T) {
-			args := []string{"doctor", "--manifest", fixture.manifest, "--json"}
+			args := []string{"doctor", "--manifest", fixture.Manifest, "--json"}
 			if command == "outputs" {
-				args = []string{"list", "outputs", "--manifest", fixture.manifest, "--json"}
+				args = []string{"list", "outputs", "--manifest", fixture.Manifest, "--json"}
 			}
-			payload := runNativeLifecycleCommand(t, args...)
+			payload := nativefixture.RunLifecycleCommand(t, args...)
 			if command == "outputs" {
 				var inventory outputInventoryJSON
 				if err := json.Unmarshal([]byte(payload), &inventory); err != nil {
@@ -46,7 +47,7 @@ source={path='skills/sample',mode='vendor'}
 				}
 
 				testkit.WriteFile(t, workspace, "preferences.toml", "[")
-				runNativeLifecycleCommand(t, args...)
+				nativefixture.RunLifecycleCommand(t, args...)
 				testkit.WriteFile(t, workspace, "preferences.toml", "model='native-test'\n")
 			}
 		})

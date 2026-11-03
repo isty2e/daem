@@ -15,26 +15,27 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	refreshworkflow "github.com/isty2e/daem/internal/workflow/refresh"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativePiRefreshUsesBoundProtectionAndPreservesManagedKeys(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		t.Run(string(scope), func(t *testing.T) {
 			fixture := newNativePiRefreshFixture(t, scope, "")
-			prepared, err := refreshworkflow.PlanWrite(t.Context(), refreshworkflow.CommandInput{ManifestPath: fixture.manifest, ExtensionID: "tools"}, refreshworkflow.PlanOptions{})
+			prepared, err := refreshworkflow.PlanWrite(t.Context(), refreshworkflow.CommandInput{ManifestPath: fixture.Manifest, ExtensionID: "tools"}, refreshworkflow.PlanOptions{})
 			if err != nil {
 				t.Fatal("current native Refresh planning", err)
 			}
 			if err := prepared.Close(); err != nil {
 				t.Fatal(err)
 			}
-			manifestBefore := testkit.ReadFile(t, fixture.manifest)
-			lockPath := filepath.Join(fixture.workspace, "daem.lock.toml")
+			manifestBefore := testkit.ReadFile(t, fixture.Manifest)
+			lockPath := filepath.Join(fixture.Workspace, "daem.lock.toml")
 			lockBefore := testkit.ReadFile(t, lockPath)
-			fixture.require(t, "refresh", "extension", "tools", "--dry-run", "--json")
-			testkit.AssertFileContent(t, fixture.calls, "install\ninstall\n")
-			fixture.require(t, "refresh", "extension", "tools", "--yes", "--json")
-			store, err := ownershipstore.New(fixture.launchRegistry)
+			fixture.Require(t, "refresh", "extension", "tools", "--dry-run", "--json")
+			testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\n")
+			fixture.Require(t, "refresh", "extension", "tools", "--yes", "--json")
+			store, err := ownershipstore.New(fixture.LaunchRegistry)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -46,16 +47,16 @@ func TestNativePiRefreshUsesBoundProtectionAndPreservesManagedKeys(t *testing.T)
 			if _, bound := row.Execution(); !bound || row.Phase() != ownership.ProtectionBound {
 				t.Fatal("refresh command was released before its execution was bound")
 			}
-			fixture.require(t, "status", "--check", "--json")
-			fixture.require(t, "refresh", "extension", "tools", "--yes", "--json")
-			testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\nrefresh\n")
-			testkit.AssertFileContent(t, fixture.manifest, string(manifestBefore))
+			fixture.Require(t, "status", "--check", "--json")
+			fixture.Require(t, "refresh", "extension", "tools", "--yes", "--json")
+			testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\nrefresh\n")
+			testkit.AssertFileContent(t, fixture.Manifest, string(manifestBefore))
 			testkit.AssertFileContent(t, lockPath, string(lockBefore))
-			snapshot, err := statefile.LoadOptional(t.Context(), filepath.Join(fixture.workspace, ".daem", "state.json"))
+			snapshot, err := statefile.LoadOptional(t.Context(), filepath.Join(fixture.Workspace, ".daem", "state.json"))
 			if err != nil || !snapshot.ContainsHostConfig() {
 				t.Fatal("refresh history discarded native state", err)
 			}
-			testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 		})
 	}
 }
@@ -65,38 +66,38 @@ func TestNativePiRefreshRequiresCurrentKeysWithoutApplyingThem(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			fixture := newNativePiRefreshFixture(t, target.ScopeProject, "")
 			if change == "desired" {
-				testkit.WriteFile(t, fixture.workspace, "preferences.json", `{"theme":"new-theme"}`)
-				fixture.require(t, "lock")
+				testkit.WriteFile(t, fixture.Workspace, "preferences.json", `{"theme":"new-theme"}`)
+				fixture.Require(t, "lock")
 			} else {
-				testkit.WriteFile(t, filepath.Dir(fixture.settings), "settings.json", `{"theme":"host-change","foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
+				testkit.WriteFile(t, filepath.Dir(fixture.Settings), "settings.json", `{"theme":"host-change","foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
 			}
-			before := testkit.ReadFile(t, fixture.settings)
-			code, stdout, stderr := fixture.run("refresh", "extension", "tools", "--yes", "--json")
+			before := testkit.ReadFile(t, fixture.Settings)
+			code, stdout, stderr := fixture.Run("refresh", "extension", "tools", "--yes", "--json")
 			if code == 0 {
 				t.Fatalf("refresh consumed non-current keys: %s %s", stdout, stderr)
 			}
-			testkit.AssertFileContent(t, fixture.settings, string(before))
-			testkit.AssertFileContent(t, fixture.calls, "install\ninstall\n")
-			testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+			testkit.AssertFileContent(t, fixture.Settings, string(before))
+			testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\n")
+			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 		})
 	}
 }
 
 func TestNativePiRefreshRevalidatesDisclosedPermissionBaseline(t *testing.T) {
 	fixture := newNativePiRefreshFixture(t, target.ScopeProject, "")
-	prepared, err := refreshworkflow.PlanWrite(t.Context(), refreshworkflow.CommandInput{ManifestPath: fixture.manifest, ExtensionID: "tools"}, refreshworkflow.PlanOptions{})
+	prepared, err := refreshworkflow.PlanWrite(t.Context(), refreshworkflow.CommandInput{ManifestPath: fixture.Manifest, ExtensionID: "tools"}, refreshworkflow.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer prepared.Close()
-	if err := os.Chmod(fixture.settings, 0o666); err != nil {
+	if err := os.Chmod(fixture.Settings, 0o666); err != nil {
 		t.Fatal(err)
 	}
 	result, err := refreshworkflow.Execute(t.Context(), prepared, refreshworkflow.ExecuteOptions{})
 	if err == nil || result.Attempted || result.ResultClass != refreshworkflow.ResultRefused {
 		t.Fatalf("changed permission baseline was reused: %#v %v", result, err)
 	}
-	testkit.AssertFileContent(t, fixture.calls, "install\ninstall\n")
+	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\n")
 }
 
 func TestNativePiRefreshQualifiesFailuresWithoutRepairOrInstallReplay(t *testing.T) {
@@ -104,11 +105,11 @@ func TestNativePiRefreshQualifiesFailuresWithoutRepairOrInstallReplay(t *testing
 		for _, fault := range []string{"key", "outside", "mode", "malformed", "command", "command-mode", "tighten"} {
 			t.Run(string(scope)+"/"+fault, func(t *testing.T) {
 				fixture := newNativePiRefreshFixture(t, scope, fault)
-				before, err := os.Stat(fixture.settings)
+				before, err := os.Stat(fixture.Settings)
 				if err != nil {
 					t.Fatal(err)
 				}
-				code, stdout, stderr := fixture.run("refresh", "extension", "tools", "--yes", "--json")
+				code, stdout, stderr := fixture.Run("refresh", "extension", "tools", "--yes", "--json")
 				want := "partial"
 				if fault == "command" {
 					want = "failed"
@@ -119,13 +120,13 @@ func TestNativePiRefreshQualifiesFailuresWithoutRepairOrInstallReplay(t *testing
 				if (code == 0) != (fault == "tighten") || decodeNativeRefreshClass(t, stdout) != want {
 					t.Fatalf("wrong qualified outcome: %d %s %s", code, stdout, stderr)
 				}
-				testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\n")
-				after, err := os.Stat(fixture.settings)
+				testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\n")
+				after, err := os.Stat(fixture.Settings)
 				if err != nil || after.Mode().Perm()&^before.Mode().Perm() != 0 {
 					t.Fatal("refresh left broadened access", err)
 				}
 				if fault == "malformed" {
-					testkit.AssertFileContent(t, fixture.settings, "[")
+					testkit.AssertFileContent(t, fixture.Settings, "[")
 				}
 				if fault == "key" || fault == "outside" {
 					var document struct {
@@ -134,7 +135,7 @@ func TestNativePiRefreshQualifiesFailuresWithoutRepairOrInstallReplay(t *testing
 							Retained bool `json:"retained"`
 						} `json:"foreign"`
 					}
-					if err := json.Unmarshal(testkit.ReadFile(t, fixture.settings), &document); err != nil {
+					if err := json.Unmarshal(testkit.ReadFile(t, fixture.Settings), &document); err != nil {
 						t.Fatal(err)
 					}
 					if fault == "key" && document.Theme != "changed" || fault == "outside" && document.Foreign.Retained {
@@ -142,11 +143,11 @@ func TestNativePiRefreshQualifiesFailuresWithoutRepairOrInstallReplay(t *testing
 					}
 				}
 				t.Setenv("DAEM_TEST_REFRESH_FAULT", "")
-				testkit.WriteFile(t, filepath.Dir(fixture.settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
-				fixture.require(t, "refresh", "extension", "tools", "--yes", "--json")
-				fixture.require(t, "status", "--check", "--json")
-				testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\nrefresh\n")
-				testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+				testkit.WriteFile(t, filepath.Dir(fixture.Settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
+				fixture.Require(t, "refresh", "extension", "tools", "--yes", "--json")
+				fixture.Require(t, "status", "--check", "--json")
+				testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\nrefresh\n")
+				testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 			})
 		}
 	}
@@ -154,23 +155,23 @@ func TestNativePiRefreshQualifiesFailuresWithoutRepairOrInstallReplay(t *testing
 
 func TestNativePiRefreshDoesNotResolveUnrelatedDeclaredSources(t *testing.T) {
 	fixture := newNativePiRefreshFixture(t, target.ScopeProject, "")
-	path := filepath.Join(fixture.workspace, "unrelated.md")
-	testkit.WriteFile(t, fixture.workspace, "unrelated.md", "not consumed by refresh\n")
-	fixture.require(t, "add", "instruction", "unrelated", path, "--target", "pi")
+	path := filepath.Join(fixture.Workspace, "unrelated.md")
+	testkit.WriteFile(t, fixture.Workspace, "unrelated.md", "not consumed by refresh\n")
+	fixture.Require(t, "add", "instruction", "unrelated", path, "--target", "pi")
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	fixture.require(t, "refresh", "extension", "tools", "--yes", "--json")
-	testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\n")
+	fixture.Require(t, "refresh", "extension", "tools", "--yes", "--json")
+	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\n")
 }
 
 func TestNativePiRefreshTimeoutStillContainsPermissions(t *testing.T) {
 	fixture := newNativePiRefreshFixture(t, target.ScopeProject, "timeout-mode")
-	before, err := os.Stat(fixture.settings)
+	before, err := os.Stat(fixture.Settings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := fixture.run("refresh", "extension", "tools", "--timeout", "1s", "--yes", "--json")
+	code, stdout, stderr := fixture.Run("refresh", "extension", "tools", "--timeout", "1s", "--yes", "--json")
 	if code == 0 || decodeNativeRefreshClass(t, stdout) != "partial" {
 		t.Fatalf("timed-out protected Refresh was not partial: %d %s %s", code, stdout, stderr)
 	}
@@ -188,21 +189,21 @@ func TestNativePiRefreshTimeoutStillContainsPermissions(t *testing.T) {
 	if !result.Result.Attempted || !result.Result.Process.TimedOut {
 		t.Fatalf("timeout lost its actual attempt: %s", stdout)
 	}
-	after, err := os.Stat(fixture.settings)
+	after, err := os.Stat(fixture.Settings)
 	if err != nil || after.Mode().Perm()&^before.Mode().Perm() != 0 {
 		t.Fatal("timeout left broadened access", err)
 	}
-	testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\n")
-	testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\n")
+	testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 }
 
 func TestNativePiRefreshUnqualifiedMetadataKeepsRecoveryFence(t *testing.T) {
 	fixture := newNativePiRefreshFixture(t, target.ScopeProject, "inaccessible")
-	before, err := os.Stat(fixture.settings)
+	before, err := os.Stat(fixture.Settings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := fixture.run("refresh", "extension", "tools", "--yes", "--json")
+	code, stdout, stderr := fixture.Run("refresh", "extension", "tools", "--yes", "--json")
 	if code == 0 || decodeNativeRefreshClass(t, stdout) != "partial" {
 		t.Fatalf("unqualified metadata was not partial: %d %s %s", code, stdout, stderr)
 	}
@@ -214,28 +215,28 @@ func TestNativePiRefreshUnqualifiedMetadataKeepsRecoveryFence(t *testing.T) {
 	if err != nil || len(registry.PendingProtections()) != 1 {
 		t.Fatal("unqualified document lost its fence", err)
 	}
-	if code, _, _ := fixture.run("refresh", "extension", "tools", "--yes", "--json"); code == 0 {
+	if code, _, _ := fixture.Run("refresh", "extension", "tools", "--yes", "--json"); code == 0 {
 		t.Fatal("unknown metadata became a new baseline")
 	}
-	testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\n")
-	if err := os.Chmod(fixture.settings, before.Mode().Perm()); err != nil {
+	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\n")
+	if err := os.Chmod(fixture.Settings, before.Mode().Perm()); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("DAEM_TEST_REFRESH_FAULT", "")
-	fixture.require(t, "recover", "--dry-run")
-	fixture.require(t, "recover", "--yes")
-	fixture.require(t, "status", "--check", "--json")
-	testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\n")
+	fixture.Require(t, "recover", "--dry-run")
+	fixture.Require(t, "recover", "--yes")
+	fixture.Require(t, "status", "--check", "--json")
+	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\n")
 }
 
 func TestNativePiRefreshProcessLossRecoversProtectionWithoutReplay(t *testing.T) {
 	fixture := newNativePiRefreshFixture(t, target.ScopeGlobal, "terminate")
-	before, err := os.Stat(fixture.settings)
+	before, err := os.Stat(fixture.Settings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := invokeNativeRecoveryCommand(t, nativeRecoveryFixture{manifest: fixture.manifest, destination: fixture.settings}, "native-refresh-command", "refresh", "extension", "tools", "--yes", "--json")
-	if code == 0 || code == nativeRecoveryExit {
+	code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, nativefixture.RecoveryFixture{Manifest: fixture.Manifest, Destination: fixture.Settings}, "native-refresh-command", "refresh", "extension", "tools", "--yes", "--json")
+	if code == 0 || code == nativefixture.RecoveryExit {
 		t.Fatalf("isolated Refresh was not terminated: %d %s %s", code, stdout, stderr)
 	}
 	store, err := ownershipstore.New(os.Getenv("DAEM_TEST_REGISTRY"))
@@ -247,48 +248,48 @@ func TestNativePiRefreshProcessLossRecoversProtectionWithoutReplay(t *testing.T)
 		t.Fatal("lost Refresh did not retain its bound protection", err)
 	}
 	t.Setenv("DAEM_TEST_REFRESH_FAULT", "")
-	if code, _, _ := fixture.run("refresh", "extension", "tools", "--yes", "--json"); code == 0 {
+	if code, _, _ := fixture.Run("refresh", "extension", "tools", "--yes", "--json"); code == 0 {
 		t.Fatal("pending protection became a fresh Refresh baseline")
 	}
-	testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\n")
-	other := nativePiInvocationFixture{workspace: filepath.Join(filepath.Dir(fixture.workspace), "other-workspace")}
-	other.manifest = filepath.Join(other.workspace, "daem.toml")
-	testkit.WriteFile(t, other.workspace, "daem.toml", "version=1\ntargets=['pi']\n[[extension]]\nid='tools'\ncarrier='pi-package'\nscope='global'\nsource={host_source='git:github.com/acme/pi-tools@v1'}\n")
-	other.require(t, "lock")
-	if code, _, _ := other.run("refresh", "extension", "tools", "--yes", "--json"); code == 0 {
+	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\n")
+	other := nativefixture.PiInvocation{Workspace: filepath.Join(filepath.Dir(fixture.Workspace), "other-workspace")}
+	other.Manifest = filepath.Join(other.Workspace, "daem.toml")
+	testkit.WriteFile(t, other.Workspace, "daem.toml", "version=1\ntargets=['pi']\n[[extension]]\nid='tools'\ncarrier='pi-package'\nscope='global'\nsource={host_source='git:github.com/acme/pi-tools@v1'}\n")
+	other.Require(t, "lock")
+	if code, _, _ := other.Run("refresh", "extension", "tools", "--yes", "--json"); code == 0 {
 		t.Fatal("a declaration without native keys bypassed another owner's pending fence")
 	}
-	testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\n")
-	if err := os.Remove(filepath.Join(fixture.workspace, "preferences.json")); err != nil {
+	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\n")
+	if err := os.Remove(filepath.Join(fixture.Workspace, "preferences.json")); err != nil {
 		t.Fatal(err)
 	}
-	fixture.require(t, "recover", "--dry-run")
-	fixture.require(t, "recover", "--yes")
-	testkit.WriteFile(t, fixture.workspace, "preferences.json", `{"theme":"fixture-theme"}`)
-	after, err := os.Stat(fixture.settings)
+	fixture.Require(t, "recover", "--dry-run")
+	fixture.Require(t, "recover", "--yes")
+	testkit.WriteFile(t, fixture.Workspace, "preferences.json", `{"theme":"fixture-theme"}`)
+	after, err := os.Stat(fixture.Settings)
 	if err != nil || after.Mode().Perm()&^before.Mode().Perm() != 0 {
 		t.Fatal("recovery left broadened access", err)
 	}
-	fixture.require(t, "status", "--check", "--json")
-	other.require(t, "refresh", "extension", "tools", "--dry-run", "--json")
-	testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\n")
-	testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
-	fixture.require(t, "refresh", "extension", "tools", "--yes", "--json")
-	testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\nrefresh\n")
+	fixture.Require(t, "status", "--check", "--json")
+	other.Require(t, "refresh", "extension", "tools", "--dry-run", "--json")
+	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\n")
+	testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
+	fixture.Require(t, "refresh", "extension", "tools", "--yes", "--json")
+	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\nrefresh\n")
 }
 
 func TestNativePiRefreshProtectsBothSettingsLayersAndAllowsItsPackageRows(t *testing.T) {
 	fixture := newNativePiRefreshFixture(t, target.ScopeProject, "both")
 	agent := os.Getenv("PI_CODING_AGENT_DIR")
 	testkit.WriteFile(t, agent, "settings.json", `{"foreign":{"retained":true},"packages":["git:github.com/acme/pi-tools@v1"]}`)
-	globalSource := filepath.Join(fixture.workspace, "global-preferences.json")
-	testkit.WriteFile(t, fixture.workspace, "global-preferences.json", `{"theme":"global-theme"}`)
-	body := string(testkit.ReadFile(t, fixture.manifest)) + fmt.Sprintf("\n[[host_config]]\nid='global-preferences'\nscope='global'\npath='settings.json'\nsource=%q\nownership='keys'\n", globalSource)
-	testkit.WriteFile(t, fixture.workspace, "daem.toml", body)
-	fixture.require(t, "lock")
-	fixture.require(t, "apply", "--yes", "--json")
-	fixture.require(t, "refresh", "extension", "tools", "--yes", "--json")
-	store, err := ownershipstore.New(fixture.launchRegistry)
+	globalSource := filepath.Join(fixture.Workspace, "global-preferences.json")
+	testkit.WriteFile(t, fixture.Workspace, "global-preferences.json", `{"theme":"global-theme"}`)
+	body := string(testkit.ReadFile(t, fixture.Manifest)) + fmt.Sprintf("\n[[host_config]]\nid='global-preferences'\nscope='global'\npath='settings.json'\nsource=%q\nownership='keys'\n", globalSource)
+	testkit.WriteFile(t, fixture.Workspace, "daem.toml", body)
+	fixture.Require(t, "lock")
+	fixture.Require(t, "apply", "--yes", "--json")
+	fixture.Require(t, "refresh", "extension", "tools", "--yes", "--json")
+	store, err := ownershipstore.New(fixture.LaunchRegistry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,16 +297,16 @@ func TestNativePiRefreshProtectsBothSettingsLayersAndAllowsItsPackageRows(t *tes
 	if err != nil || len(registry.PendingProtections()) != 1 || len(registry.PendingProtections()[0].Documents()) != 2 {
 		t.Fatal("cross-scope refresh omitted a protected layer", err)
 	}
-	fixture.require(t, "status", "--check", "--json")
-	testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nrefresh\n")
-	testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+	fixture.Require(t, "status", "--check", "--json")
+	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\n")
+	testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 }
 
-func newNativePiRefreshFixture(t *testing.T, scope target.Scope, fault string) nativePiInvocationFixture {
+func newNativePiRefreshFixture(t *testing.T, scope target.Scope, fault string) nativefixture.PiInvocation {
 	t.Helper()
-	fixture := newNativePiInvocationFixtureAtScope(t, "", scope)
-	fixture.require(t, "apply", "--yes", "--json")
-	bin := filepath.Join(filepath.Dir(fixture.workspace), "bin")
+	fixture := nativefixture.NewPiInvocationAtScope(t, "", scope)
+	fixture.Require(t, "apply", "--yes", "--json")
+	bin := filepath.Join(filepath.Dir(fixture.Workspace), "bin")
 	testkit.WriteFile(t, bin, "pi", `#!/bin/sh
 set -eu
 if [ "$1" = --version ]; then printf '1.0.2\n'; exit 0; fi

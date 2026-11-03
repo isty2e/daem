@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeKeyUsageWorkflow(t *testing.T) {
@@ -24,7 +25,7 @@ func TestNativeKeyUsageWorkflow(t *testing.T) {
 	} {
 		t.Run(example.target, func(t *testing.T) {
 			root := t.TempDir()
-			setNativeRecoveryEnvironment(t, root)
+			nativefixture.SetRecoveryEnvironment(t, root)
 			workspace := filepath.Join(root, "workspace")
 			source := example.target + "-preferences" + filepath.Ext(example.filename)
 			testkit.WriteFile(t, workspace, source, example.fragment)
@@ -46,29 +47,29 @@ ownership = "keys"
 			if err != nil {
 				t.Fatal(err)
 			}
-			fixture := nativeRecoveryFixture{manifest: manifest, destination: destination, paths: paths}
-			runNativeLifecycleCommand(t, "lock")
-			before := snapshotNativeRecoveryEvidence(t, fixture)
-			runNativeLifecycleCommand(t, "apply", "--dry-run")
-			if !reflect.DeepEqual(before, snapshotNativeRecoveryEvidence(t, fixture)) {
+			fixture := nativefixture.RecoveryFixture{Manifest: manifest, Destination: destination, Paths: paths}
+			nativefixture.RunLifecycleCommand(t, "lock")
+			before := nativefixture.SnapshotRecoveryEvidence(t, fixture)
+			nativefixture.RunLifecycleCommand(t, "apply", "--dry-run")
+			if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, fixture)) {
 				t.Fatal("usage preview changed host or persistence")
 			}
-			runNativeLifecycleCommand(t, "apply", "--yes")
-			runNativeLifecycleCommand(t, "status", "--check")
+			nativefixture.RunLifecycleCommand(t, "apply", "--yes")
+			nativefixture.RunLifecycleCommand(t, "status", "--check")
 
 			content := testkit.ReadFile(t, destination)
-			requireNativeSharedValues(t, example.syntax, content, example.fragment, true)
-			requireNativeSharedValues(t, example.syntax, content, example.outside, true)
-			requireNativeLifecycleMetadata(t, manifest, true)
+			nativefixture.RequireSharedValues(t, example.syntax, content, example.fragment, true)
+			nativefixture.RequireSharedValues(t, example.syntax, content, example.outside, true)
+			nativefixture.RequireLifecycleMetadata(t, manifest, true)
 
 			testkit.WriteFile(t, workspace, "daem.toml", fmt.Sprintf("version = 1\ntargets = [%q]\n", example.target))
-			runNativeLifecycleCommand(t, "lock")
-			runNativeLifecycleCommand(t, "apply", "--yes")
-			runNativeLifecycleCommand(t, "status", "--check")
+			nativefixture.RunLifecycleCommand(t, "lock")
+			nativefixture.RunLifecycleCommand(t, "apply", "--yes")
+			nativefixture.RunLifecycleCommand(t, "status", "--check")
 			content = testkit.ReadFile(t, destination)
-			requireNativeSharedValues(t, example.syntax, content, example.fragment, false)
-			requireNativeSharedValues(t, example.syntax, content, example.outside, true)
-			requireNativeLifecycleMetadata(t, manifest, false)
+			nativefixture.RequireSharedValues(t, example.syntax, content, example.fragment, false)
+			nativefixture.RequireSharedValues(t, example.syntax, content, example.outside, true)
+			nativefixture.RequireLifecycleMetadata(t, manifest, false)
 			testkit.AssertNoRecoveryArtifacts(t, workspace)
 		})
 	}

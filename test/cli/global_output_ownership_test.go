@@ -1,15 +1,12 @@
 package cli_test
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	clipkg "github.com/isty2e/daem/internal/cli"
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/test/testkit"
 )
@@ -25,10 +22,10 @@ func TestGlobalOutputOwnershipBlocksForeignManifestUntilOwnerReleases(t *testing
 	rightManifest := writeLockedInstructionWorkspace(t, rightRoot, "same\n", true)
 	destination := filepath.Join(home, ".codex", "AGENTS.md")
 
-	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", leftManifest, "--yes"); exitCode != 0 {
+	if exitCode, _, stderr := testkit.RunCapturedCLI("apply", "--manifest", leftManifest, "--yes"); exitCode != 0 {
 		t.Fatalf("owner apply exit=%d stderr=%q", exitCode, stderr)
 	}
-	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", rightManifest, "--manage-existing", "--yes"); exitCode == 0 ||
+	if exitCode, _, stderr := testkit.RunCapturedCLI("apply", "--manifest", rightManifest, "--manage-existing", "--yes"); exitCode == 0 ||
 		!strings.Contains(stderr, "ownership conflict") || strings.Contains(stderr, leftManifest) {
 		t.Fatalf("foreign manage-existing exit=%d stderr=%q, want path-neutral ownership conflict", exitCode, stderr)
 	}
@@ -37,22 +34,22 @@ func TestGlobalOutputOwnershipBlocksForeignManifestUntilOwnerReleases(t *testing
 		t.Fatalf("foreign statefile exists or stat failed: %v", err)
 	}
 	testkit.WriteFile(t, rightRoot, "source.md", "different\n")
-	if exitCode, _, stderr := runOwnershipCLI("lock", "--manifest", rightManifest); exitCode != 0 {
+	if exitCode, _, stderr := testkit.RunCapturedCLI("lock", "--manifest", rightManifest); exitCode != 0 {
 		t.Fatalf("foreign relock exit=%d stderr=%q", exitCode, stderr)
 	}
-	if exitCode, stdout, stderr := runOwnershipCLI("status", "--manifest", rightManifest); exitCode != 0 || stderr != "" ||
+	if exitCode, stdout, stderr := testkit.RunCapturedCLI("status", "--manifest", rightManifest); exitCode != 0 || stderr != "" ||
 		!strings.Contains(stdout, "ownership conflict") || strings.Contains(stdout, leftManifest) {
 		t.Fatalf("foreign status exit=%d stdout=%q stderr=%q, want path-neutral ownership conflict", exitCode, stdout, stderr)
 	}
-	if exitCode, stdout, stderr := runOwnershipCLI("status", "--manifest", rightManifest, "--verbose"); exitCode != 0 || stderr != "" ||
+	if exitCode, stdout, stderr := testkit.RunCapturedCLI("status", "--manifest", rightManifest, "--verbose"); exitCode != 0 || stderr != "" ||
 		!strings.Contains(stdout, "ownership_conflict") || !strings.Contains(stdout, leftManifest) {
 		t.Fatalf("verbose foreign status exit=%d stdout=%q stderr=%q, want owner-attributed conflict", exitCode, stdout, stderr)
 	}
-	if exitCode, stdout, stderr := runOwnershipCLI("list", "outputs", "--manifest", rightManifest); exitCode != 0 || stderr != "" ||
+	if exitCode, stdout, stderr := testkit.RunCapturedCLI("list", "outputs", "--manifest", rightManifest); exitCode != 0 || stderr != "" ||
 		!strings.Contains(stdout, "blocked: 1") || !strings.Contains(stdout, `reason="ownership_conflict"`) || !strings.Contains(stdout, leftManifest) {
 		t.Fatalf("foreign inventory exit=%d stdout=%q stderr=%q, want owner-attributed blocked output", exitCode, stdout, stderr)
 	}
-	if exitCode, stdout, stderr := runOwnershipCLI("list", "outputs", "--manifest", rightManifest, "--json"); exitCode != 0 || stderr != "" {
+	if exitCode, stdout, stderr := testkit.RunCapturedCLI("list", "outputs", "--manifest", rightManifest, "--json"); exitCode != 0 || stderr != "" {
 		t.Fatalf("foreign JSON inventory exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	} else {
 		var inventory struct {
@@ -71,23 +68,23 @@ func TestGlobalOutputOwnershipBlocksForeignManifestUntilOwnerReleases(t *testing
 			t.Fatalf("blocked inventory = %#v, want versioned owner-attributed conflict", inventory)
 		}
 	}
-	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", rightManifest, "--yes"); exitCode == 0 ||
+	if exitCode, _, stderr := testkit.RunCapturedCLI("apply", "--manifest", rightManifest, "--yes"); exitCode == 0 ||
 		!strings.Contains(stderr, "ownership conflict") || strings.Contains(stderr, leftManifest) {
 		t.Fatalf("foreign differing apply exit=%d stderr=%q, want path-neutral ownership conflict", exitCode, stderr)
 	}
 
 	testkit.WriteFile(t, leftRoot, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
-	if exitCode, _, stderr := runOwnershipCLI("lock", "--manifest", leftManifest); exitCode != 0 {
+	if exitCode, _, stderr := testkit.RunCapturedCLI("lock", "--manifest", leftManifest); exitCode != 0 {
 		t.Fatalf("owner relock exit=%d stderr=%q", exitCode, stderr)
 	}
-	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", leftManifest, "--yes"); exitCode != 0 {
+	if exitCode, _, stderr := testkit.RunCapturedCLI("apply", "--manifest", leftManifest, "--yes"); exitCode != 0 {
 		t.Fatalf("owner release exit=%d stderr=%q", exitCode, stderr)
 	}
 	if _, err := os.Stat(destination); !os.IsNotExist(err) {
 		t.Fatalf("released destination exists or stat failed: %v", err)
 	}
 
-	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", rightManifest, "--yes"); exitCode != 0 {
+	if exitCode, _, stderr := testkit.RunCapturedCLI("apply", "--manifest", rightManifest, "--yes"); exitCode != 0 {
 		t.Fatalf("successor apply exit=%d stderr=%q", exitCode, stderr)
 	}
 	testkit.AssertFileContent(t, destination, "different\n")
@@ -103,7 +100,7 @@ func TestGlobalOutputOwnershipAllowsDisjointAggregateProjections(t *testing.T) {
 	hostConfig := filepath.Join(home, ".claude.json")
 
 	for _, manifest := range []string{leftManifest, rightManifest} {
-		if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", manifest, "--yes"); exitCode != 0 {
+		if exitCode, _, stderr := testkit.RunCapturedCLI("apply", "--manifest", manifest, "--yes"); exitCode != 0 {
 			t.Fatalf("apply %s exit=%d stderr=%q", manifest, exitCode, stderr)
 		}
 	}
@@ -112,10 +109,10 @@ func TestGlobalOutputOwnershipAllowsDisjointAggregateProjections(t *testing.T) {
 
 	leftRoot := filepath.Dir(leftManifest)
 	testkit.WriteFile(t, leftRoot, "daem.toml", "version = 1\ntargets = [\"claude-code\"]\n")
-	if exitCode, _, stderr := runOwnershipCLI("lock", "--manifest", leftManifest); exitCode != 0 {
+	if exitCode, _, stderr := testkit.RunCapturedCLI("lock", "--manifest", leftManifest); exitCode != 0 {
 		t.Fatalf("relock left exit=%d stderr=%q", exitCode, stderr)
 	}
-	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", leftManifest, "--yes"); exitCode != 0 {
+	if exitCode, _, stderr := testkit.RunCapturedCLI("apply", "--manifest", leftManifest, "--yes"); exitCode != 0 {
 		t.Fatalf("remove alpha exit=%d stderr=%q", exitCode, stderr)
 	}
 	testkit.AssertClaudeGlobalMCPConfigMissing(t, hostConfig, "alpha")
@@ -151,7 +148,7 @@ func TestConcurrentDisjointGlobalProjectionsConvergeAfterStaleRetry(t *testing.T
 	) || strings.Contains(staleOutput, "stale_snapshot") {
 		t.Fatalf("losing disjoint apply stderr=%q, want typed stale detail", staleOutput)
 	}
-	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", retryManifest, "--yes"); exitCode != 0 {
+	if exitCode, _, stderr := testkit.RunCapturedCLI("apply", "--manifest", retryManifest, "--yes"); exitCode != 0 {
 		t.Fatalf("disjoint retry exit=%d stderr=%q", exitCode, stderr)
 	}
 	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfig, "alpha", "npx", []string{"-y", "@example/alpha"}, nil)
@@ -164,7 +161,7 @@ func TestMovedManifestCannotSilentlyInheritGlobalOwnership(t *testing.T) {
 	t.Setenv("HOME", filepath.Join(root, "home"))
 	originalRoot := filepath.Join(root, "original")
 	originalManifest := writeGlobalMCPWorkspace(t, originalRoot, "alpha")
-	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", originalManifest, "--yes"); exitCode != 0 {
+	if exitCode, _, stderr := testkit.RunCapturedCLI("apply", "--manifest", originalManifest, "--yes"); exitCode != 0 {
 		t.Fatalf("original apply exit=%d stderr=%q", exitCode, stderr)
 	}
 	movedRoot := filepath.Join(root, "moved")
@@ -172,11 +169,11 @@ func TestMovedManifestCannotSilentlyInheritGlobalOwnership(t *testing.T) {
 		t.Fatalf("rename owner root returned error: %v", err)
 	}
 	movedManifest := filepath.Join(movedRoot, "daem.toml")
-	if exitCode, stdout, stderr := runOwnershipCLI("status", "--manifest", movedManifest); exitCode != 0 || stderr != "" ||
+	if exitCode, stdout, stderr := testkit.RunCapturedCLI("status", "--manifest", movedManifest); exitCode != 0 || stderr != "" ||
 		!strings.Contains(stdout, "ownership conflict") || strings.Contains(stdout, originalManifest) {
 		t.Fatalf("moved status exit=%d stdout=%q stderr=%q, want path-neutral ownership conflict", exitCode, stdout, stderr)
 	}
-	if exitCode, stdout, stderr := runOwnershipCLI("status", "--manifest", movedManifest, "--verbose"); exitCode != 0 || stderr != "" ||
+	if exitCode, stdout, stderr := testkit.RunCapturedCLI("status", "--manifest", movedManifest, "--verbose"); exitCode != 0 || stderr != "" ||
 		!strings.Contains(stdout, "ownership_conflict") || !strings.Contains(stdout, originalManifest) {
 		t.Fatalf("verbose moved status exit=%d stdout=%q stderr=%q, want original-owner conflict", exitCode, stdout, stderr)
 	}
@@ -194,7 +191,7 @@ func TestStaleWholePathClaimBlocksForeignProjectionWithoutAutoTransfer(t *testin
 		t.Fatalf("remove stale owner root returned error: %v", err)
 	}
 	foreignManifest := writeGlobalMCPWorkspace(t, filepath.Join(root, "foreign"), "alpha")
-	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", foreignManifest, "--yes"); exitCode == 0 ||
+	if exitCode, _, stderr := testkit.RunCapturedCLI("apply", "--manifest", foreignManifest, "--yes"); exitCode == 0 ||
 		!strings.Contains(stderr, "ownership conflict") || strings.Contains(stderr, ownerManifest) {
 		t.Fatalf("foreign projection exit=%d stderr=%q, want path-neutral stale-owner conflict", exitCode, stderr)
 	}
@@ -213,17 +210,8 @@ command = "npx"
 args = ["-y", "@example/`+name+`"]
 `)
 	manifestPath := filepath.Join(root, "daem.toml")
-	if exitCode, _, stderr := runOwnershipCLI("lock", "--manifest", manifestPath); exitCode != 0 {
+	if exitCode, _, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifestPath); exitCode != 0 {
 		t.Fatalf("lock %s exit=%d stderr=%q", manifestPath, exitCode, stderr)
 	}
 	return manifestPath
-}
-
-func runOwnershipCLI(args ...string) (int, string, string) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	exitCode := clipkg.RunWithOptions(args, clipkg.RunOptions{
-		Context: context.Background(), Stdout: &stdout, Stderr: &stderr,
-	})
-	return exitCode, stdout.String(), stderr.String()
 }

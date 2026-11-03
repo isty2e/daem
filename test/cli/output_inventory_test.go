@@ -179,7 +179,7 @@ func TestListOutputsReportsForeignOwnedAggregateSubject(t *testing.T) {
 	t.Setenv("HOME", filepath.Join(root, "home"))
 	ownerManifest := writeGlobalMCPWorkspace(t, filepath.Join(root, "owner"), "alpha")
 	foreignManifest := writeGlobalMCPWorkspace(t, filepath.Join(root, "foreign"), "alpha")
-	if exitCode, _, stderr := runOwnershipCLI(
+	if exitCode, _, stderr := testkit.RunCapturedCLI(
 		"apply",
 		"--manifest",
 		ownerManifest,
@@ -188,7 +188,7 @@ func TestListOutputsReportsForeignOwnedAggregateSubject(t *testing.T) {
 		t.Fatalf("owner apply exit=%d stderr=%q", exitCode, stderr)
 	}
 
-	exitCode, stdout, stderr := runOwnershipCLI(
+	exitCode, stdout, stderr := testkit.RunCapturedCLI(
 		"list",
 		"outputs",
 		"--manifest",
@@ -223,7 +223,7 @@ func TestListOutputsPreservesForeignOwnershipWhenAggregateDocumentIsMalformed(t 
 	t.Setenv("HOME", home)
 	ownerManifest := writeGlobalMCPWorkspace(t, filepath.Join(root, "owner"), "alpha")
 	foreignManifest := writeGlobalMCPWorkspace(t, filepath.Join(root, "foreign"), "alpha")
-	if exitCode, _, stderr := runOwnershipCLI(
+	if exitCode, _, stderr := testkit.RunCapturedCLI(
 		"apply",
 		"--manifest",
 		ownerManifest,
@@ -233,7 +233,7 @@ func TestListOutputsPreservesForeignOwnershipWhenAggregateDocumentIsMalformed(t 
 	}
 	testkit.WriteFile(t, home, ".claude.json", "{")
 
-	exitCode, stdout, stderr := runOwnershipCLI(
+	exitCode, stdout, stderr := testkit.RunCapturedCLI(
 		"list",
 		"outputs",
 		"--manifest",
@@ -263,7 +263,7 @@ func TestListOutputsPreservesForeignOwnershipWhenAlternateConfigBlocksProjection
 	t.Setenv("HOME", home)
 	ownerManifest := writeGlobalOpenCodeMCPWorkspace(t, filepath.Join(root, "owner"), "alpha")
 	foreignManifest := writeGlobalOpenCodeMCPWorkspace(t, filepath.Join(root, "foreign"), "alpha")
-	if exitCode, _, stderr := runOwnershipCLI(
+	if exitCode, _, stderr := testkit.RunCapturedCLI(
 		"apply",
 		"--manifest",
 		ownerManifest,
@@ -273,7 +273,7 @@ func TestListOutputsPreservesForeignOwnershipWhenAlternateConfigBlocksProjection
 	}
 	testkit.WriteFile(t, home, ".config/opencode/opencode.jsonc", "{}\n")
 
-	exitCode, stdout, stderr := runOwnershipCLI(
+	exitCode, stdout, stderr := testkit.RunCapturedCLI(
 		"list",
 		"outputs",
 		"--manifest",
@@ -413,7 +413,7 @@ args = ["-y", "@example/gamma"]
 }
 `)
 
-	exitCode, stdout, stderr := runOwnershipCLI(
+	exitCode, stdout, stderr := testkit.RunCapturedCLI(
 		"list",
 		"outputs",
 		"--manifest",
@@ -479,7 +479,7 @@ command = "npx"
 args = ["-y", "@example/`+name+`"]
 `)
 	manifestPath := filepath.Join(root, "daem.toml")
-	if exitCode, _, stderr := runOwnershipCLI("lock", "--manifest", manifestPath); exitCode != 0 {
+	if exitCode, _, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifestPath); exitCode != 0 {
 		t.Fatalf("lock %s exit=%d stderr=%q", manifestPath, exitCode, stderr)
 	}
 	return manifestPath

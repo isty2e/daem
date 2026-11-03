@@ -6,16 +6,17 @@ import (
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeKeyReplacementAllowsSafeAncestorGrowth(t *testing.T) {
 	fixture := newNativeKeyScopeFixture(t, nativeKeyScopes()[0], true)
-	testkit.WriteFile(t, filepath.Dir(fixture.destination), filepath.Base(fixture.destination), `{"theme":"dark"}`)
-	fingerprint := nativeReplacementFingerprint(t, fixture.nativeRecoveryFixture)
-	testkit.WriteFile(t, filepath.Dir(fixture.destination), filepath.Base(fixture.destination), `{"theme":"dark","extensionPreferences":{"foreign":3}}`)
-	if fresh := nativeReplacementFingerprint(t, fixture.nativeRecoveryFixture); fresh != fingerprint {
+	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), `{"theme":"dark"}`)
+	fingerprint := nativeReplacementFingerprint(t, fixture.RecoveryFixture)
+	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), `{"theme":"dark","extensionPreferences":{"foreign":3}}`)
+	if fresh := nativeReplacementFingerprint(t, fixture.RecoveryFixture); fresh != fingerprint {
 		t.Fatal("an unrelated sibling creating a traversable parent invalidated consent")
 	}
-	runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
-	requireNativeSharedValues(t, configdocument.JSON, testkit.ReadFile(t, fixture.destination), `{"extensionPreferences":{"foreign":3,"managed":"after-model"}}`, true)
+	nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+	nativefixture.RequireSharedValues(t, configdocument.JSON, testkit.ReadFile(t, fixture.Destination), `{"extensionPreferences":{"foreign":3,"managed":"after-model"}}`, true)
 }

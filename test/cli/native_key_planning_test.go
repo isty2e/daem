@@ -62,14 +62,14 @@ ownership = "keys"
 					t.Fatal(err)
 				}
 			}
-			if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
+			if code, stdout, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifest); code != 0 {
 				t.Fatalf("lock failed: code=%d stdout=%s stderr=%s", code, stdout, stderr)
 			}
 			for _, args := range [][]string{
 				{"status", "--manifest", manifest, "--json"},
 				{"apply", "--manifest", manifest, "--dry-run", "--json"},
 			} {
-				code, stdout, stderr := runOwnershipCLI(args...)
+				code, stdout, stderr := testkit.RunCapturedCLI(args...)
 				if code != 0 {
 					t.Fatalf("%q failed: code=%d stdout=%s stderr=%s", args, code, stdout, stderr)
 				}
@@ -127,7 +127,7 @@ ownership = "keys"
 			}
 			testkit.WriteFile(t, workspace, "first.toml", first)
 			testkit.WriteFile(t, workspace, "second.toml", "")
-			if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
+			if code, stdout, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifest); code != 0 {
 				t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
 			}
 			if fault == "stale" {
@@ -141,7 +141,7 @@ ownership = "keys"
 				{"status", "--manifest", manifest, "--json"},
 				{"apply", "--manifest", manifest, "--dry-run", "--json"},
 			} {
-				code, stdout, stderr := runOwnershipCLI(args...)
+				code, stdout, stderr := testkit.RunCapturedCLI(args...)
 				if fault == "empty" {
 					if code != 0 {
 						t.Fatalf("empty positive sources failed: %d %s %s", code, stdout, stderr)
@@ -221,7 +221,7 @@ ownership = "keys"
 `)
 	testkit.WriteFile(t, workspace, "preferences.toml", "model = \"native-test\"\n")
 	testkit.WriteFile(t, workspace, ".codex/config.toml", "# User-owned comment\nunmanaged = true\n")
-	if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifest); code != 0 {
 		t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
 	}
 	input := nativeKeyPlanningInput(t, manifest)
@@ -282,14 +282,14 @@ ownership = "keys"
 	}
 	testkit.WriteFile(t, filepath.Dir(input.Paths.OwnershipRegistryPath), filepath.Base(input.Paths.OwnershipRegistryPath), string(registryBytes))
 	testkit.WriteFile(t, workspace, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
-	if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifest); code != 0 {
 		t.Fatalf("remove declaration lock failed: %d %s %s", code, stdout, stderr)
 	}
 	for _, args := range [][]string{
 		{"status", "--manifest", manifest, "--json"},
 		{"apply", "--manifest", manifest, "--dry-run", "--json"},
 	} {
-		code, stdout, stderr := runOwnershipCLI(args...)
+		code, stdout, stderr := testkit.RunCapturedCLI(args...)
 		if code != 0 {
 			t.Fatalf("last-removal planning failed: %d %s %s", code, stdout, stderr)
 		}
@@ -325,7 +325,7 @@ source = "./preferences.toml"
 ownership = "keys"
 `)
 	testkit.WriteFile(t, workspace, "preferences.toml", "model = \"first\"\n")
-	if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifest); code != 0 {
 		t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
 	}
 	input := nativeKeyPlanningInput(t, manifest)
@@ -344,7 +344,7 @@ ownership = "keys"
 		t.Fatalf("shared generation omitted native work: %v", err)
 	}
 	testkit.WriteFile(t, workspace, "preferences.toml", "model = \"second\"\n")
-	if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifest); code != 0 {
 		t.Fatalf("relock failed: %d %s %s", code, stdout, stderr)
 	}
 	input.Lockfile, err = lockfile.Load(t.Context(), input.Paths.LockfilePath)
@@ -380,14 +380,14 @@ ownership = "keys"
 `)
 	testkit.WriteFile(t, workspace, "pi.json", `{"model":"pi-test"}`)
 	testkit.WriteFile(t, workspace, "codex.toml", "model = \"codex-test\"\n")
-	if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifest); code != 0 {
 		t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
 	}
 	for _, args := range [][]string{
 		{"status", "--manifest", manifest, "--json"},
 		{"apply", "--manifest", manifest, "--dry-run", "--json"},
 	} {
-		code, stdout, stderr := runOwnershipCLI(args...)
+		code, stdout, stderr := testkit.RunCapturedCLI(args...)
 		if code != 0 {
 			t.Fatalf("mixed selected actors failed: %d %s %s", code, stdout, stderr)
 		}
@@ -423,11 +423,11 @@ path = %q
 source = %q
 ownership = "keys"
 `, target, path, filepath.Join(workspace, "fragment")))
-			if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
+			if code, stdout, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifest); code != 0 {
 				t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
 			}
 			for _, args := range [][]string{{"status", "--manifest", manifest, "--json"}, {"apply", "--manifest", manifest, "--dry-run", "--json"}} {
-				code, stdout, stderr := runOwnershipCLI(args...)
+				code, stdout, stderr := testkit.RunCapturedCLI(args...)
 				if code != 0 {
 					t.Fatalf("missing selected global root could not be planned: %d %s %s", code, stdout, stderr)
 				}
@@ -446,7 +446,7 @@ ownership = "keys"
 				{"status", "--manifest", manifest, "--json"},
 				{"apply", "--manifest", manifest, "--dry-run", "--json"},
 			} {
-				code, stdout, stderr := runOwnershipCLI(args...)
+				code, stdout, stderr := testkit.RunCapturedCLI(args...)
 				if code != 0 {
 					t.Fatalf("existing selected global root failed: %d %s %s", code, stdout, stderr)
 				}
@@ -479,14 +479,14 @@ ownership = "document"
 	fragment := "model = \"native-test\"\n"
 	testkit.WriteFile(t, workspace, "daem.toml", body)
 	testkit.WriteFile(t, workspace, "fragment", fragment)
-	if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifest); code != 0 {
 		t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
 	}
 	for _, args := range [][]string{
 		{"status", "--manifest", manifest, "--json"},
 		{"apply", "--manifest", manifest, "--dry-run", "--json"},
 	} {
-		code, stdout, stderr := runOwnershipCLI(args...)
+		code, stdout, stderr := testkit.RunCapturedCLI(args...)
 		if code != 0 {
 			t.Fatalf("whole document planning failed: %d %s %s", code, stdout, stderr)
 		}

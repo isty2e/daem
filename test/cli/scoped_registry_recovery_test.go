@@ -11,6 +11,7 @@ import (
 	workflowrecover "github.com/isty2e/daem/internal/workflow/recover"
 	"github.com/isty2e/daem/test/ownershiptest"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestPreparedJointRecoveryPreservesDisjointProtectionAfterProcessLoss(t *testing.T) {
@@ -22,28 +23,28 @@ func TestPreparedJointRecoveryPreservesDisjointProtectionAfterProcessLoss(t *tes
 				stage = "state"
 			}
 			if boundary == "retained-native" {
-				testkit.WriteFile(t, filepath.Dir(fixture.manifest), "preferences.toml", "model='before-model'\n")
-				runNativeRecoveryCommand(t, fixture, "none", "lock")
-				watched.destination = instruction
+				testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "preferences.toml", "model='before-model'\n")
+				nativefixture.RunRecoveryCommand(t, fixture, "none", "lock")
+				watched.Destination = instruction
 			}
-			code, stdout, stderr := invokeNativeRecoveryCommand(t, watched, stage, "apply", "--yes")
-			if code != nativeRecoveryExit {
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, watched, stage, "apply", "--yes")
+			if code != nativefixture.RecoveryExit {
 				t.Fatalf("mixed process did not stop after publication: %d %s %s", code, stdout, stderr)
 			}
-			prepared, err := workflowrecover.Plan(t.Context(), workflowrecover.PlanInput{ManifestPath: fixture.manifest})
+			prepared, err := workflowrecover.Plan(t.Context(), workflowrecover.PlanInput{ManifestPath: fixture.Manifest})
 			if err != nil {
 				t.Fatal(err)
 			}
-			protected := filepath.Join(filepath.Dir(fixture.manifest), "foreign.json")
+			protected := filepath.Join(filepath.Dir(fixture.Manifest), "foreign.json")
 			if boundary == "retained-native" {
-				protected = fixture.destination
+				protected = fixture.Destination
 			}
-			pending := ownershiptest.WritePendingDocumentProtection(t, fixture.manifest, protected)
+			pending := ownershiptest.WritePendingDocumentProtection(t, fixture.Manifest, protected)
 			if _, err := workflowrecover.Execute(t.Context(), prepared, workflowrecover.ExecuteOptions{}); err != nil {
 				t.Fatalf("disjoint protection invalidated prepared %s recovery: %v", boundary, err)
 			}
-			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.manifest))
-			store, err := ownershipstore.New(fixture.paths.OwnershipRegistryPath)
+			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
+			store, err := ownershipstore.New(fixture.Paths.OwnershipRegistryPath)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -61,7 +62,7 @@ func TestPreparedJointRecoveryPreservesDisjointProtectionAfterProcessLoss(t *tes
 			if boundary == "finalize" {
 				expectedModel, expectedInstruction = "model='after-model'\n", "after instructions\n"
 			}
-			requireNativeSharedValues(t, configdocument.TOML, testkit.ReadFile(t, fixture.destination), expectedModel, true)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, testkit.ReadFile(t, fixture.Destination), expectedModel, true)
 			if actual := string(testkit.ReadFile(t, instruction)); actual != expectedInstruction {
 				t.Fatalf("recovery restored the wrong ordinary phase: %q", actual)
 			}
@@ -73,27 +74,27 @@ func TestPreparedJointRecoveryRefusesNewRelevantProtectionWithoutEffects(t *test
 	for _, protectedFamily := range []string{"native", "ordinary"} {
 		t.Run(protectedFamily, func(t *testing.T) {
 			fixture, instruction := nativeOrdinaryRecoveryFixture(t)
-			code, stdout, stderr := invokeNativeRecoveryCommand(t, fixture, "host", "apply", "--yes")
-			if code != nativeRecoveryExit {
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, "host", "apply", "--yes")
+			if code != nativefixture.RecoveryExit {
 				t.Fatalf("mixed process did not stop after publication: %d %s %s", code, stdout, stderr)
 			}
-			prepared, err := workflowrecover.Plan(t.Context(), workflowrecover.PlanInput{ManifestPath: fixture.manifest})
+			prepared, err := workflowrecover.Plan(t.Context(), workflowrecover.PlanInput{ManifestPath: fixture.Manifest})
 			if err != nil {
 				t.Fatal(err)
 			}
-			protected := fixture.destination
+			protected := fixture.Destination
 			if protectedFamily == "ordinary" {
 				protected = instruction
 			}
-			ownershiptest.WritePendingDocumentProtection(t, fixture.manifest, protected)
-			before := snapshotNativeRecoveryPaths(t, fixture.destination, instruction, fixture.paths.StatefilePath, fixture.paths.OwnershipRegistryPath, fixture.paths.RecoveryDir)
+			ownershiptest.WritePendingDocumentProtection(t, fixture.Manifest, protected)
+			before := nativefixture.SnapshotRecoveryPaths(t, fixture.Destination, instruction, fixture.Paths.StatefilePath, fixture.Paths.OwnershipRegistryPath, fixture.Paths.RecoveryDir)
 			if _, err := workflowrecover.Execute(t.Context(), prepared, workflowrecover.ExecuteOptions{}); err == nil {
 				t.Fatal("new relevant protection did not refuse prepared recovery")
 			}
-			if after := snapshotNativeRecoveryPaths(t, fixture.destination, instruction, fixture.paths.StatefilePath, fixture.paths.OwnershipRegistryPath, fixture.paths.RecoveryDir); !reflect.DeepEqual(before, after) {
+			if after := nativefixture.SnapshotRecoveryPaths(t, fixture.Destination, instruction, fixture.Paths.StatefilePath, fixture.Paths.OwnershipRegistryPath, fixture.Paths.RecoveryDir); !reflect.DeepEqual(before, after) {
 				t.Fatal("refused recovery changed host, Registry, state or journal")
 			}
-			if _, err := os.Stat(fixture.paths.RecoveryDir); err != nil {
+			if _, err := os.Stat(fixture.Paths.RecoveryDir); err != nil {
 				t.Fatal("refused recovery discarded its retry evidence", err)
 			}
 		})

@@ -10,16 +10,8 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
-
-func requireNativeMCPUserComments(t *testing.T, content []byte) {
-	t.Helper()
-	for _, comment := range []string{"# User preferences\n", "# User theme\n"} {
-		if !bytes.Contains(content, []byte(comment)) {
-			t.Fatalf("shared mutation lost an unmanaged comment: %s", content)
-		}
-	}
-}
 
 func TestNativeKeyAndMCPSameFileCLILifecycle(t *testing.T) {
 	for _, mode := range []os.FileMode{0o600, 0o644} {
@@ -61,27 +53,27 @@ ownership = "keys"
 				writeManifest(server, true)
 				source := fmt.Sprintf("[tui]\nnotifications = %t\n", index == 0)
 				testkit.WriteFile(t, workspace, "preferences.toml", source)
-				runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
-				runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+				nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 				content, err := os.ReadFile(destination)
 				if err != nil {
 					t.Fatal(err)
 				}
 				expected := source + fmt.Sprintf("[mcp_servers.search]\ncommand = 'node'\nargs = [%q]\n", server)
-				requireNativeSharedValues(t, configdocument.TOML, content, expected, true)
+				nativefixture.RequireSharedValues(t, configdocument.TOML, content, expected, true)
 				if !bytes.Contains(content, []byte("[mcp_servers.search]\n")) {
 					t.Fatalf("generated Codex MCP header does not use bare TOML segments: %s", content)
 				}
-				requireNativeSharedValues(t, configdocument.TOML, content, outside, true)
-				requireNativeMCPUserComments(t, content)
-				requireNativeSharedMode(t, destination, 0o600)
-				requireNativeLifecycleMetadata(t, manifest, true)
-				status := runNativeLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json")
-				requireNativeLifecycleClean(t, status)
+				nativefixture.RequireSharedValues(t, configdocument.TOML, content, outside, true)
+				nativefixture.RequireMCPUserComments(t, content)
+				nativefixture.RequireSharedMode(t, destination, 0o600)
+				nativefixture.RequireLifecycleMetadata(t, manifest, true)
+				status := nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json")
+				nativefixture.RequireLifecycleClean(t, status)
 				if plan := clijson.DecodePlan(t, []byte(status)); plan.ActionCount != 2 {
 					t.Fatal("mixed Apply did not retain both managed subjects", status)
 				}
-				runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 			}
 
 			testkit.WriteFile(t, workspace, "daem.toml", `version = 1
@@ -92,50 +84,50 @@ path = "config.toml"
 source = "./preferences.toml"
 ownership = "keys"
 `)
-			runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
-			runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 			withoutMCP, err := os.ReadFile(destination)
 			if err != nil {
 				t.Fatal(err)
 			}
-			requireNativeSharedValues(t, configdocument.TOML, withoutMCP, "[mcp_servers.search]\ncommand='node'\nargs=['new.js']\n", false)
-			requireNativeSharedValues(t, configdocument.TOML, withoutMCP, "[tui]\nnotifications = false\n", true)
-			requireNativeSharedValues(t, configdocument.TOML, withoutMCP, outside, true)
-			requireNativeMCPUserComments(t, withoutMCP)
-			requireNativeLifecycleMetadata(t, manifest, true)
-			requireNativeLifecycleClean(t, runNativeLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
-			runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			nativefixture.RequireSharedValues(t, configdocument.TOML, withoutMCP, "[mcp_servers.search]\ncommand='node'\nargs=['new.js']\n", false)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, withoutMCP, "[tui]\nnotifications = false\n", true)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, withoutMCP, outside, true)
+			nativefixture.RequireMCPUserComments(t, withoutMCP)
+			nativefixture.RequireLifecycleMetadata(t, manifest, true)
+			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 
 			writeManifest("new.js", true)
-			runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
-			runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 
 			writeManifest("new.js", false)
-			runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
-			runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 			content, err := os.ReadFile(destination)
 			if err != nil {
 				t.Fatal(err)
 			}
-			requireNativeSharedValues(t, configdocument.TOML, content, "[tui]\nnotifications = false\n", false)
-			requireNativeSharedValues(t, configdocument.TOML, content, "[mcp_servers.search]\ncommand='node'\nargs=['new.js']\n", true)
-			requireNativeSharedValues(t, configdocument.TOML, content, outside, true)
-			requireNativeMCPUserComments(t, content)
-			requireNativeLifecycleMetadata(t, manifest, false)
-			requireNativeLifecycleClean(t, runNativeLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
-			runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			nativefixture.RequireSharedValues(t, configdocument.TOML, content, "[tui]\nnotifications = false\n", false)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, content, "[mcp_servers.search]\ncommand='node'\nargs=['new.js']\n", true)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, content, outside, true)
+			nativefixture.RequireMCPUserComments(t, content)
+			nativefixture.RequireLifecycleMetadata(t, manifest, false)
+			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 
 			testkit.WriteFile(t, workspace, "daem.toml", "version = 1\ntargets = ['codex']\n")
-			runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
-			runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 			content, err = os.ReadFile(destination)
 			if err != nil {
 				t.Fatal(err)
 			}
-			requireNativeSharedValues(t, configdocument.TOML, content, "[mcp_servers.search]\ncommand='node'\nargs=['new.js']\n", false)
-			requireNativeSharedValues(t, configdocument.TOML, content, outside, true)
-			requireNativeMCPUserComments(t, content)
-			requireNativeLifecycleClean(t, runNativeLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+			nativefixture.RequireSharedValues(t, configdocument.TOML, content, "[mcp_servers.search]\ncommand='node'\nargs=['new.js']\n", false)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, content, outside, true)
+			nativefixture.RequireMCPUserComments(t, content)
+			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
 		})
 	}
 }

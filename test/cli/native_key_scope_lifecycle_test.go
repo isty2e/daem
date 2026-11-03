@@ -13,6 +13,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 type nativeKeyScope struct {
@@ -36,15 +37,15 @@ func nativeKeyScopes() []nativeKeyScope {
 		},
 		{
 			name: "codex-global", target: "codex", scope: "global", filename: "config.toml", syntax: configdocument.TOML,
-			original: nativeRecoveryOutside + "\n# User feature preferences\n[features]\n",
-			outside:  nativeRecoveryOutside, parent: "/features",
+			original: nativefixture.RecoveryOutside + "\n# User feature preferences\n[features]\n",
+			outside:  nativefixture.RecoveryOutside, parent: "/features",
 			comments: []string{"# User preferences\n", "# User theme\n", "# User feature preferences\n"},
 		},
 	}
 }
 
 type nativeKeyScopeFixture struct {
-	nativeRecoveryFixture
+	nativefixture.RecoveryFixture
 	selected nativeKeyScope
 	existing bool
 }
@@ -56,24 +57,24 @@ func TestNativeKeyScopeCLILifecycle(t *testing.T) {
 				fixture := newNativeKeyScopeFixture(t, selected, existing)
 				for _, model := range []string{"after-model", "updated-model"} {
 					writeNativeKeyScopeDesired(t, fixture, model)
-					runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "lock")
-					_, _, stderr := runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "apply", "--yes", "--verbose")
-					if !strings.Contains(stderr, nativeRecoveryReceipt(fixture.destination)) || !strings.Contains(stderr, nativeRecoveryReceipt(fixture.paths.StatefilePath)) {
+					nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
+					_, _, stderr := nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes", "--verbose")
+					if !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Paths.StatefilePath)) {
 						t.Fatal("Apply did not confirm real host and state publications", stderr)
 					}
 					requireNativeKeyScopeDesired(t, fixture, model)
 				}
 
 				addNativeKeyScopeUserEdit(t, fixture)
-				testkit.WriteFile(t, filepath.Dir(fixture.manifest), "daem.toml", fmt.Sprintf("version = 1\ntargets = [%q]\n", selected.target))
-				runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "lock")
-				runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "apply", "--yes")
-				content := testkit.ReadFile(t, fixture.destination)
-				requireNativeSharedValues(t, selected.syntax, content, nativeKeyScopeSource(selected, "updated-model"), false)
+				testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "daem.toml", fmt.Sprintf("version = 1\ntargets = [%q]\n", selected.target))
+				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
+				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
+				content := testkit.ReadFile(t, fixture.Destination)
+				nativefixture.RequireSharedValues(t, selected.syntax, content, nativeKeyScopeSource(selected, "updated-model"), false)
 				requireNativeEmptyParent(t, selected.syntax, content, selected.parent)
 				requireNativeKeyScopeOutside(t, fixture, content)
 				requireNativeKeyScopeUserEdit(t, fixture)
-				requireNativeSharedMode(t, fixture.destination, nativeKeyScopeMode(existing))
+				nativefixture.RequireSharedMode(t, fixture.Destination, nativeKeyScopeMode(existing))
 				requireNativeKeyScopeSettled(t, fixture, false)
 			})
 		}
@@ -86,7 +87,7 @@ func newNativeKeyScopeFixture(t *testing.T, selected nativeKeyScope, existing bo
 	if err != nil {
 		t.Fatal(err)
 	}
-	setNativeRecoveryEnvironment(t, root)
+	nativefixture.SetRecoveryEnvironment(t, root)
 	for _, variable := range []string{"TMP", "TEMP"} {
 		path := filepath.Join(root, strings.ToLower(variable))
 		if err := os.Mkdir(path, 0o700); err != nil {
@@ -104,29 +105,29 @@ func newNativeKeyScopeFixture(t *testing.T, selected nativeKeyScope, existing bo
 		hostRoot = os.Getenv(variable)
 	}
 	fixture := nativeKeyScopeFixture{
-		nativeRecoveryFixture: nativeRecoveryFixture{
-			manifest: filepath.Join(workspace, "daem.toml"), destination: filepath.Join(hostRoot, selected.filename),
-			kind: nativeKeyScopeFileKind(existing),
+		RecoveryFixture: nativefixture.RecoveryFixture{
+			Manifest: filepath.Join(workspace, "daem.toml"), Destination: filepath.Join(hostRoot, selected.filename),
+			Kind: nativeKeyScopeFileKind(existing),
 		},
 		selected: selected, existing: existing,
 	}
 	if existing {
 		testkit.WriteFile(t, hostRoot, selected.filename, selected.original)
-		if err := os.Chmod(fixture.destination, 0o644); err != nil {
+		if err := os.Chmod(fixture.Destination, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	writeNativeKeyScopeDesired(t, fixture, "after-model")
-	fixture.paths, err = daempaths.Resolve(fixture.manifest)
+	fixture.Paths, err = daempaths.Resolve(fixture.Manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "lock")
-	for _, path := range []string{fixture.paths.StatefilePath, fixture.paths.OwnershipRegistryPath} {
+	nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
+	for _, path := range []string{fixture.Paths.StatefilePath, fixture.Paths.OwnershipRegistryPath} {
 		testkit.AssertPathMissing(t, path)
 	}
 	if !existing {
-		testkit.AssertPathMissing(t, fixture.destination)
+		testkit.AssertPathMissing(t, fixture.Destination)
 	}
 	return fixture
 }
@@ -156,7 +157,7 @@ func writeNativeKeyScopeDesired(t *testing.T, fixture nativeKeyScopeFixture, mod
 	t.Helper()
 	selected := fixture.selected
 	source := "preferences" + filepath.Ext(selected.filename)
-	workspace := filepath.Dir(fixture.manifest)
+	workspace := filepath.Dir(fixture.Manifest)
 	sourcePath := "./" + source
 	if selected.scope == "global" {
 		sourcePath = filepath.Join(workspace, source)
@@ -177,7 +178,7 @@ ownership = "keys"
 func requireNativeKeyScopeOutside(t *testing.T, fixture nativeKeyScopeFixture, content []byte) {
 	t.Helper()
 	if fixture.existing {
-		requireNativeSharedValues(t, fixture.selected.syntax, content, fixture.selected.outside, true)
+		nativefixture.RequireSharedValues(t, fixture.selected.syntax, content, fixture.selected.outside, true)
 		for _, comment := range fixture.selected.comments {
 			if !bytes.Contains(content, []byte(comment)) {
 				t.Fatalf("native key edit lost foreign comment %q:\n%s", comment, content)
@@ -188,35 +189,35 @@ func requireNativeKeyScopeOutside(t *testing.T, fixture nativeKeyScopeFixture, c
 
 func requireNativeKeyScopeDesired(t *testing.T, fixture nativeKeyScopeFixture, model string) {
 	t.Helper()
-	content := testkit.ReadFile(t, fixture.destination)
-	requireNativeSharedValues(t, fixture.selected.syntax, content, nativeKeyScopeSource(fixture.selected, model), true)
+	content := testkit.ReadFile(t, fixture.Destination)
+	nativefixture.RequireSharedValues(t, fixture.selected.syntax, content, nativeKeyScopeSource(fixture.selected, model), true)
 	requireNativeKeyScopeOutside(t, fixture, content)
-	requireNativeSharedMode(t, fixture.destination, nativeKeyScopeMode(fixture.existing))
+	nativefixture.RequireSharedMode(t, fixture.Destination, nativeKeyScopeMode(fixture.existing))
 	requireNativeKeyScopeSettled(t, fixture, true)
 }
 
 func requireNativeKeyScopeSettled(t *testing.T, fixture nativeKeyScopeFixture, managed bool) {
 	t.Helper()
 	requireNativeKeyScopeMetadata(t, fixture, managed)
-	_, status, _ := runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "status", "--check", "--json")
-	requireNativeLifecycleClean(t, status)
-	before := snapshotNativeRecoveryEvidence(t, fixture.nativeRecoveryFixture)
-	runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "apply", "--yes")
-	if !reflect.DeepEqual(before, snapshotNativeRecoveryEvidence(t, fixture.nativeRecoveryFixture)) {
+	_, status, _ := nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "status", "--check", "--json")
+	nativefixture.RequireLifecycleClean(t, status)
+	before := nativefixture.SnapshotRecoveryEvidence(t, fixture.RecoveryFixture)
+	nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
+	if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, fixture.RecoveryFixture)) {
 		t.Fatal("repeat Apply changed settled host, state, Registry or recovery evidence")
 	}
-	testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.manifest))
+	testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 }
 
 func requireNativeKeyScopeMetadata(t *testing.T, fixture nativeKeyScopeFixture, managed bool) {
 	t.Helper()
-	requireNativeLifecycleMetadataForScope(t, fixture.manifest, managed, target.Scope(fixture.selected.scope))
+	nativefixture.RequireLifecycleMetadataForScope(t, fixture.Manifest, managed, target.Scope(fixture.selected.scope))
 }
 
 func addNativeKeyScopeUserEdit(t *testing.T, fixture nativeKeyScopeFixture) {
 	t.Helper()
-	content := testkit.ReadFile(t, fixture.destination)
-	changed := append([]byte(nativeRecoveryLater), content...)
+	content := testkit.ReadFile(t, fixture.Destination)
+	changed := append([]byte(nativefixture.RecoveryLater), content...)
 	if fixture.selected.syntax == configdocument.JSON {
 		trimmed := bytes.TrimSpace(content)
 		if len(trimmed) == 0 || trimmed[0] != '{' {
@@ -224,7 +225,7 @@ func addNativeKeyScopeUserEdit(t *testing.T, fixture nativeKeyScopeFixture) {
 		}
 		changed = append([]byte("{\n  \"recovery_note\": \"keep\","), trimmed[1:]...)
 	}
-	if err := os.WriteFile(fixture.destination, changed, 0o600); err != nil {
+	if err := os.WriteFile(fixture.Destination, changed, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	requireNativeKeyScopeUserEdit(t, fixture)
@@ -232,13 +233,13 @@ func addNativeKeyScopeUserEdit(t *testing.T, fixture nativeKeyScopeFixture) {
 
 func requireNativeKeyScopeUserEdit(t *testing.T, fixture nativeKeyScopeFixture) {
 	t.Helper()
-	fragment := nativeRecoveryLater
+	fragment := nativefixture.RecoveryLater
 	if fixture.selected.syntax == configdocument.JSON {
 		fragment = `{"recovery_note":"keep"}`
 	}
-	content := testkit.ReadFile(t, fixture.destination)
-	requireNativeSharedValues(t, fixture.selected.syntax, content, fragment, true)
-	if fixture.selected.syntax == configdocument.TOML && !bytes.Contains(content, []byte(nativeRecoveryLater)) {
+	content := testkit.ReadFile(t, fixture.Destination)
+	nativefixture.RequireSharedValues(t, fixture.selected.syntax, content, fragment, true)
+	if fixture.selected.syntax == configdocument.TOML && !bytes.Contains(content, []byte(nativefixture.RecoveryLater)) {
 		t.Fatal("lost foreign value/comment added after process loss")
 	}
 }

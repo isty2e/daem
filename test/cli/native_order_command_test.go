@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativePiOrderAfterExtensionCommand(t *testing.T) {
@@ -22,23 +23,23 @@ func TestNativePiOrderAfterExtensionCommand(t *testing.T) {
 				theme := "fixture-theme"
 				if update {
 					theme = "next-theme"
-					testkit.WriteFile(t, fixture.workspace, "preferences.json", `{"theme":"next-theme"}`)
+					testkit.WriteFile(t, fixture.Workspace, "preferences.json", `{"theme":"next-theme"}`)
 				}
-				fixture.require(t, "lock")
+				fixture.Require(t, "lock")
 				setNativePiCommandResult(t, fixture, fmt.Sprintf(`{"theme":%q,"foreign":{"retained":true},"packages":["npm:@acme/keep@1","npm:@acme/extra@1","git:github.com/acme/pi-tools@v1"]}`, theme))
-				fixture.require(t, "apply", "--yes", "--json")
-				requireNativePiOrderValues(t, fixture.settings, theme, "npm:@acme/keep@1", "git:github.com/acme/pi-tools@v1", "npm:@acme/extra@1")
+				fixture.Require(t, "apply", "--yes", "--json")
+				nativefixture.RequirePiOrderValues(t, fixture.Settings, theme, "npm:@acme/keep@1", "git:github.com/acme/pi-tools@v1", "npm:@acme/extra@1")
 				var before struct {
 					Theme string `json:"theme"`
 				}
-				if err := json.Unmarshal(testkit.ReadFile(t, fixture.beforeCommand), &before); err != nil || before.Theme != theme {
+				if err := json.Unmarshal(testkit.ReadFile(t, fixture.BeforeCommand), &before); err != nil || before.Theme != theme {
 					t.Fatal("command did not consume the settled selected key", err)
 				}
-				fixture.require(t, "status", "--check", "--json")
-				fixture.require(t, "apply", "--yes", "--json")
-				testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nextra\n")
-				testkit.AssertFileContent(t, filepath.Join(fixture.workspace, "AGENTS.md"), "instructions after ordered extensions\n")
-				testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+				fixture.Require(t, "status", "--check", "--json")
+				fixture.Require(t, "apply", "--yes", "--json")
+				testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nextra\n")
+				testkit.AssertFileContent(t, filepath.Join(fixture.Workspace, "AGENTS.md"), "instructions after ordered extensions\n")
+				testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 			})
 		}
 	}
@@ -49,32 +50,32 @@ func TestNativePiOrderCommandSuffixRecoveryUsesPostCommandBefore(t *testing.T) {
 		for _, boundary := range []string{"host", "state"} {
 			t.Run(string(scope)+"/"+boundary, func(t *testing.T) {
 				fixture := newNativePiOrderCommandFixture(t, scope)
-				testkit.WriteFile(t, fixture.workspace, "preferences.json", `{}`)
-				fixture.require(t, "lock")
-				code, stdout, stderr := invokeNativeRecoveryCommand(t, nativeRecoveryFixture{manifest: fixture.manifest, destination: fixture.settings}, "native-ordinary-"+boundary, "apply", "--yes")
-				if code != nativeRecoveryExit {
+				testkit.WriteFile(t, fixture.Workspace, "preferences.json", `{}`)
+				fixture.Require(t, "lock")
+				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, nativefixture.RecoveryFixture{Manifest: fixture.Manifest, Destination: fixture.Settings}, "native-ordinary-"+boundary, "apply", "--yes")
+				if code != nativefixture.RecoveryExit {
 					t.Fatalf("combined order/key/file suffix missed its interruption: %d %s %s", code, stdout, stderr)
 				}
-				fixture.require(t, "recover", "--dry-run")
-				fixture.require(t, "recover", "--yes")
+				fixture.Require(t, "recover", "--dry-run")
+				fixture.Require(t, "recover", "--yes")
 				if boundary == "host" {
-					requireNativePiOrderValues(t, fixture.settings, "fixture-theme", "npm:@acme/keep@1", "npm:@acme/extra@1", "git:github.com/acme/pi-tools@v1")
+					nativefixture.RequirePiOrderValues(t, fixture.Settings, "fixture-theme", "npm:@acme/keep@1", "npm:@acme/extra@1", "git:github.com/acme/pi-tools@v1")
 				} else {
-					requireNativePiOrderValues(t, fixture.settings, "", "npm:@acme/keep@1", "git:github.com/acme/pi-tools@v1", "npm:@acme/extra@1")
+					nativefixture.RequirePiOrderValues(t, fixture.Settings, "", "npm:@acme/keep@1", "git:github.com/acme/pi-tools@v1", "npm:@acme/extra@1")
 				}
-				fixture.require(t, "apply", "--yes", "--json")
-				requireNativePiOrderValues(t, fixture.settings, "", "npm:@acme/keep@1", "git:github.com/acme/pi-tools@v1", "npm:@acme/extra@1")
+				fixture.Require(t, "apply", "--yes", "--json")
+				nativefixture.RequirePiOrderValues(t, fixture.Settings, "", "npm:@acme/keep@1", "git:github.com/acme/pi-tools@v1", "npm:@acme/extra@1")
 				var document map[string]json.RawMessage
-				if err := json.Unmarshal(testkit.ReadFile(t, fixture.settings), &document); err != nil {
+				if err := json.Unmarshal(testkit.ReadFile(t, fixture.Settings), &document); err != nil {
 					t.Fatal(err)
 				}
 				if _, retained := document["theme"]; retained {
 					t.Fatal("key retirement did not share the actual suffix")
 				}
-				fixture.require(t, "status", "--check", "--json")
-				testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nextra\n")
-				testkit.AssertFileContent(t, filepath.Join(fixture.workspace, "AGENTS.md"), "instructions after ordered extensions\n")
-				testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+				fixture.Require(t, "status", "--check", "--json")
+				testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nextra\n")
+				testkit.AssertFileContent(t, filepath.Join(fixture.Workspace, "AGENTS.md"), "instructions after ordered extensions\n")
+				testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 			})
 		}
 	}
@@ -84,10 +85,10 @@ func TestNativePiOrderCommandSuffixReturnedErrorsReportActualSettlement(t *testi
 	for _, boundary := range []string{"return-error", "return-state-error"} {
 		t.Run(boundary, func(t *testing.T) {
 			fixture := newNativePiOrderCommandFixture(t, target.ScopeProject)
-			testkit.WriteFile(t, fixture.workspace, "preferences.json", `{}`)
-			fixture.require(t, "lock")
-			code, stdout, stderr := invokeNativeRecoveryCommand(t, nativeRecoveryFixture{manifest: fixture.manifest, destination: fixture.settings}, "native-ordinary-"+boundary, "apply", "--yes", "--json")
-			if code == 0 || code == nativeRecoveryExit {
+			testkit.WriteFile(t, fixture.Workspace, "preferences.json", `{}`)
+			fixture.Require(t, "lock")
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, nativefixture.RecoveryFixture{Manifest: fixture.Manifest, Destination: fixture.Settings}, "native-ordinary-"+boundary, "apply", "--yes", "--json")
+			if code == 0 || code == nativefixture.RecoveryExit {
 				t.Fatalf("expected returned suffix error: %d %s %s", code, stdout, stderr)
 			}
 			var result clijson.ApplyResult
@@ -99,14 +100,14 @@ func TestNativePiOrderCommandSuffixReturnedErrorsReportActualSettlement(t *testi
 				t.Fatalf("returned error hid actual order settlement: %s", stdout)
 			}
 			if settled {
-				requireNativePiOrderValues(t, fixture.settings, "", "npm:@acme/keep@1", "git:github.com/acme/pi-tools@v1", "npm:@acme/extra@1")
+				nativefixture.RequirePiOrderValues(t, fixture.Settings, "", "npm:@acme/keep@1", "git:github.com/acme/pi-tools@v1", "npm:@acme/extra@1")
 			} else {
-				requireNativePiOrderValues(t, fixture.settings, "fixture-theme", "npm:@acme/keep@1", "npm:@acme/extra@1", "git:github.com/acme/pi-tools@v1")
+				nativefixture.RequirePiOrderValues(t, fixture.Settings, "fixture-theme", "npm:@acme/keep@1", "npm:@acme/extra@1", "git:github.com/acme/pi-tools@v1")
 			}
-			fixture.require(t, "apply", "--yes", "--json")
-			fixture.require(t, "status", "--check", "--json")
-			testkit.AssertFileContent(t, fixture.calls, "install\ninstall\nextra\n")
-			testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+			fixture.Require(t, "apply", "--yes", "--json")
+			fixture.Require(t, "status", "--check", "--json")
+			testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nextra\n")
+			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 		})
 	}
 }
@@ -117,18 +118,18 @@ func TestNativePiOrderCommandSelectsBothScopeMutationVariants(t *testing.T) {
 			for _, remove := range []bool{false, true} {
 				t.Run(fmt.Sprintf("project=%t/global=%t/remove=%t", projectChanged, globalChanged, remove), func(t *testing.T) {
 					root := t.TempDir()
-					setNativeRecoveryEnvironment(t, root)
+					nativefixture.SetRecoveryEnvironment(t, root)
 					workspace := filepath.Join(root, "workspace")
-					fixture := nativePiInvocationFixture{workspace: workspace, manifest: filepath.Join(workspace, "daem.toml"), settings: filepath.Join(workspace, ".pi", "settings.json"), beforeCommand: filepath.Join(root, "command-before.json"), calls: filepath.Join(root, "calls")}
+					fixture := nativefixture.PiInvocation{Workspace: workspace, Manifest: filepath.Join(workspace, "daem.toml"), Settings: filepath.Join(workspace, ".pi", "settings.json"), BeforeCommand: filepath.Join(root, "command-before.json"), Calls: filepath.Join(root, "calls")}
 					testkit.WriteFile(t, workspace, "daem.toml", "version=1\ntargets=['pi']\n")
-					t.Setenv("DAEM_TEST_SETTINGS", fixture.settings)
-					t.Setenv("DAEM_TEST_COMMAND_BEFORE", fixture.beforeCommand)
-					t.Setenv("DAEM_TEST_COMMAND_CALLS", fixture.calls)
+					t.Setenv("DAEM_TEST_SETTINGS", fixture.Settings)
+					t.Setenv("DAEM_TEST_COMMAND_BEFORE", fixture.BeforeCommand)
+					t.Setenv("DAEM_TEST_COMMAND_CALLS", fixture.Calls)
 					t.Setenv("DAEM_TEST_SCOPE", string(target.ScopeProject))
 					writeNativePiOrderCommand(t, fixture)
 					globalSettings := filepath.Join(os.Getenv("PI_CODING_AGENT_DIR"), "settings.json")
 					for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-						path := fixture.settings
+						path := fixture.Settings
 						if scope == target.ScopeGlobal {
 							path = globalSettings
 						}
@@ -140,32 +141,32 @@ func TestNativePiOrderCommandSelectsBothScopeMutationVariants(t *testing.T) {
 						}
 						testkit.WriteFile(t, filepath.Dir(path), "settings.json", fmt.Sprintf(`{"packages":[%s],"foreign":{"retained":true}}`, packages))
 						for _, name := range names {
-							fixture.require(t, "add", "extension", string(scope)+"-"+name, "npm:@acme/"+name+"@1", "--target", "pi", "--scope", string(scope))
+							fixture.Require(t, "add", "extension", string(scope)+"-"+name, "npm:@acme/"+name+"@1", "--target", "pi", "--scope", string(scope))
 						}
 					}
-					fixture.require(t, "lock")
-					fixture.require(t, "apply", "--manage-existing", "--yes")
-					manifest := string(testkit.ReadFile(t, fixture.manifest))
+					fixture.Require(t, "lock")
+					fixture.Require(t, "apply", "--manage-existing", "--yes")
+					manifest := string(testkit.ReadFile(t, fixture.Manifest))
 					for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 						manifest += fmt.Sprintf("\n[[host_config]]\nid=%q\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", "preferences-"+string(scope), scope, filepath.Join(workspace, "preferences.json"))
 					}
 					testkit.WriteFile(t, workspace, "daem.toml", manifest)
 					testkit.WriteFile(t, workspace, "preferences.json", `{"theme":"fixture-theme"}`)
-					fixture.require(t, "lock")
-					fixture.require(t, "apply", "--yes")
+					fixture.Require(t, "lock")
+					fixture.Require(t, "apply", "--yes")
 					if globalChanged {
 						testkit.WriteFile(t, filepath.Dir(globalSettings), "settings.json", `{"theme":"fixture-theme","packages":["npm:@acme/keep@1","npm:@acme/beta@1","npm:@acme/alpha@1"],"foreign":{"retained":true}}`)
 					}
 					if remove {
 						if projectChanged {
-							testkit.WriteFile(t, filepath.Dir(fixture.settings), "settings.json", `{"theme":"fixture-theme","packages":["npm:@acme/keep@1","npm:@acme/beta@1","npm:@acme/alpha@1","npm:@acme/obsolete@1"],"foreign":{"retained":true}}`)
+							testkit.WriteFile(t, filepath.Dir(fixture.Settings), "settings.json", `{"theme":"fixture-theme","packages":["npm:@acme/keep@1","npm:@acme/beta@1","npm:@acme/alpha@1","npm:@acme/obsolete@1"],"foreign":{"retained":true}}`)
 						}
-						fixture.require(t, "remove", "extension", "project-obsolete", "--target", "pi", "--scope", "project")
+						fixture.Require(t, "remove", "extension", "project-obsolete", "--target", "pi", "--scope", "project")
 					} else {
-						fixture.require(t, "add", "extension", "extra", "npm:@acme/extra@1", "--target", "pi", "--scope", "project")
+						fixture.Require(t, "add", "extension", "extra", "npm:@acme/extra@1", "--target", "pi", "--scope", "project")
 					}
-					fixture.addInstructions(t, "instructions after ordered extensions\n")
-					fixture.require(t, "lock")
+					fixture.AddInstructions(t, "instructions after ordered extensions\n")
+					fixture.Require(t, "lock")
 					postPackages := `"npm:@acme/alpha@1","npm:@acme/beta@1","npm:@acme/extra@1"`
 					if projectChanged {
 						postPackages = `"npm:@acme/alpha@1","npm:@acme/extra@1","npm:@acme/beta@1"`
@@ -177,7 +178,7 @@ func TestNativePiOrderCommandSelectsBothScopeMutationVariants(t *testing.T) {
 						}
 					}
 					setNativePiCommandResult(t, fixture, fmt.Sprintf(`{"theme":"fixture-theme","packages":["npm:@acme/keep@1",%s],"foreign":{"retained":true}}`, postPackages))
-					code, stdout, stderr := fixture.run("apply", "--yes", "--json")
+					code, stdout, stderr := fixture.Run("apply", "--yes", "--json")
 					if code != 0 {
 						t.Fatalf("combined scope variants failed: %d %s %s", code, stdout, stderr)
 					}
@@ -205,15 +206,15 @@ func TestNativePiOrderCommandSelectsBothScopeMutationVariants(t *testing.T) {
 					if !remove {
 						expectedPackages = append(expectedPackages, "npm:@acme/extra@1")
 					}
-					requireNativePiOrderValues(t, fixture.settings, "fixture-theme", expectedPackages...)
-					requireNativePiOrderValues(t, globalSettings, "fixture-theme", "npm:@acme/keep@1", "npm:@acme/alpha@1", "npm:@acme/beta@1")
-					fixture.require(t, "status", "--check", "--json")
-					fixture.require(t, "apply", "--yes", "--json")
+					nativefixture.RequirePiOrderValues(t, fixture.Settings, "fixture-theme", expectedPackages...)
+					nativefixture.RequirePiOrderValues(t, globalSettings, "fixture-theme", "npm:@acme/keep@1", "npm:@acme/alpha@1", "npm:@acme/beta@1")
+					fixture.Require(t, "status", "--check", "--json")
+					fixture.Require(t, "apply", "--yes", "--json")
 					expectedCall := "extra\n"
 					if remove {
 						expectedCall = "remove\n"
 					}
-					testkit.AssertFileContent(t, fixture.calls, expectedCall)
+					testkit.AssertFileContent(t, fixture.Calls, expectedCall)
 					testkit.AssertNoRecoveryArtifacts(t, workspace)
 				})
 			}
@@ -221,21 +222,21 @@ func TestNativePiOrderCommandSelectsBothScopeMutationVariants(t *testing.T) {
 	}
 }
 
-func newNativePiOrderCommandFixture(t *testing.T, scope target.Scope) nativePiInvocationFixture {
+func newNativePiOrderCommandFixture(t *testing.T, scope target.Scope) nativefixture.PiInvocation {
 	t.Helper()
-	fixture := newNativePiInvocationFixtureAtScope(t, "none", scope)
-	fixture.require(t, "apply", "--yes")
-	fixture.require(t, "add", "extension", "extra", "npm:@acme/extra@1", "--target", "pi", "--scope", string(scope))
-	fixture.addInstructions(t, "instructions after ordered extensions\n")
-	fixture.require(t, "lock")
+	fixture := nativefixture.NewPiInvocationAtScope(t, "none", scope)
+	fixture.Require(t, "apply", "--yes")
+	fixture.Require(t, "add", "extension", "extra", "npm:@acme/extra@1", "--target", "pi", "--scope", string(scope))
+	fixture.AddInstructions(t, "instructions after ordered extensions\n")
+	fixture.Require(t, "lock")
 	setNativePiCommandResult(t, fixture, `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:@acme/keep@1","npm:@acme/extra@1","git:github.com/acme/pi-tools@v1"]}`)
 	writeNativePiOrderCommand(t, fixture)
 	return fixture
 }
 
-func writeNativePiOrderCommand(t *testing.T, fixture nativePiInvocationFixture) {
+func writeNativePiOrderCommand(t *testing.T, fixture nativefixture.PiInvocation) {
 	t.Helper()
-	bin := filepath.Join(filepath.Dir(fixture.beforeCommand), "bin")
+	bin := filepath.Join(filepath.Dir(fixture.BeforeCommand), "bin")
 	testkit.WriteFile(t, bin, "pi", `#!/bin/sh
 set -eu
 if [ "$1" = --version ]; then printf '1.0.2\n'; exit 0; fi

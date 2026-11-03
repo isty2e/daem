@@ -16,51 +16,52 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
-func nativeTransitionCommandFixture(t *testing.T, selected target.Target, scope target.Scope, mode string) (nativePiInvocationFixture, nativeDocumentTransitionFixture) {
+func nativeTransitionCommandFixture(t *testing.T, selected target.Target, scope target.Scope, mode string) (nativefixture.PiInvocation, nativeDocumentTransitionFixture) {
 	t.Helper()
-	f := newNativePiInvocationFixtureAtScope(t, "none", scope)
+	f := nativefixture.NewPiInvocationAtScope(t, "none", scope)
 	g := nativeDocumentTransitionFixture{
-		workspace: f.workspace, syntax: configdocument.TOML,
+		workspace: f.Workspace, syntax: configdocument.TOML,
 		original: "# whole preferences\nfoo = 1\n# released value\nbar = 2\n", retained: "foo=1\n", changed: "foo=3\nnew=4\n", released: "bar=2\n",
 	}
-	name, root := "prefs.toml", filepath.Join(f.workspace, ".codex")
+	name, root := "prefs.toml", filepath.Join(f.Workspace, ".codex")
 	if scope == target.ScopeGlobal {
 		root = os.Getenv("CODEX_HOME")
 	}
 	if selected == target.TargetPi {
-		name, root, g.syntax = "prefs.jsonc", filepath.Dir(f.settings), configdocument.JSONC
+		name, root, g.syntax = "prefs.jsonc", filepath.Dir(f.Settings), configdocument.JSONC
 		g.original = "{\n // whole preferences\n \"foo\":1,\n // released value\n \"bar\":2,\n}\n"
 		g.retained, g.changed, g.released = `{"foo":1}`, `{"foo":3,"new":4}`, `{"bar":2}`
 	}
-	g.source = filepath.Join(f.workspace, "transition"+filepath.Ext(name))
-	paths, err := daempaths.Resolve(f.manifest)
+	g.source = filepath.Join(f.Workspace, "transition"+filepath.Ext(name))
+	paths, err := daempaths.Resolve(f.Manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	g.nativeRecoveryFixture = nativeRecoveryFixture{manifest: f.manifest, destination: filepath.Join(root, name), paths: paths, kind: "transition-command"}
+	g.RecoveryFixture = nativefixture.RecoveryFixture{Manifest: f.Manifest, Destination: filepath.Join(root, name), Paths: paths, Kind: "transition-command"}
 	g.declaration = fmt.Sprintf("version=1\ntargets=['pi','codex']\n[[extension]]\nid='tools'\ntargets=['pi']\ncarrier='pi-package'\nscope=%q\nsource={host_source='git:github.com/acme/pi-tools@v1'}\n[[host_config]]\nid='prefs'\ntargets=[%q]\nscope=%q\npath=%q\nsource=%q\nownership=", scope, selected, scope, name, g.source)
-	testkit.WriteFile(t, filepath.Dir(f.settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
+	testkit.WriteFile(t, filepath.Dir(f.Settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
 	adoption := strings.HasPrefix(mode, "adopt")
 	if adoption {
 		g.writeMode(t, "keys")
-		testkit.WriteFile(t, f.workspace, filepath.Base(g.source), g.retained)
-		testkit.WriteFile(t, filepath.Dir(g.destination), name, g.original)
-		if err := os.Chmod(g.destination, 0o600); err != nil {
+		testkit.WriteFile(t, f.Workspace, filepath.Base(g.source), g.retained)
+		testkit.WriteFile(t, filepath.Dir(g.Destination), name, g.original)
+		if err := os.Chmod(g.Destination, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	} else {
 		g.writeMode(t, "document")
-		testkit.WriteFile(t, f.workspace, filepath.Base(g.source), g.original)
+		testkit.WriteFile(t, f.Workspace, filepath.Base(g.source), g.original)
 	}
-	f.require(t, "lock")
-	f.require(t, "apply", "--yes", "--manage-existing")
-	testkit.AssertFileContent(t, f.calls, "install\n")
-	testkit.AssertFileContent(t, g.destination, g.original)
+	f.Require(t, "lock")
+	f.Require(t, "apply", "--yes", "--manage-existing")
+	testkit.AssertFileContent(t, f.Calls, "install\n")
+	testkit.AssertFileContent(t, g.Destination, g.original)
 	if adoption {
 		g.writeMode(t, "document")
-		content := string(testkit.ReadFile(t, g.destination))
+		content := string(testkit.ReadFile(t, g.Destination))
 		if mode == "adopt-mismatch" {
 			comment := "# unmatched whole source\n"
 			if selected == target.TargetPi {
@@ -68,7 +69,7 @@ func nativeTransitionCommandFixture(t *testing.T, selected target.Target, scope 
 			}
 			content += comment
 		}
-		testkit.WriteFile(t, f.workspace, filepath.Base(g.source), content)
+		testkit.WriteFile(t, f.Workspace, filepath.Base(g.source), content)
 	} else {
 		fragment := g.changed
 		if mode == "narrow-current" {
@@ -81,9 +82,9 @@ func nativeTransitionCommandFixture(t *testing.T, selected target.Target, scope 
 		}
 		g.narrow(t, fragment)
 	}
-	testkit.WriteFile(t, filepath.Dir(f.settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1"]}`)
-	launch := filepath.Join(f.workspace, "transition-at-command")
-	t.Setenv("DAEM_TEST_TRANSITION_DOCUMENT", g.destination)
+	testkit.WriteFile(t, filepath.Dir(f.Settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1"]}`)
+	launch := filepath.Join(f.Workspace, "transition-at-command")
+	t.Setenv("DAEM_TEST_TRANSITION_DOCUMENT", g.Destination)
 	t.Setenv("DAEM_TEST_TRANSITION_LAUNCH", launch)
 	scriptPath, err := exec.LookPath("pi")
 	if err != nil {
@@ -99,7 +100,7 @@ func nativeTransitionCommandFixture(t *testing.T, selected target.Target, scope 
 	if err := os.Chmod(scriptPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	f.require(t, "lock")
+	f.Require(t, "lock")
 	return f, g
 }
 
@@ -109,27 +110,27 @@ func TestNativeOwnershipTransitionWithPiCommand(t *testing.T) {
 			for _, mode := range []string{"narrow", "narrow-current", "narrow-empty", "adopt", "adopt-no-consent", "adopt-mismatch"} {
 				t.Run(string(selected)+"/"+string(scope)+"/"+mode, func(t *testing.T) {
 					f, g := nativeTransitionCommandFixture(t, selected, scope, mode)
-					before := snapshotNativeRecoveryEvidence(t, g.nativeRecoveryFixture)
+					before := nativefixture.SnapshotRecoveryEvidence(t, g.RecoveryFixture)
 					args := []string{"apply", "--yes"}
 					if mode != "adopt-no-consent" {
 						args = append(args, "--manage-existing")
 					}
-					code, stdout, stderr := f.run(args...)
+					code, stdout, stderr := f.Run(args...)
 					if mode == "adopt-no-consent" || mode == "adopt-mismatch" {
-						if code == 0 || !reflect.DeepEqual(before, snapshotNativeRecoveryEvidence(t, g.nativeRecoveryFixture)) {
+						if code == 0 || !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, g.RecoveryFixture)) {
 							t.Fatal("unqualified whole adoption had effects")
 						}
-						testkit.AssertFileContent(t, f.calls, "install\n")
+						testkit.AssertFileContent(t, f.Calls, "install\n")
 						return
 					}
 					if code != 0 {
 						t.Fatalf("ownership transition with real command failed: %d %s %s", code, stdout, stderr)
 					}
-					launched, err := statefile.Decode(testkit.ReadFile(t, f.launchState))
+					launched, err := statefile.Decode(testkit.ReadFile(t, f.LaunchState))
 					if err != nil {
 						t.Fatal(err)
 					}
-					atCommand := testkit.ReadFile(t, filepath.Join(f.workspace, "transition-at-command"))
+					atCommand := testkit.ReadFile(t, filepath.Join(f.Workspace, "transition-at-command"))
 					if mode == "adopt" || mode == "narrow-empty" {
 						if string(atCommand) != g.original {
 							t.Fatal("final ownership work changed content before the command")
@@ -137,7 +138,7 @@ func TestNativeOwnershipTransitionWithPiCommand(t *testing.T) {
 						paths, keys := 0, 1
 						if mode == "narrow-empty" {
 							paths, keys = 1, 0
-							if !strings.Contains(string(testkit.ReadFile(t, g.destination)), "released value") {
+							if !strings.Contains(string(testkit.ReadFile(t, g.Destination)), "released value") {
 								t.Fatal("empty narrowing lost released comments")
 							}
 						}
@@ -152,16 +153,16 @@ func TestNativeOwnershipTransitionWithPiCommand(t *testing.T) {
 								t.Fatal("state-only narrowing rewrote current bytes")
 							}
 						}
-						requireNativeSharedValues(t, g.syntax, atCommand, fragment, true)
+						nativefixture.RequireSharedValues(t, g.syntax, atCommand, fragment, true)
 						if len(launched.ManagedPaths()) != 0 || len(launched.ManagedAggregates()) != keys {
 							t.Fatal("positive narrowing was not fully committed before the command")
 						}
 					}
-					requireNativeSharedValues(t, g.syntax, testkit.ReadFile(t, g.destination), g.released, true)
-					if info, err := os.Stat(g.destination); err != nil || info.Mode().Perm() != 0o600 {
+					nativefixture.RequireSharedValues(t, g.syntax, testkit.ReadFile(t, g.Destination), g.released, true)
+					if info, err := os.Stat(g.Destination); err != nil || info.Mode().Perm() != 0o600 {
 						t.Fatal("transition changed private permissions", err)
 					}
-					final, err := statefile.Decode(testkit.ReadFile(t, g.paths.StatefilePath))
+					final, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
 					paths, keys := 0, 2
 					if mode == "adopt" {
 						paths, keys = 1, 0
@@ -173,10 +174,10 @@ func TestNativeOwnershipTransitionWithPiCommand(t *testing.T) {
 					if err != nil || len(final.ManagedPaths()) != paths || len(final.ManagedAggregates()) != keys {
 						t.Fatal("transition did not publish its actual final ownership", err)
 					}
-					f.require(t, "status", "--check")
-					f.require(t, "apply", "--yes")
-					testkit.AssertFileContent(t, f.calls, "install\ninstall\n")
-					testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+					f.Require(t, "status", "--check")
+					f.Require(t, "apply", "--yes")
+					testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
+					testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 				})
 			}
 		}
@@ -189,30 +190,30 @@ func TestNativePositiveNarrowingRecoveryBeforePiCommand(t *testing.T) {
 			for _, boundary := range []string{"host", "state"} {
 				t.Run(string(selected)+"/"+string(scope)+"/"+boundary, func(t *testing.T) {
 					f, g := nativeTransitionCommandFixture(t, selected, scope, "narrow")
-					code, stdout, stderr := invokeNativeRecoveryCommand(t, g.nativeRecoveryFixture, "native-ordinary-"+boundary, "apply", "--yes")
-					if code != nativeRecoveryExit {
+					code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, g.RecoveryFixture, "native-ordinary-"+boundary, "apply", "--yes")
+					if code != nativefixture.RecoveryExit {
 						t.Fatalf("narrowing prefix did not reach %s: %d %s %s", boundary, code, stdout, stderr)
 					}
-					testkit.AssertFileContent(t, f.calls, "install\n")
-					requireNativeSharedValues(t, g.syntax, testkit.ReadFile(t, g.destination), g.changed, true)
+					testkit.AssertFileContent(t, f.Calls, "install\n")
+					nativefixture.RequireSharedValues(t, g.syntax, testkit.ReadFile(t, g.Destination), g.changed, true)
 					classification, settled := "needs_rollback", "clean_before"
 					if boundary == "state" {
 						classification, settled = "needs_finalize", "clean_after"
 					}
-					preview := requireNativeRecoveryDryRun(t, g.nativeRecoveryFixture, classification, settled)
+					preview := nativefixture.RequireRecoveryDryRun(t, g.RecoveryFixture, classification, settled)
 					if preview.AuthorityKind != "active_journal" {
 						t.Fatal("narrowing interruption did not preserve its actual journal")
 					}
-					f.require(t, "recover", "--yes")
+					f.Require(t, "recover", "--yes")
 					if boundary == "host" {
-						testkit.AssertFileContent(t, g.destination, g.original)
+						testkit.AssertFileContent(t, g.Destination, g.original)
 					} else {
-						requireNativeSharedValues(t, g.syntax, testkit.ReadFile(t, g.destination), g.changed, true)
+						nativefixture.RequireSharedValues(t, g.syntax, testkit.ReadFile(t, g.Destination), g.changed, true)
 					}
-					f.require(t, "apply", "--yes")
-					f.require(t, "status", "--check")
-					testkit.AssertFileContent(t, f.calls, "install\ninstall\n")
-					testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+					f.Require(t, "apply", "--yes")
+					f.Require(t, "status", "--check")
+					testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
+					testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 				})
 			}
 		}
@@ -225,26 +226,26 @@ func TestNativeWholeAdoptionRecoveryAfterPiCommand(t *testing.T) {
 			for _, boundary := range []string{"before-state", "state"} {
 				t.Run(string(selected)+"/"+string(scope)+"/"+boundary, func(t *testing.T) {
 					f, g := nativeTransitionCommandFixture(t, selected, scope, "adopt")
-					prior, err := statefile.Decode(testkit.ReadFile(t, g.paths.StatefilePath))
+					prior, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
 					if err != nil || len(prior.ManagedPaths()) != 0 || len(prior.ManagedAggregates()) != 1 {
 						t.Fatal("adoption interruption fixture has no unique real key-to-whole transition", err)
 					}
-					code, stdout, stderr := invokeNativeRecoveryCommand(t, g.nativeRecoveryFixture, "native-adoption-"+boundary, "apply", "--yes", "--manage-existing")
-					if code != nativeRecoveryExit {
+					code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, g.RecoveryFixture, "native-adoption-"+boundary, "apply", "--yes", "--manage-existing")
+					if code != nativefixture.RecoveryExit {
 						t.Fatalf("state-only adoption did not reach %s: %d %s %s", boundary, code, stdout, stderr)
 					}
-					testkit.AssertFileContent(t, f.calls, "install\ninstall\n")
-					testkit.AssertFileContent(t, g.destination, g.original)
+					testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
+					testkit.AssertFileContent(t, g.Destination, g.original)
 					classification, settled := "needs_rollback", "clean_before"
 					if boundary == "state" {
 						classification, settled = "needs_finalize", "clean_after"
 					}
-					preview := requireNativeRecoveryDryRun(t, g.nativeRecoveryFixture, classification, settled)
+					preview := nativefixture.RequireRecoveryDryRun(t, g.RecoveryFixture, classification, settled)
 					if preview.AuthorityKind != "active_journal" {
 						t.Fatal("state-only adoption did not preserve its actual journal")
 					}
-					f.require(t, "recover", "--yes")
-					state, err := statefile.Decode(testkit.ReadFile(t, g.paths.StatefilePath))
+					f.Require(t, "recover", "--yes")
+					state, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
 					paths, keys := 0, 1
 					if boundary == "state" {
 						paths, keys = 1, 0
@@ -252,11 +253,11 @@ func TestNativeWholeAdoptionRecoveryAfterPiCommand(t *testing.T) {
 					if err != nil || len(state.ManagedPaths()) != paths || len(state.ManagedAggregates()) != keys {
 						t.Fatal("adoption recovery lost its actual before/after ownership", err)
 					}
-					f.require(t, "apply", "--yes", "--manage-existing")
-					f.require(t, "status", "--check")
-					testkit.AssertFileContent(t, g.destination, g.original)
-					testkit.AssertFileContent(t, f.calls, "install\ninstall\n")
-					testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+					f.Require(t, "apply", "--yes", "--manage-existing")
+					f.Require(t, "status", "--check")
+					testkit.AssertFileContent(t, g.Destination, g.original)
+					testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
+					testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 				})
 			}
 		}
@@ -268,20 +269,20 @@ func TestNativeNarrowingCommitSurvivesLaterCommandFailure(t *testing.T) {
 		t.Run(string(selected), func(t *testing.T) {
 			f, g := nativeTransitionCommandFixture(t, selected, target.ScopeProject, "narrow")
 			t.Setenv("DAEM_TEST_MUTATION", "command")
-			if code, _, _ := f.run("apply", "--yes"); code == 0 {
+			if code, _, _ := f.Run("apply", "--yes"); code == 0 {
 				t.Fatal("failed command was reported as successful")
 			}
-			state, err := statefile.Decode(testkit.ReadFile(t, g.paths.StatefilePath))
+			state, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
 			if err != nil || len(state.ManagedPaths()) != 0 || len(state.ManagedAggregates()) != 2 {
 				t.Fatal("later command failure undid committed narrowing ownership", err)
 			}
-			requireNativeSharedValues(t, g.syntax, testkit.ReadFile(t, g.destination), g.changed, true)
-			requireNativeSharedValues(t, g.syntax, testkit.ReadFile(t, g.destination), g.released, true)
+			nativefixture.RequireSharedValues(t, g.syntax, testkit.ReadFile(t, g.Destination), g.changed, true)
+			nativefixture.RequireSharedValues(t, g.syntax, testkit.ReadFile(t, g.Destination), g.released, true)
 			t.Setenv("DAEM_TEST_MUTATION", "none")
-			f.require(t, "apply", "--yes")
-			f.require(t, "status", "--check")
-			testkit.AssertFileContent(t, f.calls, "install\ninstall\n")
-			testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+			f.Require(t, "apply", "--yes")
+			f.Require(t, "status", "--check")
+			testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
+			testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 		})
 	}
 }
@@ -301,8 +302,8 @@ func TestNativeNarrowingDoesNotAdoptCommandChanges(t *testing.T) {
 						changed = `{"foo":3,"new":4,"bar":90}`
 					}
 				}
-				result := filepath.Join(f.workspace, "changed-by-command")
-				testkit.WriteFile(t, f.workspace, "changed-by-command", changed)
+				result := filepath.Join(f.Workspace, "changed-by-command")
+				testkit.WriteFile(t, f.Workspace, "changed-by-command", changed)
 				t.Setenv("DAEM_TEST_TRANSITION_RESULT", result)
 				scriptPath, err := exec.LookPath("pi")
 				if err != nil {
@@ -318,12 +319,12 @@ func TestNativeNarrowingDoesNotAdoptCommandChanges(t *testing.T) {
 				if err := os.Chmod(scriptPath, 0o700); err != nil {
 					t.Fatal(err)
 				}
-				if code, _, _ := f.run("apply", "--yes"); code == 0 {
+				if code, _, _ := f.Run("apply", "--yes"); code == 0 {
 					t.Fatal("command changes were adopted during ownership transition")
 				}
-				testkit.AssertFileContent(t, g.destination, changed)
-				testkit.AssertFileContent(t, f.calls, "install\ninstall\n")
-				state, err := statefile.Decode(testkit.ReadFile(t, g.paths.StatefilePath))
+				testkit.AssertFileContent(t, g.Destination, changed)
+				testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
+				state, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
 				if err != nil || len(state.ManagedPaths()) != 0 || len(state.ManagedAggregates()) != 2 {
 					t.Fatal("invocation conflict lost committed key ownership", err)
 				}
@@ -337,14 +338,14 @@ func TestNativePlannedNarrowingIsNotRefreshSettlement(t *testing.T) {
 		for _, mode := range []string{"narrow-current", "narrow-empty"} {
 			t.Run(string(selected)+"/"+mode, func(t *testing.T) {
 				f, g := nativeTransitionCommandFixture(t, selected, target.ScopeProject, mode)
-				testkit.WriteFile(t, filepath.Dir(f.settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
-				before := snapshotNativeRecoveryEvidence(t, g.nativeRecoveryFixture)
-				code, _, _ := f.run("refresh", "extension", "tools", "--yes")
-				if code == 0 || !reflect.DeepEqual(before, snapshotNativeRecoveryEvidence(t, g.nativeRecoveryFixture)) {
+				testkit.WriteFile(t, filepath.Dir(f.Settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
+				before := nativefixture.SnapshotRecoveryEvidence(t, g.RecoveryFixture)
+				code, _, _ := f.Run("refresh", "extension", "tools", "--yes")
+				if code == 0 || !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, g.RecoveryFixture)) {
 					t.Fatal("Refresh treated planned or empty narrowing as settled ownership")
 				}
-				testkit.AssertFileContent(t, g.destination, g.original)
-				testkit.AssertFileContent(t, f.calls, "install\n")
+				testkit.AssertFileContent(t, g.Destination, g.original)
+				testkit.AssertFileContent(t, f.Calls, "install\n")
 			})
 		}
 	}

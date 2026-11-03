@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/test/testkit"
-	"github.com/isty2e/daem/test/testkit/clijson"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -44,7 +44,7 @@ ownership = "keys"
 				{"lock", "--manifest", manifest},
 				{"apply", "--manifest", manifest, "--yes"},
 			} {
-				if code, stdout, stderr := runOwnershipCLI(args...); code != 0 {
+				if code, stdout, stderr := testkit.RunCapturedCLI(args...); code != 0 {
 					t.Fatalf("%q failed: exit=%d stdout=%s stderr=%s", args, code, stdout, stderr)
 				}
 			}
@@ -62,19 +62,19 @@ ownership = "keys"
 			if existing && (!values.Unmanaged || !bytes.HasPrefix(content, []byte("# User-owned comment\n"))) {
 				t.Fatal("adding a managed key lost unrelated values or their comment")
 			}
-			requireNativeLifecycleMetadata(t, manifest, true)
-			code, stdout, stderr := runOwnershipCLI("status", "--manifest", manifest, "--check", "--json")
+			nativefixture.RequireLifecycleMetadata(t, manifest, true)
+			code, stdout, stderr := testkit.RunCapturedCLI("status", "--manifest", manifest, "--check", "--json")
 			if code != 0 {
 				t.Fatalf("status after apply failed: exit=%d stdout=%s stderr=%s", code, stdout, stderr)
 			}
-			requireNativeLifecycleClean(t, stdout)
+			nativefixture.RequireLifecycleClean(t, stdout)
 
 			testkit.WriteFile(t, workspace, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
 			for _, args := range [][]string{
 				{"lock", "--manifest", manifest},
 				{"apply", "--manifest", manifest, "--yes"},
 			} {
-				if code, stdout, stderr := runOwnershipCLI(args...); code != 0 {
+				if code, stdout, stderr := testkit.RunCapturedCLI(args...); code != 0 {
 					t.Fatalf("last native declaration removal %q failed: exit=%d stdout=%s stderr=%s", args, code, stdout, stderr)
 				}
 			}
@@ -95,25 +95,12 @@ ownership = "keys"
 			if existing && (!values.Unmanaged || !bytes.Contains(content, []byte("# User-owned comment\n"))) {
 				t.Fatal("declaration removal changed unrelated values or their comment")
 			}
-			if code, stdout, stderr := runOwnershipCLI("status", "--manifest", manifest, "--check", "--json"); code != 0 {
+			if code, stdout, stderr := testkit.RunCapturedCLI("status", "--manifest", manifest, "--check", "--json"); code != 0 {
 				t.Fatalf("status after last native removal failed: exit=%d stdout=%s stderr=%s", code, stdout, stderr)
 			} else {
-				requireNativeLifecycleClean(t, stdout)
+				nativefixture.RequireLifecycleClean(t, stdout)
 			}
-			requireNativeLifecycleMetadata(t, manifest, false)
+			nativefixture.RequireLifecycleMetadata(t, manifest, false)
 		})
-	}
-}
-
-func requireNativeLifecycleClean(t *testing.T, output string) {
-	t.Helper()
-	status := clijson.DecodePlan(t, []byte(output))
-	if status.HasErrors || status.CheckClean == nil || !*status.CheckClean {
-		t.Fatal("persisted native lifecycle is not clean in real status", output)
-	}
-	for _, action := range status.Actions {
-		if action.Kind != "noop" {
-			t.Fatal("clean status still plans a state or host change", output)
-		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeKeyParentCLILifecycle(t *testing.T) {
@@ -88,41 +89,41 @@ ownership = "keys"
 				t.Fatal(err)
 			}
 
-			runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
-			runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 			content, err := os.ReadFile(destination)
 			if err != nil {
 				t.Fatal(err)
 			}
-			requireNativeSharedValues(t, fixture.syntax, content, fixture.source, true)
-			requireNativeLifecycleMetadata(t, manifest, true)
-			requireNativeSharedMode(t, destination, 0o644)
-			requireNativeLifecycleClean(t, runNativeLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
-			runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			nativefixture.RequireSharedValues(t, fixture.syntax, content, fixture.source, true)
+			nativefixture.RequireLifecycleMetadata(t, manifest, true)
+			nativefixture.RequireSharedMode(t, destination, 0o644)
+			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 
 			testkit.WriteFile(t, workspace, "daem.toml", fmt.Sprintf("version = 1\ntargets = [%q]\n", fixture.target))
-			runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
-			runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 			content, err = os.ReadFile(destination)
 			if err != nil {
 				t.Fatal(err)
 			}
-			requireNativeSharedValues(t, fixture.syntax, content, fixture.source, false)
-			requireNativeSharedValues(t, fixture.syntax, content, fixture.original, true)
+			nativefixture.RequireSharedValues(t, fixture.syntax, content, fixture.source, false)
+			nativefixture.RequireSharedValues(t, fixture.syntax, content, fixture.original, true)
 			if fixture.exactReleased && !bytes.Equal(content, []byte(fixture.original)) {
 				t.Fatalf("removal changed original parent representation:\n%s", content)
 			}
 			if fixture.retainedParent != "" {
 				requireNativeEmptyParent(t, fixture.syntax, content, fixture.retainedParent)
 			}
-			requireNativeLifecycleMetadata(t, manifest, false)
-			requireNativeSharedMode(t, destination, 0o644)
-			requireNativeLifecycleClean(t, runNativeLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
-			runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			nativefixture.RequireLifecycleMetadata(t, manifest, false)
+			nativefixture.RequireSharedMode(t, destination, 0o644)
+			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 
 			if fixture.manualSuffix != "" {
 				manual := append(bytes.Clone(content), fixture.manualSuffix...)
-				requireNativeSharedValues(t, fixture.syntax, manual, fixture.manualExpected, true)
+				nativefixture.RequireSharedValues(t, fixture.syntax, manual, fixture.manualExpected, true)
 			}
 		})
 	}
@@ -130,7 +131,7 @@ ownership = "keys"
 
 func requireNativeEmptyParent(t *testing.T, syntax configdocument.Syntax, content []byte, pointer string) {
 	t.Helper()
-	document, err := configdocument.Parse(t.Context(), content, syntax, nativeLifecycleLimits())
+	document, err := configdocument.Parse(t.Context(), content, syntax, nativefixture.LifecycleLimits())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -16,34 +15,35 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativePiKeysAndPackageOrderCLILifecycle(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		t.Run(string(scope), func(t *testing.T) {
 			fixture := newNativePiOrderFixture(t, scope)
-			applied := runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes", "--json")
+			applied := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes", "--json")
 			requireNativePiOrderResult(t, applied, "converged", true, 2)
-			requireNativePiOrderValues(t, fixture.destination, "next-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
-			requireNativeSharedMode(t, fixture.destination, 0o644)
-			runNativeLifecycleCommand(t, "status", "--manifest", fixture.manifest, "--check", "--json")
-			before := testkit.ReadFile(t, fixture.destination)
-			retry := runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes", "--json")
+			nativefixture.RequirePiOrderValues(t, fixture.Destination, "next-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
+			nativefixture.RequireSharedMode(t, fixture.Destination, 0o644)
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", fixture.Manifest, "--check", "--json")
+			before := testkit.ReadFile(t, fixture.Destination)
+			retry := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes", "--json")
 			requireNativePiOrderResult(t, retry, "exact", false, 0)
-			testkit.AssertFileContent(t, fixture.destination, string(before))
-			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.manifest))
+			testkit.AssertFileContent(t, fixture.Destination, string(before))
+			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 		})
 	}
 }
 
 func TestNativePiOrderOnlyWithCurrentKeys(t *testing.T) {
 	fixture := newNativePiOrderFixture(t, target.ScopeProject)
-	testkit.WriteFile(t, filepath.Dir(fixture.manifest), "preferences.json", `{"theme":"fixture-theme"}`)
-	runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
-	applied := runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes", "--json")
+	testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "preferences.json", `{"theme":"fixture-theme"}`)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+	applied := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes", "--json")
 	requireNativePiOrderResult(t, applied, "converged", true, 1)
-	requireNativePiOrderValues(t, fixture.destination, "fixture-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
-	runNativeLifecycleCommand(t, "status", "--manifest", fixture.manifest, "--check", "--json")
+	nativefixture.RequirePiOrderValues(t, fixture.Destination, "fixture-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
+	nativefixture.RunLifecycleCommand(t, "status", "--manifest", fixture.Manifest, "--check", "--json")
 }
 
 func TestNativePiOrderWithKeyAdditionAndRetirement(t *testing.T) {
@@ -54,22 +54,22 @@ func TestNativePiOrderWithKeyAdditionAndRetirement(t *testing.T) {
 			if retire {
 				source = `{}`
 			}
-			testkit.WriteFile(t, filepath.Dir(fixture.manifest), "preferences.json", source)
-			runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
-			applied := runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes", "--json")
+			testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "preferences.json", source)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+			applied := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes", "--json")
 			requireNativePiOrderResult(t, applied, "converged", true, 2)
 			var document struct {
 				Theme    *string `json:"theme"`
 				Addition bool    `json:"addition"`
 			}
-			if err := json.Unmarshal(testkit.ReadFile(t, fixture.destination), &document); err != nil {
+			if err := json.Unmarshal(testkit.ReadFile(t, fixture.Destination), &document); err != nil {
 				t.Fatal(err)
 			}
 			if retire && document.Theme != nil || !retire && (document.Theme == nil || *document.Theme != "fixture-theme" || !document.Addition) {
 				t.Fatalf("order publication did not preserve its actual key lifecycle: %+v", document)
 			}
-			runNativeLifecycleCommand(t, "status", "--manifest", fixture.manifest, "--check", "--json")
-			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.manifest))
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", fixture.Manifest, "--check", "--json")
+			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 		})
 	}
 }
@@ -78,21 +78,21 @@ func TestNativePiOrderReturnedStorageErrorsReportSettledEffects(t *testing.T) {
 	for _, boundary := range []string{"return-error", "return-state-error"} {
 		t.Run(boundary, func(t *testing.T) {
 			fixture := newNativePiOrderFixture(t, target.ScopeProject)
-			code, stdout, stderr := invokeNativeRecoveryCommand(t, fixture, boundary, "apply", "--yes", "--json")
-			if code == 0 || code == nativeRecoveryExit {
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, boundary, "apply", "--yes", "--json")
+			if code == 0 || code == nativefixture.RecoveryExit {
 				t.Fatalf("expected a returned storage error, got %d %s %s", code, stdout, stderr)
 			}
 			if boundary == "return-error" {
 				requireNativePiOrderResult(t, stdout, "failed", false, 0)
-				requireNativePiOrderValues(t, fixture.destination, "fixture-theme", "npm:@acme/beta@1", "npm:@acme/foreign@1", "npm:@acme/alpha@1")
+				nativefixture.RequirePiOrderValues(t, fixture.Destination, "fixture-theme", "npm:@acme/beta@1", "npm:@acme/foreign@1", "npm:@acme/alpha@1")
 			} else {
 				requireNativePiOrderResult(t, stdout, "failed", true, 2)
-				requireNativePiOrderValues(t, fixture.destination, "next-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
-				if strings.Count(stderr, nativeRecoveryReceipt(fixture.destination)) != 1 {
+				nativefixture.RequirePiOrderValues(t, fixture.Destination, "next-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
+				if strings.Count(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) != 1 {
 					t.Fatal("committed key/order settlement replayed host publication", stderr)
 				}
 			}
-			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.manifest))
+			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 		})
 	}
 }
@@ -101,19 +101,19 @@ func TestNativePiOrderOnlyProcessLossKeepsCommitBoundary(t *testing.T) {
 	for _, boundary := range []string{"host", "state"} {
 		t.Run(boundary, func(t *testing.T) {
 			fixture := newNativePiOrderFixture(t, target.ScopeProject)
-			testkit.WriteFile(t, filepath.Dir(fixture.manifest), "preferences.json", `{"theme":"fixture-theme"}`)
-			runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
-			code, stdout, stderr := invokeNativeRecoveryCommand(t, fixture, boundary, "apply", "--yes")
-			if code != nativeRecoveryExit {
+			testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "preferences.json", `{"theme":"fixture-theme"}`)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, boundary, "apply", "--yes")
+			if code != nativefixture.RecoveryExit {
 				t.Fatalf("order-only work did not reach its commit boundary: %d %s %s", code, stdout, stderr)
 			}
-			runNativeLifecycleCommand(t, "recover", "--manifest", fixture.manifest, "--yes")
+			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", fixture.Manifest, "--yes")
 			if boundary == "host" {
-				requireNativePiOrderValues(t, fixture.destination, "fixture-theme", "npm:@acme/beta@1", "npm:@acme/foreign@1", "npm:@acme/alpha@1")
+				nativefixture.RequirePiOrderValues(t, fixture.Destination, "fixture-theme", "npm:@acme/beta@1", "npm:@acme/foreign@1", "npm:@acme/alpha@1")
 			} else {
-				requireNativePiOrderValues(t, fixture.destination, "fixture-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
+				nativefixture.RequirePiOrderValues(t, fixture.Destination, "fixture-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
 			}
-			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.manifest))
+			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 		})
 	}
 }
@@ -122,13 +122,13 @@ func TestNativePiOrderProcessLossRecoversJointImage(t *testing.T) {
 	for _, boundary := range []string{"host", "state"} {
 		t.Run(boundary, func(t *testing.T) {
 			fixture := newNativePiOrderFixture(t, target.ScopeProject)
-			code, stdout, stderr := invokeNativeRecoveryCommand(t, fixture, boundary, "apply", "--yes")
-			if code != nativeRecoveryExit {
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, boundary, "apply", "--yes")
+			if code != nativefixture.RecoveryExit {
 				t.Fatalf("joint key/order publication did not reach its interruption: %d %s %s", code, stdout, stderr)
 			}
-			requireNativePiOrderValues(t, fixture.destination, "next-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
+			nativefixture.RequirePiOrderValues(t, fixture.Destination, "next-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
 			var document map[string]json.RawMessage
-			if err := json.Unmarshal(testkit.ReadFile(t, fixture.destination), &document); err != nil {
+			if err := json.Unmarshal(testkit.ReadFile(t, fixture.Destination), &document); err != nil {
 				t.Fatal(err)
 			}
 			document["later"] = json.RawMessage("true")
@@ -136,23 +136,23 @@ func TestNativePiOrderProcessLossRecoversJointImage(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			testkit.WriteFile(t, filepath.Dir(fixture.destination), "settings.json", string(content))
-			runNativeLifecycleCommand(t, "recover", "--manifest", fixture.manifest, "--dry-run")
-			runNativeLifecycleCommand(t, "recover", "--manifest", fixture.manifest, "--yes")
+			testkit.WriteFile(t, filepath.Dir(fixture.Destination), "settings.json", string(content))
+			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", fixture.Manifest, "--dry-run")
+			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", fixture.Manifest, "--yes")
 			if boundary == "host" {
-				requireNativePiOrderValues(t, fixture.destination, "fixture-theme", "npm:@acme/beta@1", "npm:@acme/foreign@1", "npm:@acme/alpha@1")
+				nativefixture.RequirePiOrderValues(t, fixture.Destination, "fixture-theme", "npm:@acme/beta@1", "npm:@acme/foreign@1", "npm:@acme/alpha@1")
 			} else {
-				requireNativePiOrderValues(t, fixture.destination, "next-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
-				testkit.AssertFileContent(t, fixture.destination, string(content))
+				nativefixture.RequirePiOrderValues(t, fixture.Destination, "next-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
+				testkit.AssertFileContent(t, fixture.Destination, string(content))
 			}
 			document = nil
-			if err := json.Unmarshal(testkit.ReadFile(t, fixture.destination), &document); err != nil || string(document["later"]) != "true" {
+			if err := json.Unmarshal(testkit.ReadFile(t, fixture.Destination), &document); err != nil || string(document["later"]) != "true" {
 				t.Fatal("recovery discarded the later unrelated value", err)
 			}
-			runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes")
-			requireNativePiOrderValues(t, fixture.destination, "next-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
-			runNativeLifecycleCommand(t, "status", "--manifest", fixture.manifest, "--check", "--json")
-			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.manifest))
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+			nativefixture.RequirePiOrderValues(t, fixture.Destination, "next-theme", "npm:@acme/alpha@1", "npm:@acme/foreign@1", "npm:@acme/beta@1")
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", fixture.Manifest, "--check", "--json")
+			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 		})
 	}
 }
@@ -162,8 +162,8 @@ func TestNativePiOrderRecoveryUsesDurablePhaseForPartialGroups(t *testing.T) {
 		for _, variant := range []string{"keys expected", "order expected", "third key", "third order"} {
 			t.Run(boundary+"/"+variant, func(t *testing.T) {
 				fixture := newNativePiOrderFixture(t, target.ScopeProject)
-				code, stdout, stderr := invokeNativeRecoveryCommand(t, fixture, boundary, "apply", "--yes")
-				if code != nativeRecoveryExit {
+				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, boundary, "apply", "--yes")
+				if code != nativefixture.RecoveryExit {
 					t.Fatalf("partial-group fixture did not reach its actual publication: %d %s %s", code, stdout, stderr)
 				}
 				theme := "next-theme"
@@ -177,40 +177,40 @@ func TestNativePiOrderRecoveryUsesDurablePhaseForPartialGroups(t *testing.T) {
 				case "third order":
 					packages = `"npm:@acme/alpha@1","npm:@acme/beta@1","npm:@acme/foreign@1"`
 				}
-				testkit.WriteFile(t, filepath.Dir(fixture.destination), "settings.json", fmt.Sprintf(`{"theme":%q,"packages":[%s],"foreign":{"retained":true},"later":true}`, theme, packages))
-				paths, err := daempaths.Resolve(fixture.manifest)
+				testkit.WriteFile(t, filepath.Dir(fixture.Destination), "settings.json", fmt.Sprintf(`{"theme":%q,"packages":[%s],"foreign":{"retained":true},"later":true}`, theme, packages))
+				paths, err := daempaths.Resolve(fixture.Manifest)
 				if err != nil {
 					t.Fatal(err)
 				}
-				before := snapshotNativeRecoveryPaths(t, fixture.destination, paths.StatefilePath, paths.OwnershipRegistryPath, paths.RecoveryDir)
+				before := nativefixture.SnapshotRecoveryPaths(t, fixture.Destination, paths.StatefilePath, paths.OwnershipRegistryPath, paths.RecoveryDir)
 				if boundary == "state" || variant == "third key" || variant == "third order" {
-					if code, stdout, stderr := runOwnershipCLI("recover", "--manifest", fixture.manifest, "--yes"); code == 0 {
+					if code, stdout, stderr := testkit.RunCapturedCLI("recover", "--manifest", fixture.Manifest, "--yes"); code == 0 {
 						t.Fatalf("mixed After or third-value recovery was admitted: %s %s", stdout, stderr)
 					}
-					if !reflect.DeepEqual(before, snapshotNativeRecoveryPaths(t, fixture.destination, paths.StatefilePath, paths.OwnershipRegistryPath, paths.RecoveryDir)) {
+					if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Destination, paths.StatefilePath, paths.OwnershipRegistryPath, paths.RecoveryDir)) {
 						t.Fatal("refused partial-group recovery changed host, state, ownership or journal")
 					}
 					return
 				}
-				runNativeLifecycleCommand(t, "recover", "--manifest", fixture.manifest, "--dry-run")
-				runNativeLifecycleCommand(t, "recover", "--manifest", fixture.manifest, "--yes")
-				requireNativePiOrderValues(t, fixture.destination, "fixture-theme", "npm:@acme/beta@1", "npm:@acme/foreign@1", "npm:@acme/alpha@1")
+				nativefixture.RunLifecycleCommand(t, "recover", "--manifest", fixture.Manifest, "--dry-run")
+				nativefixture.RunLifecycleCommand(t, "recover", "--manifest", fixture.Manifest, "--yes")
+				nativefixture.RequirePiOrderValues(t, fixture.Destination, "fixture-theme", "npm:@acme/beta@1", "npm:@acme/foreign@1", "npm:@acme/alpha@1")
 				var document struct {
 					Later bool `json:"later"`
 				}
-				if err := json.Unmarshal(testkit.ReadFile(t, fixture.destination), &document); err != nil || !document.Later {
+				if err := json.Unmarshal(testkit.ReadFile(t, fixture.Destination), &document); err != nil || !document.Later {
 					t.Fatal("partial-group rollback discarded the later unrelated value", err)
 				}
-				settled := snapshotNativeRecoveryPaths(t, fixture.destination, paths.StatefilePath, paths.OwnershipRegistryPath, paths.RecoveryDir)
-				if code, stdout, stderr := runOwnershipCLI("recover", "--manifest", fixture.manifest, "--yes"); code == 0 {
+				settled := nativefixture.SnapshotRecoveryPaths(t, fixture.Destination, paths.StatefilePath, paths.OwnershipRegistryPath, paths.RecoveryDir)
+				if code, stdout, stderr := testkit.RunCapturedCLI("recover", "--manifest", fixture.Manifest, "--yes"); code == 0 {
 					t.Fatalf("retired journal unexpectedly admitted recovery: %s %s", stdout, stderr)
 				}
-				if !reflect.DeepEqual(settled, snapshotNativeRecoveryPaths(t, fixture.destination, paths.StatefilePath, paths.OwnershipRegistryPath, paths.RecoveryDir)) {
+				if !reflect.DeepEqual(settled, nativefixture.SnapshotRecoveryPaths(t, fixture.Destination, paths.StatefilePath, paths.OwnershipRegistryPath, paths.RecoveryDir)) {
 					t.Fatal("recovery retry changed the settled operation")
 				}
-				runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes")
-				runNativeLifecycleCommand(t, "status", "--manifest", fixture.manifest, "--check", "--json")
-				testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.manifest))
+				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+				nativefixture.RunLifecycleCommand(t, "status", "--manifest", fixture.Manifest, "--check", "--json")
+				testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 			})
 		}
 	}
@@ -218,12 +218,12 @@ func TestNativePiOrderRecoveryUsesDurablePhaseForPartialGroups(t *testing.T) {
 
 func TestNativePiOrderPreservesPackageOptionsAndForeignSlots(t *testing.T) {
 	fixture := newNativePiOrderFixture(t, target.ScopeProject)
-	testkit.WriteFile(t, filepath.Dir(fixture.destination), "settings.json", `{"theme":"fixture-theme","packages":[{"source":"npm:@acme/beta@1","opaque":{"enabled":true}},"npm:@acme/foreign@1",{"source":"npm:@acme/alpha@1","skills":["./only"]},"npm:@acme/foreign-two@1"],"foreign":{"retained":true}}`)
-	runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes")
+	testkit.WriteFile(t, filepath.Dir(fixture.Destination), "settings.json", `{"theme":"fixture-theme","packages":[{"source":"npm:@acme/beta@1","opaque":{"enabled":true}},"npm:@acme/foreign@1",{"source":"npm:@acme/alpha@1","skills":["./only"]},"npm:@acme/foreign-two@1"],"foreign":{"retained":true}}`)
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
 	var document struct {
 		Packages []json.RawMessage `json:"packages"`
 	}
-	if err := json.Unmarshal(testkit.ReadFile(t, fixture.destination), &document); err != nil {
+	if err := json.Unmarshal(testkit.ReadFile(t, fixture.Destination), &document); err != nil {
 		t.Fatal(err)
 	}
 	if len(document.Packages) != 4 {
@@ -241,30 +241,30 @@ func TestNativePiOrderPreservesPackageOptionsAndForeignSlots(t *testing.T) {
 			t.Fatalf("order convergence changed a package row at %d: %s", index, document.Packages[index])
 		}
 	}
-	runNativeLifecycleCommand(t, "status", "--manifest", fixture.manifest, "--check", "--json")
+	nativefixture.RunLifecycleCommand(t, "status", "--manifest", fixture.Manifest, "--check", "--json")
 }
 
 func TestNativePiOrderAmbiguityRefusesBeforeKeyEffects(t *testing.T) {
 	fixture := newNativePiOrderFixture(t, target.ScopeProject)
 	const ambiguous = `{"theme":"fixture-theme","packages":["npm:@acme/beta@1","npm:@acme/foreign@1","npm:@acme/alpha@1","npm:@acme/foreign@2"],"foreign":{"retained":true}}`
-	testkit.WriteFile(t, filepath.Dir(fixture.destination), "settings.json", ambiguous)
-	statePath := filepath.Join(filepath.Dir(fixture.manifest), ".daem", "state.json")
+	testkit.WriteFile(t, filepath.Dir(fixture.Destination), "settings.json", ambiguous)
+	statePath := filepath.Join(filepath.Dir(fixture.Manifest), ".daem", "state.json")
 	beforeState := testkit.ReadFile(t, statePath)
-	if code, stdout, stderr := runOwnershipCLI("apply", "--manifest", fixture.manifest, "--yes"); code == 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("apply", "--manifest", fixture.Manifest, "--yes"); code == 0 {
 		t.Fatalf("ambiguous package identities admitted key/order effects: %s %s", stdout, stderr)
 	}
-	testkit.AssertFileContent(t, fixture.destination, ambiguous)
+	testkit.AssertFileContent(t, fixture.Destination, ambiguous)
 	testkit.AssertFileContent(t, statePath, string(beforeState))
-	testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.manifest))
+	testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 }
 
-func newNativePiOrderFixture(t *testing.T, scope target.Scope) nativeRecoveryFixture {
+func newNativePiOrderFixture(t *testing.T, scope target.Scope) nativefixture.RecoveryFixture {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	setNativeRecoveryEnvironment(t, root)
+	nativefixture.SetRecoveryEnvironment(t, root)
 	workspace := filepath.Join(root, "workspace")
 	manifest := filepath.Join(workspace, "daem.toml")
 	settings := filepath.Join(workspace, ".pi", "settings.json")
@@ -275,41 +275,23 @@ func newNativePiOrderFixture(t *testing.T, scope target.Scope) nativeRecoveryFix
 		t.Fatal(err)
 	}
 	testkit.WriteFile(t, filepath.Dir(settings), "settings.json", `{"packages":["npm:@acme/alpha@1","npm:@acme/beta@1"],"foreign":{"retained":true}}`)
-	runNativeLifecycleCommand(t, "import", "--manifest", manifest, "--target", "pi", "--scope", string(scope))
-	runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
-	runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--manage-existing", "--yes")
+	nativefixture.RunLifecycleCommand(t, "import", "--manifest", manifest, "--target", "pi", "--scope", string(scope))
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--manage-existing", "--yes")
 
 	declaration := string(testkit.ReadFile(t, manifest)) + fmt.Sprintf("\n[[host_config]]\nid='preferences'\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", scope, filepath.Join(workspace, "preferences.json"))
 	testkit.WriteFile(t, workspace, "daem.toml", declaration)
 	testkit.WriteFile(t, workspace, "preferences.json", `{"theme":"fixture-theme"}`)
-	runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
-	runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 
 	testkit.WriteFile(t, filepath.Dir(settings), "settings.json", `{"theme":"fixture-theme","packages":["npm:@acme/beta@1","npm:@acme/foreign@1","npm:@acme/alpha@1"],"foreign":{"retained":true}}`)
 	if err := os.Chmod(settings, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WriteFile(t, workspace, "preferences.json", `{"theme":"next-theme"}`)
-	runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
-	return nativeRecoveryFixture{manifest: manifest, destination: settings}
-}
-
-func requireNativePiOrderValues(t *testing.T, path, theme string, packages ...string) {
-	t.Helper()
-	var document struct {
-		Theme    string   `json:"theme"`
-		Packages []string `json:"packages"`
-		Foreign  struct {
-			Retained bool `json:"retained"`
-		} `json:"foreign"`
-	}
-	content := testkit.ReadFile(t, path)
-	if err := json.Unmarshal(content, &document); err != nil {
-		t.Fatal(err)
-	}
-	if document.Theme != theme || !document.Foreign.Retained || !slices.Equal(document.Packages, packages) {
-		t.Fatalf("key/order convergence changed selected or unrelated values: %s", content)
-	}
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	return nativefixture.RecoveryFixture{Manifest: manifest, Destination: settings}
 }
 
 func requireNativePiOrderResult(t *testing.T, content, outcome string, changed bool, actions int) {

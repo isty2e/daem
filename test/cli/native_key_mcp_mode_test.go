@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeKeyPreviewDoesNotDisableMCPModePolicy(t *testing.T) {
@@ -47,8 +48,8 @@ ownership = "keys"
 			if err := os.Chmod(destination, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
-			plan := clijson.DecodePlan(t, []byte(runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--dry-run", "--manage-existing", "--json")))
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			plan := clijson.DecodePlan(t, []byte(nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--dry-run", "--manage-existing", "--json")))
 			found := false
 			for _, action := range plan.Actions {
 				if action.Subject == nil || action.Subject.Namespace != "codex.project.mcp-server" {
@@ -66,7 +67,7 @@ ownership = "keys"
 			if err != nil || !bytes.Equal(after, []byte(original)) {
 				t.Fatal("mixed preview changed the shared configuration", err)
 			}
-			requireNativeSharedMode(t, destination, 0o644)
+			nativefixture.RequireSharedMode(t, destination, 0o644)
 		})
 	}
 }

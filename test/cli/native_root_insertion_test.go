@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeRootInsertionWithMCPKeepsLeadingComment(t *testing.T) {
@@ -17,32 +18,32 @@ func TestNativeRootInsertionWithMCPKeepsLeadingComment(t *testing.T) {
 		"# File settings\n\nkeep=true\n[tui]\ntheme='light'\n",
 	} {
 		t.Run(source, func(t *testing.T) {
-			fixture := nativePresentationFixture(t, "model='native-test'\n", source)
-			workspace := filepath.Dir(fixture.manifest)
-			manifest := string(testkit.ReadFile(t, fixture.manifest)) + mcp
-			testkit.WriteFile(t, workspace, filepath.Base(fixture.manifest), manifest)
-			runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
-			runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes")
+			fixture := nativefixture.NewPresentation(t, "model='native-test'\n", source)
+			workspace := filepath.Dir(fixture.Manifest)
+			manifest := string(testkit.ReadFile(t, fixture.Manifest)) + mcp
+			testkit.WriteFile(t, workspace, filepath.Base(fixture.Manifest), manifest)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
 
-			content := testkit.ReadFile(t, fixture.destination)
+			content := testkit.ReadFile(t, fixture.Destination)
 			if !bytes.HasPrefix(content, []byte("# File settings\n")) {
 				t.Fatalf("joint native/MCP Apply displaced the document comment: %s", content)
 			}
-			requireNativeSharedValues(t, configdocument.TOML, content, "model='native-test'\n[mcp_servers.search]\ncommand='node'\n", true)
-			requireNativeSharedValues(t, configdocument.TOML, content, source, true)
-			requireNativeLifecycleClean(t, runNativeLifecycleCommand(t, "status", "--manifest", fixture.manifest, "--check", "--json"))
-			runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes")
+			nativefixture.RequireSharedValues(t, configdocument.TOML, content, "model='native-test'\n[mcp_servers.search]\ncommand='node'\n", true)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, content, source, true)
+			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", fixture.Manifest, "--check", "--json"))
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
 
-			testkit.WriteFile(t, workspace, filepath.Base(fixture.manifest), "version=1\ntargets=['codex']\n"+mcp)
-			runNativeLifecycleCommand(t, "lock", "--manifest", fixture.manifest)
-			runNativeLifecycleCommand(t, "apply", "--manifest", fixture.manifest, "--yes")
-			content = testkit.ReadFile(t, fixture.destination)
+			testkit.WriteFile(t, workspace, filepath.Base(fixture.Manifest), "version=1\ntargets=['codex']\n"+mcp)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+			content = testkit.ReadFile(t, fixture.Destination)
 			if !bytes.HasPrefix(content, []byte("# File settings\n")) {
 				t.Fatalf("root-key removal displaced the document comment: %s", content)
 			}
-			requireNativeSharedValues(t, configdocument.TOML, content, "model='native-test'\n", false)
-			requireNativeSharedValues(t, configdocument.TOML, content, "[mcp_servers.search]\ncommand='node'\n", true)
-			requireNativeLifecycleClean(t, runNativeLifecycleCommand(t, "status", "--manifest", fixture.manifest, "--check", "--json"))
+			nativefixture.RequireSharedValues(t, configdocument.TOML, content, "model='native-test'\n", false)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, content, "[mcp_servers.search]\ncommand='node'\n", true)
+			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", fixture.Manifest, "--check", "--json"))
 		})
 	}
 }

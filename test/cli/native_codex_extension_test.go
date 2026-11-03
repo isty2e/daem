@@ -18,6 +18,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 type nativeCodexFixture struct {
@@ -36,7 +37,7 @@ func newNativeCodexFixtureWithHistory(t *testing.T, scope target.Scope, fault st
 	if err != nil {
 		t.Fatal(err)
 	}
-	setNativeRecoveryEnvironment(t, root)
+	nativefixture.SetRecoveryEnvironment(t, root)
 	workspace, home, bin := filepath.Join(root, "workspace"), os.Getenv("CODEX_HOME"), filepath.Join(root, "bin")
 	fixture := nativeCodexFixture{workspace: workspace, manifest: filepath.Join(workspace, "daem.toml"), config: filepath.Join(home, "config.toml"), calls: filepath.Join(root, "calls"), before: filepath.Join(root, "before.toml"), launchState: filepath.Join(root, "launch-state.json"), launchRegistry: filepath.Join(root, "launch-registry.json"), payload: filepath.Join(root, "payload.toml")}
 	fixture.keyFile = fixture.config
@@ -209,8 +210,8 @@ func TestNativeCodexFirstPluginInstallWithKeys(t *testing.T) {
 
 func TestNativeCodexPluginLossRecoversWithoutAddReplay(t *testing.T) {
 	fixture := newNativeCodexFixture(t, target.ScopeGlobal, "terminate")
-	code, stdout, stderr := invokeNativeRecoveryCommand(t, nativeRecoveryFixture{manifest: fixture.manifest, destination: fixture.keyFile}, "native-codex-command", "apply", "--yes", "--json")
-	if code == 0 || code == nativeRecoveryExit {
+	code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, nativefixture.RecoveryFixture{Manifest: fixture.manifest, Destination: fixture.keyFile}, "native-codex-command", "apply", "--yes", "--json")
+	if code == 0 || code == nativefixture.RecoveryExit {
 		t.Fatalf("Codex Apply was not interrupted: %d %s %s", code, stdout, stderr)
 	}
 	store, err := ownershipstore.New(os.Getenv("DAEM_TEST_CODEX_REGISTRY"))

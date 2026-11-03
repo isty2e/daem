@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeLockAuthoringLifecycle(t *testing.T) {
@@ -37,7 +38,7 @@ ownership = "keys"
 	testkit.WriteFile(t, workspace, "preferences.toml", "model = 'test'\n[tui]\nnotifications = false\n")
 	testkit.WriteFile(t, workspace, "preferences.json", `{"retry":{"enabled":false},"a/b":true,"~":0,"":[]}`)
 	testkit.WriteFile(t, workspace, "instructions.md", "project guidance\n")
-	runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
 	before, err := lockfile.Load(t.Context(), lockPath)
 	if err != nil {
 		t.Fatal(err)
@@ -52,11 +53,11 @@ ownership = "keys"
 		args := append(append([]string(nil), command...), "--manifest", manifest)
 		oldManifest := testkit.ReadFile(t, manifest)
 		oldLock := testkit.ReadFile(t, lockPath)
-		runNativeLifecycleCommand(t, append(args, "--dry-run")...)
+		nativefixture.RunLifecycleCommand(t, append(args, "--dry-run")...)
 		if !bytes.Equal(oldManifest, testkit.ReadFile(t, manifest)) || !bytes.Equal(oldLock, testkit.ReadFile(t, lockPath)) {
 			t.Fatalf("preview published authoring changes: %v", command)
 		}
-		runNativeLifecycleCommand(t, args...)
+		nativefixture.RunLifecycleCommand(t, args...)
 		after, err := lockfile.Load(t.Context(), lockPath)
 		if err != nil {
 			t.Fatalf("read authoring result %v: %v", command, err)
@@ -77,11 +78,11 @@ ownership = "keys"
 			testkit.AssertPathMissing(t, filepath.Join(workspace, path))
 		}
 	}
-	runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
-	requireNativeLifecycleClean(t, runNativeLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
 
 	testkit.WriteFile(t, workspace, "daem.toml", "version = 1\ntargets = ['codex']\n")
-	runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
 	ordinary, err := lockfile.Load(t.Context(), lockPath)
 	if err != nil || ordinary.Version != before.Version || ordinary.Locked.Len() != 0 {
 		t.Fatalf("native/ordinary locks do not share one schema: before=%d after=%#v err=%v", before.Version, ordinary, err)
@@ -99,21 +100,21 @@ func TestLockSchemaSixRequiresRegeneration(t *testing.T) {
 	testkit.WriteFile(t, root, "daem.lock.toml", string(legacy))
 	for _, command := range [][]string{{"status"}, {"apply", "--yes"}} {
 		args := append(command, "--manifest", manifest)
-		code, stdout, stderr := runOwnershipCLI(args...)
+		code, stdout, stderr := testkit.RunCapturedCLI(args...)
 		if code == 0 || !bytes.Equal(legacy, testkit.ReadFile(t, lockPath)) {
 			t.Fatalf("old-schema %v was used or modified: exit=%d stdout=%s stderr=%s", command, code, stdout, stderr)
 		}
 		testkit.AssertPathMissing(t, filepath.Join(root, ".daem", "state.json"))
 	}
-	runNativeLifecycleCommand(t, "lock", "--manifest", manifest, "--dry-run")
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest, "--dry-run")
 	if !bytes.Equal(legacy, testkit.ReadFile(t, lockPath)) {
 		t.Fatal("upgrade preview replaced the legacy lock")
 	}
-	runNativeLifecycleCommand(t, "lock", "--manifest", manifest)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
 	current, err := lockfile.Load(t.Context(), lockPath)
 	if err != nil || current.Version != lock.CurrentVersion {
 		t.Fatalf("upgrade did not produce the current schema: %#v %v", current, err)
 	}
-	requireNativeLifecycleClean(t, runNativeLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
-	runNativeLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 }

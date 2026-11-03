@@ -9,6 +9,7 @@ import (
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeKeyReplacementTargetScopes(t *testing.T) {
@@ -17,7 +18,7 @@ func TestNativeKeyReplacementTargetScopes(t *testing.T) {
 			t.Run(selected.name+"/"+nativeKeyScopeFileKind(existing), func(t *testing.T) {
 				fixture := newNativeKeyScopeFixture(t, selected, existing)
 				if existing {
-					content := testkit.ReadFile(t, fixture.destination)
+					content := testkit.ReadFile(t, fixture.Destination)
 					if selected.syntax == configdocument.JSON {
 						var values map[string]json.RawMessage
 						if err := json.Unmarshal(content, &values); err != nil {
@@ -28,17 +29,17 @@ func TestNativeKeyReplacementTargetScopes(t *testing.T) {
 					} else {
 						content = append(content, []byte("managed='local-model'\n")...)
 					}
-					testkit.WriteFile(t, filepath.Dir(fixture.destination), filepath.Base(fixture.destination), string(content))
+					testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), string(content))
 				}
-				fingerprint := nativeReplacementFingerprint(t, fixture.nativeRecoveryFixture)
-				runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint, "--json")
+				fingerprint := nativeReplacementFingerprint(t, fixture.RecoveryFixture)
+				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint, "--json")
 				requireNativeKeyScopeDesired(t, fixture, "after-model")
-				fingerprint = nativeReplacementFingerprint(t, fixture.nativeRecoveryFixture)
-				before := snapshotNativeRecoveryEvidence(t, fixture.nativeRecoveryFixture)
-				runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+				fingerprint = nativeReplacementFingerprint(t, fixture.RecoveryFixture)
+				before := nativefixture.SnapshotRecoveryEvidence(t, fixture.RecoveryFixture)
+				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
 				requireNativeKeyScopeDesired(t, fixture, "after-model")
 				for path, image := range before {
-					if current := snapshotNativeRecoveryEvidence(t, fixture.nativeRecoveryFixture)[path]; current != image {
+					if current := nativefixture.SnapshotRecoveryEvidence(t, fixture.RecoveryFixture)[path]; current != image {
 						t.Fatal("current replacement changed settled evidence", path)
 					}
 				}
@@ -55,25 +56,25 @@ func TestNativeKeyReplacementBindsProtectionAndSource(t *testing.T) {
 			extra := []string{}
 			switch change {
 			case "mode":
-				if err := os.Chmod(fixture.destination, 0o600); err != nil {
+				if err := os.Chmod(fixture.Destination, 0o600); err != nil {
 					t.Fatal(err)
 				}
 			case "source":
-				writeNativeRecoveryDesired(t, fixture, "new-source", "old.js")
+				nativefixture.WriteRecoveryDesired(t, fixture, "new-source", "old.js")
 			case "selected-value":
-				testkit.WriteFile(t, filepath.Dir(fixture.destination), filepath.Base(fixture.destination), "model='other-local'\n"+nativeRecoveryOutside)
+				testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), "model='other-local'\n"+nativefixture.RecoveryOutside)
 			case "unknown-version":
 				fingerprint = strings.Replace(fingerprint, "v1:", "v2:", 1)
 			case "undeclared-selector":
 				extra = append(extra, "--key", "/outside")
 			}
-			before := snapshotNativeRecoveryEvidence(t, fixture)
+			before := nativefixture.SnapshotRecoveryEvidence(t, fixture)
 			args := append([]string{"replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint}, extra...)
-			if code, _, _ := invokeNativeRecoveryCommand(t, fixture, "none", args...); code == 0 {
+			if code, _, _ := nativefixture.InvokeRecoveryCommand(t, fixture, "none", args...); code == 0 {
 				t.Fatal("changed replacement authority was accepted")
 			}
 			for path, image := range before {
-				if current := snapshotNativeRecoveryEvidence(t, fixture)[path]; current != image {
+				if current := nativefixture.SnapshotRecoveryEvidence(t, fixture)[path]; current != image {
 					t.Fatal("refused replacement changed evidence", path)
 				}
 			}

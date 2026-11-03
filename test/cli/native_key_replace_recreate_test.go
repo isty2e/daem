@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeKeyReplacementAdoptionAndRecreation(t *testing.T) {
@@ -16,30 +17,30 @@ func TestNativeKeyReplacementAdoptionAndRecreation(t *testing.T) {
 			if kind == "adopt" {
 				base = "absent"
 			}
-			fixture := newNativeRecoveryFixture(t, base)
+			fixture := nativefixture.NewRecoveryFixture(t, base)
 			var original os.FileInfo
 			switch kind {
 			case "adopt", "record":
-				testkit.WriteFile(t, filepath.Dir(fixture.destination), filepath.Base(fixture.destination), "model='after-model'\n"+nativeRecoveryOutside)
-				if err := os.Chmod(fixture.destination, 0o644); err != nil {
+				testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), "model='after-model'\n"+nativefixture.RecoveryOutside)
+				if err := os.Chmod(fixture.Destination, 0o644); err != nil {
 					t.Fatal(err)
 				}
 				var err error
-				original, err = os.Stat(fixture.destination)
+				original, err = os.Stat(fixture.Destination)
 				if err != nil {
 					t.Fatal(err)
 				}
 			case "missing-key":
-				testkit.WriteFile(t, filepath.Dir(fixture.destination), filepath.Base(fixture.destination), nativeRecoveryOutside)
+				testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), nativefixture.RecoveryOutside)
 			case "missing-file":
-				if err := os.Remove(fixture.destination); err != nil {
+				if err := os.Remove(fixture.Destination); err != nil {
 					t.Fatal(err)
 				}
 			}
 			fingerprint := nativeReplacementFingerprint(t, fixture)
-			runNativeRecoveryCommand(t, fixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
-			requireNativeSharedValues(t, configdocument.TOML, testkit.ReadFile(t, fixture.destination), "model='after-model'\n", true)
-			after, err := os.Stat(fixture.destination)
+			nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, testkit.ReadFile(t, fixture.Destination), "model='after-model'\n", true)
+			after, err := os.Stat(fixture.Destination)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -49,8 +50,8 @@ func TestNativeKeyReplacementAdoptionAndRecreation(t *testing.T) {
 			if kind == "missing-file" && after.Mode().Perm() != 0o600 {
 				t.Fatal("recreated document did not receive private permissions")
 			}
-			_, status, _ := runNativeRecoveryCommand(t, fixture, "none", "status", "--check", "--json")
-			requireNativeLifecycleClean(t, status)
+			_, status, _ := nativefixture.RunRecoveryCommand(t, fixture, "none", "status", "--check", "--json")
+			nativefixture.RequireLifecycleClean(t, status)
 		})
 	}
 }

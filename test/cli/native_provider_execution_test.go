@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativePiAdapterMCPWithManagedKeys(t *testing.T) {
@@ -22,16 +23,16 @@ func TestNativePiAdapterMCPWithManagedKeys(t *testing.T) {
 		for _, reinstall := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/reinstall=%t", scope, reinstall), func(t *testing.T) {
 				fixture := newNativePiAdapterFixture(t, scope, reinstall)
-				fixture.require(t, "status", "--json")
-				if _, err := applyworkflow.PlanDryRun(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.manifest}); err != nil {
+				fixture.Require(t, "status", "--json")
+				if _, err := applyworkflow.PlanDryRun(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.Manifest}); err != nil {
 					t.Fatal("provider/native schedule admission", err)
 				}
-				fixture.require(t, "apply", "--yes", "--json")
+				fixture.Require(t, "apply", "--yes", "--json")
 				var settings struct {
 					Theme    string   `json:"theme"`
 					Packages []string `json:"packages"`
 				}
-				if err := json.Unmarshal(testkit.ReadFile(t, fixture.settings), &settings); err != nil || settings.Theme != "fixture-theme" {
+				if err := json.Unmarshal(testkit.ReadFile(t, fixture.Settings), &settings); err != nil || settings.Theme != "fixture-theme" {
 					t.Fatal("adapter application lost its selected key", err)
 				}
 				var config struct {
@@ -39,27 +40,27 @@ func TestNativePiAdapterMCPWithManagedKeys(t *testing.T) {
 						Args []string `json:"args"`
 					} `json:"mcpServers"`
 				}
-				mcpPath := filepath.Join(filepath.Dir(fixture.settings), "mcp.json")
+				mcpPath := filepath.Join(filepath.Dir(fixture.Settings), "mcp.json")
 				if err := json.Unmarshal(testkit.ReadFile(t, mcpPath), &config); err != nil || len(config.Servers["context7"].Args) != 1 || config.Servers["context7"].Args[0] != "updated-server.js" {
 					t.Fatal("adapter MCP did not publish after provider qualification", err)
 				}
 				expectedCalls := "provider\n"
 				if reinstall {
 					expectedCalls += "provider\n"
-					if row := fixture.launchProtection(t); row.Phase() != ownership.ProtectionBound {
+					if row := fixture.LaunchProtection(t); row.Phase() != ownership.ProtectionBound {
 						t.Fatal("provider was not bound to its durable protection before release")
 					}
 					var before struct {
 						Theme string `json:"theme"`
 					}
-					if err := json.Unmarshal(testkit.ReadFile(t, fixture.beforeCommand), &before); err != nil || before.Theme != "fixture-theme" {
+					if err := json.Unmarshal(testkit.ReadFile(t, fixture.BeforeCommand), &before); err != nil || before.Theme != "fixture-theme" {
 						t.Fatal("provider installation preceded selected key settlement", err)
 					}
 				}
-				fixture.require(t, "status", "--check", "--json")
-				fixture.require(t, "apply", "--yes", "--json")
-				testkit.AssertFileContent(t, fixture.calls, expectedCalls)
-				testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+				fixture.Require(t, "status", "--check", "--json")
+				fixture.Require(t, "apply", "--yes", "--json")
+				testkit.AssertFileContent(t, fixture.Calls, expectedCalls)
+				testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 			})
 		}
 	}
@@ -67,7 +68,7 @@ func TestNativePiAdapterMCPWithManagedKeys(t *testing.T) {
 
 func TestNativePiAdapterProviderWorkflow(t *testing.T) {
 	fixture := newNativePiAdapterFixture(t, target.ScopeProject, true)
-	planned, err := applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.manifest})
+	planned, err := applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.Manifest})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +80,7 @@ func TestNativePiAdapterProviderWorkflow(t *testing.T) {
 func TestNativePiAdapterGlobalPendingCompletionWorkflow(t *testing.T) {
 	fixture := newNativePiAdapterFixture(t, target.ScopeGlobal, true)
 	t.Setenv("DAEM_TEST_PROVIDER_FAULT", "key")
-	planned, err := applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.manifest})
+	planned, err := applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.Manifest})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,8 +88,8 @@ func TestNativePiAdapterGlobalPendingCompletionWorkflow(t *testing.T) {
 		t.Fatal("bad key did not stop provider execution")
 	}
 	t.Setenv("DAEM_TEST_PROVIDER_FAULT", "")
-	testkit.WriteFile(t, filepath.Dir(fixture.settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:pi-mcp-adapter@^2.13.0"]}`)
-	planned, err = applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.manifest})
+	testkit.WriteFile(t, filepath.Dir(fixture.Settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:pi-mcp-adapter@^2.13.0"]}`)
+	planned, err = applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.Manifest})
 	if err != nil {
 		t.Fatal("global pending completion admission", err)
 	}
@@ -102,24 +103,24 @@ func TestNativePiAdapterProviderFailuresStopMCPAndRetainActualEffects(t *testing
 		for _, fault := range []string{"nonzero", "key", "outside", "malformed", "mode", "badversion", "unversioned"} {
 			t.Run(string(scope)+"/"+fault, func(t *testing.T) {
 				fixture := newNativePiAdapterFixture(t, scope, true)
-				mcpPath := filepath.Join(filepath.Dir(fixture.settings), "mcp.json")
+				mcpPath := filepath.Join(filepath.Dir(fixture.Settings), "mcp.json")
 				beforeMCP := testkit.ReadFile(t, mcpPath)
-				beforeMode, err := os.Stat(fixture.settings)
+				beforeMode, err := os.Stat(fixture.Settings)
 				if err != nil {
 					t.Fatal(err)
 				}
 				t.Setenv("DAEM_TEST_PROVIDER_FAULT", fault)
-				if code, stdout, stderr := fixture.run("apply", "--yes", "--json"); code == 0 {
+				if code, stdout, stderr := fixture.Run("apply", "--yes", "--json"); code == 0 {
 					t.Fatalf("failed provider allowed MCP publication: %s %s", stdout, stderr)
 				}
-				fixture.launchProtection(t)
+				fixture.LaunchProtection(t)
 				testkit.AssertFileContent(t, mcpPath, string(beforeMCP))
 				testkit.AssertFileContent(t, os.Getenv("DAEM_TEST_MCP_BEFORE"), string(beforeMCP))
-				actual := testkit.ReadFile(t, fixture.settings)
+				actual := testkit.ReadFile(t, fixture.Settings)
 				if fault == "key" && !bytes.Contains(actual, []byte(`"host-changed"`)) || fault == "outside" && !bytes.Contains(actual, []byte(`"retained":false`)) || fault == "malformed" && string(actual) != "[" {
 					t.Fatal("provider qualification silently repaired host content", string(actual))
 				}
-				afterMode, err := os.Stat(fixture.settings)
+				afterMode, err := os.Stat(fixture.Settings)
 				if err != nil || afterMode.Mode().Perm()&^beforeMode.Mode().Perm() != 0 {
 					t.Fatal("provider left widened access bits", err)
 				}
@@ -129,18 +130,18 @@ func TestNativePiAdapterProviderFailuresStopMCPAndRetainActualEffects(t *testing
 				if fault == "nonzero" {
 					packages = `[]`
 				}
-				testkit.WriteFile(t, filepath.Dir(fixture.settings), "settings.json", fmt.Sprintf(`{"theme":"fixture-theme","foreign":{"retained":true},"packages":%s}`, packages))
+				testkit.WriteFile(t, filepath.Dir(fixture.Settings), "settings.json", fmt.Sprintf(`{"theme":"fixture-theme","foreign":{"retained":true},"packages":%s}`, packages))
 				if fault == "badversion" || fault == "unversioned" {
-					testkit.WriteFile(t, filepath.Dir(fixture.settings), "npm/node_modules/pi-mcp-adapter/package.json", `{"name":"pi-mcp-adapter","version":"2.15.0"}`)
+					testkit.WriteFile(t, filepath.Dir(fixture.Settings), "npm/node_modules/pi-mcp-adapter/package.json", `{"name":"pi-mcp-adapter","version":"2.15.0"}`)
 				}
-				fixture.require(t, "apply", "--yes", "--json")
-				fixture.require(t, "status", "--check", "--json")
+				fixture.Require(t, "apply", "--yes", "--json")
+				fixture.Require(t, "status", "--check", "--json")
 				expectedCalls := "provider\nprovider\n"
 				if fault == "nonzero" {
 					expectedCalls += "provider\n"
 				}
-				testkit.AssertFileContent(t, fixture.calls, expectedCalls)
-				testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+				testkit.AssertFileContent(t, fixture.Calls, expectedCalls)
+				testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 			})
 		}
 	}
@@ -150,19 +151,19 @@ func TestNativePiAdapterProviderArtifactOnlyReplay(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		t.Run(string(scope), func(t *testing.T) {
 			fixture := newNativePiAdapterFixture(t, scope, false)
-			packageRoot := filepath.Join(filepath.Dir(fixture.settings), "npm", "node_modules", "pi-mcp-adapter")
+			packageRoot := filepath.Join(filepath.Dir(fixture.Settings), "npm", "node_modules", "pi-mcp-adapter")
 			if err := os.Remove(filepath.Join(packageRoot, "package.json")); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.Remove(packageRoot); err != nil {
 				t.Fatal(err)
 			}
-			fixture.require(t, "apply", "--yes", "--json")
-			fixture.launchProtection(t)
-			fixture.require(t, "status", "--check", "--json")
-			fixture.require(t, "apply", "--yes", "--json")
-			testkit.AssertFileContent(t, fixture.calls, "provider\nprovider\n")
-			testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+			fixture.Require(t, "apply", "--yes", "--json")
+			fixture.LaunchProtection(t)
+			fixture.Require(t, "status", "--check", "--json")
+			fixture.Require(t, "apply", "--yes", "--json")
+			testkit.AssertFileContent(t, fixture.Calls, "provider\nprovider\n")
+			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 		})
 	}
 }
@@ -172,22 +173,22 @@ func TestNativePiAdapterProviderSuffixProcessLossDoesNotReplayInstall(t *testing
 		for _, boundary := range []string{"host", "state"} {
 			t.Run(string(scope)+"/"+boundary, func(t *testing.T) {
 				fixture := newNativePiAdapterFixture(t, scope, true)
-				mcpPath := filepath.Join(filepath.Dir(fixture.settings), "mcp.json")
+				mcpPath := filepath.Join(filepath.Dir(fixture.Settings), "mcp.json")
 				before := testkit.ReadFile(t, mcpPath)
-				code, stdout, stderr := invokeNativeRecoveryCommand(t, nativeRecoveryFixture{manifest: fixture.manifest, destination: mcpPath}, "native-ordinary-"+boundary, "apply", "--yes")
-				if code != nativeRecoveryExit {
+				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, nativefixture.RecoveryFixture{Manifest: fixture.Manifest, Destination: mcpPath}, "native-ordinary-"+boundary, "apply", "--yes")
+				if code != nativefixture.RecoveryExit {
 					t.Fatalf("provider suffix missed process-loss boundary: %d %s %s", code, stdout, stderr)
 				}
-				fixture.launchProtection(t)
-				fixture.require(t, "recover", "--dry-run")
-				fixture.require(t, "recover", "--yes")
+				fixture.LaunchProtection(t)
+				fixture.Require(t, "recover", "--dry-run")
+				fixture.Require(t, "recover", "--yes")
 				if boundary == "host" {
 					testkit.AssertFileContent(t, mcpPath, string(before))
 				}
-				fixture.require(t, "apply", "--yes", "--json")
-				fixture.require(t, "status", "--check", "--json")
-				testkit.AssertFileContent(t, fixture.calls, "provider\nprovider\n")
-				testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+				fixture.Require(t, "apply", "--yes", "--json")
+				fixture.Require(t, "status", "--check", "--json")
+				testkit.AssertFileContent(t, fixture.Calls, "provider\nprovider\n")
+				testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 			})
 		}
 	}
@@ -197,10 +198,10 @@ func TestNativePiAdapterProviderSuffixReturnedErrorsKeepAttempt(t *testing.T) {
 	for _, boundary := range []string{"return-error", "return-state-error"} {
 		t.Run(boundary, func(t *testing.T) {
 			fixture := newNativePiAdapterFixture(t, target.ScopeProject, true)
-			mcpPath := filepath.Join(filepath.Dir(fixture.settings), "mcp.json")
+			mcpPath := filepath.Join(filepath.Dir(fixture.Settings), "mcp.json")
 			before := testkit.ReadFile(t, mcpPath)
-			code, stdout, stderr := invokeNativeRecoveryCommand(t, nativeRecoveryFixture{manifest: fixture.manifest, destination: mcpPath}, "native-ordinary-"+boundary, "apply", "--yes", "--json")
-			if code == 0 || code == nativeRecoveryExit {
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, nativefixture.RecoveryFixture{Manifest: fixture.Manifest, Destination: mcpPath}, "native-ordinary-"+boundary, "apply", "--yes", "--json")
+			if code == 0 || code == nativefixture.RecoveryExit {
 				t.Fatalf("expected returned MCP publication error: %d %s %s", code, stdout, stderr)
 			}
 			var result struct {
@@ -222,10 +223,10 @@ func TestNativePiAdapterProviderSuffixReturnedErrorsKeepAttempt(t *testing.T) {
 			if result.ActionCount != expectedCount || len(result.Attempts) != 1 || result.Attempts[0].Class != "attempted_observed_present" || result.Attempts[0].ExitCode == nil || *result.Attempts[0].ExitCode != 0 {
 				t.Fatalf("MCP failure lost actual retained work or the completed provider: %s", stdout)
 			}
-			fixture.require(t, "apply", "--yes", "--json")
-			fixture.require(t, "status", "--check", "--json")
-			testkit.AssertFileContent(t, fixture.calls, "provider\nprovider\n")
-			testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+			fixture.Require(t, "apply", "--yes", "--json")
+			fixture.Require(t, "status", "--check", "--json")
+			testkit.AssertFileContent(t, fixture.Calls, "provider\nprovider\n")
+			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 		})
 	}
 }
@@ -239,22 +240,22 @@ func TestNativePiAdapterFirstInstallWithKeysAndPendingRetry(t *testing.T) {
 				if failKey {
 					t.Setenv("DAEM_TEST_PROVIDER_FAULT", "key")
 				}
-				code, stdout, stderr := fixture.run("apply", "--yes", "--json")
+				code, stdout, stderr := fixture.Run("apply", "--yes", "--json")
 				if failKey {
 					if code == 0 {
 						t.Fatal("first provider changed selected key without refusal")
 					}
 					t.Setenv("DAEM_TEST_PROVIDER_FAULT", "")
-					testkit.WriteFile(t, filepath.Dir(fixture.settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:pi-mcp-adapter@^2.13.0"]}`)
-					fixture.require(t, "apply", "--yes", "--json")
+					testkit.WriteFile(t, filepath.Dir(fixture.Settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:pi-mcp-adapter@^2.13.0"]}`)
+					fixture.Require(t, "apply", "--yes", "--json")
 				} else if code != 0 {
 					t.Fatalf("first protected provider install failed: %d %s %s", code, stdout, stderr)
 				}
-				fixture.launchProtection(t)
-				fixture.require(t, "status", "--check", "--json")
-				fixture.require(t, "apply", "--yes", "--json")
-				testkit.AssertFileContent(t, fixture.calls, "provider\n")
-				testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+				fixture.LaunchProtection(t)
+				fixture.Require(t, "status", "--check", "--json")
+				fixture.Require(t, "apply", "--yes", "--json")
+				testkit.AssertFileContent(t, fixture.Calls, "provider\n")
+				testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 			})
 		}
 	}
@@ -265,20 +266,20 @@ func TestNativePiAdapterProviderWithEmptyKeySelection(t *testing.T) {
 		t.Run(string(scope), func(t *testing.T) {
 			fixture := prepareNativePiAdapterFixture(t, scope)
 			declareNativePiAdapterKeys(t, fixture, scope)
-			testkit.WriteFile(t, fixture.workspace, "preferences.json", `{}`)
-			fixture.require(t, "lock")
+			testkit.WriteFile(t, fixture.Workspace, "preferences.json", `{}`)
+			fixture.Require(t, "lock")
 			t.Setenv("DAEM_TEST_PROVIDER_RESULT", `{"foreign":{"retained":true},"packages":["npm:pi-mcp-adapter@^2.13.0"]}`)
-			planned, err := applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.manifest})
+			planned, err := applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.Manifest})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if _, err := applyworkflow.ExecuteWithOptions(t.Context(), planned, applyworkflow.ExecuteOptions{}); err != nil {
 				t.Fatal("empty key provider continuation", err)
 			}
-			fixture.require(t, "status", "--check", "--json")
-			fixture.require(t, "apply", "--yes", "--json")
-			testkit.AssertFileContent(t, fixture.calls, "provider\n")
-			testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+			fixture.Require(t, "status", "--check", "--json")
+			fixture.Require(t, "apply", "--yes", "--json")
+			testkit.AssertFileContent(t, fixture.Calls, "provider\n")
+			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 		})
 	}
 }
@@ -287,24 +288,24 @@ func TestNativePiAdapterProviderPrecedesLastKeyRetirement(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		t.Run(string(scope), func(t *testing.T) {
 			fixture := newNativePiAdapterFixture(t, scope, false)
-			fixture.require(t, "apply", "--yes", "--json")
-			testkit.WriteFile(t, fixture.workspace, "preferences.json", `{}`)
-			testkit.WriteFile(t, filepath.Dir(fixture.settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":[]}`)
-			packageRoot := filepath.Join(filepath.Dir(fixture.settings), "npm", "node_modules", "pi-mcp-adapter")
+			fixture.Require(t, "apply", "--yes", "--json")
+			testkit.WriteFile(t, fixture.Workspace, "preferences.json", `{}`)
+			testkit.WriteFile(t, filepath.Dir(fixture.Settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":[]}`)
+			packageRoot := filepath.Join(filepath.Dir(fixture.Settings), "npm", "node_modules", "pi-mcp-adapter")
 			if err := os.Remove(filepath.Join(packageRoot, "package.json")); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.Remove(packageRoot); err != nil {
 				t.Fatal(err)
 			}
-			fixture.require(t, "lock")
-			fixture.require(t, "apply", "--yes", "--json")
-			fixture.launchProtection(t)
+			fixture.Require(t, "lock")
+			fixture.Require(t, "apply", "--yes", "--json")
+			fixture.LaunchProtection(t)
 			var before, after map[string]json.RawMessage
-			if err := json.Unmarshal(testkit.ReadFile(t, fixture.beforeCommand), &before); err != nil {
+			if err := json.Unmarshal(testkit.ReadFile(t, fixture.BeforeCommand), &before); err != nil {
 				t.Fatal(err)
 			}
-			if err := json.Unmarshal(testkit.ReadFile(t, fixture.settings), &after); err != nil {
+			if err := json.Unmarshal(testkit.ReadFile(t, fixture.Settings), &after); err != nil {
 				t.Fatal(err)
 			}
 			if _, present := before["theme"]; !present {
@@ -313,10 +314,10 @@ func TestNativePiAdapterProviderPrecedesLastKeyRetirement(t *testing.T) {
 			if _, retained := after["theme"]; retained {
 				t.Fatal("retiring key remained after provider qualification")
 			}
-			fixture.require(t, "status", "--check", "--json")
-			fixture.require(t, "apply", "--yes", "--json")
-			testkit.AssertFileContent(t, fixture.calls, "provider\nprovider\n")
-			testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+			fixture.Require(t, "status", "--check", "--json")
+			fixture.Require(t, "apply", "--yes", "--json")
+			testkit.AssertFileContent(t, fixture.Calls, "provider\nprovider\n")
+			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 		})
 	}
 }
@@ -326,29 +327,29 @@ func TestNativePiAdapterMultipleConsumersShareOneProtectedInstall(t *testing.T) 
 		t.Run(string(scope), func(t *testing.T) {
 			fixture := prepareNativePiAdapterFixture(t, scope)
 			declareNativePiAdapterKeys(t, fixture, scope)
-			body := string(testkit.ReadFile(t, fixture.manifest)) + fmt.Sprintf("\n[[mcp_server]]\nname='other'\ntargets=['pi']\nscope=%q\nbackend='adapter'\ntransport='stdio'\ncommand='node'\nargs=['other.js']\n", scope)
-			testkit.WriteFile(t, fixture.workspace, "daem.toml", body)
-			fixture.require(t, "lock")
-			fixture.require(t, "apply", "--yes", "--json")
-			fixture.launchProtection(t)
-			fixture.require(t, "status", "--check", "--json")
-			fixture.require(t, "apply", "--yes", "--json")
-			testkit.AssertFileContent(t, fixture.calls, "provider\n")
-			testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+			body := string(testkit.ReadFile(t, fixture.Manifest)) + fmt.Sprintf("\n[[mcp_server]]\nname='other'\ntargets=['pi']\nscope=%q\nbackend='adapter'\ntransport='stdio'\ncommand='node'\nargs=['other.js']\n", scope)
+			testkit.WriteFile(t, fixture.Workspace, "daem.toml", body)
+			fixture.Require(t, "lock")
+			fixture.Require(t, "apply", "--yes", "--json")
+			fixture.LaunchProtection(t)
+			fixture.Require(t, "status", "--check", "--json")
+			fixture.Require(t, "apply", "--yes", "--json")
+			testkit.AssertFileContent(t, fixture.Calls, "provider\n")
+			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 		})
 	}
 }
 
 func TestNativePiAdapterUnversionedPackageDoesNotAuthorizeReinstall(t *testing.T) {
 	fixture := newNativePiAdapterFixture(t, target.ScopeProject, false)
-	testkit.WriteFile(t, filepath.Dir(fixture.settings), "npm/node_modules/pi-mcp-adapter/package.json", `{"name":"pi-mcp-adapter"}`)
-	before := testkit.ReadFile(t, fixture.settings)
-	if code, _, _ := fixture.run("apply", "--yes", "--json"); code == 0 {
+	testkit.WriteFile(t, filepath.Dir(fixture.Settings), "npm/node_modules/pi-mcp-adapter/package.json", `{"name":"pi-mcp-adapter"}`)
+	before := testkit.ReadFile(t, fixture.Settings)
+	if code, _, _ := fixture.Run("apply", "--yes", "--json"); code == 0 {
 		t.Fatal("unobservable version became a missing-package repair grant")
 	}
-	testkit.AssertFileContent(t, fixture.settings, string(before))
-	testkit.AssertFileContent(t, fixture.calls, "provider\n")
-	testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+	testkit.AssertFileContent(t, fixture.Settings, string(before))
+	testkit.AssertFileContent(t, fixture.Calls, "provider\n")
+	testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 }
 
 func TestNativePiAdapterProviderThenAnotherProtectedExtension(t *testing.T) {
@@ -356,32 +357,32 @@ func TestNativePiAdapterProviderThenAnotherProtectedExtension(t *testing.T) {
 		t.Run(string(scope), func(t *testing.T) {
 			fixture := prepareNativePiAdapterFixture(t, scope)
 			declareNativePiAdapterKeys(t, fixture, scope)
-			fixture.require(t, "add", "extension", "extra", "npm:@acme/extra@1", "--target", "pi", "--scope", string(scope))
-			fixture.require(t, "lock")
-			fixture.require(t, "apply", "--yes", "--json")
-			fixture.launchProtection(t)
-			fixture.require(t, "status", "--check", "--json")
-			fixture.require(t, "apply", "--yes", "--json")
-			testkit.AssertFileContent(t, fixture.calls, "provider\nextra\n")
-			testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+			fixture.Require(t, "add", "extension", "extra", "npm:@acme/extra@1", "--target", "pi", "--scope", string(scope))
+			fixture.Require(t, "lock")
+			fixture.Require(t, "apply", "--yes", "--json")
+			fixture.LaunchProtection(t)
+			fixture.Require(t, "status", "--check", "--json")
+			fixture.Require(t, "apply", "--yes", "--json")
+			testkit.AssertFileContent(t, fixture.Calls, "provider\nextra\n")
+			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 		})
 	}
 }
 
-func prepareNativePiAdapterFixture(t *testing.T, scope target.Scope) nativePiInvocationFixture {
+func prepareNativePiAdapterFixture(t *testing.T, scope target.Scope) nativefixture.PiInvocation {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	setNativeRecoveryEnvironment(t, root)
+	nativefixture.SetRecoveryEnvironment(t, root)
 	workspace := filepath.Join(root, "workspace")
 	base := filepath.Join(workspace, ".pi")
 	if scope == target.ScopeGlobal {
 		base = os.Getenv("PI_CODING_AGENT_DIR")
 	}
-	fixture := nativePiInvocationFixture{workspace: workspace, manifest: filepath.Join(workspace, "daem.toml"), settings: filepath.Join(base, "settings.json"), beforeCommand: filepath.Join(root, "provider-before.json"), calls: filepath.Join(root, "provider-calls")}
-	fixture.launchState, fixture.launchRegistry = filepath.Join(root, "provider-state.json"), filepath.Join(root, "provider-registry.json")
+	fixture := nativefixture.PiInvocation{Workspace: workspace, Manifest: filepath.Join(workspace, "daem.toml"), Settings: filepath.Join(base, "settings.json"), BeforeCommand: filepath.Join(root, "provider-before.json"), Calls: filepath.Join(root, "provider-calls")}
+	fixture.LaunchState, fixture.LaunchRegistry = filepath.Join(root, "provider-state.json"), filepath.Join(root, "provider-registry.json")
 	body := fmt.Sprintf(`version=1
 targets=['pi']
 [[extension]]
@@ -449,16 +450,16 @@ fi
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("DAEM_TEST_SCOPE", string(scope))
-	t.Setenv("DAEM_TEST_SETTINGS", fixture.settings)
-	t.Setenv("DAEM_TEST_COMMAND_BEFORE", fixture.beforeCommand)
-	t.Setenv("DAEM_TEST_COMMAND_CALLS", fixture.calls)
+	t.Setenv("DAEM_TEST_SETTINGS", fixture.Settings)
+	t.Setenv("DAEM_TEST_COMMAND_BEFORE", fixture.BeforeCommand)
+	t.Setenv("DAEM_TEST_COMMAND_CALLS", fixture.Calls)
 	t.Setenv("DAEM_TEST_PROVIDER_BASE", base)
 	t.Setenv("DAEM_TEST_PROVIDER_FAULT", "")
 	t.Setenv("DAEM_TEST_PROVIDER_RESULT", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:pi-mcp-adapter@^2.13.0"]}`)
 	t.Setenv("DAEM_TEST_MCP_BEFORE", filepath.Join(root, "mcp-before.json"))
-	t.Setenv("DAEM_TEST_LAUNCH_STATE", fixture.launchState)
-	t.Setenv("DAEM_TEST_LAUNCH_REGISTRY", fixture.launchRegistry)
-	paths, err := daempaths.Resolve(fixture.manifest)
+	t.Setenv("DAEM_TEST_LAUNCH_STATE", fixture.LaunchState)
+	t.Setenv("DAEM_TEST_LAUNCH_REGISTRY", fixture.LaunchRegistry)
+	paths, err := daempaths.Resolve(fixture.Manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,12 +468,12 @@ fi
 	return fixture
 }
 
-func newNativePiAdapterFixture(t *testing.T, scope target.Scope, reinstall bool) nativePiInvocationFixture {
+func newNativePiAdapterFixture(t *testing.T, scope target.Scope, reinstall bool) nativefixture.PiInvocation {
 	t.Helper()
 	fixture := prepareNativePiAdapterFixture(t, scope)
-	base := filepath.Dir(fixture.settings)
-	fixture.require(t, "lock")
-	fixture.require(t, "apply", "--yes")
+	base := filepath.Dir(fixture.Settings)
+	fixture.Require(t, "lock")
+	fixture.Require(t, "apply", "--yes")
 	if reinstall {
 		testkit.WriteFile(t, base, "settings.json", `{"foreign":{"retained":true},"packages":[]}`)
 		if err := os.Remove(filepath.Join(base, "npm", "node_modules", "pi-mcp-adapter", "package.json")); err != nil {
@@ -486,9 +487,9 @@ func newNativePiAdapterFixture(t *testing.T, scope target.Scope, reinstall bool)
 	return fixture
 }
 
-func declareNativePiAdapterKeys(t *testing.T, fixture nativePiInvocationFixture, scope target.Scope) {
+func declareNativePiAdapterKeys(t *testing.T, fixture nativefixture.PiInvocation, scope target.Scope) {
 	t.Helper()
-	workspace := fixture.workspace
+	workspace := fixture.Workspace
 	body := fmt.Sprintf(`version=1
 targets=['pi']
 [[extension]]
@@ -515,5 +516,5 @@ ownership='keys'
 	testkit.WriteFile(t, workspace, "daem.toml", body)
 	testkit.WriteFile(t, workspace, "preferences.json", `{"theme":"fixture-theme"}`)
 	t.Setenv("DAEM_TEST_INSTALL_PHASE", "native")
-	fixture.require(t, "lock")
+	fixture.Require(t, "lock")
 }

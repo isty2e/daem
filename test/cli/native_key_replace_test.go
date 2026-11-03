@@ -30,7 +30,7 @@ ownership = "keys"
 `)
 	testkit.WriteFile(t, workspace, "preferences.toml", "model = \"declared\"\n[ tui ]\nnotifications = false\n")
 	testkit.WriteFile(t, workspace, ".codex/config.toml", "# keep me\nmodel = \"local\"\nunmanaged = 1\n")
-	if code, stdout, stderr := runOwnershipCLI("lock", "--manifest", manifest); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifest); code != 0 {
 		t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
 	}
 	read := func() []byte {
@@ -43,7 +43,7 @@ ownership = "keys"
 	}
 	preview := func() string {
 		t.Helper()
-		code, stdout, stderr := runOwnershipCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--dry-run", "--json")
+		code, stdout, stderr := testkit.RunCapturedCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--dry-run", "--json")
 		if code != 0 {
 			t.Fatalf("replacement preview failed: %d %s %s", code, stdout, stderr)
 		}
@@ -60,7 +60,7 @@ ownership = "keys"
 	if string(read()) != before {
 		t.Fatal("preview modified the host document")
 	}
-	if code, _, _ := runOwnershipCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes"); code == 0 || string(read()) != before {
+	if code, _, _ := testkit.RunCapturedCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes"); code == 0 || string(read()) != before {
 		t.Fatal("bare yes authorized an unreviewed replacement")
 	}
 	// Fresh unrelated edits must survive and must not invalidate selected consent.
@@ -68,7 +68,7 @@ ownership = "keys"
 	if fresh := preview(); fresh != fingerprint {
 		t.Fatal("unrelated content changed replacement consent")
 	}
-	if code, stdout, stderr := runOwnershipCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint, "--json"); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint, "--json"); code != 0 {
 		t.Fatalf("explicit takeover failed: %d %s %s", code, stdout, stderr)
 	}
 	var values struct {
@@ -80,16 +80,16 @@ ownership = "keys"
 		t.Fatalf("replacement exceeded scope or lost fresh unrelated content: %s %v", read(), err)
 	}
 	testkit.WriteFile(t, workspace, ".codex/config.toml", "# fresh comment\nmodel = \"later-local\"\nunmanaged = 2\n")
-	if code, _, _ := runOwnershipCLI("apply", "--manifest", manifest, "--yes"); code == 0 {
+	if code, _, _ := testkit.RunCapturedCLI("apply", "--manifest", manifest, "--yes"); code == 0 {
 		t.Fatal("ordinary apply overwrote managed drift")
 	}
 	fingerprint = preview()
 	testkit.WriteFile(t, workspace, ".codex/config.toml", "model = \"third\"\nunmanaged = 2\n")
-	if code, _, _ := runOwnershipCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint); code == 0 {
+	if code, _, _ := testkit.RunCapturedCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint); code == 0 {
 		t.Fatal("changed selected value accepted stale consent")
 	}
 	fingerprint = preview()
-	if code, stdout, stderr := runOwnershipCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint); code != 0 {
 		t.Fatalf("managed drift replacement failed: %d %s %s", code, stdout, stderr)
 	}
 	if err := toml.Unmarshal(read(), &values); err != nil || values.Model != "declared" {

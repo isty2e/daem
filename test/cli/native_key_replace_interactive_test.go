@@ -11,6 +11,7 @@ import (
 	clipkg "github.com/isty2e/daem/internal/cli"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeKeyReplacementInteractiveConsent(t *testing.T) {
@@ -21,10 +22,10 @@ func TestNativeKeyReplacementInteractiveConsent(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			fixture := nativeReplacementRecoveryFixture(t, "managed")
-			before := snapshotNativeRecoveryEvidence(t, fixture)
+			before := nativefixture.SnapshotRecoveryEvidence(t, fixture)
 			var stdout, stderr bytes.Buffer
 			prompts := 0
-			code := clipkg.RunWithOptions([]string{"replace", "host-config", "preferences", "--manifest", fixture.manifest}, clipkg.RunOptions{
+			code := clipkg.RunWithOptions([]string{"replace", "host-config", "preferences", "--manifest", fixture.Manifest}, clipkg.RunOptions{
 				Context: t.Context(), Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr,
 				StdinIsTerminal: true, StdoutIsTerminal: true, StderrIsTerminal: true,
 				ReadConfirmationLine: func(context.Context, io.Reader, int) (string, error) {
@@ -39,8 +40,8 @@ func TestNativeKeyReplacementInteractiveConsent(t *testing.T) {
 				t.Fatalf("replacement consent: exit=%d prompts=%d stdout=%s stderr=%s", code, prompts, stdout.String(), stderr.String())
 			}
 			if approve {
-				requireNativeSharedValues(t, configdocument.TOML, testkit.ReadFile(t, fixture.destination), "model='after-model'\n", true)
-			} else if !reflect.DeepEqual(before, snapshotNativeRecoveryEvidence(t, fixture)) {
+				nativefixture.RequireSharedValues(t, configdocument.TOML, testkit.ReadFile(t, fixture.Destination), "model='after-model'\n", true)
+			} else if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, fixture)) {
 				t.Fatal("declined replacement changed evidence")
 			}
 		})

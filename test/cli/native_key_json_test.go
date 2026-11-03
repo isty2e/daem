@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -84,8 +85,8 @@ ownership = "keys"
 				if !present || actual != value || document.Unmanaged != "preserved" {
 					t.Fatal("JSON result disagrees with the actual selected/foreign host values")
 				}
-				requireNativeLifecycleMetadata(t, manifest, true)
-				requireNativeLifecycleClean(t, requireNativeJSONCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+				nativefixture.RequireLifecycleMetadata(t, manifest, true)
+				nativefixture.RequireLifecycleClean(t, requireNativeJSONCommand(t, "status", "--manifest", manifest, "--check", "--json"))
 				requireNativeJSONCommand(t, "apply", "--manifest", manifest, "--yes", "--json")
 			}
 		})
@@ -94,7 +95,7 @@ ownership = "keys"
 
 func requireNativeJSONCommand(t *testing.T, arguments ...string) string {
 	t.Helper()
-	code, stdout, stderr := runOwnershipCLI(arguments...)
+	code, stdout, stderr := testkit.RunCapturedCLI(arguments...)
 	if code != 0 {
 		t.Fatalf("%q failed: exit=%d stdout=%s stderr=%s", arguments, code, stdout, stderr)
 	}

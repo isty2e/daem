@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativePiInvocationWithMCPChanges(t *testing.T) {
@@ -29,14 +30,14 @@ func TestNativePiInvocationWithMCPChanges(t *testing.T) {
 		{"shared Codex missing", "codex", ".codex/config.toml", "", target.ScopeProject, configdocument.TOML},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := newNativePiInvocationFixtureAtScope(t, "", test.scope)
-			fixture.addInstructions(t, "ordinary instructions\n")
-			base := string(testkit.ReadFile(t, fixture.manifest))
+			fixture := nativefixture.NewPiInvocationAtScope(t, "", test.scope)
+			fixture.AddInstructions(t, "ordinary instructions\n")
+			base := string(testkit.ReadFile(t, fixture.Manifest))
 			if test.host == "codex" {
-				testkit.WriteFile(t, fixture.workspace, "codex-preferences.toml", "model='fixture-model'\n")
+				testkit.WriteFile(t, fixture.Workspace, "codex-preferences.toml", "model='fixture-model'\n")
 				base += "\n[[host_config]]\nid='codex-preferences'\ntargets=['codex']\npath='config.toml'\nsource='./codex-preferences.toml'\nownership='keys'\n"
 			}
-			destination := filepath.Join(fixture.workspace, filepath.FromSlash(test.destination))
+			destination := filepath.Join(fixture.Workspace, filepath.FromSlash(test.destination))
 			if test.scope == target.ScopeGlobal {
 				destination = filepath.Join(os.Getenv("PI_CODING_AGENT_DIR"), "mcp.json")
 			}
@@ -56,15 +57,15 @@ func TestNativePiInvocationWithMCPChanges(t *testing.T) {
 						manifest += "backend='native'\n"
 					}
 				}
-				testkit.WriteFile(t, fixture.workspace, "daem.toml", manifest)
+				testkit.WriteFile(t, fixture.Workspace, "daem.toml", manifest)
 				if index != 0 {
-					testkit.WriteFile(t, filepath.Dir(fixture.settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:@acme/keep@1"]}`)
+					testkit.WriteFile(t, filepath.Dir(fixture.Settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:@acme/keep@1"]}`)
 				}
-				fixture.require(t, "lock")
-				fixture.require(t, "apply", "--dry-run")
-				fixture.require(t, "apply", "--yes")
-				fixture.launchProtection(t)
-				before := testkit.ReadFile(t, fixture.instructionsBefore)
+				fixture.Require(t, "lock")
+				fixture.Require(t, "apply", "--dry-run")
+				fixture.Require(t, "apply", "--yes")
+				fixture.LaunchProtection(t)
+				before := testkit.ReadFile(t, fixture.InstructionsBefore)
 				if previous == nil {
 					// A selected sibling key may create the shared document in the prefix.
 					if test.host != "codex" && string(before) != "absent\n" {
@@ -81,26 +82,26 @@ func TestNativePiInvocationWithMCPChanges(t *testing.T) {
 					t.Fatalf("MCP suffix did not settle its selected change: %s", content)
 				}
 				if test.outside != "" {
-					requireNativeSharedValues(t, test.syntax, content, test.outside, true)
+					nativefixture.RequireSharedValues(t, test.syntax, content, test.outside, true)
 				}
 				if test.host == "codex" {
-					requireNativeSharedValues(t, test.syntax, content, "model='fixture-model'\n", true)
+					nativefixture.RequireSharedValues(t, test.syntax, content, "model='fixture-model'\n", true)
 					if test.outside != "" && !bytes.Contains(content, []byte("# User settings\n")) {
 						t.Fatal("shared MCP suffix lost an unmanaged comment")
 					}
 				}
 				previous = content
-				fixture.require(t, "status", "--check", "--json")
-				calls := testkit.ReadFile(t, fixture.calls)
-				fixture.require(t, "apply", "--yes")
-				if !bytes.Equal(calls, testkit.ReadFile(t, fixture.calls)) || !bytes.Equal(content, testkit.ReadFile(t, destination)) {
+				fixture.Require(t, "status", "--check", "--json")
+				calls := testkit.ReadFile(t, fixture.Calls)
+				fixture.Require(t, "apply", "--yes")
+				if !bytes.Equal(calls, testkit.ReadFile(t, fixture.Calls)) || !bytes.Equal(content, testkit.ReadFile(t, destination)) {
 					t.Fatal("converged MCP installation repeated effects")
 				}
 			}
-			if got := string(testkit.ReadFile(t, fixture.calls)); got != "install\ninstall\ninstall\ninstall\n" {
+			if got := string(testkit.ReadFile(t, fixture.Calls)); got != "install\ninstall\ninstall\ninstall\n" {
 				t.Fatal("MCP changes skipped or repeated a selected installation")
 			}
-			testkit.AssertNoRecoveryArtifacts(t, fixture.workspace)
+			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 		})
 	}
 }

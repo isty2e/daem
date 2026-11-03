@@ -13,6 +13,7 @@ import (
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
@@ -25,14 +26,14 @@ func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
 			selected := nativeKeyScopes()[2]
 			selected.filename = "extension-settings/Caf\u00e9.toml"
 			fixture := newNativeKeyScopeFixture(t, selected, false)
-			workspace := filepath.Dir(fixture.manifest)
+			workspace := filepath.Dir(fixture.Manifest)
 			source := filepath.Join(workspace, "skills", "sample")
 			testkit.WriteFile(t, source, "SKILL.md", "---\nname: Caf\u00e9\ndescription: unicode acquisition\n---\n")
 			testkit.WriteFile(t, source, "references/detail.txt", "global acquisition\n")
-			manifest := string(testkit.ReadFile(t, fixture.manifest)) + fmt.Sprintf("\n[[skill]]\nname='Caf\u00e9'\nscope='global'\nsource={path=%q,mode='vendor'}\n", source)
-			testkit.WriteFile(t, workspace, filepath.Base(fixture.manifest), manifest)
-			runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "lock")
-			code, stdout, stderr := invokeNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, boundary, "apply", "--yes", "--verbose")
+			manifest := string(testkit.ReadFile(t, fixture.Manifest)) + fmt.Sprintf("\n[[skill]]\nname='Caf\u00e9'\nscope='global'\nsource={path=%q,mode='vendor'}\n", source)
+			testkit.WriteFile(t, workspace, filepath.Base(fixture.Manifest), manifest)
+			nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture.RecoveryFixture, boundary, "apply", "--yes", "--verbose")
 			skill := filepath.Join(os.Getenv("HOME"), ".agents", "skills", "Caf\u00e9")
 			if boundary == "none" {
 				if code != 0 {
@@ -43,7 +44,7 @@ func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
 					if code == 0 || !strings.Contains(stderr, "confirmed ordinary promotion") {
 						t.Fatalf("ordinary promotion fault not reached: %d %s %s", code, stdout, stderr)
 					}
-				} else if code != nativeRecoveryExit {
+				} else if code != nativefixture.RecoveryExit {
 					t.Fatalf("process-loss checkpoint not reached: %d %s %s", code, stdout, stderr)
 				}
 				if boundary == "ordinary-promotion" && !strings.Contains(stderr, "confirmed ordinary promotion") {
@@ -53,8 +54,8 @@ func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
 				if boundary == "state" {
 					classification = "needs_finalize"
 				}
-				requireNativeRecoveryDryRun(t, fixture.nativeRecoveryFixture, classification)
-				runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "recover", "--yes")
+				nativefixture.RequireRecoveryDryRun(t, fixture.RecoveryFixture, classification)
+				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "recover", "--yes")
 				if boundary != "state" {
 					requireNativeKeyScopeBefore(t, fixture, false)
 					testkit.AssertPathMissing(t, skill)
@@ -62,11 +63,11 @@ func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
 				}
 			}
 			testkit.AssertNoRecoveryArtifacts(t, workspace)
-			runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "apply", "--yes")
+			nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
 			if testkit.HashDirectory(t, source) != testkit.HashDirectory(t, skill) {
 				t.Fatal("promotion lost the ordinary tree")
 			}
-			requireNativeSharedValues(t, selected.syntax, testkit.ReadFile(t, fixture.destination), nativeKeyScopeSource(selected, "after-model"), true)
+			nativefixture.RequireSharedValues(t, selected.syntax, testkit.ReadFile(t, fixture.Destination), nativeKeyScopeSource(selected, "after-model"), true)
 			codecs, err := nativeconfig.Codecs(t.Context())
 			if err != nil {
 				t.Fatal(err)
@@ -76,11 +77,11 @@ func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
 				t.Fatal(err)
 			}
 			budget := recovery.NewPhysicalCaptureBudget(nil)
-			state, err := statefile.LoadOptionalWithOptions(t.Context(), fixture.paths.StatefilePath, statefile.ReadOptions{Codec: codec, PhysicalPathBudget: budget})
+			state, err := statefile.LoadOptionalWithOptions(t.Context(), fixture.Paths.StatefilePath, statefile.ReadOptions{Codec: codec, PhysicalPathBudget: budget})
 			if err != nil || len(state.ManagedPaths()) != 1 || len(state.ManagedAggregates()) != 1 {
 				t.Fatal("promoted state lost one family", err)
 			}
-			reader, err := ownershipstore.NewRecoveryReader(fixture.paths.OwnershipRegistryPath)
+			reader, err := ownershipstore.NewRecoveryReader(fixture.Paths.OwnershipRegistryPath)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -88,7 +89,7 @@ func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
 			if err != nil || len(registry.Claims()) != 2 || len(registry.DocumentBindings()) != 1 {
 				t.Fatal("both acquisitions did not settle exactly", err)
 			}
-			runNativeRecoveryCommand(t, fixture.nativeRecoveryFixture, "none", "status", "--check", "--json")
+			nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "status", "--check", "--json")
 		})
 	}
 }
