@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -18,7 +19,7 @@ type ordinaryWriterAddress struct {
 	destination output.Destination
 }
 
-func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, namespaces []NativeDocumentNamespace, manifest nativeDocumentRootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *recovery.PhysicalWorkBudget, protected []string) error {
+func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, namespaces []NativeDocumentNamespace, manifest nativeDocumentRootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *recovery.PhysicalWorkBudget, protected []pathauthority.Exact) error {
 	var paths []documentWriterPath
 	appendObservation := func(observation mutation.DirectoryEntryAuthorityObservation, group int) error {
 		if err := observation.Validate(); err != nil {
@@ -97,7 +98,10 @@ func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, na
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		volume, components := recoveryFilesystemPathComponents(path)
+		if err := path.Validate(); err != nil {
+			return err
+		}
+		volume, components := recoveryFilesystemPathComponents(path.Key())
 		paths = append(paths, documentWriterPath{volume, components, -2 - index})
 	}
 	return validateDocumentWriterPaths(ctx, paths)

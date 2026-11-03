@@ -413,7 +413,11 @@ func assessmentImage(t *testing.T, fixture nativeRecordFixture, expected bool) [
 	if expected {
 		name = "expected"
 	}
-	content, err := os.ReadFile(filepath.Join(fixture.record.ManifestRootProvenance.PhysicalRoot, "images", name))
+	authority, err := fixture.read.artifacts.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(authority.PhysicalRoot(), "images", name))
 	if err != nil {
 		t.Fatal(err)
 	}

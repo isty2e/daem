@@ -200,7 +200,7 @@ func ordinaryWriterCapability(t *testing.T, root NativeDocumentRoot, relative st
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry := recoveryEntry{Scope: string(target.ScopeGlobal), Path: "@pi-agent/" + relative, GlobalPathBinding: &recoveryGlobalPathBinding{ResolvedPath: filepath.Join(root.SelectedPath, relative), RootProvenance: persistedNativeRoot(provenance)}}
+	entry := recoveryEntry{Scope: string(target.ScopeGlobal), Path: "@pi-agent/" + relative, GlobalPathBinding: &recoveryGlobalPathBinding{ResolvedPath: filepath.Join(authority.PhysicalRoot(), relative), RootProvenance: persistedNativeRoot(provenance)}}
 	closed := new(int)
 	acquire := func(destination output.Destination, budget rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 		if destination.String() != entry.Path || budget == nil {

@@ -23,7 +23,11 @@ import (
 
 func TestPreparedNativeDocumentsAdmitActualPlanBeforeArtifactsExist(t *testing.T) {
 	fixture, decoded, comparison := preparedNativeFixture(t)
-	if err := os.Rename(filepath.Join(fixture.record.ManifestRootProvenance.PhysicalRoot, "images"), filepath.Join(fixture.record.ManifestRootProvenance.PhysicalRoot, "unavailable-images")); err != nil {
+	artifacts, err := fixture.read.artifacts.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(artifacts.PhysicalRoot(), "images"), filepath.Join(artifacts.PhysicalRoot(), "unavailable-images")); err != nil {
 		t.Fatal(err)
 	}
 	prepared, err := decoded.prepareDocuments(t.Context(), []DocumentComparison{comparison}, fixture.read.limits, fixture.read.codecs)

@@ -189,7 +189,11 @@ func TestNativeJournalReconstructionRejectsLateGroupWithoutPartialPrefix(t *test
 	if err == nil || loaded.groups != nil || loaded.images != nil || loaded.claims != nil || loaded.provisional != nil {
 		t.Fatal("late full-reference failure retained a usable first group")
 	}
-	if err := os.WriteFile(filepath.Join(fixture.record.ManifestRootProvenance.PhysicalRoot, "images", "expected"), []byte(`{"model":"wrong"}`), 0o600); err != nil {
+	artifacts, err := fixture.read.artifacts.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(artifacts.PhysicalRoot(), "images", "expected"), []byte(`{"model":"wrong"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	decoded.record = fixture.record

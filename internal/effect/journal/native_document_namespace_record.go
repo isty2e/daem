@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -115,13 +116,21 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 		}
 		namespaces = append(namespaces, namespace)
 	}
-	protected := []string{journal.owner.StatefileKey()}
+	protected := []pathauthority.Exact{journal.owner.StatefileAuthority()}
 	if options.artifacts != nil {
 		artifacts, err := options.artifacts.AuthorityBounded(options.budget)
 		if err != nil {
 			return nil, err
 		}
-		protected = append(protected, artifacts.PhysicalRoot())
+		observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(artifacts.PhysicalRoot(), recovery.MaximumPhysicalPathDepth, options.budget)
+		if err != nil {
+			return nil, err
+		}
+		exact, present := observed.Exact()
+		if !present {
+			return nil, fmt.Errorf("native recovery artifacts require exact path authority")
+		}
+		protected = append(protected, exact)
 	}
 	if err := journal.record.qualifyWriterPartition(ctx, namespaces, manifest, options.ordinaryCapabilities, options.budget, protected); err != nil {
 		return nil, err

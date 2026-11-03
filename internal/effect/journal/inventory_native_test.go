@@ -281,8 +281,12 @@ func nativeInventoryFixture(t *testing.T) (nativeAssessmentFixture, string, stri
 	if err := os.MkdirAll(filepath.Join(operationDir, "images"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	artifactsBefore, err := setup.fixture.read.artifacts.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"before", "expected"} {
-		content, err := os.ReadFile(filepath.Join(setup.fixture.record.ManifestRootProvenance.PhysicalRoot, "images", name))
+		content, err := os.ReadFile(filepath.Join(artifactsBefore.PhysicalRoot(), "images", name))
 		if err != nil {
 			t.Fatal(err)
 		}

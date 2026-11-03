@@ -289,13 +289,17 @@ func nativeRecordLoadFixture(t *testing.T, fixture nativeRecordFixture) nativeDo
 
 func nativeRecordImages(t *testing.T, fixture *nativeRecordFixture, original, expected aggregate.Document) {
 	t.Helper()
+	artifacts, err := fixture.read.artifacts.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
 	group := &fixture.record.DocumentGroups[0]
 	for index, document := range []aggregate.Document{original, expected} {
 		path := []string{"images/before", "images/expected"}[index]
 		var mode *recovery.PermissionMode
 		if document.Exists() {
 			mode = recovery.NewPermissionMode(0o600)
-			if err := os.WriteFile(filepath.Join(fixture.record.ManifestRootProvenance.PhysicalRoot, filepath.FromSlash(path)), document.Content(), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(artifacts.PhysicalRoot(), filepath.FromSlash(path)), document.Content(), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		} else {

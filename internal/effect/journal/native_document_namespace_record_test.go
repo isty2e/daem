@@ -237,9 +237,23 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 func nativeNamespaceRecordFixture(t *testing.T) (nativeRecordFixture, NativeDocumentRoots) {
 	t.Helper()
 	fixture := nativeJournalFixture(t)
-	manifest := NativeDocumentRoot{SelectedPath: fixture.record.ManifestRootProvenance.PhysicalRoot, Root: fixture.read.artifacts}
+	imageAuthority, err := fixture.read.artifacts.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageRoot := imageAuthority.PhysicalRoot()
+	manifest := nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "manifest"))
+	authority, err := manifest.Root.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := authority.Provenance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.record.ManifestRootProvenance = persistedNativeRoot(provenance)
 	pi := nativeNamespaceRoot(t, filepath.Join(manifest.SelectedPath, "host"))
-	content, err := os.ReadFile(filepath.Join(manifest.SelectedPath, "images", "before"))
+	content, err := os.ReadFile(filepath.Join(imageRoot, "images", "before"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,6 +288,17 @@ func nativeNamespaceRecordFixture(t *testing.T) (nativeRecordFixture, NativeDocu
 	}
 	group.BindingIntents = []recoveryDocumentBindingIntent{binding}
 	return fixture, roots
+}
+
+func TestQualifiedNativeWriterRefusesProtectedArtifactRoot(t *testing.T) {
+	fixture, roots := nativeNamespaceRecordFixture(t)
+	read := fixture.read
+	read.artifacts = roots.Manifest.Root
+	journal := nativeJournalSnapshots{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	namespaces, err := journal.qualifyDocumentNamespaces(t.Context(), read, roots)
+	if err == nil || namespaces != nil {
+		t.Fatal("native writer inside the protected artifact root was admitted", err)
+	}
 }
 
 func nativeNamespaceGroupFacts(t *testing.T, group recoveryDocumentGroup, namespace NativeDocumentNamespace) recoveryDocumentGroup {
