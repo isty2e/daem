@@ -71,3 +71,84 @@ func TestBoundedRevisionCacheRejectsAliasedRewriteWithRestoredMtime(t *testing.T
 		t.Fatal("aliased rewrite reused a stale bounded-file digest")
 	}
 }
+
+func TestIncrementalRevisionCaptureResolvesRetargetedAncestor(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	for _, directory := range []string{first, second} {
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "value"), []byte("same"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(first, alias); err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewBoundedFileRevisionRequest(64, filepath.Join(alias, "value"), PathEffectReferent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pass := NewRevisionObservationPass()
+	before, err := pass.Capture(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(second, alias); err != nil {
+		t.Fatal(err)
+	}
+	after, err := pass.Capture(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := NewRevisionObservationPass().Capture(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Equal(after) || !after.Equal(fresh) {
+		t.Fatal("incremental capture retained an earlier ancestor resolution")
+	}
+}
+
+func TestRevisionBatchKeepsAliasEntryAndReferentDistinct(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "value"), []byte("value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ancestorAlias := filepath.Join(root, "ancestor-alias")
+	if err := os.Symlink(real, ancestorAlias); err != nil {
+		t.Fatal(err)
+	}
+	finalAlias := filepath.Join(root, "final-alias")
+	if err := os.Symlink(filepath.Join(real, "value"), finalAlias); err != nil {
+		t.Fatal(err)
+	}
+	requests, err := BoundedFileRevisionRequests(64, filepath.Join(ancestorAlias, "value"), finalAlias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, err := CaptureRevisionSet(t.Context(), requests...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, request := range requests {
+		fresh, err := NewRevisionObservationPass().Capture(t.Context(), request)
+		if err != nil || !batch.observations[index].revision.Equal(fresh) {
+			t.Fatalf("aliased batch request %d differs from fresh capture: %v", index, err)
+		}
+	}
+	if batch.observations[2].revision.Equal(batch.observations[3].revision) {
+		t.Fatal("final alias entry and referent revisions were conflated")
+	}
+}
