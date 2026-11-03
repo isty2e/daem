@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
@@ -102,9 +103,14 @@ func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessme
 			claims = append(claims, claim)
 		}
 	}
-	for _, footprint := range expected {
-		if slices.ContainsFunc(selected, footprint.Overlaps) && !slices.ContainsFunc(claims, func(claim ownership.Claim) bool { return claim.Address().Footprint().Equal(footprint) }) {
-			return false, fmt.Errorf("capture history differs from its selected active claims")
+
+	// Project history uses the Snapshot and document binding. Persisted active
+	// claims cover global scope, not an additional project ownership record.
+	if config.Scope() == target.ScopeGlobal {
+		for _, footprint := range expected {
+			if slices.ContainsFunc(selected, footprint.Overlaps) && !slices.ContainsFunc(claims, func(claim ownership.Claim) bool { return claim.Address().Footprint().Equal(footprint) }) {
+				return false, fmt.Errorf("capture history differs from its selected active claims")
+			}
 		}
 	}
 	return wholeBefore && config.Ownership() == hostconfig.OwnershipKeys, nil

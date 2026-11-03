@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/executionidentity"
 	"github.com/isty2e/daem/internal/output"
+	codexhostpath "github.com/isty2e/daem/internal/output/hostpath/codex"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization"
@@ -111,7 +113,11 @@ func seedCaptureWholeHistory(t *testing.T, fixture captureWorkflowFixture, scena
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := ownership.NewRegistry([]ownership.Claim{claim}, binding)
+	claims := []ownership.Claim{claim}
+	if scenario == "same-declaration" && config.Scope() == target.ScopeProject {
+		claims = nil
+	}
+	registry, err := ownership.NewRegistry(claims, binding)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,6 +200,15 @@ func TestHostConfigCaptureRefusesForeignReservedOrUnrelatedWholeHistory(t *testi
 
 func TestHostConfigCaptureDoesNotRequireUnselectedAliasMutationCohort(t *testing.T) {
 	fixture := newCaptureWorkflowFixture(t, "keys", []byte(`{"nested":{"a":42},"peer":77}`))
+	fixture.manifest = []byte(strings.NewReplacer(
+		`scope = "project"`, `scope = "global"`,
+		`source = "source.jsonc"`, `source = `+strconv.Quote(fixture.source),
+		`source = "alias.jsonc"`, `source = `+strconv.Quote(fixture.alias),
+	).Replace(string(fixture.manifest)))
+	if err := os.WriteFile(fixture.paths.ManifestPath, fixture.manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(codexhostpath.HomeEnvironmentVariable, filepath.Dir(fixture.host))
 	peerPath := filepath.Join(filepath.Dir(fixture.host), "unselected.json")
 	if err := os.Remove(peerPath); err != nil {
 		t.Fatal(err)
