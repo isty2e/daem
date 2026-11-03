@@ -164,8 +164,8 @@ func (budget *PhysicalWorkBudget) ReserveForwardExecutionPathWork(
 // BeginReservedForwardExecution transfers only pre-effect namespace and path
 // capacity into the forward-removal execution phase.
 func (budget *PhysicalWorkBudget) BeginReservedForwardExecution() (*PhysicalWorkBudget, error) {
-	if budget == nil {
-		return nil, fmt.Errorf("physical work budget is required")
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
 	}
 	if budget.forwardExecutionBegun {
 		return nil, fmt.Errorf("forward removal execution capacity was already transferred")
