@@ -50,7 +50,7 @@ func TestNativeKeyReplacementDoesNotExecuteOtherWork(t *testing.T) {
 }
 
 func TestNativeKeyReplacementRefusesForeignOwner(t *testing.T) {
-	fixture := newNativeKeyScopeFixture(t, nativeKeyScopes()[2], true)
+	fixture := newNativeKeyScopeFixture(t, nativeKeyScopeNamed(t, "codex-global"), true)
 	nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
 	other := fixture.RecoveryFixture
 	other.Manifest = filepath.Join(filepath.Dir(filepath.Dir(fixture.Manifest)), "other", "daem.toml")
@@ -67,7 +67,7 @@ func TestNativeKeyReplacementRefusesForeignOwner(t *testing.T) {
 }
 
 func TestNativeKeyReplacementRefusesScalarAncestor(t *testing.T) {
-	fixture := newNativeKeyScopeFixture(t, nativeKeyScopes()[0], true)
+	fixture := newNativeKeyScopeFixture(t, nativeKeyScopeNamed(t, "pi-project"), true)
 	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), `{"extensionPreferences":"local scalar","theme":"dark"}`)
 	before := nativefixture.SnapshotRecoveryEvidence(t, fixture.RecoveryFixture)
 	if code, _, _ := nativefixture.InvokeRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "host-config", "preferences", "--dry-run", "--json"); code == 0 {
@@ -79,7 +79,7 @@ func TestNativeKeyReplacementRefusesScalarAncestor(t *testing.T) {
 }
 
 func TestNativeKeyReplacementLiteralJSONNames(t *testing.T) {
-	fixture := newNativeKeyScopeFixture(t, nativeKeyScopes()[0], true)
+	fixture := newNativeKeyScopeFixture(t, nativeKeyScopeNamed(t, "pi-project"), true)
 	workspace := filepath.Dir(fixture.Manifest)
 	testkit.WriteFile(t, workspace, "preferences.json", `{"ext":{"a/b":2,"~":true,"":false}}`)
 	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), `{"ext":{"a/b":0,"~":false,"":true},"foreign":3}`)

@@ -22,7 +22,7 @@ func TestNativeKeyUnicodeGlobalAcquisition(t *testing.T) {
 	}
 	for _, boundary := range boundaries {
 		t.Run(boundary, func(t *testing.T) {
-			selected := nativeKeyScopes()[2]
+			selected := nativeKeyScopeNamed(t, "codex-global")
 			selected.name = "codex-global-unicode"
 			selected.filename = "extension-settings/Caf\u00e9.toml"
 			fixture := newNativeKeyScopeFixture(t, selected, false)

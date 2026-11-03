@@ -96,9 +96,9 @@ func TestNativeKeyMissingGlobalRootRecovery(t *testing.T) {
 					if !reflect.DeepEqual(beforeState, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
 						t.Fatal("new-root rollback changed persisted Before state")
 					}
+					nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
 				}
 
-				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
 				requireNativeKeyScopeDesired(t, fixture, "after-model")
 			})
 		}

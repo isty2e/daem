@@ -44,6 +44,17 @@ func nativeKeyScopes() []nativeKeyScope {
 	}
 }
 
+func nativeKeyScopeNamed(t *testing.T, name string) nativeKeyScope {
+	t.Helper()
+	for _, selected := range nativeKeyScopes() {
+		if selected.name == name {
+			return selected
+		}
+	}
+	t.Fatalf("unknown native key scope %q", name)
+	return nativeKeyScope{}
+}
+
 type nativeKeyScopeFixture struct {
 	nativefixture.RecoveryFixture
 	selected nativeKeyScope

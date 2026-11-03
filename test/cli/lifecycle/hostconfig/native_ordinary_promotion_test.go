@@ -23,7 +23,7 @@ func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
 	}
 	for _, boundary := range boundaries {
 		t.Run(boundary, func(t *testing.T) {
-			selected := nativeKeyScopes()[2]
+			selected := nativeKeyScopeNamed(t, "codex-global")
 			selected.filename = "extension-settings/Caf\u00e9.toml"
 			fixture := newNativeKeyScopeFixture(t, selected, false)
 			workspace := filepath.Dir(fixture.Manifest)

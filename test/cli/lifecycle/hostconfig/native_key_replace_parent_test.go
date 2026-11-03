@@ -10,7 +10,7 @@ import (
 )
 
 func TestNativeKeyReplacementAllowsSafeAncestorGrowth(t *testing.T) {
-	fixture := newNativeKeyScopeFixture(t, nativeKeyScopes()[0], true)
+	fixture := newNativeKeyScopeFixture(t, nativeKeyScopeNamed(t, "pi-project"), true)
 	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), `{"theme":"dark"}`)
 	fingerprint := nativeReplacementFingerprint(t, fixture.RecoveryFixture)
 	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), `{"theme":"dark","extensionPreferences":{"foreign":3}}`)
