@@ -38,13 +38,17 @@ func readExecutionContext(ctx context.Context) (executionidentity.Context, error
 		executionContextDigest("visibility", "darwin-global-pid-v1"))
 }
 
-type executionContextOutput struct{ bytes.Buffer }
+type executionContextOutput struct{ buffer bytes.Buffer }
 
 func (output *executionContextOutput) Write(value []byte) (int, error) {
-	if output.Len()+len(value) > 1<<20 {
+	if len(value) > 1<<20-output.buffer.Len() {
 		return 0, errors.New("platform identity output exceeds its observation bound")
 	}
-	return output.Buffer.Write(value)
+	return output.buffer.Write(value)
+}
+
+func (output *executionContextOutput) String() string {
+	return output.buffer.String()
 }
 
 func darwinExecutionHostID(document string) (string, error) {
