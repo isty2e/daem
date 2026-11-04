@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
@@ -40,32 +41,130 @@ func CommitFileSet(ctx context.Context, input FileSetInput) error {
 	return commitWithOperations(ctx, input, operations{writeFile: commitFile})
 }
 
+// CommitFileSet4 publishes a generation-4 static file set with the existing
+// before-image and after-hash evidence grammar.
+func CommitFileSet4(ctx context.Context, input FileSetInput) error {
+	return commitWithOperationsVersion(
+		ctx,
+		input,
+		operations{writeFile: commitFile},
+		contractversion.MetadataTransactionReference,
+		false,
+	)
+}
+
+// CommitFileSet4WithReference publishes a generation-4 file set retaining the
+// constructor-owned after-image for its one commit-point target.
+func CommitFileSet4WithReference(ctx context.Context, input FileSetInput) error {
+	return commitWithOperationsVersion(
+		ctx,
+		input,
+		operations{writeFile: commitFile},
+		contractversion.MetadataTransactionReference,
+		true,
+	)
+}
+
+// CommitFreshFileSet4WithReference refuses pending evidence instead of recovering
+// and then starting another operation. The caller must hold the complete leases
+// across the fence observation and publication, including StateDir authority.
+func CommitFreshFileSet4WithReference(ctx context.Context, input FileSetInput) error {
+	if ctx == nil {
+		return fmt.Errorf("file-set transaction context is required")
+	}
+	budget := &fenceObservationBudget{}
+	canonical, err := canonicalStateDirBounded(input.StateDir, mutationfs.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return err
+	}
+	if err := ObserveClearFenceAt4(ctx, canonical, mutationfs.MaximumPhysicalPathDepth, budget); err != nil {
+		return err
+	}
+	return CommitFileSet4WithReference(ctx, input)
+}
+
 func commitWithOperations(ctx context.Context, input FileSetInput, ops operations) error {
+	return commitWithOperationsVersion(ctx, input, ops, contractversion.MetadataTransaction, false)
+}
+
+func hasCommitPointTarget(targets []FileTarget) bool {
+	for _, target := range targets {
+		if target.commitPoint {
+			return true
+		}
+	}
+	return false
+}
+
+func commitWithOperationsVersion(
+	ctx context.Context,
+	input FileSetInput,
+	ops operations,
+	version int,
+	retainReference bool,
+) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	stateDir, err := canonicalStateDir(input.StateDir)
+	maximumPhysicalDepth := 0
+	var physicalWorkBudget *fenceObservationBudget
+	var stateDir string
+	var err error
+	if version == contractversion.MetadataTransactionReference {
+		maximumPhysicalDepth = mutationfs.MaximumPhysicalPathDepth
+		physicalWorkBudget = &fenceObservationBudget{}
+		stateDir, err = canonicalStateDirBounded(input.StateDir, maximumPhysicalDepth, physicalWorkBudget)
+	} else {
+		stateDir, err = canonicalStateDir(input.StateDir)
+	}
 	if err != nil {
 		return err
 	}
-	targets, err := canonicalTargets(input.Targets)
+	var targets []FileTarget
+	if version == contractversion.MetadataTransactionReference {
+		targets, err = canonicalTargetsBounded(input.Targets, maximumPhysicalDepth, physicalWorkBudget)
+	} else {
+		targets, err = canonicalTargets(input.Targets)
+	}
 	if err != nil {
 		return err
 	}
 	if ops.writeFile == nil {
 		ops.writeFile = commitFile
 	}
+	if version != contractversion.MetadataTransaction && version != contractversion.MetadataTransactionReference {
+		return fmt.Errorf("unsupported file-set transaction writer version %d", version)
+	}
+	if retainReference && version != contractversion.MetadataTransactionReference {
+		return fmt.Errorf("reference evidence requires file-set transaction generation 4")
+	}
+	if retainReference && !hasCommitPointTarget(targets) {
+		return fmt.Errorf("reference evidence requires exactly one commit-point target")
+	}
 	allowed := make([]string, 0, len(targets))
 	for _, target := range targets {
 		allowed = append(allowed, target.path)
 	}
-	if err := recoverWithOperations(ctx, stateDir, allowed, ops); err != nil {
-		return err
+	var recoveryErr error
+	if version == contractversion.MetadataTransactionReference {
+		recoveryErr = recoverFileSet4WithBudget(
+			ctx,
+			stateDir,
+			allowed,
+			ops,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		)
+	} else {
+		recoveryErr = recoverWithOperationsVersion(ctx, stateDir, allowed, ops, version)
 	}
-	marker, err := prepareMarker(ctx, stateDir, targets)
+	if recoveryErr != nil {
+		return recoveryErr
+	}
+	marker, err := prepareMarkerVersion(ctx, stateDir, targets, version, retainReference)
 	if err != nil {
 		return err
 	}
@@ -109,11 +208,40 @@ func RecoverFileSet(ctx context.Context, stateDir string, allowedPaths []string)
 	return recoverWithOperations(ctx, canonical, allowedPaths, operations{writeFile: commitFile})
 }
 
+// RecoverFileSet4 recovers a generation-4 transaction for the complete exact
+// target set. A reference artifact is evidence only; it does not expand that
+// target authority.
+func RecoverFileSet4(ctx context.Context, stateDir string, exactPaths []string) error {
+	return recoverWithOperationsVersion(
+		ctx,
+		stateDir,
+		exactPaths,
+		operations{writeFile: commitFile},
+		contractversion.MetadataTransactionReference,
+	)
+}
+
 func requireClearFileSetAtCanonicalPath(
 	ctx context.Context,
 	stateDir string,
 	maximumPhysicalDepth int,
 	physicalWorkBudget PhysicalWorkBudget,
+) error {
+	return requireClearFileSetAtCanonicalPathVersion(
+		ctx,
+		stateDir,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		contractversion.MetadataTransaction,
+	)
+}
+
+func requireClearFileSetAtCanonicalPathVersion(
+	ctx context.Context,
+	stateDir string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+	version int,
 ) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
@@ -150,23 +278,36 @@ func requireClearFileSetAtCanonicalPath(
 		))
 	}
 	activeMarkerPath := markerPath(stateDir)
-	if err := admitFileSetFenceObservation(
-		activeMarkerPath,
-		maximumPhysicalDepth,
-		physicalWorkBudget,
-		1,
-		maximumMarkerBytes,
-	); err != nil {
-		return err
+	if version != contractversion.MetadataTransactionReference {
+		if err := admitFileSetFenceObservation(
+			activeMarkerPath,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+			1,
+			maximumMarkerBytes,
+		); err != nil {
+			return err
+		}
 	}
-	if _, err := loadMarkerAtCanonicalPath(ctx, activeMarkerPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+	var markerErr error
+	if version == contractversion.MetadataTransactionReference {
+		_, _, _, markerErr = loadMarker4WithBudget(
+			ctx,
+			activeMarkerPath,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		)
+	} else {
+		_, markerErr = loadMarkerAtCanonicalPath(ctx, activeMarkerPath)
+	}
+	if markerErr != nil {
+		if errors.Is(markerErr, errFileSetMarkerAbsent) {
 			return wrapFileSetEvidenceInvalid(fmt.Errorf(
 				"file-set transaction evidence at %s is incomplete: marker is missing",
 				evidencePath,
 			))
 		}
-		return wrapFileSetEvidenceInvalid(err)
+		return wrapFileSetEvidenceInvalid(markerErr)
 	}
 	return fmt.Errorf("%w at %s", ErrInterruptedFileSetTransaction, activeMarkerPath)
 }
@@ -177,18 +318,46 @@ func recoverWithOperations(
 	allowedPaths []string,
 	ops operations,
 ) error {
+	return recoverWithOperationsVersion(ctx, stateDir, allowedPaths, ops, contractversion.MetadataTransaction)
+}
+
+func recoverWithOperationsVersion(
+	ctx context.Context,
+	stateDir string,
+	allowedPaths []string,
+	ops operations,
+	version int,
+) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if version == contractversion.MetadataTransactionReference {
+		maximumPhysicalDepth := mutationfs.MaximumPhysicalPathDepth
+		physicalWorkBudget := &fenceObservationBudget{}
+		canonical, err := canonicalStateDirBounded(stateDir, maximumPhysicalDepth, physicalWorkBudget)
+		if err != nil {
+			return err
+		}
+		return recoverFileSet4WithBudget(
+			ctx,
+			canonical,
+			allowedPaths,
+			ops,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		)
+	}
 	if ops.writeFile == nil {
 		ops.writeFile = commitFile
 	}
-	marker, err := loadMarker(ctx, markerPath(stateDir))
+	var err error
+	var marker transactionMarker
+	marker, err = loadMarker(ctx, markerPath(stateDir))
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, errFileSetMarkerAbsent) {
 			return rejectAbandonedFileSetResidue(ctx, stateDir)
 		}
 		return err
@@ -223,6 +392,84 @@ func recoverWithOperations(
 		return rejectAbandonedFileSetResidue(ctx, stateDir)
 	}
 	return fmt.Errorf("interrupted file-set transaction at %s cannot be recovered automatically", markerPath(stateDir))
+}
+
+func recoverFileSet4WithBudget(
+	ctx context.Context,
+	canonicalStateDir string,
+	allowedPaths []string,
+	ops operations,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) error {
+	if ctx == nil {
+		return fmt.Errorf("file-set transaction context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
+		return fmt.Errorf("generation-4 recovery requires a path depth and shared work budget")
+	}
+	if ops.writeFile == nil {
+		ops.writeFile = commitFile
+	}
+	marker, _, _, err := loadMarker4WithBudget(
+		ctx,
+		markerPath(canonicalStateDir),
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
+	if err != nil {
+		if errors.Is(err, errFileSetMarkerAbsent) {
+			return rejectAbandonedFileSetResidueWithBudget(ctx, canonicalStateDir, maximumPhysicalDepth, physicalWorkBudget)
+		}
+		return err
+	}
+	allowed, err := canonicalAllowedPathsBounded(allowedPaths, maximumPhysicalDepth, physicalWorkBudget)
+	if err != nil {
+		return err
+	}
+	if len(allowed) != len(marker.Targets) {
+		return fmt.Errorf("interrupted file-set target set does not match this operation")
+	}
+	for _, target := range marker.Targets {
+		if _, ok := allowed[target.Path]; !ok {
+			return RecoveryAuthorityError{Path: target.Path}
+		}
+	}
+
+	classification, err := classifyTargets(ctx, marker)
+	if err != nil {
+		return err
+	}
+	if classification.cleanAfter {
+		if err := removeTransactionDir(ctx, canonicalStateDir); err != nil {
+			return err
+		}
+		return rejectAbandonedFileSetResidueWithBudget(ctx, canonicalStateDir, maximumPhysicalDepth, physicalWorkBudget)
+	}
+	if classification.recoverable {
+		if err := restoreTransactionWithBudget(
+			context.WithoutCancel(ctx),
+			marker,
+			ops,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		); err != nil {
+			return fmt.Errorf("restore interrupted file-set transaction: %w", err)
+		}
+		if err := removeTransactionDir(context.WithoutCancel(ctx), canonicalStateDir); err != nil {
+			return err
+		}
+		return rejectAbandonedFileSetResidueWithBudget(
+			context.WithoutCancel(ctx),
+			canonicalStateDir,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		)
+	}
+	return fmt.Errorf("interrupted file-set transaction at %s cannot be recovered automatically", markerPath(canonicalStateDir))
 }
 
 type targetClassification struct {
@@ -263,6 +510,58 @@ func restoreTransaction(ctx context.Context, marker transactionMarker, ops opera
 	return errors.Join(failures...)
 }
 
+func restoreTransactionWithBudget(
+	ctx context.Context,
+	marker transactionMarker,
+	ops operations,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) error {
+	if err := preflightRestorableBackupsWithBudget(ctx, marker, maximumPhysicalDepth, physicalWorkBudget); err != nil {
+		return err
+	}
+	if ops.writeFile == nil {
+		ops.writeFile = commitFile
+	}
+	var stagedBeforeBytes int64
+	failures := make([]error, 0)
+	for _, target := range marker.Targets {
+		matches, err := fileMatchesState(ctx, target.Path, target.Before)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("inspect %q before restoration: %w", target.Path, err))
+			continue
+		}
+		if matches {
+			continue
+		}
+		if !target.Before.Exists {
+			if err := removeFile(ctx, target.Path); err != nil {
+				failures = append(failures, fmt.Errorf("remove %q: %w", target.Path, err))
+			}
+			continue
+		}
+		content, nextTotal, err := readEvidenceImageWithBudget(
+			ctx,
+			target.Before.BackupPath,
+			fmt.Sprintf("target before-image %q", target.Path),
+			stagedBeforeBytes,
+			target.Before.Hash,
+			-1,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("read backup %q: %w", target.Before.BackupPath, err))
+			continue
+		}
+		stagedBeforeBytes = nextTotal
+		if err := ops.writeFile(ctx, target.Path, content, fileMode(target.Before)); err != nil {
+			failures = append(failures, fmt.Errorf("restore %q: %w", target.Path, err))
+		}
+	}
+	return errors.Join(failures...)
+}
+
 func preflightRestorableBackups(ctx context.Context, marker transactionMarker) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -294,6 +593,47 @@ func preflightRestorableBackups(ctx context.Context, marker transactionMarker) e
 			)
 		}
 		stagedBeforeBytes += int64(len(content))
+	}
+	return nil
+}
+
+func preflightRestorableBackupsWithBudget(
+	ctx context.Context,
+	marker transactionMarker,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := admitFileSetTargetCount(len(marker.Targets)); err != nil {
+		return err
+	}
+	if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
+		return fmt.Errorf("bounded backup preflight requires a path depth and shared work budget")
+	}
+	var stagedBeforeBytes int64
+	for _, target := range marker.Targets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !target.Before.Exists {
+			continue
+		}
+		_, nextTotal, err := readEvidenceImageWithBudget(
+			ctx,
+			target.Before.BackupPath,
+			fmt.Sprintf("target before-image %q", target.Path),
+			stagedBeforeBytes,
+			target.Before.Hash,
+			-1,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		)
+		if err != nil {
+			return fmt.Errorf("preflight backup %q: %w", target.Before.BackupPath, err)
+		}
+		stagedBeforeBytes = nextTotal
 	}
 	return nil
 }

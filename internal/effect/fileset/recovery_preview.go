@@ -3,6 +3,8 @@ package fileset
 import (
 	"context"
 	"fmt"
+
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 )
 
 // RecoveryDisposition distinguishes completion from restoration; neither
@@ -54,6 +56,57 @@ func InspectFileSetRecovery(ctx context.Context, stateDir string, exactPaths []s
 		return "", fmt.Errorf("interrupted file-set contains state outside its before/after evidence")
 	}
 	if err := preflightRestorableBackups(ctx, marker); err != nil {
+		return "", err
+	}
+	return RecoveryRollback, nil
+}
+
+// InspectFileSetRecovery4 previews generation-4 recovery for an exact
+// operation-owned target set. The caller must reread its evidence under leases
+// before recovery.
+func InspectFileSetRecovery4(ctx context.Context, stateDir string, exactPaths []string) (RecoveryDisposition, error) {
+	if ctx == nil {
+		return "", fmt.Errorf("file-set recovery context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	maximumPhysicalDepth := mutationfs.MaximumPhysicalPathDepth
+	physicalWorkBudget := &fenceObservationBudget{}
+	canonical, err := canonicalStateDirBounded(stateDir, maximumPhysicalDepth, physicalWorkBudget)
+	if err != nil {
+		return "", err
+	}
+	marker, _, _, err := loadMarker4WithBudget(ctx, markerPath(canonical), maximumPhysicalDepth, physicalWorkBudget)
+	if err != nil {
+		return "", err
+	}
+	allowed, err := canonicalAllowedPathsBounded(exactPaths, maximumPhysicalDepth, physicalWorkBudget)
+	if err != nil {
+		return "", err
+	}
+	if len(allowed) != len(marker.Targets) {
+		return "", fmt.Errorf("interrupted file-set target set does not match this operation")
+	}
+	for _, target := range marker.Targets {
+		if _, ok := allowed[target.Path]; !ok {
+			return "", RecoveryAuthorityError{Path: target.Path}
+		}
+	}
+	if err := rejectAbandonedFileSetResidueWithBudget(ctx, canonical, maximumPhysicalDepth, physicalWorkBudget); err != nil {
+		return "", err
+	}
+	classification, err := classifyTargets(ctx, marker)
+	if err != nil {
+		return "", err
+	}
+	if classification.cleanAfter {
+		return RecoveryFinalize, nil
+	}
+	if !classification.recoverable {
+		return "", fmt.Errorf("interrupted file-set contains state outside its before/after evidence")
+	}
+	if err := preflightRestorableBackupsWithBudget(ctx, marker, maximumPhysicalDepth, physicalWorkBudget); err != nil {
 		return "", err
 	}
 	return RecoveryRollback, nil

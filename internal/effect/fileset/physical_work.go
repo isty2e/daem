@@ -3,8 +3,10 @@ package fileset
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
@@ -41,6 +43,68 @@ func MaximumFenceCensusWork(stateDir string, maximumPhysicalDepth int) (FenceCen
 		PathComponents: work.pathComponents,
 		Entries:        work.entries,
 		Bytes:          work.bytes,
+	}, nil
+}
+
+// MaximumFenceCensusWork4 returns a conservative envelope for one generation-4
+// fence observation, including the marker and all retained evidence images.
+func MaximumFenceCensusWork4(stateDir string, maximumPhysicalDepth int) (FenceCensusWork, error) {
+	base, err := maximumFileSetFenceCensusWork(stateDir, maximumPhysicalDepth)
+	if err != nil {
+		return FenceCensusWork{}, err
+	}
+	evidencePathWork := 0
+	for index := range maximumFileSetTargets {
+		path := filepath.Join(transactionDir(stateDir), fmt.Sprintf("target-%03d.before", index))
+		pathWork, err := fileSetAbsolutePathWork(path, maximumPhysicalDepth)
+		if err != nil {
+			return FenceCensusWork{}, err
+		}
+		evidencePathWork, err = fileSetWorkAdd(evidencePathWork, pathWork)
+		if err != nil {
+			return FenceCensusWork{}, err
+		}
+	}
+	imagePathWork, err := fileSetAbsolutePathWork(
+		filepath.Join(transactionDir(stateDir), referenceAfterImageName),
+		maximumPhysicalDepth,
+	)
+	if err != nil {
+		return FenceCensusWork{}, err
+	}
+	evidencePathWork, err = fileSetWorkAdd(evidencePathWork, imagePathWork)
+	if err != nil {
+		return FenceCensusWork{}, err
+	}
+	evidencePathWork, err = fileSetWorkMultiply(evidencePathWork, 2)
+	if err != nil {
+		return FenceCensusWork{}, err
+	}
+	targetPathWork, err := fileSetWorkMultiply(maximumFileSetTargets, maximumPhysicalDepth)
+	if err != nil {
+		return FenceCensusWork{}, err
+	}
+	pathComponents, err := fileSetWorkAdd(base.pathComponents, targetPathWork)
+	if err != nil {
+		return FenceCensusWork{}, err
+	}
+	pathComponents, err = fileSetWorkAdd(pathComponents, evidencePathWork)
+	if err != nil {
+		return FenceCensusWork{}, err
+	}
+	evidenceEntries, err := fileSetWorkMultiply(maximumFileSetTargets+1, 2)
+	if err != nil {
+		return FenceCensusWork{}, err
+	}
+	entries, err := fileSetWorkAdd(base.entries, evidenceEntries)
+	if err != nil {
+		return FenceCensusWork{}, err
+	}
+	bytes := base.bytes + maximumMarkerBytes + maximumStagedBeforeImageBytes
+	return FenceCensusWork{
+		PathComponents: pathComponents,
+		Entries:        entries,
+		Bytes:          bytes,
 	}, nil
 }
 
@@ -95,6 +159,23 @@ func ObserveClearFenceAt(
 		canonicalStateDir,
 		maximumPhysicalDepth,
 		physicalWorkBudget,
+	)
+}
+
+// ObserveClearFenceAt4 validates a generation-4 marker and every retained
+// evidence image while charging the caller-owned fence budget.
+func ObserveClearFenceAt4(
+	ctx context.Context,
+	canonicalStateDir string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) error {
+	return requireClearFileSetAtCanonicalPathVersion(
+		ctx,
+		canonicalStateDir,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		contractversion.MetadataTransactionReference,
 	)
 }
 
