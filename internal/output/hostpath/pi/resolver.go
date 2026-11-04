@@ -77,18 +77,25 @@ func ResolveAgentRoot(input AgentRootInput) (string, error) {
 	return filepath.Clean(root), nil
 }
 
-// DestinationOverride maps Pi's logical global MCP destination to the current
-// host-selected physical root.
+// DestinationOverride maps Pi's logical agent root and legacy global MCP
+// destination to the current host-selected physical root.
 func DestinationOverride(workDir string) hostpath.DestinationOverrideResolver {
 	return func(destination output.Destination) (string, bool, error) {
-		if destination != globalMCPLogicalDestination {
-			return "", false, nil
+		if destination.RootRole() == output.RootPiAgent {
+			root, err := ResolveAgentRoot(AgentRootInput{WorkDir: workDir})
+			if err != nil {
+				return "", true, err
+			}
+			return filepath.Join(root, filepath.FromSlash(destination.RelativePath())), true, nil
 		}
-		root, err := ResolveAgentRoot(AgentRootInput{WorkDir: workDir})
-		if err != nil {
-			return "", true, err
+		if destination == globalMCPLogicalDestination {
+			root, err := ResolveAgentRoot(AgentRootInput{WorkDir: workDir})
+			if err != nil {
+				return "", true, err
+			}
+			return filepath.Join(root, "mcp.json"), true, nil
 		}
-		return filepath.Join(root, "mcp.json"), true, nil
+		return "", false, nil
 	}
 }
 

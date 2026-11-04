@@ -46,6 +46,11 @@ type classifiedError struct {
 	message string
 }
 
+type validationRules struct {
+	canonicalObjectKeys bool
+	rejectNull          bool
+}
+
 func (err classifiedError) Error() string { return err.message }
 
 func (err classifiedError) Unwrap() error { return err.kind }
@@ -58,7 +63,19 @@ func Validate(content []byte, document string, maximumDepth int) error {
 // ValidateContext requires one UTF-8 JSON value with unique object keys and
 // bounded nesting while preserving caller cancellation during validation.
 func ValidateContext(ctx context.Context, content []byte, document string, maximumDepth int) error {
-	return validate(ctx, content, document, maximumDepth, false)
+	return validate(ctx, content, document, maximumDepth, validationRules{})
+}
+
+// ValidateRecord requires one JSON object with unique canonical lower_snake_case
+// field names, no null values, and bounded nesting, including inside arrays.
+func ValidateRecord(content []byte, document string, maximumDepth int) error {
+	if err := validate(context.Background(), content, document, maximumDepth, validationRules{canonicalObjectKeys: true, rejectNull: true}); err != nil {
+		return err
+	}
+	if bytes.TrimSpace(content)[0] != '{' {
+		return fmt.Errorf("%s must be a JSON object", document)
+	}
+	return nil
 }
 
 func validate(
@@ -66,7 +83,7 @@ func validate(
 	content []byte,
 	document string,
 	maximumDepth int,
-	canonicalObjectKeys bool,
+	rules validationRules,
 ) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -91,7 +108,7 @@ func validate(
 	}
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.UseNumber()
-	if err := consumeValue(ctx, decoder, document, maximumDepth, 0, canonicalObjectKeys); err != nil {
+	if err := consumeValue(ctx, decoder, document, maximumDepth, 0, rules); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
@@ -118,7 +135,7 @@ func validate(
 // and returns its required positive integer version. Every object key must use
 // canonical ASCII lower_snake_case spelling; schema-specific fields stay opaque.
 func ValidateVersionedObject(content []byte, document string, maximumDepth int) (int, error) {
-	if err := validate(context.Background(), content, document, maximumDepth, true); err != nil {
+	if err := validate(context.Background(), content, document, maximumDepth, validationRules{canonicalObjectKeys: true}); err != nil {
 		return 0, err
 	}
 	return exactObjectVersion(content, document)
@@ -228,7 +245,7 @@ func consumeValue(
 	document string,
 	maximumDepth int,
 	depth int,
-	canonicalObjectKeys bool,
+	rules validationRules,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -248,6 +265,9 @@ func consumeValue(
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if token == nil && rules.rejectNull {
+		return fmt.Errorf("%s must not contain null values", document)
 	}
 	delimiter, composite := token.(json.Delim)
 	if !composite {
@@ -274,7 +294,7 @@ func consumeValue(
 			if !ok {
 				return fmt.Errorf("%s object key is not a string", document)
 			}
-			if canonicalObjectKeys && !isASCIILowerSnakeCase(key) {
+			if rules.canonicalObjectKeys && !isASCIILowerSnakeCase(key) {
 				return fmt.Errorf(
 					"%s object key %q must use canonical ASCII lower_snake_case spelling",
 					document,
@@ -294,7 +314,7 @@ func consumeValue(
 				document,
 				maximumDepth,
 				depth+1,
-				canonicalObjectKeys,
+				rules,
 			); err != nil {
 				return err
 			}
@@ -311,7 +331,7 @@ func consumeValue(
 				document,
 				maximumDepth,
 				depth+1,
-				canonicalObjectKeys,
+				rules,
 			); err != nil {
 				return err
 			}

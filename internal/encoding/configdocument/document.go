@@ -69,6 +69,16 @@ func Absent(syntax Syntax, limits Limits) (Document, error) {
 
 func (document Document) Exists() bool { return document.exists }
 
+// HasValues excludes missing documents, empty root objects and comments.
+// Nested empty objects and arrays are values.
+func (document Document) HasValues() bool {
+	if !document.exists {
+		return false
+	}
+	members, object := document.root.data.(objectNode)
+	return !object || len(members) != 0
+}
+
 // Bytes returns an independent copy, not mutable access to the observation.
 func (document Document) Bytes() []byte { return slices.Clone(document.content) }
 
