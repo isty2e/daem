@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -294,14 +296,14 @@ func TestSelectedGroupCaptureRefusesStaticContractAndMetadataMisjoinsBeforeRead(
 			case "wrong alias":
 				other := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/other.json")
 				var err error
-				capture.namespace, err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{other}, capture.roots, capture.reader, capture.input.budget)
+				capture.namespace, err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{other}, capture.roots, capture.reader, capture.input.Budget())
 				if err != nil {
 					t.Fatal(err)
 				}
 			case "zero edit":
 				capture.input.edits = []compose.ProjectionEdit{{}}
 			case "wrong owner":
-				capture.input.owner = documentClaimsForTest(t).owner
+				capture.input.CaptureInput = reviseCaptureInput(capture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Owner = documentClaimsForTest(t).owner })
 			case "wrong Pi alias":
 				_, order := piEvidenceFixture(t, target.ScopeGlobal)
 				capture.input.order = &order
@@ -333,7 +335,7 @@ func TestSelectedGroupCaptureCancellationAndObservedDriftExposeNoFacts(t *testin
 					t.Fatal(err)
 				}
 			case "read limit":
-				capture.input.limits.MaximumBytes = 2
+				capture.input.CaptureInput = reviseCaptureInput(capture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Limits.MaximumBytes = 2 })
 			}
 			group, comparison, err := prepareSelectedDocumentGroup(ctx, capture.namespace, capture.input, capture.subjects)
 			if err == nil || len(group.Aliases) != 0 || comparison.Validate() == nil {
@@ -434,7 +436,7 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 	if !known {
 		t.Fatal("fixture path requires normalization-stable exact authority")
 	}
-	input := selectedDocumentCaptureInput{edits: edits, order: order, nativeDocumentCaptureInput: nativeDocumentCaptureInput{owner: fixture.claims.owner, operationID: fixture.record.OperationID, groupIndex: 2, limits: fixture.read.limits, budget: budget}}
+	input := selectedDocumentCaptureInput{edits: edits, order: order, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: fixture.claims.owner, OperationID: fixture.record.OperationID, GroupIndex: 2, Limits: fixture.read.limits, Budget: budget})}
 	indexes, err := journaldocument.IndexSnapshots(t.Context(), fixture.before, fixture.after)
 	if err != nil {
 		t.Fatal(err)
@@ -447,14 +449,14 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 			t.Fatal(err)
 		}
 		for footprint := range footprints {
-			claims[side] = append(claims[side], documentActiveClaim(t, documentClaimFixture{owner: input.owner, exact: exact}, footprint))
+			claims[side] = append(claims[side], documentActiveClaim(t, documentClaimFixture{owner: input.Owner(), exact: exact}, footprint))
 		}
 		destinations, err := index.NativeDestinations(t.Context())
 		if err != nil {
 			t.Fatal(err)
 		}
 		if _, present := destinations[alias.AggregateRoot()]; present {
-			binding, err := ownership.NewDocumentBinding(input.owner, alias.AggregateRoot(), exact)
+			binding, err := ownership.NewDocumentBinding(input.Owner(), alias.AggregateRoot(), exact)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -465,18 +467,20 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 		}
 	}
 	if len(claims[0])+len(claims[1]) != 0 {
-		transition, err := ownershipmutation.NewDocumentClaimTransition(claims[0], claims[1], input.operationID)
+		transition, err := ownershipmutation.NewDocumentClaimTransition(claims[0], claims[1], input.OperationID())
 		if err != nil {
 			t.Fatal(err)
 		}
-		input.claims = &transition
+		input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Claims = &transition })
 	}
 	if !bindings[0].Equal(ownership.NoDocumentBinding()) || !bindings[1].Equal(ownership.NoDocumentBinding()) {
-		intent, err := ownership.NewExactDocumentBindingIntent(input.owner, alias.AggregateRoot(), bindings[0], bindings[1])
+		intent, err := ownership.NewExactDocumentBindingIntent(input.Owner(), alias.AggregateRoot(), bindings[0], bindings[1])
 		if err != nil {
 			t.Fatal(err)
 		}
-		input.bindings = []ownership.DocumentBindingIntent{intent}
+		input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+			spec.Bindings = []ownership.DocumentBindingIntent{intent}
+		})
 	}
 	subjects, err := indexDocumentCaptureSubjects(t.Context(), fixture.before, fixture.after)
 	if err != nil {

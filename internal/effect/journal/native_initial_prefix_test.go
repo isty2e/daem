@@ -43,7 +43,7 @@ func TestNativeInitialObservationDiscardsEarlierOriginalOnLaterReadFailure(t *te
 	reader := &nativeInitialLaterReadFailure{RootedReader: input.Filesystem, err: sentinel}
 	input.Filesystem = reader
 	observed, err := ObserveNativeDocuments(t.Context(), input)
-	if !errors.Is(err, sentinel) || observed.initialized || len(observed.originals) != 0 || len(observed.namespaces) != 0 || registry.loads != 1 || reader.reads != 2 {
+	if !errors.Is(err, sentinel) || observed.Evidence().Validate() == nil || len(observed.Evidence().Namespaces()) != 0 || registry.loads != 1 || reader.reads != 2 {
 		t.Fatal("later read failure exposed an earlier observed original", err)
 	}
 	for _, capability := range reader.capabilities {

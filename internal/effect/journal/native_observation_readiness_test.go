@@ -20,7 +20,11 @@ func TestNativeObservationBeforeQualificationSharesCaptureInterpretation(t *test
 				if err != nil {
 					t.Fatal(err)
 				}
-				claims, bindings := batch.registry.Claims(), batch.registry.DocumentBindings()
+				initial, err := reader.store.Load(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				claims, bindings := initial.Claims(), initial.DocumentBindings()
 				switch change {
 				case "missing binding":
 					bindings = nil
@@ -56,13 +60,18 @@ func TestNativeObservationBeforeQualificationSharesCaptureInterpretation(t *test
 				if err != nil {
 					t.Fatal(err)
 				}
-				batch.registry, err = ownership.NewRegistry(claims, bindings...)
+				current, err := ownership.NewRegistry(claims, bindings...)
+				if err != nil {
+					t.Fatal(err)
+				}
+				input.Registry = &nativeCaptureRegistryReader{value: current}
+				batch, err = ObserveNativeDocuments(t.Context(), input)
 				if err != nil {
 					t.Fatal(err)
 				}
 				remaining := input.Budget.RemainingBytes()
-				qualification := batch.ValidateBefore(t.Context())
-				prepared, continuation := batch.prepareOwnership(t.Context(), fixture.envelope.after, fixture.input.operationID)
+				qualification := batch.Evidence().ValidateBefore(t.Context())
+				prepared, continuation := batch.prepareOwnership(t.Context(), fixture.envelope.after, fixture.input.OperationID())
 				if change == "none" {
 					if qualification != nil || continuation != nil || len(prepared) != 1 {
 						t.Fatal("actual matching history was refused", qualification, continuation)

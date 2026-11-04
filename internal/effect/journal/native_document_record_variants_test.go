@@ -217,7 +217,7 @@ func TestNativeJournalProvisionalClaimsPromoteWithinTheSameCompleteRecord(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	group.ExclusiveClaims, err = persistedDocumentProvisionalClaims([]documentProvisionalAcquire{{alias: fixture.claims.alias, intent: intent}})
+	group.ExclusiveClaims, err = persistedDocumentProvisionalClaims([]journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(fixture.claims.alias, intent)})
 	if err != nil {
 		t.Fatal(err)
 	}

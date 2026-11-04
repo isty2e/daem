@@ -9,6 +9,8 @@ import (
 	"slices"
 	"testing"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -114,7 +116,7 @@ func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	if err := os.Symlink(relative, aliasPath); err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, journalTestFilesystem(), fixture.whole.input.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, journalTestFilesystem(), fixture.whole.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +125,7 @@ func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	if !known {
 		t.Fatal("existing aliased file requires exact namespace evidence")
 	}
-	binding, err := ownership.NewDocumentBinding(fixture.whole.input.owner, address.AggregateRoot(), exact)
+	binding, err := ownership.NewDocumentBinding(fixture.whole.input.Owner(), address.AggregateRoot(), exact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,11 +133,13 @@ func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent, err := ownership.NewExactDocumentBindingIntent(fixture.whole.input.owner, address.AggregateRoot(), present, present)
+	intent, err := ownership.NewExactDocumentBindingIntent(fixture.whole.input.Owner(), address.AggregateRoot(), present, present)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.whole.input.bindings = []ownership.DocumentBindingIntent{intent}
+	fixture.whole.input.CaptureInput = reviseCaptureInput(fixture.whole.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+		spec.Bindings = []ownership.DocumentBindingIntent{intent}
+	})
 	group, comparison, err := prepareWholeDocumentGroup(t.Context(), namespace, fixture.whole.input)
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +209,7 @@ func TestNativeWriterPartitionRefusesAtEveryRecordBoundary(t *testing.T) {
 	if decoded, err := decodeNativeJournalRecord(t.Context(), content, fixture.whole.envelope.codec); err == nil || decoded.record.Version != 0 {
 		t.Error("strict decoding admitted overlapping physical writers")
 	}
-	if prepared, err := fixture.journal.prepareDocuments(t.Context(), []journaldocument.Comparison{fixture.comparison}, fixture.whole.input.limits, fixture.whole.envelope.read.codecs); err == nil || prepared.groups != nil {
+	if prepared, err := fixture.journal.prepareDocuments(t.Context(), []journaldocument.Comparison{fixture.comparison}, fixture.whole.input.Limits(), fixture.whole.envelope.read.codecs); err == nil || prepared.groups != nil {
 		t.Error("prepared comparison boundary returned an overlapping group prefix")
 	}
 	read := fixture.whole.envelope.read

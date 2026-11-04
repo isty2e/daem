@@ -56,7 +56,7 @@ func mixedStageFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal := nativeJournalSnapshots{record: whole.envelope.record, owner: whole.input.owner, before: whole.envelope.before, after: whole.envelope.after}
+	journal := nativeJournalSnapshots{record: whole.envelope.record, owner: whole.input.Owner(), before: whole.envelope.before, after: whole.envelope.after}
 	journal.record.ManifestRootProvenance, journal.record.DocumentGroups = persistedNativeRoot(provenance), []recoveryDocumentGroup{group}
 	ordinary := []byte("ordinary executable\n")
 	hash := artifact.HashFileContentWithExecutable(ordinary, true)
@@ -361,7 +361,7 @@ func (writer *mixedMutationWriter) SetRootMode(mode fs.FileMode) error {
 func TestNativeMixedJournalCombinesSelectedWholeAndDirectoryBackups(t *testing.T) {
 	fixture := mixedStageFixture(t)
 	native := nativeJournalFixture(t)
-	native.claims.owner = fixture.whole.input.owner
+	native.claims.owner = fixture.whole.input.Owner()
 	native.record.StateAuthority = fixture.journal.record.StateAuthority
 	selected := native.after.ManagedAggregates()[0]
 	original := aggregate.ExistingDocument([]byte(`{"model":true,"foreign":0}`))

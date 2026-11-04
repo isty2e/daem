@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"testing"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -72,7 +74,7 @@ func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 	}
 	project := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/prompts/Caf\u00e9.md")
 	aliases := append(fixture.namespace.Addresses(), project)
-	namespace, err := journalnamespace.Observe(t.Context(), aliases, roots, fixture.reader, fixture.input.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), aliases, roots, fixture.reader, fixture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,14 +110,18 @@ func TestNativeWholeGroupRejectsProvisionalClaimMisjoinsBeforeRead(t *testing.T)
 			}
 			switch mismatch {
 			case "owner":
-				fixture.input.owner = documentClaimsForTest(t).owner
+				fixture.input.CaptureInput = reviseCaptureInput(fixture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Owner = documentClaimsForTest(t).owner })
 			case "operation":
-				fixture.input.operationID = "another-operation"
+				fixture.input.CaptureInput = reviseCaptureInput(fixture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.OperationID = "another-operation" })
 			case "alias":
-				fixture.input.provisional[0].alias = nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/other.md")
+				fixture.input.CaptureInput = reviseCaptureInput(fixture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+					spec.Provisional[0] = journaldocument.NewProvisionalAcquire(nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/other.md"), spec.Provisional[0].Intent())
+				})
 			case "exact claims":
 				other := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
-				fixture.input.claims, fixture.input.provisional = other.input.claims, nil
+				fixture.input.CaptureInput = reviseCaptureInput(fixture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+					spec.Claims, spec.Provisional = other.input.Claims(), nil
+				})
 			}
 			group, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
 			if err == nil || len(group.Aliases) != 0 || comparison.Validate() == nil || fixture.reader.imageReads != 0 {
@@ -153,26 +159,40 @@ func TestNativeWholeGroupRejectsStaticMisjoinsBeforeContentRead(t *testing.T) {
 		}},
 		{"missing manifest grant", func(f *wholeGroupTestFixture) {
 			f.roots.Manifest = journalnamespace.RootSelection{}
-			observed, err := journalnamespace.Observe(t.Context(), f.namespace.Addresses(), f.roots, f.reader, f.input.budget)
+			observed, err := journalnamespace.Observe(t.Context(), f.namespace.Addresses(), f.roots, f.reader, f.input.Budget())
 			if err != nil {
 				t.Fatal(err)
 			}
 			f.namespace = observed
 		}},
-		{"wrong claim owner", func(f *wholeGroupTestFixture) { f.input.owner = documentClaimsForTest(t).owner }},
+		{"wrong claim owner", func(f *wholeGroupTestFixture) {
+			f.input.CaptureInput = reviseCaptureInput(f.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Owner = documentClaimsForTest(t).owner })
+		}},
 		{"wrong operation reservation", func(f *wholeGroupTestFixture) {
-			transition, err := ownershipmutation.NewDocumentClaimTransition(nil, f.input.claims.After(), f.input.operationID)
+			transition, err := ownershipmutation.NewDocumentClaimTransition(nil, f.input.Claims().After(), f.input.OperationID())
 			if err != nil {
 				t.Fatal(err)
 			}
-			f.input.claims = &transition
-			f.input.operationID = "another-operation"
+			f.input.CaptureInput = reviseCaptureInput(f.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Claims = &transition })
+			f.input.CaptureInput = reviseCaptureInput(f.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.OperationID = "another-operation" })
 		}},
-		{"mixed claims", func(f *wholeGroupTestFixture) { f.input.provisional = []documentProvisionalAcquire{{}} }},
-		{"wrong binding", func(f *wholeGroupTestFixture) { f.input.bindings = []ownership.DocumentBindingIntent{{}} }},
-		{"negative ordinal", func(f *wholeGroupTestFixture) { f.input.groupIndex = -1 }},
-		{"missing budget", func(f *wholeGroupTestFixture) { f.input.budget = nil }},
-		{"invalid limits", func(f *wholeGroupTestFixture) { f.input.limits.MaximumBytes = 0 }},
+		{"mixed claims", func(f *wholeGroupTestFixture) {
+			f.input.CaptureInput = reviseCaptureInput(f.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+				spec.Provisional = []journaldocument.ProvisionalAcquire{{}}
+			})
+		}},
+		{"wrong binding", func(f *wholeGroupTestFixture) {
+			f.input.CaptureInput = reviseCaptureInput(f.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Bindings = []ownership.DocumentBindingIntent{{}} })
+		}},
+		{"negative ordinal", func(f *wholeGroupTestFixture) {
+			f.input.CaptureInput = reviseCaptureInput(f.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.GroupIndex = -1 })
+		}},
+		{"missing budget", func(f *wholeGroupTestFixture) {
+			f.input.CaptureInput = reviseCaptureInput(f.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Budget = nil })
+		}},
+		{"invalid limits", func(f *wholeGroupTestFixture) {
+			f.input.CaptureInput = reviseCaptureInput(f.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Limits.MaximumBytes = 0 })
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
@@ -197,14 +217,14 @@ func TestNativeWholeGroupRejectsValidButUnrelatedMetadataBeforeRead(t *testing.T
 			}
 			switch mismatch {
 			case "claim namespace":
-				claim := documentActiveClaim(t, documentClaimFixture{owner: fixture.input.owner, exact: exact}, output.WholePathFootprint())
-				transition, err := ownershipmutation.NewDocumentClaimTransition([]ownership.Claim{claim}, []ownership.Claim{claim}, fixture.input.operationID)
+				claim := documentActiveClaim(t, documentClaimFixture{owner: fixture.input.Owner(), exact: exact}, output.WholePathFootprint())
+				transition, err := ownershipmutation.NewDocumentClaimTransition([]ownership.Claim{claim}, []ownership.Claim{claim}, fixture.input.OperationID())
 				if err != nil {
 					t.Fatal(err)
 				}
-				fixture.input.claims = &transition
+				fixture.input.CaptureInput = reviseCaptureInput(fixture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Claims = &transition })
 			case "binding namespace":
-				binding, err := ownership.NewDocumentBinding(fixture.input.owner, fixture.input.mutation.facts().destination, exact)
+				binding, err := ownership.NewDocumentBinding(fixture.input.Owner(), fixture.input.mutation.facts().destination, exact)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -212,11 +232,13 @@ func TestNativeWholeGroupRejectsValidButUnrelatedMetadataBeforeRead(t *testing.T
 				if err != nil {
 					t.Fatal(err)
 				}
-				intent, err := ownership.NewExactDocumentBindingIntent(fixture.input.owner, binding.Destination(), value, value)
+				intent, err := ownership.NewExactDocumentBindingIntent(fixture.input.Owner(), binding.Destination(), value, value)
 				if err != nil {
 					t.Fatal(err)
 				}
-				fixture.input.bindings = []ownership.DocumentBindingIntent{intent}
+				fixture.input.CaptureInput = reviseCaptureInput(fixture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+					spec.Bindings = []ownership.DocumentBindingIntent{intent}
+				})
 			}
 			group, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
 			if err == nil || comparison.Validate() == nil || len(group.Aliases) != 0 || fixture.reader.imageReads != 0 {
@@ -255,7 +277,9 @@ func TestNativeWholeGroupRejectsStaleNamespaceAndLiveFacts(t *testing.T) {
 			t.Helper()
 			f.input.payloads = wholeGroupPayload(t, f.input.mutation.facts(), []byte("wrong"))
 		}},
-		{"small read limit", func(t *testing.T, f *wholeGroupTestFixture) { f.input.limits.MaximumBytes = 2 }},
+		{"small read limit", func(t *testing.T, f *wholeGroupTestFixture) {
+			f.input.CaptureInput = reviseCaptureInput(f.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Limits.MaximumBytes = 2 })
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
@@ -279,13 +303,13 @@ func TestNativeWholeGroupCancellationAndFailedReadKeepNoFacts(t *testing.T) {
 	ctx, cancel = context.WithCancel(t.Context())
 	defer cancel()
 	reader := &imageReader{RootedReader: journalTestFilesystem(), afterRead: cancel}
-	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, reader, fixture.input.budget)
+	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, reader, fixture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
-	remaining := fixture.input.budget.RemainingBytes()
+	remaining := fixture.input.Budget().RemainingBytes()
 	group, comparison, err = prepareWholeDocumentGroup(ctx, fixture.namespace, fixture.input)
-	if !errors.Is(err, context.Canceled) || comparison.Validate() == nil || len(group.Aliases) != 0 || reader.calls != 1 || fixture.input.budget.RemainingBytes() >= remaining {
+	if !errors.Is(err, context.Canceled) || comparison.Validate() == nil || len(group.Aliases) != 0 || reader.calls != 1 || fixture.input.Budget().RemainingBytes() >= remaining {
 		t.Fatalf("post-read cancellation returned facts or lost work charge: %v", err)
 	}
 	fixture.requireUnchangedHost(t)
@@ -365,7 +389,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := wholeDocumentCaptureInput{mutation: mutation, nativeDocumentCaptureInput: nativeDocumentCaptureInput{owner: envelope.claims.owner, operationID: envelope.record.OperationID, groupIndex: 3, limits: envelope.read.limits, budget: budget}}
+	input := wholeDocumentCaptureInput{mutation: mutation, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: envelope.claims.owner, OperationID: envelope.record.OperationID, GroupIndex: 3, Limits: envelope.read.limits, Budget: budget})}
 	input.payloads = wholeGroupPayload(t, mutation.facts(), desired)
 	beforeImage, expectedImage := aggregate.ExistingDocument(original), aggregate.ExistingDocument(desired)
 	var beforeRows, afterRows []durable.ManagedPathState
@@ -405,7 +429,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	beforeBinding, afterBinding := ownership.NoDocumentBinding(), ownership.NoDocumentBinding()
 	var binding ownership.DocumentBindingIntent
 	if exact, known := namespace.Observation().Exact(); known {
-		value, err := ownership.NewDocumentBinding(input.owner, placement.Destination(), exact)
+		value, err := ownership.NewDocumentBinding(input.Owner(), placement.Destination(), exact)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -419,12 +443,12 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 		if action != "remove" {
 			afterBinding = present
 		}
-		binding, err = ownership.NewExactDocumentBindingIntent(input.owner, placement.Destination(), beforeBinding, afterBinding)
+		binding, err = ownership.NewExactDocumentBindingIntent(input.Owner(), placement.Destination(), beforeBinding, afterBinding)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if scope == target.ScopeGlobal {
-			claim := documentActiveClaim(t, documentClaimFixture{owner: input.owner, exact: exact}, output.WholePathFootprint())
+			claim := documentActiveClaim(t, documentClaimFixture{owner: input.Owner(), exact: exact}, output.WholePathFootprint())
 			var beforeClaims, afterClaims []ownership.Claim
 			if action != "create" {
 				beforeClaims = []ownership.Claim{claim}
@@ -432,27 +456,31 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 			if action != "remove" {
 				afterClaims = []ownership.Claim{claim}
 			}
-			transition, err := ownershipmutation.NewDocumentClaimTransition(beforeClaims, afterClaims, input.operationID)
+			transition, err := ownershipmutation.NewDocumentClaimTransition(beforeClaims, afterClaims, input.OperationID())
 			if err != nil {
 				t.Fatal(err)
 			}
-			input.claims = &transition
+			input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Claims = &transition })
 		}
 	} else {
 		pending, _ := namespace.Observation().Provisional()
-		binding, err = ownership.NewProvisionalDocumentBindingIntent(input.owner, placement.Destination(), pending)
+		binding, err = ownership.NewProvisionalDocumentBindingIntent(input.Owner(), placement.Destination(), pending)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if scope == target.ScopeGlobal {
-			intent, err := ownership.NewProvisionalAcquireIntent(placement.Destination(), output.WholePathFootprint(), pending, input.owner, input.operationID)
+			intent, err := ownership.NewProvisionalAcquireIntent(placement.Destination(), output.WholePathFootprint(), pending, input.Owner(), input.OperationID())
 			if err != nil {
 				t.Fatal(err)
 			}
-			input.provisional = []documentProvisionalAcquire{{alias: address, intent: intent}}
+			input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+				spec.Provisional = []journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(address, intent)}
+			})
 		}
 	}
-	input.bindings = []ownership.DocumentBindingIntent{binding}
+	input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+		spec.Bindings = []ownership.DocumentBindingIntent{binding}
+	})
 	return wholeGroupTestFixture{roots: roots, namespace: namespace, input: input, envelope: envelope, reader: reader, path: path, original: beforeImage, expected: expectedImage}
 }
 
@@ -501,7 +529,7 @@ func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group rec
 	t.Helper()
 	destination, capability := imageStageDestination(t)
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
-		original, expected, err := stageDocumentImages(t.Context(), comparison, fixture.input.groupIndex, writer, fixture.input.budget)
+		original, expected, err := stageDocumentImages(t.Context(), comparison, fixture.input.GroupIndex(), writer, fixture.input.Budget())
 		if err != nil {
 			return err
 		}
@@ -540,7 +568,7 @@ func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group rec
 	if err != nil {
 		t.Fatal(err)
 	}
-	admitted, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.input.limits, fixture.envelope.read.codecs)
+	admitted, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.input.Limits(), fixture.envelope.read.codecs)
 	if err != nil || len(admitted.groups) != 1 {
 		t.Fatalf("prepared group does not pass full snapshot admission: %v", err)
 	}

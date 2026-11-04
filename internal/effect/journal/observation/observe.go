@@ -1,4 +1,4 @@
-package journal
+package observation
 
 import (
 	"context"
@@ -22,9 +22,9 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-// NativeDocumentObservationInput supplies independently selected observation
+// Input supplies independently selected observation
 // dependencies. Root and allocation ownership stay with the containing operation.
-type NativeDocumentObservationInput struct {
+type Input struct {
 	Owner      stateauthority.Authority
 	Before     durable.Snapshot
 	Aliases    []aggregate.DocumentAddress
@@ -41,12 +41,11 @@ type nativeDocumentOriginal struct {
 	identity mutationfs.EntryIdentity
 }
 
-// NativeDocumentObservationBatch retains evidence, not a publication or execution
+// Batch retains evidence, not a publication or execution
 // grant. Root lifetime and the shared allocation remain with the containing owner.
-type NativeDocumentObservationBatch struct {
+type Batch struct {
 	owner       stateauthority.Authority
 	before      durable.Snapshot
-	roots       journalnamespace.Roots
 	namespaces  []journalnamespace.DocumentNamespace
 	registry    ownership.Registry
 	originals   []nativeDocumentOriginal
@@ -56,43 +55,42 @@ type NativeDocumentObservationBatch struct {
 }
 
 // Namespaces returns the coalesced observation groups; their roots remain borrowed.
-func (batch NativeDocumentObservationBatch) Namespaces() []journalnamespace.DocumentNamespace {
+func (batch Batch) Namespaces() []journalnamespace.DocumentNamespace {
 	return slices.Clone(batch.namespaces)
 }
 
-func (batch NativeDocumentObservationBatch) DocumentLimits() configdocument.Limits {
+func (batch Batch) DocumentLimits() configdocument.Limits {
 	return batch.limits
 }
 
-// ObserveNativeDocuments borrows the selected roots and pending budget. The
+// Observe borrows the selected roots and pending budget. The
 // resulting evidence requires separate ownership and operation qualification.
-func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservationInput) (NativeDocumentObservationBatch, error) {
+func Observe(ctx context.Context, input Input) (Batch, error) {
 	if ctx == nil || input.Registry == nil || input.Filesystem == nil {
-		return NativeDocumentObservationBatch{}, fmt.Errorf("native observation requires context, filesystem and the selected registry reader")
+		return Batch{}, fmt.Errorf("native observation requires context, filesystem and the selected registry reader")
 	}
 	if err := errors.Join(ctx.Err(), input.Owner.Validate(), input.Limits.Validate(), input.Budget.RequireCapturePending()); err != nil {
-		return NativeDocumentObservationBatch{}, err
+		return Batch{}, err
 	}
-	batch := NativeDocumentObservationBatch{owner: input.Owner, roots: input.Roots, budget: input.Budget}
-	if _, err := batch.manifest(ctx); err != nil {
-		return NativeDocumentObservationBatch{}, err
+	if err := requireManifest(ctx, input.Roots, input.Budget); err != nil {
+		return Batch{}, err
 	}
 	if len(input.Aliases) != 0 {
 		if _, err := journaldocument.AliasSet(ctx, input.Aliases); err != nil {
-			return NativeDocumentObservationBatch{}, err
+			return Batch{}, err
 		}
 	}
 	before, err := journaldocument.IndexSnapshot(ctx, input.Before)
 	if err != nil {
-		return NativeDocumentObservationBatch{}, err
+		return Batch{}, err
 	}
 	nativeBefore, err := before.NativeDestinations(ctx)
 	if err != nil {
-		return NativeDocumentObservationBatch{}, err
+		return Batch{}, err
 	}
 	namespaces, err := observeNativeDocumentGroups(ctx, input)
 	if err != nil {
-		return NativeDocumentObservationBatch{}, err
+		return Batch{}, err
 	}
 	var missing []pathauthority.Provisional
 	for _, namespace := range namespaces {
@@ -102,7 +100,7 @@ func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservation
 		}
 		footprints, err := before.Footprints(ctx, namespace.Addresses())
 		if err != nil {
-			return NativeDocumentObservationBatch{}, err
+			return Batch{}, err
 		}
 		hasHistory := len(footprints) != 0
 		for _, alias := range namespace.Addresses() {
@@ -115,29 +113,29 @@ func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservation
 	}
 	current, err := readNativeCaptureRegistry(ctx, input.Registry, input.Owner, missing, input.Budget)
 	if err != nil {
-		return NativeDocumentObservationBatch{}, err
+		return Batch{}, err
 	}
 	originals := make([]nativeDocumentOriginal, 0, len(namespaces))
 	for _, namespace := range namespaces {
 		document, mode, identity, err := namespace.ReadReferent(ctx, min(input.Limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.Budget)
 		if err != nil {
-			return NativeDocumentObservationBatch{}, err
+			return Batch{}, err
 		}
 		if document.Exists() && (identity == nil || identity.Kind() != mutationfs.EntryKindFile) {
-			return NativeDocumentObservationBatch{}, fmt.Errorf("native original requires regular-file identity")
+			return Batch{}, fmt.Errorf("native original requires regular-file identity")
 		}
 		originals = append(originals, nativeDocumentOriginal{document: document, mode: mode, identity: identity})
 	}
 	if err := errors.Join(ctx.Err(), input.Budget.RequireCapturePending()); err != nil {
-		return NativeDocumentObservationBatch{}, err
+		return Batch{}, err
 	}
-	return NativeDocumentObservationBatch{
-		owner: input.Owner, before: input.Before, roots: input.Roots, namespaces: namespaces, registry: current,
+	return Batch{
+		owner: input.Owner, before: input.Before, namespaces: namespaces, registry: current,
 		originals: originals, limits: input.Limits, budget: input.Budget, initialized: true,
 	}, nil
 }
 
-func observeNativeDocumentGroups(ctx context.Context, input NativeDocumentObservationInput) ([]journalnamespace.DocumentNamespace, error) {
+func observeNativeDocumentGroups(ctx context.Context, input Input) ([]journalnamespace.DocumentNamespace, error) {
 	aliases := slices.Clone(input.Aliases)
 	slices.SortFunc(aliases, journaldocument.CompareAliases)
 	indices := make(map[string]int)
@@ -196,7 +194,7 @@ func readNativeCaptureRegistry(ctx context.Context, reader ownershipmutation.Reg
 }
 
 // Document returns the retained original; false means unobserved, not absent.
-func (batch NativeDocumentObservationBatch) Document(alias aggregate.DocumentAddress) (aggregate.Document, *recovery.PermissionMode, bool) {
+func (batch Batch) Document(alias aggregate.DocumentAddress) (aggregate.Document, *recovery.PermissionMode, bool) {
 	if !batch.initialized {
 		return aggregate.Document{}, nil, false
 	}
@@ -213,14 +211,14 @@ func (batch NativeDocumentObservationBatch) Document(alias aggregate.DocumentAdd
 	return aggregate.Document{}, nil, false
 }
 
-func (batch NativeDocumentObservationBatch) prepareOwnership(ctx context.Context, after durable.Snapshot, operationID string) ([]nativeDocumentCaptureInput, error) {
+func (batch Batch) PrepareOwnership(ctx context.Context, roots journalnamespace.Roots, after durable.Snapshot, operationID string) ([]CaptureInput, error) {
 	if !batch.initialized || ctx == nil {
 		return nil, fmt.Errorf("native observation batch and context are required")
 	}
 	if err := errors.Join(ctx.Err(), batch.budget.RequireCapturePending()); err != nil {
 		return nil, err
 	}
-	if err := batch.validateOriginals(ctx); err != nil {
+	if err := batch.ValidateOriginals(ctx, roots); err != nil {
 		return nil, err
 	}
 	if err := errors.Join(ctx.Err(), batch.budget.RequireCapturePending()); err != nil {
@@ -233,8 +231,13 @@ func (batch NativeDocumentObservationBatch) prepareOwnership(ctx context.Context
 	return input.prepareFromRegistry(ctx, batch.registry)
 }
 
-func (batch NativeDocumentObservationBatch) validateOriginals(ctx context.Context) error {
-	if _, err := batch.manifest(ctx); err != nil {
+// ValidateOriginals checks retained document facts against the supplied root
+// gate. Success is not qualification of the containing operation's root custody.
+func (batch Batch) ValidateOriginals(ctx context.Context, roots journalnamespace.Roots) error {
+	if err := batch.Validate(); err != nil {
+		return err
+	}
+	if err := requireManifest(ctx, roots, batch.budget); err != nil {
 		return err
 	}
 	for index, namespace := range batch.namespaces {
@@ -252,9 +255,36 @@ func (batch NativeDocumentObservationBatch) validateOriginals(ctx context.Contex
 	return ctx.Err()
 }
 
+func requireManifest(ctx context.Context, selected journalnamespace.Roots, budget *physicalwork.Budget) error {
+	roots, err := selected.Qualify(ctx, budget)
+	if err != nil {
+		return err
+	}
+	if _, present := roots.Manifest(); !present {
+		return fmt.Errorf("native observation requires its selected manifest root")
+	}
+	return nil
+}
+
+func (batch Batch) Validate() error {
+	if !batch.initialized {
+		return fmt.Errorf("native observation is unavailable")
+	}
+	return nil
+}
+
+func (batch Batch) MatchesOriginal(index int, document aggregate.Document, mode *recovery.PermissionMode) bool {
+	if !batch.initialized || index < 0 || index >= len(batch.originals) {
+		return false
+	}
+	original := batch.originals[index]
+	sameMode := mode == nil && original.mode == nil || mode != nil && original.mode != nil && *mode == *original.mode
+	return document.Equal(original.document) && sameMode
+}
+
 // ReadRegistry reuses the selected document-history allowances in one fresh
 // read. It does not infer allowances from the Registry being inspected.
-func (batch NativeDocumentObservationBatch) ReadRegistry(ctx context.Context, reader ownershipmutation.RegistryReader) (ownership.Registry, error) {
+func (batch Batch) ReadRegistry(ctx context.Context, reader ownershipmutation.RegistryReader) (ownership.Registry, error) {
 	input := nativeCaptureOwnershipInput{
 		owner: batch.owner, operationID: "native-registry-read", before: batch.before, after: batch.before,
 		namespaces: batch.namespaces, limits: batch.limits, budget: batch.budget,

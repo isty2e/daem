@@ -1,4 +1,4 @@
-package journal
+package observation
 
 import (
 	"context"
@@ -25,10 +25,10 @@ type nativePlanningOwnershipBaseline struct {
 	claims     []ownership.Claim
 }
 
-// NativeOwnershipProjection answers read-only questions about the batch's
+// OwnershipProjection answers read-only questions about the batch's
 // retained Registry and qualified before facts. It neither observes again nor
 // grants live state, root, source or mutation authority.
-type NativeOwnershipProjection struct {
+type OwnershipProjection struct {
 	owner       stateauthority.Authority
 	registry    ownership.Registry
 	before      journaldocument.SnapshotIndex
@@ -37,25 +37,25 @@ type NativeOwnershipProjection struct {
 	initialized bool
 }
 
-func (batch NativeDocumentObservationBatch) Ownership(ctx context.Context) (NativeOwnershipProjection, error) {
+func (batch Batch) Ownership(ctx context.Context) (OwnershipProjection, error) {
 	if ctx == nil || !batch.initialized {
-		return NativeOwnershipProjection{}, fmt.Errorf("native observation batch and context are required")
+		return OwnershipProjection{}, fmt.Errorf("native observation batch and context are required")
 	}
 	if err := errors.Join(ctx.Err(), batch.budget.RequireCapturePending()); err != nil {
-		return NativeOwnershipProjection{}, err
+		return OwnershipProjection{}, err
 	}
 	before, err := journaldocument.IndexSnapshot(ctx, batch.before)
 	if err != nil {
-		return NativeOwnershipProjection{}, err
+		return OwnershipProjection{}, err
 	}
 	native, err := before.NativeDestinations(ctx)
 	if err != nil {
-		return NativeOwnershipProjection{}, err
+		return OwnershipProjection{}, err
 	}
 	owned := make(map[string][]ownership.Claim)
 	for _, claim := range batch.registry.Claims() {
 		if err := ctx.Err(); err != nil {
-			return NativeOwnershipProjection{}, err
+			return OwnershipProjection{}, err
 		}
 		if claim.OwnedBy(batch.owner) {
 			owned[claim.Address().Path()] = append(owned[claim.Address().Path()], claim)
@@ -66,15 +66,15 @@ func (batch NativeDocumentObservationBatch) Ownership(ctx context.Context) (Nati
 	for _, namespace := range batch.namespaces {
 		footprints, err := before.Footprints(ctx, namespace.Addresses())
 		if err != nil {
-			return NativeOwnershipProjection{}, err
+			return OwnershipProjection{}, err
 		}
 		comparison, claims, err := nativeDocumentClaimBaseline(namespace, owned, footprints)
 		if err != nil {
-			return NativeOwnershipProjection{}, err
+			return OwnershipProjection{}, err
 		}
 		bindings, err := input.documentBindings(ctx, namespace, batch.registry, native, native)
 		if err != nil {
-			return NativeOwnershipProjection{}, err
+			return OwnershipProjection{}, err
 		}
 		if comparison.IsZero() {
 			for _, binding := range bindings {
@@ -89,21 +89,21 @@ func (batch NativeDocumentObservationBatch) Ownership(ctx context.Context) (Nati
 			baselines[alias] = baseline
 		}
 	}
-	projection := NativeOwnershipProjection{owner: batch.owner, registry: batch.registry, before: before, baselines: baselines, budget: batch.budget, initialized: true}
+	projection := OwnershipProjection{owner: batch.owner, registry: batch.registry, before: before, baselines: baselines, budget: batch.budget, initialized: true}
 	if err := projection.validate(ctx); err != nil {
-		return NativeOwnershipProjection{}, err
+		return OwnershipProjection{}, err
 	}
 	return projection, nil
 }
 
-func (projection NativeOwnershipProjection) validate(ctx context.Context) error {
+func (projection OwnershipProjection) validate(ctx context.Context) error {
 	if ctx == nil || !projection.initialized {
 		return fmt.Errorf("native ownership projection and context are required")
 	}
 	return errors.Join(ctx.Err(), projection.budget.RequireCapturePending())
 }
 
-func (projection NativeOwnershipProjection) Global(ctx context.Context, alias aggregate.DocumentAddress, footprint output.Footprint) (observe.OwnershipObservation, error) {
+func (projection OwnershipProjection) Global(ctx context.Context, alias aggregate.DocumentAddress, footprint output.Footprint) (observe.OwnershipObservation, error) {
 	if err := projection.validate(ctx); err != nil {
 		return observe.OwnershipObservation{}, err
 	}
@@ -143,7 +143,7 @@ func (projection NativeOwnershipProjection) Global(ctx context.Context, alias ag
 	return observe.NewProvisionalOwnershipObservation(alias.AggregateRoot(), footprint, missing, claimValue)
 }
 
-func (projection NativeOwnershipProjection) Participants(ctx context.Context, alias aggregate.DocumentAddress) (observe.NativeDocumentParticipants, error) {
+func (projection OwnershipProjection) Participants(ctx context.Context, alias aggregate.DocumentAddress) (observe.NativeDocumentParticipants, error) {
 	if err := projection.validate(ctx); err != nil {
 		return observe.NativeDocumentParticipants{}, err
 	}
@@ -180,7 +180,7 @@ func (projection NativeOwnershipProjection) Participants(ctx context.Context, al
 	return result, nil
 }
 
-func (projection NativeOwnershipProjection) Document(ctx context.Context, alias aggregate.DocumentAddress) (observe.NativeDocumentClaimObservation, error) {
+func (projection OwnershipProjection) Document(ctx context.Context, alias aggregate.DocumentAddress) (observe.NativeDocumentClaimObservation, error) {
 	if err := projection.validate(ctx); err != nil {
 		return observe.NativeDocumentClaimObservation{}, err
 	}

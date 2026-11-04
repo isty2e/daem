@@ -39,7 +39,7 @@ func TestNativeCaptureRegistrySelectedAbsenceIsNotMissingSelection(t *testing.T)
 		t.Fatal(err)
 	}
 	prepared, err := input.prepare(t.Context())
-	if err != nil || len(prepared) != 1 || len(prepared[0].bindings) != 1 || prepared[0].claims != nil {
+	if err != nil || len(prepared) != 1 || len(prepared[0].Bindings()) != 1 || prepared[0].Claims() != nil {
 		t.Fatalf("selected rooted absence did not admit project binding acquisition: %v", err)
 	}
 	if _, err := os.Lstat(registryPath); !errors.Is(err, os.ErrNotExist) {
@@ -135,16 +135,32 @@ func TestNativeCaptureRegistryMCPDoesNotKeepNativeBindingAlive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, known := prepared[0].bindings[0].KnownAfter()
+	after, known := prepared[0].Bindings()[0].KnownAfter()
 	if _, present := after.Get(); !known || present {
 		t.Fatal("MCP-only successor retained native binding")
+	}
+	convergence, err := ownership.NewDocumentBindingConvergence(prepared[0].Bindings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	successor, changed, err := convergence.Apply(reader.value)
+	if err != nil || !changed {
+		t.Fatal("native binding retirement did not produce its actual successor", err)
 	}
 
 	input.before = input.after
 	input.registry = nil
+	if result, err := input.prepare(t.Context()); err == nil || result != nil {
+		t.Fatal("MCP-only observation treated a missing reader as selected empty state")
+	}
+	input.registry, reader.value = reader, successor
+	loads := reader.loads
 	prepared, err = input.prepare(t.Context())
-	if err != nil || len(prepared[0].bindings) != 0 || prepared[0].claims != nil {
+	if err != nil || len(prepared) != 1 || len(prepared[0].Bindings()) != 0 || prepared[0].Claims() != nil {
 		t.Fatalf("project MCP-only work required native registry metadata: %v", err)
+	}
+	if reader.loads != loads+1 || !reader.value.Equal(successor) {
+		t.Fatal("MCP-only preparation did not preserve its single selected registry observation")
 	}
 }
 
@@ -161,7 +177,7 @@ func TestNativeCaptureRegistryRetainsCompleteGlobalClaimProvenance(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after := prepared[0].claims.After(); len(after) != 1 || !after[0].Equal(stored) || !after[0].Address().Footprint().Equal(output.WholePathFootprint()) {
+	if after := prepared[0].Claims().After(); len(after) != 1 || !after[0].Equal(stored) || !after[0].Address().Footprint().Equal(output.WholePathFootprint()) {
 		t.Fatal("retained global claim was reconstructed instead of preserved")
 	}
 }

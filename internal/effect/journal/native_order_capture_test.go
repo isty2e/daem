@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -57,14 +59,14 @@ func TestCaptureMembersRetainsOnlyChangedObservedPiOrderNamespaces(t *testing.T)
 		t.Run(string(scope), func(t *testing.T) {
 			input, order := nativeOrderCaptureInput(t, scope)
 			selected, members, err := input.batch.CaptureMembers(input.after, "native-record-apply", order)
-			if err != nil || len(selected.Namespaces()) != 1 || len(members) != 1 {
+			if err != nil || len(selected.Evidence().Namespaces()) != 1 || len(members) != 1 {
 				t.Fatalf("changed Pi order lost its observed actor: %v", err)
 			}
 			if len(members[0].BindingIntents()) != 0 || members[0].RequiresPromotion() {
 				t.Fatal("Pi order-only actor invented native membership")
 			}
 			selected, members, err = input.batch.CaptureMembers(input.after, "native-record-apply")
-			if err != nil || len(selected.Namespaces())+len(members) != 0 {
+			if err != nil || len(selected.Evidence().Namespaces())+len(members) != 0 {
 				t.Fatalf("unselected namespace was retained: %v", err)
 			}
 			loaded, err := order.CaptureInput()
@@ -81,7 +83,7 @@ func TestCaptureMembersRetainsOnlyChangedObservedPiOrderNamespaces(t *testing.T)
 				t.Fatalf("converged order was not unchanged: %v", err)
 			}
 			selected, members, err = input.batch.CaptureMembers(input.after, "native-record-apply", unchanged)
-			if err != nil || len(selected.Namespaces())+len(members) != 0 {
+			if err != nil || len(selected.Evidence().Namespaces())+len(members) != 0 {
 				t.Fatalf("unchanged order retained an actor: %v", err)
 			}
 			otherScope := target.ScopeProject
@@ -90,7 +92,7 @@ func TestCaptureMembersRetainsOnlyChangedObservedPiOrderNamespaces(t *testing.T)
 			}
 			_, missing := piEvidenceFixture(t, otherScope)
 			selected, members, err = input.batch.CaptureMembers(input.after, "native-record-apply", missing)
-			if err == nil || len(selected.Namespaces())+len(members) != 0 {
+			if err == nil || len(selected.Evidence().Namespaces())+len(members) != 0 {
 				t.Fatal("order without an observed namespace acquired a result")
 			}
 			input.requireUnchanged(t)
@@ -151,7 +153,7 @@ func nativeOrderCaptureInput(t *testing.T, scope target.Scope) (nativeCaptureTes
 	}
 	host := filepath.Join(selectedRoot.SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
 	requireWholeGroupWrite(t, host, loaded.Document.Content(), 0o644)
-	batch, err := ObserveNativeDocuments(t.Context(), NativeDocumentObservationInput{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.limits, Budget: budget})
+	batch, err := ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.limits, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}

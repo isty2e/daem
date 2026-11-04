@@ -8,6 +8,8 @@ import (
 	"slices"
 	"testing"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -60,7 +62,7 @@ func (reader *nativeInitialRegistryReader) LoadForDocuments(ctx context.Context,
 	return value, err
 }
 
-func nativeInitialFixture(t *testing.T, scope target.Scope, action string) (wholeGroupTestFixture, NativeDocumentObservationInput, *nativeInitialRegistryReader, string) {
+func nativeInitialFixture(t *testing.T, scope target.Scope, action string) (wholeGroupTestFixture, journalobservation.Input, *nativeInitialRegistryReader, string) {
 	t.Helper()
 	fixture := wholeGroupFixture(t, target.TargetPi, scope, action, []byte("before"), []byte("after"))
 	legacy, actual := captureOwnershipFixture(t, fixture)
@@ -110,7 +112,7 @@ func nativeInitialFixture(t *testing.T, scope target.Scope, action string) (whol
 		t.Fatal(err)
 	}
 	reader := &nativeInitialRegistryReader{store: store}
-	input := NativeDocumentObservationInput{
+	input := journalobservation.Input{
 		Owner: legacy.owner, Before: legacy.before, Aliases: fixture.namespace.Addresses(),
 		Roots: fixture.roots, Filesystem: fixture.reader, Registry: reader,
 		Limits: legacy.limits, Budget: budget,
@@ -124,19 +126,19 @@ func TestNativeInitialObservationRetainsActualFactsBeforeAfterState(t *testing.T
 			t.Run(string(scope)+"/"+action, func(t *testing.T) {
 				fixture, input, reader, registryPath := nativeInitialFixture(t, scope, action)
 				batch, err := ObserveNativeDocuments(t.Context(), input)
-				if err != nil || !batch.initialized || reader.loads != 1 || reader.ambient != 0 || reader.budget != input.Budget {
+				if err != nil || (batch.Evidence().Validate() != nil) || reader.loads != 1 || reader.ambient != 0 || reader.budget != input.Budget {
 					t.Fatalf("actual initial read failed: loads=%d error=%v", reader.loads, err)
 				}
-				document, mode, found := batch.Document(input.Aliases[0])
+				document, mode, found := batch.Evidence().Document(input.Aliases[0])
 				if !found || !document.Equal(fixture.original) || document.Exists() != (mode != nil) {
 					t.Fatal("initial observation lost actual original facts")
 				}
-				if _, _, found := batch.Document(aggregate.DocumentAddress{}); found {
+				if _, _, found := batch.Evidence().Document(aggregate.DocumentAddress{}); found {
 					t.Fatal("unobserved alias received fallback document facts")
 				}
 				if mode != nil {
 					*mode = 0
-					_, retained, _ := batch.Document(input.Aliases[0])
+					_, retained, _ := batch.Evidence().Document(input.Aliases[0])
 					if retained == nil || *retained == 0 {
 						t.Fatal("caller changed retained original mode")
 					}
@@ -144,14 +146,14 @@ func TestNativeInitialObservationRetainsActualFactsBeforeAfterState(t *testing.T
 				remaining := input.Budget.RemainingBytes()
 				// A later reader failure cannot replace the already observed Registry.
 				reader.store = ownershipstore.Store{}
-				prepared, err := batch.prepareOwnership(t.Context(), fixture.envelope.after, fixture.input.operationID)
-				if err != nil || len(prepared) != 1 || reader.loads != 1 || prepared[0].budget != input.Budget {
+				prepared, err := batch.prepareOwnership(t.Context(), fixture.envelope.after, fixture.input.OperationID())
+				if err != nil || len(prepared) != 1 || reader.loads != 1 || prepared[0].Budget() != input.Budget {
 					t.Fatal("continuation reread Registry or lost shared allocation", err)
 				}
 				if input.Budget.RemainingBytes() != remaining-int64(len(fixture.original.Content())) || input.Budget.RequireCapturePending() != nil || input.Budget.AdmitObservation() == nil {
 					t.Fatal("continuation reset work or opened removal admission")
 				}
-				if scope == target.ScopeProject && prepared[0].claims != nil || len(prepared[0].bindings) != 1 {
+				if scope == target.ScopeProject && prepared[0].Claims() != nil || len(prepared[0].Bindings()) != 1 {
 					t.Fatal("project binding was lost or treated as an exclusive claim")
 				}
 				fixture.requireUnchangedHost(t)
@@ -182,17 +184,17 @@ func TestNativeInitialObservationCoalescesActualAliases(t *testing.T) {
 	}
 	input.Aliases = append(input.Aliases, alias)
 	batch, err := ObserveNativeDocuments(t.Context(), input)
-	if err != nil || len(batch.namespaces) != 1 || fixture.reader.imageReads != 1 || reader.loads != 1 {
+	if err != nil || len(batch.Evidence().Namespaces()) != 1 || fixture.reader.imageReads != 1 || reader.loads != 1 {
 		t.Fatal("logical aliases were not coalesced before the original read", err)
 	}
 	for _, alias := range input.Aliases {
-		if document, _, found := batch.Document(alias); !found || !document.Equal(fixture.original) {
+		if document, _, found := batch.Evidence().Document(alias); !found || !document.Equal(fixture.original) {
 			t.Fatal("coalesced alias lost its actual original")
 		}
 	}
 	slices.Reverse(input.Aliases)
 	reordered, err := ObserveNativeDocuments(t.Context(), input)
-	if err != nil || len(reordered.namespaces) != 1 || !slices.Equal(reordered.namespaces[0].Addresses(), batch.namespaces[0].Addresses()) {
+	if err != nil || len(reordered.Evidence().Namespaces()) != 1 || !slices.Equal(reordered.Evidence().Namespaces()[0].Addresses(), batch.Evidence().Namespaces()[0].Addresses()) {
 		t.Fatal("alias order changed canonical physical grouping", err)
 	}
 }

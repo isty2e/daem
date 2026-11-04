@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/output"
@@ -17,7 +19,7 @@ import (
 
 func TestNativeCaptureWithObservedEmptyDocumentsPreservesUnselectedNativeState(t *testing.T) {
 	input := nativeCaptureInput(t, false, target.ScopeProject)
-	before := input.batch.BeforeState()
+	before := input.batch.Evidence().BeforeState()
 	hash := artifact.HashFileContentWithExecutable([]byte("ordinary instruction\n"), false)
 	entry := recoveryEntryFor("ordinary", "AGENTS.md", "", string(hash), "")
 	row := resourceStateWithPermissions(entry, string(hash), realization.PathPermissionsExact, 0o600)
@@ -31,9 +33,9 @@ func TestNativeCaptureWithObservedEmptyDocumentsPreservesUnselectedNativeState(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	input.batch, err = ObserveNativeDocuments(t.Context(), NativeDocumentObservationInput{
+	input.batch, err = ObserveNativeDocuments(t.Context(), journalobservation.Input{
 		Owner: input.batch.owner, Before: before, Roots: input.batch.roots,
-		Filesystem: input.options.Filesystem, Registry: reader, Limits: input.batch.limits, Budget: input.batch.budget,
+		Filesystem: input.options.Filesystem, Registry: reader, Limits: input.batch.Evidence().DocumentLimits(), Budget: input.batch.budget,
 	})
 	if err != nil {
 		t.Fatal(err)

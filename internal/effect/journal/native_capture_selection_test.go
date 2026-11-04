@@ -23,8 +23,8 @@ func TestCaptureMembersRetainsProspectiveBindingFactsWithoutEffects(t *testing.T
 					t.Fatal(err)
 				}
 				reads, bytes := fixture.reader.imageReads, input.Budget.RemainingBytes()
-				selected, members, err := batch.CaptureMembers(fixture.envelope.after, fixture.input.operationID)
-				if err != nil || len(members) != 1 || len(selected.Namespaces()) != 1 {
+				selected, members, err := batch.CaptureMembers(fixture.envelope.after, fixture.input.OperationID())
+				if err != nil || len(members) != 1 || len(selected.Evidence().Namespaces()) != 1 {
 					t.Fatal("prospective document membership was not retained", err)
 				}
 				member := members[0]
@@ -54,7 +54,7 @@ func TestCaptureMembersRetainsProspectiveBindingFactsWithoutEffects(t *testing.T
 						}
 					}
 				}
-				expectedScope, err := selected.RegistryScopeFor(member.Namespace().Addresses())
+				expectedScope, err := selected.Evidence().RegistryScopeFor(member.Namespace().Addresses())
 				if err != nil || !member.RegistryScope().Equal(expectedScope) {
 					t.Fatal("member Registry comparison scope changed", err)
 				}
@@ -88,8 +88,8 @@ func TestCaptureMembersKeepsAliasesWithOnlyActualBindingMembership(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	selected, members, err := batch.CaptureMembers(fixture.envelope.after, fixture.input.operationID)
-	if err != nil || len(members) != 1 || len(selected.Namespaces()) != 1 || len(members[0].Namespace().Addresses()) != 2 {
+	selected, members, err := batch.CaptureMembers(fixture.envelope.after, fixture.input.OperationID())
+	if err != nil || len(members) != 1 || len(selected.Evidence().Namespaces()) != 1 || len(members[0].Namespace().Addresses()) != 2 {
 		t.Fatal("prospective projection split a physical alias group", err)
 	}
 	bindings := members[0].BindingIntents()
@@ -104,12 +104,12 @@ func TestCaptureMembersDropsUnselectedNamespacesAndFailedResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	selected, members, err := batch.CaptureMembers(durable.EmptySnapshot(), fixture.input.operationID)
-	if err != nil || len(selected.Namespaces()) != 0 || len(members) != 0 {
+	selected, members, err := batch.CaptureMembers(durable.EmptySnapshot(), fixture.input.OperationID())
+	if err != nil || len(selected.Evidence().Namespaces()) != 0 || len(members) != 0 {
 		t.Fatal("unselected namespace gained prospective membership", err)
 	}
 	selected, members, err = batch.CaptureMembers(fixture.envelope.after, "invalid/operation")
-	if err == nil || len(members) != 0 || len(selected.Namespaces()) != 0 {
+	if err == nil || len(members) != 0 || len(selected.Evidence().Namespaces()) != 0 {
 		t.Fatal("failed membership derivation returned a usable prefix")
 	}
 }

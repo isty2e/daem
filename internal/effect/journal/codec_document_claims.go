@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -37,11 +39,6 @@ type recoveryDocumentProvisionalAcquire struct {
 	StatefileAuthority pathAuthorityDTO         `json:"statefile_authority"`
 	ManifestPath       string                   `json:"manifest_path"`
 	OperationID        string                   `json:"operation_id"`
-}
-
-type documentProvisionalAcquire struct {
-	alias  aggregate.DocumentAddress
-	intent ownership.ProvisionalAcquireIntent
 }
 
 func (record *recoveryDocumentClaimSet) UnmarshalJSON(content []byte) error {
@@ -258,31 +255,31 @@ func canonicalDocumentClaims(records []recoveryClaimValue, owner stateauthority.
 	return claims, nil
 }
 
-func persistedDocumentProvisionalClaims(acquires []documentProvisionalAcquire) (recoveryDocumentClaimSet, error) {
+func persistedDocumentProvisionalClaims(acquires []journaldocument.ProvisionalAcquire) (recoveryDocumentClaimSet, error) {
 	if err := validateRecoveryOwnershipWorkBudget(0, 0, len(acquires)); err != nil {
 		return recoveryDocumentClaimSet{}, err
 	}
 	acquires = slices.Clone(acquires)
-	slices.SortFunc(acquires, func(left, right documentProvisionalAcquire) int {
-		return output.CompareFootprints(left.intent.Footprint(), right.intent.Footprint())
+	slices.SortFunc(acquires, func(left, right journaldocument.ProvisionalAcquire) int {
+		return output.CompareFootprints(left.Intent().Footprint(), right.Intent().Footprint())
 	})
 	records := make([]recoveryDocumentProvisionalAcquire, 0, len(acquires))
 	aliases := make([]aggregate.DocumentAddress, 0)
 	seenAliases := make(map[aggregate.DocumentAddress]bool)
 	for _, acquire := range acquires {
-		if err := acquire.alias.Validate(); err != nil {
+		if err := acquire.Alias().Validate(); err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}
-		intent := acquire.intent
+		intent := acquire.Intent()
 		if err := intent.Validate(); err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}
-		if acquire.alias.Scope() != target.ScopeGlobal || acquire.alias.AggregateRoot() != intent.Destination() {
+		if acquire.Alias().Scope() != target.ScopeGlobal || acquire.Alias().AggregateRoot() != intent.Destination() {
 			return recoveryDocumentClaimSet{}, fmt.Errorf("provisional document claim alias differs from its destination")
 		}
-		if !seenAliases[acquire.alias] {
-			seenAliases[acquire.alias] = true
-			aliases = append(aliases, acquire.alias)
+		if !seenAliases[acquire.Alias()] {
+			seenAliases[acquire.Alias()] = true
+			aliases = append(aliases, acquire.Alias())
 		}
 		footprint, err := footprintcodec.Encode(intent.Footprint())
 		if err != nil {
@@ -290,7 +287,7 @@ func persistedDocumentProvisionalClaims(acquires []documentProvisionalAcquire) (
 		}
 		path := intent.Path()
 		records = append(records, recoveryDocumentProvisionalAcquire{
-			Alias: persistedDocumentAlias(acquire.alias), Footprint: footprint,
+			Alias: persistedDocumentAlias(acquire.Alias()), Footprint: footprint,
 			CandidateAuthority: pathAuthorityDTO{Key: path.CandidateKey(), Witness: path.CandidateWitness()},
 			NamespaceAuthority: *persistedPathAuthority(path.Namespace()),
 			StatefileAuthority: *persistedPathAuthority(intent.Owner().StatefileAuthority()),
@@ -301,7 +298,7 @@ func persistedDocumentProvisionalClaims(acquires []documentProvisionalAcquire) (
 	if err := record.validateShape(); err != nil {
 		return recoveryDocumentClaimSet{}, err
 	}
-	first := acquires[0].intent
+	first := acquires[0].Intent()
 	if _, err := record.canonicalProvisional(aliases, first.Owner(), first.OperationID(), first.Path()); err != nil {
 		return recoveryDocumentClaimSet{}, err
 	}
@@ -312,7 +309,7 @@ func persistedDocumentAlias(alias aggregate.DocumentAddress) recoveryDocumentAli
 	return recoveryDocumentAliasRef{Target: string(alias.Target()), Scope: string(alias.Scope()), Destination: alias.AggregateRoot().String()}
 }
 
-func (record recoveryDocumentClaimSet) canonicalProvisional(aliases []aggregate.DocumentAddress, owner stateauthority.Authority, operationID string, path pathauthority.Provisional) ([]documentProvisionalAcquire, error) {
+func (record recoveryDocumentClaimSet) canonicalProvisional(aliases []aggregate.DocumentAddress, owner stateauthority.Authority, operationID string, path pathauthority.Provisional) ([]journaldocument.ProvisionalAcquire, error) {
 	if err := record.validateShape(); err != nil {
 		return nil, err
 	}
@@ -342,7 +339,7 @@ func (record recoveryDocumentClaimSet) canonicalProvisional(aliases []aggregate.
 		}
 		byAlias[key] = alias
 	}
-	acquires := make([]documentProvisionalAcquire, 0, len(*record.Acquires))
+	acquires := make([]journaldocument.ProvisionalAcquire, 0, len(*record.Acquires))
 	footprints := make([]output.Footprint, 0, len(*record.Acquires))
 	for _, row := range *record.Acquires {
 		alias, found := byAlias[row.Alias]
@@ -369,7 +366,7 @@ func (record recoveryDocumentClaimSet) canonicalProvisional(aliases []aggregate.
 		if err != nil {
 			return nil, err
 		}
-		acquires = append(acquires, documentProvisionalAcquire{alias: alias, intent: intent})
+		acquires = append(acquires, journaldocument.NewProvisionalAcquire(alias, intent))
 		footprints = append(footprints, footprint)
 	}
 	if err := validateNonOverlappingRecoveryFootprints(footprints); err != nil {
@@ -385,11 +382,11 @@ func (record recoveryDocumentClaimSet) promoted(aliases []aggregate.DocumentAddr
 	}
 	after := make([]ownership.Claim, 0, len(acquires))
 	for _, acquire := range acquires {
-		address, err := ownership.NewManagedAddress(exact, acquire.intent.Footprint())
+		address, err := ownership.NewManagedAddress(exact, acquire.Intent().Footprint())
 		if err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}
-		transition, err := ownershipmutation.NewAcquireTransitionFromIntent(acquire.intent, address)
+		transition, err := ownershipmutation.NewAcquireTransitionFromIntent(acquire.Intent(), address)
 		if err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}

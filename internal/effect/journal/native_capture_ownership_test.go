@@ -8,6 +8,10 @@ import (
 	"slices"
 	"testing"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -33,18 +37,22 @@ func TestNativeCaptureOwnershipFeedsWholeCaptureFromOneRegistryRead(t *testing.T
 				if err != nil || len(prepared) != 1 || reader.loads != 1 {
 					t.Fatalf("prepare capture ownership: groups=%d loads=%d error=%v", len(prepared), reader.loads, err)
 				}
-				if !reader.value.Equal(initial) || len(prepared[0].bindings) != 1 {
+				if !reader.value.Equal(initial) || len(prepared[0].Bindings()) != 1 {
 					t.Fatal("preparation published registry state or omitted project/global binding work")
 				}
-				if scope == target.ScopeProject && (prepared[0].claims != nil || len(prepared[0].provisional) != 0) {
+				if scope == target.ScopeProject && (prepared[0].Claims() != nil || len(prepared[0].Provisional()) != 0) {
 					t.Fatal("project-only capture invented exclusive claims")
 				}
-				fixture.input.nativeDocumentCaptureInput = prepared[0]
-				group, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
+				fixture.input.CaptureInput = prepared[0]
+				candidate, err := prepareWholeDocumentCandidate(t.Context(), fixture.namespace, fixture.input)
 				if err != nil {
 					t.Fatal(err)
 				}
-				fixture.stageAndReconstruct(t, group, comparison)
+				groups, comparisons, _, err := captureNativeDocumentCandidates(t.Context(), []nativeDocumentCaptureCandidate{candidate}, recovery.RemovalDemandSet{}, fixture.input.Budget())
+				if err != nil {
+					t.Fatal(err)
+				}
+				fixture.stageAndReconstruct(t, groups[0], comparisons[0])
 				fixture.requireUnchangedHost(t)
 			})
 		}
@@ -80,10 +88,10 @@ func TestNativeCaptureOwnershipReshapesCompleteGlobalClaims(t *testing.T) {
 				}
 			}
 			prepared, err := input.prepare(t.Context())
-			if err != nil || len(prepared) != 1 || prepared[0].claims == nil {
+			if err != nil || len(prepared) != 1 || prepared[0].Claims() == nil {
 				t.Fatalf("reshape: %v", err)
 			}
-			transition := prepared[0].claims
+			transition := prepared[0].Claims()
 			if !slices.EqualFunc(transition.Before(), beforeClaims, ownership.Claim.Equal) || len(transition.After()) != len(wantAfter) {
 				t.Fatal("reshape lost the complete before or after fragment")
 			}
@@ -92,7 +100,7 @@ func TestNativeCaptureOwnershipReshapesCompleteGlobalClaims(t *testing.T) {
 					t.Fatal("after claims contain an unselected membership extent")
 				}
 			}
-			intent := prepared[0].bindings[0]
+			intent := prepared[0].Bindings()[0]
 			after, known := intent.KnownAfter()
 			if !known || !after.Equal(intent.Before()) {
 				t.Fatal("whole/keyed mode transition replaced or retired the binding")
@@ -118,7 +126,7 @@ func TestNativeCaptureOwnershipRetainsStoredProvenanceAndUnchangedSibling(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent := prepared[0].bindings[0]
+	intent := prepared[0].Bindings()[0]
 	after, known := intent.KnownAfter()
 	retained, present := after.Get()
 	if !known || !present || !retained.Equal(stored) || !intent.Owner().ExactEqual(stored.Owner()) {
@@ -130,7 +138,7 @@ func TestNativeCaptureOwnershipRetainsStoredProvenanceAndUnchangedSibling(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, known = prepared[0].bindings[0].KnownAfter()
+	after, known = prepared[0].Bindings()[0].KnownAfter()
 	if _, present := after.Get(); !known || present {
 		t.Fatal("last native member did not retire its binding")
 	}
@@ -203,13 +211,13 @@ func TestNativeCaptureOwnershipProvisionalAcquiresNeverMintExactClaims(t *testin
 	}
 	input, reader := captureOwnershipFixture(t, fixture)
 	prepared, err := input.prepare(t.Context())
-	if err != nil || len(prepared) != 1 || prepared[0].claims != nil || len(prepared[0].provisional) != 1 {
+	if err != nil || len(prepared) != 1 || prepared[0].Claims() != nil || len(prepared[0].Provisional()) != 1 {
 		t.Fatalf("provisional capture: %v", err)
 	}
-	if !prepared[0].provisional[0].intent.Path().Equal(pending) || len(reader.value.Claims()) != 0 {
+	if !prepared[0].Provisional()[0].Intent().Path().Equal(pending) || len(reader.value.Claims()) != 0 {
 		t.Fatal("provisional capture minted exact ownership")
 	}
-	if _, known := prepared[0].bindings[0].KnownAfter(); known {
+	if _, known := prepared[0].Bindings()[0].KnownAfter(); known {
 		t.Fatal("provisional binding became exact without promotion")
 	}
 	input.before = input.after
@@ -220,11 +228,17 @@ func TestNativeCaptureOwnershipProvisionalAcquiresNeverMintExactClaims(t *testin
 }
 
 func TestNativeCaptureOwnershipDiscardsEarlierGroupsOnFailureAndCancellation(t *testing.T) {
-	fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeProject, "record", []byte("before"), nil)
+	fixture := wholeGroupFixture(t, target.TargetCodex, target.ScopeProject, "record", []byte("before"), nil)
 	input, reader := captureOwnershipFixture(t, fixture)
-	other := wholeGroupFixture(t, target.TargetCodex, target.ScopeProject, "record", []byte("other"), nil)
-	input.namespaces = append(input.namespaces, other.namespace)
-	var err error
+	other := wholeGroupFixture(t, target.TargetPi, target.ScopeProject, "record", []byte("other"), nil)
+	otherAliases := other.namespace.Addresses()
+	otherPath := filepath.Join(input.roots.Manifest.SelectedPath, filepath.FromSlash(otherAliases[0].AggregateRoot().RelativePath()))
+	requireWholeGroupWrite(t, otherPath, other.original.Content(), 0o600)
+	otherNamespace, err := journalnamespace.Observe(t.Context(), otherAliases, input.roots, journalTestFilesystem(), input.budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.namespaces = append(input.namespaces, otherNamespace)
 	input.before, err = input.before.WithManagedPaths(append(input.before.ManagedPaths(), other.envelope.before.ManagedPaths()...))
 	if err != nil {
 		t.Fatal(err)
@@ -242,14 +256,40 @@ func TestNativeCaptureOwnershipDiscardsEarlierGroupsOnFailureAndCancellation(t *
 	other.requireUnchangedHost(t)
 }
 
+type nativeCaptureOwnershipInput struct {
+	owner         stateauthority.Authority
+	operationID   string
+	before, after durable.Snapshot
+	namespaces    []journalnamespace.DocumentNamespace
+	registry      ownershipmutation.RegistryReader
+	roots         journalnamespace.Roots
+	limits        configdocument.Limits
+	budget        *physicalwork.Budget
+}
+
+func (input nativeCaptureOwnershipInput) prepare(ctx context.Context) ([]journalobservation.CaptureInput, error) {
+	var aliases []aggregate.DocumentAddress
+	for _, namespace := range input.namespaces {
+		aliases = append(aliases, namespace.Addresses()...)
+	}
+	batch, err := ObserveNativeDocuments(ctx, journalobservation.Input{
+		Owner: input.owner, Before: input.before, Aliases: aliases, Roots: input.roots,
+		Filesystem: journalTestFilesystem(), Registry: input.registry, Limits: input.limits, Budget: input.budget,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return batch.prepareOwnership(ctx, input.after, input.operationID)
+}
+
 func captureOwnershipFixture(t *testing.T, fixture wholeGroupTestFixture) (nativeCaptureOwnershipInput, *nativeCaptureRegistryReader) {
 	t.Helper()
 	var claims []ownership.Claim
-	if fixture.input.claims != nil {
-		claims = fixture.input.claims.Before()
+	if fixture.input.Claims() != nil {
+		claims = fixture.input.Claims().Before()
 	}
 	var bindings []ownership.DocumentBinding
-	for _, intent := range fixture.input.bindings {
+	for _, intent := range fixture.input.Bindings() {
 		if binding, present := intent.Before().Get(); present {
 			bindings = append(bindings, binding)
 		}
@@ -260,10 +300,10 @@ func captureOwnershipFixture(t *testing.T, fixture wholeGroupTestFixture) (nativ
 	}
 	reader := &nativeCaptureRegistryReader{value: current}
 	return nativeCaptureOwnershipInput{
-		owner: fixture.input.owner, operationID: fixture.input.operationID,
+		owner: fixture.input.Owner(), operationID: fixture.input.OperationID(),
 		before: fixture.envelope.before, after: fixture.envelope.after,
-		namespaces: []journalnamespace.DocumentNamespace{fixture.namespace}, registry: reader,
-		limits: fixture.input.limits, budget: fixture.input.budget,
+		namespaces: []journalnamespace.DocumentNamespace{fixture.namespace}, registry: reader, roots: fixture.roots,
+		limits: fixture.input.Limits(), budget: physicalwork.NewCaptureBudget(nil),
 	}, reader
 }
 
@@ -297,11 +337,11 @@ func TestNativeCaptureOwnershipFeedsSelectedCapture(t *testing.T) {
 	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
 	capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 	var claims []ownership.Claim
-	if capture.input.claims != nil {
-		claims = capture.input.claims.Before()
+	if capture.input.Claims() != nil {
+		claims = capture.input.Claims().Before()
 	}
 	var bindings []ownership.DocumentBinding
-	for _, intent := range capture.input.bindings {
+	for _, intent := range capture.input.Bindings() {
 		if binding, present := intent.Before().Get(); present {
 			bindings = append(bindings, binding)
 		}
@@ -312,18 +352,22 @@ func TestNativeCaptureOwnershipFeedsSelectedCapture(t *testing.T) {
 	}
 	reader := &nativeCaptureRegistryReader{value: current}
 	input := nativeCaptureOwnershipInput{
-		owner: capture.input.owner, operationID: capture.input.operationID,
+		owner: capture.input.Owner(), operationID: capture.input.OperationID(),
 		before: fixture.before, after: fixture.after, registry: reader,
-		namespaces: []journalnamespace.DocumentNamespace{capture.namespace}, limits: capture.input.limits, budget: capture.input.budget,
+		namespaces: []journalnamespace.DocumentNamespace{capture.namespace}, roots: capture.roots, limits: capture.input.Limits(), budget: physicalwork.NewCaptureBudget(nil),
 	}
 	prepared, err := input.prepare(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	capture.input.nativeDocumentCaptureInput = prepared[0]
-	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
+	capture.input.CaptureInput = prepared[0]
+	candidate, err := prepareSelectedDocumentCandidate(t.Context(), capture.namespace, capture.input, capture.subjects)
 	if err != nil {
 		t.Fatal(err)
 	}
-	capture.requireCompleteStage(t, group, comparison)
+	groups, comparisons, _, err := captureNativeDocumentCandidates(t.Context(), []nativeDocumentCaptureCandidate{candidate}, recovery.RemovalDemandSet{}, capture.input.Budget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture.requireCompleteStage(t, groups[0], comparisons[0])
 }

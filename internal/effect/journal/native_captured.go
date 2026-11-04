@@ -126,15 +126,15 @@ func (document CapturedNativeDocument) BindingIntents() []ownership.DocumentBind
 }
 
 type NativeDocumentProvisionalAcquire struct {
-	acquire documentProvisionalAcquire
+	acquire journaldocument.ProvisionalAcquire
 }
 
 func (acquire NativeDocumentProvisionalAcquire) Alias() aggregate.DocumentAddress {
-	return acquire.acquire.alias
+	return acquire.acquire.Alias()
 }
 
 func (acquire NativeDocumentProvisionalAcquire) Intent() ownership.ProvisionalAcquireIntent {
-	return acquire.acquire.intent
+	return acquire.acquire.Intent()
 }
 
 func (document CapturedNativeDocument) ProvisionalAcquires() []NativeDocumentProvisionalAcquire {

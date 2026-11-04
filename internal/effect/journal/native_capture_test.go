@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -154,7 +156,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	if err != nil {
 		t.Fatal(err)
 	}
-	batch, err := ObserveNativeDocuments(t.Context(), NativeDocumentObservationInput{Owner: owner, Before: actualBefore, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.limits, Budget: budget})
+	batch, err := ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: actualBefore, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.limits, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +207,7 @@ func TestCaptureNativeJournalPublishesAndReloadsActualSelectedWork(t *testing.T)
 			if err != nil || captured.Validate() != nil || len(captured.Documents()) != 1 {
 				t.Fatalf("capture did not publish/reload a complete native journal: %v", err)
 			}
-			if !captured.BeforeState().Equal(input.batch.BeforeState()) || !captured.AfterState().Equal(input.after) || !captured.Owner().Equal(input.batch.owner) {
+			if !captured.BeforeState().Equal(input.batch.Evidence().BeforeState()) || !captured.AfterState().Equal(input.after) || !captured.Owner().Equal(input.batch.owner) {
 				t.Fatal("capture lost complete operation facts")
 			}
 			content, err := os.ReadFile(captured.CaptureResult().JournalPath)
@@ -463,7 +465,7 @@ func TestCaptureNativeJournalJoinsOrdinaryWorkWithoutInventingHistory(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			before, err := input.batch.BeforeState().WithManagedPaths([]durable.ManagedPathState{row})
+			before, err := input.batch.Evidence().BeforeState().WithManagedPaths([]durable.ManagedPathState{row})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -484,9 +486,9 @@ func TestCaptureNativeJournalJoinsOrdinaryWorkWithoutInventingHistory(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			input.batch, err = ObserveNativeDocuments(t.Context(), NativeDocumentObservationInput{
-				Owner: input.batch.owner, Before: before, Aliases: input.batch.namespaces[0].Addresses(), Roots: input.batch.roots,
-				Filesystem: input.options.Filesystem, Registry: reader, Limits: input.batch.limits, Budget: input.batch.budget,
+			input.batch, err = ObserveNativeDocuments(t.Context(), journalobservation.Input{
+				Owner: input.batch.owner, Before: before, Aliases: input.batch.Evidence().Namespaces()[0].Addresses(), Roots: input.batch.roots,
+				Filesystem: input.options.Filesystem, Registry: reader, Limits: input.batch.Evidence().DocumentLimits(), Budget: input.batch.budget,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -609,9 +611,9 @@ func TestCaptureNativeJournalRefusesHostReferentInsidePublicationTree(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	input.batch, err = ObserveNativeDocuments(t.Context(), NativeDocumentObservationInput{
-		Owner: input.batch.owner, Before: input.batch.before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots,
-		Filesystem: input.options.Filesystem, Registry: reader, Limits: input.batch.limits, Budget: input.batch.budget,
+	input.batch, err = ObserveNativeDocuments(t.Context(), journalobservation.Input{
+		Owner: input.batch.owner, Before: input.batch.Evidence().BeforeState(), Aliases: []aggregate.DocumentAddress{alias}, Roots: roots,
+		Filesystem: input.options.Filesystem, Registry: reader, Limits: input.batch.Evidence().DocumentLimits(), Budget: input.batch.budget,
 	})
 	if err != nil {
 		t.Fatal("actual selected global referent could not be observed", err)
@@ -640,7 +642,7 @@ func TestCaptureNativeJournalRefusesUnjoinedAndExhaustedWork(t *testing.T) {
 			case "omitted-edit":
 				input.edits = nil
 			case "wrong-after":
-				input.after = input.batch.BeforeState()
+				input.after = input.batch.Evidence().BeforeState()
 			case "original-change":
 				input.original = aggregate.ExistingDocument([]byte("model=false\nunmanaged=1\n"))
 				requireWholeGroupWrite(t, input.host, input.original.Content(), 0o644)
@@ -669,11 +671,11 @@ func TestCaptureNativeJournalRefusesUnjoinedAndExhaustedWork(t *testing.T) {
 func TestCaptureNativeJournalLastSelectedRemovalRetainsOriginalAndBindingRelease(t *testing.T) {
 	input := nativeCaptureInput(t, false, target.ScopeProject)
 	var err error
-	input.after, err = input.batch.BeforeState().WithManagedAggregates(nil)
+	input.after, err = input.batch.Evidence().BeforeState().WithManagedAggregates(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract := input.batch.BeforeState().ManagedAggregates()[0].Contribution().Contract()
+	contract := input.batch.Evidence().BeforeState().ManagedAggregates()[0].Contribution().Contract()
 	input.edits = selectedCaptureEdits(t, nativeRecordFixture{read: nativeDocumentReadOptions{codecs: input.options.Codecs}}, input.original, []aggregate.ProjectionContract{contract}, nil)
 	captured, err := input.capture(t.Context())
 	if err != nil {

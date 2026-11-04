@@ -3,6 +3,9 @@ package journal
 import (
 	"testing"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
@@ -15,19 +18,23 @@ func TestNativeEmptyObservationRetainsActualContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := NativeDocumentObservationInput{
-		Owner: fixture.batch.owner, Before: fixture.batch.BeforeState(),
+	input := journalobservation.Input{
+		Owner: fixture.batch.owner, Before: fixture.batch.Evidence().BeforeState(),
 		Roots: fixture.batch.roots, Filesystem: fixture.options.Filesystem,
-		Registry: reader, Limits: fixture.batch.limits, Budget: fixture.batch.budget,
+		Registry: reader, Limits: fixture.batch.Evidence().DocumentLimits(), Budget: fixture.batch.budget,
 	}
 	observed, err := ObserveNativeDocuments(t.Context(), input)
 	if err != nil {
 		t.Fatal("an observed empty document census must remain executable context", err)
 	}
-	if len(observed.Namespaces()) != 0 || !observed.BeforeState().Equal(input.Before) {
+	if len(observed.Evidence().Namespaces()) != 0 || !observed.Evidence().BeforeState().Equal(input.Before) {
 		t.Fatal("empty census invented a namespace or discarded unselected native state")
 	}
-	if err := observed.ValidatePlanningContext(t.Context(), input.Owner, fixture.batch.registry, input.Budget); err != nil {
+	current, err := reader.LoadForClaimRemovals(t.Context(), nil, physicalwork.MaximumPhysicalPathDepth, input.Budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := observed.Evidence().ValidatePlanningContext(t.Context(), input.Owner, current, input.Budget); err != nil {
 		t.Fatal("empty census lost its actual owner, Registry or allocation", err)
 	}
 	if err := observed.validateOriginals(t.Context()); err != nil {

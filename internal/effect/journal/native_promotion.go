@@ -23,5 +23,5 @@ type nativePublicationContext struct {
 }
 
 func reloadNativeCapture(ctx context.Context, directory, operationID, fingerprint string, batch NativeDocumentObservationBatch, after durable.Snapshot, options CaptureOptions) (CapturedNativeJournal, error) {
-	return reloadNativePublication(ctx, directory, operationID, fingerprint, nativePublicationContext{owner: batch.owner, before: batch.before, roots: batch.roots, limits: batch.limits, budget: batch.budget, resolver: options.Resolver, ordinaryCapabilities: options.RootedCapability}, after, options)
+	return reloadNativePublication(ctx, directory, operationID, fingerprint, nativePublicationContext{owner: batch.owner, before: batch.Evidence().BeforeState(), roots: batch.roots, limits: batch.Evidence().DocumentLimits(), budget: batch.budget, resolver: options.Resolver, ordinaryCapabilities: options.RootedCapability}, after, options)
 }

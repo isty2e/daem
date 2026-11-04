@@ -79,7 +79,7 @@ func TestNativeSelectedRemovalUsesActualEditsNotObservedAliases(t *testing.T) {
 		t.Fatal(err)
 	}
 	observedAlias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/"+fixture.claims.alias.AggregateRoot().RelativePath())
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias, observedAlias}, roots, capture.reader, capture.input.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias, observedAlias}, roots, capture.reader, capture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestNativeRemovalQualifiedReadRejectsStaleCleanupParentBeforeImages(t *test
 	}
 	record := fixture.envelope.record
 	record.ManifestRootProvenance, record.DocumentGroups = persistedNativeRoot(manifest), []recoveryDocumentGroup{group}
-	journal := nativeJournalSnapshots{record: record, owner: fixture.input.owner, before: fixture.envelope.before, after: fixture.envelope.after}
+	journal := nativeJournalSnapshots{record: record, owner: fixture.input.Owner(), before: fixture.envelope.before, after: fixture.envelope.after}
 	options := fixture.envelope.read
 	options.filesystem, options.budget = fixture.reader, imageBudget(t)
 	reads := fixture.reader.imageReads
@@ -261,7 +261,7 @@ func TestNativeRemovalDerivesWholeTransitionDebt(t *testing.T) {
 			if before != (action == "remove") || expected != (action == "create") {
 				t.Fatal("create rollback and forward removal debt were conflated")
 			}
-			images, err := preparedNativeDocumentImages(t.Context(), group, comparison, fixture.input.limits)
+			images, err := preparedNativeDocumentImages(t.Context(), group, comparison, fixture.input.Limits())
 			if err != nil || group.validateRemovalImages(images) != nil {
 				t.Fatalf("removal lost actual image facts: %v", err)
 			}
@@ -324,7 +324,7 @@ func TestNativeRemovalPreservesLogicalAliasesWithOneNamespace(t *testing.T) {
 
 func TestNativeRemovalRefusesCancellationAndUnallocatedNamespaceWork(t *testing.T) {
 	fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeProject, "create", nil, []byte("created"))
-	comparison, err := PrepareWholeDocument(t.Context(), WholeDocumentPreparationInput{Before: aggregate.AbsentDocument(), Limits: fixture.input.limits}, fixture.input.mutation, fixture.input.payloads)
+	comparison, err := PrepareWholeDocument(t.Context(), WholeDocumentPreparationInput{Before: aggregate.AbsentDocument(), Limits: fixture.input.Limits()}, fixture.input.mutation, fixture.input.payloads)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestNativeRemovalRefusesCancellationAndUnallocatedNamespaceWork(t *testing.
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if record, err := captureDocumentRemoval(ctx, fixture.namespace, comparison, relations, fixture.input.budget); !errors.Is(err, context.Canceled) || record != nil {
+	if record, err := captureDocumentRemoval(ctx, fixture.namespace, comparison, relations, fixture.input.Budget()); !errors.Is(err, context.Canceled) || record != nil {
 		t.Fatalf("cancellation exposed removal authority: %v", err)
 	}
 }
@@ -346,7 +346,7 @@ func TestNativeRemovalChecksActualImageHashAndMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	images, err := preparedNativeDocumentImages(t.Context(), group, comparison, fixture.input.limits)
+	images, err := preparedNativeDocumentImages(t.Context(), group, comparison, fixture.input.Limits())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -65,7 +65,7 @@ func CaptureNativeJournalWithOptions(
 	edits []compose.ProjectionEdit,
 	options NativeCaptureOptions,
 ) (result CapturedNativeJournal, resultErr error) {
-	if ctx == nil || !batch.initialized || options.OperationAuthority == nil || options.Filesystem == nil || options.StateCodec == nil {
+	if ctx == nil || (batch.Evidence().Validate() != nil) || options.OperationAuthority == nil || options.Filesystem == nil || options.StateCodec == nil {
 		return CapturedNativeJournal{}, fmt.Errorf("native capture requires context, live observations, selected publication authority, filesystem and state codec")
 	}
 	var outcome mutationfs.CommitOutcome
@@ -95,7 +95,7 @@ func CaptureNativeJournalWithOptions(
 	if !isSafeRecoveryOperationID(operationID) {
 		return CapturedNativeJournal{}, fmt.Errorf("native recovery operation id must be a safe path component")
 	}
-	if _, _, err := encodeRecoveryJournalSnapshots(batch.before, after, options.StateCodec); err != nil {
+	if _, _, err := encodeRecoveryJournalSnapshots(batch.Evidence().BeforeState(), after, options.StateCodec); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	if err := validateNativeCaptureContext(ctx, paths, batch, options.CaptureOptions); err != nil {
@@ -105,7 +105,7 @@ func CaptureNativeJournalWithOptions(
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if err := validateNativeCaptureWork(batch.before, after, edits, append(slices.Clone(mutations), wholeMutations...), options.ProjectCarrierCompletions); err != nil {
+	if err := validateNativeCaptureWork(batch.Evidence().BeforeState(), after, edits, append(slices.Clone(mutations), wholeMutations...), options.ProjectCarrierCompletions); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	if err := ensureNoActive(ctx, paths.RecoveryDir, inventoryOptions{
@@ -143,7 +143,7 @@ func CaptureNativeJournalWithOptions(
 	}
 	roots := batch.roots
 	options.ManifestRoot = roots.Manifest.Root
-	stageOptions := nativeDocumentStageOptions{stateCodec: options.StateCodec, codecs: options.Codecs, limits: batch.limits, budget: batch.budget}
+	stageOptions := nativeDocumentStageOptions{stateCodec: options.StateCodec, codecs: options.Codecs, limits: batch.Evidence().DocumentLimits(), budget: batch.budget}
 	var fingerprint string
 	prepared, err := options.Filesystem.PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
 		var err error
@@ -188,7 +188,8 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
 	}
-	subjects, err := indexDocumentCaptureSubjects(ctx, batch.before, after)
+	namespaces := batch.Evidence().Namespaces()
+	subjects, err := indexDocumentCaptureSubjects(ctx, batch.Evidence().BeforeState(), after)
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
 	}
@@ -196,11 +197,11 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
 	}
-	groupEdits := make([][]compose.ProjectionEdit, len(batch.namespaces))
+	groupEdits := make([][]compose.ProjectionEdit, len(namespaces))
 	for _, edit := range edits {
 		address := edit.Participant().Selection().DocumentAddress()
 		found := false
-		for index, namespace := range batch.namespaces {
+		for index, namespace := range namespaces {
 			if slices.Contains(namespace.Addresses(), address) {
 				groupEdits[index] = append(groupEdits[index], edit)
 				found = true
@@ -227,7 +228,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 			return nativeJournalSnapshots{}, nil, err
 		}
 		found := false
-		for group, namespace := range batch.namespaces {
+		for group, namespace := range namespaces {
 			if !slices.Contains(namespace.Addresses(), address) {
 				continue
 			}
@@ -249,7 +250,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 			return nativeJournalSnapshots{}, nil, err
 		}
 		found := false
-		for index, namespace := range batch.namespaces {
+		for index, namespace := range namespaces {
 			if !slices.Contains(namespace.Addresses(), alias) {
 				continue
 			}
@@ -262,12 +263,12 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 			return nativeJournalSnapshots{}, nil, fmt.Errorf("Pi order has no selected native settings group")
 		}
 	}
-	work := !batch.before.Equal(after)
+	work := !batch.Evidence().BeforeState().Equal(after)
 	documentWork := false
 	for index, input := range inputs {
 		var candidate nativeDocumentCaptureCandidate
 		var err error
-		members, err := afterIndex.Subjects(ctx, batch.namespaces[index].Addresses())
+		members, err := afterIndex.Subjects(ctx, namespaces[index].Addresses())
 		if err != nil {
 			return nativeJournalSnapshots{}, nil, err
 		}
@@ -282,24 +283,23 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 			if len(groupEdits[index]) != 0 || groupOrders[index] != nil {
 				return nativeJournalSnapshots{}, nil, fmt.Errorf("whole writer overlaps selected document work")
 			}
-			candidate, err = prepareWholeDocumentCandidate(ctx, batch.namespaces[index], wholeDocumentCaptureInput{nativeDocumentCaptureInput: input, mutation: *groupWhole[index], payloads: payloads})
+			candidate, err = prepareWholeDocumentCandidate(ctx, namespaces[index], wholeDocumentCaptureInput{CaptureInput: input, mutation: *groupWhole[index], payloads: payloads})
 		} else if wholeAfter && len(groupEdits[index]) == 0 && groupOrders[index] == nil {
-			candidate, err = prepareRetainedWholeDocumentCandidate(ctx, batch.namespaces[index], input)
+			candidate, err = prepareRetainedWholeDocumentCandidate(ctx, namespaces[index], input)
 		} else {
-			candidate, err = prepareSelectedDocumentCandidate(ctx, batch.namespaces[index], selectedDocumentCaptureInput{nativeDocumentCaptureInput: input, edits: groupEdits[index], order: groupOrders[index]}, subjects)
+			candidate, err = prepareSelectedDocumentCandidate(ctx, namespaces[index], selectedDocumentCaptureInput{CaptureInput: input, edits: groupEdits[index], order: groupOrders[index]}, subjects)
 		}
 		if err != nil {
 			return nativeJournalSnapshots{}, nil, err
 		}
-		original := batch.originals[index]
-		if !candidate.comparison.BeforeDocument().Equal(original.document) || !sameNativeImageMode(candidate.comparison.BeforeMode(), original.mode) {
+		if !batch.evidence.MatchesOriginal(index, candidate.comparison.BeforeDocument(), candidate.comparison.BeforeMode()) {
 			return nativeJournalSnapshots{}, nil, fmt.Errorf("selected candidate differs from its decision original")
 		}
 		documentWork = documentWork || !candidate.comparison.BeforeDocument().Equal(candidate.comparison.ExpectedDocument()) || !candidate.comparison.BeforeState().SameRootMetadata(candidate.comparison.ExpectedState())
 		work = work || documentWork
 		candidates = append(candidates, candidate)
 	}
-	if err := requireNativeDocumentCommitWork(batch.before, after, documentWork); err != nil {
+	if err := requireNativeDocumentCommitWork(batch.Evidence().BeforeState(), after, documentWork); err != nil {
 		return nativeJournalSnapshots{}, nil, err
 	}
 	if !work {
@@ -319,9 +319,5 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 		StateAuthority:         recoveryStateAuthority{StatefileAuthority: *persistedPathAuthority(batch.owner.StatefileAuthority()), ManifestPath: batch.owner.ManifestPath()},
 		ManifestRootProvenance: manifest, Entries: []recoveryEntry{}, ClaimTransitions: []recoveryClaimTransition{}, ProvisionalAcquires: []recoveryProvisionalAcquireIntent{}, RemovalIntents: []recoveryRemovalIntent{}, DocumentGroups: groups,
 	}
-	return nativeJournalSnapshots{record: record, owner: batch.owner, before: batch.before, after: after}, comparisons, nil
-}
-
-func sameNativeImageMode(left, right *recovery.PermissionMode) bool {
-	return left == nil && right == nil || left != nil && right != nil && *left == *right
+	return nativeJournalSnapshots{record: record, owner: batch.owner, before: batch.Evidence().BeforeState(), after: after}, comparisons, nil
 }

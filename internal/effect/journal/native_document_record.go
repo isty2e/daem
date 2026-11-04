@@ -34,7 +34,7 @@ type nativeDocumentRecords struct {
 	groups      []journaldocument.StateGroup
 	images      []loadedDocumentImages
 	claims      []ownershipmutation.DocumentClaimTransition
-	provisional [][]documentProvisionalAcquire
+	provisional [][]journaldocument.ProvisionalAcquire
 }
 
 func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options nativeDocumentReadOptions) (nativeDocumentRecords, error) {
@@ -240,7 +240,7 @@ func (group recoveryDocumentGroup) canonicalBindingIntents(ctx context.Context, 
 	return intents, nil
 }
 
-func (journal nativeJournalSnapshots) documentClaims(ctx context.Context, indexes journaldocument.SnapshotIndexes, record recoveryDocumentGroup, aliases []aggregate.DocumentAddress) (ownershipmutation.DocumentClaimTransition, []documentProvisionalAcquire, error) {
+func (journal nativeJournalSnapshots) documentClaims(ctx context.Context, indexes journaldocument.SnapshotIndexes, record recoveryDocumentGroup, aliases []aggregate.DocumentAddress) (ownershipmutation.DocumentClaimTransition, []journaldocument.ProvisionalAcquire, error) {
 	before, err := indexes.Before().Footprints(ctx, aliases)
 	if err != nil {
 		return ownershipmutation.DocumentClaimTransition{}, nil, err
@@ -261,7 +261,7 @@ func (journal nativeJournalSnapshots) documentClaims(ctx context.Context, indexe
 		if err != nil {
 			return ownershipmutation.DocumentClaimTransition{}, nil, err
 		}
-		if !sameDocumentClaimFootprints(before, claims.Before()) || !sameDocumentClaimFootprints(after, claims.After()) {
+		if !journaldocument.SameClaimFootprints(before, claims.Before()) || !journaldocument.SameClaimFootprints(after, claims.After()) {
 			return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("document claims do not cover full global Snapshot membership")
 		}
 		return claims, nil, nil
@@ -276,7 +276,7 @@ func (journal nativeJournalSnapshots) documentClaims(ctx context.Context, indexe
 		}
 		footprints := make(map[output.Footprint]struct{}, len(acquires))
 		for _, acquire := range acquires {
-			footprints[acquire.intent.Footprint()] = struct{}{}
+			footprints[acquire.Intent().Footprint()] = struct{}{}
 		}
 		if len(footprints) != len(after) {
 			return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("provisional claims omit global Snapshot membership")
@@ -290,16 +290,4 @@ func (journal nativeJournalSnapshots) documentClaims(ctx context.Context, indexe
 	default:
 		return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("global document membership requires exact or provisional claims")
 	}
-}
-
-func sameDocumentClaimFootprints(expected map[output.Footprint]struct{}, claims []ownership.Claim) bool {
-	if len(expected) != len(claims) {
-		return false
-	}
-	for _, claim := range claims {
-		if _, found := expected[claim.Address().Footprint()]; !found {
-			return false
-		}
-	}
-	return true
 }

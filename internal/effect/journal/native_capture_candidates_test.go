@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -161,7 +163,7 @@ func prepareWholeCaptureCandidate(t *testing.T, fixture *wholeGroupTestFixture, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.input.budget = budget
+	fixture.input.CaptureInput = reviseCaptureInput(fixture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Budget = budget })
 	candidate, err := prepareWholeDocumentCandidate(t.Context(), fixture.namespace, fixture.input)
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +178,7 @@ func prepareSelectedCaptureCandidate(t *testing.T, fixture *selectedGroupCapture
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.input.budget = budget
+	fixture.input.CaptureInput = reviseCaptureInput(fixture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Budget = budget })
 	candidate, err := prepareSelectedDocumentCandidate(t.Context(), fixture.namespace, fixture.input, fixture.subjects)
 	if err != nil {
 		t.Fatal(err)

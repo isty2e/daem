@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -67,16 +69,16 @@ func TestNativeDocumentJournalStagePreservesMultipleActualGroups(t *testing.T) {
 	roots := second.roots
 	roots.Manifest = first.roots.Manifest
 	var err error
-	second.namespace, err = journalnamespace.Observe(t.Context(), second.namespace.Addresses(), roots, second.reader, second.input.budget)
+	second.namespace, err = journalnamespace.Observe(t.Context(), second.namespace.Addresses(), roots, second.reader, second.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
-	second.input.owner = first.input.owner
+	second.input.CaptureInput = reviseCaptureInput(second.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Owner = first.input.Owner() })
 	exact, known := second.namespace.Observation().Exact()
 	if !known {
 		t.Fatal("existing second file requires exact authority")
 	}
-	binding, err := ownership.NewDocumentBinding(first.input.owner, second.input.mutation.facts().destination, exact)
+	binding, err := ownership.NewDocumentBinding(first.input.Owner(), second.input.mutation.facts().destination, exact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,12 +86,15 @@ func TestNativeDocumentJournalStagePreservesMultipleActualGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent, err := ownership.NewExactDocumentBindingIntent(first.input.owner, binding.Destination(), value, value)
+	intent, err := ownership.NewExactDocumentBindingIntent(first.input.Owner(), binding.Destination(), value, value)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second.input.bindings = []ownership.DocumentBindingIntent{intent}
-	first.input.groupIndex, second.input.groupIndex = 0, 1
+	second.input.CaptureInput = reviseCaptureInput(second.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+		spec.Bindings = []ownership.DocumentBindingIntent{intent}
+	})
+	first.input.CaptureInput = reviseCaptureInput(first.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.GroupIndex = 0 })
+	second.input.CaptureInput = reviseCaptureInput(second.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.GroupIndex = 1 })
 	var groups []recoveryDocumentGroup
 	var comparisons []journaldocument.Comparison
 	for _, fixture := range []wholeGroupTestFixture{first, second} {

@@ -1,8 +1,10 @@
-package journal
+package observation
 
 import (
 	"context"
 	"fmt"
+
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
@@ -15,19 +17,19 @@ import (
 )
 
 // BeforeState retains the supplied complete baseline, not a freshness proof.
-func (batch NativeDocumentObservationBatch) BeforeState() durable.Snapshot {
+func (batch Batch) BeforeState() durable.Snapshot {
 	return batch.before
 }
 
 // ValidateBefore checks persisted ownership, not source freshness or a write grant.
-func (batch NativeDocumentObservationBatch) ValidateBefore(ctx context.Context) error {
+func (batch Batch) ValidateBefore(ctx context.Context) error {
 	_, err := batch.Ownership(ctx)
 	return err
 }
 
 // ValidatePlanningContext binds shared planner facts to the retained observation;
 // equal values do not supply freshness or execution authority.
-func (batch NativeDocumentObservationBatch) ValidatePlanningContext(ctx context.Context, owner stateauthority.Authority, registry ownership.Registry, budget *physicalwork.Budget) error {
+func (batch Batch) ValidatePlanningContext(ctx context.Context, owner stateauthority.Authority, registry ownership.Registry, budget *physicalwork.Budget) error {
 	if !batch.initialized || !batch.owner.Equal(owner) || batch.budget != budget {
 		return fmt.Errorf("native planning context differs from its observed owner, registry or allocation")
 	}
@@ -60,7 +62,7 @@ func nativeDocumentClaimBaseline(namespace journalnamespace.DocumentNamespace, o
 		exact = previous[0].Address().PathAuthority()
 	}
 	claims := owned[exact.Key()]
-	if !sameDocumentClaimFootprints(before, claims) {
+	if !journaldocument.SameClaimFootprints(before, claims) {
 		return pathauthority.Exact{}, nil, fmt.Errorf("native capture before membership differs from current owned claims")
 	}
 	for _, claim := range claims {

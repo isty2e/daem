@@ -1,4 +1,4 @@
-package journal
+package observation
 
 import (
 	"context"
@@ -11,19 +11,19 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-// NativeDocumentApprovalEvidence projects stable namespace and protection facts.
+// ApprovalEvidence projects stable namespace and protection facts.
 // It excludes content revisions and final-file object identity and grants no effects.
-type NativeDocumentApprovalEvidence struct {
+type ApprovalEvidence struct {
 	Aliases    []aggregate.DocumentAddress
 	Authority  mutation.DirectoryEntryAuthorityObservation
 	Protection string
 }
 
-func (batch NativeDocumentObservationBatch) ApprovalEvidence() ([]NativeDocumentApprovalEvidence, error) {
+func (batch Batch) ApprovalEvidence() ([]ApprovalEvidence, error) {
 	if !batch.initialized {
 		return nil, fmt.Errorf("native observation is unavailable")
 	}
-	result := make([]NativeDocumentApprovalEvidence, 0, len(batch.namespaces))
+	result := make([]ApprovalEvidence, 0, len(batch.namespaces))
 	for index, namespace := range batch.namespaces {
 		original := batch.originals[index]
 		protection := "absent"
@@ -38,14 +38,14 @@ func (batch NativeDocumentObservationBatch) ApprovalEvidence() ([]NativeDocument
 				return nil, err
 			}
 		}
-		result = append(result, NativeDocumentApprovalEvidence{Aliases: namespace.Addresses(), Authority: namespace.Observation(), Protection: protection})
+		result = append(result, ApprovalEvidence{Aliases: namespace.Addresses(), Authority: namespace.Observation(), Protection: protection})
 	}
 	return result, nil
 }
 
 // HasMembers identifies documents retained by the complete Before/After state.
 // An empty declaration alone is not a document actor.
-func (evidence NativeDocumentApprovalEvidence) HasMembers(ctx context.Context, before, after durable.Snapshot) (bool, error) {
+func (evidence ApprovalEvidence) HasMembers(ctx context.Context, before, after durable.Snapshot) (bool, error) {
 	indexes, err := journaldocument.IndexSnapshots(ctx, before, after)
 	if err != nil {
 		return false, err

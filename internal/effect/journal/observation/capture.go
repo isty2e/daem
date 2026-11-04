@@ -1,4 +1,4 @@
-package journal
+package observation
 
 import (
 	"context"
@@ -21,15 +21,14 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-// Native capture derives persistence facts from one selected registry read.
-// Root freshness, complete action coverage and publication remain operation-owned.
+// Capture ownership derives claim/binding candidates from one selected read.
+// Root custody, record encoding and publication remain operation-owned.
 type nativeCaptureOwnershipInput struct {
 	owner       stateauthority.Authority
 	operationID string
 	before      durable.Snapshot
 	after       durable.Snapshot
 	namespaces  []journalnamespace.DocumentNamespace
-	registry    ownershipmutation.RegistryReader
 	limits      configdocument.Limits
 	budget      *physicalwork.Budget
 }
@@ -40,12 +39,11 @@ type nativeCaptureMembership struct {
 	beforeFootprints []map[output.Footprint]struct{}
 	afterFootprints  []map[output.Footprint]struct{}
 	missingHistory   []pathauthority.Provisional
-	needsRegistry    bool
 }
 
 func (input nativeCaptureOwnershipInput) membership(ctx context.Context) (nativeCaptureMembership, error) {
-	base := nativeDocumentCaptureInput{owner: input.owner, operationID: input.operationID, limits: input.limits, budget: input.budget}
-	if err := validateNativeDocumentCaptureInput(ctx, base); err != nil {
+	base := CaptureInput{owner: input.owner, operationID: input.operationID, limits: input.limits, budget: input.budget}
+	if err := base.Validate(ctx); err != nil {
 		return nativeCaptureMembership{}, err
 	}
 	indexes, err := journaldocument.IndexSnapshots(ctx, input.before, input.after)
@@ -62,7 +60,6 @@ func (input nativeCaptureOwnershipInput) membership(ctx context.Context) (native
 	}
 	beforeFootprints := make([]map[output.Footprint]struct{}, len(input.namespaces))
 	afterFootprints := make([]map[output.Footprint]struct{}, len(input.namespaces))
-	needsRegistry := false
 	var missingHistory []pathauthority.Provisional
 	seenAliases := make(map[aggregate.DocumentAddress]struct{})
 	for index, namespace := range input.namespaces {
@@ -73,7 +70,7 @@ func (input nativeCaptureOwnershipInput) membership(ctx context.Context) (native
 		if _, err := journaldocument.AliasSet(ctx, aliases); err != nil {
 			return nativeCaptureMembership{}, err
 		}
-		if _, err := persistedNativeObservation(namespace.Observation()); err != nil {
+		if err := namespace.Observation().Validate(); err != nil {
 			return nativeCaptureMembership{}, err
 		}
 		for _, alias := range aliases {
@@ -81,9 +78,6 @@ func (input nativeCaptureOwnershipInput) membership(ctx context.Context) (native
 				return nativeCaptureMembership{}, fmt.Errorf("native capture repeats a document alias")
 			}
 			seenAliases[alias] = struct{}{}
-			_, had := beforeNative[alias.AggregateRoot()]
-			_, has := afterNative[alias.AggregateRoot()]
-			needsRegistry = needsRegistry || had || has
 		}
 		beforeFootprints[index], err = indexes.Before().Footprints(ctx, aliases)
 		if err != nil {
@@ -93,7 +87,6 @@ func (input nativeCaptureOwnershipInput) membership(ctx context.Context) (native
 		if err != nil {
 			return nativeCaptureMembership{}, err
 		}
-		needsRegistry = needsRegistry || len(beforeFootprints[index])+len(afterFootprints[index]) != 0
 		if missing, provisional := namespace.Observation().Provisional(); provisional && len(beforeFootprints[index]) != 0 {
 			missingHistory = append(missingHistory, missing)
 		}
@@ -101,26 +94,11 @@ func (input nativeCaptureOwnershipInput) membership(ctx context.Context) (native
 	return nativeCaptureMembership{
 		beforeNative: beforeNative, afterNative: afterNative,
 		beforeFootprints: beforeFootprints, afterFootprints: afterFootprints,
-		missingHistory: missingHistory, needsRegistry: needsRegistry,
+		missingHistory: missingHistory,
 	}, nil
 }
 
-func (input nativeCaptureOwnershipInput) prepare(ctx context.Context) ([]nativeDocumentCaptureInput, error) {
-	membership, err := input.membership(ctx)
-	if err != nil {
-		return nil, err
-	}
-	current := ownership.EmptyRegistry()
-	if membership.needsRegistry {
-		current, err = readNativeCaptureRegistry(ctx, input.registry, input.owner, membership.missingHistory, input.budget)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return input.derive(ctx, membership, current)
-}
-
-func (input nativeCaptureOwnershipInput) prepareFromRegistry(ctx context.Context, current ownership.Registry) ([]nativeDocumentCaptureInput, error) {
+func (input nativeCaptureOwnershipInput) prepareFromRegistry(ctx context.Context, current ownership.Registry) ([]CaptureInput, error) {
 	membership, err := input.membership(ctx)
 	if err != nil {
 		return nil, err
@@ -128,8 +106,8 @@ func (input nativeCaptureOwnershipInput) prepareFromRegistry(ctx context.Context
 	return input.derive(ctx, membership, current)
 }
 
-func (input nativeCaptureOwnershipInput) derive(ctx context.Context, membership nativeCaptureMembership, current ownership.Registry) ([]nativeDocumentCaptureInput, error) {
-	base := nativeDocumentCaptureInput{owner: input.owner, operationID: input.operationID, limits: input.limits, budget: input.budget}
+func (input nativeCaptureOwnershipInput) derive(ctx context.Context, membership nativeCaptureMembership, current ownership.Registry) ([]CaptureInput, error) {
+	base := CaptureInput{owner: input.owner, operationID: input.operationID, limits: input.limits, budget: input.budget}
 	owned := make(map[string][]ownership.Claim)
 	for _, claim := range current.Claims() {
 		if err := ctx.Err(); err != nil {
@@ -140,7 +118,7 @@ func (input nativeCaptureOwnershipInput) derive(ctx context.Context, membership 
 		}
 	}
 
-	result := make([]nativeDocumentCaptureInput, 0, len(input.namespaces))
+	result := make([]CaptureInput, 0, len(input.namespaces))
 	var preparations, finalizations []ownership.DocumentClaimChange
 	var exactBindings []ownership.DocumentBindingIntent
 	seenBindings := make(map[output.Destination]struct{})
@@ -210,7 +188,7 @@ func (input nativeCaptureOwnershipInput) derive(ctx context.Context, membership 
 	return result, nil
 }
 
-func (input nativeCaptureOwnershipInput) documentClaims(ctx context.Context, namespace journalnamespace.DocumentNamespace, current ownership.Registry, owned map[string][]ownership.Claim, before, after map[output.Footprint]struct{}) (*ownershipmutation.DocumentClaimTransition, []documentProvisionalAcquire, error) {
+func (input nativeCaptureOwnershipInput) documentClaims(ctx context.Context, namespace journalnamespace.DocumentNamespace, current ownership.Registry, owned map[string][]ownership.Claim, before, after map[output.Footprint]struct{}) (*ownershipmutation.DocumentClaimTransition, []journaldocument.ProvisionalAcquire, error) {
 	if len(before)+len(after) == 0 {
 		return nil, nil, nil
 	}
@@ -262,7 +240,7 @@ func (input nativeCaptureOwnershipInput) documentClaims(ctx context.Context, nam
 			break
 		}
 	}
-	acquires := make([]documentProvisionalAcquire, 0, len(after))
+	acquires := make([]journaldocument.ProvisionalAcquire, 0, len(after))
 	for footprint := range after {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -271,10 +249,10 @@ func (input nativeCaptureOwnershipInput) documentClaims(ctx context.Context, nam
 		if err != nil {
 			return nil, nil, err
 		}
-		acquires = append(acquires, documentProvisionalAcquire{alias: global, intent: intent})
+		acquires = append(acquires, journaldocument.NewProvisionalAcquire(global, intent))
 	}
-	slices.SortFunc(acquires, func(left, right documentProvisionalAcquire) int {
-		return output.CompareFootprints(left.intent.Footprint(), right.intent.Footprint())
+	slices.SortFunc(acquires, func(left, right journaldocument.ProvisionalAcquire) int {
+		return output.CompareFootprints(left.Intent().Footprint(), right.Intent().Footprint())
 	})
 	return nil, acquires, nil
 }
@@ -302,8 +280,7 @@ func (input nativeCaptureOwnershipInput) documentBindings(ctx context.Context, n
 		}
 		beforeValue, afterValue := ownership.NoDocumentBinding(), ownership.NoDocumentBinding()
 		if had {
-			observed, err := persistedNativeObservation(namespace.Observation())
-			if err != nil || !observed.matchesRetainedExact(binding.PathAuthority()) {
+			if !namespace.Observation().MatchesRetainedExact(binding.PathAuthority()) {
 				return nil, fmt.Errorf("native capture baseline binding differs from the captured namespace")
 			}
 			beforeValue, _ = ownership.PresentDocumentBinding(binding)

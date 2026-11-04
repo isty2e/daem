@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -18,7 +20,7 @@ import (
 )
 
 type selectedDocumentCaptureInput struct {
-	nativeDocumentCaptureInput
+	journalobservation.CaptureInput
 	edits []compose.ProjectionEdit
 	order *pipackage.OrderObservation
 }
@@ -115,18 +117,18 @@ func prepareSelectedDocumentGroup(ctx context.Context, namespace journalnamespac
 	if err != nil {
 		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
 	}
-	return candidate.captureRemoval(ctx, input.budget)
+	return candidate.captureRemoval(ctx, input.Budget())
 }
 
 func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalnamespace.DocumentNamespace, input selectedDocumentCaptureInput, subjects documentCaptureSubjects) (nativeDocumentCaptureCandidate, error) {
-	if err := validateNativeDocumentCaptureInput(ctx, input.nativeDocumentCaptureInput); err != nil {
+	if err := input.CaptureInput.Validate(ctx); err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
 	refs, err := subjects.selectedSubjects(ctx, input.edits, namespace.Addresses())
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	group, manifest, err := nativeDocumentGroupMetadata(ctx, namespace, input.nativeDocumentCaptureInput)
+	group, manifest, err := nativeDocumentGroupMetadata(ctx, namespace, input.CaptureInput)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -144,15 +146,15 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 			return nativeDocumentCaptureCandidate{}, fmt.Errorf("selected Pi order has no captured settings alias")
 		}
 		group.PiOrder = &recoveryDocumentPiOrder{Alias: persistedDocumentAlias(alias), CommandRoot: recoveryDocumentLogicalRoot{Role: "manifest-root", Provenance: persistedNativeRoot(manifest.Provenance())}, Evidence: evidence}
-		if err := qualifyNativePiContext(ctx, *group.PiOrder, manifest, namespace, input.budget); err != nil {
+		if err := qualifyNativePiContext(ctx, *group.PiOrder, manifest, namespace, input.Budget()); err != nil {
 			return nativeDocumentCaptureCandidate{}, err
 		}
 	}
-	original, mode, _, err := namespace.ReadReferent(ctx, min(input.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.budget)
+	original, mode, _, err := namespace.ReadReferent(ctx, min(input.Limits().MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.Budget())
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	expected, participants, err := journaldocument.PrepareSelectedImage(ctx, original, input.limits, input.edits, input.order)
+	expected, participants, err := journaldocument.PrepareSelectedImage(ctx, original, input.Limits(), input.edits, input.order)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -169,13 +171,13 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 			}
 		}
 	}
-	candidate, err := journaldocument.ReconstructSelected(ctx, journaldocument.ComparisonInput{Before: original, Expected: expected, BeforeMode: mode, ExpectedMode: expectedMode, Limits: input.limits}, participants, input.order)
+	candidate, err := journaldocument.ReconstructSelected(ctx, journaldocument.ComparisonInput{Before: original, Expected: expected, BeforeMode: mode, ExpectedMode: expectedMode, Limits: input.Limits()}, participants, input.order)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
 	group.Extent, group.SelectedSubjects = "selected", refs
 	comparison := candidate.Comparison()
-	_, group.Original, group.Expected, err = documentImageReferences(comparison, input.groupIndex)
+	_, group.Original, group.Expected, err = documentImageReferences(comparison, input.GroupIndex())
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -195,5 +197,5 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 	if err := ctx.Err(); err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	return nativeDocumentCaptureCandidate{group: group, comparison: comparison, namespace: namespace, manifest: manifest, relations: relations, budget: input.budget}, nil
+	return nativeDocumentCaptureCandidate{group: group, comparison: comparison, namespace: namespace, manifest: manifest, relations: relations, budget: input.Budget()}, nil
 }

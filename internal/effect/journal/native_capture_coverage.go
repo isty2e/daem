@@ -180,7 +180,7 @@ func validateNativePublicationPartition(ctx context.Context, directory string, b
 	}
 	appendPath(nativeDocumentObservationKey(publication), -1)
 	appendPath(batch.owner.StatefileKey(), -2)
-	for index, namespace := range batch.namespaces {
+	for index, namespace := range batch.Evidence().Namespaces() {
 		appendPath(nativeDocumentObservationKey(namespace.Observation()), index)
 		for _, alias := range namespace.Aliases() {
 			appendPath(nativeDocumentObservationKey(alias.Observation()), index)

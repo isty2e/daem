@@ -38,7 +38,7 @@ func TestNativeInitialObservationRefusesMissingSelectionAndWrongPhase(t *testing
 				cancel()
 			}
 			observed, err := ObserveNativeDocuments(ctx, input)
-			if err == nil || observed.initialized || len(observed.originals) != 0 || len(observed.namespaces) != 0 || reader.loads != 0 {
+			if err == nil || observed.Evidence().Validate() == nil || len(observed.Evidence().Namespaces()) != 0 || reader.loads != 0 {
 				t.Fatalf("invalid initial selection exposed facts: %v", err)
 			}
 			fixture.requireUnchangedHost(t)
@@ -68,7 +68,7 @@ func TestNativeInitialObservationLateFailureDiscardsAllFacts(t *testing.T) {
 				}
 			}
 			observed, err := ObserveNativeDocuments(ctx, input)
-			if err == nil || observed.initialized || len(observed.originals) != 0 || reader.loads != 1 {
+			if err == nil || observed.Evidence().Validate() == nil || len(observed.Evidence().Namespaces()) != 0 || reader.loads != 1 {
 				t.Fatal("late failure exposed a usable observation prefix", err)
 			}
 			fixture.requireUnchangedHost(t)
@@ -106,7 +106,7 @@ func TestNativeInitialContinuationRefusesOriginalAndLifetimeDrift(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			captures, err := batch.prepareOwnership(ctx, fixture.envelope.after, fixture.input.operationID)
+			captures, err := batch.prepareOwnership(ctx, fixture.envelope.after, fixture.input.OperationID())
 			if err == nil || captures != nil || reader.loads != 1 {
 				t.Fatal("continuation accepted changed original/lifetime or reread Registry", err)
 			}
@@ -137,21 +137,21 @@ func TestNativeInitialObservationPreservesMissingExactHistory(t *testing.T) {
 				t.Fatal(err)
 			}
 			batch, err := ObserveNativeDocuments(t.Context(), input)
-			if err != nil || !batch.initialized || reader.loads != 1 || reader.qualified != 1 {
+			if err != nil || (batch.Evidence().Validate() != nil) || reader.loads != 1 || reader.qualified != 1 {
 				t.Fatal("actual missing history was not read under its namespace", err)
 			}
-			if err := batch.ValidateBefore(t.Context()); err != nil {
+			if err := batch.Evidence().ValidateBefore(t.Context()); err != nil {
 				t.Fatal("matching missing history could not qualify before planning", err)
 			}
-			prepared, err := batch.prepareOwnership(t.Context(), durable.EmptySnapshot(), fixture.input.operationID)
-			if err != nil || len(prepared) != 1 || len(prepared[0].bindings) != 1 {
+			prepared, err := batch.prepareOwnership(t.Context(), durable.EmptySnapshot(), fixture.input.OperationID())
+			if err != nil || len(prepared) != 1 || len(prepared[0].Bindings()) != 1 {
 				t.Fatal("matching history could not retire without a host write", err)
 			}
-			after, known := prepared[0].bindings[0].KnownAfter()
+			after, known := prepared[0].Bindings()[0].KnownAfter()
 			if _, present := after.Get(); !known || present {
 				t.Fatal("last native binding was not retired")
 			}
-			if scope == target.ScopeGlobal && (prepared[0].claims == nil || len(prepared[0].claims.Before()) != 1 || len(prepared[0].claims.After()) != 0) {
+			if scope == target.ScopeGlobal && (prepared[0].Claims() == nil || len(prepared[0].Claims().Before()) != 1 || len(prepared[0].Claims().After()) != 0) {
 				t.Fatal("global exact history was manufactured or lost")
 			}
 			afterBytes, err := os.ReadFile(registryPath)

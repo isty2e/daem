@@ -7,6 +7,8 @@ import (
 	"slices"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -155,13 +157,13 @@ func TestDocumentClaimSetReconstructsBothOwnershipModesAndReshaping(t *testing.T
 
 func TestDocumentProvisionalClaimsKeepTypedKeysAndPromoteWithoutEntries(t *testing.T) {
 	fixture := documentClaimsForTest(t)
-	var inputs []documentProvisionalAcquire
+	var inputs []journaldocument.ProvisionalAcquire
 	for _, parts := range [][]string{{""}, {"a/b"}, {"a", "b"}, {"line\n\x00key"}, {"~"}} {
 		intent, err := ownership.NewProvisionalAcquireIntent(fixture.alias.AggregateRoot(), documentKeyFootprint(t, parts...), fixture.provisional, fixture.owner, "first-document")
 		if err != nil {
 			t.Fatal(err)
 		}
-		inputs = append(inputs, documentProvisionalAcquire{alias: fixture.alias, intent: intent})
+		inputs = append(inputs, journaldocument.NewProvisionalAcquire(fixture.alias, intent))
 	}
 	inputSnapshot := slices.Clone(inputs)
 	record, err := persistedDocumentProvisionalClaims(inputs)
@@ -174,8 +176,8 @@ func TestDocumentProvisionalClaimsKeepTypedKeysAndPromoteWithoutEntries(t *testi
 		t.Fatalf("typed provisional evidence failed: %v", err)
 	}
 	for _, expected := range inputs {
-		if !slices.ContainsFunc(actual, func(candidate documentProvisionalAcquire) bool {
-			return candidate.alias == expected.alias && candidate.intent.Equal(expected.intent)
+		if !slices.ContainsFunc(actual, func(candidate journaldocument.ProvisionalAcquire) bool {
+			return candidate.Alias() == expected.Alias() && candidate.Intent().Equal(expected.Intent())
 		}) {
 			t.Fatal("provisional wire interpreted a native key as a legacy content path")
 		}
@@ -189,8 +191,8 @@ func TestDocumentProvisionalClaimsKeepTypedKeysAndPromoteWithoutEntries(t *testi
 	}
 	left, _ := json.Marshal(record)
 	right, _ := json.Marshal(reordered)
-	if !bytes.Equal(left, right) || !slices.EqualFunc(inputs, inputSnapshot, func(left, right documentProvisionalAcquire) bool {
-		return left.alias == right.alias && left.intent.Equal(right.intent)
+	if !bytes.Equal(left, right) || !slices.EqualFunc(inputs, inputSnapshot, func(left, right journaldocument.ProvisionalAcquire) bool {
+		return left.Alias() == right.Alias() && left.Intent().Equal(right.Intent())
 	}) {
 		t.Fatal("persisted identity depends on order or writer mutated its input")
 	}
@@ -215,7 +217,7 @@ func TestDocumentClaimEvidenceRefusesWrongBindingAndOverlaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := persistedDocumentProvisionalClaims([]documentProvisionalAcquire{{alias: fixture.alias, intent: intent}})
+	record, err := persistedDocumentProvisionalClaims([]journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(fixture.alias, intent)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +253,7 @@ func TestDocumentClaimEvidenceRefusesWrongBindingAndOverlaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if candidate, err := persistedDocumentProvisionalClaims([]documentProvisionalAcquire{{alias: fixture.alias, intent: intent}, {alias: fixture.alias, intent: child}}); err == nil || candidate.Kind != "" {
+	if candidate, err := persistedDocumentProvisionalClaims([]journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(fixture.alias, intent), journaldocument.NewProvisionalAcquire(fixture.alias, child)}); err == nil || candidate.Kind != "" {
 		t.Fatal("overlapping native acquires returned a usable record")
 	}
 }

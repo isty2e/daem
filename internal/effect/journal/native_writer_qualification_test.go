@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -56,7 +58,7 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	if err := os.Symlink(relative, aliasPath); err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, journalTestFilesystem(), fixture.whole.input.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, journalTestFilesystem(), fixture.whole.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +67,7 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	if !known {
 		t.Fatal("existing native referent requires exact evidence")
 	}
-	binding, err := ownership.NewDocumentBinding(fixture.whole.input.owner, address.AggregateRoot(), exact)
+	binding, err := ownership.NewDocumentBinding(fixture.whole.input.Owner(), address.AggregateRoot(), exact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,11 +75,13 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent, err := ownership.NewExactDocumentBindingIntent(fixture.whole.input.owner, address.AggregateRoot(), present, present)
+	intent, err := ownership.NewExactDocumentBindingIntent(fixture.whole.input.Owner(), address.AggregateRoot(), present, present)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.whole.input.bindings = []ownership.DocumentBindingIntent{intent}
+	fixture.whole.input.CaptureInput = reviseCaptureInput(fixture.whole.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+		spec.Bindings = []ownership.DocumentBindingIntent{intent}
+	})
 	group, comparison, err := prepareWholeDocumentGroup(t.Context(), namespace, fixture.whole.input)
 	if err != nil {
 		t.Fatal(err)
@@ -254,7 +258,7 @@ func TestQualifiedWriterKeepsNativeProjectSymlinkAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/prompts/Caf\u00e9.md")
-	namespace, err := journalnamespace.Observe(t.Context(), append(fixture.namespace.Addresses(), project), roots, fixture.reader, fixture.input.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), append(fixture.namespace.Addresses(), project), roots, fixture.reader, fixture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +266,7 @@ func TestQualifiedWriterKeepsNativeProjectSymlinkAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal := nativeJournalSnapshots{record: fixture.envelope.record, owner: fixture.input.owner, before: fixture.envelope.before, after: fixture.envelope.after}
+	journal := nativeJournalSnapshots{record: fixture.envelope.record, owner: fixture.input.Owner(), before: fixture.envelope.before, after: fixture.envelope.after}
 	grant, err := roots.Manifest.Root.Authority()
 	if err != nil {
 		t.Fatal(err)
