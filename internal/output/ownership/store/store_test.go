@@ -46,7 +46,7 @@ func TestStoreRoundTripUsesPrivateDeterministicSchema(t *testing.T) {
 		t.Fatalf("registry mode = %04o, want 0600", info.Mode().Perm())
 	}
 	first, _ := os.ReadFile(registryStore.Path())
-	for _, fragment := range []string{`"version": 2`, `"path_authority"`, `"statefile_authority"`, `"semantics_witness"`} {
+	for _, fragment := range []string{fmt.Sprintf(`"version": %d`, currentVersion), `"path_authority"`, `"statefile_authority"`, `"semantics_witness"`} {
 		if !strings.Contains(string(first), fragment) {
 			t.Fatalf("registry missing current authority field %q:\n%s", fragment, first)
 		}
@@ -141,7 +141,7 @@ func TestStorePreservesUnrelatedClaimsAndRejectsStaleExpected(t *testing.T) {
 		t.Fatalf("write right claim: %v", err)
 	}
 
-	foreign := testActiveClaim(t, root, "foreign", left.Address().Path(), left.Address().ContentPath())
+	foreign := testActiveClaim(t, root, "foreign", left.Address().Path(), "")
 	foreignValue, _ := ownership.PresentClaim(foreign)
 	if _, err := registryStore.Apply(context.Background(), left.Address(), foreignValue, ownership.NoClaim()); err == nil {
 		t.Fatal("Store.Apply accepted stale expected ownership")
@@ -192,7 +192,7 @@ func TestStoreRemoveClaimRejectsStaleExpectedClaim(t *testing.T) {
 	root := canonicalTestRoot(t)
 	registryStore := mustStore(t, filepath.Join(root, "claims.json"))
 	expected := testActiveClaim(t, root, "expected", filepath.Join(root, "host", "output"), "")
-	actual := testActiveClaim(t, root, "actual", expected.Address().Path(), expected.Address().ContentPath())
+	actual := testActiveClaim(t, root, "actual", expected.Address().Path(), "")
 	actualValue, _ := ownership.PresentClaim(actual)
 	if _, err := registryStore.Apply(t.Context(), actual.Address(), ownership.NoClaim(), actualValue); err != nil {
 		t.Fatalf("seed actual claim: %v", err)
@@ -359,7 +359,7 @@ func TestStoreAdmitsOnlyExactEmptyRetiredV1Registry(t *testing.T) {
 			want:    "use the daem version that wrote it",
 		},
 		{name: "unknown legacy field", content: `{"version":1,"claims":[],"future":true}`, want: "unknown field"},
-		{name: "future version", content: `{"version":3,"claims":[],"future":true}`, want: "written by a newer daem"},
+		{name: "future version", content: fmt.Sprintf(`{"version":%d,"claims":[],"future":true}`, currentVersion+1), want: "written by a newer daem"},
 		{
 			name:    "case-variant empty override",
 			content: `{"version":1,"claims":[{"path":"legacy"}],"CLAIMS":[]}`,
@@ -399,7 +399,7 @@ func TestStoreAdmitsOnlyExactEmptyRetiredV1Registry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(current), `"version": 2`) {
+	if !strings.Contains(string(current), fmt.Sprintf(`"version": %d`, currentVersion)) {
 		t.Fatalf("guarded write did not replace retired schema with current schema:\n%s", current)
 	}
 }
@@ -584,7 +584,7 @@ func testActiveClaim(t *testing.T, root string, ownerName string, path string, c
 	if err != nil {
 		t.Fatalf("observe managed address authority: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(pathAuthority.Exact(), contentPath)
+	address, err := ownership.NewManagedAddressFromLegacy(pathAuthority.Exact(), contentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}

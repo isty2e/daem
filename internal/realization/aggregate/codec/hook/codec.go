@@ -622,7 +622,7 @@ func requireJSONEOF(decoder *json.Decoder) error {
 }
 
 func hookCodecFailure(reason aggregate.CodecFailureReason) *aggregate.CodecFailure {
-	failure, err := aggregate.NewCodecFailure(reason, aggregate.ContentPath(aggregate.HooksContentPath))
+	failure, err := aggregate.NewCodecFailureFromLegacy(reason, aggregate.ContentPath(aggregate.HooksContentPath))
 	if err != nil {
 		panic(err)
 	}

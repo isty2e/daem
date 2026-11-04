@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	footprintcodec "github.com/isty2e/daem/internal/encoding/footprint"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -17,7 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func TestCompiledActiveRecoveryFingerprintMatchesLegacyProjection(t *testing.T) {
+func TestCompiledActiveRecoveryFingerprintMatchesOwnerProjection(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		fixture func(*testing.T) recoveryFixture
@@ -46,7 +47,7 @@ func TestCompiledActiveRecoveryFingerprintMatchesLegacyProjection(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			legacy, err := legacyActiveRecoveryFingerprint(
+			owner, err := ownerActiveRecoveryFingerprint(
 				planned.paths,
 				active,
 				planned.stateDirAuthority,
@@ -54,14 +55,14 @@ func TestCompiledActiveRecoveryFingerprintMatchesLegacyProjection(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !compiled.Equal(legacy) || !planned.operationEvidence.Equal(legacy) {
-				t.Fatal("compiled active recovery fingerprint differs from the legacy projection")
+			if !compiled.Equal(owner) || !planned.operationEvidence.Equal(owner) {
+				t.Fatal("compiled active recovery fingerprint differs from the owner projection")
 			}
 		})
 	}
 }
 
-type legacyRecoveryFingerprintFacts struct {
+type ownerRecoveryFingerprintFacts struct {
 	ManifestRoot                 string
 	StatefilePath                string
 	RecoveryDir                  string
@@ -72,12 +73,12 @@ type legacyRecoveryFingerprintFacts struct {
 	StateDirAuthorityFingerprint string
 	Actions                      []recovery.Action
 	GuardedActions               []recovery.Action
-	RemovalCleanupObligations    []legacyRecoveryCleanupObligationFingerprint
+	RemovalCleanupObligations    []ownerRecoveryCleanupObligationFingerprint
 	StatefileBefore              json.RawMessage
-	ClaimTransitions             []legacyJournalClaimTransitionFingerprint
+	ClaimTransitions             []ownerJournalClaimTransitionFingerprint
 }
 
-type legacyRecoveryCleanupObligationFingerprint struct {
+type ownerRecoveryCleanupObligationFingerprint struct {
 	Scope       target.Scope
 	Destination output.Destination
 	Action      recovery.RemovalCleanupActionKind
@@ -86,21 +87,21 @@ type legacyRecoveryCleanupObligationFingerprint struct {
 	Detail      string
 }
 
-type legacyJournalClaimTransitionFingerprint struct {
+type ownerJournalClaimTransitionFingerprint struct {
 	Kind                    string
-	PathAuthority           legacyRecoveryPathAuthorityFingerprint
-	ContentPath             string
-	OwnerStatefileAuthority legacyRecoveryPathAuthorityFingerprint
+	PathAuthority           ownerRecoveryPathAuthorityFingerprint
+	Footprint               footprintcodec.Record
+	OwnerStatefileAuthority ownerRecoveryPathAuthorityFingerprint
 	OwnerManifestPath       string
 	OperationID             string
 }
 
-type legacyRecoveryPathAuthorityFingerprint struct {
+type ownerRecoveryPathAuthorityFingerprint struct {
 	Key              string
 	SemanticsWitness string
 }
 
-func legacyActiveRecoveryFingerprint(
+func ownerActiveRecoveryFingerprint(
 	paths daempaths.Paths,
 	plan recovery.Plan,
 	stateDir recoverygate.StateDirAuthority,
@@ -117,18 +118,22 @@ func legacyActiveRecoveryFingerprint(
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery statefile before: %w", err)
 	}
-	claimTransitions := make([]legacyJournalClaimTransitionFingerprint, 0, len(plan.ClaimTransitions()))
+	claimTransitions := make([]ownerJournalClaimTransitionFingerprint, 0, len(plan.ClaimTransitions()))
 	for _, transition := range plan.ClaimTransitions() {
-		claimTransitions = append(claimTransitions, legacyJournalClaimTransitionFingerprint{
+		footprint, err := footprintcodec.Encode(transition.Address().Footprint())
+		if err != nil {
+			return mutation.OperationFingerprint{}, err
+		}
+		claimTransitions = append(claimTransitions, ownerJournalClaimTransitionFingerprint{
 			Kind:                    string(transition.Kind()),
-			PathAuthority:           legacyRecoveryPathAuthorityFingerprintFor(transition.Address().PathAuthority()),
-			ContentPath:             transition.Address().ContentPath(),
-			OwnerStatefileAuthority: legacyRecoveryPathAuthorityFingerprintFor(transition.Owner().StatefileAuthority()),
+			PathAuthority:           ownerRecoveryPathAuthorityFingerprintFor(transition.Address().PathAuthority()),
+			Footprint:               footprint,
+			OwnerStatefileAuthority: ownerRecoveryPathAuthorityFingerprintFor(transition.Owner().StatefileAuthority()),
 			OwnerManifestPath:       transition.Owner().ManifestPath(),
 			OperationID:             transitionOperationID(transition),
 		})
 	}
-	fingerprint, err := operationplan.HashJSON(legacyRecoveryFingerprintFacts{
+	fingerprint, err := operationplan.HashJSON(ownerRecoveryFingerprintFacts{
 		ManifestRoot:                 paths.ManifestRoot,
 		StatefilePath:                paths.StatefilePath,
 		RecoveryDir:                  paths.RecoveryDir,
@@ -139,7 +144,7 @@ func legacyActiveRecoveryFingerprint(
 		StateDirAuthorityFingerprint: stateDirFingerprint,
 		Actions:                      plan.Actions(),
 		GuardedActions:               plan.GuardedActions(),
-		RemovalCleanupObligations:    legacyRecoveryCleanupObligationFingerprints(plan.RemovalCleanupObligations()),
+		RemovalCleanupObligations:    ownerRecoveryCleanupObligationFingerprints(plan.RemovalCleanupObligations()),
 		StatefileBefore:              json.RawMessage(statefileBefore),
 		ClaimTransitions:             claimTransitions,
 	})
@@ -149,12 +154,12 @@ func legacyActiveRecoveryFingerprint(
 	return fingerprint, nil
 }
 
-func legacyRecoveryCleanupObligationFingerprints(
+func ownerRecoveryCleanupObligationFingerprints(
 	obligations []recovery.RemovalCleanupObligation,
-) []legacyRecoveryCleanupObligationFingerprint {
-	result := make([]legacyRecoveryCleanupObligationFingerprint, 0, len(obligations))
+) []ownerRecoveryCleanupObligationFingerprint {
+	result := make([]ownerRecoveryCleanupObligationFingerprint, 0, len(obligations))
 	for _, obligation := range obligations {
-		result = append(result, legacyRecoveryCleanupObligationFingerprint{
+		result = append(result, ownerRecoveryCleanupObligationFingerprint{
 			Scope:       obligation.Scope(),
 			Destination: obligation.Destination(),
 			Action:      obligation.Action(),
@@ -166,10 +171,10 @@ func legacyRecoveryCleanupObligationFingerprints(
 	return result
 }
 
-func legacyRecoveryPathAuthorityFingerprintFor(
+func ownerRecoveryPathAuthorityFingerprintFor(
 	authority pathauthority.Exact,
-) legacyRecoveryPathAuthorityFingerprint {
-	return legacyRecoveryPathAuthorityFingerprint{
+) ownerRecoveryPathAuthorityFingerprint {
+	return ownerRecoveryPathAuthorityFingerprint{
 		Key:              authority.Key(),
 		SemanticsWitness: authority.Witness(),
 	}

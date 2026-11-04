@@ -123,13 +123,15 @@ func isAllowedPresentWorkflowResultImport(packagePath string, importPath string)
 		return false
 	}
 	switch importPath {
-	case "internal/workflow/apply",
+	case "internal/workflow/adopt",
+		"internal/workflow/apply",
 		"internal/workflow/authoring",
 		"internal/workflow/init",
 		"internal/workflow/list",
 		"internal/workflow/migrate",
 		"internal/workflow/probe",
 		"internal/workflow/recover",
+		"internal/workflow/protection",
 		"internal/workflow/refresh",
 		"internal/workflow/status":
 		return true
@@ -200,13 +202,28 @@ func isForbiddenNestedWorkflowImport(packagePath string, importPath string) bool
 	if !isWorkflowPackage(packagePath) || !matchesInternalImport(importPath, "internal/workflow") {
 		return false
 	}
+	if importPath == "internal/workflow/protection" {
+		return packagePath != "internal/workflow/recover" &&
+			packagePath != "internal/workflow/apply" &&
+			packagePath != "internal/workflow/refresh" &&
+			packagePath != "internal/workflow/nativeconfig"
+	}
 	if importPath == "internal/workflow/lock/generate" {
 		return packagePath != "internal/workflow/lock" && packagePath != "internal/workflow/authoring"
 	}
 	if importPath == "internal/workflow/readiness" {
 		return packagePath != "internal/workflow/apply" &&
 			packagePath != "internal/workflow/list" &&
-			packagePath != "internal/workflow/status"
+			packagePath != "internal/workflow/status" &&
+			packagePath != "internal/workflow/nativeconfig"
+	}
+	if importPath == "internal/workflow/nativeconfig" {
+		return packagePath != "internal/workflow/lock" &&
+			packagePath != "internal/workflow/adopt" &&
+			packagePath != "internal/workflow/apply" &&
+			packagePath != "internal/workflow/status" &&
+			packagePath != "internal/workflow/refresh" &&
+			packagePath != "internal/workflow/recover"
 	}
 	return true
 }

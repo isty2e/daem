@@ -32,13 +32,13 @@ func TestProvisionalAcquireIntentPromotesOnlyAdmittedExactAddress(t *testing.T) 
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
-	intent, err := outputownership.NewProvisionalAcquireIntent(destination, "", intentPath, authority, "operation-1")
+	intent, err := outputownership.NewProvisionalAcquireIntentFromLegacy(destination, "", intentPath, authority, "operation-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	exact := pathtest.DarwinCaseSensitive(filepath.Join(namespace, "Cafe\u0301"))
-	address, err := outputownership.NewManagedAddress(exact, "")
+	address, err := outputownership.NewManagedAddressFromLegacy(exact, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestProvisionalAcquireIntentRejectsEscapedDepthAndContentPath(t *testing.T)
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
-	intent, err := outputownership.NewProvisionalAcquireIntent(destination, "/alpha", intentPath, authority, "operation-1")
+	intent, err := outputownership.NewProvisionalAcquireIntentFromLegacy(destination, "/alpha", intentPath, authority, "operation-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestProvisionalAcquireIntentRejectsEscapedDepthAndContentPath(t *testing.T)
 			if exactErr != nil {
 				t.Fatal(exactErr)
 			}
-			address, addressErr := outputownership.NewManagedAddress(exact, test.contentPath)
+			address, addressErr := outputownership.NewManagedAddressFromLegacy(exact, test.contentPath)
 			if addressErr != nil {
 				t.Fatal(addressErr)
 			}

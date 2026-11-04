@@ -20,7 +20,7 @@ func TestManagedContributionOwnsAndCanonicalizesItsContract(t *testing.T) {
 		contribution.Address().Document().Target() != target.TargetCodex ||
 		contribution.Address().Document().Scope() != target.ScopeProject ||
 		contribution.Address().Document().AggregateRoot().String() != "settings.json" ||
-		contribution.Address().ContentPath() != ContentPath("/hooks") {
+		string(outputtest.LegacyContentPath(t, contribution.Address())) != "/hooks" {
 		t.Fatalf("contribution address/contract = %#v", contribution)
 	}
 	if got := contribution.ComparedFields(); !reflect.DeepEqual(got, []string{"command", "event"}) {
@@ -39,43 +39,43 @@ func TestManagedContributionOwnsAndCanonicalizesItsContract(t *testing.T) {
 func TestManagedContributionRejectsMalformedIndependentAxes(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(*ManagedContributionInput)
+		mutate func(*LegacyManagedContributionInput)
 		want   string
 	}{
-		{name: "placement", mutate: func(input *ManagedContributionInput) { input.PlacementID = " " }, want: "placement id"},
-		{name: "placement whitespace", mutate: func(input *ManagedContributionInput) { input.PlacementID = " codex.project.hooks " }, want: "placement id"},
-		{name: "target", mutate: func(input *ManagedContributionInput) { input.Target = "future" }, want: "target"},
-		{name: "scope", mutate: func(input *ManagedContributionInput) { input.Scope = "workspace" }, want: "scope"},
-		{name: "zero root", mutate: func(input *ManagedContributionInput) { input.AggregateRoot = output.Destination{} }, want: "aggregate root"},
-		{name: "home root in project", mutate: func(input *ManagedContributionInput) {
+		{name: "placement", mutate: func(input *LegacyManagedContributionInput) { input.PlacementID = " " }, want: "placement id"},
+		{name: "placement whitespace", mutate: func(input *LegacyManagedContributionInput) { input.PlacementID = " codex.project.hooks " }, want: "placement id"},
+		{name: "target", mutate: func(input *LegacyManagedContributionInput) { input.Target = "future" }, want: "target"},
+		{name: "scope", mutate: func(input *LegacyManagedContributionInput) { input.Scope = "workspace" }, want: "scope"},
+		{name: "zero root", mutate: func(input *LegacyManagedContributionInput) { input.AggregateRoot = output.Destination{} }, want: "aggregate root"},
+		{name: "home root in project", mutate: func(input *LegacyManagedContributionInput) {
 			input.AggregateRoot = outputtest.Parse(t, "~/.config/settings.json")
 		}, want: "selected project root"},
-		{name: "relative content path", mutate: func(input *ManagedContributionInput) { input.ContentPath = "hooks" }, want: "absolute"},
-		{name: "traversal content path", mutate: func(input *ManagedContributionInput) { input.ContentPath = "/hooks/../mcp" }, want: "canonical"},
-		{name: "nul content path", mutate: func(input *ManagedContributionInput) { input.ContentPath = "/hooks/\x00entry" }, want: "control"},
-		{name: "bidi content path", mutate: func(input *ManagedContributionInput) { input.ContentPath = "/hooks/\u202eentry" }, want: "control"},
-		{name: "merge unit", mutate: func(input *ManagedContributionInput) { input.MergeUnit = "" }, want: "merge unit"},
-		{name: "merge whitespace", mutate: func(input *ManagedContributionInput) { input.MergeUnit = " hook-set " }, want: "merge unit"},
-		{name: "cardinality", mutate: func(input *ManagedContributionInput) { input.Cardinality = "many_if_needed" }, want: "cardinality"},
-		{name: "retention", mutate: func(input *ManagedContributionInput) { input.SiblingRetention = "replace_document" }, want: "sibling retention"},
-		{name: "preservation", mutate: func(input *ManagedContributionInput) { input.SiblingPreservation = "best_effort" }, want: "sibling preservation"},
-		{name: "equivalence", mutate: func(input *ManagedContributionInput) { input.Equivalence = "fuzzy" }, want: "equivalence"},
-		{name: "byte fields", mutate: func(input *ManagedContributionInput) { input.Equivalence = EquivalenceByteExact }, want: "must not include compared fields"},
-		{name: "semantic fields", mutate: func(input *ManagedContributionInput) { input.ComparedFields = nil }, want: "values are required"},
-		{name: "canonical empty", mutate: func(input *ManagedContributionInput) { input.CanonicalContribution = "" }, want: "canonical contribution is required"},
-		{name: "canonical invalid utf8", mutate: func(input *ManagedContributionInput) { input.CanonicalContribution = string([]byte{0xff}) }, want: "valid UTF-8"},
-		{name: "codec", mutate: func(input *ManagedContributionInput) { input.CodecContractID = "codec v1" }, want: "codec contract id"},
-		{name: "codec whitespace", mutate: func(input *ManagedContributionInput) { input.CodecContractID = " codex-project-hooks-v1 " }, want: "codec contract id"},
-		{name: "compared field", mutate: func(input *ManagedContributionInput) { input.ComparedFields = []string{"command value"} }, want: "compared field"},
+		{name: "relative content path", mutate: func(input *LegacyManagedContributionInput) { input.ContentPath = "hooks" }, want: "absolute"},
+		{name: "traversal content path", mutate: func(input *LegacyManagedContributionInput) { input.ContentPath = "/hooks/../mcp" }, want: "canonical"},
+		{name: "nul content path", mutate: func(input *LegacyManagedContributionInput) { input.ContentPath = "/hooks/\x00entry" }, want: "control"},
+		{name: "bidi content path", mutate: func(input *LegacyManagedContributionInput) { input.ContentPath = "/hooks/\u202eentry" }, want: "control"},
+		{name: "merge unit", mutate: func(input *LegacyManagedContributionInput) { input.MergeUnit = "" }, want: "merge unit"},
+		{name: "merge whitespace", mutate: func(input *LegacyManagedContributionInput) { input.MergeUnit = " hook-set " }, want: "merge unit"},
+		{name: "cardinality", mutate: func(input *LegacyManagedContributionInput) { input.Cardinality = "many_if_needed" }, want: "cardinality"},
+		{name: "retention", mutate: func(input *LegacyManagedContributionInput) { input.SiblingRetention = "replace_document" }, want: "sibling retention"},
+		{name: "preservation", mutate: func(input *LegacyManagedContributionInput) { input.SiblingPreservation = "best_effort" }, want: "sibling preservation"},
+		{name: "equivalence", mutate: func(input *LegacyManagedContributionInput) { input.Equivalence = "fuzzy" }, want: "equivalence"},
+		{name: "byte fields", mutate: func(input *LegacyManagedContributionInput) { input.Equivalence = EquivalenceByteExact }, want: "must not include compared fields"},
+		{name: "semantic fields", mutate: func(input *LegacyManagedContributionInput) { input.ComparedFields = nil }, want: "values are required"},
+		{name: "canonical empty", mutate: func(input *LegacyManagedContributionInput) { input.CanonicalContribution = "" }, want: "canonical contribution is required"},
+		{name: "canonical invalid utf8", mutate: func(input *LegacyManagedContributionInput) { input.CanonicalContribution = string([]byte{0xff}) }, want: "valid UTF-8"},
+		{name: "codec", mutate: func(input *LegacyManagedContributionInput) { input.CodecContractID = "codec v1" }, want: "codec contract id"},
+		{name: "codec whitespace", mutate: func(input *LegacyManagedContributionInput) { input.CodecContractID = " codex-project-hooks-v1 " }, want: "codec contract id"},
+		{name: "compared field", mutate: func(input *LegacyManagedContributionInput) { input.ComparedFields = []string{"command value"} }, want: "compared field"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input := testSharedHookContributionInput(t, `{"command":"review"}`)
 			test.mutate(&input)
-			_, err := NewManagedContribution(input)
+			_, err := NewManagedContributionFromLegacy(input)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("NewManagedContribution error = %v, want containing %q", err, test.want)
+				t.Fatalf("NewManagedContributionFromLegacy error = %v, want containing %q", err, test.want)
 			}
 		})
 	}
@@ -156,7 +156,7 @@ func TestPartitionContributionSetsPreservesRenderUnitBoundaries(t *testing.T) {
 }
 
 func TestOneSubjectMCPEntryUsesTheGenericExclusiveContributionSet(t *testing.T) {
-	input := ManagedContributionInput{
+	input := LegacyManagedContributionInput{
 		PlacementID:           "claude-code.project.project-config",
 		Target:                target.TargetClaudeCode,
 		Scope:                 target.ScopeProject,
@@ -198,14 +198,14 @@ func TestContributionSetRejectsStaticContractDrift(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		mutate func(*ManagedContributionInput)
+		mutate func(*LegacyManagedContributionInput)
 		want   string
 	}{
-		{name: "address", mutate: func(input *ManagedContributionInput) { input.ContentPath = "/hooks/other" }, want: "mixes projection addresses"},
-		{name: "placement", mutate: func(input *ManagedContributionInput) { input.PlacementID = "codex.project.other-hooks" }, want: "mixes projection addresses"},
-		{name: "cardinality", mutate: func(input *ManagedContributionInput) { input.Cardinality = ContributionExclusive }, want: "codec or preservation contracts"},
-		{name: "codec", mutate: func(input *ManagedContributionInput) { input.CodecContractID = "codex-project-hooks-v2" }, want: "codec or preservation contracts"},
-		{name: "preservation", mutate: func(input *ManagedContributionInput) { input.SiblingPreservation = PreserveSiblingsByteExact }, want: "codec or preservation contracts"},
+		{name: "address", mutate: func(input *LegacyManagedContributionInput) { input.ContentPath = "/hooks/other" }, want: "mixes projection addresses"},
+		{name: "placement", mutate: func(input *LegacyManagedContributionInput) { input.PlacementID = "codex.project.other-hooks" }, want: "mixes projection addresses"},
+		{name: "cardinality", mutate: func(input *LegacyManagedContributionInput) { input.Cardinality = ContributionExclusive }, want: "codec or preservation contracts"},
+		{name: "codec", mutate: func(input *LegacyManagedContributionInput) { input.CodecContractID = "codex-project-hooks-v2" }, want: "codec or preservation contracts"},
+		{name: "preservation", mutate: func(input *LegacyManagedContributionInput) { input.SiblingPreservation = PreserveSiblingsByteExact }, want: "codec or preservation contracts"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -221,9 +221,9 @@ func TestContributionSetRejectsStaticContractDrift(t *testing.T) {
 	}
 }
 
-func testSharedHookContributionInput(t testing.TB, canonical string) ManagedContributionInput {
+func testSharedHookContributionInput(t testing.TB, canonical string) LegacyManagedContributionInput {
 	t.Helper()
-	return ManagedContributionInput{
+	return LegacyManagedContributionInput{
 		PlacementID:           "codex.project.hooks",
 		Target:                target.TargetCodex,
 		Scope:                 target.ScopeProject,
@@ -240,16 +240,16 @@ func testSharedHookContributionInput(t testing.TB, canonical string) ManagedCont
 	}
 }
 
-func mustManagedContribution(t *testing.T, input ManagedContributionInput) ManagedContribution {
+func mustManagedContribution(t *testing.T, input LegacyManagedContributionInput) ManagedContribution {
 	t.Helper()
-	contribution, err := NewManagedContribution(input)
+	contribution, err := NewManagedContributionFromLegacy(input)
 	if err != nil {
-		t.Fatalf("NewManagedContribution returned error: %v", err)
+		t.Fatalf("NewManagedContributionFromLegacy returned error: %v", err)
 	}
 	return contribution
 }
 
-func mustSubjectContribution(t *testing.T, key string, input ManagedContributionInput) SubjectContribution {
+func mustSubjectContribution(t *testing.T, key string, input LegacyManagedContributionInput) SubjectContribution {
 	t.Helper()
 	subject, err := topology.NewSubjectID(topology.SubjectProjection, "codex.project.hook", key)
 	if err != nil {

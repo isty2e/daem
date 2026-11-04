@@ -14,7 +14,7 @@ import (
 )
 
 // lockedFileMaterialization is the verified file content and deterministic
-// transformation shared by Instructions and HookAsset payload construction.
+// transformation shared by exact-file payload families.
 type lockedFileMaterialization struct {
 	content        access.FileContent
 	transformation artifact.FileMaterialization

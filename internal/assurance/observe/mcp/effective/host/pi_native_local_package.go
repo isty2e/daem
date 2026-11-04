@@ -10,18 +10,17 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
-	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/realization/profile"
 )
 
-func observeNativeLocalPackageNames(ctx context.Context, source, settingsBase string) ([]string, error) {
+func (reader configFileReader) observeNativeLocalPackageNames(ctx context.Context, source, settingsBase string) ([]string, error) {
 	if !profile.PiMCPPackageSourceIsLocal(source) {
 		return nil, nil
 	}
-	return observeNativeLocalPathPackageNames(ctx, source, settingsBase)
+	return reader.observeNativeLocalPathPackageNames(ctx, source, settingsBase)
 }
 
-func observeNativeLocalPathPackageNames(ctx context.Context, source, settingsBase string) ([]string, error) {
+func (reader configFileReader) observeNativeLocalPathPackageNames(ctx context.Context, source, settingsBase string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -61,7 +60,7 @@ func observeNativeLocalPathPackageNames(ctx context.Context, source, settingsBas
 
 	names := make([]string, 0, len(metadataDirectories))
 	for _, directory := range metadataDirectories {
-		name, err := readNativeLocalPackageName(ctx, directory)
+		name, err := reader.readNativeLocalPackageName(ctx, directory)
 		if err != nil {
 			return nil, err
 		}
@@ -72,8 +71,8 @@ func observeNativeLocalPathPackageNames(ctx context.Context, source, settingsBas
 	return names, nil
 }
 
-func readNativeLocalPackageName(ctx context.Context, directory string) (string, error) {
-	content, exists, err := filesnapshot.ReadRegularFileContext(ctx, filepath.Join(directory, "package.json"), maximumConfigBytes)
+func (reader configFileReader) readNativeLocalPackageName(ctx context.Context, directory string) (string, error) {
+	content, exists, err := reader.read(ctx, filepath.Join(directory, "package.json"), maximumConfigBytes)
 	if err != nil {
 		return "", fmt.Errorf("native Pi MCP local package metadata cannot be read as a bounded regular file")
 	}

@@ -91,18 +91,26 @@ func removalTransitionForCapture(
 	return transition, nil
 }
 
-func captureRemovalIntents(
+func captureRemovalIntents(ctx context.Context, demands recovery.RemovalDemandSet, resolver func(output.Destination) (string, error)) ([]recovery.RemovalIntent, error) {
+	budget, err := physicalwork.NewBudget(demands.Len())
+	if err != nil {
+		return nil, err
+	}
+	return captureRemovalIntentsWithBudget(ctx, demands, resolver, budget)
+}
+
+func captureRemovalIntentsWithBudget(
 	ctx context.Context,
 	demands recovery.RemovalDemandSet,
 	resolver func(output.Destination) (string, error),
+	budget *physicalwork.Budget,
 ) ([]recovery.RemovalIntent, error) {
 	if resolver == nil {
 		return nil, fmt.Errorf("removal intent resolver is required")
 	}
 
-	budget, err := physicalwork.NewBudget(demands.Len())
-	if err != nil {
-		return nil, err
+	if budget == nil {
+		return nil, fmt.Errorf("removal capture requires its containing allocation")
 	}
 	type captureRequest struct {
 		demand recovery.RemovalDemand

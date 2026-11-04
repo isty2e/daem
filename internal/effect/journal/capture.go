@@ -286,7 +286,7 @@ func validateOperationCapabilityPath(
 	return nil
 }
 
-func buildRecoveryJournal(
+func buildOrdinaryCaptureMaterial(
 	ctx context.Context,
 	paths Paths,
 	operationDir string,
@@ -295,42 +295,52 @@ func buildRecoveryJournal(
 	currentState durable.Snapshot,
 	nextState durable.Snapshot,
 	options CaptureOptions,
-) (result recoveryJournal, resultErr error) {
+	work *ordinaryCaptureWork,
+) (result ordinaryCaptureMaterial, resultErr error) {
+	if work == nil {
+		return ordinaryCaptureMaterial{}, fmt.Errorf("ordinary capture requires its selected work policy")
+	}
+	options.RootedCapability = work.rootedResolver(options.RootedCapability)
+	var filesystem mutationfs.Reader = options.Filesystem
+	if work.budget != nil {
+		filesystem = ordinaryCaptureReader{Reader: filesystem, work: work}
+	}
+
 	mutations, err := pathMutations(
 		options.ManagedPathMutations,
 		options.ManagedAggregateMutations,
 		options.ManagedPathEvidence,
 	)
 	if err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
-	globalPathBindings, err := captureRecoveryGlobalPathBindings(
+	globalPathBindings, err := work.globalBindings(
 		mutations,
 		options.Resolver,
 		options.RootedCapability,
 	)
 	if err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
 	boundResolver := globalPathBindings.resolver(options.Resolver)
-	manifestAuthority, err := manifestAuthorityForCapture(paths, options.ManifestRoot)
+	manifestAuthority, err := work.manifest(paths, options.ManifestRoot)
 	if err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
 	if manifestAuthority.owned {
 		defer func() {
 			if closeErr := manifestAuthority.close(); closeErr != nil {
-				result = recoveryJournal{}
+				result = ordinaryCaptureMaterial{}
 				resultErr = errors.Join(resultErr, fmt.Errorf("close recovery journal manifest root: %w", closeErr))
 			}
 		}()
 	}
 	stateByAction, err := recoveryStateByAction(currentState)
 	if err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
 	if err := options.RemovalDemands.Validate(); err != nil {
-		return recoveryJournal{}, fmt.Errorf("validate executable removal demands: %w", err)
+		return ordinaryCaptureMaterial{}, fmt.Errorf("validate executable removal demands: %w", err)
 	}
 	removalDemands := make(map[removalRelationKey]recovery.RemovalDemand, options.RemovalDemands.Len())
 	for _, demand := range options.RemovalDemands.Demands() {
@@ -342,15 +352,15 @@ func buildRecoveryJournal(
 	contentPathBaselines, err := newRecoveryContentPathBaselineCache(
 		mutations,
 		options.Codecs,
-		options.Filesystem,
+		filesystem,
 	)
 	if err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
 	entries := make([]recoveryEntry, 0, len(mutations))
 	for _, action := range mutations {
 		if err := ctx.Err(); err != nil {
-			return recoveryJournal{}, err
+			return ordinaryCaptureMaterial{}, err
 		}
 
 		before, nextBackupIndex, err := captureRecoveryBeforePath(
@@ -358,27 +368,28 @@ func buildRecoveryJournal(
 			operationDir,
 			backupIndex,
 			action,
-			options.Filesystem,
+			filesystem,
 			boundResolver,
 			manifestAuthority,
 			options.RootedCapability,
 			contentPathBaselines,
+			work,
 		)
 		if err != nil {
-			return recoveryJournal{}, err
+			return ordinaryCaptureMaterial{}, err
 		}
 		backupIndex = nextBackupIndex
 		stateBefore, err := captureRecoveryStateBefore(action, stateByAction)
 		if err != nil {
-			return recoveryJournal{}, err
+			return ordinaryCaptureMaterial{}, err
 		}
 		expectedAfter, stateExpectedAfter, err := captureRecoveryExpectedAfter(action)
 		if err != nil {
-			return recoveryJournal{}, err
+			return ordinaryCaptureMaterial{}, err
 		}
 		globalPathBinding, err := globalPathBindings.persisted(action.Scope, action.Destination)
 		if err != nil {
-			return recoveryJournal{}, err
+			return ordinaryCaptureMaterial{}, err
 		}
 		rootedBefore, rootedExpected := completeRemovalTransitionStates(
 			action,
@@ -393,7 +404,11 @@ func buildRecoveryJournal(
 			removalDemands,
 		)
 		if err != nil {
-			return recoveryJournal{}, fmt.Errorf("capture removal transition for %q: %w", action.Destination, err)
+			return ordinaryCaptureMaterial{}, fmt.Errorf("capture removal transition for %q: %w", action.Destination, err)
+		}
+		aggregateContract, err := persistedAggregateContractFromMutation(action)
+		if err != nil {
+			return ordinaryCaptureMaterial{}, err
 		}
 		entries = append(entries, recoveryEntry{
 			Subject:             subjectRefFromAction(action),
@@ -410,29 +425,29 @@ func buildRecoveryJournal(
 			StateBeforeIdentity: stateBeforeIdentityFromAction(action),
 			StateBefore:         stateBefore,
 			StateExpectedAfter:  stateExpectedAfter,
-			Aggregate:           persistedAggregateContractFromMutation(action),
+			Aggregate:           aggregateContract,
 			StateIndependent:    action.StateIndependent,
 		})
 	}
 	capturedDemands, err := removalDemandSetFromEntries(entries)
 	if err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
 	if !options.RemovalDemands.Equal(capturedDemands) {
-		return recoveryJournal{}, fmt.Errorf(
+		return ordinaryCaptureMaterial{}, fmt.Errorf(
 			"executable removal demands do not exactly match captured removal transitions",
 		)
 	}
-	removalIntents, err := captureRemovalIntents(ctx, options.RemovalDemands, boundResolver)
+	removalIntents, err := work.removalIntents(ctx, options.RemovalDemands, boundResolver)
 	if err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
 	if err := validateRecoveryRemovalCoverage(options.RemovalDemands, removalIntents); err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
 	persistedRemovalIntents, err := persistedRecoveryRemovalIntents(removalIntents)
 	if err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
 
 	sortRecoveryEntries(entries)
@@ -444,18 +459,17 @@ func buildRecoveryJournal(
 		boundResolver,
 	)
 	if err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
 	persistedTransitions, err := recoveryClaimTransitions(options.ClaimTransitions)
 	if err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
 	persistedIntents, err := recoveryProvisionalAcquireIntents(options.ProvisionalAcquires)
 	if err != nil {
-		return recoveryJournal{}, err
+		return ordinaryCaptureMaterial{}, err
 	}
-	return recoveryJournal{
-		Version:                recoveryJournalVersion,
+	return ordinaryCaptureMaterial{
 		OperationID:            operationID,
 		Operation:              recoveryOperationApply,
 		CreatedAt:              createdAt.UTC().Format(time.RFC3339),

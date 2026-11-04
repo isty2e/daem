@@ -32,7 +32,7 @@ func TestProvisionalAcquireIntentRequiresGlobalDestination(t *testing.T) {
 		filepath.Join(root, "daem.toml"),
 	)
 
-	if _, err := NewProvisionalAcquireIntent(
+	if _, err := NewProvisionalAcquireIntentFromLegacy(
 		projectDestination,
 		"",
 		provisional,

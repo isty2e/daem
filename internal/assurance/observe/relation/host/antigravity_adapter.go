@@ -81,13 +81,9 @@ func observeAntigravityCLIPlugins(
 			Key:    record.key,
 			Result: result,
 		})
-		pluginManifestPath, err := paths.PluginManifestPath(source.RelationIdentity())
-		if err != nil {
-			return relationobserve.BatchSpec{}, err
-		}
 		for _, path := range []string{
 			paths.ImportManifestPath(),
-			pluginManifestPath,
+			paths.PluginStorePath(),
 		} {
 			if _, exists := authorityPaths[path]; exists {
 				continue

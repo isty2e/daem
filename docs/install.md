@@ -96,6 +96,27 @@ Upgrading the executable does not rewrite manifests, lockfiles, statefiles,
 host configuration, recovery state, or managed output. Normal daem commands
 may migrate or reject persisted formats according to their own contracts.
 
+### Lockfile Schema 7
+
+This version writes schema 7 for all lockfiles. Regenerate an existing schema
+3–6 lockfile before using `status`, `apply`, or other lockfile readers:
+
+```sh
+daem lock --dry-run
+daem lock
+daem status
+daem apply --dry-run --diff
+```
+
+Relocking resolves the current manifest sources again; review the lock changes
+before applying. It does not apply changes to host configuration. Older daem
+versions cannot read the regenerated lockfile. If a team shares that file,
+coordinate the daem upgrade before committing the new lockfile. Rolling back
+only the executable does not restore lockfile compatibility.
+
+Other unsupported schemas remain refusals; these commands do not grant a generic
+lockfile migration or downgrade path.
+
 ## Roll Back The Executable
 
 Restore `daem.previous` without network access:

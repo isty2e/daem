@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -18,16 +19,15 @@ type AggregateEvidence struct {
 // AggregateObservationFailure is one fresh document read whose selected codec
 // observation could not produce exact AggregateEvidence.
 type AggregateObservationFailure struct {
-	document    aggregate.Document
-	selection   aggregate.Selection
-	reason      aggregate.CodecFailureReason
-	contentPath aggregate.ContentPath
+	document  aggregate.Document
+	selection aggregate.Selection
+	failure   aggregate.CodecFailure
 }
 
 // AggregatePreconditionEvidence is one fresh observation of a static
 // codec-profile operation precondition.
 type AggregatePreconditionEvidence struct {
-	owner        aggregate.DocumentAddress
+	owner        aggregate.DocumentCodecKey
 	precondition aggregate.OperationPrecondition
 	satisfied    bool
 }
@@ -69,6 +69,11 @@ func (evidence AggregateEvidence) Address() aggregate.DocumentAddress {
 	return selection.DocumentAddress()
 }
 
+func (evidence AggregateEvidence) DocumentCodecKey() aggregate.DocumentCodecKey {
+	selection, _ := evidence.snapshot.Selection()
+	return selection.DocumentCodecKey()
+}
+
 // NewAggregateObservationFailure constructs one redaction-safe failed codec
 // observation over a complete selection.
 func NewAggregateObservationFailure(
@@ -94,18 +99,13 @@ func NewAggregateObservationFailure(
 	} else if fileMode != 0 {
 		return AggregateObservationFailure{}, fmt.Errorf("absent aggregate failed observation cannot carry file mode")
 	}
-	canonicalFailure, err := aggregate.NewCodecFailure(
-		failure.Reason(),
-		failure.ContentPath(),
-	)
-	if err != nil {
+	if err := failure.Validate(); err != nil {
 		return AggregateObservationFailure{}, err
 	}
 	return AggregateObservationFailure{
-		document:    document,
-		selection:   canonicalSelection,
-		reason:      canonicalFailure.Reason(),
-		contentPath: canonicalFailure.ContentPath(),
+		document:  document,
+		selection: canonicalSelection,
+		failure:   *failure,
 	}, nil
 }
 
@@ -123,25 +123,25 @@ func (failure AggregateObservationFailure) Selection() aggregate.Selection {
 }
 
 func (failure AggregateObservationFailure) Reason() aggregate.CodecFailureReason {
-	return failure.reason
+	return failure.failure.Reason()
 }
 
-func (failure AggregateObservationFailure) ContentPath() aggregate.ContentPath {
-	return failure.contentPath
+func (failure AggregateObservationFailure) Location() output.KeyPath {
+	return failure.failure.Location()
 }
 
 func (failure AggregateObservationFailure) Error() string {
-	codecFailure, _ := aggregate.NewCodecFailure(
-		failure.reason,
-		failure.contentPath,
-	)
-	return codecFailure.Error()
+	return failure.failure.Error()
+}
+
+func (failure AggregateObservationFailure) DocumentCodecKey() aggregate.DocumentCodecKey {
+	return failure.selection.DocumentCodecKey()
 }
 
 // NewAggregatePreconditionEvidence constructs one codec-correlated fresh
 // precondition observation.
 func NewAggregatePreconditionEvidence(
-	owner aggregate.DocumentAddress,
+	owner aggregate.DocumentCodecKey,
 	precondition aggregate.OperationPrecondition,
 	satisfied bool,
 ) (AggregatePreconditionEvidence, error) {
@@ -152,10 +152,10 @@ func NewAggregatePreconditionEvidence(
 		return AggregatePreconditionEvidence{}, err
 	}
 	document := precondition.DocumentAddress()
-	if owner.Target() != document.Target() || owner.Scope() != document.Scope() {
+	if owner.DocumentAddress().Target() != document.Target() || owner.DocumentAddress().Scope() != document.Scope() {
 		return AggregatePreconditionEvidence{}, fmt.Errorf("aggregate precondition scope differs from its owner")
 	}
-	if owner == document {
+	if owner.DocumentAddress() == document {
 		return AggregatePreconditionEvidence{}, fmt.Errorf("aggregate precondition must not target its owner document")
 	}
 	return AggregatePreconditionEvidence{
@@ -163,7 +163,7 @@ func NewAggregatePreconditionEvidence(
 	}, nil
 }
 
-func (evidence AggregatePreconditionEvidence) Owner() aggregate.DocumentAddress {
+func (evidence AggregatePreconditionEvidence) Owner() aggregate.DocumentCodecKey {
 	return evidence.owner
 }
 

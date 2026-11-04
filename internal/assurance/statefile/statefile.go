@@ -28,7 +28,7 @@ func Load(ctx context.Context, path string) (durable.Snapshot, error) {
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	snapshot, err := decodePersisted(content)
+	snapshot, err := decodePersisted(ctx, content)
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("decode statefile %q: %w", path, err)
 	}
@@ -56,26 +56,36 @@ func LoadOptional(ctx context.Context, path string) (durable.Snapshot, error) {
 
 // Decode decodes one strict current or explicitly supported legacy state JSON value.
 func Decode(content []byte) (durable.Snapshot, error) {
+	codec, err := currentSnapshotCodec(context.Background())
+	if err != nil {
+		return durable.Snapshot{}, err
+	}
+	return decodeSnapshot(content, codec)
+}
+
+func decodeSnapshot(content []byte, codec snapshotCodec) (durable.Snapshot, error) {
+	if err := codec.contributions.Validate(); err != nil {
+		return durable.Snapshot{}, err
+	}
 	version, err := statefileDocumentVersion(content)
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	if version != snapshotVersion && version != legacySnapshotVersion {
-		return durable.Snapshot{}, unsupportedStatefileVersion(version)
-	}
-	return decodeSupported(content, version)
+	return decodeSupported(content, version, codec)
 }
 
-func decodePersisted(content []byte) (durable.Snapshot, error) {
+func decodePersisted(ctx context.Context, content []byte) (durable.Snapshot, error) {
 	version, err := statefileDocumentVersion(content)
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
 	switch version {
-	case snapshotVersion:
-		return decodeSupported(content, snapshotVersion)
-	case legacySnapshotVersion:
-		return decodeSupported(content, legacySnapshotVersion)
+	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion:
+		codec, err := currentSnapshotCodec(ctx)
+		if err != nil {
+			return durable.Snapshot{}, err
+		}
+		return decodeSupported(content, version, codec)
 	case retiredStatefileVersion:
 		return decodeRetiredStatefile(content)
 	default:
@@ -90,8 +100,20 @@ func statefileDocumentVersion(content []byte) (int, error) {
 	return jsonstrict.ValidateVersionedObject(content, "statefile", maximumStatefileJSONDepth)
 }
 
-func decodeSupported(content []byte, version int) (durable.Snapshot, error) {
-	var persisted snapshotDTO
+func decodeSupported(content []byte, version int, codec snapshotCodec) (durable.Snapshot, error) {
+	switch version {
+	case snapshotVersion:
+		return decodeSnapshotDocument[managedAggregateV10DTO](content, version, codec)
+	case previousSnapshotVersion, legacySnapshotVersion:
+		codec.nativeDocuments = false
+		return decodeSnapshotDocument[legacyManagedAggregateDTO](content, version, codec)
+	default:
+		return durable.Snapshot{}, unsupportedStatefileVersion(version)
+	}
+}
+
+func decodeSnapshotDocument[Aggregate aggregateStateRecord](content []byte, version int, codec snapshotCodec) (durable.Snapshot, error) {
+	var persisted snapshotDocumentDTO[Aggregate]
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&persisted); err != nil {
@@ -106,7 +128,7 @@ func decodeSupported(content []byte, version int) (durable.Snapshot, error) {
 	if persisted.Version != version {
 		return durable.Snapshot{}, unsupportedStatefileVersion(persisted.Version)
 	}
-	return persisted.canonical(version)
+	return persisted.canonical(version, codec)
 }
 
 func unsupportedStatefileVersion(version int) error {
@@ -124,7 +146,15 @@ func unsupportedStatefileVersion(version int) error {
 
 // Marshal renders one canonical Snapshot as deterministic current JSON.
 func Marshal(snapshot durable.Snapshot) ([]byte, error) {
-	if err := validateSnapshotForPersistence(snapshot); err != nil {
+	codec, err := currentSnapshotCodec(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	return marshalSnapshot(snapshot, codec)
+}
+
+func marshalSnapshot(snapshot durable.Snapshot, codec snapshotCodec) ([]byte, error) {
+	if err := codec.validateSnapshotForPersistence(snapshot); err != nil {
 		return nil, err
 	}
 	persisted := persistedSnapshot(snapshot)

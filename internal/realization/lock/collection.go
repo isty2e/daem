@@ -19,6 +19,16 @@ type File struct {
 	Locked  LockedSection
 }
 
+// ContainsHostConfig reports native source or projection contracts, not execution authority.
+func (file File) ContainsHostConfig() bool {
+	for _, subject := range file.Locked.subjects {
+		if subject.EntityID().Kind() == entity.KindHostConfig {
+			return true
+		}
+	}
+	return false
+}
+
 // LockedSection is the one canonical, deterministically ordered locked-subject collection.
 type LockedSection struct {
 	subjects         []LockedSubjectContract
@@ -49,11 +59,11 @@ func NewLockedSection(
 		return LockedSection{}, err
 	}
 	for _, subject := range canonical {
-		if err := validateAdmittedLockedSubject(subject); err != nil {
+		if err := validateNativeLockedSubject(subject); err != nil {
 			return LockedSection{}, fmt.Errorf("locked subject %q refinement: %w", subject.SubjectID(), err)
 		}
 	}
-	if err := validateLockedCollectionAdmission(collectionIndex); err != nil {
+	if err := validateNativeLockedCollection(collectionIndex); err != nil {
 		return LockedSection{}, err
 	}
 	bySubject := make(map[topology.SubjectID]int, len(canonical))

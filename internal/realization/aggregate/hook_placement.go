@@ -100,7 +100,7 @@ func (placement HookPlacement) Contribution(canonical string) (ManagedContributi
 	if err := placement.Validate(); err != nil {
 		return ManagedContribution{}, err
 	}
-	return NewManagedContribution(ManagedContributionInput{
+	return NewManagedContributionFromLegacy(LegacyManagedContributionInput{
 		PlacementID:           string(placement.id),
 		Target:                placement.target,
 		Scope:                 placement.scope,
@@ -136,7 +136,7 @@ func (placement HookPlacement) Validate() error {
 			return err
 		}
 	}
-	if _, err := newProjectionAddress(
+	if _, err := newLegacyProjectionAddress(
 		string(placement.id), placement.target, placement.scope, placement.aggregateRoot,
 		HookMergeUnit, HooksContentPath,
 	); err != nil {

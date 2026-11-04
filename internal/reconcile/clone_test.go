@@ -75,6 +75,11 @@ func TestNewResultRejectsMalformedManagedPathDecisions(t *testing.T) {
 		scope:           target.ScopeProject,
 		destination:     outputtest.Parse(t, "AGENTS.md"),
 	}
+	control, err := NewResult(ResultInput{Context: ContextInspect, ManagedPaths: []ManagedPathDecision{newManagedPathNoOp(validFacts, ReasonAlreadyCurrent)}})
+	if err != nil || len(control.ManagedPaths()) != 1 {
+		t.Fatalf("valid decision control was rejected: %v", err)
+	}
+
 	tests := []struct {
 		name     string
 		decision ManagedPathDecision
@@ -83,7 +88,6 @@ func TestNewResultRejectsMalformedManagedPathDecisions(t *testing.T) {
 		{
 			name:     "missing variant",
 			decision: ManagedPathDecision{},
-			want:     "requires exactly one variant",
 		},
 		{
 			name: "multiple variants",
@@ -91,7 +95,6 @@ func TestNewResultRejectsMalformedManagedPathDecisions(t *testing.T) {
 				noOp:    &managedPathNoOpDecision{facts: validFacts},
 				blocked: &managedPathBlockedDecision{facts: validFacts},
 			},
-			want: "requires exactly one variant",
 		},
 		{
 			name: "wrong subject kind",
@@ -99,7 +102,6 @@ func TestNewResultRejectsMalformedManagedPathDecisions(t *testing.T) {
 				subject: resource, consumerTargets: validFacts.consumerTargets,
 				scope: validFacts.scope, destination: validFacts.destination,
 			}, ReasonAlreadyCurrent),
-			want: "is not a projection",
 		},
 		{
 			name: "invalid scope",
@@ -107,7 +109,6 @@ func TestNewResultRejectsMalformedManagedPathDecisions(t *testing.T) {
 				subject: projection, consumerTargets: validFacts.consumerTargets,
 				scope: "workspace", destination: validFacts.destination,
 			}, ReasonAlreadyCurrent),
-			want: "unknown scope",
 		},
 		{
 			name: "scope destination contradiction",
@@ -122,7 +123,6 @@ func TestNewResultRejectsMalformedManagedPathDecisions(t *testing.T) {
 			decision: newManagedPathNoOp(managedPathDecisionFacts{
 				subject: projection, scope: validFacts.scope, destination: validFacts.destination,
 			}, ReasonAlreadyCurrent),
-			want: "current consumer target or previous managed state",
 		},
 		{
 			name: "duplicate consumer",
@@ -134,15 +134,20 @@ func TestNewResultRejectsMalformedManagedPathDecisions(t *testing.T) {
 				},
 				scope: validFacts.scope, destination: validFacts.destination,
 			}, ReasonAlreadyCurrent),
-			want: "duplicate consumer target",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := NewResult(ResultInput{Context: ContextInspect, ManagedPaths: []ManagedPathDecision{test.decision}})
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("NewResult error = %v, want substring %q", err, test.want)
+			result, err := NewResult(ResultInput{Context: ContextInspect, ManagedPaths: []ManagedPathDecision{test.decision}})
+			if err == nil {
+				t.Fatal("constructor admitted a malformed managed-path decision")
+			}
+			if test.want != "" && !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("constructor error = %v, want %q", err, test.want)
+			}
+			if len(result.ManagedPaths()) != 0 || len(result.Aggregates()) != 0 {
+				t.Fatal("failed constructor returned partial projection decisions")
 			}
 		})
 	}

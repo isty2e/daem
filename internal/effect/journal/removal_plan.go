@@ -45,6 +45,16 @@ func assessRemovalCleanupIntent(
 	options PlanLoadOptions,
 	budget *physicalwork.Budget,
 ) (recovery.RemovalCleanupObligation, error) {
+	return observeRemovalCleanupIntent(ctx, intent, options, budget, true)
+}
+
+func observeRemovalCleanupIntent(
+	ctx context.Context,
+	intent recovery.RemovalIntent,
+	options PlanLoadOptions,
+	budget *physicalwork.Budget,
+	reserveExecution bool,
+) (recovery.RemovalCleanupObligation, error) {
 	if options.Resolver == nil {
 		return unavailableRemovalCleanupObligation(intent, "destination resolver is unavailable")
 	}
@@ -101,7 +111,7 @@ func assessRemovalCleanupIntent(
 			work = residue.work
 			kind = residue.entry.Kind()
 		}
-		if obligation.Readiness() == recovery.RemovalCleanupReady {
+		if reserveExecution && obligation.Readiness() == recovery.RemovalCleanupReady {
 			if err := ReserveRemovalExecutionObservationWork(budget, physicalPath, residuePath, cleanupPath); err != nil {
 				return recovery.RemovalCleanupObligation{}, err
 			}

@@ -27,6 +27,7 @@ func TestUnsupportedVersionRelockPolicy(t *testing.T) {
 		{version: 3, want: true},
 		{version: 4, want: true},
 		{version: 5, want: true},
+		{version: 6, want: true},
 		{version: lock.CurrentVersion, want: false},
 		{version: lock.CurrentVersion + 1, want: false},
 		{version: 1<<32 + 3, want: false},
@@ -113,12 +114,13 @@ func TestValidateReplacementContentTreatsLegacyBodiesAsOpaqueAndFutureBodiesAsAu
 		t.Fatalf("schema 3 opaque replacement authority returned error: %v", err)
 	}
 
-	future := []byte("version = 7\nfuture_payload = { malformed = [\n")
+	futureVersion := int64(lock.CurrentVersion + 1)
+	future := fmt.Appendf(nil, "version = %d\nfuture_payload = { malformed = [\n", futureVersion)
 	err := validateReplacementContent(t.Context(), future)
 	if err == nil {
 		t.Fatal("future lockfile replacement returned nil error")
 	}
-	for _, want := range []string{"unsupported lockfile version 7", "newer daem"} {
+	for _, want := range []string{fmt.Sprintf("unsupported lockfile version %d", futureVersion), "newer daem"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("future lockfile error = %q, want %q", err, want)
 		}

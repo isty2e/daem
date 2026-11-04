@@ -69,7 +69,7 @@ func Build(input Input) (Result, error) {
 		if desired.Scope != target.ScopeGlobal || !managedPathSelected(desired.ConsumerTargets, input.Selection) {
 			continue
 		}
-		if err := addObservation(byKey, input.Resolver, input.Registry, desired.Destination, ""); err != nil {
+		if err := addObservation(byKey, input.Resolver, input.Registry, desired.Destination, output.WholePathFootprint()); err != nil {
 			return Result{}, err
 		}
 	}
@@ -86,7 +86,7 @@ func Build(input Input) (Result, error) {
 			input.Resolver,
 			input.Registry,
 			document.AggregateRoot(),
-			output.ContentPath(address.ContentPath()),
+			address.Footprint(),
 		); err != nil {
 			return Result{}, err
 		}
@@ -101,7 +101,7 @@ func Build(input Input) (Result, error) {
 			input.Resolver,
 			input.Registry,
 			state.Destination(),
-			"",
+			output.WholePathFootprint(),
 		); err != nil {
 			return Result{}, err
 		}
@@ -117,7 +117,7 @@ func Build(input Input) (Result, error) {
 			input.Resolver,
 			input.Registry,
 			contribution.AggregateRoot(),
-			output.ContentPath(contribution.ContentPath()),
+			contribution.Footprint(),
 		); err != nil {
 			return Result{}, err
 		}
@@ -131,7 +131,7 @@ func Build(input Input) (Result, error) {
 		if keys[left].destination != keys[right].destination {
 			return keys[left].destination.String() < keys[right].destination.String()
 		}
-		return keys[left].contentPath < keys[right].contentPath
+		return output.CompareFootprints(keys[left].footprint, keys[right].footprint) < 0
 	})
 	observations := make([]observe.OwnershipObservation, 0, len(keys))
 	for _, key := range keys {
@@ -168,7 +168,7 @@ func managedPathSelected(consumers []target.Target, selection targetselection.Se
 
 type observationKey struct {
 	destination output.Destination
-	contentPath output.ContentPath
+	footprint   output.Footprint
 }
 
 func addObservation(
@@ -176,9 +176,9 @@ func addObservation(
 	resolver DestinationResolver,
 	registry outputownership.Registry,
 	destination output.Destination,
-	contentPath output.ContentPath,
+	footprint output.Footprint,
 ) error {
-	key := observationKey{destination: destination, contentPath: contentPath}
+	key := observationKey{destination: destination, footprint: footprint}
 	if _, exists := byKey[key]; exists {
 		return nil
 	}
@@ -197,7 +197,7 @@ func addObservation(
 		}
 		observation, err := observe.NewProvisionalOwnershipObservation(
 			destination,
-			contentPath,
+			footprint,
 			provisional,
 			claimValue,
 		)
@@ -211,7 +211,7 @@ func addObservation(
 	if !ok {
 		return fmt.Errorf("canonicalize ownership destination %q: authority observation is empty", destination)
 	}
-	address, err := outputownership.NewManagedAddress(exact, string(contentPath))
+	address, err := outputownership.NewManagedAddress(exact, footprint)
 	if err != nil {
 		return fmt.Errorf("construct ownership address for %q: %w", destination, err)
 	}
@@ -221,7 +221,7 @@ func addObservation(
 	}
 	observation, err := observe.NewExactOwnershipObservation(
 		destination,
-		contentPath,
+		footprint,
 		address,
 		claimValue,
 	)

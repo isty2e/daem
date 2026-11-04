@@ -46,6 +46,7 @@ const (
 	ruleCoreTerminalSideEffect      = "core-terminal-side-effect"
 	ruleFutureMCPPluginMonolith     = "future-mcp-plugin-monolith"
 	ruleProductionTestSupportImport = "production-test-support-import"
+	ruleRestrictedStateCodec        = "restricted-state-codec"
 
 	ruleInternalImportsCLI = "internal package imports CLI"
 )
@@ -73,6 +74,7 @@ func AnalyzeReport(records []PackageRecord) Report {
 		findings = append(findings, analyzeImports(packagePath, record.Imports)...)
 		findings = append(findings, analyzeForbiddenShapes(packagePath, record)...)
 		findings = append(findings, analyzeCoreTerminalSideEffects(packagePath, record)...)
+		findings = append(findings, analyzeRestrictedStateCodecs(packagePath, record)...)
 	}
 
 	return Report{

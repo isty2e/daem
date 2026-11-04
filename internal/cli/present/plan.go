@@ -6,6 +6,7 @@ import (
 	"io"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -27,36 +28,39 @@ func PrintStatusPlanWithOptions(output io.Writer, input HumanPlanInput, options 
 }
 
 type PlanJSONInput struct {
-	Command           string
-	Mode              string
-	LockfilePath      string
-	LockfileMissing   bool
-	CheckClean        *bool
-	LockOnly          LockOnlyResources
-	Reconciliation    reconcile.Result
-	HostRouteAttempts []durableattempt.HostRouteAttempt
-	Diagnostics       []findings.Diagnostic
-	MCPStatuses       []MCPStatus
+	PermissionProtection ownershipobserve.ProtectionObservation
+	Command              string
+	Mode                 string
+	LockfilePath         string
+	LockfileMissing      bool
+	CheckClean           *bool
+	LockOnly             LockOnlyResources
+	Reconciliation       reconcile.Result
+	HostRouteAttempts    []durableattempt.HostRouteAttempt
+	Diagnostics          []findings.Diagnostic
+	MCPStatuses          []MCPStatus
 }
 
 type planJSONOutput struct {
-	SchemaVersion     int                         `json:"schema_version"`
-	Command           string                      `json:"command"`
-	Mode              string                      `json:"mode"`
-	Lockfile          planJSONLockfile            `json:"lockfile"`
-	LockOnly          LockOnlyResources           `json:"lock_only"`
-	ActionCount       int                         `json:"action_count"`
-	HasErrors         bool                        `json:"has_errors"`
-	CheckClean        *bool                       `json:"check_clean,omitempty"`
-	Actions           []planJSONAction            `json:"actions"`
-	DelegateActions   []delegateActionJSON        `json:"delegate_actions,omitempty"`
-	RelationActions   []relationActionJSON        `json:"relation_actions,omitempty"`
-	RelationOrders    []relationOrderJSON         `json:"relation_order_actions,omitempty"`
-	CarrierAdoptions  []carrierAdoptionActionJSON `json:"carrier_adoption_actions,omitempty"`
-	CarrierAbsences   []carrierAbsenceActionJSON  `json:"carrier_absence_actions,omitempty"`
-	HostRouteAttempts []hostRouteAttemptJSON      `json:"host_route_attempts,omitempty"`
-	Diagnostics       []planJSONDiagnostic        `json:"diagnostics"`
-	MCPStatuses       []MCPStatus                 `json:"mcp_statuses,omitempty"`
+	SchemaVersion        int                         `json:"schema_version"`
+	Command              string                      `json:"command"`
+	Mode                 string                      `json:"mode"`
+	Lockfile             planJSONLockfile            `json:"lockfile"`
+	LockOnly             LockOnlyResources           `json:"lock_only"`
+	ActionCount          int                         `json:"action_count"`
+	HasErrors            bool                        `json:"has_errors"`
+	CheckClean           *bool                       `json:"check_clean,omitempty"`
+	Actions              []planJSONAction            `json:"actions"`
+	NativeNarrowings     []nativeNarrowingActionJSON `json:"native_narrowing_actions,omitempty"`
+	DelegateActions      []delegateActionJSON        `json:"delegate_actions,omitempty"`
+	RelationActions      []relationActionJSON        `json:"relation_actions,omitempty"`
+	RelationOrders       []relationOrderJSON         `json:"relation_order_actions,omitempty"`
+	CarrierAdoptions     []carrierAdoptionActionJSON `json:"carrier_adoption_actions,omitempty"`
+	CarrierAbsences      []carrierAbsenceActionJSON  `json:"carrier_absence_actions,omitempty"`
+	HostRouteAttempts    []hostRouteAttemptJSON      `json:"host_route_attempts,omitempty"`
+	Diagnostics          []planJSONDiagnostic        `json:"diagnostics"`
+	MCPStatuses          []MCPStatus                 `json:"mcp_statuses,omitempty"`
+	PermissionProtection *permissionProtectionJSON   `json:"permission_protection,omitempty"`
 }
 
 type planJSONLockfile struct {
@@ -76,6 +80,7 @@ type planJSONAction struct {
 	Scope            string                 `json:"scope"`
 	Destination      string                 `json:"destination"`
 	ContentPath      string                 `json:"content_path,omitempty"`
+	KeyPath          []string               `json:"key_path,omitempty"`
 	PlacementMode    string                 `json:"placement_mode"`
 	ContentKind      string                 `json:"content_kind,omitempty"`
 	PermissionPolicy string                 `json:"permission_policy,omitempty"`
@@ -102,10 +107,11 @@ type planJSONSubject struct {
 }
 
 type planJSONProjection struct {
-	Target      string `json:"target"`
-	Scope       string `json:"scope"`
-	ConfigPath  string `json:"config_path"`
-	ContentPath string `json:"content_path"`
+	Target      string   `json:"target"`
+	Scope       string   `json:"scope"`
+	ConfigPath  string   `json:"config_path"`
+	ContentPath string   `json:"content_path,omitempty"`
+	KeyPath     []string `json:"key_path,omitempty"`
 }
 
 type planJSONPreviousState struct {
@@ -117,6 +123,7 @@ type planJSONPreviousState struct {
 	Scope            string            `json:"scope"`
 	Destination      string            `json:"destination"`
 	ContentPath      string            `json:"content_path,omitempty"`
+	KeyPath          []string          `json:"key_path,omitempty"`
 	ContentHash      string            `json:"content_hash"`
 	ContentKind      string            `json:"content_kind,omitempty"`
 	PermissionPolicy string            `json:"permission_policy,omitempty"`
@@ -150,10 +157,15 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 
 	hostRouteAttempts := hostRouteJSONAttempts(input.HostRouteAttempts)
 	reconciliation := input.Reconciliation
+	actions, err := planJSONActionsForPlan(reconciliation)
+	if err != nil {
+		return err
+	}
 	payload := planJSONOutput{
-		SchemaVersion: contractversion.ReconciliationPlanJSON,
-		Command:       input.Command,
-		Mode:          input.Mode,
+		PermissionProtection: permissionProtectionJSONFor(input.PermissionProtection),
+		SchemaVersion:        contractversion.ReconciliationPlanJSON,
+		Command:              input.Command,
+		Mode:                 input.Mode,
 		Lockfile: planJSONLockfile{
 			Path:    input.LockfilePath,
 			Missing: input.LockfileMissing,
@@ -164,7 +176,8 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 			reconciliation.HasErrors() ||
 			hasErrorDiagnostics(input.Diagnostics),
 		CheckClean:        input.CheckClean,
-		Actions:           planJSONActionsForPlan(reconciliation),
+		Actions:           actions,
+		NativeNarrowings:  nativeNarrowingJSONActions(reconciliation.NativeNarrowings()),
 		DelegateActions:   delegateJSONActions(reconciliation.Delegates()),
 		RelationActions:   relationJSONActions(reconciliation.Relations()),
 		RelationOrders:    relationOrderJSONActions(reconciliation.RelationOrders(), reconciliation.Relations()),
@@ -180,7 +193,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 	return encoder.Encode(payload)
 }
 
-func planJSONActionsForPlan(planResult reconcile.Result) []planJSONAction {
+func planJSONActionsForPlan(planResult reconcile.Result) ([]planJSONAction, error) {
 	result := make([]planJSONAction, 0, planResult.ProjectionDecisionCount())
 	for _, decision := range planResult.Decisions() {
 		if managedPath, ok := decision.ManagedPath(); ok {
@@ -188,9 +201,13 @@ func planJSONActionsForPlan(planResult reconcile.Result) []planJSONAction {
 			continue
 		}
 		aggregate, _ := decision.Aggregate()
-		result = append(result, planJSONAggregateAction(aggregate))
+		action, err := planJSONAggregateAction(aggregate)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, action)
 	}
-	return result
+	return result, nil
 }
 
 func hasErrorDiagnostics(diagnostics []findings.Diagnostic) bool {

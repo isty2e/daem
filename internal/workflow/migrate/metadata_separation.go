@@ -31,7 +31,7 @@ func (prepared *PreparedState) validateMetadataSeparation() error {
 		if !ok {
 			return fmt.Errorf("migration metadata authority is unavailable for %q", path)
 		}
-		address, err := ownership.NewManagedAddress(exact, "")
+		address, err := ownership.NewManagedAddressFromLegacy(exact, "")
 		if err != nil {
 			return err
 		}

@@ -29,7 +29,7 @@ func TestRealizationSpecVariantsRemainClosedAndValidated(t *testing.T) {
 		t.Fatalf("path spec = %#v", pathSpec)
 	}
 
-	aggregateSpec, err := NewManagedAggregateContribution(aggregate.ManagedContributionInput{
+	aggregateSpec, err := NewManagedAggregateContributionFromLegacy(aggregate.LegacyManagedContributionInput{
 		PlacementID:           "codex.project.hooks",
 		Target:                target.TargetCodex,
 		Scope:                 target.ScopeProject,
@@ -45,7 +45,7 @@ func TestRealizationSpecVariantsRemainClosedAndValidated(t *testing.T) {
 		ComparedFields:        []string{"command", "event"},
 	})
 	if err != nil {
-		t.Fatalf("NewManagedAggregateContribution: %v", err)
+		t.Fatalf("NewManagedAggregateContributionFromLegacy: %v", err)
 	}
 	if aggregateSpec.Kind() != RealizationManagedAggregateContribution || aggregateSpec.Validate() != nil {
 		t.Fatalf("aggregate spec = %#v", aggregateSpec)

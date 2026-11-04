@@ -15,9 +15,9 @@ type aggregateProjectionObservation struct {
 }
 
 type aggregateObservationIndex struct {
-	evidence      map[aggregate.DocumentAddress]observe.AggregateEvidence
-	failures      map[aggregate.DocumentAddress]observe.AggregateObservationFailure
-	preconditions map[aggregate.DocumentAddress]map[aggregate.OperationPrecondition]bool
+	evidence      map[aggregate.DocumentCodecKey]observe.AggregateEvidence
+	failures      map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure
+	preconditions map[aggregate.DocumentCodecKey]map[aggregate.OperationPrecondition]bool
 }
 
 func newAggregateObservationIndex(
@@ -26,19 +26,19 @@ func newAggregateObservationIndex(
 	preconditions []observe.AggregatePreconditionEvidence,
 ) (aggregateObservationIndex, error) {
 	result := aggregateObservationIndex{
-		evidence:      make(map[aggregate.DocumentAddress]observe.AggregateEvidence, len(evidence)),
-		failures:      make(map[aggregate.DocumentAddress]observe.AggregateObservationFailure, len(failures)),
-		preconditions: make(map[aggregate.DocumentAddress]map[aggregate.OperationPrecondition]bool),
+		evidence:      make(map[aggregate.DocumentCodecKey]observe.AggregateEvidence, len(evidence)),
+		failures:      make(map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure, len(failures)),
+		preconditions: make(map[aggregate.DocumentCodecKey]map[aggregate.OperationPrecondition]bool),
 	}
 	for _, item := range evidence {
-		address := item.Address()
+		address := item.DocumentCodecKey()
 		if _, duplicate := result.evidence[address]; duplicate {
 			return aggregateObservationIndex{}, fmt.Errorf("duplicate MCP aggregate evidence")
 		}
 		result.evidence[address] = item
 	}
 	for _, item := range failures {
-		address := item.Address()
+		address := item.DocumentCodecKey()
 		if _, duplicate := result.failures[address]; duplicate {
 			return aggregateObservationIndex{}, fmt.Errorf("duplicate MCP aggregate failed observation")
 		}
@@ -65,7 +65,7 @@ func newAggregateObservationIndex(
 func (index aggregateObservationIndex) projection(
 	contract aggregate.ProjectionContract,
 ) (aggregateProjectionObservation, error) {
-	address := contract.Address().Document()
+	address := contract.DocumentCodecKey()
 	unsupportedAlternate, err := index.unsupportedAlternateConfig(contract)
 	if err != nil {
 		return aggregateProjectionObservation{}, err
@@ -92,8 +92,8 @@ func (index aggregateObservationIndex) projection(
 			return aggregateProjectionObservation{}, fmt.Errorf("failed observation does not cover locked projection")
 		}
 		reason := failure.Reason()
-		if failure.ContentPath() != "" &&
-			failure.ContentPath() != contract.Address().ContentPath() {
+		if !failure.Location().IsRoot() &&
+			failure.Location() != contract.Address().KeyPath() {
 			reason = aggregate.CodecFailureEquivalenceUndefined
 		}
 		return aggregateProjectionObservation{
@@ -114,7 +114,7 @@ func (index aggregateObservationIndex) unsupportedAlternateConfig(
 	if !admitted {
 		return false, fmt.Errorf("aggregate codec %q has no precondition profile", contract.CodecContractID())
 	}
-	observed := index.preconditions[contract.Address().Document()]
+	observed := index.preconditions[contract.DocumentCodecKey()]
 	if len(observed) != len(expected) {
 		return false, fmt.Errorf("aggregate precondition evidence is incomplete")
 	}

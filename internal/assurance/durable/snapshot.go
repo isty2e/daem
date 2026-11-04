@@ -13,6 +13,7 @@ import (
 
 // SnapshotInput is the complete set of durable assurance fact families.
 type SnapshotInput struct {
+	NativeDocumentCommit   uint64
 	ManagedPaths           []ManagedPathState
 	ManagedAggregates      []ManagedAggregateState
 	PendingCarrierInstalls []durablecarrier.PendingCarrierInstall
@@ -24,6 +25,7 @@ type SnapshotInput struct {
 
 // Snapshot is canonical non-current state used for correlation and history.
 type Snapshot struct {
+	nativeDocumentCommit   uint64
 	managedPaths           []ManagedPathState
 	managedAggregates      []ManagedAggregateState
 	pendingCarrierInstalls []durablecarrier.PendingCarrierInstall
@@ -39,6 +41,7 @@ func EmptySnapshot() Snapshot { return Snapshot{} }
 // NewSnapshot validates, orders, and defensively copies every fact family.
 func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 	snapshot := Snapshot{
+		nativeDocumentCommit:   input.NativeDocumentCommit,
 		managedPaths:           append([]ManagedPathState(nil), input.ManagedPaths...),
 		managedAggregates:      append([]ManagedAggregateState(nil), input.ManagedAggregates...),
 		pendingCarrierInstalls: append([]durablecarrier.PendingCarrierInstall(nil), input.PendingCarrierInstalls...),
@@ -208,6 +211,13 @@ func (snapshot Snapshot) HostRouteAttempts() []durableattempt.HostRouteAttempt {
 	return append([]durableattempt.HostRouteAttempt(nil), snapshot.hostRouteAttempts...)
 }
 
+// WithManagedProjections replaces both projection families as one valid state.
+func (snapshot Snapshot) WithManagedProjections(paths []ManagedPathState, aggregates []ManagedAggregateState) (Snapshot, error) {
+	input := snapshot.input()
+	input.ManagedPaths, input.ManagedAggregates = paths, aggregates
+	return NewSnapshot(input)
+}
+
 // WithManagedPaths replaces the complete managed-path baseline family.
 func (snapshot Snapshot) WithManagedPaths(values []ManagedPathState) (Snapshot, error) {
 	input := snapshot.input()
@@ -259,6 +269,9 @@ func (snapshot Snapshot) WithHostRouteAttempts(values []durableattempt.HostRoute
 
 // Equal reports semantic equality across every ordered fact family.
 func (snapshot Snapshot) Equal(other Snapshot) bool {
+	if snapshot.nativeDocumentCommit != other.nativeDocumentCommit {
+		return false
+	}
 	if len(snapshot.managedPaths) != len(other.managedPaths) ||
 		len(snapshot.managedAggregates) != len(other.managedAggregates) ||
 		len(snapshot.pendingCarrierInstalls) != len(other.pendingCarrierInstalls) ||
@@ -308,6 +321,7 @@ func (snapshot Snapshot) Equal(other Snapshot) bool {
 
 func (snapshot Snapshot) input() SnapshotInput {
 	return SnapshotInput{
+		NativeDocumentCommit:   snapshot.nativeDocumentCommit,
 		ManagedPaths:           snapshot.ManagedPaths(),
 		ManagedAggregates:      snapshot.ManagedAggregates(),
 		PendingCarrierInstalls: snapshot.PendingCarrierInstalls(),
@@ -321,5 +335,5 @@ func (snapshot Snapshot) input() SnapshotInput {
 func aggregatePhysicalKey(contribution aggregate.ManagedContribution) string {
 	return string(contribution.Scope()) + "\x00" +
 		contribution.AggregateRoot().String() + "\x00" +
-		contribution.ContentPath()
+		contribution.Address().KeyPath().String()
 }

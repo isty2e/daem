@@ -37,7 +37,7 @@ func NewManagedPathSubjectContract(input ManagedPathSubjectInput) (LockedSubject
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
-	operations, err := managedPathOperationContracts(
+	operations, err := directProjectionOperationContracts(
 		input.WriteRouteID,
 		input.RemoveRouteID,
 		projection.AdapterContractVersion(),
@@ -56,7 +56,7 @@ func NewManagedPathSubjectContract(input ManagedPathSubjectInput) (LockedSubject
 	})
 }
 
-func managedPathOperationContracts(
+func directProjectionOperationContracts(
 	writeRouteID string,
 	removeRouteID string,
 	adapterContractVersion string,

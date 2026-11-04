@@ -1,17 +1,18 @@
 package host
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
-	"github.com/isty2e/daem/internal/filesnapshot"
 )
 
 const maximumConfigBytes int64 = 4 << 20
 
-func observeImport(
+func (reader configFileReader) observeImport(
+	ctx context.Context,
 	kind importKind,
 	id string,
 	precedence mcpeffective.RelativePrecedence,
@@ -21,10 +22,11 @@ func observeImport(
 	sourceKind mcpeffective.SourceKind,
 ) (mcpeffective.SourceObservation, bool) {
 	if kind == importOpenCode {
-		return observeOpenCodeImport(id, precedence, homeDir, workDir, serverName, sourceKind)
+		return reader.observeOpenCodeImport(ctx, id, precedence, homeDir, workDir, serverName, sourceKind)
 	}
 	for _, path := range importCandidates(kind, homeDir, workDir) {
-		content, exists, readErr := filesnapshot.ReadRegularFile(
+		content, exists, readErr := reader.read(
+			ctx,
 			path,
 			maximumConfigBytes,
 		)
@@ -66,7 +68,8 @@ func observeImport(
 	return mcpeffective.SourceObservation{}, false
 }
 
-func observeOpenCodeImport(
+func (reader configFileReader) observeOpenCodeImport(
+	ctx context.Context,
 	id string,
 	precedence mcpeffective.RelativePrecedence,
 	homeDir string,
@@ -76,7 +79,7 @@ func observeOpenCodeImport(
 ) (mcpeffective.SourceObservation, bool) {
 	merged := make(map[string]map[string]any)
 	var highestPath string
-	candidates, candidateErr := openCodeImportCandidates(homeDir, workDir)
+	project, candidateErr := reader.nearestOpenCodeProjectConfig(ctx, workDir)
 	if candidateErr != nil {
 		return mustSourceObservation(mcpeffective.SourceObservationInput{
 			ID: id, Path: filepath.Join(workDir, "opencode.json"),
@@ -86,11 +89,9 @@ func observeOpenCodeImport(
 			Detail:                candidateErr.Error(),
 		}), true
 	}
-	for _, path := range candidates {
-		content, exists, readErr := filesnapshot.ReadRegularFile(
-			path,
-			maximumConfigBytes,
-		)
+	global := reader.readOpenCodeConfig(ctx, filepath.Join(homeDir, ".config", "opencode", "opencode.json"))
+	for _, loaded := range []openCodeConfig{global, project} {
+		path, content, exists, readErr := loaded.path, loaded.content, loaded.exists, loaded.err
 		if readErr != nil {
 			return mustSourceObservation(mcpeffective.SourceObservationInput{
 				ID: id, Path: path, Kind: sourceKind, Precedence: precedence,
@@ -168,23 +169,27 @@ func importCandidates(kind importKind, homeDir string, workDir string) []string 
 	}
 }
 
-func openCodeImportCandidates(homeDir string, workDir string) ([]string, error) {
-	projectPath, err := nearestOpenCodeProjectConfig(workDir)
-	if err != nil {
-		return nil, err
-	}
-	return []string{
-		filepath.Join(homeDir, ".config", "opencode", "opencode.json"),
-		projectPath,
-	}, nil
+type openCodeConfig struct {
+	path    string
+	content []byte
+	exists  bool
+	err     error
 }
 
-func nearestOpenCodeProjectConfig(workDir string) (string, error) {
+func (reader configFileReader) readOpenCodeConfig(ctx context.Context, path string) openCodeConfig {
+	content, exists, err := reader.read(ctx, path, maximumConfigBytes)
+	return openCodeConfig{path: path, content: content, exists: exists, err: err}
+}
+
+func (reader configFileReader) nearestOpenCodeProjectConfig(ctx context.Context, workDir string) (openCodeConfig, error) {
 	gitRoot := ""
 	for current := workDir; ; current = filepath.Dir(current) {
+		if err := ctx.Err(); err != nil {
+			return openCodeConfig{}, err
+		}
 		exists, err := pathExists(filepath.Join(current, ".git"))
 		if err != nil {
-			return "", fmt.Errorf("inspect OpenCode project boundary: %w", err)
+			return openCodeConfig{}, fmt.Errorf("inspect OpenCode project boundary: %w", err)
 		}
 		if exists {
 			gitRoot = current
@@ -196,16 +201,15 @@ func nearestOpenCodeProjectConfig(workDir string) (string, error) {
 		}
 	}
 	if gitRoot == "" {
-		return filepath.Join(workDir, "opencode.json"), nil
+		return reader.readOpenCodeConfig(ctx, filepath.Join(workDir, "opencode.json")), ctx.Err()
 	}
 	for current := workDir; ; current = filepath.Dir(current) {
-		path := filepath.Join(current, "opencode.json")
-		exists, err := pathExists(path)
-		if err != nil {
-			return "", fmt.Errorf("inspect OpenCode project config: %w", err)
+		loaded := reader.readOpenCodeConfig(ctx, filepath.Join(current, "opencode.json"))
+		if err := ctx.Err(); err != nil {
+			return openCodeConfig{}, err
 		}
-		if exists || current == gitRoot {
-			return path, nil
+		if loaded.exists || loaded.err != nil || current == gitRoot {
+			return loaded, nil
 		}
 	}
 }

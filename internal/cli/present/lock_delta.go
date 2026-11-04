@@ -273,7 +273,7 @@ func printRealizationFields(
 			contribution.Target(),
 			contribution.Scope(),
 			contribution.AggregateRoot(),
-			contribution.ContentPath(),
+			contribution.Address().KeyPath().String(),
 			string(contribution.CodecContractID()),
 		)
 	case realization.RealizationDelegatedRelation:

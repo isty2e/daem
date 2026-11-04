@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"unicode/utf8"
+
+	"github.com/isty2e/daem/internal/output"
 )
 
 // Selection is a canonical set of projections read from one document by one codec.
@@ -27,10 +29,11 @@ func NewSelection(values []ProjectionContract) (Selection, error) {
 		return compareProjectionAddress(contracts[left].address, contracts[right].address) < 0
 	})
 	first := contracts[0]
-	physicalAddresses := make(map[struct {
-		document    DocumentAddress
-		contentPath ContentPath
-	}]ProjectionAddress, len(contracts))
+	type physicalAddress struct {
+		document  DocumentAddress
+		footprint output.Footprint
+	}
+	physicalAddresses := make(map[physicalAddress]ProjectionAddress, len(contracts))
 	for index, contract := range contracts {
 		if contract.address.document != first.address.document {
 			return Selection{}, fmt.Errorf("aggregate codec selection mixes documents")
@@ -41,10 +44,7 @@ func NewSelection(values []ProjectionContract) (Selection, error) {
 		if index > 0 && contract.address == contracts[index-1].address {
 			return Selection{}, fmt.Errorf("aggregate codec selection repeats projection address")
 		}
-		physical := struct {
-			document    DocumentAddress
-			contentPath ContentPath
-		}{document: contract.address.document, contentPath: contract.address.contentPath}
+		physical := physicalAddress{document: contract.address.document, footprint: contract.address.footprint}
 		if existing, duplicate := physicalAddresses[physical]; duplicate {
 			return Selection{}, fmt.Errorf(
 				"aggregate codec selection has physical projection collision between placements %q and %q",
@@ -85,6 +85,7 @@ type ProjectionState struct {
 	parentPresent       bool
 	present             bool
 	canonicalProjection string
+	blockingAncestor    output.KeyPath
 }
 
 // NewProjectionState constructs one selected codec observation.
@@ -110,6 +111,19 @@ func NewProjectionState(
 func (state ProjectionState) Validate() error {
 	if err := state.contract.Validate(); err != nil {
 		return err
+	}
+	if !state.blockingAncestor.IsRoot() {
+		if _, native := HostConfigSyntaxForCodec(state.contract.CodecContractID()); !native {
+			return fmt.Errorf("blocked projection requires a native codec contract")
+		}
+		key := state.contract.address.KeyPath()
+		if state.blockingAncestor == key || !state.blockingAncestor.Contains(key) {
+			return fmt.Errorf("blocked native projection requires a strict ancestor")
+		}
+		if state.present || state.canonicalProjection != "" || !state.parentPresent {
+			return fmt.Errorf("blocked native projection has contradictory selected state")
+		}
+		return nil
 	}
 	if !state.present {
 		if state.canonicalProjection != "" {
@@ -172,7 +186,11 @@ func NewSnapshot(documentExisted bool, selection Selection, states []ProjectionS
 		}
 		canonical = append(canonical, cloneProjectionState(state))
 	}
-	return Snapshot{documentExisted: documentExisted, states: canonical}, nil
+	snapshot := Snapshot{documentExisted: documentExisted, states: canonical}
+	if err := snapshot.validateBlockingAncestors(); err != nil {
+		return Snapshot{}, err
+	}
+	return snapshot, nil
 }
 
 func (snapshot Snapshot) DocumentExisted() bool { return snapshot.documentExisted }
@@ -228,7 +246,8 @@ func NewProjectionIntent(before ProjectionState, desired *ContributionSet) (Proj
 		return ProjectionIntent{}, err
 	}
 	if desired == nil {
-		if !before.present {
+		_, native := HostConfigSyntaxForCodec(before.contract.CodecContractID())
+		if !before.present && !native {
 			return ProjectionIntent{}, fmt.Errorf("aggregate remove intent requires a present before projection")
 		}
 		return ProjectionIntent{before: cloneProjectionState(before)}, nil
@@ -255,8 +274,9 @@ func (intent ProjectionIntent) Desired() (ContributionSet, bool) {
 
 // Plan is one canonical batch over a single document and codec contract.
 type Plan struct {
-	before  Snapshot
-	intents []ProjectionIntent
+	before             Snapshot
+	intents            []ProjectionIntent
+	retainedContainers map[ProjectionAddress]bool
 }
 
 // NewPlan validates exact before-state coverage and canonicalizes intent order.
@@ -289,7 +309,11 @@ func NewPlan(before Snapshot, intents []ProjectionIntent) (Plan, error) {
 		}
 		canonical = append(canonical, cloneProjectionIntent(intent))
 	}
-	return Plan{before: cloneSnapshot(before), intents: canonical}, nil
+	plan := Plan{before: cloneSnapshot(before), intents: canonical}
+	if err := plan.indexNativeTreeRelations(); err != nil {
+		return Plan{}, err
+	}
+	return plan, nil
 }
 
 func (plan Plan) Before() Snapshot { return cloneSnapshot(plan.before) }
@@ -385,9 +409,7 @@ func NewRestoredDocumentWithExpected(
 	baselineStates := baseline.States()
 	expectedStates := expected.States()
 	for index := range baselineStates {
-		if !baselineStates[index].Contract().Equal(expectedStates[index].Contract()) ||
-			baselineStates[index].Present() != expectedStates[index].Present() ||
-			baselineStates[index].CanonicalProjection() != expectedStates[index].CanonicalProjection() {
+		if !baselineStates[index].SelectedValueEqual(expectedStates[index]) {
 			return RenderedDocument{}, fmt.Errorf(
 				"restored document expected projection[%d] differs from baseline",
 				index,
@@ -418,10 +440,7 @@ func cloneProjectionIntent(intent ProjectionIntent) ProjectionIntent {
 }
 
 func projectionStatesEqual(left ProjectionState, right ProjectionState) bool {
-	return left.contract.Equal(right.contract) &&
-		left.parentPresent == right.parentPresent &&
-		left.present == right.present &&
-		left.canonicalProjection == right.canonicalProjection
+	return left.Equal(right)
 }
 
 func selectionsEqual(left Selection, right Selection) bool {
@@ -464,8 +483,11 @@ func validateExpectedProjectionStates(plan Plan, expected Snapshot) error {
 		if !present || !state.contract.Equal(intent.before.contract) {
 			return fmt.Errorf("rendered document expected snapshot differs from the plan contract")
 		}
-		if intent.desired == nil && state.present {
+		if intent.desired == nil && state.present && !plan.RetainsStructuralContainer(state.contract.address) {
 			return fmt.Errorf("rendered document retains a projection planned for removal")
+		}
+		if intent.desired == nil && !state.present && plan.RetainsStructuralContainer(state.contract.address) {
+			return fmt.Errorf("rendered document omits a required structural container")
 		}
 		if intent.desired != nil && !state.present {
 			return fmt.Errorf("rendered document omits a desired projection")

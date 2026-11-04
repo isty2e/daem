@@ -235,7 +235,7 @@ func globalManagedPathRemovalInput(
 	if err != nil {
 		t.Fatal(err)
 	}
-	address, err := ownership.NewManagedAddress(pathAuthority.Exact(), "")
+	address, err := ownership.NewManagedAddressFromLegacy(pathAuthority.Exact(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func globalManagedPathRemovalInput(
 	if _, err := registryStore.Apply(t.Context(), address, ownership.NoClaim(), claimValue); err != nil {
 		t.Fatalf("seed ownership claim: %v", err)
 	}
-	ownershipObservation, err := observe.NewExactOwnershipObservation(
+	ownershipObservation, err := observe.NewExactOwnershipObservationFromLegacy(
 		destination,
 		output.ContentPath(""),
 		address,
@@ -316,7 +316,7 @@ func TestProvisionalGlobalOwnershipRejectsAliasOfClaimThatBecomesCurrent(t *test
 
 	address, err := ownership.NewManagedAddress(
 		aliasAuthority.Exact(),
-		string(input.Ownership[0].ContentPath()),
+		input.Ownership[0].Footprint(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -614,7 +614,7 @@ func seedForeignClaimForVisibleProvisionalOutput(
 	}
 	address, err := ownership.NewManagedAddress(
 		pathAuthority.Exact(),
-		string(input.Ownership[0].ContentPath()),
+		input.Ownership[0].Footprint(),
 	)
 	if err != nil {
 		return ownership.Claim{}, err

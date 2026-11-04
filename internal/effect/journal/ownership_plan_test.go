@@ -170,7 +170,7 @@ func TestRecoveryAddressOverlapDetectionDoesNotDependOnLexicalAdjacency(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		managed, err := ownership.NewManagedAddress(authority, contentPath)
+		managed, err := ownership.NewManagedAddressFromLegacy(authority, contentPath)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -199,11 +199,11 @@ func TestRecoveryAddressOverlapDetectionDoesNotDependOnLexicalAdjacency(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	exactAddress, err := ownership.NewManagedAddress(exact, "/one")
+	exactAddress, err := ownership.NewManagedAddressFromLegacy(exact, "/one")
 	if err != nil {
 		t.Fatal(err)
 	}
-	darwinAddress, err := ownership.NewManagedAddress(darwin, "/two")
+	darwinAddress, err := ownership.NewManagedAddressFromLegacy(darwin, "/two")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestRecoveryAddressOverlapDetectionMatchesManagedAddressContract(t *testing
 			t.Fatal(err)
 		}
 		for _, contentPath := range contentPaths {
-			address, err := ownership.NewManagedAddress(authority, contentPath)
+			address, err := ownership.NewManagedAddressFromLegacy(authority, contentPath)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -446,7 +446,7 @@ func TestBuildRecoveryPlanClassifiesReleaseFinalization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalDirectoryEntryKey returned error: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, canonicalPath), entry.ContentPath)
+	address, err := ownership.NewManagedAddressFromLegacy(mustObservedPathAuthority(t, canonicalPath), entry.ContentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
@@ -501,7 +501,7 @@ func testAcquireTransition(t *testing.T, entry recoveryEntry) (ownershipmutation
 	if err != nil {
 		t.Fatalf("CanonicalDirectoryEntryKey returned error: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, canonicalPath), entry.ContentPath)
+	address, err := ownership.NewManagedAddressFromLegacy(mustObservedPathAuthority(t, canonicalPath), entry.ContentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
@@ -536,7 +536,7 @@ func testProvisionalAcquireIntent(t *testing.T, entry recoveryEntry) ownership.P
 		t.Fatalf("parse provisional destination: %v", err)
 	}
 	transition, _, _ := testAcquireTransition(t, entry)
-	intent, err := ownership.NewProvisionalAcquireIntent(
+	intent, err := ownership.NewProvisionalAcquireIntentFromLegacy(
 		destination,
 		output.ContentPath(entry.ContentPath),
 		provisional,
@@ -544,7 +544,7 @@ func testProvisionalAcquireIntent(t *testing.T, entry recoveryEntry) ownership.P
 		testOperationID,
 	)
 	if err != nil {
-		t.Fatalf("NewProvisionalAcquireIntent returned error: %v", err)
+		t.Fatalf("NewProvisionalAcquireIntentFromLegacy returned error: %v", err)
 	}
 	return intent
 }

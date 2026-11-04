@@ -21,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
+	"github.com/isty2e/daem/test/outputtest"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 	mcptest "github.com/isty2e/daem/test/testkit/mcp"
@@ -188,7 +189,7 @@ func assertMCPPublicExampleWrittenLock(
 		string(contribution.Target()),
 		string(contribution.Scope()),
 		contribution.AggregateRoot().String(),
-		contribution.ContentPath(),
+		outputtest.LegacyContentPath(t, contribution),
 		string(contribution.CodecContractID()),
 	)
 	return contribution
@@ -331,8 +332,8 @@ func assertMCPPublicExampleHostProjection(
 	if err != nil {
 		t.Fatalf("compare placement %q host config with lock: %v", placement.ID(), err)
 	}
-	if !comparison.Present || !comparison.Equivalent || comparison.ContentPath != locked.ContentPath() {
-		t.Fatalf("placement %q host comparison = %#v, want present equivalent content path %q", placement.ID(), comparison, locked.ContentPath())
+	if !comparison.Present || !comparison.Equivalent || comparison.ContentPath != outputtest.LegacyContentPath(t, locked) {
+		t.Fatalf("placement %q host comparison = %#v, want present equivalent content path %q", placement.ID(), comparison, outputtest.LegacyContentPath(t, locked))
 	}
 }
 

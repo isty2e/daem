@@ -24,6 +24,7 @@ type applyRefreshFactDTO struct {
 	Scope       string
 	Family      string
 	Containment mutation.RouteContainment
+	Identity    string `json:",omitempty"`
 }
 
 type recoverFactDTO struct {
@@ -52,7 +53,7 @@ func applyRefreshDTO(facts []Fact) ([]applyRefreshFactDTO, error) {
 	out := make([]applyRefreshFactDTO, 0, len(facts))
 	for _, fact := range facts {
 		switch fact.kind {
-		case FactLogical, FactPhysical, FactRoute, FactRecoveryBarrier:
+		case FactLogical, FactPhysical, FactRoute, FactRecoveryBarrier, FactOwnershipRegistry, FactDocumentWrite:
 		default:
 			return nil, fmt.Errorf("operationplan: apply/refresh cannot marshal fact kind %d", fact.kind)
 		}
@@ -69,6 +70,7 @@ func applyRefreshDTO(facts []Fact) ([]applyRefreshFactDTO, error) {
 			Scope:       fact.scope,
 			Family:      fact.family,
 			Containment: fact.containment,
+			Identity:    fact.identity,
 		})
 	}
 	return out, nil
@@ -79,7 +81,7 @@ func recoverDTO(facts []Fact) ([]recoverFactDTO, error) {
 	for _, fact := range facts {
 		switch fact.kind {
 		case FactLogical, FactPhysical, FactRecoveryRootIdentity, FactStateDirIdentity,
-			FactRemovalContinuation, FactRemovalParentIdentity:
+			FactRemovalContinuation, FactRemovalParentIdentity, FactOwnershipRegistry, FactDocumentWrite:
 		default:
 			return nil, fmt.Errorf("operationplan: recover cannot marshal fact kind %d", fact.kind)
 		}

@@ -432,7 +432,7 @@ func TestRecoveryHostActionsRejectMismatchedAggregateContract(t *testing.T) {
 		Kind:              recovery.ActionKindRestoreDelete,
 		Scope:             target.ScopeProject,
 		Destination:       contract.Address().Document().AggregateRoot().String(),
-		ContentPath:       string(contract.Address().ContentPath()),
+		ContentPath:       string(outputtest.LegacyContentPath(t, contract.Address())),
 		AggregateContract: &contract,
 	}
 	for _, test := range []struct {

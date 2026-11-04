@@ -8,19 +8,22 @@ import (
 
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	listworkflow "github.com/isty2e/daem/internal/workflow/list"
 )
 
 type inventoryJSONEntry struct {
-	ResourceID  string   `json:"resource_id,omitempty"`
-	Subject     string   `json:"subject,omitempty"`
-	Targets     []string `json:"targets,omitempty"`
-	Scope       string   `json:"scope"`
-	Path        string   `json:"path"`
-	ContentPath string   `json:"content_path,omitempty"`
-	Hash        string   `json:"hash"`
-	Reason      string   `json:"reason,omitempty"`
-	Detail      string   `json:"detail,omitempty"`
+	ResourceID  string            `json:"resource_id,omitempty"`
+	Resource    *planJSONResource `json:"resource,omitempty"`
+	KeyPath     []string          `json:"key_path,omitempty"`
+	Subject     string            `json:"subject,omitempty"`
+	Targets     []string          `json:"targets,omitempty"`
+	Scope       string            `json:"scope"`
+	Path        string            `json:"path"`
+	ContentPath string            `json:"content_path,omitempty"`
+	Hash        string            `json:"hash"`
+	Reason      string            `json:"reason,omitempty"`
+	Detail      string            `json:"detail,omitempty"`
 }
 
 func PrintInventoryReportWithOptions(output io.Writer, inventory listworkflow.OutputInventory, options HumanOptions) {
@@ -45,6 +48,10 @@ func PrintInventoryReportWithOptions(output io.Writer, inventory listworkflow.Ou
 func printInventoryEntry(output io.Writer, label string, entry listworkflow.OutputInventoryEntry, options HumanOptions) {
 	resourceID := inventoryResourceID(entry)
 	identityLabel, identity := "resource", resourceID
+	_, key, native := topologyprojection.HostConfigKeyIdentity(entry.Subject())
+	if native {
+		identityLabel, identity = projectionIdentityLabel(entry.Subject())
+	}
 	targetValues := inventoryTargetStrings(entry)
 	if !entry.Subject().IsZero() {
 		if identity == "" {
@@ -69,6 +76,9 @@ func printInventoryEntry(output io.Writer, label string, entry listworkflow.Outp
 		fmt.Fprintf(output, " detail=%q", entry.Detail())
 	}
 	fmt.Fprintln(output)
+	if native {
+		fmt.Fprintf(output, "  key: %s\n", nativeKeyDisplay(key))
+	}
 }
 
 type listOutputsJSONOutput struct {
@@ -104,7 +114,7 @@ func PrintListOutputsJSON(output io.Writer, inventory listworkflow.OutputInvento
 func inventoryJSONEntries(entries []listworkflow.OutputInventoryEntry) []inventoryJSONEntry {
 	result := make([]inventoryJSONEntry, 0, len(entries))
 	for _, entry := range entries {
-		result = append(result, inventoryJSONEntry{
+		row := inventoryJSONEntry{
 			ResourceID:  inventoryResourceID(entry),
 			Subject:     entry.Subject().String(),
 			Targets:     inventoryTargetStrings(entry),
@@ -114,7 +124,12 @@ func inventoryJSONEntries(entries []listworkflow.OutputInventoryEntry) []invento
 			Hash:        entry.Hash(),
 			Reason:      string(entry.Reason()),
 			Detail:      entry.Detail(),
-		})
+		}
+		if _, key, native := topologyprojection.HostConfigKeyIdentity(entry.Subject()); native {
+			_, row.Resource = planJSONEntityResource(entry.Subject())
+			row.KeyPath = key.Segments()
+		}
+		result = append(result, row)
 	}
 	return result
 }

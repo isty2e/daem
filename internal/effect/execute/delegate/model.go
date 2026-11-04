@@ -1,6 +1,7 @@
 package delegate
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -49,6 +50,10 @@ type Executor struct {
 
 // BinderForAction selects working-directory authority for one action.
 type BinderForAction func(reconcile.DelegateAction) subprocess.WorkingDirectoryBinder
+
+// Invocation executes the supplied command while preserving its mechanical
+// observation independently of containing-operation qualification failure.
+type Invocation func(context.Context, subprocess.CommandExecutor, subprocess.CommandAttemptRequest, subprocess.WorkingDirectoryBinder) (subprocess.CommandAttemptResult, bool, error)
 
 // AttemptStatus is an Effect-owned observed attempt outcome.
 type AttemptStatus string

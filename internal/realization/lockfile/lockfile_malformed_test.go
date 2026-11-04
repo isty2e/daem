@@ -355,8 +355,8 @@ subject = []
 			content: replaceLockfileStringOnce(
 				t,
 				twoMCP,
-				`content_path = "/mcpServers/review"`,
-				`content_path = "/mcpServers/context7"`,
+				`key_path = "/mcpServers/review"`,
+				`key_path = "/mcpServers/context7"`,
 			),
 			wantError: "duplicate exclusive managed aggregate occupancy",
 		},

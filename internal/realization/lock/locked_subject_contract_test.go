@@ -441,7 +441,7 @@ func mustPathContractRealization(t *testing.T, selectedTarget target.Target, des
 
 func mustAggregateContractRealization(t *testing.T, name string) realization.RealizationSpec {
 	t.Helper()
-	realization, err := realization.NewManagedAggregateContribution(aggregate.ManagedContributionInput{
+	realization, err := realization.NewManagedAggregateContributionFromLegacy(aggregate.LegacyManagedContributionInput{
 		PlacementID: "claude-code.project.mcp", Target: target.TargetClaudeCode, Scope: target.ScopeProject,
 		AggregateRoot: outputtest.Parse(t, ".mcp.json"), ContentPath: "/mcpServers/" + name,
 		MergeUnit:             aggregate.MergeUnit("mcp-server-entry"),

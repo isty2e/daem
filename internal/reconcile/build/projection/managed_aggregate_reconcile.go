@@ -7,15 +7,18 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 func reconcileAggregateDocument(
 	groups []aggregateGroupInput,
-	evidenceByDocument map[aggregate.DocumentAddress]observe.AggregateEvidence,
-	failuresByDocument map[aggregate.DocumentAddress]observe.AggregateObservationFailure,
-	preconditionsByDocument map[aggregate.DocumentAddress][]observe.AggregatePreconditionEvidence,
+	evidenceByDocument map[aggregate.DocumentCodecKey]observe.AggregateEvidence,
+	failuresByDocument map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure,
+	preconditionsByDocument map[aggregate.DocumentCodecKey][]observe.AggregatePreconditionEvidence,
 	manageUnmanagedMatches bool,
+	replacement *topologyprojection.HostConfigKeySelection,
 	owner stateauthority.Authority,
 	ownershipEvidence map[ownershipObservationKey]observe.OwnershipObservation,
 	ownershipConflicts map[ownershipObservationKey]struct{},
@@ -27,6 +30,7 @@ func reconcileAggregateDocument(
 		failuresByDocument,
 		preconditionsByDocument,
 		manageUnmanagedMatches,
+		replacement,
 		codecs,
 	)
 	if err != nil {
@@ -42,10 +46,11 @@ func reconcileAggregateDocument(
 
 func reconcileAggregateDocumentSemantics(
 	groups []aggregateGroupInput,
-	evidenceByDocument map[aggregate.DocumentAddress]observe.AggregateEvidence,
-	failuresByDocument map[aggregate.DocumentAddress]observe.AggregateObservationFailure,
-	preconditionsByDocument map[aggregate.DocumentAddress][]observe.AggregatePreconditionEvidence,
+	evidenceByDocument map[aggregate.DocumentCodecKey]observe.AggregateEvidence,
+	failuresByDocument map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure,
+	preconditionsByDocument map[aggregate.DocumentCodecKey][]observe.AggregatePreconditionEvidence,
 	manageUnmanagedMatches bool,
+	replacement *topologyprojection.HostConfigKeySelection,
 	codecs aggregate.CodecCatalog,
 ) (aggregateDecision, error) {
 	coverage, err := newAggregateDocumentCoverage(groups)
@@ -55,7 +60,8 @@ func reconcileAggregateDocumentSemantics(
 	decisionSelection := coverage.DecisionSelection()
 	observationSelection, observationRequired := coverage.ObservationSelection()
 	documentAddress := decisionSelection.DocumentAddress()
-	if failure, failed := failuresByDocument[documentAddress]; failed {
+	documentKey := decisionSelection.DocumentCodecKey()
+	if failure, failed := failuresByDocument[documentKey]; failed {
 		if !observationRequired {
 			return aggregateDecision{}, fmt.Errorf(
 				"aggregate failed observation covers an evidence-independent document",
@@ -79,7 +85,7 @@ func reconcileAggregateDocumentSemantics(
 		)
 		return decision, nil
 	}
-	evidence, observed := evidenceByDocument[documentAddress]
+	evidence, observed := evidenceByDocument[documentKey]
 	if !observed {
 		return blockedAggregateDocument(
 			groups,
@@ -97,21 +103,36 @@ func reconcileAggregateDocumentSemantics(
 	if err := validateAggregateEvidenceSelection(evidence, observationSelection); err != nil {
 		return aggregateDecision{}, err
 	}
-	operationPreconditions, blockReason, blockDetail, err := reconcileAggregatePreconditions(
-		observationSelection,
-		preconditionsByDocument[documentAddress],
-	)
-	if err != nil {
-		return aggregateDecision{}, err
-	}
-	if blockReason != "" {
-		return blockedAggregateDocument(
-			groups,
-			documentAddress,
-			decisionSelection.CodecContractID(),
-			blockReason,
-			blockDetail,
-		), nil
+	var nativeOperation *profile.NativeAggregateOperationContract
+	var operationPreconditions []aggregate.OperationPrecondition
+	if _, native := aggregate.HostConfigSyntaxForCodec(decisionSelection.CodecContractID()); native {
+		operation, err := profile.NewNativeAggregateOperationContract(codecs, decisionSelection)
+		if err != nil {
+			return aggregateDecision{}, err
+		}
+		if len(preconditionsByDocument[documentKey]) != 0 {
+			return aggregateDecision{}, fmt.Errorf("native requirements are not fixed aggregate precondition evidence")
+		}
+		nativeOperation = &operation
+	} else {
+		var blockReason reconcile.ActionReason
+		var blockDetail string
+		operationPreconditions, blockReason, blockDetail, err = reconcileAggregatePreconditions(
+			observationSelection,
+			preconditionsByDocument[documentKey],
+		)
+		if err != nil {
+			return aggregateDecision{}, err
+		}
+		if blockReason != "" {
+			return blockedAggregateDocument(
+				groups,
+				documentAddress,
+				decisionSelection.CodecContractID(),
+				blockReason,
+				blockDetail,
+			), nil
+		}
 	}
 	codec, ok := codecs.Lookup(decisionSelection.CodecContractID())
 	if !ok {
@@ -130,7 +151,7 @@ func reconcileAggregateDocumentSemantics(
 	preBlocked := false
 	for _, group := range groups {
 		current := currentByAddress[group.contract.Address()]
-		projection, intent, err := prepareAggregateProjection(codec, group, current)
+		projection, intent, err := prepareAggregateProjection(codec, group, current, replacement)
 		if err != nil {
 			return aggregateDecision{}, err
 		}
@@ -174,14 +195,17 @@ func reconcileAggregateDocumentSemantics(
 		expectedByAddress[state.Contract().Address()] = state
 	}
 	blocked := false
+	modeCurrent := nativeOperation != nil || evidence.FileMode() == 0 ||
+		evidence.FileMode().Perm() == aggregate.DocumentFileMode
 	for index := range projections {
 		projection := projections[index]
 		projection.expected = expectedByAddress[projection.contract.Address()]
 		projection, err = classifyAggregateProjection(
 			codec,
 			projection,
-			evidence.FileMode(),
+			modeCurrent,
 			manageUnmanagedMatches,
+			replacement,
 		)
 		if err != nil {
 			return aggregateDecision{}, err
@@ -201,6 +225,7 @@ func reconcileAggregateDocumentSemantics(
 		rendered:        rendered,
 		evidence:        evidence,
 		preconditions:   operationPreconditions,
+		nativeOperation: nativeOperation,
 	}
 	if blocked {
 		decision.kind = reconcile.AggregateBlocked
@@ -210,7 +235,7 @@ func reconcileAggregateDocumentSemantics(
 	}
 	decision.kind, decision.reason = classifyAggregateDocument(
 		evidence.Document(),
-		evidence.FileMode(),
+		modeCurrent,
 		rendered.Document(),
 		projections,
 	)
@@ -265,6 +290,7 @@ func prepareAggregateProjection(
 	codec aggregate.Codec,
 	group aggregateGroupInput,
 	current aggregate.ProjectionState,
+	replacement *topologyprojection.HostConfigKeySelection,
 ) (aggregateProjectionDecision, aggregate.ProjectionIntent, error) {
 	desired, err := aggregateContributionSet(group.desired)
 	if err != nil {
@@ -290,7 +316,8 @@ func prepareAggregateProjection(
 		}
 		projection.managedBaseline = previousProjection
 		projection.hasManagedBaseline = true
-		if !current.Present() {
+		_, native := aggregate.HostConfigSyntaxForCodec(group.contract.CodecContractID())
+		if replacement == nil && !current.Present() && (!native || desired != nil) {
 			return blockAggregateProjection(
 				projection,
 				reconcile.ReasonMissingOutput,
@@ -367,7 +394,7 @@ func validateAggregateSelection(
 		if !actualContracts[index].Equal(expectedContracts[index]) {
 			return fmt.Errorf(
 				"aggregate evidence does not exactly cover projection %q",
-				expectedContracts[index].Address().ContentPath(),
+				expectedContracts[index].Address().KeyPath().String(),
 			)
 		}
 	}

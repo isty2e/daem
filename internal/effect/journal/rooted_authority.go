@@ -20,6 +20,7 @@ type manifestAuthoritySession struct {
 	authority  rootedpath.Authority
 	provenance rootedpath.AuthorityProvenance
 	owned      bool
+	budget     *physicalwork.Budget
 }
 
 // recoveryGlobalPathObservation binds one logical global destination to the
@@ -450,6 +451,9 @@ func (session *manifestAuthoritySession) acquire(
 ) (rootedpath.CommitCapability, error) {
 	if session == nil || session.root == nil {
 		return nil, fmt.Errorf("project root authority is unavailable for %q", destination)
+	}
+	if session.budget != nil {
+		return session.acquireBounded(destination, session.budget)
 	}
 	relative, err := rootedpath.NewRelativeDestination(destination.RelativePath())
 	if err != nil {

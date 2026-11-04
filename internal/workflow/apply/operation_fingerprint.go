@@ -45,7 +45,8 @@ type ownershipOwnerFingerprintFacts struct {
 
 type ownershipObservationFingerprintFacts struct {
 	Destination                 string
-	ContentPath                 string
+	FootprintKind               string
+	KeyPath                     string
 	AuthorityKind               string
 	PathAuthority               pathAuthorityFingerprintFacts
 	ProvisionalCandidateKey     string
@@ -532,9 +533,12 @@ func ownershipFingerprintFacts(
 ) []ownershipObservationFingerprintFacts {
 	facts := make([]ownershipObservationFingerprintFacts, 0, len(observations))
 	for _, observation := range observations {
+		footprint := observation.Footprint()
+		key, _ := footprint.Key()
 		fact := ownershipObservationFingerprintFacts{
-			Destination: observation.Destination().String(),
-			ContentPath: string(observation.ContentPath()),
+			Destination:   observation.Destination().String(),
+			FootprintKind: footprint.Kind().String(),
+			KeyPath:       key.String(),
 		}
 		if address, exact := observation.ExactAddress(); exact {
 			fact.AuthorityKind = "exact"
@@ -564,8 +568,11 @@ func ownershipFingerprintFacts(
 		if leftKey != rightKey {
 			return leftKey < rightKey
 		}
-		if facts[left].ContentPath != facts[right].ContentPath {
-			return facts[left].ContentPath < facts[right].ContentPath
+		if facts[left].FootprintKind != facts[right].FootprintKind {
+			return facts[left].FootprintKind < facts[right].FootprintKind
+		}
+		if facts[left].KeyPath != facts[right].KeyPath {
+			return facts[left].KeyPath < facts[right].KeyPath
 		}
 		return facts[left].Destination < facts[right].Destination
 	})

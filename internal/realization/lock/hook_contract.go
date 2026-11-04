@@ -25,21 +25,7 @@ func NewHookContributionSubjectContract(
 	contribution aggregate.ManagedContribution,
 	placement aggregate.HookPlacement,
 ) (LockedSubjectContract, error) {
-	realization, err := realization.NewManagedAggregateContribution(aggregate.ManagedContributionInput{
-		PlacementID:           contribution.PlacementID(),
-		Target:                contribution.Target(),
-		Scope:                 contribution.Scope(),
-		AggregateRoot:         contribution.AggregateRoot(),
-		ContentPath:           contribution.ContentPath(),
-		MergeUnit:             contribution.MergeUnit(),
-		Cardinality:           contribution.Cardinality(),
-		SiblingRetention:      contribution.SiblingRetention(),
-		SiblingPreservation:   contribution.SiblingPreservation(),
-		Equivalence:           contribution.Equivalence(),
-		CanonicalContribution: contribution.CanonicalContribution(),
-		CodecContractID:       contribution.CodecContractID(),
-		ComparedFields:        contribution.ComparedFields(),
-	})
+	realization, err := realization.NewManagedAggregateContribution(contribution)
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}

@@ -13,6 +13,7 @@ type concreteSourceResults struct {
 	skills       []sourceTaskResult
 	hookAssets   []sourceTaskResult
 	instructions []sourceTaskResult
+	documents    []sourceTaskResult
 }
 
 func resolveConcreteSources(
@@ -20,10 +21,11 @@ func resolveConcreteSources(
 	skills []lockableSkill,
 	hookAssets []hookasset.HookAsset,
 	instructionResources []instructions.Instructions,
+	documents []nativeDocumentInput,
 	resolver acquisition.Resolver,
 	options Options,
 ) (concreteSourceResults, error) {
-	tasks := make([]sourceTask, 0, len(skills)+len(hookAssets)+len(instructionResources))
+	tasks := make([]sourceTask, 0, len(skills)+len(hookAssets)+len(instructionResources)+len(documents))
 	for ordinal, lockable := range skills {
 		tasks = append(tasks, newSkillResolveTask(ordinal, lockable))
 	}
@@ -32,6 +34,9 @@ func resolveConcreteSources(
 	}
 	for ordinal, instruction := range instructionResources {
 		tasks = append(tasks, newInstructionsResolveTask(ordinal, instruction))
+	}
+	for ordinal, document := range documents {
+		tasks = append(tasks, newHostConfigResolveTask(ordinal, document.config))
 	}
 
 	results, err := sourceTaskResults(ctx, resolver, tasks, options)
@@ -47,9 +52,11 @@ func resolveConcreteSources(
 
 	skillEnd := len(skills)
 	hookAssetEnd := skillEnd + len(hookAssets)
+	instructionEnd := hookAssetEnd + len(instructionResources)
 	return concreteSourceResults{
 		skills:       results[:skillEnd],
 		hookAssets:   results[skillEnd:hookAssetEnd],
-		instructions: results[hookAssetEnd:],
+		instructions: results[hookAssetEnd:instructionEnd],
+		documents:    results[instructionEnd:],
 	}, nil
 }

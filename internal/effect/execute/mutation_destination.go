@@ -1,6 +1,7 @@
 package execute
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -119,6 +120,7 @@ type mutationAuthority struct {
 	ownershipSuccessor          outputownership.Registry
 	hasOwnershipSuccessor       bool
 	recoverySemanticValidation  bool
+	nativeRecoverySemanticCheck func(context.Context) error
 	globalDestinationBindings   map[output.Destination]globalDestinationBinding
 	physicalAuthorityRequests   []mutation.PhysicalAuthorityRequest
 	retainedRoots               []*rootedpath.CapturedRoot

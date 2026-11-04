@@ -3,6 +3,8 @@ package ownership
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/isty2e/daem/internal/output"
 )
 
 type addressOverlapIndex struct {
@@ -21,8 +23,11 @@ type physicalAddressClaims struct {
 	content contentAddressNode
 }
 
+// Edges retain canonical pointer bytes. Terminals may have non-slash children:
+// /a and /a! are disjoint even though their radix paths are nested.
 type contentAddressNode struct {
-	children map[string]*contentAddressNode
+	prefix   string
+	children map[byte]*contentAddressNode
 	first    int
 	terminal int
 }
@@ -73,7 +78,7 @@ func (index *addressOverlapIndex) insert(addressIndex int, address ManagedAddres
 		return current.exact.first, true
 	}
 
-	if existing, overlap := current.exact.content.insert(addressIndex, address.ContentPath()); overlap {
+	if existing, overlap := current.exact.content.insert(addressIndex, address.Footprint()); overlap {
 		return existing, true
 	}
 	for _, node := range visited {
@@ -106,11 +111,27 @@ func (index addressOverlapIndex) first(address ManagedAddress) (int, bool) {
 	if current.exact != nil {
 		if current.exact.witness != address.PathAuthority().Witness() {
 			first = earlierAddressIndex(first, current.exact.first)
-		} else if contentIndex, overlap := current.exact.content.firstOverlap(address.ContentPath()); overlap {
+		} else if contentIndex, overlap := current.exact.content.firstOverlap(address.Footprint()); overlap {
 			first = earlierAddressIndex(first, contentIndex)
 		}
 	} else if current.first >= 0 {
 		first = earlierAddressIndex(first, current.first)
+	}
+	return firstAddressIndex(first)
+}
+
+func (index addressOverlapIndex) firstPhysicalAncestor(path string) (int, bool) {
+	volume, components := physicalPathComponents(path)
+	current := index.roots[volume]
+	first := -1
+	for depth := 0; current != nil; depth++ {
+		if current.exact != nil {
+			first = earlierAddressIndex(first, current.exact.first)
+		}
+		if depth == len(components) {
+			break
+		}
+		current = current.children[components[depth]]
 	}
 	return firstAddressIndex(first)
 }
@@ -120,60 +141,87 @@ func newPhysicalAddressNode() *physicalAddressNode {
 }
 
 func newContentAddressNode() contentAddressNode {
-	return contentAddressNode{children: make(map[string]*contentAddressNode), first: -1, terminal: -1}
+	return contentAddressNode{first: -1, terminal: -1}
 }
 
-func (node *contentAddressNode) insert(addressIndex int, contentPath string) (int, bool) {
+func (node *contentAddressNode) insert(addressIndex int, footprint output.Footprint) (int, bool) {
+	if existing, overlap := node.firstOverlap(footprint); overlap {
+		return existing, true
+	}
+	remaining := footprintPointer(footprint)
 	current := node
 	visited := []*contentAddressNode{current}
-	for _, component := range contentPathComponents(contentPath) {
-		if current.terminal >= 0 {
-			return current.terminal, true
+	for remaining != "" {
+		if current.children == nil {
+			current.children = make(map[byte]*contentAddressNode)
 		}
-		next := current.children[component]
+		next := current.children[remaining[0]]
 		if next == nil {
-			next = &contentAddressNode{
-				children: make(map[string]*contentAddressNode),
-				first:    -1,
-				terminal: -1,
-			}
-			current.children[component] = next
+			next = &contentAddressNode{prefix: remaining, first: addressIndex, terminal: addressIndex}
+			current.children[remaining[0]] = next
+			current = next
+			visited = append(visited, current)
+			break
 		}
+
+		common := commonPrefixBytes(next.prefix, remaining)
+		if common < len(next.prefix) {
+			branch := &contentAddressNode{
+				prefix: next.prefix[:common], first: next.first, terminal: -1,
+				children: make(map[byte]*contentAddressNode),
+			}
+			next.prefix = next.prefix[common:]
+			branch.children[next.prefix[0]] = next
+			current.children[remaining[0]] = branch
+			next = branch
+		}
+		remaining = remaining[common:]
 		current = next
 		visited = append(visited, current)
 	}
-	if current.terminal >= 0 {
-		return current.terminal, true
-	}
-	if current.first >= 0 {
-		return current.first, true
-	}
 	current.terminal = addressIndex
-	for _, visitedNode := range visited {
-		if visitedNode.first < 0 {
-			visitedNode.first = addressIndex
-		}
+	for _, entry := range visited {
+		entry.first = earlierAddressIndex(entry.first, addressIndex)
 	}
 	return 0, false
 }
 
-func (node *contentAddressNode) firstOverlap(contentPath string) (int, bool) {
+func (node *contentAddressNode) firstOverlap(footprint output.Footprint) (int, bool) {
+	remaining := footprintPointer(footprint)
 	current := node
-	first := -1
-	for _, component := range contentPathComponents(contentPath) {
-		if current.terminal >= 0 {
-			first = earlierAddressIndex(first, current.terminal)
+	for {
+		if current.terminal >= 0 && (remaining == "" || remaining[0] == '/') {
+			return current.terminal, true
 		}
-		next := current.children[component]
+		if remaining == "" {
+			if descendants := current.children['/']; descendants != nil {
+				return firstAddressIndex(descendants.first)
+			}
+			return 0, false
+		}
+		next := current.children[remaining[0]]
 		if next == nil {
-			return firstAddressIndex(first)
+			return 0, false
 		}
-		current = next
+		if strings.HasPrefix(remaining, next.prefix) {
+			remaining = remaining[len(next.prefix):]
+			current = next
+			continue
+		}
+		if strings.HasPrefix(next.prefix, remaining) && next.prefix[len(remaining)] == '/' {
+			return firstAddressIndex(next.first)
+		}
+		return 0, false
 	}
-	if current.first >= 0 {
-		first = earlierAddressIndex(first, current.first)
+}
+
+func commonPrefixBytes(left, right string) int {
+	end := min(len(left), len(right))
+	index := 0
+	for index < end && left[index] == right[index] {
+		index++
 	}
-	return firstAddressIndex(first)
+	return index
 }
 
 func earlierAddressIndex(current int, candidate int) int {
@@ -197,9 +245,7 @@ func physicalPathComponents(path string) (string, []string) {
 	return volume, strings.Split(relative, string(filepath.Separator))
 }
 
-func contentPathComponents(path string) []string {
-	if path == "" {
-		return nil
-	}
-	return strings.Split(strings.TrimPrefix(path, "/"), "/")
+func footprintPointer(footprint output.Footprint) string {
+	key, _ := footprint.Key()
+	return key.String()
 }

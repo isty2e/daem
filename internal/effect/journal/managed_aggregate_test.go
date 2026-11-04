@@ -105,7 +105,10 @@ func TestManagedAggregateMutationSeparatesProjectionAndDocumentBeforeFacts(t *te
 		t.Fatalf("NewManagedAggregateMutation returned error: %v", err)
 	}
 
-	path := pathMutationFromAggregate(mutation)
+	path, err := pathMutationFromAggregate(mutation)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if path.LiveExists || path.LiveHash != "" {
 		t.Fatalf("projection before facts = (%t, %q), want absent", path.LiveExists, path.LiveHash)
 	}
@@ -139,7 +142,10 @@ func TestManagedAggregateMutationSeparatesProjectionAndDocumentBeforeFacts(t *te
 	if err != nil {
 		t.Fatalf("NewManagedAggregateMutation with mode 0000 returned error: %v", err)
 	}
-	zeroModePath := pathMutationFromAggregate(zeroModeMutation)
+	zeroModePath, err := pathMutationFromAggregate(zeroModeMutation)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if zeroModePath.LivePathHash != artifact.HashFileContent(beforeDocument.Content()) {
 		t.Fatalf("mode 0000 path hash = %q, want non-executable document hash", zeroModePath.LivePathHash)
 	}
@@ -255,7 +261,7 @@ func TestRecoveryActionRestoresPersistedAggregateContract(t *testing.T) {
 		},
 		Target: string(target.TargetClaudeCode), Scope: string(target.ScopeProject),
 		Path: ".claude/settings.json", ContentPath: "/hooks",
-		Aggregate: persistedAggregateContract(contract),
+		Aggregate: mustPersistedAggregateContract(t, contract),
 	}
 
 	action, err := recoveryActionFromEntryForTest(entry)
@@ -295,7 +301,7 @@ func TestRecoveryActionRejectsContentPathWithoutPersistedContract(t *testing.T) 
 }
 
 func TestRecoveryActionRejectsMalformedPersistedAggregateContract(t *testing.T) {
-	persisted := persistedAggregateContract(recoveryTestAggregateContract(t))
+	persisted := mustPersistedAggregateContract(t, recoveryTestAggregateContract(t))
 	persisted.ContentPath = ""
 	entry := defaultRecoveryEntry()
 	entry.Aggregate = persisted

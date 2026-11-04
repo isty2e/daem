@@ -16,12 +16,12 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
 
-// inventoryOptions supplies the only observation capabilities used to
-// classify a recovery root.
+// inventoryOptions binds recovery-root observation capabilities and record admission.
 type inventoryOptions struct {
 	Filesystem         mutationfs.Reader
 	StateCodec         durable.SnapshotCodec
 	PhysicalPathBudget rootedpath.PhysicalTraversalBudget
+	recordDecoder      inventoryJournalDecoder
 }
 
 type budgetedInventoryFilesystem struct {
@@ -78,7 +78,7 @@ type recoveryRootInventory struct {
 
 type journalDirectoryEvidence struct {
 	identity     retirement.Identity
-	journal      recoveryJournal
+	record       inventoryJournalRecord
 	operationDir string
 }
 
@@ -507,10 +507,10 @@ func loadActiveJournalEvidence(
 	if err != nil {
 		return journalDirectoryEvidence{}, err
 	}
-	if loaded.journal.OperationID != entry.Name() {
+	if loaded.record.operationID() != entry.Name() {
 		return journalDirectoryEvidence{}, fmt.Errorf(
 			"recovery journal operation_id %q does not match directory %q",
-			loaded.journal.OperationID,
+			loaded.record.operationID(),
 			entry.Name(),
 		)
 	}
@@ -602,15 +602,22 @@ func loadJournalDirectoryEvidence(
 			entry.Name(),
 		)
 	}
-	journal, err := decodeRecoveryJournalSnapshot(snapshot, journalPath, options.StateCodec)
+	decode := options.recordDecoder
+	if decode == nil {
+		decode = decodeLegacyInventoryJournal
+	}
+	record, err := decode(ctx, snapshot, journalPath, options.StateCodec)
 	if err != nil {
 		return journalDirectoryEvidence{}, err
 	}
-	fingerprint, err := recoveryJournalAuthorityFingerprint(journal, options.StateCodec)
+	if record == nil {
+		return journalDirectoryEvidence{}, fmt.Errorf("recovery inventory has no admitted journal record")
+	}
+	fingerprint, err := record.authorityFingerprint(ctx, options.StateCodec)
 	if err != nil {
 		return journalDirectoryEvidence{}, err
 	}
-	identity, err := retirement.NewIdentity(journal.OperationID, fingerprint)
+	identity, err := retirement.NewIdentity(record.operationID(), fingerprint)
 	if err != nil {
 		return journalDirectoryEvidence{}, fmt.Errorf("derive recovery journal retirement identity: %w", err)
 	}
@@ -634,7 +641,7 @@ func loadJournalDirectoryEvidence(
 	}
 	return journalDirectoryEvidence{
 		identity:     identity,
-		journal:      journal,
+		record:       record,
 		operationDir: directoryPath,
 	}, nil
 }

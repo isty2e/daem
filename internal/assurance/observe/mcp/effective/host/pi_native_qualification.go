@@ -11,7 +11,6 @@ import (
 
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
-	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -21,15 +20,15 @@ type piNativeSettings struct {
 	adapterDeclared  bool
 }
 
-func qualifyPiNativeSettings(ctx context.Context, contract profile.PiMCPContract, scope target.Scope, workDir string, agentRoot string, version profile.PiMCPVersion) error {
+func (reader configFileReader) qualifyPiNativeSettings(ctx context.Context, contract profile.PiMCPContract, scope target.Scope, workDir string, agentRoot string, version profile.PiMCPVersion) error {
 	if err := contract.QualifyNativeVersion(version); err != nil {
 		return err
 	}
-	global, err := observePiNativeSettings(ctx, filepath.Join(agentRoot, "settings.json"))
+	global, err := reader.observePiNativeSettings(ctx, filepath.Join(agentRoot, "settings.json"))
 	if err != nil {
 		return err
 	}
-	project, err := observePiNativeSettings(ctx, filepath.Join(workDir, ".pi", "settings.json"))
+	project, err := reader.observePiNativeSettings(ctx, filepath.Join(workDir, ".pi", "settings.json"))
 	if err != nil {
 		return err
 	}
@@ -69,8 +68,8 @@ func nativeHostPrerequisite(err error) (mcpobserve.HostPrerequisiteObservation, 
 	return mcpobserve.NewHostPrerequisiteObservation(input)
 }
 
-func observePiNativeSettings(ctx context.Context, path string) (piNativeSettings, error) {
-	content, exists, err := filesnapshot.ReadRegularFileContext(ctx, path, maximumConfigBytes)
+func (reader configFileReader) observePiNativeSettings(ctx context.Context, path string) (piNativeSettings, error) {
+	content, exists, err := reader.read(ctx, path, maximumConfigBytes)
 	if err != nil {
 		if ctx != nil && ctx.Err() != nil {
 			return piNativeSettings{}, ctx.Err()
@@ -99,7 +98,7 @@ func observePiNativeSettings(ctx context.Context, path string) (piNativeSettings
 				continue
 			}
 
-			names, err := observeNativeLocalPathPackageNames(ctx, entry, filepath.Dir(path))
+			names, err := reader.observeNativeLocalPathPackageNames(ctx, entry, filepath.Dir(path))
 			if err != nil {
 				return piNativeSettings{}, err
 			}
@@ -131,7 +130,7 @@ func observePiNativeSettings(ctx context.Context, path string) (piNativeSettings
 			if knownAdapter {
 				settings.adapterDeclared = true
 			} else {
-				names, err := observeNativeLocalPackageNames(ctx, source, filepath.Dir(path))
+				names, err := reader.observeNativeLocalPackageNames(ctx, source, filepath.Dir(path))
 				if err != nil {
 					return piNativeSettings{}, err
 				}

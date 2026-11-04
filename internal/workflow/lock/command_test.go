@@ -3,9 +3,9 @@ package lock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,7 +14,9 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	locksnapshot "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
+	"github.com/isty2e/daem/internal/supply/source/acquisition"
 )
 
 func TestRunLockWithoutPersistentSourcesDoesNotCreateStateDir(t *testing.T) {
@@ -221,7 +223,8 @@ func TestRunLockRejectsFutureSchemaWithoutInterpretingOrReplacingIt(t *testing.T
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
 	writeWorkflowTestFile(t, tempDir, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
-	const future = "version = 7\nfuture_payload = { malformed = [\n"
+	futureVersion := int64(locksnapshot.CurrentVersion + 1)
+	future := fmt.Sprintf("version = %d\nfuture_payload = { malformed = [\n", futureVersion)
 	writeWorkflowTestFile(t, tempDir, "daem.lock.toml", future)
 
 	for _, dryRun := range []bool{true, false} {
@@ -232,13 +235,46 @@ func TestRunLockRejectsFutureSchemaWithoutInterpretingOrReplacingIt(t *testing.T
 		if err == nil {
 			t.Fatalf("RunLock(dry-run=%t) returned nil error", dryRun)
 		}
-		for _, want := range []string{"unsupported lockfile version 7", "newer daem"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Fatalf("RunLock(dry-run=%t) error = %q, want %q", dryRun, err, want)
-			}
+		var versionErr lockfile.UnsupportedVersionError
+		if !errors.As(err, &versionErr) || versionErr.Found != futureVersion || versionErr.RelockSupported() {
+			t.Fatalf("RunLock(dry-run=%t) did not preserve future-version refusal: %v", dryRun, err)
 		}
 		if got, readErr := os.ReadFile(lockfilePath); readErr != nil || string(got) != future {
 			t.Fatalf("future lockfile after RunLock(dry-run=%t) = %q, %v", dryRun, got, readErr)
+		}
+	}
+}
+
+func TestRunLockRejectsMalformedCurrentWithoutReplacingOrResolvingSources(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	manifest := filepath.Join(root, "daem.toml")
+	path := filepath.Join(root, "daem.lock.toml")
+	writeWorkflowTestFile(t, root, "daem.toml", `version = 1
+targets = ["codex"]
+[instructions.project]
+source = "./instructions.md"
+targets = ["codex"]
+`)
+	writeWorkflowTestFile(t, root, "instructions.md", "ordinary source that must not be resolved\n")
+	invalid := fmt.Sprintf("version = %d\nfuture_payload = { malformed = [\n", locksnapshot.CurrentVersion)
+	writeWorkflowTestFile(t, root, "daem.lock.toml", invalid)
+	_, err := lockfile.Load(t.Context(), path)
+	var versionErr lockfile.UnsupportedVersionError
+	if err == nil || errors.As(err, &versionErr) {
+		t.Fatalf("common reader accepted malformed current content or misclassified its version: %v", err)
+	}
+	for _, dryRun := range []bool{true, false} {
+		events := 0
+		_, err := RunLock(t.Context(), LockInput{
+			ManifestPath: manifest, DryRun: dryRun,
+			SourceEvents: func(acquisition.Event) { events++ },
+		})
+		if err == nil || errors.As(err, &versionErr) || events != 0 {
+			t.Fatalf("malformed selected native content was replaced/reclassified or resolved sources: dry-run=%t err=%v events=%d", dryRun, err, events)
+		}
+		if actual, err := os.ReadFile(path); err != nil || string(actual) != invalid {
+			t.Fatalf("malformed native bytes changed: %q %v", actual, err)
 		}
 	}
 }

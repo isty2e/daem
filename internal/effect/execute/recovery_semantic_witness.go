@@ -254,6 +254,12 @@ func (authority *mutationAuthority) validateRecoverySemanticWitness(ctx context.
 	if authority == nil {
 		return fmt.Errorf("recovery semantic authority is unavailable")
 	}
+	if authority.nativeRecoverySemanticCheck != nil {
+		if authority.recoverySemanticValidation {
+			return fmt.Errorf("recovery has two semantic decision owners")
+		}
+		return authority.nativeRecoverySemanticCheck(ctx)
+	}
 	if !authority.recoverySemanticValidation {
 		return nil
 	}

@@ -72,6 +72,10 @@ func (action recoveryHostAction) validateAggregateCorrelation() error {
 		return fmt.Errorf("aggregate contract: %w", err)
 	}
 	address := contract.Address()
+	contentPath, err := address.LegacyContentPath()
+	if err != nil {
+		return err
+	}
 	document := address.Document()
 	if action.Scope != document.Scope() {
 		return fmt.Errorf(
@@ -81,13 +85,13 @@ func (action recoveryHostAction) validateAggregateCorrelation() error {
 		)
 	}
 	if action.Destination != document.AggregateRoot().String() ||
-		action.ContentPath != string(address.ContentPath()) {
+		action.ContentPath != string(contentPath) {
 		return fmt.Errorf(
 			"aggregate address %q%q does not match contract address %q%q",
 			action.Destination,
 			action.ContentPath,
 			document.AggregateRoot(),
-			address.ContentPath(),
+			contentPath,
 		)
 	}
 	return nil

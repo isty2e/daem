@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/topology"
@@ -55,6 +56,7 @@ type ExactSupplySubjectInput struct {
 	SubjectID                 topology.SubjectID
 	ExactSupply               artifact.ExactIdentity
 	ExactFileUse              *ExactFileUse
+	HostConfigPlacement       *profile.HostConfigPlacement
 	Derivation                DerivationContract
 	RepairRecipe              *skillrepair.Recipe
 	SkillSetMemberCorrelation *SkillSetMemberCorrelation
@@ -82,6 +84,7 @@ func NewExactSupplySubjectContract(input ExactSupplySubjectInput) (LockedSubject
 		SubjectID:                 input.SubjectID,
 		ExactSupply:               &input.ExactSupply,
 		ExactFileUse:              input.ExactFileUse,
+		HostConfigPlacement:       input.HostConfigPlacement,
 		Derivation:                &input.Derivation,
 		RepairRecipe:              input.RepairRecipe,
 		SkillSetMemberCorrelation: input.SkillSetMemberCorrelation,
@@ -168,6 +171,13 @@ func (shape exactSupplyFamilyShape) validate(contract LockedSubjectContract) (bo
 	}
 	if hasExactFileUse {
 		input.ExactFileUse = &exactFileUse
+	}
+	if shape.kind == entity.KindHostConfig {
+		placement, present := contract.HostConfigPlacement()
+		if !present {
+			return true, fmt.Errorf("host configuration exact Supply requires declaration placement")
+		}
+		input.HostConfigPlacement = &placement
 	}
 	if recipe, ok := contract.RepairRecipe(); ok {
 		input.RepairRecipe = &recipe
