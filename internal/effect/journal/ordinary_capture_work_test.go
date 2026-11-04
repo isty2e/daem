@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
@@ -52,12 +51,12 @@ func TestOrdinaryCaptureStopsBeforeSecondBackupWhenSharedBytesAreExhausted(t *te
 	if err := budget.AdmitTree(consume); err != nil {
 		t.Fatal(err)
 	}
-	createdAt, err := time.Parse(time.RFC3339, fixture.journal.record.CreatedAt)
+	basis, err := fixture.journal.ordinaryCaptureBasis()
 	if err != nil {
 		t.Fatal(err)
 	}
 	directory := t.TempDir()
-	_, err = fixture.journal.captureOrdinarySource(t.Context(), fixture.paths, directory, createdAt, fixture.capture, budget)
+	_, err = captureOrdinarySource(t.Context(), fixture.paths, directory, basis, fixture.capture, budget)
 	if err == nil {
 		t.Fatal("capture copied past the containing allocation")
 	}

@@ -125,7 +125,7 @@ func TestOrdinaryRecordDraftRejectsIncompleteAndReorderedEvidence(t *testing.T) 
 			if err == nil {
 				t.Fatal("invalid construction order was accepted")
 			}
-			if material, err := draft.finish(); err == nil || material.OperationID != "" || len(material.Entries) != 0 {
+			if material, err := draft.finish(); err == nil || material.operationID != "" || len(material.entries) != 0 {
 				t.Fatal("failed draft returned usable record facts")
 			}
 		})
@@ -158,10 +158,10 @@ func TestOrdinaryRecordDraftFreezesCaptureInputsAndBeforeMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	material := closeOrdinaryRecordDraft(t, draft)
-	if len(material.Entries) != 1 || len(material.Entries[0].Targets) != 1 || material.Entries[0].Targets[0] != string(target.TargetCodex) || material.Entries[0].Before.PathMode == nil || *material.Entries[0].Before.PathMode != 0o600 {
+	if len(material.entries) != 1 || len(material.entries[0].Targets) != 1 || material.entries[0].Targets[0] != string(target.TargetCodex) || material.entries[0].Before.PathMode == nil || *material.entries[0].Before.PathMode != 0o600 {
 		t.Fatal("completed record lost frozen consumers or before mode")
 	}
-	if !material.StatefileBefore.Equal(input.before) || !material.StatefileAfter.Equal(input.after) {
+	if !material.before.Equal(input.before) || !material.after.Equal(input.after) {
 		t.Fatal("record construction changed its complete snapshots")
 	}
 	if _, err := draft.finish(); err == nil {
@@ -190,7 +190,7 @@ func TestOrdinaryRecordDraftPreservesStateErrorBeforeExpectedOrBinding(t *testin
 	if err := draft.supplyBefore(before); err == nil || !strings.Contains(err.Error(), "action previous state hash") {
 		t.Fatalf("state error did not precede expected/binding derivation: %v", err)
 	}
-	if material, err := draft.finish(); err == nil || len(material.Entries) != 0 {
+	if material, err := draft.finish(); err == nil || len(material.entries) != 0 {
 		t.Fatal("failed state join retained a partial record")
 	}
 }
@@ -204,14 +204,12 @@ func TestOrdinaryRecordDraftRetainsNativeSnapshotsWithoutAdmittingOrdinary15(t *
 		t.Fatal("ordinary facts prematurely rejected a containing native family", err)
 	}
 	material := closeOrdinaryRecordDraft(t, draft)
-	if !material.StatefileBefore.Equal(fixture.before) || !material.StatefileAfter.Equal(fixture.after) {
+	if !material.before.Equal(fixture.before) || !material.after.Equal(fixture.after) {
 		t.Fatal("ordinary material dropped native snapshot members")
 	}
-	ordinary := recoveryJournal{
-		Version: recoveryJournalVersion, OperationID: material.OperationID, Operation: material.Operation, CreatedAt: material.CreatedAt,
-		ManifestRootProvenance: material.ManifestRootProvenance, Entries: material.Entries,
-		StatefileBefore: material.StatefileBefore, StatefileAfter: material.StatefileAfter,
-		ClaimTransitions: material.ClaimTransitions, ProvisionalAcquires: material.ProvisionalAcquires, RemovalIntents: material.RemovalIntents,
+	ordinary, err := material.ordinaryJournal()
+	if err != nil {
+		t.Fatal("ordinary projection prematurely rejected native snapshot facts", err)
 	}
 	if content, err := marshalRecoveryJournal(ordinary, fixture.codec); err == nil || len(content) != 0 {
 		t.Fatal("family-neutral completion widened ordinary15 admission")

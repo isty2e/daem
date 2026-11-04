@@ -140,7 +140,7 @@ func TestNativeMixedWriterCaseCollisionRefusesBeforeFinalWriter(t *testing.T) {
 func TestQualifiedNativeWriterCaseCollisionRefusesBeforeImages(t *testing.T) {
 	fixture := caseAliasedMixedFixture(t)
 	source, _ := fixture.source(t, imageBudget(t))
-	fixture.journal.record.Entries = source.record.Entries
+	fixture.journal.record.Entries = source.record.entries
 	if err := fixture.journal.record.validateWriterSpellingPartition(t.Context()); err != nil {
 		t.Fatalf("case fixture must pass the spelling-only metadata check: %v", err)
 	}

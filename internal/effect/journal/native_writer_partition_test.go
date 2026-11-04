@@ -189,10 +189,10 @@ func TestNativeMixedWriterPartitionRefusesActualAliasedOrdinaryWriter(t *testing
 func TestNativeWriterPartitionRefusesAtEveryRecordBoundary(t *testing.T) {
 	fixture := aliasedMixedWriterFixture(t)
 	source, _ := fixture.source(t, imageBudget(t))
-	fixture.journal.record.Entries = source.record.Entries
-	fixture.journal.record.ClaimTransitions = source.record.ClaimTransitions
-	fixture.journal.record.ProvisionalAcquires = source.record.ProvisionalAcquires
-	fixture.journal.record.RemovalIntents = source.record.RemovalIntents
+	fixture.journal.record.Entries = source.record.entries
+	fixture.journal.record.ClaimTransitions = source.record.claims
+	fixture.journal.record.ProvisionalAcquires = source.record.provisional
+	fixture.journal.record.RemovalIntents = source.record.removals
 	if content, err := marshalNativeJournalRecord(t.Context(), fixture.journal.record, fixture.journal.before, fixture.journal.after, fixture.whole.envelope.codec); err == nil || content != nil {
 		t.Error("strict record construction admitted overlapping physical writers")
 	}

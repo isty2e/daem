@@ -60,7 +60,7 @@ func (journal nativeJournalSnapshots) recordedEntries() []recordedPathEntry {
 }
 
 func (material ordinaryCaptureMaterial) recordedEntries() []recordedPathEntry {
-	return recordedPathEntries(material.Entries)
+	return recordedPathEntries(material.entries)
 }
 
 func (entry recordedPathEntry) WriterAddress() (target.Scope, output.Destination, error) {

@@ -263,9 +263,9 @@ func (draft *ordinaryRecordDraft) finish() (ordinaryCaptureMaterial, error) {
 	}
 	draft.phase = ordinaryRecordFinished
 	return ordinaryCaptureMaterial{
-		OperationID: draft.input.operationID, Operation: recoveryOperationApply, CreatedAt: draft.input.createdAt.UTC().Format(time.RFC3339),
-		ManifestRootProvenance: persistedRecoveryRootProvenance(draft.input.manifest), Entries: entries,
-		StatefileBefore: draft.input.before, StatefileAfter: draft.input.after,
-		ClaimTransitions: transitions, ProvisionalAcquires: intents, RemovalIntents: draft.removalIntents,
+		operationID: draft.input.operationID, operation: recoveryOperationApply, createdAt: draft.input.createdAt.UTC().Format(time.RFC3339),
+		manifest: persistedRecoveryRootProvenance(draft.input.manifest), entries: entries,
+		before: draft.input.before, after: draft.input.after,
+		claims: transitions, provisional: intents, removals: draft.removalIntents, initialized: true,
 	}, nil
 }

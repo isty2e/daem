@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"time"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
@@ -45,12 +44,9 @@ func (journal nativeJournalSnapshots) stageMixedDocumentJournal(ctx context.Cont
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if len(journal.record.Entries) != 0 || len(journal.record.ClaimTransitions) != 0 || len(journal.record.ProvisionalAcquires) != 0 || len(journal.record.RemovalIntents) != 0 {
-		return "", fmt.Errorf("mixed staging requires ordinary facts from the ordinary builder only")
-	}
-	createdAt, err := time.Parse(time.RFC3339, journal.record.CreatedAt)
-	if err != nil || !isSafeRecoveryOperationID(journal.record.OperationID) || journal.record.Operation != recoveryOperationApply {
-		return "", fmt.Errorf("mixed journal has invalid operation metadata")
+	basis, err := journal.ordinaryCaptureBasis()
+	if err != nil {
+		return "", err
 	}
 	directory, err := os.MkdirTemp("", "daem-journal-ordinary-")
 	if err != nil {
@@ -66,18 +62,21 @@ func (journal nativeJournalSnapshots) stageMixedDocumentJournal(ctx context.Cont
 		}
 	}()
 
-	ordinary, err := journal.captureOrdinarySource(ctx, paths, directory, createdAt, capture, options.budget)
+	ordinary, err := captureOrdinarySource(ctx, paths, directory, basis, capture, options.budget)
 	if err != nil {
 		return "", err
 	}
 	return journal.stageWithOrdinarySource(ctx, ordinary, comparisons, writer, options)
 }
 
-func (journal nativeJournalSnapshots) captureOrdinarySource(ctx context.Context, paths Paths, directory string, createdAt time.Time, capture CaptureOptions, budget *physicalwork.Budget) (ordinaryCaptureSource, error) {
+func captureOrdinarySource(ctx context.Context, paths Paths, directory string, basis ordinaryCaptureBasis, capture CaptureOptions, budget *physicalwork.Budget) (ordinaryCaptureSource, error) {
 	if budget == nil {
 		return ordinaryCaptureSource{}, fmt.Errorf("native ordinary capture requires the containing allocation")
 	}
-	record, err := buildOrdinaryCaptureMaterial(ctx, paths, directory, journal.record.OperationID, createdAt, journal.before, journal.after, capture, &ordinaryCaptureWork{budget: budget})
+	if err := basis.Validate(); err != nil {
+		return ordinaryCaptureSource{}, err
+	}
+	record, err := buildOrdinaryCaptureMaterial(ctx, paths, directory, basis.OperationID(), basis.CreatedAt(), basis.Before(), basis.After(), capture, &ordinaryCaptureWork{budget: budget})
 	if err != nil {
 		return ordinaryCaptureSource{}, err
 	}
@@ -107,7 +106,7 @@ func (journal nativeJournalSnapshots) captureOrdinarySource(ctx context.Context,
 	if err := budget.AdmitTree(work); err != nil {
 		return ordinaryCaptureSource{}, err
 	}
-	identity, err := artifact.NewExactIdentity("recovery:ordinary-build", artifact.ResolvedRef(record.OperationID), artifact.ArtifactKindDirectory, hash)
+	identity, err := artifact.NewExactIdentity("recovery:ordinary-build", artifact.ResolvedRef(basis.OperationID()), artifact.ArtifactKindDirectory, hash)
 	if err != nil {
 		return ordinaryCaptureSource{}, err
 	}
@@ -120,15 +119,10 @@ func (journal nativeJournalSnapshots) captureOrdinarySource(ctx context.Context,
 }
 
 func (journal nativeJournalSnapshots) stageWithOrdinarySource(ctx context.Context, ordinary ordinaryCaptureSource, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (string, error) {
-	if ordinary.record.OperationID != journal.record.OperationID || ordinary.record.Operation != journal.record.Operation || ordinary.record.CreatedAt != journal.record.CreatedAt || ordinary.record.ManifestRootProvenance != journal.record.ManifestRootProvenance || !ordinary.record.StatefileBefore.Equal(journal.before) || !ordinary.record.StatefileAfter.Equal(journal.after) {
-		return "", fmt.Errorf("ordinary backup source does not match the native operation and complete Snapshots")
+	journal, err := journal.withOrdinaryCapture(ordinary.record)
+	if err != nil {
+		return "", err
 	}
-	record := journal.record
-	record.Entries = append([]recoveryEntry{}, ordinary.record.Entries...)
-	record.ClaimTransitions = append([]recoveryClaimTransition{}, ordinary.record.ClaimTransitions...)
-	record.ProvisionalAcquires = append([]recoveryProvisionalAcquireIntent{}, ordinary.record.ProvisionalAcquires...)
-	record.RemovalIntents = append([]recoveryRemovalIntent{}, ordinary.record.RemovalIntents...)
-	journal.record = record
 	if _, err := journal.qualifyDocumentNamespaces(ctx, nativeDocumentReadOptions{filesystem: ordinary.filesystem, budget: options.budget, ordinaryCapabilities: ordinary.capabilities}, options.roots); err != nil {
 		return "", err
 	}

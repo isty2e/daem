@@ -89,11 +89,11 @@ func mixedStageFixture(t *testing.T) mixedJournalFixture {
 func (fixture mixedJournalFixture) source(t *testing.T, budget *physicalwork.Budget) (ordinaryCaptureSource, string) {
 	t.Helper()
 	directory := t.TempDir()
-	createdAt, err := time.Parse(time.RFC3339, fixture.journal.record.CreatedAt)
+	basis, err := fixture.journal.ordinaryCaptureBasis()
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, err := fixture.journal.captureOrdinarySource(t.Context(), fixture.paths, directory, createdAt, fixture.capture, budget)
+	source, err := captureOrdinarySource(t.Context(), fixture.paths, directory, basis, fixture.capture, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,19 +183,19 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 			comparisons := []journaldocument.Comparison{fixture.comparison}
 			switch change {
 			case "operation":
-				source.record.OperationID = "other"
+				source.record.operationID = "other"
 			case "time":
-				created, err := time.Parse(time.RFC3339, source.record.CreatedAt)
+				created, err := time.Parse(time.RFC3339, source.record.createdAt)
 				if err != nil {
 					t.Fatal(err)
 				}
-				source.record.CreatedAt = created.Add(time.Second).Format(time.RFC3339)
+				source.record.createdAt = created.Add(time.Second).Format(time.RFC3339)
 			case "provenance":
-				source.record.ManifestRootProvenance.ObjectFingerprint += "other"
+				source.record.manifest.ObjectFingerprint += "other"
 			case "before state":
-				source.record.StatefileBefore = durable.EmptySnapshot()
+				source.record.before = durable.EmptySnapshot()
 			case "after state":
-				source.record.StatefileAfter = durable.EmptySnapshot()
+				source.record.after = durable.EmptySnapshot()
 			case "source identity":
 				source.identity = artifact.ExactIdentity{}
 			case "missing backup":
@@ -210,7 +210,7 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 				comparisons[0] = journaldocument.Comparison{}
 			case "combined bytes":
 				merged := fixture.journal
-				merged.record.Entries = source.record.Entries
+				merged.record.Entries = source.record.entries
 				_, content, err := merged.prepareDocumentJournal(t.Context(), comparisons, documentStageOptions(fixture.whole.envelope, budget), workmeasure.ArtifactWork{})
 				if err != nil {
 					t.Fatal(err)
@@ -268,7 +268,7 @@ func TestOrdinaryCaptureSourceRejectsInventoryAndContentMisjoins(t *testing.T) {
 			case "unreferenced root":
 				requireWholeGroupWrite(t, filepath.Join(directory, "journal.json"), nil, 0o600)
 			case "duplicate reference":
-				source.record.Entries = append(source.record.Entries, source.record.Entries[0])
+				source.record.entries = append(source.record.entries, source.record.entries[0])
 			}
 			if err := validateOrdinaryCaptureBackups(t.Context(), directory, source.view, source.record.recordedEntries(), fixture.capture.Filesystem, budget); err == nil {
 				t.Fatal("ordinary source accepted artifacts not owned by its entry metadata")
