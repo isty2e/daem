@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -47,7 +49,7 @@ func captureDocumentRemoval(ctx context.Context, namespace NativeDocumentNamespa
 	if err := capability.Close(); err != nil {
 		return nil, err
 	}
-	observed, err := ObserveRemovalNamespace(ctx, namespace.writerRoot, namespace.writer, cleanup, budget)
+	observed, err := removalnamespace.Observe(ctx, namespace.writerRoot, namespace.writer, cleanup, budget)
 	if err != nil || observed.Status() != recovery.RemovalNamespaceMatched {
 		return nil, errors.Join(err, fmt.Errorf("document removal namespace no longer matches the writer"))
 	}

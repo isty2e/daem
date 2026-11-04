@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
+
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -107,7 +109,7 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 			if err != nil {
 				return nil, err
 			}
-			observed, err := ObserveRemovalNamespace(ctx, namespace.writerRoot, namespace.writer, removal.Namespace(), options.budget)
+			observed, err := removalnamespace.Observe(ctx, namespace.writerRoot, namespace.writer, removal.Namespace(), options.budget)
 			if err != nil {
 				return nil, err
 			}

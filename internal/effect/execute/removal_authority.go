@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
+
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -354,7 +356,7 @@ func validateRemovalNamespace(
 	namespace recovery.RemovalNamespaceAuthority,
 	budget *physicalwork.Budget,
 ) error {
-	observation, err := journal.ObserveRemovalNamespace(
+	observation, err := removalnamespace.Observe(
 		ctx,
 		destination.root,
 		destination.destination,
@@ -421,7 +423,7 @@ func (authority *mutationAuthority) cleanupRemovalIntentList(
 		if err := budget.AdmitObservation(); err != nil {
 			return nil, err
 		}
-		namespace, err := journal.ObserveRemovalNamespace(
+		namespace, err := removalnamespace.Observe(
 			ctx,
 			destination.root,
 			destination.destination,
@@ -771,7 +773,7 @@ func (authority *mutationAuthority) observeRemovalCleanupCandidate(
 	if err := budget.AdmitObservation(); err != nil {
 		return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{}, err
 	}
-	namespace, err := journal.ObserveRemovalNamespace(
+	namespace, err := removalnamespace.Observe(
 		ctx,
 		candidate.destination.root,
 		candidate.destination.destination,
