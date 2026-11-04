@@ -301,7 +301,7 @@ func requireClearFileSetAtCanonicalPathVersion(
 		_, markerErr = loadMarkerAtCanonicalPath(ctx, activeMarkerPath)
 	}
 	if markerErr != nil {
-		if errors.Is(markerErr, os.ErrNotExist) {
+		if errors.Is(markerErr, errFileSetMarkerAbsent) {
 			return wrapFileSetEvidenceInvalid(fmt.Errorf(
 				"file-set transaction evidence at %s is incomplete: marker is missing",
 				evidencePath,
@@ -357,7 +357,7 @@ func recoverWithOperationsVersion(
 	var marker transactionMarker
 	marker, err = loadMarker(ctx, markerPath(stateDir))
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, errFileSetMarkerAbsent) {
 			return rejectAbandonedFileSetResidue(ctx, stateDir)
 		}
 		return err
@@ -421,7 +421,7 @@ func recoverFileSet4WithBudget(
 		physicalWorkBudget,
 	)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, errFileSetMarkerAbsent) {
 			return rejectAbandonedFileSetResidueWithBudget(ctx, canonicalStateDir, maximumPhysicalDepth, physicalWorkBudget)
 		}
 		return err

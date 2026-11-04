@@ -29,6 +29,9 @@ const (
 	transactionEvidenceMode = os.FileMode(0o600)
 )
 
+// Evidence images can also be missing; only the marker read establishes absence.
+var errFileSetMarkerAbsent = errors.New("file-set transaction marker is absent")
+
 type fileState struct {
 	Exists     bool   `json:"exists"`
 	Hash       string `json:"hash,omitempty"`
@@ -364,6 +367,9 @@ func loadMarkerAtCanonicalPathVersionWithBudget(
 ) (transactionMarker, []byte, error) {
 	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, canonicalPath, maximumMarkerBytes)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return transactionMarker{}, nil, fmt.Errorf("%w: %w", errFileSetMarkerAbsent, err)
+		}
 		return transactionMarker{}, nil, err
 	}
 	if mode := snapshot.Mode().Perm(); mode != transactionEvidenceMode {
