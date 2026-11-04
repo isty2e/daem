@@ -18,6 +18,7 @@ or [Use An Existing Environment](migration.md).
 - [Preview, write, and confirmation modes](#execution-modes)
 - [Output flags, flag inventory, and JSON versions](#presentation-flags)
 - Commands: [`version`](#version), [`init`](#init), [`import`](#import),
+  [`import host-config`](#import-host-config),
   [`add`](#add), [`remove`](#remove), [`unmanage extension`](#unmanage-extension),
   [`lock`](#lock), [`outdated`](#outdated), [`list`](#list), [`status`](#status),
   [`apply`](#apply),
@@ -184,6 +185,7 @@ Commands use effect-tiered modes:
 | --- | --- | --- | --- | --- |
 | Read-only | `list`, `outdated`, `status`, `doctor`, `version` | query | rejected | rejected |
 | Desired/derived state | `init`, `import`, `add`, `remove`, `unmanage extension`, `lock` | write | preview | rejected |
+| Named source-file edit | `import host-config` | three-stream TTY confirmation | preview | requires `--expect-plan` from reviewed preview |
 | Host/runtime effect | `apply`, `recover`, `probe mcp-server`, `refresh extension` | three-stream TTY confirmation | preview | non-interactive execution |
 | Management authority | `migrate state` | three-stream TTY confirmation | preview | non-interactive execution |
 | Management metadata | `migrate metadata` | three-stream TTY confirmation | preview | non-interactive execution |
@@ -308,6 +310,7 @@ flags.
 | `apply` | `--diff`, `--dry-run`, `--json`, `--manage-existing`, `--manifest`, `--target`, `--verbose`, `--yes` |
 | `doctor` | `--all-targets`, `--json`, `--manifest`, `--target`, `--verbose` |
 | `import` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--merge`, `--scope`, `--source-dir`, `--target`, `--verbose` |
+| `import host-config` | `--diff`, `--dry-run`, `--expect-plan`, `--host-path`, `--json`, `--key`, `--manifest`, `--merge`, `--ownership`, `--scope`, `--source`, `--source-dir`, `--syntax`, `--target`, `--update-source`, `--verbose`, `--yes` |
 | `init` | `--dry-run`, `--force`, `--json`, `--manifest`, `--verbose` |
 | `list outputs` | `--json`, `--manifest`, `--target`, `--verbose` |
 | `list paths` | `--json`, `--manifest`, `--target`, `--verbose` |
@@ -344,6 +347,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list paths` | Agent location inventory | `2` |
 | `status`, `apply --dry-run` | Reconciliation plan | `18` |
 | confirmed `apply` | Apply result | `24` |
+| `import host-config` | Selected physical-value capture or its terminal recovery | `1` |
 | `recover` | Recovery plan/result | `10` |
 | `migrate state` | State-authority migration | `1` |
 | `migrate metadata` | Management metadata conversion | `1` |
@@ -663,6 +667,74 @@ duplicate host load identities, or contradictory native and manifest order
 fail before mutation. Antigravity installed state does not retain enough source
 provenance to reconstruct a declaration, so those rows are reported as
 `source_provenance_unrecoverable` skips.
+
+## `import host-config`
+
+Capture explicitly selected values from one physically stored native document
+into a local source. It does not collect defaults or effective layered settings,
+resolve environment references, run commands, or discover generic settings during
+ordinary `import`.
+
+```bash
+# Initial capture; add --merge only when the selected manifest already exists.
+daem import host-config pi-ui --target pi --scope global \
+  --host-path settings.json --key /quietStartup --key /tuiMode \
+  --source-dir ./daem.d --dry-run --diff
+
+# Existing declaration: use only its declared source membership.
+daem import host-config pi-ui --update-source --dry-run --json
+```
+
+Initial capture requires exactly one target and scope, a host-root-relative
+`--host-path`, and one or more RFC 6901 `--key` selectors or explicit
+`--ownership document`. A selected object expands into its current atomic leaves;
+arrays, nulls and nested empty objects remain atomic. Missing initial values fail
+the complete operation. Whole-document capture preserves raw bytes under the
+destination's admitted grammar. The preview omits arbitrary whole-file contents.
+Initial capture creates a new id and a new local file under
+`<source-dir>/host-config/`; it never overwrites a source destination. Without
+`--source-dir`, the directory is the manifest's basename with `.d` instead of its
+extension. Initial-only placement and source-directory flags cannot accompany
+`--update-source`.
+
+An update selects the existing source's declared keys; optional `--key` selectors
+may narrow that selection, not acquire host siblings. Missing managed values are
+removed from the source, including newly empty structural parents. Unselected
+source values and comments remain intact. A missing whole document instead
+previews declaration retirement and leaves its old source file untouched.
+
+Capture edits a **named source file**, not a resource-private copy. The preview
+shows its exact path and referent, known affected references in the selected
+manifest, and warns that other manifests or programs may also read it. It does
+not enumerate every reader or establish exclusive ownership. To isolate an
+update, specify `--source NEW_LOCAL_SOURCE`; that destination must not exist and
+the declaration switches to it. Only writable local vendor sources may be
+updated; Git, S3 and cache material are not edited.
+
+Literal values, including credentials, may be saved as plaintext or committed
+to version control. Selected values are masked for display, but storage retains
+the original values; masking is not a secret-free certification. Approval and
+stale checks use actual data before masking. Interactive writes require terminal
+stdin, stdout and stderr. For noninteractive writes, review `--dry-run --json`,
+then repeat the same request with `--yes --expect-plan FINGERPRINT`, using its
+`fingerprint`. A changed plan requires another review. `--diff` requires
+`--dry-run` and shows selected values only, not unrelated source or manifest data.
+
+Only source/declaration artifacts change. Capture does not change host files,
+regenerate the lock, register ownership, or apply settings. After initial capture,
+run `lock`, `apply --manage-existing --dry-run`, then `apply --manage-existing`.
+After an update, run `lock`, `apply --dry-run`, then ordinary `apply`. Inspect the
+printed manifest-scoped commands. Capturing during a whole-to-keys handoff
+replaces old desired source values; it does not save those values for automatic
+restoration. Complete narrowing before making a separate desired-value update.
+
+If publication was interrupted, repeat the same explicit request and dry-run.
+The command previews only the selected source/declaration transaction's recovery.
+After approval it either restores before-images or finalizes completed writes,
+then exits without reading new host values or rerunning capture. Review a new
+dry-run afterward. A source target that cannot be independently selected from
+the invocation or current declaration, mismatching evidence, or other pending
+work is refused rather than recovered from marker-supplied paths.
 
 ## `add`
 
