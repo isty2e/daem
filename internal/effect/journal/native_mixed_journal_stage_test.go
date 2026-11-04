@@ -270,7 +270,7 @@ func TestOrdinaryCaptureSourceRejectsInventoryAndContentMisjoins(t *testing.T) {
 			case "duplicate reference":
 				source.record.Entries = append(source.record.Entries, source.record.Entries[0])
 			}
-			if err := validateOrdinaryCaptureBackups(t.Context(), directory, source.view, source.record.Entries, fixture.capture.Filesystem, budget); err == nil {
+			if err := validateOrdinaryCaptureBackups(t.Context(), directory, source.view, source.record.recordedEntries(), fixture.capture.Filesystem, budget); err == nil {
 				t.Fatal("ordinary source accepted artifacts not owned by its entry metadata")
 			}
 		})

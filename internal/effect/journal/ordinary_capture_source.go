@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path"
-	"strings"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -14,23 +12,10 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
-func validateOrdinaryCaptureBackups(ctx context.Context, directory string, view access.View, entries []recoveryEntry, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) (resultErr error) {
-	references := make(map[string]recoveryBeforePathDTO)
-	for _, entry := range entries {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if entry.Before.BackupPath == "" {
-			continue
-		}
-		name, present := strings.CutPrefix(entry.Before.BackupPath, "files/")
-		if !present || name == "." || name == ".." || name == "" || path.Base(name) != name {
-			return fmt.Errorf("ordinary builder returned a noncanonical backup reference")
-		}
-		if _, duplicate := references[name]; duplicate {
-			return fmt.Errorf("ordinary builder returned duplicate backup references")
-		}
-		references[name] = entry.Before
+func validateOrdinaryCaptureBackups(ctx context.Context, directory string, view access.View, entries []recordedPathEntry, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) (resultErr error) {
+	references, err := recordedBackupReferences(ctx, entries)
+	if err != nil {
+		return err
 	}
 	unit, err := workmeasure.NewArtifactWork(1, 0)
 	if err != nil {
@@ -67,7 +52,7 @@ func validateOrdinaryCaptureBackups(ctx context.Context, directory string, view 
 			return err
 		}
 		before, present := references[entry.Name()]
-		if !present || string(entry.Kind()) != before.Kind {
+		if !present || string(entry.Kind()) != before.Kind() {
 			return fmt.Errorf("ordinary backup source contains an unreferenced or wrong-kind backup")
 		}
 		seen++
@@ -92,7 +77,7 @@ func validateOrdinaryCaptureBackups(ctx context.Context, directory string, view 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		relative, err := rootedpath.NewRelativeDestination(before.BackupPath)
+		relative, err := rootedpath.NewRelativeDestination(before.Path())
 		if err != nil {
 			return err
 		}
@@ -104,11 +89,11 @@ func validateOrdinaryCaptureBackups(ctx context.Context, directory string, view 
 		if err != nil {
 			return err
 		}
-		observed, observeErr := observeRecoveryBackup(ctx, before.BackupPath, filesystem, capability, budget)
+		observed, observeErr := observeRecoveryBackup(ctx, before.Path(), filesystem, capability, budget)
 		if err := errors.Join(observeErr, capability.Close()); err != nil {
 			return err
 		}
-		if !observed.Exists || observed.Error != "" || observed.Kind != before.Kind || observed.ContentHash != before.ContentHash {
+		if !observed.Exists || observed.Error != "" || !before.Matches(observed.Kind, observed.ContentHash) {
 			return fmt.Errorf("ordinary backup source does not match the captured before-state")
 		}
 	}

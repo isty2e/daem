@@ -102,7 +102,7 @@ func validateRecoveryGlobalPathBindings(
 	rootedCapability RootedCapabilityResolver,
 	budget *physicalwork.Budget,
 ) error {
-	validated := make(map[output.Destination]recoveryGlobalPathBinding)
+	validated := make(map[output.Destination]recordedGlobalBindingKey)
 	currentRoots := make(map[string]rootedpath.Authority)
 	for index, entry := range entries {
 		if err := ctx.Err(); err != nil {
@@ -119,7 +119,7 @@ func validateRecoveryGlobalPathBindings(
 			return fmt.Errorf("recovery entries[%d] global destination has no capture-time path binding", index)
 		}
 		if previous, present := validated[destination]; present {
-			if previous != *entry.GlobalPathBinding {
+			if previous != recordedGlobalBindingIdentity(entry.GlobalPathBinding) {
 				return fmt.Errorf(
 					"recovery entries[%d] global destination %q has inconsistent capture-time bindings",
 					index,
@@ -140,7 +140,7 @@ func validateRecoveryGlobalPathBindings(
 		if err := entry.GlobalPathBinding.match(current, currentRoots, budget); err != nil {
 			return fmt.Errorf("recovery entries[%d] global destination %q: %w", index, destination, err)
 		}
-		validated[destination] = *entry.GlobalPathBinding
+		validated[destination] = recordedGlobalBindingIdentity(entry.GlobalPathBinding)
 	}
 	return nil
 }

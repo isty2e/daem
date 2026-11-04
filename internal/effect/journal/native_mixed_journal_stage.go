@@ -113,7 +113,7 @@ func (journal nativeJournalSnapshots) captureOrdinarySource(ctx context.Context,
 	}
 	// Revalidation before copying ties these per-backup observations to the same
 	// whole-tree identity, including changes between hashing and observation.
-	if err := validateOrdinaryCaptureBackups(ctx, directory, view, record.Entries, capture.Filesystem, budget); err != nil {
+	if err := validateOrdinaryCaptureBackups(ctx, directory, view, record.recordedEntries(), capture.Filesystem, budget); err != nil {
 		return ordinaryCaptureSource{}, err
 	}
 	return ordinaryCaptureSource{record: record, view: view, identity: identity, work: work, filesystem: capture.Filesystem, capabilities: capture.RootedCapability}, nil

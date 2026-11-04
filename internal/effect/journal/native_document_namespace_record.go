@@ -137,7 +137,7 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 		}
 		protected = append(protected, exact)
 	}
-	if err := journal.record.qualifyWriterPartition(ctx, namespaces, manifest, options.ordinaryCapabilities, options.budget, protected); err != nil {
+	if err := qualifyWriterPartition(ctx, journal.recordedEntries(), namespaces, manifest, options.ordinaryCapabilities, options.budget, protected); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {

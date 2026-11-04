@@ -20,7 +20,7 @@ type ordinaryWriterAddress struct {
 	destination output.Destination
 }
 
-func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, namespaces []journalnamespace.DocumentNamespace, manifest journalnamespace.RootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *physicalwork.Budget, protected []pathauthority.Exact) error {
+func qualifyWriterPartition(ctx context.Context, entries []recordedPathEntry, namespaces []journalnamespace.DocumentNamespace, manifest journalnamespace.RootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *physicalwork.Budget, protected []pathauthority.Exact) error {
 	var paths []documentWriterPath
 	appendObservation := func(observation mutation.DirectoryEntryAuthorityObservation, group int) error {
 		if err := observation.Validate(); err != nil {
@@ -47,20 +47,17 @@ func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, na
 			}
 		}
 	}
-	seen := make(map[ordinaryWriterAddress]recoveryGlobalPathBinding)
-	for _, entry := range record.Entries {
+	seen := make(map[ordinaryWriterAddress]recordedGlobalBindingKey)
+	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		destination, err := output.Parse(entry.Path)
+		scope, destination, err := entry.WriterAddress()
 		if err != nil {
 			return err
 		}
-		address := ordinaryWriterAddress{target.Scope(entry.Scope), destination}
-		binding := recoveryGlobalPathBinding{}
-		if entry.GlobalPathBinding != nil {
-			binding = *entry.GlobalPathBinding
-		}
+		address := ordinaryWriterAddress{scope, destination}
+		binding := entry.BindingIdentity()
 		if previous, duplicate := seen[address]; duplicate {
 			if previous != binding {
 				return fmt.Errorf("ordinary writer repeats a logical address with different root evidence")
@@ -69,7 +66,7 @@ func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, na
 		}
 		seen[address] = binding
 		var observation mutation.DirectoryEntryAuthorityObservation
-		switch target.Scope(entry.Scope) {
+		switch scope {
 		case target.ScopeProject:
 			if destination.RootRole() != output.RootProject {
 				return fmt.Errorf("ordinary project writer has no project destination")
@@ -105,21 +102,18 @@ func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, na
 	return validateDocumentWriterPaths(ctx, paths)
 }
 
-func acquireNativeOrdinaryGlobalWriter(entry recoveryEntry, destination output.Destination, acquire RootedCapabilityResolver, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
-	if entry.GlobalPathBinding == nil || acquire == nil {
+func acquireNativeOrdinaryGlobalWriter(entry recordedPathEntry, destination output.Destination, acquire RootedCapabilityResolver, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
+	if !entry.HasGlobalBinding() || acquire == nil {
 		return nil, fmt.Errorf("ordinary global writer requires independently selected capability and stored binding")
 	}
-	capability, present, err := acquireMatchingRootedCapability(destination, entry.GlobalPathBinding.ResolvedPath, acquire, budget)
+	capability, present, err := acquireMatchingRootedCapability(destination, entry.GlobalPath(), acquire, budget)
 	if err != nil {
 		return nil, err
 	}
 	if !present {
 		return nil, fmt.Errorf("ordinary global writer has no selected capability")
 	}
-	expected, err := entry.GlobalPathBinding.RootProvenance.canonical()
-	if err == nil {
-		err = expected.Match(capability.Destination().Root())
-	}
+	err = entry.MatchGlobalRoot(capability.Destination().Root())
 	if err != nil {
 		return nil, errors.Join(err, capability.Close())
 	}

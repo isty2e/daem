@@ -98,21 +98,22 @@ func documentRootedWriterPath(root recoveryRootProvenance, relative string) (str
 }
 
 func (record nativeJournalRecord) ordinaryWriterPath(entry recoveryEntry) (string, error) {
-	destination, err := output.Parse(entry.Path)
+	view := recordedPathEntryView(entry)
+	scope, destination, err := view.WriterAddress()
 	if err != nil {
 		return "", err
 	}
-	switch target.Scope(entry.Scope) {
+	switch scope {
 	case target.ScopeProject:
 		if destination.RootRole() != output.RootProject {
 			return "", fmt.Errorf("project writer has a non-project destination")
 		}
 		return documentRootedWriterPath(record.ManifestRootProvenance, destination.RelativePath())
 	case target.ScopeGlobal:
-		if entry.GlobalPathBinding == nil {
+		if !view.HasGlobalBinding() {
 			return "", fmt.Errorf("global writer requires its capture-time path binding")
 		}
-		return entry.GlobalPathBinding.ResolvedPath, nil
+		return view.GlobalPath(), nil
 	default:
 		return "", fmt.Errorf("document writer partition has an unsupported ordinary scope")
 	}
