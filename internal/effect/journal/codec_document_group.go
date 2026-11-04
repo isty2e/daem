@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -251,4 +252,23 @@ func (record recoveryDocumentObservation) matchesRetainedExact(exact pathauthori
 	}
 	missing, err := record.provisional()
 	return err == nil && missing.MatchesMissingExact(exact)
+}
+
+func persistedNativeRoot(provenance rootedpath.AuthorityProvenance) recoveryRootProvenance {
+	return recoveryRootProvenance{PhysicalRoot: provenance.PhysicalRoot(), ObjectFingerprint: provenance.ObjectFingerprint(), MountFingerprint: provenance.MountFingerprint()}
+}
+
+func persistedNativeWriter(provenance rootedpath.AuthorityProvenance, relative rootedpath.RelativeDestination) recoveryDocumentWriter {
+	return recoveryDocumentWriter{Root: persistedNativeRoot(provenance), RelativePath: relative.Path()}
+}
+
+func persistedNativeObservation(observation mutation.DirectoryEntryAuthorityObservation) (recoveryDocumentObservation, error) {
+	if err := observation.Validate(); err != nil {
+		return recoveryDocumentObservation{}, err
+	}
+	if exact, known := observation.Exact(); known {
+		return recoveryDocumentObservation{Kind: "exact", Authority: persistedPathAuthority(exact)}, nil
+	}
+	provisional, _ := observation.Provisional()
+	return recoveryDocumentObservation{Kind: "provisional", Authority: &pathAuthorityDTO{Key: provisional.CandidateKey(), Witness: provisional.CandidateWitness()}, NamespaceAuthority: persistedPathAuthority(provisional.Namespace())}, nil
 }

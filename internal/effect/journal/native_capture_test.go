@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -92,7 +94,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	}
 	requireWholeGroupWrite(t, paths.StatefilePath, stateBytes, 0o600)
 	host := filepath.Join(rootPath, ".codex", "config.toml")
-	roots := NativeDocumentRoots{Manifest: nativeNamespaceRoot(t, rootPath)}
+	roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, rootPath)}
 	if scope == target.ScopeGlobal {
 		roots.CodexHome = nativeNamespaceRoot(t, filepath.Join(rootPath, "codex-home"))
 		host = filepath.Join(roots.CodexHome.SelectedPath, filepath.FromSlash(destination.RelativePath()))
@@ -116,7 +118,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	var bindings []ownership.DocumentBinding
 	var claims []ownership.Claim
 	if original.Exists() {
-		namespace, err := ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+		namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -483,7 +485,7 @@ func TestCaptureNativeJournalJoinsOrdinaryWorkWithoutInventingHistory(t *testing
 				t.Fatal(err)
 			}
 			input.batch, err = ObserveNativeDocuments(t.Context(), NativeDocumentObservationInput{
-				Owner: input.batch.owner, Before: before, Aliases: input.batch.namespaces[0].Addresses(), Roots: input.batch.namespaces[0].roots,
+				Owner: input.batch.owner, Before: before, Aliases: input.batch.namespaces[0].Addresses(), Roots: input.batch.roots,
 				Filesystem: input.options.Filesystem, Registry: reader, Limits: input.batch.limits, Budget: input.batch.budget,
 			})
 			if err != nil {
@@ -586,7 +588,7 @@ func TestCaptureNativeJournalInventoryFamilyAdmission(t *testing.T) {
 
 func TestCaptureNativeJournalRefusesHostReferentInsidePublicationTree(t *testing.T) {
 	input := nativeCaptureInput(t, true, target.ScopeGlobal)
-	roots := input.batch.namespaces[0].roots
+	roots := input.batch.roots
 	roots.CodexHome = nativeNamespaceRoot(t, input.paths.RecoveryDir)
 	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
 		Target: target.TargetCodex, Scope: target.ScopeGlobal, Path: "native-record-apply/document-000000/expected", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxTOML,

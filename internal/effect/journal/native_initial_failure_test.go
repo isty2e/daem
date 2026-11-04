@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
@@ -123,11 +125,11 @@ func TestNativeInitialObservationPreservesMissingExactHistory(t *testing.T) {
 			if err := os.Remove(fixture.path); err != nil {
 				t.Fatal(err)
 			}
-			namespace, err := ObserveNativeDocumentNamespace(t.Context(), input.Aliases, input.Roots, input.Filesystem, input.Budget)
+			namespace, err := journalnamespace.Observe(t.Context(), input.Aliases, input.Roots, input.Filesystem, input.Budget)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, provisional := namespace.observation.Provisional(); !provisional {
+			if _, provisional := namespace.Observation().Provisional(); !provisional {
 				t.Skip("filesystem gives exact authority for the missing path")
 			}
 			beforeBytes, err := os.ReadFile(registryPath)

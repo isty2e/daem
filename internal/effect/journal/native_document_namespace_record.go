@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -20,10 +19,10 @@ import (
 // active-journal, state/control, registry, phase and execution-lease joins remain.
 type nativeQualifiedDocumentRecords struct {
 	records    nativeDocumentRecords
-	namespaces []NativeDocumentNamespace
+	namespaces []journalnamespace.DocumentNamespace
 }
 
-func (journal nativeJournalSnapshots) loadQualifiedDocuments(ctx context.Context, options nativeDocumentReadOptions, roots NativeDocumentRoots) (nativeQualifiedDocumentRecords, error) {
+func (journal nativeJournalSnapshots) loadQualifiedDocuments(ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) (nativeQualifiedDocumentRecords, error) {
 	namespaces, err := journal.qualifyDocumentNamespaces(ctx, options, roots)
 	if err != nil {
 		return nativeQualifiedDocumentRecords{}, err
@@ -35,22 +34,22 @@ func (journal nativeJournalSnapshots) loadQualifiedDocuments(ctx context.Context
 	return nativeQualifiedDocumentRecords{records: records, namespaces: namespaces}, nil
 }
 
-func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Context, options nativeDocumentReadOptions, roots NativeDocumentRoots) ([]NativeDocumentNamespace, error) {
+func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) ([]journalnamespace.DocumentNamespace, error) {
 	if ctx == nil || options.filesystem == nil || options.budget == nil {
 		return nil, fmt.Errorf("qualified document read context, filesystem and shared budget are required")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	grants, err := roots.qualify(ctx, options.budget)
+	grants, err := roots.Qualify(ctx, options.budget)
 	if err != nil {
 		return nil, err
 	}
-	manifest, present := grants[output.RootProject]
-	if !present || persistedNativeRoot(manifest.provenance) != journal.record.ManifestRootProvenance {
+	manifest, present := grants.Manifest()
+	if !present || persistedNativeRoot(manifest.Provenance()) != journal.record.ManifestRootProvenance {
 		return nil, fmt.Errorf("native journal manifest root does not match the selected live root")
 	}
-	namespaces := make([]NativeDocumentNamespace, 0, len(journal.record.DocumentGroups))
+	namespaces := make([]journalnamespace.DocumentNamespace, 0, len(journal.record.DocumentGroups))
 	for _, record := range journal.record.DocumentGroups {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -66,19 +65,34 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 			}
 			aliases = append(aliases, address)
 		}
-		namespace, err := observeNativeDocumentNamespace(ctx, aliases, roots, options.filesystem, options.budget, &record.Writer)
+		provenance, err := record.Writer.Root.canonical()
 		if err != nil {
 			return nil, err
 		}
-		if err := matchRetainedNativeObservation(record.CapturedTarget, namespace.observation); err != nil {
+		relative, err := rootedpath.NewRelativeDestination(record.Writer.RelativePath)
+		if err != nil {
 			return nil, err
 		}
-		if err := journal.qualifyRetainedDocumentNamespace(ctx, record, namespace.observation); err != nil {
+		if relative.Path() != record.Writer.RelativePath {
+			return nil, fmt.Errorf("recorded writer relative referent is invalid")
+		}
+		pin, err := journalnamespace.NewWriterPin(provenance, relative)
+		if err != nil {
 			return nil, err
 		}
-		currentAliases := make(map[aggregate.DocumentAddress]nativeDocumentAliasObservation, len(namespace.aliases))
-		for _, alias := range namespace.aliases {
-			currentAliases[alias.address] = alias
+		namespace, err := journalnamespace.Reobserve(ctx, aliases, roots, options.filesystem, options.budget, pin)
+		if err != nil {
+			return nil, err
+		}
+		if err := matchRetainedNativeObservation(record.CapturedTarget, namespace.Observation()); err != nil {
+			return nil, err
+		}
+		if err := journal.qualifyRetainedDocumentNamespace(ctx, record, namespace.Observation()); err != nil {
+			return nil, err
+		}
+		currentAliases := make(map[aggregate.DocumentAddress]journalnamespace.Alias, len(namespace.Aliases()))
+		for _, alias := range namespace.Aliases() {
+			currentAliases[alias.Address()] = alias
 		}
 		for _, alias := range record.Aliases {
 			if err := ctx.Err(); err != nil {
@@ -89,13 +103,13 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 				return nil, err
 			}
 			current, present := currentAliases[address]
-			if !present || persistedNativeRoot(current.root.provenance) != alias.LogicalRoot.Provenance {
+			if !present || persistedNativeRoot(current.Root().Provenance()) != alias.LogicalRoot.Provenance {
 				return nil, fmt.Errorf("native document alias root incarnation changed")
 			}
-			if err := matchRetainedNativeObservation(alias.SelectedObservation, current.observation); err != nil {
+			if err := matchRetainedNativeObservation(alias.SelectedObservation, current.Observation()); err != nil {
 				return nil, err
 			}
-			if err := matchRetainedNativeObservation(alias.ObservedBefore, current.observation); err != nil {
+			if err := matchRetainedNativeObservation(alias.ObservedBefore, current.Observation()); err != nil {
 				return nil, err
 			}
 		}
@@ -109,7 +123,7 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 			if err != nil {
 				return nil, err
 			}
-			observed, err := removalnamespace.Observe(ctx, namespace.writerRoot, namespace.writer, removal.Namespace(), options.budget)
+			observed, err := namespace.ObserveRemovalNamespace(ctx, removal.Namespace(), options.budget)
 			if err != nil {
 				return nil, err
 			}
@@ -206,15 +220,15 @@ func matchRetainedNativeObservation(record recoveryDocumentObservation, current 
 	return fmt.Errorf("native document path differs from the retained namespace observation")
 }
 
-func qualifyNativePiContext(ctx context.Context, record recoveryDocumentPiOrder, manifest nativeDocumentRootGrant, namespace NativeDocumentNamespace, budget rootedpath.PhysicalTraversalBudget) error {
-	if persistedNativeRoot(manifest.provenance) != record.CommandRoot.Provenance {
+func qualifyNativePiContext(ctx context.Context, record recoveryDocumentPiOrder, manifest journalnamespace.RootGrant, namespace journalnamespace.DocumentNamespace, budget rootedpath.PhysicalTraversalBudget) error {
+	if persistedNativeRoot(manifest.Provenance()) != record.CommandRoot.Provenance {
 		return fmt.Errorf("Pi command root differs from the selected manifest incarnation")
 	}
 	for _, relation := range record.Evidence.Relations {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := manifest.selection.Root.ValidateSelectionBounded(relation.SourceContext.BaseRoot, physicalwork.MaximumPhysicalPathDepth, budget); err != nil {
+		if err := manifest.ValidateSelection(relation.SourceContext.BaseRoot, budget); err != nil {
 			return err
 		}
 	}
@@ -227,7 +241,7 @@ func qualifyNativePiContext(ctx context.Context, record recoveryDocumentPiOrder,
 	if err != nil {
 		return err
 	}
-	if !observation.Equal(namespace.observation) {
+	if !observation.Equal(namespace.Observation()) {
 		return fmt.Errorf("captured Pi settings context does not identify the current settings referent")
 	}
 	return ctx.Err()

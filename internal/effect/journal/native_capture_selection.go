@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -16,13 +18,15 @@ import (
 // NativeDocumentMember projects prospective membership, not live protection
 // metadata or write authority. Its namespace roots remain borrowed from the batch.
 type NativeDocumentMember struct {
-	namespace NativeDocumentNamespace
+	namespace journalnamespace.DocumentNamespace
 	bindings  []ownership.DocumentBindingIntent
 	scope     ownership.DocumentScope
 	promoting bool
 }
 
-func (member NativeDocumentMember) Namespace() NativeDocumentNamespace { return member.namespace }
+func (member NativeDocumentMember) Namespace() journalnamespace.DocumentNamespace {
+	return member.namespace
+}
 
 func (member NativeDocumentMember) BindingIntents() []ownership.DocumentBindingIntent {
 	return slices.Clone(member.bindings)
@@ -98,7 +102,7 @@ func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapsho
 	}
 	result := make([]NativeDocumentMember, 0, len(members))
 	for index, member := range members {
-		scope, err := nativeNamespaceScope([]NativeDocumentNamespace{selected.namespaces[index]})
+		scope, err := nativeNamespaceScope([]journalnamespace.DocumentNamespace{selected.namespaces[index]})
 		if err != nil {
 			return NativeDocumentObservationBatch{}, nil, err
 		}

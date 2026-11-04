@@ -112,7 +112,7 @@ func nativeInitialFixture(t *testing.T, scope target.Scope, action string) (whol
 	reader := &nativeInitialRegistryReader{store: store}
 	input := NativeDocumentObservationInput{
 		Owner: legacy.owner, Before: legacy.before, Aliases: fixture.namespace.Addresses(),
-		Roots: fixture.namespace.roots, Filesystem: fixture.reader, Registry: reader,
+		Roots: fixture.roots, Filesystem: fixture.reader, Registry: reader,
 		Limits: legacy.limits, Budget: budget,
 	}
 	return fixture, input, reader, registryPath

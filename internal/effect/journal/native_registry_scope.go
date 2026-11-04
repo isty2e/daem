@@ -4,21 +4,23 @@ import (
 	"fmt"
 	"slices"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-func nativeNamespaceScope(namespaces []NativeDocumentNamespace) (ownership.DocumentScope, error) {
+func nativeNamespaceScope(namespaces []journalnamespace.DocumentNamespace) (ownership.DocumentScope, error) {
 	var exact []pathauthority.Exact
 	var missing []pathauthority.Provisional
 	for _, namespace := range namespaces {
-		if err := namespace.observation.Validate(); err != nil {
+		if err := namespace.Observation().Validate(); err != nil {
 			return ownership.DocumentScope{}, err
 		}
-		if physical, present := namespace.observation.Exact(); present {
+		if physical, present := namespace.Observation().Exact(); present {
 			exact = append(exact, physical)
-		} else if provisional, present := namespace.observation.Provisional(); present {
+		} else if provisional, present := namespace.Observation().Provisional(); present {
 			missing = append(missing, provisional)
 		} else {
 			return ownership.DocumentScope{}, fmt.Errorf("native Registry scope has no namespace observation")
@@ -40,7 +42,7 @@ func (batch NativeDocumentObservationBatch) RegistryScopeFor(aliases []aggregate
 	if !batch.initialized {
 		return ownership.DocumentScope{}, fmt.Errorf("native document observation is required")
 	}
-	selected := make([]NativeDocumentNamespace, 0, len(aliases))
+	selected := make([]journalnamespace.DocumentNamespace, 0, len(aliases))
 	seen := make(map[int]struct{})
 	for _, alias := range aliases {
 		found := false

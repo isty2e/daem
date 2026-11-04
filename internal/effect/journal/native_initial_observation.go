@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -26,7 +28,7 @@ type NativeDocumentObservationInput struct {
 	Owner      stateauthority.Authority
 	Before     durable.Snapshot
 	Aliases    []aggregate.DocumentAddress
-	Roots      NativeDocumentRoots
+	Roots      journalnamespace.Roots
 	Filesystem mutationfs.RootedReader
 	Registry   ownershipmutation.RegistryReader
 	Limits     configdocument.Limits
@@ -44,8 +46,8 @@ type nativeDocumentOriginal struct {
 type NativeDocumentObservationBatch struct {
 	owner       stateauthority.Authority
 	before      durable.Snapshot
-	roots       NativeDocumentRoots
-	namespaces  []NativeDocumentNamespace
+	roots       journalnamespace.Roots
+	namespaces  []journalnamespace.DocumentNamespace
 	registry    ownership.Registry
 	originals   []nativeDocumentOriginal
 	limits      configdocument.Limits
@@ -54,7 +56,7 @@ type NativeDocumentObservationBatch struct {
 }
 
 // Namespaces returns the coalesced observation groups; their roots remain borrowed.
-func (batch NativeDocumentObservationBatch) Namespaces() []NativeDocumentNamespace {
+func (batch NativeDocumentObservationBatch) Namespaces() []journalnamespace.DocumentNamespace {
 	return slices.Clone(batch.namespaces)
 }
 
@@ -94,7 +96,7 @@ func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservation
 	}
 	var missing []pathauthority.Provisional
 	for _, namespace := range namespaces {
-		provisional, absent := namespace.observation.Provisional()
+		provisional, absent := namespace.Observation().Provisional()
 		if !absent {
 			continue
 		}
@@ -117,7 +119,7 @@ func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservation
 	}
 	originals := make([]nativeDocumentOriginal, 0, len(namespaces))
 	for _, namespace := range namespaces {
-		document, mode, identity, err := readNativeRecoveryDocument(ctx, namespace, min(input.Limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.Budget)
+		document, mode, identity, err := namespace.ReadReferent(ctx, min(input.Limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.Budget)
 		if err != nil {
 			return NativeDocumentObservationBatch{}, err
 		}
@@ -135,24 +137,22 @@ func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservation
 	}, nil
 }
 
-func observeNativeDocumentGroups(ctx context.Context, input NativeDocumentObservationInput) ([]NativeDocumentNamespace, error) {
+func observeNativeDocumentGroups(ctx context.Context, input NativeDocumentObservationInput) ([]journalnamespace.DocumentNamespace, error) {
 	aliases := slices.Clone(input.Aliases)
-	slices.SortFunc(aliases, func(left, right aggregate.DocumentAddress) int {
-		return compareDocumentAliasRefs(persistedDocumentAlias(left), persistedDocumentAlias(right))
-	})
+	slices.SortFunc(aliases, journaldocument.CompareAliases)
 	indices := make(map[string]int)
-	var representatives []NativeDocumentNamespace
+	var representatives []journalnamespace.DocumentNamespace
 	var groups [][]aggregate.DocumentAddress
 	for _, alias := range aliases {
-		namespace, err := ObserveNativeDocumentNamespace(ctx, []aggregate.DocumentAddress{alias}, input.Roots, input.Filesystem, input.Budget)
+		namespace, err := journalnamespace.Observe(ctx, []aggregate.DocumentAddress{alias}, input.Roots, input.Filesystem, input.Budget)
 		if err != nil {
 			return nil, err
 		}
 		key := ""
-		if exact, known := namespace.observation.Exact(); known {
+		if exact, known := namespace.Observation().Exact(); known {
 			key = "exact:" + exact.Key()
 		} else {
-			provisional, _ := namespace.observation.Provisional()
+			provisional, _ := namespace.Observation().Provisional()
 			key = "provisional:" + provisional.CandidateKey()
 		}
 		index, present := indices[key]
@@ -162,18 +162,18 @@ func observeNativeDocumentGroups(ctx context.Context, input NativeDocumentObserv
 			groups = append(groups, []aggregate.DocumentAddress{alias})
 			continue
 		}
-		if !representatives[index].observation.Equal(namespace.observation) {
+		if !representatives[index].Observation().Equal(namespace.Observation()) {
 			return nil, fmt.Errorf("native aliases disagree on the same comparison identity")
 		}
 		groups[index] = append(groups[index], alias)
 	}
-	result := make([]NativeDocumentNamespace, 0, len(groups))
+	result := make([]journalnamespace.DocumentNamespace, 0, len(groups))
 	for index, aliases := range groups {
-		namespace, err := ObserveNativeDocumentNamespace(ctx, aliases, input.Roots, input.Filesystem, input.Budget)
+		namespace, err := journalnamespace.Observe(ctx, aliases, input.Roots, input.Filesystem, input.Budget)
 		if err != nil {
 			return nil, err
 		}
-		if !representatives[index].observation.Equal(namespace.observation) {
+		if !representatives[index].Observation().Equal(namespace.Observation()) {
 			return nil, fmt.Errorf("native namespace changed while coalescing aliases")
 		}
 		result = append(result, namespace)
@@ -238,7 +238,7 @@ func (batch NativeDocumentObservationBatch) validateOriginals(ctx context.Contex
 		return err
 	}
 	for index, namespace := range batch.namespaces {
-		document, mode, identity, err := readNativeRecoveryDocument(ctx, namespace, min(batch.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), batch.budget)
+		document, mode, identity, err := namespace.ReadReferent(ctx, min(batch.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), batch.budget)
 		if err != nil {
 			return err
 		}

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
@@ -14,7 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-func captureDocumentRemoval(ctx context.Context, namespace NativeDocumentNamespace, comparison journaldocument.Comparison, relations []aggregate.DocumentAddress, budget *physicalwork.Budget) (*recoveryDocumentRemoval, error) {
+func captureDocumentRemoval(ctx context.Context, namespace journalnamespace.DocumentNamespace, comparison journaldocument.Comparison, relations []aggregate.DocumentAddress, budget *physicalwork.Budget) (*recoveryDocumentRemoval, error) {
 	demands, err := comparison.RemovalDemands(ctx, relations)
 	if err != nil || demands.Len() == 0 {
 		return nil, err
@@ -31,7 +31,7 @@ func captureDocumentRemoval(ctx context.Context, namespace NativeDocumentNamespa
 	if err := budget.AdmitObservation(); err != nil {
 		return nil, err
 	}
-	writer, err := namespace.writer.LexicalPath()
+	writer, err := namespace.WriterPath()
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func captureDocumentRemoval(ctx context.Context, namespace NativeDocumentNamespa
 	if err := capability.Close(); err != nil {
 		return nil, err
 	}
-	observed, err := removalnamespace.Observe(ctx, namespace.writerRoot, namespace.writer, cleanup, budget)
+	observed, err := namespace.ObserveRemovalNamespace(ctx, cleanup, budget)
 	if err != nil || observed.Status() != recovery.RemovalNamespaceMatched {
 		return nil, errors.Join(err, fmt.Errorf("document removal namespace no longer matches the writer"))
 	}

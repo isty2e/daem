@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -16,8 +18,8 @@ import (
 type nativeDocumentCaptureCandidate struct {
 	group      recoveryDocumentGroup
 	comparison journaldocument.Comparison
-	namespace  NativeDocumentNamespace
-	manifest   nativeDocumentRootGrant
+	namespace  journalnamespace.DocumentNamespace
+	manifest   journalnamespace.RootGrant
 	relations  []aggregate.DocumentAddress
 	budget     *physicalwork.Budget
 }
@@ -32,7 +34,7 @@ func (candidate nativeDocumentCaptureCandidate) captureRemoval(ctx context.Conte
 	if err != nil {
 		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
 	}
-	if err := group.validate(persistedNativeRoot(candidate.manifest.provenance)); err != nil {
+	if err := group.validate(persistedNativeRoot(candidate.manifest.Provenance())); err != nil {
 		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
 	}
 	if err := ctx.Err(); err != nil {

@@ -27,6 +27,19 @@ type SnapshotIndexes struct {
 	after  SnapshotIndex
 }
 
+func CompareAliases(left, right aggregate.DocumentAddress) int {
+	for _, order := range []int{
+		cmp.Compare(left.Target(), right.Target()),
+		cmp.Compare(left.Scope(), right.Scope()),
+		cmp.Compare(left.AggregateRoot().String(), right.AggregateRoot().String()),
+	} {
+		if order != 0 {
+			return order
+		}
+	}
+	return 0
+}
+
 func (indexes SnapshotIndexes) Before() SnapshotIndex { return indexes.before }
 func (indexes SnapshotIndexes) After() SnapshotIndex  { return indexes.after }
 

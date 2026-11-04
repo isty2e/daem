@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -64,13 +66,13 @@ func TestNativeWholeGroupPreservesEmptyFileAndActualPermission(t *testing.T) {
 
 func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 	fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
-	roots := fixture.namespace.roots
+	roots := fixture.roots
 	if err := os.Symlink(roots.PiAgent.SelectedPath, filepath.Join(roots.Manifest.SelectedPath, ".pi")); err != nil {
 		t.Fatal(err)
 	}
 	project := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/prompts/Caf\u00e9.md")
 	aliases := append(fixture.namespace.Addresses(), project)
-	namespace, err := ObserveNativeDocumentNamespace(t.Context(), aliases, roots, fixture.reader, fixture.input.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), aliases, roots, fixture.reader, fixture.input.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +103,7 @@ func TestNativeWholeGroupRejectsProvisionalClaimMisjoinsBeforeRead(t *testing.T)
 	for _, mismatch := range []string{"owner", "operation", "alias", "exact claims"} {
 		t.Run(mismatch, func(t *testing.T) {
 			fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "create", nil, []byte("after"))
-			if _, pending := fixture.namespace.observation.Provisional(); !pending {
+			if _, pending := fixture.namespace.Observation().Provisional(); !pending {
 				t.Skip("filesystem supplies exact authority for this absent normalization-sensitive path")
 			}
 			switch mismatch {
@@ -149,7 +151,14 @@ func TestNativeWholeGroupRejectsStaticMisjoinsBeforeContentRead(t *testing.T) {
 			other := wholeGroupFixture(t, target.TargetCodex, target.ScopeGlobal, "replace", []byte("other"), []byte("next"))
 			f.input.mutation = other.input.mutation
 		}},
-		{"missing manifest grant", func(f *wholeGroupTestFixture) { f.namespace.roots.Manifest = NativeDocumentRoot{} }},
+		{"missing manifest grant", func(f *wholeGroupTestFixture) {
+			f.roots.Manifest = journalnamespace.RootSelection{}
+			observed, err := journalnamespace.Observe(t.Context(), f.namespace.Addresses(), f.roots, f.reader, f.input.budget)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.namespace = observed
+		}},
 		{"wrong claim owner", func(f *wholeGroupTestFixture) { f.input.owner = documentClaimsForTest(t).owner }},
 		{"wrong operation reservation", func(f *wholeGroupTestFixture) {
 			transition, err := ownershipmutation.NewDocumentClaimTransition(nil, f.input.claims.After(), f.input.operationID)
@@ -182,7 +191,7 @@ func TestNativeWholeGroupRejectsValidButUnrelatedMetadataBeforeRead(t *testing.T
 		t.Run(mismatch, func(t *testing.T) {
 			fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
 			other := wholeGroupFixture(t, target.TargetCodex, target.ScopeProject, "remove", []byte("other"), nil)
-			exact, known := other.namespace.observation.Exact()
+			exact, known := other.namespace.Observation().Exact()
 			if !known {
 				t.Fatal("existing comparison namespace has no exact authority")
 			}
@@ -270,7 +279,10 @@ func TestNativeWholeGroupCancellationAndFailedReadKeepNoFacts(t *testing.T) {
 	ctx, cancel = context.WithCancel(t.Context())
 	defer cancel()
 	reader := &imageReader{RootedReader: journalTestFilesystem(), afterRead: cancel}
-	fixture.namespace.filesystem = reader
+	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, reader, fixture.input.budget)
+	if err != nil {
+		t.Fatal(err)
+	}
 	remaining := fixture.input.budget.RemainingBytes()
 	group, comparison, err = prepareWholeDocumentGroup(ctx, fixture.namespace, fixture.input)
 	if !errors.Is(err, context.Canceled) || comparison.Validate() == nil || len(group.Aliases) != 0 || reader.calls != 1 || fixture.input.budget.RemainingBytes() >= remaining {
@@ -280,7 +292,8 @@ func TestNativeWholeGroupCancellationAndFailedReadKeepNoFacts(t *testing.T) {
 }
 
 type wholeGroupTestFixture struct {
-	namespace          NativeDocumentNamespace
+	roots              journalnamespace.Roots
+	namespace          journalnamespace.DocumentNamespace
 	input              wholeDocumentCaptureInput
 	envelope           nativeRecordFixture
 	reader             *nativeNamespaceReader
@@ -293,7 +306,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	envelope := nativeJournalFixture(t)
 	manifest := nativeNamespaceRoot(t, t.TempDir())
 	host := nativeNamespaceRoot(t, filepath.Join(manifest.SelectedPath, "global"))
-	roots := NativeDocumentRoots{Manifest: manifest}
+	roots := journalnamespace.Roots{Manifest: manifest}
 	if selected == target.TargetPi {
 		roots.PiAgent = host
 	} else {
@@ -320,7 +333,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{address}, roots, reader, budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{address}, roots, reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +404,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 
 	beforeBinding, afterBinding := ownership.NoDocumentBinding(), ownership.NoDocumentBinding()
 	var binding ownership.DocumentBindingIntent
-	if exact, known := namespace.observation.Exact(); known {
+	if exact, known := namespace.Observation().Exact(); known {
 		value, err := ownership.NewDocumentBinding(input.owner, placement.Destination(), exact)
 		if err != nil {
 			t.Fatal(err)
@@ -426,7 +439,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 			input.claims = &transition
 		}
 	} else {
-		pending, _ := namespace.observation.Provisional()
+		pending, _ := namespace.Observation().Provisional()
 		binding, err = ownership.NewProvisionalDocumentBindingIntent(input.owner, placement.Destination(), pending)
 		if err != nil {
 			t.Fatal(err)
@@ -440,7 +453,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 		}
 	}
 	input.bindings = []ownership.DocumentBindingIntent{binding}
-	return wholeGroupTestFixture{namespace: namespace, input: input, envelope: envelope, reader: reader, path: path, original: beforeImage, expected: expectedImage}
+	return wholeGroupTestFixture{roots: roots, namespace: namespace, input: input, envelope: envelope, reader: reader, path: path, original: beforeImage, expected: expectedImage}
 }
 
 func wholeGroupPayload(t *testing.T, facts managedPathMutationFacts, content []byte) payload.PayloadSet {
@@ -510,7 +523,7 @@ func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group rec
 	}
 	defer root.Close()
 	fixture.envelope.record.DocumentGroups = []recoveryDocumentGroup{group}
-	manifest, err := fixture.namespace.roots.Manifest.Root.Authority()
+	manifest, err := fixture.roots.Manifest.Root.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}

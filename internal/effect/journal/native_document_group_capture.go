@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -13,7 +15,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
@@ -38,7 +39,7 @@ type nativeDocumentCaptureInput struct {
 
 // prepareWholeDocumentGroup captures persistence facts, not a publication seal.
 // The containing operation must admit complete snapshots and all group relations.
-func prepareWholeDocumentGroup(ctx context.Context, namespace NativeDocumentNamespace, input wholeDocumentCaptureInput) (recoveryDocumentGroup, journaldocument.Comparison, error) {
+func prepareWholeDocumentGroup(ctx context.Context, namespace journalnamespace.DocumentNamespace, input wholeDocumentCaptureInput) (recoveryDocumentGroup, journaldocument.Comparison, error) {
 	candidate, err := prepareWholeDocumentCandidate(ctx, namespace, input)
 	if err != nil {
 		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
@@ -46,7 +47,7 @@ func prepareWholeDocumentGroup(ctx context.Context, namespace NativeDocumentName
 	return candidate.captureRemoval(ctx, input.budget)
 }
 
-func prepareWholeDocumentCandidate(ctx context.Context, namespace NativeDocumentNamespace, input wholeDocumentCaptureInput) (nativeDocumentCaptureCandidate, error) {
+func prepareWholeDocumentCandidate(ctx context.Context, namespace journalnamespace.DocumentNamespace, input wholeDocumentCaptureInput) (nativeDocumentCaptureCandidate, error) {
 	if err := validateNativeDocumentCaptureInput(ctx, input.nativeDocumentCaptureInput); err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -63,7 +64,7 @@ func prepareWholeDocumentCandidate(ctx context.Context, namespace NativeDocument
 		return nativeDocumentCaptureCandidate{}, err
 	}
 
-	original, mode, _, err := readNativeRecoveryDocument(ctx, namespace, min(input.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.budget)
+	original, mode, _, err := namespace.ReadReferent(ctx, min(input.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.budget)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -82,7 +83,7 @@ func prepareWholeDocumentCandidate(ctx context.Context, namespace NativeDocument
 	return nativeDocumentCaptureCandidate{group: group, comparison: comparison, namespace: namespace, manifest: manifest, relations: []aggregate.DocumentAddress{address}, budget: input.budget}, nil
 }
 
-func prepareRetainedWholeDocumentCandidate(ctx context.Context, namespace NativeDocumentNamespace, input nativeDocumentCaptureInput) (nativeDocumentCaptureCandidate, error) {
+func prepareRetainedWholeDocumentCandidate(ctx context.Context, namespace journalnamespace.DocumentNamespace, input nativeDocumentCaptureInput) (nativeDocumentCaptureCandidate, error) {
 	if err := validateNativeDocumentCaptureInput(ctx, input); err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -90,7 +91,7 @@ func prepareRetainedWholeDocumentCandidate(ctx context.Context, namespace Native
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	original, mode, _, err := readNativeRecoveryDocument(ctx, namespace, min(input.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.budget)
+	original, mode, _, err := namespace.ReadReferent(ctx, min(input.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.budget)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -124,67 +125,67 @@ func validateNativeDocumentCaptureInput(ctx context.Context, input nativeDocumen
 	return input.limits.Validate()
 }
 
-func nativeDocumentGroupMetadata(ctx context.Context, namespace NativeDocumentNamespace, input nativeDocumentCaptureInput) (recoveryDocumentGroup, nativeDocumentRootGrant, error) {
+func nativeDocumentGroupMetadata(ctx context.Context, namespace journalnamespace.DocumentNamespace, input nativeDocumentCaptureInput) (recoveryDocumentGroup, journalnamespace.RootGrant, error) {
 	if err := validateRecoveryOwnershipWorkBudget(len(input.bindings), 0, 0); err != nil {
-		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
+		return recoveryDocumentGroup{}, journalnamespace.RootGrant{}, err
 	}
-	grants, err := namespace.roots.qualify(ctx, input.budget)
+	grants, err := namespace.QualifyRoots(ctx, input.budget)
 	if err != nil {
-		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
+		return recoveryDocumentGroup{}, journalnamespace.RootGrant{}, err
 	}
-	manifest, present := grants[output.RootProject]
+	manifest, present := grants.Manifest()
 	if !present {
-		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, fmt.Errorf("native document capture requires the operation manifest root")
+		return recoveryDocumentGroup{}, journalnamespace.RootGrant{}, fmt.Errorf("native document capture requires the operation manifest root")
 	}
-	observed, err := persistedNativeObservation(namespace.observation)
+	observed, err := persistedNativeObservation(namespace.Observation())
 	if err != nil {
-		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
+		return recoveryDocumentGroup{}, journalnamespace.RootGrant{}, err
 	}
 	group := recoveryDocumentGroup{
-		CapturedTarget: observed, Writer: namespace.writerRecord,
+		CapturedTarget: observed, Writer: persistedNativeWriter(namespace.WriterPin().Provenance(), namespace.WriterPin().Relative()),
 		SelectedSubjects: []persistedSubjectRef{},
-		Aliases:          make([]recoveryDocumentAlias, 0, len(namespace.aliases)),
+		Aliases:          make([]recoveryDocumentAlias, 0, len(namespace.Aliases())),
 		BindingIntents:   make([]recoveryDocumentBindingIntent, 0, len(input.bindings)),
 	}
-	for _, alias := range namespace.aliases {
+	for _, alias := range namespace.Aliases() {
 		if err := ctx.Err(); err != nil {
-			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
+			return recoveryDocumentGroup{}, journalnamespace.RootGrant{}, err
 		}
 		role := "global-root"
-		if alias.address.Scope() == target.ScopeProject {
+		if alias.Address().Scope() == target.ScopeProject {
 			role = "manifest-root"
 		}
-		selected, err := persistedNativeObservation(alias.observation)
+		selected, err := persistedNativeObservation(alias.Observation())
 		if err != nil {
-			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
+			return recoveryDocumentGroup{}, journalnamespace.RootGrant{}, err
 		}
 		group.Aliases = append(group.Aliases, recoveryDocumentAlias{
-			Address:             persistedDocumentAlias(alias.address),
-			LogicalRoot:         recoveryDocumentLogicalRoot{Role: role, Provenance: persistedNativeRoot(alias.root.provenance)},
+			Address:             persistedDocumentAlias(alias.Address()),
+			LogicalRoot:         recoveryDocumentLogicalRoot{Role: role, Provenance: persistedNativeRoot(alias.Root().Provenance())},
 			SelectedObservation: selected, ObservedBefore: observed,
 		})
 	}
 	group.ExclusiveClaims, err = nativeDocumentGroupClaims(namespace, input)
 	if err != nil {
-		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
+		return recoveryDocumentGroup{}, journalnamespace.RootGrant{}, err
 	}
 	for _, intent := range input.bindings {
 		if err := ctx.Err(); err != nil {
-			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
+			return recoveryDocumentGroup{}, journalnamespace.RootGrant{}, err
 		}
 		record, err := persistedDocumentBindingIntent(intent)
 		if err != nil {
-			return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
+			return recoveryDocumentGroup{}, journalnamespace.RootGrant{}, err
 		}
 		group.BindingIntents = append(group.BindingIntents, record)
 	}
 	if _, err := group.canonicalBindingIntents(ctx, input.owner); err != nil {
-		return recoveryDocumentGroup{}, nativeDocumentRootGrant{}, err
+		return recoveryDocumentGroup{}, journalnamespace.RootGrant{}, err
 	}
 	return group, manifest, nil
 }
 
-func nativeDocumentGroupClaims(namespace NativeDocumentNamespace, input nativeDocumentCaptureInput) (recoveryDocumentClaimSet, error) {
+func nativeDocumentGroupClaims(namespace journalnamespace.DocumentNamespace, input nativeDocumentCaptureInput) (recoveryDocumentClaimSet, error) {
 	if input.claims != nil {
 		if len(input.provisional) != 0 {
 			return recoveryDocumentClaimSet{}, fmt.Errorf("native document capture cannot mix exact and provisional claims")
@@ -193,7 +194,7 @@ func nativeDocumentGroupClaims(namespace NativeDocumentNamespace, input nativeDo
 		if err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}
-		observed, err := persistedNativeObservation(namespace.observation)
+		observed, err := persistedNativeObservation(namespace.Observation())
 		if err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}
@@ -203,7 +204,7 @@ func nativeDocumentGroupClaims(namespace NativeDocumentNamespace, input nativeDo
 		return record, nil
 	}
 	if len(input.provisional) != 0 {
-		provisional, pending := namespace.observation.Provisional()
+		provisional, pending := namespace.Observation().Provisional()
 		if !pending {
 			return recoveryDocumentClaimSet{}, fmt.Errorf("provisional document claims require a provisional captured namespace")
 		}

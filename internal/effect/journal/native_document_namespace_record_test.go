@@ -3,9 +3,14 @@ package journal
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
+
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -127,7 +132,7 @@ func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.
 	}
 	fixture.before = selectionState(t, fixture.before.ManagedAggregates()[0], other)
 	fixture.after = selectionState(t, fixture.after.ManagedAggregates()[0], other)
-	namespace, err := ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), fixture.read.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), fixture.read.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,13 +201,13 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 		t.Fatal(err)
 	}
 	nativeRecordImages(t, &fixture, input.Document, expected)
-	roots := NativeDocumentRoots{Manifest: NativeDocumentRoot{SelectedPath: physical.SelectedPath, Root: commandRoot}}
+	roots := journalnamespace.Roots{Manifest: journalnamespace.RootSelection{SelectedPath: physical.SelectedPath, Root: commandRoot}}
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/settings.json")
-	namespace, err := ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), fixture.read.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), fixture.read.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.record.ManifestRootProvenance = persistedNativeRoot(namespace.aliases[0].root.provenance)
+	fixture.record.ManifestRootProvenance = persistedNativeRoot(namespace.Aliases()[0].Root().Provenance())
 	group := &fixture.record.DocumentGroups[0]
 	*group = nativeNamespaceGroupFacts(t, *group, namespace)
 	group.SelectedSubjects, group.BindingIntents = []persistedSubjectRef{}, []recoveryDocumentBindingIntent{}
@@ -243,7 +248,7 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 	}
 }
 
-func nativeNamespaceRecordFixture(t *testing.T) (nativeRecordFixture, NativeDocumentRoots) {
+func nativeNamespaceRecordFixture(t *testing.T) (nativeRecordFixture, journalnamespace.Roots) {
 	t.Helper()
 	fixture := nativeJournalFixture(t)
 	imageAuthority, err := fixture.read.artifacts.Authority()
@@ -269,12 +274,12 @@ func nativeNamespaceRecordFixture(t *testing.T) (nativeRecordFixture, NativeDocu
 	if err := os.WriteFile(filepath.Join(pi.SelectedPath, "custom.json"), content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	roots := NativeDocumentRoots{Manifest: manifest, PiAgent: pi}
-	namespace, err := ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias}, roots, journalTestFilesystem(), fixture.read.budget)
+	roots := journalnamespace.Roots{Manifest: manifest, PiAgent: pi}
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias}, roots, journalTestFilesystem(), fixture.read.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
-	exact, known := namespace.observation.Exact()
+	exact, known := namespace.Observation().Exact()
 	if !known {
 		t.Fatal("existing fixture file did not have exact authority")
 	}
@@ -310,20 +315,120 @@ func TestQualifiedNativeWriterRefusesProtectedArtifactRoot(t *testing.T) {
 	}
 }
 
-func nativeNamespaceGroupFacts(t *testing.T, group recoveryDocumentGroup, namespace NativeDocumentNamespace) recoveryDocumentGroup {
+func nativeNamespaceGroupFacts(t *testing.T, group recoveryDocumentGroup, namespace journalnamespace.DocumentNamespace) recoveryDocumentGroup {
 	t.Helper()
-	observed, err := persistedNativeObservation(namespace.observation)
+	observed, err := persistedNativeObservation(namespace.Observation())
 	if err != nil {
 		t.Fatal(err)
 	}
-	group.CapturedTarget, group.Writer = observed, namespace.writerRecord
-	group.Aliases = make([]recoveryDocumentAlias, 0, len(namespace.aliases))
-	for _, alias := range namespace.aliases {
+	group.CapturedTarget, group.Writer = observed, persistedNativeWriter(namespace.WriterPin().Provenance(), namespace.WriterPin().Relative())
+	group.Aliases = make([]recoveryDocumentAlias, 0, len(namespace.Aliases()))
+	for _, alias := range namespace.Aliases() {
 		role := "global-root"
-		if alias.address.Scope() == target.ScopeProject {
+		if alias.Address().Scope() == target.ScopeProject {
 			role = "manifest-root"
 		}
-		group.Aliases = append(group.Aliases, recoveryDocumentAlias{Address: persistedDocumentAlias(alias.address), LogicalRoot: recoveryDocumentLogicalRoot{Role: role, Provenance: persistedNativeRoot(alias.root.provenance)}, SelectedObservation: observed, ObservedBefore: observed})
+		group.Aliases = append(group.Aliases, recoveryDocumentAlias{Address: persistedDocumentAlias(alias.Address()), LogicalRoot: recoveryDocumentLogicalRoot{Role: role, Provenance: persistedNativeRoot(alias.Root().Provenance())}, SelectedObservation: observed, ObservedBefore: observed})
 	}
 	return group
+}
+
+func TestNativeNamespaceReobservesRealCreationWithoutForgingExactAuthority(t *testing.T) {
+	pi := nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "pi"))
+	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/Caf\u00e9.json")
+	roots := journalnamespace.Roots{PiAgent: pi}
+	budget := imageBudget(t)
+	before, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, err := persistedNativeObservation(before.Observation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	capability, err := before.AcquireReferent(t.Context(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := []byte(`{"created":true}`)
+	if err := journalTestFilesystem().CreateRootedFile(t.Context(), capability, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, known := after.Observation().Exact(); !known {
+		t.Fatal("real visible entry did not supply exact namespace evidence")
+	}
+	if err := matchRetainedNativeObservation(retained, after.Observation()); err != nil {
+		t.Fatalf("captured missing path did not admit its actual visible entry: %v", err)
+	}
+	if _, provisional := before.Observation().Provisional(); provisional {
+		if capability, err := before.AcquireReferent(t.Context(), budget); err == nil || capability != nil {
+			t.Fatal("provisional proof silently promoted itself after creation")
+		}
+	}
+	capability, err = after.AcquireReferent(t.Context(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, _, _, readErr := journalTestFilesystem().ReadRootedRegularFileUpTo(t.Context(), capability, 4096)
+	closeErr := capability.Close()
+	if readErr != nil || closeErr != nil || !bytes.Equal(actual, content) {
+		t.Fatalf("fresh exact referent did not read the created bytes: %v, %v", readErr, closeErr)
+	}
+}
+
+func TestNativeMissingRootSelectionRetainsOriginalAnchorWithoutCreatingIt(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := filepath.Join(base, "new", "agent")
+	budget := physicalwork.NewCaptureBudget(nil)
+	root, err := journalnamespace.CaptureRoot(t.Context(), selected, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Root.Close() })
+	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/settings.json")
+	roots := journalnamespace.Roots{PiAgent: root}
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(base, "new")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("observation created selected root scaffolding", err)
+	}
+	authority, err := root.Root.AuthorityBounded(budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := authority.Provenance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(selected, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := journalnamespace.CaptureRecordedRoot(t.Context(), selected, provenance, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Root.Close()
+	current, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, journalnamespace.Roots{PiAgent: reopened}, journalTestFilesystem(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := persistedNativeObservation(namespace.Observation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := matchRetainedNativeObservation(recorded, current.Observation()); err != nil {
+		t.Fatal("created root lost its admitted original namespace", err)
+	}
+	if current.WriterPin().Provenance().PhysicalRoot() != namespace.WriterPin().Provenance().PhysicalRoot() {
+		t.Fatal("recovery replaced the original anchor with the created directory")
+	}
 }

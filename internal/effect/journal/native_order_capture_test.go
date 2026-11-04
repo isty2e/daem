@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -103,7 +105,7 @@ func nativeOrderCaptureInput(t *testing.T, scope target.Scope) (nativeCaptureTes
 	if !known {
 		t.Fatal("Pi order fixture has no command context")
 	}
-	roots := NativeDocumentRoots{Manifest: nativeNamespaceRoot(t, command.BaseRoot())}
+	roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, command.BaseRoot())}
 	selectedRoot := roots.Manifest
 	if scope == target.ScopeGlobal {
 		roots.PiAgent = nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())

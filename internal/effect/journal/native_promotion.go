@@ -3,6 +3,8 @@ package journal
 import (
 	"context"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -13,7 +15,7 @@ import (
 type nativePublicationContext struct {
 	owner                stateauthority.Authority
 	before               durable.Snapshot
-	roots                NativeDocumentRoots
+	roots                journalnamespace.Roots
 	limits               configdocument.Limits
 	budget               *physicalwork.Budget
 	resolver             func(output.Destination) (string, error)

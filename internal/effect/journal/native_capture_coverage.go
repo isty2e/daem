@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -18,14 +20,14 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-func (batch NativeDocumentObservationBatch) manifest(ctx context.Context) (nativeDocumentRootGrant, error) {
-	roots, err := batch.roots.qualify(ctx, batch.budget)
+func (batch NativeDocumentObservationBatch) manifest(ctx context.Context) (journalnamespace.RootGrant, error) {
+	roots, err := batch.roots.Qualify(ctx, batch.budget)
 	if err != nil {
-		return nativeDocumentRootGrant{}, err
+		return journalnamespace.RootGrant{}, err
 	}
-	manifest, present := roots[output.RootProject]
+	manifest, present := roots.Manifest()
 	if !present {
-		return nativeDocumentRootGrant{}, fmt.Errorf("native observation requires its selected manifest root")
+		return journalnamespace.RootGrant{}, fmt.Errorf("native observation requires its selected manifest root")
 	}
 	return manifest, nil
 }
@@ -35,10 +37,10 @@ func validateNativeCaptureContext(ctx context.Context, paths Paths, batch Native
 	if err != nil {
 		return err
 	}
-	if filepath.Clean(paths.ManifestRoot) != manifest.selection.SelectedPath {
+	if filepath.Clean(paths.ManifestRoot) != manifest.SelectedPath() {
 		return fmt.Errorf("capture paths differ from the selected native manifest root")
 	}
-	provenance := manifest.provenance
+	provenance := manifest.Provenance()
 	declaration, err := mutation.CanonicalDirectoryEntryPathBounded(batch.owner.ManifestPath(), physicalwork.MaximumPhysicalPathDepth, batch.budget)
 	if err != nil {
 		return err
@@ -179,9 +181,9 @@ func validateNativePublicationPartition(ctx context.Context, directory string, b
 	appendPath(nativeDocumentObservationKey(publication), -1)
 	appendPath(batch.owner.StatefileKey(), -2)
 	for index, namespace := range batch.namespaces {
-		appendPath(nativeDocumentObservationKey(namespace.observation), index)
-		for _, alias := range namespace.aliases {
-			appendPath(nativeDocumentObservationKey(alias.observation), index)
+		appendPath(nativeDocumentObservationKey(namespace.Observation()), index)
+		for _, alias := range namespace.Aliases() {
+			appendPath(nativeDocumentObservationKey(alias.Observation()), index)
 		}
 	}
 	for _, action := range mutations {

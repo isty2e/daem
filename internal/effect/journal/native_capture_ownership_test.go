@@ -8,6 +8,8 @@ import (
 	"slices"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -63,7 +65,7 @@ func TestNativeCaptureOwnershipReshapesCompleteGlobalClaims(t *testing.T) {
 			if direction == "keys-to-whole" {
 				input.before, input.after = input.after, input.before
 				beforeClaims = nil
-				exact, known := fixture.namespace.observation.Exact()
+				exact, known := fixture.namespace.Observation().Exact()
 				if !known {
 					t.Fatal("existing whole document has no exact namespace")
 				}
@@ -159,7 +161,7 @@ func TestNativeCaptureOwnershipRejectsMissingOrStaleBeforeFacts(t *testing.T) {
 				alias := fixture.namespace.Addresses()[0]
 				row := membershipNativeRow(t, alias, "native-json-v1", "selected")
 				input.before, input.after = selectionState(t, row), selectionState(t, row)
-				exact, _ := fixture.namespace.observation.Exact()
+				exact, _ := fixture.namespace.Observation().Exact()
 				claims = []ownership.Claim{
 					documentActiveClaim(t, documentClaimFixture{owner: input.owner, exact: exact}, documentKeyFootprint(t, "selected")),
 					documentActiveClaim(t, documentClaimFixture{owner: input.owner, exact: exact}, documentKeyFootprint(t, "not-in-snapshot")),
@@ -195,7 +197,7 @@ func TestNativeCaptureOwnershipRejectsMissingOrStaleBeforeFacts(t *testing.T) {
 
 func TestNativeCaptureOwnershipProvisionalAcquiresNeverMintExactClaims(t *testing.T) {
 	fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "create", nil, []byte("after"))
-	pending, provisional := fixture.namespace.observation.Provisional()
+	pending, provisional := fixture.namespace.Observation().Provisional()
 	if !provisional {
 		t.Skip("filesystem supplied exact authority for the absent destination")
 	}
@@ -260,7 +262,7 @@ func captureOwnershipFixture(t *testing.T, fixture wholeGroupTestFixture) (nativ
 	return nativeCaptureOwnershipInput{
 		owner: fixture.input.owner, operationID: fixture.input.operationID,
 		before: fixture.envelope.before, after: fixture.envelope.after,
-		namespaces: []NativeDocumentNamespace{fixture.namespace}, registry: reader,
+		namespaces: []journalnamespace.DocumentNamespace{fixture.namespace}, registry: reader,
 		limits: fixture.input.limits, budget: fixture.input.budget,
 	}, reader
 }
@@ -293,7 +295,7 @@ func TestNativeCaptureOwnershipFeedsSelectedCapture(t *testing.T) {
 	selected := fixture.after.ManagedAggregates()[0]
 	original := aggregate.ExistingDocument([]byte(`{"model":true,"foreign":99}`))
 	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
-	capture := selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
+	capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 	var claims []ownership.Claim
 	if capture.input.claims != nil {
 		claims = capture.input.claims.Before()
@@ -312,7 +314,7 @@ func TestNativeCaptureOwnershipFeedsSelectedCapture(t *testing.T) {
 	input := nativeCaptureOwnershipInput{
 		owner: capture.input.owner, operationID: capture.input.operationID,
 		before: fixture.before, after: fixture.after, registry: reader,
-		namespaces: []NativeDocumentNamespace{capture.namespace}, limits: capture.input.limits, budget: capture.input.budget,
+		namespaces: []journalnamespace.DocumentNamespace{capture.namespace}, limits: capture.input.limits, budget: capture.input.budget,
 	}
 	prepared, err := input.prepare(t.Context())
 	if err != nil {

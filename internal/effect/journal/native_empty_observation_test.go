@@ -3,6 +3,8 @@ package journal
 import (
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -15,7 +17,7 @@ func TestNativeEmptyObservationRetainsActualContext(t *testing.T) {
 	}
 	input := NativeDocumentObservationInput{
 		Owner: fixture.batch.owner, Before: fixture.batch.BeforeState(),
-		Roots: fixture.batch.Namespaces()[0].roots, Filesystem: fixture.options.Filesystem,
+		Roots: fixture.batch.roots, Filesystem: fixture.options.Filesystem,
 		Registry: reader, Limits: fixture.batch.limits, Budget: fixture.batch.budget,
 	}
 	observed, err := ObserveNativeDocuments(t.Context(), input)
@@ -33,7 +35,7 @@ func TestNativeEmptyObservationRetainsActualContext(t *testing.T) {
 	}
 	fixture.requireUnchanged(t)
 
-	input.Roots.Manifest = NativeDocumentRoot{}
+	input.Roots.Manifest = journalnamespace.RootSelection{}
 	if _, err := ObserveNativeDocuments(t.Context(), input); err == nil {
 		t.Fatal("empty census accepted absent manifest authority")
 	}

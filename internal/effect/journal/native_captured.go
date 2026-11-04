@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -70,9 +72,9 @@ func (captured CapturedNativeJournal) Documents() []CapturedNativeDocument {
 	return result
 }
 
-func (document CapturedNativeDocument) Namespace() NativeDocumentNamespace {
+func (document CapturedNativeDocument) Namespace() journalnamespace.DocumentNamespace {
 	if !document.valid() {
-		return NativeDocumentNamespace{}
+		return journalnamespace.DocumentNamespace{}
 	}
 	return document.captured.qualified.namespaces[document.index]
 }

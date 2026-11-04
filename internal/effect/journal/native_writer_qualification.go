@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
+
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -19,7 +20,7 @@ type ordinaryWriterAddress struct {
 	destination output.Destination
 }
 
-func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, namespaces []NativeDocumentNamespace, manifest nativeDocumentRootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *physicalwork.Budget, protected []pathauthority.Exact) error {
+func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, namespaces []journalnamespace.DocumentNamespace, manifest journalnamespace.RootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *physicalwork.Budget, protected []pathauthority.Exact) error {
 	var paths []documentWriterPath
 	appendObservation := func(observation mutation.DirectoryEntryAuthorityObservation, group int) error {
 		if err := observation.Validate(); err != nil {
@@ -33,15 +34,11 @@ func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, na
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := appendObservation(namespace.observation, index); err != nil {
+		if err := appendObservation(namespace.Observation(), index); err != nil {
 			return err
 		}
-		for _, alias := range namespace.aliases {
-			capability, err := acquireNativeWriterRoute(ctx, alias.root, alias.address.AggregateRoot(), budget)
-			if err != nil {
-				return err
-			}
-			observation, err := observeNativeWriterCapability(ctx, capability, budget)
+		for _, alias := range namespace.Aliases() {
+			observation, err := alias.Root().ObserveRoute(ctx, alias.Address().AggregateRoot(), budget)
 			if err != nil {
 				return err
 			}
@@ -71,22 +68,23 @@ func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, na
 			continue
 		}
 		seen[address] = binding
-		var capability rootedpath.CommitCapability
+		var observation mutation.DirectoryEntryAuthorityObservation
 		switch target.Scope(entry.Scope) {
 		case target.ScopeProject:
 			if destination.RootRole() != output.RootProject {
 				return fmt.Errorf("ordinary project writer has no project destination")
 			}
-			capability, err = acquireNativeWriterRoute(ctx, manifest, destination, budget)
+			observation, err = manifest.ObserveRoute(ctx, destination, budget)
 		case target.ScopeGlobal:
-			capability, err = acquireNativeOrdinaryGlobalWriter(entry, destination, ordinaryCapabilities, budget)
+			capability, acquireErr := acquireNativeOrdinaryGlobalWriter(entry, destination, ordinaryCapabilities, budget)
+			if acquireErr != nil {
+				return acquireErr
+			}
+
+			observation, err = journalnamespace.ObserveWriterCapability(ctx, capability, budget)
 		default:
 			err = fmt.Errorf("ordinary writer has an unsupported scope")
 		}
-		if err != nil {
-			return err
-		}
-		observation, err := observeNativeWriterCapability(ctx, capability, budget)
 		if err != nil {
 			return err
 		}
@@ -105,43 +103,6 @@ func (record nativeJournalRecord) qualifyWriterPartition(ctx context.Context, na
 		paths = append(paths, documentWriterPath{volume, components, -2 - index})
 	}
 	return validateDocumentWriterPaths(ctx, paths)
-}
-
-func acquireNativeWriterRoute(ctx context.Context, grant nativeDocumentRootGrant, destination output.Destination, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if grant.selection.Root == nil {
-		return nil, fmt.Errorf("writer route requires its selected retained root")
-	}
-
-	physical := grant.authority.PhysicalRoot()
-	if grant.selection.creation != nil {
-		var err error
-		physical, err = grant.selection.qualifyCreation(ctx, budget)
-		if err != nil {
-			return nil, err
-		}
-	} else if err := grant.selection.Root.ValidateSelectionBounded(grant.selection.SelectedPath, physicalwork.MaximumPhysicalPathDepth, budget); err != nil {
-		return nil, err
-	}
-	selected, err := rootedpath.NewRelativeDestination(destination.RelativePath())
-	if err != nil {
-		return nil, err
-	}
-	path, err := filepath.Rel(grant.authority.PhysicalRoot(), filepath.Join(physical, filepath.FromSlash(selected.Path())))
-	if err != nil {
-		return nil, err
-	}
-	relative, err := rootedpath.NewRelativeDestination(filepath.ToSlash(path))
-	if err != nil {
-		return nil, err
-	}
-	bound, err := grant.authority.Bind(relative)
-	if err != nil {
-		return nil, err
-	}
-	return grant.selection.Root.AcquireBounded(bound, physicalwork.MaximumPhysicalPathDepth, budget)
 }
 
 func acquireNativeOrdinaryGlobalWriter(entry recoveryEntry, destination output.Destination, acquire RootedCapabilityResolver, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
@@ -163,22 +124,4 @@ func acquireNativeOrdinaryGlobalWriter(entry recoveryEntry, destination output.D
 		return nil, errors.Join(err, capability.Close())
 	}
 	return capability, nil
-}
-
-func observeNativeWriterCapability(ctx context.Context, capability rootedpath.CommitCapability, budget *physicalwork.Budget) (observation mutation.DirectoryEntryAuthorityObservation, resultErr error) {
-	defer func() {
-		resultErr = errors.Join(resultErr, capability.Close(), ctx.Err())
-		if resultErr != nil {
-			observation = mutation.DirectoryEntryAuthorityObservation{}
-		}
-	}()
-	if err := capability.Validate(); err != nil {
-		return mutation.DirectoryEntryAuthorityObservation{}, err
-	}
-	path, err := capability.Destination().LexicalPath()
-	if err != nil {
-		return mutation.DirectoryEntryAuthorityObservation{}, err
-	}
-	observation, err = mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
-	return observation, errors.Join(err, capability.Validate())
 }

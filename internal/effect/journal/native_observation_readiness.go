@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -41,10 +43,10 @@ func (batch NativeDocumentObservationBatch) ValidatePlanningContext(ctx context.
 	return batch.ValidateBefore(ctx)
 }
 
-func nativeDocumentClaimBaseline(namespace NativeDocumentNamespace, owned map[string][]ownership.Claim, before map[output.Footprint]struct{}) (pathauthority.Exact, []ownership.Claim, error) {
-	exact, known := namespace.observation.Exact()
+func nativeDocumentClaimBaseline(namespace journalnamespace.DocumentNamespace, owned map[string][]ownership.Claim, before map[output.Footprint]struct{}) (pathauthority.Exact, []ownership.Claim, error) {
+	exact, known := namespace.Observation().Exact()
 	if !known {
-		missing, provisional := namespace.observation.Provisional()
+		missing, provisional := namespace.Observation().Provisional()
 		if !provisional {
 			return pathauthority.Exact{}, nil, fmt.Errorf("native history requires a current namespace observation")
 		}

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -93,7 +95,7 @@ func TestNativeWriterPartitionProtectsSelectedRoutesAndIndependentRoots(t *testi
 func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	t.Helper()
 	fixture := mixedStageFixture(t)
-	root := fixture.whole.namespace.roots.Manifest
+	root := fixture.whole.roots.Manifest
 	ordinaryPath := filepath.Join(root.SelectedPath, "AGENTS.md")
 	before := fixture.comparison.BeforeDocument().Content()
 	requireWholeGroupWrite(t, ordinaryPath, before, 0o644)
@@ -112,7 +114,7 @@ func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	if err := os.Symlink(relative, aliasPath); err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := ObserveNativeDocumentNamespace(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.namespace.roots, journalTestFilesystem(), fixture.whole.input.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, journalTestFilesystem(), fixture.whole.input.budget)
 	if err != nil {
 		t.Fatal(err)
 	}

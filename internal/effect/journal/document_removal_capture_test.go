@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -71,13 +73,13 @@ func TestNativeSelectedRemovalUsesActualEditsNotObservedAliases(t *testing.T) {
 	selected := fixture.after.ManagedAggregates()[0]
 	original := aggregate.AbsentDocument()
 	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
-	capture := selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
-	roots := capture.namespace.roots
+	capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
+	roots := capture.roots
 	if err := os.Symlink(roots.PiAgent.SelectedPath, filepath.Join(roots.Manifest.SelectedPath, ".pi")); err != nil {
 		t.Fatal(err)
 	}
 	observedAlias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/"+fixture.claims.alias.AggregateRoot().RelativePath())
-	namespace, err := ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias, observedAlias}, roots, capture.reader, capture.input.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias, observedAlias}, roots, capture.reader, capture.input.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +122,7 @@ func TestNativeSelectedLastKeyReleasePreservesExistingRoot(t *testing.T) {
 			fixture.after = durable.EmptySnapshot()
 			original := aggregate.ExistingDocument([]byte(content))
 			edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{before.Contribution().Contract()}, nil)
-			capture := selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
+			capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 			group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
 			if err != nil || !comparison.ExpectedDocument().Exists() || group.Expected.Kind != "file" || group.Removal != nil {
 				t.Fatalf("last selected-key release acquired root deletion: %v", err)
@@ -209,7 +211,7 @@ func TestNativeRemovalQualifiedReadRejectsStaleCleanupParentBeforeImages(t *test
 	if err := group.validateRemoval(); err != nil {
 		t.Fatalf("stale namespace fixture is not syntactically valid: %v", err)
 	}
-	manifestAuthority, err := fixture.namespace.roots.Manifest.Root.Authority()
+	manifestAuthority, err := fixture.roots.Manifest.Root.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +225,7 @@ func TestNativeRemovalQualifiedReadRejectsStaleCleanupParentBeforeImages(t *test
 	options := fixture.envelope.read
 	options.filesystem, options.budget = fixture.reader, imageBudget(t)
 	reads := fixture.reader.imageReads
-	result, err := journal.loadQualifiedDocuments(t.Context(), options, fixture.namespace.roots)
+	result, err := journal.loadQualifiedDocuments(t.Context(), options, fixture.roots)
 	if err == nil || result.namespaces != nil || fixture.reader.imageReads != reads {
 		t.Fatal("stale cleanup parent reached artifact reads or usable qualified groups")
 	}
@@ -283,7 +285,7 @@ func TestNativeRemovalPreservesLogicalAliasesWithOneNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := ObserveNativeDocumentNamespace(t.Context(), aliases, NativeDocumentRoots{Manifest: manifest, PiAgent: pi}, journalTestFilesystem(), budget)
+	namespace, err := journalnamespace.Observe(t.Context(), aliases, journalnamespace.Roots{Manifest: manifest, PiAgent: pi}, journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}

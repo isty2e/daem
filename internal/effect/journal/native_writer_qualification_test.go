@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -23,7 +25,7 @@ import (
 func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	t.Helper()
 	fixture := mixedStageFixture(t)
-	root := fixture.whole.namespace.roots.Manifest
+	root := fixture.whole.roots.Manifest
 	actual := filepath.Join(root.SelectedPath, ".agents", "skills", "CaseOwner")
 	variant := filepath.Join(root.SelectedPath, ".agents", "skills", "caseowner")
 	physical := filepath.Join(actual, "host.md")
@@ -54,7 +56,7 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	if err := os.Symlink(relative, aliasPath); err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := ObserveNativeDocumentNamespace(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.namespace.roots, journalTestFilesystem(), fixture.whole.input.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, journalTestFilesystem(), fixture.whole.input.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +143,7 @@ func TestQualifiedNativeWriterCaseCollisionRefusesBeforeImages(t *testing.T) {
 	read := fixture.whole.envelope.read
 	reader := &nativeNamespaceReader{RootedReader: read.filesystem}
 	read.filesystem, read.budget = reader, imageBudget(t)
-	loaded, err := fixture.journal.loadQualifiedDocuments(t.Context(), read, fixture.whole.namespace.roots)
+	loaded, err := fixture.journal.loadQualifiedDocuments(t.Context(), read, fixture.whole.roots)
 	if err == nil || loaded.namespaces != nil || loaded.records.groups != nil || reader.imageReads != 0 {
 		t.Fatal("case collision reached artifact reads or returned a qualified prefix")
 	}
@@ -186,13 +188,13 @@ func TestWriterObservationUsesSharedBudgetAndClosesOnFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := observeNativeWriterCapability(t.Context(), capability, budget)
+	observation, err := journalnamespace.ObserveWriterCapability(t.Context(), capability, budget)
 	if !errors.Is(err, failure) || observation.Validate() == nil || shared.calls == 0 || *closed != 1 {
 		t.Fatalf("path observation reset the shared budget or retained usable evidence/capability: %v, calls=%d closes=%d", err, shared.calls, *closed)
 	}
 }
 
-func ordinaryWriterCapability(t *testing.T, root NativeDocumentRoot, relative string) (recoveryEntry, RootedCapabilityResolver, *int) {
+func ordinaryWriterCapability(t *testing.T, root journalnamespace.RootSelection, relative string) (recoveryEntry, RootedCapabilityResolver, *int) {
 	t.Helper()
 	authority, err := root.Root.Authority()
 	if err != nil {
@@ -247,12 +249,12 @@ func TestQualifiedWriterKeepsCaseSensitiveFilesDistinct(t *testing.T) {
 
 func TestQualifiedWriterKeepsNativeProjectSymlinkAlias(t *testing.T) {
 	fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
-	roots := fixture.namespace.roots
+	roots := fixture.roots
 	if err := os.Symlink(roots.PiAgent.SelectedPath, filepath.Join(roots.Manifest.SelectedPath, ".pi")); err != nil {
 		t.Fatal(err)
 	}
 	project := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/prompts/Caf\u00e9.md")
-	namespace, err := ObserveNativeDocumentNamespace(t.Context(), append(fixture.namespace.Addresses(), project), roots, fixture.reader, fixture.input.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), append(fixture.namespace.Addresses(), project), roots, fixture.reader, fixture.input.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +273,7 @@ func TestQualifiedWriterKeepsNativeProjectSymlinkAlias(t *testing.T) {
 	}
 	journal.record.ManifestRootProvenance, journal.record.DocumentGroups = persistedNativeRoot(provenance), []recoveryDocumentGroup{group}
 	qualified, err := journal.qualifyDocumentNamespaces(t.Context(), nativeDocumentReadOptions{filesystem: fixture.reader, budget: imageBudget(t)}, roots)
-	if err != nil || len(qualified) != 1 || len(qualified[0].aliases) != 2 {
+	if err != nil || len(qualified) != 1 || len(qualified[0].Aliases()) != 2 {
 		t.Fatalf("ordinary/native partition rejected a supported project symlink alias: %v", err)
 	}
 	fixture.requireUnchangedHost(t)

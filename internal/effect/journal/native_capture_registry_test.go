@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -100,23 +102,23 @@ func TestNativeCaptureRegistryMCPDoesNotKeepNativeBindingAlive(t *testing.T) {
 		t.Fatal(err)
 	}
 	alias := contribution.Contract().Address().Document()
-	input.namespaces[0], err = ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{alias}, fixture.namespace.roots, fixture.reader, input.budget)
+	input.namespaces[0], err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, fixture.reader, input.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
 	native := membershipNativeRow(t, alias, "native-toml-v1", "model")
 	input.before, input.after = selectionState(t, native, mcpRow), selectionState(t, mcpRow)
-	exact, known := input.namespaces[0].observation.Exact()
+	exact, known := input.namespaces[0].Observation().Exact()
 	if !known {
 		// The binding is an existing baseline, so create the actual document and
 		// observe it again rather than fabricating exact authority.
-		destination := filepath.Join(fixture.namespace.roots.Manifest.SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
+		destination := filepath.Join(fixture.roots.Manifest.SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
 		requireWholeGroupWrite(t, destination, []byte("model=1\n"), 0o644)
-		input.namespaces[0], err = ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{alias}, fixture.namespace.roots, fixture.reader, input.budget)
+		input.namespaces[0], err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, fixture.reader, input.budget)
 		if err != nil {
 			t.Fatal(err)
 		}
-		exact, known = input.namespaces[0].observation.Exact()
+		exact, known = input.namespaces[0].Observation().Exact()
 	}
 	if !known {
 		t.Fatal("existing MCP document has no exact authority")

@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -31,7 +33,7 @@ type ordinaryCaptureSource struct {
 
 type nativeMixedStageOptions struct {
 	nativeDocumentStageOptions
-	roots NativeDocumentRoots
+	roots journalnamespace.Roots
 }
 
 // stageMixedDocumentJournal populates one unpublished tree. Capture options must

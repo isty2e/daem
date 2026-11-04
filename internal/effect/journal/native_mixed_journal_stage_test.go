@@ -37,7 +37,7 @@ type mixedJournalFixture struct {
 }
 
 func (fixture mixedJournalFixture) stageOptions(budget *physicalwork.Budget) nativeMixedStageOptions {
-	return nativeMixedStageOptions{nativeDocumentStageOptions: documentStageOptions(fixture.whole.envelope, budget), roots: fixture.whole.namespace.roots}
+	return nativeMixedStageOptions{nativeDocumentStageOptions: documentStageOptions(fixture.whole.envelope, budget), roots: fixture.whole.roots}
 }
 
 func mixedStageFixture(t *testing.T) mixedJournalFixture {
@@ -47,7 +47,7 @@ func mixedStageFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := whole.namespace.roots.Manifest
+	root := whole.roots.Manifest
 	authority, err := root.Root.Authority()
 	if err != nil {
 		t.Fatal(err)
@@ -366,7 +366,7 @@ func TestNativeMixedJournalCombinesSelectedWholeAndDirectoryBackups(t *testing.T
 	selected := native.after.ManagedAggregates()[0]
 	original := aggregate.ExistingDocument([]byte(`{"model":true,"foreign":0}`))
 	edits := selectedCaptureEdits(t, native, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
-	capture := selectedCaptureFixture(t, native, original, edits, nil, fixture.whole.namespace.roots)
+	capture := selectedCaptureFixture(t, native, original, edits, nil, fixture.whole.roots)
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
 	if err != nil {
 		t.Fatal(err)

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -18,7 +20,7 @@ import (
 )
 
 type nativePlanningOwnershipBaseline struct {
-	namespace  NativeDocumentNamespace
+	namespace  journalnamespace.DocumentNamespace
 	comparison pathauthority.Exact
 	claims     []ownership.Claim
 }
@@ -122,7 +124,7 @@ func (projection NativeOwnershipProjection) Global(ctx context.Context, alias ag
 			claimValue, _ = ownership.PresentClaim(claim)
 		}
 	} else {
-		missing, _ := baseline.namespace.observation.Provisional()
+		missing, _ := baseline.namespace.Observation().Provisional()
 		if claim, found := projection.registry.ProvisionalAncestorConflict(missing); found {
 			claimValue, _ = ownership.PresentClaim(claim)
 		}
@@ -130,14 +132,14 @@ func (projection NativeOwnershipProjection) Global(ctx context.Context, alias ag
 	if err := projection.validate(ctx); err != nil {
 		return observe.OwnershipObservation{}, err
 	}
-	if exact, current := baseline.namespace.observation.Exact(); current {
+	if exact, current := baseline.namespace.Observation().Exact(); current {
 		address, err := ownership.NewManagedAddress(exact, footprint)
 		if err != nil {
 			return observe.OwnershipObservation{}, err
 		}
 		return observe.NewExactOwnershipObservation(alias.AggregateRoot(), footprint, address, claimValue)
 	}
-	missing, _ := baseline.namespace.observation.Provisional()
+	missing, _ := baseline.namespace.Observation().Provisional()
 	return observe.NewProvisionalOwnershipObservation(alias.AggregateRoot(), footprint, missing, claimValue)
 }
 
@@ -151,9 +153,9 @@ func (projection NativeOwnershipProjection) Participants(ctx context.Context, al
 	}
 	var bindings []ownership.DocumentBinding
 	var err error
-	if exact, current := baseline.namespace.observation.Exact(); current {
+	if exact, current := baseline.namespace.Observation().Exact(); current {
 		bindings, err = projection.registry.DocumentBindingsAt(exact)
-	} else if missing, provisional := baseline.namespace.observation.Provisional(); provisional {
+	} else if missing, provisional := baseline.namespace.Observation().Provisional(); provisional {
 		bindings, err = projection.registry.DocumentBindingsForMissing(missing)
 	} else {
 		return observe.NativeDocumentParticipants{}, fmt.Errorf("native participants require the selected namespace observation")

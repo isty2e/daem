@@ -313,7 +313,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
 	}
-	manifest := persistedNativeRoot(grant.provenance)
+	manifest := persistedNativeRoot(grant.Provenance())
 	record := nativeJournalRecord{
 		Version: nativeRecoveryJournalVersion, Operation: recoveryOperationApply, OperationID: operationID, CreatedAt: createdAt.UTC().Format(time.RFC3339),
 		StateAuthority:         recoveryStateAuthority{StatefileAuthority: *persistedPathAuthority(batch.owner.StatefileAuthority()), ManifestPath: batch.owner.ManifestPath()},

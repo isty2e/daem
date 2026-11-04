@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -108,7 +110,7 @@ func (index documentCaptureSubjects) selectedSubjects(ctx context.Context, edits
 
 // prepareSelectedDocumentGroup captures edit/order facts. Complete Snapshot and
 // operation-authority admission remain the containing caller's responsibility.
-func prepareSelectedDocumentGroup(ctx context.Context, namespace NativeDocumentNamespace, input selectedDocumentCaptureInput, subjects documentCaptureSubjects) (recoveryDocumentGroup, journaldocument.Comparison, error) {
+func prepareSelectedDocumentGroup(ctx context.Context, namespace journalnamespace.DocumentNamespace, input selectedDocumentCaptureInput, subjects documentCaptureSubjects) (recoveryDocumentGroup, journaldocument.Comparison, error) {
 	candidate, err := prepareSelectedDocumentCandidate(ctx, namespace, input, subjects)
 	if err != nil {
 		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
@@ -116,7 +118,7 @@ func prepareSelectedDocumentGroup(ctx context.Context, namespace NativeDocumentN
 	return candidate.captureRemoval(ctx, input.budget)
 }
 
-func prepareSelectedDocumentCandidate(ctx context.Context, namespace NativeDocumentNamespace, input selectedDocumentCaptureInput, subjects documentCaptureSubjects) (nativeDocumentCaptureCandidate, error) {
+func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalnamespace.DocumentNamespace, input selectedDocumentCaptureInput, subjects documentCaptureSubjects) (nativeDocumentCaptureCandidate, error) {
 	if err := validateNativeDocumentCaptureInput(ctx, input.nativeDocumentCaptureInput); err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -141,12 +143,12 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace NativeDocum
 		if err != nil || !slices.Contains(namespace.Addresses(), alias) {
 			return nativeDocumentCaptureCandidate{}, fmt.Errorf("selected Pi order has no captured settings alias")
 		}
-		group.PiOrder = &recoveryDocumentPiOrder{Alias: persistedDocumentAlias(alias), CommandRoot: recoveryDocumentLogicalRoot{Role: "manifest-root", Provenance: persistedNativeRoot(manifest.provenance)}, Evidence: evidence}
+		group.PiOrder = &recoveryDocumentPiOrder{Alias: persistedDocumentAlias(alias), CommandRoot: recoveryDocumentLogicalRoot{Role: "manifest-root", Provenance: persistedNativeRoot(manifest.Provenance())}, Evidence: evidence}
 		if err := qualifyNativePiContext(ctx, *group.PiOrder, manifest, namespace, input.budget); err != nil {
 			return nativeDocumentCaptureCandidate{}, err
 		}
 	}
-	original, mode, _, err := readNativeRecoveryDocument(ctx, namespace, min(input.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.budget)
+	original, mode, _, err := namespace.ReadReferent(ctx, min(input.limits.MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.budget)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}

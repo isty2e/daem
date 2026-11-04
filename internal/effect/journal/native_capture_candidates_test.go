@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -67,7 +69,7 @@ func TestNativeCaptureCandidatesDoNotInventRemovalForRetainedRoots(t *testing.T)
 	fixture.after = durable.EmptySnapshot()
 	original := aggregate.ExistingDocument([]byte(`{"model":true,"foreign":1}`))
 	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{before.Contribution().Contract()}, nil)
-	selected := selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
+	selected := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 	second := prepareSelectedCaptureCandidate(t, &selected, budget)
 	groups, comparisons, demands, err := captureNativeDocumentCandidates(t.Context(), []nativeDocumentCaptureCandidate{first, second}, recovery.RemovalDemandSet{}, budget)
 	if err != nil {
@@ -143,7 +145,7 @@ func TestNativeCaptureCandidatesDiscardPrefixAfterLaterNamespaceFailure(t *testi
 	first := prepareWholeCaptureCandidate(t, &whole, budget)
 	selected := missingSelectedCapture(t)
 	second := prepareSelectedCaptureCandidate(t, &selected, budget)
-	if err := selected.namespace.roots.Manifest.Root.Close(); err != nil {
+	if err := selected.roots.Manifest.Root.Close(); err != nil {
 		t.Fatal(err)
 	}
 	groups, comparisons, demands, err := captureNativeDocumentCandidates(t.Context(), []nativeDocumentCaptureCandidate{first, second}, recovery.RemovalDemandSet{}, budget)
@@ -155,7 +157,7 @@ func TestNativeCaptureCandidatesDiscardPrefixAfterLaterNamespaceFailure(t *testi
 func prepareWholeCaptureCandidate(t *testing.T, fixture *wholeGroupTestFixture, budget *physicalwork.Budget) nativeDocumentCaptureCandidate {
 	t.Helper()
 	var err error
-	fixture.namespace, err = ObserveNativeDocumentNamespace(t.Context(), fixture.namespace.Addresses(), fixture.namespace.roots, fixture.reader, budget)
+	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, fixture.reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +172,7 @@ func prepareWholeCaptureCandidate(t *testing.T, fixture *wholeGroupTestFixture, 
 func prepareSelectedCaptureCandidate(t *testing.T, fixture *selectedGroupCaptureFixture, budget *physicalwork.Budget) nativeDocumentCaptureCandidate {
 	t.Helper()
 	var err error
-	fixture.namespace, err = ObserveNativeDocumentNamespace(t.Context(), fixture.namespace.Addresses(), fixture.namespace.roots, fixture.reader, budget)
+	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, fixture.reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +191,7 @@ func missingSelectedCapture(t *testing.T) selectedGroupCaptureFixture {
 	selected := fixture.after.ManagedAggregates()[0]
 	original := aggregate.AbsentDocument()
 	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
-	return selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
+	return selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 }
 
 type nativeCapturePathCounter struct{ calls int }

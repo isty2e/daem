@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -39,7 +41,7 @@ func TestSelectedGroupCaptureDerivesActualSubjectFrontierAndPreservesForeignData
 	fixture.after = selectionState(t, selected, outlying)
 	original := aggregate.ExistingDocument([]byte(`{"model":true,"outside":1,"foreign":0}`))
 	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
-	capture := selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
+	capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +77,7 @@ func TestSelectedGroupCaptureCreatesMissingDocumentWithPrivateMode(t *testing.T)
 	selected := fixture.after.ManagedAggregates()[0]
 	original := aggregate.AbsentDocument()
 	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
-	capture := selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
+	capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +130,7 @@ func TestSelectedGroupCaptureCombinesActualNativeAndMCPPlans(t *testing.T) {
 	original := aggregate.ExistingDocument([]byte("model=true\n[mcp_servers.search]\ncommand='node'\n[mcp_servers.foreign]\ncommand='foreign' # retained\n"))
 	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{after.Contribution().Contract()}, []durable.ManagedAggregateState{after})
 	edits = append(edits, selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{mcpRows[1].Contribution().Contract()}, mcpRows[1:])...)
-	capture := selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
+	capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
 	if err != nil || len(group.SelectedSubjects) != 2 {
 		t.Fatalf("actual native/MCP plans did not form one group: %v", err)
@@ -160,7 +162,7 @@ func TestSelectedGroupCaptureSupportsReleaseWithoutInventedSelectedSubjects(t *t
 	fixture := nativeJournalFixture(t)
 	fixture.after = durable.EmptySnapshot()
 	original := aggregate.ExistingDocument([]byte(`{"model":true,"foreign":99}`))
-	capture := selectedCaptureFixture(t, fixture, original, nil, nil, NativeDocumentRoots{})
+	capture := selectedCaptureFixture(t, fixture, original, nil, nil, journalnamespace.Roots{})
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
 	if err != nil || len(group.SelectedSubjects) != 0 || !comparison.ExpectedDocument().Equal(original) {
 		t.Fatalf("release changed host bytes or invented a frontier: %v", err)
@@ -176,7 +178,7 @@ func TestSelectedGroupCaptureRetainsRealPiContextAndOrderOnlyWork(t *testing.T) 
 			if !known {
 				t.Fatal("actual Pi relation has no command context")
 			}
-			roots := NativeDocumentRoots{Manifest: nativeNamespaceRoot(t, command.BaseRoot())}
+			roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, command.BaseRoot())}
 			if scope == target.ScopeGlobal {
 				roots.PiAgent = nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())
 			}
@@ -212,7 +214,7 @@ func TestSelectedGroupCaptureCombinesActualNativeAndPiOrder(t *testing.T) {
 	if !known {
 		t.Fatal("actual Pi relation lacks source context")
 	}
-	roots := NativeDocumentRoots{Manifest: nativeNamespaceRoot(t, command.BaseRoot()), PiAgent: nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())}
+	roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, command.BaseRoot()), PiAgent: nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())}
 	fixture := nativeJournalFixture(t)
 	fixture.claims.alias, _ = piOrderDocumentAlias(target.ScopeGlobal)
 	before := membershipNativeRow(t, fixture.claims.alias, "native-json-v1", "theme")
@@ -249,7 +251,7 @@ func TestSelectedGroupCaptureKeepsWholeMembershipSeparateFromNarrowedFrontier(t 
 		t.Fatal(err)
 	}
 	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
-	capture := selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
+	capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
 	if err != nil || len(group.SelectedSubjects) != 1 {
 		t.Fatalf("whole-to-key capture failed: %v", err)
@@ -263,7 +265,7 @@ func TestSelectedGroupCaptureKeepsWholeMembershipSeparateFromNarrowedFrontier(t 
 
 func TestSelectedGroupCaptureRejectsWrongPiCommandRootBeforeRead(t *testing.T) {
 	loaded, order := piEvidenceFixture(t, target.ScopeGlobal)
-	roots := NativeDocumentRoots{Manifest: nativeNamespaceRoot(t, t.TempDir()), PiAgent: nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())}
+	roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, t.TempDir()), PiAgent: nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())}
 	fixture := nativeJournalFixture(t)
 	var err error
 	fixture.claims.alias, err = piOrderDocumentAlias(target.ScopeGlobal)
@@ -285,14 +287,14 @@ func TestSelectedGroupCaptureRefusesStaticContractAndMetadataMisjoinsBeforeRead(
 			original := aggregate.ExistingDocument([]byte(`{"model":true,"outside":1}`))
 			selected := fixture.after.ManagedAggregates()[0]
 			edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
-			capture := selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
+			capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 			switch mismatch {
 			case "missing index":
 				capture.subjects = nil
 			case "wrong alias":
 				other := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/other.json")
 				var err error
-				capture.namespace, err = ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{other}, capture.namespace.roots, capture.reader, capture.input.budget)
+				capture.namespace, err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{other}, capture.roots, capture.reader, capture.input.budget)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -319,7 +321,7 @@ func TestSelectedGroupCaptureCancellationAndObservedDriftExposeNoFacts(t *testin
 			original := aggregate.ExistingDocument([]byte(`{"model":true,"outside":1}`))
 			selected := fixture.after.ManagedAggregates()[0]
 			edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
-			capture := selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
+			capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 			ctx := t.Context()
 			switch failure {
 			case "cancel":
@@ -385,8 +387,9 @@ func TestDocumentCaptureSubjectIndexKeepsFullRetargetedIdentity(t *testing.T) {
 }
 
 type selectedGroupCaptureFixture struct {
+	roots     journalnamespace.Roots
 	fixture   nativeRecordFixture
-	namespace NativeDocumentNamespace
+	namespace journalnamespace.DocumentNamespace
 	input     selectedDocumentCaptureInput
 	subjects  documentCaptureSubjects
 	reader    *nativeNamespaceReader
@@ -394,7 +397,7 @@ type selectedGroupCaptureFixture struct {
 	original  aggregate.Document
 }
 
-func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original aggregate.Document, edits []compose.ProjectionEdit, order *pipackage.OrderObservation, roots NativeDocumentRoots) selectedGroupCaptureFixture {
+func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original aggregate.Document, edits []compose.ProjectionEdit, order *pipackage.OrderObservation, roots journalnamespace.Roots) selectedGroupCaptureFixture {
 	t.Helper()
 	alias := fixture.claims.alias
 	if roots.Manifest.Root == nil {
@@ -423,11 +426,11 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := ObserveNativeDocumentNamespace(t.Context(), []aggregate.DocumentAddress{alias}, roots, reader, budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
-	exact, known := namespace.observation.Exact()
+	exact, known := namespace.Observation().Exact()
 	if !known {
 		t.Fatal("fixture path requires normalization-stable exact authority")
 	}
@@ -488,7 +491,7 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 		t.Fatal(err)
 	}
 	fixture.record.ManifestRootProvenance = persistedNativeRoot(provenance)
-	return selectedGroupCaptureFixture{fixture: fixture, namespace: namespace, input: input, subjects: subjects, reader: reader, path: path, original: original}
+	return selectedGroupCaptureFixture{roots: roots, fixture: fixture, namespace: namespace, input: input, subjects: subjects, reader: reader, path: path, original: original}
 }
 
 func selectedCaptureEdits(t *testing.T, fixture nativeRecordFixture, original aggregate.Document, contracts []aggregate.ProjectionContract, desired []durable.ManagedAggregateState) []compose.ProjectionEdit {

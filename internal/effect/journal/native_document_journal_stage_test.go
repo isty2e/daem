@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -33,7 +35,7 @@ func TestNativeDocumentJournalStageUsesActualWholeProducer(t *testing.T) {
 					t.Fatal(err)
 				}
 				fixture.envelope.record.DocumentGroups = []recoveryDocumentGroup{group}
-				authority, err := fixture.namespace.roots.Manifest.Root.Authority()
+				authority, err := fixture.roots.Manifest.Root.Authority()
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -60,17 +62,17 @@ func TestNativeDocumentJournalStageUsesActualWholeProducer(t *testing.T) {
 func TestNativeDocumentJournalStagePreservesMultipleActualGroups(t *testing.T) {
 	first := wholeGroupFixture(t, target.TargetPi, target.ScopeProject, "replace", []byte("first before"), []byte("first after"))
 	second := wholeGroupFixture(t, target.TargetCodex, target.ScopeProject, "replace", []byte("second before"), []byte("second after"))
-	second.path = filepath.Join(first.namespace.roots.Manifest.SelectedPath, filepath.FromSlash(second.input.mutation.facts().destination.RelativePath()))
+	second.path = filepath.Join(first.roots.Manifest.SelectedPath, filepath.FromSlash(second.input.mutation.facts().destination.RelativePath()))
 	requireWholeGroupWrite(t, second.path, second.original.Content(), 0o644)
-	roots := second.namespace.roots
-	roots.Manifest = first.namespace.roots.Manifest
+	roots := second.roots
+	roots.Manifest = first.roots.Manifest
 	var err error
-	second.namespace, err = ObserveNativeDocumentNamespace(t.Context(), second.namespace.Addresses(), roots, second.reader, second.input.budget)
+	second.namespace, err = journalnamespace.Observe(t.Context(), second.namespace.Addresses(), roots, second.reader, second.input.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
 	second.input.owner = first.input.owner
-	exact, known := second.namespace.observation.Exact()
+	exact, known := second.namespace.Observation().Exact()
 	if !known {
 		t.Fatal("existing second file requires exact authority")
 	}
