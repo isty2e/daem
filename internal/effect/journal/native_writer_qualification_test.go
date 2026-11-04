@@ -127,7 +127,7 @@ func TestNativeMixedWriterCaseCollisionRefusesBeforeFinalWriter(t *testing.T) {
 	temporary := t.TempDir()
 	t.Setenv("TMPDIR", temporary)
 	writer := &mixedNoWriteWriter{}
-	fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
+	fingerprint, err := stageMixedDocumentJournal(fixture.journal, t.Context(), fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
 	if err == nil || fingerprint != "" || writer.writes != 0 || writer.directories != 0 {
 		t.Fatalf("case collision reached final writer or returned a usable fingerprint: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestQualifiedNativeWriterCaseCollisionRefusesBeforeImages(t *testing.T) {
 	read := fixture.whole.envelope.read
 	reader := &nativeNamespaceReader{RootedReader: read.filesystem}
 	read.filesystem, read.budget = reader, imageBudget(t)
-	loaded, err := fixture.journal.loadQualifiedDocuments(t.Context(), read, fixture.whole.roots)
+	loaded, err := loadQualifiedDocuments(fixture.journal, t.Context(), read, fixture.whole.roots)
 	if err == nil || loaded.namespaces != nil || loaded.records.groups != nil || reader.imageReads != 0 {
 		t.Fatal("case collision reached artifact reads or returned a qualified prefix")
 	}
@@ -245,7 +245,7 @@ func TestQualifiedWriterKeepsCaseSensitiveFilesDistinct(t *testing.T) {
 	journal := nativeJournalSnapshots{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
 	read := fixture.read
 	read.ordinaryCapabilities, read.budget = acquire, imageBudget(t)
-	qualified, err := journal.qualifyDocumentNamespaces(t.Context(), read, roots)
+	qualified, err := qualifyDocumentNamespaces(journal, t.Context(), read, roots)
 	if err != nil || len(qualified) != 1 || *closed != 1 {
 		t.Fatalf("distinct case-sensitive files were merged or a capability leaked: %v, closed=%d", err, *closed)
 	}
@@ -276,7 +276,7 @@ func TestQualifiedWriterKeepsNativeProjectSymlinkAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	journal.record.ManifestRootProvenance, journal.record.DocumentGroups = persistedNativeRoot(provenance), []recoveryDocumentGroup{group}
-	qualified, err := journal.qualifyDocumentNamespaces(t.Context(), nativeDocumentReadOptions{filesystem: fixture.reader, budget: imageBudget(t)}, roots)
+	qualified, err := qualifyDocumentNamespaces(journal, t.Context(), nativeDocumentReadOptions{filesystem: fixture.reader, budget: imageBudget(t)}, roots)
 	if err != nil || len(qualified) != 1 || len(qualified[0].Aliases()) != 2 {
 		t.Fatalf("ordinary/native partition rejected a supported project symlink alias: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestQualifiedOrdinaryWriterRequiresSelectedRootAndClosesCapabilities(t *tes
 			journal := nativeJournalSnapshots{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
 			read := fixture.read
 			read.ordinaryCapabilities, read.budget = acquire, imageBudget(t)
-			qualified, err := journal.qualifyDocumentNamespaces(ctx, read, roots)
+			qualified, err := qualifyDocumentNamespaces(journal, ctx, read, roots)
 			if (err == nil) != (change == "valid" || change == "duplicate") || err != nil && qualified != nil || *closed != wantCloses {
 				t.Fatalf("root/capability failure returned a prefix or leaked a capability: %v, closed=%d want=%d", err, *closed, wantCloses)
 			}

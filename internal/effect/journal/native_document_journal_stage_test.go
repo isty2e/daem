@@ -169,7 +169,7 @@ func TestNativeDocumentJournalStageRejectsAllInvalidMetadataBeforeWrites(t *test
 				cancel()
 			}
 			writer := &imageStageWriter{}
-			fingerprint, err := decoded.stageDocumentJournal(ctx, comparisons, writer, options)
+			fingerprint, err := stageDocumentJournal(decoded, ctx, comparisons, writer, options)
 			if err == nil || fingerprint != "" || writer.directories != 0 || writer.writes != 0 {
 				t.Fatalf("invalid whole envelope caused private I/O or returned a fingerprint: %v", err)
 			}
@@ -202,7 +202,7 @@ func TestNativeDocumentJournalStagePreflightsJournalAndAllImageWork(t *testing.T
 			}
 			remainingBytes, remainingEntries = budget.RemainingBytes(), budget.RemainingEntries()
 			writer := &imageStageWriter{}
-			fingerprint, err := decoded.stageDocumentJournal(t.Context(), []journaldocument.Comparison{comparison}, writer, documentStageOptions(fixture, budget))
+			fingerprint, err := stageDocumentJournal(decoded, t.Context(), []journaldocument.Comparison{comparison}, writer, documentStageOptions(fixture, budget))
 			if err == nil || fingerprint != "" || writer.writes != 0 || writer.directories != 0 || budget.RemainingBytes() != remainingBytes || budget.RemainingEntries() != remainingEntries {
 				t.Fatalf("budget refusal wrote or charged unattempted artifacts: %v", err)
 			}
@@ -239,7 +239,7 @@ func TestNativeDocumentJournalStageLateFailureAbortsCompletePrivateTree(t *testi
 					return failure
 				}}
 				var err error
-				fingerprint, err = decoded.stageDocumentJournal(ctx, []journaldocument.Comparison{comparison}, wrapped, documentStageOptions(fixture, budget))
+				fingerprint, err = stageDocumentJournal(decoded, ctx, []journaldocument.Comparison{comparison}, wrapped, documentStageOptions(fixture, budget))
 				return err
 			})
 			cause := failure
@@ -274,7 +274,7 @@ func TestNativeDocumentJournalStageDiscardsFingerprintAfterFinalCheckCancellatio
 	var stageErr error
 	_, err := journalTestFilesystem().PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
 		wrapped := journalCompletionWriter{RootedTreeWriter: writer, context: ctx}
-		fingerprint, stageErr = decoded.stageDocumentJournal(ctx, []journaldocument.Comparison{comparison}, wrapped, documentStageOptions(fixture, imageBudget(t)))
+		fingerprint, stageErr = stageDocumentJournal(decoded, ctx, []journaldocument.Comparison{comparison}, wrapped, documentStageOptions(fixture, imageBudget(t)))
 		return stageErr
 	})
 	if !errors.Is(stageErr, context.Canceled) || fingerprint != "" || !errors.Is(err, context.Canceled) {
@@ -328,7 +328,7 @@ func requireStagedDocumentJournal(t *testing.T, fixture nativeRecordFixture, dec
 	var fingerprint string
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		var err error
-		fingerprint, err = decoded.stageDocumentJournal(t.Context(), comparisons, writer, documentStageOptions(fixture, budget))
+		fingerprint, err = stageDocumentJournal(decoded, t.Context(), comparisons, writer, documentStageOptions(fixture, budget))
 		return err
 	})
 	if err != nil {
@@ -362,7 +362,7 @@ func requireStagedDocumentJournal(t *testing.T, fixture nativeRecordFixture, dec
 	}
 	defer root.Close()
 	fixture.read.artifacts, fixture.read.budget = root, imageBudget(t)
-	loaded, err := reconstructed.loadDocuments(t.Context(), fixture.read)
+	loaded, err := loadDocuments(reconstructed, t.Context(), fixture.read)
 	if err != nil || len(loaded.groups) != len(comparisons) {
 		t.Fatalf("staged complete native record cannot reconstruct: %v", err)
 	}

@@ -108,7 +108,7 @@ func TestDocumentImageStageFeedsStrictNativeRecordReconstruction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := decoded.loadDocuments(t.Context(), fixture.read)
+	loaded, err := loadDocuments(decoded, t.Context(), fixture.read)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestDocumentImageStageFeedsStrictNativeRecordReconstruction(t *testing.T) {
 	}
 	defer root.Close()
 	fixture.read.artifacts, fixture.read.budget = root, imageBudget(t)
-	reconstructed, err := decoded.loadDocuments(t.Context(), fixture.read)
+	reconstructed, err := loadDocuments(decoded, t.Context(), fixture.read)
 	if err != nil || len(reconstructed.groups) != 1 {
 		t.Fatalf("actual staged native16 images cannot reconstruct: %v", err)
 	}

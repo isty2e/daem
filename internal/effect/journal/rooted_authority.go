@@ -293,7 +293,7 @@ func (binding recoveryGlobalPathObservation) captureFacts() (*capturedGlobalBind
 	if err != nil {
 		return nil, err
 	}
-	return &capturedGlobalBinding{path: binding.resolvedPath, provenance: provenance}, nil
+	return newCapturedGlobalBinding(binding.resolvedPath, provenance), nil
 }
 
 func matchRecordedGlobalBinding(

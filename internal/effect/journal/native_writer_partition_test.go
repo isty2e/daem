@@ -224,7 +224,7 @@ func TestNativeMixedWriterPartitionRefusesActualAliasedOrdinaryWriter(t *testing
 	temporary := t.TempDir()
 	t.Setenv("TMPDIR", temporary)
 	writer := &mixedNoWriteWriter{}
-	fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
+	fingerprint, err := stageMixedDocumentJournal(fixture.journal, t.Context(), fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
 	if err == nil || fingerprint != "" || (writer.directories+writer.writes) != 0 {
 		t.Fatalf("aliased native and ordinary writers staged a usable result: fingerprint=%q calls=%d err=%v", fingerprint, (writer.directories + writer.writes), err)
 	}
@@ -266,7 +266,7 @@ func TestNativeWriterPartitionRefusesAtEveryRecordBoundary(t *testing.T) {
 	read := fixture.whole.envelope.read
 	reader := &nativeNamespaceReader{RootedReader: read.filesystem}
 	read.filesystem, read.budget = reader, imageBudget(t)
-	if loaded, err := fixture.journal.loadDocuments(t.Context(), read); err == nil || loaded.groups != nil || reader.imageReads != 0 {
+	if loaded, err := loadDocuments(fixture.journal, t.Context(), read); err == nil || loaded.groups != nil || reader.imageReads != 0 {
 		t.Error("artifact boundary admitted overlap or read images before refusing it")
 	}
 }

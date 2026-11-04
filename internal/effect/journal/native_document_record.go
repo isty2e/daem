@@ -21,7 +21,7 @@ type nativeDocumentReadOptions struct {
 	codecs               aggregate.CodecCatalog
 }
 
-func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options nativeDocumentReadOptions) (nativeDocumentRecords, error) {
+func loadDocuments(journal nativeJournalSnapshots, ctx context.Context, options nativeDocumentReadOptions) (nativeDocumentRecords, error) {
 	if ctx == nil || options.artifacts == nil || options.filesystem == nil || options.budget == nil {
 		return nativeDocumentRecords{}, fmt.Errorf("native document read context, artifact root, filesystem and shared budget are required")
 	}

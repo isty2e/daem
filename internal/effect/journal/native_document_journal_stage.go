@@ -26,7 +26,7 @@ type nativeDocumentStageOptions struct {
 
 // stageDocumentJournal writes only an unpublished document-only tree. The caller
 // must propagate errors from PrepareRootedTree and separately qualify publication.
-func (journal nativeJournalSnapshots) stageDocumentJournal(ctx context.Context, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeDocumentStageOptions) (string, error) {
+func stageDocumentJournal(journal nativeJournalSnapshots, ctx context.Context, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeDocumentStageOptions) (string, error) {
 	if ctx == nil || writer == nil || options.budget == nil || options.stateCodec == nil {
 		return "", fmt.Errorf("native document staging requires context, private writer, state codec and shared budget")
 	}
@@ -36,14 +36,14 @@ func (journal nativeJournalSnapshots) stageDocumentJournal(ctx context.Context, 
 	if err := journal.RequireDocumentOnly(); err != nil {
 		return "", err
 	}
-	prepared, content, err := journal.prepareDocumentJournal(ctx, comparisons, options, workmeasure.ArtifactWork{})
+	prepared, content, err := prepareDocumentJournal(journal, ctx, comparisons, options, workmeasure.ArtifactWork{})
 	if err != nil {
 		return "", err
 	}
 	return prepared.stageJournal(ctx, content, writer, options.budget)
 }
 
-func (journal nativeJournalSnapshots) prepareDocumentJournal(ctx context.Context, comparisons []journaldocument.Comparison, options nativeDocumentStageOptions, ordinaryWork workmeasure.ArtifactWork) (nativeDocumentRecords, []byte, error) {
+func prepareDocumentJournal(journal nativeJournalSnapshots, ctx context.Context, comparisons []journaldocument.Comparison, options nativeDocumentStageOptions, ordinaryWork workmeasure.ArtifactWork) (nativeDocumentRecords, []byte, error) {
 	entries, imageBytes, err := preflightDocumentJournalImages(ctx, comparisons, options.budget)
 	if err != nil {
 		return nativeDocumentRecords{}, nil, err

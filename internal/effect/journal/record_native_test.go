@@ -143,7 +143,7 @@ func TestNativeRecoveryQueriesKeepHeadersAndRefuseInvalidRemovalFacts(t *testing
 }
 
 func TestZeroNativeQualificationRefusesBeforeRootQualification(t *testing.T) {
-	_, err := (nativeJournalSnapshots{}).qualifyDocumentNamespaces(t.Context(), nativeDocumentReadOptions{
+	_, err := qualifyDocumentNamespaces(nativeJournalSnapshots{}, t.Context(), nativeDocumentReadOptions{
 		filesystem: journalTestFilesystem(), budget: imageBudget(t),
 	}, journalnamespace.Roots{})
 	if err == nil || err.Error() != "native journal record is required" {

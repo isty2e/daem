@@ -36,7 +36,7 @@ func TestQualifiedNativeRecordJoinsActualRootsImagesAndSemanticRollback(t *testi
 	}
 	reader := &nativeNamespaceReader{RootedReader: fixture.read.filesystem}
 	fixture.read.filesystem = reader
-	loaded, err := decoded.loadQualifiedDocuments(t.Context(), fixture.read, roots)
+	loaded, err := loadQualifiedDocuments(decoded, t.Context(), fixture.read, roots)
 	if err != nil || len(loaded.namespaces) != 1 || len(loaded.records.groups) != 1 || reader.imageReads != 2 {
 		t.Fatalf("live namespace + complete image/record join: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestQualifiedNativeRecordRefusesWriterOrLogicalRootSubstitution(t *testing.
 			}
 			reader := &nativeNamespaceReader{RootedReader: fixture.read.filesystem}
 			fixture.read.filesystem = reader
-			loaded, err := decoded.loadQualifiedDocuments(t.Context(), fixture.read, roots)
+			loaded, err := loadQualifiedDocuments(decoded, t.Context(), fixture.read, roots)
 			if err == nil || loaded.namespaces != nil || loaded.records.groups != nil || reader.imageReads != 0 {
 				t.Fatal("substituted roots/writer returned a qualified prefix or read private images")
 			}
@@ -164,12 +164,12 @@ func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.
 		t.Fatal("two logical groups at one recorded writer escaped strict construction")
 	}
 	decoded := nativeJournalSnapshots{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
-	if records, err := decoded.loadDocuments(t.Context(), fixture.read); err == nil || records.groups != nil {
+	if records, err := loadDocuments(decoded, t.Context(), fixture.read); err == nil || records.groups != nil {
 		t.Fatal("bypassing decode admitted overlapping physical writers")
 	}
 	reader := &nativeNamespaceReader{RootedReader: fixture.read.filesystem}
 	fixture.read.filesystem = reader
-	result, err := decoded.loadQualifiedDocuments(t.Context(), fixture.read, roots)
+	result, err := loadQualifiedDocuments(decoded, t.Context(), fixture.read, roots)
 	if err == nil || result.namespaces != nil || result.records.groups != nil || reader.imageReads != 0 {
 		t.Fatal("two logical groups qualified the same physical file or returned a prefix")
 	}
@@ -229,7 +229,7 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := decoded.loadQualifiedDocuments(t.Context(), fixture.read, roots)
+	loaded, err := loadQualifiedDocuments(decoded, t.Context(), fixture.read, roots)
 	if err != nil || len(loaded.records.groups) != 1 || !loaded.records.groups[0].Comparison().Changed() {
 		t.Fatalf("captured lexical/physical context was conflated: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 			options := fixture.read
 			options.filesystem, options.budget = reader, imageBudget(t)
 
-			result, err := changed.loadQualifiedDocuments(t.Context(), options, roots)
+			result, err := loadQualifiedDocuments(changed, t.Context(), options, roots)
 			if err == nil || result.records.groups != nil || result.namespaces != nil {
 				t.Fatal("invalid source context returned qualified evidence")
 			}
@@ -269,7 +269,7 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 	}
 	other := nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "different-command"))
 	decoded.record.DocumentGroups[0].PiOrder.Evidence.Relations[0].SourceContext.BaseRoot = other.SelectedPath
-	if result, err := decoded.loadQualifiedDocuments(t.Context(), fixture.read, roots); err == nil || result.records.groups != nil || result.namespaces != nil {
+	if result, err := loadQualifiedDocuments(decoded, t.Context(), fixture.read, roots); err == nil || result.records.groups != nil || result.namespaces != nil {
 		t.Fatal("Pi replay accepted a different command-root incarnation")
 	}
 }
@@ -335,7 +335,7 @@ func TestQualifiedNativeWriterRefusesProtectedArtifactRoot(t *testing.T) {
 	read := fixture.read
 	read.artifacts = roots.Manifest.Root
 	journal := nativeJournalSnapshots{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
-	namespaces, err := journal.qualifyDocumentNamespaces(t.Context(), read, roots)
+	namespaces, err := qualifyDocumentNamespaces(journal, t.Context(), read, roots)
 	if err == nil || namespaces != nil {
 		t.Fatal("native writer inside the protected artifact root was admitted", err)
 	}

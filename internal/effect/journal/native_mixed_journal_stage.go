@@ -37,7 +37,7 @@ type nativeMixedStageOptions struct {
 
 // stageMixedDocumentJournal populates one unpublished tree. Capture options must
 // contain only ordinary work; the containing operation still owns live authority.
-func (journal nativeJournalSnapshots) stageMixedDocumentJournal(ctx context.Context, paths Paths, capture CaptureOptions, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (fingerprint string, resultErr error) {
+func stageMixedDocumentJournal(journal nativeJournalSnapshots, ctx context.Context, paths Paths, capture CaptureOptions, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (fingerprint string, resultErr error) {
 	if ctx == nil || writer == nil || options.budget == nil || options.stateCodec == nil || capture.Filesystem == nil || capture.Resolver == nil {
 		return "", fmt.Errorf("mixed journal staging requires context, private writer, codec, shared budget and ordinary capture adapters")
 	}
@@ -66,7 +66,7 @@ func (journal nativeJournalSnapshots) stageMixedDocumentJournal(ctx context.Cont
 	if err != nil {
 		return "", err
 	}
-	return journal.stageWithOrdinarySource(ctx, ordinary, comparisons, writer, options)
+	return stageWithOrdinarySource(journal, ctx, ordinary, comparisons, writer, options)
 }
 
 func captureOrdinarySource(ctx context.Context, paths Paths, directory string, basis ordinaryCaptureBasis, capture CaptureOptions, budget *physicalwork.Budget) (ordinaryCaptureSource, error) {
@@ -122,12 +122,12 @@ func captureOrdinarySource(ctx context.Context, paths Paths, directory string, b
 	return ordinaryCaptureSource{record: record, view: view, identity: identity, work: work, filesystem: capture.Filesystem, capabilities: capture.RootedCapability}, nil
 }
 
-func (journal nativeJournalSnapshots) stageWithOrdinarySource(ctx context.Context, ordinary ordinaryCaptureSource, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (string, error) {
+func stageWithOrdinarySource(journal nativeJournalSnapshots, ctx context.Context, ordinary ordinaryCaptureSource, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (string, error) {
 	journal, err := journal.withOrdinaryCapture(ordinary.record)
 	if err != nil {
 		return "", err
 	}
-	if _, err := journal.qualifyDocumentNamespaces(ctx, nativeDocumentReadOptions{filesystem: ordinary.filesystem, budget: options.budget, ordinaryCapabilities: ordinary.capabilities}, options.roots); err != nil {
+	if _, err := qualifyDocumentNamespaces(journal, ctx, nativeDocumentReadOptions{filesystem: ordinary.filesystem, budget: options.budget, ordinaryCapabilities: ordinary.capabilities}, options.roots); err != nil {
 		return "", err
 	}
 	// Each traversal may enumerate one overflow entry when refusing source growth.
@@ -139,7 +139,7 @@ func (journal nativeJournalSnapshots) stageWithOrdinarySource(ctx context.Contex
 	if err != nil {
 		return "", err
 	}
-	prepared, content, err := journal.prepareDocumentJournal(ctx, comparisons, options.nativeDocumentStageOptions, work)
+	prepared, content, err := prepareDocumentJournal(journal, ctx, comparisons, options.nativeDocumentStageOptions, work)
 	if err != nil {
 		return "", err
 	}

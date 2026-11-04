@@ -87,7 +87,7 @@ func TestNativeJournalMixedCodexRecordProtectsForeignMCPValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded, err := decoded.loadDocuments(t.Context(), fixture.read); err == nil || loaded.groups != nil || loaded.images != nil {
+	if loaded, err := loadDocuments(decoded, t.Context(), fixture.read); err == nil || loaded.groups != nil || loaded.images != nil {
 		t.Fatal("valid image hashes turned the MCP rewrite parent into permission over foreign values")
 	}
 }
@@ -165,7 +165,7 @@ func TestNativeJournalWholeExtentDoesNotParseOpaqueImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded, err := decoded.loadDocuments(t.Context(), fixture.read); err == nil || loaded.groups != nil || loaded.images != nil {
+	if loaded, err := loadDocuments(decoded, t.Context(), fixture.read); err == nil || loaded.groups != nil || loaded.images != nil {
 		t.Fatal("whole expected mode disagreed with the durable after baseline")
 	}
 }
@@ -269,7 +269,7 @@ func nativeRecordLoadFixture(t *testing.T, fixture nativeRecordFixture) nativeDo
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := decoded.loadDocuments(t.Context(), fixture.read)
+	loaded, err := loadDocuments(decoded, t.Context(), fixture.read)
 	if err != nil || len(loaded.groups) != len(fixture.record.DocumentGroups) {
 		t.Fatalf("complete variant record: %v", err)
 	}
@@ -285,7 +285,7 @@ func nativeRecordLoadFixture(t *testing.T, fixture nativeRecordFixture) nativeDo
 		requireStagedDocumentJournal(t, fixture, decoded, comparisons)
 	} else {
 		writer := &imageStageWriter{}
-		fingerprint, err := decoded.stageDocumentJournal(t.Context(), comparisons, writer, documentStageOptions(fixture, imageBudget(t)))
+		fingerprint, err := stageDocumentJournal(decoded, t.Context(), comparisons, writer, documentStageOptions(fixture, imageBudget(t)))
 		if err == nil || fingerprint != "" || writer.writes != 0 || writer.directories != 0 {
 			t.Fatalf("document-only stage admitted ordinary artifacts: %v", err)
 		}

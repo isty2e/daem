@@ -22,19 +22,19 @@ type nativeQualifiedDocumentRecords struct {
 	namespaces []journalnamespace.DocumentNamespace
 }
 
-func (journal nativeJournalSnapshots) loadQualifiedDocuments(ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) (nativeQualifiedDocumentRecords, error) {
-	namespaces, err := journal.qualifyDocumentNamespaces(ctx, options, roots)
+func loadQualifiedDocuments(journal nativeJournalSnapshots, ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) (nativeQualifiedDocumentRecords, error) {
+	namespaces, err := qualifyDocumentNamespaces(journal, ctx, options, roots)
 	if err != nil {
 		return nativeQualifiedDocumentRecords{}, err
 	}
-	records, err := journal.loadDocuments(ctx, options)
+	records, err := loadDocuments(journal, ctx, options)
 	if err != nil {
 		return nativeQualifiedDocumentRecords{}, err
 	}
 	return nativeQualifiedDocumentRecords{records: records, namespaces: namespaces}, nil
 }
 
-func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) ([]journalnamespace.DocumentNamespace, error) {
+func qualifyDocumentNamespaces(journal nativeJournalSnapshots, ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) ([]journalnamespace.DocumentNamespace, error) {
 	if ctx == nil || options.filesystem == nil || options.budget == nil {
 		return nil, fmt.Errorf("qualified document read context, filesystem and shared budget are required")
 	}

@@ -39,7 +39,7 @@ func TestNativeJournalRecordRoundtripsFullStateAndActualImages(t *testing.T) {
 		t.Fatalf("full native Snapshots did not survive the selected codec: %v", err)
 	}
 	remaining := fixture.read.budget.RemainingBytes()
-	loaded, err := decoded.loadDocuments(t.Context(), fixture.read)
+	loaded, err := loadDocuments(decoded, t.Context(), fixture.read)
 	if err != nil || len(loaded.groups) != 1 || len(loaded.images) != 1 || len(loaded.claims[0].After()) != 1 {
 		t.Fatalf("complete record reconstruction: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestNativeJournalReconstructionRejectsLateGroupWithoutPartialPrefix(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := decoded.loadDocuments(t.Context(), fixture.read)
+	loaded, err := loadDocuments(decoded, t.Context(), fixture.read)
 	if err == nil || loaded.groups != nil || loaded.images != nil || loaded.claims != nil || loaded.provisional != nil {
 		t.Fatal("late full-reference failure retained a usable first group")
 	}
@@ -197,7 +197,7 @@ func TestNativeJournalReconstructionRejectsLateGroupWithoutPartialPrefix(t *test
 		t.Fatal(err)
 	}
 	decoded.record = fixture.record
-	loaded, err = decoded.loadDocuments(t.Context(), fixture.read)
+	loaded, err = loadDocuments(decoded, t.Context(), fixture.read)
 	if err == nil || loaded.groups != nil || loaded.images != nil {
 		t.Fatal("changed private expected payload returned compiled reconstruction")
 	}
@@ -245,7 +245,7 @@ func TestNativeJournalReconstructionRefusesClaimAndBindingForeignKeys(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded, err := decoded.loadDocuments(t.Context(), fixture.read); err == nil || loaded.groups != nil || loaded.images != nil {
+			if loaded, err := loadDocuments(decoded, t.Context(), fixture.read); err == nil || loaded.groups != nil || loaded.images != nil {
 				t.Fatal("foreign metadata or uncovered changed state returned a usable group")
 			}
 		})
@@ -267,7 +267,7 @@ func TestNativeJournalCancellationReturnsNoRecordOrGroup(t *testing.T) {
 	if result, err := decodeNativeJournalRecord(ctx, content, fixture.codec); !errors.Is(err, context.Canceled) || result.record.Version != 0 {
 		t.Fatal("canceled decode returned record facts")
 	}
-	if result, err := decoded.loadDocuments(ctx, fixture.read); !errors.Is(err, context.Canceled) || result.groups != nil || result.images != nil {
+	if result, err := loadDocuments(decoded, ctx, fixture.read); !errors.Is(err, context.Canceled) || result.groups != nil || result.images != nil {
 		t.Fatal("canceled reconstruction returned a group")
 	}
 }

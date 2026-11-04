@@ -43,6 +43,10 @@ type capturedGlobalBinding struct {
 	provenance rootedpath.AuthorityProvenance
 }
 
+func newCapturedGlobalBinding(path string, provenance rootedpath.AuthorityProvenance) *capturedGlobalBinding {
+	return &capturedGlobalBinding{path: path, provenance: provenance}
+}
+
 func (binding capturedGlobalBinding) persisted() *recoveryGlobalPathBinding {
 	return &recoveryGlobalPathBinding{ResolvedPath: binding.path, RootProvenance: persistedRecoveryRootProvenance(binding.provenance)}
 }

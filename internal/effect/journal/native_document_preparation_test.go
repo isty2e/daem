@@ -38,7 +38,7 @@ func TestPreparedNativeDocumentsAdmitActualPlanBeforeArtifactsExist(t *testing.T
 	if err != nil || len(prepared.documents.groups) != 1 || len(prepared.documents.claims) != 1 || len(prepared.documents.images) != 1 {
 		t.Fatalf("actual prepared plan cannot pass pre-artifact construction: %v", err)
 	}
-	if _, err := decoded.loadDocuments(t.Context(), fixture.read); err == nil {
+	if _, err := loadDocuments(decoded, t.Context(), fixture.read); err == nil {
 		t.Fatal("unavailable artifact fixture unexpectedly remained readable")
 	}
 	mode := recovery.NewPermissionMode(0o600)
@@ -160,7 +160,7 @@ func TestNativeDocumentReaderKeepsMetadataRefusalBeforeImageReads(t *testing.T) 
 			}
 			reader := &preparedNativeReadCounter{RootedReader: fixture.read.filesystem}
 			fixture.read.filesystem = reader
-			loaded, err := decoded.loadDocuments(t.Context(), fixture.read)
+			loaded, err := loadDocuments(decoded, t.Context(), fixture.read)
 			assertNoPreparedNativeDocuments(t, loaded, err)
 			if reader.reads != 0 {
 				t.Fatal("metadata refusal eagerly read private images")
