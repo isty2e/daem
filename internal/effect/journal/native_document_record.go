@@ -41,65 +41,27 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 	if ctx == nil || options.artifacts == nil || options.filesystem == nil || options.budget == nil {
 		return nativeDocumentRecords{}, fmt.Errorf("native document read context, artifact root, filesystem and shared budget are required")
 	}
-	if err := ctx.Err(); err != nil {
-		return nativeDocumentRecords{}, err
-	}
-	if err := journal.record.validateRemovalCoverage(); err != nil {
-		return nativeDocumentRecords{}, err
-	}
-	if err := journal.record.validateWriterSpellingPartition(ctx); err != nil {
-		return nativeDocumentRecords{}, err
-	}
-	if err := journal.owner.Validate(); err != nil {
-		return nativeDocumentRecords{}, err
-	}
-	if err := options.limits.Validate(); err != nil {
-		return nativeDocumentRecords{}, err
-	}
-	indexes, err := journaldocument.IndexSnapshots(ctx, journal.before, journal.after)
+	session, err := newDocumentReconstruction(ctx, journal, options.limits, options.codecs, documentReconstructionLoaded, nil)
 	if err != nil {
 		return nativeDocumentRecords{}, err
 	}
-	bindingGroups, err := journal.documentBindings(ctx)
-	if err != nil {
-		return nativeDocumentRecords{}, err
+	for {
+		demand, present, err := session.next(ctx)
+		if err != nil {
+			return nativeDocumentRecords{}, err
+		}
+		if !present {
+			break
+		}
+		images, err := loadDocumentImages(ctx, demand.original, demand.expected, options.artifacts, options.filesystem, options.budget, recovery.MaximumRecoveryBackupFileBytes)
+		if err != nil {
+			return nativeDocumentRecords{}, err
+		}
+		if err := session.supplyLoadedImages(ctx, demand, images); err != nil {
+			return nativeDocumentRecords{}, err
+		}
 	}
-	var inputs []journaldocument.StateGroupInput
-	result := nativeDocumentRecords{}
-	for groupIndex, record := range journal.record.DocumentGroups {
-		if err := ctx.Err(); err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		aliases, subjects, err := record.canonicalReferences(ctx)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		selections, err := indexes.SelectedContracts(ctx, subjects, aliases)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		bindings := bindingGroups[groupIndex]
-		claims, provisional, err := journal.documentClaims(ctx, indexes, record, aliases)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		images, err := loadDocumentImages(ctx, record.Original, record.Expected, options.artifacts, options.filesystem, options.budget, recovery.MaximumRecoveryBackupFileBytes)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		if err := record.validateRemovalImages(images); err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		comparison, err := reconstructNativeDocumentComparison(ctx, record, images, selections, options.limits, options.codecs)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		inputs = append(inputs, journaldocument.NewStateGroupInput(aliases, subjects, comparison, bindings))
-		result.images = append(result.images, images)
-		result.claims = append(result.claims, claims)
-		result.provisional = append(result.provisional, provisional)
-	}
-	return journal.completeDocuments(ctx, indexes, inputs, result, options.codecs)
+	return session.finish(ctx)
 }
 
 func (journal nativeJournalSnapshots) completeDocuments(ctx context.Context, indexes journaldocument.SnapshotIndexes, inputs []journaldocument.StateGroupInput, result nativeDocumentRecords, codecs aggregate.CodecCatalog) (nativeDocumentRecords, error) {

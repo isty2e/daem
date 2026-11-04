@@ -18,93 +18,23 @@ import (
 // prepareDocuments checks prepared images against the complete record without
 // artifact I/O. Source/action and live namespace authority remain separate joins.
 func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comparisons []journaldocument.Comparison, limits configdocument.Limits, codecs aggregate.CodecCatalog) (nativeDocumentRecords, error) {
-	if ctx == nil {
-		return nativeDocumentRecords{}, fmt.Errorf("prepared native document context is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return nativeDocumentRecords{}, err
-	}
-	if err := journal.record.validateRemovalCoverage(); err != nil {
-		return nativeDocumentRecords{}, err
-	}
-	if err := journal.record.validateWriterSpellingPartition(ctx); err != nil {
-		return nativeDocumentRecords{}, err
-	}
-	if err := journal.owner.Validate(); err != nil {
-		return nativeDocumentRecords{}, err
-	}
-	if err := limits.Validate(); err != nil {
-		return nativeDocumentRecords{}, err
-	}
-	if len(comparisons) != len(journal.record.DocumentGroups) {
-		return nativeDocumentRecords{}, fmt.Errorf("prepared comparisons must cover every recorded document group exactly once")
-	}
-	indexes, err := journaldocument.IndexSnapshots(ctx, journal.before, journal.after)
+	session, err := newDocumentReconstruction(ctx, journal, limits, codecs, documentReconstructionPrepared, comparisons)
 	if err != nil {
 		return nativeDocumentRecords{}, err
 	}
-	bindings, err := journal.documentBindings(ctx)
-	if err != nil {
-		return nativeDocumentRecords{}, err
+	for {
+		demand, present, err := session.next(ctx)
+		if err != nil {
+			return nativeDocumentRecords{}, err
+		}
+		if !present {
+			break
+		}
+		if err := session.supplyPreparedImages(ctx, demand); err != nil {
+			return nativeDocumentRecords{}, err
+		}
 	}
-	var inputs []journaldocument.StateGroupInput
-	var canonicalComparisons []journaldocument.Comparison
-	result := nativeDocumentRecords{}
-	for index, record := range journal.record.DocumentGroups {
-		if err := ctx.Err(); err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		if err := record.validate(journal.record.ManifestRootProvenance); err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		aliases, subjects, err := record.canonicalReferences(ctx)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		selections, err := indexes.SelectedContracts(ctx, subjects, aliases)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		claims, provisional, err := journal.documentClaims(ctx, indexes, record, aliases)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		comparison := comparisons[index]
-		images, err := preparedNativeDocumentImages(ctx, record, comparison, limits)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		if err := record.validateRemovalImages(images); err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		reconstructed, err := reconstructNativeDocumentComparison(ctx, record, images, selections, limits, codecs)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		if err := comparison.RequireCanonicalRecoveryPolicy(ctx, reconstructed); err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		canonicalComparisons = append(canonicalComparisons, reconstructed)
-		inputs = append(inputs, journaldocument.NewStateGroupInput(aliases, subjects, comparison, bindings[index]))
-		result.images = append(result.images, images)
-		result.claims = append(result.claims, claims)
-		result.provisional = append(result.provisional, provisional)
-	}
-	completed, err := journal.completeDocuments(ctx, indexes, inputs, result, codecs)
-	if err != nil {
-		return nativeDocumentRecords{}, err
-	}
-	for index, comparison := range canonicalComparisons {
-		if err := ctx.Err(); err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		group, err := completed.groups[index].CanonicalRecovery(ctx, comparison)
-		if err != nil {
-			return nativeDocumentRecords{}, err
-		}
-		completed.groups[index] = group
-	}
-	return completed, nil
+	return session.finish(ctx)
 }
 
 func (record recoveryDocumentGroup) canonicalReferences(ctx context.Context) ([]aggregate.DocumentAddress, []topology.SubjectID, error) {
