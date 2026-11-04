@@ -335,150 +335,57 @@ func buildOrdinaryCaptureMaterial(
 			}
 		}()
 	}
-	stateByAction, err := recoveryStateByAction(currentState)
+	draft, err := newOrdinaryRecordDraft(ordinaryRecordCaptureInput{
+		operationID: operationID, createdAt: createdAt, before: currentState, after: nextState,
+		manifest: manifestAuthority.provenance, mutations: mutations, removalDemands: options.RemovalDemands,
+	})
 	if err != nil {
 		return ordinaryCaptureMaterial{}, err
-	}
-	if err := options.RemovalDemands.Validate(); err != nil {
-		return ordinaryCaptureMaterial{}, fmt.Errorf("validate executable removal demands: %w", err)
-	}
-	removalDemands := make(map[removalRelationKey]recovery.RemovalDemand, options.RemovalDemands.Len())
-	for _, demand := range options.RemovalDemands.Demands() {
-		removalDemands[removalRelationKey{
-			scope: demand.Scope(), destination: demand.Destination(),
-		}] = demand
 	}
 	backupIndex := 0
-	contentPathBaselines, err := newRecoveryContentPathBaselineCache(
-		mutations,
-		options.Codecs,
-		filesystem,
-	)
+	contentPathBaselines, err := newRecoveryContentPathBaselineCache(mutations, options.Codecs, filesystem)
 	if err != nil {
 		return ordinaryCaptureMaterial{}, err
 	}
-	entries := make([]recoveryEntry, 0, len(mutations))
-	for _, action := range mutations {
-		if err := ctx.Err(); err != nil {
+	for range draft.entryCount() {
+		action, err := draft.beginEntry(ctx)
+		if err != nil {
 			return ordinaryCaptureMaterial{}, err
 		}
-
 		before, nextBackupIndex, err := captureRecoveryBeforePath(
-			ctx,
-			operationDir,
-			backupIndex,
-			action,
-			filesystem,
-			boundResolver,
-			manifestAuthority,
-			options.RootedCapability,
-			contentPathBaselines,
-			work,
+			ctx, operationDir, backupIndex, action, filesystem, boundResolver,
+			manifestAuthority, options.RootedCapability, contentPathBaselines, work,
 		)
 		if err != nil {
 			return ordinaryCaptureMaterial{}, err
 		}
 		backupIndex = nextBackupIndex
-		stateBefore, err := captureRecoveryStateBefore(action, stateByAction)
+		if err := draft.supplyBefore(before); err != nil {
+			return ordinaryCaptureMaterial{}, err
+		}
+		binding, err := globalPathBindings.captured(action.Scope, action.Destination)
 		if err != nil {
 			return ordinaryCaptureMaterial{}, err
 		}
-		expectedAfter, stateExpectedAfter, err := captureRecoveryExpectedAfter(action)
-		if err != nil {
+		if err := draft.supplyGlobalBinding(binding); err != nil {
 			return ordinaryCaptureMaterial{}, err
 		}
-		globalPathBinding, err := globalPathBindings.persisted(action.Scope, action.Destination)
-		if err != nil {
-			return ordinaryCaptureMaterial{}, err
-		}
-		rootedBefore, rootedExpected := completeRemovalTransitionStates(
-			action,
-			before,
-			expectedAfter,
-		)
-		removalTransition, err := removalTransitionForCapture(
-			action.Scope,
-			action.Destination,
-			rootedBefore,
-			rootedExpected,
-			removalDemands,
-		)
-		if err != nil {
-			return ordinaryCaptureMaterial{}, fmt.Errorf("capture removal transition for %q: %w", action.Destination, err)
-		}
-		aggregateContract, err := persistedAggregateContractFromMutation(action)
-		if err != nil {
-			return ordinaryCaptureMaterial{}, err
-		}
-		entries = append(entries, recoveryEntry{
-			Subject:             subjectRefFromAction(action),
-			Target:              string(action.Target),
-			Targets:             targetStrings(action.ConsumerTargets),
-			Scope:               string(action.Scope),
-			Path:                action.Destination.String(),
-			GlobalPathBinding:   globalPathBinding,
-			ContentPath:         string(action.ContentPath),
-			ContentKind:         string(action.ContentKind),
-			RemovalTransition:   removalTransition,
-			Before:              persistedBeforePathState(before),
-			ExpectedAfter:       persistedExpectedPathState(expectedAfter),
-			StateBeforeIdentity: stateBeforeIdentityFromAction(action),
-			StateBefore:         stateBefore,
-			StateExpectedAfter:  stateExpectedAfter,
-			Aggregate:           aggregateContract,
-			StateIndependent:    action.StateIndependent,
-		})
 	}
-	capturedDemands, err := removalDemandSetFromEntries(entries)
-	if err != nil {
+	if err := draft.closeEntries(); err != nil {
 		return ordinaryCaptureMaterial{}, err
-	}
-	if !options.RemovalDemands.Equal(capturedDemands) {
-		return ordinaryCaptureMaterial{}, fmt.Errorf(
-			"executable removal demands do not exactly match captured removal transitions",
-		)
 	}
 	removalIntents, err := work.removalIntents(ctx, options.RemovalDemands, boundResolver)
 	if err != nil {
 		return ordinaryCaptureMaterial{}, err
 	}
-	if err := validateRecoveryRemovalCoverage(options.RemovalDemands, removalIntents); err != nil {
+	if err := draft.supplyRemovalIntents(removalIntents); err != nil {
 		return ordinaryCaptureMaterial{}, err
 	}
-	persistedRemovalIntents, err := persistedRecoveryRemovalIntents(removalIntents)
-	if err != nil {
+	if err := draft.beginClaimCoverage(options.ClaimTransitions, options.ProvisionalAcquires); err != nil {
 		return ordinaryCaptureMaterial{}, err
 	}
-
-	sortRecoveryEntries(entries)
-	entries, err = bindRecoveryClaimCoverage(
-		ctx,
-		entries,
-		options.ClaimTransitions,
-		options.ProvisionalAcquires,
-		boundResolver,
-	)
-	if err != nil {
+	if err := captureClaimAuthorities(ctx, boundResolver, draft.nextClaimAuthority, draft.bindClaimAuthority); err != nil {
 		return ordinaryCaptureMaterial{}, err
 	}
-	persistedTransitions, err := recoveryClaimTransitions(options.ClaimTransitions)
-	if err != nil {
-		return ordinaryCaptureMaterial{}, err
-	}
-	persistedIntents, err := recoveryProvisionalAcquireIntents(options.ProvisionalAcquires)
-	if err != nil {
-		return ordinaryCaptureMaterial{}, err
-	}
-	return ordinaryCaptureMaterial{
-		OperationID:            operationID,
-		Operation:              recoveryOperationApply,
-		CreatedAt:              createdAt.UTC().Format(time.RFC3339),
-		ManifestRootProvenance: manifestAuthority.persisted(),
-		Entries:                entries,
-		StatefileBefore:        currentState,
-		StatefileAfter:         nextState,
-		ClaimTransitions:       persistedTransitions,
-		ProvisionalAcquires:    persistedIntents,
-		RemovalIntents:         persistedRemovalIntents,
-	}, nil
+	return draft.finish()
 }

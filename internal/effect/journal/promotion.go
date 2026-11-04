@@ -220,7 +220,7 @@ func recoveryJournalAfterPromotion(
 	transition ownershipmutation.ClaimTransition,
 	stateCodec durable.SnapshotCodec,
 ) (recoveryJournal, error) {
-	material := ordinaryCaptureMaterial{
+	material := ordinaryOwnershipFacts{
 		OperationID: current.OperationID, Entries: current.Entries,
 		ClaimTransitions: current.ClaimTransitions, ProvisionalAcquires: current.ProvisionalAcquires,
 	}

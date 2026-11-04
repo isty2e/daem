@@ -74,6 +74,17 @@ func (bindings recoveryGlobalPathBindings) persisted(
 	scope target.Scope,
 	destination output.Destination,
 ) (*recoveryGlobalPathBinding, error) {
+	binding, err := bindings.captured(scope, destination)
+	if err != nil || binding == nil {
+		return nil, err
+	}
+	return binding.persisted(), nil
+}
+
+func (bindings recoveryGlobalPathBindings) captured(
+	scope target.Scope,
+	destination output.Destination,
+) (*capturedGlobalBinding, error) {
 	if scope != target.ScopeGlobal {
 		return nil, nil
 	}
@@ -81,7 +92,7 @@ func (bindings recoveryGlobalPathBindings) persisted(
 	if !present {
 		return nil, fmt.Errorf("global destination %q has no capture-time path binding", destination)
 	}
-	return binding.persisted()
+	return binding.captureFacts()
 }
 
 func validateRecoveryGlobalPathBindings(
@@ -265,14 +276,19 @@ func observeRecoveryGlobalPathBinding(
 }
 
 func (binding recoveryGlobalPathObservation) persisted() (*recoveryGlobalPathBinding, error) {
+	facts, err := binding.captureFacts()
+	if err != nil {
+		return nil, err
+	}
+	return facts.persisted(), nil
+}
+
+func (binding recoveryGlobalPathObservation) captureFacts() (*capturedGlobalBinding, error) {
 	provenance, err := binding.rootAuthority.Provenance()
 	if err != nil {
 		return nil, err
 	}
-	return &recoveryGlobalPathBinding{
-		ResolvedPath:   binding.resolvedPath,
-		RootProvenance: persistedRecoveryRootProvenance(provenance),
-	}, nil
+	return &capturedGlobalBinding{path: binding.resolvedPath, provenance: provenance}, nil
 }
 
 func (binding recoveryGlobalPathBinding) canonical() (string, rootedpath.AuthorityProvenance, error) {

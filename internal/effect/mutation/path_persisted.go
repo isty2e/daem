@@ -97,6 +97,7 @@ func (observation DirectoryEntryAuthorityObservation) Exact() (pathauthority.Exa
 	return observation.exact, !observation.exact.IsZero()
 }
 
+
 // Provisional returns the future-path intent when exact authority is not yet observable.
 func (observation DirectoryEntryAuthorityObservation) Provisional() (pathauthority.Provisional, bool) {
 	return observation.provisional, !observation.provisional.IsZero()
