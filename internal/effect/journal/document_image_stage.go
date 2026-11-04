@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -18,26 +19,26 @@ import (
 
 // stageDocumentImages writes only into the containing unpublished tree. Its
 // caller must propagate failures so that the tree owner aborts partial artifacts.
-func stageDocumentImages(ctx context.Context, comparison journaldocument.Comparison, groupIndex int, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) (recordedDocumentImage, recordedDocumentImage, error) {
+func stageDocumentImages(ctx context.Context, comparison journaldocument.Comparison, groupIndex int, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) (journalrecord.DocumentImage, journalrecord.DocumentImage, error) {
 	if ctx == nil {
-		return recordedDocumentImage{}, recordedDocumentImage{}, fmt.Errorf("document image staging context is required")
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, fmt.Errorf("document image staging context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return recordedDocumentImage{}, recordedDocumentImage{}, err
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, err
 	}
 	if err := comparison.Validate(); err != nil {
-		return recordedDocumentImage{}, recordedDocumentImage{}, err
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, err
 	}
 	if groupIndex < 0 || writer == nil || budget == nil {
-		return recordedDocumentImage{}, recordedDocumentImage{}, fmt.Errorf("document image staging requires an ordinal, private writer and shared budget")
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, fmt.Errorf("document image staging requires an ordinal, private writer and shared budget")
 	}
 	entries, contentBytes := 0, int64(0)
 	for _, document := range []aggregate.Document{comparison.BeforeDocument(), comparison.ExpectedDocument()} {
 		if err := journaldocument.ValidateImage(ctx, document, comparison.Limits()); err != nil {
-			return recordedDocumentImage{}, recordedDocumentImage{}, err
+			return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, err
 		}
 		if document.ContentSize() > recovery.MaximumRecoveryBackupFileBytes {
-			return recordedDocumentImage{}, recordedDocumentImage{}, fmt.Errorf("document image exceeds the backup byte envelope")
+			return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, fmt.Errorf("document image exceeds the backup byte envelope")
 		}
 		if document.Exists() {
 			entries++
@@ -48,18 +49,18 @@ func stageDocumentImages(ctx context.Context, comparison journaldocument.Compari
 		entries++
 	}
 	if entries > budget.RemainingEntries() || contentBytes > budget.RemainingBytes() {
-		return recordedDocumentImage{}, recordedDocumentImage{}, fmt.Errorf("document images exceed the shared staging budget")
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, fmt.Errorf("document images exceed the shared staging budget")
 	}
-	name, original, expected, err := recordedDocumentImageReferences(comparison, groupIndex)
+	name, original, expected, err := journalrecord.StagedDocumentImageReferences(comparison, groupIndex)
 	if err != nil {
-		return recordedDocumentImage{}, recordedDocumentImage{}, err
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, err
 	}
 	directory, err := mutationfs.NewTreeRelativePath(name)
 	if err != nil {
-		return recordedDocumentImage{}, recordedDocumentImage{}, err
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return recordedDocumentImage{}, recordedDocumentImage{}, err
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, err
 	}
 	if entries == 0 {
 		return original, expected, nil
@@ -70,28 +71,28 @@ func stageDocumentImages(ctx context.Context, comparison journaldocument.Compari
 		workErr = budget.AdmitTree(work)
 	}
 	if err := errors.Join(writeErr, workErr, ctx.Err()); err != nil {
-		return recordedDocumentImage{}, recordedDocumentImage{}, err
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, err
 	}
 	if err := stageDocumentImage(ctx, comparison.BeforeDocument(), original, writer, budget); err != nil {
-		return recordedDocumentImage{}, recordedDocumentImage{}, err
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, err
 	}
 	if err := stageDocumentImage(ctx, comparison.ExpectedDocument(), expected, writer, budget); err != nil {
-		return recordedDocumentImage{}, recordedDocumentImage{}, err
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return recordedDocumentImage{}, recordedDocumentImage{}, err
+		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, err
 	}
 	return original, expected, nil
 }
 
-func stageDocumentImage(ctx context.Context, document aggregate.Document, record recordedDocumentImage, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) error {
+func stageDocumentImage(ctx context.Context, document aggregate.Document, record journalrecord.DocumentImage, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if !document.Exists() {
 		return nil
 	}
-	reference, err := record.fileReference()
+	reference, err := record.FileReference()
 	if err != nil {
 		return err
 	}
@@ -99,7 +100,7 @@ func stageDocumentImage(ctx context.Context, document aggregate.Document, record
 	if err != nil {
 		return err
 	}
-	writeErr := writer.WriteFile(path, recoveryJournalMode, bytes.NewReader(document.Content()))
+	writeErr := writer.WriteFile(path, journalrecord.Mode, bytes.NewReader(document.Content()))
 	work, workErr := workmeasure.NewArtifactWork(1, document.ContentSize())
 	if workErr == nil {
 		workErr = budget.AdmitTree(work)

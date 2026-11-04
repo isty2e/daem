@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -175,7 +176,7 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mutation, err := journal.NewManagedPathReplaceMutation(
+	mutation, err := journalrecord.NewManagedPathReplaceMutation(
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
@@ -211,7 +212,7 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 		nextState,
 		journal.CaptureOptions{
 			Filesystem:           storagecommit.Adapter{},
-			ManagedPathMutations: []journal.ManagedPathMutation{mutation},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             hostpath.NewResolver(root).Resolve,
 			StateCodec:           statefile.Codec{},

@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -103,7 +104,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct managed path state: %v", err)
 	}
-	mutation, err := journal.NewManagedPathReplaceMutation(
+	mutation, err := journalrecord.NewManagedPathReplaceMutation(
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
@@ -163,7 +164,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 		nextState,
 		journal.CaptureOptions{
 			Filesystem:           testFilesystem(),
-			ManagedPathMutations: []journal.ManagedPathMutation{mutation},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			RemovalDemands:       removalDemands,
 			Resolver:             destinationResolver(paths),

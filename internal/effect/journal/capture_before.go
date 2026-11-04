@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -22,7 +24,7 @@ func captureRecoveryBeforePath(
 	ctx context.Context,
 	operationDir string,
 	backupIndex int,
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	filesystem mutationfs.Reader,
 	resolver func(destination output.Destination) (string, error),
 	manifestAuthority *manifestAuthoritySession,
@@ -58,7 +60,7 @@ func captureRecoveryBeforePath(
 			work,
 		)
 	}
-	if action.Kind() == pathMutationCreate {
+	if action.Kind() == journalrecord.CaptureCreate {
 		if action.LiveExists() {
 			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q exists before create action", action.Destination())
 		}
@@ -182,7 +184,7 @@ func captureAndCloseRootedRecoveryBefore(
 	filesystem mutationfs.RootedReader,
 	operationDir string,
 	backupIndex int,
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	capability rootedpath.CommitCapability,
 	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
@@ -200,14 +202,14 @@ func captureContentPathRecoveryBeforePath(
 	ctx context.Context,
 	operationDir string,
 	backupIndex int,
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	resolver func(destination output.Destination) (string, error),
 	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,
 	contentPathBaselines *recoveryContentPathBaselineCache,
 	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
-	if action.Kind() == pathMutationCreate {
+	if action.Kind() == journalrecord.CaptureCreate {
 		if action.LiveExists() {
 			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q content path %q exists before create action", action.Destination(), action.ContentPath())
 		}
@@ -272,7 +274,7 @@ func captureContentPathRecoveryBeforePath(
 
 func captureAbsentContentPathRecoveryBefore(
 	ctx context.Context,
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	resolver func(destination output.Destination) (string, error),
 	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,
@@ -308,7 +310,7 @@ func captureExistingRecoveryBeforePath(
 	filesystem mutationfs.PathReader,
 	operationDir string,
 	backupIndex int,
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	resolver func(destination output.Destination) (string, error),
 ) (recovery.BeforePathState, int, error) {
 	hostPath, err := resolver(action.Destination())

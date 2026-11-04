@@ -7,6 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/desired/entity"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
@@ -21,11 +26,21 @@ func TestOrdinaryCaptureStopsBeforeSecondBackupWhenSharedBytesAreExhausted(t *te
 	fixture := mixedStageFixture(t)
 	second := []byte("second ordinary file\n")
 	hash := artifact.HashFileContentWithExecutable(second, false)
-	entry := recoveryEntryFor("second", "CLAUDE.md", string(hash), string(hash), "unused")
-	state := resourceStateWithPermissions(entry, string(hash), realization.PathPermissionsExact, 0o600)
+	id, err := entity.New(entity.KindInstructions, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject, err := topologyprojection.Subject(id, "instructions.project.claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := durable.NewManagedPathState(subject, []target.Target{target.TargetClaudeCode}, target.ScopeProject, outputtest.Parse(t, "CLAUDE.md"), hash, realization.PathProjectionFile, realization.PathPermissionsExact, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
 	host := filepath.Join(fixture.paths.ManifestRoot, "CLAUDE.md")
 	requireWholeGroupWrite(t, host, second, 0o600)
-	mutation, err := NewManagedPathRecordMutation(state.Subject(), state.ConsumerTargets(), state.Scope(), state.Destination(), hash, hash, state.ContentKind(), 0o600, &state)
+	mutation, err := journalrecord.NewManagedPathRecordMutation(state.Subject(), state.ConsumerTargets(), state.Scope(), state.Destination(), hash, hash, state.ContentKind(), 0o600, &state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,14 +50,16 @@ func TestOrdinaryCaptureStopsBeforeSecondBackupWhenSharedBytesAreExhausted(t *te
 	}
 	fixture.capture.ManagedPathMutations = append(fixture.capture.ManagedPathMutations, mutation)
 	fixture.capture.ManagedPathEvidence = append(fixture.capture.ManagedPathEvidence, evidence)
-	fixture.journal.before, err = fixture.journal.before.WithManagedPaths(append(fixture.journal.before.ManagedPaths(), state))
+	combined := fixture.whole
+	combined.envelope.before, err = fixture.journal.Before().WithManagedPaths(append(fixture.journal.Before().ManagedPaths(), state))
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.journal.after, err = fixture.journal.after.WithManagedPaths(append(fixture.journal.after.ManagedPaths(), state))
+	combined.envelope.after, err = fixture.journal.After().WithManagedPaths(append(fixture.journal.After().ManagedPaths(), state))
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixture.journal = combined.recordForGroups(t, fixture.groups)
 	budget := imageBudget(t)
 	remaining := int64(2*len(fixture.ordinary) + len(second))
 	consume, err := workmeasure.NewArtifactWork(0, budget.RemainingBytes()-remaining)
@@ -52,7 +69,7 @@ func TestOrdinaryCaptureStopsBeforeSecondBackupWhenSharedBytesAreExhausted(t *te
 	if err := budget.AdmitTree(consume); err != nil {
 		t.Fatal(err)
 	}
-	basis, err := fixture.journal.ordinaryCaptureBasis()
+	basis, err := fixture.journal.OrdinaryCaptureBasis()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,14 +92,14 @@ func TestOrdinaryCaptureStopsBeforeSecondBackupWhenSharedBytesAreExhausted(t *te
 }
 
 func TestUninitializedCaptureInputIsRejectedBeforeEffects(t *testing.T) {
-	valid := normalizedPathCapture(t, pathMutationCreate, target.ScopeGlobal, outputtest.Parse(t, "~/.agents/skills/review"), "", realization.PathProjectionDirectory)
+	valid := normalizedPathCapture(t, journalrecord.CaptureCreate, target.ScopeGlobal, outputtest.Parse(t, "~/.agents/skills/review"), "", realization.PathProjectionDirectory)
 	for _, bounded := range []bool{false, true} {
 		work := &ordinaryCaptureWork{}
 		if bounded {
 			work.budget = imageBudget(t)
 		}
 		calls := 0
-		_, err := work.globalBindings([]captureMutation{valid, {}}, func(output.Destination) (string, error) {
+		_, err := work.globalBindings([]journalrecord.CaptureMutation{valid, {}}, func(output.Destination) (string, error) {
 			calls++
 			return "", nil
 		}, nil)
@@ -90,12 +107,12 @@ func TestUninitializedCaptureInputIsRejectedBeforeEffects(t *testing.T) {
 			t.Fatalf("bounded=%t: invalid input reached global observation: %d %v", bounded, calls, err)
 		}
 	}
-	zeroError := (captureMutation{}).Validate()
-	before, index, err := captureRecoveryBeforePath(t.Context(), t.TempDir(), 7, captureMutation{}, nil, nil, nil, nil, nil, nil)
+	zeroError := (journalrecord.CaptureMutation{}).Validate()
+	before, index, err := captureRecoveryBeforePath(t.Context(), t.TempDir(), 7, journalrecord.CaptureMutation{}, nil, nil, nil, nil, nil, nil)
 	if !errors.Is(err, zeroError) || index != 7 || before.Existed {
 		t.Error("invalid input reached backup capture or returned before evidence", err)
 	}
-	if err := validateNativePublicationPartition(t.Context(), "", NativeDocumentObservationBatch{}, []captureMutation{{}}, nil); !errors.Is(err, zeroError) {
+	if err := validateNativePublicationPartition(t.Context(), "", NativeDocumentObservationBatch{}, []journalrecord.CaptureMutation{{}}, nil); !errors.Is(err, zeroError) {
 		t.Error("invalid input reached publication observation", err)
 	}
 }
@@ -123,7 +140,7 @@ func TestOrdinaryDirectoryCaptureBoundsStreamingBeforeAdditionalCopies(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	action := normalizedPathCapture(t, pathMutationReplace, target.ScopeProject, outputtest.Parse(t, "skills"), hash, realization.PathProjectionDirectory)
+	action := normalizedPathCapture(t, journalrecord.CaptureReplace, target.ScopeProject, outputtest.Parse(t, "skills"), hash, realization.PathProjectionDirectory)
 	directory := t.TempDir()
 	_, _, err = captureProjectExistingRecoveryBeforePath(t.Context(), ordinaryCaptureReader{Reader: journalTestFilesystem(), work: work}, directory, 0, action, session, work)
 	if err == nil {

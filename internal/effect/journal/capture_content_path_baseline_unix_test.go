@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -29,7 +31,7 @@ func TestRecoveryContentPathBaselineRejectsGlobalFinalSymlink(t *testing.T) {
 	}
 	action := globalClaudeRecoveryBaselineMutation(t)
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]captureMutation{action},
+		[]journalrecord.CaptureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -57,7 +59,7 @@ func TestRecoveryContentPathBaselineResolvesGlobalAncestorSymlink(t *testing.T) 
 	}
 	action := globalClaudeRecoveryBaselineMutation(t)
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]captureMutation{action},
+		[]journalrecord.CaptureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -96,7 +98,7 @@ func TestRecoveryContentPathBaselineRejectsOversizedAggregateDocument(t *testing
 		t.Fatal(err)
 	}
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]captureMutation{action},
+		[]journalrecord.CaptureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -195,7 +197,7 @@ func TestRecoveryContentPathBaselineRejectsPhysicalRootReplacement(t *testing.T)
 
 	action := globalClaudeRecoveryBaselineMutation(t)
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]captureMutation{action},
+		[]journalrecord.CaptureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -243,7 +245,7 @@ func TestRecoveryContentPathBaselineRejectsMismatchedResolverAndCapability(t *te
 
 	action := globalClaudeRecoveryBaselineMutation(t)
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]captureMutation{action},
+		[]journalrecord.CaptureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -314,12 +316,12 @@ func TestAcquireMatchingRootedCapabilityClosesContradictoryAbsentCapability(t *t
 	}
 }
 
-func globalClaudeRecoveryBaselineMutation(t *testing.T) captureMutation {
+func globalClaudeRecoveryBaselineMutation(t *testing.T) journalrecord.CaptureMutation {
 	t.Helper()
 	return claudeRecoveryBaselineMutation(t, target.ScopeGlobal, "context7")
 }
 
-func recoveryAggregateDocumentMaximumBytes(t *testing.T, action captureMutation) int64 {
+func recoveryAggregateDocumentMaximumBytes(t *testing.T, action journalrecord.CaptureMutation) int64 {
 	t.Helper()
 	contract, present := action.AggregateContract()
 	if !present {

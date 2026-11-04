@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -23,18 +24,18 @@ func NewNativeRecoveryInventoryProfile(legacy, native durable.SnapshotCodec) (Re
 }
 
 func nativeRecoveryInventoryDecoder(legacy, native durable.SnapshotCodec) inventoryJournalDecoder {
-	return func(ctx context.Context, snapshot mutationfs.RegularFileSnapshot, path string, _ durable.SnapshotCodec) (loadedJournalRecord, error) {
-		version, err := jsonstrict.ValidateVersionedObject(snapshot.Content(), "recovery inventory journal", maximumRecoveryJournalJSONDepth)
+	return func(ctx context.Context, snapshot mutationfs.RegularFileSnapshot, path string, _ durable.SnapshotCodec) (journalrecord.Loaded, error) {
+		version, err := jsonstrict.ValidateVersionedObject(snapshot.Content(), "recovery inventory journal", journalrecord.MaximumJSONDepth)
 		if err != nil {
-			return loadedJournalRecord{}, err
+			return journalrecord.Loaded{}, err
 		}
 		switch version {
-		case recoveryJournalVersion:
-			return decodeLegacyInventoryJournal(ctx, snapshot, path, legacy)
-		case nativeRecoveryJournalVersion:
-			return decodeNativeInventoryJournal(ctx, snapshot, path, native)
+		case journalrecord.OrdinaryVersion:
+			return journalrecord.DecodeOrdinarySnapshot(ctx, snapshot, path, legacy)
+		case journalrecord.NativeVersion:
+			return journalrecord.DecodeNativeSnapshot(ctx, snapshot, path, native)
 		default:
-			return loadedJournalRecord{}, unsupportedRecoveryJournalVersion(version)
+			return journalrecord.Loaded{}, journalrecord.UnsupportedVersion(version)
 		}
 	}
 }

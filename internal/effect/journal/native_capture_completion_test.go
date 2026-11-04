@@ -8,6 +8,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
@@ -62,7 +63,11 @@ func captureProjectCompletionFacts(t *testing.T, owner stateauthority.Authority,
 
 func TestNativeCaptureRequiresDeclaredExactProjectCompletions(t *testing.T) {
 	root := t.TempDir()
-	owner, err := stateauthority.New(mustObservedPathAuthority(t, filepath.Join(root, "state.json")), filepath.Join(root, "daem.toml"))
+	state, err := mutation.ObservePersistedDirectoryEntryAuthority(filepath.Join(root, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := stateauthority.New(state.Exact(), filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -160,7 +163,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, err := rootedpath.BindSelectedEntryAuthorityBounded(roots.Manifest.Root, rootPath, filepath.Join(paths.RecoveryDir, fixture.record.OperationID), physicalwork.MaximumPhysicalPathDepth, budget)
+	entry, err := rootedpath.BindSelectedEntryAuthorityBounded(roots.Manifest.Root, rootPath, filepath.Join(paths.RecoveryDir, fixture.journal.OperationID()), physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,14 +213,18 @@ func TestCaptureNativeJournalPublishesAndReloadsActualSelectedWork(t *testing.T)
 			if !captured.BeforeState().Equal(input.batch.Evidence().BeforeState()) || !captured.AfterState().Equal(input.after) || !captured.Owner().Equal(input.batch.owner) {
 				t.Fatal("capture lost complete operation facts")
 			}
-			content, err := os.ReadFile(captured.CaptureResult().JournalPath)
-			if err != nil || recoveryJournalRecordFingerprint(content) != captured.CaptureResult().RecordFingerprint {
-				t.Fatalf("capture fingerprint was not actual published bytes: %v", err)
-			}
-			if _, err := decodeNativeJournalRecord(t.Context(), content, input.options.StateCodec); err != nil {
+			snapshot, err := input.options.Filesystem.ReadRegularFileSnapshotUpTo(t.Context(), captured.CaptureResult().JournalPath, journalrecord.MaximumBytes)
+			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := loadRecoveryJournal(t.Context(), input.options.Filesystem, captured.CaptureResult().JournalPath, input.options.StateCodec); err == nil {
+			content := snapshot.Content()
+			if journalrecord.Fingerprint(content) != captured.CaptureResult().RecordFingerprint {
+				t.Fatal("capture fingerprint was not actual published bytes")
+			}
+			if _, err := journalrecord.DecodeNativeSnapshot(t.Context(), snapshot, captured.CaptureResult().JournalPath, input.options.StateCodec); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := journalrecord.DecodeOrdinarySnapshot(t.Context(), snapshot, captured.CaptureResult().JournalPath, input.options.StateCodec); err == nil {
 				t.Fatal("default journal15 reader admitted native16")
 			}
 			document := captured.Documents()[0]
@@ -316,7 +323,7 @@ func (writer nativeCaptureFaultWriter) WriteFile(path mutationfs.TreeRelativePat
 	if err := writer.RootedTreeWriter.WriteFile(path, mode, content); err != nil {
 		return err
 	}
-	if writer.filesystem.fault == "stage" && path.Path() == recoveryJournalFileName {
+	if writer.filesystem.fault == "stage" && path.Path() == journalrecord.FileName {
 		return writer.filesystem.err
 	}
 	return nil
@@ -394,7 +401,7 @@ func TestCaptureNativeJournalFailureNeverReturnsPublishedEvidence(t *testing.T) 
 				}
 			}
 			if filesystem.published {
-				if _, statErr := os.Stat(filepath.Join(directory, recoveryJournalFileName)); statErr != nil {
+				if _, statErr := os.Stat(filepath.Join(directory, journalrecord.FileName)); statErr != nil {
 					t.Fatalf("published evidence was erased after a late failure: %v", statErr)
 				}
 			} else {
@@ -453,11 +460,25 @@ func TestCaptureNativeJournalJoinsOrdinaryWorkWithoutInventingHistory(t *testing
 			input := nativeCaptureInput(t, false, target.ScopeProject)
 			ordinary := []byte("ordinary executable\n")
 			hash := artifact.HashFileContentWithExecutable(ordinary, true)
-			entry := recoveryEntryFor("ordinary", "AGENTS.md", string(hash), string(hash), "unused")
-			row := resourceStateWithPermissions(entry, string(hash), realization.PathPermissionsExact, 0o700)
+			id, err := entity.New(entity.KindInstructions, "ordinary")
+			if err != nil {
+				t.Fatal(err)
+			}
+			subject, err := topologyprojection.Subject(id, "instructions.project.agents")
+			if err != nil {
+				t.Fatal(err)
+			}
+			destination, err := output.Parse("AGENTS.md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			row, err := durable.NewManagedPathState(subject, []target.Target{target.TargetCodex}, target.ScopeProject, destination, hash, realization.PathProjectionFile, realization.PathPermissionsExact, 0o700)
+			if err != nil {
+				t.Fatal(err)
+			}
 			ordinaryPath := filepath.Join(input.paths.ManifestRoot, "AGENTS.md")
 			requireWholeGroupWrite(t, ordinaryPath, ordinary, 0o700)
-			mutation, err := NewManagedPathRecordMutation(row.Subject(), row.ConsumerTargets(), row.Scope(), row.Destination(), hash, hash, row.ContentKind(), 0o700, &row)
+			mutation, err := journalrecord.NewManagedPathRecordMutation(row.Subject(), row.ConsumerTargets(), row.Scope(), row.Destination(), hash, hash, row.ContentKind(), 0o700, &row)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -495,7 +516,7 @@ func TestCaptureNativeJournalJoinsOrdinaryWorkWithoutInventingHistory(t *testing
 			}
 			input.options.ManagedPathEvidence = []observe.ManagedPathEvidence{evidence}
 			if work {
-				input.options.ManagedPathMutations = []ManagedPathMutation{mutation}
+				input.options.ManagedPathMutations = []journalrecord.ManagedPathMutation{mutation}
 				input.options.Resolver = func(destination output.Destination) (string, error) {
 					return filepath.Join(input.paths.ManifestRoot, filepath.FromSlash(destination.RelativePath())), nil
 				}
@@ -509,10 +530,18 @@ func TestCaptureNativeJournalJoinsOrdinaryWorkWithoutInventingHistory(t *testing
 				if err != nil || captured.Validate() != nil || !captured.BeforeState().Equal(before) || !captured.AfterState().Equal(input.after) {
 					t.Fatalf("mixed capture lost its complete state or qualification: %v", err)
 				}
-				if filesystem.prepareCalls != 1 || filesystem.ordinaryReads != 1 || len(captured.journal.record.Entries) != 1 || len(captured.journal.record.DocumentGroups) != 1 {
+				entries, err := captured.journal.RecordedEntries()
+				if err != nil {
+					t.Fatal(err)
+				}
+				documents, err := captured.journal.Documents()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if filesystem.prepareCalls != 1 || filesystem.ordinaryReads != 1 || len(entries) != 1 || len(documents) != 1 {
 					t.Fatalf("mixed capture did not join its actual ordinary and native actors: prepared=%d reads=%d", filesystem.prepareCalls, filesystem.ordinaryReads)
 				}
-				backup := filepath.Join(captured.CaptureResult().Directory, filepath.FromSlash(captured.journal.record.Entries[0].Before.BackupPath))
+				backup := filepath.Join(captured.CaptureResult().Directory, filepath.FromSlash(entries[0].Backup().Path()))
 				content, readErr := os.ReadFile(backup)
 				info, statErr := os.Stat(backup)
 				if readErr != nil || statErr != nil || !bytes.Equal(content, ordinary) || info.Mode().Perm() != 0o700 {
@@ -553,13 +582,13 @@ func TestCaptureNativeJournalInventoryFamilyAdmission(t *testing.T) {
 					}
 				}
 			} else {
-				version := recoveryJournalVersion
+				version := journalrecord.OrdinaryVersion
 				if existing == "malformed16" {
-					version = nativeRecoveryJournalVersion
+					version = journalrecord.NativeVersion
 				} else if existing == "unknown" {
-					version = nativeRecoveryJournalVersion + 1
+					version = journalrecord.NativeVersion + 1
 				}
-				path := filepath.Join(input.paths.RecoveryDir, "previous-operation", recoveryJournalFileName)
+				path := filepath.Join(input.paths.RecoveryDir, "previous-operation", journalrecord.FileName)
 				requireWholeGroupWrite(t, path, []byte(fmt.Sprintf(`{"version":%d,"operation_id":"previous-operation","invalid":true}`, version)), 0o600)
 			}
 			filesystem := &nativeCaptureFaultFilesystem{Store: input.options.Filesystem}

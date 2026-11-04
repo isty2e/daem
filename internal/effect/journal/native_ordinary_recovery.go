@@ -3,17 +3,18 @@ package journal
 import (
 	"context"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
 
-func ordinaryBackups(ctx context.Context, journal nativeJournalSnapshots, directory string, active ActiveJournalAuthority, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) ([]recovery.Entry, []recoveryBackupObservation, error) {
-	entries, err := journal.ordinaryEntries(ctx)
+func ordinaryBackups(ctx context.Context, journal journalrecord.Native, directory string, active ActiveJournalAuthority, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) ([]recovery.Entry, []recoveryBackupObservation, error) {
+	entries, err := journal.OrdinaryEntries(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	views, err := journal.recordedEntries()
+	views, err := journal.RecordedEntries()
 	if err != nil {
 		return nil, nil, err
 	}

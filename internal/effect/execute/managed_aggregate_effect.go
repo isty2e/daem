@@ -3,9 +3,10 @@ package execute
 import (
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -495,8 +496,8 @@ func cloneAggregateProjectionEffects(values []AggregateProjectionEffect) []Aggre
 	return result
 }
 
-func aggregateJournalMutations(effects []AggregateEffect) ([]journal.ManagedAggregateMutation, error) {
-	mutations := make([]journal.ManagedAggregateMutation, 0, len(effects))
+func aggregateJournalMutations(effects []AggregateEffect) ([]journalrecord.ManagedAggregateMutation, error) {
+	mutations := make([]journalrecord.ManagedAggregateMutation, 0, len(effects))
 	for index, effect := range effects {
 		for projectionIndex, projection := range effect.ProjectionEffects() {
 			if !projection.isJournaled() {
@@ -512,7 +513,7 @@ func aggregateJournalMutations(effects []AggregateEffect) ([]journal.ManagedAggr
 					err,
 				)
 			}
-			mutation, err := journal.NewManagedAggregateMutation(
+			mutation, err := journalrecord.NewManagedAggregateMutation(
 				kind,
 				subjects[0].Subject(),
 				projection.Contract(),
@@ -535,16 +536,16 @@ func aggregateJournalMutations(effects []AggregateEffect) ([]journal.ManagedAggr
 	return mutations, nil
 }
 
-func aggregateJournalMutationKind(kind AggregateEffectKind) (journal.AggregateMutationKind, error) {
+func aggregateJournalMutationKind(kind AggregateEffectKind) (journalrecord.AggregateMutationKind, error) {
 	switch kind {
 	case AggregateEffectCreate:
-		return journal.AggregateMutationCreate, nil
+		return journalrecord.AggregateMutationCreate, nil
 	case AggregateEffectReplace:
-		return journal.AggregateMutationReplace, nil
+		return journalrecord.AggregateMutationReplace, nil
 	case AggregateEffectRemove:
-		return journal.AggregateMutationRemove, nil
+		return journalrecord.AggregateMutationRemove, nil
 	case AggregateEffectRecord:
-		return journal.AggregateMutationRecord, nil
+		return journalrecord.AggregateMutationRecord, nil
 	default:
 		return "", fmt.Errorf("aggregate projection effect kind %q is not journalable", kind)
 	}

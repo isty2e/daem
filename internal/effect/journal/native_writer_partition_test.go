@@ -1,13 +1,12 @@
 package journal
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
@@ -20,130 +19,7 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
-	"github.com/isty2e/daem/internal/target"
 )
-
-func TestDocumentWriterPartitionAccumulatorKeepsGroupAndEmptySemantics(t *testing.T) {
-	var empty documentWriterPartition
-	if err := empty.Validate(t.Context()); err != nil {
-		t.Fatal("empty writer partition was refused", err)
-	}
-	parent := filepath.Join(t.TempDir(), "parent")
-	for _, sameGroup := range []bool{true, false} {
-		var partition documentWriterPartition
-		childGroup := 1
-		if sameGroup {
-			childGroup = 0
-		}
-		if err := partition.Add(filepath.Join(parent, "child"), childGroup); err != nil {
-			t.Fatal(err)
-		}
-		if err := partition.Add(parent, 0); err != nil {
-			t.Fatal(err)
-		}
-		if err := partition.Validate(t.Context()); (err == nil) != sameGroup {
-			t.Fatal("writer grouping changed overlap admission", sameGroup, err)
-		}
-	}
-	var absent *documentWriterPartition
-	if absent.Add(parent, 0) == nil || absent.Validate(t.Context()) == nil || empty.Validate(nil) == nil {
-		t.Fatal("missing writer accumulator or context was admitted")
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if err := empty.Validate(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatal("writer accumulator discarded cancellation", err)
-	}
-}
-
-func TestDocumentWriterPartitionCopiesRetainEveryCollectedPath(t *testing.T) {
-	parent := filepath.Join(t.TempDir(), "parent")
-	var original documentWriterPartition
-	if err := original.Add(parent, 0); err != nil {
-		t.Fatal(err)
-	}
-	copied := original
-	if err := original.Add(filepath.Join(parent, "child"), 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := copied.Add(parent+"-sibling", 2); err != nil {
-		t.Fatal(err)
-	}
-	if original.Validate(t.Context()) == nil || copied.Validate(t.Context()) == nil {
-		t.Fatal("a copied writer collection lost an observed cross-group conflict")
-	}
-}
-
-func TestNativeWriterPartitionPathOrdering(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		paths   []documentWriterPath
-		refuses bool
-	}{
-		{name: "one group aliases", paths: []documentWriterPath{{components: []string{"a"}, group: 0}, {components: []string{"a", "b"}, group: 0}, {components: []string{"a"}, group: 0}}},
-		{name: "ordinary projection siblings", paths: []documentWriterPath{{components: []string{"a"}, group: -1}, {components: []string{"a"}, group: -1}}},
-		{name: "distinct case-sensitive equality keys", paths: []documentWriterPath{{components: []string{"settings.json"}, group: 0}, {components: []string{"SETTINGS.JSON"}, group: -1}}},
-		{name: "disjoint sibling names", paths: []documentWriterPath{{components: []string{"a", "b"}, group: 0}, {components: []string{"a-b"}, group: -1}}},
-		{name: "different volumes", paths: []documentWriterPath{{volume: "one", components: []string{"a"}, group: 0}, {volume: "two", components: []string{"a"}, group: -1}}},
-		{name: "same physical file", paths: []documentWriterPath{{components: []string{"a"}, group: 0}, {components: []string{"a"}, group: -1}}, refuses: true},
-		{name: "different native groups", paths: []documentWriterPath{{components: []string{"a"}, group: 0}, {components: []string{"a"}, group: 1}}, refuses: true},
-		{name: "ordinary ancestor", paths: []documentWriterPath{{components: []string{"a"}, group: -1}, {components: []string{"a", "b"}, group: 0}}, refuses: true},
-		{name: "native ancestor", paths: []documentWriterPath{{components: []string{"a"}, group: 0}, {components: []string{"a", "b"}, group: -1}}, refuses: true},
-		{name: "same owner descendants retain covering owner", paths: []documentWriterPath{{components: []string{"a"}, group: 0}, {components: []string{"a", "b"}, group: 0}, {components: []string{"a", "c"}, group: -1}}, refuses: true},
-		{name: "lexical sibling must not hide ancestor", paths: []documentWriterPath{{components: []string{"a"}, group: -1}, {components: []string{"a-b"}, group: 1}, {components: []string{"a", "b"}, group: 0}}, refuses: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			var permute func([]documentWriterPath, int)
-			permute = func(paths []documentWriterPath, position int) {
-				if position == len(paths) {
-					if err := validateDocumentWriterPaths(t.Context(), slices.Clone(paths)); (err != nil) != test.refuses {
-						t.Fatalf("path partition depends on input ordering or has wrong overlap result: %v", err)
-					}
-					return
-				}
-				for index := position; index < len(paths); index++ {
-					paths[position], paths[index] = paths[index], paths[position]
-					permute(paths, position+1)
-					paths[position], paths[index] = paths[index], paths[position]
-				}
-			}
-			permute(slices.Clone(test.paths), 0)
-		})
-	}
-}
-
-func TestNativeWriterPartitionProtectsSelectedRoutesAndIndependentRoots(t *testing.T) {
-	fixture := nativeJournalFixture(t)
-	group := &fixture.record.DocumentGroups[0]
-	group.Writer.Root = fixture.record.ManifestRootProvenance
-	group.Writer.RelativePath = "physical/config.json"
-	alias := group.Aliases[0]
-	aliasRoot := alias.LogicalRoot.Provenance
-	address, err := alias.Address.canonical()
-	if err != nil {
-		t.Fatal(err)
-	}
-	aliasPath := filepath.Join(aliasRoot.PhysicalRoot, filepath.FromSlash(address.AggregateRoot().RelativePath()))
-	for _, test := range []struct {
-		name    string
-		writer  string
-		refuses bool
-	}{
-		{name: "selected alias route", writer: aliasPath, refuses: true},
-		{name: "selected alias parent", writer: filepath.Dir(aliasPath), refuses: true},
-		{name: "physical referent", writer: filepath.Join(group.Writer.Root.PhysicalRoot, "physical", "config.json"), refuses: true},
-		{name: "physical parent", writer: filepath.Join(group.Writer.Root.PhysicalRoot, "physical"), refuses: true},
-		{name: "different selected root", writer: filepath.Join(t.TempDir(), "independent.json")},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			record := fixture.record
-			record.Entries = []recoveryEntry{{Scope: string(target.ScopeGlobal), Path: alias.Address.Destination, GlobalPathBinding: &recoveryGlobalPathBinding{ResolvedPath: test.writer}}}
-			if err := record.validateWriterSpellingPartition(t.Context()); (err != nil) != test.refuses {
-				t.Fatalf("rooted writer/selected route partition: %v", err)
-			}
-		})
-	}
-}
 
 func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	t.Helper()
@@ -195,11 +71,14 @@ func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.journal.record.DocumentGroups, fixture.comparison = []recoveryDocumentGroup{group}, comparison
+	fixture.comparison = comparison
 	hash := artifact.HashFileContent(before)
-	entry := recoveryEntryFor("ordinary", "AGENTS.md", string(hash), string(hash), "unused")
-	state := resourceStateWithPermissions(entry, string(hash), realization.PathPermissionsExact, 0o644)
-	mutation, err := NewManagedPathRecordMutation(state.Subject(), state.ConsumerTargets(), state.Scope(), state.Destination(), hash, hash, state.ContentKind(), 0o644, &state)
+	base := fixture.capture.ManagedPathMutations[0]
+	state, err := durable.NewManagedPathState(base.Subject(), base.ConsumerTargets(), base.Scope(), base.Destination(), hash, base.ContentKind(), realization.PathPermissionsExact, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutation, err := journalrecord.NewManagedPathRecordMutation(state.Subject(), state.ConsumerTargets(), state.Scope(), state.Destination(), hash, hash, state.ContentKind(), 0o644, &state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,8 +93,10 @@ func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 		}
 		return result
 	}
-	fixture.journal.before, fixture.journal.after = withOrdinary(fixture.whole.envelope.before), withOrdinary(fixture.whole.envelope.after)
-	fixture.capture.ManagedPathMutations, fixture.capture.ManagedPathEvidence = []ManagedPathMutation{mutation}, []observe.ManagedPathEvidence{evidence}
+	combined := fixture.whole
+	combined.envelope.before, combined.envelope.after = withOrdinary(fixture.whole.envelope.before), withOrdinary(fixture.whole.envelope.after)
+	fixture.journal = combined.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
+	fixture.capture.ManagedPathMutations, fixture.capture.ManagedPathEvidence = []journalrecord.ManagedPathMutation{mutation}, []observe.ManagedPathEvidence{evidence}
 	return fixture
 }
 
@@ -240,65 +121,22 @@ func TestNativeMixedWriterPartitionRefusesActualAliasedOrdinaryWriter(t *testing
 func TestNativeWriterPartitionRefusesAtEveryRecordBoundary(t *testing.T) {
 	fixture := aliasedMixedWriterFixture(t)
 	source, _ := fixture.source(t, imageBudget(t))
-	fixture.journal.record.Entries = source.record.entries
-	fixture.journal.record.ClaimTransitions = source.record.claims
-	fixture.journal.record.ProvisionalAcquires = source.record.provisional
-	fixture.journal.record.RemovalIntents = source.record.removals
-	if content, err := marshalNativeJournalRecord(t.Context(), fixture.journal.record, fixture.journal.before, fixture.journal.after, fixture.whole.envelope.codec); err == nil || content != nil {
+	journal, err := fixture.journal.WithOrdinaryEvidence(source.record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content, err := journal.Encode(t.Context(), fixture.whole.envelope.codec); err == nil || content != nil {
 		t.Error("strict record construction admitted overlapping physical writers")
 	}
-	before, after, err := encodeRecoveryJournalSnapshots(fixture.journal.before, fixture.journal.after, fixture.whole.envelope.codec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	forged := fixture.journal.record
-	forged.StatefileBefore, forged.StatefileAfter = before, after
-	content, err := json.Marshal(forged)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded, err := decodeNativeJournalRecord(t.Context(), content, fixture.whole.envelope.codec); err == nil || decoded.record.Version != 0 {
-		t.Error("strict decoding admitted overlapping physical writers")
-	}
-	if prepared, err := fixture.journal.prepareDocuments(t.Context(), []journaldocument.Comparison{fixture.comparison}, fixture.whole.input.Limits(), fixture.whole.envelope.read.codecs); err == nil || prepared.documents.groups != nil {
+	if prepared, err := journal.PrepareDocuments(t.Context(), []journaldocument.Comparison{fixture.comparison}, fixture.whole.input.Limits(), fixture.whole.envelope.read.codecs); err == nil {
+		t.Error("prepared comparison boundary admitted an overlapping group")
+	} else if comparisons, err := prepared.Comparisons(); err == nil || comparisons != nil {
 		t.Error("prepared comparison boundary returned an overlapping group prefix")
 	}
 	read := fixture.whole.envelope.read
 	reader := &nativeNamespaceReader{RootedReader: read.filesystem}
 	read.filesystem, read.budget = reader, imageBudget(t)
-	if loaded, err := loadDocuments(fixture.journal, t.Context(), read); err == nil || loaded.groups != nil || reader.imageReads != 0 {
+	if loaded, err := loadDocuments(journal, t.Context(), read); err == nil || loaded.Len() != 0 || reader.imageReads != 0 {
 		t.Error("artifact boundary admitted overlap or read images before refusing it")
-	}
-}
-
-func TestNativeWriterPartitionRejectsMalformedAndCanceledMetadata(t *testing.T) {
-	fixture := nativeJournalFixture(t)
-	for _, change := range []string{"writer escape", "relative root", "missing global binding", "noncanonical global path", "project global selector", "nil context", "canceled"} {
-		t.Run(change, func(t *testing.T) {
-			record := fixture.record
-			record.DocumentGroups = slices.Clone(record.DocumentGroups)
-			ctx := t.Context()
-			switch change {
-			case "writer escape":
-				record.DocumentGroups[0].Writer.RelativePath = "../outside"
-			case "relative root":
-				record.DocumentGroups[0].Writer.Root.PhysicalRoot = "relative"
-			case "missing global binding":
-				record.Entries = []recoveryEntry{{Scope: string(target.ScopeGlobal), Path: "@pi-agent/other.json"}}
-			case "noncanonical global path":
-				record.Entries = []recoveryEntry{{Scope: string(target.ScopeGlobal), Path: "@pi-agent/other.json", GlobalPathBinding: &recoveryGlobalPathBinding{ResolvedPath: "relative"}}}
-			case "project global selector":
-				record.Entries = []recoveryEntry{{Scope: string(target.ScopeProject), Path: "@pi-agent/other.json"}}
-			case "nil context":
-				ctx = nil
-			case "canceled":
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithCancel(ctx)
-				cancel()
-			}
-			if err := record.validateWriterSpellingPartition(ctx); err == nil || change == "canceled" && !errors.Is(err, context.Canceled) {
-				t.Fatalf("invalid/canceled metadata admitted a writer partition: %v", err)
-			}
-		})
 	}
 }

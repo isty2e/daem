@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -125,7 +127,7 @@ func applyRecoveryIntentOwnershipEvidence(
 
 func recoveryPathObservations(
 	ctx context.Context,
-	entries []recordedPathEntry,
+	entries []journalrecord.PathEntry,
 	filesystem mutationfs.Reader,
 	manifestAuthority *manifestAuthoritySession,
 	resolver func(destination output.Destination) (string, error),
@@ -217,7 +219,7 @@ func recoveryBackupObservations(
 	ctx context.Context,
 	operationDir string,
 	activeAuthority ActiveJournalAuthority,
-	entries []recordedPathEntry,
+	entries []journalrecord.PathEntry,
 	filesystem mutationfs.RootedReader,
 	budget *physicalwork.Budget,
 ) ([]recoveryBackupObservation, error) {
@@ -483,4 +485,44 @@ func recoveryArtifactWorkLimits(
 		max(int64(1), maximumBytes),
 	)
 	return maximum, readerCapacity, err
+}
+
+func canonicalRecoveryPathEvidence(values []recoveryPathObservation) []recovery.PathEvidence {
+	result := make([]recovery.PathEvidence, len(values))
+	for index, value := range values {
+		mode := value.PathMode
+		if mode != nil {
+			copied := *mode
+			mode = &copied
+		}
+		result[index] = recovery.PathEvidence{
+			Path:          value.Path,
+			ContentPath:   value.ContentPath,
+			Exists:        value.Exists,
+			PathExisted:   value.PathExisted,
+			PathMode:      mode,
+			Kind:          value.Kind,
+			ContentHash:   value.ContentHash,
+			LinkTarget:    value.LinkTarget,
+			BlockedReason: value.BlockedReason,
+			BlockedDetail: value.BlockedDetail,
+			Error:         value.Error,
+		}
+	}
+	return result
+}
+
+func canonicalRecoveryBackupEvidence(values []recoveryBackupObservation) []recovery.BackupEvidence {
+	result := make([]recovery.BackupEvidence, len(values))
+	for index, value := range values {
+		result[index] = recovery.BackupEvidence{
+			BackupPath:  value.BackupPath,
+			Exists:      value.Exists,
+			Kind:        value.Kind,
+			ContentHash: value.ContentHash,
+			Error:       value.Error,
+			Work:        value.Work,
+		}
+	}
+	return result
 }

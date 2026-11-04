@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
@@ -47,7 +49,7 @@ func TestRecoveryContentPathBaselineCacheReusesOneGlobalSnapshot(t *testing.T) {
 		return hostPath, nil
 	}
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]captureMutation{action},
+		[]journalrecord.CaptureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -94,7 +96,7 @@ func TestRecoveryContentPathBaselineCacheReadsLargeAggregateOnce(t *testing.T) {
 	root := t.TempDir()
 	hostPath := filepath.Join(root, "config.json")
 	serverEntries := make(map[string]json.RawMessage, memberCount)
-	mutations := make([]captureMutation, 0, memberCount)
+	mutations := make([]journalrecord.CaptureMutation, 0, memberCount)
 	for index := range memberCount {
 		serverID := fmt.Sprintf("server-%03d", index)
 		canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
@@ -165,7 +167,7 @@ func TestRecoveryContentPathBaselineCacheRejectsDuplicateSelectionPerScope(t *te
 	action := claudeRecoveryBaselineMutation(t, target.ScopeGlobal, "context7")
 
 	if _, err := newRecoveryContentPathBaselineCache(
-		[]captureMutation{action, action},
+		[]journalrecord.CaptureMutation{action, action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	); err == nil {
@@ -173,7 +175,7 @@ func TestRecoveryContentPathBaselineCacheRejectsDuplicateSelectionPerScope(t *te
 	}
 	projectAction := claudeRecoveryBaselineMutation(t, target.ScopeProject, "context7")
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]captureMutation{action, projectAction},
+		[]journalrecord.CaptureMutation{action, projectAction},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -185,7 +187,7 @@ func TestRecoveryContentPathBaselineCacheRejectsDuplicateSelectionPerScope(t *te
 	}
 }
 
-func claudeRecoveryBaselineMutation(t *testing.T, scope target.Scope, serverID string) captureMutation {
+func claudeRecoveryBaselineMutation(t *testing.T, scope target.Scope, serverID string) journalrecord.CaptureMutation {
 	t.Helper()
 	placement, ok := aggregate.ImplementedMCPPlacement(target.TargetClaudeCode, scope)
 	if !ok {
@@ -242,11 +244,11 @@ func claudeRecoveryBaselineMutation(t *testing.T, scope target.Scope, serverID s
 	if failure != nil {
 		t.Fatal(failure)
 	}
-	mutation, err := NewManagedAggregateMutation(AggregateMutationCreate, subject, contribution.Contract(), before, snapshot, expected, 0)
+	mutation, err := journalrecord.NewManagedAggregateMutation(journalrecord.AggregateMutationCreate, subject, contribution.Contract(), before, snapshot, expected, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	values, err := pathMutations(nil, []ManagedAggregateMutation{mutation}, nil)
+	values, err := journalrecord.NormalizeCaptureMutations(nil, []journalrecord.ManagedAggregateMutation{mutation}, nil)
 	if err != nil || len(values) != 1 {
 		t.Fatal("normalize aggregate capture fixture", err)
 	}

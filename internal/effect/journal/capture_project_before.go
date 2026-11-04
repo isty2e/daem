@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -20,7 +22,7 @@ import (
 func validateAbsentProjectRecoveryPath(
 	ctx context.Context,
 	filesystem mutationfs.RootedReader,
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	manifestAuthority *manifestAuthoritySession,
 ) error {
 	capability, err := manifestAuthority.acquire(action.Destination())
@@ -44,13 +46,13 @@ func captureProjectContentPathRecoveryBeforePath(
 	ctx context.Context,
 	operationDir string,
 	backupIndex int,
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	filesystem mutationfs.Reader,
 	manifestAuthority *manifestAuthoritySession,
 	contentPathBaselines *recoveryContentPathBaselineCache,
 	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
-	if action.Kind() == pathMutationCreate {
+	if action.Kind() == journalrecord.CaptureCreate {
 		if action.LiveExists() {
 			return recovery.BeforePathState{}, backupIndex, fmt.Errorf(
 				"live observation for %q content path %q exists before create action",
@@ -143,7 +145,7 @@ func captureProjectContentPathRecoveryBeforePath(
 
 func captureAbsentProjectContentPathRecoveryBefore(
 	ctx context.Context,
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	filesystem mutationfs.Reader,
 	manifestAuthority *manifestAuthoritySession,
 	contentPathBaselines *recoveryContentPathBaselineCache,
@@ -178,7 +180,7 @@ func captureProjectExistingRecoveryBeforePath(
 	filesystem mutationfs.RootedReader,
 	operationDir string,
 	backupIndex int,
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	manifestAuthority *manifestAuthoritySession,
 	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
@@ -207,7 +209,7 @@ func captureRootedExistingWithCapability(
 	filesystem mutationfs.RootedReader,
 	operationDir string,
 	backupIndex int,
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	capability rootedpath.CommitCapability,
 	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
@@ -309,7 +311,7 @@ func readProjectRecoveryRegularFile(
 }
 
 func validateCapturedProjectPathHash(
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	captured artifact.ContentHash,
 ) error {
 	if action.LivePathHash() == "" {

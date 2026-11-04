@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -147,7 +149,7 @@ func nativeOrderCaptureInput(t *testing.T, scope target.Scope) (nativeCaptureTes
 	if err != nil {
 		t.Fatal(err)
 	}
-	alias, err := piOrderDocumentAlias(scope)
+	alias, err := journalrecord.PiOrderDocumentAlias(scope)
 	if err != nil {
 		t.Fatal(err)
 	}

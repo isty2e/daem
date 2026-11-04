@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -292,7 +293,7 @@ func retirementDestinationsForExecution(
 		if destinations.active, err = bind(execution.activePath); err != nil {
 			return retirementDestinations{}, err
 		}
-		if destinations.activeRecord, err = bind(filepath.Join(execution.activePath, recoveryJournalFileName)); err != nil {
+		if destinations.activeRecord, err = bind(filepath.Join(execution.activePath, journalrecord.FileName)); err != nil {
 			return retirementDestinations{}, err
 		}
 	}
@@ -425,7 +426,7 @@ func reserveRetirementExecution(
 		if err := reserveCleanup(destinations.residue, activeEnvelopeWork); err != nil {
 			return err
 		}
-		journalWork, err := workmeasure.NewArtifactWork(0, maximumRecoveryJournalBytes)
+		journalWork, err := workmeasure.NewArtifactWork(0, journalrecord.MaximumBytes)
 		if err != nil {
 			return err
 		}
@@ -614,7 +615,7 @@ func (prepared *RetirementContinuation) advanceActiveBasisLocked(
 		prepared.filesystem,
 		prepared.bindings.active,
 		prepared.evidence.activeEnvelopeLimits,
-		newRetirementTreeSnapshotSinkWithMutableFile(recoveryJournalFileName),
+		newRetirementTreeSnapshotSinkWithMutableFile(journalrecord.FileName),
 	)
 	if err != nil {
 		return fmt.Errorf("refresh active recovery journal retirement evidence: %w", err)

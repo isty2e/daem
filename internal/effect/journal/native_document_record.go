@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -21,29 +23,29 @@ type nativeDocumentReadOptions struct {
 	codecs               aggregate.CodecCatalog
 }
 
-func loadDocuments(journal nativeJournalSnapshots, ctx context.Context, options nativeDocumentReadOptions) (nativeDocumentRecords, error) {
+func loadDocuments(journal journalrecord.Native, ctx context.Context, options nativeDocumentReadOptions) (journalrecord.LoadedDocuments, error) {
 	if ctx == nil || options.artifacts == nil || options.filesystem == nil || options.budget == nil {
-		return nativeDocumentRecords{}, fmt.Errorf("native document read context, artifact root, filesystem and shared budget are required")
+		return journalrecord.LoadedDocuments{}, fmt.Errorf("native document read context, artifact root, filesystem and shared budget are required")
 	}
-	session, err := newDocumentReconstruction(ctx, journal, options.limits, options.codecs, documentReconstructionLoaded, nil)
+	session, err := journal.BeginLoadedDocuments(ctx, options.limits, options.codecs)
 	if err != nil {
-		return nativeDocumentRecords{}, err
+		return journalrecord.LoadedDocuments{}, err
 	}
 	for {
-		demand, present, err := session.next(ctx)
+		demand, present, err := session.Next(ctx)
 		if err != nil {
-			return nativeDocumentRecords{}, err
+			return journalrecord.LoadedDocuments{}, err
 		}
 		if !present {
 			break
 		}
-		images, err := loadDocumentImages(ctx, demand.original, demand.expected, options.artifacts, options.filesystem, options.budget, recovery.MaximumRecoveryBackupFileBytes)
+		original, expected, err := loadDocumentImages(ctx, demand.Original(), demand.Expected(), options.artifacts, options.filesystem, options.budget, recovery.MaximumRecoveryBackupFileBytes)
 		if err != nil {
-			return nativeDocumentRecords{}, err
+			return journalrecord.LoadedDocuments{}, err
 		}
-		if err := session.supplyLoadedImages(ctx, demand, images); err != nil {
-			return nativeDocumentRecords{}, err
+		if err := session.SupplyLoaded(ctx, demand, original, expected); err != nil {
+			return journalrecord.LoadedDocuments{}, err
 		}
 	}
-	return session.finishLoaded(ctx)
+	return session.FinishLoaded(ctx)
 }

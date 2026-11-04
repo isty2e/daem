@@ -7,8 +7,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
+
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
@@ -20,9 +23,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
-	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
-	"github.com/isty2e/daem/internal/effect/physicalwork"
-	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -48,14 +48,15 @@ func TestSelectedGroupCaptureDerivesActualSubjectFrontierAndPreservesForeignData
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(group.SelectedSubjects) != 1 || capture.reader.imageReads != 1 {
+	subjects, err := capture.recordedGroup(t, group).SelectedSubjects(t.Context())
+	if err != nil || len(subjects) != 1 || capture.reader.imageReads != 1 {
 		t.Fatal("selected references expanded to all membership or original was not read once")
 	}
-	subject, err := group.SelectedSubjects[0].canonical()
-	if err != nil || subject != selected.Subject() {
-		t.Fatalf("capture lost full actual subject identity: %v", err)
+	if subjects[0] != selected.Subject() {
+		t.Fatal("capture lost full actual subject identity")
 	}
-	if group.Original.Mode == nil || *group.Original.Mode != 0o644 || group.Expected.Mode == nil || *group.Expected.Mode != 0o644 {
+	expectedMode, present := comparison.ExpectedState().RegularFileMode()
+	if comparison.BeforeMode() == nil || *comparison.BeforeMode() != 0o644 || !present || expectedMode != 0o644 {
 		t.Fatal("selected writer changed the existing document mode")
 	}
 	capture.requireCompleteStage(t, group, comparison)
@@ -84,7 +85,8 @@ func TestSelectedGroupCaptureCreatesMissingDocumentWithPrivateMode(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if group.Original.Kind != "absent" || group.Expected.Mode == nil || *group.Expected.Mode != 0o600 {
+	expectedMode, present := comparison.ExpectedState().RegularFileMode()
+	if comparison.BeforeDocument().Exists() || !present || expectedMode != 0o600 {
 		t.Fatal("new selected root lost absence or private creation mode")
 	}
 	capture.requireCompleteStage(t, group, comparison)
@@ -134,7 +136,11 @@ func TestSelectedGroupCaptureCombinesActualNativeAndMCPPlans(t *testing.T) {
 	edits = append(edits, selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{mcpRows[1].Contribution().Contract()}, mcpRows[1:])...)
 	capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-	if err != nil || len(group.SelectedSubjects) != 2 {
+	if err != nil {
+		t.Fatal(err)
+	}
+	subjects, err := capture.recordedGroup(t, group).SelectedSubjects(t.Context())
+	if err != nil || len(subjects) != 2 {
 		t.Fatalf("actual native/MCP plans did not form one group: %v", err)
 	}
 	foreign, err := mcpcodec.CanonicalCodexProjectMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{ServerID: "foreign", Command: "foreign", AdapterContract: aggregate.CodexProjectMCPStdioCommandV1})
@@ -166,7 +172,11 @@ func TestSelectedGroupCaptureSupportsReleaseWithoutInventedSelectedSubjects(t *t
 	original := aggregate.ExistingDocument([]byte(`{"model":true,"foreign":99}`))
 	capture := selectedCaptureFixture(t, fixture, original, nil, nil, journalnamespace.Roots{})
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-	if err != nil || len(group.SelectedSubjects) != 0 || !comparison.ExpectedDocument().Equal(original) {
+	if err != nil {
+		t.Fatal(err)
+	}
+	subjects, err := capture.recordedGroup(t, group).SelectedSubjects(t.Context())
+	if err != nil || len(subjects) != 0 || !comparison.ExpectedDocument().Equal(original) {
 		t.Fatalf("release changed host bytes or invented a frontier: %v", err)
 	}
 	capture.requireCompleteStage(t, group, comparison)
@@ -185,14 +195,24 @@ func TestSelectedGroupCaptureRetainsRealPiContextAndOrderOnlyWork(t *testing.T) 
 				roots.PiAgent = nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())
 			}
 			fixture := nativeJournalFixture(t)
-			fixture.claims.alias, _ = piOrderDocumentAlias(scope)
+			fixture.claims.alias, _ = journalrecord.PiOrderDocumentAlias(scope)
 			fixture.before, fixture.after = durable.EmptySnapshot(), durable.EmptySnapshot()
 			capture := selectedCaptureFixture(t, fixture, loaded.Document, nil, &order, roots)
 			group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-			if err != nil || group.PiOrder == nil || len(group.SelectedSubjects) != 0 || !comparison.Changed() {
+			if err != nil {
+				t.Fatal(err)
+			}
+			recorded := capture.recordedGroup(t, group)
+			_, hasOrder, err := recorded.PiQualification()
+			if err != nil || !hasOrder || !comparison.Changed() {
 				t.Fatalf("real Pi-only group failed: %v", err)
 			}
-			if *group.Original.Mode != 0o644 || *group.Expected.Mode != 0o644 {
+			subjects, err := recorded.SelectedSubjects(t.Context())
+			if err != nil || len(subjects) != 0 {
+				t.Fatal("Pi-only group invented selected subjects", err)
+			}
+			expectedMode, present := comparison.ExpectedState().RegularFileMode()
+			if comparison.BeforeMode() == nil || *comparison.BeforeMode() != 0o644 || !present || expectedMode != 0o644 {
 				t.Fatal("Pi-only work imposed an aggregate writer mode")
 			}
 			capture.requireCompleteStage(t, group, comparison)
@@ -203,7 +223,11 @@ func TestSelectedGroupCaptureRetainsRealPiContextAndOrderOnlyWork(t *testing.T) 
 			}
 			capture = selectedCaptureFixture(t, fixture, loaded.Document, nil, &unchanged, roots)
 			group, comparison, err = prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-			if err != nil || group.PiOrder != nil || comparison.Changed() || !comparison.ExpectedDocument().Equal(loaded.Document) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, hasOrder, err = capture.recordedGroup(t, group).PiQualification()
+			if err != nil || hasOrder || comparison.Changed() || !comparison.ExpectedDocument().Equal(loaded.Document) {
 				t.Fatalf("unchanged order acquired recovery ownership: %v", err)
 			}
 		})
@@ -218,7 +242,7 @@ func TestSelectedGroupCaptureCombinesActualNativeAndPiOrder(t *testing.T) {
 	}
 	roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, command.BaseRoot()), PiAgent: nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())}
 	fixture := nativeJournalFixture(t)
-	fixture.claims.alias, _ = piOrderDocumentAlias(target.ScopeGlobal)
+	fixture.claims.alias, _ = journalrecord.PiOrderDocumentAlias(target.ScopeGlobal)
 	before := membershipNativeRow(t, fixture.claims.alias, "native-json-v1", "theme")
 	before = selectionNativeRow(t, before.Contribution().Contract(), nativeRecordCanonical(t, `"day"`))
 	after := selectionNativeRow(t, before.Contribution().Contract(), nativeRecordCanonical(t, `"night"`))
@@ -226,7 +250,16 @@ func TestSelectedGroupCaptureCombinesActualNativeAndPiOrder(t *testing.T) {
 	edits := selectedCaptureEdits(t, fixture, loaded.Document, []aggregate.ProjectionContract{after.Contribution().Contract()}, []durable.ManagedAggregateState{after})
 	capture := selectedCaptureFixture(t, fixture, loaded.Document, edits, &order, roots)
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-	if err != nil || len(group.SelectedSubjects) != 1 || group.PiOrder == nil || !comparison.Changed() {
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := capture.recordedGroup(t, group)
+	subjects, err := recorded.SelectedSubjects(t.Context())
+	if err != nil || len(subjects) != 1 {
+		t.Fatal("native/Pi group lost its selected subject", err)
+	}
+	_, hasOrder, err := recorded.PiQualification()
+	if err != nil || !hasOrder || !comparison.Changed() {
 		t.Fatalf("actual native/Pi plans did not form one group: %v", err)
 	}
 	capture.requireCompleteStage(t, group, comparison)
@@ -255,11 +288,14 @@ func TestSelectedGroupCaptureKeepsWholeMembershipSeparateFromNarrowedFrontier(t 
 	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
 	capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-	if err != nil || len(group.SelectedSubjects) != 1 {
+	if err != nil {
+		t.Fatal(err)
+	}
+	subjects, err := capture.recordedGroup(t, group).SelectedSubjects(t.Context())
+	if err != nil || len(subjects) != 1 {
 		t.Fatalf("whole-to-key capture failed: %v", err)
 	}
-	ref, err := group.SelectedSubjects[0].canonical()
-	if err != nil || ref == wholeSubject || ref != selected.Subject() {
+	if subjects[0] == wholeSubject || subjects[0] != selected.Subject() {
 		t.Fatal("whole membership leaked into the selected frontier")
 	}
 	capture.requireCompleteStage(t, group, comparison)
@@ -270,14 +306,14 @@ func TestSelectedGroupCaptureRejectsWrongPiCommandRootBeforeRead(t *testing.T) {
 	roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, t.TempDir()), PiAgent: nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())}
 	fixture := nativeJournalFixture(t)
 	var err error
-	fixture.claims.alias, err = piOrderDocumentAlias(target.ScopeGlobal)
+	fixture.claims.alias, err = journalrecord.PiOrderDocumentAlias(target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fixture.before, fixture.after = durable.EmptySnapshot(), durable.EmptySnapshot()
 	capture := selectedCaptureFixture(t, fixture, loaded.Document, nil, &order, roots)
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-	if err == nil || len(group.Aliases) != 0 || comparison.Validate() == nil || capture.reader.imageReads != 0 {
+	if err == nil || !reflect.ValueOf(group).IsZero() || comparison.Validate() == nil || capture.reader.imageReads != 0 {
 		t.Fatalf("wrong Pi command root was admitted or read host bytes: %v", err)
 	}
 }
@@ -309,7 +345,7 @@ func TestSelectedGroupCaptureRefusesStaticContractAndMetadataMisjoinsBeforeRead(
 				capture.input.order = &order
 			}
 			group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-			if err == nil || len(group.Aliases) != 0 || comparison.Validate() == nil || capture.reader.imageReads != 0 {
+			if err == nil || !reflect.ValueOf(group).IsZero() || comparison.Validate() == nil || capture.reader.imageReads != 0 {
 				t.Fatalf("static misjoin escaped or read host bytes: %v", err)
 			}
 		})
@@ -338,7 +374,7 @@ func TestSelectedGroupCaptureCancellationAndObservedDriftExposeNoFacts(t *testin
 				capture.input.CaptureInput = reviseCaptureInput(capture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Limits.MaximumBytes = 2 })
 			}
 			group, comparison, err := prepareSelectedDocumentGroup(ctx, capture.namespace, capture.input, capture.subjects)
-			if err == nil || len(group.Aliases) != 0 || comparison.Validate() == nil {
+			if err == nil || !reflect.ValueOf(group).IsZero() || comparison.Validate() == nil {
 				t.Fatalf("failed selected capture exposed facts: %v", err)
 			}
 			if failure == "cancel" && !errors.Is(err, context.Canceled) {
@@ -387,105 +423,18 @@ func TestDocumentCaptureSubjectIndexKeepsFullRetargetedIdentity(t *testing.T) {
 	}
 }
 
-type selectedGroupCaptureFixture struct {
-	roots     journalnamespace.Roots
-	fixture   nativeRecordFixture
-	namespace journalnamespace.DocumentNamespace
-	input     selectedDocumentCaptureInput
-	subjects  documentCaptureSubjects
-	reader    *nativeNamespaceReader
-	path      string
-	original  aggregate.Document
-}
-
-func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original aggregate.Document, edits []compose.ProjectionEdit, order *pipackage.OrderObservation, roots journalnamespace.Roots) selectedGroupCaptureFixture {
+func (capture selectedGroupCaptureFixture) requireCompleteStage(t *testing.T, group journalrecord.SealedDocumentGroup, comparison journaldocument.Comparison) journalrecord.Native {
 	t.Helper()
-	alias := fixture.claims.alias
-	if roots.Manifest.Root == nil {
-		roots.Manifest = nativeNamespaceRoot(t, t.TempDir())
-	}
-	root := roots.Manifest
-	if alias.Scope() == target.ScopeGlobal {
-		if alias.Target() == target.TargetPi {
-			if roots.PiAgent.Root == nil {
-				roots.PiAgent = nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "pi"))
-			}
-			root = roots.PiAgent
-		} else {
-			if roots.CodexHome.Root == nil {
-				roots.CodexHome = nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "codex"))
-			}
-			root = roots.CodexHome
-		}
-	}
-	path := filepath.Join(root.SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
-	if original.Exists() {
-		requireWholeGroupWrite(t, path, original.Content(), 0o644)
-	}
-	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
-	budget, err := physicalwork.NewBudget(1)
-	if err != nil {
+	fixture := capture.fixture
+	journal := capture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
+	if _, err := journal.Encode(t.Context(), fixture.codec); err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, reader, budget)
-	if err != nil {
+	if _, err := journal.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs); err != nil {
 		t.Fatal(err)
 	}
-	exact, known := namespace.Observation().Exact()
-	if !known {
-		t.Fatal("fixture path requires normalization-stable exact authority")
-	}
-	input := selectedDocumentCaptureInput{edits: edits, order: order, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: fixture.claims.owner, OperationID: fixture.record.OperationID, GroupIndex: 2, Limits: fixture.read.limits, Budget: budget})}
-	indexes, err := journaldocument.IndexSnapshots(t.Context(), fixture.before, fixture.after)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var claims [2][]ownership.Claim
-	var bindings [2]ownership.DocumentBindingValue
-	for side, index := range []journaldocument.SnapshotIndex{indexes.Before(), indexes.After()} {
-		footprints, err := index.Footprints(t.Context(), namespace.Addresses())
-		if err != nil {
-			t.Fatal(err)
-		}
-		for footprint := range footprints {
-			claims[side] = append(claims[side], documentActiveClaim(t, documentClaimFixture{owner: input.Owner(), exact: exact}, footprint))
-		}
-		destinations, err := index.NativeDestinations(t.Context())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, present := destinations[alias.AggregateRoot()]; present {
-			binding, err := ownership.NewDocumentBinding(input.Owner(), alias.AggregateRoot(), exact)
-			if err != nil {
-				t.Fatal(err)
-			}
-			bindings[side], err = ownership.PresentDocumentBinding(binding)
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if len(claims[0])+len(claims[1]) != 0 {
-		transition, err := ownershipmutation.NewDocumentClaimTransition(claims[0], claims[1], input.OperationID())
-		if err != nil {
-			t.Fatal(err)
-		}
-		input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Claims = &transition })
-	}
-	if !bindings[0].Equal(ownership.NoDocumentBinding()) || !bindings[1].Equal(ownership.NoDocumentBinding()) {
-		intent, err := ownership.NewExactDocumentBindingIntent(input.Owner(), alias.AggregateRoot(), bindings[0], bindings[1])
-		if err != nil {
-			t.Fatal(err)
-		}
-		input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
-			spec.Bindings = []ownership.DocumentBindingIntent{intent}
-		})
-	}
-	subjects, err := indexDocumentCaptureSubjects(t.Context(), fixture.before, fixture.after)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority, err := roots.Manifest.Root.Authority()
+	decoded := requireStagedDocumentJournal(t, fixture, journal, []journaldocument.Comparison{comparison})
+	authority, err := capture.roots.Manifest.Root.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,89 +442,123 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.record.ManifestRootProvenance = persistedNativeRoot(provenance)
-	return selectedGroupCaptureFixture{roots: roots, fixture: fixture, namespace: namespace, input: input, subjects: subjects, reader: reader, path: path, original: original}
-}
-
-func selectedCaptureEdits(t *testing.T, fixture nativeRecordFixture, original aggregate.Document, contracts []aggregate.ProjectionContract, desired []durable.ManagedAggregateState) []compose.ProjectionEdit {
-	t.Helper()
-	selection, err := aggregate.NewSelection(contracts)
-	if err != nil {
-		t.Fatal(err)
+	if !decoded.MatchesManifestRoot(provenance) || !decoded.MatchesContext(capture.input.Owner(), fixture.before, fixture.after) || decoded.OperationID() != capture.input.OperationID() {
+		t.Fatal("selected publication retained a foreign template header")
 	}
-	codec, found := fixture.read.codecs.Lookup(selection.CodecContractID())
-	if !found {
-		t.Fatal("selected fixture codec missing")
-	}
-	baseline, failure := codec.Read(original, selection)
-	if failure != nil {
-		t.Fatal(failure)
-	}
-	var intents []aggregate.ProjectionIntent
-	for _, state := range baseline.States() {
-		var values []aggregate.SubjectContribution
-		for _, row := range desired {
-			if row.Contribution().Contract().Equal(state.Contract()) {
-				value, err := aggregate.NewSubjectContribution(row.Subject(), row.Contribution())
-				if err != nil {
-					t.Fatal(err)
-				}
-				values = append(values, value)
-			}
-		}
-		var set *aggregate.ContributionSet
-		if len(values) != 0 {
-			value, err := aggregate.NewContributionSet(values)
-			if err != nil {
-				t.Fatal(err)
-			}
-			set = &value
-		}
-		intent, err := aggregate.NewProjectionIntent(state, set)
-		if err != nil {
-			t.Fatal(err)
-		}
-		intents = append(intents, intent)
-	}
-	plan, err := aggregate.NewPlan(baseline, intents)
-	if err != nil {
-		t.Fatal(err)
-	}
-	participant, err := journaldocument.Participant(selection, fixture.read.codecs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	edit, err := compose.NewProjectionEdit(codec, plan, participant.Syntax(), participant.RewriteAreas())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return []compose.ProjectionEdit{edit}
-}
-
-func (capture selectedGroupCaptureFixture) requireCompleteStage(t *testing.T, group recoveryDocumentGroup, comparison journaldocument.Comparison) {
-	t.Helper()
-	fixture := capture.fixture
-	fixture.record.DocumentGroups = []recoveryDocumentGroup{group}
-	content, err := marshalNativeJournalRecord(t.Context(), fixture.record, fixture.before, fixture.after, fixture.codec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := decodeNativeJournalRecord(t.Context(), content, fixture.codec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs); err != nil {
-		t.Fatal(err)
-	}
-	requireStagedDocumentJournal(t, fixture, decoded, []journaldocument.Comparison{comparison})
 	actual, err := os.ReadFile(capture.path)
 	if !capture.original.Exists() {
 		if !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("selected capture/staging created host file: %v", err)
 		}
-		return
+		return decoded
 	}
 	if err != nil || !slices.Equal(actual, capture.original.Content()) {
 		t.Fatalf("selected capture/staging changed host file: %v", err)
+	}
+	return decoded
+}
+
+func TestNativeSelectedRemovalUsesActualEditsNotObservedAliases(t *testing.T) {
+	fixture := nativeJournalFixture(t)
+	fixture.before = durable.EmptySnapshot()
+	selected := fixture.after.ManagedAggregates()[0]
+	original := aggregate.AbsentDocument()
+	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
+	capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
+	roots := capture.roots
+	if err := os.Symlink(roots.PiAgent.SelectedPath, filepath.Join(roots.Manifest.SelectedPath, ".pi")); err != nil {
+		t.Fatal(err)
+	}
+	observedAlias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/"+fixture.claims.alias.AggregateRoot().RelativePath())
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias, observedAlias}, roots, capture.reader, capture.input.Budget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), namespace, capture.input, capture.subjects)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := capture.recordedGroup(t, group)
+	removal, present, err := recorded.Removal()
+	if err != nil || !present || len(recorded.Aliases()) != 2 || removal.Demands().Len() != 1 {
+		t.Fatalf("observed alias gained removal debt: %v", err)
+	}
+	demand := removal.Demands().Demands()[0]
+	if demand.Scope() != fixture.claims.alias.Scope() || demand.Destination() != fixture.claims.alias.AggregateRoot() {
+		t.Fatal("actual edit relation was replaced by the observed alias")
+	}
+	capture.namespace = namespace
+	baseline := capture.requireCompleteStage(t, group, comparison)
+	prepared, err := baseline.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs)
+	if err != nil {
+		t.Fatalf("valid selected removal failed before its negative control: %v", err)
+	}
+	if comparisons, err := prepared.Comparisons(); err != nil || len(comparisons) != 1 {
+		t.Fatal("valid selected removal lost complete preparation", err)
+	}
+	variant := capture.fixture
+	variant.journal = baseline
+	variant.read.artifacts = nativeNamespaceRoot(t, t.TempDir()).Root
+	decoded := publishedNativeGroupVariant(t, variant, func(group map[string]json.RawMessage) {
+		var removal map[string]json.RawMessage
+		if err := json.Unmarshal(group["removal"], &removal); err != nil {
+			t.Fatal(err)
+		}
+		var demands []map[string]json.RawMessage
+		if err := json.Unmarshal(removal["demands"], &demands); err != nil {
+			t.Fatal(err)
+		}
+		if len(demands) != 1 {
+			t.Fatal("selected removal variant requires one actual relation")
+		}
+		demands = append(demands, map[string]json.RawMessage{
+			"scope":       nativeRecordJSON(t, string(observedAlias.Scope())),
+			"destination": nativeRecordJSON(t, observedAlias.AggregateRoot().String()),
+		})
+		removal["demands"] = nativeRecordJSON(t, demands)
+		group["removal"] = nativeRecordJSON(t, removal)
+	})
+	authority, err := capture.roots.Manifest.Root.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := authority.Provenance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.MatchesManifestRoot(provenance) {
+		t.Fatal("removal variant changed its captured manifest")
+	}
+	result, err := decoded.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs)
+	assertNoPreparedDocumentRecord(t, result, err, fixture.codec)
+}
+
+func TestNativeSelectedLastKeyReleasePreservesExistingRoot(t *testing.T) {
+	for _, content := range []string{`{"model":true}`, `{"model":true,"foreign":1}`} {
+		t.Run(content, func(t *testing.T) {
+			fixture := nativeJournalFixture(t)
+			before := fixture.before.ManagedAggregates()[0]
+			fixture.after = durable.EmptySnapshot()
+			original := aggregate.ExistingDocument([]byte(content))
+			edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{before.Contribution().Contract()}, nil)
+			capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
+			group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, hasRemoval, err := capture.recordedGroup(t, group).Removal()
+			_, regular := comparison.ExpectedState().RegularFileMode()
+			if err != nil || !comparison.ExpectedDocument().Exists() || !regular || hasRemoval {
+				t.Fatalf("last selected-key release acquired root deletion: %v", err)
+			}
+			var remaining map[string]json.RawMessage
+			if err := json.Unmarshal(comparison.ExpectedDocument().Content(), &remaining); err != nil {
+				t.Fatal(err)
+			}
+			if _, retained := remaining["model"]; retained {
+				t.Fatal("actual edit did not release the selected key")
+			}
+			capture.requireCompleteStage(t, group, comparison)
+		})
 	}
 }

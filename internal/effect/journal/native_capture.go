@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -27,7 +29,7 @@ type NativeCaptureOptions struct {
 	CaptureOptions
 	OrderObservations         []pipackage.OrderObservation
 	ProjectCarrierCompletions []durablecarrier.ManagedCarrierClaim
-	WholeDocuments            []ManagedPathMutation
+	WholeDocuments            []journalrecord.ManagedPathMutation
 	Payloads                  payload.PayloadSet
 }
 
@@ -83,7 +85,7 @@ func CaptureNativeJournalWithOptions(
 	if err := errors.Join(ctx.Err(), batch.budget.RequireCapturePending()); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	mutations, err := pathMutations(options.ManagedPathMutations, options.ManagedAggregateMutations, options.ManagedPathEvidence)
+	mutations, err := journalrecord.NormalizeCaptureMutations(options.ManagedPathMutations, options.ManagedAggregateMutations, options.ManagedPathEvidence)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
@@ -92,16 +94,16 @@ func CaptureNativeJournalWithOptions(
 			return CapturedNativeJournal{}, err
 		}
 	}
-	if !isSafeRecoveryOperationID(operationID) {
+	if !journalrecord.IsSafeOperationID(operationID) {
 		return CapturedNativeJournal{}, fmt.Errorf("native recovery operation id must be a safe path component")
 	}
-	if _, _, err := encodeRecoveryJournalSnapshots(batch.Evidence().BeforeState(), after, options.StateCodec); err != nil {
+	if _, _, err := journalrecord.EncodeSnapshots(batch.Evidence().BeforeState(), after, options.StateCodec); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	if err := validateNativeCaptureContext(ctx, paths, batch, options.CaptureOptions); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	wholeMutations, err := pathMutations(options.WholeDocuments, nil, options.ManagedPathEvidence)
+	wholeMutations, err := journalrecord.NormalizeCaptureMutations(options.WholeDocuments, nil, options.ManagedPathEvidence)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
@@ -187,19 +189,19 @@ func CaptureNativeJournalWithOptions(
 	return result, nil
 }
 
-func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, orders []pipackage.OrderObservation, ordinary recovery.RemovalDemandSet, whole []ManagedPathMutation, payloads payload.PayloadSet) (nativeJournalSnapshots, []journaldocument.Comparison, error) {
+func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, orders []pipackage.OrderObservation, ordinary recovery.RemovalDemandSet, whole []journalrecord.ManagedPathMutation, payloads payload.PayloadSet) (journalrecord.Native, []journaldocument.Comparison, error) {
 	inputs, err := batch.prepareOwnership(ctx, after, operationID)
 	if err != nil {
-		return nativeJournalSnapshots{}, nil, err
+		return journalrecord.Native{}, nil, err
 	}
 	namespaces := batch.Evidence().Namespaces()
 	subjects, err := indexDocumentCaptureSubjects(ctx, batch.Evidence().BeforeState(), after)
 	if err != nil {
-		return nativeJournalSnapshots{}, nil, err
+		return journalrecord.Native{}, nil, err
 	}
 	afterIndex, err := journaldocument.IndexSnapshot(ctx, after)
 	if err != nil {
-		return nativeJournalSnapshots{}, nil, err
+		return journalrecord.Native{}, nil, err
 	}
 	groupEdits := make([][]compose.ProjectionEdit, len(namespaces))
 	for _, edit := range edits {
@@ -213,23 +215,23 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 			}
 		}
 		if !found {
-			return nativeJournalSnapshots{}, nil, fmt.Errorf("selected edit has no observed physical document group")
+			return journalrecord.Native{}, nil, fmt.Errorf("selected edit has no observed physical document group")
 		}
 	}
 	candidates := make([]nativeDocumentCaptureCandidate, 0, len(inputs))
 	groupOrders := make([]*pipackage.OrderObservation, len(inputs))
-	groupWhole := make([]*ManagedPathMutation, len(inputs))
+	groupWhole := make([]*journalrecord.ManagedPathMutation, len(inputs))
 	for index, mutation := range whole {
 		facts, err := wholeDocumentMutationFacts(mutation)
 		if err != nil {
-			return nativeJournalSnapshots{}, nil, err
+			return journalrecord.Native{}, nil, err
 		}
-		if !aggregate.IsHostConfigDocumentSubject(facts.subject) {
-			return nativeJournalSnapshots{}, nil, fmt.Errorf("whole capture requires its canonical native subject")
+		if !aggregate.IsHostConfigDocumentSubject(facts.Subject()) {
+			return journalrecord.Native{}, nil, fmt.Errorf("whole capture requires its canonical native subject")
 		}
-		address, err := aggregate.NewDocumentAddress(facts.consumerTargets[0], facts.scope, facts.destination)
+		address, err := aggregate.NewDocumentAddress(facts.ConsumerTargets()[0], facts.Scope(), facts.Destination())
 		if err != nil {
-			return nativeJournalSnapshots{}, nil, err
+			return journalrecord.Native{}, nil, err
 		}
 		found := false
 		for group, namespace := range namespaces {
@@ -237,21 +239,21 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 				continue
 			}
 			if groupWhole[group] != nil {
-				return nativeJournalSnapshots{}, nil, fmt.Errorf("native document has duplicate whole writers")
+				return journalrecord.Native{}, nil, fmt.Errorf("native document has duplicate whole writers")
 			}
 			groupWhole[group], found = &whole[index], true
 		}
 		if !found {
-			return nativeJournalSnapshots{}, nil, fmt.Errorf("native whole writer has no retained namespace")
+			return journalrecord.Native{}, nil, fmt.Errorf("native whole writer has no retained namespace")
 		}
 	}
 	for _, order := range orders {
 		if !order.Changed() {
 			continue
 		}
-		alias, err := piOrderDocumentAlias(order.Scope())
+		alias, err := journalrecord.PiOrderDocumentAlias(order.Scope())
 		if err != nil {
-			return nativeJournalSnapshots{}, nil, err
+			return journalrecord.Native{}, nil, err
 		}
 		found := false
 		for index, namespace := range namespaces {
@@ -259,12 +261,12 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 				continue
 			}
 			if groupOrders[index] != nil {
-				return nativeJournalSnapshots{}, nil, fmt.Errorf("selected document has duplicate Pi order actors")
+				return journalrecord.Native{}, nil, fmt.Errorf("selected document has duplicate Pi order actors")
 			}
 			groupOrders[index], found = &order, true
 		}
 		if !found {
-			return nativeJournalSnapshots{}, nil, fmt.Errorf("Pi order has no selected native settings group")
+			return journalrecord.Native{}, nil, fmt.Errorf("Pi order has no selected native settings group")
 		}
 	}
 	work := !batch.Evidence().BeforeState().Equal(after)
@@ -274,7 +276,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 		var err error
 		members, err := afterIndex.Subjects(ctx, namespaces[index].Addresses())
 		if err != nil {
-			return nativeJournalSnapshots{}, nil, err
+			return journalrecord.Native{}, nil, err
 		}
 		wholeAfter := false
 		for _, subject := range members {
@@ -285,7 +287,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 		}
 		if groupWhole[index] != nil {
 			if len(groupEdits[index]) != 0 || groupOrders[index] != nil {
-				return nativeJournalSnapshots{}, nil, fmt.Errorf("whole writer overlaps selected document work")
+				return journalrecord.Native{}, nil, fmt.Errorf("whole writer overlaps selected document work")
 			}
 			candidate, err = prepareWholeDocumentCandidate(ctx, namespaces[index], wholeDocumentCaptureInput{CaptureInput: input, mutation: *groupWhole[index], payloads: payloads})
 		} else if wholeAfter && len(groupEdits[index]) == 0 && groupOrders[index] == nil {
@@ -294,33 +296,33 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 			candidate, err = prepareSelectedDocumentCandidate(ctx, namespaces[index], selectedDocumentCaptureInput{CaptureInput: input, edits: groupEdits[index], order: groupOrders[index]}, subjects)
 		}
 		if err != nil {
-			return nativeJournalSnapshots{}, nil, err
+			return journalrecord.Native{}, nil, err
 		}
 		comparison := candidate.record.Comparison()
 		if !batch.evidence.MatchesOriginal(index, comparison.BeforeDocument(), comparison.BeforeMode()) {
-			return nativeJournalSnapshots{}, nil, fmt.Errorf("selected candidate differs from its decision original")
+			return journalrecord.Native{}, nil, fmt.Errorf("selected candidate differs from its decision original")
 		}
 		documentWork = documentWork || !comparison.BeforeDocument().Equal(comparison.ExpectedDocument()) || !comparison.BeforeState().SameRootMetadata(comparison.ExpectedState())
 		work = work || documentWork
 		candidates = append(candidates, candidate)
 	}
-	if err := requireNativeDocumentCommitWork(batch.Evidence().BeforeState(), after, documentWork); err != nil {
-		return nativeJournalSnapshots{}, nil, err
+	if err := journalrecord.RequireDocumentCommitWork(batch.Evidence().BeforeState(), after, documentWork); err != nil {
+		return journalrecord.Native{}, nil, err
 	}
 	if !work {
-		return nativeJournalSnapshots{}, nil, fmt.Errorf("native capture requires actual document or state work")
+		return journalrecord.Native{}, nil, fmt.Errorf("native capture requires actual document or state work")
 	}
 	groups, comparisons, _, err := captureNativeDocumentCandidates(ctx, candidates, ordinary, batch.budget)
 	if err != nil {
-		return nativeJournalSnapshots{}, nil, err
+		return journalrecord.Native{}, nil, err
 	}
 	grant, err := batch.manifest(ctx)
 	if err != nil {
-		return nativeJournalSnapshots{}, nil, err
+		return journalrecord.Native{}, nil, err
 	}
-	journal, err := newNativeCapture(operationID, createdAt, batch.owner, grant.Provenance(), batch.Evidence().BeforeState(), after, groups)
+	journal, err := journalrecord.NewNativeCapture(operationID, createdAt, batch.owner, grant.Provenance(), batch.Evidence().BeforeState(), after, groups)
 	if err != nil {
-		return nativeJournalSnapshots{}, nil, err
+		return journalrecord.Native{}, nil, err
 	}
 	return journal, comparisons, nil
 }

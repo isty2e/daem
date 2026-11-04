@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -22,7 +24,7 @@ import (
 // ordinaryCaptureSource couples the ordinary builder's record to its private
 // backup tree. Its lifetime belongs to stageMixedDocumentJournal, not publication.
 type ordinaryCaptureSource struct {
-	record       ordinaryCaptureMaterial
+	record       journalrecord.OrdinaryEvidence
 	view         access.View
 	identity     artifact.ExactIdentity
 	work         workmeasure.ArtifactWork
@@ -37,14 +39,14 @@ type nativeMixedStageOptions struct {
 
 // stageMixedDocumentJournal populates one unpublished tree. Capture options must
 // contain only ordinary work; the containing operation still owns live authority.
-func stageMixedDocumentJournal(journal nativeJournalSnapshots, ctx context.Context, paths Paths, capture CaptureOptions, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (fingerprint string, resultErr error) {
+func stageMixedDocumentJournal(journal journalrecord.Native, ctx context.Context, paths Paths, capture CaptureOptions, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (fingerprint string, resultErr error) {
 	if ctx == nil || writer == nil || options.budget == nil || options.stateCodec == nil || capture.Filesystem == nil || capture.Resolver == nil {
 		return "", fmt.Errorf("mixed journal staging requires context, private writer, codec, shared budget and ordinary capture adapters")
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	basis, err := journal.ordinaryCaptureBasis()
+	basis, err := journal.OrdinaryCaptureBasis()
 	if err != nil {
 		return "", err
 	}
@@ -69,7 +71,7 @@ func stageMixedDocumentJournal(journal nativeJournalSnapshots, ctx context.Conte
 	return stageWithOrdinarySource(journal, ctx, ordinary, comparisons, writer, options)
 }
 
-func captureOrdinarySource(ctx context.Context, paths Paths, directory string, basis ordinaryCaptureBasis, capture CaptureOptions, budget *physicalwork.Budget) (ordinaryCaptureSource, error) {
+func captureOrdinarySource(ctx context.Context, paths Paths, directory string, basis journalrecord.OrdinaryCaptureBasis, capture CaptureOptions, budget *physicalwork.Budget) (ordinaryCaptureSource, error) {
 	if budget == nil {
 		return ordinaryCaptureSource{}, fmt.Errorf("native ordinary capture requires the containing allocation")
 	}
@@ -112,7 +114,7 @@ func captureOrdinarySource(ctx context.Context, paths Paths, directory string, b
 	}
 	// Revalidation before copying ties these per-backup observations to the same
 	// whole-tree identity, including changes between hashing and observation.
-	entries, err := record.recordedEntries()
+	entries, err := record.RecordedEntries()
 	if err != nil {
 		return ordinaryCaptureSource{}, err
 	}
@@ -122,8 +124,8 @@ func captureOrdinarySource(ctx context.Context, paths Paths, directory string, b
 	return ordinaryCaptureSource{record: record, view: view, identity: identity, work: work, filesystem: capture.Filesystem, capabilities: capture.RootedCapability}, nil
 }
 
-func stageWithOrdinarySource(journal nativeJournalSnapshots, ctx context.Context, ordinary ordinaryCaptureSource, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (string, error) {
-	journal, err := journal.withOrdinaryCapture(ordinary.record)
+func stageWithOrdinarySource(journal journalrecord.Native, ctx context.Context, ordinary ordinaryCaptureSource, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (string, error) {
+	journal, err := journal.WithOrdinaryEvidence(ordinary.record)
 	if err != nil {
 		return "", err
 	}
@@ -167,7 +169,7 @@ func stageWithOrdinarySource(journal nativeJournalSnapshots, ctx context.Context
 	if err := errors.Join(copyErr, options.budget.AdmitTree(copiedWork), ctx.Err()); err != nil {
 		return "", err
 	}
-	return prepared.stageJournal(ctx, content, writer, options.budget)
+	return stagePreparedDocumentJournal(prepared, ctx, content, writer, options.budget)
 }
 
 func ordinarySourceLimits(work workmeasure.ArtifactWork) (access.TraversalLimit, access.TreeStructureLimit, error) {

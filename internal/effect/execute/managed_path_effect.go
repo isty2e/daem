@@ -5,8 +5,9 @@ import (
 	"os"
 	"slices"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -327,15 +328,15 @@ func (effect ManagedPathEffect) RequiresPayload() bool {
 
 // ManagedPathJournalMutations projects prepared effects into capture facts,
 // splitting relocation into distinct creation and retirement requests.
-func ManagedPathJournalMutations(effects []ManagedPathEffect) ([]journal.ManagedPathMutation, error) {
-	mutations := make([]journal.ManagedPathMutation, 0, len(effects)+1)
+func ManagedPathJournalMutations(effects []ManagedPathEffect) ([]journalrecord.ManagedPathMutation, error) {
+	mutations := make([]journalrecord.ManagedPathMutation, 0, len(effects)+1)
 	for index, effect := range effects {
 		previous, hasPrevious := effect.PreviousState()
-		var mutation journal.ManagedPathMutation
+		var mutation journalrecord.ManagedPathMutation
 		var err error
 		switch effect.Kind() {
 		case ManagedPathEffectCreate:
-			mutation, err = journal.NewManagedPathCreateMutation(
+			mutation, err = journalrecord.NewManagedPathCreateMutation(
 				effect.Subject(), effect.ConsumerTargets(), effect.Scope(), effect.Destination(),
 				effect.DesiredHash(), effect.ContentKind(), effect.DesiredFileMode(),
 				managedPathPreviousPointer(previous, hasPrevious),
@@ -345,21 +346,21 @@ func ManagedPathJournalMutations(effects []ManagedPathEffect) ([]journal.Managed
 				return nil, fmt.Errorf("managed path effect[%d] replace lacks previous state", index)
 			}
 			if previous.Scope() != effect.Scope() || previous.Destination() != effect.Destination() {
-				create, createErr := journal.NewManagedPathCreateMutation(
+				create, createErr := journalrecord.NewManagedPathCreateMutation(
 					effect.Subject(), effect.ConsumerTargets(), effect.Scope(), effect.Destination(),
 					effect.DesiredHash(), effect.ContentKind(), effect.DesiredFileMode(), nil,
 				)
 				if createErr != nil {
 					return nil, fmt.Errorf("managed path effect[%d] relocation creation: %w", index, createErr)
 				}
-				remove, removeErr := journal.NewManagedPathRemoveMutation(previous, previous.ContentHash())
+				remove, removeErr := journalrecord.NewManagedPathRemoveMutation(previous, previous.ContentHash())
 				if removeErr != nil {
 					return nil, fmt.Errorf("managed path effect[%d] relocation removal: %w", index, removeErr)
 				}
 				mutations = append(mutations, create, remove)
 				continue
 			}
-			mutation, err = journal.NewManagedPathReplaceMutation(
+			mutation, err = journalrecord.NewManagedPathReplaceMutation(
 				effect.Subject(), effect.ConsumerTargets(), effect.Scope(), effect.Destination(),
 				effect.DesiredHash(), effect.LiveHash(), effect.ContentKind(), effect.DesiredFileMode(), previous,
 			)
@@ -367,13 +368,13 @@ func ManagedPathJournalMutations(effects []ManagedPathEffect) ([]journal.Managed
 			if !hasPrevious {
 				return nil, fmt.Errorf("managed path effect[%d] remove lacks previous state", index)
 			}
-			mutation, err = journal.NewManagedPathRemoveMutation(previous, effect.LiveHash())
+			mutation, err = journalrecord.NewManagedPathRemoveMutation(previous, effect.LiveHash())
 		case ManagedPathEffectRecord:
 			expectedMode := effect.DesiredFileMode()
 			if effect.ContentKind() == realization.PathProjectionFile {
 				expectedMode = effect.LiveFileMode()
 			}
-			mutation, err = journal.NewManagedPathRecordMutation(
+			mutation, err = journalrecord.NewManagedPathRecordMutation(
 				effect.Subject(), effect.ConsumerTargets(), effect.Scope(), effect.Destination(),
 				effect.DesiredHash(), effect.LiveHash(), effect.ContentKind(), expectedMode,
 				managedPathPreviousPointer(previous, hasPrevious),

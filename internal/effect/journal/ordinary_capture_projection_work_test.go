@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
@@ -62,7 +64,7 @@ func TestOrdinaryProjectionCaptureChargesOneReadAndOnlySelectedBackupBytes(t *te
 	}
 	work := &ordinaryCaptureWork{budget: budget}
 	action := claudeRecoveryBaselineMutation(t, target.ScopeGlobal, "context7")
-	cache, err := newRecoveryContentPathBaselineCache([]captureMutation{action}, journalTestCodecs(), ordinaryCaptureReader{Reader: journalTestFilesystem(), work: work})
+	cache, err := newRecoveryContentPathBaselineCache([]journalrecord.CaptureMutation{action}, journalTestCodecs(), ordinaryCaptureReader{Reader: journalTestFilesystem(), work: work})
 	if err != nil {
 		t.Fatal(err)
 	}

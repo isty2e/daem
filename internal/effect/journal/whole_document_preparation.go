@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -24,7 +26,7 @@ type WholeDocumentPreparationInput struct {
 
 // PrepareWholeDocument derives expected images from capture mutations and exact
 // payloads. Loaded originals do not grant namespace or managed-state authority.
-func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInput, mutation ManagedPathMutation, payloads payload.PayloadSet) (journaldocument.Comparison, error) {
+func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInput, mutation journalrecord.ManagedPathMutation, payloads payload.PayloadSet) (journaldocument.Comparison, error) {
 	if err := journaldocument.ValidateImage(ctx, input.Before, input.Limits); err != nil {
 		return journaldocument.Comparison{}, err
 	}
@@ -35,7 +37,7 @@ func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInp
 	if _, err := recovery.NewPartialDocumentState(input.Before.Exists(), input.BeforeMode, nil); err != nil {
 		return journaldocument.Comparison{}, err
 	}
-	if mutation.kind() == pathMutationCreate {
+	if mutation.Kind() == journalrecord.CaptureCreate {
 		if input.Before.Exists() {
 			return journaldocument.Comparison{}, fmt.Errorf("whole document creation requires an absent original")
 		}
@@ -44,16 +46,16 @@ func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInp
 			return journaldocument.Comparison{}, fmt.Errorf("whole document mutation requires an existing original")
 		}
 		actual := artifact.HashFileContentWithExecutable(input.Before.Content(), input.BeforeMode.FileMode()&0o111 != 0)
-		if actual != facts.liveHash {
+		if actual != facts.LiveHash() {
 			return journaldocument.Comparison{}, fmt.Errorf("whole document original does not match the observed live identity")
 		}
 	}
 
 	expected := aggregate.AbsentDocument()
 	var expectedMode *recovery.PermissionMode
-	switch mutation.kind() {
-	case pathMutationCreate, pathMutationReplace:
-		value, found := payloads.LookupSubject(facts.subject)
+	switch mutation.Kind() {
+	case journalrecord.CaptureCreate, journalrecord.CaptureReplace:
+		value, found := payloads.LookupSubject(facts.Subject())
 		file, regular := value.File()
 		if !found || !regular {
 			return journaldocument.Comparison{}, fmt.Errorf("whole document mutation requires its exact file payload")
@@ -61,21 +63,22 @@ func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInp
 		if file.ContentSize() > input.Limits.MaximumBytes {
 			return journaldocument.Comparison{}, fmt.Errorf("whole document payload exceeds the selected byte limit")
 		}
-		if file.Mode() != facts.expectedMode {
+		if file.Mode() != facts.ExpectedMode() {
 			return journaldocument.Comparison{}, fmt.Errorf("whole document payload mode does not match the prepared mutation")
 		}
-		if err := value.VerifyHash(facts.desiredHash, facts.destination); err != nil {
+		if err := value.VerifyHash(facts.DesiredHash(), facts.Destination()); err != nil {
 			return journaldocument.Comparison{}, err
 		}
 		expected = aggregate.ExistingDocument(file.Bytes())
-		expectedMode = recovery.NewPermissionMode(facts.expectedMode)
-	case pathMutationRecord:
-		if facts.liveHash != facts.desiredHash || input.BeforeMode.FileMode() != facts.expectedMode {
+		expectedMode = recovery.NewPermissionMode(facts.ExpectedMode())
+	case journalrecord.CaptureRecord:
+		if facts.LiveHash() != facts.DesiredHash() || input.BeforeMode.FileMode() != facts.ExpectedMode() {
 			return journaldocument.Comparison{}, fmt.Errorf("whole document record does not match desired identity and mode")
 		}
 		expected, expectedMode = input.Before, input.BeforeMode
-	case pathMutationRemove:
-		if facts.liveHash != facts.previous.ContentHash() || input.BeforeMode.FileMode() != facts.previous.FileMode() {
+	case journalrecord.CaptureRemove:
+		previous, _ := facts.PreviousState()
+		if facts.LiveHash() != previous.ContentHash() || input.BeforeMode.FileMode() != previous.FileMode() {
 			return journaldocument.Comparison{}, fmt.Errorf("whole document removal does not match its previous baseline")
 		}
 	}
@@ -85,30 +88,31 @@ func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInp
 	})
 }
 
-func wholeDocumentMutationFacts(mutation ManagedPathMutation) (managedPathMutationFacts, error) {
-	if err := mutation.validate(); err != nil {
-		return managedPathMutationFacts{}, err
+func wholeDocumentMutationFacts(mutation journalrecord.ManagedPathMutation) (journalrecord.ManagedPathMutation, error) {
+	if err := mutation.Validate(); err != nil {
+		return journalrecord.ManagedPathMutation{}, err
 	}
-	facts := mutation.facts()
-	mode := facts.expectedMode
-	if mutation.kind() == pathMutationRemove {
-		mode = facts.previous.FileMode()
+	facts := mutation
+	mode := facts.ExpectedMode()
+	if mutation.Kind() == journalrecord.CaptureRemove {
+		previous, _ := facts.PreviousState()
+		mode = previous.FileMode()
 	}
-	if err := profile.ValidateHostConfigDocumentOccupancy(facts.subject, facts.consumerTargets, facts.scope, facts.destination, facts.contentKind, realization.PathPermissionsExact, mode); err != nil {
-		return managedPathMutationFacts{}, err
+	if err := profile.ValidateHostConfigDocumentOccupancy(facts.Subject(), facts.ConsumerTargets(), facts.Scope(), facts.Destination(), facts.ContentKind(), realization.PathPermissionsExact, mode); err != nil {
+		return journalrecord.ManagedPathMutation{}, err
 	}
 	if err := validateWholeDocumentPrevious(facts); err != nil {
-		return managedPathMutationFacts{}, err
+		return journalrecord.ManagedPathMutation{}, err
 	}
 	return facts, nil
 }
 
-func validateWholeDocumentPrevious(facts managedPathMutationFacts) error {
-	if facts.previous == nil {
+func validateWholeDocumentPrevious(facts journalrecord.ManagedPathMutation) error {
+	previous, present := facts.PreviousState()
+	if !present {
 		return nil
 	}
-	previous := *facts.previous
-	if previous.Subject() != facts.subject || previous.Scope() != facts.scope || previous.Destination() != facts.destination || !slices.Equal(previous.ConsumerTargets(), facts.consumerTargets) {
+	if previous.Subject() != facts.Subject() || previous.Scope() != facts.Scope() || previous.Destination() != facts.Destination() || !slices.Equal(previous.ConsumerTargets(), facts.ConsumerTargets()) {
 		return fmt.Errorf("whole document retargeting requires separate creation and retirement mutations")
 	}
 	return profile.ValidateHostConfigDocumentOccupancy(previous.Subject(), previous.ConsumerTargets(), previous.Scope(), previous.Destination(), previous.ContentKind(), previous.PermissionPolicy(), previous.FileMode())

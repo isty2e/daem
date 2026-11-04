@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -32,8 +33,8 @@ import (
 type CaptureOptions struct {
 	ClaimTransitions          []ownershipmutation.ClaimTransition
 	ProvisionalAcquires       []ownership.ProvisionalAcquireIntent
-	ManagedPathMutations      []ManagedPathMutation
-	ManagedAggregateMutations []ManagedAggregateMutation
+	ManagedPathMutations      []journalrecord.ManagedPathMutation
+	ManagedAggregateMutations []journalrecord.ManagedAggregateMutation
 	ManagedPathEvidence       []observe.ManagedPathEvidence
 	RemovalDemands            recovery.RemovalDemandSet
 	Resolver                  func(destination output.Destination) (string, error)
@@ -60,12 +61,12 @@ func CaptureJournalWithOptions(
 		return CaptureResult{}, fmt.Errorf("recovery journal destination resolver is required")
 	}
 	if options.StateCodec == nil {
-		return CaptureResult{}, errRecoveryJournalStateCodecRequired
+		return CaptureResult{}, journalrecord.ErrStateCodecRequired
 	}
 	if options.Filesystem == nil {
 		return CaptureResult{}, fmt.Errorf("recovery journal filesystem is required")
 	}
-	statefileBefore, statefileAfter, err := encodeRecoveryJournalSnapshots(
+	statefileBefore, statefileAfter, err := journalrecord.EncodeSnapshots(
 		currentState,
 		nextState,
 		options.StateCodec,
@@ -79,7 +80,7 @@ func CaptureJournalWithOptions(
 	}); err != nil {
 		return CaptureResult{}, err
 	}
-	if !isSafeRecoveryOperationID(operationID) {
+	if !journalrecord.IsSafeOperationID(operationID) {
 		return CaptureResult{}, fmt.Errorf("recovery operation id %q must be a safe path component", operationID)
 	}
 	finalDir, err := mutation.CanonicalDirectoryEntryPath(filepath.Join(paths.RecoveryDir, operationID))
@@ -152,15 +153,15 @@ func CaptureJournalWithOptions(
 	if err != nil {
 		return CaptureResult{}, err
 	}
-	content, err := material.encodeOrdinary(
+	content, err := material.EncodeOrdinary(
 		statefileBefore,
 		statefileAfter,
 	)
 	if err != nil {
 		return CaptureResult{}, err
 	}
-	journalPath := filepath.Join(tempDir, recoveryJournalFileName)
-	if err := os.WriteFile(journalPath, content, recoveryJournalMode); err != nil {
+	journalPath := filepath.Join(tempDir, journalrecord.FileName)
+	if err := os.WriteFile(journalPath, content, journalrecord.Mode); err != nil {
 		return CaptureResult{}, fmt.Errorf("stage recovery journal: %w", err)
 	}
 	stagedHash, stagedKind, err := access.HashPath(ctx, tempDir)
@@ -206,8 +207,8 @@ func CaptureJournalWithOptions(
 	return CaptureResult{
 		OperationID:       operationID,
 		Directory:         finalDir,
-		JournalPath:       filepath.Join(finalDir, recoveryJournalFileName),
-		RecordFingerprint: recoveryJournalRecordFingerprint(content),
+		JournalPath:       filepath.Join(finalDir, journalrecord.FileName),
+		RecordFingerprint: journalrecord.Fingerprint(content),
 	}, nil
 }
 
@@ -296,9 +297,9 @@ func buildOrdinaryCaptureMaterial(
 	nextState durable.Snapshot,
 	options CaptureOptions,
 	work *ordinaryCaptureWork,
-) (result ordinaryCaptureMaterial, resultErr error) {
+) (result journalrecord.OrdinaryEvidence, resultErr error) {
 	if work == nil {
-		return ordinaryCaptureMaterial{}, fmt.Errorf("ordinary capture requires its selected work policy")
+		return journalrecord.OrdinaryEvidence{}, fmt.Errorf("ordinary capture requires its selected work policy")
 	}
 	options.RootedCapability = work.rootedResolver(options.RootedCapability)
 	var filesystem mutationfs.Reader = options.Filesystem
@@ -306,13 +307,13 @@ func buildOrdinaryCaptureMaterial(
 		filesystem = ordinaryCaptureReader{Reader: filesystem, work: work}
 	}
 
-	mutations, err := pathMutations(
+	mutations, err := journalrecord.NormalizeCaptureMutations(
 		options.ManagedPathMutations,
 		options.ManagedAggregateMutations,
 		options.ManagedPathEvidence,
 	)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+		return journalrecord.OrdinaryEvidence{}, err
 	}
 	globalPathBindings, err := work.globalBindings(
 		mutations,
@@ -320,72 +321,69 @@ func buildOrdinaryCaptureMaterial(
 		options.RootedCapability,
 	)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+		return journalrecord.OrdinaryEvidence{}, err
 	}
 	boundResolver := globalPathBindings.resolver(options.Resolver)
 	manifestAuthority, err := work.manifest(paths, options.ManifestRoot)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+		return journalrecord.OrdinaryEvidence{}, err
 	}
 	if manifestAuthority.owned {
 		defer func() {
 			if closeErr := manifestAuthority.close(); closeErr != nil {
-				result = ordinaryCaptureMaterial{}
+				result = journalrecord.OrdinaryEvidence{}
 				resultErr = errors.Join(resultErr, fmt.Errorf("close recovery journal manifest root: %w", closeErr))
 			}
 		}()
 	}
-	draft, err := newOrdinaryRecordDraft(ordinaryRecordCaptureInput{
-		operationID: operationID, createdAt: createdAt, before: currentState, after: nextState,
-		manifest: manifestAuthority.provenance, mutations: mutations, removalDemands: options.RemovalDemands,
-	})
+	draft, err := journalrecord.NewOrdinaryDraft(operationID, createdAt, currentState, nextState, manifestAuthority.provenance, mutations, options.RemovalDemands)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+		return journalrecord.OrdinaryEvidence{}, err
 	}
 	backupIndex := 0
 	contentPathBaselines, err := newRecoveryContentPathBaselineCache(mutations, options.Codecs, filesystem)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+		return journalrecord.OrdinaryEvidence{}, err
 	}
-	for range draft.entryCount() {
-		action, err := draft.beginEntry(ctx)
+	for range draft.EntryCount() {
+		action, err := draft.BeginEntry(ctx)
 		if err != nil {
-			return ordinaryCaptureMaterial{}, err
+			return journalrecord.OrdinaryEvidence{}, err
 		}
 		before, nextBackupIndex, err := captureRecoveryBeforePath(
 			ctx, operationDir, backupIndex, action, filesystem, boundResolver,
 			manifestAuthority, options.RootedCapability, contentPathBaselines, work,
 		)
 		if err != nil {
-			return ordinaryCaptureMaterial{}, err
+			return journalrecord.OrdinaryEvidence{}, err
 		}
 		backupIndex = nextBackupIndex
-		if err := draft.supplyBefore(before); err != nil {
-			return ordinaryCaptureMaterial{}, err
+		if err := draft.SupplyBefore(before); err != nil {
+			return journalrecord.OrdinaryEvidence{}, err
 		}
 		binding, err := globalPathBindings.captured(action.Scope(), action.Destination())
 		if err != nil {
-			return ordinaryCaptureMaterial{}, err
+			return journalrecord.OrdinaryEvidence{}, err
 		}
-		if err := draft.supplyGlobalBinding(binding); err != nil {
-			return ordinaryCaptureMaterial{}, err
+		if err := draft.SupplyGlobalBinding(binding); err != nil {
+			return journalrecord.OrdinaryEvidence{}, err
 		}
 	}
-	if err := draft.closeEntries(); err != nil {
-		return ordinaryCaptureMaterial{}, err
+	if err := draft.CloseEntries(); err != nil {
+		return journalrecord.OrdinaryEvidence{}, err
 	}
 	removalIntents, err := work.removalIntents(ctx, options.RemovalDemands, boundResolver)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+		return journalrecord.OrdinaryEvidence{}, err
 	}
-	if err := draft.supplyRemovalIntents(removalIntents); err != nil {
-		return ordinaryCaptureMaterial{}, err
+	if err := draft.SupplyRemovalIntents(removalIntents); err != nil {
+		return journalrecord.OrdinaryEvidence{}, err
 	}
-	if err := draft.beginClaimCoverage(options.ClaimTransitions, options.ProvisionalAcquires); err != nil {
-		return ordinaryCaptureMaterial{}, err
+	if err := draft.BeginClaimCoverage(options.ClaimTransitions, options.ProvisionalAcquires); err != nil {
+		return journalrecord.OrdinaryEvidence{}, err
 	}
-	if err := captureClaimAuthorities(ctx, boundResolver, draft.nextClaimAuthority, draft.bindClaimAuthority); err != nil {
-		return ordinaryCaptureMaterial{}, err
+	if err := captureClaimAuthorities(ctx, boundResolver, draft.NextClaimAuthority, draft.BindClaimAuthority); err != nil {
+		return journalrecord.OrdinaryEvidence{}, err
 	}
-	return draft.finish()
+	return draft.Finish()
 }

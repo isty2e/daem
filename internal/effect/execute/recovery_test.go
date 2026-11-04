@@ -18,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
@@ -78,7 +79,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mutationRequest, err := journal.NewManagedPathReplaceMutation(
+	mutationRequest, err := journalrecord.NewManagedPathReplaceMutation(
 		currentPath.Subject(),
 		currentPath.ConsumerTargets(),
 		currentPath.Scope(),
@@ -115,7 +116,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 		nextState,
 		journal.CaptureOptions{
 			Filesystem:           testFilesystem(),
-			ManagedPathMutations: []journal.ManagedPathMutation{mutationRequest},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             resolver,
 			StateCodec:           testStateCodec(),

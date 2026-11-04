@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -68,72 +69,72 @@ func TestPrepareWholeDocumentDerivesAllMutationImages(t *testing.T) {
 func TestPrepareWholeDocumentRejectsMisjoinedFactsWithoutComparison(t *testing.T) {
 	for _, test := range []struct {
 		name string
-		edit func(*testing.T, *wholePreparationFixture, *journal.WholeDocumentPreparationInput, *journal.ManagedPathMutation, *payload.PayloadSet)
+		edit func(*testing.T, *wholePreparationFixture, *journal.WholeDocumentPreparationInput, *journalrecord.ManagedPathMutation, *payload.PayloadSet)
 	}{
-		{"zero mutation", func(_ *testing.T, _ *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journal.ManagedPathMutation, _ *payload.PayloadSet) {
-			*mutation = journal.ManagedPathMutation{}
+		{"zero mutation", func(_ *testing.T, _ *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
+			*mutation = journalrecord.ManagedPathMutation{}
 		}},
-		{"create over present", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journal.ManagedPathMutation, _ *payload.PayloadSet) {
+		{"create over present", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
 			*mutation = f.mutation(t, "create")
 		}},
-		{"replace absent", func(_ *testing.T, _ *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, _ *journal.ManagedPathMutation, _ *payload.PayloadSet) {
+		{"replace absent", func(_ *testing.T, _ *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, _ *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
 			input.Before, input.BeforeMode = aggregate.AbsentDocument(), nil
 		}},
-		{"missing original mode", func(_ *testing.T, _ *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, _ *journal.ManagedPathMutation, _ *payload.PayloadSet) {
+		{"missing original mode", func(_ *testing.T, _ *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, _ *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
 			input.BeforeMode = nil
 		}},
-		{"wrong live bytes", func(_ *testing.T, _ *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, _ *journal.ManagedPathMutation, _ *payload.PayloadSet) {
+		{"wrong live bytes", func(_ *testing.T, _ *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, _ *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
 			input.Before = aggregate.ExistingDocument([]byte("stale observation"))
 		}},
-		{"wrong live executable class", func(_ *testing.T, _ *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, _ *journal.ManagedPathMutation, _ *payload.PayloadSet) {
+		{"wrong live executable class", func(_ *testing.T, _ *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, _ *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
 			input.BeforeMode = recovery.NewPermissionMode(0o744)
 		}},
-		{"missing payload", func(_ *testing.T, _ *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, _ *journal.ManagedPathMutation, set *payload.PayloadSet) {
+		{"missing payload", func(_ *testing.T, _ *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, _ *journalrecord.ManagedPathMutation, set *payload.PayloadSet) {
 			*set = payload.PayloadSet{}
 		}},
-		{"foreign subject payload", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, _ *journal.ManagedPathMutation, set *payload.PayloadSet) {
+		{"foreign subject payload", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, _ *journalrecord.ManagedPathMutation, set *payload.PayloadSet) {
 			f.subject = newWholePreparationFixture(t, target.TargetCodex, target.ScopeGlobal).subject
 			*set = f.payloads(t, f.expected, 0o600)
 		}},
-		{"wrong desired bytes", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, _ *journal.ManagedPathMutation, set *payload.PayloadSet) {
+		{"wrong desired bytes", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, _ *journalrecord.ManagedPathMutation, set *payload.PayloadSet) {
 			*set = f.payloads(t, []byte("wrong payload"), 0o600)
 		}},
-		{"wrong desired mode", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, _ *journal.ManagedPathMutation, set *payload.PayloadSet) {
+		{"wrong desired mode", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, _ *journalrecord.ManagedPathMutation, set *payload.PayloadSet) {
 			*set = f.payloads(t, f.expected, 0o644)
 		}},
-		{"record desired mismatch", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journal.ManagedPathMutation, _ *payload.PayloadSet) {
-			*mutation = requireWholeMutation(t)(journal.NewManagedPathRecordMutation(f.subject, f.consumers(), f.scope, f.destination, artifact.HashFileContent(f.expected), artifact.HashFileContent(f.before), realization.PathProjectionFile, 0o644, &f.previous))
+		{"record desired mismatch", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
+			*mutation = requireWholeMutation(t)(journalrecord.NewManagedPathRecordMutation(f.subject, f.consumers(), f.scope, f.destination, artifact.HashFileContent(f.expected), artifact.HashFileContent(f.before), realization.PathProjectionFile, 0o644, &f.previous))
 		}},
-		{"record mode mismatch", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journal.ManagedPathMutation, _ *payload.PayloadSet) {
-			*mutation = requireWholeMutation(t)(journal.NewManagedPathRecordMutation(f.subject, f.consumers(), f.scope, f.destination, artifact.HashFileContent(f.before), artifact.HashFileContent(f.before), realization.PathProjectionFile, 0o600, &f.previous))
+		{"record mode mismatch", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
+			*mutation = requireWholeMutation(t)(journalrecord.NewManagedPathRecordMutation(f.subject, f.consumers(), f.scope, f.destination, artifact.HashFileContent(f.before), artifact.HashFileContent(f.before), realization.PathProjectionFile, 0o600, &f.previous))
 		}},
-		{"removal baseline mode mismatch", func(t *testing.T, f *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, mutation *journal.ManagedPathMutation, _ *payload.PayloadSet) {
+		{"removal baseline mode mismatch", func(t *testing.T, f *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
 			*mutation = f.mutation(t, "remove")
 			input.BeforeMode = recovery.NewPermissionMode(0o640)
 		}},
-		{"removal baseline hash mismatch", func(t *testing.T, f *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, mutation *journal.ManagedPathMutation, _ *payload.PayloadSet) {
+		{"removal baseline hash mismatch", func(t *testing.T, f *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
 			input.Before = aggregate.ExistingDocument([]byte("changed since baseline"))
-			*mutation = requireWholeMutation(t)(journal.NewManagedPathRemoveMutation(f.previous, artifact.HashFileContent(input.Before.Content())))
+			*mutation = requireWholeMutation(t)(journalrecord.NewManagedPathRemoveMutation(f.previous, artifact.HashFileContent(input.Before.Content())))
 		}},
-		{"unsplit retarget", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journal.ManagedPathMutation, _ *payload.PayloadSet) {
+		{"unsplit retarget", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
 			other, err := output.Parse(".pi/prompts/other.md")
 			if err != nil {
 				t.Fatal(err)
 			}
-			*mutation = requireWholeMutation(t)(journal.NewManagedPathReplaceMutation(f.subject, f.consumers(), f.scope, other, artifact.HashFileContent(f.expected), artifact.HashFileContent(f.before), realization.PathProjectionFile, 0o600, f.previous))
+			*mutation = requireWholeMutation(t)(journalrecord.NewManagedPathReplaceMutation(f.subject, f.consumers(), f.scope, other, artifact.HashFileContent(f.expected), artifact.HashFileContent(f.before), realization.PathProjectionFile, 0o600, f.previous))
 		}},
-		{"foreign subject family", func(t *testing.T, f *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, mutation *journal.ManagedPathMutation, set *payload.PayloadSet) {
+		{"foreign subject family", func(t *testing.T, f *wholePreparationFixture, input *journal.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, set *payload.PayloadSet) {
 			other, err := topology.NewSubjectID(topology.SubjectProjection, "skill", "oracle")
 			if err != nil {
 				t.Fatal(err)
 			}
-			*mutation = requireWholeMutation(t)(journal.NewManagedPathCreateMutation(other, f.consumers(), f.scope, f.destination, artifact.HashFileContent(f.expected), realization.PathProjectionFile, 0o600, nil))
+			*mutation = requireWholeMutation(t)(journalrecord.NewManagedPathCreateMutation(other, f.consumers(), f.scope, f.destination, artifact.HashFileContent(f.expected), realization.PathProjectionFile, 0o600, nil))
 			input.Before, input.BeforeMode = aggregate.AbsentDocument(), nil
 			f.subject = other
 			*set = f.payloads(t, f.expected, 0o600)
 		}},
-		{"executable native output", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journal.ManagedPathMutation, set *payload.PayloadSet) {
-			*mutation = requireWholeMutation(t)(journal.NewManagedPathReplaceMutation(f.subject, f.consumers(), f.scope, f.destination, artifact.HashFileContentWithExecutable(f.expected, true), artifact.HashFileContent(f.before), realization.PathProjectionFile, 0o700, f.previous))
+		{"executable native output", func(t *testing.T, f *wholePreparationFixture, _ *journal.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, set *payload.PayloadSet) {
+			*mutation = requireWholeMutation(t)(journalrecord.NewManagedPathReplaceMutation(f.subject, f.consumers(), f.scope, f.destination, artifact.HashFileContentWithExecutable(f.expected, true), artifact.HashFileContent(f.before), realization.PathProjectionFile, 0o700, f.previous))
 			*set = f.payloads(t, f.expected, 0o700)
 		}},
 	} {
@@ -172,7 +173,7 @@ func TestPrepareWholeDocumentPreservesDriftedOriginalAndEmptyFile(t *testing.T) 
 
 	input := fixture.input()
 	input.BeforeMode = recovery.NewPermissionMode(0o744)
-	mutation := requireWholeMutation(t)(journal.NewManagedPathReplaceMutation(fixture.subject, fixture.consumers(), fixture.scope, fixture.destination, artifact.HashFileContent(nil), artifact.HashFileContentWithExecutable(fixture.before, true), realization.PathProjectionFile, 0o600, fixture.previous))
+	mutation := requireWholeMutation(t)(journalrecord.NewManagedPathReplaceMutation(fixture.subject, fixture.consumers(), fixture.scope, fixture.destination, artifact.HashFileContent(nil), artifact.HashFileContentWithExecutable(fixture.before, true), realization.PathProjectionFile, 0o600, fixture.previous))
 	executableDrift, err := journal.PrepareWholeDocument(t.Context(), input, mutation, fixture.payloads(t, nil, 0o600))
 	if err != nil {
 		t.Fatal(err)
@@ -253,20 +254,20 @@ func (fixture wholePreparationFixture) consumers() []target.Target {
 	return []target.Target{fixture.selected}
 }
 
-func (fixture wholePreparationFixture) mutation(t *testing.T, kind string) journal.ManagedPathMutation {
+func (fixture wholePreparationFixture) mutation(t *testing.T, kind string) journalrecord.ManagedPathMutation {
 	t.Helper()
 	switch kind {
 	case "create":
-		return requireWholeMutation(t)(journal.NewManagedPathCreateMutation(fixture.subject, fixture.consumers(), fixture.scope, fixture.destination, artifact.HashFileContent(fixture.expected), realization.PathProjectionFile, 0o600, nil))
+		return requireWholeMutation(t)(journalrecord.NewManagedPathCreateMutation(fixture.subject, fixture.consumers(), fixture.scope, fixture.destination, artifact.HashFileContent(fixture.expected), realization.PathProjectionFile, 0o600, nil))
 	case "replace":
-		return requireWholeMutation(t)(journal.NewManagedPathReplaceMutation(fixture.subject, fixture.consumers(), fixture.scope, fixture.destination, artifact.HashFileContent(fixture.expected), artifact.HashFileContent(fixture.before), realization.PathProjectionFile, 0o600, fixture.previous))
+		return requireWholeMutation(t)(journalrecord.NewManagedPathReplaceMutation(fixture.subject, fixture.consumers(), fixture.scope, fixture.destination, artifact.HashFileContent(fixture.expected), artifact.HashFileContent(fixture.before), realization.PathProjectionFile, 0o600, fixture.previous))
 	case "record":
-		return requireWholeMutation(t)(journal.NewManagedPathRecordMutation(fixture.subject, fixture.consumers(), fixture.scope, fixture.destination, artifact.HashFileContent(fixture.before), artifact.HashFileContent(fixture.before), realization.PathProjectionFile, 0o644, &fixture.previous))
+		return requireWholeMutation(t)(journalrecord.NewManagedPathRecordMutation(fixture.subject, fixture.consumers(), fixture.scope, fixture.destination, artifact.HashFileContent(fixture.before), artifact.HashFileContent(fixture.before), realization.PathProjectionFile, 0o644, &fixture.previous))
 	case "remove":
-		return requireWholeMutation(t)(journal.NewManagedPathRemoveMutation(fixture.previous, artifact.HashFileContent(fixture.before)))
+		return requireWholeMutation(t)(journalrecord.NewManagedPathRemoveMutation(fixture.previous, artifact.HashFileContent(fixture.before)))
 	default:
 		t.Fatalf("unknown fixture mutation %q", kind)
-		return journal.ManagedPathMutation{}
+		return journalrecord.ManagedPathMutation{}
 	}
 }
 
@@ -283,9 +284,9 @@ func (fixture wholePreparationFixture) payloads(t *testing.T, content []byte, mo
 	return set
 }
 
-func requireWholeMutation(t *testing.T) func(journal.ManagedPathMutation, error) journal.ManagedPathMutation {
+func requireWholeMutation(t *testing.T) func(journalrecord.ManagedPathMutation, error) journalrecord.ManagedPathMutation {
 	t.Helper()
-	return func(mutation journal.ManagedPathMutation, err error) journal.ManagedPathMutation {
+	return func(mutation journalrecord.ManagedPathMutation, err error) journalrecord.ManagedPathMutation {
 		t.Helper()
 		if err != nil {
 			t.Fatal(err)

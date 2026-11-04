@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -26,7 +27,7 @@ type nativeDocumentStageOptions struct {
 
 // stageDocumentJournal writes only an unpublished document-only tree. The caller
 // must propagate errors from PrepareRootedTree and separately qualify publication.
-func stageDocumentJournal(journal nativeJournalSnapshots, ctx context.Context, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeDocumentStageOptions) (string, error) {
+func stageDocumentJournal(journal journalrecord.Native, ctx context.Context, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeDocumentStageOptions) (string, error) {
 	if ctx == nil || writer == nil || options.budget == nil || options.stateCodec == nil {
 		return "", fmt.Errorf("native document staging requires context, private writer, state codec and shared budget")
 	}
@@ -40,42 +41,46 @@ func stageDocumentJournal(journal nativeJournalSnapshots, ctx context.Context, c
 	if err != nil {
 		return "", err
 	}
-	return prepared.stageJournal(ctx, content, writer, options.budget)
+	return stagePreparedDocumentJournal(prepared, ctx, content, writer, options.budget)
 }
 
-func prepareDocumentJournal(journal nativeJournalSnapshots, ctx context.Context, comparisons []journaldocument.Comparison, options nativeDocumentStageOptions, ordinaryWork workmeasure.ArtifactWork) (nativeDocumentRecords, []byte, error) {
+func prepareDocumentJournal(journal journalrecord.Native, ctx context.Context, comparisons []journaldocument.Comparison, options nativeDocumentStageOptions, ordinaryWork workmeasure.ArtifactWork) (journalrecord.PreparedDocuments, []byte, error) {
 	entries, imageBytes, err := preflightDocumentJournalImages(ctx, comparisons, options.budget)
 	if err != nil {
-		return nativeDocumentRecords{}, nil, err
+		return journalrecord.PreparedDocuments{}, nil, err
 	}
-	prepared, err := journal.prepareDocuments(ctx, comparisons, options.limits, options.codecs)
+	prepared, err := journal.PrepareDocuments(ctx, comparisons, options.limits, options.codecs)
 	if err != nil {
-		return nativeDocumentRecords{}, nil, err
+		return journalrecord.PreparedDocuments{}, nil, err
 	}
-	content, err := prepared.encode(ctx, options.stateCodec)
+	content, err := prepared.Encode(ctx, options.stateCodec)
 	if err != nil {
-		return nativeDocumentRecords{}, nil, err
+		return journalrecord.PreparedDocuments{}, nil, err
 	}
 	if entries > options.budget.RemainingEntries()-ordinaryWork.Entries() || int64(len(content)) > options.budget.RemainingBytes()-ordinaryWork.Bytes()-imageBytes {
-		return nativeDocumentRecords{}, nil, fmt.Errorf("native journal, ordinary backups and images exceed the shared staging budget")
+		return journalrecord.PreparedDocuments{}, nil, fmt.Errorf("native journal, ordinary backups and images exceed the shared staging budget")
 	}
-	return prepared.documents, content, nil
+	return prepared, content, nil
 }
 
-func (prepared nativeDocumentRecords) stageJournal(ctx context.Context, content []byte, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) (string, error) {
-	for index, group := range prepared.groups {
-		if _, _, err := stageDocumentImages(ctx, group.Comparison(), index, writer, budget); err != nil {
+func stagePreparedDocumentJournal(prepared journalrecord.PreparedDocuments, ctx context.Context, content []byte, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) (string, error) {
+	comparisons, err := prepared.Comparisons()
+	if err != nil {
+		return "", err
+	}
+	for index, comparison := range comparisons {
+		if _, _, err := stageDocumentImages(ctx, comparison, index, writer, budget); err != nil {
 			return "", err
 		}
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	path, err := mutationfs.NewTreeRelativePath(recoveryJournalFileName)
+	path, err := mutationfs.NewTreeRelativePath(journalrecord.FileName)
 	if err != nil {
 		return "", err
 	}
-	writeErr := writer.WriteFile(path, recoveryJournalMode, bytes.NewReader(content))
+	writeErr := writer.WriteFile(path, journalrecord.Mode, bytes.NewReader(content))
 	work, workErr := workmeasure.NewArtifactWork(1, int64(len(content)))
 	if workErr == nil {
 		workErr = budget.AdmitTree(work)
@@ -83,7 +88,7 @@ func (prepared nativeDocumentRecords) stageJournal(ctx context.Context, content 
 	if err := errors.Join(writeErr, workErr, ctx.Err()); err != nil {
 		return "", err
 	}
-	fingerprint := recoveryJournalRecordFingerprint(content)
+	fingerprint := journalrecord.Fingerprint(content)
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}

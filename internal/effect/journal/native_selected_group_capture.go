@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -120,12 +122,13 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 	}
 	var orderAlias *aggregate.DocumentAddress
 	if input.order != nil && input.order.Changed() {
-		var facts documentPiContext
-		draft, facts, err = draft.withPiOrder(*input.order)
+		var facts journalrecord.PiQualification
+		draft, facts, err = draft.WithPiOrder(*input.order)
 		if err != nil {
 			return nativeDocumentCaptureCandidate{}, err
 		}
-		orderAlias = &facts.alias
+		alias := facts.Alias()
+		orderAlias = &alias
 		if err := qualifyNativePiContext(ctx, facts, manifest, namespace, input.Budget()); err != nil {
 			return nativeDocumentCaptureCandidate{}, err
 		}
@@ -157,7 +160,7 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 		return nativeDocumentCaptureCandidate{}, err
 	}
 	comparison := candidate.Comparison()
-	record, err := draft.withComparison(comparison, input.GroupIndex(), refs)
+	record, err := draft.WithComparison(comparison, input.GroupIndex(), refs)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}

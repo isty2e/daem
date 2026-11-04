@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
@@ -18,11 +20,11 @@ import (
 // This combined read stage is still not an executable operation authority:
 // active-journal, state/control, registry, phase and execution-lease joins remain.
 type nativeQualifiedDocumentRecords struct {
-	records    nativeDocumentRecords
+	records    journalrecord.LoadedDocuments
 	namespaces []journalnamespace.DocumentNamespace
 }
 
-func loadQualifiedDocuments(journal nativeJournalSnapshots, ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) (nativeQualifiedDocumentRecords, error) {
+func loadQualifiedDocuments(journal journalrecord.Native, ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) (nativeQualifiedDocumentRecords, error) {
 	namespaces, err := qualifyDocumentNamespaces(journal, ctx, options, roots)
 	if err != nil {
 		return nativeQualifiedDocumentRecords{}, err
@@ -34,14 +36,14 @@ func loadQualifiedDocuments(journal nativeJournalSnapshots, ctx context.Context,
 	return nativeQualifiedDocumentRecords{records: records, namespaces: namespaces}, nil
 }
 
-func qualifyDocumentNamespaces(journal nativeJournalSnapshots, ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) ([]journalnamespace.DocumentNamespace, error) {
+func qualifyDocumentNamespaces(journal journalrecord.Native, ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) ([]journalnamespace.DocumentNamespace, error) {
 	if ctx == nil || options.filesystem == nil || options.budget == nil {
 		return nil, fmt.Errorf("qualified document read context, filesystem and shared budget are required")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	documents, err := journal.recordedDocuments()
+	documents, err := journal.Documents()
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +52,7 @@ func qualifyDocumentNamespaces(journal nativeJournalSnapshots, ctx context.Conte
 		return nil, err
 	}
 	manifest, present := grants.Manifest()
-	if !present || !journal.matchesManifestRoot(manifest.Provenance()) {
+	if !present || !journal.MatchesManifestRoot(manifest.Provenance()) {
 		return nil, fmt.Errorf("native journal manifest root does not match the selected live root")
 	}
 	namespaces := make([]journalnamespace.DocumentNamespace, 0, len(documents))
@@ -140,7 +142,7 @@ func qualifyDocumentNamespaces(journal nativeJournalSnapshots, ctx context.Conte
 		}
 		protected = append(protected, exact)
 	}
-	entries, err := journal.recordedEntries()
+	entries, err := journal.RecordedEntries()
 	if err != nil {
 		return nil, err
 	}
@@ -153,11 +155,11 @@ func qualifyDocumentNamespaces(journal nativeJournalSnapshots, ctx context.Conte
 	return namespaces, nil
 }
 
-func qualifyNativePiContext(ctx context.Context, facts documentPiContext, manifest journalnamespace.RootGrant, namespace journalnamespace.DocumentNamespace, budget rootedpath.PhysicalTraversalBudget) error {
-	if manifest.Provenance() != facts.commandRoot {
+func qualifyNativePiContext(ctx context.Context, facts journalrecord.PiQualification, manifest journalnamespace.RootGrant, namespace journalnamespace.DocumentNamespace, budget rootedpath.PhysicalTraversalBudget) error {
+	if manifest.Provenance() != facts.CommandRoot() {
 		return fmt.Errorf("Pi command root differs from the selected manifest incarnation")
 	}
-	for _, root := range facts.relationBaseRoots {
+	for _, root := range facts.RelationBaseRoots() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -165,7 +167,7 @@ func qualifyNativePiContext(ctx context.Context, facts documentPiContext, manife
 			return err
 		}
 	}
-	settingsPath := filepath.Join(facts.settingsBaseRoot, "settings.json")
+	settingsPath := filepath.Join(facts.SettingsBaseRoot(), "settings.json")
 	referent, err := rootedpath.ResolveReferentPathBounded(settingsPath, physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		return err

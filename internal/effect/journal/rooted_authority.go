@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
@@ -33,11 +35,11 @@ type recoveryGlobalPathObservation struct {
 type recoveryGlobalPathBindings map[output.Destination]recoveryGlobalPathObservation
 
 func captureRecoveryGlobalPathBindings(
-	actions []captureMutation,
+	actions []journalrecord.CaptureMutation,
 	resolver func(output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
 ) (recoveryGlobalPathBindings, error) {
-	if err := validateCaptureMutations(actions); err != nil {
+	if err := journalrecord.ValidateCaptureMutations(actions); err != nil {
 		return nil, err
 	}
 	bindings := make(recoveryGlobalPathBindings)
@@ -72,21 +74,10 @@ func (bindings recoveryGlobalPathBindings) resolver(
 	}
 }
 
-func (bindings recoveryGlobalPathBindings) persisted(
-	scope target.Scope,
-	destination output.Destination,
-) (*recoveryGlobalPathBinding, error) {
-	binding, err := bindings.captured(scope, destination)
-	if err != nil || binding == nil {
-		return nil, err
-	}
-	return binding.persisted(), nil
-}
-
 func (bindings recoveryGlobalPathBindings) captured(
 	scope target.Scope,
 	destination output.Destination,
-) (*capturedGlobalBinding, error) {
+) (*journalrecord.GlobalBinding, error) {
 	if scope != target.ScopeGlobal {
 		return nil, nil
 	}
@@ -99,12 +90,12 @@ func (bindings recoveryGlobalPathBindings) captured(
 
 func validateRecoveryGlobalPathBindings(
 	ctx context.Context,
-	entries []recordedPathEntry,
+	entries []journalrecord.PathEntry,
 	resolver func(output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
 	budget *physicalwork.Budget,
 ) error {
-	validated := make(map[output.Destination]recordedGlobalBindingKey)
+	validated := make(map[output.Destination]journalrecord.GlobalBindingKey)
 	currentRoots := make(map[string]rootedpath.Authority)
 	for index, entry := range entries {
 		if err := ctx.Err(); err != nil {
@@ -280,24 +271,16 @@ func observeRecoveryGlobalPathBinding(
 	return recoveryGlobalPathObservation{resolvedPath: path, rootAuthority: authority}, nil
 }
 
-func (binding recoveryGlobalPathObservation) persisted() (*recoveryGlobalPathBinding, error) {
-	facts, err := binding.captureFacts()
-	if err != nil {
-		return nil, err
-	}
-	return facts.persisted(), nil
-}
-
-func (binding recoveryGlobalPathObservation) captureFacts() (*capturedGlobalBinding, error) {
+func (binding recoveryGlobalPathObservation) captureFacts() (*journalrecord.GlobalBinding, error) {
 	provenance, err := binding.rootAuthority.Provenance()
 	if err != nil {
 		return nil, err
 	}
-	return newCapturedGlobalBinding(binding.resolvedPath, provenance), nil
+	return journalrecord.NewGlobalBinding(binding.resolvedPath, provenance), nil
 }
 
 func matchRecordedGlobalBinding(
-	binding recordedPathEntry,
+	binding journalrecord.PathEntry,
 	current recoveryGlobalPathObservation,
 	currentRoots map[string]rootedpath.Authority,
 	budget *physicalwork.Budget,
@@ -431,10 +414,6 @@ func newManifestAuthoritySessionFromAuthority(
 		provenance: provenance,
 		owned:      owned,
 	}, nil
-}
-
-func (session *manifestAuthoritySession) persisted() recoveryRootProvenance {
-	return persistedRecoveryRootProvenance(session.provenance)
 }
 
 func (session *manifestAuthoritySession) acquire(

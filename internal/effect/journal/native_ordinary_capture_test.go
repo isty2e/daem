@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/desired/entity"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -21,9 +25,22 @@ func TestNativeCaptureWithObservedEmptyDocumentsPreservesUnselectedNativeState(t
 	input := nativeCaptureInput(t, false, target.ScopeProject)
 	before := input.batch.Evidence().BeforeState()
 	hash := artifact.HashFileContentWithExecutable([]byte("ordinary instruction\n"), false)
-	entry := recoveryEntryFor("ordinary", "AGENTS.md", "", string(hash), "")
-	row := resourceStateWithPermissions(entry, string(hash), realization.PathPermissionsExact, 0o600)
-	var err error
+	id, err := entity.New(entity.KindInstructions, "ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject, err := topologyprojection.Subject(id, "instructions.project.agents")
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination, err := output.Parse("AGENTS.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := durable.NewManagedPathState(subject, []target.Target{target.TargetCodex}, target.ScopeProject, destination, hash, realization.PathProjectionFile, realization.PathPermissionsExact, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
 	input.after, err = before.WithManagedPaths([]durable.ManagedPathState{row})
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +57,7 @@ func TestNativeCaptureWithObservedEmptyDocumentsPreservesUnselectedNativeState(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	mutation, err := NewManagedPathCreateMutation(row.Subject(), row.ConsumerTargets(), row.Scope(), row.Destination(), hash, row.ContentKind(), 0o600, nil)
+	mutation, err := journalrecord.NewManagedPathCreateMutation(row.Subject(), row.ConsumerTargets(), row.Scope(), row.Destination(), hash, row.ContentKind(), 0o600, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +65,7 @@ func TestNativeCaptureWithObservedEmptyDocumentsPreservesUnselectedNativeState(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	input.options.ManagedPathMutations = []ManagedPathMutation{mutation}
+	input.options.ManagedPathMutations = []journalrecord.ManagedPathMutation{mutation}
 	input.options.ManagedPathEvidence = []observe.ManagedPathEvidence{evidence}
 	input.options.Resolver = func(destination output.Destination) (string, error) {
 		return filepath.Join(input.paths.ManifestRoot, filepath.FromSlash(destination.RelativePath())), nil
@@ -57,7 +74,15 @@ func TestNativeCaptureWithObservedEmptyDocumentsPreservesUnselectedNativeState(t
 	if err != nil || captured.Validate() != nil {
 		t.Fatalf("observed empty document batch could not capture ordinary work: %v", err)
 	}
-	if !captured.BeforeState().Equal(before) || !captured.AfterState().Equal(input.after) || len(captured.journal.record.Entries) != 1 || len(captured.journal.record.DocumentGroups) != 0 {
+	entries, err := captured.journal.RecordedEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	documents, err := captured.journal.Documents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !captured.BeforeState().Equal(before) || !captured.AfterState().Equal(input.after) || len(entries) != 1 || len(documents) != 0 {
 		t.Fatal("capture lost complete state or invented a native document group")
 	}
 	if captured.budget != input.batch.budget || captured.publication.roots.Manifest.Root != input.batch.roots.Manifest.Root {

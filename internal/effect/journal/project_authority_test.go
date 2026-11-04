@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -78,7 +80,7 @@ func TestOrdinaryCaptureBorrowsProjectRootAndEncodesProvenance(t *testing.T) {
 		CaptureOptions{
 			Filesystem:           journalTestFilesystem(),
 			ManifestRoot:         captured,
-			ManagedPathMutations: []ManagedPathMutation{mutation},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			StateCodec:           testStateCodec(),
 			Resolver: func(output.Destination) (string, error) {
@@ -94,11 +96,11 @@ func TestOrdinaryCaptureBorrowsProjectRootAndEncodesProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("borrowed root was closed by journal capture: %v", err)
 	}
-	before, after, err := encodeRecoveryJournalSnapshots(current, current, testStateCodec())
+	before, after, err := journalrecord.EncodeSnapshots(current, current, testStateCodec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := material.encodeOrdinary(before, after)
+	encoded, err := material.EncodeOrdinary(before, after)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,15 +112,23 @@ func TestOrdinaryCaptureBorrowsProjectRootAndEncodesProvenance(t *testing.T) {
 	if err := os.WriteFile(journalPath, encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	journal, err := loadRecoveryJournal(t.Context(), journalTestFilesystem(), journalPath, testStateCodec())
+	snapshot, err := journalTestFilesystem().ReadRegularFileSnapshotUpTo(t.Context(), journalPath, journalrecord.MaximumBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	persisted, err := journal.ManifestRootProvenance.canonical()
+	loaded, err := journalrecord.DecodeOrdinarySnapshot(t.Context(), snapshot, journalPath, testStateCodec())
 	if err != nil {
-		t.Fatalf("canonical persisted provenance: %v", err)
+		t.Fatal(err)
 	}
-	if err := persisted.Match(authority); err != nil {
+	journal, present := loaded.Ordinary()
+	if !present {
+		t.Fatal("ordinary capture decoded as another family")
+	}
+	basis, err := journal.RecoveryPlanningBasis(journalRoot, journalrecord.Fingerprint(encoded), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := basis.ManifestProvenance().Match(authority); err != nil {
 		t.Fatalf("persisted provenance does not match borrowed authority: %v", err)
 	}
 }
@@ -135,7 +145,7 @@ func TestOrdinaryCaptureRejectsBorrowedRootForDifferentManifest(t *testing.T) {
 		"mismatched-manifest-root",
 		time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
 		durable.EmptySnapshot(),
-		afterStatefile(),
+		inventoryJournalSnapshot(t, "after"),
 		CaptureOptions{
 			Filesystem:   journalTestFilesystem(),
 			ManifestRoot: borrowed,
@@ -183,7 +193,7 @@ func TestLoadActivePlanRejectsReplacedProjectRootBeforePathClassification(t *tes
 		CaptureOptions{
 			Filesystem:           journalTestFilesystem(),
 			ManifestRoot:         captured,
-			ManagedPathMutations: []ManagedPathMutation{mutation},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			StateCodec:           testStateCodec(),
 			Resolver: func(output.Destination) (string, error) {
@@ -245,7 +255,7 @@ func TestLoadStateOnlyPlanRejectsReplacedManifestRootBeforeClassification(t *tes
 		"replace-state-only-root",
 		time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
 		durable.EmptySnapshot(),
-		afterStatefile(),
+		inventoryJournalSnapshot(t, "after"),
 		CaptureOptions{
 			Filesystem: journalTestFilesystem(),
 			Resolver:   func(output.Destination) (string, error) { return "", nil },
@@ -312,43 +322,6 @@ func TestManifestRecoveryAuthorityAdmitsBudgetBeforeRootObservation(t *testing.T
 	}
 }
 
-func TestValidateManifestRootProvenanceIsMandatoryForEveryJournalShape(t *testing.T) {
-	journal := defaultRecoveryJournal()
-	journal.ManifestRootProvenance = recoveryRootProvenance{}
-	if err := validateManifestRootProvenance(journal); err == nil ||
-		!strings.Contains(err.Error(), "physical root is required") {
-		t.Fatalf("missing provenance error = %v", err)
-	}
-
-	journal = defaultRecoveryJournal()
-	journal.Entries[0].Scope = string(target.ScopeGlobal)
-	if err := validateManifestRootProvenance(journal); err != nil {
-		t.Fatalf("global journal provenance error = %v", err)
-	}
-
-	journal = defaultRecoveryJournal()
-	journal.Entries = nil
-	if err := validateManifestRootProvenance(journal); err != nil {
-		t.Fatalf("state-only journal provenance error = %v", err)
-	}
-
-	journal = defaultRecoveryJournal()
-	journal.ManifestRootProvenance.ObjectFingerprint = "sha256:short"
-	if err := validateManifestRootProvenance(journal); err == nil ||
-		!strings.Contains(err.Error(), "object fingerprint is invalid") {
-		t.Fatalf("invalid provenance error = %v", err)
-	}
-}
-
-func TestValidateRecoveryJournalRejectsVersionThree(t *testing.T) {
-	journal := defaultRecoveryJournal()
-	journal.Version = 3
-	if err := validateRecoveryJournal(journal, testStateCodec()); err == nil ||
-		!strings.Contains(err.Error(), "unsupported recovery journal version 3") {
-		t.Fatalf("version 3 error = %v", err)
-	}
-}
-
 func TestObserveGlobalRecoveryPathRejectsNilPresentCapability(t *testing.T) {
 	observation, err := observeGlobalRecoveryPath(
 		context.Background(),
@@ -403,10 +376,10 @@ func TestObserveGlobalRecoveryPathRejectsResolverCapabilityMismatch(t *testing.T
 func projectJournalCaptureFacts(
 	t *testing.T,
 	contentHash artifact.ContentHash,
-) (ManagedPathMutation, observe.ManagedPathEvidence, durable.Snapshot) {
+) (journalrecord.ManagedPathMutation, observe.ManagedPathEvidence, durable.Snapshot) {
 	t.Helper()
 	previous := testAppliedState(target.TargetCodex, string(contentHash))
-	mutation, err := NewManagedPathRecordMutation(
+	mutation, err := journalrecord.NewManagedPathRecordMutation(
 		previous.Subject(),
 		previous.ConsumerTargets(),
 		previous.Scope(),

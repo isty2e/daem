@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -50,10 +51,10 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if recoveryJournalRecordFingerprint(snapshot.Content()) != fingerprint {
+	if journalrecord.Fingerprint(snapshot.Content()) != fingerprint {
 		return CapturedNativeJournal{}, fmt.Errorf("published native journal bytes differ from the staged fingerprint")
 	}
-	if _, err := decodeNativeInventoryJournal(ctx, snapshot, filepath.Join(directory, recoveryJournalFileName), options.StateCodec); err != nil {
+	if _, err := journalrecord.DecodeNativeSnapshot(ctx, snapshot, filepath.Join(directory, journalrecord.FileName), options.StateCodec); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	qualified, err := loadQualifiedDocuments(journal, ctx, nativeDocumentReadOptions{
@@ -72,7 +73,7 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	if _, _, err := ordinaryBackups(ctx, journal, directory, active.physicalAuthority, options.Filesystem, batch.budget); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	capture := CaptureResult{OperationID: operationID, Directory: directory, JournalPath: filepath.Join(directory, recoveryJournalFileName), RecordFingerprint: fingerprint}
+	capture := CaptureResult{OperationID: operationID, Directory: directory, JournalPath: filepath.Join(directory, journalrecord.FileName), RecordFingerprint: fingerprint}
 	if err := validateNativeActive(ctx, capture, active.physicalAuthority, options.Filesystem, options.OperationAuthority, batch.budget); err != nil {
 		return CapturedNativeJournal{}, err
 	}
@@ -82,26 +83,26 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	}, nil
 }
 
-func decodeNativeCaptureInventoryJournal(ctx context.Context, snapshot mutationfs.RegularFileSnapshot, path string, codec durable.SnapshotCodec) (loadedJournalRecord, error) {
+func decodeNativeCaptureInventoryJournal(ctx context.Context, snapshot mutationfs.RegularFileSnapshot, path string, codec durable.SnapshotCodec) (journalrecord.Loaded, error) {
 	if err := ctx.Err(); err != nil {
-		return loadedJournalRecord{}, err
+		return journalrecord.Loaded{}, err
 	}
-	version, err := jsonstrict.ValidateVersionedObject(snapshot.Content(), "capture recovery inventory journal", maximumRecoveryJournalJSONDepth)
+	version, err := jsonstrict.ValidateVersionedObject(snapshot.Content(), "capture recovery inventory journal", journalrecord.MaximumJSONDepth)
 	if err != nil {
-		return loadedJournalRecord{}, err
+		return journalrecord.Loaded{}, err
 	}
 	switch version {
-	case recoveryJournalVersion:
-		return decodeLegacyInventoryJournal(ctx, snapshot, path, codec)
-	case nativeRecoveryJournalVersion:
-		return decodeNativeInventoryJournal(ctx, snapshot, path, codec)
+	case journalrecord.OrdinaryVersion:
+		return journalrecord.DecodeOrdinarySnapshot(ctx, snapshot, path, codec)
+	case journalrecord.NativeVersion:
+		return journalrecord.DecodeNativeSnapshot(ctx, snapshot, path, codec)
 	default:
-		return loadedJournalRecord{}, unsupportedRecoveryJournalVersion(version)
+		return journalrecord.Loaded{}, journalrecord.UnsupportedVersion(version)
 	}
 }
 
 func readNativeCaptureRecord(ctx context.Context, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) (mutationfs.RegularFileSnapshot, error) {
-	maximum := min(maximumRecoveryJournalBytes, budget.RemainingBytes())
+	maximum := min(journalrecord.MaximumBytes, budget.RemainingBytes())
 	if maximum <= 0 {
 		return mutationfs.RegularFileSnapshot{}, fmt.Errorf("native journal reload exceeds the remaining byte allocation")
 	}
@@ -109,7 +110,7 @@ func readNativeCaptureRecord(ctx context.Context, root *rootedpath.CapturedRoot,
 	if err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
 	}
-	relative, err := rootedpath.NewRelativeDestination(recoveryJournalFileName)
+	relative, err := rootedpath.NewRelativeDestination(journalrecord.FileName)
 	if err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
 	}

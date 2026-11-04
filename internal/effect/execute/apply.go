@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -213,7 +215,7 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	entrySelections, err := journal.EntrySelections(managedMutations, aggregateMutations)
+	entrySelections, err := journalrecord.EntrySelections(managedMutations, aggregateMutations)
 	if err != nil {
 		return ApplyResult{}, err
 	}

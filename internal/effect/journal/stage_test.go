@@ -146,8 +146,8 @@ func TestCaptureJournalPublicationFailureFollowsVisibilityClassification(t *test
 				Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 				operationID,
 				time.Now().UTC(),
-				beforeStatefile(),
-				afterStatefile(),
+				inventoryJournalSnapshot(t, "before"),
+				inventoryJournalSnapshot(t, "after"),
 				CaptureOptions{
 					Filesystem: filesystem,
 					Resolver:   func(output.Destination) (string, error) { return "", nil },
@@ -199,8 +199,8 @@ func TestCaptureJournalRejectsMismatchedOperationAuthorityBeforeConstruction(t *
 		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		"20260720T150000.000000000Z-apply",
 		time.Now().UTC(),
-		beforeStatefile(),
-		afterStatefile(),
+		inventoryJournalSnapshot(t, "before"),
+		inventoryJournalSnapshot(t, "after"),
 		CaptureOptions{
 			Filesystem:         journalTestFilesystem(),
 			Resolver:           func(output.Destination) (string, error) { return "", nil },

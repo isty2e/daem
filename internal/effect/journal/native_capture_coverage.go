@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -54,7 +56,7 @@ func validateNativeCaptureContext(ctx context.Context, paths Paths, batch Native
 			return err
 		}
 		other, err := selected.Provenance()
-		if err != nil || persistedNativeRoot(other) != persistedNativeRoot(provenance) {
+		if err != nil || other != provenance {
 			return fmt.Errorf("ordinary capture manifest root differs from the native operation root")
 		}
 	}
@@ -68,8 +70,8 @@ func validateNativeCaptureContext(ctx context.Context, paths Paths, batch Native
 	return ctx.Err()
 }
 
-func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.ProjectionEdit, mutations []captureMutation, completions []durablecarrier.ManagedCarrierClaim) error {
-	if err := validateCaptureMutations(mutations); err != nil {
+func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.ProjectionEdit, mutations []journalrecord.CaptureMutation, completions []durablecarrier.ManagedCarrierClaim) error {
+	if err := journalrecord.ValidateCaptureMutations(mutations); err != nil {
 		return err
 	}
 	projected, err := before.WithManagedProjections(after.ManagedPaths(), after.ManagedAggregates())
@@ -108,7 +110,7 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 		}
 		paths[mutation.Subject()] = struct{}{}
 		previous, hasPrevious := mutation.PreviousSubject()
-		if mutation.Kind() == pathMutationRecord && !hasPrevious && aggregate.IsHostConfigDocumentSubject(mutation.Subject()) {
+		if mutation.Kind() == journalrecord.CaptureRecord && !hasPrevious && aggregate.IsHostConfigDocumentSubject(mutation.Subject()) {
 			consumers := mutation.ConsumerTargets()
 			for _, state := range after.ManagedPaths() {
 				if state.Subject() != mutation.Subject() || len(state.ConsumerTargets()) != 1 || state.Scope() != mutation.Scope() || state.Destination() != mutation.Destination() || !slices.Equal(state.ConsumerTargets(), consumers) {
@@ -172,15 +174,15 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 	return nil
 }
 
-func validateNativePublicationPartition(ctx context.Context, directory string, batch NativeDocumentObservationBatch, mutations []captureMutation, resolver func(output.Destination) (string, error)) error {
-	if err := validateCaptureMutations(mutations); err != nil {
+func validateNativePublicationPartition(ctx context.Context, directory string, batch NativeDocumentObservationBatch, mutations []journalrecord.CaptureMutation, resolver func(output.Destination) (string, error)) error {
+	if err := journalrecord.ValidateCaptureMutations(mutations); err != nil {
 		return err
 	}
 	publication, err := mutation.ObserveDirectoryEntryAuthorityBounded(directory, physicalwork.MaximumPhysicalPathDepth, batch.budget)
 	if err != nil {
 		return err
 	}
-	var partition documentWriterPartition
+	var partition journalrecord.WriterPartition
 	if err := partition.Add(nativeDocumentObservationKey(publication), -1); err != nil {
 		return err
 	}

@@ -1,7 +1,6 @@
 package journal
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"testing"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -37,7 +37,7 @@ func TestDocumentImageStagePublishesExactPrivateImages(t *testing.T) {
 			destination, capability := imageStageDestination(t)
 			budget := imageBudget(t)
 			remainingBytes, remainingEntries := budget.RemainingBytes(), budget.RemainingEntries()
-			var original, expected recordedDocumentImage
+			var original, expected journalrecord.DocumentImage
 			prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 				var err error
 				original, expected, err = stageDocumentImages(t.Context(), comparison, 0, writer, budget)
@@ -58,18 +58,18 @@ func TestDocumentImageStagePublishesExactPrivateImages(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer root.Close()
-			loaded, err := loadDocumentImages(t.Context(), original, expected, root, journalTestFilesystem(), imageBudget(t), 4096)
-			if err != nil || !loaded.original.document.Equal(test.before) || !loaded.expected.document.Equal(test.expected) {
+			loadedOriginal, loadedExpected, err := loadDocumentImages(t.Context(), original, expected, root, journalTestFilesystem(), imageBudget(t), 4096)
+			if err != nil || !loadedOriginal.Document().Equal(test.before) || !loadedExpected.Document().Equal(test.expected) {
 				t.Fatalf("staged pair lost exact content or presence: %v", err)
 			}
 			fileCount := 0
-			for index, record := range []recordedDocumentImage{original, expected} {
+			for index, record := range []journalrecord.DocumentImage{original, expected} {
 				wantMode := []*recovery.PermissionMode{test.beforeMode, test.expectedMode}[index]
-				loadedMode := []*recovery.PermissionMode{loaded.original.mode, loaded.expected.mode}[index]
+				loadedMode := []*recovery.PermissionMode{loadedOriginal.Mode(), loadedExpected.Mode()}[index]
 				if (loadedMode == nil) != (wantMode == nil) || (loadedMode != nil && *loadedMode != *wantMode) {
 					t.Fatal("host permission metadata was replaced by private witness mode")
 				}
-				plan, err := record.readPlan(4096)
+				plan, err := record.AdmitRead(4096)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -100,64 +100,18 @@ func TestDocumentImageStagePublishesExactPrivateImages(t *testing.T) {
 
 func TestDocumentImageStageFeedsStrictNativeRecordReconstruction(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	content, err := marshalNativeJournalRecord(t.Context(), fixture.record, fixture.before, fixture.after, fixture.codec)
+	loaded, err := loadDocuments(fixture.journal, t.Context(), fixture.read)
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := decodeNativeJournalRecord(t.Context(), content, fixture.codec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := loadDocuments(decoded, t.Context(), fixture.read)
-	if err != nil {
-		t.Fatal(err)
-	}
-	destination, capability := imageStageDestination(t)
-	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
-		if _, _, err := stageDocumentImages(t.Context(), loaded.groups[0].Comparison(), 0, writer, imageBudget(t)); err != nil {
-			return err
-		}
-		_, original, expected, err := documentImageReferences(loaded.groups[0].Comparison(), 0)
-		if err != nil {
-			return err
-		}
-		fixture.record.DocumentGroups[0].Original, fixture.record.DocumentGroups[0].Expected = original, expected
-		content, err := marshalNativeJournalRecord(t.Context(), fixture.record, fixture.before, fixture.after, fixture.codec)
-		if err != nil {
-			return err
-		}
-		path, err := mutationfs.NewTreeRelativePath(recoveryJournalFileName)
-		if err != nil {
-			return err
-		}
-		return writer.WriteFile(path, recoveryJournalMode, bytes.NewReader(content))
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer prepared.Abort(context.Background())
-	if err := prepared.Commit(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	content, err = os.ReadFile(filepath.Join(destination, recoveryJournalFileName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err = decodeNativeJournalRecord(t.Context(), content, fixture.codec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, err := rootedpath.CaptureRoot(destination)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer root.Close()
+	comparison := requireLoadedNativeDocument(t, loaded, 0).Group().Comparison()
+	decoded, root := publishNativeFixture(t, fixture.journal, comparison, nativeDocumentStageOptions{stateCodec: fixture.codec, codecs: fixture.read.codecs, limits: fixture.read.limits, budget: imageBudget(t)})
 	fixture.read.artifacts, fixture.read.budget = root, imageBudget(t)
 	reconstructed, err := loadDocuments(decoded, t.Context(), fixture.read)
-	if err != nil || len(reconstructed.groups) != 1 {
+	if err != nil || reconstructed.Len() != 1 {
 		t.Fatalf("actual staged native16 images cannot reconstruct: %v", err)
 	}
-	if !reconstructed.images[0].original.document.Equal(loaded.images[0].original.document) || !reconstructed.images[0].expected.document.Equal(loaded.images[0].expected.document) {
+	if !requireLoadedNativeDocument(t, reconstructed, 0).Images().Original().Document().Equal(requireLoadedNativeDocument(t, loaded, 0).Images().Original().Document()) || !requireLoadedNativeDocument(t, reconstructed, 0).Images().Expected().Document().Equal(requireLoadedNativeDocument(t, loaded, 0).Images().Expected().Document()) {
 		t.Fatal("native record reconstruction lost staged comparison witnesses")
 	}
 }
@@ -178,7 +132,7 @@ func TestDocumentImageStageFailureAndCancellationAbortActualPartialTree(t *testi
 			failure := errors.New("injected witness write failure")
 			budget := imageBudget(t)
 			remainingBytes, remainingEntries := budget.RemainingBytes(), budget.RemainingEntries()
-			var original, expected recordedDocumentImage
+			var original, expected journalrecord.DocumentImage
 			_, err := journalTestFilesystem().PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
 				wrapped := &imageStageWriter{RootedTreeWriter: writer, afterWrite: func(count int) error {
 					if count != test.at {
@@ -198,7 +152,7 @@ func TestDocumentImageStageFailureAndCancellationAbortActualPartialTree(t *testi
 			if test.cancel {
 				cause = context.Canceled
 			}
-			if !errors.Is(err, cause) || original.validate() == nil || expected.validate() == nil {
+			if !errors.Is(err, cause) || original != (journalrecord.DocumentImage{}) || expected != (journalrecord.DocumentImage{}) {
 				t.Fatalf("failed staging exposed a partial usable pair or stage: %v", err)
 			}
 			wantBytes := int64(len("before"))
@@ -239,7 +193,7 @@ func TestDocumentImageStagePreflightsWholePairAgainstSharedWork(t *testing.T) {
 			}
 			writer := &imageStageWriter{}
 			original, expected, err := stageDocumentImages(t.Context(), comparison, 0, writer, budget)
-			if err == nil || original.validate() == nil || expected.validate() == nil || writer.directories != 0 || writer.writes != 0 {
+			if err == nil || original != (journalrecord.DocumentImage{}) || expected != (journalrecord.DocumentImage{}) || writer.directories != 0 || writer.writes != 0 {
 				t.Fatal("insufficient pair budget reached writer or exposed an image")
 			}
 		})
@@ -250,7 +204,7 @@ func TestDocumentImageStageDoesNotOverwriteAnotherGroup(t *testing.T) {
 	comparison := imageStageComparison(t, journaldocument.ComparisonInput{Before: aggregate.AbsentDocument(), Expected: aggregate.ExistingDocument([]byte("expected")), ExpectedMode: recovery.NewPermissionMode(0o600)})
 	destination, capability := imageStageDestination(t)
 	budget := imageBudget(t)
-	var original, expected recordedDocumentImage
+	var original, expected journalrecord.DocumentImage
 	_, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		if _, _, err := stageDocumentImages(t.Context(), comparison, 0, writer, budget); err != nil {
 			return err
@@ -259,7 +213,7 @@ func TestDocumentImageStageDoesNotOverwriteAnotherGroup(t *testing.T) {
 		original, expected, err = stageDocumentImages(t.Context(), comparison, 0, writer, budget)
 		return err
 	})
-	if err == nil || original.validate() == nil || expected.validate() == nil {
+	if err == nil || original != (journalrecord.DocumentImage{}) || expected != (journalrecord.DocumentImage{}) {
 		t.Fatal("reused ordinal overwrote an image or returned a pair")
 	}
 	if _, err := os.Lstat(destination); !errors.Is(err, os.ErrNotExist) {
@@ -279,7 +233,7 @@ func TestDocumentImageStageKeepsDistinctGroupsOnOneBudget(t *testing.T) {
 	destination, capability := imageStageDestination(t)
 	budget := imageBudget(t)
 	remainingBytes, remainingEntries := budget.RemainingBytes(), budget.RemainingEntries()
-	var records [2][2]recordedDocumentImage
+	var records [2][2]journalrecord.DocumentImage
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		for index, comparison := range comparisons {
 			var err error
@@ -304,8 +258,8 @@ func TestDocumentImageStageKeepsDistinctGroupsOnOneBudget(t *testing.T) {
 	defer root.Close()
 	readBudget := imageBudget(t)
 	for index, comparison := range comparisons {
-		loaded, err := loadDocumentImages(t.Context(), records[index][0], records[index][1], root, journalTestFilesystem(), readBudget, 4096)
-		if err != nil || !loaded.original.document.Equal(comparison.BeforeDocument()) || !loaded.expected.document.Equal(comparison.ExpectedDocument()) {
+		loadedOriginal, loadedExpected, err := loadDocumentImages(t.Context(), records[index][0], records[index][1], root, journalTestFilesystem(), readBudget, 4096)
+		if err != nil || !loadedOriginal.Document().Equal(comparison.BeforeDocument()) || !loadedExpected.Document().Equal(comparison.ExpectedDocument()) {
 			t.Fatalf("group images were confused: %v", err)
 		}
 	}
@@ -343,7 +297,7 @@ func TestDocumentImageStageRejectsMissingLifecycleInputs(t *testing.T) {
 				budget = nil
 			}
 			original, expected, err := stageDocumentImages(test.ctx, test.comparison, test.index, port, budget)
-			if err == nil || original.validate() == nil || expected.validate() == nil || writer.directories != 0 || writer.writes != 0 {
+			if err == nil || original != (journalrecord.DocumentImage{}) || expected != (journalrecord.DocumentImage{}) || writer.directories != 0 || writer.writes != 0 {
 				t.Fatal("missing lifecycle input produced usable records or storage work")
 			}
 			if test.name == "canceled" && !errors.Is(err, context.Canceled) {

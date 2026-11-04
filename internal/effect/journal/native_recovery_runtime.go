@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -41,7 +42,7 @@ func validateNativeActive(ctx context.Context, capture CaptureResult, active Act
 	if err != nil {
 		return err
 	}
-	if snapshot.Mode().Perm() != recoveryJournalMode || recoveryJournalRecordFingerprint(snapshot.Content()) != capture.RecordFingerprint {
+	if snapshot.Mode().Perm() != journalrecord.Mode || journalrecord.Fingerprint(snapshot.Content()) != capture.RecordFingerprint {
 		return fmt.Errorf("published native journal record revision changed")
 	}
 	return ValidateActiveJournalRoot(ctx, filesystem, root, budget, active)

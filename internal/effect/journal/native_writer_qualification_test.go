@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	"github.com/isty2e/daem/internal/effect/mutation"
+
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -15,6 +18,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
@@ -86,7 +90,7 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.journal.record.DocumentGroups, fixture.comparison = []recoveryDocumentGroup{group}, comparison
+	fixture.comparison = comparison
 	hash, _, err := access.HashPath(t.Context(), variant)
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +103,7 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mutation, err := NewManagedPathRecordMutation(state.Subject(), state.ConsumerTargets(), state.Scope(), state.Destination(), hash, hash, state.ContentKind(), 0, &state)
+	mutation, err := journalrecord.NewManagedPathRecordMutation(state.Subject(), state.ConsumerTargets(), state.Scope(), state.Destination(), hash, hash, state.ContentKind(), 0, &state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,18 +111,20 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.capture.ManagedPathMutations, fixture.capture.ManagedPathEvidence = []ManagedPathMutation{mutation}, []observe.ManagedPathEvidence{evidence}
+	fixture.capture.ManagedPathMutations, fixture.capture.ManagedPathEvidence = []journalrecord.ManagedPathMutation{mutation}, []observe.ManagedPathEvidence{evidence}
+	combinedFixture := fixture.whole
 	for side, value := range []durable.Snapshot{fixture.whole.envelope.before, fixture.whole.envelope.after} {
 		combined, err := durable.NewSnapshot(durable.SnapshotInput{ManagedPaths: append(value.ManagedPaths(), state), ManagedAggregates: value.ManagedAggregates()})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if side == 0 {
-			fixture.journal.before = combined
+			combinedFixture.envelope.before = combined
 		} else {
-			fixture.journal.after = combined
+			combinedFixture.envelope.after = combined
 		}
 	}
+	fixture.journal = combinedFixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
 	return fixture
 }
 
@@ -140,15 +146,18 @@ func TestNativeMixedWriterCaseCollisionRefusesBeforeFinalWriter(t *testing.T) {
 func TestQualifiedNativeWriterCaseCollisionRefusesBeforeImages(t *testing.T) {
 	fixture := caseAliasedMixedFixture(t)
 	source, _ := fixture.source(t, imageBudget(t))
-	fixture.journal.record.Entries = source.record.entries
-	if err := fixture.journal.record.validateWriterSpellingPartition(t.Context()); err != nil {
+	journal, err := fixture.journal.WithOrdinaryEvidence(source.record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.Encode(t.Context(), fixture.whole.envelope.codec); err != nil {
 		t.Fatalf("case fixture must pass the spelling-only metadata check: %v", err)
 	}
 	read := fixture.whole.envelope.read
 	reader := &nativeNamespaceReader{RootedReader: read.filesystem}
 	read.filesystem, read.budget = reader, imageBudget(t)
-	loaded, err := loadQualifiedDocuments(fixture.journal, t.Context(), read, fixture.whole.roots)
-	if err == nil || loaded.namespaces != nil || loaded.records.groups != nil || reader.imageReads != 0 {
+	loaded, err := loadQualifiedDocuments(journal, t.Context(), read, fixture.whole.roots)
+	if err == nil || loaded.namespaces != nil || loaded.records.Len() != 0 || reader.imageReads != 0 {
 		t.Fatal("case collision reached artifact reads or returned a qualified prefix")
 	}
 	fixture.whole.requireUnchangedHost(t)
@@ -178,7 +187,7 @@ func (budget *refusedWriterPathBudget) AdmitPathComponents(int) error {
 func TestWriterObservationUsesSharedBudgetAndClosesOnFailure(t *testing.T) {
 	_, roots := nativeNamespaceRecordFixture(t)
 	entry, acquire, closed := ordinaryWriterCapability(t, roots.PiAgent, "custom.json")
-	destination, err := output.Parse(entry.Path)
+	destination, err := output.Parse(entry.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +207,7 @@ func TestWriterObservationUsesSharedBudgetAndClosesOnFailure(t *testing.T) {
 	}
 }
 
-func ordinaryWriterCapability(t *testing.T, root journalnamespace.RootSelection, relative string) (recoveryEntry, RootedCapabilityResolver, *int) {
+func ordinaryWriterCapability(t *testing.T, root journalnamespace.RootSelection, relative string) (journalrecord.PathEntry, RootedCapabilityResolver, *int) {
 	t.Helper()
 	authority, err := root.Root.Authority()
 	if err != nil {
@@ -208,10 +217,15 @@ func ordinaryWriterCapability(t *testing.T, root journalnamespace.RootSelection,
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry := recoveryEntry{Scope: string(target.ScopeGlobal), Path: "@pi-agent/" + relative, GlobalPathBinding: &recoveryGlobalPathBinding{ResolvedPath: filepath.Join(authority.PhysicalRoot(), relative), RootProvenance: persistedNativeRoot(provenance)}}
+	destination, err := output.Parse("@pi-agent/" + relative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical := filepath.Join(authority.PhysicalRoot(), relative)
+	entry := globalEntryForTest(t, destination, physical, journalrecord.NewGlobalBinding(physical, provenance))
 	closed := new(int)
 	acquire := func(destination output.Destination, budget rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
-		if destination.String() != entry.Path || budget == nil {
+		if destination.String() != entry.Path() || budget == nil {
 			return nil, false, errors.New("unexpected destination or missing shared budget")
 		}
 		selected, err := rootedpath.NewRelativeDestination(destination.RelativePath())
@@ -241,12 +255,9 @@ func TestQualifiedWriterKeepsCaseSensitiveFilesDistinct(t *testing.T) {
 	}
 	requireWholeGroupWrite(t, variant, []byte("distinct ordinary file"), 0o600)
 	entry, acquire, closed := ordinaryWriterCapability(t, roots.PiAgent, "CUSTOM.JSON")
-	fixture.record.Entries = []recoveryEntry{entry}
-	journal := nativeJournalSnapshots{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
-	read := fixture.read
-	read.ordinaryCapabilities, read.budget = acquire, imageBudget(t)
-	qualified, err := qualifyDocumentNamespaces(journal, t.Context(), read, roots)
-	if err != nil || len(qualified) != 1 || *closed != 1 {
+	namespaces, manifest, protected := writerPartitionInputsForTest(t, fixture, roots)
+	err := qualifyWriterPartition(t.Context(), []journalrecord.PathEntry{entry}, namespaces, manifest, acquire, imageBudget(t), protected)
+	if err != nil || len(namespaces) != 1 || *closed != 1 {
 		t.Fatalf("distinct case-sensitive files were merged or a capability leaked: %v, closed=%d", err, *closed)
 	}
 }
@@ -266,16 +277,7 @@ func TestQualifiedWriterKeepsNativeProjectSymlinkAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal := nativeJournalSnapshots{record: fixture.envelope.record, owner: fixture.input.Owner(), before: fixture.envelope.before, after: fixture.envelope.after}
-	grant, err := roots.Manifest.Root.Authority()
-	if err != nil {
-		t.Fatal(err)
-	}
-	provenance, err := grant.Provenance()
-	if err != nil {
-		t.Fatal(err)
-	}
-	journal.record.ManifestRootProvenance, journal.record.DocumentGroups = persistedNativeRoot(provenance), []recoveryDocumentGroup{group}
+	journal := fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
 	qualified, err := qualifyDocumentNamespaces(journal, t.Context(), nativeDocumentReadOptions{filesystem: fixture.reader, budget: imageBudget(t)}, roots)
 	if err != nil || len(qualified) != 1 || len(qualified[0].Aliases()) != 2 {
 		t.Fatalf("ordinary/native partition rejected a supported project symlink alias: %v", err)
@@ -289,6 +291,20 @@ func TestQualifiedOrdinaryWriterRequiresSelectedRootAndClosesCapabilities(t *tes
 			fixture, roots := nativeNamespaceRecordFixture(t)
 			requireWholeGroupWrite(t, filepath.Join(roots.PiAgent.SelectedPath, "ordinary.json"), []byte("ordinary"), 0o600)
 			entry, acquire, closed := ordinaryWriterCapability(t, roots.PiAgent, "ordinary.json")
+			namespaces, manifest, protected := writerPartitionInputsForTest(t, fixture, roots)
+			withOtherRoot := func(value journalrecord.PathEntry) journalrecord.PathEntry {
+				provenance := captureFixtureProvenance(t, roots.PiAgent.SelectedPath)
+				other := captureFixtureProvenance(t, roots.Manifest.SelectedPath)
+				changed, err := rootedpath.NewAuthorityProvenance(provenance.PhysicalRoot(), other.ObjectFingerprint(), provenance.MountFingerprint())
+				if err != nil {
+					t.Fatal(err)
+				}
+				destination, err := output.Parse(value.Path())
+				if err != nil {
+					t.Fatal(err)
+				}
+				return globalEntryForTest(t, destination, value.GlobalPath(), journalrecord.NewGlobalBinding(value.GlobalPath(), changed))
+			}
 			ctx := t.Context()
 			wantCloses := 1
 			switch change {
@@ -299,7 +315,7 @@ func TestQualifiedOrdinaryWriterRequiresSelectedRootAndClosesCapabilities(t *tes
 					return nil, false, nil
 				}, 0
 			case "wrong root":
-				entry.GlobalPathBinding.RootProvenance.ObjectFingerprint = fixture.record.ManifestRootProvenance.ObjectFingerprint
+				entry = withOtherRoot(entry)
 			case "close failure", "resolver error":
 				original := acquire
 				acquire = func(destination output.Destination, budget rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
@@ -318,23 +334,51 @@ func TestQualifiedOrdinaryWriterRequiresSelectedRootAndClosesCapabilities(t *tes
 				cancel()
 				wantCloses = 0
 			}
-			fixture.record.Entries = []recoveryEntry{entry}
+			entries := []journalrecord.PathEntry{entry}
 			if change == "duplicate" || change == "conflicting duplicate" {
 				second := entry
 				if change == "conflicting duplicate" {
-					binding := *entry.GlobalPathBinding
-					binding.RootProvenance.ObjectFingerprint = fixture.record.ManifestRootProvenance.ObjectFingerprint
-					second.GlobalPathBinding = &binding
+					second = withOtherRoot(second)
 				}
-				fixture.record.Entries = append(fixture.record.Entries, second)
+				entries = append(entries, second)
 			}
-			journal := nativeJournalSnapshots{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
-			read := fixture.read
-			read.ordinaryCapabilities, read.budget = acquire, imageBudget(t)
-			qualified, err := qualifyDocumentNamespaces(journal, ctx, read, roots)
-			if (err == nil) != (change == "valid" || change == "duplicate") || err != nil && qualified != nil || *closed != wantCloses {
-				t.Fatalf("root/capability failure returned a prefix or leaked a capability: %v, closed=%d want=%d", err, *closed, wantCloses)
+			err := qualifyWriterPartition(ctx, entries, namespaces, manifest, acquire, imageBudget(t), protected)
+			if (err == nil) != (change == "valid" || change == "duplicate") || *closed != wantCloses {
+				t.Fatalf("root/capability failure was admitted or leaked a capability: %v, closed=%d want=%d", err, *closed, wantCloses)
 			}
 		})
 	}
+}
+
+func writerPartitionInputsForTest(t *testing.T, fixture nativeRecordFixture, roots journalnamespace.Roots) ([]journalnamespace.DocumentNamespace, journalnamespace.RootGrant, []pathauthority.Exact) {
+	t.Helper()
+	namespaces, err := qualifyDocumentNamespaces(fixture.journal, t.Context(), fixture.read, roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grants, err := roots.Qualify(t.Context(), nativeFixtureBudget(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, present := grants.Manifest()
+	if !present {
+		t.Fatal("writer fixture lost its manifest grant")
+	}
+	protected := []pathauthority.Exact{fixture.journal.Owner().StatefileAuthority()}
+	if fixture.read.artifacts != nil {
+		authority, err := fixture.read.artifacts.Authority()
+		if err != nil {
+			t.Fatal(err)
+		}
+		observation, err := mutation.ObserveDirectoryEntryAuthority(authority.PhysicalRoot())
+		if err != nil {
+			t.Fatal(err)
+		}
+		exact, present := observation.Exact()
+		if !present {
+			t.Fatal("writer fixture artifacts lost exact authority")
+		}
+		protected = append(protected, exact)
+	}
+	return namespaces, manifest, protected
 }

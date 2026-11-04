@@ -3,7 +3,8 @@ package journal
 import (
 	"context"
 	"fmt"
-	"slices"
+
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
@@ -24,7 +25,7 @@ import (
 // operation. This value is capture evidence, not a lease or execution grant.
 type CapturedNativeJournal struct {
 	capture     CaptureResult
-	journal     nativeJournalSnapshots
+	journal     journalrecord.Native
 	qualified   nativeQualifiedDocumentRecords
 	active      ActiveJournalAuthority
 	budget      *physicalwork.Budget
@@ -66,14 +67,21 @@ type CapturedNativeDocument struct {
 }
 
 func (document CapturedNativeDocument) valid() bool {
-	return document.captured != nil && document.captured.initialized && document.index >= 0 && document.index < len(document.captured.qualified.records.groups)
+	return document.captured != nil && document.captured.initialized && document.index >= 0 && document.index < document.captured.qualified.records.Len()
+}
+
+func (document CapturedNativeDocument) loadedEvidence() (journalrecord.LoadedDocument, bool) {
+	if !document.valid() {
+		return journalrecord.LoadedDocument{}, false
+	}
+	return document.captured.qualified.records.At(document.index)
 }
 
 func (captured CapturedNativeJournal) Documents() []CapturedNativeDocument {
 	if !captured.initialized {
 		return nil
 	}
-	result := make([]CapturedNativeDocument, len(captured.qualified.records.groups))
+	result := make([]CapturedNativeDocument, captured.qualified.records.Len())
 	for index := range result {
 		result[index] = CapturedNativeDocument{captured: &captured, index: index}
 	}
@@ -88,25 +96,28 @@ func (document CapturedNativeDocument) Namespace() journalnamespace.DocumentName
 }
 
 func (document CapturedNativeDocument) Comparison() journaldocument.Comparison {
-	if !document.valid() {
+	loaded, present := document.loadedEvidence()
+	if !present {
 		return journaldocument.Comparison{}
 	}
-	return document.captured.qualified.records.groups[document.index].Comparison()
+	return loaded.Group().Comparison()
 }
 
 func (document CapturedNativeDocument) Original() (aggregate.Document, *recovery.PermissionMode) {
-	if !document.valid() {
+	loaded, present := document.loadedEvidence()
+	if !present {
 		return aggregate.Document{}, nil
 	}
-	image := document.captured.qualified.records.images[document.index].Original()
+	image := loaded.Images().Original()
 	return image.Document(), image.Mode()
 }
 
 func (document CapturedNativeDocument) Expected() (aggregate.Document, *recovery.PermissionMode) {
-	if !document.valid() {
+	loaded, present := document.loadedEvidence()
+	if !present {
 		return aggregate.Document{}, nil
 	}
-	image := document.captured.qualified.records.images[document.index].Expected()
+	image := loaded.Images().Expected()
 	return image.Document(), image.Mode()
 }
 
@@ -114,7 +125,7 @@ func (document CapturedNativeDocument) SelectedSubjects(ctx context.Context) ([]
 	if !document.valid() || ctx == nil {
 		return nil, fmt.Errorf("captured native document and context are required")
 	}
-	recorded, err := document.captured.journal.recordedDocumentAt(document.index)
+	recorded, err := document.captured.journal.DocumentAt(document.index)
 	if err != nil {
 		return nil, err
 	}
@@ -122,21 +133,23 @@ func (document CapturedNativeDocument) SelectedSubjects(ctx context.Context) ([]
 }
 
 func (document CapturedNativeDocument) Claims() (ownershipmutation.DocumentClaimTransition, bool) {
-	if !document.valid() {
+	loaded, present := document.loadedEvidence()
+	if !present {
 		return ownershipmutation.DocumentClaimTransition{}, false
 	}
-	recorded, err := document.captured.journal.recordedDocumentAt(document.index)
+	recorded, err := document.captured.journal.DocumentAt(document.index)
 	if err != nil {
 		return ownershipmutation.DocumentClaimTransition{}, false
 	}
-	return document.captured.qualified.records.claims[document.index], recorded.HasExactClaims()
+	return loaded.Claims(), recorded.HasExactClaims()
 }
 
 func (document CapturedNativeDocument) BindingIntents() []ownership.DocumentBindingIntent {
-	if !document.valid() {
+	loaded, present := document.loadedEvidence()
+	if !present {
 		return nil
 	}
-	return slices.Clone(document.captured.qualified.records.groups[document.index].BindingIntents())
+	return loaded.Group().BindingIntents()
 }
 
 type NativeDocumentProvisionalAcquire struct {
@@ -152,10 +165,11 @@ func (acquire NativeDocumentProvisionalAcquire) Intent() ownership.ProvisionalAc
 }
 
 func (document CapturedNativeDocument) ProvisionalAcquires() []NativeDocumentProvisionalAcquire {
-	if !document.valid() {
+	loaded, present := document.loadedEvidence()
+	if !present {
 		return nil
 	}
-	values := document.captured.qualified.records.provisional[document.index]
+	values := loaded.Provisional()
 	result := make([]NativeDocumentProvisionalAcquire, len(values))
 	for index, value := range values {
 		result[index] = NativeDocumentProvisionalAcquire{acquire: value}
@@ -167,7 +181,7 @@ func (document CapturedNativeDocument) Removal() (recovery.DocumentRemoval, bool
 	if !document.valid() {
 		return recovery.DocumentRemoval{}, false, fmt.Errorf("captured native document is required")
 	}
-	record, err := document.captured.journal.recordedDocumentAt(document.index)
+	record, err := document.captured.journal.DocumentAt(document.index)
 	if err != nil {
 		return recovery.DocumentRemoval{}, false, err
 	}

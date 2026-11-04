@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
@@ -148,7 +150,7 @@ func TestCaptureGlobalFileFallbackUsesBoundedStableSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	contentHash := artifact.HashFileContentWithExecutable(content, true)
-	action := normalizedPathCapture(t, pathMutationReplace, target.ScopeGlobal, outputtest.Parse(t, "~/.codex/AGENTS.md"), contentHash, realization.PathProjectionFile)
+	action := normalizedPathCapture(t, journalrecord.CaptureReplace, target.ScopeGlobal, outputtest.Parse(t, "~/.codex/AGENTS.md"), contentHash, realization.PathProjectionFile)
 	operationDir := t.TempDir()
 
 	before, backupIndex, err := captureExistingRecoveryBeforePath(
@@ -202,7 +204,7 @@ func rootedGlobalDirectoryFixture(
 	return root, destination, contentHash
 }
 
-func rootedGlobalUpdateAction(t *testing.T, contentHash artifact.ContentHash) captureMutation {
+func rootedGlobalUpdateAction(t *testing.T, contentHash artifact.ContentHash) journalrecord.CaptureMutation {
 	t.Helper()
-	return normalizedPathCapture(t, pathMutationReplace, target.ScopeGlobal, outputtest.Parse(t, "~/.agents/skills/review"), contentHash, realization.PathProjectionDirectory)
+	return normalizedPathCapture(t, journalrecord.CaptureReplace, target.ScopeGlobal, outputtest.Parse(t, "~/.agents/skills/review"), contentHash, realization.PathProjectionDirectory)
 }

@@ -5,11 +5,11 @@ import (
 	"os"
 	"testing"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
-
-	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -47,8 +47,20 @@ func TestNativeCaptureCandidatesAdmitExactCombinedDebtAfterRealReads(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 2 || len(comparisons) != 2 || complete.Len() != 3 || groups[0].record.Removal == nil || groups[1].record.Removal == nil {
+	if len(groups) != 2 || len(comparisons) != 2 || complete.Len() != 3 {
 		t.Fatal("capture lost a native/ordinary logical relation or exposed incomplete facts")
+	}
+	wholeRecord, err := whole.recordForGroups(t, []journalrecord.SealedDocumentGroup{groups[0]}).DocumentAt(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, wholeRemoval, err := wholeRecord.Removal()
+	if err != nil || !wholeRemoval {
+		t.Fatal("whole capture omitted actual root debt", err)
+	}
+	_, selectedRemoval, err := selected.recordedGroup(t, groups[1]).Removal()
+	if err != nil || !selectedRemoval {
+		t.Fatal("selected capture omitted actual root debt", err)
 	}
 	if budget.RemainingBytes() > remaining {
 		t.Fatal("complete admission replenished actual preimage read work")
@@ -77,8 +89,20 @@ func TestNativeCaptureCandidatesDoNotInventRemovalForRetainedRoots(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 2 || len(comparisons) != 2 || demands.Len() != 0 || groups[0].record.Removal != nil || groups[1].record.Removal != nil || !comparisons[1].ExpectedDocument().Exists() {
+	if len(groups) != 2 || len(comparisons) != 2 || demands.Len() != 0 || !comparisons[1].ExpectedDocument().Exists() {
 		t.Fatal("retained root or logical key release gained physical removal debt")
+	}
+	wholeRecord, err := whole.recordForGroups(t, []journalrecord.SealedDocumentGroup{groups[0]}).DocumentAt(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, wholeRemoval, err := wholeRecord.Removal()
+	if err != nil || wholeRemoval {
+		t.Fatal("retained whole root gained removal debt", err)
+	}
+	_, selectedRemoval, err := selected.recordedGroup(t, groups[1]).Removal()
+	if err != nil || selectedRemoval {
+		t.Fatal("selected release gained removal debt", err)
 	}
 	if budget.AdmitRemovalDemands(recovery.RemovalDemandSet{}) == nil {
 		t.Fatal("zero-debt batch left admission open")
@@ -121,7 +145,7 @@ func TestNativeCaptureCandidatesRefuseWholeUnionBeforeRemovalObservation(t *test
 				}
 			case "invalid-later":
 				bad := candidate
-				bad.record.comparison = journaldocument.Comparison{}
+				bad.record = journalrecord.DocumentGroupCandidate{}
 				candidates = append(candidates, bad)
 			case "different-budget":
 				budget = physicalwork.NewCaptureBudget(paths)

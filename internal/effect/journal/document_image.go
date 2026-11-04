@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -12,54 +14,54 @@ import (
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 )
 
-func loadDocumentImages(ctx context.Context, original, expected recordedDocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (loadedDocumentImages, error) {
+func loadDocumentImages(ctx context.Context, original, expected journalrecord.DocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (journalrecord.LoadedImage, journalrecord.LoadedImage, error) {
 	before, err := loadDocumentImage(ctx, original, root, filesystem, budget, maximumBytes)
 	if err != nil {
-		return loadedDocumentImages{}, err
+		return journalrecord.LoadedImage{}, journalrecord.LoadedImage{}, err
 	}
 	after, err := loadDocumentImage(ctx, expected, root, filesystem, budget, maximumBytes)
 	if err != nil {
-		return loadedDocumentImages{}, err
+		return journalrecord.LoadedImage{}, journalrecord.LoadedImage{}, err
 	}
-	return loadedDocumentImagePair(before, after)
+	return before, after, nil
 }
 
-func loadDocumentImage(ctx context.Context, record recordedDocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (loadedDocumentImage, error) {
+func loadDocumentImage(ctx context.Context, record journalrecord.DocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (journalrecord.LoadedImage, error) {
 	if ctx == nil {
-		return loadedDocumentImage{}, fmt.Errorf("document image context is required")
+		return journalrecord.LoadedImage{}, fmt.Errorf("document image context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
-	plan, err := record.readPlan(maximumBytes)
+	plan, err := record.AdmitRead(maximumBytes)
 	if err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
 	if !plan.Exists() {
-		return plan.absentImage()
+		return plan.Absent()
 	}
 	if root == nil || filesystem == nil || budget == nil {
-		return loadedDocumentImage{}, fmt.Errorf("document image root, filesystem and shared budget are required")
+		return journalrecord.LoadedImage{}, fmt.Errorf("document image root, filesystem and shared budget are required")
 	}
 	size := plan.Size()
 	if size > maximumBytes || size > budget.RemainingBytes() {
-		return loadedDocumentImage{}, fmt.Errorf("document image exceeds the remaining byte envelope")
+		return journalrecord.LoadedImage{}, fmt.Errorf("document image exceeds the remaining byte envelope")
 	}
 	rootAuthority, err := root.AuthorityBounded(budget)
 	if err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
 	relative, err := rootedpath.NewRelativeDestination(plan.Reference())
 	if err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
 	destination, err := rootAuthority.Bind(relative)
 	if err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
 	capability, err := root.AcquireBounded(destination, physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
 	content, mode, _, readErr := filesystem.ReadRootedRegularFileUpTo(ctx, capability, size)
 	closeErr := capability.Close()
@@ -72,14 +74,14 @@ func loadDocumentImage(ctx context.Context, record recordedDocumentImage, root *
 		workErr = budget.AdmitTree(work)
 	}
 	if err := errors.Join(readErr, closeErr, workErr); err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
-	loaded, err := plan.loadedImage(content, recovery.PermissionMode(mode.Perm()))
+	loaded, err := plan.Load(content, recovery.PermissionMode(mode.Perm()))
 	if err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
 	return loaded, nil
 }

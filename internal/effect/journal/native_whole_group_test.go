@@ -6,7 +6,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+	"time"
+
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	"github.com/isty2e/daem/internal/topology"
 
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
@@ -59,7 +64,8 @@ func TestNativeWholeGroupPreservesEmptyFileAndActualPermission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if group.Original.Kind != "file" || group.Expected.Kind != "file" || *group.Original.Mode != 0o644 || *group.Expected.Mode != 0o600 {
+	expectedMode, present := comparison.ExpectedState().RegularFileMode()
+	if !comparison.BeforeDocument().Exists() || comparison.BeforeDocument().ContentSize() != 0 || !comparison.ExpectedDocument().Exists() || comparison.ExpectedDocument().ContentSize() != 0 || comparison.BeforeMode() == nil || *comparison.BeforeMode() != 0o644 || !present || expectedMode != 0o600 {
 		t.Fatal("empty file or actual host permission was collapsed into absence/private witness permission")
 	}
 	fixture.stageAndReconstruct(t, group, comparison)
@@ -78,8 +84,13 @@ func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	group, comparison, err := prepareWholeDocumentGroup(t.Context(), namespace, fixture.input)
-	if err != nil || len(group.Aliases) != 2 || !comparison.BeforeDocument().Equal(fixture.original) {
+	if err != nil || !comparison.BeforeDocument().Equal(fixture.original) {
 		t.Fatalf("actual alias grouping failed: %v", err)
+	}
+	journal := fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
+	recorded, err := journal.DocumentAt(0)
+	if err != nil || len(recorded.Aliases()) != 2 {
+		t.Fatal("actual alias grouping lost a recorded alias", err)
 	}
 	authority, err := roots.PiAgent.Root.Authority()
 	if err != nil {
@@ -89,12 +100,16 @@ func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if group.Writer.Root != persistedNativeRoot(provenance) || group.Writer.RelativePath != "prompts/Caf\u00e9.md" {
-		t.Fatal("logical project alias replaced the independently selected physical writer")
+	writer, relative, err := recorded.Writer()
+	if err != nil || writer != provenance || relative.Path() != "prompts/Caf\u00e9.md" {
+		t.Fatal("logical project alias replaced the independently selected physical writer", err)
 	}
-	for _, alias := range group.Aliases {
-		if !alias.ObservedBefore.equal(group.CapturedTarget) || !alias.SelectedObservation.equal(group.CapturedTarget) {
-			t.Fatal("alias does not retain the actual common referent")
+	if err := recorded.RequireCapturedNamespace(namespace.Observation()); err != nil {
+		t.Fatal(err)
+	}
+	for _, alias := range recorded.Aliases() {
+		if err := alias.RequireObservations(namespace.Observation()); err != nil {
+			t.Fatal("alias does not retain the actual common referent", err)
 		}
 	}
 	fixture.requireUnchangedHost(t)
@@ -123,7 +138,7 @@ func TestNativeWholeGroupRejectsProvisionalClaimMisjoinsBeforeRead(t *testing.T)
 				})
 			}
 			group, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
-			if err == nil || len(group.Aliases) != 0 || comparison.Validate() == nil || fixture.reader.imageReads != 0 {
+			if err == nil || !reflect.ValueOf(group).IsZero() || comparison.Validate() == nil || fixture.reader.imageReads != 0 {
 				t.Fatalf("provisional mismatch escaped or read content: %v", err)
 			}
 			fixture.requireUnchangedHost(t)
@@ -139,7 +154,7 @@ func TestNativeWholeGroupRetainedBaselineModeMustMatch(t *testing.T) {
 				t.Fatal(err)
 			}
 			group, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
-			if err == nil || len(group.Aliases) != 0 || comparison.Validate() == nil {
+			if err == nil || !reflect.ValueOf(group).IsZero() || comparison.Validate() == nil {
 				t.Fatalf("stale retained baseline mode escaped: %v", err)
 			}
 		})
@@ -151,7 +166,7 @@ func TestNativeWholeGroupRejectsStaticMisjoinsBeforeContentRead(t *testing.T) {
 		name string
 		edit func(*wholeGroupTestFixture)
 	}{
-		{"zero mutation", func(f *wholeGroupTestFixture) { f.input.mutation = ManagedPathMutation{} }},
+		{"zero mutation", func(f *wholeGroupTestFixture) { f.input.mutation = journalrecord.ManagedPathMutation{} }},
 		{"wrong alias", func(f *wholeGroupTestFixture) {
 			other := wholeGroupFixture(t, target.TargetCodex, target.ScopeGlobal, "replace", []byte("other"), []byte("next"))
 			f.input.mutation = other.input.mutation
@@ -197,7 +212,7 @@ func TestNativeWholeGroupRejectsStaticMisjoinsBeforeContentRead(t *testing.T) {
 			fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
 			test.edit(&fixture)
 			group, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
-			if err == nil || comparison.Validate() == nil || len(group.Aliases) != 0 || fixture.reader.imageReads != 0 {
+			if err == nil || comparison.Validate() == nil || !reflect.ValueOf(group).IsZero() || fixture.reader.imageReads != 0 {
 				t.Fatalf("static misjoin escaped or read host content: reads=%d error=%v", fixture.reader.imageReads, err)
 			}
 			fixture.requireUnchangedHost(t)
@@ -223,7 +238,7 @@ func TestNativeWholeGroupRejectsValidButUnrelatedMetadataBeforeRead(t *testing.T
 				}
 				fixture.input.CaptureInput = reviseCaptureInput(fixture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Claims = &transition })
 			case "binding namespace":
-				binding, err := ownership.NewDocumentBinding(fixture.input.Owner(), fixture.input.mutation.facts().destination, exact)
+				binding, err := ownership.NewDocumentBinding(fixture.input.Owner(), fixture.input.mutation.Destination(), exact)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -240,7 +255,7 @@ func TestNativeWholeGroupRejectsValidButUnrelatedMetadataBeforeRead(t *testing.T
 				})
 			}
 			group, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
-			if err == nil || comparison.Validate() == nil || len(group.Aliases) != 0 || fixture.reader.imageReads != 0 {
+			if err == nil || comparison.Validate() == nil || !reflect.ValueOf(group).IsZero() || fixture.reader.imageReads != 0 {
 				t.Fatalf("valid unrelated metadata escaped or read content: %v", err)
 			}
 			fixture.requireUnchangedHost(t)
@@ -274,7 +289,7 @@ func TestNativeWholeGroupRejectsStaleNamespaceAndLiveFacts(t *testing.T) {
 		}},
 		{"wrong payload", func(t *testing.T, f *wholeGroupTestFixture) {
 			t.Helper()
-			f.input.payloads = wholeGroupPayload(t, f.input.mutation.facts(), []byte("wrong"))
+			f.input.payloads = wholeGroupPayload(t, f.input.mutation.Subject(), []byte("wrong"))
 		}},
 		{"small read limit", func(t *testing.T, f *wholeGroupTestFixture) {
 			f.input.CaptureInput = reviseCaptureInput(f.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Limits.MaximumBytes = 2 })
@@ -284,7 +299,7 @@ func TestNativeWholeGroupRejectsStaleNamespaceAndLiveFacts(t *testing.T) {
 			fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
 			test.edit(t, &fixture)
 			group, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
-			if err == nil || comparison.Validate() == nil || len(group.Aliases) != 0 {
+			if err == nil || comparison.Validate() == nil || !reflect.ValueOf(group).IsZero() {
 				t.Fatalf("stale capture returned usable facts: %v", err)
 			}
 		})
@@ -296,7 +311,7 @@ func TestNativeWholeGroupCancellationAndFailedReadKeepNoFacts(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	group, comparison, err := prepareWholeDocumentGroup(ctx, fixture.namespace, fixture.input)
-	if !errors.Is(err, context.Canceled) || comparison.Validate() == nil || len(group.Aliases) != 0 || fixture.reader.imageReads != 0 {
+	if !errors.Is(err, context.Canceled) || comparison.Validate() == nil || !reflect.ValueOf(group).IsZero() || fixture.reader.imageReads != 0 {
 		t.Fatalf("pre-cancel returned facts or performed a read: %v", err)
 	}
 	ctx, cancel = context.WithCancel(t.Context())
@@ -308,7 +323,7 @@ func TestNativeWholeGroupCancellationAndFailedReadKeepNoFacts(t *testing.T) {
 	}
 	remaining := fixture.input.Budget().RemainingBytes()
 	group, comparison, err = prepareWholeDocumentGroup(ctx, fixture.namespace, fixture.input)
-	if !errors.Is(err, context.Canceled) || comparison.Validate() == nil || len(group.Aliases) != 0 || reader.calls != 1 || fixture.input.Budget().RemainingBytes() >= remaining {
+	if !errors.Is(err, context.Canceled) || comparison.Validate() == nil || !reflect.ValueOf(group).IsZero() || reader.calls != 1 || fixture.input.Budget().RemainingBytes() >= remaining {
 		t.Fatalf("post-read cancellation returned facts or lost work charge: %v", err)
 	}
 	fixture.requireUnchangedHost(t)
@@ -322,6 +337,23 @@ type wholeGroupTestFixture struct {
 	reader             *nativeNamespaceReader
 	path               string
 	original, expected aggregate.Document
+}
+
+func (fixture wholeGroupTestFixture) recordForGroups(t *testing.T, groups []journalrecord.SealedDocumentGroup) journalrecord.Native {
+	t.Helper()
+	manifest, err := fixture.roots.Manifest.Root.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := manifest.Provenance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal, err := journalrecord.NewNativeCapture(fixture.input.OperationID(), time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), fixture.input.Owner(), provenance, fixture.envelope.before, fixture.envelope.after, groups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return journal
 }
 
 func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope, action string, original, desired []byte) wholeGroupTestFixture {
@@ -372,24 +404,24 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	if err != nil {
 		t.Fatal(err)
 	}
-	var mutation ManagedPathMutation
+	var mutation journalrecord.ManagedPathMutation
 	switch action {
 	case "create":
-		mutation, err = NewManagedPathCreateMutation(subject, []target.Target{selected}, scope, placement.Destination(), artifact.HashFileContent(desired), realization.PathProjectionFile, 0o600, nil)
+		mutation, err = journalrecord.NewManagedPathCreateMutation(subject, []target.Target{selected}, scope, placement.Destination(), artifact.HashFileContent(desired), realization.PathProjectionFile, 0o600, nil)
 	case "replace":
-		mutation, err = NewManagedPathReplaceMutation(subject, []target.Target{selected}, scope, placement.Destination(), artifact.HashFileContent(desired), artifact.HashFileContent(original), realization.PathProjectionFile, 0o600, before)
+		mutation, err = journalrecord.NewManagedPathReplaceMutation(subject, []target.Target{selected}, scope, placement.Destination(), artifact.HashFileContent(desired), artifact.HashFileContent(original), realization.PathProjectionFile, 0o600, before)
 	case "record":
-		mutation, err = NewManagedPathRecordMutation(subject, []target.Target{selected}, scope, placement.Destination(), artifact.HashFileContent(original), artifact.HashFileContent(original), realization.PathProjectionFile, 0o644, &before)
+		mutation, err = journalrecord.NewManagedPathRecordMutation(subject, []target.Target{selected}, scope, placement.Destination(), artifact.HashFileContent(original), artifact.HashFileContent(original), realization.PathProjectionFile, 0o644, &before)
 	case "remove":
-		mutation, err = NewManagedPathRemoveMutation(before, artifact.HashFileContent(original))
+		mutation, err = journalrecord.NewManagedPathRemoveMutation(before, artifact.HashFileContent(original))
 	default:
 		t.Fatalf("unknown action %s", action)
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := wholeDocumentCaptureInput{mutation: mutation, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: envelope.claims.owner, OperationID: envelope.record.OperationID, GroupIndex: 3, Limits: envelope.read.limits, Budget: budget})}
-	input.payloads = wholeGroupPayload(t, mutation.facts(), desired)
+	input := wholeDocumentCaptureInput{mutation: mutation, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: envelope.claims.owner, OperationID: envelope.journal.OperationID(), GroupIndex: 3, Limits: envelope.read.limits, Budget: budget})}
+	input.payloads = wholeGroupPayload(t, mutation.Subject(), desired)
 	beforeImage, expectedImage := aggregate.ExistingDocument(original), aggregate.ExistingDocument(desired)
 	var beforeRows, afterRows []durable.ManagedPathState
 	if action != "create" {
@@ -483,9 +515,9 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	return wholeGroupTestFixture{roots: roots, namespace: namespace, input: input, envelope: envelope, reader: reader, path: path, original: beforeImage, expected: expectedImage}
 }
 
-func wholeGroupPayload(t *testing.T, facts managedPathMutationFacts, content []byte) payload.PayloadSet {
+func wholeGroupPayload(t *testing.T, subject topology.SubjectID, content []byte) payload.PayloadSet {
 	t.Helper()
-	value, err := payload.NewFilePayload(facts.subject, content, 0o600)
+	value, err := payload.NewFilePayload(subject, content, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,26 +556,36 @@ func (fixture wholeGroupTestFixture) requireUnchangedHost(t *testing.T) {
 	}
 }
 
-func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group recoveryDocumentGroup, comparison journaldocument.Comparison) {
+func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group journalrecord.SealedDocumentGroup, comparison journaldocument.Comparison) {
 	t.Helper()
+	journal := fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
+	session, err := journal.BeginLoadedDocuments(t.Context(), fixture.input.Limits(), fixture.envelope.read.codecs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demand, present, err := session.Next(t.Context())
+	if err != nil || !present {
+		t.Fatal("captured group has no recorded image demand", err)
+	}
+	content, err := journal.Encode(t.Context(), fixture.envelope.codec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	destination, capability := imageStageDestination(t)
+	defer capability.Close()
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		original, expected, err := stageDocumentImages(t.Context(), comparison, fixture.input.GroupIndex(), writer, fixture.input.Budget())
 		if err != nil {
 			return err
 		}
-		originalReference, err := documentImageReference(group.Original)
-		if err != nil {
-			return err
-		}
-		expectedReference, err := documentImageReference(group.Expected)
-		if err != nil {
-			return err
-		}
-		if original != originalReference || expected != expectedReference {
+		if original != demand.Original() || expected != demand.Expected() {
 			t.Fatal("capture and staging disagree on private image references")
 		}
-		return nil
+		path, err := mutationfs.NewTreeRelativePath(journalrecord.FileName)
+		if err != nil {
+			return err
+		}
+		return writer.WriteFile(path, journalrecord.Mode, bytes.NewReader(content))
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -557,38 +599,36 @@ func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group rec
 		t.Fatal(err)
 	}
 	defer root.Close()
-	fixture.envelope.record.DocumentGroups = []recoveryDocumentGroup{group}
-	manifest, err := fixture.roots.Manifest.Root.Authority()
+	snapshot, err := readNativeCaptureRecord(t.Context(), root, journalTestFilesystem(), imageBudget(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	provenance, err := manifest.Provenance()
+	loadedRecord, err := journalrecord.DecodeNativeSnapshot(t.Context(), snapshot, journalrecord.FileName, fixture.envelope.codec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.envelope.record.ManifestRootProvenance = persistedNativeRoot(provenance)
-	content, err := marshalNativeJournalRecord(t.Context(), fixture.envelope.record, fixture.envelope.before, fixture.envelope.after, fixture.envelope.codec)
-	if err != nil {
-		t.Fatal(err)
+	decoded, present := loadedRecord.Native()
+	if !present {
+		t.Fatal("whole capture decoded as another record family")
 	}
-	decoded, err := decodeNativeJournalRecord(t.Context(), content, fixture.envelope.codec)
+	admitted, err := decoded.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.input.Limits(), fixture.envelope.read.codecs)
 	if err != nil {
-		t.Fatal(err)
-	}
-	admitted, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.input.Limits(), fixture.envelope.read.codecs)
-	if err != nil || len(admitted.documents.groups) != 1 {
 		t.Fatalf("prepared group does not pass full snapshot admission: %v", err)
+	}
+	comparisons, err := admitted.Comparisons()
+	if err != nil || len(comparisons) != 1 {
+		t.Fatal("prepared group lost its completed comparison", err)
 	}
 	fixture.envelope.read.artifacts, fixture.envelope.read.budget = root, imageBudget(t)
 	loaded, err := loadDocuments(decoded, t.Context(), fixture.envelope.read)
-	if err != nil || len(loaded.groups) != 1 {
+	if err != nil || loaded.Len() != 1 {
 		t.Fatalf("actual group cannot reconstruct: %v", err)
 	}
 	var expectedMode *recovery.PermissionMode
 	if mode, present := comparison.ExpectedState().RegularFileMode(); present {
 		expectedMode = &mode
 	}
-	restored, err := loaded.groups[0].Comparison().RestoreBefore(t.Context(), fixture.expected, expectedMode)
+	restored, err := requireLoadedNativeDocument(t, loaded, 0).Group().Comparison().RestoreBefore(t.Context(), fixture.expected, expectedMode)
 	if err != nil || !restored.Document().Equal(fixture.original) {
 		t.Fatalf("actual artifact-backed recovery lost original bytes/presence: %v", err)
 	}

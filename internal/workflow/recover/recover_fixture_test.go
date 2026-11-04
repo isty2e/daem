@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -115,7 +116,7 @@ func prepareRecoveryFixture(t *testing.T, applied bool) recoveryFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mutationRequest, err := journal.NewManagedPathReplaceMutation(
+	mutationRequest, err := journalrecord.NewManagedPathReplaceMutation(
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
@@ -148,7 +149,7 @@ func prepareRecoveryFixture(t *testing.T, applied bool) recoveryFixture {
 		nextState,
 		journal.CaptureOptions{
 			Filesystem:           storagecommit.Adapter{},
-			ManagedPathMutations: []journal.ManagedPathMutation{mutationRequest},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             hostpath.NewResolver(root).Resolve,
 			StateCodec:           statefile.Codec{},
@@ -186,7 +187,7 @@ func prepareRemovalRecoveryFixture(t *testing.T) recoveryFixture {
 		t.Fatalf("managed paths = %d, want 1", len(managed))
 	}
 	previous := managed[0]
-	mutationRequest, err := journal.NewManagedPathRemoveMutation(
+	mutationRequest, err := journalrecord.NewManagedPathRemoveMutation(
 		previous,
 		previous.ContentHash(),
 	)
@@ -233,7 +234,7 @@ func prepareRemovalRecoveryFixture(t *testing.T) recoveryFixture {
 		durable.EmptySnapshot(),
 		journal.CaptureOptions{
 			Filesystem:           storagecommit.Adapter{},
-			ManagedPathMutations: []journal.ManagedPathMutation{mutationRequest},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			RemovalDemands:       demands,
 			Resolver:             hostpath.NewResolver(filepath.Dir(fixture.input.ManifestPath)).Resolve,

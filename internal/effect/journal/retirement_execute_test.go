@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -93,7 +94,7 @@ func TestPreparedRetirementCapacityMatchesExecutableReadPasses(t *testing.T) {
 			t.Fatal(err)
 		}
 		wantBytes := int64(7)*prepared.evidence.activeEnvelopeLimits.MaximumBytes() +
-			maximumRecoveryJournalBytes +
+			journalrecord.MaximumBytes +
 			2*prepared.evidence.controlCurrentWork.Bytes() +
 			4*prepared.evidence.controlFinalWork.Bytes() +
 			int64(len(currentRecord)+len(finalRecord))
@@ -105,9 +106,9 @@ func TestPreparedRetirementCapacityMatchesExecutableReadPasses(t *testing.T) {
 		if err := prepared.ExecuteActive(t.Context(), plan); err != nil {
 			t.Fatalf("ExecuteActive: %v", err)
 		}
-		journalPath := filepath.Join(plan.OperationDir(), recoveryJournalFileName)
-		if got := filesystem.regularFileReadLimits[journalPath]; !slices.Equal(got, []int64{maximumRecoveryJournalBytes}) {
-			t.Fatalf("active journal read limits = %v, want [%d]", got, maximumRecoveryJournalBytes)
+		journalPath := filepath.Join(plan.OperationDir(), journalrecord.FileName)
+		if got := filesystem.regularFileReadLimits[journalPath]; !slices.Equal(got, []int64{journalrecord.MaximumBytes}) {
+			t.Fatalf("active journal read limits = %v, want [%d]", got, journalrecord.MaximumBytes)
 		}
 	})
 
@@ -202,7 +203,7 @@ func TestRetireActiveJournalRejectsReplacedPlannedArtifactBeforeEffects(t *testi
 	if err := os.Mkdir(plan.OperationDir(), retirement.DirectoryMode); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(result.JournalPath, content, recoveryJournalMode); err != nil {
+	if err := os.WriteFile(result.JournalPath, content, journalrecord.Mode); err != nil {
 		t.Fatal(err)
 	}
 
@@ -302,7 +303,7 @@ func TestRetireActiveJournalRevalidatesFingerprintAfterPreparedControl(t *testin
 		if bytes.Equal(content, changed) {
 			t.Fatal("journal fixture did not contain expected created_at")
 		}
-		if writeErr := os.WriteFile(result.JournalPath, changed, recoveryJournalMode); writeErr != nil {
+		if writeErr := os.WriteFile(result.JournalPath, changed, journalrecord.Mode); writeErr != nil {
 			t.Fatal(writeErr)
 		}
 	}
@@ -1281,7 +1282,7 @@ func loadCleanActiveRetirementPlan(
 	plan, err := LoadActivePlanForStateWithOptions(
 		t.Context(),
 		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
-		beforeStatefile(),
+		inventoryJournalSnapshot(t, "before"),
 		PlanLoadOptions{
 			Filesystem: filesystem,
 			Resolver: func(output.Destination) (string, error) {

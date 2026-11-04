@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -66,7 +67,7 @@ func PromoteProvisionalAcquire(
 		return ProvisionalAcquirePromotion{}, fmt.Errorf("recovery journal promotion fingerprint is required")
 	}
 	if stateCodec == nil {
-		return ProvisionalAcquirePromotion{}, errRecoveryJournalStateCodecRequired
+		return ProvisionalAcquirePromotion{}, journalrecord.ErrStateCodecRequired
 	}
 	if err := intent.Validate(); err != nil {
 		return ProvisionalAcquirePromotion{}, fmt.Errorf("recovery journal promotion intent: %w", err)
@@ -109,12 +110,12 @@ func PromoteProvisionalAcquire(
 	if err != nil {
 		return ProvisionalAcquirePromotion{}, errors.Join(err, capability.Close())
 	}
-	candidateFingerprint := recoveryJournalRecordFingerprint(content)
+	candidateFingerprint := journalrecord.Fingerprint(content)
 	outcome, refreshedParent, replaceErr := filesystem.ReplaceRootedFileAndRefreshParent(
 		ctx,
 		capability,
 		content,
-		recoveryJournalMode,
+		journalrecord.Mode,
 		snapshot.Identity(),
 		activeAuthority.identity,
 	)
@@ -187,29 +188,33 @@ func readPromotionRecord(
 ) (
 	rootedpath.CommitCapability,
 	mutationfs.RegularFileSnapshot,
-	ordinaryRecord,
+	journalrecord.Ordinary,
 	string,
 	error,
 ) {
 	capability, err := authority.Acquire()
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, ordinaryRecord{}, "", err
+		return nil, mutationfs.RegularFileSnapshot{}, journalrecord.Ordinary{}, "", err
 	}
 	content, mode, identity, err := filesystem.ReadRootedRegularFileUpTo(
 		ctx,
 		capability,
-		maximumRecoveryJournalBytes,
+		journalrecord.MaximumBytes,
 	)
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, ordinaryRecord{}, "", errors.Join(err, capability.Close())
+		return nil, mutationfs.RegularFileSnapshot{}, journalrecord.Ordinary{}, "", errors.Join(err, capability.Close())
 	}
 	snapshot, err := mutationfs.NewRegularFileSnapshot(content, mode, identity)
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, ordinaryRecord{}, "", errors.Join(err, capability.Close())
+		return nil, mutationfs.RegularFileSnapshot{}, journalrecord.Ordinary{}, "", errors.Join(err, capability.Close())
 	}
-	current, err := decodeOrdinarySnapshot(snapshot, recoveryJournalFileName, stateCodec)
+	loaded, err := journalrecord.DecodeOrdinarySnapshot(ctx, snapshot, journalrecord.FileName, stateCodec)
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, ordinaryRecord{}, "", errors.Join(err, capability.Close())
+		return nil, mutationfs.RegularFileSnapshot{}, journalrecord.Ordinary{}, "", errors.Join(err, capability.Close())
 	}
-	return capability, snapshot, current, recoveryJournalRecordFingerprint(content), nil
+	current, ordinary := loaded.Ordinary()
+	if !ordinary {
+		return nil, mutationfs.RegularFileSnapshot{}, journalrecord.Ordinary{}, "", errors.Join(fmt.Errorf("ordinary promotion record is required"), capability.Close())
+	}
+	return capability, snapshot, current, journalrecord.Fingerprint(content), nil
 }

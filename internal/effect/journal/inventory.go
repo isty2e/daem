@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -78,7 +79,7 @@ type recoveryRootInventory struct {
 
 type journalDirectoryEvidence struct {
 	identity     retirement.Identity
-	record       loadedJournalRecord
+	record       journalrecord.Loaded
 	operationDir string
 }
 
@@ -564,7 +565,7 @@ func loadJournalDirectoryEvidence(
 
 	var journalEntry *mutationfs.DirectoryEntrySnapshot
 	for _, child := range before.Entries() {
-		if child.Name() == recoveryJournalFileName {
+		if child.Name() == journalrecord.FileName {
 			candidate := child
 			journalEntry = &candidate
 			break
@@ -574,24 +575,24 @@ func loadJournalDirectoryEvidence(
 		return journalDirectoryEvidence{}, fmt.Errorf(
 			"recovery journal entry %q has no %s",
 			entry.Name(),
-			recoveryJournalFileName,
+			journalrecord.FileName,
 		)
 	}
 	if journalEntry.Kind() != mutationfs.EntryKindFile ||
 		!journalEntry.OwnedByInvoker() ||
-		journalEntry.Mode() != recoveryJournalMode ||
-		journalEntry.Size() > maximumRecoveryJournalBytes {
+		journalEntry.Mode() != journalrecord.Mode ||
+		journalEntry.Size() > journalrecord.MaximumBytes {
 		return journalDirectoryEvidence{}, fmt.Errorf(
 			"recovery journal %q has invalid file metadata",
-			filepath.Join(entry.Name(), recoveryJournalFileName),
+			filepath.Join(entry.Name(), journalrecord.FileName),
 		)
 	}
 
-	journalPath := filepath.Join(directoryPath, recoveryJournalFileName)
+	journalPath := filepath.Join(directoryPath, journalrecord.FileName)
 	snapshot, err := options.Filesystem.ReadRegularFileSnapshotUpTo(
 		ctx,
 		journalPath,
-		maximumRecoveryJournalBytes,
+		journalrecord.MaximumBytes,
 	)
 	if err != nil {
 		return journalDirectoryEvidence{}, fmt.Errorf("read recovery journal: %w", err)
@@ -604,7 +605,7 @@ func loadJournalDirectoryEvidence(
 	}
 	decode := options.recordDecoder
 	if decode == nil {
-		decode = decodeLegacyInventoryJournal
+		decode = journalrecord.DecodeOrdinarySnapshot
 	}
 	record, err := decode(ctx, snapshot, journalPath, options.StateCodec)
 	if err != nil {
@@ -715,5 +716,5 @@ func inventoryObservationInterrupted(ctx context.Context, err error) bool {
 	return ctx.Err() != nil ||
 		errors.Is(err, context.Canceled) ||
 		errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, errRecoveryJournalStateCodecRequired)
+		errors.Is(err, journalrecord.ErrStateCodecRequired)
 }

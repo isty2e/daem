@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
@@ -20,8 +22,8 @@ type ordinaryWriterAddress struct {
 	destination output.Destination
 }
 
-func qualifyWriterPartition(ctx context.Context, entries []recordedPathEntry, namespaces []journalnamespace.DocumentNamespace, manifest journalnamespace.RootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *physicalwork.Budget, protected []pathauthority.Exact) error {
-	var partition documentWriterPartition
+func qualifyWriterPartition(ctx context.Context, entries []journalrecord.PathEntry, namespaces []journalnamespace.DocumentNamespace, manifest journalnamespace.RootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *physicalwork.Budget, protected []pathauthority.Exact) error {
+	var partition journalrecord.WriterPartition
 	appendObservation := func(observation mutation.DirectoryEntryAuthorityObservation, group int) error {
 		if err := observation.Validate(); err != nil {
 			return err
@@ -45,7 +47,7 @@ func qualifyWriterPartition(ctx context.Context, entries []recordedPathEntry, na
 			}
 		}
 	}
-	seen := make(map[ordinaryWriterAddress]recordedGlobalBindingKey)
+	seen := make(map[ordinaryWriterAddress]journalrecord.GlobalBindingKey)
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -101,7 +103,7 @@ func qualifyWriterPartition(ctx context.Context, entries []recordedPathEntry, na
 	return partition.Validate(ctx)
 }
 
-func acquireNativeOrdinaryGlobalWriter(entry recordedPathEntry, destination output.Destination, acquire RootedCapabilityResolver, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
+func acquireNativeOrdinaryGlobalWriter(entry journalrecord.PathEntry, destination output.Destination, acquire RootedCapabilityResolver, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
 	if !entry.HasGlobalBinding() || acquire == nil {
 		return nil, fmt.Errorf("ordinary global writer requires independently selected capability and stored binding")
 	}

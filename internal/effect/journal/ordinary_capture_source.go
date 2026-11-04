@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -12,8 +14,8 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
-func validateOrdinaryCaptureBackups(ctx context.Context, directory string, view access.View, entries []recordedPathEntry, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) (resultErr error) {
-	references, err := recordedBackupReferences(ctx, entries)
+func validateOrdinaryCaptureBackups(ctx context.Context, directory string, view access.View, entries []journalrecord.PathEntry, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) (resultErr error) {
+	references, err := journalrecord.BackupReferences(ctx, entries)
 	if err != nil {
 		return err
 	}

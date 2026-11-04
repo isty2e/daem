@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/fs"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -70,14 +72,14 @@ type recoveryContentPathBaselineCache struct {
 }
 
 func newRecoveryContentPathBaselineCache(
-	actions []captureMutation,
+	actions []journalrecord.CaptureMutation,
 	codecs aggregate.CodecCatalog,
 	filesystem mutationfs.Reader,
 ) (*recoveryContentPathBaselineCache, error) {
 	if filesystem == nil {
 		return nil, fmt.Errorf("recovery content-path filesystem is required")
 	}
-	if err := validateCaptureMutations(actions); err != nil {
+	if err := journalrecord.ValidateCaptureMutations(actions); err != nil {
 		return nil, err
 	}
 	contractsByDestination := make(map[recoveryContentPathBaselineKey][]aggregate.ProjectionContract)
@@ -150,7 +152,7 @@ func newRecoveryContentPathBaselineCache(
 
 func (cache *recoveryContentPathBaselineCache) capture(
 	ctx context.Context,
-	action captureMutation,
+	action journalrecord.CaptureMutation,
 	resolver func(destination output.Destination) (string, error),
 	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,

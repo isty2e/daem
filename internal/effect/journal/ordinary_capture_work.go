@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -85,11 +87,11 @@ func (work *ordinaryCaptureWork) rootedResolver(resolver RootedCapabilityResolve
 	}
 }
 
-func (work *ordinaryCaptureWork) globalBindings(actions []captureMutation, resolver func(output.Destination) (string, error), rooted RootedCapabilityResolver) (recoveryGlobalPathBindings, error) {
+func (work *ordinaryCaptureWork) globalBindings(actions []journalrecord.CaptureMutation, resolver func(output.Destination) (string, error), rooted RootedCapabilityResolver) (recoveryGlobalPathBindings, error) {
 	if work.budget == nil {
 		return captureRecoveryGlobalPathBindings(actions, resolver, rooted)
 	}
-	if err := validateCaptureMutations(actions); err != nil {
+	if err := journalrecord.ValidateCaptureMutations(actions); err != nil {
 		return nil, err
 	}
 	bindings := make(recoveryGlobalPathBindings)

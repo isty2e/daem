@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -16,24 +18,24 @@ import (
 // nativeDocumentCaptureCandidate retains actual comparison inputs before the
 // operation's complete removal set can be admitted. It is not a valid record.
 type nativeDocumentCaptureCandidate struct {
-	record    documentGroupRecordCandidate
+	record    journalrecord.DocumentGroupCandidate
 	namespace journalnamespace.DocumentNamespace
 	relations []aggregate.DocumentAddress
 	budget    *physicalwork.Budget
 }
 
-func (candidate nativeDocumentCaptureCandidate) captureRemoval(ctx context.Context, budget *physicalwork.Budget) (sealedDocumentGroup, journaldocument.Comparison, error) {
+func (candidate nativeDocumentCaptureCandidate) captureRemoval(ctx context.Context, budget *physicalwork.Budget) (journalrecord.SealedDocumentGroup, journaldocument.Comparison, error) {
 	if ctx == nil || budget == nil || budget != candidate.budget {
-		return sealedDocumentGroup{}, journaldocument.Comparison{}, fmt.Errorf("document capture requires context and its original physical budget")
+		return journalrecord.SealedDocumentGroup{}, journaldocument.Comparison{}, fmt.Errorf("document capture requires context and its original physical budget")
 	}
 	removal, err := captureDocumentRemoval(ctx, candidate.namespace, candidate.record.Comparison(), candidate.relations, budget)
 	if err != nil {
-		return sealedDocumentGroup{}, journaldocument.Comparison{}, err
+		return journalrecord.SealedDocumentGroup{}, journaldocument.Comparison{}, err
 	}
-	return candidate.record.seal(ctx, removal)
+	return candidate.record.Seal(ctx, removal)
 }
 
-func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDocumentCaptureCandidate, ordinary recovery.RemovalDemandSet, budget *physicalwork.Budget) ([]sealedDocumentGroup, []journaldocument.Comparison, recovery.RemovalDemandSet, error) {
+func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDocumentCaptureCandidate, ordinary recovery.RemovalDemandSet, budget *physicalwork.Budget) ([]journalrecord.SealedDocumentGroup, []journaldocument.Comparison, recovery.RemovalDemandSet, error) {
 	if ctx == nil || budget == nil {
 		return nil, nil, recovery.RemovalDemandSet{}, fmt.Errorf("native capture requires context and the shared physical budget")
 	}
@@ -59,7 +61,7 @@ func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDoc
 		return nil, nil, recovery.RemovalDemandSet{}, err
 	}
 
-	groups := make([]sealedDocumentGroup, 0, len(candidates))
+	groups := make([]journalrecord.SealedDocumentGroup, 0, len(candidates))
 	comparisons := make([]journaldocument.Comparison, 0, len(candidates))
 	for _, candidate := range candidates {
 		group, comparison, err := candidate.captureRemoval(ctx, budget)

@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -85,7 +86,7 @@ func TestPromoteProvisionalAcquireReplacesExactlyOneIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if promotion.RecordFingerprint() != recoveryJournalRecordFingerprint(content) ||
+	if promotion.RecordFingerprint() != journalrecord.Fingerprint(content) ||
 		promotion.RecordFingerprint() == fixture.fingerprint {
 		t.Fatalf(
 			"promoted fingerprint = %q, initial = %q",
@@ -185,11 +186,11 @@ type promotionFixture struct {
 func newPromotionFixture(t *testing.T, filesystem mutationfs.Store) promotionFixture {
 	t.Helper()
 	selectedRoot := t.TempDir()
-	operationDir := filepath.Join(selectedRoot, "recovery", testOperationID)
+	operationDir := filepath.Join(selectedRoot, "recovery", promotionOperationID)
 	if err := os.MkdirAll(operationDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	recordPath := filepath.Join(operationDir, recoveryJournalFileName)
+	recordPath := filepath.Join(operationDir, journalrecord.FileName)
 	destination, err := output.Parse("~/.codex/AGENTS.md")
 	if err != nil {
 		t.Fatal(err)
@@ -221,7 +222,7 @@ func newPromotionFixture(t *testing.T, filesystem mutationfs.Store) promotionFix
 		"",
 		provisional,
 		owner,
-		testOperationID,
+		promotionOperationID,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -239,19 +240,8 @@ func newPromotionFixture(t *testing.T, filesystem mutationfs.Store) promotionFix
 		t.Fatal(err)
 	}
 
-	entry := globalAcquireRecoveryEntry(t)
-	journal := recoveryJournalFor(entry)
-	journal.ProvisionalAcquires, err = recoveryProvisionalAcquireIntents(
-		[]outputownership.ProvisionalAcquireIntent{intent},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content, err := marshalRecoveryJournalWithStateContentForPromotion(journal, testStateCodec())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(recordPath, content, recoveryJournalMode); err != nil {
+	content := promotionRecordForTest(t, selectedRoot, namespace, intent)
+	if err := os.WriteFile(recordPath, content, journalrecord.Mode); err != nil {
 		t.Fatal(err)
 	}
 	capturedRoot, err := rootedpath.CaptureRoot(selectedRoot)
@@ -287,7 +277,7 @@ func newPromotionFixture(t *testing.T, filesystem mutationfs.Store) promotionFix
 		directoryAuthority: directoryAuthority,
 		activeAuthority:    activeAuthority,
 		recordPath:         recordPath,
-		fingerprint:        recoveryJournalRecordFingerprint(content),
+		fingerprint:        journalrecord.Fingerprint(content),
 		intent:             intent,
 		transition:         transition,
 	}

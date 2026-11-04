@@ -52,7 +52,7 @@ func TestNativeCaptureOwnershipFeedsWholeCaptureFromOneRegistryRead(t *testing.T
 				if err != nil {
 					t.Fatal(err)
 				}
-				fixture.stageAndReconstruct(t, groups[0].record, comparisons[0])
+				fixture.stageAndReconstruct(t, groups[0], comparisons[0])
 				fixture.requireUnchangedHost(t)
 			})
 		}
@@ -369,5 +369,5 @@ func TestNativeCaptureOwnershipFeedsSelectedCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	capture.requireCompleteStage(t, groups[0].record, comparisons[0])
+	capture.requireCompleteStage(t, groups[0], comparisons[0])
 }

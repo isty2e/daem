@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -18,7 +20,7 @@ import (
 
 type wholeDocumentCaptureInput struct {
 	journalobservation.CaptureInput
-	mutation ManagedPathMutation
+	mutation journalrecord.ManagedPathMutation
 	payloads payload.PayloadSet
 }
 
@@ -30,7 +32,7 @@ func prepareWholeDocumentCandidate(ctx context.Context, namespace journalnamespa
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	address, err := aggregate.NewDocumentAddress(facts.consumerTargets[0], facts.scope, facts.destination)
+	address, err := aggregate.NewDocumentAddress(facts.ConsumerTargets()[0], facts.Scope(), facts.Destination())
 	if err != nil || !slices.Contains(namespace.Addresses(), address) {
 		return nativeDocumentCaptureCandidate{}, fmt.Errorf("whole document mutation has no captured namespace alias")
 	}
@@ -47,7 +49,7 @@ func prepareWholeDocumentCandidate(ctx context.Context, namespace journalnamespa
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	record, err := draft.withComparison(comparison, input.GroupIndex(), nil)
+	record, err := draft.WithComparison(comparison, input.GroupIndex(), nil)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -73,35 +75,35 @@ func prepareRetainedWholeDocumentCandidate(ctx context.Context, namespace journa
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	record, err := draft.withComparison(comparison, input.GroupIndex(), nil)
+	record, err := draft.WithComparison(comparison, input.GroupIndex(), nil)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
 	return nativeDocumentCaptureCandidate{record: record, namespace: namespace, relations: namespace.Addresses(), budget: input.Budget()}, nil
 }
 
-func nativeDocumentGroupMetadata(ctx context.Context, namespace journalnamespace.DocumentNamespace, input journalobservation.CaptureInput) (documentGroupRecordDraft, journalnamespace.RootGrant, error) {
-	draft, err := beginDocumentGroupRecord(documentGroupCaptureFacts{owner: input.Owner(), operationID: input.OperationID(), bindings: input.Bindings(), claims: input.Claims(), provisional: input.Provisional()})
+func nativeDocumentGroupMetadata(ctx context.Context, namespace journalnamespace.DocumentNamespace, input journalobservation.CaptureInput) (journalrecord.DocumentGroupDraft, journalnamespace.RootGrant, error) {
+	draft, err := journalrecord.BeginDocumentGroup(input.Owner(), input.OperationID(), input.Bindings(), input.Claims(), input.Provisional())
 	if err != nil {
-		return documentGroupRecordDraft{}, journalnamespace.RootGrant{}, err
+		return journalrecord.DocumentGroupDraft{}, journalnamespace.RootGrant{}, err
 	}
 	grants, err := namespace.QualifyRoots(ctx, input.Budget())
 	if err != nil {
-		return documentGroupRecordDraft{}, journalnamespace.RootGrant{}, err
+		return journalrecord.DocumentGroupDraft{}, journalnamespace.RootGrant{}, err
 	}
 	manifest, present := grants.Manifest()
 	if !present {
-		return documentGroupRecordDraft{}, journalnamespace.RootGrant{}, fmt.Errorf("native document capture requires the operation manifest root")
+		return journalrecord.DocumentGroupDraft{}, journalnamespace.RootGrant{}, fmt.Errorf("native document capture requires the operation manifest root")
 	}
 
-	aliases := make([]documentGroupAliasFacts, 0, len(namespace.Aliases()))
+	aliases := make([]journalrecord.DocumentGroupAlias, 0, len(namespace.Aliases()))
 	for _, alias := range namespace.Aliases() {
-		aliases = append(aliases, documentGroupAliasFacts{address: alias.Address(), root: alias.Root().Provenance(), observation: alias.Observation()})
+		aliases = append(aliases, journalrecord.NewDocumentGroupAlias(alias.Address(), alias.Root().Provenance(), alias.Observation()))
 	}
 	pin := namespace.WriterPin()
-	draft, err = draft.withNamespace(ctx, namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, manifest.Provenance())
+	draft, err = draft.WithNamespace(ctx, namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, manifest.Provenance())
 	if err != nil {
-		return documentGroupRecordDraft{}, journalnamespace.RootGrant{}, err
+		return journalrecord.DocumentGroupDraft{}, journalnamespace.RootGrant{}, err
 	}
 	return draft, manifest, nil
 }

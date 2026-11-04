@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
@@ -46,7 +47,7 @@ func captureCLIRecoveryUpdateJournal(t *testing.T, manifestPath string) (daempat
 		testkit.InstructionPathState(t, "project", []string{"codex"}, "project", "AGENTS.md", newHash),
 	)
 	previous := singleCLIManagedPath(t, currentState)
-	mutation, err := journal.NewManagedPathReplaceMutation(
+	mutation, err := journalrecord.NewManagedPathReplaceMutation(
 		previous.Subject(),
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
@@ -90,7 +91,7 @@ func captureCLIRecoveryCreateJournal(t *testing.T, manifestPath string) (daempat
 		testkit.InstructionPathState(t, "project", []string{"codex"}, "project", "AGENTS.md", newHash),
 	)
 	desired := singleCLIManagedPath(t, nextState)
-	mutation, err := journal.NewManagedPathCreateMutation(
+	mutation, err := journalrecord.NewManagedPathCreateMutation(
 		desired.Subject(),
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
@@ -142,7 +143,7 @@ func captureCLIRecoveryDeleteJournal(t *testing.T, manifestPath string) (daempat
 	)
 	nextState := durable.EmptySnapshot()
 	previous := singleCLIManagedPath(t, currentState)
-	mutation, err := journal.NewManagedPathRemoveMutation(previous, artifact.ContentHash(oldHash))
+	mutation, err := journalrecord.NewManagedPathRemoveMutation(previous, artifact.ContentHash(oldHash))
 	if err != nil {
 		t.Fatalf("NewManagedPathRemoveMutation returned error: %v", err)
 	}
@@ -227,7 +228,7 @@ func managedInstructionEvidence(
 func captureCLIManagedPathJournal(
 	t *testing.T,
 	paths daempaths.Paths,
-	mutation journal.ManagedPathMutation,
+	mutation journalrecord.ManagedPathMutation,
 	evidence observe.ManagedPathEvidence,
 	currentState durable.Snapshot,
 	nextState durable.Snapshot,
@@ -243,7 +244,7 @@ func captureCLIManagedPathJournal(
 		nextState,
 		journal.CaptureOptions{
 			Filesystem:           testFilesystem(),
-			ManagedPathMutations: []journal.ManagedPathMutation{mutation},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			RemovalDemands:       removalDemands,
 			Resolver:             hostpath.NewResolver(paths.ManifestRoot).Resolve,
@@ -289,7 +290,7 @@ func captureCLIRecoverySkillUpdateJournal(t *testing.T, manifestPath string) (da
 	if err != nil {
 		t.Fatalf("NewManagedPathState returned error: %v", err)
 	}
-	mutation, err := journal.NewManagedPathReplaceMutation(
+	mutation, err := journalrecord.NewManagedPathReplaceMutation(
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
@@ -339,7 +340,7 @@ func captureCLIRecoverySkillUpdateJournal(t *testing.T, manifestPath string) (da
 		nextState,
 		journal.CaptureOptions{
 			Filesystem:           testFilesystem(),
-			ManagedPathMutations: []journal.ManagedPathMutation{mutation},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			RemovalDemands: cliRemovalDemandSet(
 				t,

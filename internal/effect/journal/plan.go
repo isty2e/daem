@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
@@ -312,7 +314,7 @@ func LoadActivePlanForStateEntriesWithOptions(
 	ctx context.Context,
 	paths Paths,
 	currentState durable.Snapshot,
-	selected []EntrySelection,
+	selected []journalrecord.EntrySelection,
 	options PlanLoadOptions,
 ) (recovery.Plan, error) {
 	return loadActivePlan(ctx, paths, &currentState, &selected, options)
@@ -322,7 +324,7 @@ func loadActivePlan(
 	ctx context.Context,
 	paths Paths,
 	suppliedState *durable.Snapshot,
-	selected *[]EntrySelection,
+	selected *[]journalrecord.EntrySelection,
 	options PlanLoadOptions,
 ) (recovery.Plan, error) {
 	if err := validateActivePlanLoadOptions(options); err != nil {
@@ -355,7 +357,7 @@ func loadActivePlanFromInventory(
 	ctx context.Context,
 	paths Paths,
 	suppliedState *durable.Snapshot,
-	selected *[]EntrySelection,
+	selected *[]journalrecord.EntrySelection,
 	options PlanLoadOptions,
 	inventory recoveryRootInventory,
 ) (recovery.Plan, error) {
@@ -418,13 +420,13 @@ func loadActivePlanFromInventory(
 		if err != nil {
 			return recovery.Plan{}, fmt.Errorf("canonicalize recovery state authority: %w", err)
 		}
-		if err := validateRecoveryClaimAuthorities(
+		if err := journalrecord.ValidateClaimAuthorities(
 			claimTransitions,
 			statefileAuthority,
 		); err != nil {
 			return recovery.Plan{}, err
 		}
-		if err := validateRecoveryIntentAuthorities(
+		if err := journalrecord.ValidateIntentAuthorities(
 			provisionalAcquires,
 			statefileAuthority,
 		); err != nil {
