@@ -1,4 +1,4 @@
-package journal
+package document
 
 import (
 	"context"
@@ -14,8 +14,8 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec/native"
+	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	nativecodec "github.com/isty2e/daem/internal/realization/aggregate/codec/native"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 	"github.com/isty2e/daem/internal/target"
@@ -29,12 +29,12 @@ func TestDocumentStateGroupsReconstructAndRestoreTheCompleteSelectedGroup(t *tes
 	after := selectionNativeRow(t, before.Contribution().Contract(), `"fast"`)
 	outside := membershipNativeRow(t, fixture.alias, "native-json-v1", "outside")
 	input := stateGroupInput(t, fixture, []durable.ManagedAggregateState{after}, `{"model":true,"outside":true}`, `{"model":"fast","outside":true}`)
-	groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, selectionState(t, before, outside), selectionState(t, after, outside), []documentStateGroupInput{input})
+	groups, err := ReconstructStateGroups(t.Context(), fixture.owner, selectionState(t, before, outside), selectionState(t, after, outside), []StateGroupInput{input})
 	if err != nil || len(groups) != 1 {
 		t.Fatalf("reconstruct selected operation: groups=%d error=%v", len(groups), err)
 	}
 	mode := recovery.NewPermissionMode(0o600)
-	restored, err := groups[0].comparison.RestoreBefore(t.Context(), aggregate.ExistingDocument([]byte(`{"model":"fast","outside":99}`)), mode)
+	restored, err := groups[0].Comparison().RestoreBefore(t.Context(), aggregate.ExistingDocument([]byte(`{"model":"fast","outside":99}`)), mode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestDocumentStateGroupsReconstructAndRestoreTheCompleteSelectedGroup(t *tes
 	}
 	input.aliases[0] = aggregate.DocumentAddress{}
 	input.bindingIntents[0] = ownership.DocumentBindingIntent{}
-	if err := groups[0].aliases[0].Validate(); err != nil || groups[0].bindingIntents[0].Validate() != nil {
+	if err := groups[0].Aliases()[0].Validate(); err != nil || groups[0].bindingIntents[0].Validate() != nil {
 		t.Fatal("caller slice mutation changed the reconstructed facts")
 	}
 }
@@ -66,16 +66,16 @@ func TestDocumentStateGroupsRequireEveryChangedSideButNotUntouchedFiles(t *testi
 	oldInput.bindingIntents = []ownership.DocumentBindingIntent{membershipIntent(t, oldFixture, oldValue, ownership.NoDocumentBinding())}
 	newInput.bindingIntents = []ownership.DocumentBindingIntent{membershipIntent(t, newFixture, ownership.NoDocumentBinding(), newValue)}
 	before, after := selectionState(t, old, untouched), selectionState(t, updated, untouched)
-	inputs := []documentStateGroupInput{oldInput, newInput}
+	inputs := []StateGroupInput{oldInput, newInput}
 	for range 2 {
-		groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, before, after, inputs)
+		groups, err := ReconstructStateGroups(t.Context(), fixture.owner, before, after, inputs)
 		if err != nil || len(groups) != 2 {
 			t.Fatalf("explicit retire/create with untouched state: groups=%d error=%v", len(groups), err)
 		}
 		slices.Reverse(inputs)
 	}
-	for _, missing := range [][]documentStateGroupInput{{oldInput}, {newInput}} {
-		if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, before, after, missing); err == nil || groups != nil {
+	for _, missing := range [][]StateGroupInput{{oldInput}, {newInput}} {
+		if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, before, after, missing); err == nil || groups != nil {
 			t.Fatal("destination change lost one state side or returned a partial prefix")
 		}
 	}
@@ -95,19 +95,19 @@ func TestDocumentStateGroupsRequireChangedAfterKeysWithinTheActualFrontier(t *te
 	} {
 		input := stateGroupInput(t, fixture, []durable.ManagedAggregateState{parent}, test.beforeBytes, test.afterBytes)
 		input.selectedSubjects = []topology.SubjectID{test.before.Subject(), test.after.Subject()}
-		groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, selectionState(t, test.before), selectionState(t, test.after), []documentStateGroupInput{input})
-		if err != nil || len(groups) != 1 || len(groups[0].selections[0].Contracts()) != 1 || !groups[0].selections[0].Contracts()[0].Equal(parent.Contribution().Contract()) {
+		groups, err := ReconstructStateGroups(t.Context(), fixture.owner, selectionState(t, test.before), selectionState(t, test.after), []StateGroupInput{input})
+		if err != nil || len(groups) != 1 || len(groups[0].Selections()[0].Contracts()) != 1 || !groups[0].Selections()[0].Contracts()[0].Equal(parent.Contribution().Contract()) {
 			t.Fatalf("actual selected parent did not cover its changed descendants: %v", err)
 		}
 	}
 
 	literal := selectionNativeRow(t, stateGroupContract(t, fixture.alias, "node/leaf"), "2")
 	input := stateGroupInput(t, fixture, []durable.ManagedAggregateState{parent}, `{"node":true}`, `{"node":true,"node/leaf":2}`)
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, selectionState(t, parent), selectionState(t, parent, literal), []documentStateGroupInput{input}); err == nil || groups != nil {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, selectionState(t, parent), selectionState(t, parent, literal), []StateGroupInput{input}); err == nil || groups != nil {
 		t.Fatal("literal slash key borrowed a structural parent's frontier")
 	}
 	input = stateGroupInput(t, fixture, nil, `{"node":true}`, `{"node":{"leaf":2}}`)
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, selectionState(t, parent), selectionState(t, child), []documentStateGroupInput{input}); err == nil || groups != nil {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, selectionState(t, parent), selectionState(t, child), []StateGroupInput{input}); err == nil || groups != nil {
 		t.Fatal("empty frontier covered a newly managed key")
 	}
 }
@@ -125,23 +125,23 @@ func TestDocumentStateGroupsKeepNarrowingAndReleaseSeparateFromWholeRestoration(
 	keyedState := selectionState(t, retained, added)
 	beforeBytes, afterBytes := `{"model":"slow","released":1}`, `{"model":"fast","added":true,"released":1}`
 	narrow := stateGroupInput(t, fixture, []durable.ManagedAggregateState{retained, added}, beforeBytes, afterBytes)
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, wholeState, keyedState, []documentStateGroupInput{narrow}); err != nil || len(groups) != 1 {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, wholeState, keyedState, []StateGroupInput{narrow}); err != nil || len(groups) != 1 {
 		t.Fatalf("narrowing with changed and new retained keys: %v", err)
 	}
 	wholeInput := narrow
 	wholeInput.selectedSubjects = nil
 	wholeInput.comparison = stateGroupWholeComparison(t, beforeBytes, afterBytes)
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, wholeState, keyedState, []documentStateGroupInput{wholeInput}); err == nil || groups != nil {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, wholeState, keyedState, []StateGroupInput{wholeInput}); err == nil || groups != nil {
 		t.Fatal("whole comparison retained authority over released narrowing areas")
 	}
 
 	widen := wholeInput
 	widen.comparison = stateGroupWholeComparison(t, afterBytes, afterBytes)
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, keyedState, wholeState, []documentStateGroupInput{widen}); err != nil || len(groups) != 1 {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, keyedState, wholeState, []StateGroupInput{widen}); err != nil || len(groups) != 1 {
 		t.Fatalf("record-only widening state reconstruction: %v", err)
 	}
 	widen.comparison = stateGroupComparison(t, afterBytes, afterBytes)
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, keyedState, wholeState, []documentStateGroupInput{widen}); err == nil || groups != nil {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, keyedState, wholeState, []StateGroupInput{widen}); err == nil || groups != nil {
 		t.Fatal("selected comparison claimed a whole-file after baseline")
 	}
 
@@ -149,10 +149,10 @@ func TestDocumentStateGroupsKeepNarrowingAndReleaseSeparateFromWholeRestoration(
 		release := stateGroupInput(t, fixture, nil, afterBytes, afterBytes)
 		value := membershipBindingValue(t, fixture)
 		release.bindingIntents = []ownership.DocumentBindingIntent{membershipIntent(t, fixture, value, ownership.NoDocumentBinding())}
-		if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, before, durable.EmptySnapshot(), []documentStateGroupInput{release}); err != nil || len(groups) != 1 {
+		if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, before, durable.EmptySnapshot(), []StateGroupInput{release}); err != nil || len(groups) != 1 {
 			t.Fatalf("pure release selected the old owned area or lost its group: %v", err)
 		}
-		if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, before, durable.EmptySnapshot(), nil); err == nil || groups != nil {
+		if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, before, durable.EmptySnapshot(), nil); err == nil || groups != nil {
 			t.Fatal("last native retirement disappeared from operation coverage")
 		}
 	}
@@ -187,12 +187,12 @@ func TestDocumentStateGroupsCorrelateMixedNativeAndMCPComparisons(t *testing.T) 
 	updated := selectionNativeRow(t, native.Contribution().Contract(), `"fast"`)
 	before, after := "model=true\n[mcp_servers.search]\ncommand='node'\n", "model='fast'\n[mcp_servers.search]\ncommand='node'\n"
 	input := stateGroupInput(t, fixture, []durable.ManagedAggregateState{updated, mcp}, before, after)
-	groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, selectionState(t, native, mcp), selectionState(t, updated, mcp), []documentStateGroupInput{input})
-	if err != nil || len(groups) != 1 || len(groups[0].selections) != 2 {
+	groups, err := ReconstructStateGroups(t.Context(), fixture.owner, selectionState(t, native, mcp), selectionState(t, updated, mcp), []StateGroupInput{input})
+	if err != nil || len(groups) != 1 || len(groups[0].Selections()) != 2 {
 		t.Fatalf("independent codec contracts did not assemble at one logical file: %v", err)
 	}
 	mode := recovery.NewPermissionMode(0o600)
-	match, err := groups[0].comparison.Match(t.Context(), aggregate.ExistingDocument([]byte(after)), mode)
+	match, err := groups[0].Comparison().Match(t.Context(), aggregate.ExistingDocument([]byte(after)), mode)
 	if err != nil || !match.MatchesExpected() || match.MatchesBefore() || !match.Recoverable() {
 		t.Fatalf("reconstructed mixed comparison lost its semantic phase: %+v, %v", match, err)
 	}
@@ -204,7 +204,7 @@ func TestDocumentStateGroupsRejectMisjoinedComparisonsAndBindingsWithoutPartialO
 	second := membershipNativeRow(t, fixture.alias, "native-json-v1", "second")
 	input := stateGroupInput(t, fixture, []durable.ManagedAggregateState{first, second}, `{"first":true,"second":true}`, `{"first":true,"second":true}`)
 	state := selectionState(t, first, second)
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, state, state, []documentStateGroupInput{input}); err != nil || len(groups) != 1 {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, state, state, []StateGroupInput{input}); err != nil || len(groups) != 1 {
 		t.Fatalf("split disjoint participants were mistaken for a frontier mismatch: %v", err)
 	}
 	missing := input
@@ -214,17 +214,17 @@ func TestDocumentStateGroupsRejectMisjoinedComparisonsAndBindingsWithoutPartialO
 	whole := input
 	whole.comparison = stateGroupWholeComparison(t, `{}`, `{}`)
 	invalid := input
-	invalid.comparison = DocumentComparison{}
-	for _, bad := range []documentStateGroupInput{missing, extra, whole, invalid} {
-		if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, state, state, []documentStateGroupInput{bad}); err == nil || groups != nil {
+	invalid.comparison = Comparison{}
+	for _, bad := range []StateGroupInput{missing, extra, whole, invalid} {
+		if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, state, state, []StateGroupInput{bad}); err == nil || groups != nil {
 			t.Fatal("mismatched comparison returned a usable state group")
 		}
 	}
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, state, state, []documentStateGroupInput{input, input}); err == nil || groups != nil {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, state, state, []StateGroupInput{input, input}); err == nil || groups != nil {
 		t.Fatal("duplicate alias returned an ambiguous or partially usable operation")
 	}
 	whole.selectedSubjects = nil
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, state, state, []documentStateGroupInput{whole}); err == nil || groups != nil {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, state, state, []StateGroupInput{whole}); err == nil || groups != nil {
 		t.Fatal("key-only state authorized a whole comparison")
 	}
 
@@ -235,7 +235,7 @@ func TestDocumentStateGroupsRejectMisjoinedComparisonsAndBindingsWithoutPartialO
 	input.bindingIntents = append(input.bindingIntents, otherInput.bindingIntents...)
 	otherInput.bindingIntents = nil
 	state = selectionState(t, first, second, other)
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, state, state, []documentStateGroupInput{input, otherInput}); err == nil || groups != nil {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, state, state, []StateGroupInput{input, otherInput}); err == nil || groups != nil {
 		t.Fatal("an intent assigned to another group's alias passed the operation-wide join")
 	}
 }
@@ -249,21 +249,21 @@ func TestDocumentStateGroupsRejectWrongCodecAndAcceptOrdinaryOnlyOperations(t *t
 		t.Fatal(err)
 	}
 	input.comparison = stateGroupComparison(t, `{"model":true}`, `{"model":true}`, []aggregate.ProjectionContract{otherContract})
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, selectionState(t, row), selectionState(t, row), []documentStateGroupInput{input}); err == nil || groups != nil {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, selectionState(t, row), selectionState(t, row), []StateGroupInput{input}); err == nil || groups != nil {
 		t.Fatal("comparison codec borrowed an otherwise identical native frontier")
 	}
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, durable.EmptySnapshot(), durable.EmptySnapshot(), nil); err != nil || len(groups) != 0 {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, durable.EmptySnapshot(), durable.EmptySnapshot(), nil); err != nil || len(groups) != 0 {
 		t.Fatalf("ordinary-only envelope required synthetic native groups: %v", err)
 	}
-	if groups, err := reconstructDocumentStateGroups(t.Context(), stateauthority.Authority{}, durable.EmptySnapshot(), durable.EmptySnapshot(), nil); err == nil || groups != nil {
+	if groups, err := ReconstructStateGroups(t.Context(), stateauthority.Authority{}, durable.EmptySnapshot(), durable.EmptySnapshot(), nil); err == nil || groups != nil {
 		t.Fatal("invalid operation owner returned successful empty reconstruction")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if groups, err := reconstructDocumentStateGroups(ctx, fixture.owner, selectionState(t, row), selectionState(t, row), []documentStateGroupInput{input}); !errors.Is(err, context.Canceled) || groups != nil {
+	if groups, err := ReconstructStateGroups(ctx, fixture.owner, selectionState(t, row), selectionState(t, row), []StateGroupInput{input}); !errors.Is(err, context.Canceled) || groups != nil {
 		t.Fatalf("canceled reconstruction returned a prefix: %v", err)
 	}
-	if groups, err := reconstructDocumentStateGroups(nil, fixture.owner, durable.EmptySnapshot(), durable.EmptySnapshot(), nil); err == nil || groups != nil {
+	if groups, err := ReconstructStateGroups(nil, fixture.owner, durable.EmptySnapshot(), durable.EmptySnapshot(), nil); err == nil || groups != nil {
 		t.Fatal("nil context returned usable reconstruction")
 	}
 }
@@ -292,25 +292,25 @@ func TestDocumentStateGroupsKeepPiOrderSeparateFromNativeMembership(t *testing.T
 		t.Fatal(err)
 	}
 	mode := recovery.NewPermissionMode(0o600)
-	comparison, err := NewSelectedDocumentComparison(t.Context(), DocumentComparisonInput{
+	comparison, err := NewSelectedComparison(t.Context(), ComparisonInput{
 		Before: aggregate.ExistingDocument(beforeBytes), Expected: aggregate.ExistingDocument(afterBytes),
 		BeforeMode: mode, ExpectedMode: mode, Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
 	}, nil, &order)
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := documentStateGroupInput{aliases: []aggregate.DocumentAddress{contract.Address().Document()}, comparison: comparison}
-	groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, durable.EmptySnapshot(), durable.EmptySnapshot(), []documentStateGroupInput{input})
-	if err != nil || len(groups) != 1 || len(groups[0].selections) != 0 || len(groups[0].bindingIntents) != 0 {
+	input := StateGroupInput{aliases: []aggregate.DocumentAddress{contract.Address().Document()}, comparison: comparison}
+	groups, err := ReconstructStateGroups(t.Context(), fixture.owner, durable.EmptySnapshot(), durable.EmptySnapshot(), []StateGroupInput{input})
+	if err != nil || len(groups) != 1 || len(groups[0].Selections()) != 0 || len(groups[0].bindingIntents) != 0 {
 		t.Fatalf("Pi-only reconstruction invented native membership: %v", err)
 	}
-	restored, err := groups[0].comparison.RestoreBefore(t.Context(), aggregate.ExistingDocument(afterBytes), mode)
+	restored, err := groups[0].Comparison().RestoreBefore(t.Context(), aggregate.ExistingDocument(afterBytes), mode)
 	if err != nil || !restored.Document().Equal(aggregate.ExistingDocument(beforeBytes)) {
 		t.Fatalf("state-neutral order inverse was lost: %v", err)
 	}
 }
 
-func stateGroupInput(t *testing.T, fixture documentClaimFixture, selected []durable.ManagedAggregateState, before, after string) documentStateGroupInput {
+func stateGroupInput(t *testing.T, fixture documentClaimFixture, selected []durable.ManagedAggregateState, before, after string) StateGroupInput {
 	t.Helper()
 	var refs []topology.SubjectID
 	var sets [][]aggregate.ProjectionContract
@@ -319,14 +319,14 @@ func stateGroupInput(t *testing.T, fixture documentClaimFixture, selected []dura
 		sets = append(sets, []aggregate.ProjectionContract{row.Contribution().Contract()})
 	}
 	value := membershipBindingValue(t, fixture)
-	return documentStateGroupInput{
+	return StateGroupInput{
 		aliases: []aggregate.DocumentAddress{fixture.alias}, selectedSubjects: refs,
 		comparison:     stateGroupComparison(t, before, after, sets...),
 		bindingIntents: []ownership.DocumentBindingIntent{membershipIntent(t, fixture, value, value)},
 	}
 }
 
-func stateGroupComparison(t *testing.T, before, after string, sets ...[]aggregate.ProjectionContract) DocumentComparison {
+func stateGroupComparison(t *testing.T, before, after string, sets ...[]aggregate.ProjectionContract) Comparison {
 	t.Helper()
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
 	var participants []compose.Participant
@@ -364,7 +364,7 @@ func stateGroupComparison(t *testing.T, before, after string, sets ...[]aggregat
 		participants = append(participants, participant)
 	}
 	mode := recovery.NewPermissionMode(0o600)
-	comparison, err := NewSelectedDocumentComparison(t.Context(), DocumentComparisonInput{
+	comparison, err := NewSelectedComparison(t.Context(), ComparisonInput{
 		Before: aggregate.ExistingDocument([]byte(before)), Expected: aggregate.ExistingDocument([]byte(after)),
 		BeforeMode: mode, ExpectedMode: mode, Limits: limits,
 	}, participants, nil)
@@ -374,10 +374,10 @@ func stateGroupComparison(t *testing.T, before, after string, sets ...[]aggregat
 	return comparison
 }
 
-func stateGroupWholeComparison(t *testing.T, before, after string) DocumentComparison {
+func stateGroupWholeComparison(t *testing.T, before, after string) Comparison {
 	t.Helper()
 	mode := recovery.NewPermissionMode(0o600)
-	comparison, err := NewWholeDocumentComparison(t.Context(), DocumentComparisonInput{
+	comparison, err := NewWholeComparison(t.Context(), ComparisonInput{
 		Before: aggregate.ExistingDocument([]byte(before)), Expected: aggregate.ExistingDocument([]byte(after)),
 		BeforeMode: mode, ExpectedMode: mode, Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
 	})

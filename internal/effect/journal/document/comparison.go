@@ -1,4 +1,4 @@
-package journal
+package document
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 )
 
-type DocumentComparisonInput struct {
+type ComparisonInput struct {
 	Before       aggregate.Document
 	Expected     aggregate.Document
 	BeforeMode   *recovery.PermissionMode
@@ -20,9 +20,9 @@ type DocumentComparisonInput struct {
 	Limits       configdocument.Limits
 }
 
-// DocumentComparison binds actual loaded witnesses to their comparison extent.
+// Comparison binds actual loaded witnesses to their comparison extent.
 // It supplies no namespace, managed-membership or publication authority.
-type DocumentComparison struct {
+type Comparison struct {
 	before        aggregate.Document
 	expected      aggregate.Document
 	beforeState   recovery.PartialDocumentState
@@ -34,133 +34,149 @@ type DocumentComparison struct {
 	initialized   bool
 }
 
-type DocumentComparisonMatch struct {
+type ComparisonMatch struct {
 	before      bool
 	expected    bool
 	recoverable bool
 }
 
-func (match DocumentComparisonMatch) MatchesBefore() bool   { return match.before }
-func (match DocumentComparisonMatch) MatchesExpected() bool { return match.expected }
-func (match DocumentComparisonMatch) Recoverable() bool     { return match.recoverable }
+func (match ComparisonMatch) MatchesBefore() bool   { return match.before }
+func (match ComparisonMatch) MatchesExpected() bool { return match.expected }
+func (match ComparisonMatch) Recoverable() bool     { return match.recoverable }
 
-func (comparison DocumentComparison) Validate() error {
+func (comparison Comparison) Validate() error {
 	if !comparison.initialized {
 		return fmt.Errorf("document comparison is required")
 	}
 	return nil
 }
 
-func (comparison DocumentComparison) MaximumDocumentBytes() int64 {
+func (comparison Comparison) MaximumDocumentBytes() int64 {
 	return comparison.limits.MaximumBytes
 }
 
-func NewWholeDocumentComparison(ctx context.Context, input DocumentComparisonInput) (DocumentComparison, error) {
+func (comparison Comparison) BeforeDocument() aggregate.Document   { return comparison.before }
+func (comparison Comparison) ExpectedDocument() aggregate.Document { return comparison.expected }
+func (comparison Comparison) BeforeState() recovery.PartialDocumentState {
+	return comparison.beforeState
+}
+
+func (comparison Comparison) ExpectedState() recovery.PartialDocumentState {
+	return comparison.expectedState
+}
+func (comparison Comparison) Limits() configdocument.Limits { return comparison.limits }
+func (comparison Comparison) WholeDocument() bool           { return comparison.whole }
+
+func (comparison Comparison) Changed() bool {
+	return !comparison.before.Equal(comparison.expected) || !comparison.beforeState.SameRootMetadata(comparison.expectedState)
+}
+
+func NewWholeComparison(ctx context.Context, input ComparisonInput) (Comparison, error) {
 	comparison, err := newDocumentComparison(ctx, input, nil)
 	if err != nil {
-		return DocumentComparison{}, err
+		return Comparison{}, err
 	}
 	comparison.whole = true
 	return comparison, nil
 }
 
-// NewSelectedDocumentComparison keeps dedicated package order separate from
+// NewSelectedComparison keeps dedicated package order separate from
 // aggregate selections. An empty selection compares only regular-root metadata.
-func NewSelectedDocumentComparison(ctx context.Context, input DocumentComparisonInput, participants []compose.Participant, order *piconfig.PackagePermutation) (DocumentComparison, error) {
+func NewSelectedComparison(ctx context.Context, input ComparisonInput, participants []compose.Participant, order *piconfig.PackagePermutation) (Comparison, error) {
 	comparison, err := newDocumentComparison(ctx, input, participants)
 	if err != nil {
-		return DocumentComparison{}, err
+		return Comparison{}, err
 	}
 	if _, err := recovery.MatchPartialDocumentStates(comparison.beforeState, comparison.expectedState, comparison.beforeState); err != nil {
-		return DocumentComparison{}, err
+		return Comparison{}, err
 	}
 	if order == nil {
 		return comparison, nil
 	}
 	packages, err := output.NewKeyPath("packages")
 	if err != nil {
-		return DocumentComparison{}, err
+		return Comparison{}, err
 	}
 	for _, participant := range comparison.participants {
 		for _, area := range participant.RewriteAreas() {
 			if area.Overlaps(packages) {
-				return DocumentComparison{}, fmt.Errorf("selected aggregate area overlaps dedicated Pi package order")
+				return Comparison{}, fmt.Errorf("selected aggregate area overlaps dedicated Pi package order")
 			}
 		}
 	}
 	before, err := readPiComparisonDocument(ctx, input.Before, input.Limits)
 	if err != nil {
-		return DocumentComparison{}, err
+		return Comparison{}, err
 	}
 	expected, err := readPiComparisonDocument(ctx, input.Expected, input.Limits)
 	if err != nil {
-		return DocumentComparison{}, err
+		return Comparison{}, err
 	}
 	if !order.MatchesBefore(before) || !order.MatchesExpected(expected) {
-		return DocumentComparison{}, fmt.Errorf("Pi package inverse does not match the loaded document witnesses")
+		return Comparison{}, fmt.Errorf("Pi package inverse does not match the loaded document witnesses")
 	}
 	if err := ctx.Err(); err != nil {
-		return DocumentComparison{}, err
+		return Comparison{}, err
 	}
 	retained := *order
 	comparison.order = &retained
 	return comparison, nil
 }
 
-func newDocumentComparison(ctx context.Context, input DocumentComparisonInput, participants []compose.Participant) (DocumentComparison, error) {
+func newDocumentComparison(ctx context.Context, input ComparisonInput, participants []compose.Participant) (Comparison, error) {
 	for _, document := range []aggregate.Document{input.Before, input.Expected} {
-		if err := validateComparisonDocument(ctx, document, input.Limits); err != nil {
-			return DocumentComparison{}, err
+		if err := ValidateImage(ctx, document, input.Limits); err != nil {
+			return Comparison{}, err
 		}
 	}
 	before, err := readComparisonState(ctx, input.Before, input.BeforeMode, input.Limits, participants)
 	if err != nil {
-		return DocumentComparison{}, err
+		return Comparison{}, err
 	}
 	expected, err := readComparisonState(ctx, input.Expected, input.ExpectedMode, input.Limits, participants)
 	if err != nil {
-		return DocumentComparison{}, err
+		return Comparison{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return DocumentComparison{}, err
+		return Comparison{}, err
 	}
-	return DocumentComparison{
+	return Comparison{
 		before: input.Before, expected: input.Expected,
 		beforeState: before, expectedState: expected, limits: input.Limits,
 		participants: append([]compose.Participant(nil), participants...), initialized: true,
 	}, nil
 }
 
-func (comparison DocumentComparison) Match(ctx context.Context, current aggregate.Document, mode *recovery.PermissionMode) (DocumentComparisonMatch, error) {
+func (comparison Comparison) Match(ctx context.Context, current aggregate.Document, mode *recovery.PermissionMode) (ComparisonMatch, error) {
 	if err := comparison.Validate(); err != nil {
-		return DocumentComparisonMatch{}, err
+		return ComparisonMatch{}, err
 	}
-	if err := validateComparisonDocument(ctx, current, comparison.limits); err != nil {
-		return DocumentComparisonMatch{}, err
+	if err := ValidateImage(ctx, current, comparison.limits); err != nil {
+		return ComparisonMatch{}, err
 	}
 	observed, err := readComparisonState(ctx, current, mode, comparison.limits, comparison.participants)
 	if err != nil {
-		return DocumentComparisonMatch{}, err
+		return ComparisonMatch{}, err
 	}
 	if comparison.whole {
 		before := comparison.before.Equal(current) && comparison.beforeState.SameRootMetadata(observed)
 		expected := comparison.expected.Equal(current) && comparison.expectedState.SameRootMetadata(observed)
 		if err := ctx.Err(); err != nil {
-			return DocumentComparisonMatch{}, err
+			return ComparisonMatch{}, err
 		}
-		return DocumentComparisonMatch{before: before, expected: expected, recoverable: before || expected}, nil
+		return ComparisonMatch{before: before, expected: expected, recoverable: before || expected}, nil
 	}
 	partial, err := recovery.MatchPartialDocumentStates(comparison.beforeState, comparison.expectedState, observed)
 	if err != nil {
-		return DocumentComparisonMatch{}, err
+		return ComparisonMatch{}, err
 	}
-	match := DocumentComparisonMatch{
+	match := ComparisonMatch{
 		before: partial.MatchesBefore(), expected: partial.MatchesExpected(), recoverable: partial.Recoverable(),
 	}
 	if comparison.order != nil {
 		document, err := readPiComparisonDocument(ctx, current, comparison.limits)
 		if err != nil {
-			return DocumentComparisonMatch{}, err
+			return ComparisonMatch{}, err
 		}
 		before, expected := comparison.order.MatchesBefore(document), comparison.order.MatchesExpected(document)
 		match.before = match.before && before
@@ -168,7 +184,7 @@ func (comparison DocumentComparison) Match(ctx context.Context, current aggregat
 		match.recoverable = match.recoverable && (before || expected)
 	}
 	if err := ctx.Err(); err != nil {
-		return DocumentComparisonMatch{}, err
+		return ComparisonMatch{}, err
 	}
 	return match, nil
 }
@@ -181,7 +197,7 @@ func readPiComparisonDocument(ctx context.Context, document aggregate.Document, 
 	return piconfig.Parse(content)
 }
 
-func validateComparisonDocument(ctx context.Context, document aggregate.Document, limits configdocument.Limits) error {
+func ValidateImage(ctx context.Context, document aggregate.Document, limits configdocument.Limits) error {
 	if ctx == nil {
 		return fmt.Errorf("document comparison context is required")
 	}

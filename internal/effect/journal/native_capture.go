@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
@@ -181,7 +183,7 @@ func CaptureNativeJournalWithOptions(
 	return result, nil
 }
 
-func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, orders []pipackage.OrderObservation, ordinary recovery.RemovalDemandSet, whole []ManagedPathMutation, payloads payload.PayloadSet) (nativeJournalSnapshots, []DocumentComparison, error) {
+func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, orders []pipackage.OrderObservation, ordinary recovery.RemovalDemandSet, whole []ManagedPathMutation, payloads payload.PayloadSet) (nativeJournalSnapshots, []journaldocument.Comparison, error) {
 	inputs, err := batch.prepareOwnership(ctx, after, operationID)
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
@@ -190,7 +192,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
 	}
-	afterIndex, err := indexDocumentSnapshot(ctx, after)
+	afterIndex, err := journaldocument.IndexSnapshot(ctx, after)
 	if err != nil {
 		return nativeJournalSnapshots{}, nil, err
 	}
@@ -265,13 +267,13 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	for index, input := range inputs {
 		var candidate nativeDocumentCaptureCandidate
 		var err error
-		members, err := afterIndex.documentSubjects(ctx, batch.namespaces[index].Addresses())
+		members, err := afterIndex.Subjects(ctx, batch.namespaces[index].Addresses())
 		if err != nil {
 			return nativeJournalSnapshots{}, nil, err
 		}
 		wholeAfter := false
 		for _, subject := range members {
-			if _, whole := afterIndex.paths[subject]; whole {
+			if _, whole := afterIndex.WholePath(subject); whole {
 				wholeAfter = true
 				break
 			}
@@ -290,10 +292,10 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 			return nativeJournalSnapshots{}, nil, err
 		}
 		original := batch.originals[index]
-		if !candidate.comparison.before.Equal(original.document) || !sameNativeImageMode(candidate.comparison.beforeMode(), original.mode) {
+		if !candidate.comparison.BeforeDocument().Equal(original.document) || !sameNativeImageMode(candidate.comparison.BeforeMode(), original.mode) {
 			return nativeJournalSnapshots{}, nil, fmt.Errorf("selected candidate differs from its decision original")
 		}
-		documentWork = documentWork || !candidate.comparison.before.Equal(candidate.comparison.expected) || !candidate.comparison.beforeState.SameRootMetadata(candidate.comparison.expectedState)
+		documentWork = documentWork || !candidate.comparison.BeforeDocument().Equal(candidate.comparison.ExpectedDocument()) || !candidate.comparison.BeforeState().SameRootMetadata(candidate.comparison.ExpectedState())
 		work = work || documentWork
 		candidates = append(candidates, candidate)
 	}

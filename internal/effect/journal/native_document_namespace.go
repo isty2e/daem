@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -101,7 +103,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 	if err := ctx.Err(); err != nil {
 		return NativeDocumentNamespace{}, err
 	}
-	if _, err := documentAliasSet(ctx, inputs); err != nil {
+	if _, err := journaldocument.AliasSet(ctx, inputs); err != nil {
 		return NativeDocumentNamespace{}, err
 	}
 	grants, err := roots.qualify(ctx, budget)

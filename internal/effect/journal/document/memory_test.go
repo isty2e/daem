@@ -1,11 +1,12 @@
-package journal_test
+package document_test
 
 import (
 	"bytes"
 	"errors"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
@@ -53,7 +54,7 @@ func TestNativeDocumentBoundariesRejectOversizedInputBeforeCopying(t *testing.T)
 		isLimit func(error) bool
 	}{
 		{"comparison", func() error {
-			_, err := journal.NewWholeDocumentComparison(t.Context(), journal.DocumentComparisonInput{
+			_, err := journaldocument.NewWholeComparison(t.Context(), journaldocument.ComparisonInput{
 				Before: document, Expected: aggregate.AbsentDocument(), BeforeMode: mode, Limits: limits,
 			})
 			return err

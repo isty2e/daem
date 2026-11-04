@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -13,33 +15,33 @@ import (
 // operation's complete removal set can be admitted. It is not a valid record.
 type nativeDocumentCaptureCandidate struct {
 	group      recoveryDocumentGroup
-	comparison DocumentComparison
+	comparison journaldocument.Comparison
 	namespace  NativeDocumentNamespace
 	manifest   nativeDocumentRootGrant
 	relations  []aggregate.DocumentAddress
 	budget     *physicalwork.Budget
 }
 
-func (candidate nativeDocumentCaptureCandidate) captureRemoval(ctx context.Context, budget *physicalwork.Budget) (recoveryDocumentGroup, DocumentComparison, error) {
+func (candidate nativeDocumentCaptureCandidate) captureRemoval(ctx context.Context, budget *physicalwork.Budget) (recoveryDocumentGroup, journaldocument.Comparison, error) {
 	if ctx == nil || budget == nil || budget != candidate.budget {
-		return recoveryDocumentGroup{}, DocumentComparison{}, fmt.Errorf("document capture requires context and its original physical budget")
+		return recoveryDocumentGroup{}, journaldocument.Comparison{}, fmt.Errorf("document capture requires context and its original physical budget")
 	}
 	group := candidate.group
 	var err error
 	group.Removal, err = captureDocumentRemoval(ctx, candidate.namespace, candidate.comparison, candidate.relations, budget)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
 	}
 	if err := group.validate(persistedNativeRoot(candidate.manifest.provenance)); err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
 	}
 	return group, candidate.comparison, nil
 }
 
-func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDocumentCaptureCandidate, ordinary recovery.RemovalDemandSet, budget *physicalwork.Budget) ([]recoveryDocumentGroup, []DocumentComparison, recovery.RemovalDemandSet, error) {
+func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDocumentCaptureCandidate, ordinary recovery.RemovalDemandSet, budget *physicalwork.Budget) ([]recoveryDocumentGroup, []journaldocument.Comparison, recovery.RemovalDemandSet, error) {
 	if ctx == nil || budget == nil {
 		return nil, nil, recovery.RemovalDemandSet{}, fmt.Errorf("native capture requires context and the shared physical budget")
 	}
@@ -48,7 +50,7 @@ func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDoc
 		if candidate.budget != budget {
 			return nil, nil, recovery.RemovalDemandSet{}, fmt.Errorf("document candidate was prepared under a different physical budget")
 		}
-		groupDemands, err := candidate.comparison.removalDemands(ctx, candidate.relations)
+		groupDemands, err := candidate.comparison.RemovalDemands(ctx, candidate.relations)
 		if err != nil {
 			return nil, nil, recovery.RemovalDemandSet{}, err
 		}
@@ -66,7 +68,7 @@ func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDoc
 	}
 
 	groups := make([]recoveryDocumentGroup, 0, len(candidates))
-	comparisons := make([]DocumentComparison, 0, len(candidates))
+	comparisons := make([]journaldocument.Comparison, 0, len(candidates))
 	for _, candidate := range candidates {
 		group, comparison, err := candidate.captureRemoval(ctx, budget)
 		if err != nil {

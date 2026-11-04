@@ -1,4 +1,4 @@
-package journal
+package document
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 
 // This operation-wide join checks state membership, not physical path binding
 // or registry phase authority. Untouched destinations need no synthetic group.
-func (indexes documentSnapshotIndexes) validateNativeBindingMembership(ctx context.Context, owner stateauthority.Authority, aliases []aggregate.DocumentAddress, intents []ownership.DocumentBindingIntent) error {
+func (indexes SnapshotIndexes) validateNativeBindingMembership(ctx context.Context, owner stateauthority.Authority, aliases []aggregate.DocumentAddress, intents []ownership.DocumentBindingIntent) error {
 	if ctx == nil {
 		return fmt.Errorf("native binding membership context is required")
 	}
@@ -30,7 +30,7 @@ func (indexes documentSnapshotIndexes) validateNativeBindingMembership(ctx conte
 		}
 		return nil
 	}
-	addresses, err := documentAliasSet(ctx, aliases)
+	addresses, err := AliasSet(ctx, aliases)
 	if err != nil {
 		return err
 	}
@@ -38,11 +38,11 @@ func (indexes documentSnapshotIndexes) validateNativeBindingMembership(ctx conte
 	for address := range addresses {
 		destinations[address.AggregateRoot()] = struct{}{}
 	}
-	before, err := indexes.before.nativeDestinations(ctx)
+	before, err := indexes.before.NativeDestinations(ctx)
 	if err != nil {
 		return err
 	}
-	after, err := indexes.after.nativeDestinations(ctx)
+	after, err := indexes.after.NativeDestinations(ctx)
 	if err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func (indexes documentSnapshotIndexes) validateNativeBindingMembership(ctx conte
 	return ctx.Err()
 }
 
-func (index documentSnapshotIndex) nativeDestinations(ctx context.Context) (map[output.Destination]struct{}, error) {
+func (index SnapshotIndex) NativeDestinations(ctx context.Context) (map[output.Destination]struct{}, error) {
 	destinations := make(map[output.Destination]struct{})
 	for _, row := range index.paths {
 		if err := ctx.Err(); err != nil {

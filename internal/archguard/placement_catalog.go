@@ -376,6 +376,7 @@ var packagePlacementRows = []packagePlacementRow{
 			"internal/effect/execute",
 			"internal/effect/fileset",
 			"internal/effect/journal",
+			"internal/effect/journal/document",
 			"internal/effect/journal/recovery",
 			"internal/effect/journal/retirement",
 			"internal/effect/physicalwork",

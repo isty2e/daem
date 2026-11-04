@@ -1,10 +1,10 @@
-package journal_test
+package document_test
 
 import (
 	"context"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
@@ -17,9 +17,9 @@ import (
 )
 
 func TestDocumentComparisonBindsWholeBytesAndExactMetadata(t *testing.T) {
-	beforeMode, expectedMode, thirdMode := recovery.PermissionMode(0o644), recovery.PermissionMode(0o600), recovery.PermissionMode(0o640)
-	input := comparisonInput("opaque original", "opaque expected", &beforeMode, &expectedMode)
-	comparison, err := journal.NewWholeDocumentComparison(t.Context(), input)
+	BeforeMode, expectedMode, thirdMode := recovery.PermissionMode(0o644), recovery.PermissionMode(0o600), recovery.PermissionMode(0o640)
+	input := comparisonInput("opaque original", "opaque expected", &BeforeMode, &expectedMode)
+	comparison, err := document.NewWholeComparison(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,11 +30,11 @@ func TestDocumentComparisonBindsWholeBytesAndExactMetadata(t *testing.T) {
 		before   bool
 		expected bool
 	}{
-		{"before", input.Before, &beforeMode, true, false},
+		{"before", input.Before, &BeforeMode, true, false},
 		{"expected", input.Expected, &expectedMode, false, true},
 		{"third bytes", aggregate.ExistingDocument([]byte("unrecorded")), &expectedMode, false, false},
 		{"third mode", input.Expected, &thirdMode, false, false},
-		{"mixed bytes and mode", input.Expected, &beforeMode, false, false},
+		{"mixed bytes and mode", input.Expected, &BeforeMode, false, false},
 		{"missing", aggregate.AbsentDocument(), nil, false, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -45,7 +45,7 @@ func TestDocumentComparisonBindsWholeBytesAndExactMetadata(t *testing.T) {
 		})
 	}
 	input.Before, input.BeforeMode = aggregate.AbsentDocument(), nil
-	absent, err := journal.NewWholeDocumentComparison(t.Context(), input)
+	absent, err := document.NewWholeComparison(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestDocumentComparisonJoinsNativeAndDedicatedPiPhases(t *testing.T) {
 	input := comparisonInput(before, expected, &mode, &mode)
 	order := comparisonOrder(t, before, expected)
 	participants := []compose.Participant{comparisonParticipant(t, "model")}
-	comparison, err := journal.NewSelectedDocumentComparison(t.Context(), input, participants, &order)
+	comparison, err := document.NewSelectedComparison(t.Context(), input, participants, &order)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestDocumentComparisonSeparatesAbsenceAndEmptyReleaseFromMembership(t *test
 	mode := recovery.PermissionMode(0)
 	input := comparisonInput("", `{"model":"fast"}`, nil, &mode)
 	input.Before = aggregate.AbsentDocument()
-	comparison, err := journal.NewSelectedDocumentComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "model")}, nil)
+	comparison, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "model")}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestDocumentComparisonSeparatesAbsenceAndEmptyReleaseFromMembership(t *test
 		t.Fatalf("selected before value was incorrectly coupled to old root absence: %+v, %v", match, err)
 	}
 	releaseInput := comparisonInput(`{"released":"original"}`, `{"released":"original"}`, &mode, &mode)
-	release, err := journal.NewSelectedDocumentComparison(t.Context(), releaseInput, nil, nil)
+	release, err := document.NewSelectedComparison(t.Context(), releaseInput, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestDocumentComparisonJoinsRealMCPAndNativeReaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := comparisonInput("model='balanced'\n", "model='fast'\n[mcp_servers.search]\ncommand='node'\n", &mode, &mode)
-	comparison, err := journal.NewSelectedDocumentComparison(t.Context(), input, []compose.Participant{nativeParticipant, mcpParticipant}, nil)
+	comparison, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{nativeParticipant, mcpParticipant}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testin
 		{},
 		comparisonOrder(t, `{"packages":["npm:c","npm:d"]}`, `{"packages":["npm:d","npm:c"]}`),
 	} {
-		comparison, err := journal.NewSelectedDocumentComparison(t.Context(), input, nil, &order)
+		comparison, err := document.NewSelectedComparison(t.Context(), input, nil, &order)
 		if err == nil {
 			t.Fatal("unbound package inverse was accepted")
 		}
@@ -195,23 +195,23 @@ func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testin
 		}
 	}
 	order := comparisonOrder(t, string(input.Before.Content()), string(input.Expected.Content()))
-	if _, err := journal.NewSelectedDocumentComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "packages")}, &order); err == nil {
+	if _, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "packages")}, &order); err == nil {
 		t.Fatal("generic package area overlapped the dedicated order owner")
 	}
-	if _, err := journal.NewSelectedDocumentComparison(t.Context(), input, []compose.Participant{{}}, nil); err == nil {
+	if _, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{{}}, nil); err == nil {
 		t.Fatal("uninitialized later semantic reader was accepted")
 	}
 	invalid := input
 	invalid.BeforeMode = nil
-	if _, err := journal.NewWholeDocumentComparison(t.Context(), invalid); err == nil {
+	if _, err := document.NewWholeComparison(t.Context(), invalid); err == nil {
 		t.Fatal("present document lost its exact mode")
 	}
 	invalid = input
 	invalid.Limits.MaximumBytes = 1
-	if _, err := journal.NewWholeDocumentComparison(t.Context(), invalid); err == nil {
+	if _, err := document.NewWholeComparison(t.Context(), invalid); err == nil {
 		t.Fatal("oversized witness was accepted")
 	}
-	comparison, err := journal.NewSelectedDocumentComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "model")}, &order)
+	comparison, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "model")}, &order)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testin
 	}
 	invalid = input
 	invalid.ExpectedMode = &thirdMode
-	if _, err := journal.NewSelectedDocumentComparison(t.Context(), invalid, nil, nil); err == nil {
+	if _, err := document.NewSelectedComparison(t.Context(), invalid, nil, nil); err == nil {
 		t.Fatal("selected recovery silently changed an existing root mode")
 	}
 	malformedOrder := aggregate.ExistingDocument([]byte(`{"model":2,"packages":[true]}`))
@@ -252,7 +252,7 @@ func TestDocumentComparisonAppliesCallerDepthToDedicatedOrder(t *testing.T) {
 		input := comparisonInput(deepBefore, deepExpected, &mode, &mode)
 		input.Limits.MaximumDepth = 3
 		order := comparisonOrder(t, deepBefore, deepExpected)
-		if _, err := journal.NewSelectedDocumentComparison(t.Context(), input, nil, &order); err == nil {
+		if _, err := document.NewSelectedComparison(t.Context(), input, nil, &order); err == nil {
 			t.Fatal("order-only witnesses bypassed the calling operation's depth limit")
 		}
 	})
@@ -260,7 +260,7 @@ func TestDocumentComparisonAppliesCallerDepthToDedicatedOrder(t *testing.T) {
 		input := comparisonInput(before, expected, &mode, &mode)
 		input.Limits.MaximumDepth = 3
 		order := comparisonOrder(t, before, expected)
-		comparison, err := journal.NewSelectedDocumentComparison(t.Context(), input, nil, &order)
+		comparison, err := document.NewSelectedComparison(t.Context(), input, nil, &order)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -270,10 +270,10 @@ func TestDocumentComparisonAppliesCallerDepthToDedicatedOrder(t *testing.T) {
 	})
 }
 
-func comparisonInput(before, expected string, beforeMode, expectedMode *recovery.PermissionMode) journal.DocumentComparisonInput {
-	return journal.DocumentComparisonInput{
+func comparisonInput(before, expected string, BeforeMode, expectedMode *recovery.PermissionMode) document.ComparisonInput {
+	return document.ComparisonInput{
 		Before: aggregate.ExistingDocument([]byte(before)), Expected: aggregate.ExistingDocument([]byte(expected)),
-		BeforeMode: beforeMode, ExpectedMode: expectedMode,
+		BeforeMode: BeforeMode, ExpectedMode: expectedMode,
 		Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
 	}
 }

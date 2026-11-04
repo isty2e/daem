@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -48,7 +50,7 @@ func indexDocumentCaptureSubjects(ctx context.Context, before, after durable.Sna
 }
 
 func (index documentCaptureSubjects) selectedSubjects(ctx context.Context, edits []compose.ProjectionEdit, aliases []aggregate.DocumentAddress) ([]persistedSubjectRef, error) {
-	addresses, err := documentAliasSet(ctx, aliases)
+	addresses, err := journaldocument.AliasSet(ctx, aliases)
 	if err != nil {
 		return nil, err
 	}
@@ -106,10 +108,10 @@ func (index documentCaptureSubjects) selectedSubjects(ctx context.Context, edits
 
 // prepareSelectedDocumentGroup captures edit/order facts. Complete Snapshot and
 // operation-authority admission remain the containing caller's responsibility.
-func prepareSelectedDocumentGroup(ctx context.Context, namespace NativeDocumentNamespace, input selectedDocumentCaptureInput, subjects documentCaptureSubjects) (recoveryDocumentGroup, DocumentComparison, error) {
+func prepareSelectedDocumentGroup(ctx context.Context, namespace NativeDocumentNamespace, input selectedDocumentCaptureInput, subjects documentCaptureSubjects) (recoveryDocumentGroup, journaldocument.Comparison, error) {
 	candidate, err := prepareSelectedDocumentCandidate(ctx, namespace, input, subjects)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
 	}
 	return candidate.captureRemoval(ctx, input.budget)
 }
@@ -148,7 +150,7 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace NativeDocum
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	expected, participants, err := prepareSelectedDocumentImage(ctx, original, input.limits, input.edits, input.order)
+	expected, participants, err := journaldocument.PrepareSelectedImage(ctx, original, input.limits, input.edits, input.order)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -165,7 +167,7 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace NativeDocum
 			}
 		}
 	}
-	candidate, err := ReconstructSelectedDocument(ctx, DocumentComparisonInput{Before: original, Expected: expected, BeforeMode: mode, ExpectedMode: expectedMode, Limits: input.limits}, participants, input.order)
+	candidate, err := journaldocument.ReconstructSelected(ctx, journaldocument.ComparisonInput{Before: original, Expected: expected, BeforeMode: mode, ExpectedMode: expectedMode, Limits: input.limits}, participants, input.order)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}

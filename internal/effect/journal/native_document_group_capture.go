@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -36,10 +38,10 @@ type nativeDocumentCaptureInput struct {
 
 // prepareWholeDocumentGroup captures persistence facts, not a publication seal.
 // The containing operation must admit complete snapshots and all group relations.
-func prepareWholeDocumentGroup(ctx context.Context, namespace NativeDocumentNamespace, input wholeDocumentCaptureInput) (recoveryDocumentGroup, DocumentComparison, error) {
+func prepareWholeDocumentGroup(ctx context.Context, namespace NativeDocumentNamespace, input wholeDocumentCaptureInput) (recoveryDocumentGroup, journaldocument.Comparison, error) {
 	candidate, err := prepareWholeDocumentCandidate(ctx, namespace, input)
 	if err != nil {
-		return recoveryDocumentGroup{}, DocumentComparison{}, err
+		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
 	}
 	return candidate.captureRemoval(ctx, input.budget)
 }
@@ -92,7 +94,7 @@ func prepareRetainedWholeDocumentCandidate(ctx context.Context, namespace Native
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	comparison, err := NewWholeDocumentComparison(ctx, DocumentComparisonInput{
+	comparison, err := journaldocument.NewWholeComparison(ctx, journaldocument.ComparisonInput{
 		Before: original, Expected: original, BeforeMode: mode, ExpectedMode: mode, Limits: input.limits,
 	})
 	if err != nil {

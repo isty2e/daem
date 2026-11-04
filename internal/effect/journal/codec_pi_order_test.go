@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -195,12 +197,12 @@ func TestPiOrderEvidenceJoinsRealImageCustodyAndSelectedRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	comparisonInput := DocumentComparisonInput{
+	comparisonInput := journaldocument.ComparisonInput{
 		Before: images.original.document, Expected: images.expected.document,
 		BeforeMode: images.original.mode, ExpectedMode: images.expected.mode,
 		Limits: configdocument.Limits{MaximumBytes: pipackage.MaximumSettingsBytes, MaximumDepth: 64},
 	}
-	candidate, err := ReconstructSelectedDocument(t.Context(), comparisonInput, nil, &order)
+	candidate, err := journaldocument.ReconstructSelected(t.Context(), comparisonInput, nil, &order)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +222,7 @@ func TestPiOrderEvidenceJoinsRealImageCustodyAndSelectedRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	comparisonInput.Expected = images.expected.document
-	bad, err := ReconstructSelectedDocument(t.Context(), comparisonInput, nil, &order)
+	bad, err := journaldocument.ReconstructSelected(t.Context(), comparisonInput, nil, &order)
 	if err == nil || bad.Comparison().Validate() == nil {
 		t.Fatal("a valid hashed image incorrectly substituted for the actual expected Pi order")
 	}

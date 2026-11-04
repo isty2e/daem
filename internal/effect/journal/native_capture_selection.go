@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -31,7 +33,7 @@ func (member NativeDocumentMember) RegistryScope() ownership.DocumentScope { ret
 func (member NativeDocumentMember) RequiresPromotion() bool { return member.promoting }
 
 func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, after durable.Snapshot, orders ...pipackage.OrderObservation) (NativeDocumentObservationBatch, error) {
-	indexes, err := indexDocumentSnapshots(ctx, batch.before, after)
+	indexes, err := journaldocument.IndexSnapshots(ctx, batch.before, after)
 	if err != nil {
 		return NativeDocumentObservationBatch{}, err
 	}
@@ -53,7 +55,7 @@ func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, 
 	selected.namespaces = nil
 	selected.originals = nil
 	for index, namespace := range batch.namespaces {
-		member, err := indexes.hasMembers(ctx, namespace.Addresses())
+		member, err := indexes.HasMembers(ctx, namespace.Addresses())
 		if err != nil {
 			return NativeDocumentObservationBatch{}, err
 		}
@@ -111,16 +113,4 @@ func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapsho
 		})
 	}
 	return selected, result, nil
-}
-
-func (indexes documentSnapshotIndexes) hasMembers(ctx context.Context, aliases []aggregate.DocumentAddress) (bool, error) {
-	before, err := indexes.before.documentSubjects(ctx, aliases)
-	if err != nil {
-		return false, err
-	}
-	after, err := indexes.after.documentSubjects(ctx, aliases)
-	if err != nil {
-		return false, err
-	}
-	return len(before)+len(after) != 0, nil
 }

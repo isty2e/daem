@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -31,12 +33,12 @@ func TestDocumentMembershipLookupDoesNotRescanUnrelatedState(t *testing.T) {
 		aliases = append(aliases, alias)
 	}
 	ctx := &documentTraversalContext{Context: t.Context()}
-	index, err := indexDocumentSnapshot(ctx, selectionState(t, rows...))
+	index, err := journaldocument.IndexSnapshot(ctx, selectionState(t, rows...))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for position, alias := range aliases {
-		footprints, err := index.documentFootprints(ctx, []aggregate.DocumentAddress{alias})
+		footprints, err := index.Footprints(ctx, []aggregate.DocumentAddress{alias})
 		if err != nil || len(footprints) != 1 {
 			t.Fatalf("indexed document membership: %v", err)
 		}
@@ -45,7 +47,7 @@ func TestDocumentMembershipLookupDoesNotRescanUnrelatedState(t *testing.T) {
 			t.Fatal("document lookup borrowed another address's footprint")
 		}
 		delete(footprints, want)
-		again, err := index.documentFootprints(ctx, []aggregate.DocumentAddress{alias})
+		again, err := index.Footprints(ctx, []aggregate.DocumentAddress{alias})
 		if err != nil || len(again) != 1 {
 			t.Fatal("query result mutation changed indexed state")
 		}
@@ -71,11 +73,11 @@ func TestDocumentMembershipIndexKeepsWholeNativeAndProjectScopesDistinct(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	index, err := indexDocumentSnapshot(t.Context(), snapshot)
+	index, err := journaldocument.IndexSnapshot(t.Context(), snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	footprints, err := index.documentFootprints(t.Context(), []aggregate.DocumentAddress{fixture.alias, wholeAlias, project.Contribution().Contract().Address().Document()})
+	footprints, err := index.Footprints(t.Context(), []aggregate.DocumentAddress{fixture.alias, wholeAlias, project.Contribution().Contract().Address().Document()})
 	if err != nil || len(footprints) != 3 {
 		t.Fatalf("scope or native footprint identity was lost: %v", err)
 	}
@@ -84,7 +86,7 @@ func TestDocumentMembershipIndexKeepsWholeNativeAndProjectScopesDistinct(t *test
 			t.Fatal("complete global membership was lost")
 		}
 	}
-	projectOnly, err := index.documentFootprints(t.Context(), []aggregate.DocumentAddress{project.Contribution().Contract().Address().Document()})
+	projectOnly, err := index.Footprints(t.Context(), []aggregate.DocumentAddress{project.Contribution().Contract().Address().Document()})
 	if err != nil || len(projectOnly) != 0 {
 		t.Fatal("project membership became global claims")
 	}
@@ -117,17 +119,26 @@ func TestDocumentMembershipAndBindingTraversalHonorMidOperationCancellation(t *t
 	ctx, cancelIndex := context.WithCancel(t.Context())
 	defer cancelIndex()
 	traversal = &documentTraversalContext{Context: ctx, cancel: cancelIndex, cancelAt: 3}
-	if index, err := indexDocumentSnapshot(traversal, fixture.before); !errors.Is(err, context.Canceled) || index.paths != nil || index.aggregates != nil || index.globalFootprints != nil {
+	partial, err := journaldocument.IndexSnapshot(traversal, fixture.before)
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled index returned partial facts: %v", err)
 	}
-	index, err := indexDocumentSnapshot(t.Context(), fixture.before)
+	partialSubjects, err := partial.Subjects(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias})
+	if err != nil || len(partialSubjects) != 0 {
+		t.Fatalf("canceled index retained partial membership: %v", err)
+	}
+	partialFootprints, err := partial.Footprints(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias})
+	if err != nil || len(partialFootprints) != 0 {
+		t.Fatalf("canceled index retained partial claim footprints: %v", err)
+	}
+	index, err := journaldocument.IndexSnapshot(t.Context(), fixture.before)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancelQuery := context.WithCancel(t.Context())
 	defer cancelQuery()
 	traversal = &documentTraversalContext{Context: ctx, cancel: cancelQuery, cancelAt: 4}
-	if result, err := index.documentFootprints(traversal, []aggregate.DocumentAddress{fixture.claims.alias}); !errors.Is(err, context.Canceled) || result != nil {
+	if result, err := index.Footprints(traversal, []aggregate.DocumentAddress{fixture.claims.alias}); !errors.Is(err, context.Canceled) || result != nil {
 		t.Fatalf("canceled membership query returned partial footprints: %v", err)
 	}
 }

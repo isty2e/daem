@@ -1,4 +1,4 @@
-package journal
+package document
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"

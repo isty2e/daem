@@ -1,4 +1,4 @@
-package journal
+package document
 
 import (
 	"context"
@@ -17,21 +17,53 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-type documentStateGroupInput struct {
+type StateGroupInput struct {
 	aliases          []aggregate.DocumentAddress
 	selectedSubjects []topology.SubjectID
-	comparison       DocumentComparison
+	comparison       Comparison
 	bindingIntents   []ownership.DocumentBindingIntent
+}
+
+// NewStateGroupInput retains proposed reconstruction facts. Only
+// ReconstructStateGroups validates their operation-wide correspondence.
+func NewStateGroupInput(aliases []aggregate.DocumentAddress, subjects []topology.SubjectID, comparison Comparison, bindings []ownership.DocumentBindingIntent) StateGroupInput {
+	return StateGroupInput{aliases: slices.Clone(aliases), selectedSubjects: slices.Clone(subjects), comparison: comparison, bindingIntents: slices.Clone(bindings)}
 }
 
 // Resolved state groups are reconstruction facts, not complete journal authority.
 // Physical, prepared-action, image, claim and phase joins remain mandatory.
-type documentStateGroup struct {
+type StateGroup struct {
 	aliases        []aggregate.DocumentAddress
 	selections     []aggregate.Selection
-	comparison     DocumentComparison
+	comparison     Comparison
 	bindingIntents []ownership.DocumentBindingIntent
 	frontier       map[documentSelectionKey]map[output.KeyPath]aggregate.ProjectionContract
+}
+
+func (group StateGroup) Comparison() Comparison               { return group.comparison }
+func (group StateGroup) Aliases() []aggregate.DocumentAddress { return slices.Clone(group.aliases) }
+func (group StateGroup) BindingIntents() []ownership.DocumentBindingIntent {
+	return slices.Clone(group.bindingIntents)
+}
+func (group StateGroup) Selections() []aggregate.Selection { return slices.Clone(group.selections) }
+
+// CanonicalRecovery retains the validated frontier while replacing caller codecs
+// with the operation's reconstructed recovery policy over the same witnesses.
+func (group StateGroup) CanonicalRecovery(ctx context.Context, canonical Comparison) (StateGroup, error) {
+	if err := group.comparison.RequireCanonicalRecoveryPolicy(ctx, canonical); err != nil {
+		return StateGroup{}, err
+	}
+	if !group.comparison.before.Equal(canonical.before) || !group.comparison.expected.Equal(canonical.expected) ||
+		!group.comparison.beforeState.SameRootMetadata(canonical.beforeState) ||
+		!group.comparison.expectedState.SameRootMetadata(canonical.expectedState) ||
+		group.comparison.limits != canonical.limits || group.comparison.whole != canonical.whole {
+		return StateGroup{}, fmt.Errorf("canonical recovery comparison differs from the validated witnesses")
+	}
+	group.comparison = canonical
+	if err := group.validateComparisonSelection(ctx); err != nil {
+		return StateGroup{}, err
+	}
+	return group, nil
 }
 
 type documentStateAddress struct {
@@ -40,12 +72,12 @@ type documentStateAddress struct {
 	destination output.Destination
 }
 
-func reconstructDocumentStateGroups(ctx context.Context, owner stateauthority.Authority, before, after durable.Snapshot, inputs []documentStateGroupInput) ([]documentStateGroup, error) {
-	indexes, err := indexDocumentSnapshots(ctx, before, after)
+func ReconstructStateGroups(ctx context.Context, owner stateauthority.Authority, before, after durable.Snapshot, inputs []StateGroupInput) ([]StateGroup, error) {
+	indexes, err := IndexSnapshots(ctx, before, after)
 	if err != nil {
 		return nil, err
 	}
-	groups := make([]documentStateGroup, 0, len(inputs))
+	groups := make([]StateGroup, 0, len(inputs))
 	aliases := make(map[aggregate.DocumentAddress]int)
 	stateAliases := make(map[documentStateAddress]int)
 	var allAliases []aggregate.DocumentAddress
@@ -57,11 +89,11 @@ func reconstructDocumentStateGroups(ctx context.Context, owner stateauthority.Au
 		if err := input.comparison.Validate(); err != nil {
 			return nil, fmt.Errorf("document group[%d]: %w", index, err)
 		}
-		selections, err := indexes.selectedContracts(ctx, input.selectedSubjects, input.aliases)
+		selections, err := indexes.SelectedContracts(ctx, input.selectedSubjects, input.aliases)
 		if err != nil {
 			return nil, fmt.Errorf("document group[%d]: %w", index, err)
 		}
-		group := documentStateGroup{
+		group := StateGroup{
 			aliases: slices.Clone(input.aliases), selections: selections,
 			comparison: input.comparison, bindingIntents: slices.Clone(input.bindingIntents),
 			frontier: make(map[documentSelectionKey]map[output.KeyPath]aggregate.ProjectionContract),
@@ -104,7 +136,7 @@ func reconstructDocumentStateGroups(ctx context.Context, owner stateauthority.Au
 	return groups, nil
 }
 
-func (group documentStateGroup) validateComparisonSelection(ctx context.Context) error {
+func (group StateGroup) validateComparisonSelection(ctx context.Context) error {
 	remaining := 0
 	for _, contracts := range group.frontier {
 		remaining += len(contracts)
@@ -141,9 +173,9 @@ func (group documentStateGroup) validateComparisonSelection(ctx context.Context)
 	return ctx.Err()
 }
 
-func (indexes documentSnapshotIndexes) validateNativeGroupCoverage(ctx context.Context, groups []documentStateGroup, aliases map[aggregate.DocumentAddress]int, stateAliases map[documentStateAddress]int) error {
+func (indexes SnapshotIndexes) validateNativeGroupCoverage(ctx context.Context, groups []StateGroup, aliases map[aggregate.DocumentAddress]int, stateAliases map[documentStateAddress]int) error {
 	wholeGroups := make(map[int]struct{})
-	for side, index := range []documentSnapshotIndex{indexes.before, indexes.after} {
+	for side, index := range []SnapshotIndex{indexes.before, indexes.after} {
 		other := indexes.after
 		if side == 1 {
 			other = indexes.before
@@ -209,7 +241,7 @@ func (indexes documentSnapshotIndexes) validateNativeGroupCoverage(ctx context.C
 			if side == 1 && groups[groupIndex].comparison.whole {
 				return fmt.Errorf("native keyed after state cannot use whole comparison")
 			}
-			if side == 1 && changed && !groups[groupIndex].covers(contract) {
+			if side == 1 && changed && !groups[groupIndex].Covers(contract) {
 				return fmt.Errorf("changed native key after state is outside its document frontier")
 			}
 			// An unselected before-only row may be released, not deleted. The
@@ -242,7 +274,7 @@ func validateDocumentRetargetGroups(before, after documentStateAddress, groups m
 	return nil
 }
 
-func (group documentStateGroup) covers(contract aggregate.ProjectionContract) bool {
+func (group StateGroup) Covers(contract aggregate.ProjectionContract) bool {
 	key := documentSelectionKey{document: contract.Address().Document(), codec: contract.CodecContractID()}
 	contracts := group.frontier[key]
 	for path := contract.Address().KeyPath(); ; {

@@ -1,4 +1,4 @@
-package journal
+package document
 
 import (
 	"cmp"
@@ -16,45 +16,51 @@ import (
 )
 
 // These indexes retain complete state facts, not validated group authority.
-type documentSnapshotIndex struct {
+type SnapshotIndex struct {
 	paths            map[topology.SubjectID]durable.ManagedPathState
 	aggregates       map[topology.SubjectID]durable.ManagedAggregateState
 	globalFootprints map[aggregate.DocumentAddress]map[output.Footprint]struct{}
 }
 
-type documentSnapshotIndexes struct {
-	before documentSnapshotIndex
-	after  documentSnapshotIndex
+type SnapshotIndexes struct {
+	before SnapshotIndex
+	after  SnapshotIndex
 }
 
-func indexDocumentSnapshots(ctx context.Context, before, after durable.Snapshot) (documentSnapshotIndexes, error) {
+func (indexes SnapshotIndexes) Before() SnapshotIndex { return indexes.before }
+func (indexes SnapshotIndexes) After() SnapshotIndex  { return indexes.after }
+
+func IndexSnapshots(ctx context.Context, before, after durable.Snapshot) (SnapshotIndexes, error) {
 	if ctx == nil {
-		return documentSnapshotIndexes{}, fmt.Errorf("document state context is required")
+		return SnapshotIndexes{}, fmt.Errorf("document state context is required")
 	}
-	beforeIndex, err := indexDocumentSnapshot(ctx, before)
+	beforeIndex, err := IndexSnapshot(ctx, before)
 	if err != nil {
-		return documentSnapshotIndexes{}, err
+		return SnapshotIndexes{}, err
 	}
-	afterIndex, err := indexDocumentSnapshot(ctx, after)
+	afterIndex, err := IndexSnapshot(ctx, after)
 	if err != nil {
-		return documentSnapshotIndexes{}, err
+		return SnapshotIndexes{}, err
 	}
-	return documentSnapshotIndexes{before: beforeIndex, after: afterIndex}, nil
+	return SnapshotIndexes{before: beforeIndex, after: afterIndex}, nil
 }
 
-func indexDocumentSnapshot(ctx context.Context, snapshot durable.Snapshot) (documentSnapshotIndex, error) {
+func IndexSnapshot(ctx context.Context, snapshot durable.Snapshot) (SnapshotIndex, error) {
+	if ctx == nil {
+		return SnapshotIndex{}, fmt.Errorf("document state context is required")
+	}
 	if err := ctx.Err(); err != nil {
-		return documentSnapshotIndex{}, err
+		return SnapshotIndex{}, err
 	}
 	paths, rows := snapshot.ManagedPaths(), snapshot.ManagedAggregates()
-	index := documentSnapshotIndex{
+	index := SnapshotIndex{
 		paths:            make(map[topology.SubjectID]durable.ManagedPathState, len(paths)),
 		aggregates:       make(map[topology.SubjectID]durable.ManagedAggregateState, len(rows)),
 		globalFootprints: make(map[aggregate.DocumentAddress]map[output.Footprint]struct{}),
 	}
 	for _, row := range paths {
 		if err := ctx.Err(); err != nil {
-			return documentSnapshotIndex{}, err
+			return SnapshotIndex{}, err
 		}
 		index.paths[row.Subject()] = row
 		id, native := topologyprojection.EntityID(row.Subject())
@@ -63,18 +69,18 @@ func indexDocumentSnapshot(ctx context.Context, snapshot durable.Snapshot) (docu
 		}
 		for _, selected := range row.ConsumerTargets() {
 			if err := ctx.Err(); err != nil {
-				return documentSnapshotIndex{}, err
+				return SnapshotIndex{}, err
 			}
 			address, err := aggregate.NewDocumentAddress(selected, row.Scope(), row.Destination())
 			if err != nil {
-				return documentSnapshotIndex{}, err
+				return SnapshotIndex{}, err
 			}
 			index.addGlobalFootprint(address, output.WholePathFootprint())
 		}
 	}
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
-			return documentSnapshotIndex{}, err
+			return SnapshotIndex{}, err
 		}
 		index.aggregates[row.Subject()] = row
 		contract := row.Contribution().Contract()
@@ -83,12 +89,12 @@ func indexDocumentSnapshot(ctx context.Context, snapshot durable.Snapshot) (docu
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return documentSnapshotIndex{}, err
+		return SnapshotIndex{}, err
 	}
 	return index, nil
 }
 
-func (index documentSnapshotIndex) addGlobalFootprint(address aggregate.DocumentAddress, footprint output.Footprint) {
+func (index SnapshotIndex) addGlobalFootprint(address aggregate.DocumentAddress, footprint output.Footprint) {
 	if index.globalFootprints[address] == nil {
 		index.globalFootprints[address] = make(map[output.Footprint]struct{})
 	}
@@ -100,10 +106,10 @@ type documentSelectionKey struct {
 	codec    aggregate.CodecContractID
 }
 
-// selectedContracts resolves only the declared frontier. Unselected state still
+// SelectedContracts resolves only the declared frontier. Unselected state still
 // belongs to the operation's separate membership and changed-row coverage join.
-func (indexes documentSnapshotIndexes) selectedContracts(ctx context.Context, subjects []topology.SubjectID, aliases []aggregate.DocumentAddress) ([]aggregate.Selection, error) {
-	addresses, err := documentAliasSet(ctx, aliases)
+func (indexes SnapshotIndexes) SelectedContracts(ctx context.Context, subjects []topology.SubjectID, aliases []aggregate.DocumentAddress) ([]aggregate.Selection, error) {
+	addresses, err := AliasSet(ctx, aliases)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +187,7 @@ func (indexes documentSnapshotIndexes) selectedContracts(ctx context.Context, su
 	return selections, nil
 }
 
-func documentAliasSet(ctx context.Context, aliases []aggregate.DocumentAddress) (map[aggregate.DocumentAddress]struct{}, error) {
+func AliasSet(ctx context.Context, aliases []aggregate.DocumentAddress) (map[aggregate.DocumentAddress]struct{}, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("document selection context is required")
 	}
@@ -207,7 +213,7 @@ func documentAliasSet(ctx context.Context, aliases []aggregate.DocumentAddress) 
 	return addresses, nil
 }
 
-func selectedContractAt(index documentSnapshotIndex, subject topology.SubjectID, aliases map[aggregate.DocumentAddress]struct{}) (aggregate.ProjectionContract, bool) {
+func selectedContractAt(index SnapshotIndex, subject topology.SubjectID, aliases map[aggregate.DocumentAddress]struct{}) (aggregate.ProjectionContract, bool) {
 	row, present := index.aggregates[subject]
 	if !present {
 		return aggregate.ProjectionContract{}, false

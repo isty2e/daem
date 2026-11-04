@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -25,7 +27,7 @@ type nativeDocumentStageOptions struct {
 
 // stageDocumentJournal writes only an unpublished document-only tree. The caller
 // must propagate errors from PrepareRootedTree and separately qualify publication.
-func (journal nativeJournalSnapshots) stageDocumentJournal(ctx context.Context, comparisons []DocumentComparison, writer mutationfs.RootedTreeWriter, options nativeDocumentStageOptions) (string, error) {
+func (journal nativeJournalSnapshots) stageDocumentJournal(ctx context.Context, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeDocumentStageOptions) (string, error) {
 	if ctx == nil || writer == nil || options.budget == nil || options.stateCodec == nil {
 		return "", fmt.Errorf("native document staging requires context, private writer, state codec and shared budget")
 	}
@@ -42,7 +44,7 @@ func (journal nativeJournalSnapshots) stageDocumentJournal(ctx context.Context, 
 	return prepared.stageJournal(ctx, content, writer, options.budget)
 }
 
-func (journal nativeJournalSnapshots) prepareDocumentJournal(ctx context.Context, comparisons []DocumentComparison, options nativeDocumentStageOptions, ordinaryWork workmeasure.ArtifactWork) (nativeDocumentRecords, []byte, error) {
+func (journal nativeJournalSnapshots) prepareDocumentJournal(ctx context.Context, comparisons []journaldocument.Comparison, options nativeDocumentStageOptions, ordinaryWork workmeasure.ArtifactWork) (nativeDocumentRecords, []byte, error) {
 	entries, imageBytes, err := preflightDocumentJournalImages(ctx, comparisons, options.budget)
 	if err != nil {
 		return nativeDocumentRecords{}, nil, err
@@ -57,7 +59,7 @@ func (journal nativeJournalSnapshots) prepareDocumentJournal(ctx context.Context
 		if err := ctx.Err(); err != nil {
 			return nativeDocumentRecords{}, nil, err
 		}
-		_, original, expected, err := documentImageReferences(group.comparison, index)
+		_, original, expected, err := documentImageReferences(group.Comparison(), index)
 		if err != nil {
 			return nativeDocumentRecords{}, nil, err
 		}
@@ -75,7 +77,7 @@ func (journal nativeJournalSnapshots) prepareDocumentJournal(ctx context.Context
 
 func (prepared nativeDocumentRecords) stageJournal(ctx context.Context, content []byte, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) (string, error) {
 	for index, group := range prepared.groups {
-		if _, _, err := stageDocumentImages(ctx, group.comparison, index, writer, budget); err != nil {
+		if _, _, err := stageDocumentImages(ctx, group.Comparison(), index, writer, budget); err != nil {
 			return "", err
 		}
 	}
@@ -101,14 +103,14 @@ func (prepared nativeDocumentRecords) stageJournal(ctx context.Context, content 
 	return fingerprint, nil
 }
 
-func preflightDocumentJournalImages(ctx context.Context, comparisons []DocumentComparison, budget *physicalwork.Budget) (int, int64, error) {
+func preflightDocumentJournalImages(ctx context.Context, comparisons []journaldocument.Comparison, budget *physicalwork.Budget) (int, int64, error) {
 	entries, contentBytes := 1, int64(0)
 	for _, comparison := range comparisons {
 		if err := ctx.Err(); err != nil {
 			return 0, 0, err
 		}
 		files := 0
-		for _, image := range []aggregate.Document{comparison.before, comparison.expected} {
+		for _, image := range []aggregate.Document{comparison.BeforeDocument(), comparison.ExpectedDocument()} {
 			if image.ContentSize() > recovery.MaximumRecoveryBackupFileBytes || image.ContentSize() > budget.RemainingBytes()-contentBytes {
 				return 0, 0, fmt.Errorf("native document images exceed the staging byte envelope")
 			}

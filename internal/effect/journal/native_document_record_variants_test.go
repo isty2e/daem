@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -72,7 +74,7 @@ func TestNativeJournalMixedCodexRecordProtectsForeignMCPValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded := nativeRecordLoadFixture(t, fixture)
-	if len(loaded.groups[0].selections) != 2 {
+	if len(loaded.groups[0].Selections()) != 2 {
 		t.Fatal("mixed record lost a semantic participant")
 	}
 	nativeRecordImages(t, &fixture, original, aggregate.ExistingDocument([]byte("model='fast'\n[mcp_servers.search]\ncommand='node'\n[mcp_servers.foreign]\ncommand='corrupt' # retained\n")))
@@ -149,7 +151,7 @@ func TestNativeJournalWholeExtentDoesNotParseOpaqueImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded := nativeRecordLoadFixture(t, fixture)
-	restored, err := loaded.groups[0].comparison.RestoreBefore(t.Context(), expected, recovery.NewPermissionMode(0o600))
+	restored, err := loaded.groups[0].Comparison().RestoreBefore(t.Context(), expected, recovery.NewPermissionMode(0o600))
 	if err != nil || !restored.Document().Equal(original) {
 		t.Fatalf("opaque whole witness was parsed or re-encoded: %v", err)
 	}
@@ -188,10 +190,10 @@ func TestNativeJournalPiOnlyGroupReplaysEqualStateWithoutSyntheticNativeMembers(
 	group.PiOrder = &recoveryDocumentPiOrder{Alias: alias, CommandRoot: recoveryDocumentLogicalRoot{Role: "manifest-root", Provenance: fixture.record.ManifestRootProvenance}, Evidence: evidence}
 	fixture.before, fixture.after = durable.EmptySnapshot(), durable.EmptySnapshot()
 	loaded := nativeRecordLoadFixture(t, fixture)
-	if len(loaded.groups[0].selections) != 0 || loaded.groups[0].comparison.order == nil {
+	if len(loaded.groups[0].Selections()) != 0 || !loaded.groups[0].Comparison().Changed() {
 		t.Fatal("Pi-only work became native membership or lost its real inverse")
 	}
-	restored, err := loaded.groups[0].comparison.RestoreBefore(t.Context(), expected, recovery.NewPermissionMode(0o600))
+	restored, err := loaded.groups[0].Comparison().RestoreBefore(t.Context(), expected, recovery.NewPermissionMode(0o600))
 	if err != nil || !restored.Document().Equal(input.Document) {
 		t.Fatalf("record-backed Pi semantic replay: %v", err)
 	}
@@ -267,9 +269,9 @@ func nativeRecordLoadFixture(t *testing.T, fixture nativeRecordFixture) nativeDo
 	if err != nil || len(loaded.groups) != len(fixture.record.DocumentGroups) {
 		t.Fatalf("complete variant record: %v", err)
 	}
-	comparisons := make([]DocumentComparison, len(loaded.groups))
+	comparisons := make([]journaldocument.Comparison, len(loaded.groups))
 	for index, group := range loaded.groups {
-		comparisons[index] = group.comparison
+		comparisons[index] = group.Comparison()
 	}
 	prepared, err := decoded.prepareDocuments(t.Context(), comparisons, fixture.read.limits, fixture.read.codecs)
 	if err != nil || len(prepared.groups) != len(loaded.groups) || len(prepared.claims) != len(loaded.claims) || len(prepared.provisional) != len(loaded.provisional) {

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -16,7 +18,7 @@ import (
 
 // stageDocumentImages writes only into the containing unpublished tree. Its
 // caller must propagate failures so that the tree owner aborts partial artifacts.
-func stageDocumentImages(ctx context.Context, comparison DocumentComparison, groupIndex int, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) (recoveryDocumentImage, recoveryDocumentImage, error) {
+func stageDocumentImages(ctx context.Context, comparison journaldocument.Comparison, groupIndex int, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) (recoveryDocumentImage, recoveryDocumentImage, error) {
 	if ctx == nil {
 		return recoveryDocumentImage{}, recoveryDocumentImage{}, fmt.Errorf("document image staging context is required")
 	}
@@ -30,8 +32,8 @@ func stageDocumentImages(ctx context.Context, comparison DocumentComparison, gro
 		return recoveryDocumentImage{}, recoveryDocumentImage{}, fmt.Errorf("document image staging requires an ordinal, private writer and shared budget")
 	}
 	entries, contentBytes := 0, int64(0)
-	for _, document := range []aggregate.Document{comparison.before, comparison.expected} {
-		if err := validateComparisonDocument(ctx, document, comparison.limits); err != nil {
+	for _, document := range []aggregate.Document{comparison.BeforeDocument(), comparison.ExpectedDocument()} {
+		if err := journaldocument.ValidateImage(ctx, document, comparison.Limits()); err != nil {
 			return recoveryDocumentImage{}, recoveryDocumentImage{}, err
 		}
 		if document.ContentSize() > recovery.MaximumRecoveryBackupFileBytes {
@@ -66,10 +68,10 @@ func stageDocumentImages(ctx context.Context, comparison DocumentComparison, gro
 	if err := errors.Join(writeErr, workErr, ctx.Err()); err != nil {
 		return recoveryDocumentImage{}, recoveryDocumentImage{}, err
 	}
-	if err := stageDocumentImage(ctx, comparison.before, original, writer, budget); err != nil {
+	if err := stageDocumentImage(ctx, comparison.BeforeDocument(), original, writer, budget); err != nil {
 		return recoveryDocumentImage{}, recoveryDocumentImage{}, err
 	}
-	if err := stageDocumentImage(ctx, comparison.expected, expected, writer, budget); err != nil {
+	if err := stageDocumentImage(ctx, comparison.ExpectedDocument(), expected, writer, budget); err != nil {
 		return recoveryDocumentImage{}, recoveryDocumentImage{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -78,7 +80,7 @@ func stageDocumentImages(ctx context.Context, comparison DocumentComparison, gro
 	return original, expected, nil
 }
 
-func documentImageReferences(comparison DocumentComparison, groupIndex int) (mutationfs.TreeRelativePath, recoveryDocumentImage, recoveryDocumentImage, error) {
+func documentImageReferences(comparison journaldocument.Comparison, groupIndex int) (mutationfs.TreeRelativePath, recoveryDocumentImage, recoveryDocumentImage, error) {
 	if groupIndex < 0 {
 		return mutationfs.TreeRelativePath{}, recoveryDocumentImage{}, recoveryDocumentImage{}, fmt.Errorf("document image ordinal must be nonnegative")
 	}
@@ -86,11 +88,11 @@ func documentImageReferences(comparison DocumentComparison, groupIndex int) (mut
 	if err != nil {
 		return mutationfs.TreeRelativePath{}, recoveryDocumentImage{}, recoveryDocumentImage{}, err
 	}
-	original, err := stagedDocumentImageRecord(comparison.before, comparison.beforeState, directory.Path()+"/original")
+	original, err := stagedDocumentImageRecord(comparison.BeforeDocument(), comparison.BeforeState(), directory.Path()+"/original")
 	if err != nil {
 		return mutationfs.TreeRelativePath{}, recoveryDocumentImage{}, recoveryDocumentImage{}, err
 	}
-	expected, err := stagedDocumentImageRecord(comparison.expected, comparison.expectedState, directory.Path()+"/expected")
+	expected, err := stagedDocumentImageRecord(comparison.ExpectedDocument(), comparison.ExpectedState(), directory.Path()+"/expected")
 	if err != nil {
 		return mutationfs.TreeRelativePath{}, recoveryDocumentImage{}, recoveryDocumentImage{}, err
 	}

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -74,15 +76,15 @@ func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservation
 		return NativeDocumentObservationBatch{}, err
 	}
 	if len(input.Aliases) != 0 {
-		if _, err := documentAliasSet(ctx, input.Aliases); err != nil {
+		if _, err := journaldocument.AliasSet(ctx, input.Aliases); err != nil {
 			return NativeDocumentObservationBatch{}, err
 		}
 	}
-	before, err := indexDocumentSnapshot(ctx, input.Before)
+	before, err := journaldocument.IndexSnapshot(ctx, input.Before)
 	if err != nil {
 		return NativeDocumentObservationBatch{}, err
 	}
-	nativeBefore, err := before.nativeDestinations(ctx)
+	nativeBefore, err := before.NativeDestinations(ctx)
 	if err != nil {
 		return NativeDocumentObservationBatch{}, err
 	}
@@ -96,7 +98,7 @@ func ObserveNativeDocuments(ctx context.Context, input NativeDocumentObservation
 		if !absent {
 			continue
 		}
-		footprints, err := before.documentFootprints(ctx, namespace.Addresses())
+		footprints, err := before.Footprints(ctx, namespace.Addresses())
 		if err != nil {
 			return NativeDocumentObservationBatch{}, err
 		}

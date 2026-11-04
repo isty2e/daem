@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -75,11 +77,11 @@ func (document CapturedNativeDocument) Namespace() NativeDocumentNamespace {
 	return document.captured.qualified.namespaces[document.index]
 }
 
-func (document CapturedNativeDocument) Comparison() DocumentComparison {
+func (document CapturedNativeDocument) Comparison() journaldocument.Comparison {
 	if !document.valid() {
-		return DocumentComparison{}
+		return journaldocument.Comparison{}
 	}
-	return document.captured.qualified.records.groups[document.index].comparison
+	return document.captured.qualified.records.groups[document.index].Comparison()
 }
 
 func (document CapturedNativeDocument) Original() (aggregate.Document, *recovery.PermissionMode) {
@@ -118,7 +120,7 @@ func (document CapturedNativeDocument) BindingIntents() []ownership.DocumentBind
 	if !document.valid() {
 		return nil
 	}
-	return slices.Clone(document.captured.qualified.records.groups[document.index].bindingIntents)
+	return slices.Clone(document.captured.qualified.records.groups[document.index].BindingIntents())
 }
 
 type NativeDocumentProvisionalAcquire struct {

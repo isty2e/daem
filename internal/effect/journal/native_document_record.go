@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -15,10 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/aggregate/compose"
-	"github.com/isty2e/daem/internal/realization/profile"
-	"github.com/isty2e/daem/internal/target"
-	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 type nativeDocumentReadOptions struct {
@@ -33,7 +31,7 @@ type nativeDocumentReadOptions struct {
 // Reconstructed records retain all groups or none. They are not RecoverablePlan:
 // active directory, live namespaces, registry phases and effect leases are absent.
 type nativeDocumentRecords struct {
-	groups      []documentStateGroup
+	groups      []journaldocument.StateGroup
 	images      []loadedDocumentImages
 	claims      []ownershipmutation.DocumentClaimTransition
 	provisional [][]documentProvisionalAcquire
@@ -58,7 +56,7 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 	if err := options.limits.Validate(); err != nil {
 		return nativeDocumentRecords{}, err
 	}
-	indexes, err := indexDocumentSnapshots(ctx, journal.before, journal.after)
+	indexes, err := journaldocument.IndexSnapshots(ctx, journal.before, journal.after)
 	if err != nil {
 		return nativeDocumentRecords{}, err
 	}
@@ -66,7 +64,7 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 	if err != nil {
 		return nativeDocumentRecords{}, err
 	}
-	var inputs []documentStateGroupInput
+	var inputs []journaldocument.StateGroupInput
 	result := nativeDocumentRecords{}
 	for groupIndex, record := range journal.record.DocumentGroups {
 		if err := ctx.Err(); err != nil {
@@ -76,7 +74,7 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 		if err != nil {
 			return nativeDocumentRecords{}, err
 		}
-		selections, err := indexes.selectedContracts(ctx, subjects, aliases)
+		selections, err := indexes.SelectedContracts(ctx, subjects, aliases)
 		if err != nil {
 			return nativeDocumentRecords{}, err
 		}
@@ -96,7 +94,7 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 		if err != nil {
 			return nativeDocumentRecords{}, err
 		}
-		inputs = append(inputs, documentStateGroupInput{aliases: aliases, selectedSubjects: subjects, comparison: comparison, bindingIntents: bindings})
+		inputs = append(inputs, journaldocument.NewStateGroupInput(aliases, subjects, comparison, bindings))
 		result.images = append(result.images, images)
 		result.claims = append(result.claims, claims)
 		result.provisional = append(result.provisional, provisional)
@@ -104,18 +102,18 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 	return journal.completeDocuments(ctx, indexes, inputs, result, options.codecs)
 }
 
-func (journal nativeJournalSnapshots) completeDocuments(ctx context.Context, indexes documentSnapshotIndexes, inputs []documentStateGroupInput, result nativeDocumentRecords, codecs aggregate.CodecCatalog) (nativeDocumentRecords, error) {
-	groups, err := reconstructDocumentStateGroups(ctx, journal.owner, journal.before, journal.after, inputs)
+func (journal nativeJournalSnapshots) completeDocuments(ctx context.Context, indexes journaldocument.SnapshotIndexes, inputs []journaldocument.StateGroupInput, result nativeDocumentRecords, codecs aggregate.CodecCatalog) (nativeDocumentRecords, error) {
+	groups, err := journaldocument.ReconstructStateGroups(ctx, journal.owner, journal.before, journal.after, inputs)
 	if err != nil {
 		return nativeDocumentRecords{}, err
 	}
-	if err := journal.validateExpectedBaselines(ctx, indexes.after, groups, codecs); err != nil {
+	if err := journal.validateExpectedBaselines(ctx, indexes.After(), groups, codecs); err != nil {
 		return nativeDocumentRecords{}, err
 	}
 	documentWork := false
 	for _, group := range groups {
-		comparison := group.comparison
-		documentWork = documentWork || !comparison.before.Equal(comparison.expected) || !comparison.beforeState.SameRootMetadata(comparison.expectedState)
+		comparison := group.Comparison()
+		documentWork = documentWork || !comparison.BeforeDocument().Equal(comparison.ExpectedDocument()) || !comparison.BeforeState().SameRootMetadata(comparison.ExpectedState())
 	}
 	if err := requireNativeDocumentCommitWork(journal.before, journal.after, documentWork); err != nil {
 		return nativeDocumentRecords{}, err
@@ -124,111 +122,21 @@ func (journal nativeJournalSnapshots) completeDocuments(ctx context.Context, ind
 	return result, nil
 }
 
-func (journal nativeJournalSnapshots) validateExpectedBaselines(ctx context.Context, after documentSnapshotIndex, groups []documentStateGroup, codecs aggregate.CodecCatalog) error {
-	aliases := make(map[aggregate.DocumentAddress]int)
-	for index, group := range groups {
-		for _, alias := range group.aliases {
-			aliases[alias] = index
+func (journal nativeJournalSnapshots) validateExpectedBaselines(ctx context.Context, after journaldocument.SnapshotIndex, groups []journaldocument.StateGroup, codecs aggregate.CodecCatalog) error {
+	images := make([]journaldocument.ImageIdentity, 0, len(journal.record.DocumentGroups))
+	for _, group := range journal.record.DocumentGroups {
+		image := group.Expected
+		digest := artifact.ContentHash("")
+		if image.Kind == "file" {
+			digest = image.Artifact.Digest
 		}
-	}
-	for _, row := range after.aggregates {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		contribution := row.Contribution()
-		contract := contribution.Contract()
-		index, present := aliases[contract.Address().Document()]
-		if !present || !groups[index].covers(contract) {
-			continue
-		}
-		codec, found := codecs.Lookup(contract.CodecContractID())
-		if !found {
-			return fmt.Errorf("expected baseline codec is not admitted by the operation")
-		}
-		selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{contract})
+		identity, err := journaldocument.NewImageIdentity(image.Kind == "file", digest, image.Mode)
 		if err != nil {
 			return err
 		}
-		snapshot, failure := codec.Read(groups[index].comparison.expected, selection)
-		if failure != nil {
-			return failure
-		}
-		state, found := snapshot.State(contract)
-		if !found || !state.Present() || state.CanonicalProjection() != contribution.CanonicalContribution() {
-			return fmt.Errorf("selected after baseline differs from the actual expected image")
-		}
+		images = append(images, identity)
 	}
-	for _, row := range after.paths {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		id, native := topologyprojection.EntityID(row.Subject())
-		if !native || id.Kind() != entity.KindHostConfig {
-			continue
-		}
-		for _, selected := range row.ConsumerTargets() {
-			address, err := aggregate.NewDocumentAddress(selected, row.Scope(), row.Destination())
-			if err != nil {
-				return err
-			}
-			if index, present := aliases[address]; present {
-				image := journal.record.DocumentGroups[index].Expected
-				if image.Kind != "file" || image.Artifact.Digest != row.ContentHash() || image.Mode == nil || uint32(*image.Mode) != uint32(row.FileMode().Perm()) {
-					return fmt.Errorf("whole after baseline differs from the actual expected image or mode")
-				}
-			}
-		}
-	}
-	return ctx.Err()
-}
-
-// NativeJournalParticipant admits the same selected rewrite areas for forward
-// publication and native journal reconstruction.
-func NativeJournalParticipant(selection aggregate.Selection, codecs aggregate.CodecCatalog) (compose.Participant, error) {
-	codec, found := codecs.Lookup(selection.CodecContractID())
-	if !found {
-		return compose.Participant{}, fmt.Errorf("document selection codec is not admitted by the operation")
-	}
-	var syntax configdocument.Syntax
-	var areas []output.KeyPath
-	if grammar, native := aggregate.HostConfigSyntaxForCodec(selection.CodecContractID()); native {
-		var err error
-		syntax, err = configdocument.ParseSyntax(grammar)
-		if err != nil {
-			return compose.Participant{}, err
-		}
-		for _, contract := range selection.Contracts() {
-			if _, err := profile.HostConfigPlacementForContract(contract); err != nil {
-				return compose.Participant{}, err
-			}
-			areas = append(areas, contract.Address().KeyPath())
-		}
-	} else {
-		address := selection.DocumentAddress()
-		if address.Target() != target.TargetPi && address.Target() != target.TargetCodex {
-			return compose.Participant{}, fmt.Errorf("native document composition requires an admitted Pi or Codex participant")
-		}
-		for _, contract := range selection.Contracts() {
-			placement, found := aggregate.MCPPlacementForCodec(aggregate.MCPPlacementID(contract.Address().PlacementID()), contract.CodecContractID())
-			if !found || placement.Target() != address.Target() || placement.Scope() != address.Scope() || placement.ConfigPath() != address.AggregateRoot() {
-				return compose.Participant{}, fmt.Errorf("document MCP selection differs from its admitted placement")
-			}
-			footprint, err := output.FootprintFromLegacy(output.ContentPath(placement.ContentPathPrefix()))
-			if err != nil {
-				return compose.Participant{}, err
-			}
-			area, key := footprint.Key()
-			if !key {
-				return compose.Participant{}, fmt.Errorf("MCP rewrite area must be a selected key")
-			}
-			areas = append(areas, area)
-		}
-		syntax = configdocument.JSON
-		if address.Target() == target.TargetCodex {
-			syntax = configdocument.TOML
-		}
-	}
-	return compose.NewParticipant(codec, selection, syntax, output.TopmostKeyPaths(areas))
+	return after.ValidateExpectedBaselines(ctx, groups, codecs, images)
 }
 
 func (journal nativeJournalSnapshots) documentBindings(ctx context.Context) ([][]ownership.DocumentBindingIntent, error) {
@@ -332,12 +240,12 @@ func (group recoveryDocumentGroup) canonicalBindingIntents(ctx context.Context, 
 	return intents, nil
 }
 
-func (journal nativeJournalSnapshots) documentClaims(ctx context.Context, indexes documentSnapshotIndexes, record recoveryDocumentGroup, aliases []aggregate.DocumentAddress) (ownershipmutation.DocumentClaimTransition, []documentProvisionalAcquire, error) {
-	before, err := indexes.before.documentFootprints(ctx, aliases)
+func (journal nativeJournalSnapshots) documentClaims(ctx context.Context, indexes journaldocument.SnapshotIndexes, record recoveryDocumentGroup, aliases []aggregate.DocumentAddress) (ownershipmutation.DocumentClaimTransition, []documentProvisionalAcquire, error) {
+	before, err := indexes.Before().Footprints(ctx, aliases)
 	if err != nil {
 		return ownershipmutation.DocumentClaimTransition{}, nil, err
 	}
-	after, err := indexes.after.documentFootprints(ctx, aliases)
+	after, err := indexes.After().Footprints(ctx, aliases)
 	if err != nil {
 		return ownershipmutation.DocumentClaimTransition{}, nil, err
 	}
@@ -382,26 +290,6 @@ func (journal nativeJournalSnapshots) documentClaims(ctx context.Context, indexe
 	default:
 		return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("global document membership requires exact or provisional claims")
 	}
-}
-
-func (index documentSnapshotIndex) documentFootprints(ctx context.Context, aliases []aggregate.DocumentAddress) (map[output.Footprint]struct{}, error) {
-	addresses, err := documentAliasSet(ctx, aliases)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[output.Footprint]struct{})
-	for address := range addresses {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		for footprint := range index.globalFootprints[address] {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			result[footprint] = struct{}{}
-		}
-	}
-	return result, nil
 }
 
 func sameDocumentClaimFootprints(expected map[output.Footprint]struct{}, claims []ownership.Claim) bool {

@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -147,8 +149,8 @@ func TestSelectedGroupCaptureCombinesActualNativeAndMCPPlans(t *testing.T) {
 	if !available {
 		t.Fatal("foreign MCP verification codec missing")
 	}
-	observed, failure := codec.Read(comparison.expected, selection)
-	if failure != nil || observed.States()[0].CanonicalProjection() != contribution.CanonicalContribution() || !bytes.Contains(comparison.expected.Content(), []byte("# retained")) {
+	observed, failure := codec.Read(comparison.ExpectedDocument(), selection)
+	if failure != nil || observed.States()[0].CanonicalProjection() != contribution.CanonicalContribution() || !bytes.Contains(comparison.ExpectedDocument().Content(), []byte("# retained")) {
 		t.Fatalf("MCP rewrite lost the foreign value or existing comment text: %v", failure)
 	}
 	capture.requireCompleteStage(t, group, comparison)
@@ -160,7 +162,7 @@ func TestSelectedGroupCaptureSupportsReleaseWithoutInventedSelectedSubjects(t *t
 	original := aggregate.ExistingDocument([]byte(`{"model":true,"foreign":99}`))
 	capture := selectedCaptureFixture(t, fixture, original, nil, nil, NativeDocumentRoots{})
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-	if err != nil || len(group.SelectedSubjects) != 0 || !comparison.expected.Equal(original) {
+	if err != nil || len(group.SelectedSubjects) != 0 || !comparison.ExpectedDocument().Equal(original) {
 		t.Fatalf("release changed host bytes or invented a frontier: %v", err)
 	}
 	capture.requireCompleteStage(t, group, comparison)
@@ -183,21 +185,21 @@ func TestSelectedGroupCaptureRetainsRealPiContextAndOrderOnlyWork(t *testing.T) 
 			fixture.before, fixture.after = durable.EmptySnapshot(), durable.EmptySnapshot()
 			capture := selectedCaptureFixture(t, fixture, loaded.Document, nil, &order, roots)
 			group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-			if err != nil || group.PiOrder == nil || len(group.SelectedSubjects) != 0 || comparison.order == nil {
+			if err != nil || group.PiOrder == nil || len(group.SelectedSubjects) != 0 || !comparison.Changed() {
 				t.Fatalf("real Pi-only group failed: %v", err)
 			}
 			if *group.Original.Mode != 0o644 || *group.Expected.Mode != 0o644 {
 				t.Fatal("Pi-only work imposed an aggregate writer mode")
 			}
 			capture.requireCompleteStage(t, group, comparison)
-			loaded.Document = comparison.expected
+			loaded.Document = comparison.ExpectedDocument()
 			unchanged, err := pipackage.ReconstructOrder(loaded)
 			if err != nil || unchanged.Changed() {
 				t.Fatalf("actual converged order was not unchanged: %v", err)
 			}
 			capture = selectedCaptureFixture(t, fixture, loaded.Document, nil, &unchanged, roots)
 			group, comparison, err = prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-			if err != nil || group.PiOrder != nil || comparison.order != nil || !comparison.expected.Equal(loaded.Document) {
+			if err != nil || group.PiOrder != nil || comparison.Changed() || !comparison.ExpectedDocument().Equal(loaded.Document) {
 				t.Fatalf("unchanged order acquired recovery ownership: %v", err)
 			}
 		})
@@ -220,7 +222,7 @@ func TestSelectedGroupCaptureCombinesActualNativeAndPiOrder(t *testing.T) {
 	edits := selectedCaptureEdits(t, fixture, loaded.Document, []aggregate.ProjectionContract{after.Contribution().Contract()}, []durable.ManagedAggregateState{after})
 	capture := selectedCaptureFixture(t, fixture, loaded.Document, edits, &order, roots)
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-	if err != nil || len(group.SelectedSubjects) != 1 || group.PiOrder == nil || comparison.order == nil {
+	if err != nil || len(group.SelectedSubjects) != 1 || group.PiOrder == nil || !comparison.Changed() {
 		t.Fatalf("actual native/Pi plans did not form one group: %v", err)
 	}
 	capture.requireCompleteStage(t, group, comparison)
@@ -430,21 +432,21 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 		t.Fatal("fixture path requires normalization-stable exact authority")
 	}
 	input := selectedDocumentCaptureInput{edits: edits, order: order, nativeDocumentCaptureInput: nativeDocumentCaptureInput{owner: fixture.claims.owner, operationID: fixture.record.OperationID, groupIndex: 2, limits: fixture.read.limits, budget: budget}}
-	indexes, err := indexDocumentSnapshots(t.Context(), fixture.before, fixture.after)
+	indexes, err := journaldocument.IndexSnapshots(t.Context(), fixture.before, fixture.after)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var claims [2][]ownership.Claim
 	var bindings [2]ownership.DocumentBindingValue
-	for side, index := range []documentSnapshotIndex{indexes.before, indexes.after} {
-		footprints, err := index.documentFootprints(t.Context(), namespace.Addresses())
+	for side, index := range []journaldocument.SnapshotIndex{indexes.Before(), indexes.After()} {
+		footprints, err := index.Footprints(t.Context(), namespace.Addresses())
 		if err != nil {
 			t.Fatal(err)
 		}
 		for footprint := range footprints {
 			claims[side] = append(claims[side], documentActiveClaim(t, documentClaimFixture{owner: input.owner, exact: exact}, footprint))
 		}
-		destinations, err := index.nativeDestinations(t.Context())
+		destinations, err := index.NativeDestinations(t.Context())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -533,7 +535,7 @@ func selectedCaptureEdits(t *testing.T, fixture nativeRecordFixture, original ag
 	if err != nil {
 		t.Fatal(err)
 	}
-	participant, err := NativeJournalParticipant(selection, fixture.read.codecs)
+	participant, err := journaldocument.Participant(selection, fixture.read.codecs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,7 +546,7 @@ func selectedCaptureEdits(t *testing.T, fixture nativeRecordFixture, original ag
 	return []compose.ProjectionEdit{edit}
 }
 
-func (capture selectedGroupCaptureFixture) requireCompleteStage(t *testing.T, group recoveryDocumentGroup, comparison DocumentComparison) {
+func (capture selectedGroupCaptureFixture) requireCompleteStage(t *testing.T, group recoveryDocumentGroup, comparison journaldocument.Comparison) {
 	t.Helper()
 	fixture := capture.fixture
 	fixture.record.DocumentGroups = []recoveryDocumentGroup{group}
@@ -556,10 +558,10 @@ func (capture selectedGroupCaptureFixture) requireCompleteStage(t *testing.T, gr
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := decoded.prepareDocuments(t.Context(), []DocumentComparison{comparison}, fixture.read.limits, fixture.read.codecs); err != nil {
+	if _, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs); err != nil {
 		t.Fatal(err)
 	}
-	requireStagedDocumentJournal(t, fixture, decoded, []DocumentComparison{comparison})
+	requireStagedDocumentJournal(t, fixture, decoded, []journaldocument.Comparison{comparison})
 	actual, err := os.ReadFile(capture.path)
 	if !capture.original.Exists() {
 		if !errors.Is(err, os.ErrNotExist) {

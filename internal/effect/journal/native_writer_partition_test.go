@@ -9,6 +9,8 @@ import (
 	"slices"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -93,7 +95,7 @@ func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	fixture := mixedStageFixture(t)
 	root := fixture.whole.namespace.roots.Manifest
 	ordinaryPath := filepath.Join(root.SelectedPath, "AGENTS.md")
-	before := fixture.comparison.before.Content()
+	before := fixture.comparison.BeforeDocument().Content()
 	requireWholeGroupWrite(t, ordinaryPath, before, 0o644)
 	if err := os.Chmod(ordinaryPath, 0o644); err != nil {
 		t.Fatal(err)
@@ -165,7 +167,7 @@ func TestNativeMixedWriterPartitionRefusesActualAliasedOrdinaryWriter(t *testing
 	temporary := t.TempDir()
 	t.Setenv("TMPDIR", temporary)
 	writer := &mixedNoWriteWriter{}
-	fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
+	fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
 	if err == nil || fingerprint != "" || (writer.directories+writer.writes) != 0 {
 		t.Fatalf("aliased native and ordinary writers staged a usable result: fingerprint=%q calls=%d err=%v", fingerprint, (writer.directories + writer.writes), err)
 	}
@@ -173,7 +175,7 @@ func TestNativeMixedWriterPartitionRefusesActualAliasedOrdinaryWriter(t *testing
 		t.Fatalf("refused writer partition retained ordinary build artifacts: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(fixture.paths.ManifestRoot, "AGENTS.md"))
-	if err != nil || !slices.Equal(got, fixture.comparison.before.Content()) {
+	if err != nil || !slices.Equal(got, fixture.comparison.BeforeDocument().Content()) {
 		t.Fatalf("partition refusal changed host bytes: %v", err)
 	}
 }
@@ -201,7 +203,7 @@ func TestNativeWriterPartitionRefusesAtEveryRecordBoundary(t *testing.T) {
 	if decoded, err := decodeNativeJournalRecord(t.Context(), content, fixture.whole.envelope.codec); err == nil || decoded.record.Version != 0 {
 		t.Error("strict decoding admitted overlapping physical writers")
 	}
-	if prepared, err := fixture.journal.prepareDocuments(t.Context(), []DocumentComparison{fixture.comparison}, fixture.whole.input.limits, fixture.whole.envelope.read.codecs); err == nil || prepared.groups != nil {
+	if prepared, err := fixture.journal.prepareDocuments(t.Context(), []journaldocument.Comparison{fixture.comparison}, fixture.whole.input.limits, fixture.whole.envelope.read.codecs); err == nil || prepared.groups != nil {
 		t.Error("prepared comparison boundary returned an overlapping group prefix")
 	}
 	read := fixture.whole.envelope.read

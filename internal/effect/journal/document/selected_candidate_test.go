@@ -1,4 +1,4 @@
-package journal_test
+package document_test
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
@@ -29,11 +29,11 @@ func TestSelectedCandidatePreparesAndReconstructsActualNativeAndPiEdits(t *testi
 	before := aggregate.ExistingDocument([]byte(`{"model":"before","packages":["npm:b", "npm:foreign", "npm:a"],"outside":true}`))
 	order := candidateOrder(t, before)
 	edit := candidateNativeEdit(t, before, "model", `"after"`)
-	input := journal.SelectedDocumentPreparationInput{
+	input := document.SelectedPreparationInput{
 		Before: before, BeforeMode: &mode, ExpectedMode: &mode,
 		Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
 	}
-	prepared, err := journal.PrepareSelectedDocument(t.Context(), input, []compose.ProjectionEdit{edit}, &order)
+	prepared, err := document.PrepareSelected(t.Context(), input, []compose.ProjectionEdit{edit}, &order)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestSelectedCandidatePreparesAndReconstructsActualNativeAndPiEdits(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	reconstructed, err := journal.ReconstructSelectedDocument(t.Context(), journal.DocumentComparisonInput{
+	reconstructed, err := document.ReconstructSelected(t.Context(), document.ComparisonInput{
 		Before: before, Expected: prepared.Document(), BeforeMode: &mode, ExpectedMode: &mode, Limits: input.Limits,
 	}, []compose.Participant{edit.Participant()}, &replayed)
 	if err != nil {
@@ -83,7 +83,7 @@ func TestSelectedCandidatePreparesAndReconstructsActualNativeAndPiEdits(t *testi
 		bytes.Replace(prepared.Document().Content(), []byte("npm:foreign"), []byte("npm:third"), 1),
 		nativeOnly.Document().Content(),
 	} {
-		bad, err := journal.ReconstructSelectedDocument(t.Context(), journal.DocumentComparisonInput{
+		bad, err := document.ReconstructSelected(t.Context(), document.ComparisonInput{
 			Before: before, Expected: aggregate.ExistingDocument(changed), BeforeMode: &mode, ExpectedMode: &mode, Limits: input.Limits,
 		}, []compose.Participant{edit.Participant()}, &replayed)
 		if err == nil || bad.Comparison().Validate() == nil {
@@ -97,11 +97,11 @@ func TestSelectedCandidateRefusesLateFailureAndKeepsNoopOrderUnowned(t *testing.
 	before := aggregate.ExistingDocument([]byte(`{"model":"before","packages":[]}`))
 	order := candidateOrder(t, before)
 	edit := candidateNativeEdit(t, before, "model", `"after"`)
-	input := journal.SelectedDocumentPreparationInput{
+	input := document.SelectedPreparationInput{
 		Before: before, BeforeMode: &mode, ExpectedMode: &mode,
 		Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
 	}
-	prepared, err := journal.PrepareSelectedDocument(t.Context(), input, []compose.ProjectionEdit{edit}, &order)
+	prepared, err := document.PrepareSelected(t.Context(), input, []compose.ProjectionEdit{edit}, &order)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,17 +110,17 @@ func TestSelectedCandidateRefusesLateFailureAndKeepsNoopOrderUnowned(t *testing.
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	bad, err := journal.PrepareSelectedDocument(ctx, input, []compose.ProjectionEdit{edit}, &order)
+	bad, err := document.PrepareSelected(ctx, input, []compose.ProjectionEdit{edit}, &order)
 	if err != context.Canceled || bad.Comparison().Validate() == nil {
 		t.Fatalf("canceled preparation returned authority: %v", err)
 	}
 	otherOrder := candidateOrder(t, aggregate.ExistingDocument([]byte(`{"packages":[],"model":"different"}`)))
-	bad, err = journal.PrepareSelectedDocument(t.Context(), input, []compose.ProjectionEdit{edit}, &otherOrder)
+	bad, err = document.PrepareSelected(t.Context(), input, []compose.ProjectionEdit{edit}, &otherOrder)
 	if err == nil || bad.Comparison().Validate() == nil {
 		t.Fatal("later mismatched Pi baseline returned a partial native candidate")
 	}
 	input.Limits.MaximumBytes = 4
-	bad, err = journal.PrepareSelectedDocument(t.Context(), input, []compose.ProjectionEdit{edit}, &order)
+	bad, err = document.PrepareSelected(t.Context(), input, []compose.ProjectionEdit{edit}, &order)
 	if err == nil || bad.Comparison().Validate() == nil {
 		t.Fatal("over-budget input returned a comparison")
 	}
@@ -131,7 +131,7 @@ func TestSelectedCandidateReconstructsNativeMCPWithoutAuthorizingForeignRows(t *
 	before := "# keep\nmodel='before'\n[mcp_servers.foreign]\ncommand='keep'\n"
 	expected := "# keep\nmodel='after'\n[mcp_servers.foreign]\ncommand='keep'\n[mcp_servers.search]\ncommand='node'\n"
 	participants := restorationMCPParticipants(t)
-	prepared, err := journal.ReconstructSelectedDocument(t.Context(), comparisonInput(before, expected, &mode, &mode), participants, nil)
+	prepared, err := document.ReconstructSelected(t.Context(), comparisonInput(before, expected, &mode, &mode), participants, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestSelectedCandidateReconstructsNativeMCPWithoutAuthorizingForeignRows(t *
 			t.Fatalf("native/MCP mixture failed to restore the actual native value: %v", err)
 		}
 	}
-	bad, err := journal.ReconstructSelectedDocument(t.Context(), comparisonInput(before, expected+"outside=true\n", &mode, &mode), participants, nil)
+	bad, err := document.ReconstructSelected(t.Context(), comparisonInput(before, expected+"outside=true\n", &mode, &mode), participants, nil)
 	if err == nil || bad.Comparison().Validate() == nil {
 		t.Fatal("unexpected MCP content returned a usable comparison")
 	}
@@ -174,7 +174,7 @@ func TestSelectedCandidateKeepsOrderOnlyAndAbsentNoopsDistinct(t *testing.T) {
 		if before.Exists() {
 			selectedMode = &mode
 		}
-		prepared, err := journal.PrepareSelectedDocument(t.Context(), journal.SelectedDocumentPreparationInput{
+		prepared, err := document.PrepareSelected(t.Context(), document.SelectedPreparationInput{
 			Before: before, BeforeMode: selectedMode, ExpectedMode: selectedMode,
 			Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
 		}, nil, &order)
@@ -194,13 +194,13 @@ func TestSelectedCandidateRejectsPiExpectedLimitBeforeCopying(t *testing.T) {
 	before := aggregate.ExistingDocument([]byte(`{"packages":["npm:b","npm:a"]}`))
 	order := candidateOrder(t, before)
 	mode := recovery.PermissionMode(0o600)
-	input := journal.DocumentComparisonInput{
+	input := document.ComparisonInput{
 		Before: before, Expected: aggregate.ExistingDocument(bytes.Repeat([]byte(" "), 2*pipackage.MaximumSettingsBytes)),
 		BeforeMode: &mode, ExpectedMode: &mode,
 		Limits: configdocument.Limits{MaximumBytes: 2 * pipackage.MaximumSettingsBytes, MaximumDepth: 32},
 	}
 	read := func() error {
-		_, err := journal.ReconstructSelectedDocument(t.Context(), input, nil, &order)
+		_, err := document.ReconstructSelected(t.Context(), input, nil, &order)
 		return err
 	}
 	if err := read(); err == nil {

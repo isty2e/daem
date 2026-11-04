@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -36,7 +38,7 @@ func TestNativeWholeGroupCapturesActualFilesAndReconstructs(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if fixture.reader.imageReads != 1 || !comparison.before.Equal(fixture.original) || !comparison.expected.Equal(fixture.expected) {
+					if fixture.reader.imageReads != 1 || !comparison.BeforeDocument().Equal(fixture.original) || !comparison.ExpectedDocument().Equal(fixture.expected) {
 						t.Fatal("capture did not derive images from one real rooted read and the selected mutation")
 					}
 					fixture.requireUnchangedHost(t)
@@ -73,7 +75,7 @@ func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	group, comparison, err := prepareWholeDocumentGroup(t.Context(), namespace, fixture.input)
-	if err != nil || len(group.Aliases) != 2 || !comparison.before.Equal(fixture.original) {
+	if err != nil || len(group.Aliases) != 2 || !comparison.BeforeDocument().Equal(fixture.original) {
 		t.Fatalf("actual alias grouping failed: %v", err)
 	}
 	authority, err := roots.PiAgent.Root.Authority()
@@ -482,7 +484,7 @@ func (fixture wholeGroupTestFixture) requireUnchangedHost(t *testing.T) {
 	}
 }
 
-func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group recoveryDocumentGroup, comparison DocumentComparison) {
+func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group recoveryDocumentGroup, comparison journaldocument.Comparison) {
 	t.Helper()
 	destination, capability := imageStageDestination(t)
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
@@ -525,7 +527,7 @@ func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group rec
 	if err != nil {
 		t.Fatal(err)
 	}
-	admitted, err := decoded.prepareDocuments(t.Context(), []DocumentComparison{comparison}, fixture.input.limits, fixture.envelope.read.codecs)
+	admitted, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.input.limits, fixture.envelope.read.codecs)
 	if err != nil || len(admitted.groups) != 1 {
 		t.Fatalf("prepared group does not pass full snapshot admission: %v", err)
 	}
@@ -535,10 +537,10 @@ func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group rec
 		t.Fatalf("actual group cannot reconstruct: %v", err)
 	}
 	var expectedMode *recovery.PermissionMode
-	if mode, present := comparison.expectedState.RegularFileMode(); present {
+	if mode, present := comparison.ExpectedState().RegularFileMode(); present {
 		expectedMode = &mode
 	}
-	restored, err := loaded.groups[0].comparison.RestoreBefore(t.Context(), fixture.expected, expectedMode)
+	restored, err := loaded.groups[0].Comparison().RestoreBefore(t.Context(), fixture.expected, expectedMode)
 	if err != nil || !restored.Document().Equal(fixture.original) {
 		t.Fatalf("actual artifact-backed recovery lost original bytes/presence: %v", err)
 	}

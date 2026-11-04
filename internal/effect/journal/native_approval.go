@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -44,9 +46,9 @@ func (batch NativeDocumentObservationBatch) ApprovalEvidence() ([]NativeDocument
 // HasMembers identifies documents retained by the complete Before/After state.
 // An empty declaration alone is not a document actor.
 func (evidence NativeDocumentApprovalEvidence) HasMembers(ctx context.Context, before, after durable.Snapshot) (bool, error) {
-	indexes, err := indexDocumentSnapshots(ctx, before, after)
+	indexes, err := journaldocument.IndexSnapshots(ctx, before, after)
 	if err != nil {
 		return false, err
 	}
-	return indexes.hasMembers(ctx, evidence.Aliases)
+	return indexes.HasMembers(ctx, evidence.Aliases)
 }

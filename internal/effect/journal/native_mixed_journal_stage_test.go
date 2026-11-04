@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -28,7 +30,7 @@ import (
 type mixedJournalFixture struct {
 	whole      wholeGroupTestFixture
 	journal    nativeJournalSnapshots
-	comparison DocumentComparison
+	comparison journaldocument.Comparison
 	paths      Paths
 	capture    CaptureOptions
 	ordinary   []byte
@@ -109,7 +111,7 @@ func TestNativeMixedJournalStagesActualOrdinaryAndWholeProducers(t *testing.T) {
 	initialBytes := budget.RemainingBytes()
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		var err error
-		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, mixedRecordingWriter{RootedTreeWriter: writer, order: &order}, fixture.stageOptions(budget))
+		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison}, mixedRecordingWriter{RootedTreeWriter: writer, order: &order}, fixture.stageOptions(budget))
 		return err
 	})
 	if err != nil {
@@ -153,10 +155,10 @@ func TestNativeMixedJournalStagesActualOrdinaryAndWholeProducers(t *testing.T) {
 	read := fixture.whole.envelope.read
 	read.artifacts, read.budget = root, imageBudget(t)
 	loaded, err := decoded.loadDocuments(t.Context(), read)
-	if err != nil || len(loaded.groups) != 1 || !loaded.images[0].original.document.Equal(fixture.comparison.before) || !loaded.images[0].expected.document.Equal(fixture.comparison.expected) {
+	if err != nil || len(loaded.groups) != 1 || !loaded.images[0].original.document.Equal(fixture.comparison.BeforeDocument()) || !loaded.images[0].expected.document.Equal(fixture.comparison.ExpectedDocument()) {
 		t.Fatalf("mixed document images cannot reconstruct: %v", err)
 	}
-	if initialBytes-budget.RemainingBytes() < 4*int64(len(fixture.ordinary))+int64(len(content))+fixture.comparison.before.ContentSize()+fixture.comparison.expected.ContentSize() {
+	if initialBytes-budget.RemainingBytes() < 4*int64(len(fixture.ordinary))+int64(len(content))+fixture.comparison.BeforeDocument().ContentSize()+fixture.comparison.ExpectedDocument().ContentSize() {
 		t.Fatal("backup observation, seal, revalidation or copy work escaped the shared budget")
 	}
 	fixture.whole.requireUnchangedHost(t)
@@ -178,7 +180,7 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 			fixture := mixedStageFixture(t)
 			budget := imageBudget(t)
 			source, directory := fixture.source(t, budget)
-			comparisons := []DocumentComparison{fixture.comparison}
+			comparisons := []journaldocument.Comparison{fixture.comparison}
 			switch change {
 			case "operation":
 				source.record.OperationID = "other"
@@ -205,7 +207,7 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 			case "extra backup":
 				requireWholeGroupWrite(t, filepath.Join(directory, "files", "other"), []byte("extra"), 0o600)
 			case "invalid native":
-				comparisons[0] = DocumentComparison{}
+				comparisons[0] = journaldocument.Comparison{}
 			case "combined bytes":
 				merged := fixture.journal
 				merged.record.Entries = source.record.Entries
@@ -213,7 +215,7 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				nativeBytes := int64(len(content)) + fixture.comparison.before.ContentSize() + fixture.comparison.expected.ContentSize()
+				nativeBytes := int64(len(content)) + fixture.comparison.BeforeDocument().ContentSize() + fixture.comparison.ExpectedDocument().ContentSize()
 				work, _ := workmeasure.NewArtifactWork(0, budget.RemainingBytes()-nativeBytes-2*source.work.Bytes()+1)
 				if err := budget.AdmitTree(work); err != nil {
 					t.Fatal(err)
@@ -301,7 +303,7 @@ func TestNativeMixedJournalFailureCleansBothPrivateTrees(t *testing.T) {
 					return failure
 				}}
 				var err error
-				fingerprint, err = fixture.journal.stageMixedDocumentJournal(ctx, fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, wrapped, fixture.stageOptions(budget))
+				fingerprint, err = fixture.journal.stageMixedDocumentJournal(ctx, fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison}, wrapped, fixture.stageOptions(budget))
 				return err
 			})
 			cause := failure
@@ -335,7 +337,7 @@ func TestNativeMixedJournalCopyRejectsPostSealMutation(t *testing.T) {
 			requireWholeGroupWrite(t, filepath.Join(directory, "files", "000001"), []byte("changed after revalidation"), 0o700)
 		}}
 		var err error
-		fingerprint, err = fixture.journal.stageWithOrdinarySource(t.Context(), source, []DocumentComparison{fixture.comparison}, wrapped, fixture.stageOptions(budget))
+		fingerprint, err = fixture.journal.stageWithOrdinarySource(t.Context(), source, []journaldocument.Comparison{fixture.comparison}, wrapped, fixture.stageOptions(budget))
 		return err
 	})
 	if err == nil || fingerprint != "" {
@@ -414,7 +416,7 @@ func TestNativeMixedJournalCombinesSelectedWholeAndDirectoryBackups(t *testing.T
 	var fingerprint string
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		var err error
-		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison, comparison}, writer, fixture.stageOptions(imageBudget(t)))
+		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison, comparison}, writer, fixture.stageOptions(imageBudget(t)))
 		return err
 	})
 	if err != nil {
@@ -454,7 +456,7 @@ func TestNativeMixedJournalCombinesSelectedWholeAndDirectoryBackups(t *testing.T
 	read := fixture.whole.envelope.read
 	read.artifacts, read.budget = artifacts, imageBudget(t)
 	loaded, err := decoded.loadDocuments(t.Context(), read)
-	if err != nil || len(loaded.groups) != 2 || !loaded.images[1].original.document.Equal(comparison.before) || !loaded.images[1].expected.document.Equal(comparison.expected) {
+	if err != nil || len(loaded.groups) != 2 || !loaded.images[1].original.document.Equal(comparison.BeforeDocument()) || !loaded.images[1].expected.document.Equal(comparison.ExpectedDocument()) {
 		t.Fatalf("multiple mixed groups cannot reconstruct: %v", err)
 	}
 }
@@ -482,7 +484,7 @@ func TestNativeMixedJournalCleanupFailureClearsSuccessfulFingerprint(t *testing.
 			return nil
 		}}
 		var err error
-		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, wrapped, fixture.stageOptions(imageBudget(t)))
+		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison}, wrapped, fixture.stageOptions(imageBudget(t)))
 		return err
 	})
 	if err == nil || fingerprint != "" {
@@ -500,7 +502,7 @@ func TestNativeMixedJournalAllowsEmptyOrdinaryBackupSource(t *testing.T) {
 	var fingerprint string
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		var err error
-		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
+		fingerprint, err = fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
 		return err
 	})
 	if err != nil {
@@ -535,7 +537,7 @@ func TestNativeMixedJournalExhaustedSourceBudgetCleansWithoutFinalWrites(t *test
 				t.Fatal(err)
 			}
 			writer := &mixedNoWriteWriter{}
-			fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, writer, fixture.stageOptions(budget))
+			fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison}, writer, fixture.stageOptions(budget))
 			if err == nil || fingerprint != "" || writer.writes != 0 || writer.directories != 0 {
 				t.Fatalf("exhausted source budget escaped: %v", err)
 			}

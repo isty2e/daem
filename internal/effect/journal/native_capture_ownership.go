@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -44,15 +46,15 @@ func (input nativeCaptureOwnershipInput) membership(ctx context.Context) (native
 	if err := validateNativeDocumentCaptureInput(ctx, base); err != nil {
 		return nativeCaptureMembership{}, err
 	}
-	indexes, err := indexDocumentSnapshots(ctx, input.before, input.after)
+	indexes, err := journaldocument.IndexSnapshots(ctx, input.before, input.after)
 	if err != nil {
 		return nativeCaptureMembership{}, err
 	}
-	beforeNative, err := indexes.before.nativeDestinations(ctx)
+	beforeNative, err := indexes.Before().NativeDestinations(ctx)
 	if err != nil {
 		return nativeCaptureMembership{}, err
 	}
-	afterNative, err := indexes.after.nativeDestinations(ctx)
+	afterNative, err := indexes.After().NativeDestinations(ctx)
 	if err != nil {
 		return nativeCaptureMembership{}, err
 	}
@@ -66,7 +68,7 @@ func (input nativeCaptureOwnershipInput) membership(ctx context.Context) (native
 		if len(aliases) == 0 {
 			return nativeCaptureMembership{}, fmt.Errorf("native capture requires admitted document aliases")
 		}
-		if _, err := documentAliasSet(ctx, aliases); err != nil {
+		if _, err := journaldocument.AliasSet(ctx, aliases); err != nil {
 			return nativeCaptureMembership{}, err
 		}
 		if _, err := persistedNativeObservation(namespace.observation); err != nil {
@@ -81,11 +83,11 @@ func (input nativeCaptureOwnershipInput) membership(ctx context.Context) (native
 			_, has := afterNative[alias.AggregateRoot()]
 			needsRegistry = needsRegistry || had || has
 		}
-		beforeFootprints[index], err = indexes.before.documentFootprints(ctx, aliases)
+		beforeFootprints[index], err = indexes.Before().Footprints(ctx, aliases)
 		if err != nil {
 			return nativeCaptureMembership{}, err
 		}
-		afterFootprints[index], err = indexes.after.documentFootprints(ctx, aliases)
+		afterFootprints[index], err = indexes.After().Footprints(ctx, aliases)
 		if err != nil {
 			return nativeCaptureMembership{}, err
 		}

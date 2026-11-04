@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -48,7 +50,7 @@ func TestNativeDocumentJournalStageUsesActualWholeProducer(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				requireStagedDocumentJournal(t, fixture.envelope, decoded, []DocumentComparison{comparison})
+				requireStagedDocumentJournal(t, fixture.envelope, decoded, []journaldocument.Comparison{comparison})
 				fixture.requireUnchangedHost(t)
 			})
 		}
@@ -87,7 +89,7 @@ func TestNativeDocumentJournalStagePreservesMultipleActualGroups(t *testing.T) {
 	second.input.bindings = []ownership.DocumentBindingIntent{intent}
 	first.input.groupIndex, second.input.groupIndex = 0, 1
 	var groups []recoveryDocumentGroup
-	var comparisons []DocumentComparison
+	var comparisons []journaldocument.Comparison
 	for _, fixture := range []wholeGroupTestFixture{first, second} {
 		group, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
 		if err != nil {
@@ -131,7 +133,7 @@ func TestNativeDocumentJournalStageRejectsAllInvalidMetadataBeforeWrites(t *test
 		t.Run(change, func(t *testing.T) {
 			fixture, decoded, comparison := preparedNativeFixture(t)
 			options := documentStageOptions(fixture, imageBudget(t))
-			comparisons := []DocumentComparison{comparison}
+			comparisons := []journaldocument.Comparison{comparison}
 			ctx := t.Context()
 			switch change {
 			case "missing comparison":
@@ -151,7 +153,7 @@ func TestNativeDocumentJournalStageRejectsAllInvalidMetadataBeforeWrites(t *test
 				late.BindingIntents, late.SelectedSubjects = []recoveryDocumentBindingIntent{}, []persistedSubjectRef{}
 				late.ExclusiveClaims = recoveryDocumentClaimSet{Kind: "absent"}
 				decoded.record.DocumentGroups = append(decoded.record.DocumentGroups, late)
-				comparisons = append(comparisons, DocumentComparison{})
+				comparisons = append(comparisons, journaldocument.Comparison{})
 			case "missing codec":
 				options.stateCodec = nil
 			case "pre-cancel":
@@ -173,7 +175,7 @@ func TestNativeDocumentJournalStagePreflightsJournalAndAllImageWork(t *testing.T
 		t.Run(shortage, func(t *testing.T) {
 			fixture, decoded, comparison := preparedNativeFixture(t)
 			budget := imageBudget(t)
-			imageBytes := comparison.before.ContentSize() + comparison.expected.ContentSize()
+			imageBytes := comparison.BeforeDocument().ContentSize() + comparison.ExpectedDocument().ContentSize()
 			remainingBytes, remainingEntries := budget.RemainingBytes(), budget.RemainingEntries()
 			consumeEntries, consumeBytes := 0, int64(0)
 			switch shortage {
@@ -193,7 +195,7 @@ func TestNativeDocumentJournalStagePreflightsJournalAndAllImageWork(t *testing.T
 			}
 			remainingBytes, remainingEntries = budget.RemainingBytes(), budget.RemainingEntries()
 			writer := &imageStageWriter{}
-			fingerprint, err := decoded.stageDocumentJournal(t.Context(), []DocumentComparison{comparison}, writer, documentStageOptions(fixture, budget))
+			fingerprint, err := decoded.stageDocumentJournal(t.Context(), []journaldocument.Comparison{comparison}, writer, documentStageOptions(fixture, budget))
 			if err == nil || fingerprint != "" || writer.writes != 0 || writer.directories != 0 || budget.RemainingBytes() != remainingBytes || budget.RemainingEntries() != remainingEntries {
 				t.Fatalf("budget refusal wrote or charged unattempted artifacts: %v", err)
 			}
@@ -230,7 +232,7 @@ func TestNativeDocumentJournalStageLateFailureAbortsCompletePrivateTree(t *testi
 					return failure
 				}}
 				var err error
-				fingerprint, err = decoded.stageDocumentJournal(ctx, []DocumentComparison{comparison}, wrapped, documentStageOptions(fixture, budget))
+				fingerprint, err = decoded.stageDocumentJournal(ctx, []journaldocument.Comparison{comparison}, wrapped, documentStageOptions(fixture, budget))
 				return err
 			})
 			cause := failure
@@ -240,7 +242,7 @@ func TestNativeDocumentJournalStageLateFailureAbortsCompletePrivateTree(t *testi
 			if !errors.Is(err, cause) || fingerprint != "" || remainingEntries-budget.RemainingEntries() != 1+test.at {
 				t.Fatalf("failed complete stage exposed evidence or lost entry charges: %v", err)
 			}
-			imageBytes := comparison.before.ContentSize() + comparison.expected.ContentSize()
+			imageBytes := comparison.BeforeDocument().ContentSize() + comparison.ExpectedDocument().ContentSize()
 			if remainingBytes-budget.RemainingBytes() < imageBytes || (test.at == 3 && remainingBytes-budget.RemainingBytes() == imageBytes) {
 				t.Fatal("failed journal write erased its conservative byte charge")
 			}
@@ -265,7 +267,7 @@ func TestNativeDocumentJournalStageDiscardsFingerprintAfterFinalCheckCancellatio
 	var stageErr error
 	_, err := journalTestFilesystem().PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
 		wrapped := journalCompletionWriter{RootedTreeWriter: writer, context: ctx}
-		fingerprint, stageErr = decoded.stageDocumentJournal(ctx, []DocumentComparison{comparison}, wrapped, documentStageOptions(fixture, imageBudget(t)))
+		fingerprint, stageErr = decoded.stageDocumentJournal(ctx, []journaldocument.Comparison{comparison}, wrapped, documentStageOptions(fixture, imageBudget(t)))
 		return stageErr
 	})
 	if !errors.Is(stageErr, context.Canceled) || fingerprint != "" || !errors.Is(err, context.Canceled) {
@@ -311,7 +313,7 @@ func documentStageOptions(fixture nativeRecordFixture, budget *physicalwork.Budg
 	return nativeDocumentStageOptions{stateCodec: fixture.codec, codecs: fixture.read.codecs, limits: fixture.read.limits, budget: budget}
 }
 
-func requireStagedDocumentJournal(t *testing.T, fixture nativeRecordFixture, decoded nativeJournalSnapshots, comparisons []DocumentComparison) {
+func requireStagedDocumentJournal(t *testing.T, fixture nativeRecordFixture, decoded nativeJournalSnapshots, comparisons []journaldocument.Comparison) {
 	t.Helper()
 	destination, capability := imageStageDestination(t)
 	budget := imageBudget(t)
@@ -359,11 +361,11 @@ func requireStagedDocumentJournal(t *testing.T, fixture nativeRecordFixture, dec
 	}
 	workBytes, workEntries := int64(len(content)), 1
 	for index, comparison := range comparisons {
-		if !loaded.images[index].original.document.Equal(comparison.before) || !loaded.images[index].expected.document.Equal(comparison.expected) {
+		if !loaded.images[index].original.document.Equal(comparison.BeforeDocument()) || !loaded.images[index].expected.document.Equal(comparison.ExpectedDocument()) {
 			t.Fatal("staged record lost comparison bytes/presence")
 		}
 		files := 0
-		for _, image := range []aggregate.Document{comparison.before, comparison.expected} {
+		for _, image := range []aggregate.Document{comparison.BeforeDocument(), comparison.ExpectedDocument()} {
 			if image.Exists() {
 				files++
 				workBytes += image.ContentSize()

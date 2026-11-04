@@ -43,7 +43,7 @@ func TestQualifiedNativeRecordJoinsActualRootsImagesAndSemanticRollback(t *testi
 	if readErr != nil || closeErr != nil || !bytes.Equal(host, loaded.records.images[0].original.document.Content()) {
 		t.Fatalf("qualified capability did not read the retained original host: %v, %v", readErr, closeErr)
 	}
-	restored, err := loaded.records.groups[0].comparison.RestoreBefore(t.Context(), loaded.records.images[0].expected.document, recovery.NewPermissionMode(mode))
+	restored, err := loaded.records.groups[0].Comparison().RestoreBefore(t.Context(), loaded.records.images[0].expected.document, recovery.NewPermissionMode(mode))
 	if err != nil {
 		t.Fatalf("qualified record lost semantic rollback: %v", err)
 	}
@@ -224,8 +224,17 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 		t.Fatal(err)
 	}
 	loaded, err := decoded.loadQualifiedDocuments(t.Context(), fixture.read, roots)
-	if err != nil || len(loaded.records.groups) != 1 || loaded.records.groups[0].comparison.order == nil {
+	if err != nil || len(loaded.records.groups) != 1 || !loaded.records.groups[0].Comparison().Changed() {
 		t.Fatalf("captured lexical/physical context was conflated: %v", err)
+	}
+	comparison := loaded.records.groups[0].Comparison()
+	mode, present := comparison.ExpectedState().RegularFileMode()
+	if !present {
+		t.Fatal("loaded Pi-order witness lost its regular-file mode")
+	}
+	restored, err := comparison.RestoreBefore(t.Context(), comparison.ExpectedDocument(), &mode)
+	if err != nil || !restored.Document().Equal(comparison.BeforeDocument()) {
+		t.Fatalf("qualified Pi-order evidence lost its actual inverse: %v", err)
 	}
 	other := nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "different-command"))
 	decoded.record.DocumentGroups[0].PiOrder.Evidence.Relations[0].SourceContext.BaseRoot = other.SelectedPath

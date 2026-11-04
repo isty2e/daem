@@ -3,12 +3,12 @@ package journal
 import (
 	"context"
 	"fmt"
-	"slices"
+
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -17,7 +17,7 @@ import (
 
 // prepareDocuments checks prepared images against the complete record without
 // artifact I/O. Source/action and live namespace authority remain separate joins.
-func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comparisons []DocumentComparison, limits configdocument.Limits, codecs aggregate.CodecCatalog) (nativeDocumentRecords, error) {
+func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comparisons []journaldocument.Comparison, limits configdocument.Limits, codecs aggregate.CodecCatalog) (nativeDocumentRecords, error) {
 	if ctx == nil {
 		return nativeDocumentRecords{}, fmt.Errorf("prepared native document context is required")
 	}
@@ -39,7 +39,7 @@ func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comp
 	if len(comparisons) != len(journal.record.DocumentGroups) {
 		return nativeDocumentRecords{}, fmt.Errorf("prepared comparisons must cover every recorded document group exactly once")
 	}
-	indexes, err := indexDocumentSnapshots(ctx, journal.before, journal.after)
+	indexes, err := journaldocument.IndexSnapshots(ctx, journal.before, journal.after)
 	if err != nil {
 		return nativeDocumentRecords{}, err
 	}
@@ -47,8 +47,8 @@ func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comp
 	if err != nil {
 		return nativeDocumentRecords{}, err
 	}
-	var inputs []documentStateGroupInput
-	var canonicalComparisons []DocumentComparison
+	var inputs []journaldocument.StateGroupInput
+	var canonicalComparisons []journaldocument.Comparison
 	result := nativeDocumentRecords{}
 	for index, record := range journal.record.DocumentGroups {
 		if err := ctx.Err(); err != nil {
@@ -61,7 +61,7 @@ func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comp
 		if err != nil {
 			return nativeDocumentRecords{}, err
 		}
-		selections, err := indexes.selectedContracts(ctx, subjects, aliases)
+		selections, err := indexes.SelectedContracts(ctx, subjects, aliases)
 		if err != nil {
 			return nativeDocumentRecords{}, err
 		}
@@ -81,11 +81,11 @@ func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comp
 		if err != nil {
 			return nativeDocumentRecords{}, err
 		}
-		if err := comparison.requireCanonicalRecoveryPolicy(ctx, reconstructed); err != nil {
+		if err := comparison.RequireCanonicalRecoveryPolicy(ctx, reconstructed); err != nil {
 			return nativeDocumentRecords{}, err
 		}
 		canonicalComparisons = append(canonicalComparisons, reconstructed)
-		inputs = append(inputs, documentStateGroupInput{aliases: aliases, selectedSubjects: subjects, comparison: comparison, bindingIntents: bindings[index]})
+		inputs = append(inputs, journaldocument.NewStateGroupInput(aliases, subjects, comparison, bindings[index]))
 		result.images = append(result.images, images)
 		result.claims = append(result.claims, claims)
 		result.provisional = append(result.provisional, provisional)
@@ -98,44 +98,13 @@ func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comp
 		if err := ctx.Err(); err != nil {
 			return nativeDocumentRecords{}, err
 		}
-		completed.groups[index].comparison = comparison
+		group, err := completed.groups[index].CanonicalRecovery(ctx, comparison)
+		if err != nil {
+			return nativeDocumentRecords{}, err
+		}
+		completed.groups[index] = group
 	}
 	return completed, nil
-}
-
-func (comparison DocumentComparison) requireCanonicalRecoveryPolicy(ctx context.Context, canonical DocumentComparison) error {
-	if (comparison.order == nil) != (canonical.order == nil) {
-		return fmt.Errorf("prepared package order differs from the recorded comparison")
-	}
-	participants := make(map[documentSelectionKey]compose.Participant, len(canonical.participants))
-	for _, participant := range canonical.participants {
-		selection := participant.Selection()
-		participants[documentSelectionKey{document: selection.DocumentAddress(), codec: selection.CodecContractID()}] = participant
-	}
-	areas := make(map[documentSelectionKey][]output.KeyPath, len(participants))
-	for _, participant := range comparison.participants {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		selection := participant.Selection()
-		key := documentSelectionKey{document: selection.DocumentAddress(), codec: selection.CodecContractID()}
-		expected, found := participants[key]
-		if !found || participant.Syntax() != expected.Syntax() {
-			return fmt.Errorf("prepared participant grammar or codec contract differs from the operation")
-		}
-		areas[key] = append(areas[key], participant.RewriteAreas()...)
-	}
-	for _, participant := range canonical.participants {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		selection := participant.Selection()
-		key := documentSelectionKey{document: selection.DocumentAddress(), codec: selection.CodecContractID()}
-		if !slices.Equal(output.TopmostKeyPaths(areas[key]), participant.RewriteAreas()) {
-			return fmt.Errorf("prepared native rewrite envelope differs from the operation")
-		}
-	}
-	return ctx.Err()
 }
 
 func (record recoveryDocumentGroup) canonicalReferences(ctx context.Context) ([]aggregate.DocumentAddress, []topology.SubjectID, error) {
@@ -164,16 +133,16 @@ func (record recoveryDocumentGroup) canonicalReferences(ctx context.Context) ([]
 	return aliases, subjects, nil
 }
 
-func reconstructNativeDocumentComparison(ctx context.Context, record recoveryDocumentGroup, images loadedDocumentImages, selections []aggregate.Selection, limits configdocument.Limits, codecs aggregate.CodecCatalog) (DocumentComparison, error) {
-	input := DocumentComparisonInput{Before: images.original.document, Expected: images.expected.document, BeforeMode: images.original.mode, ExpectedMode: images.expected.mode, Limits: limits}
+func reconstructNativeDocumentComparison(ctx context.Context, record recoveryDocumentGroup, images loadedDocumentImages, selections []aggregate.Selection, limits configdocument.Limits, codecs aggregate.CodecCatalog) (journaldocument.Comparison, error) {
+	input := journaldocument.ComparisonInput{Before: images.original.document, Expected: images.expected.document, BeforeMode: images.original.mode, ExpectedMode: images.expected.mode, Limits: limits}
 	if record.Extent == "whole" {
-		return NewWholeDocumentComparison(ctx, input)
+		return journaldocument.NewWholeComparison(ctx, input)
 	}
 	participants := make([]compose.Participant, 0, len(selections))
 	for _, selection := range selections {
-		participant, err := NativeJournalParticipant(selection, codecs)
+		participant, err := journaldocument.Participant(selection, codecs)
 		if err != nil {
-			return DocumentComparison{}, err
+			return journaldocument.Comparison{}, err
 		}
 		participants = append(participants, participant)
 	}
@@ -181,13 +150,13 @@ func reconstructNativeDocumentComparison(ctx context.Context, record recoveryDoc
 	if record.PiOrder != nil {
 		observed, err := record.PiOrder.Evidence.canonical(ctx, images.original.document)
 		if err != nil {
-			return DocumentComparison{}, err
+			return journaldocument.Comparison{}, err
 		}
 		order = &observed
 	}
-	candidate, err := ReconstructSelectedDocument(ctx, input, participants, order)
+	candidate, err := journaldocument.ReconstructSelected(ctx, input, participants, order)
 	if err != nil {
-		return DocumentComparison{}, err
+		return journaldocument.Comparison{}, err
 	}
 	comparison := candidate.Comparison()
 	relations := make([]aggregate.DocumentAddress, 0, len(selections)+1)
@@ -197,44 +166,44 @@ func reconstructNativeDocumentComparison(ctx context.Context, record recoveryDoc
 	if record.PiOrder != nil {
 		alias, err := record.PiOrder.Alias.canonical()
 		if err != nil {
-			return DocumentComparison{}, err
+			return journaldocument.Comparison{}, err
 		}
 		relations = append(relations, alias)
 	}
-	expected, err := comparison.removalDemands(ctx, relations)
+	expected, err := comparison.RemovalDemands(ctx, relations)
 	if err != nil {
-		return DocumentComparison{}, err
+		return journaldocument.Comparison{}, err
 	}
 	actual := recovery.RemovalDemandSet{}
 	if record.Removal != nil {
 		removal, err := record.Removal.canonical()
 		if err != nil {
-			return DocumentComparison{}, err
+			return journaldocument.Comparison{}, err
 		}
 		actual = removal.Demands()
 	}
 	if !actual.Equal(expected) {
-		return DocumentComparison{}, fmt.Errorf("selected removal demands do not exactly cover the actual frontier")
+		return journaldocument.Comparison{}, fmt.Errorf("selected removal demands do not exactly cover the actual frontier")
 	}
 	return comparison, nil
 }
 
-func preparedNativeDocumentImages(ctx context.Context, record recoveryDocumentGroup, comparison DocumentComparison, limits configdocument.Limits) (loadedDocumentImages, error) {
+func preparedNativeDocumentImages(ctx context.Context, record recoveryDocumentGroup, comparison journaldocument.Comparison, limits configdocument.Limits) (loadedDocumentImages, error) {
 	if err := comparison.Validate(); err != nil {
 		return loadedDocumentImages{}, err
 	}
-	if comparison.limits != limits || comparison.whole != (record.Extent == "whole") {
+	if comparison.Limits() != limits || comparison.WholeDocument() != (record.Extent == "whole") {
 		return loadedDocumentImages{}, fmt.Errorf("prepared document extent or limits differ from the operation")
 	}
 	images := loadedDocumentImages{
-		original: loadedDocumentImage{document: comparison.before, mode: comparison.beforeMode(), initialized: true},
-		expected: loadedDocumentImage{document: comparison.expected, initialized: true},
+		original: loadedDocumentImage{document: comparison.BeforeDocument(), mode: comparison.BeforeMode(), initialized: true},
+		expected: loadedDocumentImage{document: comparison.ExpectedDocument(), initialized: true},
 	}
-	if mode, present := comparison.expectedState.RegularFileMode(); present {
+	if mode, present := comparison.ExpectedState().RegularFileMode(); present {
 		images.expected.mode = &mode
 	}
 	for index, image := range []loadedDocumentImage{images.original, images.expected} {
-		if err := validateComparisonDocument(ctx, image.document, limits); err != nil {
+		if err := journaldocument.ValidateImage(ctx, image.document, limits); err != nil {
 			return loadedDocumentImages{}, err
 		}
 		if err := image.validate(); err != nil {

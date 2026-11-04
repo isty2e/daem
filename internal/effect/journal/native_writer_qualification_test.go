@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -25,7 +27,7 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	actual := filepath.Join(root.SelectedPath, ".agents", "skills", "CaseOwner")
 	variant := filepath.Join(root.SelectedPath, ".agents", "skills", "caseowner")
 	physical := filepath.Join(actual, "host.md")
-	requireWholeGroupWrite(t, physical, fixture.comparison.before.Content(), 0o644)
+	requireWholeGroupWrite(t, physical, fixture.comparison.BeforeDocument().Content(), 0o644)
 	before, err := os.Stat(actual)
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +121,7 @@ func TestNativeMixedWriterCaseCollisionRefusesBeforeFinalWriter(t *testing.T) {
 	temporary := t.TempDir()
 	t.Setenv("TMPDIR", temporary)
 	writer := &mixedNoWriteWriter{}
-	fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []DocumentComparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
+	fingerprint, err := fixture.journal.stageMixedDocumentJournal(t.Context(), fixture.paths, fixture.capture, []journaldocument.Comparison{fixture.comparison}, writer, fixture.stageOptions(imageBudget(t)))
 	if err == nil || fingerprint != "" || writer.writes != 0 || writer.directories != 0 {
 		t.Fatalf("case collision reached final writer or returned a usable fingerprint: %v", err)
 	}

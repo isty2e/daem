@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
+
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
@@ -14,7 +15,6 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
-	"github.com/isty2e/daem/internal/topology"
 )
 
 type nativePlanningOwnershipBaseline struct {
@@ -29,7 +29,7 @@ type nativePlanningOwnershipBaseline struct {
 type NativeOwnershipProjection struct {
 	owner       stateauthority.Authority
 	registry    ownership.Registry
-	before      documentSnapshotIndex
+	before      journaldocument.SnapshotIndex
 	baselines   map[aggregate.DocumentAddress]nativePlanningOwnershipBaseline
 	budget      *physicalwork.Budget
 	initialized bool
@@ -42,11 +42,11 @@ func (batch NativeDocumentObservationBatch) Ownership(ctx context.Context) (Nati
 	if err := errors.Join(ctx.Err(), batch.budget.RequireCapturePending()); err != nil {
 		return NativeOwnershipProjection{}, err
 	}
-	before, err := indexDocumentSnapshot(ctx, batch.before)
+	before, err := journaldocument.IndexSnapshot(ctx, batch.before)
 	if err != nil {
 		return NativeOwnershipProjection{}, err
 	}
-	native, err := before.nativeDestinations(ctx)
+	native, err := before.NativeDestinations(ctx)
 	if err != nil {
 		return NativeOwnershipProjection{}, err
 	}
@@ -62,7 +62,7 @@ func (batch NativeDocumentObservationBatch) Ownership(ctx context.Context) (Nati
 	baselines := make(map[aggregate.DocumentAddress]nativePlanningOwnershipBaseline)
 	input := nativeCaptureOwnershipInput{owner: batch.owner}
 	for _, namespace := range batch.namespaces {
-		footprints, err := before.documentFootprints(ctx, namespace.Addresses())
+		footprints, err := before.Footprints(ctx, namespace.Addresses())
 		if err != nil {
 			return NativeOwnershipProjection{}, err
 		}
@@ -162,7 +162,7 @@ func (projection NativeOwnershipProjection) Participants(ctx context.Context, al
 		return observe.NativeDocumentParticipants{}, err
 	}
 	aliases := baseline.namespace.Addresses()
-	subjects, err := projection.before.documentSubjects(ctx, aliases)
+	subjects, err := projection.before.Subjects(ctx, aliases)
 	if err != nil {
 		return observe.NativeDocumentParticipants{}, err
 	}
@@ -199,7 +199,7 @@ func (projection NativeOwnershipProjection) Document(ctx context.Context, alias 
 		return observe.NativeDocumentClaimObservation{}, err
 	}
 	aliases := baseline.namespace.Addresses()
-	subjects, err := projection.before.documentSubjects(ctx, aliases)
+	subjects, err := projection.before.Subjects(ctx, aliases)
 	if err != nil {
 		return observe.NativeDocumentClaimObservation{}, err
 	}
@@ -214,40 +214,4 @@ func (projection NativeOwnershipProjection) Document(ctx context.Context, alias 
 		return observe.NativeDocumentClaimObservation{}, err
 	}
 	return result, nil
-}
-
-func (index documentSnapshotIndex) documentSubjects(ctx context.Context, aliases []aggregate.DocumentAddress) ([]topology.SubjectID, error) {
-	addresses, err := documentAliasSet(ctx, aliases)
-	if err != nil {
-		return nil, err
-	}
-	seen := make(map[topology.SubjectID]struct{})
-	for _, row := range index.aggregates {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if _, selected := addresses[row.Contribution().Contract().Address().Document()]; selected {
-			seen[row.Subject()] = struct{}{}
-		}
-	}
-	for _, row := range index.paths {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		for _, selected := range row.ConsumerTargets() {
-			address, err := aggregate.NewDocumentAddress(selected, row.Scope(), row.Destination())
-			if err != nil {
-				return nil, err
-			}
-			if _, present := addresses[address]; present {
-				seen[row.Subject()] = struct{}{}
-			}
-		}
-	}
-	subjects := make([]topology.SubjectID, 0, len(seen))
-	for subject := range seen {
-		subjects = append(subjects, subject)
-	}
-	slices.SortFunc(subjects, topology.CompareSubjectID)
-	return subjects, ctx.Err()
 }

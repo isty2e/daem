@@ -1,10 +1,10 @@
-package journal_test
+package document_test
 
 import (
 	"context"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
@@ -20,7 +20,7 @@ func TestDocumentRestorationRollsBackBothMixedNativePiDirections(t *testing.T) {
 	before := `{"model":"balanced","outside":"old","packages":["npm:a","npm:b"]}`
 	expected := `{"model":"fast","outside":"old","packages":["npm:b","npm:a"]}`
 	order := comparisonOrder(t, before, expected)
-	comparison, err := journal.NewSelectedDocumentComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "model")}, &order)
+	comparison, err := document.NewSelectedComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "model")}, &order)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestDocumentRestorationPreservesForeignMCPParentAndRetries(t *testing.T) {
 	mode := recovery.PermissionMode(0o600)
 	before := "model='balanced'\n"
 	expected := "model='fast'\n[mcp_servers.search]\ncommand='node'\n"
-	comparison, err := journal.NewSelectedDocumentComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), restorationMCPParticipants(t), nil)
+	comparison, err := document.NewSelectedComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), restorationMCPParticipants(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,9 +112,9 @@ func TestDocumentRestorationPreservesForeignMCPParentAndRetries(t *testing.T) {
 }
 
 func TestDocumentRestorationKeepsWholeAndSelectedExistenceSeparate(t *testing.T) {
-	beforeMode, expectedMode := recovery.PermissionMode(0o644), recovery.PermissionMode(0o600)
-	input := comparisonInput("opaque original", "opaque expected", &beforeMode, &expectedMode)
-	whole, err := journal.NewWholeDocumentComparison(t.Context(), input)
+	BeforeMode, expectedMode := recovery.PermissionMode(0o644), recovery.PermissionMode(0o600)
+	input := comparisonInput("opaque original", "opaque expected", &BeforeMode, &expectedMode)
+	whole, err := document.NewWholeComparison(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,11 +122,11 @@ func TestDocumentRestorationKeepsWholeAndSelectedExistenceSeparate(t *testing.T)
 	if err != nil || !restored.Document().Equal(input.Before) || !restored.Changed() {
 		t.Fatalf("whole restoration did not recover original bytes: %v", err)
 	}
-	if actual, present := restored.RegularFileMode(); !present || actual != beforeMode {
+	if actual, present := restored.RegularFileMode(); !present || actual != BeforeMode {
 		t.Fatal("whole restoration did not recover original exact mode")
 	}
 	input.Before, input.BeforeMode = aggregate.AbsentDocument(), nil
-	whole, err = journal.NewWholeDocumentComparison(t.Context(), input)
+	whole, err = document.NewWholeComparison(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestDocumentRestorationKeepsWholeAndSelectedExistenceSeparate(t *testing.T)
 	}
 	input = comparisonInput("", `{"model":"fast"}`, nil, &expectedMode)
 	input.Before = aggregate.AbsentDocument()
-	selected, err := journal.NewSelectedDocumentComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "model")}, nil)
+	selected, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "model")}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestDocumentRestorationRefusesThirdStateWithoutUsableCandidate(t *testing.T
 	mode := recovery.PermissionMode(0o600)
 	before, expected := `{"model":1,"packages":["npm:a","npm:b"]}`, `{"model":2,"packages":["npm:b","npm:a"]}`
 	order := comparisonOrder(t, before, expected)
-	comparison, err := journal.NewSelectedDocumentComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "model")}, &order)
+	comparison, err := document.NewSelectedComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "model")}, &order)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestDocumentRestorationRefusesThirdStateWithoutUsableCandidate(t *testing.T
 func TestDocumentRestorationEmptySelectionDoesNotRestoreUnmanagedBytes(t *testing.T) {
 	mode := recovery.PermissionMode(0)
 	input := comparisonInput(`{"released":"old"}`, `{"released":"old"}`, &mode, &mode)
-	comparison, err := journal.NewSelectedDocumentComparison(t.Context(), input, nil, nil)
+	comparison, err := document.NewSelectedComparison(t.Context(), input, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

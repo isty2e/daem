@@ -1,4 +1,4 @@
-package journal
+package document
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec/native"
+	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	nativecodec "github.com/isty2e/daem/internal/realization/aggregate/codec/native"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -27,7 +27,7 @@ func TestDocumentSelectionFrontierReconstructsActualParentContract(t *testing.T)
 	child := selectionNativeRow(t, piSelectionContract(t, ".pi/native.json", "node", "leaf"), "2")
 	outside := selectionNativeRow(t, piSelectionContract(t, ".pi/native.json", "outside"), "8")
 	indexes := selectionIndexes(t, selectionState(t, parent, outside), selectionState(t, child, outside))
-	selections, err := indexes.selectedContracts(t.Context(), []topology.SubjectID{child.Subject(), parent.Subject()}, []aggregate.DocumentAddress{parent.Contribution().Contract().Address().Document()})
+	selections, err := indexes.SelectedContracts(t.Context(), []topology.SubjectID{child.Subject(), parent.Subject()}, []aggregate.DocumentAddress{parent.Contribution().Contract().Address().Document()})
 	if err != nil || len(selections) != 1 || len(selections[0].Contracts()) != 1 || !selections[0].Contracts()[0].Equal(parent.Contribution().Contract()) {
 		t.Fatalf("actual parent frontier: selections=%d error=%v", len(selections), err)
 	}
@@ -42,7 +42,7 @@ func TestDocumentSelectionFrontierReconstructsActualParentContract(t *testing.T)
 		t.Fatal(err)
 	}
 	mode := recovery.NewPermissionMode(0o600)
-	comparison, err := NewSelectedDocumentComparison(t.Context(), DocumentComparisonInput{
+	comparison, err := NewSelectedComparison(t.Context(), ComparisonInput{
 		Before:     aggregate.ExistingDocument([]byte(`{"node":1,"outside":8}`)),
 		Expected:   aggregate.ExistingDocument([]byte(`{"node":{"leaf":2},"outside":8}`)),
 		BeforeMode: mode, ExpectedMode: mode, Limits: limits,
@@ -74,14 +74,14 @@ func TestDocumentSelectionNarrowingDoesNotSelectWholeOrReleasedState(t *testing.
 	}
 	indexes := selectionIndexes(t, before, selectionState(t, retained, other))
 	aliases := []aggregate.DocumentAddress{retained.Contribution().Contract().Address().Document()}
-	selected, err := indexes.selectedContracts(t.Context(), []topology.SubjectID{retained.Subject()}, aliases)
+	selected, err := indexes.SelectedContracts(t.Context(), []topology.SubjectID{retained.Subject()}, aliases)
 	if err != nil || len(selected) != 1 || len(selected[0].Contracts()) != 1 || !selected[0].Contracts()[0].Equal(retained.Contribution().Contract()) {
 		t.Fatalf("narrowing selection: groups=%d error=%v", len(selected), err)
 	}
-	if selected, err := indexes.selectedContracts(t.Context(), nil, aliases); err != nil || len(selected) != 0 {
+	if selected, err := indexes.SelectedContracts(t.Context(), nil, aliases); err != nil || len(selected) != 0 {
 		t.Fatalf("release-only selection: groups=%d error=%v", len(selected), err)
 	}
-	if selected, err := indexes.selectedContracts(t.Context(), []topology.SubjectID{whole.Subject()}, aliases); err == nil || selected != nil {
+	if selected, err := indexes.SelectedContracts(t.Context(), []topology.SubjectID{whole.Subject()}, aliases); err == nil || selected != nil {
 		t.Fatal("whole-file baseline became selected-key restoration authority")
 	}
 }
@@ -95,12 +95,12 @@ func TestDocumentSelectionDestinationChangeResolvesEachRetireCreateSide(t *testi
 	indexes := selectionIndexes(t, selectionState(t, before), selectionState(t, after))
 	for _, row := range []durable.ManagedAggregateState{before, after} {
 		contract := row.Contribution().Contract()
-		selected, err := indexes.selectedContracts(t.Context(), []topology.SubjectID{row.Subject()}, []aggregate.DocumentAddress{contract.Address().Document()})
+		selected, err := indexes.SelectedContracts(t.Context(), []topology.SubjectID{row.Subject()}, []aggregate.DocumentAddress{contract.Address().Document()})
 		if err != nil || len(selected) != 1 || len(selected[0].Contracts()) != 1 || !selected[0].Contracts()[0].Equal(contract) {
 			t.Fatalf("retire/create address did not resolve its actual side: groups=%d error=%v", len(selected), err)
 		}
 	}
-	if selected, err := indexes.selectedContracts(t.Context(), []topology.SubjectID{before.Subject()}, []aggregate.DocumentAddress{
+	if selected, err := indexes.SelectedContracts(t.Context(), []topology.SubjectID{before.Subject()}, []aggregate.DocumentAddress{
 		before.Contribution().Contract().Address().Document(), after.Contribution().Contract().Address().Document(),
 	}); err == nil || selected != nil {
 		t.Fatal("one group silently retargeted an in-group subject contract")
@@ -132,7 +132,7 @@ func TestDocumentSelectionRejectsInvalidRefsWithoutPartialOutput(t *testing.T) {
 		{name: "zero alias", refs: []topology.SubjectID{row.Subject()}, aliases: []aggregate.DocumentAddress{{}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if selected, err := indexes.selectedContracts(t.Context(), test.refs, test.aliases); err == nil || selected != nil {
+			if selected, err := indexes.SelectedContracts(t.Context(), test.refs, test.aliases); err == nil || selected != nil {
 				t.Fatalf("invalid selection returned partial groups=%d error=%v", len(selected), err)
 			}
 		})
@@ -144,7 +144,7 @@ func TestDocumentSelectionRejectsInvalidRefsWithoutPartialOutput(t *testing.T) {
 	}
 	changed := selectionNativeRow(t, changedContract, `"fast"`)
 	indexes = selectionIndexes(t, selectionState(t, row), selectionState(t, changed))
-	if selected, err := indexes.selectedContracts(t.Context(), []topology.SubjectID{row.Subject()}, []aggregate.DocumentAddress{alias}); err == nil || selected != nil {
+	if selected, err := indexes.SelectedContracts(t.Context(), []topology.SubjectID{row.Subject()}, []aggregate.DocumentAddress{alias}); err == nil || selected != nil {
 		t.Fatal("selected grammar changed silently within one document")
 	}
 }
@@ -157,7 +157,7 @@ func TestDocumentSelectionIsStableAcrossInputOrderingAndPreservesLiteralKeys(t *
 	refs := []topology.SubjectID{control.Subject(), literal.Subject(), first.Subject()}
 	aliases := []aggregate.DocumentAddress{control.Contribution().Contract().Address().Document(), first.Contribution().Contract().Address().Document()}
 	indexes := selectionIndexes(t, selectionState(t, rows...), selectionState(t, rows...))
-	selected, err := indexes.selectedContracts(t.Context(), refs, aliases)
+	selected, err := indexes.SelectedContracts(t.Context(), refs, aliases)
 	if err != nil || len(selected) != 2 {
 		t.Fatalf("literal and nested keys collapsed: groups=%d error=%v", len(selected), err)
 	}
@@ -169,7 +169,7 @@ func TestDocumentSelectionIsStableAcrossInputOrderingAndPreservesLiteralKeys(t *
 	slices.Reverse(refs)
 	slices.Reverse(aliases)
 	indexes = selectionIndexes(t, selectionState(t, rows...), selectionState(t, rows...))
-	reordered, err := indexes.selectedContracts(t.Context(), refs, aliases)
+	reordered, err := indexes.SelectedContracts(t.Context(), refs, aliases)
 	if err != nil || len(reordered) != len(selected) {
 		t.Fatalf("reordered selection: %v", err)
 	}
@@ -180,10 +180,10 @@ func TestDocumentSelectionIsStableAcrossInputOrderingAndPreservesLiteralKeys(t *
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := indexDocumentSnapshots(ctx, selectionState(t, rows...), durable.EmptySnapshot()); !errors.Is(err, context.Canceled) {
+	if _, err := IndexSnapshots(ctx, selectionState(t, rows...), durable.EmptySnapshot()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled indexing: %v", err)
 	}
-	if selected, err := indexes.selectedContracts(ctx, refs, aliases); !errors.Is(err, context.Canceled) || selected != nil {
+	if selected, err := indexes.SelectedContracts(ctx, refs, aliases); !errors.Is(err, context.Canceled) || selected != nil {
 		t.Fatalf("canceled selection returned groups=%d error=%v", len(selected), err)
 	}
 }
@@ -241,7 +241,7 @@ func TestDocumentSelectionReconstructsNativeAndMCPCodecsIndependently(t *testing
 	nativeBefore := selectionNativeRow(t, nativeContract, `"old"`)
 	nativeAfter := selectionNativeRow(t, nativeContract, `"fast"`)
 	indexes := selectionIndexes(t, selectionState(t, nativeBefore, mcpRow(before)), selectionState(t, nativeAfter, mcpRow(after)))
-	selections, err := indexes.selectedContracts(t.Context(), []topology.SubjectID{subject, nativeBefore.Subject()}, []aggregate.DocumentAddress{mcpContract.Address().Document()})
+	selections, err := indexes.SelectedContracts(t.Context(), []topology.SubjectID{subject, nativeBefore.Subject()}, []aggregate.DocumentAddress{mcpContract.Address().Document()})
 	if err != nil || len(selections) != 2 {
 		t.Fatalf("native/MCP codec partition: groups=%d error=%v", len(selections), err)
 	}
@@ -267,7 +267,7 @@ func TestDocumentSelectionReconstructsNativeAndMCPCodecsIndependently(t *testing
 		participants = append(participants, participant)
 	}
 	mode := recovery.NewPermissionMode(0o600)
-	comparison, err := NewSelectedDocumentComparison(t.Context(), DocumentComparisonInput{
+	comparison, err := NewSelectedComparison(t.Context(), ComparisonInput{
 		Before: aggregate.ExistingDocument([]byte(before)), Expected: aggregate.ExistingDocument([]byte(after)),
 		BeforeMode: mode, ExpectedMode: mode, Limits: limits,
 	}, participants, nil)
@@ -333,9 +333,9 @@ func selectionState(t *testing.T, rows ...durable.ManagedAggregateState) durable
 	return snapshot
 }
 
-func selectionIndexes(t *testing.T, before, after durable.Snapshot) documentSnapshotIndexes {
+func selectionIndexes(t *testing.T, before, after durable.Snapshot) SnapshotIndexes {
 	t.Helper()
-	indexes, err := indexDocumentSnapshots(t.Context(), before, after)
+	indexes, err := IndexSnapshots(t.Context(), before, after)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -194,7 +196,7 @@ func TestDocumentImagesReconstructSelectedComparisonAndRejectPartialPairs(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := ReconstructSelectedDocument(t.Context(), DocumentComparisonInput{
+	candidate, err := journaldocument.ReconstructSelected(t.Context(), journaldocument.ComparisonInput{
 		Before: images.original.document, Expected: images.expected.document,
 		BeforeMode: images.original.mode, ExpectedMode: images.expected.mode,
 		Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},

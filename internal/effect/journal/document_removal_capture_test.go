@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -19,7 +21,7 @@ import (
 
 func fixtureDocumentRemoval(t *testing.T, group *recoveryDocumentGroup, before, expected aggregate.Document) {
 	t.Helper()
-	states, err := documentRemovalStates(before, group.Original.Mode, expected, group.Expected.Mode)
+	states, err := journaldocument.RemovalStates(before, group.Original.Mode, expected, group.Expected.Mode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +107,7 @@ func TestNativeSelectedRemovalUsesActualEditsNotObservedAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, err := decoded.prepareDocuments(t.Context(), []DocumentComparison{comparison}, copy.read.limits, copy.read.codecs); err == nil || result.groups != nil {
+	if result, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, copy.read.limits, copy.read.codecs); err == nil || result.groups != nil {
 		t.Fatal("semantic preparation accepted removal debt outside its actual selected frontier")
 	}
 }
@@ -120,11 +122,11 @@ func TestNativeSelectedLastKeyReleasePreservesExistingRoot(t *testing.T) {
 			edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{before.Contribution().Contract()}, nil)
 			capture := selectedCaptureFixture(t, fixture, original, edits, nil, NativeDocumentRoots{})
 			group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
-			if err != nil || !comparison.expected.Exists() || group.Expected.Kind != "file" || group.Removal != nil {
+			if err != nil || !comparison.ExpectedDocument().Exists() || group.Expected.Kind != "file" || group.Removal != nil {
 				t.Fatalf("last selected-key release acquired root deletion: %v", err)
 			}
 			var remaining map[string]json.RawMessage
-			if err := json.Unmarshal(comparison.expected.Content(), &remaining); err != nil {
+			if err := json.Unmarshal(comparison.ExpectedDocument().Content(), &remaining); err != nil {
 				t.Fatal(err)
 			}
 			if _, retained := remaining["model"]; retained {
@@ -138,7 +140,7 @@ func TestNativeSelectedLastKeyReleasePreservesExistingRoot(t *testing.T) {
 func TestNativeRemovalUsesExecutableHostHashNotArtifactDigest(t *testing.T) {
 	document := aggregate.ExistingDocument([]byte("#!/bin/sh\nexit 0\n"))
 	mode := recovery.NewPermissionMode(0o700)
-	states, err := documentRemovalStates(document, mode, aggregate.AbsentDocument(), nil)
+	states, err := journaldocument.RemovalStates(document, mode, aggregate.AbsentDocument(), nil)
 	if err != nil || len(states) != 1 {
 		t.Fatalf("executable before-state lost: %v", err)
 	}
@@ -285,7 +287,7 @@ func TestNativeRemovalPreservesLogicalAliasesWithOneNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	comparison, err := NewWholeDocumentComparison(t.Context(), DocumentComparisonInput{Before: aggregate.AbsentDocument(), Expected: aggregate.ExistingDocument([]byte("created")), ExpectedMode: recovery.NewPermissionMode(0o600), Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}})
+	comparison, err := journaldocument.NewWholeComparison(t.Context(), journaldocument.ComparisonInput{Before: aggregate.AbsentDocument(), Expected: aggregate.ExistingDocument([]byte("created")), ExpectedMode: recovery.NewPermissionMode(0o600), Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
@@ -34,7 +36,7 @@ type nativeMixedStageOptions struct {
 
 // stageMixedDocumentJournal populates one unpublished tree. Capture options must
 // contain only ordinary work; the containing operation still owns live authority.
-func (journal nativeJournalSnapshots) stageMixedDocumentJournal(ctx context.Context, paths Paths, capture CaptureOptions, comparisons []DocumentComparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (fingerprint string, resultErr error) {
+func (journal nativeJournalSnapshots) stageMixedDocumentJournal(ctx context.Context, paths Paths, capture CaptureOptions, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (fingerprint string, resultErr error) {
 	if ctx == nil || writer == nil || options.budget == nil || options.stateCodec == nil || capture.Filesystem == nil || capture.Resolver == nil {
 		return "", fmt.Errorf("mixed journal staging requires context, private writer, codec, shared budget and ordinary capture adapters")
 	}
@@ -115,7 +117,7 @@ func (journal nativeJournalSnapshots) captureOrdinarySource(ctx context.Context,
 	return ordinaryCaptureSource{record: record, view: view, identity: identity, work: work, filesystem: capture.Filesystem, capabilities: capture.RootedCapability}, nil
 }
 
-func (journal nativeJournalSnapshots) stageWithOrdinarySource(ctx context.Context, ordinary ordinaryCaptureSource, comparisons []DocumentComparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (string, error) {
+func (journal nativeJournalSnapshots) stageWithOrdinarySource(ctx context.Context, ordinary ordinaryCaptureSource, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (string, error) {
 	if ordinary.record.OperationID != journal.record.OperationID || ordinary.record.Operation != journal.record.Operation || ordinary.record.CreatedAt != journal.record.CreatedAt || ordinary.record.ManifestRootProvenance != journal.record.ManifestRootProvenance || !ordinary.record.StatefileBefore.Equal(journal.before) || !ordinary.record.StatefileAfter.Equal(journal.after) {
 		return "", fmt.Errorf("ordinary backup source does not match the native operation and complete Snapshots")
 	}

@@ -49,7 +49,7 @@ func TestNativeJournalRecordRoundtripsFullStateAndActualImages(t *testing.T) {
 	}
 	mode := recovery.NewPermissionMode(0o600)
 	current := aggregate.ExistingDocument([]byte(`{"model":"fast","outside":"fresh"}`))
-	restored, err := loaded.groups[0].comparison.RestoreBefore(t.Context(), current, mode)
+	restored, err := loaded.groups[0].Comparison().RestoreBefore(t.Context(), current, mode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestNativeJournalRecordRoundtripsFullStateAndActualImages(t *testing.T) {
 	if err := json.Unmarshal(restored.Document().Content(), &values); err != nil || string(values["model"]) != "true" || string(values["outside"]) != `"fresh"` {
 		t.Fatalf("record-backed rollback changed foreign data or lost before values: %v", err)
 	}
-	if retry, err := loaded.groups[0].comparison.RestoreBefore(t.Context(), restored.Document(), mode); err != nil || !retry.Document().Equal(restored.Document()) {
+	if retry, err := loaded.groups[0].Comparison().RestoreBefore(t.Context(), restored.Document(), mode); err != nil || !retry.Document().Equal(restored.Document()) {
 		t.Fatalf("record-backed restore is not retry-safe: %v", err)
 	}
 	if result, err := decodeNativeJournalRecord(t.Context(), content, statefile.Codec{}); err != nil || !result.before.Equal(fixture.before) || !result.after.Equal(fixture.after) {

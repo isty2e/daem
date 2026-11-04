@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -30,7 +32,7 @@ func TestPreparedNativeDocumentsAdmitActualPlanBeforeArtifactsExist(t *testing.T
 	if err := os.Rename(filepath.Join(artifacts.PhysicalRoot(), "images"), filepath.Join(artifacts.PhysicalRoot(), "unavailable-images")); err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := decoded.prepareDocuments(t.Context(), []DocumentComparison{comparison}, fixture.read.limits, fixture.read.codecs)
+	prepared, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs)
 	if err != nil || len(prepared.groups) != 1 || len(prepared.claims) != 1 || len(prepared.images) != 1 {
 		t.Fatalf("actual prepared plan cannot pass pre-artifact construction: %v", err)
 	}
@@ -39,7 +41,7 @@ func TestPreparedNativeDocumentsAdmitActualPlanBeforeArtifactsExist(t *testing.T
 	}
 	mode := recovery.NewPermissionMode(0o600)
 	for _, image := range []loadedDocumentImage{prepared.images[0].original, prepared.images[0].expected} {
-		match, err := prepared.groups[0].comparison.Match(t.Context(), image.document, mode)
+		match, err := prepared.groups[0].Comparison().Match(t.Context(), image.document, mode)
 		if err != nil || !match.Recoverable() {
 			t.Fatalf("prepared construction lost an actual comparison image: %+v, %v", match, err)
 		}
@@ -49,58 +51,72 @@ func TestPreparedNativeDocumentsAdmitActualPlanBeforeArtifactsExist(t *testing.T
 func TestPreparedNativeDocumentsRejectMismatchedImagesAndWholeOperation(t *testing.T) {
 	for _, test := range []struct {
 		name string
-		edit func(*testing.T, *nativeRecordFixture, *nativeJournalSnapshots, *[]DocumentComparison)
+		edit func(*testing.T, *nativeRecordFixture, *nativeJournalSnapshots, *[]journaldocument.Comparison)
 	}{
-		{"missing comparison", func(_ *testing.T, _ *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]DocumentComparison) {
+		{"missing comparison", func(_ *testing.T, _ *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]journaldocument.Comparison) {
 			*comparisons = nil
 		}},
-		{"extra comparison", func(_ *testing.T, _ *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]DocumentComparison) {
+		{"extra comparison", func(_ *testing.T, _ *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]journaldocument.Comparison) {
 			*comparisons = append(*comparisons, (*comparisons)[0])
 		}},
-		{"zero comparison", func(_ *testing.T, _ *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]DocumentComparison) {
-			(*comparisons)[0] = DocumentComparison{}
+		{"zero comparison", func(_ *testing.T, _ *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]journaldocument.Comparison) {
+			(*comparisons)[0] = journaldocument.Comparison{}
 		}},
-		{"wrong original digest", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]DocumentComparison) {
+		{"wrong original digest", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]journaldocument.Comparison) {
 			journal.record.DocumentGroups[0].Original.Artifact.Digest = artifact.HashFileContent([]byte("other original"))
 		}},
-		{"wrong expected digest", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]DocumentComparison) {
+		{"wrong expected digest", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]journaldocument.Comparison) {
 			journal.record.DocumentGroups[0].Expected.Artifact.Digest = artifact.HashFileContent([]byte("other expected"))
 		}},
-		{"wrong expected size", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]DocumentComparison) {
+		{"wrong expected size", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]journaldocument.Comparison) {
 			size := *journal.record.DocumentGroups[0].Expected.Artifact.Size + 1
 			journal.record.DocumentGroups[0].Expected.Artifact.Size = &size
 		}},
-		{"wrong expected mode", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]DocumentComparison) {
+		{"wrong expected mode", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]journaldocument.Comparison) {
 			journal.record.DocumentGroups[0].Expected.Mode = recovery.NewPermissionMode(0o640)
 		}},
-		{"wrong expected presence", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]DocumentComparison) {
+		{"wrong expected presence", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]journaldocument.Comparison) {
 			journal.record.DocumentGroups[0].Expected = recoveryDocumentImage{Kind: "absent"}
 		}},
-		{"different limits", func(_ *testing.T, _ *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]DocumentComparison) {
-			(*comparisons)[0].limits.MaximumBytes--
+		{"different limits", func(t *testing.T, fixture *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]journaldocument.Comparison) {
+			input := preparedComparisonInput((*comparisons)[0])
+			input.Limits.MaximumBytes--
+			comparison, err := journaldocument.NewSelectedComparison(t.Context(), input, []compose.Participant{preparedParticipant(t, *fixture)}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			(*comparisons)[0] = comparison
 		}},
-		{"wrong extent", func(_ *testing.T, _ *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]DocumentComparison) {
-			(*comparisons)[0].whole = true
+		{"wrong extent", func(t *testing.T, _ *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]journaldocument.Comparison) {
+			comparison, err := journaldocument.NewWholeComparison(t.Context(), preparedComparisonInput((*comparisons)[0]))
+			if err != nil {
+				t.Fatal(err)
+			}
+			(*comparisons)[0] = comparison
 		}},
-		{"wrong selected frontier", func(_ *testing.T, _ *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]DocumentComparison) {
-			(*comparisons)[0].participants = nil
+		{"wrong selected frontier", func(t *testing.T, _ *nativeRecordFixture, _ *nativeJournalSnapshots, comparisons *[]journaldocument.Comparison) {
+			comparison, err := journaldocument.NewSelectedComparison(t.Context(), preparedComparisonInput((*comparisons)[0]), nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			(*comparisons)[0] = comparison
 		}},
-		{"missing changed group", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, comparisons *[]DocumentComparison) {
+		{"missing changed group", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, comparisons *[]journaldocument.Comparison) {
 			journal.record.DocumentGroups = nil
 			*comparisons = nil
 		}},
-		{"wrong after baseline", func(t *testing.T, fixture *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]DocumentComparison) {
+		{"wrong after baseline", func(t *testing.T, fixture *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]journaldocument.Comparison) {
 			row := fixture.after.ManagedAggregates()[0]
 			wrong := selectionNativeRow(t, row.Contribution().Contract(), nativeRecordCanonical(t, `"wrong"`))
 			journal.after = selectionState(t, wrong)
 		}},
-		{"wrong binding before", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]DocumentComparison) {
+		{"wrong binding before", func(_ *testing.T, _ *nativeRecordFixture, journal *nativeJournalSnapshots, _ *[]journaldocument.Comparison) {
 			journal.record.DocumentGroups[0].BindingIntents[0].Before = recoveryDocumentBindingPhase{Kind: "absent"}
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture, decoded, comparison := preparedNativeFixture(t)
-			comparisons := []DocumentComparison{comparison}
+			comparisons := []journaldocument.Comparison{comparison}
 			test.edit(t, &fixture, &decoded, &comparisons)
 			prepared, err := decoded.prepareDocuments(t.Context(), comparisons, fixture.read.limits, fixture.read.codecs)
 			assertNoPreparedNativeDocuments(t, prepared, err)
@@ -118,16 +134,16 @@ func TestPreparedNativeDocumentsDiscardEarlierGroupOnLaterFailure(t *testing.T) 
 	late.ExclusiveClaims = recoveryDocumentClaimSet{Kind: "absent"}
 	late.Original, late.Expected = recoveryDocumentImage{Kind: "absent"}, recoveryDocumentImage{Kind: "absent"}
 	decoded.record.DocumentGroups = append(decoded.record.DocumentGroups, late)
-	prepared, err := decoded.prepareDocuments(t.Context(), []DocumentComparison{comparison, {}}, fixture.read.limits, fixture.read.codecs)
+	prepared, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison, {}}, fixture.read.limits, fixture.read.codecs)
 	assertNoPreparedNativeDocuments(t, prepared, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	prepared, err = decoded.prepareDocuments(ctx, []DocumentComparison{comparison, {}}, fixture.read.limits, fixture.read.codecs)
+	prepared, err = decoded.prepareDocuments(ctx, []journaldocument.Comparison{comparison, {}}, fixture.read.limits, fixture.read.codecs)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("lost cancellation: %v", err)
 	}
 	assertNoPreparedNativeDocuments(t, prepared, err)
-	prepared, err = decoded.prepareDocuments(nil, []DocumentComparison{comparison, {}}, fixture.read.limits, fixture.read.codecs)
+	prepared, err = decoded.prepareDocuments(nil, []journaldocument.Comparison{comparison, {}}, fixture.read.limits, fixture.read.codecs)
 	assertNoPreparedNativeDocuments(t, prepared, err)
 }
 
@@ -151,13 +167,35 @@ func TestNativeDocumentReaderKeepsMetadataRefusalBeforeImageReads(t *testing.T) 
 	}
 }
 
-func preparedNativeFixture(t *testing.T) (nativeRecordFixture, nativeJournalSnapshots, DocumentComparison) {
+func preparedNativeFixture(t *testing.T) (nativeRecordFixture, nativeJournalSnapshots, journaldocument.Comparison) {
 	t.Helper()
 	fixture := nativeJournalFixture(t)
 	return preparedNativeFixtureFor(t, fixture, aggregate.ExistingDocument([]byte(`{"model":true,"outside":1}`)))
 }
 
-func preparedNativeFixtureFor(t *testing.T, fixture nativeRecordFixture, before aggregate.Document) (nativeRecordFixture, nativeJournalSnapshots, DocumentComparison) {
+func preparedParticipant(t *testing.T, fixture nativeRecordFixture) compose.Participant {
+	t.Helper()
+	contract := fixture.after.ManagedAggregates()[0].Contribution().Contract()
+	selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{contract})
+	if err != nil {
+		t.Fatal(err)
+	}
+	participant, err := journaldocument.Participant(selection, fixture.read.codecs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return participant
+}
+
+func preparedComparisonInput(comparison journaldocument.Comparison) journaldocument.ComparisonInput {
+	var expectedMode *recovery.PermissionMode
+	if mode, present := comparison.ExpectedState().RegularFileMode(); present {
+		expectedMode = &mode
+	}
+	return journaldocument.ComparisonInput{Before: comparison.BeforeDocument(), Expected: comparison.ExpectedDocument(), BeforeMode: comparison.BeforeMode(), ExpectedMode: expectedMode, Limits: comparison.Limits()}
+}
+
+func preparedNativeFixtureFor(t *testing.T, fixture nativeRecordFixture, before aggregate.Document) (nativeRecordFixture, nativeJournalSnapshots, journaldocument.Comparison) {
 	t.Helper()
 	row := fixture.after.ManagedAggregates()[0]
 	contract := row.Contribution().Contract()
@@ -194,7 +232,7 @@ func preparedNativeFixtureFor(t *testing.T, fixture nativeRecordFixture, before 
 		t.Fatal(err)
 	}
 	mode := recovery.NewPermissionMode(0o600)
-	candidate, err := PrepareSelectedDocument(t.Context(), SelectedDocumentPreparationInput{Before: before, BeforeMode: mode, ExpectedMode: mode, Limits: fixture.read.limits}, []compose.ProjectionEdit{edit}, nil)
+	candidate, err := journaldocument.PrepareSelected(t.Context(), journaldocument.SelectedPreparationInput{Before: before, BeforeMode: mode, ExpectedMode: mode, Limits: fixture.read.limits}, []compose.ProjectionEdit{edit}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +267,7 @@ func TestPreparedNativeDocumentsRejectNoncanonicalRecoveryPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			fixture, decoded, canonical := preparedNativeFixtureFor(t, fixture, aggregate.ExistingDocument([]byte(`{"preferences":{"model":true,"foreign":1},"outside":2}`)))
-			participant := canonical.participants[0]
+			participant := preparedParticipant(t, fixture)
 			codec, found := fixture.read.codecs.Lookup(participant.Selection().CodecContractID())
 			if !found {
 				t.Fatal("fixture codec missing")
@@ -248,11 +286,11 @@ func TestPreparedNativeDocumentsRejectNoncanonicalRecoveryPolicy(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			comparison, err := NewSelectedDocumentComparison(t.Context(), DocumentComparisonInput{Before: canonical.before, Expected: canonical.expected, BeforeMode: canonical.beforeMode(), ExpectedMode: recovery.NewPermissionMode(0o600), Limits: fixture.read.limits}, []compose.Participant{changed}, nil)
+			comparison, err := journaldocument.NewSelectedComparison(t.Context(), journaldocument.ComparisonInput{Before: canonical.BeforeDocument(), Expected: canonical.ExpectedDocument(), BeforeMode: canonical.BeforeMode(), ExpectedMode: recovery.NewPermissionMode(0o600), Limits: fixture.read.limits}, []compose.Participant{changed}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			prepared, err := decoded.prepareDocuments(t.Context(), []DocumentComparison{comparison}, fixture.read.limits, fixture.read.codecs)
+			prepared, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs)
 			assertNoPreparedNativeDocuments(t, prepared, err)
 		})
 	}
@@ -260,7 +298,7 @@ func TestPreparedNativeDocumentsRejectNoncanonicalRecoveryPolicy(t *testing.T) {
 
 func TestPreparedNativeDocumentsRestoreOnlyThroughOperationCatalog(t *testing.T) {
 	fixture, decoded, canonical := preparedNativeFixture(t)
-	participant := canonical.participants[0]
+	participant := preparedParticipant(t, fixture)
 	codec, found := fixture.read.codecs.Lookup(participant.Selection().CodecContractID())
 	if !found {
 		t.Fatal("fixture codec missing")
@@ -270,17 +308,17 @@ func TestPreparedNativeDocumentsRestoreOnlyThroughOperationCatalog(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	comparison, err := NewSelectedDocumentComparison(t.Context(), DocumentComparisonInput{Before: canonical.before, Expected: canonical.expected, BeforeMode: canonical.beforeMode(), ExpectedMode: recovery.NewPermissionMode(0o600), Limits: fixture.read.limits}, []compose.Participant{provided}, nil)
+	comparison, err := journaldocument.NewSelectedComparison(t.Context(), journaldocument.ComparisonInput{Before: canonical.BeforeDocument(), Expected: canonical.ExpectedDocument(), BeforeMode: canonical.BeforeMode(), ExpectedMode: recovery.NewPermissionMode(0o600), Limits: fixture.read.limits}, []compose.Participant{provided}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := decoded.prepareDocuments(t.Context(), []DocumentComparison{comparison}, fixture.read.limits, fixture.read.codecs)
+	prepared, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	caller.refuse = true
 	current := aggregate.ExistingDocument([]byte(`{"model":"fast","outside":"fresh"}`))
-	restored, err := prepared.groups[0].comparison.RestoreBefore(t.Context(), current, recovery.NewPermissionMode(0o600))
+	restored, err := prepared.groups[0].Comparison().RestoreBefore(t.Context(), current, recovery.NewPermissionMode(0o600))
 	if err != nil {
 		t.Fatalf("prepared recovery retained caller codec behavior instead of operation catalog: %v", err)
 	}
@@ -295,7 +333,7 @@ func TestPreparedNativeDocumentsRestoreOnlyThroughOperationCatalog(t *testing.T)
 
 func TestPreparedRecoveryPolicyAllowsReorderedPartitions(t *testing.T) {
 	fixture, _, comparison := preparedNativeFixture(t)
-	model := comparison.participants[0].Selection().Contracts()[0]
+	model := preparedParticipant(t, fixture).Selection().Contracts()[0]
 	outside := membershipNativeRow(t, fixture.claims.alias, "native-json-v1", "outside").Contribution().Contract()
 	codec, found := fixture.read.codecs.Lookup(model.CodecContractID())
 	if !found {
@@ -309,8 +347,8 @@ func TestPreparedRecoveryPolicyAllowsReorderedPartitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := DocumentComparisonInput{Before: comparison.before, Expected: comparison.expected, BeforeMode: comparison.beforeMode(), ExpectedMode: recovery.NewPermissionMode(0o600), Limits: fixture.read.limits}
-	canonical, err := NewSelectedDocumentComparison(t.Context(), input, []compose.Participant{participant}, nil)
+	input := journaldocument.ComparisonInput{Before: comparison.BeforeDocument(), Expected: comparison.ExpectedDocument(), BeforeMode: comparison.BeforeMode(), ExpectedMode: recovery.NewPermissionMode(0o600), Limits: fixture.read.limits}
+	canonical, err := journaldocument.NewSelectedComparison(t.Context(), input, []compose.Participant{participant}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,11 +364,11 @@ func TestPreparedRecoveryPolicyAllowsReorderedPartitions(t *testing.T) {
 		}
 		parts = append(parts, participant)
 	}
-	partitioned, err := NewSelectedDocumentComparison(t.Context(), input, parts, nil)
+	partitioned, err := journaldocument.NewSelectedComparison(t.Context(), input, parts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := partitioned.requireCanonicalRecoveryPolicy(t.Context(), canonical); err != nil {
+	if err := partitioned.RequireCanonicalRecoveryPolicy(t.Context(), canonical); err != nil {
 		t.Fatalf("equivalent reordered policy partitions were refused: %v", err)
 	}
 }

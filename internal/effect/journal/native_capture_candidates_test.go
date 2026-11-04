@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -24,7 +26,7 @@ func TestNativeCaptureCandidatesAdmitExactCombinedDebtAfterRealReads(t *testing.
 		t.Fatal("actual image/namespace preparation did not remain before removal admission")
 	}
 	remaining := budget.RemainingBytes()
-	native, err := first.comparison.removalDemands(t.Context(), first.relations)
+	native, err := first.comparison.RemovalDemands(t.Context(), first.relations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +73,7 @@ func TestNativeCaptureCandidatesDoNotInventRemovalForRetainedRoots(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 2 || len(comparisons) != 2 || demands.Len() != 0 || groups[0].Removal != nil || groups[1].Removal != nil || !comparisons[1].expected.Exists() {
+	if len(groups) != 2 || len(comparisons) != 2 || demands.Len() != 0 || groups[0].Removal != nil || groups[1].Removal != nil || !comparisons[1].ExpectedDocument().Exists() {
 		t.Fatal("retained root or logical key release gained physical removal debt")
 	}
 	if budget.AdmitRemovalDemands(recovery.RemovalDemandSet{}) == nil {
@@ -91,12 +93,12 @@ func TestNativeCaptureCandidatesRefuseWholeUnionBeforeRemovalObservation(t *test
 			switch failure {
 			case "duplicate":
 				var err error
-				ordinary, err = candidate.comparison.removalDemands(t.Context(), candidate.relations)
+				ordinary, err = candidate.comparison.RemovalDemands(t.Context(), candidate.relations)
 				if err != nil {
 					t.Fatal(err)
 				}
 			case "over-limit":
-				native, err := candidate.comparison.removalDemands(t.Context(), candidate.relations)
+				native, err := candidate.comparison.RemovalDemands(t.Context(), candidate.relations)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -115,7 +117,7 @@ func TestNativeCaptureCandidatesRefuseWholeUnionBeforeRemovalObservation(t *test
 				}
 			case "invalid-later":
 				bad := candidate
-				bad.comparison = DocumentComparison{}
+				bad.comparison = journaldocument.Comparison{}
 				candidates = append(candidates, bad)
 			case "different-budget":
 				budget = physicalwork.NewCaptureBudget(paths)

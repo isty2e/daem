@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -31,7 +33,7 @@ func TestDocumentImageStagePublishesExactPrivateImages(t *testing.T) {
 		{"absent pair", aggregate.AbsentDocument(), aggregate.AbsentDocument(), nil, nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			comparison := imageStageComparison(t, DocumentComparisonInput{Before: test.before, Expected: test.expected, BeforeMode: test.beforeMode, ExpectedMode: test.expectedMode})
+			comparison := imageStageComparison(t, journaldocument.ComparisonInput{Before: test.before, Expected: test.expected, BeforeMode: test.beforeMode, ExpectedMode: test.expectedMode})
 			destination, capability := imageStageDestination(t)
 			budget := imageBudget(t)
 			remainingBytes, remainingEntries := budget.RemainingBytes(), budget.RemainingEntries()
@@ -108,7 +110,7 @@ func TestDocumentImageStageFeedsStrictNativeRecordReconstruction(t *testing.T) {
 	}
 	destination, capability := imageStageDestination(t)
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
-		original, expected, err := stageDocumentImages(t.Context(), loaded.groups[0].comparison, 0, writer, imageBudget(t))
+		original, expected, err := stageDocumentImages(t.Context(), loaded.groups[0].Comparison(), 0, writer, imageBudget(t))
 		if err != nil {
 			return err
 		}
@@ -162,7 +164,7 @@ func TestDocumentImageStageFailureAndCancellationAbortActualPartialTree(t *testi
 		{"first write failure", 1, false}, {"second write failure", 2, false}, {"first write cancellation", 1, true}, {"second write cancellation", 2, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			comparison := imageStageComparison(t, DocumentComparisonInput{Before: aggregate.ExistingDocument([]byte("before")), Expected: aggregate.ExistingDocument([]byte("expected")), BeforeMode: recovery.NewPermissionMode(0o640), ExpectedMode: recovery.NewPermissionMode(0o600)})
+			comparison := imageStageComparison(t, journaldocument.ComparisonInput{Before: aggregate.ExistingDocument([]byte("before")), Expected: aggregate.ExistingDocument([]byte("expected")), BeforeMode: recovery.NewPermissionMode(0o640), ExpectedMode: recovery.NewPermissionMode(0o600)})
 			destination, capability := imageStageDestination(t)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -211,7 +213,7 @@ func TestDocumentImageStageFailureAndCancellationAbortActualPartialTree(t *testi
 }
 
 func TestDocumentImageStagePreflightsWholePairAgainstSharedWork(t *testing.T) {
-	comparison := imageStageComparison(t, DocumentComparisonInput{Before: aggregate.ExistingDocument([]byte("before")), Expected: aggregate.ExistingDocument([]byte("expected")), BeforeMode: recovery.NewPermissionMode(0o600), ExpectedMode: recovery.NewPermissionMode(0o600)})
+	comparison := imageStageComparison(t, journaldocument.ComparisonInput{Before: aggregate.ExistingDocument([]byte("before")), Expected: aggregate.ExistingDocument([]byte("expected")), BeforeMode: recovery.NewPermissionMode(0o600), ExpectedMode: recovery.NewPermissionMode(0o600)})
 	for _, exhaustion := range []string{"bytes", "entries"} {
 		t.Run(exhaustion, func(t *testing.T) {
 			budget := imageBudget(t)
@@ -238,7 +240,7 @@ func TestDocumentImageStagePreflightsWholePairAgainstSharedWork(t *testing.T) {
 }
 
 func TestDocumentImageStageDoesNotOverwriteAnotherGroup(t *testing.T) {
-	comparison := imageStageComparison(t, DocumentComparisonInput{Before: aggregate.AbsentDocument(), Expected: aggregate.ExistingDocument([]byte("expected")), ExpectedMode: recovery.NewPermissionMode(0o600)})
+	comparison := imageStageComparison(t, journaldocument.ComparisonInput{Before: aggregate.AbsentDocument(), Expected: aggregate.ExistingDocument([]byte("expected")), ExpectedMode: recovery.NewPermissionMode(0o600)})
 	destination, capability := imageStageDestination(t)
 	budget := imageBudget(t)
 	var original, expected recoveryDocumentImage
@@ -263,9 +265,9 @@ func TestDocumentImageStageDoesNotOverwriteAnotherGroup(t *testing.T) {
 }
 
 func TestDocumentImageStageKeepsDistinctGroupsOnOneBudget(t *testing.T) {
-	comparisons := []DocumentComparison{
-		imageStageComparison(t, DocumentComparisonInput{Before: aggregate.AbsentDocument(), Expected: aggregate.ExistingDocument([]byte("first")), ExpectedMode: recovery.NewPermissionMode(0o600)}),
-		imageStageComparison(t, DocumentComparisonInput{Before: aggregate.ExistingDocument([]byte("second")), Expected: aggregate.AbsentDocument(), BeforeMode: recovery.NewPermissionMode(0o640)}),
+	comparisons := []journaldocument.Comparison{
+		imageStageComparison(t, journaldocument.ComparisonInput{Before: aggregate.AbsentDocument(), Expected: aggregate.ExistingDocument([]byte("first")), ExpectedMode: recovery.NewPermissionMode(0o600)}),
+		imageStageComparison(t, journaldocument.ComparisonInput{Before: aggregate.ExistingDocument([]byte("second")), Expected: aggregate.AbsentDocument(), BeforeMode: recovery.NewPermissionMode(0o640)}),
 	}
 	destination, capability := imageStageDestination(t)
 	budget := imageBudget(t)
@@ -296,7 +298,7 @@ func TestDocumentImageStageKeepsDistinctGroupsOnOneBudget(t *testing.T) {
 	readBudget := imageBudget(t)
 	for index, comparison := range comparisons {
 		loaded, err := loadDocumentImages(t.Context(), records[index][0], records[index][1], root, journalTestFilesystem(), readBudget, 4096)
-		if err != nil || !loaded.original.document.Equal(comparison.before) || !loaded.expected.document.Equal(comparison.expected) {
+		if err != nil || !loaded.original.document.Equal(comparison.BeforeDocument()) || !loaded.expected.document.Equal(comparison.ExpectedDocument()) {
 			t.Fatalf("group images were confused: %v", err)
 		}
 	}
@@ -306,19 +308,19 @@ func TestDocumentImageStageKeepsDistinctGroupsOnOneBudget(t *testing.T) {
 }
 
 func TestDocumentImageStageRejectsMissingLifecycleInputs(t *testing.T) {
-	comparison := imageStageComparison(t, DocumentComparisonInput{Before: aggregate.AbsentDocument(), Expected: aggregate.AbsentDocument()})
+	comparison := imageStageComparison(t, journaldocument.ComparisonInput{Before: aggregate.AbsentDocument(), Expected: aggregate.AbsentDocument()})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	for _, test := range []struct {
 		name                         string
 		ctx                          context.Context
-		comparison                   DocumentComparison
+		comparison                   journaldocument.Comparison
 		index                        int
 		missingWriter, missingBudget bool
 	}{
 		{"context", nil, comparison, 0, false, false},
 		{"canceled", ctx, comparison, 0, false, false},
-		{"comparison", t.Context(), DocumentComparison{}, 0, false, false},
+		{"comparison", t.Context(), journaldocument.Comparison{}, 0, false, false},
 		{"ordinal", t.Context(), comparison, -1, false, false},
 		{"writer", t.Context(), comparison, 0, true, false},
 		{"budget", t.Context(), comparison, 0, false, true},
@@ -344,10 +346,10 @@ func TestDocumentImageStageRejectsMissingLifecycleInputs(t *testing.T) {
 	}
 }
 
-func imageStageComparison(t *testing.T, input DocumentComparisonInput) DocumentComparison {
+func imageStageComparison(t *testing.T, input journaldocument.ComparisonInput) journaldocument.Comparison {
 	t.Helper()
 	input.Limits = configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
-	comparison, err := NewWholeDocumentComparison(t.Context(), input)
+	comparison, err := journaldocument.NewWholeComparison(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}

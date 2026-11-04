@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -22,28 +24,28 @@ type WholeDocumentPreparationInput struct {
 
 // PrepareWholeDocument derives expected images from capture mutations and exact
 // payloads. Loaded originals do not grant namespace or managed-state authority.
-func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInput, mutation ManagedPathMutation, payloads payload.PayloadSet) (DocumentComparison, error) {
-	if err := validateComparisonDocument(ctx, input.Before, input.Limits); err != nil {
-		return DocumentComparison{}, err
+func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInput, mutation ManagedPathMutation, payloads payload.PayloadSet) (journaldocument.Comparison, error) {
+	if err := journaldocument.ValidateImage(ctx, input.Before, input.Limits); err != nil {
+		return journaldocument.Comparison{}, err
 	}
 	facts, err := wholeDocumentMutationFacts(mutation)
 	if err != nil {
-		return DocumentComparison{}, err
+		return journaldocument.Comparison{}, err
 	}
 	if _, err := recovery.NewPartialDocumentState(input.Before.Exists(), input.BeforeMode, nil); err != nil {
-		return DocumentComparison{}, err
+		return journaldocument.Comparison{}, err
 	}
 	if mutation.kind() == pathMutationCreate {
 		if input.Before.Exists() {
-			return DocumentComparison{}, fmt.Errorf("whole document creation requires an absent original")
+			return journaldocument.Comparison{}, fmt.Errorf("whole document creation requires an absent original")
 		}
 	} else {
 		if !input.Before.Exists() {
-			return DocumentComparison{}, fmt.Errorf("whole document mutation requires an existing original")
+			return journaldocument.Comparison{}, fmt.Errorf("whole document mutation requires an existing original")
 		}
 		actual := artifact.HashFileContentWithExecutable(input.Before.Content(), input.BeforeMode.FileMode()&0o111 != 0)
 		if actual != facts.liveHash {
-			return DocumentComparison{}, fmt.Errorf("whole document original does not match the observed live identity")
+			return journaldocument.Comparison{}, fmt.Errorf("whole document original does not match the observed live identity")
 		}
 	}
 
@@ -54,30 +56,30 @@ func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInp
 		value, found := payloads.LookupSubject(facts.subject)
 		file, regular := value.File()
 		if !found || !regular {
-			return DocumentComparison{}, fmt.Errorf("whole document mutation requires its exact file payload")
+			return journaldocument.Comparison{}, fmt.Errorf("whole document mutation requires its exact file payload")
 		}
 		if file.ContentSize() > input.Limits.MaximumBytes {
-			return DocumentComparison{}, fmt.Errorf("whole document payload exceeds the selected byte limit")
+			return journaldocument.Comparison{}, fmt.Errorf("whole document payload exceeds the selected byte limit")
 		}
 		if file.Mode() != facts.expectedMode {
-			return DocumentComparison{}, fmt.Errorf("whole document payload mode does not match the prepared mutation")
+			return journaldocument.Comparison{}, fmt.Errorf("whole document payload mode does not match the prepared mutation")
 		}
 		if err := value.VerifyHash(facts.desiredHash, facts.destination); err != nil {
-			return DocumentComparison{}, err
+			return journaldocument.Comparison{}, err
 		}
 		expected = aggregate.ExistingDocument(file.Bytes())
 		expectedMode = recovery.NewPermissionMode(facts.expectedMode)
 	case pathMutationRecord:
 		if facts.liveHash != facts.desiredHash || input.BeforeMode.FileMode() != facts.expectedMode {
-			return DocumentComparison{}, fmt.Errorf("whole document record does not match desired identity and mode")
+			return journaldocument.Comparison{}, fmt.Errorf("whole document record does not match desired identity and mode")
 		}
 		expected, expectedMode = input.Before, input.BeforeMode
 	case pathMutationRemove:
 		if facts.liveHash != facts.previous.ContentHash() || input.BeforeMode.FileMode() != facts.previous.FileMode() {
-			return DocumentComparison{}, fmt.Errorf("whole document removal does not match its previous baseline")
+			return journaldocument.Comparison{}, fmt.Errorf("whole document removal does not match its previous baseline")
 		}
 	}
-	return NewWholeDocumentComparison(ctx, DocumentComparisonInput{
+	return journaldocument.NewWholeComparison(ctx, journaldocument.ComparisonInput{
 		Before: input.Before, Expected: expected,
 		BeforeMode: input.BeforeMode, ExpectedMode: expectedMode, Limits: input.Limits,
 	})

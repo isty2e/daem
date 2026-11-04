@@ -1,4 +1,4 @@
-package journal
+package document
 
 import (
 	"testing"
@@ -41,13 +41,13 @@ func TestDocumentStateGroupsWholeRetargetRequiresDistinctRetireCreateGroups(t *t
 	retire := membershipIntent(t, oldFixture, oldValue, ownership.NoDocumentBinding())
 	acquire := membershipIntent(t, newFixture, ownership.NoDocumentBinding(), newValue)
 
-	merged := documentStateGroupInput{
+	merged := StateGroupInput{
 		aliases:        []aggregate.DocumentAddress{oldFixture.alias, newFixture.alias},
 		comparison:     stateGroupWholeComparison(t, `{"model":1}`, `{"model":2}`),
 		bindingIntents: []ownership.DocumentBindingIntent{retire, acquire},
 	}
 	for range 2 {
-		if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, before, after, []documentStateGroupInput{merged}); err == nil || groups != nil {
+		if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, before, after, []StateGroupInput{merged}); err == nil || groups != nil {
 			t.Fatal("one whole comparison silently moved a subject between document destinations")
 		}
 		merged.aliases[0], merged.aliases[1] = merged.aliases[1], merged.aliases[0]
@@ -56,26 +56,26 @@ func TestDocumentStateGroupsWholeRetargetRequiresDistinctRetireCreateGroups(t *t
 
 	mode := recovery.NewPermissionMode(0o600)
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
-	retirement, err := NewWholeDocumentComparison(t.Context(), DocumentComparisonInput{
+	retirement, err := NewWholeComparison(t.Context(), ComparisonInput{
 		Before: aggregate.ExistingDocument([]byte(`{"model":1}`)), Expected: aggregate.AbsentDocument(),
 		BeforeMode: mode, Limits: limits,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	creation, err := NewWholeDocumentComparison(t.Context(), DocumentComparisonInput{
+	creation, err := NewWholeComparison(t.Context(), ComparisonInput{
 		Before: aggregate.AbsentDocument(), Expected: aggregate.ExistingDocument([]byte(`{"model":2}`)),
 		ExpectedMode: mode, Limits: limits,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs := []documentStateGroupInput{
+	inputs := []StateGroupInput{
 		{aliases: []aggregate.DocumentAddress{oldFixture.alias}, comparison: retirement, bindingIntents: []ownership.DocumentBindingIntent{retire}},
 		{aliases: []aggregate.DocumentAddress{newFixture.alias}, comparison: creation, bindingIntents: []ownership.DocumentBindingIntent{acquire}},
 	}
 	for range 2 {
-		groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, before, after, inputs)
+		groups, err := ReconstructStateGroups(t.Context(), fixture.owner, before, after, inputs)
 		if err != nil || len(groups) != 2 {
 			t.Fatalf("explicit whole-file retirement/creation was refused: %v", err)
 		}
@@ -112,16 +112,16 @@ func TestDocumentStateGroupsKeyRetargetCannotBorrowAnotherSubjectsFrontier(t *te
 	merged := newInput
 	merged.aliases = []aggregate.DocumentAddress{oldFixture.alias, newFixture.alias}
 	merged.bindingIntents = []ownership.DocumentBindingIntent{retire, retain}
-	if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, before, after, []documentStateGroupInput{merged}); err == nil || groups != nil {
+	if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, before, after, []StateGroupInput{merged}); err == nil || groups != nil {
 		t.Fatal("retargeted unselected child borrowed another subject's selected parent in the same group")
 	}
 
 	oldInput := stateGroupInput(t, oldFixture, []durable.ManagedAggregateState{oldRow}, `{"node":{"leaf":1}}`, `{}`)
 	oldInput.bindingIntents = []ownership.DocumentBindingIntent{retire}
 	newInput.selectedSubjects = []topology.SubjectID{parent.Subject(), newRow.Subject()}
-	inputs := []documentStateGroupInput{oldInput, newInput}
+	inputs := []StateGroupInput{oldInput, newInput}
 	for range 2 {
-		if groups, err := reconstructDocumentStateGroups(t.Context(), fixture.owner, before, after, inputs); err != nil || len(groups) != 2 {
+		if groups, err := ReconstructStateGroups(t.Context(), fixture.owner, before, after, inputs); err != nil || len(groups) != 2 {
 			t.Fatalf("explicit selected retirement/creation lost its actual parent frontier: %v", err)
 		}
 		inputs[0], inputs[1] = inputs[1], inputs[0]
