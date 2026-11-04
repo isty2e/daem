@@ -14,15 +14,16 @@ import (
 	"strconv"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 )
 
 type retirementTreeEvidence struct {
 	identity          mutationfs.EntryIdentity
-	work              recovery.ArtifactWork
+	work              workmeasure.ArtifactWork
 	fingerprint       string
 	stableFingerprint string
 	fileSizes         map[string]int64
@@ -174,7 +175,7 @@ func (sink *retirementTreeSnapshotSink) evidence(
 	if sink == nil || sink.failure != nil {
 		return retirementTreeEvidence{}, sink.failure
 	}
-	work, err := recovery.NewArtifactWork(sink.entries, sink.bytes)
+	work, err := workmeasure.NewArtifactWork(sink.entries, sink.bytes)
 	if err != nil {
 		return retirementTreeEvidence{}, err
 	}
@@ -445,7 +446,7 @@ func observeRetirementPreparation(
 	ctx context.Context,
 	execution retirementExecution,
 	bindings retirementBindings,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 	filesystem mutationfs.RootedStore,
 ) (retirementExecutionEvidence, error) {
 	evidence := retirementExecutionEvidence{}
@@ -542,7 +543,7 @@ func observeRetirementPreparation(
 		if encodeErr != nil {
 			return retirementExecutionEvidence{}, encodeErr
 		}
-		currentWork, err = recovery.NewArtifactWork(1, int64(len(encoded)))
+		currentWork, err = workmeasure.NewArtifactWork(1, int64(len(encoded)))
 		if err != nil {
 			return retirementExecutionEvidence{}, err
 		}
@@ -564,7 +565,7 @@ func observeRetirementPreparation(
 	if err != nil {
 		return retirementExecutionEvidence{}, err
 	}
-	finalWork, err := recovery.NewArtifactWork(
+	finalWork, err := workmeasure.NewArtifactWork(
 		currentWork.Entries(),
 		currentWork.Bytes()-currentRecordBytes+int64(len(finalContent)),
 	)
@@ -587,7 +588,7 @@ func observeOptionalRetirementControl(
 	filesystem mutationfs.RootedStore,
 	authority *rootedpath.EntryAuthority,
 	expected retirement.Record,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (retirementTreeEvidence, bool, error) {
 	present, err := retirementEntryPresent(ctx, filesystem, authority)
 	if err != nil || !present {
@@ -616,7 +617,7 @@ func observeOptionalRetirementDirectory(
 	ctx context.Context,
 	filesystem mutationfs.RootedStore,
 	authority *rootedpath.EntryAuthority,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (retirementTreeEvidence, bool, error) {
 	present, err := retirementEntryPresent(ctx, filesystem, authority)
 	if err != nil || !present {
@@ -641,7 +642,7 @@ func observeRetirementDirectory(
 	ctx context.Context,
 	filesystem mutationfs.RootedStore,
 	authority *rootedpath.EntryAuthority,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 	maximumEntries int,
 	maximumDepth int,
 	maximumBytes int64,
@@ -675,7 +676,7 @@ func observeActiveRetirementDirectory(
 	ctx context.Context,
 	filesystem mutationfs.RootedStore,
 	authority *rootedpath.EntryAuthority,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 	maximumEntries int,
 	maximumDepth int,
 	maximumBytes int64,
@@ -726,7 +727,7 @@ func observeRetirementDirectoryWithLimits(
 }
 
 func retirementPreparationLimits(
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 	maximumEntries int,
 	maximumDepth int,
 	maximumBytes int64,
@@ -742,7 +743,7 @@ func retirementPreparationLimits(
 }
 
 func exactRetirementTreeLimits(
-	work recovery.ArtifactWork,
+	work workmeasure.ArtifactWork,
 	maximumDepth int,
 ) (mutationfs.TreeTraversalLimits, error) {
 	return mutationfs.NewTreeTraversalLimits(
@@ -760,7 +761,7 @@ func activeRetirementEnvelopeLimits(
 		return mutationfs.TreeTraversalLimits{}, fmt.Errorf("active recovery journal record has invalid size")
 	}
 	maximumBytes := evidence.work.Bytes() - journalBytes + maximumRecoveryJournalBytes
-	work, err := recovery.NewArtifactWork(evidence.work.Entries(), maximumBytes)
+	work, err := workmeasure.NewArtifactWork(evidence.work.Entries(), maximumBytes)
 	if err != nil {
 		return mutationfs.TreeTraversalLimits{}, err
 	}

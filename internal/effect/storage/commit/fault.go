@@ -9,34 +9,36 @@ import (
 type phase string
 
 const (
-	phaseCaptureIdentity   phase = "capture_identity"
-	phaseValidate          phase = "validate"
-	phaseCreateAncestors   phase = "create_ancestors"
-	phasePublishAncestor   phase = "publish_ancestor"
-	phaseCreateTemporary   phase = "create_temporary"
-	phaseWritePayload      phase = "write_payload"
-	phaseReadPayload       phase = "read_payload"
-	phaseApplyMode         phase = "apply_mode"
-	phaseCaptureMetadata   phase = "capture_metadata"
-	phaseApplyMetadata     phase = "apply_metadata"
-	phaseSyncPayload       phase = "sync_payload"
-	phaseClosePayload      phase = "close_payload"
-	phaseRevalidateEntry   phase = "revalidate_entry"
-	phaseCommitEntry       phase = "commit_entry"
-	phaseVerifyEntry       phase = "verify_entry"
-	phaseSyncParent        phase = "sync_parent"
-	phaseSyncAncestors     phase = "sync_ancestors"
-	phaseCleanupTemporary  phase = "cleanup_temporary"
-	phaseCleanupAncestors  phase = "cleanup_ancestors"
-	phaseSyncTreeFile      phase = "sync_tree_file"
-	phaseSyncTreeDirectory phase = "sync_tree_directory"
-	phaseCommitTombstone   phase = "commit_tombstone"
-	phasePromoteCleanup    phase = "promote_cleanup_stage"
-	phaseCleanupTombstone  phase = "cleanup_tombstone"
-	phaseRevalidateCleanup phase = "revalidate_cleanup_entry"
-	phaseCleanupEntry      phase = "cleanup_entry"
-	phaseSyncCleanupParent phase = "sync_cleanup_parent"
-	phaseUnsupported       phase = "unsupported_platform"
+	phaseCaptureIdentity    phase = "capture_identity"
+	phaseValidate           phase = "validate"
+	phaseCreateAncestors    phase = "create_ancestors"
+	phasePublishAncestor    phase = "publish_ancestor"
+	phaseCreateTemporary    phase = "create_temporary"
+	phaseWritePayload       phase = "write_payload"
+	phaseReadPayload        phase = "read_payload"
+	phaseApplyMode          phase = "apply_mode"
+	phaseCaptureMetadata    phase = "capture_metadata"
+	phaseApplyMetadata      phase = "apply_metadata"
+	phaseSyncPayload        phase = "sync_payload"
+	phaseRetainVerification phase = "retain_verification"
+	phaseClosePayload       phase = "close_payload"
+	phaseRevalidateEntry    phase = "revalidate_entry"
+	phaseCommitEntry        phase = "commit_entry"
+	phaseVerifyEntry        phase = "verify_entry"
+	phaseCloseVerification  phase = "close_verification"
+	phaseSyncParent         phase = "sync_parent"
+	phaseSyncAncestors      phase = "sync_ancestors"
+	phaseCleanupTemporary   phase = "cleanup_temporary"
+	phaseCleanupAncestors   phase = "cleanup_ancestors"
+	phaseSyncTreeFile       phase = "sync_tree_file"
+	phaseSyncTreeDirectory  phase = "sync_tree_directory"
+	phaseCommitTombstone    phase = "commit_tombstone"
+	phasePromoteCleanup     phase = "promote_cleanup_stage"
+	phaseCleanupTombstone   phase = "cleanup_tombstone"
+	phaseRevalidateCleanup  phase = "revalidate_cleanup_entry"
+	phaseCleanupEntry       phase = "cleanup_entry"
+	phaseSyncCleanupParent  phase = "sync_cleanup_parent"
+	phaseUnsupported        phase = "unsupported_platform"
 )
 
 type faultPlan struct {
@@ -44,6 +46,7 @@ type faultPlan struct {
 	afterEffectFailures       map[phase]error
 	actions                   map[phase]func()
 	payloadWrite              func(context.Context, io.Writer, []byte) error
+	payloadRead               func([]byte, func([]byte) (int, error)) (int, error)
 	afterCleanupDirectoryRead func()
 	beforeCleanupChild        func()
 }
@@ -96,6 +99,13 @@ func (plan faultPlan) writePayload(ctx context.Context, writer io.Writer, payloa
 		return plan.payloadWrite(ctx, writer, payload)
 	}
 	return writeAllContext(ctx, writer, payload)
+}
+
+func (plan faultPlan) readPayload(buffer []byte, read func([]byte) (int, error)) (int, error) {
+	if plan.payloadRead != nil {
+		return plan.payloadRead(buffer, read)
+	}
+	return read(buffer)
 }
 
 func writeAllContext(ctx context.Context, writer io.Writer, payload []byte) error {

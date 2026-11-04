@@ -3,6 +3,7 @@
 package commit
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -331,6 +332,32 @@ func commitWindowsFileWithFaultsAndParent(
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseSyncParent, request.path, err)
 	}
 	if err := anchor.revalidate(ctx); err != nil {
+		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
+	finalPublished, err := openWindowsRelativeFile(
+		anchor.parentDirectory(), anchor.name.String(),
+		windows.FILE_GENERIC_READ|windows.FILE_READ_EA|windows.READ_CONTROL,
+		windowsParentShareMode, windows.FILE_OPEN, false,
+	)
+	if err != nil {
+		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
+	finalFacts, finalFactsErr := queryWindowsEntryFacts(finalPublished.handle.Handle())
+	finalMetadata, finalMetadataErr := queryWindowsMetadataFacts(finalPublished.handle.Handle())
+	actualPayload, payloadErr := readWindowsPayloadUpTo(ctx, finalPublished.handle.Handle(), max(1, int64(len(request.payload))))
+	afterReadFacts, afterReadErr := queryWindowsEntryFacts(finalPublished.handle.Handle())
+	finalCloseErr := finalPublished.handle.Close()
+	if err := joinWindowsErrors(finalFactsErr, finalMetadataErr, payloadErr, afterReadErr, finalCloseErr); err != nil {
+		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
+	if !publishedFacts.identity.equal(finalFacts.identity) || !finalFacts.identity.equal(afterReadFacts.identity) ||
+		!bytes.Equal(actualPayload, request.payload) {
+		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, fmt.Errorf("published Windows payload differs"))
+	}
+	if err := validateWindowsCanonicalEntryAttributes(finalFacts.attribute.attributes, false); err != nil {
+		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
+	if err := ensureWindowsCanonicalMetadataSupported(finalMetadata, canonical.facts); err != nil {
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
 	}
 	parentFacts, err := queryWindowsEntryFacts(anchor.parentHandle())

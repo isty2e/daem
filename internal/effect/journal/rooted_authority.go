@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -88,7 +88,7 @@ func validateRecoveryGlobalPathBindings(
 	entries []recoveryEntry,
 	resolver func(output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) error {
 	validated := make(map[output.Destination]recoveryGlobalPathBinding)
 	currentRoots := make(map[string]rootedpath.Authority)
@@ -137,7 +137,7 @@ func observeRecoveryGlobalPathBindingForRecovery(
 	destination output.Destination,
 	resolver func(output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (recoveryGlobalPathObservation, error) {
 	if budget == nil {
 		return recoveryGlobalPathObservation{}, fmt.Errorf("recovery path work budget is required")
@@ -178,7 +178,7 @@ func observeRecoveryGlobalPathBindingForRecovery(
 	}
 	root, bound, err := rootedpath.CaptureDestinationBounded(
 		resolved,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if err != nil {
@@ -296,7 +296,7 @@ func (binding recoveryGlobalPathBinding) canonical() (string, rootedpath.Authori
 func (binding recoveryGlobalPathBinding) match(
 	current recoveryGlobalPathObservation,
 	currentRoots map[string]rootedpath.Authority,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) error {
 	expectedPath, expectedRoot, err := binding.canonical()
 	if err != nil {
@@ -321,7 +321,7 @@ func (binding recoveryGlobalPathBinding) match(
 	if !present {
 		recaptured, err := rootedpath.CaptureCanonicalRootNoFollowBounded(
 			expectedRoot.PhysicalRoot(),
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			budget,
 		)
 		if err != nil {
@@ -371,7 +371,7 @@ func manifestAuthorityForCapture(
 func manifestAuthorityForRecovery(
 	paths Paths,
 	journal recoveryJournal,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (*manifestAuthoritySession, error) {
 	expected, err := journal.ManifestRootProvenance.canonical()
 	if err != nil {
@@ -379,7 +379,7 @@ func manifestAuthorityForRecovery(
 	}
 	root, err := rootedpath.CaptureRootBounded(
 		paths.ManifestRoot,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if err != nil {
@@ -464,7 +464,7 @@ func (session *manifestAuthoritySession) acquire(
 
 func (session *manifestAuthoritySession) acquireBounded(
 	destination output.Destination,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (rootedpath.CommitCapability, error) {
 	if session == nil || session.root == nil {
 		return nil, fmt.Errorf("project root authority is unavailable for %q", destination)
@@ -479,7 +479,7 @@ func (session *manifestAuthoritySession) acquireBounded(
 	}
 	return session.root.AcquireBounded(
 		bound,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 }

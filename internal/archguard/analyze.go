@@ -14,6 +14,8 @@ const (
 	ruleWorkflowNestedImport        = "workflow-nested-import"
 	rulePathsInternalImport         = "paths-internal-import"
 	ruleJournalRecoveryImport       = "journal-recovery-boundary-import"
+	rulePhysicalWorkImport          = "physical-work-boundary-import"
+	ruleWorkMeasureImport           = "work-measure-boundary-import"
 	ruleJournalRetirementImport     = "journal-retirement-boundary-import"
 	ruleManifestBridgeImport        = "manifest-bridge-import"
 	ruleWorkflowReverseImport       = "workflow-reverse-import"
@@ -169,6 +171,19 @@ func analyzeImports(packagePath string, imports []string) []GuardrailFinding {
 			})
 		}
 
+		if isPackageOrChild(packagePath, "internal/effect/physicalwork") &&
+			!isAllowedPhysicalWorkImport(importPath, importInternalPath, isInternal) {
+			violations = append(violations, GuardrailFinding{
+				Rule: rulePhysicalWorkImport, PackagePath: packagePath, ImportPath: importPath,
+				Detail: "physicalwork owns local allocation and may import only its canonical demand, measurement and filesystem contracts",
+			})
+		}
+		if isPackageOrChild(packagePath, "internal/effect/workmeasure") && importPath != "fmt" {
+			violations = append(violations, GuardrailFinding{
+				Rule: ruleWorkMeasureImport, PackagePath: packagePath, ImportPath: importPath,
+				Detail: "workmeasure owns pure measurements without allocation or I/O",
+			})
+		}
 		if packagePath == "internal/effect/journal/retirement" &&
 			!isAllowedJournalRetirementImport(importPath, importInternalPath, isInternal) {
 			reportedImportPath := importPath
@@ -377,6 +392,7 @@ func isAllowedJournalRecoveryImport(importPath string, internalImport string, is
 	if isInternal {
 		switch internalImport {
 		case "internal/assurance/durable",
+			"internal/effect/workmeasure",
 			"internal/effect/mutation/filesystem",
 			"internal/effect/mutation/ownership",
 			"internal/output",
@@ -396,6 +412,15 @@ func isAllowedJournalRecoveryImport(importPath string, internalImport string, is
 	default:
 		return false
 	}
+}
+
+func isAllowedPhysicalWorkImport(importPath string, internalImport string, isInternal bool) bool {
+	if isInternal {
+		return internalImport == "internal/effect/journal/recovery" ||
+			internalImport == "internal/effect/workmeasure" ||
+			internalImport == "internal/effect/mutation/filesystem"
+	}
+	return importPath == "fmt" || importPath == "slices"
 }
 
 func isAllowedJournalRetirementImport(importPath string, internalImport string, isInternal bool) bool {

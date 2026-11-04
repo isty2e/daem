@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
@@ -247,7 +248,7 @@ type BackupEvidence struct {
 	Kind        string
 	ContentHash string
 	Error       string
-	Work        ArtifactWork
+	Work        workmeasure.ArtifactWork
 }
 
 // Classification reports whether active journal authority is clean,
@@ -289,7 +290,7 @@ type Action struct {
 	BackupPath          string
 	BackupHash          string
 	BackupKind          string
-	BackupWork          ArtifactWork
+	BackupWork          workmeasure.ArtifactWork
 	BeforePathMode      *PermissionMode
 	BeforePathExisted   bool
 	BeforeParentExisted bool

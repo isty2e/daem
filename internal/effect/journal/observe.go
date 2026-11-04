@@ -9,6 +9,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -27,7 +29,7 @@ type recoveryPathObservation struct {
 	BlockedReason string
 	BlockedDetail string
 	Error         string
-	Work          recovery.ArtifactWork
+	Work          workmeasure.ArtifactWork
 }
 
 type recoveryBackupObservation struct {
@@ -36,7 +38,7 @@ type recoveryBackupObservation struct {
 	Kind        string
 	ContentHash string
 	Error       string
-	Work        recovery.ArtifactWork
+	Work        workmeasure.ArtifactWork
 }
 
 func applyRecoveryIntentOwnershipEvidence(
@@ -45,7 +47,7 @@ func applyRecoveryIntentOwnershipEvidence(
 	intents []outputownership.ProvisionalAcquireIntent,
 	registry outputownership.Registry,
 	resolver func(output.Destination) (string, error),
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) ([]recoveryPathObservation, error) {
 	observationIndexes := make(map[recoveryPathObservationKey]int, len(observations))
 	for index, observation := range observations {
@@ -76,7 +78,7 @@ func applyRecoveryIntentOwnershipEvidence(
 		}
 		authority, err := mutation.ObserveDirectoryEntryAuthorityBounded(
 			hostPath,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			budget,
 		)
 		if err != nil {
@@ -125,7 +127,7 @@ func recoveryPathObservations(
 	resolver func(destination output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
 	codecs aggregate.CodecCatalog,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) ([]recoveryPathObservation, error) {
 	observations := make([]recoveryPathObservation, 0, len(entries))
 	seen := make(map[recoveryPathObservationKey]struct{}, len(entries))
@@ -256,7 +258,7 @@ func recoveryBackupObservations(
 	activeAuthority ActiveJournalAuthority,
 	entries []recoveryEntry,
 	filesystem mutationfs.RootedReader,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) ([]recoveryBackupObservation, error) {
 	backupPaths := make([]string, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
@@ -286,7 +288,7 @@ func recoveryBackupObservations(
 
 	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(
 		operationDir,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if err != nil {
@@ -309,7 +311,7 @@ func observeRecoveryBackupsRooted(
 	activeAuthority ActiveJournalAuthority,
 	backupPaths []string,
 	filesystem mutationfs.RootedReader,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) ([]recoveryBackupObservation, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -343,7 +345,7 @@ func observeRecoveryBackupsRooted(
 		}
 		capability, err := root.AcquireBounded(
 			destination,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			budget,
 		)
 		if err != nil {
@@ -445,7 +447,7 @@ func observeRecoveryBackup(
 	journalPath string,
 	filesystem mutationfs.RootedReader,
 	capability rootedpath.CommitCapability,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (recoveryBackupObservation, error) {
 	observed, err := observeRootedRecoveryCapability(
 		ctx,
@@ -478,15 +480,15 @@ func observeRecoveryBackup(
 func recoveryArtifactWorkLimits(
 	directory bool,
 	maximumFileBytes int64,
-	budget *recovery.PhysicalWorkBudget,
-) (recovery.ArtifactWork, recovery.ArtifactWork, error) {
+	budget *physicalwork.Budget,
+) (workmeasure.ArtifactWork, workmeasure.ArtifactWork, error) {
 	if budget == nil {
-		return recovery.ArtifactWork{}, recovery.ArtifactWork{}, fmt.Errorf(
+		return workmeasure.ArtifactWork{}, workmeasure.ArtifactWork{}, fmt.Errorf(
 			"recovery artifact work budget is required",
 		)
 	}
 	if maximumFileBytes <= 0 {
-		return recovery.ArtifactWork{}, recovery.ArtifactWork{}, fmt.Errorf(
+		return workmeasure.ArtifactWork{}, workmeasure.ArtifactWork{}, fmt.Errorf(
 			"recovery artifact file-byte limit must be positive",
 		)
 	}
@@ -496,7 +498,7 @@ func recoveryArtifactWorkLimits(
 	maximumBytes := min(maximumFileBytes, remaining.Bytes())
 	if directory {
 		if remaining.Entries() <= 0 {
-			return recovery.ArtifactWork{}, recovery.ArtifactWork{}, fmt.Errorf(
+			return workmeasure.ArtifactWork{}, workmeasure.ArtifactWork{}, fmt.Errorf(
 				"recovery directory observation exceeds remaining operation entry capacity",
 			)
 		}
@@ -504,11 +506,11 @@ func recoveryArtifactWorkLimits(
 		readerEntries = maximumEntries + 1
 		maximumBytes = min(recovery.MaximumArtifactTreeBytes, remaining.Bytes())
 	}
-	maximum, err := recovery.NewArtifactWork(maximumEntries, maximumBytes)
+	maximum, err := workmeasure.NewArtifactWork(maximumEntries, maximumBytes)
 	if err != nil {
-		return recovery.ArtifactWork{}, recovery.ArtifactWork{}, err
+		return workmeasure.ArtifactWork{}, workmeasure.ArtifactWork{}, err
 	}
-	readerCapacity, err := recovery.NewArtifactWork(
+	readerCapacity, err := workmeasure.NewArtifactWork(
 		readerEntries,
 		max(int64(1), maximumBytes),
 	)

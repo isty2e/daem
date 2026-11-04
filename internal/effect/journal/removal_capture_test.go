@@ -9,6 +9,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 )
 
@@ -22,7 +23,7 @@ func TestCaptureRemovalIntentsRejectsPathDepthBeforePublication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct removal demand set: %v", err)
 	}
-	components := make([]string, recovery.MaximumPhysicalPathDepth+1)
+	components := make([]string, physicalwork.MaximumPhysicalPathDepth+1)
 	for index := range components {
 		components[index] = "d"
 	}
@@ -52,7 +53,7 @@ func TestCaptureRemovalIntentsRejectsDeepPhysicalAliasBeforePublication(t *testi
 	if err != nil {
 		t.Fatalf("construct removal demand set: %v", err)
 	}
-	components := make([]string, recovery.MaximumPhysicalPathDepth+1)
+	components := make([]string, physicalwork.MaximumPhysicalPathDepth+1)
 	for index := range components {
 		components[index] = "d"
 	}

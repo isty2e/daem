@@ -12,6 +12,8 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
@@ -21,7 +23,7 @@ type recoveryBackupAuthority struct {
 	root        *rootedpath.CapturedRoot
 	destination rootedpath.Destination
 	identity    artifact.ExactIdentity
-	work        recovery.ArtifactWork
+	work        workmeasure.ArtifactWork
 }
 
 // recoveryBackup is executable backup authority bound to the operation's
@@ -29,7 +31,7 @@ type recoveryBackupAuthority struct {
 type recoveryBackup struct {
 	authority  recoveryBackupAuthority
 	filesystem mutationfs.RootedReader
-	budget     *recovery.PhysicalWorkBudget
+	budget     *physicalwork.Budget
 }
 
 func newRecoveryBackupAuthority(
@@ -38,7 +40,7 @@ func newRecoveryBackupAuthority(
 	reference string,
 	kind string,
 	contentHash string,
-	work recovery.ArtifactWork,
+	work workmeasure.ArtifactWork,
 ) (recoveryBackupAuthority, error) {
 	if root == nil {
 		return recoveryBackupAuthority{}, fmt.Errorf("recovery backup root authority is required")
@@ -70,7 +72,7 @@ func (authority recoveryBackupAuthority) equal(other recoveryBackupAuthority) bo
 
 func (authority recoveryBackupAuthority) bind(
 	filesystem mutationfs.RootedReader,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (recoveryBackup, error) {
 	if filesystem == nil || budget == nil {
 		return recoveryBackup{}, fmt.Errorf("recovery backup execution authority is unavailable")
@@ -79,14 +81,14 @@ func (authority recoveryBackupAuthority) bind(
 }
 
 func (backup recoveryBackup) acquire(
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (rootedpath.CommitCapability, error) {
 	if budget == nil {
 		return nil, fmt.Errorf("recovery backup execution budget is required")
 	}
 	return backup.authority.root.AcquireBounded(
 		backup.authority.destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 }
@@ -111,7 +113,7 @@ func (backup recoveryBackup) readFile(ctx context.Context) ([]byte, error) {
 	if readErr != nil || closeErr != nil {
 		return nil, errors.Join(readErr, closeErr)
 	}
-	actual, err := recovery.NewArtifactWork(0, int64(len(content)))
+	actual, err := workmeasure.NewArtifactWork(0, int64(len(content)))
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +200,7 @@ func (backup recoveryBackup) copyDirectory(
 }
 
 type recoveryBackupPathReservation struct {
-	budget *recovery.PhysicalWorkBudget
+	budget *physicalwork.Budget
 }
 
 func (reservation recoveryBackupPathReservation) AdmitPathComponents(count int) error {
@@ -234,7 +236,7 @@ func (authority *mutationAuthority) prepareRecoveryBackups(
 
 	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(
 		operationDir,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.physicalWorkBudget,
 	)
 	if err != nil {
@@ -294,7 +296,7 @@ func (authority *mutationAuthority) prepareRecoveryBackups(
 		reservation := recoveryBackupPathReservation{budget: authority.physicalWorkBudget}
 		if err := root.ReserveDestinationAccess(
 			destination,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			reservation,
 		); err != nil {
 			return fmt.Errorf("reserve recovery action[%d] backup path work: %w", index, err)
@@ -423,8 +425,8 @@ func (sink *recoveryDirectoryRestoreSink) VisitRegularFile(
 	return nil
 }
 
-func (sink *recoveryDirectoryRestoreSink) work() (recovery.ArtifactWork, error) {
-	return recovery.NewArtifactWork(sink.entries, sink.bytes)
+func (sink *recoveryDirectoryRestoreSink) work() (workmeasure.ArtifactWork, error) {
+	return workmeasure.NewArtifactWork(sink.entries, sink.bytes)
 }
 
 func (sink *recoveryDirectoryRestoreSink) hash() (artifact.ContentHash, error) {

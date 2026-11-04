@@ -3,7 +3,7 @@ package execute
 import (
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
 
 type pathOnlyPhaseBudget struct {
@@ -16,7 +16,7 @@ func (budget *pathOnlyPhaseBudget) AdmitPathComponents(count int) error {
 }
 
 func TestPhysicalTraversalPhaseForwardsPhysicalWorkToCapableBudget(t *testing.T) {
-	underlying, err := recovery.NewPhysicalWorkBudget(0)
+	underlying, err := physicalwork.NewBudget(0)
 	if err != nil {
 		t.Fatal(err)
 	}

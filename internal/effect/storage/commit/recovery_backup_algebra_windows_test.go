@@ -12,10 +12,12 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 )
 
 type windowsBackupExactReservation struct {
-	budget *recovery.PhysicalWorkBudget
+	budget *physicalwork.Budget
 }
 
 func (reservation windowsBackupExactReservation) AdmitPathComponents(count int) error {
@@ -82,11 +84,11 @@ func TestWindowsRecoveryBackupExactBudgetAdmitsSnapshotAndSettle(t *testing.T) {
 		totalBytes += int64(len(payload))
 	}
 
-	budget, err := recovery.NewPhysicalWorkBudget(0)
+	budget, err := physicalwork.NewBudget(0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(rootPath, recovery.MaximumPhysicalPathDepth, budget)
+	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(rootPath, physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,12 +107,12 @@ func TestWindowsRecoveryBackupExactBudgetAdmitsSnapshotAndSettle(t *testing.T) {
 	}
 	if err := root.ReserveDestinationAccess(
 		destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		windowsBackupExactReservation{budget: budget},
 	); err != nil {
 		t.Fatal(err)
 	}
-	work, err := recovery.NewArtifactWork(len(payloads), totalBytes)
+	work, err := workmeasure.NewArtifactWork(len(payloads), totalBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +123,7 @@ func TestWindowsRecoveryBackupExactBudgetAdmitsSnapshotAndSettle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	capability, err := root.AcquireBounded(destination, recovery.MaximumPhysicalPathDepth, execution)
+	capability, err := root.AcquireBounded(destination, physicalwork.MaximumPhysicalPathDepth, execution)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +142,7 @@ func TestWindowsRecoveryBackupExactBudgetAdmitsSnapshotAndSettle(t *testing.T) {
 		t.Fatalf("snapshot work = entries=%d bytes=%d, want entries=%d bytes=%d",
 			sink.entries, sink.bytes, len(payloads), totalBytes)
 	}
-	actual, err := recovery.NewArtifactWork(sink.entries, sink.bytes)
+	actual, err := workmeasure.NewArtifactWork(sink.entries, sink.bytes)
 	if err != nil {
 		t.Fatal(err)
 	}

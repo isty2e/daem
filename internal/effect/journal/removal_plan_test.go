@@ -15,7 +15,9 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
@@ -66,7 +68,7 @@ func TestReservedRemovalReobservationReadsEmptyFileAndDirectory(t *testing.T) {
 				t.Fatalf("capture test root: %v", err)
 			}
 			defer captured.Close()
-			budget, err := recovery.NewPhysicalWorkBudget(1)
+			budget, err := physicalwork.NewBudget(1)
 			if err != nil {
 				t.Fatalf("construct removal budget: %v", err)
 			}
@@ -77,7 +79,7 @@ func TestReservedRemovalReobservationReadsEmptyFileAndDirectory(t *testing.T) {
 			if err := budget.ReserveExecutionObservations(1, 1, 1, mutationfs.RootedAbsencePathObservationCount); err != nil {
 				t.Fatalf("reserve execution observations: %v", err)
 			}
-			empty, err := recovery.NewArtifactWork(0, 0)
+			empty, err := workmeasure.NewArtifactWork(0, 0)
 			if err != nil {
 				t.Fatalf("construct empty work: %v", err)
 			}
@@ -148,7 +150,7 @@ func TestReservedEmptyRemovalReobservationRejectsPositiveGrowth(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer captured.Close()
-			budget, err := recovery.NewPhysicalWorkBudget(1)
+			budget, err := physicalwork.NewBudget(1)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -160,7 +162,7 @@ func TestReservedEmptyRemovalReobservationRejectsPositiveGrowth(t *testing.T) {
 			if err := budget.ReserveExecutionObservations(1, 1, 1, mutationfs.RootedAbsencePathObservationCount); err != nil {
 				t.Fatal(err)
 			}
-			empty, err := recovery.NewArtifactWork(0, 0)
+			empty, err := workmeasure.NewArtifactWork(0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -219,7 +221,7 @@ func TestRemovalObservationPreservesCancellation(t *testing.T) {
 		t.Fatalf("capture canceled observation root: %v", err)
 	}
 	defer captured.Close()
-	budget, err := recovery.NewPhysicalWorkBudget(1)
+	budget, err := physicalwork.NewBudget(1)
 	if err != nil {
 		t.Fatalf("construct canceled observation budget: %v", err)
 	}
@@ -255,11 +257,11 @@ func TestRemovalObservationFailureConsumesReservedMaximumWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer captured.Close()
-	maximum, err := recovery.NewArtifactWork(0, 5)
+	maximum, err := workmeasure.NewArtifactWork(0, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
-	budget, err := recovery.NewPhysicalWorkBudget(1)
+	budget, err := physicalwork.NewBudget(1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +359,7 @@ func TestAssessRemovalCleanupIntentDisclosesPhysicalContinuation(t *testing.T) {
 			if err := test.place(parent, intent.Namespace().Names(), content); err != nil {
 				t.Fatalf("place removal slot: %v", err)
 			}
-			budget, err := recovery.NewPhysicalWorkBudget(1)
+			budget, err := physicalwork.NewBudget(1)
 			if err != nil {
 				t.Fatalf("construct removal budget: %v", err)
 			}

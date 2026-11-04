@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
@@ -167,7 +168,7 @@ func (authority *mutationAuthority) bindProjectControlEntry(
 			authority.capturedRoot,
 			selectedRoot,
 			path,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			authority.generalTraversalPhase,
 		)
 	}
@@ -175,7 +176,7 @@ func (authority *mutationAuthority) bindProjectControlEntry(
 		authority.capturedRoot,
 		selectedRoot,
 		path,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.generalTraversalPhase,
 	)
 }
@@ -186,7 +187,7 @@ func (authority *mutationAuthority) validateProjectSelection(selectedRoot string
 	}
 	return authority.capturedRoot.ValidateSelectionBounded(
 		selectedRoot,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.generalTraversalPhase,
 	)
 }
@@ -416,7 +417,7 @@ func (authority *mutationAuthority) prepareActiveJournalRetirement(
 		plan,
 		authority.journalBasis.activeAuthority,
 		paths.RecoveryDir,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.physicalWorkBudget,
 		authority.filesystem,
 		stateCodec,

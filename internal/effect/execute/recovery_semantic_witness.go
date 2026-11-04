@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io/fs"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -53,7 +53,7 @@ func (witness recoverySemanticWitness) equal(other recoverySemanticWitness) bool
 }
 
 type recoverySemanticPathReservation struct {
-	budget *recovery.PhysicalWorkBudget
+	budget *physicalwork.Budget
 }
 
 func (reservation recoverySemanticPathReservation) AdmitPathComponents(count int) error {
@@ -69,7 +69,7 @@ func (authority *mutationAuthority) bindRecoveryStatefileSemanticEntry(path stri
 	}
 	root, destination, err := rootedpath.CaptureDestinationBounded(
 		path,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.generalTraversalPhase,
 	)
 	if err != nil {
@@ -114,7 +114,7 @@ func (binding recoverySemanticEntryBinding) observe(
 	}
 	capability, err := binding.root.AcquireBounded(
 		binding.destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if err != nil {
@@ -293,7 +293,7 @@ func (authority *mutationAuthority) reserveRecoverySemanticValidations(count int
 		for range count {
 			if err := entry.root.ReserveDestinationAccess(
 				entry.destination,
-				recovery.MaximumPhysicalPathDepth,
+				physicalwork.MaximumPhysicalPathDepth,
 				reservation,
 			); err != nil {
 				return fmt.Errorf("reserve recovery semantic validation: %w", err)

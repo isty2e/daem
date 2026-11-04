@@ -4,11 +4,12 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/target"
 )
 
 func TestRecoveryForwardRemovalCertificatesUsePlannedBackupWork(t *testing.T) {
-	work, err := recovery.NewArtifactWork(0, 8)
+	work, err := workmeasure.NewArtifactWork(0, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestRecoveryForwardRemovalCertificatesUsePlannedBackupWork(t *testing.T) {
 		t.Fatalf("certificate count = %d, want 2", len(certificates))
 	}
 
-	maximum, err := recovery.NewArtifactWork(0, 8)
+	maximum, err := workmeasure.NewArtifactWork(0, 8)
 	if err != nil {
 		t.Fatal(err)
 	}

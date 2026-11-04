@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -33,7 +33,7 @@ func TestRecoveryLoadChargesRegistryAndEveryClaimAuthority(t *testing.T) {
 	if _, err := registryStore.LoadForClaimRemovals(
 		t.Context(),
 		nil,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		measured,
 	); err != nil {
 		t.Fatalf("measure bounded recovery load: %v", err)
@@ -50,7 +50,7 @@ func TestRecoveryLoadChargesRegistryAndEveryClaimAuthority(t *testing.T) {
 	if _, err := registryStore.LoadForClaimRemovals(
 		t.Context(),
 		nil,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		exhausted,
 	); err == nil || !strings.Contains(err.Error(), errTestTraversalBudgetExhausted.Error()) {
 		t.Fatalf("under-budget recovery load error = %v, want traversal-budget refusal", err)
@@ -77,7 +77,7 @@ func TestRecoveryReaderDefersPhysicalResolutionToBoundedLoad(t *testing.T) {
 	if _, err := reader.LoadForClaimRemovals(
 		t.Context(),
 		nil,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	); err == nil || !strings.Contains(err.Error(), errTestTraversalBudgetExhausted.Error()) {
 		t.Fatalf("bounded recovery load error = %v, want traversal-budget refusal", err)
@@ -105,7 +105,7 @@ func TestRecoveryRootedLoadChargesRegistryAndEveryClaimAuthority(t *testing.T) {
 	rootedStore, err := NewRooted(
 		capturedRoot,
 		destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		rootedBudget,
 	)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestRecoveryRootedLoadChargesRegistryAndEveryClaimAuthority(t *testing.T) {
 	if _, err := rootedStore.LoadForClaimRemovals(
 		t.Context(),
 		nil,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		measured,
 	); err != nil {
 		t.Fatalf("measure bounded rooted recovery load: %v", err)
@@ -133,7 +133,7 @@ func TestRecoveryRootedLoadChargesRegistryAndEveryClaimAuthority(t *testing.T) {
 	if _, err := rootedStore.LoadForClaimRemovals(
 		t.Context(),
 		nil,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		exhausted,
 	); err == nil || !strings.Contains(err.Error(), errTestTraversalBudgetExhausted.Error()) {
 		t.Fatalf("under-budget rooted recovery load error = %v, want traversal-budget refusal", err)
@@ -184,7 +184,7 @@ func TestBoundedRootedStoreKeepsBudgetForLaterOperations(t *testing.T) {
 			bounded, err := NewRooted(
 				capturedRoot,
 				destination,
-				recovery.MaximumPhysicalPathDepth,
+				physicalwork.MaximumPhysicalPathDepth,
 				budget,
 			)
 			if err != nil {
@@ -204,7 +204,7 @@ func TestRecoveryAuthorityObservationSessionDeduplicatesSharedPath(t *testing.T)
 	statefilePath := filepath.Join(root, "owner", ".daem", "state.json")
 	budget := &recordingPhysicalTraversalBudget{remaining: 1 << 30}
 	session, err := newBoundedPathAuthorityObservationSession(
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if err != nil {
@@ -245,7 +245,7 @@ func TestRecoveryLoadRequiresCompleteBoundedPolicy(t *testing.T) {
 		},
 		{
 			name:    "missing budget",
-			depth:   recovery.MaximumPhysicalPathDepth,
+			depth:   physicalwork.MaximumPhysicalPathDepth,
 			message: "traversal budget is required",
 		},
 	}
@@ -273,7 +273,7 @@ func TestRecoveryLoadPreservesCancellationBeforePathObservation(t *testing.T) {
 	_, err := registryStore.LoadForClaimRemovals(
 		ctx,
 		nil,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if !errors.Is(err, context.Canceled) {

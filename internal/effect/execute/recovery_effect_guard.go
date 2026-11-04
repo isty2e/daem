@@ -11,6 +11,8 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
@@ -265,7 +267,7 @@ func stageRootedRollbackDestinations(
 		if !identity.Equal(captured) {
 			return nil, fmt.Errorf("rooted rollback source %q changed while staging", destination.logical)
 		}
-		work, err := recovery.NewArtifactWork(0, int64(len(content)))
+		work, err := workmeasure.NewArtifactWork(0, int64(len(content)))
 		if err != nil {
 			return nil, err
 		}
@@ -380,7 +382,7 @@ func observeRecoveryWholePathState(
 	authority *mutationAuthority,
 	destination mutationDestination,
 	maximumFileBytes int64,
-	maximumKinds map[string]recovery.ArtifactWork,
+	maximumKinds map[string]workmeasure.ArtifactWork,
 ) (result recoveryWholePathState, identity mutationfs.EntryIdentity, resultErr error) {
 	if maximumFileBytes <= 0 {
 		return recoveryWholePathState{}, nil, fmt.Errorf("recovery observation file byte limit must be positive")
@@ -508,7 +510,7 @@ func validateStagedRecoveryDestination(
 		authority,
 		entry.destination,
 		entry.maximumFileBytes,
-		map[string]recovery.ArtifactWork{entry.kind: entry.stagedWork},
+		map[string]workmeasure.ArtifactWork{entry.kind: entry.stagedWork},
 	)
 	if err != nil {
 		return fmt.Errorf(
@@ -693,15 +695,15 @@ func (sink *rollbackTreeBackupSink) contentHash() artifact.ContentHash {
 	return sink.hash
 }
 
-func (sink *rollbackTreeBackupSink) artifactWork() (recovery.ArtifactWork, error) {
+func (sink *rollbackTreeBackupSink) artifactWork() (workmeasure.ArtifactWork, error) {
 	if sink == nil || !sink.finalized {
-		return recovery.ArtifactWork{}, fmt.Errorf("rollback tree backup is not finalized")
+		return workmeasure.ArtifactWork{}, fmt.Errorf("rollback tree backup is not finalized")
 	}
-	return recovery.NewArtifactWork(sink.entries, sink.bytes)
+	return workmeasure.NewArtifactWork(sink.entries, sink.bytes)
 }
 
 func recoveryStagingTraversalLimits(
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (mutationfs.TreeTraversalLimits, error) {
 	if budget == nil {
 		return mutationfs.TreeTraversalLimits{}, fmt.Errorf("recovery staging budget is required")

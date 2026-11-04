@@ -9,11 +9,11 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
 
 // inventoryOptions supplies the only observation capabilities used to
@@ -64,7 +64,7 @@ func (filesystem budgetedInventoryFilesystem) SnapshotDirectory(
 func (filesystem budgetedInventoryFilesystem) charge(path string) error {
 	return rootedpath.ChargeAbsolutePath(
 		filepath.Clean(path),
-		journalrecovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		filesystem.budget,
 	)
 }
@@ -134,14 +134,14 @@ func loadRecoveryRootInventory(
 		return recoveryRootInventory{}, fmt.Errorf("recovery inventory filesystem is required")
 	}
 	if options.PhysicalPathBudget == nil {
-		options.PhysicalPathBudget = journalrecovery.NewPhysicalPathBudget()
+		options.PhysicalPathBudget = physicalwork.NewPathBudget()
 	}
 	if strings.TrimSpace(recoveryRoot) == "" {
 		return recoveryRootInventory{}, fmt.Errorf("recovery directory is required")
 	}
 	physicalRoot, err := mutation.ResolveDirectoryEntryPathBounded(
 		recoveryRoot,
-		journalrecovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		options.PhysicalPathBudget,
 	)
 	if err != nil {

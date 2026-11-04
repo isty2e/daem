@@ -14,6 +14,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
@@ -24,7 +26,7 @@ func TestRecoveryBackupReadsEmptyFileWithReservedProbeCapacity(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	work, err := recovery.NewArtifactWork(0, 0)
+	work, err := workmeasure.NewArtifactWork(0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +59,7 @@ func TestRecoveryBackupCopiesEmptyDirectoryWithExactZeroWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, err := recovery.NewArtifactWork(0, 0)
+	work, err := workmeasure.NewArtifactWork(0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +92,7 @@ func TestRollbackBackupCopiesEmptyDirectoryWithProofAllowance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, err := recovery.NewArtifactWork(0, 0)
+	work, err := workmeasure.NewArtifactWork(0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +130,7 @@ func TestRollbackBackupCopiesZeroByteFilesWithZeroSemanticBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, err := recovery.NewArtifactWork(1, 0)
+	work, err := workmeasure.NewArtifactWork(1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +157,7 @@ func TestRecoveryBackupRejectsDirectoryGrowthBeyondExactWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, err := recovery.NewArtifactWork(0, 0)
+	work, err := workmeasure.NewArtifactWork(0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +178,7 @@ func TestRecoveryBackupRejectsExecutableModeDrift(t *testing.T) {
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	work, err := recovery.NewArtifactWork(0, int64(len(content)))
+	work, err := workmeasure.NewArtifactWork(0, int64(len(content)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +206,7 @@ func TestRecoveryBackupReservesEverySharedUse(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	work, err := recovery.NewArtifactWork(0, 0)
+	work, err := workmeasure.NewArtifactWork(0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +233,7 @@ func TestRecoveryBackupPreservesCancellation(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	work, err := recovery.NewArtifactWork(0, 0)
+	work, err := workmeasure.NewArtifactWork(0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +260,7 @@ func boundRecoveryBackupForTest(
 	relativePath string,
 	kind string,
 	contentHash string,
-	work recovery.ArtifactWork,
+	work workmeasure.ArtifactWork,
 	uses int,
 ) recoveryBackup {
 	t.Helper()
@@ -266,13 +268,13 @@ func boundRecoveryBackupForTest(
 	if err != nil {
 		t.Fatal(err)
 	}
-	budget, err := recovery.NewPhysicalWorkBudget(1)
+	budget, err := physicalwork.NewBudget(1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(
 		canonicalRoot,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if err != nil {
@@ -305,7 +307,7 @@ func boundRecoveryBackupForTest(
 	for range uses {
 		if err := root.ReserveDestinationAccess(
 			destination,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			recoveryBackupPathReservation{budget: budget},
 		); err != nil {
 			t.Fatal(err)

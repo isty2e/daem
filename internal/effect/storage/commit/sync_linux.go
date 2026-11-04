@@ -5,6 +5,7 @@ package commit
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"golang.org/x/sys/unix"
 )
@@ -90,16 +91,39 @@ func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 	if flags&linuxUserModifiableFlags != 0 {
 		return unsupported(fmt.Sprintf("file flags 0x%x cannot be preserved", flags), nil)
 	}
-	observed, err := captureXattrs(fd)
+	names, err := listXattrNames(fd)
 	if err != nil {
 		return err
 	}
-	for name := range observed.xattrs {
+	for _, name := range names {
 		if isLinuxACL(name) {
 			return unsupported("POSIX ACL metadata cannot be preserved", nil)
 		}
 	}
-	return verifyObservedXattrs(observed, metadata, func(string) bool { return false })
+	if err := verifyXattrNames(names, metadata); err != nil {
+		return err
+	}
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return err
+	}
+	for name, expected := range metadata.xattrs {
+		// NON-GOAL: detecting later same-name user.* value changes without owner
+		// read permission. Linux withholds these values even on the retained fd;
+		// their prepared same-inode check is the value evidence. Revisit if an
+		// unprivileged read or reliable change-counter API becomes available.
+		if stat.Mode&0o400 == 0 && strings.HasPrefix(name, "user.") {
+			continue
+		}
+		actual, err := readXattrValue(fd, name)
+		if err != nil {
+			return err
+		}
+		if string(actual) != string(expected) {
+			return unsupported(fmt.Sprintf("extended attribute %q did not verify", name), nil)
+		}
+	}
+	return nil
 }
 
 func capturePreparedTreePlatformMetadataFacts(fd int, path string, _ *unix.Stat_t) (uint64, error) {

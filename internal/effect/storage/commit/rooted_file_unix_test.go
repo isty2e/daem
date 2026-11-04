@@ -379,6 +379,14 @@ func TestReadRootedRegularFileUpToEnforcesPayloadBound(t *testing.T) {
 	if err := invalid.Close(); err != nil {
 		t.Fatalf("close invalid-bound capability: %v", err)
 	}
+
+	writeTestFile(t, filepath.Join(root, ".agents", "empty"), "", 0o600)
+	empty := rootedCapabilityForCommitTest(t, captured, ".agents/empty")
+	defer empty.Close()
+	content, mode, identity, err := ReadRootedRegularFileUpTo(t.Context(), empty, 0)
+	if err != nil || len(content) != 0 || mode != 0o600 || !identity.valid() {
+		t.Fatalf("zero allowance empty rooted read: content=%d mode=%o identity=%v error=%v", len(content), mode, identity.valid(), err)
+	}
 }
 
 func TestReadRootedSymlinkTargetReturnsStableNoFollowTarget(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/target"
@@ -246,7 +246,7 @@ func TestMutationAuthorityHasNoUnboundedBindingFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer authority.close()
-	for authority.physicalWorkBudget.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	for authority.physicalWorkBudget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
 
 	destination := outputtest.Parse(t, "~/.codex/config.toml")
@@ -299,11 +299,11 @@ func TestRetainedRecoveryAuthoritiesFollowExecutionPhaseBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	beginGeneralRecoveryExecutionForTest(t, authority)
-	for authority.generalExecutionWorkBudget.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	for authority.generalExecutionWorkBudget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
 	for authority.generalExecutionWorkBudget.AdmitPathComponents(1) == nil {
 	}
-	for authority.generalTraversalPhase.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	for authority.generalTraversalPhase.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
 	for authority.generalTraversalPhase.AdmitPathComponents(1) == nil {
 	}

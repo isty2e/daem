@@ -1,26 +1,16 @@
-package recovery
+// Package physicalwork owns operation-wide physical work allocation and the
+// single-use reservation and transfer protocol, without performing filesystem I/O.
+package physicalwork
 
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 )
 
 const (
-	// MaximumRemovalIntents bounds the complete operation-scoped removal
-	// authority. A single intent can require namespace plus two slot observations.
-	MaximumRemovalIntents = 4_096
-	// MaximumArtifactTreeDepth bounds every recursive artifact observation,
-	// backup restore, and cleanup pass. Planning and execution derive local
-	// limits from this operation contract.
-	MaximumArtifactTreeDepth = 64
-	// MaximumArtifactTreeEntries is the independent per-state descendant limit.
-	MaximumArtifactTreeEntries = 100_000
-	// MaximumArtifactTreeBytes is the independent per-state regular-file byte limit.
-	MaximumArtifactTreeBytes int64 = 4 << 30
-	// MaximumRecoveryBackupFileBytes is the largest single regular-file backup
-	// admitted by planning and execution.
-	MaximumRecoveryBackupFileBytes int64 = 128 << 20
 	// MaximumPhysicalPathDepth bounds the root/path chain opened for one rooted
 	// observation. It is deliberately well above ordinary
 	// agent configuration layouts while preventing one path from monopolizing
@@ -42,7 +32,7 @@ const (
 	// Forward execution performs one preflight observation, reserves one fresh
 	// candidate observation per reachable state, and may validate one namespace
 	// per attempted removal. A relation has at most before and expected states.
-	removalForwardObservationsPerIntent          = 1 + 2*MaximumRemovalStatesPerIntent
+	removalForwardObservationsPerIntent          = 1 + 2*recovery.MaximumRemovalStatesPerIntent
 	removalCleanupPreflightObservationsPerIntent = 3
 	removalCleanupExecutionObservationsPerIntent = 3 + 2*mutationfs.RootedAbsencePathObservationCount
 	removalObservationsPerIntent                 = removalPlanningObservationsPerIntent +
@@ -55,37 +45,13 @@ const (
 	MaximumPhysicalBytes int64 = 16 << 30
 )
 
-// ArtifactWork is the bounded content work observed for one regular file or
-// directory artifact. It carries no path or mutation authority.
-type ArtifactWork struct {
-	entries int
-	bytes   int64
-}
-
-// NewArtifactWork constructs one non-negative work measurement.
-func NewArtifactWork(entries int, bytes int64) (ArtifactWork, error) {
-	if entries < 0 || bytes < 0 {
-		return ArtifactWork{}, fmt.Errorf("artifact work must not be negative")
-	}
-	return ArtifactWork{entries: entries, bytes: bytes}, nil
-}
-
-// Entries returns the observed descendant-entry count.
-func (work ArtifactWork) Entries() int { return work.entries }
-
-// Bytes returns the observed regular-file byte count.
-func (work ArtifactWork) Bytes() int64 { return work.bytes }
-
-// Equal reports exact agreement of bounded descendant and byte work.
-func (work ArtifactWork) Equal(other ArtifactWork) bool {
-	return work == other
-}
-
-// PhysicalWorkBudget bounds physical observations and artifact traversal for
-// one recovery planning or effect pass. Planning charges current-path,
+// Budget bounds physical observations and artifact traversal for
+// one operation allocation. Planning charges current-path,
 // ownership, backup, and cleanup evidence to the same operation ceilings;
 // execution receives only capacity reserved before its first effect.
-type PhysicalWorkBudget struct {
+type Budget struct {
+	invocationReservations           *invocationReservationLedger
+	removalAdmissionPending          bool
 	observations                     int
 	observationLimit                 int
 	reservedForwardObservations      int
@@ -122,7 +88,7 @@ type PhysicalWorkBudget struct {
 	reservedGeneralProbeBytes        int64
 	reservedScratchEntries           int
 	reservedScratchBytes             int64
-	scratchCleanupWork               ArtifactWork
+	scratchCleanupWork               workmeasure.ArtifactWork
 	sharedPathBudget                 PathWorkBudget
 	reservedRetirementEntries        int
 	reservedRetirementBytes          int64
@@ -137,34 +103,16 @@ type PhysicalWorkBudget struct {
 
 // BeginGeneralExecution transfers the pre-effect host reservation and the
 // remaining control-path capacity into disjoint execution capabilities.
-func (budget *PhysicalWorkBudget) BeginGeneralExecution() (
-	*PhysicalWorkBudget,
-	*PhysicalWorkBudget,
+func (budget *Budget) BeginGeneralExecution() (
+	*Budget,
+	*Budget,
 	error,
 ) {
-	if budget == nil {
-		return nil, nil, fmt.Errorf("physical work budget is required")
+	host, err := budget.beginGeneralHostExecution()
+	if err != nil {
+		return nil, nil, err
 	}
-	if budget.generalExecutionBegun {
-		return nil, nil, fmt.Errorf("general recovery execution capacity was already transferred")
-	}
-	if !budget.cleanupExecutionBegun {
-		return nil, nil, fmt.Errorf("removal cleanup lifecycle must be transferred before general recovery execution")
-	}
-	if budget.scratchCleanupDisposition == scratchCleanupPending {
-		return nil, nil, fmt.Errorf("recovery scratch cleanup must be transferred before general recovery execution")
-	}
-	if budget.retirementDisposition == retirementPending {
-		return nil, nil, fmt.Errorf("journal retirement capacity must be transferred before general recovery execution")
-	}
-	budget.generalExecutionBegun = true
-	host := &PhysicalWorkBudget{
-		pathComponentLimit: budget.reservedGeneralPathComponents,
-		entryLimit:         budget.reservedGeneralEntries,
-		byteLimit:          budget.reservedGeneralBytes,
-		probeByteLimit:     budget.reservedGeneralProbeBytes,
-	}
-	control := &PhysicalWorkBudget{
+	control := &Budget{
 		pathComponentLimit: max(0, budget.pathComponentLimit-budget.pathComponents),
 	}
 	budget.pathComponents = budget.pathComponentLimit
@@ -173,9 +121,41 @@ func (budget *PhysicalWorkBudget) BeginGeneralExecution() (
 	return host, control, nil
 }
 
+// BeginGeneralExecutionRetainingControl transfers only the charged host
+// reservation; the receiver retains unreserved control observation capacity.
+func (budget *Budget) BeginGeneralExecutionRetainingControl() (*Budget, error) {
+	return budget.beginGeneralHostExecution()
+}
+
+func (budget *Budget) beginGeneralHostExecution() (*Budget, error) {
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
+	}
+	if budget.generalExecutionBegun {
+		return nil, fmt.Errorf("general recovery execution capacity was already transferred")
+	}
+	if !budget.cleanupExecutionBegun {
+		return nil, fmt.Errorf("removal cleanup lifecycle must be transferred before general recovery execution")
+	}
+	if budget.scratchCleanupDisposition == scratchCleanupPending {
+		return nil, fmt.Errorf("recovery scratch cleanup must be transferred before general recovery execution")
+	}
+	if budget.retirementDisposition == retirementPending {
+		return nil, fmt.Errorf("journal retirement capacity must be transferred before general recovery execution")
+	}
+	budget.generalExecutionBegun = true
+	host := &Budget{
+		pathComponentLimit: budget.reservedGeneralPathComponents,
+		entryLimit:         budget.reservedGeneralEntries,
+		byteLimit:          budget.reservedGeneralBytes,
+		probeByteLimit:     budget.reservedGeneralProbeBytes,
+	}
+	return host, nil
+}
+
 // ReserveGeneralPathComponents charges path work that will be transferred to
 // the host-destination execution capability.
-func (budget *PhysicalWorkBudget) ReserveGeneralPathComponents(count int) error {
+func (budget *Budget) ReserveGeneralPathComponents(count int) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
@@ -193,7 +173,7 @@ func (budget *PhysicalWorkBudget) ReserveGeneralPathComponents(count int) error 
 // ReserveSemanticPathComponents charges path work that will be transferred to
 // statefile and ownership semantic-witness validation. The reservation grants
 // no payload or mutation authority.
-func (budget *PhysicalWorkBudget) ReserveSemanticPathComponents(count int) error {
+func (budget *Budget) ReserveSemanticPathComponents(count int) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
@@ -210,9 +190,9 @@ func (budget *PhysicalWorkBudget) ReserveSemanticPathComponents(count int) error
 
 // BeginReservedSemanticExecution transfers only path capacity reserved before
 // effects for statefile and ownership semantic-witness validation.
-func (budget *PhysicalWorkBudget) BeginReservedSemanticExecution() (*PhysicalWorkBudget, error) {
-	if budget == nil {
-		return nil, fmt.Errorf("physical work budget is required")
+func (budget *Budget) BeginReservedSemanticExecution() (*Budget, error) {
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
 	}
 	if budget.semanticExecutionBegun {
 		return nil, fmt.Errorf("recovery semantic execution capacity was already transferred")
@@ -221,7 +201,7 @@ func (budget *PhysicalWorkBudget) BeginReservedSemanticExecution() (*PhysicalWor
 		return nil, fmt.Errorf("recovery semantic capacity must be transferred before general execution")
 	}
 	budget.semanticExecutionBegun = true
-	return &PhysicalWorkBudget{
+	return &Budget{
 		pathComponentLimit: budget.reservedSemanticPathComponents,
 	}, nil
 }
@@ -229,34 +209,34 @@ func (budget *PhysicalWorkBudget) BeginReservedSemanticExecution() (*PhysicalWor
 // ReserveGeneralFileObservation charges one future bounded file read. A
 // one-byte proof allowance distinguishes an empty file from positive growth
 // without converting that proof byte into semantic content capacity.
-func (budget *PhysicalWorkBudget) ReserveGeneralFileObservation(work ArtifactWork) error {
+func (budget *Budget) ReserveGeneralFileObservation(work workmeasure.ArtifactWork) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
 	if budget.generalExecutionBegun {
 		return fmt.Errorf("general recovery execution capacity was already transferred")
 	}
-	if work.entries != 0 {
+	if work.Entries() != 0 {
 		return fmt.Errorf("general file observation cannot contain descendant entries")
 	}
 	if err := budget.AdmitTree(work); err != nil {
 		return err
 	}
-	budget.reservedGeneralBytes += work.bytes
-	budget.reservedGeneralProbeBytes += max(int64(1), work.bytes) - work.bytes
+	budget.reservedGeneralBytes += work.Bytes()
+	budget.reservedGeneralProbeBytes += max(int64(1), work.Bytes()) - work.Bytes()
 	return nil
 }
 
 // ReserveGeneralDirectoryObservation charges one future exact directory
 // snapshot plus the overflow name needed to reject descendant growth.
-func (budget *PhysicalWorkBudget) ReserveGeneralDirectoryObservation(work ArtifactWork) error {
+func (budget *Budget) ReserveGeneralDirectoryObservation(work workmeasure.ArtifactWork) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
 	if budget.generalExecutionBegun {
 		return fmt.Errorf("general recovery execution capacity was already transferred")
 	}
-	if work.entries >= budget.RemainingEntries() {
+	if work.Entries() >= budget.RemainingEntries() {
 		return fmt.Errorf(
 			"general recovery entries exceed operation limit %d",
 			budget.entryLimit,
@@ -266,8 +246,8 @@ func (budget *PhysicalWorkBudget) ReserveGeneralDirectoryObservation(work Artifa
 		return err
 	}
 	budget.entries++
-	budget.reservedGeneralEntries += work.entries + 1
-	budget.reservedGeneralBytes += work.bytes
+	budget.reservedGeneralEntries += work.Entries() + 1
+	budget.reservedGeneralBytes += work.Bytes()
 	return nil
 }
 
@@ -275,7 +255,7 @@ func (budget *PhysicalWorkBudget) ReserveGeneralDirectoryObservation(work Artifa
 // and execution envelope for one removal intent. The reservation is purely
 // structural: it performs no filesystem observation and grants no mutation
 // authority.
-func (budget *PhysicalWorkBudget) ReserveCleanupLifecycle(
+func (budget *Budget) ReserveCleanupLifecycle(
 	destinationDepth int,
 	residueDepth int,
 	cleanupDepth int,
@@ -330,11 +310,24 @@ func (budget *PhysicalWorkBudget) ReserveCleanupLifecycle(
 	return nil
 }
 
+// ConcludeCleanupLifecycle closes cleanup after the containing coordinator has
+// discharged every removal obligation on this allocation. No capacity transfers.
+func (budget *Budget) ConcludeCleanupLifecycle() error {
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return err
+	}
+	if budget.cleanupExecutionBegun || budget.generalExecutionBegun {
+		return fmt.Errorf("removal cleanup lifecycle was already established")
+	}
+	budget.cleanupExecutionBegun = true
+	return nil
+}
+
 // BeginReservedCleanupLifecycle transfers the pre-effect cleanup envelope and
 // all remaining tree capacity to one post-effect retirement capability.
-func (budget *PhysicalWorkBudget) BeginReservedCleanupLifecycle() (*PhysicalWorkBudget, error) {
-	if budget == nil {
-		return nil, fmt.Errorf("physical work budget is required")
+func (budget *Budget) BeginReservedCleanupLifecycle() (*Budget, error) {
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
 	}
 	if budget.cleanupExecutionBegun {
 		return nil, fmt.Errorf("removal cleanup lifecycle capacity was already transferred")
@@ -343,7 +336,7 @@ func (budget *PhysicalWorkBudget) BeginReservedCleanupLifecycle() (*PhysicalWork
 		return nil, fmt.Errorf("removal cleanup lifecycle must be reserved before general recovery execution")
 	}
 	budget.cleanupExecutionBegun = true
-	child := &PhysicalWorkBudget{
+	child := &Budget{
 		observationLimit:   budget.reservedCleanupObservations,
 		pathComponentLimit: budget.reservedCleanupPathComponents,
 		entryLimit:         budget.RemainingEntries(),
@@ -358,7 +351,7 @@ func (budget *PhysicalWorkBudget) BeginReservedCleanupLifecycle() (*PhysicalWork
 
 // ReserveBackupPathComponents charges path capacity that will be transferred
 // to bounded recovery-backup execution.
-func (budget *PhysicalWorkBudget) ReserveBackupPathComponents(count int) error {
+func (budget *Budget) ReserveBackupPathComponents(count int) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
@@ -375,56 +368,56 @@ func (budget *PhysicalWorkBudget) ReserveBackupPathComponents(count int) error {
 
 // ReserveBackupDirectoryExecution charges one future exact directory snapshot
 // plus the overflow name needed to reject growth before publication.
-func (budget *PhysicalWorkBudget) ReserveBackupDirectoryExecution(work ArtifactWork) error {
+func (budget *Budget) ReserveBackupDirectoryExecution(work workmeasure.ArtifactWork) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
 	if budget.backupExecutionBegun {
 		return fmt.Errorf("recovery backup execution capacity was already transferred")
 	}
-	if work.entries > MaximumArtifactTreeEntries || work.bytes > MaximumArtifactTreeBytes {
+	if work.Entries() > recovery.MaximumArtifactTreeEntries || work.Bytes() > recovery.MaximumArtifactTreeBytes {
 		return fmt.Errorf(
 			"recovery backup work exceeds per-tree limit entries=%d bytes=%d",
-			MaximumArtifactTreeEntries,
-			MaximumArtifactTreeBytes,
+			recovery.MaximumArtifactTreeEntries,
+			recovery.MaximumArtifactTreeBytes,
 		)
 	}
-	if work.entries >= budget.RemainingEntries() {
+	if work.Entries() >= budget.RemainingEntries() {
 		return fmt.Errorf(
 			"recovery backup entries exceed operation limit %d",
 			budget.entryLimit,
 		)
 	}
-	if work.bytes > budget.RemainingBytes() {
+	if work.Bytes() > budget.RemainingBytes() {
 		return fmt.Errorf(
 			"recovery backup bytes exceed operation limit %d",
 			budget.byteLimit,
 		)
 	}
-	budget.entries += work.entries + 1
-	budget.bytes += work.bytes
-	budget.reservedBackupEntries += work.entries + 1
-	budget.reservedBackupBytes += work.bytes
+	budget.entries += work.Entries() + 1
+	budget.bytes += work.Bytes()
+	budget.reservedBackupEntries += work.Entries() + 1
+	budget.reservedBackupBytes += work.Bytes()
 	return nil
 }
 
 // ReserveBackupFileExecution charges the exact file bytes plus one bounded byte
 // of growth-detection capacity for a future verified backup read.
-func (budget *PhysicalWorkBudget) ReserveBackupFileExecution(work ArtifactWork) error {
+func (budget *Budget) ReserveBackupFileExecution(work workmeasure.ArtifactWork) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
 	if budget.backupExecutionBegun {
 		return fmt.Errorf("recovery backup execution capacity was already transferred")
 	}
-	if work.entries != 0 || work.bytes > MaximumRecoveryBackupFileBytes {
+	if work.Entries() != 0 || work.Bytes() > recovery.MaximumRecoveryBackupFileBytes {
 		return fmt.Errorf(
 			"recovery file backup work exceeds per-file limit entries=%d bytes=%d",
-			work.entries,
-			MaximumRecoveryBackupFileBytes,
+			work.Entries(),
+			recovery.MaximumRecoveryBackupFileBytes,
 		)
 	}
-	capacity := max(int64(1), work.bytes+1)
+	capacity := max(int64(1), work.Bytes()+1)
 	if capacity > budget.RemainingBytes() {
 		return fmt.Errorf(
 			"recovery backup bytes exceed operation limit %d",
@@ -438,15 +431,15 @@ func (budget *PhysicalWorkBudget) ReserveBackupFileExecution(work ArtifactWork) 
 
 // BeginReservedBackupExecution transfers only capacity reserved before recovery
 // effects into the rooted backup-copy phase.
-func (budget *PhysicalWorkBudget) BeginReservedBackupExecution() (*PhysicalWorkBudget, error) {
-	if budget == nil {
-		return nil, fmt.Errorf("physical work budget is required")
+func (budget *Budget) BeginReservedBackupExecution() (*Budget, error) {
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
 	}
 	if budget.backupExecutionBegun {
 		return nil, fmt.Errorf("recovery backup execution capacity was already transferred")
 	}
 	budget.backupExecutionBegun = true
-	return &PhysicalWorkBudget{
+	return &Budget{
 		pathComponentLimit: budget.reservedBackupPathComponents,
 		entryLimit:         budget.reservedBackupEntries,
 		byteLimit:          budget.reservedBackupBytes,
@@ -458,17 +451,17 @@ type PathWorkBudget interface {
 	AdmitPathComponents(count int) error
 }
 
-// PhysicalPathBudget is the operation-wide path-component envelope shared by
+// PathBudget is the operation-wide path-component envelope shared by
 // pre-decode inventory, StateDir authority, and exact journal planning passes.
-type PhysicalPathBudget struct {
+type PathBudget struct {
 	components int
 }
 
-// NewPhysicalPathBudget creates one empty operation-wide physical path budget.
-func NewPhysicalPathBudget() *PhysicalPathBudget { return &PhysicalPathBudget{} }
+// NewPathBudget creates one empty operation-wide physical path budget.
+func NewPathBudget() *PathBudget { return &PathBudget{} }
 
 // AdmitPathComponents charges one normalized physical path traversal.
-func (budget *PhysicalPathBudget) AdmitPathComponents(count int) error {
+func (budget *PathBudget) AdmitPathComponents(count int) error {
 	if budget == nil {
 		return fmt.Errorf("physical path budget is required")
 	}
@@ -492,38 +485,34 @@ func (budget *PhysicalPathBudget) AdmitPathComponents(count int) error {
 	return nil
 }
 
-// NewPhysicalWorkBudget admits the complete removal-intent cardinality before
+// NewBudget admits the complete removal-intent cardinality before
 // current-path, ownership, backup, or cleanup observation and before effects.
-func NewPhysicalWorkBudget(intentCount int) (*PhysicalWorkBudget, error) {
-	return NewPhysicalWorkBudgetWithPathBudget(intentCount, nil)
+func NewBudget(intentCount int) (*Budget, error) {
+	return NewBudgetWithPathBudget(intentCount, nil)
 }
 
-// NewPhysicalWorkBudgetWithPathBudget creates the exact semantic planning
+// NewBudgetWithPathBudget creates the exact semantic planning
 // budget while charging all path work to a caller-owned shared envelope.
-func NewPhysicalWorkBudgetWithPathBudget(
+func NewBudgetWithPathBudget(
 	intentCount int,
 	sharedPathBudget PathWorkBudget,
-) (*PhysicalWorkBudget, error) {
-	if intentCount < 0 || intentCount > MaximumRemovalIntents {
+) (*Budget, error) {
+	if intentCount < 0 || intentCount > recovery.MaximumRemovalIntents {
 		return nil, fmt.Errorf(
 			"removal intent count %d exceeds operation maximum %d",
 			intentCount,
-			MaximumRemovalIntents,
+			recovery.MaximumRemovalIntents,
 		)
 	}
-	return &PhysicalWorkBudget{
-		observationLimit:   intentCount * removalObservationsPerIntent,
-		pathComponentLimit: maximumPhysicalPathComponentVisits,
-		entryLimit:         MaximumPhysicalEntries,
-		byteLimit:          MaximumPhysicalBytes,
-		sharedPathBudget:   sharedPathBudget,
-	}, nil
+	budget := newPhysicalWorkAllocation(sharedPathBudget)
+	budget.observationLimit = intentCount * removalObservationsPerIntent
+	return budget, nil
 }
 
 // AdmitObservation charges one bounded namespace or slot observation.
-func (budget *PhysicalWorkBudget) AdmitObservation() error {
-	if budget == nil {
-		return fmt.Errorf("physical work budget is required")
+func (budget *Budget) AdmitObservation() error {
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return err
 	}
 	if budget.observations >= budget.observationLimit {
 		return fmt.Errorf(
@@ -538,7 +527,7 @@ func (budget *PhysicalWorkBudget) AdmitObservation() error {
 // AdmitPathComponents charges the already-normalized component work needed to
 // bind or revalidate one physical namespace path. Physical path interpretation
 // remains outside this wire-neutral package.
-func (budget *PhysicalWorkBudget) AdmitPathComponents(depth int) error {
+func (budget *Budget) AdmitPathComponents(depth int) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
@@ -555,7 +544,7 @@ func (budget *PhysicalWorkBudget) AdmitPathComponents(depth int) error {
 	return budget.admitAggregatePathComponents(depth)
 }
 
-func (budget *PhysicalWorkBudget) admitAggregatePathComponents(count int) error {
+func (budget *Budget) admitAggregatePathComponents(count int) error {
 	if count < 0 {
 		return fmt.Errorf("removal aggregate path-component work must not be negative")
 	}
@@ -576,7 +565,7 @@ func (budget *PhysicalWorkBudget) admitAggregatePathComponents(count int) error 
 
 // ReserveExecutionObservations charges the exact worst-case observations and
 // physical traversals performed by one ready cleanup candidate.
-func (budget *PhysicalWorkBudget) ReserveExecutionObservations(
+func (budget *Budget) ReserveExecutionObservations(
 	destinationDepth int,
 	residueDepth int,
 	cleanupDepth int,
@@ -634,7 +623,7 @@ func (budget *PhysicalWorkBudget) ReserveExecutionObservations(
 }
 
 // RemainingEntries returns the aggregate descendant-entry capacity.
-func (budget *PhysicalWorkBudget) RemainingEntries() int {
+func (budget *Budget) RemainingEntries() int {
 	if budget == nil || budget.entries >= budget.entryLimit {
 		return 0
 	}
@@ -642,7 +631,7 @@ func (budget *PhysicalWorkBudget) RemainingEntries() int {
 }
 
 // RemainingBytes returns the aggregate regular-file byte capacity.
-func (budget *PhysicalWorkBudget) RemainingBytes() int64 {
+func (budget *Budget) RemainingBytes() int64 {
 	if budget == nil || budget.bytes >= budget.byteLimit {
 		return 0
 	}
@@ -650,43 +639,46 @@ func (budget *PhysicalWorkBudget) RemainingBytes() int64 {
 }
 
 // RemainingTreeWork returns the aggregate work still admitted by this budget.
-func (budget *PhysicalWorkBudget) RemainingTreeWork() ArtifactWork {
-	return ArtifactWork{
-		entries: budget.RemainingEntries(),
-		bytes:   budget.RemainingBytes(),
-	}
+func (budget *Budget) RemainingTreeWork() workmeasure.ArtifactWork {
+	// Both remaining-capacity methods return non-negative values.
+	work, _ := workmeasure.NewArtifactWork(budget.RemainingEntries(), budget.RemainingBytes())
+	return work
 }
 
 // AdmitTree charges one completed bounded tree or file observation.
-func (budget *PhysicalWorkBudget) AdmitTree(work ArtifactWork) error {
+func (budget *Budget) AdmitTree(work workmeasure.ArtifactWork) error {
+	return budget.admitTreeCounts(work.Entries(), work.Bytes())
+}
+
+func (budget *Budget) admitTreeCounts(entries int, bytes int64) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
-	if work.entries > budget.RemainingEntries() {
+	if entries > budget.RemainingEntries() {
 		return fmt.Errorf(
 			"removal traversal entries exceed operation limit %d",
 			budget.entryLimit,
 		)
 	}
-	if work.bytes > budget.RemainingBytes() {
+	if bytes > budget.RemainingBytes() {
 		return fmt.Errorf(
 			"removal traversal bytes exceed operation limit %d",
 			budget.byteLimit,
 		)
 	}
-	budget.entries += work.entries
-	budget.bytes += work.bytes
+	budget.entries += entries
+	budget.bytes += bytes
 	return nil
 }
 
 // AdmitPhysicalWork atomically charges storage-owned path and tree work carried
 // by a bounded rooted commit capability.
-func (budget *PhysicalWorkBudget) AdmitPhysicalWork(
+func (budget *Budget) AdmitPhysicalWork(
 	pathComponents int,
 	entries int,
 	bytes int64,
 ) error {
-	work, err := NewArtifactWork(entries, bytes)
+	work, err := workmeasure.NewArtifactWork(entries, bytes)
 	if err != nil {
 		return err
 	}
@@ -704,15 +696,15 @@ func (budget *PhysicalWorkBudget) AdmitPhysicalWork(
 // AdmitTreeWithin charges one observation only when it remains within the
 // preflight work of that exact entry. The operation budget remains an
 // independent aggregate ceiling.
-func (budget *PhysicalWorkBudget) AdmitTreeWithin(
-	work ArtifactWork,
-	maximum ArtifactWork,
+func (budget *Budget) AdmitTreeWithin(
+	work workmeasure.ArtifactWork,
+	maximum workmeasure.ArtifactWork,
 ) error {
-	if work.entries > maximum.entries || work.bytes > maximum.bytes {
+	if work.Entries() > maximum.Entries() || work.Bytes() > maximum.Bytes() {
 		return fmt.Errorf(
 			"removal reobservation work exceeds its preflight maximum entries=%d bytes=%d",
-			maximum.entries,
-			maximum.bytes,
+			maximum.Entries(),
+			maximum.Bytes(),
 		)
 	}
 	return budget.AdmitTree(work)
@@ -721,24 +713,24 @@ func (budget *PhysicalWorkBudget) AdmitTreeWithin(
 // AdmitIndeterminateTreeWork conservatively charges both the full semantic
 // maximum and any separately reserved reader overhead for an observation whose
 // partial resource use cannot be measured.
-func (budget *PhysicalWorkBudget) AdmitIndeterminateTreeWork(
-	maximum ArtifactWork,
-	readerCapacity ArtifactWork,
+func (budget *Budget) AdmitIndeterminateTreeWork(
+	maximum workmeasure.ArtifactWork,
+	readerCapacity workmeasure.ArtifactWork,
 ) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
-	if readerCapacity.entries != maximum.entries || readerCapacity.bytes < maximum.bytes {
+	if readerCapacity.Entries() != maximum.Entries() || readerCapacity.Bytes() < maximum.Bytes() {
 		return fmt.Errorf("removal reader capacity must cover its semantic maximum")
 	}
-	probeBytes := readerCapacity.bytes - maximum.bytes
-	if maximum.entries > budget.RemainingEntries() {
+	probeBytes := readerCapacity.Bytes() - maximum.Bytes()
+	if maximum.Entries() > budget.RemainingEntries() {
 		return fmt.Errorf(
 			"removal traversal entries exceed operation limit %d",
 			budget.entryLimit,
 		)
 	}
-	if maximum.bytes > budget.RemainingBytes() {
+	if maximum.Bytes() > budget.RemainingBytes() {
 		return fmt.Errorf(
 			"removal traversal bytes exceed operation limit %d",
 			budget.byteLimit,
@@ -747,8 +739,8 @@ func (budget *PhysicalWorkBudget) AdmitIndeterminateTreeWork(
 	if probeBytes > budget.probeByteLimit-budget.probeBytes {
 		return fmt.Errorf("removal reader probe exceeds reserved empty-proof capacity")
 	}
-	budget.entries += maximum.entries
-	budget.bytes += maximum.bytes
+	budget.entries += maximum.Entries()
+	budget.bytes += maximum.Bytes()
 	budget.probeBytes += probeBytes
 	return nil
 }
@@ -756,53 +748,53 @@ func (budget *PhysicalWorkBudget) AdmitIndeterminateTreeWork(
 // AdmitIndeterminateDirectoryWork charges the complete descriptor enumeration
 // capacity after an incomplete directory observation. Unlike empty-file proof
 // bytes, the N+1 directory name is an actual operation entry visit.
-func (budget *PhysicalWorkBudget) AdmitIndeterminateDirectoryWork(
-	maximum ArtifactWork,
-	readerCapacity ArtifactWork,
+func (budget *Budget) AdmitIndeterminateDirectoryWork(
+	maximum workmeasure.ArtifactWork,
+	readerCapacity workmeasure.ArtifactWork,
 ) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
-	if readerCapacity.entries < maximum.entries || readerCapacity.bytes < maximum.bytes {
+	if readerCapacity.Entries() < maximum.Entries() || readerCapacity.Bytes() < maximum.Bytes() {
 		return fmt.Errorf("removal directory reader capacity must cover its semantic maximum")
 	}
-	if readerCapacity.entries > budget.RemainingEntries() {
+	if readerCapacity.Entries() > budget.RemainingEntries() {
 		return fmt.Errorf(
 			"removal traversal entries exceed operation limit %d",
 			budget.entryLimit,
 		)
 	}
-	if maximum.bytes > budget.RemainingBytes() {
+	if maximum.Bytes() > budget.RemainingBytes() {
 		return fmt.Errorf(
 			"removal traversal bytes exceed operation limit %d",
 			budget.byteLimit,
 		)
 	}
-	budget.entries += readerCapacity.entries
-	budget.bytes += maximum.bytes
+	budget.entries += readerCapacity.Entries()
+	budget.bytes += maximum.Bytes()
 	return nil
 }
 
 // ReserveReobservation charges the fresh effect-time observation that follows
 // planning/preflight for every ready file or directory candidate.
-func (budget *PhysicalWorkBudget) ReserveReobservation(work ArtifactWork) error {
+func (budget *Budget) ReserveReobservation(work workmeasure.ArtifactWork) error {
 	if err := budget.AdmitTree(work); err != nil {
 		return err
 	}
-	budget.reservedReobservationEntries += work.entries
-	budget.reservedReobservationBytes += work.bytes
-	budget.reservedProbeBytes += max(int64(1), work.bytes) - work.bytes
+	budget.reservedReobservationEntries += work.Entries()
+	budget.reservedReobservationBytes += work.Bytes()
+	budget.reservedProbeBytes += max(int64(1), work.Bytes()) - work.Bytes()
 	return nil
 }
 
 // ReserveDirectoryReobservation charges one fresh directory observation plus
 // the extra name read only to prove an entry-count overflow. The overflow name
 // is actual enumeration work but grants no additional semantic tree capacity.
-func (budget *PhysicalWorkBudget) ReserveDirectoryReobservation(work ArtifactWork) error {
+func (budget *Budget) ReserveDirectoryReobservation(work workmeasure.ArtifactWork) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
-	if work.entries >= budget.RemainingEntries() {
+	if work.Entries() >= budget.RemainingEntries() {
 		return fmt.Errorf(
 			"removal traversal entries exceed operation limit %d",
 			budget.entryLimit,
@@ -812,16 +804,16 @@ func (budget *PhysicalWorkBudget) ReserveDirectoryReobservation(work ArtifactWor
 		return err
 	}
 	budget.entries++
-	budget.reservedReobservationEntries += work.entries + 1
-	budget.reservedReobservationBytes += work.bytes
+	budget.reservedReobservationEntries += work.Entries() + 1
+	budget.reservedReobservationBytes += work.Bytes()
 	return nil
 }
 
 // ReserveRootedCleanup charges the complete storage and destination-parent
 // validation envelope for one ready file or directory before any candidate
 // begins an effect.
-func (budget *PhysicalWorkBudget) ReserveRootedCleanup(
-	work ArtifactWork,
+func (budget *Budget) ReserveRootedCleanup(
+	work workmeasure.ArtifactWork,
 	directory bool,
 	parentValidationWork int,
 ) error {
@@ -833,10 +825,7 @@ func (budget *PhysicalWorkBudget) ReserveRootedCleanup(
 		return err
 	}
 	reserved := *budget
-	if err := reserved.AdmitTree(ArtifactWork{
-		entries: envelope.EntryWork(),
-		bytes:   envelope.ByteWork(),
-	}); err != nil {
+	if err := reserved.admitTreeCounts(envelope.EntryWork(), envelope.ByteWork()); err != nil {
 		return fmt.Errorf("reserve rooted cleanup tree work: %w", err)
 	}
 	reserved.reservedCleanupEntries += envelope.EntryWork()
@@ -857,11 +846,11 @@ func (budget *PhysicalWorkBudget) ReserveRootedCleanup(
 // capacity proved by preflight while preserving operation-wide namespace and
 // path work already consumed. The child carries the exact storage work that
 // bounded rooted cleanup consumes before touching its selected entry.
-func (budget *PhysicalWorkBudget) BeginReservedExecution() (*PhysicalWorkBudget, error) {
-	if budget == nil {
-		return nil, fmt.Errorf("physical work budget is required")
+func (budget *Budget) BeginReservedExecution() (*Budget, error) {
+	if err := budget.requireRemovalAdmission(); err != nil {
+		return nil, err
 	}
-	return &PhysicalWorkBudget{
+	return &Budget{
 		observationLimit:   budget.reservedExecutionObservations,
 		pathComponentLimit: budget.reservedExecutionPathComponents,
 		entryLimit:         budget.reservedReobservationEntries + budget.reservedCleanupEntries,
@@ -871,7 +860,7 @@ func (budget *PhysicalWorkBudget) BeginReservedExecution() (*PhysicalWorkBudget,
 }
 
 func rootedCleanupWorkEnvelope(
-	work ArtifactWork,
+	work workmeasure.ArtifactWork,
 	directory bool,
 ) (mutationfs.RootedCleanupWorkEnvelope, error) {
 	kind := mutationfs.EntryKindFile
@@ -879,9 +868,9 @@ func rootedCleanupWorkEnvelope(
 		kind = mutationfs.EntryKindDirectory
 	}
 	limits, err := mutationfs.NewTreeTraversalLimits(
-		work.entries,
-		MaximumArtifactTreeDepth,
-		work.bytes,
+		work.Entries(),
+		recovery.MaximumArtifactTreeDepth,
+		work.Bytes(),
 	)
 	if err != nil {
 		return mutationfs.RootedCleanupWorkEnvelope{}, err

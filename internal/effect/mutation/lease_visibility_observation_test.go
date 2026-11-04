@@ -117,6 +117,9 @@ func TestVisibilityObservationMismatchWinsOverLaterError(t *testing.T) {
 			var firstObserved atomic.Bool
 			newObserver := func() pathIdentityObserver {
 				return func(path string, _ PathEffect) (canonicalPath, error) {
+					if path == namespace.accessPath {
+						return namespace, nil
+					}
 					if indices[path] == 0 {
 						firstObserved.Store(true)
 					}

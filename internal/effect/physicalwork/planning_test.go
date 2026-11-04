@@ -1,14 +1,14 @@
-package recovery
+package physicalwork
 
 import "testing"
 
 func TestPhysicalPlanningPassesShareOnlyOperationPathCapacity(t *testing.T) {
-	shared := NewPhysicalPathBudget()
-	first, err := NewPhysicalWorkBudgetWithPathBudget(1, shared)
+	shared := NewPathBudget()
+	first, err := NewBudgetWithPathBudget(1, shared)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := NewPhysicalWorkBudgetWithPathBudget(1, shared)
+	second, err := NewBudgetWithPathBudget(1, shared)
 	if err != nil {
 		t.Fatal(err)
 	}

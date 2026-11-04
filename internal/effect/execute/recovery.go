@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -1011,7 +1012,7 @@ func recoveryIntentClaimGuard(
 		}
 		authorityObservation, err := mutation.ObserveDirectoryEntryAuthorityBounded(
 			destination.hostPath,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			authority.generalTraversalPhase,
 		)
 		if err != nil {

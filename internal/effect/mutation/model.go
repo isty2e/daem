@@ -228,29 +228,40 @@ func (set *LeaseSet) CoversPhysicalAuthority(authority PhysicalAuthoritySet) (bo
 	if set.released || len(set.held) == 0 || len(set.domains) == 0 {
 		return false, fmt.Errorf("mutation lease set is not active")
 	}
+	for _, domain := range authority.domains {
+		if domain.kind != domainPhysicalPath || domain.access != AccessExclusive {
+			return false, fmt.Errorf("physical authority set is invalid")
+		}
+	}
+	return coversExclusiveDomains(set.domains, authority.domains)
+}
 
+func coversExclusiveDomains(held []Domain, required []Domain) (bool, error) {
 	type coverageKey struct {
+		kind    domainKind
 		path    string
 		witness pathSemanticsWitness
 		effect  PathEffect
 		target  string
 		scope   string
 	}
-	acquired := make(map[coverageKey]struct{}, len(set.domains))
-	for _, domain := range set.domains {
-		if domain.kind != domainPhysicalPath || domain.access != AccessExclusive {
+	acquired := make(map[coverageKey]struct{}, len(held))
+	for _, domain := range held {
+		if (domain.kind != domainPhysicalPath && domain.kind != domainLogicalPath) || domain.access != AccessExclusive {
 			continue
 		}
 		acquired[coverageKey{
+			kind: domain.kind,
 			path: domain.canonicalPath, witness: domain.pathWitness, effect: domain.effect,
 			target: domain.target, scope: domain.scope,
 		}] = struct{}{}
 	}
-	for _, domain := range authority.domains {
-		if domain.kind != domainPhysicalPath || domain.access != AccessExclusive {
+	for _, domain := range required {
+		if (domain.kind != domainPhysicalPath && domain.kind != domainLogicalPath) || domain.access != AccessExclusive {
 			return false, fmt.Errorf("physical authority set is invalid")
 		}
 		key := coverageKey{
+			kind: domain.kind,
 			path: domain.canonicalPath, witness: domain.pathWitness, effect: domain.effect,
 			target: domain.target, scope: domain.scope,
 		}
@@ -265,7 +276,7 @@ func (domain Domain) matchesCurrentPath(observe pathIdentityObserver) (bool, err
 	switch domain.kind {
 	case domainLogicalPath, domainPhysicalPath:
 		if !domain.namespaceLease.isZero() {
-			matches, err := domain.namespaceLease.matchesCurrent()
+			matches, err := domain.namespaceLease.matchesCurrentUsing(observe)
 			if err != nil || !matches {
 				return matches, err
 			}
