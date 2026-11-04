@@ -21,7 +21,7 @@ or [Use An Existing Environment](migration.md).
   [`import host-config`](#import-host-config),
   [`add`](#add), [`remove`](#remove), [`unmanage extension`](#unmanage-extension),
   [`lock`](#lock), [`outdated`](#outdated), [`list`](#list), [`status`](#status),
-  [`apply`](#apply),
+  [`replace host-config`](#replace-host-config), [`apply`](#apply),
   [`recover`](#recover), [`migrate state`](#migrate-state),
   [`migrate metadata`](#migrate-metadata), [`doctor`](#doctor),
   [`probe mcp-server`](#probe-mcp-server), [`refresh extension`](#refresh-extension)
@@ -327,6 +327,7 @@ flags.
 | `remove instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove mcp-server` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove skill` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `replace host-config` | `--diff`, `--dry-run`, `--expect-plan`, `--json`, `--key`, `--manifest`, `--verbose`, `--yes` |
 | `status` | `--check`, `--json`, `--manifest`, `--target`, `--verbose` |
 | `unmanage extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `version` | `--json` |
@@ -347,6 +348,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list paths` | Agent location inventory | `2` |
 | `status`, `apply --dry-run` | Reconciliation plan | `18` |
 | confirmed `apply` | Apply result | `24` |
+| `replace host-config` | Selected-key replacement | `1` |
 | `import host-config` | Selected physical-value capture or its terminal recovery | `1` |
 | `recover` | Recovery plan/result | `10` |
 | `migrate state` | State-authority migration | `1` |
@@ -1361,6 +1363,56 @@ instead of fabricating an assessment. `apply --dry-run` omits this field: its
 planning context, including `--manage-existing`, is not a status observation.
 Both commands emit the current reconciliation-plan version in the
 [version table](#json-schema-contract); other result families are unchanged.
+
+## `replace host-config`
+
+Use this command to set selected native configuration keys to their locked
+declaration values, either when first taking over a different existing value or
+after a managed key has changed. Ordinary `apply` still refuses those conflicts;
+`--manage-existing` remains exact-match adoption, not replacement.
+
+With the [example host-configuration declaration](manifest.md#host-configuration):
+
+```bash
+daem replace host-config codex-preferences --key /tui/notifications --dry-run
+daem replace host-config codex-preferences --key /tui/notifications
+```
+
+The first command is read-only. The second requires terminal stdin/stdout/stderr,
+shows the selected current and declared values, and asks once. No extension CLI
+runs, and other resources and unselected keys are not applied. Without `--key`,
+the command selects the declaration's current atomic key set. Repeat `--key` to
+narrow it using RFC 6901 pointers. Selecting an object selects only its currently
+declared atomic descendants, not future or undeclared children. Array elements
+cannot be selected independently. Whole-document ownership, ownership-mode
+changes, and moving recorded ownership to another host, scope or file are refused.
+
+For noninteractive execution, first inspect `--dry-run --json`. Copy its opaque
+`fingerprint` into `--expect-plan` and execute with both `--yes` and
+`--expect-plan`. Bare `--yes` is refused. The declaration, source, selected values,
+ownership and file protection must still match the approved plan. A mismatch
+requires a fresh preview; `--yes` does not override it. Unselected values, comments
+and formatting can change: execution rereads and preserves them rather than
+replaying saved file bytes. Replacing a file inode alone does not invalidate
+consent when the selected namespace, values and protection still match.
+
+The JSON envelope is schema version 1 with `command = "replace host-config"`,
+`mode` (`dry-run` or `executed`), `fingerprint`, `declaration`, `action_count` and
+`keys`. Each key has a literal-name `key_path` array, destination `file`, `action`
+(`create`, `recreate`, `adopt`, `takeover`, `replace`, `record`, or `current`),
+`current_present`, optional `current`, and `desired`. Value strings use host
+syntax; sensitive or oversized display values are masked without weakening the
+approval fingerprint. `action_count` counts selected state or host mutations;
+already-current keys do not count. `record` refreshes stale management state when
+the host value already matches the declaration without rewriting that value.
+`--diff` adds a selected-value diff to human
+dry-run output; it cannot be combined with `--json`.
+
+Replacement uses normal interrupted-operation recovery. Before state commit,
+rollback restores the selected value that actually existed immediately before
+replacement, not an older managed baseline. After commit, recovery finalizes
+without replaying host writes. Unknown third values block recovery. A successful
+replacement does not retain an undo backup. See [state and recovery](state-and-recovery.md).
 
 ## `apply`
 
