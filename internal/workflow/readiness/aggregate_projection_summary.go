@@ -84,7 +84,7 @@ func ObserveAggregateProjectionSummaries(
 				)
 			}
 			switch {
-			case !projection.Present():
+			case projection.Absent():
 				summary = observerelation.ObservationMissing
 			case projection.CanonicalProjection() == contribution.Contribution().CanonicalContribution():
 				summary = observerelation.ObservationPresent

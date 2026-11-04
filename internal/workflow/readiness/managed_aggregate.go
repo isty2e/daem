@@ -3,6 +3,7 @@ package readiness
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"sort"
 
@@ -10,10 +11,12 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
+	"github.com/isty2e/daem/internal/realization/profile"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
@@ -62,6 +65,7 @@ func buildManagedAggregatePlanningInputs(
 	hookEncoder commandhook.ContributionEncoder,
 	mcpEncoder lockrefine.MCPContributionEncoder,
 	codecs aggregate.CodecCatalog,
+	native ...nativeAssessmentSources,
 ) (managedAggregatePlanningInputs, error) {
 	lowered, err := topologyhook.Lower(environment.HookAssets(), environment.Hooks())
 	if err != nil {
@@ -102,7 +106,37 @@ func buildManagedAggregatePlanningInputs(
 		return managedAggregatePlanningInputs{}, fmt.Errorf("refine desired MCP contributions: %w", err)
 	}
 	desiredContributions = append(desiredContributions, mcpDesired...)
+	if len(native) != 0 {
+		for _, source := range native[0].sources {
+			placement, _ := source.SourceContract().HostConfigPlacement()
+			if placement.Ownership() != hostconfig.OwnershipKeys {
+				continue
+			}
+			narrowed := false
+			if native[0].preparation != nil {
+				for _, action := range native[0].preparation.Narrowings() {
+					if action.SourceContract().EntityID() == source.SourceContract().EntityID() {
+						narrowed = true
+						break
+					}
+				}
+			}
+			if narrowed {
+				continue
+			}
+			contracts := source.Projections()
+			contributions, err := aggregateContributionsFromContracts(contracts)
+			if err != nil {
+				return managedAggregatePlanningInputs{}, err
+			}
+			expected = append(expected, contracts...)
+			desiredContributions = append(desiredContributions, contributions...)
+		}
+	}
 	states := currentState.ManagedAggregates()
+	if len(native) != 0 && native[0].preparation != nil {
+		states = native[0].preparation.RemainingManagedAggregates()
+	}
 	observations, err := observeAggregateDocuments(
 		ctx,
 		resolver,
@@ -110,6 +144,7 @@ func buildManagedAggregatePlanningInputs(
 		states,
 		selection,
 		codecs,
+		native...,
 	)
 	if err != nil {
 		return managedAggregatePlanningInputs{}, err
@@ -184,6 +219,7 @@ func observeAggregateDocuments(
 	states []durable.ManagedAggregateState,
 	selection targetselection.Selection,
 	codecs aggregate.CodecCatalog,
+	native ...nativeAssessmentSources,
 ) (aggregateDocumentObservations, error) {
 	contractsByDocument := make(map[aggregate.DocumentCodecKey]map[aggregate.ProjectionAddress]aggregate.ProjectionContract)
 	contractsByAddress := make(map[aggregate.ProjectionAddress]aggregate.ProjectionContract)
@@ -244,6 +280,7 @@ func observeAggregateDocuments(
 		preconditions: make([]observe.AggregatePreconditionEvidence, 0),
 	}
 	for _, address := range documents {
+		retained, retainedMode, hasRetained := retainedNativeDocument(native, address.DocumentAddress())
 		contracts := make([]aggregate.ProjectionContract, 0, len(contractsByDocument[address]))
 		for _, contract := range contractsByDocument[address] {
 			contracts = append(contracts, contract)
@@ -256,7 +293,14 @@ func observeAggregateDocuments(
 		if !ok {
 			return aggregateDocumentObservations{}, fmt.Errorf("aggregate codec %q is not admitted", selected.CodecContractID())
 		}
-		preconditions, admitted, err := aggregate.OperationPreconditionsForSelection(selected)
+		var preconditions []aggregate.OperationPrecondition
+		var admitted bool
+		if _, native := aggregate.HostConfigSyntaxForCodec(selected.CodecContractID()); native {
+			_, err = profile.NewNativeAggregateOperationContract(codecs, selected)
+			admitted = err == nil
+		} else {
+			preconditions, admitted, err = aggregate.OperationPreconditionsForSelection(selected)
+		}
 		if err != nil {
 			return aggregateDocumentObservations{}, err
 		}
@@ -267,9 +311,14 @@ func observeAggregateDocuments(
 			)
 		}
 		for _, precondition := range preconditions {
-			satisfied, err := observeAggregatePrecondition(ctx, resolver, precondition)
-			if err != nil {
-				return aggregateDocumentObservations{}, err
+			var satisfied bool
+			if hasRetained {
+				satisfied = retained.Exists() != (precondition.Kind() == aggregate.OperationPreconditionDocumentAbsent)
+			} else {
+				satisfied, err = observeAggregatePrecondition(ctx, resolver, precondition)
+				if err != nil {
+					return aggregateDocumentObservations{}, err
+				}
 			}
 			observed, err := observe.NewAggregatePreconditionEvidence(address, precondition, satisfied)
 			if err != nil {
@@ -277,17 +326,25 @@ func observeAggregateDocuments(
 			}
 			result.preconditions = append(result.preconditions, observed)
 		}
-		logical := address.DocumentAddress().AggregateRoot()
-		if err := liveobserve.ValidateAggregateReadPreconditions(ctx, logical, resolver); err != nil {
-			return aggregateDocumentObservations{}, err
-		}
-		physical, err := resolver(logical)
-		if err != nil {
-			return aggregateDocumentObservations{}, fmt.Errorf("resolve aggregate document %q: %w", logical, err)
-		}
-		document, mode, err := readAggregateDocument(ctx, physical, codec.MaximumDocumentBytes())
-		if err != nil {
-			return aggregateDocumentObservations{}, fmt.Errorf("read aggregate document %q: %w", logical, err)
+		document := retained
+		var mode os.FileMode
+		if hasRetained {
+			if retainedMode != nil {
+				mode = retainedMode.FileMode()
+			}
+		} else {
+			logical := address.DocumentAddress().AggregateRoot()
+			if err := liveobserve.ValidateAggregateReadPreconditions(ctx, logical, resolver); err != nil {
+				return aggregateDocumentObservations{}, err
+			}
+			physical, err := resolver(logical)
+			if err != nil {
+				return aggregateDocumentObservations{}, fmt.Errorf("resolve aggregate document %q: %w", logical, err)
+			}
+			document, mode, err = readAggregateDocument(ctx, physical, codec.MaximumDocumentBytes())
+			if err != nil {
+				return aggregateDocumentObservations{}, fmt.Errorf("read aggregate document %q: %w", logical, err)
+			}
 		}
 		snapshot, failure := codec.Read(document, selected)
 		if failure != nil {

@@ -49,6 +49,11 @@ func PrintRecoverPlanWithFenceOptions(
 	fileSetFence fileset.FileSetFenceKind,
 	options HumanOptions,
 ) {
+	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
+		printNativeRecoverPlan(output, native, options)
+		printContinuingFileSetFence(output, fileSetFence)
+		return
+	}
 	if plan, ok := journal.ActiveRecoveryPlan(disclosure); ok {
 		printActiveRecoverPlan(output, plan, options)
 		printContinuingFileSetFence(output, fileSetFence)
@@ -132,11 +137,7 @@ func PrintRecoverExecutionFence(output io.Writer, execution recoverworkflow.Exec
 	)
 }
 
-func printActiveRecoverPlan(
-	output io.Writer,
-	plan recovery.Plan,
-	options HumanOptions,
-) {
+func printActiveRecoverPlan(output io.Writer, plan recovery.Plan, options HumanOptions) {
 	fmt.Fprintf(output, "recover: %s\n", plan.Classification())
 	if len(plan.Actions()) == 0 && len(plan.RemovalCleanupObligations()) == 0 {
 		fmt.Fprintln(output, "nothing to recover")
@@ -148,24 +149,18 @@ func printActiveRecoverPlan(
 	if options.Verbose {
 		fmt.Fprintf(output, "operation directory: %s\n", Escape(plan.OperationDir()))
 	}
-	for _, action := range plan.Actions() {
+	printRecoverActions(output, plan.Actions(), options)
+	printRemovalCleanupObligations(output, plan.RemovalCleanupObligations())
+}
+
+func printRecoverActions(output io.Writer, actions []recovery.Action, options HumanOptions) {
+	for _, action := range actions {
 		identityLabel, identityValue := recoveryIdentityLabel(action)
 		if identityValue == "" {
 			fmt.Fprintf(output, "%s reason=%s", action.Kind, action.Reason)
 		} else {
 			targetLabel, targetValue := recoveryTargetLabel(action)
-			fmt.Fprintf(
-				output,
-				"%s %s=%q %s=%s scope=%s destination=%q reason=%s",
-				action.Kind,
-				identityLabel,
-				identityValue,
-				targetLabel,
-				targetValue,
-				action.Scope,
-				action.Destination,
-				action.Reason,
-			)
+			fmt.Fprintf(output, "%s %s=%q %s=%s scope=%s destination=%q reason=%s", action.Kind, identityLabel, identityValue, targetLabel, targetValue, action.Scope, action.Destination, action.Reason)
 		}
 		if options.Verbose && action.BackupPath != "" {
 			fmt.Fprintf(output, " backup=%q", action.BackupPath)
@@ -178,14 +173,11 @@ func printActiveRecoverPlan(
 		}
 		fmt.Fprintln(output)
 	}
-	for _, obligation := range plan.RemovalCleanupObligations() {
-		fmt.Fprintf(
-			output,
-			"removal_cleanup readiness=%s scope=%s destination=%q",
-			obligation.Readiness(),
-			obligation.Scope(),
-			obligation.Destination(),
-		)
+}
+
+func printRemovalCleanupObligations(output io.Writer, obligations []recovery.RemovalCleanupObligation) {
+	for _, obligation := range obligations {
+		fmt.Fprintf(output, "removal_cleanup readiness=%s scope=%s destination=%q", obligation.Readiness(), obligation.Scope(), obligation.Destination())
 		if obligation.Action() != "" {
 			fmt.Fprintf(output, " action=%s", obligation.Action())
 		}
@@ -364,6 +356,9 @@ func recoveryJSONPayload(
 		}
 		disclosure = current
 	}
+	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
+		return nativeRecoveryJSONPayload(mode, phase, fileSetFenceValue, native), nil
+	}
 	if plan, ok := journal.ActiveRecoveryPlan(disclosure); ok {
 		actions := plan.Actions()
 		cleanupObligations := recoveryCleanupObligations(plan.RemovalCleanupObligations())
@@ -405,6 +400,9 @@ func recoveryJSONPayload(
 }
 
 func recoveryOperationID(disclosure journal.RecoverablePlan) string {
+	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
+		return native.OperationID()
+	}
 	if plan, ok := journal.ActiveRecoveryPlan(disclosure); ok {
 		return plan.OperationID()
 	}

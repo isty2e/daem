@@ -12,6 +12,8 @@ import (
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/reconcile"
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
+	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 type projectionPlanningInput struct {
@@ -33,6 +35,8 @@ type projectionPlanningInput struct {
 	owner                   stateauthority.Authority
 	ownership               []observe.OwnershipObservation
 	codecs                  aggregate.CodecCatalog
+	nativeNarrowings        []reconcile.NativeNarrowingAction
+	nativeWholeAdoptions    []reconcileprojection.NativeWholeAdoptionPlan
 }
 
 func buildProjectionDecisions(input projectionPlanningInput) (
@@ -54,9 +58,62 @@ func buildProjectionDecisions(input projectionPlanningInput) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("build managed path decisions: %w", err)
 	}
+	for _, adoption := range input.nativeWholeAdoptions {
+		if err := adoption.Validate(); err != nil {
+			return nil, nil, err
+		}
+		found := false
+		for index, decision := range managedPaths {
+			if decision.Subject() == adoption.Decision().Subject() {
+				managedPaths[index], found = adoption.Decision(), true
+				break
+			}
+		}
+		if !found {
+			return nil, nil, fmt.Errorf("native whole adoption has no corresponding managed path decision")
+		}
+	}
+	aggregateLocked := input.locked
+	if len(input.nativeNarrowings) != 0 {
+		consumed := make(map[topology.SubjectID]struct{})
+		for _, action := range input.nativeNarrowings {
+			for _, item := range action.DesiredContributions() {
+				consumed[item.SubjectID()] = struct{}{}
+			}
+		}
+		var remaining []lock.LockedSubjectContract
+		for _, subject := range input.locked.Subjects() {
+			if _, found := consumed[subject.SubjectID()]; !found {
+				remaining = append(remaining, subject)
+			}
+		}
+		aggregateLocked, err = lock.NewLockedSection(remaining, input.locked.OrderConstraints())
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	constraints := append([]reconcileprojection.AggregateSubjectConstraint(nil), input.aggregateConstraints...)
+	for _, adoption := range input.nativeWholeAdoptions {
+		decision := adoption.Decision()
+		if !decision.IsBlocked() {
+			continue
+		}
+		wholeOwner, entityBacked := topologyprojection.EntityID(decision.Subject())
+		for _, state := range input.aggregateStates {
+			keyOwner, _, native := topologyprojection.HostConfigKeyIdentity(state.Subject())
+			if !entityBacked || !native || keyOwner != wholeOwner {
+				continue
+			}
+			constraint, err := reconcileprojection.NewAggregateSubjectConstraint(state.Subject(), decision.Reason(), decision.Detail())
+			if err != nil {
+				return nil, nil, err
+			}
+			constraints = append(constraints, constraint)
+		}
+	}
 	aggregates, err := reconcileprojection.BuildAggregateDecisions(reconcileprojection.AggregateInput{
-		Locked: input.locked, Expected: input.aggregateExpected, Desired: input.aggregateDesired,
-		Constraints:    input.aggregateConstraints,
+		Locked: aggregateLocked, Expected: input.aggregateExpected, Desired: input.aggregateDesired,
+		Constraints:    constraints,
 		RemovalNotices: input.aggregateRemovalNotices,
 		States:         input.aggregateStates, Evidence: input.aggregateEvidence,
 		ObservationFailures:    input.aggregateFailures,

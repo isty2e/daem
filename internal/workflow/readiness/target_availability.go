@@ -71,6 +71,9 @@ func fromEnvironment(environment desired.Environment) []target.Target {
 	for _, instructions := range environment.Instructions() {
 		add(instructions.Targets())
 	}
+	for _, config := range environment.HostConfigs() {
+		add([]target.Target{config.Target()})
+	}
 	for _, server := range environment.MCPServers() {
 		for _, binding := range server.Bindings() {
 			add([]target.Target{binding.Target()})

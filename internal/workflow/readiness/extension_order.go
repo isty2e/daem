@@ -3,6 +3,7 @@ package readiness
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
@@ -42,6 +43,7 @@ func observeExtensionOrderFacts(
 	paths daempaths.Paths,
 	locked lock.File,
 	selectedTargets reconcile.SelectedTargets,
+	native ...nativeAssessmentSources,
 ) ([]extensionOrderObservation, error) {
 	facts := make([]extensionOrderObservation, 0)
 	for _, constraint := range locked.Locked.OrderConstraints() {
@@ -57,11 +59,21 @@ func observeExtensionOrderFacts(
 		if !selectedTargets.Contains(selectedTarget) {
 			continue
 		}
-		observation, err := relationhost.ObserveOrder(relationhost.OrderInput{
+		input := relationhost.OrderInput{
 			Paths:      paths,
 			Lockfile:   locked,
 			Constraint: constraint,
-		})
+		}
+		if selectedTarget == target.TargetPi {
+			alias, err := pipackage.SettingsDocumentAddress(capability.Scope())
+			if err != nil {
+				return nil, err
+			}
+			if document, _, retained := retainedNativeDocument(native, alias); retained {
+				input.PiDocument = &document
+			}
+		}
+		observation, err := relationhost.ObserveOrder(input)
 		facts = append(facts, extensionOrderObservation{
 			selectedTarget: selectedTarget,
 			capability:     capability,
