@@ -18,23 +18,25 @@ import (
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	footprintcodec "github.com/isty2e/daem/internal/encoding/footprint"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
 const (
-	currentVersion                    = 2
+	currentVersion                    = 4
 	maximumOwnershipRegistryBytes     = 16 << 20
 	maximumOwnershipRegistryJSONDepth = 64
 )
 
 // Store owns strict serialization and atomic guarded writes for one registry path.
 type Store struct {
-	path                 string
-	root                 *rootedpath.CapturedRoot
-	destination          rootedpath.Destination
-	maximumPhysicalDepth int
-	physicalWorkBudget   rootedpath.PhysicalTraversalBudget
+	protectionObservation *mutation.DirectoryEntryObservationPlan
+	path                  string
+	root                  *rootedpath.CapturedRoot
+	destination           rootedpath.Destination
+	maximumPhysicalDepth  int
+	physicalWorkBudget    rootedpath.PhysicalTraversalBudget
 }
 
 var _ ownershipmutation.RegistryStore = Store{}
@@ -89,6 +91,8 @@ func newLexicalStore(path string) (Store, error) {
 // NewRooted constructs a rooted store whose every physical authority
 // observation consumes the supplied operation-wide budget. The caller owns
 // root and must keep it open for the store's lifetime.
+// Full physical-work allocations also charge protection payload reads and writes;
+// traversal-only allocations retain their path-only contract.
 func NewRooted(
 	root *rootedpath.CapturedRoot,
 	destination rootedpath.Destination,
@@ -273,7 +277,8 @@ func validateCurrentAuthoritiesForClaimRemovals(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if _, selected := selectedForRemoval[claim]; selected {
+		_, selected := selectedForRemoval[claim]
+		if selected || observations.admitsMissingDocumentClaim(claim) {
 			observed, err := observations.observe(claim.Address().Path())
 			if err != nil {
 				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
@@ -440,6 +445,8 @@ type pathAuthorityObservationSession struct {
 	maximumPhysicalDepth int
 	budget               rootedpath.PhysicalTraversalBudget
 	byPath               map[string]mutation.DirectoryEntryAuthorityObservation
+	documentOwner        stateauthority.Authority
+	missingDocuments     map[string]pathauthority.Provisional
 }
 
 func newPathAuthorityObservationSession() *pathAuthorityObservationSession {
@@ -587,56 +594,7 @@ func (store Store) loadForCommit(
 		if observationErr != nil {
 			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, observationErr
 		}
-		if !observations.bounded() {
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
-				"rooted ownership registry budget is unavailable",
-			)
-		}
-		capability, err := store.root.AcquireBounded(
-			store.destination,
-			observations.maximumPhysicalDepth,
-			observations.budget,
-		)
-		if err != nil {
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
-				"acquire ownership registry: %w",
-				err,
-			)
-		}
-		content, mode, identity, err := storagecommit.ReadRootedRegularFileUpTo(
-			ctx,
-			capability,
-			maximumOwnershipRegistryBytes,
-		)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return ownership.EmptyRegistry(), storagecommit.EntryIdentity{}, false, capability, nil
-			}
-			_ = capability.Close()
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
-				"read ownership registry: %w",
-				err,
-			)
-		}
-		if mode.Perm()&0o077 != 0 {
-			_ = capability.Close()
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
-				"ownership registry %q permissions %04o expose authority metadata",
-				store.path,
-				mode.Perm(),
-			)
-		}
-		registry, err := decodePersistedRegistryForClaimRemovals(
-			ctx,
-			content,
-			nil,
-			observations,
-		)
-		if err != nil {
-			_ = capability.Close()
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
-		}
-		return registry, identity, true, capability, nil
+		return store.loadRootedForCommit(ctx, nil, observations)
 	}
 	identity, err := storagecommit.CaptureEntryIdentity(ctx, store.path)
 	if err != nil {
@@ -653,17 +611,19 @@ func (store Store) loadForCommit(
 }
 
 type file struct {
-	Version int           `json:"version"`
-	Claims  []claimRecord `json:"claims"`
+	Version            int                     `json:"version"`
+	Claims             []claimRecord           `json:"claims"`
+	DocumentBindings   []documentBindingRecord `json:"document_bindings"`
+	PendingProtections json.RawMessage         `json:"pending_protections,omitempty"`
 }
 
 type claimRecord struct {
-	PathAuthority      pathAuthorityRecord `json:"path_authority"`
-	ContentPath        string              `json:"content_path,omitempty"`
-	StatefileAuthority pathAuthorityRecord `json:"statefile_authority"`
-	ManifestPath       string              `json:"manifest_path"`
-	State              string              `json:"state"`
-	OperationID        string              `json:"operation_id,omitempty"`
+	PathAuthority      pathAuthorityRecord   `json:"path_authority"`
+	Footprint          footprintcodec.Record `json:"footprint"`
+	StatefileAuthority pathAuthorityRecord   `json:"statefile_authority"`
+	ManifestPath       string                `json:"manifest_path"`
+	State              string                `json:"state"`
+	OperationID        string                `json:"operation_id,omitempty"`
 }
 
 type pathAuthorityRecord struct {
@@ -686,6 +646,10 @@ func decode(content []byte) (ownership.Registry, error) {
 	switch version {
 	case currentVersion:
 		return decodeCurrent(content)
+	case legacyNativeRegistryVersion:
+		return decodeOwnershipRegistryV3(content)
+	case previousOwnershipRegistryVersion:
+		return decodeOwnershipRegistryV2(content)
 	case retiredOwnershipRegistryVersion:
 		return decodeRetiredOwnershipRegistry(content)
 	default:
@@ -695,16 +659,8 @@ func decode(content []byte) (ownership.Registry, error) {
 
 func decodeCurrent(content []byte) (ownership.Registry, error) {
 	var persisted file
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&persisted); err != nil {
-		return ownership.Registry{}, fmt.Errorf("decode ownership registry: %w", err)
-	}
-	var extra json.RawMessage
-	if err := decoder.Decode(&extra); err == nil {
-		return ownership.Registry{}, fmt.Errorf("ownership registry contains multiple JSON values")
-	} else if err != io.EOF {
-		return ownership.Registry{}, fmt.Errorf("decode ownership registry trailer: %w", err)
+	if err := decodeRegistryJSON(content, &persisted); err != nil {
+		return ownership.Registry{}, err
 	}
 	if persisted.Version != currentVersion {
 		return ownership.Registry{}, unsupportedOwnershipRegistryVersion(persisted.Version)
@@ -712,24 +668,55 @@ func decodeCurrent(content []byte) (ownership.Registry, error) {
 	if persisted.Claims == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry requires claims array")
 	}
+	if persisted.DocumentBindings == nil {
+		return ownership.Registry{}, fmt.Errorf("ownership registry requires document_bindings array")
+	}
+	registry, err := decodeRegistryClaims(persisted.Claims)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	bindings, err := decodeDocumentBindings(persisted.DocumentBindings)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	protections, err := decodePendingProtections(persisted.PendingProtections)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	return ownership.NewRegistryWithProtections(registry.Claims(), bindings, protections)
+}
 
-	claims := make([]ownership.Claim, 0, len(persisted.Claims))
-	for index, record := range persisted.Claims {
-		path, err := pathauthority.NewExact(
-			record.PathAuthority.Key,
-			record.PathAuthority.Witness,
-		)
+func decodeRegistryJSON(content []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("decode ownership registry: %w", err)
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err == nil {
+		return fmt.Errorf("ownership registry contains multiple JSON values")
+	} else if err != io.EOF {
+		return fmt.Errorf("decode ownership registry trailer: %w", err)
+	}
+	return nil
+}
+
+func decodeRegistryClaims(records []claimRecord) (ownership.Registry, error) {
+	claims := make([]ownership.Claim, 0, len(records))
+	for index, record := range records {
+		path, err := pathauthority.NewExact(record.PathAuthority.Key, record.PathAuthority.Witness)
 		if err != nil {
 			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] path authority: %w", index, err)
 		}
-		address, err := ownership.NewManagedAddress(path, record.ContentPath)
+		footprint, err := footprintcodec.Decode(record.Footprint)
+		if err != nil {
+			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] footprint: %w", index, err)
+		}
+		address, err := ownership.NewManagedAddress(path, footprint)
 		if err != nil {
 			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] address: %w", index, err)
 		}
-		statefile, err := pathauthority.NewExact(
-			record.StatefileAuthority.Key,
-			record.StatefileAuthority.Witness,
-		)
+		statefile, err := pathauthority.NewExact(record.StatefileAuthority.Key, record.StatefileAuthority.Witness)
 		if err != nil {
 			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] statefile authority: %w", index, err)
 		}
@@ -774,16 +761,13 @@ func unsupportedOwnershipRegistryVersion(version int) error {
 // Marshal validates and encodes the complete registry for a leased, journaled
 // metadata transaction. Serialization does not authorize publication.
 func Marshal(registry ownership.Registry) ([]byte, error) {
-	canonical, err := ownership.NewRegistry(registry.Claims())
+	canonical, err := ownership.NewRegistryWithProtections(registry.Claims(), registry.DocumentBindings(), registry.PendingProtections())
 	if err != nil {
 		return nil, err
 	}
 	content, err := encode(canonical)
 	if err != nil {
 		return nil, err
-	}
-	if int64(len(content)) > maximumOwnershipRegistryBytes {
-		return nil, fmt.Errorf("ownership registry exceeds %d bytes", maximumOwnershipRegistryBytes)
 	}
 	return content, nil
 }
@@ -793,16 +777,25 @@ func encode(registry ownership.Registry) ([]byte, error) {
 	sort.Slice(claims, func(left int, right int) bool {
 		return claims[left].Address().Less(claims[right].Address())
 	})
-	persisted := file{Version: currentVersion, Claims: make([]claimRecord, 0, len(claims))}
+	persisted := file{Version: currentVersion, Claims: make([]claimRecord, 0, len(claims)), DocumentBindings: persistedDocumentBindings(registry.DocumentBindings())}
+	protections, err := encodePendingProtections(registry.PendingProtections())
+	if err != nil {
+		return nil, err
+	}
+	persisted.PendingProtections = protections
 	for _, claim := range claims {
 		path := claim.Address().PathAuthority()
 		statefile := claim.Owner().StatefileAuthority()
+		footprint, err := footprintcodec.Encode(claim.Address().Footprint())
+		if err != nil {
+			return nil, err
+		}
 		persisted.Claims = append(persisted.Claims, claimRecord{
 			PathAuthority: pathAuthorityRecord{
 				Key:     path.Key(),
 				Witness: path.Witness(),
 			},
-			ContentPath: claim.Address().ContentPath(),
+			Footprint: footprint,
 			StatefileAuthority: pathAuthorityRecord{
 				Key:     statefile.Key(),
 				Witness: statefile.Witness(),
@@ -816,5 +809,9 @@ func encode(registry ownership.Registry) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode ownership registry: %w", err)
 	}
-	return append(content, '\n'), nil
+	content = append(content, '\n')
+	if int64(len(content)) > maximumOwnershipRegistryBytes {
+		return nil, fmt.Errorf("ownership registry exceeds %d bytes", maximumOwnershipRegistryBytes)
+	}
+	return content, nil
 }

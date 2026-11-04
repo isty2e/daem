@@ -45,6 +45,10 @@ func validateAggregateProjectionCorrelation(
 	if err := aggregate.ValidateSubjectContract(subject, contract); err != nil {
 		return fmt.Errorf("aggregate projection subject: %w", err)
 	}
+	expectedPath, err := contract.Address().LegacyContentPath()
+	if err != nil {
+		return err
+	}
 	document := contract.Address().Document()
 	if selectedTarget != document.Target() {
 		return fmt.Errorf(
@@ -61,13 +65,13 @@ func validateAggregateProjectionCorrelation(
 		)
 	}
 	if destination != document.AggregateRoot() ||
-		string(contentPath) != string(contract.Address().ContentPath()) {
+		string(contentPath) != string(expectedPath) {
 		return fmt.Errorf(
 			"aggregate projection address %q%q does not match contract address %q%q",
 			destination,
 			contentPath,
 			document.AggregateRoot(),
-			contract.Address().ContentPath(),
+			expectedPath,
 		)
 	}
 	return nil
@@ -154,9 +158,19 @@ func validateAggregateMutationTransition(kind AggregateMutationKind, beforePrese
 	return nil
 }
 
-func pathMutationFromAggregate(mutation ManagedAggregateMutation) pathMutation {
+func pathMutationFromAggregate(mutation ManagedAggregateMutation) (pathMutation, error) {
 	beforeState, _ := mutation.snapshot.State(mutation.contract)
 	expectedState, _ := mutation.expected.Expected().State(mutation.contract)
+	_, beforeBlocked := beforeState.BlockedBy()
+	_, expectedBlocked := expectedState.BlockedBy()
+	if beforeBlocked || expectedBlocked {
+		return pathMutation{}, fmt.Errorf("legacy aggregate journal cannot encode blocked key observations")
+	}
+
+	contentPath, err := mutation.contract.Address().LegacyContentPath()
+	if err != nil {
+		return pathMutation{}, err
+	}
 	expectedDocument := mutation.expected.Document()
 	expectedPathMode := os.FileMode(0)
 	if expectedDocument.Exists() {
@@ -166,7 +180,7 @@ func pathMutationFromAggregate(mutation ManagedAggregateMutation) pathMutation {
 		Kind: pathMutationKind(mutation.kind), Subject: mutation.subject,
 		Target: mutation.contract.Address().Document().Target(), Scope: mutation.contract.Address().Document().Scope(),
 		Destination: mutation.contract.Address().Document().AggregateRoot(),
-		ContentPath: output.ContentPath(mutation.contract.Address().ContentPath()),
+		ContentPath: output.ContentPath(contentPath),
 		LiveExists:  beforeState.Present(), LiveHash: projectionStateHash(beforeState),
 		DesiredHash: projectionStateHash(expectedState), ExpectedExists: expectedState.Present(),
 		ExpectedPathExists: expectedDocument.Exists(), ExpectedPathMode: expectedPathMode,
@@ -176,7 +190,7 @@ func pathMutationFromAggregate(mutation ManagedAggregateMutation) pathMutation {
 		AggregateContract: pointerToAggregateContract(mutation.contract),
 		StateIndependent:  true,
 	}
-	return result
+	return result, nil
 }
 
 func projectionStateHash(state aggregate.ProjectionState) artifact.ContentHash {
@@ -198,9 +212,9 @@ func pointerToAggregateContract(contract aggregate.ProjectionContract) *aggregat
 	return &copy
 }
 
-func persistedAggregateContractFromMutation(mutation pathMutation) *recoveryAggregateContract {
+func persistedAggregateContractFromMutation(mutation pathMutation) (*recoveryAggregateContract, error) {
 	if mutation.AggregateContract == nil {
-		return nil
+		return nil, nil
 	}
 	return persistedAggregateContract(*mutation.AggregateContract)
 }
@@ -220,16 +234,20 @@ type recoveryAggregateContract struct {
 	ComparedFields      []string `json:"compared_fields,omitempty"`
 }
 
-func persistedAggregateContract(contract aggregate.ProjectionContract) *recoveryAggregateContract {
+func persistedAggregateContract(contract aggregate.ProjectionContract) (*recoveryAggregateContract, error) {
 	address := contract.Address()
+	contentPath, err := address.LegacyContentPath()
+	if err != nil {
+		return nil, err
+	}
 	document := address.Document()
 	return &recoveryAggregateContract{
 		PlacementID: address.PlacementID(), Target: string(document.Target()), Scope: string(document.Scope()),
-		AggregateRoot: document.AggregateRoot().String(), ContentPath: string(address.ContentPath()), MergeUnit: string(address.MergeUnit()),
+		AggregateRoot: document.AggregateRoot().String(), ContentPath: string(contentPath), MergeUnit: string(address.MergeUnit()),
 		Cardinality: string(contract.Cardinality()), SiblingRetention: string(contract.SiblingRetention()),
 		SiblingPreservation: string(contract.SiblingPreservation()), Equivalence: string(contract.Equivalence()),
 		CodecContractID: string(contract.CodecContractID()), ComparedFields: contract.ComparedFields(),
-	}
+	}, nil
 }
 
 func (persisted recoveryAggregateContract) canonical() (aggregate.ProjectionContract, error) {
@@ -237,17 +255,21 @@ func (persisted recoveryAggregateContract) canonical() (aggregate.ProjectionCont
 	if err != nil {
 		return aggregate.ProjectionContract{}, err
 	}
-	contribution, err := aggregate.NewManagedContribution(aggregate.ManagedContributionInput{
-		PlacementID: persisted.PlacementID, Target: target.Target(persisted.Target), Scope: target.Scope(persisted.Scope),
-		AggregateRoot: aggregateRoot, ContentPath: persisted.ContentPath, MergeUnit: aggregate.MergeUnit(persisted.MergeUnit),
-		Cardinality:         aggregate.ContributionCardinality(persisted.Cardinality),
-		SiblingRetention:    aggregate.SiblingRetention(persisted.SiblingRetention),
-		SiblingPreservation: aggregate.SiblingPreservation(persisted.SiblingPreservation),
-		Equivalence:         aggregate.Equivalence(persisted.Equivalence), CanonicalContribution: "recovery-contract",
-		CodecContractID: aggregate.CodecContractID(persisted.CodecContractID), ComparedFields: persisted.ComparedFields,
-	})
+	legacyPath, err := aggregate.ParseContentPath(persisted.ContentPath)
 	if err != nil {
 		return aggregate.ProjectionContract{}, err
 	}
-	return contribution.Contract(), nil
+	footprint, err := output.FootprintFromLegacy(output.ContentPath(legacyPath))
+	if err != nil {
+		return aggregate.ProjectionContract{}, err
+	}
+	return aggregate.NewProjectionContract(aggregate.ProjectionContractInput{
+		PlacementID: persisted.PlacementID, Target: target.Target(persisted.Target), Scope: target.Scope(persisted.Scope),
+		AggregateRoot: aggregateRoot, Footprint: footprint, MergeUnit: aggregate.MergeUnit(persisted.MergeUnit),
+		Cardinality:         aggregate.ContributionCardinality(persisted.Cardinality),
+		SiblingRetention:    aggregate.SiblingRetention(persisted.SiblingRetention),
+		SiblingPreservation: aggregate.SiblingPreservation(persisted.SiblingPreservation),
+		Equivalence:         aggregate.Equivalence(persisted.Equivalence),
+		CodecContractID:     aggregate.CodecContractID(persisted.CodecContractID), ComparedFields: persisted.ComparedFields,
+	})
 }

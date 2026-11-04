@@ -8,10 +8,10 @@ import (
 )
 
 func snapshotFromDTO(dto fileDTO) (lock.File, error) {
-	if dto.Version != currentLockfileVersion {
+	if dto.Version != int64(lock.CurrentVersion) {
 		return lock.File{}, UnsupportedVersionError{
 			Found:     dto.Version,
-			Supported: currentLockfileVersion,
+			Supported: int64(lock.CurrentVersion),
 		}
 	}
 

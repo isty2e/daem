@@ -1,10 +1,32 @@
 package execute
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 )
+
+// ErrNativeOperationRequired marks work the ordinary Apply pipeline cannot execute.
+var ErrNativeOperationRequired = errors.New("native document work requires its containing execution pipeline")
+
+func rejectUnsupportedNativeInput(input ApplyInput) error {
+	if len(input.NativeNarrowings) != 0 || input.CurrentState.ContainsHostConfig() {
+		return ErrNativeOperationRequired
+	}
+	for _, effect := range input.ManagedPathEffects {
+		if aggregate.IsHostConfigDocumentSubject(effect.Subject()) {
+			return ErrNativeOperationRequired
+		}
+	}
+	for _, effect := range input.AggregateEffects {
+		if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); native {
+			return ErrNativeOperationRequired
+		}
+	}
+	return nil
+}
 
 // RejectUnsupportedActions rejects planner errors and action shapes execution cannot commit.
 func RejectUnsupportedActions(planResult reconcile.Result) error {
@@ -38,8 +60,12 @@ func rejectPlanErrorActions(planResult reconcile.Result) error {
 	return nil
 }
 
-// RejectUnsupportedExecutableActions rejects mutating action shapes execution cannot commit.
+// RejectUnsupportedExecutableActions rejects work outside the ordinary execution contract.
 func RejectUnsupportedExecutableActions(planResult reconcile.Result) error {
+	if planResult.ContainsHostConfig() {
+		return ErrNativeOperationRequired
+	}
+
 	managedPaths := planResult.ManagedPaths()
 	executableManagedPaths := make([]reconcile.ManagedPathDecision, 0, len(managedPaths))
 	for _, decision := range managedPaths {

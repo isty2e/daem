@@ -6,6 +6,7 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
@@ -63,6 +64,7 @@ func recoveryBarrierJSONFor(state recoverygate.State) *recoveryBarrierJSON {
 }
 
 type ApplyResultJSONInput struct {
+	PermissionProtection   ownershipobserve.ProtectionObservation
 	ActionCount            int
 	StatefilePath          string
 	LockOnly               LockOnlyResources
@@ -85,6 +87,7 @@ type applyResultJSONOutput struct {
 	StatefilePath        string                      `json:"statefile_path"`
 	LockOnly             LockOnlyResources           `json:"lock_only"`
 	Actions              []planJSONAction            `json:"actions"`
+	NativeNarrowings     []nativeNarrowingActionJSON `json:"native_narrowing_actions,omitempty"`
 	DelegateActions      []delegateActionJSON        `json:"delegate_actions,omitempty"`
 	RelationActions      []relationActionJSON        `json:"relation_actions,omitempty"`
 	RelationOrders       []relationOrderJSON         `json:"relation_order_actions,omitempty"`
@@ -97,6 +100,7 @@ type applyResultJSONOutput struct {
 	Diagnostics          []planJSONDiagnostic        `json:"diagnostics"`
 	HasErrors            bool                        `json:"has_errors"`
 	Errors               []applyResultJSONError      `json:"errors"`
+	PermissionProtection *permissionProtectionJSON   `json:"permission_protection,omitempty"`
 }
 
 type applyResultJSONError struct {
@@ -110,14 +114,20 @@ type applyResultJSONError struct {
 func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 	hostRouteAttempts := hostRouteJSONAttempts(input.HostRouteAttempts)
 	relations := input.Reconciliation.Relations()
+	actions, err := planJSONActionsForPlan(input.Reconciliation)
+	if err != nil {
+		return err
+	}
 	payload := applyResultJSONOutput{
+		PermissionProtection: permissionProtectionJSONFor(input.PermissionProtection),
 		SchemaVersion:        contractversion.ApplyResultJSON,
 		Command:              "apply",
 		Mode:                 "write",
 		ActionCount:          input.ActionCount,
 		StatefilePath:        input.StatefilePath,
 		LockOnly:             input.LockOnly,
-		Actions:              planJSONActionsForPlan(input.Reconciliation),
+		Actions:              actions,
+		NativeNarrowings:     nativeNarrowingJSONActions(input.Reconciliation.NativeNarrowings()),
 		DelegateActions:      delegateJSONActions(input.Reconciliation.Delegates()),
 		RelationActions:      relationJSONActions(relations),
 		RelationOrders:       relationOrderJSONActions(input.Reconciliation.RelationOrders(), relations),

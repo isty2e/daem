@@ -9,7 +9,6 @@ import (
 	"github.com/isty2e/daem/internal/encoding/toml"
 	tomlfields "github.com/isty2e/daem/internal/encoding/toml/fields"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/lock"
 )
 
@@ -97,6 +96,17 @@ func Load(ctx context.Context, path string) (lock.File, error) {
 		return lock.File{}, err
 	}
 	return loadContent(ctx, content)
+}
+
+func loadContentWithCatalog(ctx context.Context, content []byte, contributions aggregate.ContributionCatalog) (lock.File, error) {
+	version, err := lockfileVersion(ctx, content)
+	if err != nil {
+		return lock.File{}, err
+	}
+	if version != lock.CurrentVersion {
+		return lock.File{}, UnsupportedVersionError{Found: version, Supported: lock.CurrentVersion}
+	}
+	return loadSnapshotContentWithCatalog(ctx, content, contributions)
 }
 
 // ReadReplacementContent reads exact lockfile bytes and verifies that the
@@ -235,6 +245,14 @@ func isTOMLLineWhitespace(value byte) bool {
 }
 
 func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) {
+	contributions, err := currentContributions(ctx)
+	if err != nil {
+		return lock.File{}, err
+	}
+	return loadSnapshotContentWithCatalog(ctx, content, contributions)
+}
+
+func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, contributions aggregate.ContributionCatalog) (lock.File, error) {
 	if err := admitCurrentLockfileStructure(ctx, content); err != nil {
 		return lock.File{}, err
 	}
@@ -263,10 +281,13 @@ func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) 
 	if err := lock.Validate(file); err != nil {
 		return lock.File{}, err
 	}
-	if err := validateConcreteAggregateContributions(file); err != nil {
+	if err := validateConcreteAggregateContributions(file, contributions); err != nil {
 		return lock.File{}, err
 	}
 	if err := validateCanonicalDTO(dto, file); err != nil {
+		return lock.File{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return lock.File{}, err
 	}
 	return file, nil
@@ -274,10 +295,29 @@ func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) 
 
 // Marshal renders the lockfile as TOML.
 func Marshal(file lock.File) ([]byte, error) {
+	return MarshalContext(context.Background(), file)
+}
+
+// MarshalContext renders the current lock schema with cancelable value validation.
+func MarshalContext(ctx context.Context, file lock.File) ([]byte, error) {
 	if err := lock.Validate(file); err != nil {
 		return nil, err
 	}
-	if err := validateConcreteAggregateContributions(file); err != nil {
+	contributions, err := currentContributions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return marshalValidatedWithCatalog(ctx, file, contributions)
+}
+
+func marshalValidatedWithCatalog(ctx context.Context, file lock.File, contributions aggregate.ContributionCatalog) ([]byte, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("lockfile encoding context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateConcreteAggregateContributions(file, contributions); err != nil {
 		return nil, err
 	}
 
@@ -290,14 +330,13 @@ func Marshal(file lock.File) ([]byte, error) {
 		return nil, err
 	}
 	content := output.Bytes()
-	if err := admitCurrentLockfileStructure(context.Background(), content); err != nil {
+	if err := admitCurrentLockfileStructure(ctx, content); err != nil {
 		return nil, fmt.Errorf("lockfile TOML structure: %w", err)
 	}
 	return content, nil
 }
 
-func validateConcreteAggregateContributions(file lock.File) error {
-	codecs := aggregatecodec.Catalog()
+func validateConcreteAggregateContributions(file lock.File, codecs aggregate.ContributionCatalog) error {
 	items := make([]aggregate.SubjectContribution, 0)
 	firstSubjectIndexByAddress := make(map[aggregate.ProjectionAddress]int)
 	for index, contract := range file.Locked.Subjects() {

@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/desired/hook"
 	"github.com/isty2e/daem/internal/desired/hookasset"
+	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/desired/instructions"
 	"github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/desired/skill"
@@ -56,6 +57,7 @@ type Spec struct {
 	Instructions []instructions.Instructions
 	MCPServers   []mcp.Server
 	Extensions   []extension.Extension
+	HostConfigs  []hostconfig.Config
 }
 
 // Environment is the immutable canonical desired aggregate root.
@@ -69,6 +71,7 @@ type Environment struct {
 	instructions []instructions.Instructions
 	mcpServers   []mcp.Server
 	extensions   []extension.Extension
+	hostConfigs  []hostconfig.Config
 }
 
 // New constructs and validates one canonical desired environment.
@@ -91,6 +94,7 @@ func New(spec Spec) (Environment, error) {
 		instructions: append([]instructions.Instructions(nil), spec.Instructions...),
 		mcpServers:   append([]mcp.Server(nil), spec.MCPServers...),
 		extensions:   append([]extension.Extension(nil), spec.Extensions...),
+		hostConfigs:  append([]hostconfig.Config(nil), spec.HostConfigs...),
 	}
 	if err := environment.validateFamilies(); err != nil {
 		return Environment{}, err
@@ -177,6 +181,14 @@ func (environment Environment) validateFamilies() error {
 		}
 		extensionCarriers[key] = value.ID().Name()
 	}
+	for index, value := range environment.hostConfigs {
+		if err := value.Validate(); err != nil {
+			return fmt.Errorf("host_configs[%d]: %w", index, err)
+		}
+		if err := addEntityID(seenIDs, value.ID()); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -259,7 +271,7 @@ func (environment Environment) spec() Spec {
 		Skills: environment.skills, SkillSets: environment.skillSets,
 		Hooks: environment.hooks, HookAssets: environment.hookAssets,
 		Instructions: environment.instructions, MCPServers: environment.mcpServers,
-		Extensions: environment.extensions,
+		Extensions: environment.extensions, HostConfigs: environment.hostConfigs,
 	}
 }
 
@@ -277,6 +289,22 @@ func (environment Environment) WithExtensions(values []extension.Extension) (Env
 	spec := environment.spec()
 	spec.Extensions = append([]extension.Extension(nil), values...)
 	return New(spec)
+}
+
+// HostConfigOnly selects one declaration without introducing other resource work.
+func (environment Environment) HostConfigOnly(id entity.ID) (Environment, error) {
+	for _, config := range environment.hostConfigs {
+		if config.ID() == id {
+			return New(Spec{Targets: []target.Target{config.Target()}, Defaults: environment.defaults, HostConfigs: []hostconfig.Config{config}})
+		}
+	}
+	return Environment{}, fmt.Errorf("host-config declaration %q was not found", id)
+}
+
+// HostConfigsOnly retains native declarations and canonical defaults without
+// introducing source work for another resource family.
+func (environment Environment) HostConfigsOnly() (Environment, error) {
+	return New(Spec{Targets: environment.Targets(), Defaults: environment.defaults, HostConfigs: environment.HostConfigs()})
 }
 
 // Targets returns normalized top-level targets in authored order.
@@ -311,7 +339,7 @@ func (environment Environment) Instructions() []instructions.Instructions {
 // source-backed entities. Selector roots and non-artifact relations are not
 // entity artifact inputs.
 func (environment Environment) EntityArtifactSources() []source.Source {
-	result := make([]source.Source, 0, len(environment.skills)+len(environment.hookAssets)+len(environment.instructions))
+	result := make([]source.Source, 0, len(environment.skills)+len(environment.hookAssets)+len(environment.instructions)+len(environment.hostConfigs))
 	for _, value := range environment.skills {
 		result = append(result, value.Source())
 	}
@@ -319,6 +347,9 @@ func (environment Environment) EntityArtifactSources() []source.Source {
 		result = append(result, value.Source())
 	}
 	for _, value := range environment.instructions {
+		result = append(result, value.Source())
+	}
+	for _, value := range environment.hostConfigs {
 		result = append(result, value.Source())
 	}
 	return result
@@ -332,4 +363,9 @@ func (environment Environment) MCPServers() []mcp.Server {
 // Extensions returns a defensive copy of canonical extension relations.
 func (environment Environment) Extensions() []extension.Extension {
 	return append([]extension.Extension(nil), environment.extensions...)
+}
+
+// HostConfigs returns a defensive copy of canonical configuration intent.
+func (environment Environment) HostConfigs() []hostconfig.Config {
+	return append([]hostconfig.Config(nil), environment.hostConfigs...)
 }

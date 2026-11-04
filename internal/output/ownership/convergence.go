@@ -34,8 +34,7 @@ func (change ClaimChange) validate() error {
 	return nil
 }
 
-// ClaimConvergence is a canonical, non-overlapping set of exact claim changes.
-// Each address may currently contain either its expected or target value.
+// ClaimConvergence combines disjoint exact changes.
 type ClaimConvergence struct {
 	changes     []ClaimChange
 	initialized bool
@@ -74,8 +73,8 @@ func (convergence ClaimConvergence) Validate() error {
 	return nil
 }
 
-// ExpectedRemovals returns exact claims whose target is absence. Stores use
-// these facts to admit deletion-aware path-authority validation.
+// ExpectedRemovals returns exact claims whose addresses leave the target.
+// Stores use these facts for deletion-aware path-authority validation.
 func (convergence ClaimConvergence) ExpectedRemovals() []Claim {
 	removals := make([]Claim, 0)
 	for _, change := range convergence.changes {
@@ -88,8 +87,8 @@ func (convergence ClaimConvergence) ExpectedRemovals() []Claim {
 	return removals
 }
 
-// Apply derives one deterministic successor. A row already at its target is
-// idempotent; any third value is stale. No partial successor is returned.
+// Apply derives one deterministic successor. Components already at their targets
+// are idempotent; third states refuse without returning a partial successor.
 func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, error) {
 	if err := convergence.Validate(); err != nil {
 		return Registry{}, false, err
@@ -97,7 +96,6 @@ func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, er
 	if !registry.initialized {
 		return Registry{}, false, fmt.Errorf("ownership registry is required")
 	}
-
 	currentByAddress := make(map[ManagedAddress]Claim, len(registry.claims))
 	for _, claim := range registry.claims {
 		currentByAddress[claim.Address()] = claim
@@ -117,6 +115,9 @@ func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, er
 			} else {
 				actual, _ = PresentClaim(registry.claims[conflictIndex])
 			}
+		}
+		if err := registry.RequireWritable(change.address.PathAuthority()); err != nil {
+			return Registry{}, false, err
 		}
 		if !actual.Equal(change.expected) {
 			if _, actualPresent := actual.Get(); !actualPresent {
@@ -151,7 +152,7 @@ func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, er
 			nextClaims = append(nextClaims, claim)
 		}
 	}
-	next, err := NewRegistry(nextClaims)
+	next, err := registry.withFacts(nextClaims, registry.bindings)
 	if err != nil {
 		return Registry{}, false, err
 	}

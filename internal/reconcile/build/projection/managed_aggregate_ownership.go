@@ -5,8 +5,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -56,7 +56,7 @@ func enforceAggregateProjectionOwnership(
 	preblocked := projection.kind == reconcile.AggregateBlocked
 	key := ownershipObservationKey{
 		destination: document.AggregateRoot(),
-		contentPath: output.ContentPath(address.ContentPath()),
+		footprint:   address.Footprint(),
 	}
 	observation, observed := observations[key]
 	if !observed || owner.IsZero() {
@@ -90,7 +90,11 @@ func enforceAggregateProjectionOwnership(
 		return projection
 	}
 	observedAddress, exact := observation.ExactAddress()
-	if !exact || !claim.Address().Equal(observedAddress) || !claim.OwnedBy(owner) {
+	matches := exact && claim.Address().Equal(observedAddress)
+	if _, native := aggregate.HostConfigSyntaxForCodec(projection.contract.CodecContractID()); native && hasState {
+		matches = observation.CorrelatesClaimAddress()
+	}
+	if !matches || !claim.OwnedBy(owner) {
 		return blockAggregateProjection(
 			projection,
 			reconcile.ReasonOwnershipConflict,

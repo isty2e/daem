@@ -21,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/subprocess"
 	lockworkflow "github.com/isty2e/daem/internal/workflow/lock"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func stringSlicesEqual(left []string, right []string) bool {
@@ -659,12 +660,12 @@ func tamperedClaudeLockedProjection(
 	if !ok {
 		t.Fatal("locked subject is missing managed aggregate contribution")
 	}
-	tamperedRealization, err := realization.NewManagedAggregateContribution(aggregate.ManagedContributionInput{
+	tamperedRealization, err := realization.NewManagedAggregateContributionFromLegacy(aggregate.LegacyManagedContributionInput{
 		PlacementID:           contribution.PlacementID(),
 		Target:                contribution.Target(),
 		Scope:                 contribution.Scope(),
 		AggregateRoot:         contribution.AggregateRoot(),
-		ContentPath:           contribution.ContentPath(),
+		ContentPath:           outputtest.LegacyContentPath(t, contribution),
 		MergeUnit:             contribution.MergeUnit(),
 		Cardinality:           contribution.Cardinality(),
 		SiblingRetention:      contribution.SiblingRetention(),
@@ -675,7 +676,7 @@ func tamperedClaudeLockedProjection(
 		ComparedFields:        contribution.ComparedFields(),
 	})
 	if err != nil {
-		t.Fatalf("NewManagedAggregateContribution: %v", err)
+		t.Fatalf("NewManagedAggregateContributionFromLegacy: %v", err)
 	}
 	delegatePlan, ok := record.DelegatePlan()
 	if !ok {

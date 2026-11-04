@@ -9,7 +9,7 @@ import (
 
 type ownershipObservationKey struct {
 	destination output.Destination
-	contentPath output.ContentPath
+	footprint   output.Footprint
 }
 
 func ownershipObservations(
@@ -23,13 +23,15 @@ func ownershipObservations(
 			return nil, nil, fmt.Errorf("ownership observation[%d]: %w", index, err)
 		}
 		key := ownershipObservationKey{
-			destination: observation.Destination(), contentPath: observation.ContentPath(),
+			destination: observation.Destination(), footprint: observation.Footprint(),
 		}
 		if _, exists := indexed[key]; exists {
+			path, _ := observation.Footprint().Key()
 			return nil, nil, fmt.Errorf(
-				"duplicate ownership observation for %q content path %q",
+				"duplicate ownership observation for %q %s footprint %q",
 				observation.Destination(),
-				observation.ContentPath(),
+				observation.Footprint().Kind(),
+				path.String(),
 			)
 		}
 		for _, previousKey := range keys {

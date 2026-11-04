@@ -1,8 +1,6 @@
 package projection
 
 import (
-	"os"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -121,7 +119,7 @@ func firstAggregateProjectionLockFailure(
 
 func classifyAggregateDocument(
 	before aggregate.Document,
-	beforeMode os.FileMode,
+	modeCurrent bool,
 	after aggregate.Document,
 	projections []aggregateProjectionDecision,
 ) (reconcile.AggregateDecisionKind, reconcile.ActionReason) {
@@ -149,7 +147,7 @@ func classifyAggregateDocument(
 		return reconcile.AggregateRemove, reconcile.ReasonRemovedFromManifest
 	case !before.Equal(after):
 		return reconcile.AggregateReplace, reconcile.ReasonContentChanged
-	case after.Exists() && beforeMode.Perm() != aggregate.DocumentFileMode:
+	case after.Exists() && !modeCurrent:
 		return reconcile.AggregateReplace, reconcile.ReasonFileModeChanged
 	}
 	return reconcile.AggregateReplace, reconcile.ReasonContentChanged

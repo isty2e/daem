@@ -303,3 +303,122 @@ func TestRemovalDossierValidationRejectsEmptyDuplicateOrDetachedRows(t *testing.
 		t.Fatalf("conflicting effect disclosure error = %v", err)
 	}
 }
+
+func TestRemovalDossierDisclosureValidation(t *testing.T) {
+	valid := DelegatedRemovalDossier{
+		actuation:       RemovalActuationHostRoute,
+		removedEffects:  []string{"a", "d"},
+		retainedEffects: []string{"b", "e"},
+		nonClaims:       []string{"c", "f"},
+	}
+	before := cloneDelegatedRemovalDossier(valid)
+	if err := validateDelegatedRemovalDossier(valid); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(valid.removedEffects, before.removedEffects) ||
+		!slices.Equal(valid.retainedEffects, before.retainedEffects) ||
+		!slices.Equal(valid.nonClaims, before.nonClaims) {
+		t.Fatal("validation changed the disclosure sets")
+	}
+
+	fields := []struct {
+		name   string
+		values func(*DelegatedRemovalDossier) *[]string
+	}{
+		{"removed", func(dossier *DelegatedRemovalDossier) *[]string { return &dossier.removedEffects }},
+		{"retained", func(dossier *DelegatedRemovalDossier) *[]string { return &dossier.retainedEffects }},
+		{"non-claim", func(dossier *DelegatedRemovalDossier) *[]string { return &dossier.nonClaims }},
+	}
+	for _, field := range fields {
+		for _, invalid := range []struct {
+			name   string
+			values []string
+		}{
+			{"empty", nil},
+			{"duplicate", []string{"x", "x"}},
+			{"unsorted", []string{"z", "x"}},
+			{"padded", []string{" x"}},
+			{"unstable-token", []string{"x/y"}},
+			{"non-ascii-token", []string{"é"}},
+		} {
+			t.Run(field.name+"/"+invalid.name, func(t *testing.T) {
+				dossier := cloneDelegatedRemovalDossier(valid)
+				*field.values(&dossier) = slices.Clone(invalid.values)
+				if err := validateDelegatedRemovalDossier(dossier); err == nil {
+					t.Fatal("invalid disclosure set was accepted")
+				}
+			})
+		}
+	}
+
+	for first := 0; first < len(fields); first++ {
+		for second := first + 1; second < len(fields); second++ {
+			t.Run(fields[first].name+"/conflicts-with/"+fields[second].name, func(t *testing.T) {
+				dossier := cloneDelegatedRemovalDossier(valid)
+				*fields[first].values(&dossier) = []string{"shared"}
+				*fields[second].values(&dossier) = []string{"shared"}
+				if err := validateDelegatedRemovalDossier(dossier); err == nil {
+					t.Fatal("overlapping disclosure sets were accepted")
+				}
+			})
+		}
+	}
+
+	for _, test := range []struct {
+		name     string
+		removed  []string
+		retained []string
+		nonClaim []string
+		message  string
+	}{
+		{
+			name: "first-conflicting-value", removed: []string{"b"},
+			retained: []string{"a"}, nonClaim: []string{"a", "b"},
+			message: `removal non-claim "a" conflicts with retained effect`,
+		},
+		{
+			name: "earlier-conflict-before-later-format", removed: []string{"a"},
+			retained: []string{"a"}, nonClaim: nil,
+			message: `retained effect "a" conflicts with removed effect`,
+		},
+		{
+			name: "current-format-before-conflict", removed: []string{"a"},
+			retained: []string{"a", "a"}, nonClaim: []string{"x"},
+			message: "retained effect set must be sorted and unique",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dossier := cloneDelegatedRemovalDossier(valid)
+			dossier.removedEffects = test.removed
+			dossier.retainedEffects = test.retained
+			dossier.nonClaims = test.nonClaim
+			if err := validateDelegatedRemovalDossier(dossier); err == nil || err.Error() != test.message {
+				t.Fatalf("validation error = %v, want %s", err, test.message)
+			}
+		})
+	}
+}
+
+func BenchmarkDelegatedRemovalValidation(b *testing.B) {
+	routeProfile, ok := Profile(target.TargetPi).DelegatedRoute(desiredextension.CarrierPiPackage)
+	if !ok {
+		b.Fatal("Pi delegated route profile is missing")
+	}
+	dossier := routeProfile.removalDossiers[0].dossier
+	for _, benchmark := range []struct {
+		name     string
+		validate func() error
+	}{
+		{"dossier", func() error { return validateDelegatedRemovalDossier(dossier) }},
+		{"profile", routeProfile.Validate},
+	} {
+		b.Run(benchmark.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := benchmark.validate(); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

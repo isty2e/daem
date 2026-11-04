@@ -22,14 +22,14 @@ func TestAddressOverlapIndexMatchesPairwiseSemantics(t *testing.T) {
 	addresses := make([]ManagedAddress, 0, len(paths)*len(contentPaths)+1)
 	for _, path := range paths {
 		for _, contentPath := range contentPaths {
-			address, err := NewManagedAddress(pathtest.Exact(path), contentPath)
+			address, err := NewManagedAddressFromLegacy(pathtest.Exact(path), contentPath)
 			if err != nil {
 				t.Fatal(err)
 			}
 			addresses = append(addresses, address)
 		}
 	}
-	alternateWitness, err := NewManagedAddress(pathtest.DarwinCaseSensitive(paths[1]), "/disjoint")
+	alternateWitness, err := NewManagedAddressFromLegacy(pathtest.DarwinCaseSensitive(paths[1]), "/disjoint")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,14 +77,14 @@ func TestAddressOverlapLookupMatchesPairwiseSemantics(t *testing.T) {
 	candidates := make([]ManagedAddress, 0, len(paths)*len(contentPaths)+1)
 	for _, path := range paths {
 		for _, contentPath := range contentPaths {
-			address, err := NewManagedAddress(pathtest.Exact(path), contentPath)
+			address, err := NewManagedAddressFromLegacy(pathtest.Exact(path), contentPath)
 			if err != nil {
 				t.Fatal(err)
 			}
 			candidates = append(candidates, address)
 		}
 	}
-	alternateWitness, err := NewManagedAddress(pathtest.DarwinCaseSensitive(paths[1]), "/disjoint")
+	alternateWitness, err := NewManagedAddressFromLegacy(pathtest.DarwinCaseSensitive(paths[1]), "/disjoint")
 	if err != nil {
 		t.Fatal(err)
 	}

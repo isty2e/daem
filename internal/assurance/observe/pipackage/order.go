@@ -80,7 +80,7 @@ func (observation OrderObservation) Scope() target.Scope {
 	return observation.selection.scope
 }
 
-// SettingsPath returns the exact path that produced the baseline.
+// SettingsPath returns the selected path, not proof of a filesystem read.
 func (observation OrderObservation) SettingsPath() string {
 	return observation.inventory.settingsPath
 }
@@ -126,18 +126,61 @@ func (observation OrderObservation) VerifyPostContent(content []byte, exists boo
 	if exists != expectedExists || !bytes.Equal(content, candidate) {
 		return fmt.Errorf("Pi settings post-observation does not match the exact candidate")
 	}
-	inventory, err := inventoryFromContent(observation.inventory, content, exists)
+	post, err := observation.postObservation(content, exists)
 	if err != nil {
-		return fmt.Errorf("parse Pi settings post-observation: %w", err)
-	}
-	post, err := observeOrder(observation.selection, inventory)
-	if err != nil {
-		return fmt.Errorf("normalize Pi settings post-observation: %w", err)
+		return err
 	}
 	if !equalObservedSequence(post.sequence, observation.expectedSequence) {
 		return fmt.Errorf("Pi settings post-observation sequence does not match the expected order")
 	}
 	return nil
+}
+
+// VerifyPackageContent checks only the exact package array and canonical order.
+// A combined writer must independently verify its final whole-document candidate;
+// this check neither verifies the root revision nor authorizes a file write.
+func (observation OrderObservation) VerifyPackageContent(content []byte, exists bool) error {
+	if err := observation.selection.constraint.Validate(); err != nil {
+		return fmt.Errorf("Pi package order observation: %w", err)
+	}
+	if !exists && len(content) != 0 {
+		return fmt.Errorf("absent Pi settings post-observation contains bytes")
+	}
+	post, err := observation.postObservation(content, exists)
+	if err != nil {
+		return err
+	}
+
+	var expectedDocument piconfig.Document
+	if observation.inventory.exists {
+		expectedDocument, err = piconfig.Parse(observation.candidate)
+		if err != nil {
+			return fmt.Errorf("parse Pi settings expected candidate: %w", err)
+		}
+	}
+	if exists != observation.inventory.exists {
+		if expectedDocument.HasPackages() || post.inventory.document.HasPackages() {
+			return fmt.Errorf("Pi settings package array presence changed")
+		}
+	} else if exists && !expectedDocument.PackageArrayEqual(post.inventory.document) {
+		return fmt.Errorf("Pi settings package array does not match the exact candidate")
+	}
+	if !post.sequence.SameOrdering(observation.expectedSequence) {
+		return fmt.Errorf("Pi settings post-observation sequence does not match the expected order")
+	}
+	return nil
+}
+
+func (observation OrderObservation) postObservation(content []byte, exists bool) (OrderObservation, error) {
+	inventory, err := inventoryFromContent(observation.inventory, content, exists)
+	if err != nil {
+		return OrderObservation{}, fmt.Errorf("parse Pi settings post-observation: %w", err)
+	}
+	post, err := observeOrder(observation.selection, inventory)
+	if err != nil {
+		return OrderObservation{}, fmt.Errorf("normalize Pi settings post-observation: %w", err)
+	}
+	return post, nil
 }
 
 func newOrderSelection(
@@ -198,8 +241,7 @@ func newOrderSelection(
 				member.Subject(),
 			)
 		}
-		source := string(relation.key.ExpectedRelation().SubjectKey())
-		identity, err := HostLoadIdentityForInput(source, relation.commandRoot, scope)
+		identity, err := sourceIdentityForRelation(relation)
 		if err != nil {
 			return orderSelection{}, fmt.Errorf(
 				"derive Pi package order member[%d] load identity: %w",
@@ -207,12 +249,13 @@ func newOrderSelection(
 				err,
 			)
 		}
-		if hostrelation.HostLoadIdentity(identity) != member.HostLoadIdentity() {
+		loadIdentity := identity.hostLoadIdentity(scope)
+		if hostrelation.HostLoadIdentity(loadIdentity) != member.HostLoadIdentity() {
 			return orderSelection{}, fmt.Errorf(
 				"Pi package order member[%d] host load identity %q does not match relation identity %q",
 				index,
 				member.HostLoadIdentity(),
-				identity,
+				loadIdentity,
 			)
 		}
 		ordered = append(ordered, relation)
@@ -242,13 +285,7 @@ func observeOrder(
 	}
 	exactSubjects := make(map[string]topology.SubjectID, len(selection.relations))
 	for index, relation := range selection.relations {
-		source := string(relation.key.ExpectedRelation().SubjectKey())
-		stored, err := expectedSettingsSource(
-			source,
-			relation.commandRoot,
-			inventory.settingsBase,
-			selection.scope,
-		)
+		stored, err := expectedSettingsSource(relation, inventory.settingsBase)
 		if err != nil {
 			return OrderObservation{}, fmt.Errorf(
 				"derive Pi package order relation[%d] stored source: %w",
@@ -365,6 +402,12 @@ func inventoryFromContent(
 	content []byte,
 	exists bool,
 ) (Inventory, error) {
+	if len(content) > MaximumSettingsBytes {
+		return Inventory{}, fmt.Errorf("Pi settings exceeds %d bytes", MaximumSettingsBytes)
+	}
+	if !exists && len(content) != 0 {
+		return Inventory{}, fmt.Errorf("absent Pi settings contains bytes")
+	}
 	var document piconfig.Document
 	var err error
 	if exists {
@@ -374,13 +417,14 @@ func inventoryFromContent(
 		}
 	}
 	return Inventory{
-		scope:        baseline.scope,
-		settingsPath: baseline.settingsPath,
-		settingsBase: baseline.settingsBase,
-		revision:     settingsRevision(content),
-		exists:       exists,
-		content:      bytes.Clone(content),
-		document:     document,
+		scope:         baseline.scope,
+		settingsPath:  baseline.settingsPath,
+		settingsBase:  baseline.settingsBase,
+		revision:      settingsRevision(content),
+		exists:        exists,
+		content:       bytes.Clone(content),
+		document:      document,
+		sourceContext: baseline.sourceContext,
 	}, nil
 }
 
@@ -388,9 +432,5 @@ func equalObservedSequence(
 	left observerelation.ObservedRelationSequence,
 	right observerelation.ObservedRelationSequence,
 ) bool {
-	return left.ClassID() == right.ClassID() &&
-		left.SequenceID() == right.SequenceID() &&
-		left.Authority() == right.Authority() &&
-		left.Revision() == right.Revision() &&
-		slices.Equal(left.OrderedRows(), right.OrderedRows())
+	return left.SameOrdering(right) && left.Revision() == right.Revision()
 }

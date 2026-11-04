@@ -5,26 +5,29 @@ import (
 	"fmt"
 	"io"
 
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/findings"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
 type DoctorJSONInput struct {
-	ManifestPath     string
-	ManifestExplicit bool
-	Selection        targetselection.Selection
-	Checks           []findings.Check
+	PermissionProtection ownershipobserve.ProtectionObservation
+	ManifestPath         string
+	ManifestExplicit     bool
+	Selection            targetselection.Selection
+	Checks               []findings.Check
 }
 
 type doctorJSONOutput struct {
-	SchemaVersion int                `json:"schema_version"`
-	Command       string             `json:"command"`
-	Manifest      doctorJSONManifest `json:"manifest"`
-	Targets       []string           `json:"targets"`
-	CheckCount    int                `json:"check_count"`
-	HasErrors     bool               `json:"has_errors"`
-	Checks        []doctorJSONCheck  `json:"checks"`
+	SchemaVersion        int                       `json:"schema_version"`
+	Command              string                    `json:"command"`
+	Manifest             doctorJSONManifest        `json:"manifest"`
+	Targets              []string                  `json:"targets"`
+	CheckCount           int                       `json:"check_count"`
+	HasErrors            bool                      `json:"has_errors"`
+	Checks               []doctorJSONCheck         `json:"checks"`
+	PermissionProtection *permissionProtectionJSON `json:"permission_protection,omitempty"`
 }
 
 type doctorJSONManifest struct {
@@ -94,8 +97,9 @@ func PrintDoctorChecksWithOptions(output io.Writer, checks []findings.Check, opt
 
 func PrintDoctorJSON(output io.Writer, input DoctorJSONInput) error {
 	payload := doctorJSONOutput{
-		SchemaVersion: contractversion.DoctorJSON,
-		Command:       "doctor",
+		PermissionProtection: permissionProtectionJSONFor(input.PermissionProtection),
+		SchemaVersion:        contractversion.DoctorJSON,
+		Command:              "doctor",
 		Manifest: doctorJSONManifest{
 			Path:     input.ManifestPath,
 			Explicit: input.ManifestExplicit,

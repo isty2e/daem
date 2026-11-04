@@ -204,8 +204,9 @@ func measureDirectoryArtifactRemovalWork(
 	)
 }
 
-func (authority *mutationAuthority) prepareForwardRemovalReservations(
+func (authority *mutationAuthority) prepareForwardRemovalReservationsFor(
 	ctx context.Context,
+	demands recovery.RemovalDemandSet,
 	certificates []forwardRemovalCertificate,
 ) error {
 	if authority == nil {
@@ -239,7 +240,7 @@ func (authority *mutationAuthority) prepareForwardRemovalReservations(
 	}
 
 	reservations := make(map[removalRelationKey][]forwardRemovalReservation, authority.removalDemands.Len())
-	for _, demand := range authority.removalDemands.Demands() {
+	for _, demand := range demands.Demands() {
 		relation := removalRelationKey{scope: demand.Scope(), destination: demand.Destination()}
 		destination, present := authority.removalDestinations[relation]
 		if !present || !destination.isRooted() {
@@ -507,4 +508,8 @@ func (authority *mutationAuthority) beginForwardRemoval(
 		recovery.MaximumArtifactTreeDepth,
 		work.Bytes(),
 	)
+}
+
+func (authority *mutationAuthority) prepareForwardRemovalReservations(ctx context.Context, certificates []forwardRemovalCertificate) error {
+	return authority.prepareForwardRemovalReservationsFor(ctx, authority.removalDemands, certificates)
 }

@@ -5,11 +5,12 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/desired/hostconfig"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
@@ -61,6 +62,10 @@ func subjectFromDTO(dto lockedSubjectDTO) (lock.LockedSubjectContract, error) {
 	if err != nil {
 		return lock.LockedSubjectContract{}, fmt.Errorf("exact_file_use: %w", err)
 	}
+	placement, err := hostConfigPlacementFromDTO(dto.HostConfigPlacement)
+	if err != nil {
+		return lock.LockedSubjectContract{}, fmt.Errorf("host_config_placement: %w", err)
+	}
 	realization, err := realizationFromDTO(dto.Realization)
 	if err != nil {
 		return lock.LockedSubjectContract{}, fmt.Errorf("realization: %w", err)
@@ -98,6 +103,7 @@ func subjectFromDTO(dto lockedSubjectDTO) (lock.LockedSubjectContract, error) {
 		SubjectID:                 subjectID,
 		ExactSupply:               exactSupply,
 		ExactFileUse:              exactFileUse,
+		HostConfigPlacement:       placement,
 		Realization:               realization,
 		Derivation:                derivation,
 		RepairRecipe:              recipe,
@@ -116,12 +122,14 @@ func subjectToDTO(contract lock.LockedSubjectContract) (lockedSubjectDTO, error)
 	if contract.EntityID().Validate() != nil || contract.SubjectID().Validate() != nil {
 		return lockedSubjectDTO{}, fmt.Errorf("invalid locked subject identity")
 	}
+	realized := realizationToDTO(contract.Realization())
 	return lockedSubjectDTO{
 		EntityID:                contract.EntityID().String(),
 		SubjectID:               contract.SubjectID().String(),
 		ExactSupply:             optionalExactIdentityToDTO(contract.ExactSupply()),
 		ExactFileUse:            exactFileUseToDTO(contract.ExactFileUse()),
-		Realization:             realizationToDTO(contract.Realization()),
+		HostConfigPlacement:     hostConfigPlacementToDTO(contract.HostConfigPlacement()),
+		Realization:             realized,
 		Derivation:              derivationToDTO(contract.Derivation()),
 		RepairRecipe:            repairRecipeToDTO(contract.RepairRecipe()),
 		DelegatePlan:            delegatePlanToDTO(contract),
@@ -197,6 +205,30 @@ func optionalExactIdentityToDTO(identity artifact.ExactIdentity, present bool) *
 	return &dto
 }
 
+func hostConfigPlacementFromDTO(dto *hostConfigPlacementDTO) (*profile.HostConfigPlacement, error) {
+	if dto == nil {
+		return nil, nil
+	}
+	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
+		Target: target.Target(dto.Target), Scope: target.Scope(dto.Scope), Path: dto.Path,
+		Ownership: hostconfig.Ownership(dto.Ownership), Syntax: hostconfig.Syntax(dto.Syntax),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &placement, nil
+}
+
+func hostConfigPlacementToDTO(placement profile.HostConfigPlacement, present bool) *hostConfigPlacementDTO {
+	if !present {
+		return nil
+	}
+	return &hostConfigPlacementDTO{
+		Target: string(placement.Target()), Scope: string(placement.Scope()), Path: placement.NativePath(),
+		Ownership: string(placement.Ownership()), Syntax: string(placement.RequestedSyntax()),
+	}
+}
+
 func exactFileUseFromDTO(dto *exactFileUseDTO) (*lock.ExactFileUse, error) {
 	if dto == nil {
 		return nil, nil
@@ -258,19 +290,7 @@ func realizationFromDTO(dto *realizationDTO) (*realization.RealizationSpec, erro
 			AdapterContractVersion: body.AdapterContractVersion,
 		})
 	} else if body := dto.ManagedAggregate; body != nil {
-		aggregateRoot, rootErr := output.Parse(body.AggregateRoot)
-		if rootErr != nil {
-			return nil, rootErr
-		}
-		spec, err = realization.NewManagedAggregateContribution(aggregate.ManagedContributionInput{
-			PlacementID: body.PlacementID, Target: target.Target(body.Target), Scope: target.Scope(body.Scope),
-			AggregateRoot: aggregateRoot, ContentPath: body.ContentPath,
-			MergeUnit: aggregate.MergeUnit(body.MergeUnit), SiblingRetention: aggregate.SiblingRetention(body.SiblingRetention),
-			Cardinality:         aggregate.ContributionCardinality(body.ContributionCardinality),
-			SiblingPreservation: aggregate.SiblingPreservation(body.SiblingPreservation),
-			Equivalence:         aggregate.Equivalence(body.Equivalence), CanonicalContribution: body.CanonicalContribution,
-			CodecContractID: aggregate.CodecContractID(body.CodecContract), ComparedFields: body.ComparedFields,
-		})
+		spec, err = aggregateRealizationFromDTO(*body)
 	} else {
 		body := dto.DelegatedRelation
 		subjectKey, keyErr := hostrelation.NewSubjectKey(body.RelationSubjectKey)
@@ -308,19 +328,11 @@ func realizationToDTO(spec realization.RealizationSpec, present bool) *realizati
 			PlacementID: body.PlacementID(), ConsumerTargets: targetsToDTO(body.ConsumerTargets()), Scope: string(body.Scope()),
 			Destination: body.Destination().String(), ContentKind: string(body.ContentKind()),
 			PlacementMode: string(body.PlacementMode()), PermissionPolicy: string(body.PermissionPolicy()),
-			ExactPermissionMode:    exactPathPermissionModeToDTO(body),
-			AdapterContractVersion: body.AdapterContractVersion(),
+			ExactPermissionMode: exactPathPermissionModeToDTO(body), AdapterContractVersion: body.AdapterContractVersion(),
 		}
 	} else if body, ok := spec.ManagedAggregateContribution(); ok {
-		dto.ManagedAggregate = &managedAggregateContributionDTO{
-			PlacementID: body.PlacementID(), Target: string(body.Target()), Scope: string(body.Scope()),
-			AggregateRoot: body.AggregateRoot().String(), ContentPath: body.ContentPath(), MergeUnit: string(body.MergeUnit()),
-			ContributionCardinality: string(body.Cardinality()),
-			SiblingRetention:        string(body.SiblingRetention()), SiblingPreservation: string(body.SiblingPreservation()),
-			Equivalence: string(body.Equivalence()), CanonicalContribution: body.CanonicalContribution(),
-			CodecContract:  string(body.CodecContractID()),
-			ComparedFields: body.ComparedFields(),
-		}
+		aggregateDTO := aggregateRealizationToDTO(body)
+		dto.ManagedAggregate = &aggregateDTO
 	} else if body, ok := spec.DelegatedRelation(); ok {
 		expected := body.ExpectedRelation()
 		dto.DelegatedRelation = &delegatedRelationDTO{

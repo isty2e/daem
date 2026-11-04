@@ -325,7 +325,9 @@ func (effect ManagedPathEffect) RequiresPayload() bool {
 	return effect.Kind() == ManagedPathEffectCreate || effect.Kind() == ManagedPathEffectReplace
 }
 
-func managedPathJournalMutations(effects []ManagedPathEffect) ([]journal.ManagedPathMutation, error) {
+// ManagedPathJournalMutations projects prepared effects into capture facts,
+// splitting relocation into distinct creation and retirement requests.
+func ManagedPathJournalMutations(effects []ManagedPathEffect) ([]journal.ManagedPathMutation, error) {
 	mutations := make([]journal.ManagedPathMutation, 0, len(effects)+1)
 	for index, effect := range effects {
 		previous, hasPrevious := effect.PreviousState()

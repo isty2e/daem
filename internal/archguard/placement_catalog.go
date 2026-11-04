@@ -25,6 +25,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/desired/hookasset"},
 	},
 	{
+		id:        "desired.family.hostconfig",
+		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "HostConfig"),
+		packages:  []string{"internal/desired/hostconfig"},
+	},
+	{
 		id:        "desired.family.instructions",
 		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "Instructions"),
 		packages:  []string{"internal/desired/instructions"},
@@ -147,6 +152,7 @@ var packagePlacementRows = []packagePlacementRow{
 			"internal/assurance/stateauthority",
 			"internal/contractversion",
 			"internal/credentialtext",
+			"internal/executionidentity",
 			"internal/findings",
 			"internal/output",
 			"internal/output/ownership",
@@ -222,6 +228,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/realization/lockfile"},
 	},
 	{
+		id:        "realization.codec.native-fragment",
+		placement: specializedPlacement(affinityRealization, roleCodec, specializationFamily, "HostConfig"),
+		packages:  []string{"internal/realization/lock/nativefragment"},
+	},
+	{
 		id:        "assurance.codec.statefile",
 		placement: specializedPlacement(affinityAssurance, roleCodec, specializationFormat, "private state"),
 		packages:  []string{"internal/assurance/statefile"},
@@ -240,6 +251,11 @@ var packagePlacementRows = []packagePlacementRow{
 		id:        "codec.native-config",
 		placement: specializedPlacement(affinityNone, roleCodec, specializationFormat, "native configuration"),
 		packages:  []string{"internal/encoding/configdocument"},
+	},
+	{
+		id:        "codec.output-footprint",
+		placement: specializedPlacement(affinityNone, roleCodec, specializationFormat, "output footprint JSON"),
+		packages:  []string{"internal/encoding/footprint"},
 	},
 	{
 		id:        "codec.hook-document",
@@ -393,6 +409,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/output/hostpath/pi"},
 	},
 	{
+		id:        "active.boundary.codex",
+		placement: specializedPlacement(affinityNone, roleActiveAdapter, specializationHost, "Codex"),
+		packages:  []string{"internal/output/hostpath/codex"},
+	},
+	{
 		id:        "declaration.workflow.toml",
 		placement: specializedPlacement(affinityNone, roleWorkflowComposition, specializationFormat, "TOML"),
 		packages:  []string{"internal/declaration/manifest"},
@@ -422,6 +443,7 @@ var packagePlacementRows = []packagePlacementRow{
 			"internal/workflow/lock",
 			"internal/workflow/lock/generate",
 			"internal/workflow/migrate",
+			"internal/workflow/nativeconfig",
 			"internal/workflow/platform",
 			"internal/workflow/probe",
 			"internal/workflow/readiness",

@@ -34,6 +34,7 @@ type SourceEpoch struct {
 	instructions    []instructionObservationCandidate
 	skills          []skillObservationCandidate
 	hookAssets      []hookAssetObservationCandidate
+	nativeDocuments []nativeDocumentObservationCandidate
 	byEntity        map[entity.ID]sourceObservationFact
 	initialized     bool
 }
@@ -47,6 +48,9 @@ func ResolveSourceEpoch(
 	locked lock.File,
 	selection targetselection.Selection,
 ) (SourceEpoch, error) {
+	if err := admitOrdinarySourceEpoch(environment); err != nil {
+		return SourceEpoch{}, err
+	}
 	resolver, err := sourceresolution.NewResolver(paths)
 	if err != nil {
 		return SourceEpoch{}, err
@@ -60,6 +64,27 @@ func resolveSourceEpochWithResolver(
 	environment desired.Environment,
 	locked lock.File,
 	selection targetselection.Selection,
+) (SourceEpoch, error) {
+	if err := admitOrdinarySourceEpoch(environment); err != nil {
+		return SourceEpoch{}, err
+	}
+	return resolveSourceEpochCandidates(ctx, resolver, environment, locked, selection, nil)
+}
+
+func admitOrdinarySourceEpoch(environment desired.Environment) error {
+	if len(environment.HostConfigs()) != 0 {
+		return fmt.Errorf("native source observation requires explicit native selection")
+	}
+	return nil
+}
+
+func resolveSourceEpochCandidates(
+	ctx context.Context,
+	resolver acquisition.BatchResolver,
+	environment desired.Environment,
+	locked lock.File,
+	selection targetselection.Selection,
+	nativeDocuments []nativeDocumentObservationCandidate,
 ) (SourceEpoch, error) {
 	instructionCandidates := instructionLockObservationCandidates(
 		environment.Instructions(),
@@ -77,7 +102,7 @@ func resolveSourceEpochWithResolver(
 		return SourceEpoch{}, err
 	}
 
-	requests := make([]acquisition.Request, 0, len(instructionCandidates)+len(skillCandidates)+len(hookAssetCandidates))
+	requests := make([]acquisition.Request, 0, len(instructionCandidates)+len(skillCandidates)+len(hookAssetCandidates)+len(nativeDocuments))
 	entities := make([]entity.ID, 0, cap(requests))
 	appendRequest := func(id entity.ID, sourceSpec source.Source) error {
 		request, err := acquisition.NewRequest(
@@ -104,6 +129,11 @@ func resolveSourceEpochWithResolver(
 		}
 	}
 	for _, candidate := range hookAssetCandidates {
+		if err := appendRequest(candidate.resource.ID(), candidate.resource.Source()); err != nil {
+			return SourceEpoch{}, err
+		}
+	}
+	for _, candidate := range nativeDocuments {
 		if err := appendRequest(candidate.resource.ID(), candidate.resource.Source()); err != nil {
 			return SourceEpoch{}, err
 		}
@@ -155,6 +185,7 @@ func resolveSourceEpochWithResolver(
 		instructions:    instructionCandidates,
 		skills:          skillCandidates,
 		hookAssets:      hookAssetCandidates,
+		nativeDocuments: nativeDocuments,
 		byEntity:        byEntity,
 		initialized:     true,
 	}, nil
@@ -249,9 +280,19 @@ func (epoch SourceEpoch) Observations(ctx context.Context) (ObservationSet, erro
 	if err != nil {
 		return ObservationSet{}, err
 	}
-	exactSupplies := make([]observe.ExactSupplyObservation, 0, len(skills)+len(instructions)+len(hookAssets))
+	nativeDocuments, err := nativeDocumentLockObservations(ctx, epoch, epoch.nativeDocuments)
+	if err != nil {
+		return ObservationSet{}, err
+	}
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return ObservationSet{}, err
+		}
+	}
+	exactSupplies := make([]observe.ExactSupplyObservation, 0, len(skills)+len(instructions)+len(hookAssets)+len(nativeDocuments))
 	exactSupplies = append(exactSupplies, skills...)
 	exactSupplies = append(exactSupplies, instructions...)
 	exactSupplies = append(exactSupplies, hookAssets...)
+	exactSupplies = append(exactSupplies, nativeDocuments...)
 	return ObservationSet{exactSupplies: exactSupplies}, nil
 }

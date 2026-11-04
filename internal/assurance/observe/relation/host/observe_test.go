@@ -382,6 +382,35 @@ func TestObserveCodexPluginsUsesExactGlobalConfigRelation(t *testing.T) {
 	}
 }
 
+func TestCodexPluginsUseRetainedReaderAndKeepAuthority(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("malformed = ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	key := mustCodexCorrelationKey(t, "documents@official")
+	for _, exists := range []bool{false, true} {
+		calls := 0
+		spec, err := observeCodexPlugins(Input{context: t.Context(), ReadFile: func(ctx context.Context, path string, maximum int64) ([]byte, bool, error) {
+			calls++
+			if !exists {
+				return nil, false, nil
+			}
+			return []byte("[plugins.\"documents@official\"]\nenabled=true\n"), true, nil
+		}}, []carrierRecord{{key: key, carrier: desiredextension.CarrierCodexPlugin, scope: target.ScopeGlobal}})
+		if err != nil || calls != 1 || len(spec.AuthorityPaths) != 1 {
+			t.Fatal("retained relation lost its observation or authority", err)
+		}
+		want := relationobserve.StateMissing
+		if exists {
+			want = relationobserve.StateExactCorrelation
+		}
+		if len(spec.Correlations) != 1 || spec.Correlations[0].Result.State() != want {
+			t.Fatal("retained existence lost exact relation meaning")
+		}
+	}
+}
+
 func TestObserveAntigravityPluginsRequiresCompleteHostPair(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -430,7 +459,7 @@ func TestObserveAntigravityPluginsRequiresCompleteHostPair(t *testing.T) {
 	}
 	for _, path := range []string{
 		filepath.Join(configRoot, "import_manifest.json"),
-		filepath.Join(pluginRoot, "plugin.json"),
+		filepath.Join(configRoot, "plugins"),
 	} {
 		if !gotPaths[path] {
 			t.Fatalf("Antigravity authority paths = %#v, missing %q", gotPaths, path)

@@ -13,6 +13,7 @@ import (
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -658,47 +659,7 @@ func requireSameActiveJournal(
 }
 
 func recoveryHostActionsForPlan(plan recovery.Plan) ([]recoveryHostAction, error) {
-	actions := plan.Actions()
-	hostActions := make([]recoveryHostAction, 0, len(actions))
-	for _, action := range actions {
-		switch action.Kind {
-		case recovery.ActionKindNoOp:
-			continue
-		case recovery.ActionKindRestoreWrite:
-			hostActions = append(hostActions, recoveryHostAction{
-				Kind:                recovery.ActionKindRestoreWrite,
-				Scope:               action.Scope,
-				Destination:         action.Destination,
-				ContentPath:         action.ContentPath,
-				BackupPath:          action.BackupPath,
-				BackupHash:          action.BackupHash,
-				BackupKind:          action.BackupKind,
-				BackupWork:          action.BackupWork,
-				BeforePathMode:      action.BeforePathMode,
-				BeforePathExisted:   action.BeforePathExisted,
-				BeforeParentExisted: action.BeforeParentExisted,
-				ExpectedAfter:       action.ExpectedAfter.Clone(),
-				AggregateContract:   action.AggregateContract,
-			})
-		case recovery.ActionKindRestoreDelete:
-			hostActions = append(hostActions, recoveryHostAction{
-				Kind:                recovery.ActionKindRestoreDelete,
-				Scope:               action.Scope,
-				Destination:         action.Destination,
-				ContentPath:         action.ContentPath,
-				BeforePathMode:      action.BeforePathMode,
-				BeforePathExisted:   action.BeforePathExisted,
-				BeforeParentExisted: action.BeforeParentExisted,
-				ExpectedAfter:       action.ExpectedAfter.Clone(),
-				AggregateContract:   action.AggregateContract,
-			})
-		case recovery.ActionKindError:
-			return nil, fmt.Errorf("recovery plan contains error action: %s", action.Reason)
-		default:
-			return nil, fmt.Errorf("unsupported recovery action %q for %q", action.Kind, action.Destination)
-		}
-	}
-	return orderRecoveryHostActions(hostActions), nil
+	return recoveryHostActionsFor(plan.Actions())
 }
 
 func executeRecoveryRollbackEffects(
@@ -990,24 +951,28 @@ func executeActiveRecoveryRollbackCompensation(
 	return recoveryRollbackFailure(primary, rollbackErr, cleanupErr)
 }
 
-func recoveryIntentClaimGuard(
+func recoveryIntentClaimGuardWithReader(
 	intents []ownership.ProvisionalAcquireIntent,
-	registryStore ownershipmutation.RegistryStore,
+	read func(context.Context) (ownership.Registry, error),
 	authority *mutationAuthority,
 ) recoveryHostOwnershipGuard {
 	if len(intents) == 0 {
 		return nil
 	}
-	byOutput := make(map[string]ownership.ProvisionalAcquireIntent, len(intents))
+	byOutput := make(map[provisionalRecoveryOutputKey]ownership.ProvisionalAcquireIntent, len(intents))
 	for _, intent := range intents {
-		byOutput[provisionalRecoveryOutputKey(intent.Destination().String(), string(intent.ContentPath()))] = intent
+		byOutput[provisionalRecoveryOutputKey{destination: intent.Destination().String(), footprint: intent.Footprint()}] = intent
 	}
 	return func(ctx context.Context, action recoveryHostAction, destination mutationDestination) error {
-		intent, present := byOutput[provisionalRecoveryOutputKey(action.Destination, action.ContentPath)]
+		footprint, err := output.FootprintFromLegacy(output.ContentPath(action.ContentPath))
+		if err != nil {
+			return fmt.Errorf("provisional recovery action scope: %w", err)
+		}
+		intent, present := byOutput[provisionalRecoveryOutputKey{destination: action.Destination, footprint: footprint}]
 		if !present {
 			return nil
 		}
-		if registryStore == nil {
+		if read == nil {
 			return fmt.Errorf("ownership registry is required for provisional recovery rollback")
 		}
 		authorityObservation, err := mutation.ObserveDirectoryEntryAuthorityBounded(
@@ -1018,12 +983,12 @@ func recoveryIntentClaimGuard(
 		if err != nil {
 			return err
 		}
-		registry, err := registryStore.Load(ctx)
+		registry, err := read(ctx)
 		if err != nil {
 			return err
 		}
 		if exact, ok := authorityObservation.Exact(); ok {
-			address, err := ownership.NewManagedAddress(exact, action.ContentPath)
+			address, err := ownership.NewManagedAddressFromLegacy(exact, action.ContentPath)
 			if err != nil {
 				return err
 			}
@@ -1054,8 +1019,9 @@ func recoveryIntentClaimGuard(
 	}
 }
 
-func provisionalRecoveryOutputKey(destination string, contentPath string) string {
-	return destination + "\x00" + contentPath
+type provisionalRecoveryOutputKey struct {
+	destination string
+	footprint   output.Footprint
 }
 
 func recoveryRollbackFailure(primary error, rollbackErr error, cleanupErr error) error {

@@ -16,6 +16,10 @@ type applyStateTransition struct {
 }
 
 func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) {
+	if err := rejectUnsupportedNativeInput(input); err != nil {
+		return applyStateTransition{}, err
+	}
+
 	nextState, err := snapshotAfterManagedPathEffects(input.CurrentState, input.ManagedPathEffects)
 	if err != nil {
 		return applyStateTransition{}, err
@@ -37,17 +41,14 @@ func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) 
 	if err != nil {
 		return applyStateTransition{}, err
 	}
-	promotedClaims, err := promotedProjectCarrierClaims(
+	completion, err := completeProjectCarrierInstalls(
 		nextState,
 		input.ConfirmedRelationActions,
 	)
 	if err != nil {
 		return applyStateTransition{}, err
 	}
-	nextState, relationStateChanged, err := nextState.WithPromotedCarrierClaims(promotedClaims)
-	if err != nil {
-		return applyStateTransition{}, err
-	}
+	nextState = completion.after
 	projectClaimCountBeforeAdoption := len(nextState.ManagedCarrierClaims())
 	nextState, adoptionStateChanged, err := nextState.WithAdoptedCarrierClaims(
 		input.AdoptedProjectCarrierClaims,
@@ -60,7 +61,7 @@ func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) 
 		len(input.AggregateEffects) != 0 ||
 		globalCarrierStateChanged ||
 		retiredProjectClaimCount != 0 ||
-		relationStateChanged ||
+		completion.changed ||
 		adoptionStateChanged
 	return applyStateTransition{
 		nextState:                nextState,

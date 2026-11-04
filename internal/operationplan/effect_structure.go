@@ -179,6 +179,35 @@ func (builder *EffectStructureBuilder) Conditional(id string, body EffectNode) E
 	return conditional
 }
 
+// Namespace isolates an independently compiled segment's references, including
+// trigger/follow-up pairs, without changing its work or ordering.
+func (builder *EffectStructureBuilder) Namespace(prefix string, node EffectNode) EffectNode {
+	if builder == nil || builder.err != nil {
+		return EffectNode{}
+	}
+	if err := validateEffectReference("namespace", prefix); err != nil {
+		builder.err = err
+		return EffectNode{}
+	}
+	return namespaceEffectNode(prefix, node)
+}
+
+func namespaceEffectNode(prefix string, node EffectNode) EffectNode {
+	for _, reference := range []*string{&node.step.id, &node.choiceID, &node.phaseID, &node.triggerID} {
+		if *reference != "" {
+			*reference = prefix + "/" + *reference
+		}
+	}
+	children := node.children
+	if children != nil {
+		node.children = make([]EffectNode, len(children))
+	}
+	for index, child := range children {
+		node.children[index] = namespaceEffectNode(prefix, child)
+	}
+	return node
+}
+
 // Compile returns the first construction error or validates the complete structure.
 func (builder *EffectStructureBuilder) Compile(root EffectNode) (EffectStructure, error) {
 	if builder == nil {

@@ -35,7 +35,7 @@ func TestMarshalAndLoadClaudeProjectMCPSubjectLockfile(t *testing.T) {
 		"[locked.subject.realization.managed_aggregate]",
 		`placement_id = "claude-code.project.project-config"`,
 		`aggregate_root = ".mcp.json"`,
-		`content_path = "/mcpServers/context7"`,
+		`key_path = "/mcpServers/context7"`,
 		`contribution_cardinality = "exclusive"`,
 		`sibling_retention = "preserve_unmanaged_siblings"`,
 		`sibling_preservation = "canonical_semantic"`,

@@ -111,6 +111,7 @@ type jsonRealization struct {
 	ExactPermissionMode        *uint32  `json:"exact_permission_mode,omitempty"`
 	AggregateRoot              string   `json:"aggregate_root,omitempty"`
 	ContentPath                string   `json:"content_path,omitempty"`
+	KeyPath                    []string `json:"key_path,omitempty"`
 	MergeUnit                  string   `json:"merge_unit,omitempty"`
 	SiblingRetention           string   `json:"sibling_retention,omitempty"`
 	Equivalence                string   `json:"equivalence,omitempty"`
@@ -151,6 +152,10 @@ type JSONInput struct {
 // PrintJSON writes the stable structured lock output payload.
 func PrintJSON(output io.Writer, input JSONInput) error {
 	projection := newLockIdentityProjection(input.Lockfile, input.Delta)
+	changes, err := jsonSubjectChanges(input.Delta, projection)
+	if err != nil {
+		return err
+	}
 	payload := jsonOutput{
 		SchemaVersion:          contractversion.LockComparisonJSON,
 		Command:                input.Command,
@@ -162,7 +167,7 @@ func PrintJSON(output io.Writer, input JSONInput) error {
 		ChangeCounts:           jsonChangeCountsForDelta(input.Delta),
 		OrderChangeCounts:      jsonChangeCountsForOrderDelta(input.Delta),
 		HasChanges:             input.Delta.HasChanges(),
-		SubjectChanges:         jsonSubjectChanges(input.Delta, projection),
+		SubjectChanges:         changes,
 		OrderConstraintChanges: jsonOrderConstraintChanges(input.Delta, projection),
 	}
 	encoder := json.NewEncoder(output)
@@ -197,7 +202,7 @@ func jsonChangeCountsForOrderDelta(delta lock.Delta) jsonChangeCounts {
 	}
 }
 
-func jsonSubjectChanges(delta lock.Delta, projection lockIdentityProjection) []jsonSubjectChange {
+func jsonSubjectChanges(delta lock.Delta, projection lockIdentityProjection) ([]jsonSubjectChange, error) {
 	entries := delta.Entries()
 	changes := make([]jsonSubjectChange, 0, len(entries))
 	for _, entry := range entries {
@@ -210,16 +215,22 @@ func jsonSubjectChanges(delta lock.Delta, projection lockIdentityProjection) []j
 			Subject: projection.subject(entry.Key, side, false),
 		}
 		if entry.Status != lock.DeltaStatusAdded {
-			before := jsonLockedSubjectFor(entry.Before, projection, lockIdentityBefore)
+			before, err := jsonLockedSubjectFor(entry.Before, projection, lockIdentityBefore)
+			if err != nil {
+				return nil, err
+			}
 			change.Before = &before
 		}
 		if entry.Status != lock.DeltaStatusRemoved {
-			after := jsonLockedSubjectFor(entry.After, projection, lockIdentityAfter)
+			after, err := jsonLockedSubjectFor(entry.After, projection, lockIdentityAfter)
+			if err != nil {
+				return nil, err
+			}
 			change.After = &after
 		}
 		changes = append(changes, change)
 	}
-	return changes
+	return changes, nil
 }
 
 func jsonOrderConstraintChanges(delta lock.Delta, projection lockIdentityProjection) []jsonOrderConstraintChange {
@@ -277,7 +288,7 @@ func jsonLockedSubjectFor(
 	contract lock.LockedSubjectContract,
 	projection lockIdentityProjection,
 	side lockIdentitySide,
-) jsonLockedSubject {
+) (jsonLockedSubject, error) {
 	result := jsonLockedSubject{
 		EntityID:   contract.EntityID().String(),
 		Subject:    projection.subject(contract.SubjectID(), side, false),
@@ -297,7 +308,10 @@ func jsonLockedSubjectFor(
 		result.ExactFileUse = &jsonExactFileUse{Scope: string(use.Scope()), Executable: use.Executable()}
 	}
 	if spec, ok := contract.Realization(); ok {
-		value := jsonRealizationForWithDisclosure(spec, projection, contract.SubjectID(), side)
+		value, err := jsonRealizationForWithDisclosure(spec, projection, contract.SubjectID(), side)
+		if err != nil {
+			return jsonLockedSubject{}, err
+		}
 		result.Realization = &value
 	}
 	if recipe, ok := contract.RepairRecipe(); ok {
@@ -311,10 +325,10 @@ func jsonLockedSubjectFor(
 			DeclarationIdentity: correlation.DeclarationIdentity().String(),
 		}
 	}
-	return result
+	return result, nil
 }
 
-func jsonRealizationFor(spec realization.RealizationSpec) jsonRealization {
+func jsonRealizationFor(spec realization.RealizationSpec) (jsonRealization, error) {
 	return jsonRealizationForWithDisclosure(
 		spec,
 		lockIdentityProjection{},
@@ -328,7 +342,7 @@ func jsonRealizationForWithDisclosure(
 	projection lockIdentityProjection,
 	subject topology.SubjectID,
 	side lockIdentitySide,
-) jsonRealization {
+) (jsonRealization, error) {
 	result := jsonRealization{Kind: string(spec.Kind())}
 	switch spec.Kind() {
 	case realization.RealizationManagedPathProjection:
@@ -351,7 +365,12 @@ func jsonRealizationForWithDisclosure(
 		result.Target = string(contribution.Target())
 		result.Scope = string(contribution.Scope())
 		result.AggregateRoot = contribution.AggregateRoot().String()
-		result.ContentPath = contribution.ContentPath()
+		contentPath, keyPath, err := aggregateJSONAddress(subject, contribution.Address())
+		if err != nil {
+			return jsonRealization{}, err
+		}
+		result.ContentPath = contentPath
+		result.KeyPath = keyPath
 		result.MergeUnit = string(contribution.MergeUnit())
 		result.SiblingRetention = string(contribution.SiblingRetention())
 		result.Equivalence = string(contribution.Equivalence())
@@ -386,7 +405,7 @@ func jsonRealizationForWithDisclosure(
 		result.RouteContractVersion = relation.RouteContractVersion()
 		result.VerifiedRelationFields = relation.VerifiedRelationFields()
 	}
-	return result
+	return result, nil
 }
 
 func operationKindStrings(kinds []lock.OperationKind) []string {

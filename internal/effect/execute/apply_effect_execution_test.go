@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestApplyEffectExecutionRejectsDifferentPreparedPlan(t *testing.T) {
@@ -33,8 +34,8 @@ func TestApplyEffectExecutionRejectsDifferentPreparedPlan(t *testing.T) {
 func TestApplyEffectExecutionUsesCurrentPromotionMetadataAfterStructuralParity(t *testing.T) {
 	t.Parallel()
 
-	preparedKey := ownershipOutputKey{contentPath: "/prepared"}
-	currentKey := ownershipOutputKey{contentPath: "/current"}
+	preparedKey := ownershipOutputKey{footprint: outputtest.KeyFootprint(t, "prepared")}
+	currentKey := ownershipOutputKey{footprint: outputtest.KeyFootprint(t, "current")}
 	var builder operationplan.EffectStructureBuilder
 	segment := operationplan.EffectSequence(
 		applyCheckedStep(

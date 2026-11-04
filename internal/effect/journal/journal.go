@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 var errRecoveryJournalStateCodecRequired = errors.New("recovery journal state codec is required")
@@ -46,7 +48,8 @@ func recoveryJournalRecordFingerprint(content []byte) string {
 const (
 	maximumRecoveryJournalBytes int64 = 64 << 20
 	recoveryJournalMode               = 0o600
-	recoveryJournalVersion            = 13
+	// Journal versions bind the canonical state encoding used by authority hashes.
+	recoveryJournalVersion = 15
 
 	maximumRecoveryJournalJSONDepth = 64
 )
@@ -309,6 +312,18 @@ func validateRecoveryJournalEnvelope(journal recoveryJournal) error {
 	if _, err := time.Parse(time.RFC3339, journal.CreatedAt); err != nil {
 		return fmt.Errorf("recovery journal created_at: %w", err)
 	}
+	for _, snapshot := range []durable.Snapshot{journal.StatefileBefore, journal.StatefileAfter} {
+		for _, state := range snapshot.ManagedPaths() {
+			if id, ok := topologyprojection.EntityID(state.Subject()); ok && id.Kind() == entity.KindHostConfig {
+				return fmt.Errorf("recovery journal version %d does not admit native configuration baselines", journal.Version)
+			}
+		}
+		for _, state := range snapshot.ManagedAggregates() {
+			if _, native := aggregate.HostConfigSyntaxForCodec(state.Contribution().CodecContractID()); native {
+				return fmt.Errorf("recovery journal version %d does not admit native configuration baselines", journal.Version)
+			}
+		}
+	}
 	if err := validateRecoveryEntries(journal.Entries); err != nil {
 		return err
 	}
@@ -382,9 +397,13 @@ func validateRecoveryJournalRelationships(journal recoveryJournal) error {
 			if err != nil {
 				return fmt.Errorf("recovery entries[%d].aggregate: %w", index, err)
 			}
+			contentPath, err := contract.Address().LegacyContentPath()
+			if err != nil {
+				return fmt.Errorf("recovery entries[%d].aggregate: %w", index, err)
+			}
 			document := contract.Address().Document()
 			if entry.Target != string(document.Target()) || entry.Scope != string(document.Scope()) ||
-				entry.Path != document.AggregateRoot().String() || entry.ContentPath != string(contract.Address().ContentPath()) {
+				entry.Path != document.AggregateRoot().String() || entry.ContentPath != string(contentPath) {
 				return fmt.Errorf("recovery entries[%d].aggregate: contract differs from path identity", index)
 			}
 			if _, ok, admissionErr := aggregate.OperationPreconditionsForContract(contract); admissionErr != nil {

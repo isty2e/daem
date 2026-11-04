@@ -14,6 +14,7 @@ import (
 
 // PrintPlanResultWithOptions renders every applied reconciliation decision.
 func PrintPlanResultWithOptions(output io.Writer, planResult reconcile.Result, options HumanOptions) {
+	printNativeNarrowingActions(output, planResult.NativeNarrowings())
 	decisions := sortedHumanRows(planResult.MutatingDecisions(), humanDecisionOrder)
 	if len(decisions) == 0 {
 		return
@@ -35,7 +36,17 @@ func PrintPlanResultWithOptions(output io.Writer, planResult reconcile.Result, o
 			fmt.Fprintf(output, "  %s: %d\n", label, counts[label])
 		}
 	}
-	for _, decision := range decisions {
+	for _, group := range groupHumanDecisions(decisions, options) {
+		if group.native {
+			first, _ := group.decisions[0].Aggregate()
+			printNativeGroupHeader(output, first)
+			for _, decision := range group.decisions {
+				row, _ := decision.Aggregate()
+				printNativeGroupKey(output, row)
+			}
+			continue
+		}
+		decision := group.decisions[0]
 		if managedPath, ok := decision.ManagedPath(); ok {
 			printManagedPathRows(output, []reconcile.ManagedPathDecision{managedPath}, options)
 			continue
@@ -80,6 +91,7 @@ func printAggregateRows(output io.Writer, decisions []reconcile.AggregateSubject
 			Escape(string(decision.Target())),
 			Escape(string(decision.Scope())),
 		)
+		printNativeKeyLocation(output, decision)
 		if decision.IsBlocked() {
 			fmt.Fprintf(output, "    blocked: %s\n", actionReasonLabel(decision.Reason()))
 		} else if decision.Kind() == reconcile.AggregateRemove &&
@@ -104,7 +116,7 @@ func printVerboseAggregateRows(output io.Writer, decisions []reconcile.Aggregate
 			Escape(string(decision.Target())),
 			Escape(string(decision.Scope())),
 			Quote(decision.Destination().String()),
-			Quote(string(decision.ContentPath())),
+			Quote(decision.Contract().Address().KeyPath().String()),
 			Escape(string(decision.Reason())),
 		)
 		if _, isMCP := topologymcp.ServerID(decision.Subject()); isMCP {
@@ -136,6 +148,9 @@ func projectionIdentityLabel(subject topology.SubjectID) (string, string) {
 	}
 	if entityID, ok := topologyprojection.EntityID(subject); ok {
 		return "resource", ResourceReference(entityID.Kind(), entityID.Name())
+	}
+	if id, _, native := topologyprojection.HostConfigKeyIdentity(subject); native {
+		return "resource", ResourceReference(id.Kind(), id.Name())
 	}
 	return "subject", subjectString(*planJSONSubjectFor(subject))
 }

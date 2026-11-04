@@ -24,6 +24,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestRunRecoverDryRunReportsNeedsFinalizeInHumanAndJSON(t *testing.T) {
@@ -66,7 +67,7 @@ func TestRunRecoverDryRunReportsNeedsFinalizeInHumanAndJSON(t *testing.T) {
 	if jsonStderr.Len() != 0 {
 		t.Fatalf("JSON stderr = %q, want empty", jsonStderr.String())
 	}
-	payload := decodeRecoverJSONTestPayload(t, jsonStdout.Bytes())
+	payload := clijson.DecodeRecover(t, jsonStdout.Bytes())
 	if payload.SchemaVersion != contractversion.RecoveryJSON ||
 		payload.Command != "recover" ||
 		payload.Mode != "dry-run" ||
@@ -136,7 +137,7 @@ func captureCLIRecoveryNeedsFinalizeJournal(t *testing.T, manifestPath string) d
 	if err != nil {
 		t.Fatalf("Resolve host destination returned error: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(testkit.MustObservedPathAuthority(t, hostPath), "")
+	address, err := ownership.NewManagedAddressFromLegacy(testkit.MustObservedPathAuthority(t, hostPath), "")
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}

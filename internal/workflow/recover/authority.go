@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	footprintcodec "github.com/isty2e/daem/internal/encoding/footprint"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -133,10 +134,14 @@ func activeRecoveryOperationFingerprint(
 		len(plan.ClaimTransitions()),
 	)
 	for _, transition := range plan.ClaimTransitions() {
+		footprint, err := footprintcodec.Encode(transition.Address().Footprint())
+		if err != nil {
+			return mutation.OperationFingerprint{}, err
+		}
 		claimTransitions = append(claimTransitions, operationplan.ActiveRecoveryClaimTransition{
 			Kind:                    string(transition.Kind()),
 			PathAuthority:           recoveryPathAuthorityFingerprintFor(transition.Address().PathAuthority()),
-			ContentPath:             transition.Address().ContentPath(),
+			Footprint:               footprint,
 			OwnerStatefileAuthority: recoveryPathAuthorityFingerprintFor(transition.Owner().StatefileAuthority()),
 			OwnerManifestPath:       transition.Owner().ManifestPath(),
 			OperationID:             transitionOperationID(transition),

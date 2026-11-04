@@ -32,6 +32,7 @@ type Input struct {
 	Codecs             aggregate.CodecCatalog
 	WorkDir            string
 	ResolveDestination func(output.Destination) (string, error)
+	ReadFile           func(context.Context, string, int64) ([]byte, bool, error)
 }
 
 // ObservationSet separates current desired projections, which may constrain
@@ -117,6 +118,7 @@ func Observe(input Input) (ObservationSet, error) {
 				nativeInput := PiNativeInput{
 					Projection: projection, Codecs: input.Codecs, WorkDir: input.WorkDir, AgentRoot: piAgentRoot,
 					SelectedPath: selectedPath, Retiring: retiring, peers: nativePeers,
+					Context: input.Context, ReadFile: input.ReadFile,
 				}
 				sourceContext, err := newPiNativeSourceContext(projection.Contribution().Scope(), input.WorkDir, piAgentRoot, selectedPath)
 				if err != nil {
@@ -136,7 +138,7 @@ func Observe(input Input) (ObservationSet, error) {
 					scope := projection.Contribution().Scope()
 					qualified, present := nativeQualifiedScopes[scope]
 					if !present {
-						qualificationErr := qualifyPiNativeSettings(input.Context, piContract, scope, input.WorkDir, piAgentRoot, nativeVersion)
+						qualificationErr := configFileReader(input.ReadFile).qualifyPiNativeSettings(input.Context, piContract, scope, input.WorkDir, piAgentRoot, nativeVersion)
 						if err := input.Context.Err(); err != nil {
 							return mcpeffective.Observation{}, err
 						}
@@ -157,6 +159,7 @@ func Observe(input Input) (ObservationSet, error) {
 				}
 			}
 			observation, err := ObservePiAdapter(PiAdapterInput{
+				Context: input.Context, ReadFile: input.ReadFile,
 				Projection:   projection,
 				Codecs:       input.Codecs,
 				HomeDir:      piHomeDir,

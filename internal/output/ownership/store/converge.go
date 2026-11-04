@@ -9,26 +9,48 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
-// Converge publishes one canonical ownership-registry successor. The current
-// value at each address may be either the convergence's expected or target
-// value, which makes retries and recovery idempotent without weakening stale
-// third-state rejection.
+// Converge publishes one canonical successor using the convergence's exact
+// expected-or-target matching. Document fragments must match a complete phase.
 func (store Store) Converge(
 	ctx context.Context,
 	convergence ownership.ClaimConvergence,
 ) (ownership.Registry, error) {
+	bindings, err := ownership.NewDocumentBindingConvergence(nil)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	return store.ConvergeRegistry(ctx, convergence, bindings)
+}
+
+// ConvergeRegistry settles claims and document bindings in one guarded write.
+// A refusal in either family publishes neither successor.
+func (store Store) ConvergeRegistry(
+	ctx context.Context,
+	claims ownership.ClaimConvergence,
+	bindings ownership.DocumentBindingConvergence,
+) (ownership.Registry, error) {
+	observations, err := store.newPathAuthorityObservationSession()
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	return store.convergeRegistry(ctx, claims, bindings, observations)
+}
+
+func (store Store) convergeRegistry(ctx context.Context, claims ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence, observations *pathAuthorityObservationSession) (ownership.Registry, error) {
 	if ctx == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return ownership.Registry{}, err
 	}
-	if err := convergence.Validate(); err != nil {
+	if err := claims.Validate(); err != nil {
+		return ownership.Registry{}, err
+	}
+	if err := bindings.Validate(); err != nil {
 		return ownership.Registry{}, err
 	}
 
-	removals := convergence.ExpectedRemovals()
-	current, expectedEntry, exists, capability, err := store.loadForConvergence(ctx, removals)
+	current, expectedEntry, exists, capability, err := store.loadForConvergence(ctx, claims.ExpectedRemovals(), observations)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -39,14 +61,18 @@ func (store Store) Converge(
 		}
 	}()
 
-	next, changed, err := convergence.Apply(current)
+	next, claimsChanged, err := claims.Apply(current)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	next, bindingsChanged, err := bindings.Apply(next)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return ownership.Registry{}, err
 	}
-	if !changed {
+	if !claimsChanged && !bindingsChanged {
 		return next, nil
 	}
 	content, err := encode(next)
@@ -80,6 +106,7 @@ func (store Store) Converge(
 func (store Store) loadForConvergence(
 	ctx context.Context,
 	removals []ownership.Claim,
+	observations *pathAuthorityObservationSession,
 ) (
 	ownership.Registry,
 	storagecommit.EntryIdentity,
@@ -87,6 +114,9 @@ func (store Store) loadForConvergence(
 	rootedpath.CommitCapability,
 	error,
 ) {
+	if store.root != nil {
+		return store.loadRootedForCommit(ctx, removals, observations)
+	}
 	if len(removals) != 0 {
 		return store.loadForClaimRemovals(ctx, removals)
 	}

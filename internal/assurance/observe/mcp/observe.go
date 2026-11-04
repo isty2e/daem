@@ -24,13 +24,17 @@ func ObserveAggregateProjection(
 	if input.Observed && !input.Projection.Contract().Equal(contribution.Contract()) {
 		return AggregateProjectionObservation{}, fmt.Errorf("MCP aggregate projection evidence differs from its locked contract")
 	}
+	contentPath, err := contribution.LegacyContentPath()
+	if err != nil {
+		return AggregateProjectionObservation{}, err
+	}
 	ownership := ownershipObservation(input.Ownership)
 	observation := AggregateProjectionObservation{
 		Subject:   subject,
 		Ownership: ownership,
 		Shadowing: shadowObservation(input.Shadowing),
 	}
-	observation.Projection = projectionObservationFromAggregate(input, contribution, ownership)
+	observation.Projection = projectionObservationFromAggregate(input, contribution, contentPath, ownership)
 	return observation, nil
 }
 
@@ -62,12 +66,13 @@ func lockedMCPProjection(
 func projectionObservationFromAggregate(
 	input AggregateProjectionObservationInput,
 	contribution aggregate.ManagedContribution,
+	contentPath string,
 	ownership OwnershipObservation,
 ) ProjectionObservation {
 	observation := ProjectionObservation{
 		State:       ProjectionMissing,
 		ConfigPath:  contribution.AggregateRoot(),
-		ContentPath: contribution.ContentPath(),
+		ContentPath: contentPath,
 	}
 	if input.UnsupportedAlternateConfig {
 		observation.State = ProjectionUnsupported

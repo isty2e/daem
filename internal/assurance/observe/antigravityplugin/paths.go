@@ -58,7 +58,15 @@ func (paths HostPaths) PluginDirectoryPath(plugin string) (string, error) {
 	if !stablePluginToken(plugin) {
 		return "", fmt.Errorf("Antigravity CLI plugin name %q is not path-safe", plugin)
 	}
-	return filepath.Join(paths.configRoot, "plugins", plugin), nil
+	return filepath.Join(paths.PluginStorePath(), plugin), nil
+}
+
+// PluginStorePath is the stable namespace containing replaceable plugin bundles.
+func (paths HostPaths) PluginStorePath() string {
+	if paths.configRoot == "" {
+		return ""
+	}
+	return filepath.Join(paths.configRoot, "plugins")
 }
 
 func stablePluginToken(value string) bool {

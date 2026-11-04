@@ -71,23 +71,23 @@ func buildOutputInventory(
 	selection targetselection.Selection,
 ) (OutputInventory, error) {
 	managed := managedOutputInventoryEntries(file, selection)
-	unmanaged := append(
-		unmanagedPathInventoryEntries(managedPaths, selection),
-		aggregateInventoryEntries(aggregates, selection, func(decision reconcile.AggregateSubjectDecision) bool {
-			occupancy, observed := decision.ContributionOccupancy()
-			return decision.IsBlocked() &&
-				decision.Reason() == reconcile.ReasonUnmanagedOutputExists &&
-				observed && occupancy == aggregate.ContributionPresent
-		})...,
-	)
-	blocked := append(
-		blockedPathInventoryEntries(managedPaths, selection),
-		aggregateInventoryEntries(aggregates, selection, func(decision reconcile.AggregateSubjectDecision) bool {
-			return decision.IsBlocked() && decision.Reason().IsOwnershipBlock()
-		})...,
-	)
+	unmanagedAggregates, err := aggregateInventoryEntries(aggregates, selection, func(decision reconcile.AggregateSubjectDecision) bool {
+		occupancy, observed := decision.ContributionOccupancy()
+		return decision.IsBlocked() && decision.Reason() == reconcile.ReasonUnmanagedOutputExists &&
+			observed && occupancy == aggregate.ContributionPresent
+	})
+	if err != nil {
+		return OutputInventory{}, err
+	}
+	unmanaged := append(unmanagedPathInventoryEntries(managedPaths, selection), unmanagedAggregates...)
+	blockedAggregates, err := aggregateInventoryEntries(aggregates, selection, func(decision reconcile.AggregateSubjectDecision) bool {
+		return decision.IsBlocked() && decision.Reason().IsOwnershipBlock()
+	})
+	if err != nil {
+		return OutputInventory{}, err
+	}
+	blocked := append(blockedPathInventoryEntries(managedPaths, selection), blockedAggregates...)
 
-	var err error
 	if managed, err = canonicalOutputInventoryEntries("managed", managed); err != nil {
 		return OutputInventory{}, err
 	}
@@ -184,7 +184,7 @@ func aggregateInventoryEntries(
 	decisions []reconcile.AggregateDecision,
 	selection targetselection.Selection,
 	include func(reconcile.AggregateSubjectDecision) bool,
-) []OutputInventoryEntry {
+) ([]OutputInventoryEntry, error) {
 	entries := make([]OutputInventoryEntry, 0)
 	for _, decision := range decisions {
 		for _, projection := range decision.Projections() {
@@ -192,20 +192,20 @@ func aggregateInventoryEntries(
 				if !selection.Includes(subject.Target()) || !include(subject) {
 					continue
 				}
+				contentPath, err := subject.Contract().Address().LegacyContentPath()
+				if err != nil {
+					return nil, err
+				}
 				entries = append(entries, OutputInventoryEntry{
-					entityID:    outputInventoryEntityForSubject(subject.Subject()),
-					subject:     subject.Subject(),
-					targets:     []target.Target{subject.Target()},
-					scope:       subject.Scope(),
-					path:        subject.Destination().String(),
-					contentPath: subject.ContentPath(),
-					reason:      subject.Reason(),
-					detail:      subject.Detail(),
+					entityID: outputInventoryEntityForSubject(subject.Subject()), subject: subject.Subject(),
+					targets: []target.Target{subject.Target()}, scope: subject.Scope(),
+					path: subject.Destination().String(), contentPath: output.ContentPath(contentPath),
+					reason: subject.Reason(), detail: subject.Detail(),
 				})
 			}
 		}
 	}
-	return entries
+	return entries, nil
 }
 
 func canonicalOutputInventoryEntries(

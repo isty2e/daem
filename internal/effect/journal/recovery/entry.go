@@ -125,10 +125,14 @@ func validateEntryAggregateCorrelation(entry Entry) error {
 		return fmt.Errorf("recovery aggregate subject: %w", err)
 	}
 	address := contract.Address()
+	contentPath, err := address.LegacyContentPath()
+	if err != nil {
+		return err
+	}
 	document := address.Document()
 	if entry.target != document.Target() || entry.scope != document.Scope() ||
 		entry.destination != document.AggregateRoot() ||
-		entry.contentPath != string(address.ContentPath()) {
+		entry.contentPath != string(contentPath) {
 		return fmt.Errorf("recovery aggregate entry does not match its projection contract")
 	}
 	return nil

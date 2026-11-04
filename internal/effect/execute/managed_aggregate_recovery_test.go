@@ -190,7 +190,7 @@ func TestRecoveryStageUsesAggregateCodecDocumentLimit(t *testing.T) {
 		action: recoveryHostAction{
 			Scope:             target.ScopeProject,
 			Destination:       contract.Address().Document().AggregateRoot().String(),
-			ContentPath:       string(contract.Address().ContentPath()),
+			ContentPath:       string(outputtest.LegacyContentPath(t, contract.Address())),
 			AggregateContract: &contract,
 		},
 	}}, codecs)
@@ -217,7 +217,7 @@ func TestRecoveryStageRejectsMixedAggregateAndWholePathActions(t *testing.T) {
 		{action: recoveryHostAction{
 			Scope:             target.ScopeProject,
 			Destination:       contract.Address().Document().AggregateRoot().String(),
-			ContentPath:       string(contract.Address().ContentPath()),
+			ContentPath:       string(outputtest.LegacyContentPath(t, contract.Address())),
 			AggregateContract: &contract,
 		}},
 		{action: recoveryHostAction{Scope: target.ScopeProject, Destination: ".agents/skills/example"}},
@@ -533,7 +533,7 @@ func TestApplyRollsBackMixedAggregateProjectionRowsAfterStatefileFailure(t *test
 	}
 	projectionKinds := make(map[string]AggregateEffectKind)
 	for _, projection := range effects[0].ProjectionEffects() {
-		projectionKinds[string(projection.Contract().Address().ContentPath())] = projection.Kind()
+		projectionKinds[string(outputtest.LegacyContentPath(t, projection.Contract().Address()))] = projection.Kind()
 	}
 	for contentPath, want := range map[string]AggregateEffectKind{
 		"/mcpServers/alpha": AggregateEffectReplace,

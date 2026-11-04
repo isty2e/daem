@@ -295,6 +295,7 @@ type Action struct {
 	BeforePathExisted   bool
 	BeforeParentExisted bool
 	ExpectedAfter       ExpectedPathState
+	retirementVacancy   bool
 	AggregateContract   *aggregate.ProjectionContract
 	Detail              string
 }
@@ -302,6 +303,15 @@ type Action struct {
 // SubjectID returns canonical subject identity for subject-owned actions.
 func (action Action) SubjectID() (topology.SubjectID, bool) {
 	return action.subject, !action.subject.IsZero()
+}
+
+// ExpectedRestorationInput preserves the durable expected image while lowering
+// a validated retirement checkpoint to its actual absent restoration input.
+func (action Action) ExpectedRestorationInput() ExpectedPathState {
+	if action.retirementVacancy {
+		return ExpectedPathState{}
+	}
+	return action.ExpectedAfter.Clone()
 }
 
 // Plan is a pure classification over complete durable authority and fresh
@@ -559,6 +569,7 @@ func (action Action) sameExecutionAuthority(other Action) bool {
 		action.ContentPath == other.ContentPath && action.ContentKind == other.ContentKind &&
 		action.BackupPath == other.BackupPath && action.BackupHash == other.BackupHash &&
 		action.BackupKind == other.BackupKind && action.ExpectedAfter.Equal(other.ExpectedAfter) &&
+		action.retirementVacancy == other.retirementVacancy &&
 		action.BackupWork.Equal(other.BackupWork) &&
 		aggregateContractsEqual(action.AggregateContract, other.AggregateContract) &&
 		permissionModesEqual(action.BeforePathMode, other.BeforePathMode) &&

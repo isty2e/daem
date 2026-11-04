@@ -8,20 +8,28 @@ import (
 	"github.com/isty2e/daem/internal/output"
 )
 
-// ManagedAddress identifies one canonical physical path or projection footprint.
-// An empty content path owns the whole physical path.
+// ManagedAddress binds exact physical path authority to one explicit footprint.
 type ManagedAddress struct {
-	path        pathauthority.Exact
-	contentPath output.ContentPath
+	path      pathauthority.Exact
+	footprint output.Footprint
 }
 
-// NewManagedAddress validates exact physical authority and a projection path.
-func NewManagedAddress(path pathauthority.Exact, contentPath string) (ManagedAddress, error) {
-	address := ManagedAddress{path: path, contentPath: output.ContentPath(contentPath)}
+func NewManagedAddress(path pathauthority.Exact, footprint output.Footprint) (ManagedAddress, error) {
+	address := ManagedAddress{path: path, footprint: footprint}
 	if err := address.Validate(); err != nil {
 		return ManagedAddress{}, err
 	}
 	return address, nil
+}
+
+// NewManagedAddressFromLegacy preserves literal slash-segment interpretation at
+// existing producer and old metadata boundaries; it never parses an RFC pointer.
+func NewManagedAddressFromLegacy(path pathauthority.Exact, contentPath string) (ManagedAddress, error) {
+	footprint, err := output.FootprintFromLegacy(output.ContentPath(contentPath))
+	if err != nil {
+		return ManagedAddress{}, err
+	}
+	return NewManagedAddress(path, footprint)
 }
 
 // Validate checks the canonical address invariants without performing filesystem I/O.
@@ -29,7 +37,7 @@ func (address ManagedAddress) Validate() error {
 	if err := address.path.Validate(); err != nil {
 		return fmt.Errorf("managed address path authority: %w", err)
 	}
-	if err := address.contentPath.Validate(); err != nil {
+	if err := address.footprint.Validate(); err != nil {
 		return err
 	}
 	return nil
@@ -45,19 +53,16 @@ func (address ManagedAddress) PathAuthority() pathauthority.Exact {
 	return address.path
 }
 
-// ContentPath returns the canonical projection path. Empty means whole-path ownership.
-func (address ManagedAddress) ContentPath() string {
-	return string(address.contentPath)
-}
+func (address ManagedAddress) Footprint() output.Footprint { return address.footprint }
 
 // WholePath reports whether the address owns the complete physical path.
 func (address ManagedAddress) WholePath() bool {
-	return address.contentPath == ""
+	return address.footprint.Kind() == output.FootprintPath
 }
 
 // Equal reports exact physical and projection identity equality.
 func (address ManagedAddress) Equal(other ManagedAddress) bool {
-	return address.path.Equal(other.path) && address.contentPath == other.contentPath
+	return address.path.Equal(other.path) && address.footprint.Equal(other.footprint)
 }
 
 // Overlaps reports whether two addresses claim intersecting mutation footprints.
@@ -65,10 +70,7 @@ func (address ManagedAddress) Overlaps(other ManagedAddress) bool {
 	if !address.path.Equal(other.path) {
 		return address.path.Contains(other.path) || other.path.Contains(address.path)
 	}
-	if address.WholePath() || other.WholePath() {
-		return true
-	}
-	return address.contentPath.Overlaps(other.contentPath)
+	return address.footprint.Overlaps(other.footprint)
 }
 
 // Less reports deterministic canonical address order.
@@ -76,5 +78,5 @@ func (address ManagedAddress) Less(other ManagedAddress) bool {
 	if !address.path.Equal(other.path) {
 		return address.path.Compare(other.path) < 0
 	}
-	return address.contentPath < other.contentPath
+	return output.CompareFootprints(address.footprint, other.footprint) < 0
 }

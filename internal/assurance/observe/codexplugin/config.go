@@ -20,16 +20,21 @@ import (
 const MaximumConfigBytes = 4 << 20
 
 func ObserveConfigFile(configPath string) (observeconfig.Observation, error) {
-	return observeConfigFile(context.Background(), configPath, &observationBudget{})
+	return observeConfigFileWithReader(context.Background(), configPath, &observationBudget{}, nil)
 }
 
-func observeConfigFile(
-	ctx context.Context,
-	configPath string,
-	budget *observationBudget,
-) (observeconfig.Observation, error) {
+// ObserveConfigFileWithReader uses the operation's regular-file reader without
+// changing Codex entry decoding or relation meaning.
+func ObserveConfigFileWithReader(ctx context.Context, configPath string, read func(context.Context, string, int64) ([]byte, bool, error)) (observeconfig.Observation, error) {
+	return observeConfigFileWithReader(ctx, configPath, &observationBudget{}, read)
+}
+
+func observeConfigFileWithReader(ctx context.Context, configPath string, budget *observationBudget, read func(context.Context, string, int64) ([]byte, bool, error)) (observeconfig.Observation, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return observeconfig.Observation{}, err
 	}
 	if budget == nil {
 		budget = &observationBudget{}
@@ -43,7 +48,19 @@ func observeConfigFile(
 	if err != nil {
 		return observeconfig.Observation{}, err
 	}
-	result, err := filesnapshot.ReadRegularFileContextCounted(ctx, configPath, MaximumConfigBytes)
+	var result filesnapshot.CountedContent
+	if read == nil {
+		result, err = filesnapshot.ReadRegularFileContextCounted(ctx, configPath, MaximumConfigBytes)
+	} else {
+		result.Content, result.Exists, err = read(ctx, configPath, MaximumConfigBytes)
+		result.Attempted = int64(len(result.Content))
+		if err == nil && result.Attempted > MaximumConfigBytes {
+			err = filesnapshot.ErrLimitExceeded
+		}
+		if err == nil {
+			err = ctx.Err()
+		}
+	}
 	_ = chargeSnapshotAttempt(budget, result.Attempted, result.Exists, err)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

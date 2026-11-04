@@ -57,9 +57,13 @@ func applyRecoveryIntentOwnershipEvidence(
 		}
 	}
 	for _, intent := range intents {
+		contentPath, err := intent.LegacyContentPath()
+		if err != nil {
+			return nil, err
+		}
 		index, found := observationIndexes[recoveryPathObservationKey{
 			path:        intent.Destination().String(),
-			contentPath: string(intent.ContentPath()),
+			contentPath: string(contentPath),
 		}]
 		if !found {
 			continue
@@ -88,7 +92,7 @@ func applyRecoveryIntentOwnershipEvidence(
 		var conflict outputownership.Claim
 		var present bool
 		if exact, ok := authority.Exact(); ok {
-			address, addressErr := outputownership.NewManagedAddress(exact, string(intent.ContentPath()))
+			address, addressErr := outputownership.NewManagedAddress(exact, intent.Footprint())
 			if addressErr != nil {
 				observations[index].Error = addressErr.Error()
 				continue
@@ -413,12 +417,16 @@ func extractRecoveryObservationProjection(
 		)
 	}
 	address := aggregateContract.Address()
+	contractPath, err := address.LegacyContentPath()
+	if err != nil {
+		return nil, false, err
+	}
 	if address.Document().AggregateRoot() != destination ||
-		string(address.ContentPath()) != string(contentPath) {
+		string(contractPath) != string(contentPath) {
 		return nil, false, fmt.Errorf(
 			"recovery aggregate contract address %q%q does not match observation %q%q",
 			address.Document().AggregateRoot(),
-			address.ContentPath(),
+			contractPath,
 			destination,
 			contentPath,
 		)

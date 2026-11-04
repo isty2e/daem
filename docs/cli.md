@@ -333,12 +333,12 @@ are unrelated and must not be compared as a product-wide sequence:
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
 | `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `7` |
-| `lock`, `outdated` | Lock comparison | `4` |
+| `lock`, `outdated` | Lock comparison | `5` |
 | `list resources` | Resource inventory | `4` |
 | `list outputs` | Output inventory | `5` |
 | `list paths` | Agent location inventory | `2` |
-| `status`, `apply --dry-run` | Reconciliation plan | `17` |
-| confirmed `apply` | Apply result | `23` |
+| `status`, `apply --dry-run` | Reconciliation plan | `18` |
+| confirmed `apply` | Apply result | `24` |
 | `recover` | Recovery plan/result | `10` |
 | `migrate state` | State-authority migration | `1` |
 | `doctor` | Passive diagnostics | `2` |

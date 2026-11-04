@@ -42,7 +42,7 @@ func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
 		t.Fatalf("observe fixture authority: %v", err)
 	}
 	canonical := pathAuthority.Exact().Key()
-	parentAddress, _ := outputownership.NewManagedAddress(pathAuthority.Exact(), "/mcp_servers")
+	parentAddress, _ := outputownership.NewManagedAddressFromLegacy(pathAuthority.Exact(), "/mcp_servers")
 	foreign, _ := stateauthority.New(pathtest.Exact(filepath.Join(root, "foreign", "state.json")), filepath.Join(root, "foreign.toml"))
 	claim, _ := outputownership.NewActiveClaim(parentAddress, foreign)
 	registry, _ := outputownership.NewRegistry([]outputownership.Claim{claim})
@@ -74,7 +74,8 @@ func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
 	}
 	observation := result.Observations[0]
 	address, exact := observation.ExactAddress()
-	if !exact || address.Path() != canonical || address.ContentPath() != "/mcp_servers/alpha" {
+	contentPath, contentErr := address.Footprint().LegacyContentPath()
+	if !exact || contentErr != nil || address.Path() != canonical || contentPath != "/mcp_servers/alpha" {
 		t.Fatalf("unexpected canonical address: %#v", address)
 	}
 	observedClaim, present := observation.Claim().Get()
@@ -101,7 +102,7 @@ func TestValidateRegistryStateAuthorityRejectsSelectedManifestForeignKey(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	address, err := outputownership.NewManagedAddress(
+	address, err := outputownership.NewManagedAddressFromLegacy(
 		pathtest.Exact(filepath.Join(string(filepath.Separator), "managed", "output")),
 		"",
 	)
@@ -227,8 +228,9 @@ func TestBuildObservesSelectedGlobalAggregateProjectionAtExactContentPath(t *tes
 	}
 	observation := result.Observations[0]
 	address, exact := observation.ExactAddress()
-	if !exact || address.Path() != canonical ||
-		address.ContentPath() != string(contract.Address().ContentPath()) {
+	contentPath, contentErr := address.Footprint().LegacyContentPath()
+	if !exact || contentErr != nil || address.Path() != canonical ||
+		string(contentPath) != string(outputtest.LegacyContentPath(t, contract.Address())) {
 		t.Fatalf("aggregate ownership address = %#v, want exact projection address", address)
 	}
 }

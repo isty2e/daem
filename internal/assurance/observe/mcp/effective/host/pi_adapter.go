@@ -1,12 +1,12 @@
 package host
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
-	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -26,6 +26,8 @@ type observedNormalSource struct {
 // PiAdapterInput names the physical source roots used by one admitted provider
 // projection. Inputs are explicit so tests never depend on the invoking machine.
 type PiAdapterInput struct {
+	Context      context.Context
+	ReadFile     func(context.Context, string, int64) ([]byte, bool, error)
 	Projection   aggregate.SubjectContribution
 	Codecs       aggregate.CodecCatalog
 	HomeDir      string
@@ -37,6 +39,14 @@ type PiAdapterInput struct {
 // ObservePiAdapter reads the active pi-mcp-adapter config sources for one
 // admitted projection. Shared and imported files remain passive evidence only.
 func ObservePiAdapter(input PiAdapterInput) (mcpeffective.Observation, error) {
+	ctx := input.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return mcpeffective.Observation{}, err
+	}
+	reader := configFileReader(input.ReadFile)
 	subject := input.Projection.SubjectID()
 	view, ok := catalog.Product().LookupMCPBySubject(subject)
 	if !ok {
@@ -114,8 +124,12 @@ func ObservePiAdapter(input PiAdapterInput) (mcpeffective.Observation, error) {
 	documents := make([]observedNormalSource, 0, len(specs))
 	hostConfigDiscovery := "off"
 	for index, spec := range specs {
+		if err := ctx.Err(); err != nil {
+			return mcpeffective.Observation{}, err
+		}
 		precedence := relativePrecedence(index, selectedIndex)
-		observed := observeNormalSource(
+		observed := reader.observeNormalSource(
+			ctx,
 			spec,
 			precedence,
 			serverName,
@@ -132,6 +146,9 @@ func ObservePiAdapter(input PiAdapterInput) (mcpeffective.Observation, error) {
 	}
 
 	for index, observed := range documents {
+		if err := ctx.Err(); err != nil {
+			return mcpeffective.Observation{}, err
+		}
 		if observed.evidence.State() != mcpeffective.SourceExact {
 			continue
 		}
@@ -140,7 +157,8 @@ func ObservePiAdapter(input PiAdapterInput) (mcpeffective.Observation, error) {
 			precedence = mcpeffective.PrecedenceLower
 		}
 		for _, kind := range observed.document.imports {
-			imported, present := observeImport(
+			imported, present := reader.observeImport(
+				ctx,
 				kind,
 				"import/"+observed.evidence.ID()+"/"+string(kind),
 				precedence,
@@ -156,7 +174,11 @@ func ObservePiAdapter(input PiAdapterInput) (mcpeffective.Observation, error) {
 	}
 	if hostConfigDiscovery == "on" {
 		for _, kind := range orderedImportKinds {
-			discovered, present := observeImport(
+			if err := ctx.Err(); err != nil {
+				return mcpeffective.Observation{}, err
+			}
+			discovered, present := reader.observeImport(
+				ctx,
 				kind,
 				"host-discovery/"+string(kind),
 				mcpeffective.PrecedenceLower,
@@ -169,6 +191,9 @@ func ObservePiAdapter(input PiAdapterInput) (mcpeffective.Observation, error) {
 				sources = append(sources, discovered)
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return mcpeffective.Observation{}, err
 	}
 	return mcpeffective.NewObservation(mcpeffective.ObservationInput{
 		Subject:      subject,
@@ -206,7 +231,8 @@ func piNormalSourceSpecs(homeDir string, workDir string, agentRoot string) []nor
 	return result
 }
 
-func observeNormalSource(
+func (reader configFileReader) observeNormalSource(
+	ctx context.Context,
 	spec normalSourceSpec,
 	precedence mcpeffective.RelativePrecedence,
 	serverName string,
@@ -214,7 +240,8 @@ func observeNormalSource(
 	selection aggregate.Selection,
 	codec aggregate.Codec,
 ) observedNormalSource {
-	content, exists, readErr := filesnapshot.ReadRegularFile(
+	content, exists, readErr := reader.read(
+		ctx,
 		spec.path,
 		maximumConfigBytes,
 	)

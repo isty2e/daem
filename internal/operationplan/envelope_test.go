@@ -45,6 +45,87 @@ func TestCompileApplyExecuteGatesReserveOneEnsure(t *testing.T) {
 	}
 }
 
+func TestCompileApplyPrefixAddsOnePhaseWithoutAnotherDescendant(t *testing.T) {
+	t.Parallel()
+	work := ApplyWork{
+		ExecuteGates: 2, ProviderActions: []RouteWork{{InvokesHost: true}},
+		FinalRoutes: []RouteWork{{InvokesHost: true}}, StatefilePath: "/state.json",
+		GlobalCarrierRetirement: true, GlobalCarrierAdoption: true,
+		Delegates: []DelegateWork{{SchedulesAttempt: true}},
+	}
+	base, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work.PrefixExecuteGates = 3
+	withPrefix, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, actual := base.Demand(), withPrefix.Demand()
+	if actual.EnsureCalls() != want.EnsureCalls()+1 || actual.StateDirValidationCalls() != want.StateDirValidationCalls()+2 || actual.BarrierValidationCalls() != want.BarrierValidationCalls()+1 {
+		t.Fatal("prefix work was omitted or merged into another phase")
+	}
+	if actual.DescendantBindings() != want.DescendantBindings() || actual.DescendantPath() != want.DescendantPath() || actual.DescendantValidations() != want.DescendantValidations() || actual.DescendantFileCommits() != want.DescendantFileCommits() {
+		t.Fatal("prefix changed continuation persistence ownership")
+	}
+	for _, invalid := range []ApplyWork{{PrefixExecuteGates: -1}, {ExecuteGates: int(^uint(0) >> 1), PrefixExecuteGates: 1}} {
+		if _, err := CompileApply(invalid); err == nil {
+			t.Fatal("invalid combined direct work produced a reservation")
+		}
+	}
+}
+
+func TestCompileApplyPostRouteWorkSharesFinalPhaseAndReservesReplan(t *testing.T) {
+	work := ApplyWork{PrefixExecuteGates: 3, FinalRoutes: []RouteWork{{InvokesHost: true}}, StatefilePath: "/state.json"}
+	base, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work.PostRouteExecuteGates = 5
+	suffix, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, after := base.Demand(), suffix.Demand()
+	if after.EnsureCalls() != before.EnsureCalls() || after.BarrierValidationCalls() != before.BarrierValidationCalls()+1 ||
+		after.StateDirValidationCalls() != before.StateDirValidationCalls()+5 ||
+		after.DescendantBindings() != before.DescendantBindings() || after.DescendantValidations() != before.DescendantValidations() ||
+		after.DescendantFileCommits() != before.DescendantFileCommits() {
+		t.Fatalf("post-route demand = %+v, base %+v", after, before)
+	}
+	maximum := int(^uint(0) >> 1)
+	for _, invalid := range []ApplyWork{{PostRouteExecuteGates: -1}, {PostRouteExecuteGates: maximum, ExecuteGates: 1}, {PostRouteExecuteGates: maximum, PrefixExecuteGates: 1}} {
+		if _, err := CompileApply(invalid); err == nil {
+			t.Fatal("invalid post-route work was admitted")
+		}
+	}
+}
+
+func TestCompileApplyPostDelegateWorkSharesEstablishedStateDir(t *testing.T) {
+	work := ApplyWork{PostRouteExecuteGates: 4, Delegates: []DelegateWork{{SchedulesAttempt: true}}, StatefilePath: "/state.json"}
+	base, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work.PostDelegateExecuteGates = 5
+	late, err := CompileApply(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, after := base.Demand(), late.Demand()
+	if after.EnsureCalls() != before.EnsureCalls() || after.StateDirValidationCalls() != before.StateDirValidationCalls()+5 || after.BarrierValidationCalls() != before.BarrierValidationCalls()+1 ||
+		after.DescendantBindings() != before.DescendantBindings() || after.DescendantValidations() != before.DescendantValidations() || after.DescendantFileCommits() != before.DescendantFileCommits() {
+		t.Fatalf("post-delegate demand=%+v base=%+v", after, before)
+	}
+	maximum := int(^uint(0) >> 1)
+	for _, invalid := range []ApplyWork{{PostDelegateExecuteGates: -1}, {PostDelegateExecuteGates: maximum, PostRouteExecuteGates: 1}, {PostDelegateExecuteGates: maximum, PrefixExecuteGates: 1}} {
+		if _, err := CompileApply(invalid); err == nil {
+			t.Fatal("invalid post-delegate work was admitted")
+		}
+	}
+}
+
 func TestCompileApplyProviderActionsReserveBarrierEnvelope(t *testing.T) {
 	t.Parallel()
 	envelope, err := CompileApply(ApplyWork{

@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
@@ -201,7 +202,7 @@ func claudeRecoveryBaselineMutation(
 	return pathMutation{
 		Scope:             scope,
 		Destination:       placement.ConfigPath(),
-		ContentPath:       output.ContentPath(contract.Address().ContentPath()),
+		ContentPath:       output.ContentPath(outputtest.LegacyContentPath(t, contract.Address())),
 		AggregateContract: pointerToAggregateContract(contract),
 	}
 }

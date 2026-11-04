@@ -33,7 +33,7 @@ type aggregateContractFingerprintFacts struct {
 	Target              string
 	Scope               string
 	AggregateRoot       string
-	ContentPath         string
+	KeyPath             string
 	MergeUnit           string
 	Cardinality         string
 	SiblingRetention    string
@@ -67,6 +67,7 @@ type aggregateProjectionStateFingerprintFacts struct {
 	ParentPresent bool
 	Present       bool
 	CanonicalHash string
+	BlockedBy     string `json:",omitempty"`
 }
 
 type aggregateContributionFingerprintFacts struct {
@@ -143,7 +144,7 @@ func aggregateContractFingerprint(contract aggregate.ProjectionContract) aggrega
 	document := address.Document()
 	return aggregateContractFingerprintFacts{
 		PlacementID: address.PlacementID(), Target: string(document.Target()), Scope: string(document.Scope()),
-		AggregateRoot: document.AggregateRoot().String(), ContentPath: string(address.ContentPath()), MergeUnit: string(address.MergeUnit()),
+		AggregateRoot: document.AggregateRoot().String(), KeyPath: address.KeyPath().String(), MergeUnit: string(address.MergeUnit()),
 		Cardinality: string(contract.Cardinality()), SiblingRetention: string(contract.SiblingRetention()),
 		SiblingPreservation: string(contract.SiblingPreservation()), Equivalence: string(contract.Equivalence()),
 		CodecContractID: string(contract.CodecContractID()), ComparedFields: contract.ComparedFields(),
@@ -157,8 +158,9 @@ func aggregateProjectionStateFingerprint(
 	if state.Present() {
 		hash = string(artifact.HashFileContent([]byte(state.CanonicalProjection())))
 	}
+	ancestor, _ := state.BlockedBy()
 	return aggregateProjectionStateFingerprintFacts{
-		ParentPresent: state.ParentPresent(), Present: state.Present(), CanonicalHash: hash,
+		ParentPresent: state.ParentPresent(), Present: state.Present(), CanonicalHash: hash, BlockedBy: ancestor.String(),
 	}
 }
 

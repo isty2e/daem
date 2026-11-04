@@ -125,7 +125,8 @@ func TestRunStatusRejectsClaudeCodeNullHooksAsUnsupportedSelectedShape(t *testin
 	tempDir := t.TempDir()
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 
-	testkit.WriteFile(t, tempDir, ".claude/settings.json", "{\n  \"env\": {\n    \"KEEP\": \"yes\"\n  },\n  \"hooks\": null\n}\n")
+	const current = "{\n  \"env\": {\n    \"KEEP\": \"yes\"\n  },\n  \"hooks\": null\n}\n"
+	testkit.WriteFile(t, tempDir, ".claude/settings.json", current)
 
 	testkit.WriteHookManifestAndLock(t, tempDir, `
 version = 1
@@ -144,8 +145,15 @@ targets = ["claude-code"]
 	if exitCode != 1 || stderr.Len() != 0 {
 		t.Fatalf("exitCode = %d, stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "aggregate codec selected_shape_unsupported at /hooks") {
+	if !strings.Contains(stdout.String(), "aggregate codec selected_shape_unsupported") || !strings.Contains(stdout.String(), "/hooks") {
 		t.Fatalf("stdout = %q, want redaction-safe unsupported-shape diagnostic", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "KEEP") || strings.Contains(stdout.String(), `"yes"`) {
+		t.Fatal("unsupported-shape diagnostic exposed unrelated host values")
+	}
+	actual, err := os.ReadFile(filepath.Join(tempDir, ".claude/settings.json"))
+	if err != nil || string(actual) != current {
+		t.Fatal("refused status changed the host document", err)
 	}
 }
 
@@ -153,7 +161,8 @@ func TestRunApplyRejectsMalformedExistingClaudeCodeSettingsBeforeMutation(t *tes
 	tempDir := t.TempDir()
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 
-	testkit.WriteFile(t, tempDir, ".claude/settings.json", "{\"env\":")
+	const current = "{\"env\":"
+	testkit.WriteFile(t, tempDir, ".claude/settings.json", current)
 
 	testkit.WriteHookManifestAndLock(t, tempDir, `
 version = 1
@@ -172,8 +181,12 @@ targets = ["claude-code"]
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1; stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "aggregate codec document_malformed at /hooks") {
+	if !strings.Contains(stderr.String(), "aggregate codec document_malformed") || !strings.Contains(stderr.String(), "/hooks") {
 		t.Fatalf("stderr = %q, want malformed hook config diagnostic", stderr.String())
+	}
+	actual, err := os.ReadFile(filepath.Join(tempDir, ".claude/settings.json"))
+	if err != nil || string(actual) != current {
+		t.Fatal("refused apply changed the malformed host document", err)
 	}
 	if _, err := os.Stat(filepath.Join(tempDir, ".daem", "state.json")); !os.IsNotExist(err) {
 		t.Fatalf("malformed settings apply wrote statefile or stat failed: %v", err)

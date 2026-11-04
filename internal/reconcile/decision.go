@@ -98,8 +98,8 @@ func (decision AggregateSubjectDecision) Destination() output.Destination {
 	return decision.delta.contract.Address().Document().AggregateRoot()
 }
 
-func (decision AggregateSubjectDecision) ContentPath() output.ContentPath {
-	return output.ContentPath(decision.delta.contract.Address().ContentPath())
+func (decision AggregateSubjectDecision) Footprint() output.Footprint {
+	return decision.delta.contract.Address().Footprint()
 }
 
 func (decision AggregateSubjectDecision) IsBlocked() bool {

@@ -211,18 +211,18 @@ func aggregateOwnershipObservation(
 	address := projection.contract.Address()
 	document := address.Document()
 	destination := document.AggregateRoot()
-	contentPath := output.ContentPath(address.ContentPath())
+	footprint := address.Footprint()
 	managedAddress, err := ownership.NewManagedAddress(pathtest.Exact(
 		filepath.Join(root, "home", ".claude.json"),
 	),
 
-		string(contentPath))
+		footprint)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
 	observation, err := observe.NewExactOwnershipObservation(
 		destination,
-		contentPath,
+		footprint,
 		managedAddress,
 		claim,
 	)
@@ -231,7 +231,7 @@ func aggregateOwnershipObservation(
 	}
 	return ownershipObservationKey{
 		destination: destination,
-		contentPath: contentPath,
+		footprint:   footprint,
 	}, observation
 }
 
@@ -262,7 +262,7 @@ func aggregateClaimedObservation(
 	}
 	claimed, err := observe.NewExactOwnershipObservation(
 		observation.Destination(),
-		observation.ContentPath(),
+		observation.Footprint(),
 		address,
 		claimValue,
 	)
@@ -278,7 +278,7 @@ func aggregateOverlappingObservation(
 	destination output.Destination,
 ) observe.OwnershipObservation {
 	t.Helper()
-	address, err := ownership.NewManagedAddress(pathtest.Exact(
+	address, err := ownership.NewManagedAddressFromLegacy(pathtest.Exact(
 		filepath.Join(root, "home", ".claude.json"),
 	),
 
@@ -286,7 +286,7 @@ func aggregateOverlappingObservation(
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
-	observation, err := observe.NewExactOwnershipObservation(
+	observation, err := observe.NewExactOwnershipObservationFromLegacy(
 		destination,
 		"/mcpServers",
 		address,

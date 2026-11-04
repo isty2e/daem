@@ -12,6 +12,7 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 // AggregateInput contains reproducible lock facts, ephemeral desired values,
@@ -119,6 +120,10 @@ type aggregateBlockedSubject struct {
 // BuildAggregateDecisions reconciles semantic projections by address, then
 // batches every projection sharing one physical document and codec.
 func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecision, error) {
+	return buildAggregateDecisions(input, nil)
+}
+
+func buildAggregateDecisions(input AggregateInput, replacement *topologyprojection.HostConfigKeySelection) ([]reconcile.AggregateDecision, error) {
 	selection := selectedTargetSet(input.SelectedTargets)
 	expected, blocked, err := expectedAggregateSubjects(
 		input.Locked,
@@ -133,15 +138,15 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 	if err != nil {
 		return nil, err
 	}
-	blocked, err = applyAggregateSubjectConstraints(blocked, input.Constraints, expected)
+	states, err := selectedAggregateStates(input.States, selection)
+	if err != nil {
+		return nil, err
+	}
+	blocked, err = applyAggregateSubjectConstraints(blocked, input.Constraints, expected, states)
 	if err != nil {
 		return nil, err
 	}
 	removalNotices, err := aggregateRemovalNoticeIndex(input.RemovalNotices)
-	if err != nil {
-		return nil, err
-	}
-	states, err := selectedAggregateStates(input.States, selection)
 	if err != nil {
 		return nil, err
 	}
@@ -224,12 +229,12 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 	if err := validateAggregateObservationCoverage(documents, evidence, failures, preconditions); err != nil {
 		return nil, err
 	}
-	addresses := make([]aggregate.DocumentAddress, 0, len(documents))
+	addresses := make([]aggregate.DocumentCodecKey, 0, len(documents))
 	for address := range documents {
 		addresses = append(addresses, address)
 	}
 	sort.Slice(addresses, func(left int, right int) bool {
-		return aggregateDocumentAddressKey(addresses[left]) < aggregateDocumentAddressKey(addresses[right])
+		return addresses[left].Compare(addresses[right]) < 0
 	})
 	drafts := make([]aggregateDecision, 0, len(addresses))
 	for _, address := range addresses {
@@ -239,6 +244,7 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 			failures,
 			preconditions,
 			input.ManageUnmanagedMatches,
+			replacement,
 			input.Owner,
 			ownershipEvidence,
 			ownershipConflicts,
@@ -329,6 +335,7 @@ func applyAggregateSubjectConstraints(
 	blocked []aggregateBlockedSubject,
 	constraints []AggregateSubjectConstraint,
 	expected map[topology.SubjectID]aggregate.SubjectContribution,
+	states map[topology.SubjectID]durable.ManagedAggregateState,
 ) ([]aggregateBlockedSubject, error) {
 	alreadyBlocked := make(map[topology.SubjectID]struct{}, len(blocked))
 	for _, fact := range blocked {
@@ -349,10 +356,18 @@ func applyAggregateSubjectConstraints(
 		seenConstraints[subject] = struct{}{}
 		item, present := expected[subject]
 		if !present {
-			return nil, fmt.Errorf(
-				"aggregate constraint subject %q has no selected expectation",
-				subject,
-			)
+			prior, selected := states[subject]
+			if !selected {
+				return nil, fmt.Errorf(
+					"aggregate constraint subject %q has no selected expectation or prior state",
+					subject,
+				)
+			}
+			var err error
+			item, err = aggregate.NewSubjectContribution(subject, prior.Contribution())
+			if err != nil {
+				return nil, err
+			}
 		}
 		if _, blockedByLock := alreadyBlocked[subject]; blockedByLock {
 			continue
@@ -383,10 +398,10 @@ func aggregateGroup(
 
 func aggregateDocumentGroups(
 	groups map[aggregate.ProjectionAddress]*aggregateGroupInput,
-) (map[aggregate.DocumentAddress][]aggregateGroupInput, error) {
-	documents := make(map[aggregate.DocumentAddress][]aggregateGroupInput)
+) (map[aggregate.DocumentCodecKey][]aggregateGroupInput, error) {
+	documents := make(map[aggregate.DocumentCodecKey][]aggregateGroupInput)
 	for _, group := range groups {
-		address := group.contract.Address().Document()
+		address := group.contract.DocumentCodecKey()
 		documents[address] = append(documents[address], *group)
 	}
 	for address, values := range documents {
@@ -399,7 +414,7 @@ func aggregateDocumentGroups(
 			contracts[index] = group.contract
 		}
 		if _, err := aggregate.NewSelection(contracts); err != nil {
-			return nil, fmt.Errorf("aggregate document %q: %w", address.AggregateRoot(), err)
+			return nil, fmt.Errorf("aggregate document %q: %w", address.DocumentAddress().AggregateRoot(), err)
 		}
 		documents[address] = values
 	}

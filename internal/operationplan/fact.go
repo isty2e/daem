@@ -22,13 +22,15 @@ const (
 	FactStateDirIdentity
 	FactRemovalContinuation
 	FactRemovalParentIdentity
+	FactOwnershipRegistry
+	FactDocumentWrite
 )
 
 func (kind FactKind) validate() error {
 	switch kind {
 	case FactLogical, FactPhysical, FactRoute, FactRecoveryBarrier,
 		FactRecoveryRootIdentity, FactStateDirIdentity,
-		FactRemovalContinuation, FactRemovalParentIdentity:
+		FactRemovalContinuation, FactRemovalParentIdentity, FactOwnershipRegistry, FactDocumentWrite:
 		return nil
 	default:
 		return fmt.Errorf("operationplan: invalid authority fact kind %d", kind)
@@ -53,6 +55,10 @@ func (kind FactKind) wireName() (string, error) {
 		return "removal-continuation", nil
 	case FactRemovalParentIdentity:
 		return "removal-parent-identity", nil
+	case FactOwnershipRegistry:
+		return "ownership-registry", nil
+	case FactDocumentWrite:
+		return "document-write", nil
 	default:
 		return "", fmt.Errorf("operationplan: invalid authority fact kind %d", kind)
 	}
@@ -60,7 +66,7 @@ func (kind FactKind) wireName() (string, error) {
 
 func (kind FactKind) producesDomain() bool {
 	switch kind {
-	case FactLogical, FactPhysical, FactRoute, FactRemovalContinuation:
+	case FactLogical, FactPhysical, FactRoute, FactRemovalContinuation, FactOwnershipRegistry, FactDocumentWrite:
 		return true
 	default:
 		return false
@@ -91,6 +97,13 @@ func (fact Fact) Access() mutation.AccessMode { return fact.access }
 
 // Effect returns the path-effect class.
 func (fact Fact) Effect() mutation.PathEffect { return fact.effect }
+
+func (fact Fact) documentWrite() (mutation.PhysicalAuthorityRequest, bool) {
+	if fact.kind != FactDocumentWrite {
+		return mutation.PhysicalAuthorityRequest{}, false
+	}
+	return mutation.PhysicalAuthorityRequest{Path: fact.path, Target: fact.target, Scope: fact.scope}, true
+}
 
 func (fact Fact) coverKey() string {
 	return strconv.Itoa(int(fact.kind)) + "\x00" +

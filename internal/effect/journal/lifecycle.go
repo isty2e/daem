@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
@@ -56,6 +57,17 @@ func RequireNoInterruptedApply(ctx context.Context, recoveryRoot string) error {
 	return ensureNoActive(ctx, recoveryRoot, inventoryOptions{
 		Filesystem: storagecommit.Adapter{},
 		StateCodec: statefile.Codec{},
+	})
+}
+
+// RequireNoInterruptedApplyBounded applies the same inventory policy while
+// retaining the caller's physical-work allocation.
+func RequireNoInterruptedApplyBounded(ctx context.Context, recoveryRoot string, budget rootedpath.PhysicalTraversalBudget) error {
+	if budget == nil {
+		return fmt.Errorf("journal readiness physical work budget is required")
+	}
+	return ensureNoActive(ctx, recoveryRoot, inventoryOptions{
+		Filesystem: storagecommit.Adapter{}, StateCodec: statefile.Codec{}, PhysicalPathBudget: budget,
 	})
 }
 

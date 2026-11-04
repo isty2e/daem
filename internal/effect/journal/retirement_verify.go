@@ -197,6 +197,18 @@ func requireJournalFingerprint(
 	stateCodec durable.SnapshotCodec,
 	label string,
 ) error {
+	return requireJournalFingerprintWithDecoder(ctx, filesystem, authority, expected, stateCodec, label, decodeLegacyInventoryJournal)
+}
+
+func requireJournalFingerprintWithDecoder(
+	ctx context.Context,
+	filesystem mutationfs.RootedStore,
+	authority *rootedpath.EntryAuthority,
+	expected string,
+	stateCodec durable.SnapshotCodec,
+	label string,
+	decoder inventoryJournalDecoder,
+) error {
 	if authority == nil {
 		return fmt.Errorf("%s record authority is required", label)
 	}
@@ -206,15 +218,14 @@ func requireJournalFingerprint(
 	if stateCodec == nil {
 		return fmt.Errorf("%s state codec is required", label)
 	}
+	if decoder == nil {
+		decoder = decodeLegacyInventoryJournal
+	}
 	capability, err := authority.Acquire()
 	if err != nil {
 		return err
 	}
-	content, mode, identity, readErr := filesystem.ReadRootedRegularFileUpTo(
-		ctx,
-		capability,
-		maximumRecoveryJournalBytes,
-	)
+	content, mode, identity, readErr := filesystem.ReadRootedRegularFileUpTo(ctx, capability, maximumRecoveryJournalBytes)
 	if readErr != nil {
 		return errors.Join(readErr, capability.Close())
 	}
@@ -222,23 +233,16 @@ func requireJournalFingerprint(
 	if err != nil {
 		return errors.Join(err, capability.Close())
 	}
-	journal, err := decodeRecoveryJournalSnapshot(
-		snapshot,
-		recoveryJournalFileName,
-		stateCodec,
-	)
+	journal, err := decoder(ctx, snapshot, recoveryJournalFileName, stateCodec)
 	if err != nil {
 		return errors.Join(err, capability.Close())
 	}
-	fingerprint, err := recoveryJournalAuthorityFingerprint(journal, stateCodec)
+	fingerprint, err := journal.authorityFingerprint(ctx, stateCodec)
 	if err != nil {
 		return errors.Join(err, capability.Close())
 	}
 	if fingerprint != expected {
-		return errors.Join(
-			fmt.Errorf("%s changed before visibility transition", label),
-			capability.Close(),
-		)
+		return errors.Join(fmt.Errorf("%s changed before visibility transition", label), capability.Close())
 	}
 	return capability.Close()
 }

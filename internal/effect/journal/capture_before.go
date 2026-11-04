@@ -28,6 +28,7 @@ func captureRecoveryBeforePath(
 	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,
 	contentPathBaselines *recoveryContentPathBaselineCache,
+	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
 	if action.ContentPath != "" {
 		if action.Scope == target.ScopeProject {
@@ -39,6 +40,7 @@ func captureRecoveryBeforePath(
 				filesystem,
 				manifestAuthority,
 				contentPathBaselines,
+				work,
 			)
 		}
 		return captureContentPathRecoveryBeforePath(
@@ -50,6 +52,7 @@ func captureRecoveryBeforePath(
 			manifestAuthority,
 			rootedCapability,
 			contentPathBaselines,
+			work,
 		)
 	}
 	if action.Kind == pathMutationCreate {
@@ -88,6 +91,7 @@ func captureRecoveryBeforePath(
 				backupIndex,
 				action,
 				manifestAuthority,
+				work,
 			)
 		}
 		if capability, present, err := acquireRootedJournalCapability(
@@ -98,7 +102,7 @@ func captureRecoveryBeforePath(
 			return recovery.BeforePathState{}, backupIndex, err
 		} else if present {
 			return captureAndCloseRootedRecoveryBefore(
-				ctx, filesystem, operationDir, backupIndex, action, capability,
+				ctx, filesystem, operationDir, backupIndex, action, capability, work,
 			)
 		}
 		return captureExistingRecoveryBeforePath(
@@ -126,6 +130,7 @@ func captureRecoveryBeforePath(
 			backupIndex,
 			action,
 			manifestAuthority,
+			work,
 		)
 	}
 	if capability, present, err := acquireRootedJournalCapability(
@@ -136,7 +141,7 @@ func captureRecoveryBeforePath(
 		return recovery.BeforePathState{}, backupIndex, err
 	} else if present {
 		return captureAndCloseRootedRecoveryBefore(
-			ctx, filesystem, operationDir, backupIndex, action, capability,
+			ctx, filesystem, operationDir, backupIndex, action, capability, work,
 		)
 	}
 	return captureExistingRecoveryBeforePath(
@@ -176,9 +181,10 @@ func captureAndCloseRootedRecoveryBefore(
 	backupIndex int,
 	action pathMutation,
 	capability rootedpath.CommitCapability,
+	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
 	before, nextBackupIndex, captureErr := captureRootedExistingWithCapability(
-		ctx, filesystem, operationDir, backupIndex, action, capability,
+		ctx, filesystem, operationDir, backupIndex, action, capability, work,
 	)
 	closeErr := capability.Close()
 	if captureErr != nil || closeErr != nil {
@@ -196,6 +202,7 @@ func captureContentPathRecoveryBeforePath(
 	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,
 	contentPathBaselines *recoveryContentPathBaselineCache,
+	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
 	if action.Kind == pathMutationCreate {
 		if action.LiveExists {
@@ -245,10 +252,7 @@ func captureContentPathRecoveryBeforePath(
 	backupIndex++
 	backupPath := filepath.ToSlash(filepath.Join("files", fmt.Sprintf("%06d", backupIndex)))
 	absoluteBackupPath := filepath.Join(operationDir, filepath.FromSlash(backupPath))
-	if err := os.MkdirAll(filepath.Dir(absoluteBackupPath), 0o700); err != nil {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("create recovery projection backup parent: %w", err)
-	}
-	if err := os.WriteFile(absoluteBackupPath, projection, 0o600); err != nil {
+	if err := work.writeFile(absoluteBackupPath, projection, 0o600); err != nil {
 		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("copy recovery projection backup for %q content path %q: %w", action.Destination, action.ContentPath, err)
 	}
 

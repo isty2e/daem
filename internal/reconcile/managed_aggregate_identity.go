@@ -47,7 +47,7 @@ func aggregateAddressKey(address aggregate.ProjectionAddress) string {
 	document := address.Document()
 	return string(document.Target()) + "\x00" + string(document.Scope()) + "\x00" +
 		document.AggregateRoot().String() + "\x00" + address.PlacementID() + "\x00" +
-		string(address.MergeUnit()) + "\x00" + string(address.ContentPath())
+		string(address.MergeUnit()) + "\x00" + address.KeyPath().String()
 }
 
 func aggregateDocumentAddressKey(address aggregate.DocumentAddress) string {

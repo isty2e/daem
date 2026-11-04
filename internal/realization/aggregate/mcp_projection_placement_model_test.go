@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
@@ -147,7 +148,7 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 				contribution.Target() != tc.target ||
 				contribution.Scope() != tc.scope ||
 				contribution.AggregateRoot().String() != tc.wantConfigPath ||
-				contribution.ContentPath() != tc.wantContentPath ||
+				string(outputtest.LegacyContentPath(t, contribution.Address())) != tc.wantContentPath ||
 				contribution.MergeUnit() != aggregate.MergeUnit(aggregate.MCPMergeUnitServerEntry) ||
 				contribution.Cardinality() != aggregate.ContributionExclusive ||
 				contribution.SiblingRetention() != aggregate.SiblingRetention(aggregate.MCPSiblingRetentionPreserveUnmanaged) ||
@@ -275,8 +276,8 @@ func TestMCPProjectionAddressSeparatesProjectAndGlobalScopes(t *testing.T) {
 	projectAddress := projectContract.Address()
 	globalAddress := globalContract.Address()
 
-	if projectAddress.ContentPath() != globalAddress.ContentPath() {
-		t.Fatalf("test setup no longer exercises same content path: %q vs %q", projectAddress.ContentPath(), globalAddress.ContentPath())
+	if string(outputtest.LegacyContentPath(t, projectAddress)) != string(outputtest.LegacyContentPath(t, globalAddress)) {
+		t.Fatalf("test setup no longer exercises same content path: %q vs %q", string(outputtest.LegacyContentPath(t, projectAddress)), string(outputtest.LegacyContentPath(t, globalAddress)))
 	}
 	if projectAddress.Document().AggregateRoot() == globalAddress.Document().AggregateRoot() {
 		t.Fatalf("project/global aggregate roots collapsed: %q", projectAddress.Document().AggregateRoot())
@@ -325,7 +326,7 @@ func TestMCPProjectionAddressIncludesPlacementIDForSameRootAndPath(t *testing.T)
 	alternateAddress := alternateContract.Address()
 
 	if baseAddress.Document().AggregateRoot() != alternateAddress.Document().AggregateRoot() ||
-		baseAddress.ContentPath() != alternateAddress.ContentPath() {
+		string(outputtest.LegacyContentPath(t, baseAddress)) != string(outputtest.LegacyContentPath(t, alternateAddress)) {
 		t.Fatalf("test setup no longer exercises same root/path: %#v vs %#v", baseAddress, alternateAddress)
 	}
 	if baseAddress == alternateAddress {

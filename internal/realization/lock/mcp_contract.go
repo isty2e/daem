@@ -515,19 +515,5 @@ func mcpAggregateRealization(
 	if err != nil {
 		return realization.RealizationSpec{}, err
 	}
-	return realization.NewManagedAggregateContribution(aggregate.ManagedContributionInput{
-		PlacementID:           contribution.PlacementID(),
-		Target:                contribution.Target(),
-		Scope:                 contribution.Scope(),
-		AggregateRoot:         contribution.AggregateRoot(),
-		ContentPath:           contribution.ContentPath(),
-		MergeUnit:             contribution.MergeUnit(),
-		Cardinality:           contribution.Cardinality(),
-		SiblingRetention:      contribution.SiblingRetention(),
-		SiblingPreservation:   contribution.SiblingPreservation(),
-		Equivalence:           contribution.Equivalence(),
-		CanonicalContribution: contribution.CanonicalContribution(),
-		CodecContractID:       contribution.CodecContractID(),
-		ComparedFields:        contribution.ComparedFields(),
-	})
+	return realization.NewManagedAggregateContribution(contribution)
 }

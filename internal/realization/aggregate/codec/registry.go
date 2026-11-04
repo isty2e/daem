@@ -12,7 +12,7 @@ import (
 
 var catalog = mustCatalog()
 
-// Catalog returns the immutable product aggregate codec composition.
+// Catalog returns fixed document codecs; native codecs require an operation context.
 func Catalog() aggregate.CodecCatalog {
 	return catalog
 }

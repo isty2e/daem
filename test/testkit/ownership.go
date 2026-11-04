@@ -38,7 +38,7 @@ func WriteActiveOwnershipClaim(t *testing.T, manifestPath string, destination st
 	if err != nil {
 		t.Fatalf("ObservePersistedDirectoryEntryAuthority returned error: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(pathAuthority.Exact(), contentPath)
+	address, err := ownership.NewManagedAddressFromLegacy(pathAuthority.Exact(), contentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}

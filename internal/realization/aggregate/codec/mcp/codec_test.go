@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestCodecForCoversEveryImplementedMCPPlacement(t *testing.T) {
@@ -166,15 +167,15 @@ func TestMCPCodecRendersOneMixedMultiProjectionBatch(t *testing.T) {
 	beforeByPath := mcpCodecStatesByPath(before)
 	alphaDesired := mcpCodecExclusiveSet(t, alpha)
 	gammaDesired := mcpCodecExclusiveSet(t, gamma)
-	alphaIntent, err := aggregate.NewProjectionIntent(beforeByPath[alpha.ContentPath()], &alphaDesired)
+	alphaIntent, err := aggregate.NewProjectionIntent(beforeByPath[string(outputtest.LegacyContentPath(t, alpha.Address()))], &alphaDesired)
 	if err != nil {
 		t.Fatal(err)
 	}
-	betaIntent, err := aggregate.NewProjectionIntent(beforeByPath[beta.ContentPath()], nil)
+	betaIntent, err := aggregate.NewProjectionIntent(beforeByPath[string(outputtest.LegacyContentPath(t, beta.Address()))], nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gammaIntent, err := aggregate.NewProjectionIntent(beforeByPath[gamma.ContentPath()], &gammaDesired)
+	gammaIntent, err := aggregate.NewProjectionIntent(beforeByPath[string(outputtest.LegacyContentPath(t, gamma.Address()))], &gammaDesired)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,14 +198,14 @@ func TestMCPCodecRendersOneMixedMultiProjectionBatch(t *testing.T) {
 		t.Fatal("rendered MCP document retained a removed or replaced selected entry")
 	}
 	expected := mcpCodecStatesByPath(rendered.Expected())
-	if !expected[alpha.ContentPath()].Present() ||
-		expected[alpha.ContentPath()].CanonicalProjection() != string(alphaAfter) {
+	if !expected[string(outputtest.LegacyContentPath(t, alpha.Address()))].Present() ||
+		expected[string(outputtest.LegacyContentPath(t, alpha.Address()))].CanonicalProjection() != string(alphaAfter) {
 		t.Fatal("alpha expected state does not contain the replacement")
 	}
-	if expected[beta.ContentPath()].Present() {
+	if expected[string(outputtest.LegacyContentPath(t, beta.Address()))].Present() {
 		t.Fatal("beta expected state remains present")
 	}
-	if !expected[gamma.ContentPath()].Present() {
+	if !expected[string(outputtest.LegacyContentPath(t, gamma.Address()))].Present() {
 		t.Fatal("gamma expected state is absent")
 	}
 }
@@ -400,7 +401,7 @@ func mcpCodecContribution(
 	if err != nil {
 		t.Fatal(err)
 	}
-	contribution, err := aggregate.NewManagedContribution(aggregate.ManagedContributionInput{
+	contribution, err := aggregate.NewManagedContributionFromLegacy(aggregate.LegacyManagedContributionInput{
 		PlacementID:           string(placement.ID()),
 		Target:                placement.Target(),
 		Scope:                 placement.Scope(),
@@ -454,9 +455,9 @@ func mcpCodecServerID(t *testing.T, contribution aggregate.ManagedContribution) 
 	if !ok {
 		t.Fatal("MCP placement operations are missing")
 	}
-	serverID, ok := operations.ServerIDFromContentPath(contribution.Address().ContentPath())
+	serverID, ok := operations.ServerIDFromContentPath(outputtest.LegacyContentPath(t, contribution.Address()))
 	if !ok {
-		t.Fatalf("MCP contribution content path %q is invalid", contribution.ContentPath())
+		t.Fatalf("MCP contribution content path %q is invalid", string(outputtest.LegacyContentPath(t, contribution.Address())))
 	}
 	return serverID
 }
@@ -464,7 +465,7 @@ func mcpCodecServerID(t *testing.T, contribution aggregate.ManagedContribution) 
 func mcpCodecStatesByPath(snapshot aggregate.Snapshot) map[string]aggregate.ProjectionState {
 	result := make(map[string]aggregate.ProjectionState)
 	for _, state := range snapshot.States() {
-		result[string(state.Contract().Address().ContentPath())] = state
+		result[state.Contract().Address().KeyPath().String()] = state
 	}
 	return result
 }

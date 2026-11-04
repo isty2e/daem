@@ -132,71 +132,7 @@ func compileApplyEffectPlan(
 		"apply/prepared-effects-validation",
 		operationplan.EffectStepObservation,
 	))
-	for _, operation := range managedSchedule.publish {
-		effect := managedSchedule.effects[operation.effectIndex]
-		prefix := applyManagedPathScheduleReference(managedPathPublishPhase, operation.effectIndex)
-		if effect.Kind() == ManagedPathEffectRecord {
-			nodes = append(nodes, applyCheckedStep(
-				&builder,
-				prefix+"/record",
-				operationplan.EffectStepObservation,
-			))
-		} else {
-			nodes = append(nodes, applyForwardObligation(
-				&builder,
-				prefix,
-				operationplan.EffectStepPersistence,
-			))
-		}
-		nodes = append(
-			nodes,
-			promotions.forKeys(
-				&builder,
-				provisionalAcquireKeysForManagedPath(effect, managedPathPublishPhase),
-			)...,
-		)
-	}
-	for index, effect := range aggregateEffects {
-		prefix := applyAggregateScheduleReference(index)
-		if effect.Kind() == AggregateEffectRecord {
-			nodes = append(nodes, applyCheckedStep(
-				&builder,
-				prefix+"/record",
-				operationplan.EffectStepObservation,
-			))
-		} else {
-			nodes = append(
-				nodes,
-				applyCheckedStep(
-					&builder,
-					prefix+"/preconditions",
-					operationplan.EffectStepObservation,
-				),
-				applyForwardObligation(
-					&builder,
-					prefix,
-					operationplan.EffectStepPersistence,
-				),
-			)
-		}
-		nodes = append(
-			nodes,
-			promotions.forKeys(
-				&builder,
-				provisionalAcquireKeysForAggregate(effect),
-			)...,
-		)
-	}
-	for _, operation := range managedSchedule.retire {
-		if managedSchedule.effects[operation.effectIndex].Kind() == ManagedPathEffectRecord {
-			continue
-		}
-		nodes = append(nodes, applyForwardObligation(
-			&builder,
-			applyManagedPathScheduleReference(managedPathRetirePhase, operation.effectIndex),
-			operationplan.EffectStepPersistence,
-		))
-	}
+	nodes = append(nodes, ordinaryApplyEffectNodes(&builder, managedSchedule, aggregateEffects, promotions)...)
 	if err := promotions.requireComplete(); err != nil {
 		return ApplyEffectPlan{}, err
 	}
@@ -382,13 +318,13 @@ func newProvisionalPromotionSchedule(
 	for index, intent := range state.provisional {
 		key := ownershipOutputKey{
 			destination: intent.Destination(),
-			contentPath: intent.ContentPath(),
+			footprint:   intent.Footprint(),
 		}
 		if _, duplicate := schedule.intentByKey[key]; duplicate {
 			return nil, fmt.Errorf(
-				"duplicate provisional ownership effect key %q/%q",
+				"duplicate provisional ownership effect key %q/%s",
 				key.destination,
-				key.contentPath,
+				key.scopeLabel(),
 			)
 		}
 		schedule.intentByKey[key] = index
@@ -431,9 +367,9 @@ func (schedule *provisionalPromotionSchedule) requireComplete() error {
 		}
 		key := schedule.keys[index]
 		return fmt.Errorf(
-			"provisional ownership effect %q/%q has no producing apply effect",
+			"provisional ownership effect %q/%s has no producing apply effect",
 			key.destination,
-			key.contentPath,
+			key.scopeLabel(),
 		)
 	}
 	return nil

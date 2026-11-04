@@ -66,7 +66,7 @@ func outputClaim(t *testing.T, owner stateauthority.Authority, path string) owne
 	if err != nil {
 		t.Fatal(err)
 	}
-	address, err := ownership.NewManagedAddress(observed.Exact(), "")
+	address, err := ownership.NewManagedAddressFromLegacy(observed.Exact(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

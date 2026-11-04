@@ -57,6 +57,7 @@ func TestCaptureProjectExistingDirectoryCreatesHashEquivalentRootedBackup(t *tes
 		0,
 		mutation,
 		session,
+		&ordinaryCaptureWork{},
 	)
 	if err != nil {
 		t.Fatalf("captureProjectExistingRecoveryBeforePath returned error: %v", err)
@@ -109,6 +110,7 @@ func TestCaptureProjectExistingDirectoryRejectsAncestorSymlinkWithoutBackup(t *t
 		0,
 		mutation,
 		session,
+		&ordinaryCaptureWork{},
 	)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureAncestorSymlink) {
 		t.Fatalf("error = %v, want %s", err, rootedpath.FailureAncestorSymlink)
@@ -157,6 +159,7 @@ func TestCaptureProjectExistingFileRejectsOversizedRecoveryBackup(t *testing.T) 
 		0,
 		mutation,
 		session,
+		&ordinaryCaptureWork{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "exceeds 134217728 bytes") {
 		t.Fatalf("capture error = %v, want bounded recovery backup rejection", err)

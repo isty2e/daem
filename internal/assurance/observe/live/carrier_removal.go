@@ -118,7 +118,7 @@ func ObserveCarrierRemoval(
 				assurancehostroute.ResultReasonObservationUnavailable,
 			)
 		}
-		paths, err := observecodexplugin.ResolveHostPaths()
+		paths, err := observecodexplugin.ResolveHostPathsForWorkDir(input.Paths.ManifestRoot)
 		if err != nil {
 			return assurancehostroute.ObservationUnavailable(
 				assurancehostroute.ResultReasonObservationUnavailable,

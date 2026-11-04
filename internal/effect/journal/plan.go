@@ -375,13 +375,16 @@ func loadActivePlanFromInventory(
 	if inventory.active == nil {
 		return recovery.Plan{}, fmt.Errorf("active recovery inventory is incomplete")
 	}
+	journal, ok := inventory.active.record.(recoveryJournal)
+	if !ok {
+		return recovery.Plan{}, fmt.Errorf("legacy recovery planning requires a journal15 inventory record")
+	}
 	if options.ValidateBeforeActiveObservation != nil {
 		if err := options.ValidateBeforeActiveObservation(ctx); err != nil {
 			return recovery.Plan{}, err
 		}
 	}
 	operationDir := inventory.active.operationDir
-	journal := inventory.active.journal
 	claimTransitions, err := canonicalClaimTransitions(journal.ClaimTransitions)
 	if err != nil {
 		return recovery.Plan{}, err
@@ -571,11 +574,11 @@ func validatePlanLoadFilesystem(options PlanLoadOptions) error {
 }
 
 func inventoryOptionsFromPlan(options PlanLoadOptions) inventoryOptions {
-	return inventoryOptions{
-		Filesystem:         options.Filesystem,
-		StateCodec:         options.StateCodec,
+	result := inventoryOptions{
+		Filesystem: options.Filesystem, StateCodec: options.StateCodec,
 		PhysicalPathBudget: options.PhysicalPathBudget,
 	}
+	return result
 }
 
 func planLoadPhysicalPathBudget(
@@ -698,7 +701,11 @@ func EntrySelections(
 		if err := mutation.validate(); err != nil {
 			return nil, fmt.Errorf("managed aggregate journal mutation[%d]: %w", index, err)
 		}
-		if err := appendSelection(entrySelectionKeyFromMutation(pathMutationFromAggregate(mutation))); err != nil {
+		path, err := pathMutationFromAggregate(mutation)
+		if err != nil {
+			return nil, err
+		}
+		if err := appendSelection(entrySelectionKeyFromMutation(path)); err != nil {
 			return nil, err
 		}
 	}
