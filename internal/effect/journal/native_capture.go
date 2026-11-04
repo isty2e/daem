@@ -128,7 +128,7 @@ func CaptureNativeJournalWithOptions(
 	if err := validateOperationCapabilityPath(capability, directory); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	members, err := batch.captureMembers(ctx, after)
+	members, err := batch.captureMembers(ctx, after, options.OrderObservations...)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}

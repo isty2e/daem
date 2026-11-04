@@ -2,9 +2,11 @@ package journal
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -28,10 +30,24 @@ func (member NativeDocumentMember) RegistryScope() ownership.DocumentScope { ret
 
 func (member NativeDocumentMember) RequiresPromotion() bool { return member.promoting }
 
-func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, after durable.Snapshot) (NativeDocumentObservationBatch, error) {
+func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, after durable.Snapshot, orders ...pipackage.OrderObservation) (NativeDocumentObservationBatch, error) {
 	indexes, err := indexDocumentSnapshots(ctx, batch.before, after)
 	if err != nil {
 		return NativeDocumentObservationBatch{}, err
+	}
+	orderedDocuments := make(map[aggregate.DocumentAddress]bool)
+	for _, order := range orders {
+		if err := order.Validate(); err != nil {
+			return NativeDocumentObservationBatch{}, err
+		}
+		if !order.Changed() {
+			continue
+		}
+		alias, err := piOrderDocumentAlias(order.Scope())
+		if err != nil {
+			return NativeDocumentObservationBatch{}, err
+		}
+		orderedDocuments[alias] = false
 	}
 	selected := batch
 	selected.namespaces = nil
@@ -41,20 +57,32 @@ func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, 
 		if err != nil {
 			return NativeDocumentObservationBatch{}, err
 		}
-		if !member {
+		ordered := false
+		for _, alias := range namespace.Addresses() {
+			if _, present := orderedDocuments[alias]; present {
+				ordered = true
+				orderedDocuments[alias] = true
+			}
+		}
+		if !member && !ordered {
 			continue
 		}
 		selected.namespaces = append(selected.namespaces, namespace)
 		selected.originals = append(selected.originals, batch.originals[index])
 	}
+	for _, observed := range orderedDocuments {
+		if !observed {
+			return NativeDocumentObservationBatch{}, fmt.Errorf("Pi order requires its observed settings namespace")
+		}
+	}
 	return selected, ctx.Err()
 }
 
 // CaptureMembers derives actual actors and pending metadata from the retained
-// snapshots and Registry. It performs no filesystem observation or publication.
-func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapshot, operationID string) (NativeDocumentObservationBatch, []NativeDocumentMember, error) {
+// snapshots, Registry and selected order work, without observation or publication.
+func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapshot, operationID string, orders ...pipackage.OrderObservation) (NativeDocumentObservationBatch, []NativeDocumentMember, error) {
 	ctx := context.Background()
-	selected, err := batch.captureMembers(ctx, after)
+	selected, err := batch.captureMembers(ctx, after, orders...)
 	if err != nil {
 		return NativeDocumentObservationBatch{}, nil, err
 	}
