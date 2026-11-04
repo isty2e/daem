@@ -1,6 +1,6 @@
 //go:build !darwin && !linux
 
-package subprocess
+package workdir
 
 import (
 	"context"
@@ -9,21 +9,21 @@ import (
 	"os/exec"
 )
 
-// ValidateWorkingDirectoryCapability fails closed where descriptor-backed cwd
+// ValidateCapability fails closed where descriptor-backed cwd
 // launch has no admitted platform implementation.
-func ValidateWorkingDirectoryCapability() error {
+func ValidateCapability() error {
 	return fmt.Errorf("descriptor-backed working directories are unsupported on this platform")
 }
 
-// ValidateWorkingDirectory fails closed where descriptor-backed cwd launch has no
+// Validate fails closed where descriptor-backed cwd launch has no
 // admitted platform implementation.
-func ValidateWorkingDirectory(_ *os.File) error {
-	return ValidateWorkingDirectoryCapability()
+func Validate(_ *os.File) error {
+	return ValidateCapability()
 }
 
-// PrepareCommandInWorkingDirectory fails closed where descriptor-backed cwd launch has no admitted
+// PrepareCommand fails closed where descriptor-backed cwd launch has no admitted
 // platform implementation.
-func PrepareCommandInWorkingDirectory(
+func PrepareCommand(
 	_ context.Context,
 	_ string,
 	_ []string,

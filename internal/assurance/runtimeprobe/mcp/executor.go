@@ -11,6 +11,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/runtimeprobe"
 	"github.com/isty2e/daem/internal/subprocess"
+	"github.com/isty2e/daem/internal/subprocess/workdir"
 )
 
 // NewExecutor constructs an explicit MCP runtime probe executor using the
@@ -107,7 +108,7 @@ func (executor Executor) Probe(
 			secrets,
 		), nil
 	}
-	if err := subprocess.ValidateWorkingDirectory(directory); err != nil {
+	if err := workdir.Validate(directory); err != nil {
 		if directory != nil {
 			_ = directory.Close()
 		}

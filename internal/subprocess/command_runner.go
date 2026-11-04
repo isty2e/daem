@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/isty2e/daem/internal/subprocess/workdir"
 )
 
 func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandResult {
@@ -16,7 +18,7 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 
 	var cmd *exec.Cmd
 	if request.nativeWorkDir != nil {
-		cmd, err = PrepareCommandInWorkingDirectory(ctx, path, request.Args, request.Env, request.nativeWorkDir)
+		cmd, err = workdir.PrepareCommand(ctx, path, request.Args, request.Env, request.nativeWorkDir)
 		if err != nil {
 			return CommandResult{WorkDirAuthorityFailed: true, Err: err}
 		}
@@ -27,6 +29,19 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 	if request.nativeWorkDir == nil && strings.TrimSpace(request.WorkDir) != "" {
 		cmd.Dir = request.WorkDir
 	}
+	return runPreparedCommand(ctx, request, cmd, func() (*ProcessGroup, error) {
+		group, err := BindProcessGroup(cmd)
+		if err != nil {
+			return nil, err
+		}
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+		return group, nil
+	})
+}
+
+func runPreparedCommand(ctx context.Context, request CommandRequest, cmd *exec.Cmd, start func() (*ProcessGroup, error)) CommandResult {
 	if request.Stdin != "" {
 		cmd.Stdin = strings.NewReader(request.Stdin)
 	}
@@ -48,17 +63,11 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 	// Stdin may still be a non-file reader. Bound that copy so process-group
 	// reaping can run; stdout/stderr completeness comes from OutputCapture.
 	cmd.WaitDelay = InheritedOutputCloseWait
-	group, err := BindProcessGroup(cmd)
-	if err != nil {
+	group, startErr := start()
+	if group == nil {
 		stdoutCapture.Close()
 		stderrCapture.Close()
-		return CommandResult{Err: err}
-	}
-
-	if err := cmd.Start(); err != nil {
-		stdoutCapture.Close()
-		stderrCapture.Close()
-		return CommandResult{Err: err}
+		return CommandResult{Err: startErr}
 	}
 	stdoutCapture.CloseWriter()
 	stderrCapture.CloseWriter()
@@ -69,7 +78,9 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 	stdout := stdoutCapture.Finish(InheritedOutputCloseWait)
 	stderr := stderrCapture.Finish(InheritedOutputCloseWait)
 	termination, terminationErr := group.ReapAfterLeaderExit()
-	return finalizeDefaultCommandResult(result, request, waitErr, stdout, stderr, termination, terminationErr)
+	result = finalizeDefaultCommandResult(result, request, waitErr, stdout, stderr, termination, terminationErr)
+	result.Err = errors.Join(result.Err, startErr)
+	return result
 }
 
 func finalizeDefaultCommandResult(

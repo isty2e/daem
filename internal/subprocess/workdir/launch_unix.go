@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package subprocess
+package workdir
 
 import (
 	"context"
@@ -19,6 +19,12 @@ const (
 )
 
 func init() {
+	if os.Getenv(descriptorHelperEnv) == descriptorGateMode && len(os.Args) >= 2 && os.Args[1] == descriptorGateArg {
+		if len(os.Args) >= 4 {
+			runGatedDescriptorHelper()
+		}
+		os.Exit(126)
+	}
 	if os.Getenv(descriptorHelperEnv) != "1" || len(os.Args) < 3 || os.Args[1] != descriptorHelperArg {
 		return
 	}
@@ -26,9 +32,12 @@ func init() {
 		writeDescriptorHelperError("working-directory setup", err)
 		os.Exit(126)
 	}
+	execDescriptorTarget(os.Args[2], os.Args[3:])
+}
+
+func execDescriptorTarget(target string, args []string) {
 	env := removeEnvName(os.Environ(), descriptorHelperEnv)
-	target := os.Args[2]
-	argv := append([]string{target}, os.Args[3:]...)
+	argv := append([]string{target}, args...)
 	if err := unix.Exec(target, argv, env); err != nil {
 		writeDescriptorHelperError("target exec", err)
 		os.Exit(126)
@@ -41,15 +50,15 @@ func writeDescriptorHelperError(stage string, err error) {
 	_, _ = unix.Write(2, fmt.Appendf(nil, "daem internal %s failed: %v\n", stage, err))
 }
 
-// ValidateWorkingDirectoryCapability reports whether this platform can launch
+// ValidateCapability reports whether this platform can launch
 // a child from descriptor-backed working-directory authority.
-func ValidateWorkingDirectoryCapability() error {
+func ValidateCapability() error {
 	return nil
 }
 
-// ValidateWorkingDirectory verifies that directory is an open native directory
+// Validate verifies that directory is an open native directory
 // witness suitable for descriptor-backed launch.
-func ValidateWorkingDirectory(directory *os.File) error {
+func Validate(directory *os.File) error {
 	if directory == nil {
 		return fmt.Errorf("working-directory descriptor is required")
 	}
@@ -63,15 +72,15 @@ func ValidateWorkingDirectory(directory *os.File) error {
 	return nil
 }
 
-// PrepareCommandInWorkingDirectory constructs a child command whose cwd is inherited from directory.
-func PrepareCommandInWorkingDirectory(
+// PrepareCommand constructs a child command whose cwd is inherited from directory.
+func PrepareCommand(
 	ctx context.Context,
 	target string,
 	args []string,
 	env []string,
 	directory *os.File,
 ) (*exec.Cmd, error) {
-	if err := ValidateWorkingDirectory(directory); err != nil {
+	if err := Validate(directory); err != nil {
 		return nil, err
 	}
 	executable, err := os.Executable()

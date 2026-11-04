@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/isty2e/daem/internal/subprocess/workdir"
 )
 
 // NewCommandExecutor constructs an executor with safe defaults for omitted
@@ -34,11 +36,12 @@ func NewCommandExecutor(options CommandOptions) CommandExecutor {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
 	return CommandExecutor{
-		timeout:     timeout,
-		outputLimit: outputLimit,
-		lookupEnv:   lookupEnv,
-		runner:      runner,
-		clock:       clock,
+		timeout:      timeout,
+		outputLimit:  outputLimit,
+		lookupEnv:    lookupEnv,
+		runner:       runner,
+		nativeRunner: options.Runner == nil,
+		clock:        clock,
 	}
 }
 
@@ -49,7 +52,7 @@ func (executor CommandExecutor) Execute(
 	ctx context.Context,
 	request CommandAttemptRequest,
 ) CommandAttemptResult {
-	return executor.execute(ctx, request, nil)
+	return executor.execute(ctx, request, nil, nil)
 }
 
 // ExecuteInWorkingDirectory executes one request from a freshly acquired,
@@ -65,13 +68,14 @@ func (executor CommandExecutor) ExecuteInWorkingDirectory(
 			return nil, errors.New("working-directory binder is required")
 		}
 	}
-	return executor.execute(ctx, request, bind)
+	return executor.execute(ctx, request, bind, nil)
 }
 
 func (executor CommandExecutor) execute(
 	ctx context.Context,
 	request CommandAttemptRequest,
 	bind WorkingDirectoryBinder,
+	beforeCapture func(),
 ) CommandAttemptResult {
 	executor = executor.withDefaults()
 	attemptedAt := executor.clock()
@@ -80,34 +84,53 @@ func (executor CommandExecutor) execute(
 		outputLimit = executor.outputLimit
 	}
 	env, secrets, missing := executor.resolveEnv(request.EnvRefs)
+	finalized := false
+	finalize := func() {
+		if !finalized && beforeCapture != nil {
+			finalized = true
+			beforeCapture()
+		}
+	}
+	finish := func(runnerInvoked bool, reason CommandReason, raw CommandResult) CommandAttemptResult {
+		finalize()
+		capture := sanitizeCapture(raw, secrets, outputLimit)
+		return newCommandAttemptResult(attemptedAt, runnerInvoked, reason, raw, capture)
+	}
+	workDirFailure := func(err error) CommandAttemptResult {
+		finalize()
+		return finish(false, CommandReasonNone, CommandResult{
+			WorkDirAuthorityFailed: true,
+			Err:                    fmt.Errorf("working-directory authority: %w", err),
+		})
+	}
+
 	if len(missing) != 0 {
 		raw := CommandResult{Err: errors.New("missing env refs: " + strings.Join(missing, ", "))}
-		capture := sanitizeCapture(raw, secrets, outputLimit)
-		return newCommandAttemptResult(attemptedAt, false, CommandReasonMissingEnvRef, raw, capture)
+		return finish(false, CommandReasonMissingEnvRef, raw)
 	}
 
 	var nativeWorkDir *os.File
 	if bind != nil {
 		binding, err := bind()
 		if err != nil {
-			return executor.workDirAuthorityFailure(attemptedAt, secrets, outputLimit, err)
+			return workDirFailure(err)
 		}
 		if binding == nil {
-			return executor.workDirAuthorityFailure(attemptedAt, secrets, outputLimit, errors.New("working-directory binding is required"))
+			return workDirFailure(errors.New("working-directory binding is required"))
 		}
 		defer binding.Close()
 		if err := binding.Validate(); err != nil {
-			return executor.workDirAuthorityFailure(attemptedAt, secrets, outputLimit, err)
+			return workDirFailure(err)
 		}
 		directory, err := binding.OpenDirectory()
 		if err != nil {
-			return executor.workDirAuthorityFailure(attemptedAt, secrets, outputLimit, err)
+			return workDirFailure(err)
 		}
-		if err := ValidateWorkingDirectory(directory); err != nil {
+		if err := workdir.Validate(directory); err != nil {
 			if directory != nil {
 				_ = directory.Close()
 			}
-			return executor.workDirAuthorityFailure(attemptedAt, secrets, outputLimit, err)
+			return workDirFailure(err)
 		}
 		defer directory.Close()
 		nativeWorkDir = directory
@@ -115,20 +138,19 @@ func (executor CommandExecutor) execute(
 		runCtx, cancel := context.WithTimeout(ctx, executor.timeout)
 		raw := executor.run(runCtx, request, env, outputLimit, nativeWorkDir)
 		cancel()
+		finalize()
 		processReason := classifyCommandResult(raw)
 		if err := binding.Validate(); err != nil {
 			raw.WorkDirAuthorityFailed = true
 			raw.Err = errors.Join(raw.Err, fmt.Errorf("working-directory authority changed: %w", err))
 		}
-		capture := sanitizeCapture(raw, secrets, outputLimit)
-		return newCommandAttemptResult(attemptedAt, true, processReason, raw, capture)
+		return finish(true, processReason, raw)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, executor.timeout)
 	defer cancel()
 	raw := executor.run(runCtx, request, env, outputLimit, nativeWorkDir)
-	capture := sanitizeCapture(raw, secrets, outputLimit)
-	return newCommandAttemptResult(attemptedAt, true, classifyCommandResult(raw), raw, capture)
+	return finish(true, classifyCommandResult(raw), raw)
 }
 
 func (executor CommandExecutor) run(
@@ -167,28 +189,16 @@ func (executor CommandExecutor) run(
 	return raw
 }
 
-func (executor CommandExecutor) workDirAuthorityFailure(
-	attemptedAt time.Time,
-	secrets []string,
-	outputLimit int,
-	err error,
-) CommandAttemptResult {
-	raw := CommandResult{
-		WorkDirAuthorityFailed: true,
-		Err:                    fmt.Errorf("working-directory authority: %w", err),
-	}
-	capture := sanitizeCapture(raw, secrets, outputLimit)
-	return newCommandAttemptResult(attemptedAt, false, CommandReasonNone, raw, capture)
-}
-
 func (executor CommandExecutor) withDefaults() CommandExecutor {
-	return NewCommandExecutor(CommandOptions{
+	normalized := NewCommandExecutor(CommandOptions{
 		Timeout:     executor.timeout,
 		OutputLimit: executor.outputLimit,
 		LookupEnv:   executor.lookupEnv,
 		Runner:      executor.runner,
 		Clock:       executor.clock,
 	})
+	normalized.nativeRunner = executor.runner == nil || executor.nativeRunner
+	return normalized
 }
 
 func (executor CommandExecutor) resolveEnv(envRefs []CommandEnvRef) ([]string, []string, []string) {
