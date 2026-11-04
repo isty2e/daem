@@ -274,7 +274,7 @@ func nativeRecordLoadFixture(t *testing.T, fixture nativeRecordFixture) nativeDo
 		comparisons[index] = group.Comparison()
 	}
 	prepared, err := decoded.prepareDocuments(t.Context(), comparisons, fixture.read.limits, fixture.read.codecs)
-	if err != nil || len(prepared.groups) != len(loaded.groups) || len(prepared.claims) != len(loaded.claims) || len(prepared.provisional) != len(loaded.provisional) {
+	if err != nil || len(prepared.documents.groups) != len(loaded.groups) || len(prepared.documents.claims) != len(loaded.claims) || len(prepared.documents.provisional) != len(loaded.provisional) {
 		t.Fatalf("prepared variant differs from artifact reconstruction: %v", err)
 	}
 	if len(decoded.record.Entries) == 0 {

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -33,15 +35,15 @@ func TestPreparedNativeDocumentsAdmitActualPlanBeforeArtifactsExist(t *testing.T
 		t.Fatal(err)
 	}
 	prepared, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs)
-	if err != nil || len(prepared.groups) != 1 || len(prepared.claims) != 1 || len(prepared.images) != 1 {
+	if err != nil || len(prepared.documents.groups) != 1 || len(prepared.documents.claims) != 1 || len(prepared.documents.images) != 1 {
 		t.Fatalf("actual prepared plan cannot pass pre-artifact construction: %v", err)
 	}
 	if _, err := decoded.loadDocuments(t.Context(), fixture.read); err == nil {
 		t.Fatal("unavailable artifact fixture unexpectedly remained readable")
 	}
 	mode := recovery.NewPermissionMode(0o600)
-	for _, image := range []loadedDocumentImage{prepared.images[0].original, prepared.images[0].expected} {
-		match, err := prepared.groups[0].Comparison().Match(t.Context(), image.document, mode)
+	for _, image := range []loadedDocumentImage{prepared.documents.images[0].original, prepared.documents.images[0].expected} {
+		match, err := prepared.documents.groups[0].Comparison().Match(t.Context(), image.document, mode)
 		if err != nil || !match.Recoverable() {
 			t.Fatalf("prepared construction lost an actual comparison image: %+v, %v", match, err)
 		}
@@ -119,7 +121,7 @@ func TestPreparedNativeDocumentsRejectMismatchedImagesAndWholeOperation(t *testi
 			comparisons := []journaldocument.Comparison{comparison}
 			test.edit(t, &fixture, &decoded, &comparisons)
 			prepared, err := decoded.prepareDocuments(t.Context(), comparisons, fixture.read.limits, fixture.read.codecs)
-			assertNoPreparedNativeDocuments(t, prepared, err)
+			assertNoPreparedDocumentRecord(t, prepared, err, fixture.codec)
 		})
 	}
 }
@@ -135,16 +137,16 @@ func TestPreparedNativeDocumentsDiscardEarlierGroupOnLaterFailure(t *testing.T) 
 	late.Original, late.Expected = recoveryDocumentImage{Kind: "absent"}, recoveryDocumentImage{Kind: "absent"}
 	decoded.record.DocumentGroups = append(decoded.record.DocumentGroups, late)
 	prepared, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison, {}}, fixture.read.limits, fixture.read.codecs)
-	assertNoPreparedNativeDocuments(t, prepared, err)
+	assertNoPreparedDocumentRecord(t, prepared, err, fixture.codec)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	prepared, err = decoded.prepareDocuments(ctx, []journaldocument.Comparison{comparison, {}}, fixture.read.limits, fixture.read.codecs)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("lost cancellation: %v", err)
 	}
-	assertNoPreparedNativeDocuments(t, prepared, err)
+	assertNoPreparedDocumentRecord(t, prepared, err, fixture.codec)
 	prepared, err = decoded.prepareDocuments(nil, []journaldocument.Comparison{comparison, {}}, fixture.read.limits, fixture.read.codecs)
-	assertNoPreparedNativeDocuments(t, prepared, err)
+	assertNoPreparedDocumentRecord(t, prepared, err, fixture.codec)
 }
 
 func TestNativeDocumentReaderKeepsMetadataRefusalBeforeImageReads(t *testing.T) {
@@ -291,7 +293,7 @@ func TestPreparedNativeDocumentsRejectNoncanonicalRecoveryPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			prepared, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs)
-			assertNoPreparedNativeDocuments(t, prepared, err)
+			assertNoPreparedDocumentRecord(t, prepared, err, fixture.codec)
 		})
 	}
 }
@@ -318,7 +320,7 @@ func TestPreparedNativeDocumentsRestoreOnlyThroughOperationCatalog(t *testing.T)
 	}
 	caller.refuse = true
 	current := aggregate.ExistingDocument([]byte(`{"model":"fast","outside":"fresh"}`))
-	restored, err := prepared.groups[0].Comparison().RestoreBefore(t.Context(), current, recovery.NewPermissionMode(0o600))
+	restored, err := prepared.documents.groups[0].Comparison().RestoreBefore(t.Context(), current, recovery.NewPermissionMode(0o600))
 	if err != nil {
 		t.Fatalf("prepared recovery retained caller codec behavior instead of operation catalog: %v", err)
 	}
@@ -384,6 +386,14 @@ func (codec *preparedNativeCallerCodec) Read(document aggregate.Document, select
 		return aggregate.Snapshot{}, failure
 	}
 	return codec.Codec.Read(document, selection)
+}
+
+func assertNoPreparedDocumentRecord(t *testing.T, value preparedDocumentRecord, err error, codec durable.SnapshotCodec) {
+	t.Helper()
+	assertNoPreparedNativeDocuments(t, value.documents, err)
+	if encoded, err := value.encode(t.Context(), codec); err == nil || encoded != nil {
+		t.Fatal("invalid preparation produced an encodable record")
+	}
 }
 
 func assertNoPreparedNativeDocuments(t *testing.T, value nativeDocumentRecords, err error) {

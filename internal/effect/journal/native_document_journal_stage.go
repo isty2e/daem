@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
@@ -53,26 +52,14 @@ func (journal nativeJournalSnapshots) prepareDocumentJournal(ctx context.Context
 	if err != nil {
 		return nativeDocumentRecords{}, nil, err
 	}
-	record := journal.record
-	record.DocumentGroups = slices.Clone(record.DocumentGroups)
-	for index, group := range prepared.groups {
-		if err := ctx.Err(); err != nil {
-			return nativeDocumentRecords{}, nil, err
-		}
-		_, original, expected, err := documentImageReferences(group.Comparison(), index)
-		if err != nil {
-			return nativeDocumentRecords{}, nil, err
-		}
-		record.DocumentGroups[index].Original, record.DocumentGroups[index].Expected = original, expected
-	}
-	content, err := marshalNativeJournalRecord(ctx, record, journal.before, journal.after, options.stateCodec)
+	content, err := prepared.encode(ctx, options.stateCodec)
 	if err != nil {
 		return nativeDocumentRecords{}, nil, err
 	}
 	if entries > options.budget.RemainingEntries()-ordinaryWork.Entries() || int64(len(content)) > options.budget.RemainingBytes()-ordinaryWork.Bytes()-imageBytes {
 		return nativeDocumentRecords{}, nil, fmt.Errorf("native journal, ordinary backups and images exceed the shared staging budget")
 	}
-	return prepared, content, nil
+	return prepared.documents, content, nil
 }
 
 func (prepared nativeDocumentRecords) stageJournal(ctx context.Context, content []byte, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) (string, error) {

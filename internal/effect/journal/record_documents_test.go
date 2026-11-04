@@ -9,6 +9,14 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 )
 
+func finishDocumentReconstruction(ctx context.Context, session *documentReconstructionSession, source documentReconstructionMode) (nativeDocumentRecords, error) {
+	if source == documentReconstructionPrepared {
+		prepared, err := session.finishPrepared(ctx)
+		return prepared.documents, err
+	}
+	return session.finishLoaded(ctx)
+}
+
 func TestDocumentReconstructionRejectsIncompleteOrForeignImageSupply(t *testing.T) {
 	for _, fault := range []string{"zero", "finish early", "supply early", "double request", "foreign demand", "skipped group", "double supply", "failed images", "wrong prepared producer", "wrong loaded producer", "canceled"} {
 		t.Run(fault, func(t *testing.T) {
@@ -28,7 +36,7 @@ func TestDocumentReconstructionRejectsIncompleteOrForeignImageSupply(t *testing.
 				session = &documentReconstructionSession{}
 				_, _, err = session.next(t.Context())
 			case "finish early":
-				_, err = session.finish(t.Context())
+				_, err = finishDocumentReconstruction(t.Context(), session, mode)
 			case "supply early":
 				err = session.supplyLoadedImages(t.Context(), documentImageDemand{}, loadedDocumentImages{})
 			case "canceled":
@@ -74,7 +82,7 @@ func TestDocumentReconstructionRejectsIncompleteOrForeignImageSupply(t *testing.
 			if err == nil {
 				t.Fatal("invalid reconstruction protocol was accepted")
 			}
-			if result, err := session.finish(t.Context()); err == nil || len(result.groups)+len(result.images)+len(result.claims)+len(result.provisional) != 0 {
+			if result, err := finishDocumentReconstruction(t.Context(), session, mode); err == nil || len(result.groups)+len(result.images)+len(result.claims)+len(result.provisional) != 0 {
 				t.Fatal("failed reconstruction returned a usable prefix")
 			}
 			if _, _, err := session.next(t.Context()); err == nil {
@@ -120,7 +128,7 @@ func TestDocumentReconstructionCompletesBothImageSourcesWithoutReplay(t *testing
 				t.Fatalf("completed reconstruction requested extra work: %v", err)
 			}
 
-			result, err := session.finish(t.Context())
+			result, err := finishDocumentReconstruction(t.Context(), session, source.mode)
 			if err != nil || len(result.groups) != 1 || len(result.images) != 1 || len(result.claims) != 1 {
 				t.Fatalf("complete reconstruction: %v", err)
 			}
@@ -131,7 +139,7 @@ func TestDocumentReconstructionCompletesBothImageSourcesWithoutReplay(t *testing
 			if err := actual.RequireCanonicalRecoveryPolicy(t.Context(), comparison); err != nil {
 				t.Fatal("reconstruction changed canonical recovery policy", err)
 			}
-			if value, err := session.finish(t.Context()); err == nil || len(value.groups)+len(value.images) != 0 {
+			if value, err := finishDocumentReconstruction(t.Context(), session, source.mode); err == nil || len(value.groups)+len(value.images) != 0 {
 				t.Fatal("reconstruction completion was replayed")
 			}
 		})

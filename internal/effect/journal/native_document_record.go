@@ -61,7 +61,7 @@ func (journal nativeJournalSnapshots) loadDocuments(ctx context.Context, options
 			return nativeDocumentRecords{}, err
 		}
 	}
-	return session.finish(ctx)
+	return session.finishLoaded(ctx)
 }
 
 func (journal nativeJournalSnapshots) completeDocuments(ctx context.Context, indexes journaldocument.SnapshotIndexes, inputs []journaldocument.StateGroupInput, result nativeDocumentRecords, codecs aggregate.CodecCatalog) (nativeDocumentRecords, error) {

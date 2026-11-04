@@ -209,7 +209,7 @@ func TestNativeWriterPartitionRefusesAtEveryRecordBoundary(t *testing.T) {
 	if decoded, err := decodeNativeJournalRecord(t.Context(), content, fixture.whole.envelope.codec); err == nil || decoded.record.Version != 0 {
 		t.Error("strict decoding admitted overlapping physical writers")
 	}
-	if prepared, err := fixture.journal.prepareDocuments(t.Context(), []journaldocument.Comparison{fixture.comparison}, fixture.whole.input.Limits(), fixture.whole.envelope.read.codecs); err == nil || prepared.groups != nil {
+	if prepared, err := fixture.journal.prepareDocuments(t.Context(), []journaldocument.Comparison{fixture.comparison}, fixture.whole.input.Limits(), fixture.whole.envelope.read.codecs); err == nil || prepared.documents.groups != nil {
 		t.Error("prepared comparison boundary returned an overlapping group prefix")
 	}
 	read := fixture.whole.envelope.read

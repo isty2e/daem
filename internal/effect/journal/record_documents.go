@@ -210,7 +210,7 @@ func (session *documentReconstructionSession) completeImages(ctx context.Context
 	return nil
 }
 
-func (session *documentReconstructionSession) finish(ctx context.Context) (nativeDocumentRecords, error) {
+func (session *documentReconstructionSession) complete(ctx context.Context) (nativeDocumentRecords, error) {
 	if session == nil || session.phase != documentReconstructionComplete {
 		return nativeDocumentRecords{}, session.reject(fmt.Errorf("document reconstruction is incomplete"))
 	}

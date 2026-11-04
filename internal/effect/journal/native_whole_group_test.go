@@ -569,7 +569,7 @@ func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group rec
 		t.Fatal(err)
 	}
 	admitted, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.input.Limits(), fixture.envelope.read.codecs)
-	if err != nil || len(admitted.groups) != 1 {
+	if err != nil || len(admitted.documents.groups) != 1 {
 		t.Fatalf("prepared group does not pass full snapshot admission: %v", err)
 	}
 	fixture.envelope.read.artifacts, fixture.envelope.read.budget = root, imageBudget(t)

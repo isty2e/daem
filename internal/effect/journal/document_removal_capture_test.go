@@ -109,7 +109,7 @@ func TestNativeSelectedRemovalUsesActualEditsNotObservedAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, copy.read.limits, copy.read.codecs); err == nil || result.groups != nil {
+	if result, err := decoded.prepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, copy.read.limits, copy.read.codecs); err == nil || result.documents.groups != nil {
 		t.Fatal("semantic preparation accepted removal debt outside its actual selected frontier")
 	}
 }

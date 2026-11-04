@@ -17,24 +17,24 @@ import (
 
 // prepareDocuments checks prepared images against the complete record without
 // artifact I/O. Source/action and live namespace authority remain separate joins.
-func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comparisons []journaldocument.Comparison, limits configdocument.Limits, codecs aggregate.CodecCatalog) (nativeDocumentRecords, error) {
+func (journal nativeJournalSnapshots) prepareDocuments(ctx context.Context, comparisons []journaldocument.Comparison, limits configdocument.Limits, codecs aggregate.CodecCatalog) (preparedDocumentRecord, error) {
 	session, err := newDocumentReconstruction(ctx, journal, limits, codecs, documentReconstructionPrepared, comparisons)
 	if err != nil {
-		return nativeDocumentRecords{}, err
+		return preparedDocumentRecord{}, err
 	}
 	for {
 		demand, present, err := session.next(ctx)
 		if err != nil {
-			return nativeDocumentRecords{}, err
+			return preparedDocumentRecord{}, err
 		}
 		if !present {
 			break
 		}
 		if err := session.supplyPreparedImages(ctx, demand); err != nil {
-			return nativeDocumentRecords{}, err
+			return preparedDocumentRecord{}, err
 		}
 	}
-	return session.finish(ctx)
+	return session.finishPrepared(ctx)
 }
 
 func (record recoveryDocumentGroup) canonicalReferences(ctx context.Context) ([]aggregate.DocumentAddress, []topology.SubjectID, error) {
