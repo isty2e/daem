@@ -9,6 +9,25 @@ import (
 	nativecodec "github.com/isty2e/daem/internal/realization/aggregate/codec/native"
 )
 
+// ForOperation binds requested native codecs to this operation; fixed codecs
+// retain their own limits. It does not widen the default product catalog.
+func ForOperation(ctx context.Context, required []aggregate.CodecContractID, nativeDocumentLimits, nativeValueLimits configdocument.Limits) (aggregate.CodecCatalog, error) {
+	codecs, err := collectRequired(ctx, required, func(id aggregate.CodecContractID) (aggregate.Codec, error) {
+		if _, native := aggregate.HostConfigSyntaxForCodec(id); native {
+			return nativecodec.New(ctx, id, nativeDocumentLimits, nativeValueLimits)
+		}
+		codec, admitted := catalog.Lookup(id)
+		if !admitted {
+			return nil, fmt.Errorf("aggregate codec %q is not admitted", id)
+		}
+		return codec, nil
+	})
+	if err != nil {
+		return aggregate.CodecCatalog{}, err
+	}
+	return aggregate.NewCodecCatalog(codecs)
+}
+
 // ForContributions admits selected values without document or effect capabilities.
 func ForContributions(ctx context.Context, required []aggregate.CodecContractID, nativeValueLimits configdocument.Limits) (aggregate.ContributionCatalog, error) {
 	validators, err := collectRequired(ctx, required, func(id aggregate.CodecContractID) (aggregate.ContributionValidator, error) {

@@ -34,10 +34,14 @@ func (change ClaimChange) validate() error {
 	return nil
 }
 
-// ClaimConvergence combines disjoint exact changes.
+// ClaimConvergence combines disjoint exact changes. Independent rows admit either
+// phase per address; document fragments must match one complete recorded phase.
 type ClaimConvergence struct {
-	changes     []ClaimChange
-	initialized bool
+	changes        []ClaimChange
+	documents      []DocumentClaimChange
+	documentScopes addressOverlapIndex
+	documentOwners []int
+	initialized    bool
 }
 
 // NewClaimConvergence validates, copies, and canonically orders exact changes.
@@ -84,6 +88,12 @@ func (convergence ClaimConvergence) ExpectedRemovals() []Claim {
 			removals = append(removals, expected)
 		}
 	}
+	if len(convergence.documents) != 0 {
+		removals = append(removals, convergence.documentRemovals()...)
+		sort.Slice(removals, func(left, right int) bool {
+			return removals[left].Address().Less(removals[right].Address())
+		})
+	}
 	return removals
 }
 
@@ -96,6 +106,10 @@ func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, er
 	if !registry.initialized {
 		return Registry{}, false, fmt.Errorf("ownership registry is required")
 	}
+	if len(convergence.documents) != 0 {
+		return convergence.applyDocumentChanges(registry)
+	}
+
 	currentByAddress := make(map[ManagedAddress]Claim, len(registry.claims))
 	for _, claim := range registry.claims {
 		currentByAddress[claim.Address()] = claim
