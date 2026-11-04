@@ -106,16 +106,22 @@ func (document CapturedNativeDocument) SelectedSubjects(ctx context.Context) ([]
 	if !document.valid() || ctx == nil {
 		return nil, fmt.Errorf("captured native document and context are required")
 	}
-	_, subjects, err := document.captured.journal.record.DocumentGroups[document.index].canonicalReferences(ctx)
-	return subjects, err
+	recorded, err := document.captured.journal.recordedDocumentAt(document.index)
+	if err != nil {
+		return nil, err
+	}
+	return recorded.SelectedSubjects(ctx)
 }
 
 func (document CapturedNativeDocument) Claims() (ownershipmutation.DocumentClaimTransition, bool) {
 	if !document.valid() {
 		return ownershipmutation.DocumentClaimTransition{}, false
 	}
-	known := document.captured.journal.record.DocumentGroups[document.index].ExclusiveClaims.Kind == "exact"
-	return document.captured.qualified.records.claims[document.index], known
+	recorded, err := document.captured.journal.recordedDocumentAt(document.index)
+	if err != nil {
+		return ownershipmutation.DocumentClaimTransition{}, false
+	}
+	return document.captured.qualified.records.claims[document.index], recorded.HasExactClaims()
 }
 
 func (document CapturedNativeDocument) BindingIntents() []ownership.DocumentBindingIntent {
