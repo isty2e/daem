@@ -18,6 +18,9 @@ type recordedPathEntry struct {
 	path             string
 	scope            string
 	contentPath      string
+	consumerTarget   target.Target
+	consumerTargets  []target.Target
+	expectedExists   bool
 	projection       *recordedAggregateEntry
 	binding          recordedGlobalBindingKey
 	hasGlobalBinding bool
@@ -58,9 +61,14 @@ func recordedPathEntryView(entry recoveryEntry) recordedPathEntry {
 	view := recordedPathEntry{
 		path: entry.Path, scope: entry.Scope, binding: recordedGlobalBindingIdentity(entry.GlobalPathBinding),
 		contentPath:      entry.ContentPath,
+		consumerTarget:   target.Target(entry.Target),
+		expectedExists:   entry.ExpectedAfter.Existed,
 		hasGlobalBinding: entry.GlobalPathBinding != nil,
 		backup:           recordedOrdinaryBackup{path: entry.Before.BackupPath, kind: entry.Before.Kind, digest: entry.Before.ContentHash, existed: entry.Before.Existed, initialized: true},
 		initialized:      true,
+	}
+	for _, value := range entry.Targets {
+		view.consumerTargets = append(view.consumerTargets, target.Target(value))
 	}
 	if entry.Aggregate != nil || entry.ContentPath != "" {
 		projection := recordedAggregateEntry{subject: entry.Subject, target: entry.Target}
@@ -78,6 +86,18 @@ func (entry recordedPathEntry) ContentPath() string            { return entry.co
 func (entry recordedPathEntry) Scope() target.Scope            { return target.Scope(entry.scope) }
 func (entry recordedPathEntry) Backup() recordedOrdinaryBackup { return entry.backup }
 func (backup recordedOrdinaryBackup) Existed() bool            { return backup.existed }
+
+func (entry recordedPathEntry) ExpectedExists() bool { return entry.expectedExists }
+
+func (entry recordedPathEntry) ConsumerTargets() ([]target.Target, error) {
+	if err := entry.Validate(); err != nil {
+		return nil, err
+	}
+	if len(entry.consumerTargets) == 0 {
+		return []target.Target{entry.consumerTarget}, nil
+	}
+	return slices.Clone(entry.consumerTargets), nil
+}
 
 func (entry recordedPathEntry) Validate() error {
 	if !entry.initialized {

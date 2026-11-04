@@ -41,6 +41,10 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	documents, err := journal.recordedDocuments()
+	if err != nil {
+		return nil, err
+	}
 	grants, err := roots.Qualify(ctx, options.budget)
 	if err != nil {
 		return nil, err
@@ -48,10 +52,6 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 	manifest, present := grants.Manifest()
 	if !present || !journal.matchesManifestRoot(manifest.Provenance()) {
 		return nil, fmt.Errorf("native journal manifest root does not match the selected live root")
-	}
-	documents, err := journal.recordedDocuments()
-	if err != nil {
-		return nil, err
 	}
 	namespaces := make([]journalnamespace.DocumentNamespace, 0, len(documents))
 	for _, record := range documents {
@@ -124,7 +124,7 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 		}
 		namespaces = append(namespaces, namespace)
 	}
-	protected := []pathauthority.Exact{journal.owner.StatefileAuthority()}
+	protected := []pathauthority.Exact{journal.Owner().StatefileAuthority()}
 	if options.artifacts != nil {
 		artifacts, err := options.artifacts.AuthorityBounded(options.budget)
 		if err != nil {

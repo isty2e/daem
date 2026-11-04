@@ -39,12 +39,20 @@ func (captured CapturedNativeJournal) Validate() error {
 	return captured.active.Validate()
 }
 
-func (captured CapturedNativeJournal) CaptureResult() CaptureResult  { return captured.capture }
-func (captured CapturedNativeJournal) BeforeState() durable.Snapshot { return captured.journal.before }
+func (captured CapturedNativeJournal) CaptureResult() CaptureResult { return captured.capture }
 
-func (captured CapturedNativeJournal) AfterState() durable.Snapshot { return captured.journal.after }
+// BeforeState returns the complete Before snapshot, or its zero value for zero capture.
+func (captured CapturedNativeJournal) BeforeState() durable.Snapshot {
+	return captured.journal.Before()
+}
 
-func (captured CapturedNativeJournal) Owner() stateauthority.Authority { return captured.journal.owner }
+// AfterState returns the complete After snapshot, or its zero value for zero capture.
+func (captured CapturedNativeJournal) AfterState() durable.Snapshot { return captured.journal.After() }
+
+// Owner returns the operation owner, or its zero value for zero capture.
+func (captured CapturedNativeJournal) Owner() stateauthority.Authority {
+	return captured.journal.Owner()
+}
 
 func (captured CapturedNativeJournal) ActiveJournalAuthority() ActiveJournalAuthority {
 	return captured.active

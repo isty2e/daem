@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -72,6 +73,34 @@ func TestRecordedWriterViewsKeepCompleteBindingIdentity(t *testing.T) {
 	}
 	if err := zero.MatchGlobalRoot(rootedpath.Authority{}); err == nil {
 		t.Fatal("zero entry matched a root")
+	}
+}
+
+func TestRecordedRecoveryEntryFreezesConsumerAndExpectedFacts(t *testing.T) {
+	for _, multiple := range []bool{false, true} {
+		entry := recoveryEntry{Target: string(target.TargetPi), ExpectedAfter: recoveryExpectedPathDTO{Existed: true}}
+		want := []target.Target{target.TargetPi}
+		if multiple {
+			entry.Targets = []string{string(target.TargetPi), string(target.TargetCodex)}
+			want = append(want, target.TargetCodex)
+		}
+		view := recordedPathEntryView(entry)
+		if multiple {
+			entry.Targets[0] = string(target.TargetCodex)
+		}
+		entry.ExpectedAfter.Existed = false
+		got, err := view.ConsumerTargets()
+		if err != nil || !slices.Equal(got, want) || !view.ExpectedExists() {
+			t.Fatal("recovery view did not freeze its consumer and expected facts", err)
+		}
+		got[0] = target.TargetCodex
+		again, err := view.ConsumerTargets()
+		if err != nil || !slices.Equal(again, want) {
+			t.Fatal("consumer projection leaked its slice", err)
+		}
+	}
+	if values, err := (recordedPathEntry{}).ConsumerTargets(); err == nil || len(values) != 0 {
+		t.Fatal("zero view supplied a consumer set")
 	}
 }
 

@@ -1,6 +1,10 @@
 package journal
 
-import "testing"
+import (
+	"testing"
+
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+)
 
 func TestNativeRecordQueriesDistinguishZeroFromEmptyFamilyFacts(t *testing.T) {
 	zero := nativeJournalSnapshots{}
@@ -45,5 +49,52 @@ func TestNativeRecordQueriesDistinguishZeroFromEmptyFamilyFacts(t *testing.T) {
 	}
 	if value.RequireDocumentOnly() == nil {
 		t.Fatal("no-document record passed document-only staging admission")
+	}
+}
+
+func TestNativeRecoveryQueriesKeepHeadersAndRefuseInvalidRemovalFacts(t *testing.T) {
+	fixture := nativeJournalFixture(t)
+	value := nativeJournalSnapshots{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	if !value.Owner().Equal(fixture.claims.owner) || !value.Before().Equal(fixture.before) || !value.After().Equal(fixture.after) || value.OperationID() != fixture.record.OperationID {
+		t.Fatal("native header projection changed complete operation facts")
+	}
+	zero := nativeJournalSnapshots{}
+	if zero.OperationID() != "" || !zero.Owner().Equal((CapturedNativeJournal{}).Owner()) || !zero.Before().Equal((CapturedNativeJournal{}).BeforeState()) || !zero.After().Equal((CapturedNativeJournal{}).AfterState()) {
+		t.Fatal("zero header projection changed the existing value-getter contract")
+	}
+	if intents, err := zero.OrdinaryRemovalIntents(); err == nil || len(intents) != 0 {
+		t.Fatal("zero supplied ordinary removal facts")
+	}
+	if intents, err := zero.RemovalIntents(); err == nil || len(intents) != 0 {
+		t.Fatal("zero supplied combined removal facts")
+	}
+	if demands, err := zero.RemovalDemands(); err == nil || demands.Len() != 0 {
+		t.Fatal("zero supplied removal demands")
+	}
+	if intents, err := value.RemovalIntents(); err != nil || len(intents) != 0 {
+		t.Fatal("initialized empty removal facts were refused", err)
+	}
+	value.record.DocumentGroups[0].Removal = &recoveryDocumentRemoval{}
+	document, err := value.recordedDocumentAt(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present, err := document.Removal(); err == nil || present {
+		t.Fatal("failed removal conversion supplied a present result")
+	}
+	if intents, err := value.RemovalIntents(); err == nil || len(intents) != 0 {
+		t.Fatal("invalid document removal supplied combined intents")
+	}
+	if demands, err := value.RemovalDemands(); err == nil || demands.Len() != 0 {
+		t.Fatal("invalid document removal supplied combined demands")
+	}
+}
+
+func TestZeroNativeQualificationRefusesBeforeRootQualification(t *testing.T) {
+	_, err := (nativeJournalSnapshots{}).qualifyDocumentNamespaces(t.Context(), nativeDocumentReadOptions{
+		filesystem: journalTestFilesystem(), budget: imageBudget(t),
+	}, journalnamespace.Roots{})
+	if err == nil || err.Error() != "native journal record is required" {
+		t.Fatal("root selection obscured the uninitialized record refusal", err)
 	}
 }

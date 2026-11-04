@@ -19,7 +19,7 @@ type loadedJournalRecord struct {
 
 func (record loadedJournalRecord) Initialized() bool {
 	return record.ordinary != nil && record.native == nil && record.nativeCodec == nil && record.ordinary.Validate() == nil ||
-		record.native != nil && record.ordinary == nil && record.native.record.Version == nativeRecoveryJournalVersion && record.nativeCodec != nil
+		record.native != nil && record.ordinary == nil && record.native.requireNativeValue() == nil && record.nativeCodec != nil
 }
 
 func (record loadedJournalRecord) Ordinary() (ordinaryRecord, bool) {
@@ -36,6 +36,7 @@ func (record loadedJournalRecord) Native() (nativeJournalSnapshots, bool) {
 	return *record.native, true
 }
 
+// OperationID returns the decoded operation identity, or an empty string for zero.
 func (record loadedJournalRecord) OperationID() string {
 	if !record.Initialized() {
 		return ""
@@ -43,7 +44,7 @@ func (record loadedJournalRecord) OperationID() string {
 	if record.ordinary != nil {
 		return record.ordinary.OperationID()
 	}
-	return record.native.record.OperationID
+	return record.native.OperationID()
 }
 
 func (record loadedJournalRecord) AuthorityFingerprint(ctx context.Context, codec durable.SnapshotCodec) (string, error) {
