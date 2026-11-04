@@ -77,20 +77,19 @@ func applyXattrs(fd int, metadata preservedMetadata) error {
 	return nil
 }
 
-func verifyObservedXattrs(
-	observed preservedMetadata,
-	metadata preservedMetadata,
-	allowExtra func(string) bool,
-) error {
-	for name, expected := range metadata.xattrs {
-		actual, exists := observed.xattrs[name]
-		if !exists || string(actual) != string(expected) {
+func verifyXattrNames(names []string, metadata preservedMetadata) error {
+	observed := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		observed[name] = struct{}{}
+	}
+	for name := range metadata.xattrs {
+		if _, exists := observed[name]; !exists {
 			return unsupported(fmt.Sprintf("extended attribute %q did not verify", name), nil)
 		}
 	}
 	if metadata.replacement {
-		for name := range observed.xattrs {
-			if _, expected := metadata.xattrs[name]; !expected && !allowExtra(name) {
+		for name := range observed {
+			if _, expected := metadata.xattrs[name]; !expected {
 				return unsupported(fmt.Sprintf("unexpected extended attribute %q on replacement", name), nil)
 			}
 		}

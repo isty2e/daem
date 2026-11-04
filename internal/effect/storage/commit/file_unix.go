@@ -568,12 +568,8 @@ func verifyCommittedFile(
 	if err := verifyCommittedPayload(ctx, verificationFD, request.payload); err != nil {
 		return err
 	}
-	// Supported metadata was verified on this inode before the restrictive mode;
-	// ACLs are refused rather than rewritten by chmod.
-	if request.mode&0o400 != 0 {
-		if err := verifyPreservedMetadata(verificationFD, metadata); err != nil {
-			return err
-		}
+	if err := verifyPreservedMetadata(verificationFD, metadata); err != nil {
+		return err
 	}
 	after, err := refreshOpenedIdentity(verificationFD, request.path)
 	if err != nil {
