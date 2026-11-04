@@ -7,13 +7,48 @@ import (
 	"sort"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
 const (
 	maximumTargetBytes            int64 = 64 << 20
 	maximumFileSetTargets               = 8
 	maximumStagedBeforeImageBytes int64 = 4 * maximumTargetBytes
+	referenceAfterImageName             = "reference.after"
 )
+
+// ReferenceEvidenceView is a defensive, read-only snapshot of the before and
+// proposed images for the selected commit-point target. It grants no file
+// mutation authority. MarkerRevision identifies the exact validated marker
+// bytes from which this view was reconstructed.
+type ReferenceEvidenceView struct {
+	namespace      string
+	markerRevision string
+	beforeExists   bool
+	before         []byte
+	after          []byte
+	afterHash      string
+}
+
+// ReferenceNamespace returns the canonical target path selected by the caller.
+func (view ReferenceEvidenceView) ReferenceNamespace() string { return view.namespace }
+
+// MarkerRevision returns the digest of the exact marker bytes for this view.
+func (view ReferenceEvidenceView) MarkerRevision() string { return view.markerRevision }
+
+// BeforeImage returns a defensive copy and whether the reference existed
+// before the transaction.
+func (view ReferenceEvidenceView) BeforeImage() ([]byte, bool) {
+	return append([]byte(nil), view.before...), view.beforeExists
+}
+
+// AfterImage returns a defensive copy of the constructor-owned proposed bytes.
+func (view ReferenceEvidenceView) AfterImage() []byte {
+	return append([]byte(nil), view.after...)
+}
+
+// AfterHash returns the digest correlated to the target's after-state.
+func (view ReferenceEvidenceView) AfterHash() string { return view.afterHash }
 
 // FileTarget is one exact file transition in a recoverable transaction. A
 // write target privately owns its immutable after-image snapshot.
@@ -91,14 +126,19 @@ func admitFileSetTargetCount(count int) error {
 }
 
 func admitStagedBeforeImageBytes(total int64, additional int) error {
+	return admitStagedEvidenceBytes(total, additional, "file-set transaction before-images")
+}
+
+func admitStagedEvidenceBytes(total int64, additional int, label string) error {
 	if additional < 0 {
-		return fmt.Errorf("file-set transaction before-image byte length must not be negative")
+		return fmt.Errorf("file-set transaction evidence byte length must not be negative")
 	}
 	additionalBytes := int64(additional)
 	if additionalBytes > maximumStagedBeforeImageBytes ||
 		total > maximumStagedBeforeImageBytes-additionalBytes {
 		return fmt.Errorf(
-			"file-set transaction before-images contain %d bytes, maximum %d",
+			"%s contain %d bytes, maximum %d",
+			label,
 			total+additionalBytes,
 			maximumStagedBeforeImageBytes,
 		)
@@ -109,6 +149,26 @@ func admitStagedBeforeImageBytes(total int64, additional int) error {
 // canonicalTargets validates and orders a private target slice while retaining
 // each write target's constructor-owned after-image snapshot.
 func canonicalTargets(values []FileTarget) ([]FileTarget, error) {
+	return canonicalTargetsWithResolver(values, mutation.CanonicalDirectoryEntryPath)
+}
+
+func canonicalTargetsBounded(
+	values []FileTarget,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) ([]FileTarget, error) {
+	if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
+		return nil, fmt.Errorf("bounded file-set targets require a path depth and shared work budget")
+	}
+	return canonicalTargetsWithResolver(values, func(path string) (string, error) {
+		return mutation.CanonicalDirectoryEntryPathBounded(path, maximumPhysicalDepth, physicalWorkBudget)
+	})
+}
+
+func canonicalTargetsWithResolver(
+	values []FileTarget,
+	resolvePath func(string) (string, error),
+) ([]FileTarget, error) {
 	if len(values) == 0 {
 		return nil, fmt.Errorf("file-set transaction requires at least one target")
 	}
@@ -126,7 +186,7 @@ func canonicalTargets(values []FileTarget) ([]FileTarget, error) {
 				return nil, fmt.Errorf("target[%d]: %w", index, err)
 			}
 		}
-		canonical, err := mutation.CanonicalDirectoryEntryPath(target.path)
+		canonical, err := resolvePath(target.path)
 		if err != nil {
 			if target.write {
 				return nil, fmt.Errorf("target[%d]: canonicalize transaction target: %w", index, err)
@@ -169,6 +229,31 @@ func canonicalAllowedPaths(paths []string) (map[string]struct{}, error) {
 		canonical, err := mutation.CanonicalDirectoryEntryPath(path)
 		if err != nil {
 			return nil, fmt.Errorf("allowed target[%d]: %w", index, err)
+		}
+		allowed[canonical] = struct{}{}
+	}
+	return allowed, nil
+}
+
+func canonicalAllowedPathsBounded(
+	paths []string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
+) (map[string]struct{}, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("file-set recovery requires allowed target paths")
+	}
+	if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
+		return nil, fmt.Errorf("bounded file-set recovery requires a path depth and shared work budget")
+	}
+	allowed := make(map[string]struct{}, len(paths))
+	for index, path := range paths {
+		canonical, err := mutation.CanonicalDirectoryEntryPathBounded(path, maximumPhysicalDepth, physicalWorkBudget)
+		if err != nil {
+			return nil, fmt.Errorf("allowed target[%d]: %w", index, err)
+		}
+		if _, exists := allowed[canonical]; exists {
+			return nil, fmt.Errorf("file-set recovery allowed target paths must be unique")
 		}
 		allowed[canonical] = struct{}{}
 	}
