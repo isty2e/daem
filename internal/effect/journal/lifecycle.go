@@ -97,10 +97,6 @@ func ensureNoActive(
 	}
 }
 
-func isSafeRecoveryOperationID(value string) bool {
-	return retirement.ValidateOperationID(value) == nil
-}
-
 // CleanupFailurePhase identifies the semantic phase in which one cleanup-only
 // recovery action failed.
 type CleanupFailurePhase string

@@ -505,25 +505,6 @@ func (provenance recoveryRootProvenance) canonical() (rootedpath.AuthorityProven
 	)
 }
 
-func validateManifestRootProvenance(journal recoveryJournal) error {
-	for index, entry := range journal.Entries {
-		scope, err := target.ParseScope(entry.Scope)
-		if err != nil {
-			return fmt.Errorf("recovery entries[%d].scope: %w", index, err)
-		}
-		if scope != target.ScopeProject {
-			continue
-		}
-		if _, err := rootedpath.NewRelativeDestination(entry.Path); err != nil {
-			return fmt.Errorf("recovery entries[%d] project destination: %w", index, err)
-		}
-	}
-	if _, err := journal.ManifestRootProvenance.canonical(); err != nil {
-		return fmt.Errorf("recovery journal manifest_root_provenance: %w", err)
-	}
-	return nil
-}
-
 // RootedCapabilityResolver acquires a borrowed, current capability for one
 // already-bound global destination. A non-nil budget must cover acquisition
 // before descriptor validation begins. The caller retains the root authority;

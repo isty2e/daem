@@ -12,11 +12,14 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -469,4 +472,27 @@ func managedPathStateKind(contentKind realization.PathProjectionContentKind) (st
 	default:
 		return "", fmt.Errorf("managed path content kind %q is not executable", contentKind)
 	}
+}
+
+func validateManifestRootProvenance(journal recoveryJournal) error {
+	for index, entry := range journal.Entries {
+		scope, err := target.ParseScope(entry.Scope)
+		if err != nil {
+			return fmt.Errorf("recovery entries[%d].scope: %w", index, err)
+		}
+		if scope != target.ScopeProject {
+			continue
+		}
+		if _, err := rootedpath.NewRelativeDestination(entry.Path); err != nil {
+			return fmt.Errorf("recovery entries[%d] project destination: %w", index, err)
+		}
+	}
+	if _, err := journal.ManifestRootProvenance.canonical(); err != nil {
+		return fmt.Errorf("recovery journal manifest_root_provenance: %w", err)
+	}
+	return nil
+}
+
+func isSafeRecoveryOperationID(value string) bool {
+	return retirement.ValidateOperationID(value) == nil
 }

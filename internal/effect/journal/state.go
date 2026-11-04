@@ -494,3 +494,70 @@ func sortRecoveryEntries(entries []recoveryEntry) {
 		return false
 	})
 }
+
+func stateBeforeIdentityFromAction(action pathMutation) *recoveryStateIdentity {
+	if action.StateIndependent || action.PreviousState == nil {
+		return nil
+	}
+
+	previous := recoveryStateIdentityFromPrevious(*action.PreviousState)
+	current := recoveryStateIdentityFromAction(action)
+	if sameRecoveryStateIdentity(previous, current) {
+		return nil
+	}
+	return &previous
+}
+
+func recoveryStateIdentityFromAction(action pathMutation) recoveryStateIdentity {
+	return recoveryStateIdentity{
+		Subject:     subjectRefFromAction(action),
+		Target:      string(action.Target),
+		Targets:     targetStrings(action.ConsumerTargets),
+		Scope:       string(action.Scope),
+		Path:        action.Destination.String(),
+		ContentPath: string(action.ContentPath),
+		ContentKind: string(action.ContentKind),
+		Aggregate:   action.AggregateContract != nil,
+	}
+}
+
+func recoveryStateIdentityFromPrevious(previous previousPathState) recoveryStateIdentity {
+	return recoveryStateIdentity{
+		Subject: persistedSubjectRef{
+			Kind:      string(previous.Subject.Kind()),
+			Namespace: previous.Subject.Namespace(),
+			Name:      previous.Subject.Key(),
+		},
+		Target:      string(previous.Target),
+		Targets:     targetStrings(previous.ConsumerTargets),
+		Scope:       string(previous.Scope),
+		Path:        previous.Destination.String(),
+		ContentPath: string(previous.ContentPath),
+		ContentKind: string(previous.ContentKind),
+	}
+}
+
+func sameRecoveryStateIdentity(left recoveryStateIdentity, right recoveryStateIdentity) bool {
+	if left.Subject != right.Subject || left.Target != right.Target ||
+		left.Scope != right.Scope || left.Path != right.Path || left.ContentPath != right.ContentPath ||
+		left.ContentKind != right.ContentKind || left.Aggregate != right.Aggregate || len(left.Targets) != len(right.Targets) {
+		return false
+	}
+	for index := range left.Targets {
+		if left.Targets[index] != right.Targets[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func subjectRefFromAction(action pathMutation) persistedSubjectRef {
+	if action.Subject.IsZero() {
+		return persistedSubjectRef{}
+	}
+	return persistedSubjectRef{
+		Kind:      string(action.Subject.Kind()),
+		Namespace: action.Subject.Namespace(),
+		Name:      action.Subject.Key(),
+	}
+}

@@ -8,6 +8,11 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
+type removalRelationKey struct {
+	scope       target.Scope
+	destination output.Destination
+}
+
 func removalDemandSetFromEntries(
 	entries []recoveryEntry,
 ) (recovery.RemovalDemandSet, error) {
@@ -205,4 +210,75 @@ func validatePersistedRemovalIntentCoverage(
 		return err
 	}
 	return validateRecoveryRemovalCoverage(demands, intents)
+}
+
+func completeRemovalTransitionStates(
+	action pathMutation,
+	before recovery.BeforePathState,
+	expected recovery.ExpectedPathState,
+) (recovery.BeforePathState, recovery.ExpectedPathState) {
+	before.BackupPath = ""
+	if action.ContentPath == "" {
+		return before, expected
+	}
+
+	before = recovery.BeforePathState{}
+	if action.LivePathExists {
+		before = recovery.BeforePathState{
+			Existed:       true,
+			PathExisted:   true,
+			ParentExisted: true,
+			Kind:          recovery.PathKindFile,
+			ContentHash:   string(action.LivePathHash),
+			PathMode:      recovery.NewPermissionMode(action.LivePathMode),
+		}
+	}
+	expected = recovery.ExpectedPathState{}
+	if action.ExpectedPathExists {
+		expected = recovery.ExpectedPathState{
+			Existed:     true,
+			PathExisted: true,
+			Kind:        recovery.PathKindFile,
+			ContentHash: string(action.ExpectedPathHash),
+			PathMode:    recovery.NewPermissionMode(action.ExpectedPathMode),
+		}
+	}
+	return before, expected
+}
+
+func removalTransitionForCapture(
+	scope target.Scope,
+	destination output.Destination,
+	before recovery.BeforePathState,
+	expected recovery.ExpectedPathState,
+	demands map[removalRelationKey]recovery.RemovalDemand,
+) (*recoveryRemovalTransition, error) {
+	demand, found := demands[removalRelationKey{scope: scope, destination: destination}]
+	if !found {
+		return nil, nil
+	}
+
+	beforeState, err := recovery.NewBeforeRemovalState(before)
+	if err != nil {
+		return nil, err
+	}
+	expectedState, err := recovery.NewExpectedRemovalState(expected)
+	if err != nil {
+		return nil, err
+	}
+	transition := &recoveryRemovalTransition{}
+	for _, state := range demand.States() {
+		if state.Equal(beforeState) {
+			persisted := persistedBeforePathState(before)
+			transition.Before = &persisted
+		}
+		if state.Equal(expectedState) {
+			persisted := persistedExpectedPathState(expected)
+			transition.ExpectedAfter = &persisted
+		}
+	}
+	if transition.Before == nil && transition.ExpectedAfter == nil {
+		return nil, nil
+	}
+	return transition, nil
 }
