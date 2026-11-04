@@ -68,7 +68,10 @@ func validateNativeCaptureContext(ctx context.Context, paths Paths, batch Native
 	return ctx.Err()
 }
 
-func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.ProjectionEdit, mutations []pathMutation, completions []durablecarrier.ManagedCarrierClaim) error {
+func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.ProjectionEdit, mutations []captureMutation, completions []durablecarrier.ManagedCarrierClaim) error {
+	if err := validateCaptureMutations(mutations); err != nil {
+		return err
+	}
 	projected, err := before.WithManagedProjections(after.ManagedPaths(), after.ManagedAggregates())
 	if err != nil {
 		return err
@@ -99,18 +102,19 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 		}
 	}
 	for _, mutation := range mutations {
-		if mutation.AggregateContract != nil {
-			contract := mutation.AggregateContract
+		if contract, present := mutation.AggregateContract(); present {
 			contracts[documentCaptureContractKey{address: contract.Address(), codec: contract.CodecContractID()}] = struct{}{}
 			continue
 		}
-		paths[mutation.Subject] = struct{}{}
-		if mutation.Kind == pathMutationRecord && mutation.PreviousState == nil && aggregate.IsHostConfigDocumentSubject(mutation.Subject) {
+		paths[mutation.Subject()] = struct{}{}
+		previous, hasPrevious := mutation.PreviousSubject()
+		if mutation.Kind() == pathMutationRecord && !hasPrevious && aggregate.IsHostConfigDocumentSubject(mutation.Subject()) {
+			consumers := mutation.ConsumerTargets()
 			for _, state := range after.ManagedPaths() {
-				if state.Subject() != mutation.Subject || len(state.ConsumerTargets()) != 1 || state.Scope() != mutation.Scope || state.Destination() != mutation.Destination || !slices.Equal(state.ConsumerTargets(), mutation.ConsumerTargets) {
+				if state.Subject() != mutation.Subject() || len(state.ConsumerTargets()) != 1 || state.Scope() != mutation.Scope() || state.Destination() != mutation.Destination() || !slices.Equal(state.ConsumerTargets(), consumers) {
 					continue
 				}
-				if state.ContentHash() != mutation.DesiredHash || state.ContentKind() != mutation.ContentKind || state.FileMode() != mutation.ExpectedPathMode {
+				if state.ContentHash() != mutation.DesiredHash() || state.ContentKind() != mutation.ContentKind() || state.FileMode() != mutation.ExpectedPathMode() {
 					continue
 				}
 				address, err := aggregate.NewDocumentAddress(state.ConsumerTargets()[0], state.Scope(), state.Destination())
@@ -120,8 +124,8 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 				wholeRecords[address] = state.Subject()
 			}
 		}
-		if mutation.PreviousState != nil {
-			paths[mutation.PreviousState.Subject] = struct{}{}
+		if hasPrevious {
+			paths[previous] = struct{}{}
 		}
 	}
 	for side, snapshot := range []durable.Snapshot{before, after} {
@@ -168,7 +172,10 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 	return nil
 }
 
-func validateNativePublicationPartition(ctx context.Context, directory string, batch NativeDocumentObservationBatch, mutations []pathMutation, resolver func(output.Destination) (string, error)) error {
+func validateNativePublicationPartition(ctx context.Context, directory string, batch NativeDocumentObservationBatch, mutations []captureMutation, resolver func(output.Destination) (string, error)) error {
+	if err := validateCaptureMutations(mutations); err != nil {
+		return err
+	}
 	publication, err := mutation.ObserveDirectoryEntryAuthorityBounded(directory, physicalwork.MaximumPhysicalPathDepth, batch.budget)
 	if err != nil {
 		return err
@@ -192,13 +199,13 @@ func validateNativePublicationPartition(ctx context.Context, directory string, b
 	}
 	for _, action := range mutations {
 		var path string
-		if action.Scope == target.ScopeProject {
-			path = filepath.Join(batch.roots.Manifest.SelectedPath, filepath.FromSlash(action.Destination.RelativePath()))
+		if action.Scope() == target.ScopeProject {
+			path = filepath.Join(batch.roots.Manifest.SelectedPath, filepath.FromSlash(action.Destination().RelativePath()))
 		} else {
 			if resolver == nil {
 				return fmt.Errorf("ordinary publication partition requires its selected global resolver")
 			}
-			path, err = resolver(action.Destination)
+			path, err = resolver(action.Destination())
 			if err != nil {
 				return err
 			}

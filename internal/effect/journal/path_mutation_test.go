@@ -44,7 +44,7 @@ func TestManagedPathEvidenceCoverageRequiresExactCurrentFact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pathMutations returned error: %v", err)
 	}
-	if len(paths) != 1 || paths[0].LiveExists || paths[0].LivePathExists || paths[0].LiveHash != "" || paths[0].LivePathHash != "" {
+	if len(paths) != 1 || paths[0].LiveExists() || paths[0].LivePathExists() || paths[0].LiveHash() != "" || paths[0].LivePathHash() != "" {
 		t.Fatalf("create before facts = %#v, want exact absent evidence", paths)
 	}
 
@@ -106,8 +106,8 @@ func TestManagedPathEvidenceCoverageRejectsWrongSubjectStaleHashAndDuplicates(t 
 	if err != nil {
 		t.Fatalf("pathMutations returned error: %v", err)
 	}
-	if len(paths) != 1 || !paths[0].LiveExists || !paths[0].LivePathExists ||
-		paths[0].LiveHash != testContentHash("old") || paths[0].LivePathHash != testContentHash("old") {
+	if len(paths) != 1 || !paths[0].LiveExists() || !paths[0].LivePathExists() ||
+		paths[0].LiveHash() != testContentHash("old") || paths[0].LivePathHash() != testContentHash("old") {
 		t.Fatalf("record before facts = %#v, want exact current evidence", paths)
 	}
 }
@@ -147,6 +147,35 @@ func TestManagedPathMutationCopiesPreviousState(t *testing.T) {
 	stored := mutation.facts().previous
 	if stored == nil || stored.Subject() != subject || stored.Destination() != destination {
 		t.Fatalf("stored previous state = %#v, want constructor-time value", stored)
+	}
+}
+
+func TestNormalizedCaptureInputHasImmutableProjections(t *testing.T) {
+	input := normalizedPathCapture(t, pathMutationReplace, target.ScopeProject, outputtest.Parse(t, ".agents/skills/review"), testContentHash("before"), realization.PathProjectionDirectory)
+	if err := input.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	consumers := input.ConsumerTargets()
+	consumers[0] = target.TargetClaudeCode
+	if input.ConsumerTargets()[0] != target.TargetCodex {
+		t.Fatal("consumer projection changed its normalized source")
+	}
+	previous, present := input.PreviousSubject()
+	if !present || previous != input.Subject() || input.Kind() != pathMutationReplace {
+		t.Fatal("capture input lost its canonical subject or kind")
+	}
+	if _, present := input.AggregateContract(); present {
+		t.Fatal("ordinary path acquired an aggregate contract")
+	}
+
+	created := normalizedPathCapture(t, pathMutationCreate, target.ScopeProject, input.Destination(), "", realization.PathProjectionDirectory)
+	if _, present := created.PreviousSubject(); present {
+		t.Fatal("new path acquired a previous-state witness")
+	}
+	aggregateInput := claudeRecoveryBaselineMutation(t, target.ScopeProject, "context7")
+	contract, present := aggregateInput.AggregateContract()
+	if !present || contract.Validate() != nil {
+		t.Fatal("normalized aggregate lost its canonical contract")
 	}
 }
 

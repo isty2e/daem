@@ -13,7 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
-	"github.com/isty2e/daem/test/outputtest"
+	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
@@ -47,7 +47,7 @@ func TestRecoveryContentPathBaselineCacheReusesOneGlobalSnapshot(t *testing.T) {
 		return hostPath, nil
 	}
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]pathMutation{action},
+		[]captureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -70,11 +70,11 @@ func TestRecoveryContentPathBaselineCacheReusesOneGlobalSnapshot(t *testing.T) {
 	if resolveCalls != 1 {
 		t.Fatalf("resolver calls = %d, want one", resolveCalls)
 	}
-	firstProjection, firstPresent, err := first.projection(action.ContentPath)
+	firstProjection, firstPresent, err := first.projection(action.ContentPath())
 	if err != nil {
 		t.Fatalf("first projection: %v", err)
 	}
-	secondProjection, secondPresent, err := second.projection(action.ContentPath)
+	secondProjection, secondPresent, err := second.projection(action.ContentPath())
 	if err != nil {
 		t.Fatalf("second projection: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestRecoveryContentPathBaselineCacheReadsLargeAggregateOnce(t *testing.T) {
 	root := t.TempDir()
 	hostPath := filepath.Join(root, "config.json")
 	serverEntries := make(map[string]json.RawMessage, memberCount)
-	mutations := make([]pathMutation, 0, memberCount)
+	mutations := make([]captureMutation, 0, memberCount)
 	for index := range memberCount {
 		serverID := fmt.Sprintf("server-%03d", index)
 		canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
@@ -138,7 +138,7 @@ func TestRecoveryContentPathBaselineCacheReadsLargeAggregateOnce(t *testing.T) {
 		if err != nil {
 			t.Fatalf("capture member %d: %v", index, err)
 		}
-		projection, present, err := captured.projection(action.ContentPath)
+		projection, present, err := captured.projection(action.ContentPath())
 		serverID := fmt.Sprintf("server-%03d", index)
 		if err != nil || !present || !bytes.Equal(projection, serverEntries[serverID]) {
 			t.Fatalf(
@@ -165,7 +165,7 @@ func TestRecoveryContentPathBaselineCacheRejectsDuplicateSelectionPerScope(t *te
 	action := claudeRecoveryBaselineMutation(t, target.ScopeGlobal, "context7")
 
 	if _, err := newRecoveryContentPathBaselineCache(
-		[]pathMutation{action, action},
+		[]captureMutation{action, action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	); err == nil {
@@ -173,7 +173,7 @@ func TestRecoveryContentPathBaselineCacheRejectsDuplicateSelectionPerScope(t *te
 	}
 	projectAction := claudeRecoveryBaselineMutation(t, target.ScopeProject, "context7")
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]pathMutation{action, projectAction},
+		[]captureMutation{action, projectAction},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -185,24 +185,70 @@ func TestRecoveryContentPathBaselineCacheRejectsDuplicateSelectionPerScope(t *te
 	}
 }
 
-func claudeRecoveryBaselineMutation(
-	t *testing.T,
-	scope target.Scope,
-	serverID string,
-) pathMutation {
+func claudeRecoveryBaselineMutation(t *testing.T, scope target.Scope, serverID string) captureMutation {
 	t.Helper()
 	placement, ok := aggregate.ImplementedMCPPlacement(target.TargetClaudeCode, scope)
 	if !ok {
 		t.Fatalf("Claude MCP placement for %s is missing", scope)
 	}
-	contract, err := placement.ProjectionContract(serverID)
+	var canonical []byte
+	var err error
+	if scope == target.ScopeProject {
+		canonical, err = mcpcodec.CanonicalClaudeProjectMCPServerEntry(mcpcodec.ClaudeProjectMCPServerProjection{ServerID: serverID, Command: "npx", AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1})
+	} else {
+		canonical, err = mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{ServerID: serverID, Command: "npx", AdapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1})
+	}
 	if err != nil {
-		t.Fatalf("ProjectionContract(%q): %v", serverID, err)
+		t.Fatal(err)
 	}
-	return pathMutation{
-		Scope:             scope,
-		Destination:       placement.ConfigPath(),
-		ContentPath:       output.ContentPath(outputtest.LegacyContentPath(t, contract.Address())),
-		AggregateContract: pointerToAggregateContract(contract),
+	contribution, err := placement.Contribution(serverID, string(canonical))
+	if err != nil {
+		t.Fatal(err)
 	}
+	subject, err := topologymcp.ProjectionSubject(target.TargetClaudeCode, scope, serverID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := aggregate.NewSubjectContribution(subject, contribution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired, err := aggregate.NewContributionSet([]aggregate.SubjectContribution{selected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{contribution.Contract()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec, ok := journalTestCodecs().Lookup(placement.CodecContractID())
+	if !ok {
+		t.Fatal("MCP fixture codec is missing")
+	}
+	before := aggregate.AbsentDocument()
+	snapshot, failure := codec.Read(before, selection)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	intent, err := aggregate.NewProjectionIntent(snapshot.States()[0], &desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := aggregate.NewPlan(snapshot, []aggregate.ProjectionIntent{intent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, failure := codec.Render(before, plan)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	mutation, err := NewManagedAggregateMutation(AggregateMutationCreate, subject, contribution.Contract(), before, snapshot, expected, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := pathMutations(nil, []ManagedAggregateMutation{mutation}, nil)
+	if err != nil || len(values) != 1 {
+		t.Fatal("normalize aggregate capture fixture", err)
+	}
+	return values[0]
 }

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -79,11 +80,7 @@ func TestValidateAbsentProjectRecoveryPathRejectsAliasesAndDrift(t *testing.T) {
 			tt.prepare(t, root, outside)
 			session := mustManifestAuthoritySession(t, root)
 			defer session.root.Close()
-			mutation := pathMutation{
-				Kind:        pathMutationCreate,
-				Scope:       target.ScopeProject,
-				Destination: outputtest.Parse(t, ".agents/skills/review"),
-			}
+			mutation := normalizedPathCapture(t, pathMutationCreate, target.ScopeProject, outputtest.Parse(t, ".agents/skills/review"), "", realization.PathProjectionDirectory)
 
 			err := validateAbsentProjectRecoveryPath(
 				context.Background(),
@@ -111,11 +108,7 @@ func TestValidateAbsentProjectRecoveryPathAcceptsMissingDestination(t *testing.T
 	}
 	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
-	mutation := pathMutation{
-		Kind:        pathMutationCreate,
-		Scope:       target.ScopeProject,
-		Destination: outputtest.Parse(t, ".agents/skills/review"),
-	}
+	mutation := normalizedPathCapture(t, pathMutationCreate, target.ScopeProject, outputtest.Parse(t, ".agents/skills/review"), "", realization.PathProjectionDirectory)
 
 	if err := validateAbsentProjectRecoveryPath(
 		context.Background(),

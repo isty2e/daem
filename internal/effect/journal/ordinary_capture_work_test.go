@@ -2,6 +2,7 @@ package journal
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,6 +74,32 @@ func TestOrdinaryCaptureStopsBeforeSecondBackupWhenSharedBytesAreExhausted(t *te
 	}
 }
 
+func TestUninitializedCaptureInputIsRejectedBeforeEffects(t *testing.T) {
+	valid := normalizedPathCapture(t, pathMutationCreate, target.ScopeGlobal, outputtest.Parse(t, "~/.agents/skills/review"), "", realization.PathProjectionDirectory)
+	for _, bounded := range []bool{false, true} {
+		work := &ordinaryCaptureWork{}
+		if bounded {
+			work.budget = imageBudget(t)
+		}
+		calls := 0
+		_, err := work.globalBindings([]captureMutation{valid, {}}, func(output.Destination) (string, error) {
+			calls++
+			return "", nil
+		}, nil)
+		if err == nil || calls != 0 {
+			t.Fatalf("bounded=%t: invalid input reached global observation: %d %v", bounded, calls, err)
+		}
+	}
+	zeroError := (captureMutation{}).Validate()
+	before, index, err := captureRecoveryBeforePath(t.Context(), t.TempDir(), 7, captureMutation{}, nil, nil, nil, nil, nil, nil)
+	if !errors.Is(err, zeroError) || index != 7 || before.Existed {
+		t.Error("invalid input reached backup capture or returned before evidence", err)
+	}
+	if err := validateNativePublicationPartition(t.Context(), "", NativeDocumentObservationBatch{}, []captureMutation{{}}, nil); !errors.Is(err, zeroError) {
+		t.Error("invalid input reached publication observation", err)
+	}
+}
+
 func TestOrdinaryDirectoryCaptureBoundsStreamingBeforeAdditionalCopies(t *testing.T) {
 	root := t.TempDir()
 	host := filepath.Join(root, "skills")
@@ -96,10 +123,7 @@ func TestOrdinaryDirectoryCaptureBoundsStreamingBeforeAdditionalCopies(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	action := pathMutation{
-		Kind: pathMutationReplace, Scope: target.ScopeProject, Destination: outputtest.Parse(t, "skills"),
-		LiveExists: true, LiveHash: hash, LivePathExists: true, LivePathHash: hash,
-	}
+	action := normalizedPathCapture(t, pathMutationReplace, target.ScopeProject, outputtest.Parse(t, "skills"), hash, realization.PathProjectionDirectory)
 	directory := t.TempDir()
 	_, _, err = captureProjectExistingRecoveryBeforePath(t.Context(), ordinaryCaptureReader{Reader: journalTestFilesystem(), work: work}, directory, 0, action, session, work)
 	if err == nil {

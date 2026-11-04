@@ -363,7 +363,7 @@ func buildOrdinaryCaptureMaterial(
 		if err := draft.supplyBefore(before); err != nil {
 			return ordinaryCaptureMaterial{}, err
 		}
-		binding, err := globalPathBindings.captured(action.Scope, action.Destination)
+		binding, err := globalPathBindings.captured(action.Scope(), action.Destination())
 		if err != nil {
 			return ordinaryCaptureMaterial{}, err
 		}

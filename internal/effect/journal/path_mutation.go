@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -60,6 +61,73 @@ type pathMutation struct {
 	PreviousState      *previousPathState
 	AggregateContract  *aggregate.ProjectionContract
 	StateIndependent   bool
+}
+
+// captureMutation is an immutable normalized input projection, not host authority.
+type captureMutation struct {
+	facts       pathMutation
+	initialized bool
+}
+
+var errUninitializedCaptureMutation = errors.New("normalized capture mutation is required")
+
+func (mutation captureMutation) Validate() error {
+	if !mutation.initialized {
+		return errUninitializedCaptureMutation
+	}
+	return nil
+}
+
+func validateCaptureMutations(mutations []captureMutation) error {
+	for index, mutation := range mutations {
+		if err := mutation.Validate(); err != nil {
+			return fmt.Errorf("capture mutation[%d]: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func (mutation captureMutation) Kind() pathMutationKind          { return mutation.facts.Kind }
+func (mutation captureMutation) Subject() topology.SubjectID     { return mutation.facts.Subject }
+func (mutation captureMutation) Scope() target.Scope             { return mutation.facts.Scope }
+func (mutation captureMutation) Destination() output.Destination { return mutation.facts.Destination }
+
+func (mutation captureMutation) ContentPath() output.ContentPath { return mutation.facts.ContentPath }
+
+func (mutation captureMutation) ContentKind() realization.PathProjectionContentKind {
+	return mutation.facts.ContentKind
+}
+
+func (mutation captureMutation) DesiredHash() artifact.ContentHash { return mutation.facts.DesiredHash }
+
+func (mutation captureMutation) ExpectedPathMode() os.FileMode {
+	return mutation.facts.ExpectedPathMode
+}
+
+func (mutation captureMutation) LiveExists() bool               { return mutation.facts.LiveExists }
+func (mutation captureMutation) LiveHash() artifact.ContentHash { return mutation.facts.LiveHash }
+func (mutation captureMutation) LivePathExists() bool           { return mutation.facts.LivePathExists }
+
+func (mutation captureMutation) LivePathHash() artifact.ContentHash {
+	return mutation.facts.LivePathHash
+}
+
+func (mutation captureMutation) ConsumerTargets() []target.Target {
+	return slices.Clone(mutation.facts.ConsumerTargets)
+}
+
+func (mutation captureMutation) AggregateContract() (aggregate.ProjectionContract, bool) {
+	if mutation.facts.AggregateContract == nil {
+		return aggregate.ProjectionContract{}, false
+	}
+	return mutation.facts.AggregateContract.Clone(), true
+}
+
+func (mutation captureMutation) PreviousSubject() (topology.SubjectID, bool) {
+	if mutation.facts.PreviousState == nil {
+		return topology.SubjectID{}, false
+	}
+	return mutation.facts.PreviousState.Subject, true
 }
 
 type managedPathMutationFacts struct {
@@ -322,18 +390,18 @@ func pathMutations(
 	managed []ManagedPathMutation,
 	aggregates []ManagedAggregateMutation,
 	evidence []observe.ManagedPathEvidence,
-) ([]pathMutation, error) {
+) ([]captureMutation, error) {
 	indexedEvidence, err := managedPathEvidenceByKey(managed, evidence)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]pathMutation, 0, len(managed)+len(aggregates))
+	result := make([]captureMutation, 0, len(managed)+len(aggregates))
 	for _, mutation := range managed {
 		facts := mutation.facts()
-		result = append(result, pathMutationFromManaged(
+		result = append(result, captureMutation{facts: pathMutationFromManaged(
 			mutation,
 			indexedEvidence[managedPathEvidenceKey{subject: facts.subject, destination: facts.destination}],
-		))
+		), initialized: true})
 	}
 	for index, mutation := range aggregates {
 		if err := mutation.validate(); err != nil {
@@ -343,7 +411,7 @@ func pathMutations(
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, path)
+		result = append(result, captureMutation{facts: path, initialized: true})
 	}
 	return result, nil
 }

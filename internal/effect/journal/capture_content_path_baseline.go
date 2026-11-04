@@ -70,55 +70,58 @@ type recoveryContentPathBaselineCache struct {
 }
 
 func newRecoveryContentPathBaselineCache(
-	actions []pathMutation,
+	actions []captureMutation,
 	codecs aggregate.CodecCatalog,
 	filesystem mutationfs.Reader,
 ) (*recoveryContentPathBaselineCache, error) {
 	if filesystem == nil {
 		return nil, fmt.Errorf("recovery content-path filesystem is required")
 	}
+	if err := validateCaptureMutations(actions); err != nil {
+		return nil, err
+	}
 	contractsByDestination := make(map[recoveryContentPathBaselineKey][]aggregate.ProjectionContract)
 	selected := make(map[recoveryContentPathBaselineSelectionKey]struct{})
 	for _, action := range actions {
-		if action.ContentPath == "" {
+		if action.ContentPath() == "" {
 			continue
 		}
-		key := recoveryContentPathBaselineKey{scope: action.Scope, destination: action.Destination}
+		key := recoveryContentPathBaselineKey{scope: action.Scope(), destination: action.Destination()}
 		selection := recoveryContentPathBaselineSelectionKey{
 			recoveryContentPathBaselineKey: key,
-			contentPath:                    action.ContentPath,
+			contentPath:                    action.ContentPath(),
 		}
 		if _, duplicate := selected[selection]; duplicate {
 			return nil, fmt.Errorf(
 				"recovery content-path baseline repeats destination %q content path %q",
-				action.Destination,
-				action.ContentPath,
+				action.Destination(),
+				action.ContentPath(),
 			)
 		}
 		selected[selection] = struct{}{}
-		if action.AggregateContract == nil {
+		contract, present := action.AggregateContract()
+		if !present {
 			return nil, fmt.Errorf(
 				"recovery content-path baseline requires aggregate contract for destination %q content path %q",
-				action.Destination,
-				action.ContentPath,
+				action.Destination(),
+				action.ContentPath(),
 			)
 		}
-		contract := action.AggregateContract.Clone()
 		address := contract.Address()
 		contentPath, err := address.LegacyContentPath()
 		if err != nil {
 			return nil, err
 		}
 		document := address.Document()
-		if document.Scope() != action.Scope ||
-			document.AggregateRoot() != action.Destination ||
-			contentPath != aggregate.ContentPath(action.ContentPath) {
+		if document.Scope() != action.Scope() ||
+			document.AggregateRoot() != action.Destination() ||
+			contentPath != aggregate.ContentPath(action.ContentPath()) {
 			return nil, fmt.Errorf(
 				"recovery aggregate contract address %q%q does not match baseline %q%q",
 				document.AggregateRoot(),
 				contentPath,
-				action.Destination,
-				action.ContentPath,
+				action.Destination(),
+				action.ContentPath(),
 			)
 		}
 		contractsByDestination[key] = append(contractsByDestination[key], contract)
@@ -147,7 +150,7 @@ func newRecoveryContentPathBaselineCache(
 
 func (cache *recoveryContentPathBaselineCache) capture(
 	ctx context.Context,
-	action pathMutation,
+	action captureMutation,
 	resolver func(destination output.Destination) (string, error),
 	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,
@@ -155,7 +158,10 @@ func (cache *recoveryContentPathBaselineCache) capture(
 	if cache == nil {
 		return recoveryContentPathBaseline{}, fmt.Errorf("recovery content-path baseline cache is required")
 	}
-	key := recoveryContentPathBaselineKey{scope: action.Scope, destination: action.Destination}
+	if err := action.Validate(); err != nil {
+		return recoveryContentPathBaseline{}, err
+	}
+	key := recoveryContentPathBaselineKey{scope: action.Scope(), destination: action.Destination()}
 	if baseline, ok := cache.byDestination[key]; ok {
 		return baseline, nil
 	}
@@ -163,7 +169,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 	if !ok {
 		return recoveryContentPathBaseline{}, fmt.Errorf(
 			"recovery content-path baseline request is missing for destination %q",
-			action.Destination,
+			action.Destination(),
 		)
 	}
 
@@ -172,12 +178,12 @@ func (cache *recoveryContentPathBaselineCache) capture(
 		mode    fs.FileMode
 		err     error
 	)
-	switch action.Scope {
+	switch action.Scope() {
 	case target.ScopeProject:
 		content, mode, err = readProjectRecoveryRegularFile(
 			ctx,
 			cache.filesystem,
-			action.Destination,
+			action.Destination(),
 			manifestAuthority,
 			request.codec.MaximumDocumentBytes(),
 		)
@@ -186,21 +192,21 @@ func (cache *recoveryContentPathBaselineCache) capture(
 			return recoveryContentPathBaseline{}, fmt.Errorf("recovery destination resolver is required")
 		}
 		var hostPath string
-		hostPath, err = resolver(action.Destination)
+		hostPath, err = resolver(action.Destination())
 		if err != nil {
-			return recoveryContentPathBaseline{}, fmt.Errorf("resolve destination %q: %w", action.Destination, err)
+			return recoveryContentPathBaseline{}, fmt.Errorf("resolve destination %q: %w", action.Destination(), err)
 		}
 		if rootedCapability != nil {
 			var capability rootedpath.CommitCapability
 			var present bool
 			capability, present, err = acquireMatchingRootedCapability(
-				action.Destination,
+				action.Destination(),
 				hostPath,
 				rootedCapability,
 				nil,
 			)
 			if err == nil && !present {
-				err = fmt.Errorf("destination %q has no retained root authority", action.Destination)
+				err = fmt.Errorf("destination %q has no retained root authority", action.Destination())
 			}
 			if err == nil {
 				content, mode, _, err = cache.filesystem.ReadRootedRegularFileUpTo(
@@ -227,13 +233,13 @@ func (cache *recoveryContentPathBaselineCache) capture(
 			}
 		}
 		if err != nil {
-			err = fmt.Errorf("read destination %q for content-path recovery: %w", action.Destination, err)
+			err = fmt.Errorf("read destination %q for content-path recovery: %w", action.Destination(), err)
 		}
 	default:
 		return recoveryContentPathBaseline{}, fmt.Errorf(
 			"recovery content-path destination %q has unsupported scope %q",
-			action.Destination,
-			action.Scope,
+			action.Destination(),
+			action.Scope(),
 		)
 	}
 	if err != nil {
@@ -241,7 +247,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 	}
 	projections, err := deriveRecoveryContentPathProjections(
 		content,
-		action.Destination,
+		action.Destination(),
 		request,
 	)
 	if err != nil {
@@ -251,7 +257,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 		mode:        mode,
 		projections: projections,
 	}
-	if action.Scope == target.ScopeProject {
+	if action.Scope() == target.ScopeProject {
 		baseline.pathContentHash = artifact.HashFileContentWithExecutable(
 			content,
 			mode.Perm()&0o111 != 0,

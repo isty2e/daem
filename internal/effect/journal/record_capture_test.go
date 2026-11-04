@@ -132,6 +132,14 @@ func TestOrdinaryRecordDraftRejectsIncompleteAndReorderedEvidence(t *testing.T) 
 	}
 }
 
+func TestOrdinaryRecordDraftRejectsUninitializedCaptureInput(t *testing.T) {
+	input, _ := ordinaryRecordDraftInput(t)
+	input.mutations = []captureMutation{{}}
+	if draft, err := newOrdinaryRecordDraft(input); err == nil || draft != nil {
+		t.Fatal("uninitialized capture input produced a usable record draft")
+	}
+}
+
 func TestOrdinaryRecordDraftFreezesCaptureInputsAndBeforeMode(t *testing.T) {
 	input, before := ordinaryRecordDraftInput(t)
 	original := input.mutations[0]
@@ -139,17 +147,17 @@ func TestOrdinaryRecordDraftFreezesCaptureInputsAndBeforeMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input.mutations[0].ConsumerTargets[0] = target.TargetClaudeCode
-	input.mutations[0].PreviousState.ContentHash = "mutated"
-	input.mutations[0].PreviousState.ConsumerTargets[0] = target.TargetClaudeCode
+	input.mutations[0].facts.ConsumerTargets[0] = target.TargetClaudeCode
+	input.mutations[0].facts.PreviousState.ContentHash = "mutated"
+	input.mutations[0].facts.PreviousState.ConsumerTargets[0] = target.TargetClaudeCode
 	action, err := draft.beginEntry(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if action.Subject != original.Subject || action.ConsumerTargets[0] != target.TargetCodex || action.PreviousState.ContentHash != original.DesiredHash {
+	if action.facts.Subject != original.facts.Subject || action.facts.ConsumerTargets[0] != target.TargetCodex || action.facts.PreviousState.ContentHash != original.facts.DesiredHash {
 		t.Fatal("draft retained mutable caller input")
 	}
-	action.ConsumerTargets[0], action.PreviousState.ContentHash = target.TargetClaudeCode, "mutated again"
+	action.facts.ConsumerTargets[0], action.facts.PreviousState.ContentHash = target.TargetClaudeCode, "mutated again"
 	if err := draft.supplyBefore(before); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +176,10 @@ func TestOrdinaryRecordDraftFreezesCaptureInputsAndBeforeMode(t *testing.T) {
 		t.Fatal("record completion was replayed")
 	}
 
-	contract := claudeRecoveryBaselineMutation(t, target.ScopeProject, "copy").AggregateContract.Clone()
+	contract, present := claudeRecoveryBaselineMutation(t, target.ScopeProject, "copy").AggregateContract()
+	if !present {
+		t.Fatal("aggregate fixture has no contract")
+	}
 	cloned := cloneCaptureMutation(pathMutation{AggregateContract: &contract})
 	contract = aggregate.ProjectionContract{}
 	if cloned.AggregateContract == nil || cloned.AggregateContract.Validate() != nil {
@@ -178,8 +189,8 @@ func TestOrdinaryRecordDraftFreezesCaptureInputsAndBeforeMode(t *testing.T) {
 
 func TestOrdinaryRecordDraftPreservesStateErrorBeforeExpectedOrBinding(t *testing.T) {
 	input, before := ordinaryRecordDraftInput(t)
-	input.mutations[0].PreviousState.ContentHash = "wrong previous hash"
-	input.mutations[0].DesiredHash = ""
+	input.mutations[0].facts.PreviousState.ContentHash = "wrong previous hash"
+	input.mutations[0].facts.DesiredHash = ""
 	draft, err := newOrdinaryRecordDraft(input)
 	if err != nil {
 		t.Fatal(err)

@@ -34,7 +34,7 @@ type ordinaryRecordCaptureInput struct {
 	createdAt      time.Time
 	before, after  durable.Snapshot
 	manifest       rootedpath.AuthorityProvenance
-	mutations      []pathMutation
+	mutations      []captureMutation
 	removalDemands recovery.RemovalDemandSet
 }
 
@@ -71,9 +71,12 @@ func newOrdinaryRecordDraft(input ordinaryRecordCaptureInput) (*ordinaryRecordDr
 	if err := input.removalDemands.Validate(); err != nil {
 		return nil, fmt.Errorf("validate executable removal demands: %w", err)
 	}
+	if err := validateCaptureMutations(input.mutations); err != nil {
+		return nil, err
+	}
 	input.mutations = slices.Clone(input.mutations)
 	for index := range input.mutations {
-		input.mutations[index] = cloneCaptureMutation(input.mutations[index])
+		input.mutations[index].facts = cloneCaptureMutation(input.mutations[index].facts)
 	}
 	demands := make(map[removalRelationKey]recovery.RemovalDemand, input.removalDemands.Len())
 	for _, demand := range input.removalDemands.Demands() {
@@ -108,25 +111,30 @@ func (draft *ordinaryRecordDraft) reject(err error) error {
 
 func (draft *ordinaryRecordDraft) entryCount() int { return len(draft.input.mutations) }
 
-func (draft *ordinaryRecordDraft) beginEntry(ctx context.Context) (pathMutation, error) {
+func (draft *ordinaryRecordDraft) beginEntry(ctx context.Context) (captureMutation, error) {
 	if draft == nil || draft.phase != ordinaryRecordEntryReady || draft.cursor >= len(draft.input.mutations) {
-		return pathMutation{}, draft.reject(fmt.Errorf("record capture has no next entry in its current phase"))
+		return captureMutation{}, draft.reject(fmt.Errorf("record capture has no next entry in its current phase"))
 	}
 	if ctx == nil {
-		return pathMutation{}, draft.reject(fmt.Errorf("record capture context is required"))
+		return captureMutation{}, draft.reject(fmt.Errorf("record capture context is required"))
 	}
 	if err := ctx.Err(); err != nil {
-		return pathMutation{}, draft.reject(err)
+		return captureMutation{}, draft.reject(err)
 	}
+	mutation := draft.input.mutations[draft.cursor]
+	if err := mutation.Validate(); err != nil {
+		return captureMutation{}, draft.reject(err)
+	}
+	mutation.facts = cloneCaptureMutation(mutation.facts)
 	draft.phase = ordinaryRecordBefore
-	return cloneCaptureMutation(draft.input.mutations[draft.cursor]), nil
+	return mutation, nil
 }
 
 func (draft *ordinaryRecordDraft) supplyBefore(before recovery.BeforePathState) error {
 	if draft == nil || draft.phase != ordinaryRecordBefore {
 		return draft.reject(fmt.Errorf("record capture has no outstanding before-state demand"))
 	}
-	action := draft.input.mutations[draft.cursor]
+	action := draft.input.mutations[draft.cursor].facts
 	stateBefore, err := captureRecoveryStateBefore(action, draft.state)
 	if err != nil {
 		return draft.reject(err)
@@ -152,7 +160,7 @@ func (draft *ordinaryRecordDraft) supplyGlobalBinding(binding *capturedGlobalBin
 	if draft == nil || draft.phase != ordinaryRecordBinding {
 		return draft.reject(fmt.Errorf("record capture has no outstanding global-binding demand"))
 	}
-	action := draft.input.mutations[draft.cursor]
+	action := draft.input.mutations[draft.cursor].facts
 	if (action.Scope == target.ScopeGlobal) != (binding != nil) {
 		return draft.reject(fmt.Errorf("record capture global binding differs from its entry scope"))
 	}

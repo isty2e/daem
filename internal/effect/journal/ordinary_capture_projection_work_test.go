@@ -62,7 +62,7 @@ func TestOrdinaryProjectionCaptureChargesOneReadAndOnlySelectedBackupBytes(t *te
 	}
 	work := &ordinaryCaptureWork{budget: budget}
 	action := claudeRecoveryBaselineMutation(t, target.ScopeGlobal, "context7")
-	cache, err := newRecoveryContentPathBaselineCache([]pathMutation{action}, journalTestCodecs(), ordinaryCaptureReader{Reader: journalTestFilesystem(), work: work})
+	cache, err := newRecoveryContentPathBaselineCache([]captureMutation{action}, journalTestCodecs(), ordinaryCaptureReader{Reader: journalTestFilesystem(), work: work})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestOrdinaryProjectionCaptureChargesOneReadAndOnlySelectedBackupBytes(t *te
 		if err != nil {
 			t.Fatal(err)
 		}
-		selected, present, err := baseline.projection(action.ContentPath)
+		selected, present, err := baseline.projection(action.ContentPath())
 		if err != nil || !present || !bytes.Equal(selected, projection) {
 			t.Fatalf("selected backup lost its canonical projection: %s %v", selected, err)
 		}

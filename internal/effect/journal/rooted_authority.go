@@ -33,27 +33,30 @@ type recoveryGlobalPathObservation struct {
 type recoveryGlobalPathBindings map[output.Destination]recoveryGlobalPathObservation
 
 func captureRecoveryGlobalPathBindings(
-	actions []pathMutation,
+	actions []captureMutation,
 	resolver func(output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
 ) (recoveryGlobalPathBindings, error) {
+	if err := validateCaptureMutations(actions); err != nil {
+		return nil, err
+	}
 	bindings := make(recoveryGlobalPathBindings)
 	for _, action := range actions {
-		if action.Scope != target.ScopeGlobal {
+		if action.Scope() != target.ScopeGlobal {
 			continue
 		}
-		if _, present := bindings[action.Destination]; present {
+		if _, present := bindings[action.Destination()]; present {
 			continue
 		}
 		observed, err := observeRecoveryGlobalPathBinding(
-			action.Destination,
+			action.Destination(),
 			resolver,
 			rootedCapability,
 		)
 		if err != nil {
 			return nil, err
 		}
-		bindings[action.Destination] = observed
+		bindings[action.Destination()] = observed
 	}
 	return bindings, nil
 }

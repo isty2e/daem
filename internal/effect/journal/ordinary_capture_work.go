@@ -85,26 +85,29 @@ func (work *ordinaryCaptureWork) rootedResolver(resolver RootedCapabilityResolve
 	}
 }
 
-func (work *ordinaryCaptureWork) globalBindings(actions []pathMutation, resolver func(output.Destination) (string, error), rooted RootedCapabilityResolver) (recoveryGlobalPathBindings, error) {
+func (work *ordinaryCaptureWork) globalBindings(actions []captureMutation, resolver func(output.Destination) (string, error), rooted RootedCapabilityResolver) (recoveryGlobalPathBindings, error) {
 	if work.budget == nil {
 		return captureRecoveryGlobalPathBindings(actions, resolver, rooted)
 	}
+	if err := validateCaptureMutations(actions); err != nil {
+		return nil, err
+	}
 	bindings := make(recoveryGlobalPathBindings)
 	for _, action := range actions {
-		if action.Scope != target.ScopeGlobal {
+		if action.Scope() != target.ScopeGlobal {
 			continue
 		}
-		if _, present := bindings[action.Destination]; present {
+		if _, present := bindings[action.Destination()]; present {
 			continue
 		}
 		if rooted == nil {
 			return nil, fmt.Errorf("native ordinary capture requires retained global authority")
 		}
-		binding, err := observeRecoveryGlobalPathBindingForRecovery(action.Destination, resolver, rooted, work.budget)
+		binding, err := observeRecoveryGlobalPathBindingForRecovery(action.Destination(), resolver, rooted, work.budget)
 		if err != nil {
 			return nil, err
 		}
-		bindings[action.Destination] = binding
+		bindings[action.Destination()] = binding
 	}
 	return bindings, nil
 }

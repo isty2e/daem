@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -23,25 +24,25 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 	if err := os.Symlink(physicalRoot, aliasRoot); err != nil {
 		t.Fatalf("create global-root alias: %v", err)
 	}
-	destination, err := output.Parse("~/.codex/AGENTS.md")
+	destination, err := output.Parse("~/.claude.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resolverCalls := 0
 	resolver := func(output.Destination) (string, error) {
 		resolverCalls++
-		return filepath.Join(aliasRoot, ".codex", "AGENTS.md"), nil
+		return filepath.Join(aliasRoot, ".claude.json"), nil
 	}
-	actions := []pathMutation{
-		{Scope: target.ScopeGlobal, Destination: destination},
-		{Scope: target.ScopeGlobal, Destination: destination, ContentPath: "/servers/context7"},
+	actions := []captureMutation{claudeRecoveryBaselineMutation(t, target.ScopeGlobal, "context7"), claudeRecoveryBaselineMutation(t, target.ScopeGlobal, "other")}
+	if actions[0].ContentPath() == actions[1].ContentPath() {
+		t.Fatal("fixture requires two different selected members")
 	}
 
 	bindings, err := captureRecoveryGlobalPathBindings(actions, resolver, nil)
 	if err != nil {
 		t.Fatalf("captureRecoveryGlobalPathBindings returned error: %v", err)
 	}
-	want := filepath.Join(physicalRoot, ".codex", "AGENTS.md")
+	want := filepath.Join(physicalRoot, ".claude.json")
 	persisted, err := bindings.persisted(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatalf("persist global path binding: %v", err)
@@ -144,7 +145,7 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 		t.Context(),
 		recordedPathEntries([]recoveryEntry{entry}),
 		func(output.Destination) (string, error) {
-			return filepath.Join(differentRoot, ".codex", "AGENTS.md"), nil
+			return filepath.Join(differentRoot, ".claude.json"), nil
 		},
 		nil,
 		newRecoveryPathBudget(t),
@@ -240,7 +241,7 @@ func TestRecoveryGlobalPathBindingRejectsSamePathRootReplacement(t *testing.T) {
 	resolvedPath := filepath.Join(selectedRoot, ".codex", "AGENTS.md")
 	resolver := func(output.Destination) (string, error) { return resolvedPath, nil }
 	bindings, err := captureRecoveryGlobalPathBindings(
-		[]pathMutation{{Scope: target.ScopeGlobal, Destination: destination}},
+		[]captureMutation{normalizedPathCapture(t, pathMutationCreate, target.ScopeGlobal, destination, "", realization.PathProjectionDirectory)},
 		resolver,
 		nil,
 	)
@@ -289,7 +290,7 @@ func TestRecoveryGlobalPathBindingAcceptsNewSameMountDescendantRoot(t *testing.T
 	resolvedPath := filepath.Join(selectedRoot, "missing-parent", "server.json")
 	resolver := func(output.Destination) (string, error) { return resolvedPath, nil }
 	bindings, err := captureRecoveryGlobalPathBindings(
-		[]pathMutation{{Scope: target.ScopeGlobal, Destination: destination}},
+		[]captureMutation{normalizedPathCapture(t, pathMutationCreate, target.ScopeGlobal, destination, "", realization.PathProjectionDirectory)},
 		resolver,
 		nil,
 	)

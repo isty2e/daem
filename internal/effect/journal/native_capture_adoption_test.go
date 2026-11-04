@@ -1,11 +1,13 @@
 package journal
 
 import (
+	"os"
 	"reflect"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
@@ -62,24 +64,41 @@ func TestNativeCaptureWholeRecordCoversOnlyItsOwnExactKeyRetirement(t *testing.T
 			if err != nil || !reflect.DeepEqual(after.PendingCarrierInstalls(), before.PendingCarrierInstalls()) {
 				t.Fatal("joint projection transition lost unrelated complete-state facts", err)
 			}
-			mutation := pathMutation{Kind: pathMutationRecord, Subject: subject, ConsumerTargets: whole.ConsumerTargets(), Scope: whole.Scope(), Destination: destination, DesiredHash: hash, ExpectedPathMode: 0o600, ContentKind: realization.PathProjectionFile}
-			switch variant {
-			case "create":
-				mutation.Kind = pathMutationCreate
-			case "replace":
-				mutation.Kind = pathMutationReplace
-			case "previous whole":
-				mutation.PreviousState = previousPathStateFromManaged(whole)
-			case "uncorrelated destination":
-				mutation.Destination = other
-			case "uncorrelated hash":
-				mutation.DesiredHash = artifact.HashFileContent([]byte("different"))
-			case "uncorrelated mode":
-				mutation.ExpectedPathMode = 0o644
-			}
-			mutations := []pathMutation{mutation}
-			if variant == "no actor" {
-				mutations = nil
+			var mutations []captureMutation
+			if variant != "no actor" {
+				actionDestination, desiredHash, mode := destination, hash, os.FileMode(0o600)
+				if variant == "uncorrelated destination" {
+					actionDestination = other
+				}
+				if variant == "uncorrelated hash" {
+					desiredHash = artifact.HashFileContent([]byte("different"))
+				}
+				if variant == "uncorrelated mode" {
+					mode = 0o644
+				}
+				var mutation ManagedPathMutation
+				exists, liveHash := true, hash
+				switch variant {
+				case "create":
+					exists, liveHash = false, ""
+					mutation, err = NewManagedPathCreateMutation(subject, whole.ConsumerTargets(), whole.Scope(), actionDestination, desiredHash, realization.PathProjectionFile, mode, nil)
+				case "replace":
+					mutation, err = NewManagedPathReplaceMutation(subject, whole.ConsumerTargets(), whole.Scope(), actionDestination, desiredHash, liveHash, realization.PathProjectionFile, mode, whole)
+				default:
+					var previous *durable.ManagedPathState
+					if variant == "previous whole" {
+						previous = &whole
+					}
+					mutation, err = NewManagedPathRecordMutation(subject, whole.ConsumerTargets(), whole.Scope(), actionDestination, desiredHash, liveHash, realization.PathProjectionFile, mode, previous)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				evidence := testManagedPathEvidence(t, subject, actionDestination, exists, liveHash)
+				mutations, err = pathMutations([]ManagedPathMutation{mutation}, nil, []observe.ManagedPathEvidence{evidence})
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			err = validateNativeCaptureWork(before, after, nil, mutations, nil)
 			if (err == nil) != (variant == "matched record") {

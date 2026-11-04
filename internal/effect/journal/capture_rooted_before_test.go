@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
@@ -35,7 +36,7 @@ func TestCaptureGlobalExistingDirectoryUsesRootedCapabilityAndHashEquivalentBack
 		nil,
 		func(requested output.Destination, _ rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 			callbackUsed = true
-			if requested != action.Destination {
+			if requested != action.Destination() {
 				return nil, false, fmt.Errorf("unexpected rooted destination %q", requested)
 			}
 			capability, err := root.Acquire(destination)
@@ -147,12 +148,7 @@ func TestCaptureGlobalFileFallbackUsesBoundedStableSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	contentHash := artifact.HashFileContentWithExecutable(content, true)
-	action := pathMutation{
-		Kind: pathMutationReplace, Scope: target.ScopeGlobal,
-		Destination: outputtest.Parse(t, "~/.codex/AGENTS.md"),
-		LiveExists:  true, LiveHash: contentHash,
-		LivePathExists: true, LivePathHash: contentHash,
-	}
+	action := normalizedPathCapture(t, pathMutationReplace, target.ScopeGlobal, outputtest.Parse(t, "~/.codex/AGENTS.md"), contentHash, realization.PathProjectionFile)
 	operationDir := t.TempDir()
 
 	before, backupIndex, err := captureExistingRecoveryBeforePath(
@@ -206,12 +202,7 @@ func rootedGlobalDirectoryFixture(
 	return root, destination, contentHash
 }
 
-func rootedGlobalUpdateAction(t testing.TB, contentHash artifact.ContentHash) pathMutation {
+func rootedGlobalUpdateAction(t *testing.T, contentHash artifact.ContentHash) captureMutation {
 	t.Helper()
-	return pathMutation{
-		Kind: pathMutationReplace, Scope: target.ScopeGlobal,
-		Destination: outputtest.Parse(t, "~/.agents/skills/review"),
-		LiveExists:  true, LiveHash: contentHash,
-		LivePathExists: true, LivePathHash: contentHash,
-	}
+	return normalizedPathCapture(t, pathMutationReplace, target.ScopeGlobal, outputtest.Parse(t, "~/.agents/skills/review"), contentHash, realization.PathProjectionDirectory)
 }
