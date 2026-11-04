@@ -1,22 +1,24 @@
-package recovery
+package physicalwork
 
 import (
 	"errors"
 	"testing"
+
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 )
 
 func TestInvocationAttachmentIsPrepaidAndSeparateFromCommandAndSafety(t *testing.T) {
 	shared := &invocationPathEnvelope{limit: 100, cause: errors.New("shared limit")}
-	parent := NewPhysicalCaptureBudget(shared)
-	attachment, err := NewInvocationWork([]int{2}, ArtifactWork{entries: 1, bytes: 3})
+	parent := NewCaptureBudget(shared)
+	attachment, err := NewInvocationWork([]int{2}, artifactWork(t, 1, 3))
 	if err != nil {
 		t.Fatal(err)
 	}
-	forward, err := NewInvocationWork([]int{4}, ArtifactWork{entries: 2, bytes: 5})
+	forward, err := NewInvocationWork([]int{4}, artifactWork(t, 2, 5))
 	if err != nil {
 		t.Fatal(err)
 	}
-	safety, err := NewInvocationWork([]int{6}, ArtifactWork{entries: 3, bytes: 7})
+	safety, err := NewInvocationWork([]int{6}, artifactWork(t, 3, 7))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +86,7 @@ func TestInvocationAttachmentReservationRefusesCompleteOverdraw(t *testing.T) {
 	for _, dimension := range []string{"path", "entries", "bytes"} {
 		t.Run(dimension, func(t *testing.T) {
 			shared := &invocationPathEnvelope{limit: 100, cause: errors.New("shared limit")}
-			parent := NewPhysicalCaptureBudget(shared)
+			parent := NewCaptureBudget(shared)
 			switch dimension {
 			case "path":
 				parent.pathComponentLimit = 5
@@ -93,7 +95,7 @@ func TestInvocationAttachmentReservationRefusesCompleteOverdraw(t *testing.T) {
 			case "bytes":
 				parent.byteLimit = 5
 			}
-			work, err := NewInvocationWork([]int{2}, ArtifactWork{entries: 2, bytes: 2})
+			work, err := NewInvocationWork([]int{2}, artifactWork(t, 2, 2))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -114,8 +116,8 @@ func TestInvocationAttachmentReservationRefusesCompleteOverdraw(t *testing.T) {
 func TestInvocationAttachmentFailureRetainsSpentSharedWork(t *testing.T) {
 	cause := errors.New("shared limit")
 	shared := &invocationPathEnvelope{limit: 3, cause: cause}
-	parent := NewPhysicalCaptureBudget(shared)
-	work, err := NewInvocationWork([]int{2}, ArtifactWork{})
+	parent := NewCaptureBudget(shared)
+	work, err := NewInvocationWork([]int{2}, workmeasure.ArtifactWork{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +134,7 @@ func TestInvocationAttachmentFailureRetainsSpentSharedWork(t *testing.T) {
 }
 
 func TestZeroWorkAttachmentStillHasOneTransfer(t *testing.T) {
-	parent := NewPhysicalCaptureBudget(nil)
+	parent := NewCaptureBudget(nil)
 	prospective, err := parent.ReserveInvocationWithAttachment(InvocationWork{}, InvocationWork{}, InvocationWork{})
 	if err != nil {
 		t.Fatal(err)

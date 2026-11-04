@@ -60,21 +60,21 @@ func backupMismatch(before BeforePathState, backups map[string]BackupEvidence) s
 	}
 	switch backup.Kind {
 	case PathKindFile:
-		if backup.Work.entries != 0 || backup.Work.bytes > MaximumRecoveryBackupFileBytes {
+		if backup.Work.Entries() != 0 || backup.Work.Bytes() > MaximumRecoveryBackupFileBytes {
 			return fmt.Sprintf(
 				"file backup work entries=%d bytes=%d exceeds entries=0 bytes=%d",
-				backup.Work.entries,
-				backup.Work.bytes,
+				backup.Work.Entries(),
+				backup.Work.Bytes(),
 				MaximumRecoveryBackupFileBytes,
 			)
 		}
 	case PathKindDirectory:
-		if backup.Work.entries > MaximumArtifactTreeEntries ||
-			backup.Work.bytes > MaximumArtifactTreeBytes {
+		if backup.Work.Entries() > MaximumArtifactTreeEntries ||
+			backup.Work.Bytes() > MaximumArtifactTreeBytes {
 			return fmt.Sprintf(
 				"directory backup work entries=%d bytes=%d exceeds entries=%d bytes=%d",
-				backup.Work.entries,
-				backup.Work.bytes,
+				backup.Work.Entries(),
+				backup.Work.Bytes(),
 				MaximumArtifactTreeEntries,
 				MaximumArtifactTreeBytes,
 			)

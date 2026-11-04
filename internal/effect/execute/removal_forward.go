@@ -10,20 +10,22 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/payload"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
 type forwardRemovalReservation struct {
 	state    recovery.RemovalState
-	capacity recovery.ForwardRemovalCapacity
+	capacity physicalwork.ForwardRemovalCapacity
 	consumed bool
 }
 
 type forwardRemovalCertificate struct {
 	relation removalRelationKey
 	state    recovery.RemovalState
-	measure  func(context.Context, recovery.ArtifactWork) (recovery.ArtifactWork, error)
+	measure  func(context.Context, workmeasure.ArtifactWork) (workmeasure.ArtifactWork, error)
 }
 
 func (authority *mutationAuthority) prepareApplyForwardRemovals(
@@ -96,7 +98,7 @@ func applyForwardRemovalCertificates(
 		certificates = append(certificates, forwardRemovalCertificate{
 			relation: relation,
 			state:    state,
-			measure: func(ctx context.Context, maximum recovery.ArtifactWork) (recovery.ArtifactWork, error) {
+			measure: func(ctx context.Context, maximum workmeasure.ArtifactWork) (workmeasure.ArtifactWork, error) {
 				return measureDirectoryArtifactRemovalWork(
 					ctx,
 					directory.View(),
@@ -141,8 +143,8 @@ func constantForwardRemovalCertificate(
 	return forwardRemovalCertificate{
 		relation: relation,
 		state:    state,
-		measure: func(context.Context, recovery.ArtifactWork) (recovery.ArtifactWork, error) {
-			return recovery.NewArtifactWork(entries, bytes)
+		measure: func(context.Context, workmeasure.ArtifactWork) (workmeasure.ArtifactWork, error) {
+			return workmeasure.NewArtifactWork(entries, bytes)
 		},
 	}
 }
@@ -169,8 +171,8 @@ func measureDirectoryArtifactRemovalWork(
 	ctx context.Context,
 	view access.View,
 	identity artifact.ExactIdentity,
-	maximum recovery.ArtifactWork,
-) (recovery.ArtifactWork, error) {
+	maximum workmeasure.ArtifactWork,
+) (workmeasure.ArtifactWork, error) {
 	maximumEntries := min(maximum.Entries(), recovery.MaximumArtifactTreeEntries)
 	maximumBytes := min(maximum.Bytes(), recovery.MaximumArtifactTreeBytes)
 	traversal, err := access.NewTraversalLimit(
@@ -178,14 +180,14 @@ func measureDirectoryArtifactRemovalWork(
 		max(int64(1), maximumBytes),
 	)
 	if err != nil {
-		return recovery.ArtifactWork{}, err
+		return workmeasure.ArtifactWork{}, err
 	}
 	structure, err := access.NewTreeStructureLimit(
 		max(1, maximumEntries),
 		recovery.MaximumArtifactTreeDepth,
 	)
 	if err != nil {
-		return recovery.ArtifactWork{}, err
+		return workmeasure.ArtifactWork{}, err
 	}
 	measurement, err := view.MeasureVerifiedDirectory(
 		ctx,
@@ -194,9 +196,9 @@ func measureDirectoryArtifactRemovalWork(
 		structure,
 	)
 	if err != nil {
-		return recovery.ArtifactWork{}, err
+		return workmeasure.ArtifactWork{}, err
 	}
-	return recovery.NewArtifactWork(
+	return workmeasure.NewArtifactWork(
 		measurement.DescendantEntries(),
 		measurement.RegularFileBytes(),
 	)
@@ -310,7 +312,7 @@ func (authority *mutationAuthority) prepareForwardRemovalReservations(
 
 func (authority *mutationAuthority) reserveForwardRemovalExecutionBudget(
 	reservations map[removalRelationKey][]forwardRemovalReservation,
-) (*recovery.PhysicalWorkBudget, error) {
+) (*physicalwork.Budget, error) {
 	if authority == nil {
 		return nil, fmt.Errorf("forward removal authority is unavailable")
 	}
@@ -378,20 +380,20 @@ func (authority *mutationAuthority) observeForwardRemovalCurrent(
 	relation removalRelationKey,
 	states []recovery.RemovalState,
 	certificates []forwardRemovalCertificate,
-) (recovery.RemovalState, recovery.ArtifactWork, bool, error) {
+) (recovery.RemovalState, workmeasure.ArtifactWork, bool, error) {
 	destination, present := authority.removalDestinations[relation]
 	if !present || !destination.isRooted() {
-		return recovery.RemovalState{}, recovery.ArtifactWork{}, false, fmt.Errorf(
+		return recovery.RemovalState{}, workmeasure.ArtifactWork{}, false, fmt.Errorf(
 			"forward removal destination is not physically bound",
 		)
 	}
 	capability, err := destination.root.AcquireBounded(
 		destination.destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.physicalWorkBudget,
 	)
 	if err != nil {
-		return recovery.RemovalState{}, recovery.ArtifactWork{}, false, err
+		return recovery.RemovalState{}, workmeasure.ArtifactWork{}, false, err
 	}
 	observation, _, work, observeErr := journal.ObserveRootedRemovalEntry(
 		ctx,
@@ -402,13 +404,13 @@ func (authority *mutationAuthority) observeForwardRemovalCurrent(
 	)
 	closeErr := capability.Close()
 	if observeErr != nil || closeErr != nil {
-		return recovery.RemovalState{}, recovery.ArtifactWork{}, false, errors.Join(observeErr, closeErr)
+		return recovery.RemovalState{}, workmeasure.ArtifactWork{}, false, errors.Join(observeErr, closeErr)
 	}
 	if observation.Status() == recovery.RemovalResidueEntryAbsent {
-		return recovery.RemovalState{}, recovery.ArtifactWork{}, false, nil
+		return recovery.RemovalState{}, workmeasure.ArtifactWork{}, false, nil
 	}
 	if observation.Status() != recovery.RemovalResidueEntryPresent {
-		return recovery.RemovalState{}, recovery.ArtifactWork{}, false, fmt.Errorf(
+		return recovery.RemovalState{}, workmeasure.ArtifactWork{}, false, fmt.Errorf(
 			"current entry is not a removable regular file or directory",
 		)
 	}
@@ -420,7 +422,7 @@ func (authority *mutationAuthority) observeForwardRemovalCurrent(
 		}
 	}
 	if len(matching) == 0 {
-		return recovery.RemovalState{}, recovery.ArtifactWork{}, false, fmt.Errorf(
+		return recovery.RemovalState{}, workmeasure.ArtifactWork{}, false, fmt.Errorf(
 			"current entry does not match an admitted removable state",
 		)
 	}
@@ -444,7 +446,7 @@ func (authority *mutationAuthority) beginForwardRemoval(
 	}
 	relation := removalRelationKey{scope: destination.scope, destination: destination.logical}
 	reservations := authority.forwardRemovalReservations[relation]
-	var envelope recovery.ForwardRemovalCapacity
+	var envelope physicalwork.ForwardRemovalCapacity
 	haveEnvelope := false
 	for _, reservation := range reservations {
 		if reservation.consumed {

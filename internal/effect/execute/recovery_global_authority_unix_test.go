@@ -22,6 +22,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -345,7 +347,7 @@ func TestRecoveryRejectsUnreservableRollbackWorkBeforeHostEffect(t *testing.T) {
 
 	baselineBytes := int64(len(fixture.after))
 	remainingForStage := baselineBytes * 2
-	consume, err := recovery.NewArtifactWork(
+	consume, err := workmeasure.NewArtifactWork(
 		0,
 		authority.physicalWorkBudget.RemainingBytes()-remainingForStage,
 	)
@@ -491,11 +493,11 @@ func TestRecoveryBackupAcceptsEquivalentReplacementAfterViewSelection(t *testing
 }
 
 func TestRecoveryBackupRejectsOversizedRegularFile(t *testing.T) {
-	budget, err := recovery.NewPhysicalWorkBudget(1)
+	budget, err := physicalwork.NewBudget(1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, err := recovery.NewArtifactWork(0, recovery.MaximumRecoveryBackupFileBytes+1)
+	work, err := workmeasure.NewArtifactWork(0, recovery.MaximumRecoveryBackupFileBytes+1)
 	if err != nil {
 		t.Fatal(err)
 	}

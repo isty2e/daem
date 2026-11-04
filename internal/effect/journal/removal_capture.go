@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -99,7 +100,7 @@ func captureRemovalIntents(
 		return nil, fmt.Errorf("removal intent resolver is required")
 	}
 
-	budget, err := recovery.NewPhysicalWorkBudget(demands.Len())
+	budget, err := physicalwork.NewBudget(demands.Len())
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +162,7 @@ func canonicalRemovalIntentPath(value string) (string, error) {
 }
 
 func reserveRemovalIntentNamespacePathCapacity(
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 	destinationPath string,
 	namespace recovery.RemovalNamespaceAuthority,
 ) error {
@@ -189,7 +190,7 @@ func captureRemovalNamespace(
 	ctx context.Context,
 	absolute string,
 	usedNames map[string]struct{},
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (result recovery.RemovalNamespaceAuthority, physicalPath string, resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return recovery.RemovalNamespaceAuthority{}, "", err
@@ -201,7 +202,7 @@ func captureRemovalNamespace(
 	}
 	root, destination, err := rootedpath.CaptureDestinationBounded(
 		absolute,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if err != nil {

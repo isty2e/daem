@@ -9,6 +9,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
@@ -22,7 +24,7 @@ type recoveryHostAction struct {
 	BackupPath          string
 	BackupHash          string
 	BackupKind          string
-	BackupWork          recovery.ArtifactWork
+	BackupWork          workmeasure.ArtifactWork
 	BeforePathMode      *recovery.PermissionMode
 	BeforePathExisted   bool
 	BeforeParentExisted bool
@@ -127,7 +129,7 @@ func newRecoveryMutationAuthority(
 	if err != nil {
 		return nil, err
 	}
-	physicalWorkBudget, err := recovery.NewPhysicalWorkBudget(demands.Len())
+	physicalWorkBudget, err := physicalwork.NewBudget(demands.Len())
 	if err != nil {
 		return nil, err
 	}
@@ -630,7 +632,7 @@ func executeRecoveryAggregateActionGroup(
 		}
 		return recoveryWholePathState{}, outcome.err
 	}
-	expectedWork, err := recovery.NewArtifactWork(0, int64(len(expected.Document().Content())))
+	expectedWork, err := workmeasure.NewArtifactWork(0, int64(len(expected.Document().Content())))
 	if err != nil {
 		return recoveryWholePathState{}, err
 	}

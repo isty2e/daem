@@ -14,7 +14,9 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -216,11 +218,11 @@ func TestRecoveryBackupObservationChargesIndeterminateDirectoryMaximum(t *testin
 }
 
 func TestRecoveryDirectoryObservationRequiresOverflowCapacityBeforeRead(t *testing.T) {
-	budget, err := recovery.NewPhysicalWorkBudget(1)
+	budget, err := physicalwork.NewBudget(1)
 	if err != nil {
 		t.Fatalf("construct recovery budget: %v", err)
 	}
-	allEntries, err := recovery.NewArtifactWork(budget.RemainingEntries(), 0)
+	allEntries, err := workmeasure.NewArtifactWork(budget.RemainingEntries(), 0)
 	if err != nil {
 		t.Fatalf("construct aggregate entry work: %v", err)
 	}
@@ -307,7 +309,7 @@ func TestRecoveryBackupObservationRejectsExhaustedPathBudgetBeforePayloadWork(t 
 		BackupPath: backupRelativePath,
 	}}
 	budget := recoveryBackupBudgetForTest(t)
-	for budget.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	for budget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
 	before := budget.RemainingTreeWork()
 
@@ -639,9 +641,9 @@ func TestRemovalCleanupAssessmentContinuesConsumedPlanningBudget(t *testing.T) {
 	}
 }
 
-func recoveryBackupBudgetForTest(t *testing.T) *recovery.PhysicalWorkBudget {
+func recoveryBackupBudgetForTest(t *testing.T) *physicalwork.Budget {
 	t.Helper()
-	budget, err := recovery.NewPhysicalWorkBudget(1)
+	budget, err := physicalwork.NewBudget(1)
 	if err != nil {
 		t.Fatalf("construct recovery backup work budget: %v", err)
 	}
@@ -650,13 +652,13 @@ func recoveryBackupBudgetForTest(t *testing.T) *recovery.PhysicalWorkBudget {
 
 func consumeRecoveryBackupBudgetLeaving(
 	t *testing.T,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 	entries int,
 	bytes int64,
 ) {
 	t.Helper()
 	remaining := budget.RemainingTreeWork()
-	work, err := recovery.NewArtifactWork(
+	work, err := workmeasure.NewArtifactWork(
 		remaining.Entries()-entries,
 		remaining.Bytes()-bytes,
 	)
@@ -673,12 +675,12 @@ func observeRecoveryBackupPathForTest(
 	ctx context.Context,
 	journalPath string,
 	hostPath string,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (recoveryBackupObservation, error) {
 	t.Helper()
 	root, destination, err := rootedpath.CaptureDestinationBounded(
 		hostPath,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if err != nil {
@@ -686,7 +688,7 @@ func observeRecoveryBackupPathForTest(
 	}
 	capability, err := root.AcquireBounded(
 		destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if err != nil {
@@ -707,7 +709,7 @@ func recoveryBackupObservationsForTest(
 	ctx context.Context,
 	operationDir string,
 	entries []recoveryEntry,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) ([]recoveryBackupObservation, error) {
 	t.Helper()
 	canonicalOperationDir, err := filepath.EvalSymlinks(operationDir)

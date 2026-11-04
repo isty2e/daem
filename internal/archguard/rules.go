@@ -317,7 +317,7 @@ func forbiddenReconciliation() forbiddenImport {
 }
 
 func forbiddenJournal() forbiddenImport {
-	return forbiddenImport{name: "journal", paths: []string{"internal/effect/journal"}}
+	return forbiddenImport{name: "journal", paths: []string{"internal/effect/journal", "internal/effect/physicalwork"}}
 }
 
 func forbiddenExecute() forbiddenImport {

@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
 
-func readWorkCapability(t *testing.T, payload []byte, entries int, payloadBytes int64) (rootedpath.CommitCapability, *recovery.PhysicalWorkBudget, string) {
+func readWorkCapability(t *testing.T, payload []byte, entries int, payloadBytes int64) (rootedpath.CommitCapability, *physicalwork.Budget, string) {
 	t.Helper()
 	path := filepath.Join(canonicalTempDir(t), "payload")
 	if err := os.WriteFile(path, payload, 0o600); err != nil {
@@ -24,11 +24,11 @@ func readWorkCapability(t *testing.T, payload []byte, entries int, payloadBytes 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
-	budget := recovery.NewPhysicalCaptureBudget(nil)
-	if err := budget.AdmitPhysicalWork(0, recovery.MaximumPhysicalEntries-entries, recovery.MaximumPhysicalBytes-payloadBytes); err != nil {
+	budget := physicalwork.NewCaptureBudget(nil)
+	if err := budget.AdmitPhysicalWork(0, physicalwork.MaximumPhysicalEntries-entries, physicalwork.MaximumPhysicalBytes-payloadBytes); err != nil {
 		t.Fatal(err)
 	}
-	capability, err := root.AcquireBounded(destination, recovery.MaximumPhysicalPathDepth, budget)
+	capability, err := root.AcquireBounded(destination, physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		t.Fatal(err)
 	}

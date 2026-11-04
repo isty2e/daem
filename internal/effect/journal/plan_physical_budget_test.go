@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
 
 func TestLoadRecoverablePlanChargesInventoryToProvidedPhysicalBudget(t *testing.T) {
-	budget := recovery.NewPhysicalPathBudget()
-	for budget.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	budget := physicalwork.NewPathBudget()
+	for budget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
 
 	_, err := LoadRecoverablePlanWithOptions(

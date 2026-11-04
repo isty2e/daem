@@ -12,6 +12,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 )
 
 type retirementDestinations struct {
@@ -34,8 +36,8 @@ type retirementExecutionEvidence struct {
 	controlCurrentLimits mutationfs.TreeTraversalLimits
 	controlFinalLimits   mutationfs.TreeTraversalLimits
 	residueLimits        mutationfs.TreeTraversalLimits
-	controlCurrentWork   recovery.ArtifactWork
-	controlFinalWork     recovery.ArtifactWork
+	controlCurrentWork   workmeasure.ArtifactWork
+	controlFinalWork     workmeasure.ArtifactWork
 }
 
 // RetirementContinuation is one single-use, pre-effect journal-retirement
@@ -54,7 +56,7 @@ type retirementContinuationState struct {
 	rootAuthority        rootedpath.Authority
 	destinations         retirementDestinations
 	bindings             retirementBindings
-	executionBudget      *recovery.PhysicalWorkBudget
+	executionBudget      *physicalwork.Budget
 	maximumPhysicalDepth int
 	filesystem           mutationfs.RootedStore
 	stateCodec           durable.SnapshotCodec
@@ -64,7 +66,7 @@ type retirementContinuationState struct {
 }
 
 type retirementPathReservation struct {
-	budget *recovery.PhysicalWorkBudget
+	budget *physicalwork.Budget
 }
 
 func (reservation retirementPathReservation) AdmitPathComponents(count int) error {
@@ -80,7 +82,7 @@ func PrepareActiveJournalRetirement(
 	activeAuthority ActiveJournalAuthority,
 	recoveryRoot string,
 	maximumPhysicalDepth int,
-	physicalWorkBudget *recovery.PhysicalWorkBudget,
+	physicalWorkBudget *physicalwork.Budget,
 	filesystem mutationfs.RootedStore,
 	stateCodec durable.SnapshotCodec,
 ) (*RetirementContinuation, error) {
@@ -126,7 +128,7 @@ func PrepareJournalCleanup(
 	plan retirement.CleanupPlan,
 	recoveryRoot string,
 	maximumPhysicalDepth int,
-	physicalWorkBudget *recovery.PhysicalWorkBudget,
+	physicalWorkBudget *physicalwork.Budget,
 	filesystem mutationfs.RootedStore,
 ) (*RetirementContinuation, error) {
 	authority := plan.Authority()
@@ -157,7 +159,7 @@ func prepareRetirement(
 	execution retirementExecution,
 	recoveryRoot string,
 	maximumPhysicalDepth int,
-	physicalWorkBudget *recovery.PhysicalWorkBudget,
+	physicalWorkBudget *physicalwork.Budget,
 	filesystem mutationfs.RootedStore,
 	stateCodec durable.SnapshotCodec,
 ) (_ *RetirementContinuation, returnErr error) {
@@ -357,7 +359,7 @@ func reserveRetirementExecution(
 	root *rootedpath.CapturedRoot,
 	destinations retirementDestinations,
 	maximumPhysicalDepth int,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) error {
 	reservation := retirementPathReservation{budget: budget}
 	reserveAccesses := func(destination rootedpath.Destination, count int) error {
@@ -372,7 +374,7 @@ func reserveRetirementExecution(
 		}
 		return nil
 	}
-	reserveCleanup := func(destination rootedpath.Destination, work recovery.ArtifactWork) error {
+	reserveCleanup := func(destination rootedpath.Destination, work workmeasure.ArtifactWork) error {
 		validationWork, err := destination.ParentChainValidationWork()
 		if err != nil {
 			return err
@@ -407,7 +409,7 @@ func reserveRetirementExecution(
 				return fmt.Errorf("reserve active journal retirement rebind work: %w", err)
 			}
 		}
-		activeEnvelopeWork, err := recovery.NewArtifactWork(
+		activeEnvelopeWork, err := workmeasure.NewArtifactWork(
 			evidence.activeEnvelopeLimits.MaximumEntries(),
 			evidence.activeEnvelopeLimits.MaximumBytes(),
 		)
@@ -422,7 +424,7 @@ func reserveRetirementExecution(
 		if err := reserveCleanup(destinations.residue, activeEnvelopeWork); err != nil {
 			return err
 		}
-		journalWork, err := recovery.NewArtifactWork(0, maximumRecoveryJournalBytes)
+		journalWork, err := workmeasure.NewArtifactWork(0, maximumRecoveryJournalBytes)
 		if err != nil {
 			return err
 		}
@@ -478,11 +480,11 @@ func reserveRetirementExecution(
 		if err != nil {
 			return err
 		}
-		currentRecordWork, err := recovery.NewArtifactWork(0, int64(len(currentRecord)))
+		currentRecordWork, err := workmeasure.NewArtifactWork(0, int64(len(currentRecord)))
 		if err != nil {
 			return err
 		}
-		finalRecordWork, err := recovery.NewArtifactWork(0, int64(len(finalRecord)))
+		finalRecordWork, err := workmeasure.NewArtifactWork(0, int64(len(finalRecord)))
 		if err != nil {
 			return err
 		}

@@ -10,6 +10,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -23,7 +25,7 @@ func observeProjectRecoveryPath(
 	filesystem mutationfs.RootedReader,
 	manifestAuthority *manifestAuthoritySession,
 	codecs aggregate.CodecCatalog,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (recoveryPathObservation, error) {
 	base := recoveryPathObservation{Path: journalPath, ContentPath: contentPath}
 	if manifestAuthority == nil {
@@ -73,7 +75,7 @@ func observeGlobalRecoveryPath(
 	filesystem mutationfs.RootedReader,
 	resolver RootedCapabilityResolver,
 	codecs aggregate.CodecCatalog,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (recoveryPathObservation, error) {
 	base := recoveryPathObservation{Path: journalPath, ContentPath: contentPath}
 	destination, err := output.Parse(journalPath)
@@ -98,7 +100,7 @@ func observeGlobalRecoveryPath(
 		}
 		root, bound, captureErr := rootedpath.CaptureDestinationBounded(
 			resolvedPath,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			budget,
 		)
 		if captureErr != nil {
@@ -107,7 +109,7 @@ func observeGlobalRecoveryPath(
 		}
 		capability, err = root.AcquireBounded(
 			bound,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			budget,
 		)
 		closeErr := root.Close()
@@ -151,7 +153,7 @@ func observeRootedRecoveryCapability(
 	filesystem mutationfs.RootedReader,
 	capability rootedpath.CommitCapability,
 	codecs aggregate.CodecCatalog,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (recoveryPathObservation, error) {
 	base := recoveryPathObservation{Path: journalPath, ContentPath: contentPath}
 	identity, err := filesystem.CaptureRootedEntryIdentity(ctx, capability)
@@ -205,7 +207,7 @@ func observeRootedRecoveryCapability(
 			base.Error = fmt.Sprintf("read rooted destination: %v", err)
 			return base, nil
 		}
-		work, err := recovery.NewArtifactWork(0, int64(len(content)))
+		work, err := workmeasure.NewArtifactWork(0, int64(len(content)))
 		if err != nil {
 			return recoveryPathObservation{}, err
 		}
@@ -291,7 +293,7 @@ func observeRootedRecoverySymlink(
 	contentPath string,
 	filesystem mutationfs.RootedReader,
 	capability rootedpath.CommitCapability,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (recoveryPathObservation, error) {
 	base.Exists = true
 	if contentPath != "" {
@@ -388,8 +390,8 @@ func (sink *rootedTreeHashSink) VisitRegularFile(
 	)
 }
 
-func (sink *rootedTreeHashSink) removalWork() (recovery.ArtifactWork, error) {
-	return recovery.NewArtifactWork(sink.entries, sink.bytes)
+func (sink *rootedTreeHashSink) removalWork() (workmeasure.ArtifactWork, error) {
+	return workmeasure.NewArtifactWork(sink.entries, sink.bytes)
 }
 
 func (sink *rootedTreeHashSink) hash() (artifact.ContentHash, error) {

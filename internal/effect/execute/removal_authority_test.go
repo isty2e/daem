@@ -16,6 +16,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -34,7 +36,7 @@ func TestObserveRemovalSlotPreservesCancellation(t *testing.T) {
 	if err := os.WriteFile(selected, nil, 0o600); err != nil {
 		t.Fatalf("create removal slot: %v", err)
 	}
-	budget, err := recovery.NewPhysicalWorkBudget(1)
+	budget, err := physicalwork.NewBudget(1)
 	if err != nil {
 		t.Fatalf("construct removal budget: %v", err)
 	}
@@ -71,11 +73,11 @@ func TestAcquireRemovalSlotRejectsExhaustedPathBudget(t *testing.T) {
 	if err := os.WriteFile(selected, nil, 0o600); err != nil {
 		t.Fatalf("create removal slot: %v", err)
 	}
-	budget, err := recovery.NewPhysicalWorkBudget(1)
+	budget, err := physicalwork.NewBudget(1)
 	if err != nil {
 		t.Fatalf("construct removal budget: %v", err)
 	}
-	for budget.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	for budget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
 
 	_, err = authority.acquireRemovalSlot(destination, selected, budget)
@@ -274,7 +276,7 @@ func bindTestRemovalIntent(
 	if err != nil {
 		t.Fatalf("construct test removal demand set: %v", err)
 	}
-	budget, err := recovery.NewPhysicalWorkBudget(demands.Len())
+	budget, err := physicalwork.NewBudget(demands.Len())
 	if err != nil {
 		t.Fatalf("construct test removal budget: %v", err)
 	}
@@ -353,12 +355,12 @@ func TestForwardCleanupCapacityFailureDoesNotPublishPartialPreparation(t *testin
 	certificate := forwardRemovalCertificate{
 		relation: relation,
 		state:    state,
-		measure: func(context.Context, recovery.ArtifactWork) (recovery.ArtifactWork, error) {
-			for authority.physicalWorkBudget.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+		measure: func(context.Context, workmeasure.ArtifactWork) (workmeasure.ArtifactWork, error) {
+			for authority.physicalWorkBudget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 			}
 			for authority.physicalWorkBudget.AdmitPathComponents(1) == nil {
 			}
-			return recovery.NewArtifactWork(0, int64(len(content)))
+			return workmeasure.NewArtifactWork(0, int64(len(content)))
 		},
 	}
 
@@ -499,7 +501,7 @@ func TestRemovalBindingReusesCanonicalGlobalDestination(t *testing.T) {
 
 func TestRemovalDemandBoundsProjectRootBeforeMutationBinding(t *testing.T) {
 	physicalRoot := t.TempDir()
-	components := make([]string, recovery.MaximumPhysicalPathDepth+1)
+	components := make([]string, physicalwork.MaximumPhysicalPathDepth+1)
 	for index := range components {
 		components[index] = "d"
 	}
@@ -650,11 +652,11 @@ func TestObserveRemovalNamespaceAdmitsRootValidationBeforeFilesystemWork(t *test
 	if err != nil {
 		t.Fatalf("resolve removal namespace destination: %v", err)
 	}
-	budget, err := recovery.NewPhysicalWorkBudget(1)
+	budget, err := physicalwork.NewBudget(1)
 	if err != nil {
 		t.Fatalf("construct removal budget: %v", err)
 	}
-	for budget.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	for budget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
 	if err := os.Rename(root, root+"-moved"); err != nil {
 		t.Fatalf("replace selected root path: %v", err)
@@ -749,13 +751,13 @@ func TestValidateRemovalNamespaceHandlesInitiallyAbsentParentVariants(t *testing
 			root := newProjectRootForMutationTest(t)
 			_, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 			namespace := testInitiallyAbsentRemovalNamespace(t, destination, ".agent")
-			budget, err := recovery.NewPhysicalWorkBudget(1)
+			budget, err := physicalwork.NewBudget(1)
 			if err != nil {
 				t.Fatalf("construct removal budget: %v", err)
 			}
 			captured, bound, err := rootedpath.CaptureDestinationBounded(
 				destination.hostPath,
-				recovery.MaximumPhysicalPathDepth,
+				physicalwork.MaximumPhysicalPathDepth,
 				budget,
 			)
 			if err != nil {
@@ -1034,7 +1036,7 @@ func TestExecuteRemovalCleanupCandidateHandlesZeroWorkEntries(t *testing.T) {
 			}
 			authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 			intent, residuePath, cleanupPath := test.prepare(t, authority, destination)
-			zero, err := recovery.NewArtifactWork(0, 0)
+			zero, err := workmeasure.NewArtifactWork(0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1154,7 +1156,7 @@ func TestExecuteRemovalCleanupRejectsGrowthBeyondZeroSemanticWork(t *testing.T) 
 				grow:  func(path string) { test.grow(t, path) },
 			}
 			authority.filesystem = filesystem
-			zero, err := recovery.NewArtifactWork(0, 0)
+			zero, err := workmeasure.NewArtifactWork(0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1215,7 +1217,7 @@ func preflightRemovalCleanupCandidateForTest(
 	recursive bool,
 ) removalCleanupCandidate {
 	t.Helper()
-	work, err := recovery.NewArtifactWork(128, 1<<20)
+	work, err := workmeasure.NewArtifactWork(128, 1<<20)
 	if err != nil {
 		t.Fatalf("construct removal tree work: %v", err)
 	}
@@ -1226,10 +1228,10 @@ func preflightRemovalCleanupCandidateWithWorkForTest(
 	t *testing.T,
 	candidate removalCleanupCandidate,
 	recursive bool,
-	work recovery.ArtifactWork,
+	work workmeasure.ArtifactWork,
 ) removalCleanupCandidate {
 	t.Helper()
-	budget, err := recovery.NewPhysicalWorkBudget(1)
+	budget, err := physicalwork.NewBudget(1)
 	if err != nil {
 		t.Fatalf("construct removal work budget: %v", err)
 	}

@@ -9,6 +9,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
@@ -20,20 +22,20 @@ func ObserveRootedRemovalEntry(
 	ctx context.Context,
 	filesystem mutationfs.RootedReader,
 	capability rootedpath.CommitCapability,
-	budget *recovery.PhysicalWorkBudget,
-	maximumWork recovery.ArtifactWork,
-) (recovery.RemovalResidueEntryObservation, mutationfs.EntryIdentity, recovery.ArtifactWork, error) {
+	budget *physicalwork.Budget,
+	maximumWork workmeasure.ArtifactWork,
+) (recovery.RemovalResidueEntryObservation, mutationfs.EntryIdentity, workmeasure.ArtifactWork, error) {
 	if ctx == nil {
-		return recovery.RemovalResidueEntryObservation{}, nil, recovery.ArtifactWork{}, fmt.Errorf("removal residue observation context is required")
+		return recovery.RemovalResidueEntryObservation{}, nil, workmeasure.ArtifactWork{}, fmt.Errorf("removal residue observation context is required")
 	}
 	if filesystem == nil || capability == nil {
-		return recovery.RemovalResidueEntryObservation{}, nil, recovery.ArtifactWork{}, fmt.Errorf("removal residue observation authority is required")
+		return recovery.RemovalResidueEntryObservation{}, nil, workmeasure.ArtifactWork{}, fmt.Errorf("removal residue observation authority is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return recovery.RemovalResidueEntryObservation{}, nil, recovery.ArtifactWork{}, err
+		return recovery.RemovalResidueEntryObservation{}, nil, workmeasure.ArtifactWork{}, err
 	}
 	if err := budget.AdmitObservation(); err != nil {
-		return recovery.RemovalResidueEntryObservation{}, nil, recovery.ArtifactWork{}, err
+		return recovery.RemovalResidueEntryObservation{}, nil, workmeasure.ArtifactWork{}, err
 	}
 	identity, err := filesystem.CaptureRootedEntryIdentity(ctx, capability)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -41,24 +43,24 @@ func ObserveRootedRemovalEntry(
 			recovery.RemovalResidueEntryAbsent,
 			"", "", nil, "", "",
 		)
-		return observation, nil, recovery.ArtifactWork{}, observationErr
+		return observation, nil, workmeasure.ArtifactWork{}, observationErr
 	}
 	if err != nil {
 		if cancellationErr := removalObservationCancellation(err); cancellationErr != nil {
-			return recovery.RemovalResidueEntryObservation{}, nil, recovery.ArtifactWork{}, cancellationErr
+			return recovery.RemovalResidueEntryObservation{}, nil, workmeasure.ArtifactWork{}, cancellationErr
 		}
 		observation, observationErr := recovery.NewRemovalResidueEntryObservation(
 			recovery.RemovalResidueEntryUnavailable,
 			"", "", nil, "", "residue identity could not be observed",
 		)
-		return observation, nil, recovery.ArtifactWork{}, observationErr
+		return observation, nil, workmeasure.ArtifactWork{}, observationErr
 	}
 
 	switch identity.Kind() {
 	case mutationfs.EntryKindFile:
 		admittedWork, readerCapacity, workErr := boundedRemovalFileObservationWork(maximumWork)
 		if workErr != nil {
-			return recovery.RemovalResidueEntryObservation{}, identity, recovery.ArtifactWork{}, workErr
+			return recovery.RemovalResidueEntryObservation{}, identity, workmeasure.ArtifactWork{}, workErr
 		}
 		maximumBytes := max(int64(1), admittedWork.Bytes())
 		content, mode, observed, readErr := filesystem.ReadRootedRegularFileUpTo(
@@ -68,23 +70,23 @@ func ObserveRootedRemovalEntry(
 		)
 		if readErr != nil {
 			if cancellationErr := removalObservationCancellation(readErr); cancellationErr != nil {
-				return recovery.RemovalResidueEntryObservation{}, observed, recovery.ArtifactWork{}, cancellationErr
+				return recovery.RemovalResidueEntryObservation{}, observed, workmeasure.ArtifactWork{}, cancellationErr
 			}
 			if chargeErr := budget.AdmitIndeterminateTreeWork(admittedWork, readerCapacity); chargeErr != nil {
-				return recovery.RemovalResidueEntryObservation{}, observed, recovery.ArtifactWork{}, chargeErr
+				return recovery.RemovalResidueEntryObservation{}, observed, workmeasure.ArtifactWork{}, chargeErr
 			}
 			observation, observationErr := recovery.NewRemovalResidueEntryObservation(
 				recovery.RemovalResidueEntryUnavailable,
 				"", "", nil, "", "residue file could not be read",
 			)
-			return observation, observed, recovery.ArtifactWork{}, observationErr
+			return observation, observed, workmeasure.ArtifactWork{}, observationErr
 		}
-		work, workErr := recovery.NewArtifactWork(0, int64(len(content)))
+		work, workErr := workmeasure.NewArtifactWork(0, int64(len(content)))
 		if workErr != nil {
-			return recovery.RemovalResidueEntryObservation{}, observed, recovery.ArtifactWork{}, workErr
+			return recovery.RemovalResidueEntryObservation{}, observed, workmeasure.ArtifactWork{}, workErr
 		}
 		if workErr := budget.AdmitTreeWithin(work, maximumWork); workErr != nil {
-			return recovery.RemovalResidueEntryObservation{}, observed, recovery.ArtifactWork{}, workErr
+			return recovery.RemovalResidueEntryObservation{}, observed, workmeasure.ArtifactWork{}, workErr
 		}
 		if !identity.Equal(observed) {
 			observation, observationErr := recovery.NewRemovalResidueEntryObservation(
@@ -108,7 +110,7 @@ func ObserveRootedRemovalEntry(
 			budget,
 		)
 		if limitErr != nil {
-			return recovery.RemovalResidueEntryObservation{}, identity, recovery.ArtifactWork{}, limitErr
+			return recovery.RemovalResidueEntryObservation{}, identity, workmeasure.ArtifactWork{}, limitErr
 		}
 		observed, snapshotErr := filesystem.SnapshotRootedDirectory(
 			ctx,
@@ -118,23 +120,23 @@ func ObserveRootedRemovalEntry(
 		)
 		if snapshotErr != nil {
 			if cancellationErr := removalObservationCancellation(snapshotErr); cancellationErr != nil {
-				return recovery.RemovalResidueEntryObservation{}, observed, recovery.ArtifactWork{}, cancellationErr
+				return recovery.RemovalResidueEntryObservation{}, observed, workmeasure.ArtifactWork{}, cancellationErr
 			}
 			if chargeErr := budget.AdmitIndeterminateDirectoryWork(admittedWork, readerCapacity); chargeErr != nil {
-				return recovery.RemovalResidueEntryObservation{}, observed, recovery.ArtifactWork{}, chargeErr
+				return recovery.RemovalResidueEntryObservation{}, observed, workmeasure.ArtifactWork{}, chargeErr
 			}
 			observation, observationErr := recovery.NewRemovalResidueEntryObservation(
 				recovery.RemovalResidueEntryUnavailable,
 				"", "", nil, "", "residue directory could not be observed",
 			)
-			return observation, observed, recovery.ArtifactWork{}, observationErr
+			return observation, observed, workmeasure.ArtifactWork{}, observationErr
 		}
 		work, workErr := sink.removalWork()
 		if workErr != nil {
-			return recovery.RemovalResidueEntryObservation{}, observed, recovery.ArtifactWork{}, workErr
+			return recovery.RemovalResidueEntryObservation{}, observed, workmeasure.ArtifactWork{}, workErr
 		}
 		if workErr := budget.AdmitTreeWithin(work, maximumWork); workErr != nil {
-			return recovery.RemovalResidueEntryObservation{}, observed, recovery.ArtifactWork{}, workErr
+			return recovery.RemovalResidueEntryObservation{}, observed, workmeasure.ArtifactWork{}, workErr
 		}
 		hash, hashErr := sink.hash()
 		if hashErr != nil {
@@ -155,13 +157,13 @@ func ObserveRootedRemovalEntry(
 			recovery.RemovalResidueEntryUnsupported,
 			"", "", nil, "", fmt.Sprintf("residue entry kind %q is unsupported", identity.Kind()),
 		)
-		return observation, identity, recovery.ArtifactWork{}, observationErr
+		return observation, identity, workmeasure.ArtifactWork{}, observationErr
 	default:
 		observation, observationErr := recovery.NewRemovalResidueEntryObservation(
 			recovery.RemovalResidueEntryUnavailable,
 			"", "", nil, "", "residue entry kind is unavailable",
 		)
-		return observation, identity, recovery.ArtifactWork{}, observationErr
+		return observation, identity, workmeasure.ArtifactWork{}, observationErr
 	}
 }
 
@@ -177,16 +179,16 @@ func removalObservationCancellation(err error) error {
 }
 
 func recoveryTreeTraversalLimitsForBudget(
-	maximumWork recovery.ArtifactWork,
-	budget *recovery.PhysicalWorkBudget,
-) (mutationfs.TreeTraversalLimits, recovery.ArtifactWork, recovery.ArtifactWork, error) {
+	maximumWork workmeasure.ArtifactWork,
+	budget *physicalwork.Budget,
+) (mutationfs.TreeTraversalLimits, workmeasure.ArtifactWork, workmeasure.ArtifactWork, error) {
 	if budget == nil {
-		return mutationfs.TreeTraversalLimits{}, recovery.ArtifactWork{}, recovery.ArtifactWork{}, fmt.Errorf(
+		return mutationfs.TreeTraversalLimits{}, workmeasure.ArtifactWork{}, workmeasure.ArtifactWork{}, fmt.Errorf(
 			"removal directory observation budget is required",
 		)
 	}
 	if budget.RemainingEntries() <= 0 {
-		return mutationfs.TreeTraversalLimits{}, recovery.ArtifactWork{}, recovery.ArtifactWork{}, fmt.Errorf(
+		return mutationfs.TreeTraversalLimits{}, workmeasure.ArtifactWork{}, workmeasure.ArtifactWork{}, fmt.Errorf(
 			"removal directory observation requires overflow-entry capacity",
 		)
 	}
@@ -200,16 +202,16 @@ func recoveryTreeTraversalLimitsForBudget(
 		maximumWork.Bytes(),
 		budget.RemainingBytes(),
 	)
-	admittedWork, err := recovery.NewArtifactWork(maximumEntries, maximumBytes)
+	admittedWork, err := workmeasure.NewArtifactWork(maximumEntries, maximumBytes)
 	if err != nil {
-		return mutationfs.TreeTraversalLimits{}, recovery.ArtifactWork{}, recovery.ArtifactWork{}, err
+		return mutationfs.TreeTraversalLimits{}, workmeasure.ArtifactWork{}, workmeasure.ArtifactWork{}, err
 	}
-	readerCapacity, err := recovery.NewArtifactWork(
+	readerCapacity, err := workmeasure.NewArtifactWork(
 		maximumEntries+1,
 		maximumBytes,
 	)
 	if err != nil {
-		return mutationfs.TreeTraversalLimits{}, recovery.ArtifactWork{}, recovery.ArtifactWork{}, err
+		return mutationfs.TreeTraversalLimits{}, workmeasure.ArtifactWork{}, workmeasure.ArtifactWork{}, err
 	}
 	limits, err := mutationfs.NewTreeTraversalLimits(
 		admittedWork.Entries(),
@@ -220,16 +222,16 @@ func recoveryTreeTraversalLimitsForBudget(
 }
 
 func boundedRemovalFileObservationWork(
-	maximumWork recovery.ArtifactWork,
-) (recovery.ArtifactWork, recovery.ArtifactWork, error) {
-	admittedWork, err := recovery.NewArtifactWork(
+	maximumWork workmeasure.ArtifactWork,
+) (workmeasure.ArtifactWork, workmeasure.ArtifactWork, error) {
+	admittedWork, err := workmeasure.NewArtifactWork(
 		0,
 		min(recovery.MaximumRecoveryBackupFileBytes, maximumWork.Bytes()),
 	)
 	if err != nil {
-		return recovery.ArtifactWork{}, recovery.ArtifactWork{}, err
+		return workmeasure.ArtifactWork{}, workmeasure.ArtifactWork{}, err
 	}
-	readerCapacity, err := recovery.NewArtifactWork(
+	readerCapacity, err := workmeasure.NewArtifactWork(
 		0,
 		max(int64(1), admittedWork.Bytes()),
 	)

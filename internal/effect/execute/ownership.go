@@ -9,10 +9,10 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal"
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -389,7 +389,7 @@ func promoteVisibleAcquire(
 			}
 			observed, observeErr := mutation.ObserveDirectoryEntryAuthorityBounded(
 				destination.hostPath,
-				recovery.MaximumPhysicalPathDepth,
+				physicalwork.MaximumPhysicalPathDepth,
 				authority.generalTraversalPhase,
 			)
 			if observeErr != nil {
@@ -728,12 +728,12 @@ func (authority *mutationAuthority) bindOwnershipRegistry(path string) error {
 	if authority.hasOwnershipRegistry {
 		existingKey, existingErr := mutation.CanonicalDirectoryEntryKeyBounded(
 			authority.ownershipRegistry.Path(),
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			authority.generalTraversalPhase,
 		)
 		requestedKey, requestedErr := mutation.CanonicalDirectoryEntryKeyBounded(
 			path,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			authority.generalTraversalPhase,
 		)
 		if existingErr != nil || requestedErr != nil {
@@ -749,7 +749,7 @@ func (authority *mutationAuthority) bindOwnershipRegistry(path string) error {
 	}
 	root, destination, err := rootedpath.CaptureDestinationBounded(
 		path,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.generalTraversalPhase,
 	)
 	if err != nil {
@@ -762,7 +762,7 @@ func (authority *mutationAuthority) bindOwnershipRegistry(path string) error {
 	registry, err := authority.ownershipRegistryBinder(
 		root,
 		destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.generalTraversalPhase,
 	)
 	if err != nil {

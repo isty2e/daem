@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -310,7 +311,7 @@ func TestActionExecutionAuthorityComparesAllCanonicalIdentity(t *testing.T) {
 		t.Fatal("different expected state retained authority")
 	}
 	differentBackupWork := base
-	backupWork, err := NewArtifactWork(0, 1)
+	backupWork, err := workmeasure.NewArtifactWork(0, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

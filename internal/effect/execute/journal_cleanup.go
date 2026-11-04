@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/journal"
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
 
 // JournalCleanupPaths contains only the recovery root reachable by cleanup-only
@@ -67,7 +67,7 @@ func ExecuteJournalCleanupWithOptions(
 	if err != nil {
 		return fmt.Errorf("compile journal cleanup effect structure: %w", err)
 	}
-	physicalWorkBudget, err := recovery.NewPhysicalWorkBudget(0)
+	physicalWorkBudget, err := physicalwork.NewBudget(0)
 	if err != nil {
 		return errors.Join(
 			fmt.Errorf("construct journal cleanup physical work budget: %w", err),
@@ -78,7 +78,7 @@ func ExecuteJournalCleanupWithOptions(
 		ctx,
 		plan,
 		paths.RecoveryDir,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		physicalWorkBudget,
 		options.Filesystem,
 	)

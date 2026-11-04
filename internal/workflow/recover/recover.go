@@ -10,14 +10,14 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
-	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/recoverygate"
 )
 
@@ -81,7 +81,7 @@ func planRecoveryWithFilesystemAndFence(
 	filesystem mutationfs.Reader,
 	observeFileSet func(context.Context, recoverygate.StateDirAuthority) error,
 ) (recoveryPreparation, error) {
-	planningBudget := journalrecovery.NewPhysicalPathBudget()
+	planningBudget := physicalwork.NewPathBudget()
 	return planRecoveryWithFilesystemFenceAndBudget(
 		ctx,
 		input,
@@ -133,7 +133,7 @@ func planRecoveryWithFilesystemFenceAndBudget(
 	stateDir, stateDirErr := recoverygate.CaptureStateDirBounded(
 		ctx,
 		paths.StateDir,
-		journalrecovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		planningBudget,
 	)
 	if err := ctx.Err(); err != nil {

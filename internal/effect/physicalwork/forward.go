@@ -1,25 +1,30 @@
-package recovery
+package physicalwork
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
+)
 
 // ForwardRemovalCapacity is operation-budgeted capacity for one removable
 // whole-path state. It carries no filesystem identity or deletion authority.
 type ForwardRemovalCapacity struct {
-	maximum     ArtifactWork
+	maximum     workmeasure.ArtifactWork
 	directory   bool
 	initialized bool
 }
 
 // MaximumWork returns the bounded semantic work ceiling reserved for the state.
-func (capacity ForwardRemovalCapacity) MaximumWork() ArtifactWork {
+func (capacity ForwardRemovalCapacity) MaximumWork() workmeasure.ArtifactWork {
 	return capacity.maximum
 }
 
 // Admits reports whether fresh candidate work remains within this reservation.
-func (capacity ForwardRemovalCapacity) Admits(work ArtifactWork) bool {
+func (capacity ForwardRemovalCapacity) Admits(work workmeasure.ArtifactWork) bool {
 	return capacity.initialized &&
-		work.entries <= capacity.maximum.entries &&
-		work.bytes <= capacity.maximum.bytes
+		work.Entries() <= capacity.maximum.Entries() &&
+		work.Bytes() <= capacity.maximum.Bytes()
 }
 
 // Envelope returns a read-only observation ceiling covering both already
@@ -30,11 +35,12 @@ func (capacity ForwardRemovalCapacity) Envelope(
 	if !capacity.initialized || !other.initialized {
 		return ForwardRemovalCapacity{}, fmt.Errorf("forward removal capacity is uninitialized")
 	}
+	maximum, err := workmeasure.NewArtifactWork(max(capacity.maximum.Entries(), other.maximum.Entries()), max(capacity.maximum.Bytes(), other.maximum.Bytes()))
+	if err != nil {
+		return ForwardRemovalCapacity{}, err
+	}
 	return ForwardRemovalCapacity{
-		maximum: ArtifactWork{
-			entries: max(capacity.maximum.entries, other.maximum.entries),
-			bytes:   max(capacity.maximum.bytes, other.maximum.bytes),
-		},
+		maximum:     maximum,
 		directory:   capacity.directory || other.directory,
 		initialized: true,
 	}, nil
@@ -42,44 +48,44 @@ func (capacity ForwardRemovalCapacity) Envelope(
 
 // BeginObservation opens the bounded local budget for one fresh candidate
 // observation. Aggregate work was charged when the capacity was reserved.
-func (capacity ForwardRemovalCapacity) BeginObservation() (*PhysicalWorkBudget, error) {
+func (capacity ForwardRemovalCapacity) BeginObservation() (*Budget, error) {
 	if !capacity.initialized {
 		return nil, fmt.Errorf("forward removal capacity is uninitialized")
 	}
-	entryLimit := capacity.maximum.entries
+	entryLimit := capacity.maximum.Entries()
 	if capacity.directory {
 		entryLimit++
 	}
-	return &PhysicalWorkBudget{
+	return &Budget{
 		observationLimit: 1,
 		entryLimit:       entryLimit,
-		byteLimit:        capacity.maximum.bytes,
-		probeByteLimit:   max(int64(1), capacity.maximum.bytes) - capacity.maximum.bytes,
+		byteLimit:        capacity.maximum.Bytes(),
+		probeByteLimit:   max(int64(1), capacity.maximum.Bytes()) - capacity.maximum.Bytes(),
 	}, nil
 }
 
 // ReserveForwardRemoval charges one future fresh observation and the complete
 // rooted-cleanup storage envelope. The observation that established work is
 // charged separately by its producer.
-func (budget *PhysicalWorkBudget) ReserveForwardRemoval(
-	work ArtifactWork,
+func (budget *Budget) ReserveForwardRemoval(
+	work workmeasure.ArtifactWork,
 	directory bool,
 	parentValidationWork int,
 ) (ForwardRemovalCapacity, error) {
 	if budget == nil {
 		return ForwardRemovalCapacity{}, fmt.Errorf("physical work budget is required")
 	}
-	if work.entries < 0 || work.bytes < 0 {
+	if work.Entries() < 0 || work.Bytes() < 0 {
 		return ForwardRemovalCapacity{}, fmt.Errorf("forward removal work must not be negative")
 	}
-	if work.entries > MaximumArtifactTreeEntries || work.bytes > MaximumArtifactTreeBytes {
+	if work.Entries() > recovery.MaximumArtifactTreeEntries || work.Bytes() > recovery.MaximumArtifactTreeBytes {
 		return ForwardRemovalCapacity{}, fmt.Errorf(
 			"forward removal work exceeds per-tree limit entries=%d bytes=%d",
-			MaximumArtifactTreeEntries,
-			MaximumArtifactTreeBytes,
+			recovery.MaximumArtifactTreeEntries,
+			recovery.MaximumArtifactTreeBytes,
 		)
 	}
-	if !directory && work.entries != 0 {
+	if !directory && work.Entries() != 0 {
 		return ForwardRemovalCapacity{}, fmt.Errorf(
 			"forward file removal work must not contain descendant entries",
 		)
@@ -92,20 +98,14 @@ func (budget *PhysicalWorkBudget) ReserveForwardRemoval(
 	if err := reserved.AdmitObservation(); err != nil {
 		return ForwardRemovalCapacity{}, err
 	}
-	observationEntries := work.entries
+	observationEntries := work.Entries()
 	if directory {
 		observationEntries++
 	}
-	if err := reserved.AdmitTree(ArtifactWork{
-		entries: observationEntries,
-		bytes:   work.bytes,
-	}); err != nil {
+	if err := reserved.admitTreeCounts(observationEntries, work.Bytes()); err != nil {
 		return ForwardRemovalCapacity{}, fmt.Errorf("reserve forward removal observation: %w", err)
 	}
-	if err := reserved.AdmitTree(ArtifactWork{
-		entries: envelope.EntryWork(),
-		bytes:   envelope.ByteWork(),
-	}); err != nil {
+	if err := reserved.admitTreeCounts(envelope.EntryWork(), envelope.ByteWork()); err != nil {
 		return ForwardRemovalCapacity{}, fmt.Errorf("reserve forward rooted cleanup: %w", err)
 	}
 	reserved.reservedForwardEntries += envelope.EntryWork()
@@ -127,7 +127,7 @@ func (budget *PhysicalWorkBudget) ReserveForwardRemoval(
 // ReserveForwardExecutionPathWork charges the namespace observation and every
 // worst-case physical path traversal for one reachable forward-removal state.
 // Candidate content work remains owned by ForwardRemovalCapacity.
-func (budget *PhysicalWorkBudget) ReserveForwardExecutionPathWork(
+func (budget *Budget) ReserveForwardExecutionPathWork(
 	destinationDepths []int,
 ) error {
 	if budget == nil {
@@ -163,7 +163,7 @@ func (budget *PhysicalWorkBudget) ReserveForwardExecutionPathWork(
 
 // BeginReservedForwardExecution transfers only pre-effect namespace and path
 // capacity into the forward-removal execution phase.
-func (budget *PhysicalWorkBudget) BeginReservedForwardExecution() (*PhysicalWorkBudget, error) {
+func (budget *Budget) BeginReservedForwardExecution() (*Budget, error) {
 	if err := budget.requireRemovalAdmission(); err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func (budget *PhysicalWorkBudget) BeginReservedForwardExecution() (*PhysicalWork
 		return nil, fmt.Errorf("forward removal execution capacity was already transferred")
 	}
 	budget.forwardExecutionBegun = true
-	return &PhysicalWorkBudget{
+	return &Budget{
 		observationLimit:   budget.reservedForwardObservations,
 		pathComponentLimit: budget.reservedForwardPathComponents,
 		entryLimit:         budget.reservedForwardEntries,

@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
@@ -54,7 +55,7 @@ func (backup rollbackBackup) readFile(ctx context.Context, maximumBytes int64) (
 
 type boundedRollbackDirectorySource struct {
 	backup rollbackBackup
-	work   recovery.ArtifactWork
+	work   workmeasure.ArtifactWork
 }
 
 func (source boundedRollbackDirectorySource) copyDirectory(

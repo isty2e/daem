@@ -11,6 +11,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/target"
@@ -124,19 +125,19 @@ type mutationAuthority struct {
 	removalDemands              recovery.RemovalDemandSet
 	removalIntents              map[removalRelationKey]recovery.RemovalIntent
 	removalDestinations         map[removalRelationKey]mutationDestination
-	physicalWorkBudget          *recovery.PhysicalWorkBudget
+	physicalWorkBudget          *physicalwork.Budget
 	generalTraversalPhase       *physicalTraversalPhase
 	hostExecutionTraversal      rootedpath.PhysicalTraversalBudget
 	removalBindingsPrepared     bool
 	removalAuthorityBound       bool
 	forwardRemovalReservations  map[removalRelationKey][]forwardRemovalReservation
 	forwardRemovalPrepared      bool
-	forwardRemovalExecution     *recovery.PhysicalWorkBudget
+	forwardRemovalExecution     *physicalwork.Budget
 	recoveryBackups             map[string]recoveryBackup
-	recoveryBackupExecution     *recovery.PhysicalWorkBudget
-	generalExecutionWorkBudget  *recovery.PhysicalWorkBudget
-	semanticExecutionWorkBudget *recovery.PhysicalWorkBudget
-	removalCleanupExecution     *recovery.PhysicalWorkBudget
+	recoveryBackupExecution     *physicalwork.Budget
+	generalExecutionWorkBudget  *physicalwork.Budget
+	semanticExecutionWorkBudget *physicalwork.Budget
+	removalCleanupExecution     *physicalwork.Budget
 	preparedRetirement          *journal.RetirementContinuation
 	ownershipRegistry           ownershipmutation.RegistryStore
 	ownershipRegistryBinder     ownershipmutation.RootedRegistryBinder
@@ -164,7 +165,7 @@ func newMutationAuthorityWithProjectionEffects(
 	if err := removalDemands.Validate(); err != nil {
 		return nil, fmt.Errorf("removal demands: %w", err)
 	}
-	physicalWorkBudget, err := recovery.NewPhysicalWorkBudget(removalDemands.Len())
+	physicalWorkBudget, err := physicalwork.NewBudget(removalDemands.Len())
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +259,7 @@ func captureMutationAuthority(
 	resolver DestinationResolver,
 	filesystem mutationfs.Store,
 ) (*mutationAuthority, error) {
-	physicalWorkBudget, err := recovery.NewPhysicalWorkBudget(0)
+	physicalWorkBudget, err := physicalwork.NewBudget(0)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +279,7 @@ func captureMutationAuthorityWithPhysicalWorkBudget(
 	borrowedRoot *rootedpath.CapturedRoot,
 	resolver DestinationResolver,
 	filesystem mutationfs.Store,
-	physicalWorkBudget *recovery.PhysicalWorkBudget,
+	physicalWorkBudget *physicalwork.Budget,
 ) (*mutationAuthority, error) {
 	if resolver == nil {
 		return nil, fmt.Errorf("mutation destination resolver is required")
@@ -323,7 +324,7 @@ func (authority *mutationAuthority) captureProjectRoot(
 	var err error
 	captured, err = rootedpath.CaptureRootBounded(
 		paths.ManifestRoot,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.generalTraversalPhase,
 	)
 	if err != nil {
@@ -398,7 +399,7 @@ func (authority *mutationAuthority) bindGlobalDestination(
 	}
 	root, destinationBinding, err := rootedpath.CaptureDestinationBounded(
 		resolvedHostPath,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.generalTraversalPhase,
 	)
 	if err != nil {
@@ -411,7 +412,7 @@ func (authority *mutationAuthority) bindGlobalDestination(
 	}
 	physicalKey, err := mutation.CanonicalDirectoryEntryKeyBounded(
 		hostPath,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.generalTraversalPhase,
 	)
 	if err != nil {
@@ -527,7 +528,7 @@ func (authority *mutationAuthority) rootedJournalCapability(
 	}
 	capability, err := binding.root.AcquireBounded(
 		binding.destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	return capability, true, err
@@ -575,7 +576,7 @@ func (authority *mutationAuthority) acquire(destination mutationDestination) (ro
 	}
 	return destination.root.AcquireBounded(
 		destination.destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 }

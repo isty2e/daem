@@ -13,6 +13,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -409,7 +410,7 @@ func loadActivePlanFromInventory(
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	planningBudget, err := recovery.NewPhysicalWorkBudgetWithPathBudget(
+	planningBudget, err := physicalwork.NewBudgetWithPathBudget(
 		len(journal.RemovalIntents),
 		options.PhysicalPathBudget,
 	)
@@ -428,7 +429,7 @@ func loadActivePlanFromInventory(
 	if len(claimTransitions) != 0 || len(provisionalAcquires) != 0 {
 		statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthorityBounded(
 			paths.StatefilePath,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			planningBudget,
 		)
 		if err != nil {
@@ -455,7 +456,7 @@ func loadActivePlanFromInventory(
 		registry, err = options.OwnershipRegistry.LoadForClaimRemovals(
 			ctx,
 			recoveryClaimRemovalCandidates(claimTransitions),
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			planningBudget,
 		)
 		if err != nil {
@@ -583,7 +584,7 @@ func planLoadPhysicalPathBudget(
 	if provided != nil {
 		return provided, nil
 	}
-	return recovery.NewPhysicalPathBudget(), nil
+	return physicalwork.NewPathBudget(), nil
 }
 
 func selectedRecoveryEntryIndexes(entries []recoveryEntry, selected []EntrySelection) ([]int, error) {

@@ -1,18 +1,22 @@
-package recovery
+package physicalwork
 
-import "fmt"
+import (
+	"fmt"
 
-// NewPhysicalCaptureBudget bounds comparison work before the complete removal
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+)
+
+// NewCaptureBudget bounds comparison work before the complete removal
 // demand set is known. Removal observations and execution transfers stay closed
 // until AdmitRemovalDemands succeeds.
-func NewPhysicalCaptureBudget(sharedPathBudget PathWorkBudget) *PhysicalWorkBudget {
+func NewCaptureBudget(sharedPathBudget PathWorkBudget) *Budget {
 	budget := newPhysicalWorkAllocation(sharedPathBudget)
 	budget.removalAdmissionPending = true
 	return budget
 }
 
-func newPhysicalWorkAllocation(sharedPathBudget PathWorkBudget) *PhysicalWorkBudget {
-	return &PhysicalWorkBudget{
+func newPhysicalWorkAllocation(sharedPathBudget PathWorkBudget) *Budget {
+	return &Budget{
 		pathComponentLimit: maximumPhysicalPathComponentVisits,
 		entryLimit:         MaximumPhysicalEntries,
 		byteLimit:          MaximumPhysicalBytes,
@@ -22,17 +26,17 @@ func newPhysicalWorkAllocation(sharedPathBudget PathWorkBudget) *PhysicalWorkBud
 
 // AdmitRemovalDemands closes capture admission once, without replenishing any
 // work already consumed or reserved while deriving the complete demand set.
-func (budget *PhysicalWorkBudget) AdmitRemovalDemands(demands RemovalDemandSet) error {
+func (budget *Budget) AdmitRemovalDemands(demands recovery.RemovalDemandSet) error {
 	return budget.admitRemovalDemands(demands, 1)
 }
 
 // AdmitRecoveryRemovalDemands includes disclosure, under-lease revalidation,
 // executor reopen and post-failure diagnosis in the same allocation.
-func (budget *PhysicalWorkBudget) AdmitRecoveryRemovalDemands(demands RemovalDemandSet) error {
+func (budget *Budget) AdmitRecoveryRemovalDemands(demands recovery.RemovalDemandSet) error {
 	return budget.admitRemovalDemands(demands, 4)
 }
 
-func (budget *PhysicalWorkBudget) admitRemovalDemands(demands RemovalDemandSet, planningPasses int) error {
+func (budget *Budget) admitRemovalDemands(demands recovery.RemovalDemandSet, planningPasses int) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
@@ -49,14 +53,14 @@ func (budget *PhysicalWorkBudget) admitRemovalDemands(demands RemovalDemandSet, 
 
 // RequireCapturePending rejects a new initial observation after removal
 // admission. Admitted-empty and pending capture are distinct lifecycle states.
-func (budget *PhysicalWorkBudget) RequireCapturePending() error {
+func (budget *Budget) RequireCapturePending() error {
 	if budget == nil || !budget.removalAdmissionPending {
 		return fmt.Errorf("physical capture requires pending removal admission")
 	}
 	return nil
 }
 
-func (budget *PhysicalWorkBudget) requireRemovalAdmission() error {
+func (budget *Budget) requireRemovalAdmission() error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}

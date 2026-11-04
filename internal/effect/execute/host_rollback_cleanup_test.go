@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 )
 
 func TestRollbackScratchCleanupAdmitsMaximumDepthSourceBelowWrapper(t *testing.T) {
@@ -24,7 +26,7 @@ func TestRollbackScratchCleanupAdmitsMaximumDepthSourceBelowWrapper(t *testing.T
 	if err := os.WriteFile(filepath.Join(current, "empty"), nil, 0o600); err != nil {
 		t.Fatalf("write zero-byte rollback leaf: %v", err)
 	}
-	work, err := recovery.NewArtifactWork(recovery.MaximumArtifactTreeDepth+1, 0)
+	work, err := workmeasure.NewArtifactWork(recovery.MaximumArtifactTreeDepth+1, 0)
 	if err != nil {
 		t.Fatalf("construct rollback stage work: %v", err)
 	}
@@ -75,7 +77,7 @@ func TestRollbackScratchCleanupKeepsSourceDepthCeiling(t *testing.T) {
 			maximumRollbackScratchTreeDepth,
 		)
 	}
-	budget, err := recovery.NewPhysicalWorkBudget(0)
+	budget, err := physicalwork.NewBudget(0)
 	if err != nil {
 		t.Fatalf("construct recovery budget: %v", err)
 	}
@@ -102,7 +104,7 @@ func TestRollbackAbortCleanupUsesExactStagedWorkEnvelope(t *testing.T) {
 	if err := os.WriteFile(backupPath, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	work, err := recovery.NewArtifactWork(0, int64(len(content)))
+	work, err := workmeasure.NewArtifactWork(0, int64(len(content)))
 	if err != nil {
 		t.Fatal(err)
 	}

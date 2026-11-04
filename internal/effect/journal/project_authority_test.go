@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
@@ -272,7 +273,7 @@ func TestManifestRecoveryAuthorityAdmitsBudgetBeforeRootObservation(t *testing.T
 	journal := defaultRecoveryJournal()
 	journal.ManifestRootProvenance = persistedRecoveryRootProvenance(provenance)
 	budget := newRecoveryPathBudget(t)
-	for budget.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	for budget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
 	if err := os.Rename(manifestRoot, manifestRoot+"-moved"); err != nil {
 		t.Fatalf("move manifest root: %v", err)

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -73,7 +73,7 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 		t.Fatalf("same physical root through an alias was rejected: %v", err)
 	}
 	exhausted := newRecoveryPathBudget(t)
-	for exhausted.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	for exhausted.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
 	if err := validateRecoveryGlobalPathBindings(
 		t.Context(),
@@ -204,7 +204,7 @@ func TestRecoveryGlobalPathBindingPassesSharedBudgetIntoRetainedCapability(t *te
 			sawSharedBudget = true
 			capability, acquireErr := root.AcquireBounded(
 				bound,
-				recovery.MaximumPhysicalPathDepth,
+				physicalwork.MaximumPhysicalPathDepth,
 				supplied,
 			)
 			return capability, true, acquireErr
@@ -331,9 +331,9 @@ func TestRecoveryGlobalPathBindingAcceptsNewSameMountDescendantRoot(t *testing.T
 	}
 }
 
-func newRecoveryPathBudget(t *testing.T) *recovery.PhysicalWorkBudget {
+func newRecoveryPathBudget(t *testing.T) *physicalwork.Budget {
 	t.Helper()
-	budget, err := recovery.NewPhysicalWorkBudget(0)
+	budget, err := physicalwork.NewBudget(0)
 	if err != nil {
 		t.Fatalf("new recovery path budget: %v", err)
 	}

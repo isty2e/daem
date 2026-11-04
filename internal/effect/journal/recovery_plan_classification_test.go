@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -192,7 +193,7 @@ func TestBuildRecoveryPlanReportsPathObservationErrors(t *testing.T) {
 
 func TestBuildRecoveryPlanReportsBackupMismatches(t *testing.T) {
 	entry := defaultRecoveryEntry()
-	invalidFileWork, err := recovery.NewArtifactWork(1, 0)
+	invalidFileWork, err := workmeasure.NewArtifactWork(1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

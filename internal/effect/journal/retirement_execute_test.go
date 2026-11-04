@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"golang.org/x/sys/unix"
 )
@@ -69,7 +70,7 @@ func TestPreparedRetirementCapacityMatchesExecutableReadPasses(t *testing.T) {
 			plan,
 			authority,
 			recoveryRoot,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			retirementTestBudget(t),
 			filesystem,
 			testStateCodec(),
@@ -121,7 +122,7 @@ func TestPreparedRetirementCapacityMatchesExecutableReadPasses(t *testing.T) {
 			t.Context(),
 			plan,
 			recoveryRoot,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			retirementTestBudget(t),
 			filesystem,
 		)
@@ -210,7 +211,7 @@ func TestRetireActiveJournalRejectsReplacedPlannedArtifactBeforeEffects(t *testi
 		plan,
 		activeAuthority,
 		root,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
 		testStateCodec(),
@@ -240,7 +241,7 @@ func TestPreparedRetirementRejectsNonRecordTreeGrowthBeforeEffects(t *testing.T)
 		plan,
 		activeAuthority,
 		recoveryRoot,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
 		testStateCodec(),
@@ -312,7 +313,7 @@ func TestRetireActiveJournalRevalidatesFingerprintAfterPreparedControl(t *testin
 		plan,
 		activeAuthority,
 		root,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
 		testStateCodec(),
@@ -437,7 +438,7 @@ func TestRetirementRevalidatesExactControlBeforeEffects(t *testing.T) {
 			t.Context(),
 			plan,
 			root,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			retirementTestBudget(t),
 			filesystem,
 			&retirementRecordingStepGate{},
@@ -478,7 +479,7 @@ func TestFinalizeJournalCleanupAdmitsInterruptedRecordTemporary(t *testing.T) {
 		t.Context(),
 		plan,
 		root,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
 		&retirementRecordingStepGate{},
@@ -510,7 +511,7 @@ func TestFinalizeJournalCleanupRejectsSpecialResidueBeforePhaseAdvance(t *testin
 		t.Context(),
 		plan,
 		root,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
 		&retirementRecordingStepGate{},
@@ -557,7 +558,7 @@ func TestFinalizeJournalCleanupRejectsResidueCreatedAfterPlanning(t *testing.T) 
 		t.Context(),
 		plan,
 		root,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
 		&retirementRecordingStepGate{},
@@ -629,7 +630,7 @@ func TestFinalizeJournalCleanupResumesEveryCleanupPhase(t *testing.T) {
 				t.Context(),
 				plan,
 				root,
-				recovery.MaximumPhysicalPathDepth,
+				physicalwork.MaximumPhysicalPathDepth,
 				retirementTestBudget(t),
 				filesystem,
 				&retirementRecordingStepGate{},
@@ -675,7 +676,7 @@ func TestExecuteActiveWithGateRequiresAdvancedBasis(t *testing.T) {
 		plan,
 		authority,
 		recoveryRoot,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
 		testStateCodec(),
@@ -736,7 +737,7 @@ func TestRetireActiveJournalGatesExactSelectedSteps(t *testing.T) {
 				plan,
 				authority,
 				root,
-				recovery.MaximumPhysicalPathDepth,
+				physicalwork.MaximumPhysicalPathDepth,
 				retirementTestBudget(t),
 				filesystem,
 				testStateCodec(),
@@ -807,7 +808,7 @@ func TestRetireActiveJournalGateRejectsBeforeSelectedMutation(t *testing.T) {
 				plan,
 				authority,
 				root,
-				recovery.MaximumPhysicalPathDepth,
+				physicalwork.MaximumPhysicalPathDepth,
 				retirementTestBudget(t),
 				filesystem,
 				testStateCodec(),
@@ -847,7 +848,7 @@ func TestRetireActiveJournalGateSettlesGarbageFailureAsFinalized(t *testing.T) {
 		plan,
 		authority,
 		root,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
 		testStateCodec(),
@@ -938,7 +939,7 @@ func TestFinalizeJournalCleanupGatesExactSelectedSteps(t *testing.T) {
 				t.Context(),
 				plan,
 				root,
-				recovery.MaximumPhysicalPathDepth,
+				physicalwork.MaximumPhysicalPathDepth,
 				retirementTestBudget(t),
 				filesystem,
 				gate,
@@ -986,7 +987,7 @@ func TestFinalizeJournalCleanupSettlesPostAdvanceValidationFailure(t *testing.T)
 		t.Context(),
 		plan,
 		root,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
 		gate,
@@ -1034,7 +1035,7 @@ func TestFinalizeJournalCleanupGateRejectsBeforeRetirementMutation(t *testing.T)
 		t.Context(),
 		plan,
 		root,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
 		gate,
@@ -1065,7 +1066,7 @@ func TestFinalizeJournalCleanupSettlesGarbageFailureAsFinalized(t *testing.T) {
 		t.Context(),
 		plan,
 		root,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		retirementTestBudget(t),
 		filesystem,
 		gate,
@@ -1195,7 +1196,7 @@ func TestRetirementPostVisibilityFailuresRemainClassifiableAndResumable(t *testi
 					t.Context(),
 					cleanup,
 					root,
-					recovery.MaximumPhysicalPathDepth,
+					physicalwork.MaximumPhysicalPathDepth,
 					retirementTestBudget(t),
 					filesystem,
 					&retirementRecordingStepGate{},
@@ -1256,7 +1257,7 @@ func TestRetirementCancellationAfterEachPhaseRemainsClassifiableAndResumable(t *
 					t.Context(),
 					cleanup,
 					root,
-					recovery.MaximumPhysicalPathDepth,
+					physicalwork.MaximumPhysicalPathDepth,
 					retirementTestBudget(t),
 					filesystem,
 					&retirementRecordingStepGate{},
@@ -1308,7 +1309,7 @@ func retireActiveJournalForTest(
 	if err != nil {
 		return err
 	}
-	budget, err := recovery.NewPhysicalWorkBudget(0)
+	budget, err := physicalwork.NewBudget(0)
 	if err != nil {
 		return err
 	}
@@ -1317,7 +1318,7 @@ func retireActiveJournalForTest(
 		plan,
 		authority,
 		root,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 		filesystem,
 		testStateCodec(),
@@ -1358,7 +1359,7 @@ func retireActiveJournalWithAuthorityAndGateForTest(
 	stateCodec durable.SnapshotCodec,
 	gate RetirementStepGate,
 ) error {
-	budget, ok := physicalWorkBudget.(*recovery.PhysicalWorkBudget)
+	budget, ok := physicalWorkBudget.(*physicalwork.Budget)
 	if !ok {
 		return fmt.Errorf("test retirement requires the canonical physical work budget")
 	}
@@ -1398,7 +1399,7 @@ func finalizeJournalCleanupWithGateForTest(
 	filesystem mutationfs.RootedStore,
 	gate RetirementStepGate,
 ) error {
-	budget, ok := physicalWorkBudget.(*recovery.PhysicalWorkBudget)
+	budget, ok := physicalWorkBudget.(*physicalwork.Budget)
 	if !ok {
 		return fmt.Errorf("test cleanup requires the canonical physical work budget")
 	}
@@ -1421,9 +1422,9 @@ func finalizeJournalCleanupWithGateForTest(
 	return prepared.ExecuteCleanupWithGate(ctx, plan, gate)
 }
 
-func retirementTestBudget(t *testing.T) *recovery.PhysicalWorkBudget {
+func retirementTestBudget(t *testing.T) *physicalwork.Budget {
 	t.Helper()
-	budget, err := recovery.NewPhysicalWorkBudget(0)
+	budget, err := physicalwork.NewBudget(0)
 	if err != nil {
 		t.Fatal(err)
 	}

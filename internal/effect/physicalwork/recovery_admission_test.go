@@ -1,10 +1,15 @@
-package recovery
+package physicalwork
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
+)
 
 func TestRecoveryRemovalAdmissionBoundsRepeatedPlanningWithoutReset(t *testing.T) {
-	budget := NewPhysicalCaptureBudget(nil)
-	work, err := NewArtifactWork(3, 17)
+	budget := NewCaptureBudget(nil)
+	work, err := workmeasure.NewArtifactWork(3, 17)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,8 +39,8 @@ func TestRecoveryRemovalAdmissionBoundsRepeatedPlanningWithoutReset(t *testing.T
 	if budget.AdmitObservation() == nil {
 		t.Fatal("recovery observation allowance is unbounded")
 	}
-	empty := NewPhysicalCaptureBudget(nil)
-	set, err := NewRemovalDemandSet(nil)
+	empty := NewCaptureBudget(nil)
+	set, err := recovery.NewRemovalDemandSet(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

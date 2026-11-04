@@ -1,8 +1,10 @@
-package recovery
+package physicalwork
 
 import (
 	"errors"
 	"testing"
+
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 )
 
 type invocationPathEnvelope struct {
@@ -21,8 +23,8 @@ func (envelope *invocationPathEnvelope) AdmitPathComponents(count int) error {
 
 func TestInvocationReservationPrechargesOnceAndSeparatesSafety(t *testing.T) {
 	shared := &invocationPathEnvelope{limit: 100, cause: errors.New("shared limit")}
-	parent := NewPhysicalCaptureBudget(shared)
-	work, err := NewArtifactWork(3, 7)
+	parent := NewCaptureBudget(shared)
+	work, err := workmeasure.NewArtifactWork(3, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,8 +79,8 @@ func TestInvocationReservationPrechargesOnceAndSeparatesSafety(t *testing.T) {
 func TestInvocationReservationFailureRetainsChargesWithoutCapability(t *testing.T) {
 	want := errors.New("shared limit")
 	shared := &invocationPathEnvelope{limit: 3, cause: want}
-	parent := NewPhysicalCaptureBudget(shared)
-	work, err := NewInvocationWork([]int{2}, ArtifactWork{})
+	parent := NewCaptureBudget(shared)
+	work, err := NewInvocationWork([]int{2}, workmeasure.ArtifactWork{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +97,7 @@ func TestInvocationReservationFailureRetainsChargesWithoutCapability(t *testing.
 }
 
 func TestInvocationReservationsTransferOnceWithinFrozenPlanningPhase(t *testing.T) {
-	parent := NewPhysicalCaptureBudget(nil)
+	parent := NewCaptureBudget(nil)
 	first, err := parent.ReserveInvocation(InvocationWork{}, InvocationWork{})
 	if err != nil {
 		t.Fatal(err)
@@ -121,11 +123,11 @@ func TestInvocationReservationsTransferOnceWithinFrozenPlanningPhase(t *testing.
 
 func TestInvocationWorkRejectsInvalidPassesAndArtifactWork(t *testing.T) {
 	for _, paths := range [][]int{{-1}, {MaximumPhysicalPathDepth + 1}, {int(^uint(0) >> 1)}} {
-		if _, err := NewInvocationWork(paths, ArtifactWork{}); err == nil {
+		if _, err := NewInvocationWork(paths, workmeasure.ArtifactWork{}); err == nil {
 			t.Fatal("invalid path work was accepted")
 		}
 	}
-	for _, artifact := range []ArtifactWork{{entries: -1}, {bytes: -1}, {entries: MaximumPhysicalEntries + 1}, {bytes: MaximumPhysicalBytes + 1}} {
+	for _, artifact := range []workmeasure.ArtifactWork{artifactWork(t, MaximumPhysicalEntries+1, 0), artifactWork(t, 0, MaximumPhysicalBytes+1)} {
 		if _, err := NewInvocationWork(nil, artifact); err == nil {
 			t.Fatal("invalid artifact work was accepted")
 		}
@@ -134,7 +136,7 @@ func TestInvocationWorkRejectsInvalidPassesAndArtifactWork(t *testing.T) {
 	for index := range paths {
 		paths[index] = MaximumPhysicalPathDepth
 	}
-	if _, err := NewInvocationWork(paths, ArtifactWork{}); err == nil {
+	if _, err := NewInvocationWork(paths, workmeasure.ArtifactWork{}); err == nil {
 		t.Fatal("aggregate path capacity was bypassed")
 	}
 }
@@ -143,7 +145,7 @@ func TestInvocationReservationRefusesAggregateOverdrawBeforeSharedCharge(t *test
 	for _, dimension := range []string{"path", "entries", "bytes"} {
 		t.Run(dimension, func(t *testing.T) {
 			shared := &invocationPathEnvelope{limit: 100, cause: errors.New("shared limit")}
-			parent := NewPhysicalCaptureBudget(shared)
+			parent := NewCaptureBudget(shared)
 			if dimension == "path" {
 				parent.pathComponentLimit = 3
 			}
@@ -153,7 +155,7 @@ func TestInvocationReservationRefusesAggregateOverdrawBeforeSharedCharge(t *test
 			if dimension == "bytes" {
 				parent.byteLimit = 3
 			}
-			artifact, err := NewArtifactWork(2, 2)
+			artifact, err := workmeasure.NewArtifactWork(2, 2)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -173,11 +175,11 @@ func TestInvocationReservationRefusesAggregateOverdrawBeforeSharedCharge(t *test
 }
 
 func TestInvocationWorkCompositionRetainsBothOwnersCredit(t *testing.T) {
-	left, err := NewInvocationWork([]int{2}, ArtifactWork{entries: 1, bytes: 3})
+	left, err := NewInvocationWork([]int{2}, artifactWork(t, 1, 3))
 	if err != nil {
 		t.Fatal(err)
 	}
-	right, err := NewInvocationWork([]int{4}, ArtifactWork{entries: 5, bytes: 7})
+	right, err := NewInvocationWork([]int{4}, artifactWork(t, 5, 7))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +187,7 @@ func TestInvocationWorkCompositionRetainsBothOwnersCredit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reservation, err := NewPhysicalCaptureBudget(nil).ReserveInvocation(combined, InvocationWork{})
+	reservation, err := NewCaptureBudget(nil).ReserveInvocation(combined, InvocationWork{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +201,7 @@ func TestInvocationWorkCompositionRetainsBothOwnersCredit(t *testing.T) {
 	if err := forward.AdmitPhysicalWork(1, 0, 0); err == nil {
 		t.Fatal("composition minted additional path credit")
 	}
-	for _, bound := range []ArtifactWork{{entries: MaximumPhysicalEntries}, {bytes: MaximumPhysicalBytes}} {
+	for _, bound := range []workmeasure.ArtifactWork{artifactWork(t, MaximumPhysicalEntries, 0), artifactWork(t, 0, MaximumPhysicalBytes)} {
 		full, err := NewInvocationWork(nil, bound)
 		if err != nil {
 			t.Fatal(err)

@@ -1,17 +1,21 @@
-package recovery
+package physicalwork
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/isty2e/daem/internal/effect/workmeasure"
+)
 
 func TestJointGeneralExecutionKeepsControlAndHostAllocationsDisjoint(t *testing.T) {
 	budget := jointExecutionReadyBudget(t)
-	consume, err := NewArtifactWork(budget.RemainingEntries()-10, budget.RemainingBytes()-20)
+	consume, err := workmeasure.NewArtifactWork(budget.RemainingEntries()-10, budget.RemainingBytes()-20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := budget.AdmitTree(consume); err != nil {
 		t.Fatal(err)
 	}
-	hostWork, err := NewArtifactWork(3, 5)
+	hostWork, err := workmeasure.NewArtifactWork(3, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +33,7 @@ func TestJointGeneralExecutionKeepsControlAndHostAllocationsDisjoint(t *testing.
 	if budget.RemainingEntries() != entries || budget.RemainingBytes() != bytes {
 		t.Fatal("joint transfer exhausted or replenished control capacity")
 	}
-	controlWork, err := NewArtifactWork(entries, bytes)
+	controlWork, err := workmeasure.NewArtifactWork(entries, bytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +43,7 @@ func TestJointGeneralExecutionKeepsControlAndHostAllocationsDisjoint(t *testing.
 	if err := budget.AdmitTree(hostWork); err == nil {
 		t.Fatal("control observation borrowed transferred host capacity")
 	}
-	reservedHost, err := NewArtifactWork(4, 5)
+	reservedHost, err := workmeasure.NewArtifactWork(4, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,11 +71,11 @@ func TestJointGeneralExecutionKeepsControlAndHostAllocationsDisjoint(t *testing.
 }
 
 func TestJointGeneralExecutionPreservesLifecycleAdmission(t *testing.T) {
-	pending := NewPhysicalCaptureBudget(nil)
+	pending := NewCaptureBudget(nil)
 	if _, err := pending.BeginGeneralExecutionRetainingControl(); err == nil {
 		t.Fatal("pending removal census was accepted as admitted empty")
 	}
-	budget, err := NewPhysicalWorkBudget(0)
+	budget, err := NewBudget(0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,9 +109,9 @@ func TestJointGeneralExecutionPreservesLifecycleAdmission(t *testing.T) {
 	}
 }
 
-func jointExecutionReadyBudget(t *testing.T) *PhysicalWorkBudget {
+func jointExecutionReadyBudget(t *testing.T) *Budget {
 	t.Helper()
-	budget, err := NewPhysicalWorkBudget(0)
+	budget, err := NewBudget(0)
 	if err != nil {
 		t.Fatal(err)
 	}

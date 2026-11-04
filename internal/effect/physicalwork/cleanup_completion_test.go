@@ -1,13 +1,13 @@
-package recovery
+package physicalwork
 
 import "testing"
 
 func TestCompletedCleanupClosesLifecycleWithoutTransferringCapacity(t *testing.T) {
-	pending := NewPhysicalCaptureBudget(nil)
+	pending := NewCaptureBudget(nil)
 	if err := pending.ConcludeCleanupLifecycle(); err == nil {
 		t.Fatal("unobserved removal census was concluded")
 	}
-	budget, err := NewPhysicalWorkBudget(0)
+	budget, err := NewBudget(0)
 	if err != nil {
 		t.Fatal(err)
 	}

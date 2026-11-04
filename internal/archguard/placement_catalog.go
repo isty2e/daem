@@ -362,7 +362,9 @@ var packagePlacementRows = []packagePlacementRow{
 			"internal/effect/journal",
 			"internal/effect/journal/recovery",
 			"internal/effect/journal/retirement",
+			"internal/effect/physicalwork",
 			"internal/effect/storage/commit",
+			"internal/effect/workmeasure",
 		},
 	},
 	{

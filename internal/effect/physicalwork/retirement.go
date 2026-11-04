@@ -1,6 +1,11 @@
-package recovery
+package physicalwork
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
+)
 
 type retirementDisposition uint8
 
@@ -12,7 +17,7 @@ const (
 
 // ReserveRetirementPathComponents charges path work used only by the prepared
 // journal-retirement continuation.
-func (budget *PhysicalWorkBudget) ReserveRetirementPathComponents(count int) error {
+func (budget *Budget) ReserveRetirementPathComponents(count int) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
@@ -30,14 +35,14 @@ func (budget *PhysicalWorkBudget) ReserveRetirementPathComponents(count int) err
 // AdmitRetirementDirectoryObservation charges one completed preparation-time
 // snapshot and one possible overflow-name probe. The probe proves the exact
 // semantic entry ceiling; it does not enlarge that ceiling.
-func (budget *PhysicalWorkBudget) AdmitRetirementDirectoryObservation(work ArtifactWork) error {
+func (budget *Budget) AdmitRetirementDirectoryObservation(work workmeasure.ArtifactWork) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
 	if budget.retirementDisposition != retirementPending || budget.generalExecutionBegun {
 		return fmt.Errorf("journal retirement capacity was already transferred")
 	}
-	if budget.RemainingEntries() < 1 || work.entries > budget.RemainingEntries()-1 {
+	if budget.RemainingEntries() < 1 || work.Entries() > budget.RemainingEntries()-1 {
 		return fmt.Errorf("journal retirement observation exceeds operation entry capacity")
 	}
 	if err := budget.AdmitTree(work); err != nil {
@@ -49,8 +54,8 @@ func (budget *PhysicalWorkBudget) AdmitRetirementDirectoryObservation(work Artif
 
 // ReserveRetirementDirectoryPasses charges exact semantic tree work and one
 // overflow-name probe for every future validation or cleanup pass.
-func (budget *PhysicalWorkBudget) ReserveRetirementDirectoryPasses(
-	work ArtifactWork,
+func (budget *Budget) ReserveRetirementDirectoryPasses(
+	work workmeasure.ArtifactWork,
 	passes int,
 ) error {
 	if budget == nil {
@@ -62,17 +67,17 @@ func (budget *PhysicalWorkBudget) ReserveRetirementDirectoryPasses(
 	if passes <= 0 {
 		return fmt.Errorf("journal retirement directory pass count must be positive")
 	}
-	if work.entries > MaximumArtifactTreeEntries || work.bytes > MaximumArtifactTreeBytes {
+	if work.Entries() > recovery.MaximumArtifactTreeEntries || work.Bytes() > recovery.MaximumArtifactTreeBytes {
 		return fmt.Errorf("journal retirement tree exceeds per-tree capacity")
 	}
 	if budget.RemainingEntries() < passes ||
-		work.entries > (budget.RemainingEntries()-passes)/passes ||
-		work.bytes > budget.RemainingBytes()/int64(passes) {
+		work.Entries() > (budget.RemainingEntries()-passes)/passes ||
+		work.Bytes() > budget.RemainingBytes()/int64(passes) {
 		return fmt.Errorf("journal retirement tree passes exceed operation capacity")
 	}
-	entries := (work.entries + 1) * passes
-	bytes := work.bytes * int64(passes)
-	if err := budget.AdmitTree(ArtifactWork{entries: entries, bytes: bytes}); err != nil {
+	entries := (work.Entries() + 1) * passes
+	bytes := work.Bytes() * int64(passes)
+	if err := budget.admitTreeCounts(entries, bytes); err != nil {
 		return err
 	}
 	budget.reservedRetirementEntries += entries
@@ -82,8 +87,8 @@ func (budget *PhysicalWorkBudget) ReserveRetirementDirectoryPasses(
 
 // ReserveRetirementRootedCleanup charges the complete recursive cleanup and
 // destination-parent validation envelope owned by a prepared retirement.
-func (budget *PhysicalWorkBudget) ReserveRetirementRootedCleanup(
-	work ArtifactWork,
+func (budget *Budget) ReserveRetirementRootedCleanup(
+	work workmeasure.ArtifactWork,
 	parentValidationWork int,
 ) error {
 	if budget == nil {
@@ -97,10 +102,7 @@ func (budget *PhysicalWorkBudget) ReserveRetirementRootedCleanup(
 		return err
 	}
 	reserved := *budget
-	if err := reserved.AdmitTree(ArtifactWork{
-		entries: envelope.EntryWork(),
-		bytes:   envelope.ByteWork(),
-	}); err != nil {
+	if err := reserved.admitTreeCounts(envelope.EntryWork(), envelope.ByteWork()); err != nil {
 		return fmt.Errorf("journal retirement cleanup exceeds operation capacity: %w", err)
 	}
 	reserved.reservedRetirementEntries += envelope.EntryWork()
@@ -119,7 +121,7 @@ func (budget *PhysicalWorkBudget) ReserveRetirementRootedCleanup(
 
 // ReserveRetirementArtifactWork charges predictable non-traversal work such
 // as creating one canonical control tree. It reserves no overflow probe.
-func (budget *PhysicalWorkBudget) ReserveRetirementArtifactWork(work ArtifactWork) error {
+func (budget *Budget) ReserveRetirementArtifactWork(work workmeasure.ArtifactWork) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
@@ -129,16 +131,16 @@ func (budget *PhysicalWorkBudget) ReserveRetirementArtifactWork(work ArtifactWor
 	if err := budget.AdmitTree(work); err != nil {
 		return err
 	}
-	budget.reservedRetirementEntries += work.entries
-	budget.reservedRetirementBytes += work.bytes
+	budget.reservedRetirementEntries += work.Entries()
+	budget.reservedRetirementBytes += work.Bytes()
 	return nil
 }
 
 // ReserveRetirementFilePasses charges exact regular-file bytes for future
 // bounded reads or writes. Retirement records and journals are always
 // non-empty, so no empty-file proof allowance is needed here.
-func (budget *PhysicalWorkBudget) ReserveRetirementFilePasses(
-	work ArtifactWork,
+func (budget *Budget) ReserveRetirementFilePasses(
+	work workmeasure.ArtifactWork,
 	passes int,
 ) error {
 	if budget == nil {
@@ -147,14 +149,14 @@ func (budget *PhysicalWorkBudget) ReserveRetirementFilePasses(
 	if budget.retirementDisposition != retirementPending || budget.generalExecutionBegun {
 		return fmt.Errorf("journal retirement capacity was already transferred")
 	}
-	if work.entries != 0 || work.bytes <= 0 || passes <= 0 {
+	if work.Entries() != 0 || work.Bytes() <= 0 || passes <= 0 {
 		return fmt.Errorf("journal retirement file passes require positive file work and pass count")
 	}
-	if work.bytes > budget.RemainingBytes()/int64(passes) {
+	if work.Bytes() > budget.RemainingBytes()/int64(passes) {
 		return fmt.Errorf("journal retirement file passes exceed operation capacity")
 	}
-	bytes := work.bytes * int64(passes)
-	if err := budget.AdmitTree(ArtifactWork{bytes: bytes}); err != nil {
+	bytes := work.Bytes() * int64(passes)
+	if err := budget.admitTreeCounts(0, bytes); err != nil {
 		return err
 	}
 	budget.reservedRetirementBytes += bytes
@@ -163,7 +165,7 @@ func (budget *PhysicalWorkBudget) ReserveRetirementFilePasses(
 
 // BeginReservedRetirementExecution transfers only capacity reserved for one
 // prepared retirement continuation.
-func (budget *PhysicalWorkBudget) BeginReservedRetirementExecution() (*PhysicalWorkBudget, error) {
+func (budget *Budget) BeginReservedRetirementExecution() (*Budget, error) {
 	if err := budget.requireRemovalAdmission(); err != nil {
 		return nil, err
 	}
@@ -174,7 +176,7 @@ func (budget *PhysicalWorkBudget) BeginReservedRetirementExecution() (*PhysicalW
 		return nil, fmt.Errorf("journal retirement capacity must be transferred before general execution")
 	}
 	budget.retirementDisposition = retirementTransferred
-	return &PhysicalWorkBudget{
+	return &Budget{
 		pathComponentLimit: budget.reservedRetirementPathComponents,
 		entryLimit:         budget.reservedRetirementEntries,
 		byteLimit:          budget.reservedRetirementBytes,
@@ -183,7 +185,7 @@ func (budget *PhysicalWorkBudget) BeginReservedRetirementExecution() (*PhysicalW
 
 // ConcludeRetirementNotApplicable closes the retirement phase for internal
 // operations that do not own an active or cleanup-only journal.
-func (budget *PhysicalWorkBudget) ConcludeRetirementNotApplicable() error {
+func (budget *Budget) ConcludeRetirementNotApplicable() error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}

@@ -11,6 +11,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 )
 
 func executeRecoveryPlanWithOptionsForTest(
@@ -130,11 +132,11 @@ func beginGeneralRecoveryExecutionForTest(t *testing.T, authority *mutationAutho
 
 func installGeneralRecoveryExecutionBudgetForTest(t *testing.T, authority *mutationAuthority) {
 	t.Helper()
-	parent, err := recovery.NewPhysicalWorkBudget(0)
+	parent, err := physicalwork.NewBudget(0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	empty, err := recovery.NewArtifactWork(0, 0)
+	empty, err := workmeasure.NewArtifactWork(0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +158,7 @@ func installGeneralRecoveryExecutionBudgetForTest(t *testing.T, authority *mutat
 	if err != nil {
 		t.Fatal(err)
 	}
-	pathBudget, err := recovery.NewPhysicalWorkBudget(0)
+	pathBudget, err := physicalwork.NewBudget(0)
 	if err != nil {
 		t.Fatal(err)
 	}

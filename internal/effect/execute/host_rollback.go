@@ -13,6 +13,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -54,8 +56,8 @@ type hostRollbackEntry struct {
 	fileMode           os.FileMode
 	identity           mutationfs.EntryIdentity
 	stagedState        recoveryWholePathState
-	stagedWork         recovery.ArtifactWork
-	effectMaximumKinds map[string]recovery.ArtifactWork
+	stagedWork         workmeasure.ArtifactWork
+	effectMaximumKinds map[string]workmeasure.ArtifactWork
 	effectState        recoveryWholePathState
 	effectKnown        bool
 	attempted          bool
@@ -82,11 +84,11 @@ func (state recoveryWholePathState) equal(other recoveryWholePathState) bool {
 }
 
 type recoveryGeneralPathReservation struct {
-	budget *recovery.PhysicalWorkBudget
+	budget *physicalwork.Budget
 }
 
 type recoveryScratchPathReservation struct {
-	budget *recovery.PhysicalWorkBudget
+	budget *physicalwork.Budget
 }
 
 func (reservation recoveryScratchPathReservation) AdmitPathComponents(count int) error {
@@ -111,7 +113,7 @@ func reserveRecoveryHostExecution(
 	for range recoveryHostDestinationAccesses {
 		if err := destination.root.ReserveDestinationAccess(
 			destination.destination,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			reservation,
 		); err != nil {
 			return fmt.Errorf("reserve recovery host destination access: %w", err)
@@ -130,7 +132,7 @@ func reserveRecoveryHostExecution(
 		}
 	}
 
-	effectKinds := make(map[string]recovery.ArtifactWork)
+	effectKinds := make(map[string]workmeasure.ArtifactWork)
 	for _, action := range actions {
 		kind, work, present, err := recoveryActionMaximumWork(action.action, baseline.maximumFileBytes)
 		if err != nil {
@@ -146,7 +148,7 @@ func reserveRecoveryHostExecution(
 		}
 		effectKinds[kind] = maximumRecoveryArtifactWork(current, work)
 	}
-	baseline.effectMaximumKinds = make(map[string]recovery.ArtifactWork, len(effectKinds))
+	baseline.effectMaximumKinds = make(map[string]workmeasure.ArtifactWork, len(effectKinds))
 	for kind, work := range effectKinds {
 		baseline.effectMaximumKinds[kind] = work
 		// One postcondition read is used only by aggregate documents. Reserving it
@@ -159,7 +161,7 @@ func reserveRecoveryHostExecution(
 	// A failed or indeterminate mutation can leave either the staged baseline or
 	// any admitted effect kind visible. Reserve one fresh rollback observation
 	// for every structurally possible kind before the first host effect.
-	rollbackKinds := make(map[string]recovery.ArtifactWork, len(effectKinds)+1)
+	rollbackKinds := make(map[string]workmeasure.ArtifactWork, len(effectKinds)+1)
 	if baseline.existed {
 		rollbackKinds[baseline.kind] = baseline.stagedWork
 	}
@@ -180,22 +182,22 @@ func reserveRecoveryHostExecution(
 func recoveryActionMaximumWork(
 	action recoveryHostAction,
 	maximumDocumentBytes int64,
-) (string, recovery.ArtifactWork, bool, error) {
+) (string, workmeasure.ArtifactWork, bool, error) {
 	if action.ContentPath != "" {
 		maximumBytes := maximumDocumentBytes
 		if !action.BeforePathExisted {
 			maximumBytes = 0
 		}
-		work, err := recovery.NewArtifactWork(0, maximumBytes)
+		work, err := workmeasure.NewArtifactWork(0, maximumBytes)
 		return recovery.PathKindFile, work, true, err
 	}
 	switch action.Kind {
 	case recovery.ActionKindRestoreDelete:
-		return "", recovery.ArtifactWork{}, false, nil
+		return "", workmeasure.ArtifactWork{}, false, nil
 	case recovery.ActionKindRestoreWrite:
 		return action.BackupKind, action.BackupWork, true, nil
 	default:
-		return "", recovery.ArtifactWork{}, false, fmt.Errorf(
+		return "", workmeasure.ArtifactWork{}, false, fmt.Errorf(
 			"recovery action %q has no execution work model",
 			action.Kind,
 		)
@@ -203,9 +205,9 @@ func recoveryActionMaximumWork(
 }
 
 func reserveRecoveryObservation(
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 	kind string,
-	work recovery.ArtifactWork,
+	work workmeasure.ArtifactWork,
 ) error {
 	switch kind {
 	case recovery.PathKindFile:
@@ -218,9 +220,9 @@ func reserveRecoveryObservation(
 }
 
 func admitRecoveryObservation(
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 	kind string,
-	work recovery.ArtifactWork,
+	work workmeasure.ArtifactWork,
 ) error {
 	if budget == nil {
 		return fmt.Errorf("general recovery execution budget is unavailable")
@@ -228,13 +230,13 @@ func admitRecoveryObservation(
 	switch kind {
 	case recovery.PathKindFile:
 		readerBytes := max(int64(1), work.Bytes())
-		readerWork, err := recovery.NewArtifactWork(0, readerBytes)
+		readerWork, err := workmeasure.NewArtifactWork(0, readerBytes)
 		if err != nil {
 			return err
 		}
 		return budget.AdmitIndeterminateTreeWork(work, readerWork)
 	case recovery.PathKindDirectory:
-		readerWork, err := recovery.NewArtifactWork(work.Entries()+1, work.Bytes())
+		readerWork, err := workmeasure.NewArtifactWork(work.Entries()+1, work.Bytes())
 		if err != nil {
 			return err
 		}
@@ -244,7 +246,7 @@ func admitRecoveryObservation(
 	}
 }
 
-func recoveryTraversalLimits(work recovery.ArtifactWork) (mutationfs.TreeTraversalLimits, error) {
+func recoveryTraversalLimits(work workmeasure.ArtifactWork) (mutationfs.TreeTraversalLimits, error) {
 	return mutationfs.NewTreeTraversalLimits(
 		work.Entries(),
 		recovery.MaximumArtifactTreeDepth,
@@ -253,10 +255,10 @@ func recoveryTraversalLimits(work recovery.ArtifactWork) (mutationfs.TreeTravers
 }
 
 func maximumRecoveryArtifactWork(
-	left recovery.ArtifactWork,
-	right recovery.ArtifactWork,
-) recovery.ArtifactWork {
-	work, err := recovery.NewArtifactWork(
+	left workmeasure.ArtifactWork,
+	right workmeasure.ArtifactWork,
+) workmeasure.ArtifactWork {
+	work, err := workmeasure.NewArtifactWork(
 		max(left.Entries(), right.Entries()),
 		max(left.Bytes(), right.Bytes()),
 	)
@@ -421,7 +423,7 @@ func (rollback *hostRollback) prepareCleanup(
 	}
 	root, destination, err := rootedpath.CaptureDestinationBounded(
 		rollback.dir,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		authority.physicalWorkBudget,
 	)
 	if err != nil {
@@ -437,7 +439,7 @@ func (rollback *hostRollback) prepareCleanup(
 	for range 3 {
 		if err := root.ReserveDestinationAccess(
 			destination,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			reservation,
 		); err != nil {
 			return fmt.Errorf("reserve recovery rollback cleanup path: %w", err)
@@ -457,7 +459,7 @@ func (rollback *hostRollback) prepareCleanup(
 	entryAuthority, err := rootedpath.BindCapturedEntryAuthorityBounded(
 		root,
 		destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		executionBudget,
 	)
 	if err != nil {
@@ -495,7 +497,7 @@ func (rollback *hostRollback) prepareCleanup(
 	return nil
 }
 
-func (rollback hostRollback) cleanupWork() (recovery.ArtifactWork, error) {
+func (rollback hostRollback) cleanupWork() (workmeasure.ArtifactWork, error) {
 	seen := make(map[string]struct{}, len(rollback.entries))
 	entries := 0
 	var bytes int64
@@ -506,7 +508,7 @@ func (rollback hostRollback) cleanupWork() (recovery.ArtifactWork, error) {
 		backupPath := filepath.Clean(entry.backupPath)
 		if backupPath == rollback.dir ||
 			!strings.HasPrefix(backupPath, rollback.dir+string(filepath.Separator)) {
-			return recovery.ArtifactWork{}, fmt.Errorf("rollback backup escaped its private stage")
+			return workmeasure.ArtifactWork{}, fmt.Errorf("rollback backup escaped its private stage")
 		}
 		if _, duplicate := seen[backupPath]; duplicate {
 			continue
@@ -515,7 +517,7 @@ func (rollback hostRollback) cleanupWork() (recovery.ArtifactWork, error) {
 		entries += entry.stagedWork.Entries() + 1
 		bytes += entry.stagedWork.Bytes()
 	}
-	return recovery.NewArtifactWork(entries, bytes)
+	return workmeasure.NewArtifactWork(entries, bytes)
 }
 
 func (rollback *hostRollback) cleanup(
@@ -597,13 +599,13 @@ func (rollback *hostRollback) abortCleanup(
 	if err != nil {
 		return err
 	}
-	budget, err := recovery.NewPhysicalWorkBudget(0)
+	budget, err := physicalwork.NewBudget(0)
 	if err != nil {
 		return err
 	}
 	root, destination, err := rootedpath.CaptureDestinationBounded(
 		rollback.dir,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if err != nil {
@@ -613,7 +615,7 @@ func (rollback *hostRollback) abortCleanup(
 	for range 3 {
 		if err := root.ReserveDestinationAccess(
 			destination,
-			recovery.MaximumPhysicalPathDepth,
+			physicalwork.MaximumPhysicalPathDepth,
 			reservation,
 		); err != nil {
 			return errors.Join(err, root.Close())
@@ -629,7 +631,7 @@ func (rollback *hostRollback) abortCleanup(
 	entryAuthority, err := rootedpath.BindCapturedEntryAuthorityBounded(
 		root,
 		destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		executionBudget,
 	)
 	if err != nil {
@@ -691,7 +693,7 @@ func restoreRollbackGroup(
 	if !attempted {
 		return nil
 	}
-	maximumKinds := make(map[string]recovery.ArtifactWork, len(baseline.effectMaximumKinds)+1)
+	maximumKinds := make(map[string]workmeasure.ArtifactWork, len(baseline.effectMaximumKinds)+1)
 	maps.Copy(maximumKinds, baseline.effectMaximumKinds)
 	if baseline.existed {
 		if work, present := maximumKinds[baseline.kind]; present {

@@ -11,6 +11,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -58,7 +60,7 @@ func (failure *removalCleanupError) Unwrap() error {
 
 func (authority *mutationAuthority) prepareRemovalDemands(
 	demands recovery.RemovalDemandSet,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) error {
 	if authority == nil {
 		return fmt.Errorf("removal mutation authority is unavailable")
@@ -272,7 +274,7 @@ func (authority *mutationAuthority) removeJournaledRootedEntry(
 	}
 	capability, err = removalDestination.root.AcquireBounded(
 		removalDestination.destination,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 	if err != nil {
@@ -351,7 +353,7 @@ func validateRemovalNamespace(
 	ctx context.Context,
 	destination mutationDestination,
 	namespace recovery.RemovalNamespaceAuthority,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) error {
 	observation, err := journal.ObserveRemovalNamespace(
 		ctx,
@@ -375,17 +377,17 @@ type removalCleanupCandidate struct {
 	residuePath          string
 	cleanupPath          string
 	obligation           recovery.RemovalCleanupObligation
-	budget               *recovery.PhysicalWorkBudget
-	residueWork          recovery.ArtifactWork
-	cleanupSlotWork      recovery.ArtifactWork
-	cleanupWork          recovery.ArtifactWork
+	budget               *physicalwork.Budget
+	residueWork          workmeasure.ArtifactWork
+	cleanupSlotWork      workmeasure.ArtifactWork
+	cleanupWork          workmeasure.ArtifactWork
 	executionPreflighted bool
 }
 
 type removalSlotObservation struct {
 	entry    recovery.RemovalResidueEntryObservation
 	identity mutationfs.EntryIdentity
-	work     recovery.ArtifactWork
+	work     workmeasure.ArtifactWork
 }
 
 // cleanupRemovalResidues performs a complete read-only retirement preflight
@@ -655,8 +657,8 @@ func (authority *mutationAuthority) observeRemovalSlot(
 	destination mutationDestination,
 	path string,
 	role string,
-	budget *recovery.PhysicalWorkBudget,
-	maximumWork recovery.ArtifactWork,
+	budget *physicalwork.Budget,
+	maximumWork workmeasure.ArtifactWork,
 ) (removalSlotObservation, error) {
 	capability, err := authority.acquireRemovalSlot(destination, path, budget)
 	if err != nil {
@@ -973,7 +975,7 @@ func (authority *mutationAuthority) confirmRemovalSlotsAbsent(
 }
 
 func removalCleanupTraversalLimits(
-	work recovery.ArtifactWork,
+	work workmeasure.ArtifactWork,
 ) (mutationfs.TreeTraversalLimits, error) {
 	return mutationfs.NewTreeTraversalLimits(
 		work.Entries(),
@@ -985,7 +987,7 @@ func removalCleanupTraversalLimits(
 func (authority *mutationAuthority) acquireRemovalSlot(
 	destination mutationDestination,
 	slotPath string,
-	budget *recovery.PhysicalWorkBudget,
+	budget *physicalwork.Budget,
 ) (rootedpath.CommitCapability, error) {
 	if authority == nil || destination.root == nil {
 		return nil, fmt.Errorf("removal slot root authority is unavailable")
@@ -1008,7 +1010,7 @@ func (authority *mutationAuthority) acquireRemovalSlot(
 	}
 	return destination.root.AcquireBounded(
 		bound,
-		recovery.MaximumPhysicalPathDepth,
+		physicalwork.MaximumPhysicalPathDepth,
 		budget,
 	)
 }

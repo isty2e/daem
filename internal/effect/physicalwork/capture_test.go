@@ -1,14 +1,19 @@
-package recovery
+package physicalwork
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
+)
 
 func TestPhysicalCaptureAdmissionPreservesConsumedWork(t *testing.T) {
-	budget := NewPhysicalCaptureBudget(nil)
+	budget := NewCaptureBudget(nil)
 	budget.pathComponentLimit = 7
 	if err := budget.AdmitPathComponents(4); err != nil {
 		t.Fatal(err)
 	}
-	consumed, _ := NewArtifactWork(MaximumPhysicalEntries-2, MaximumPhysicalBytes-3)
+	consumed, _ := workmeasure.NewArtifactWork(MaximumPhysicalEntries-2, MaximumPhysicalBytes-3)
 	if err := budget.AdmitTree(consumed); err != nil {
 		t.Fatal(err)
 	}
@@ -22,15 +27,15 @@ func TestPhysicalCaptureAdmissionPreservesConsumedWork(t *testing.T) {
 	if budget.RemainingEntries() != 2 || budget.RemainingBytes() != 3 {
 		t.Fatal("admission replenished consumed tree work")
 	}
-	remaining, _ := NewArtifactWork(2, 3)
+	remaining, _ := workmeasure.NewArtifactWork(2, 3)
 	if err := budget.AdmitTree(remaining); err != nil {
 		t.Fatal(err)
 	}
 	if err := budget.AdmitPathComponents(3); err != nil {
 		t.Fatal(err)
 	}
-	oneEntry, _ := NewArtifactWork(1, 0)
-	oneByte, _ := NewArtifactWork(0, 1)
+	oneEntry, _ := workmeasure.NewArtifactWork(1, 0)
+	oneByte, _ := workmeasure.NewArtifactWork(0, 1)
 	if budget.AdmitTree(oneEntry) == nil || budget.AdmitTree(oneByte) == nil || budget.AdmitPathComponents(1) == nil {
 		t.Fatal("pre-admission work no longer counts against the operation")
 	}
@@ -45,15 +50,15 @@ func TestPhysicalCaptureAdmissionPreservesConsumedWork(t *testing.T) {
 }
 
 func TestPhysicalCaptureEmptyAdmissionIsFinalAndDoesNotCountComparisons(t *testing.T) {
-	budget := NewPhysicalCaptureBudget(nil)
-	oneByte, _ := NewArtifactWork(0, 1)
-	for range MaximumRemovalIntents + 1 {
+	budget := NewCaptureBudget(nil)
+	oneByte, _ := workmeasure.NewArtifactWork(0, 1)
+	for range recovery.MaximumRemovalIntents + 1 {
 		if err := budget.AdmitTree(oneByte); err != nil {
 			t.Fatal("non-removing work was capped by removal cardinality", err)
 		}
 	}
 	remaining := budget.RemainingBytes()
-	if err := budget.AdmitRemovalDemands(RemovalDemandSet{}); err != nil {
+	if err := budget.AdmitRemovalDemands(recovery.RemovalDemandSet{}); err != nil {
 		t.Fatal(err)
 	}
 	if budget.RemainingBytes() != remaining || budget.AdmitObservation() == nil {
@@ -67,66 +72,25 @@ func TestPhysicalCaptureEmptyAdmissionIsFinalAndDoesNotCountComparisons(t *testi
 	}
 }
 
-func TestPhysicalCaptureInvalidDemandAdmissionIsAtomic(t *testing.T) {
-	set := captureBudgetDemands(t)
-	invalid := map[string]RemovalDemandSet{
-		"invalid":    {demands: []RemovalDemand{{}}},
-		"duplicates": {demands: []RemovalDemand{set.demands[0], set.demands[0]}},
-		"over-limit": {demands: make([]RemovalDemand, MaximumRemovalIntents+1)},
-	}
-	for name, demands := range invalid {
-		t.Run(name, func(t *testing.T) {
-			budget := NewPhysicalCaptureBudget(nil)
-			if budget.AdmitRemovalDemands(demands) == nil || budget.AdmitObservation() == nil {
-				t.Fatal("invalid complete demand set opened removal admission")
-			}
-			if err := budget.AdmitRemovalDemands(set); err != nil {
-				t.Fatal("invalid admission burned the transition", err)
-			}
-			for range removalObservationsPerIntent {
-				if err := budget.AdmitObservation(); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if budget.AdmitObservation() == nil {
-				t.Fatal("invalid attempt increased exact observation capacity")
-			}
-		})
-	}
-	for _, count := range []int{0, 1} {
-		budget, err := NewPhysicalWorkBudget(count)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if budget.AdmitRemovalDemands(set) == nil {
-			t.Fatal("eager budget was reopened as a capture allocation")
-		}
-	}
-	var absent *PhysicalWorkBudget
-	if absent.AdmitRemovalDemands(set) == nil {
-		t.Fatal("missing budget admitted demands")
-	}
-}
-
 func TestPhysicalCaptureBlocksEveryExecutionTransferBeforeAdmission(t *testing.T) {
-	transfers := map[string]func(*PhysicalWorkBudget) error{
-		"cleanup":   func(budget *PhysicalWorkBudget) error { _, err := budget.BeginReservedCleanupLifecycle(); return err },
-		"semantic":  func(budget *PhysicalWorkBudget) error { _, err := budget.BeginReservedSemanticExecution(); return err },
-		"backup":    func(budget *PhysicalWorkBudget) error { _, err := budget.BeginReservedBackupExecution(); return err },
-		"forward":   func(budget *PhysicalWorkBudget) error { _, err := budget.BeginReservedForwardExecution(); return err },
-		"execution": func(budget *PhysicalWorkBudget) error { _, err := budget.BeginReservedExecution(); return err },
-		"retirement": func(budget *PhysicalWorkBudget) error {
+	transfers := map[string]func(*Budget) error{
+		"cleanup":   func(budget *Budget) error { _, err := budget.BeginReservedCleanupLifecycle(); return err },
+		"semantic":  func(budget *Budget) error { _, err := budget.BeginReservedSemanticExecution(); return err },
+		"backup":    func(budget *Budget) error { _, err := budget.BeginReservedBackupExecution(); return err },
+		"forward":   func(budget *Budget) error { _, err := budget.BeginReservedForwardExecution(); return err },
+		"execution": func(budget *Budget) error { _, err := budget.BeginReservedExecution(); return err },
+		"retirement": func(budget *Budget) error {
 			_, err := budget.BeginReservedRetirementExecution()
 			return err
 		},
-		"scratch": func(budget *PhysicalWorkBudget) error { _, _, err := budget.BeginReservedScratchCleanup(); return err },
-		"general": func(budget *PhysicalWorkBudget) error { _, _, err := budget.BeginGeneralExecution(); return err },
+		"scratch": func(budget *Budget) error { _, _, err := budget.BeginReservedScratchCleanup(); return err },
+		"general": func(budget *Budget) error { _, _, err := budget.BeginGeneralExecution(); return err },
 	}
 	for name, transfer := range transfers {
 		t.Run(name, func(t *testing.T) {
-			budget := NewPhysicalCaptureBudget(nil)
+			budget := NewCaptureBudget(nil)
 			if name == "scratch" {
-				if err := budget.ReserveScratchCleanup(ArtifactWork{}, 1); err != nil {
+				if err := budget.ReserveScratchCleanup(workmeasure.ArtifactWork{}, 1); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -140,7 +104,7 @@ func TestPhysicalCaptureBlocksEveryExecutionTransferBeforeAdmission(t *testing.T
 			if err := transfer(budget); err == nil {
 				t.Fatal("pending capture transferred execution capacity")
 			}
-			if err := budget.AdmitRemovalDemands(RemovalDemandSet{}); err != nil {
+			if err := budget.AdmitRemovalDemands(recovery.RemovalDemandSet{}); err != nil {
 				t.Fatal(err)
 			}
 			if err := transfer(budget); err != nil {
@@ -151,16 +115,16 @@ func TestPhysicalCaptureBlocksEveryExecutionTransferBeforeAdmission(t *testing.T
 }
 
 func TestPhysicalCapturePreservesSharedPathsAndExecutionReservations(t *testing.T) {
-	shared := NewPhysicalPathBudget()
+	shared := NewPathBudget()
 	shared.components = maximumPhysicalPathComponentVisits - 7
-	budget := NewPhysicalCaptureBudget(shared)
+	budget := NewCaptureBudget(shared)
 	if err := budget.ReserveSemanticPathComponents(3); err != nil {
 		t.Fatal(err)
 	}
-	if err := budget.ReserveBackupFileExecution(ArtifactWork{bytes: 5}); err != nil {
+	if err := budget.ReserveBackupFileExecution(artifactWork(t, 0, 5)); err != nil {
 		t.Fatal(err)
 	}
-	if err := budget.AdmitRemovalDemands(RemovalDemandSet{}); err != nil {
+	if err := budget.AdmitRemovalDemands(recovery.RemovalDemandSet{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := budget.AdmitPathComponents(4); err != nil {
@@ -183,13 +147,4 @@ func TestPhysicalCapturePreservesSharedPathsAndExecutionReservations(t *testing.
 	if backup.RemainingBytes() != 6 {
 		t.Fatal("backup reservation or overflow proof byte was lost")
 	}
-}
-
-func captureBudgetDemands(t *testing.T) RemovalDemandSet {
-	t.Helper()
-	set, err := NewRemovalDemandSet([]RemovalDemand{testRemovalIntent(t).Demand()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return set
 }
