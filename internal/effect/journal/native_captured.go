@@ -90,16 +90,16 @@ func (document CapturedNativeDocument) Original() (aggregate.Document, *recovery
 	if !document.valid() {
 		return aggregate.Document{}, nil
 	}
-	image := document.captured.qualified.records.images[document.index].original
-	return image.document, clonePermissionMode(image.mode)
+	image := document.captured.qualified.records.images[document.index].Original()
+	return image.Document(), image.Mode()
 }
 
 func (document CapturedNativeDocument) Expected() (aggregate.Document, *recovery.PermissionMode) {
 	if !document.valid() {
 		return aggregate.Document{}, nil
 	}
-	image := document.captured.qualified.records.images[document.index].expected
-	return image.document, clonePermissionMode(image.mode)
+	image := document.captured.qualified.records.images[document.index].Expected()
+	return image.Document(), image.Mode()
 }
 
 func (document CapturedNativeDocument) SelectedSubjects(ctx context.Context) ([]topology.SubjectID, error) {

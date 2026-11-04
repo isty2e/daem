@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
@@ -533,7 +532,15 @@ func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group rec
 		if err != nil {
 			return err
 		}
-		if !reflect.DeepEqual(original, group.Original) || !reflect.DeepEqual(expected, group.Expected) {
+		originalReference, err := documentImageReference(group.Original)
+		if err != nil {
+			return err
+		}
+		expectedReference, err := documentImageReference(group.Expected)
+		if err != nil {
+			return err
+		}
+		if original != originalReference || expected != expectedReference {
 			t.Fatal("capture and staging disagree on private image references")
 		}
 		return nil

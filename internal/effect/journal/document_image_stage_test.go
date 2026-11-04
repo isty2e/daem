@@ -37,7 +37,7 @@ func TestDocumentImageStagePublishesExactPrivateImages(t *testing.T) {
 			destination, capability := imageStageDestination(t)
 			budget := imageBudget(t)
 			remainingBytes, remainingEntries := budget.RemainingBytes(), budget.RemainingEntries()
-			var original, expected recoveryDocumentImage
+			var original, expected recordedDocumentImage
 			prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 				var err error
 				original, expected, err = stageDocumentImages(t.Context(), comparison, 0, writer, budget)
@@ -63,17 +63,21 @@ func TestDocumentImageStagePublishesExactPrivateImages(t *testing.T) {
 				t.Fatalf("staged pair lost exact content or presence: %v", err)
 			}
 			fileCount := 0
-			for index, record := range []recoveryDocumentImage{original, expected} {
+			for index, record := range []recordedDocumentImage{original, expected} {
 				wantMode := []*recovery.PermissionMode{test.beforeMode, test.expectedMode}[index]
 				loadedMode := []*recovery.PermissionMode{loaded.original.mode, loaded.expected.mode}[index]
 				if (loadedMode == nil) != (wantMode == nil) || (loadedMode != nil && *loadedMode != *wantMode) {
 					t.Fatal("host permission metadata was replaced by private witness mode")
 				}
-				if record.Artifact == nil {
+				plan, err := record.readPlan(4096)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !plan.Exists() {
 					continue
 				}
 				fileCount++
-				path := filepath.Join(destination, filepath.FromSlash(record.Artifact.Path))
+				path := filepath.Join(destination, filepath.FromSlash(plan.Reference()))
 				info, err := os.Stat(path)
 				if err != nil || info.Mode().Perm() != 0o600 {
 					t.Fatalf("witness file is not private0600: %v", err)
@@ -110,7 +114,10 @@ func TestDocumentImageStageFeedsStrictNativeRecordReconstruction(t *testing.T) {
 	}
 	destination, capability := imageStageDestination(t)
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
-		original, expected, err := stageDocumentImages(t.Context(), loaded.groups[0].Comparison(), 0, writer, imageBudget(t))
+		if _, _, err := stageDocumentImages(t.Context(), loaded.groups[0].Comparison(), 0, writer, imageBudget(t)); err != nil {
+			return err
+		}
+		_, original, expected, err := documentImageReferences(loaded.groups[0].Comparison(), 0)
 		if err != nil {
 			return err
 		}
@@ -171,7 +178,7 @@ func TestDocumentImageStageFailureAndCancellationAbortActualPartialTree(t *testi
 			failure := errors.New("injected witness write failure")
 			budget := imageBudget(t)
 			remainingBytes, remainingEntries := budget.RemainingBytes(), budget.RemainingEntries()
-			var original, expected recoveryDocumentImage
+			var original, expected recordedDocumentImage
 			_, err := journalTestFilesystem().PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
 				wrapped := &imageStageWriter{RootedTreeWriter: writer, afterWrite: func(count int) error {
 					if count != test.at {
@@ -243,7 +250,7 @@ func TestDocumentImageStageDoesNotOverwriteAnotherGroup(t *testing.T) {
 	comparison := imageStageComparison(t, journaldocument.ComparisonInput{Before: aggregate.AbsentDocument(), Expected: aggregate.ExistingDocument([]byte("expected")), ExpectedMode: recovery.NewPermissionMode(0o600)})
 	destination, capability := imageStageDestination(t)
 	budget := imageBudget(t)
-	var original, expected recoveryDocumentImage
+	var original, expected recordedDocumentImage
 	_, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		if _, _, err := stageDocumentImages(t.Context(), comparison, 0, writer, budget); err != nil {
 			return err
@@ -272,7 +279,7 @@ func TestDocumentImageStageKeepsDistinctGroupsOnOneBudget(t *testing.T) {
 	destination, capability := imageStageDestination(t)
 	budget := imageBudget(t)
 	remainingBytes, remainingEntries := budget.RemainingBytes(), budget.RemainingEntries()
-	var records [2][2]recoveryDocumentImage
+	var records [2][2]recordedDocumentImage
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		for index, comparison := range comparisons {
 			var err error

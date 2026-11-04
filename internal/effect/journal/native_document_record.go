@@ -16,7 +16,6 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 type nativeDocumentReadOptions struct {
@@ -87,12 +86,7 @@ func (journal nativeJournalSnapshots) completeDocuments(ctx context.Context, ind
 func (journal nativeJournalSnapshots) validateExpectedBaselines(ctx context.Context, after journaldocument.SnapshotIndex, groups []journaldocument.StateGroup, codecs aggregate.CodecCatalog) error {
 	images := make([]journaldocument.ImageIdentity, 0, len(journal.record.DocumentGroups))
 	for _, group := range journal.record.DocumentGroups {
-		image := group.Expected
-		digest := artifact.ContentHash("")
-		if image.Kind == "file" {
-			digest = image.Artifact.Digest
-		}
-		identity, err := journaldocument.NewImageIdentity(image.Kind == "file", digest, image.Mode)
+		identity, err := group.Expected.identity()
 		if err != nil {
 			return err
 		}

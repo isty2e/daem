@@ -33,7 +33,7 @@ const (
 type documentImageDemand struct {
 	session            *documentReconstructionSession
 	index              int
-	original, expected recoveryDocumentImage
+	original, expected recordedDocumentImage
 }
 
 type documentReconstructionGroup struct {
@@ -148,10 +148,18 @@ func (session *documentReconstructionSession) next(ctx context.Context) (documen
 	if err != nil {
 		return documentImageDemand{}, false, session.reject(err)
 	}
+	before, err := documentImageReference(record.Original)
+	if err != nil {
+		return documentImageDemand{}, false, session.reject(err)
+	}
+	after, err := documentImageReference(record.Expected)
+	if err != nil {
+		return documentImageDemand{}, false, session.reject(err)
+	}
 
 	session.pending = documentReconstructionGroup{record: record, aliases: aliases, subjects: subjects, selections: selections, claims: claims, provisional: provisional}
 	session.phase = documentReconstructionAwaitingImages
-	return documentImageDemand{session: session, index: session.cursor, original: record.Original, expected: record.Expected}, true, nil
+	return documentImageDemand{session: session, index: session.cursor, original: before, expected: after}, true, nil
 }
 
 func (session *documentReconstructionSession) supplyPreparedImages(ctx context.Context, demand documentImageDemand) error {

@@ -11,7 +11,6 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
-	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/topology"
 )
 
@@ -125,36 +124,20 @@ func preparedNativeDocumentImages(ctx context.Context, record recoveryDocumentGr
 	if comparison.Limits() != limits || comparison.WholeDocument() != (record.Extent == "whole") {
 		return loadedDocumentImages{}, fmt.Errorf("prepared document extent or limits differ from the operation")
 	}
-	images := loadedDocumentImages{
-		original: loadedDocumentImage{document: comparison.BeforeDocument(), mode: comparison.BeforeMode(), initialized: true},
-		expected: loadedDocumentImage{document: comparison.ExpectedDocument(), initialized: true},
-	}
+	var expectedMode *recovery.PermissionMode
 	if mode, present := comparison.ExpectedState().RegularFileMode(); present {
-		images.expected.mode = &mode
+		expectedMode = &mode
 	}
-	for index, image := range []loadedDocumentImage{images.original, images.expected} {
-		if err := journaldocument.ValidateImage(ctx, image.document, limits); err != nil {
-			return loadedDocumentImages{}, err
-		}
-		if err := image.validate(); err != nil {
-			return loadedDocumentImages{}, err
-		}
-		evidence := []recoveryDocumentImage{record.Original, record.Expected}[index]
-		if err := evidence.validate(); err != nil {
-			return loadedDocumentImages{}, err
-		}
-		if image.document.Exists() != (evidence.Kind == "file") {
-			return loadedDocumentImages{}, fmt.Errorf("prepared document presence differs from its recorded witness")
-		}
-		if !image.document.Exists() {
-			continue
-		}
-		if *image.mode != *evidence.Mode || image.document.ContentSize() != *evidence.Artifact.Size || artifact.HashFileContent(image.document.Content()) != evidence.Artifact.Digest {
-			return loadedDocumentImages{}, fmt.Errorf("prepared document mode, size or digest differs from its recorded witness")
-		}
+	original, err := record.Original.preparedImage(ctx, comparison.BeforeDocument(), comparison.BeforeMode(), limits)
+	if err != nil {
+		return loadedDocumentImages{}, err
+	}
+	expected, err := record.Expected.preparedImage(ctx, comparison.ExpectedDocument(), expectedMode, limits)
+	if err != nil {
+		return loadedDocumentImages{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return loadedDocumentImages{}, err
 	}
-	return images, nil
+	return loadedDocumentImagePair(original, expected)
 }

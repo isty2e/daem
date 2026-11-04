@@ -42,7 +42,7 @@ func TestDocumentImageLoadsActualPrivatePayloadWithIndependentHostMode(t *testin
 			budget := imageBudget(t)
 			remaining := budget.RemainingBytes()
 			reader := &imageReader{RootedReader: journalTestFilesystem()}
-			loaded, err := loadDocumentImage(t.Context(), decoded, root, reader, budget, 4096)
+			loaded, err := loadDocumentImage(t.Context(), requireDocumentImageReference(t, decoded), root, reader, budget, 4096)
 			if err != nil || loaded.validate() != nil || !loaded.document.Equal(aggregate.ExistingDocument([]byte(content))) || loaded.mode == nil || *loaded.mode != hostMode {
 				t.Fatalf("actual private image or host mode was lost: %v", err)
 			}
@@ -65,7 +65,7 @@ func TestDocumentImageLoadsActualPrivatePayloadWithIndependentHostMode(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := loadDocumentImage(t.Context(), absent, nil, nil, nil, 4096)
+	loaded, err := loadDocumentImage(t.Context(), requireDocumentImageReference(t, absent), nil, nil, nil, 4096)
 	if err != nil || loaded.document.Exists() || loaded.validate() != nil || loaded.mode != nil {
 		t.Fatalf("explicit absence required a file or became an empty file: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestDocumentImageRefusesCorruptPrivateEvidenceWithoutLoadedValue(t *testing
 			reader := &imageReader{RootedReader: journalTestFilesystem()}
 			budget := imageBudget(t)
 			remaining := budget.RemainingBytes()
-			loaded, err := loadDocumentImage(t.Context(), record, root, reader, budget, 4096)
+			loaded, err := loadDocumentImage(t.Context(), requireDocumentImageReference(t, record), root, reader, budget, 4096)
 			if err == nil || loaded.validate() == nil || loaded.mode != nil {
 				t.Fatal("corrupt private evidence returned a usable image")
 			}
@@ -143,13 +143,13 @@ func TestDocumentImageRefusesBudgetAndCancellationBeforeReading(t *testing.T) {
 		t.Fatal(err)
 	}
 	reader := &imageReader{RootedReader: journalTestFilesystem()}
-	loaded, err := loadDocumentImage(t.Context(), record, root, reader, budget, 4096)
+	loaded, err := loadDocumentImage(t.Context(), requireDocumentImageReference(t, record), root, reader, budget, 4096)
 	if err == nil || loaded.validate() == nil || reader.calls != 0 {
 		t.Fatal("image read exceeded the caller's shared remaining budget")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	loaded, err = loadDocumentImage(ctx, record, root, reader, imageBudget(t), 4096)
+	loaded, err = loadDocumentImage(ctx, requireDocumentImageReference(t, record), root, reader, imageBudget(t), 4096)
 	if !errors.Is(err, context.Canceled) || loaded.validate() == nil || reader.calls != 0 {
 		t.Fatalf("canceled load read or returned an image: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestDocumentImagesReconstructSelectedComparisonAndRejectPartialPairs(t *tes
 	}
 	budget := imageBudget(t)
 	remaining := budget.RemainingBytes()
-	images, err := loadDocumentImages(t.Context(), original, expected, root, journalTestFilesystem(), budget, 4096)
+	images, err := loadDocumentImages(t.Context(), requireDocumentImageReference(t, original), requireDocumentImageReference(t, expected), root, journalTestFilesystem(), budget, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestDocumentImagesReconstructSelectedComparisonAndRejectPartialPairs(t *tes
 	if err := os.WriteFile(expectedPath, []byte("corrupt"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	images, err = loadDocumentImages(t.Context(), original, expected, root, journalTestFilesystem(), imageBudget(t), 4096)
+	images, err = loadDocumentImages(t.Context(), requireDocumentImageReference(t, original), requireDocumentImageReference(t, expected), root, journalTestFilesystem(), imageBudget(t), 4096)
 	if err == nil || images.original.validate() == nil || images.expected.validate() == nil {
 		t.Fatal("a later expected-image failure exposed a successful original image")
 	}
@@ -226,7 +226,7 @@ func TestDocumentImageCancellationAfterReadRetainsWorkWithoutAnImage(t *testing.
 	reader := &imageReader{RootedReader: journalTestFilesystem(), afterRead: cancel}
 	budget := imageBudget(t)
 	remaining := budget.RemainingBytes()
-	loaded, err := loadDocumentImage(ctx, record, root, reader, budget, 4096)
+	loaded, err := loadDocumentImage(ctx, requireDocumentImageReference(t, record), root, reader, budget, 4096)
 	if !errors.Is(err, context.Canceled) || loaded.validate() == nil || reader.calls != 1 {
 		t.Fatalf("late cancellation exposed an image: %v", err)
 	}

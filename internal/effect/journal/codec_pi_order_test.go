@@ -189,7 +189,7 @@ func TestPiOrderEvidenceJoinsRealImageCustodyAndSelectedRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	decoded := clonePiEvidence(t, record)
-	images, err := loadDocumentImages(t.Context(), originalImage, expectedImage, root, journalTestFilesystem(), imageBudget(t), pipackage.MaximumSettingsBytes)
+	images, err := loadDocumentImages(t.Context(), requireDocumentImageReference(t, originalImage), requireDocumentImageReference(t, expectedImage), root, journalTestFilesystem(), imageBudget(t), pipackage.MaximumSettingsBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestPiOrderEvidenceJoinsRealImageCustodyAndSelectedRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	images, err = loadDocumentImages(t.Context(), originalImage, wrongExpected, root, journalTestFilesystem(), imageBudget(t), pipackage.MaximumSettingsBytes)
+	images, err = loadDocumentImages(t.Context(), requireDocumentImageReference(t, originalImage), requireDocumentImageReference(t, wrongExpected), root, journalTestFilesystem(), imageBudget(t), pipackage.MaximumSettingsBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
