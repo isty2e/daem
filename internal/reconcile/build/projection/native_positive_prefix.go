@@ -5,18 +5,19 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 )
 
-// BuildPositiveNativePrefix retains selected native keys and their classified
-// ownership transitions, leaving removal-only keys and ordinary work for later.
+// BuildPositiveNativePrefix retains selected native keys and every overlapping
+// transition, leaving disjoint removals and ordinary work for later.
 func BuildPositiveNativePrefix(ctx context.Context, decisions []reconcile.AggregateDecision) ([]reconcile.AggregateDecision, error) {
 	return buildNativeAggregatePhase(ctx, decisions, true)
 }
 
-// BuildNativeApplySuffix retains removal-only native keys and ordinary aggregate work.
+// BuildNativeApplySuffix retains disjoint removal-only native keys and ordinary aggregate work.
 func BuildNativeApplySuffix(ctx context.Context, decisions []reconcile.AggregateDecision) ([]reconcile.AggregateDecision, error) {
 	return buildNativeAggregatePhase(ctx, decisions, false)
 }
@@ -45,8 +46,17 @@ func buildNativeAggregatePhase(ctx context.Context, decisions []reconcile.Aggreg
 		}
 		var selected []reconcile.AggregateProjectionDecision
 		var contracts []aggregate.ProjectionContract
-		for _, projection := range source.Projections() {
-			if _, desired := projection.Desired(); desired == positive {
+		projections := source.Projections()
+		positiveRoots := nativePositivePhaseRoots(projections)
+		for _, projection := range projections {
+			inPrefix := false
+			for _, root := range positiveRoots {
+				if root.Contains(projection.Contract().Address().KeyPath()) {
+					inPrefix = true
+					break
+				}
+			}
+			if inPrefix == positive {
 				selected = append(selected, projection)
 				contracts = append(contracts, projection.Contract())
 			}
@@ -65,6 +75,29 @@ func buildNativeAggregatePhase(ctx context.Context, decisions []reconcile.Aggreg
 		return nil, err
 	}
 	return result, nil
+}
+
+func nativePositivePhaseRoots(projections []reconcile.AggregateProjectionDecision) []output.KeyPath {
+	var keys, desired []output.KeyPath
+	for _, projection := range projections {
+		key := projection.Contract().Address().KeyPath()
+		keys = append(keys, key)
+		if _, present := projection.Desired(); present {
+			desired = append(desired, key)
+		}
+	}
+
+	// Each topmost input key covers one indivisible ancestor/descendant transition.
+	var roots []output.KeyPath
+	for _, root := range output.TopmostKeyPaths(keys) {
+		for _, key := range desired {
+			if root.Contains(key) {
+				roots = append(roots, root)
+				break
+			}
+		}
+	}
+	return roots
 }
 
 func nativeDocumentSubset(source reconcile.AggregateDecision, selected []reconcile.AggregateProjectionDecision, contracts []aggregate.ProjectionContract) (reconcile.AggregateDecision, error) {

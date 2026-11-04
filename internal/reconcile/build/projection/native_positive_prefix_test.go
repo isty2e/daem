@@ -1,11 +1,13 @@
 package projection
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"io"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -209,10 +211,7 @@ func nativePrefixInput(t *testing.T, current string, previous, desired []nativeP
 	contracts := make(map[string]aggregate.ProjectionContract)
 	for group, keys := range [][]nativePrefixKey{previous, desired} {
 		for _, key := range keys {
-			path, err := output.NewKeyPath(key.name)
-			if err != nil {
-				t.Fatal(err)
-			}
+			path := nativePrefixKeyPath(t, key.name)
 			footprint, _ := output.NewKeyFootprint(path)
 			contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, outputtest.Parse(t, ".pi/settings.json"), footprint, codecID)
 			if err != nil {
@@ -220,7 +219,7 @@ func nativePrefixInput(t *testing.T, current string, previous, desired []nativeP
 			}
 			contracts[key.name] = contract
 			selection, _ := aggregate.NewSelection([]aggregate.ProjectionContract{contract})
-			snapshot, failure := codec.Read(aggregate.ExistingDocument(fmt.Appendf(nil, "{%q:%s}", key.name, key.value)), selection)
+			snapshot, failure := codec.Read(aggregate.ExistingDocument(nativePrefixSource(t, limits, []nativePrefixKey{key})), selection)
 			if failure != nil {
 				t.Fatal(failure)
 			}
@@ -254,18 +253,12 @@ func nativePrefixInput(t *testing.T, current string, previous, desired []nativeP
 		}
 	}
 	input.Expected = append([]lock.LockedSubjectContract(nil), locked...)
-	sources := make(map[string]map[string]json.RawMessage)
+	sources := make(map[string][]nativePrefixKey)
 	for _, key := range desired {
-		if sources[key.owner] == nil {
-			sources[key.owner] = make(map[string]json.RawMessage)
-		}
-		sources[key.owner][key.name] = json.RawMessage(key.value)
+		sources[key.owner] = append(sources[key.owner], key)
 	}
 	for owner, values := range sources {
-		content, err := json.Marshal(values)
-		if err != nil {
-			t.Fatal(err)
-		}
+		content := nativePrefixSource(t, limits, values)
 		placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
 			Target: target.TargetPi, Scope: target.ScopeProject, Path: "settings.json",
 			Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON,
@@ -318,14 +311,68 @@ func nativePrefixInput(t *testing.T, current string, previous, desired []nativeP
 	return input
 }
 
-func assertNativePrefixJSON(t *testing.T, document aggregate.Document, expected string) {
+func nativePrefixKeyPath(t *testing.T, name string) output.KeyPath {
 	t.Helper()
-	var got, want map[string]json.RawMessage
-	if err := json.Unmarshal(document.Content(), &got); err != nil {
+	var key output.KeyPath
+	var err error
+	if strings.HasPrefix(name, "/") {
+		key, err = output.ParseKeyPath(name)
+	} else {
+		key, err = output.NewKeyPath(name)
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal([]byte(expected), &want); err != nil {
+	return key
+}
+
+func nativePrefixSource(t *testing.T, limits configdocument.Limits, keys []nativePrefixKey) []byte {
+	t.Helper()
+	document, err := configdocument.Absent(configdocument.JSON, limits)
+	if err != nil {
 		t.Fatal(err)
+	}
+	var changes []configdocument.Change
+	for _, key := range keys {
+		valueDocument, err := configdocument.Parse(t.Context(), []byte(key.value), configdocument.JSON, limits)
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, _, err := valueDocument.Lookup(output.KeyPath{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		change, err := configdocument.Set(nativePrefixKeyPath(t, key.name), value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changes = append(changes, change)
+	}
+	document, err = configdocument.Edit(t.Context(), document, changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return document.Bytes()
+}
+
+func assertNativePrefixJSON(t *testing.T, document aggregate.Document, expected string) {
+	t.Helper()
+	var got, want map[string]any
+	gotDecoder := json.NewDecoder(bytes.NewReader(document.Content()))
+	gotDecoder.UseNumber()
+	if err := gotDecoder.Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if err := gotDecoder.Decode(new(json.RawMessage)); err != io.EOF {
+		t.Fatal("document has trailing JSON", err)
+	}
+	wantDecoder := json.NewDecoder(strings.NewReader(expected))
+	wantDecoder.UseNumber()
+	if err := wantDecoder.Decode(&want); err != nil {
+		t.Fatal(err)
+	}
+	if err := wantDecoder.Decode(new(json.RawMessage)); err != io.EOF {
+		t.Fatal("expected document has trailing JSON", err)
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("document = %s, want %s", document.Content(), expected)
