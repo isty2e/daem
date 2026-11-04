@@ -30,7 +30,7 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	if !admitted || active.record.OperationID() != operationID || active.operationDir != directory || active.identity.JournalAuthorityFingerprint() != fingerprint {
 		return CapturedNativeJournal{}, fmt.Errorf("published native operation or fingerprint differs from its staged record")
 	}
-	if !journal.owner.Equal(batch.owner) || !journal.before.Equal(batch.before) || !journal.after.Equal(after) {
+	if !journal.MatchesContext(batch.owner, batch.before, after) {
 		return CapturedNativeJournal{}, fmt.Errorf("published native journal differs from its complete operation context")
 	}
 	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(directory, physicalwork.MaximumPhysicalPathDepth, batch.budget)

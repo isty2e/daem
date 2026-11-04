@@ -24,15 +24,21 @@ type recordedDocumentAlias struct {
 	initialized bool
 }
 
-func (journal nativeJournalSnapshots) recordedDocuments() []recordedDocument {
+func (journal nativeJournalSnapshots) recordedDocuments() ([]recordedDocument, error) {
+	if err := journal.requireNativeValue(); err != nil {
+		return nil, err
+	}
 	result := make([]recordedDocument, 0, len(journal.record.DocumentGroups))
 	for _, record := range journal.record.DocumentGroups {
 		result = append(result, journal.documentView(record))
 	}
-	return result
+	return result, nil
 }
 
 func (journal nativeJournalSnapshots) recordedDocumentAt(index int) (recordedDocument, error) {
+	if err := journal.requireNativeValue(); err != nil {
+		return recordedDocument{}, err
+	}
 	if index < 0 || index >= len(journal.record.DocumentGroups) {
 		return recordedDocument{}, fmt.Errorf("recorded document index is outside the complete record")
 	}

@@ -16,8 +16,12 @@ func TestOrdinaryCaptureEvidenceEnclosesNativeJoinWithoutChangingInputs(t *testi
 		t.Fatal(err)
 	}
 	joined, err := fixture.journal.withOrdinaryCapture(source.record)
-	if err != nil || len(joined.recordedEntries()) != len(views) || len(joined.record.Entries) == 0 {
+	if err != nil {
 		t.Fatalf("matching complete capture facts did not join: %v", err)
+	}
+	joinedViews, err := joined.recordedEntries()
+	if err != nil || len(joinedViews) != len(views) || len(joinedViews) == 0 {
+		t.Fatalf("native join lost its entry facts: %v", err)
 	}
 	joined.record.Entries[0].Path += "-changed"
 	if !bytes.Equal(before, nativeRecordJSON(t, fixture.journal.record)) || !bytes.Equal(entries, nativeRecordJSON(t, source.record.entries)) {

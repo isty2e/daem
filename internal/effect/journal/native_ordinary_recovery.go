@@ -13,7 +13,11 @@ func ordinaryBackups(ctx context.Context, journal nativeJournalSnapshots, direct
 	if err != nil {
 		return nil, nil, err
 	}
-	backups, err := recoveryBackupObservations(ctx, directory, active, journal.recordedEntries(), filesystem, budget)
+	views, err := journal.recordedEntries()
+	if err != nil {
+		return nil, nil, err
+	}
+	backups, err := recoveryBackupObservations(ctx, directory, active, views, filesystem, budget)
 	if err != nil {
 		return nil, nil, err
 	}

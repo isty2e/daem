@@ -33,8 +33,8 @@ func (journal nativeJournalSnapshots) stageDocumentJournal(ctx context.Context, 
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if len(journal.record.DocumentGroups) == 0 || len(journal.record.Entries) != 0 || len(journal.record.ClaimTransitions) != 0 || len(journal.record.ProvisionalAcquires) != 0 || len(journal.record.RemovalIntents) != 0 {
-		return "", fmt.Errorf("document-only staging requires document groups without ordinary entry artifacts")
+	if err := journal.RequireDocumentOnly(); err != nil {
+		return "", err
 	}
 	prepared, content, err := journal.prepareDocumentJournal(ctx, comparisons, options, workmeasure.ArtifactWork{})
 	if err != nil {

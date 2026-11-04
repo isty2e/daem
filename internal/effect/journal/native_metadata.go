@@ -9,12 +9,12 @@ func (captured CapturedNativeJournal) OrdinaryClaimTransitions() ([]ownershipmut
 	if err := captured.Validate(); err != nil {
 		return nil, err
 	}
-	return canonicalClaimTransitions(captured.journal.record.ClaimTransitions)
+	return captured.journal.ClaimTransitions()
 }
 
 func (captured CapturedNativeJournal) OrdinaryProvisionalAcquires() ([]ownership.ProvisionalAcquireIntent, error) {
 	if err := captured.Validate(); err != nil {
 		return nil, err
 	}
-	return canonicalProvisionalAcquireIntents(captured.journal.record.ProvisionalAcquires)
+	return captured.journal.ProvisionalAcquires()
 }

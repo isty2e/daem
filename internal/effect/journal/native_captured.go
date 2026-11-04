@@ -159,10 +159,9 @@ func (document CapturedNativeDocument) Removal() (recovery.DocumentRemoval, bool
 	if !document.valid() {
 		return recovery.DocumentRemoval{}, false, fmt.Errorf("captured native document is required")
 	}
-	record := document.captured.journal.record.DocumentGroups[document.index].Removal
-	if record == nil {
-		return recovery.DocumentRemoval{}, false, nil
+	record, err := document.captured.journal.recordedDocumentAt(document.index)
+	if err != nil {
+		return recovery.DocumentRemoval{}, false, err
 	}
-	value, err := record.canonical()
-	return value, err == nil, err
+	return record.Removal()
 }

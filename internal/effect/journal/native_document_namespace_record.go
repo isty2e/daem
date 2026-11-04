@@ -49,7 +49,10 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 	if !present || !journal.matchesManifestRoot(manifest.Provenance()) {
 		return nil, fmt.Errorf("native journal manifest root does not match the selected live root")
 	}
-	documents := journal.recordedDocuments()
+	documents, err := journal.recordedDocuments()
+	if err != nil {
+		return nil, err
+	}
 	namespaces := make([]journalnamespace.DocumentNamespace, 0, len(documents))
 	for _, record := range documents {
 		if err := ctx.Err(); err != nil {
@@ -137,7 +140,11 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 		}
 		protected = append(protected, exact)
 	}
-	if err := qualifyWriterPartition(ctx, journal.recordedEntries(), namespaces, manifest, options.ordinaryCapabilities, options.budget, protected); err != nil {
+	entries, err := journal.recordedEntries()
+	if err != nil {
+		return nil, err
+	}
+	if err := qualifyWriterPartition(ctx, entries, namespaces, manifest, options.ordinaryCapabilities, options.budget, protected); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {

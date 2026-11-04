@@ -114,13 +114,16 @@ func recordedGlobalBindingIdentity(binding *recoveryGlobalPathBinding) recordedG
 	return recordedGlobalBindingKey{binding: *binding}
 }
 
-func (journal nativeJournalSnapshots) recordedEntries() []recordedPathEntry {
-	return recordedPathEntries(journal.record.Entries)
+func (journal nativeJournalSnapshots) recordedEntries() ([]recordedPathEntry, error) {
+	if err := journal.requireNativeValue(); err != nil {
+		return nil, err
+	}
+	return recordedPathEntries(journal.record.Entries), nil
 }
 
 func (journal nativeJournalSnapshots) ordinaryEntries(ctx context.Context) ([]recovery.Entry, error) {
-	if journal.record.Version != nativeRecoveryJournalVersion {
-		return nil, fmt.Errorf("native journal record is required")
+	if err := journal.requireNativeValue(); err != nil {
+		return nil, err
 	}
 	entries := make([]recovery.Entry, 0, len(journal.record.Entries))
 	for _, record := range journal.record.Entries {

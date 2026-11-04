@@ -146,8 +146,11 @@ func CaptureNativeJournalWithOptions(
 	stageOptions := nativeDocumentStageOptions{stateCodec: options.StateCodec, codecs: options.Codecs, limits: batch.Evidence().DocumentLimits(), budget: batch.budget}
 	var fingerprint string
 	prepared, err := options.Filesystem.PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
-		var err error
-		if len(mutations)+len(options.ClaimTransitions)+len(options.ProvisionalAcquires) != 0 || options.RemovalDemands.Len() != 0 || len(journal.record.DocumentGroups) == 0 {
+		hasDocuments, err := journal.HasDocumentGroups()
+		if err != nil {
+			return err
+		}
+		if len(mutations)+len(options.ClaimTransitions)+len(options.ProvisionalAcquires) != 0 || options.RemovalDemands.Len() != 0 || !hasDocuments {
 			fingerprint, err = journal.stageMixedDocumentJournal(ctx, paths, options.CaptureOptions, comparisons, writer, nativeMixedStageOptions{nativeDocumentStageOptions: stageOptions, roots: roots})
 		} else {
 			if err := writer.SetRootMode(retirement.DirectoryMode); err != nil {

@@ -19,7 +19,10 @@ func TestRecordedDocumentViewsRetainFactsWithoutMutableCollections(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	views := journal.recordedDocuments()
+	views, err := journal.recordedDocuments()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(views) != 1 {
 		t.Fatal("fixture requires one actual recorded document")
 	}
