@@ -4,5 +4,6 @@ package configdocument
 // newline required by HuJSON. Stored source and lexical comment text stay raw.
 type jsonLexical struct {
 	comments   []string
+	spans      []sourceSpan
 	normalized []byte
 }

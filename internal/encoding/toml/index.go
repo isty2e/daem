@@ -30,6 +30,14 @@ type Expression struct {
 	Value Span
 }
 
+// ScopedComment associates a comment with its enclosing native key or table.
+// Standalone comments belong to the current table; root comments have no path.
+// Paths retain TOML key scope without addressing individual array elements.
+type ScopedComment struct {
+	Span Span
+	Path Key
+}
+
 type keyOccurrence struct {
 	path   Key
 	offset int
@@ -39,7 +47,7 @@ type keyOccurrence struct {
 // Index owns independent source facts. Returned slices do not alias its storage.
 type Index struct {
 	expressions []Expression
-	comments    []Span
+	scoped      []ScopedComment
 	keys        []keyOccurrence
 }
 
@@ -51,7 +59,21 @@ func (index Index) Expressions() []Expression {
 	return result
 }
 
-func (index Index) Comments() []Span { return slices.Clone(index.comments) }
+func (index Index) Comments() []Span {
+	var comments []Span
+	for _, comment := range index.scoped {
+		comments = append(comments, comment.Span)
+	}
+	return comments
+}
+
+func (index Index) ScopedComments() []ScopedComment {
+	comments := slices.Clone(index.scoped)
+	for item := range comments {
+		comments[item].Path = slices.Clone(comments[item].Path)
+	}
+	return comments
+}
 
 // IndexDocument reads lexical facts with the same parser used for typed decode.
 // It is not a substitute for semantic syntax validation or resource admission.
@@ -77,7 +99,15 @@ func IndexDocument(ctx context.Context, content []byte) (Index, error) {
 			return Index{}, err
 		}
 		node := parser.Expression()
-		if err := collectComments(ctx, node, bias, &index.comments); err != nil {
+		scope := table
+		if node.Kind == unstable.Comment && len(index.expressions) != 0 {
+			previous := index.expressions[len(index.expressions)-1]
+			start := bias + int(node.Raw.Offset)
+			if previous.Span.End <= start && !bytes.ContainsAny(content[previous.Span.End:start], "\r\n") {
+				scope = previous.Path
+			}
+		}
+		if err := collectScopedComments(ctx, content, node, scope, bias, &index.scoped); err != nil {
 			return Index{}, err
 		}
 		switch node.Kind {
@@ -116,7 +146,7 @@ func IndexDocument(ctx context.Context, content []byte) (Index, error) {
 	if err := parser.Error(); err != nil {
 		return Index{}, err
 	}
-	slices.SortFunc(index.comments, func(left, right Span) int { return left.Start - right.Start })
+	slices.SortFunc(index.scoped, func(left, right ScopedComment) int { return left.Span.Start - right.Span.Start })
 	if err := ctx.Err(); err != nil {
 		return Index{}, err
 	}
@@ -163,23 +193,6 @@ func (index *Index) recordChildren(ctx context.Context, node *unstable.Node, pat
 				return err
 			}
 		}
-	}
-	return ctx.Err()
-}
-
-func collectComments(ctx context.Context, node *unstable.Node, bias int, spans *[]Span) error {
-	for node.Valid() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if node.Kind == unstable.Comment {
-			start := bias + int(node.Raw.Offset)
-			*spans = append(*spans, Span{start, start + int(node.Raw.Length)})
-		}
-		if err := collectComments(ctx, node.Child(), bias, spans); err != nil {
-			return err
-		}
-		node = node.Next()
 	}
 	return ctx.Err()
 }

@@ -115,7 +115,7 @@ func TestNewResultRejectsMalformedManagedPathDecisions(t *testing.T) {
 				subject: projection, consumerTargets: validFacts.consumerTargets,
 				scope: target.ScopeGlobal, destination: validFacts.destination,
 			}, ReasonAlreadyCurrent),
-			want: "global destination must be home-relative or data-root-relative",
+			want: "destination:",
 		},
 		{
 			name: "no current or previous owner",

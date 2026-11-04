@@ -106,3 +106,46 @@ func TestDestinationOverrideMatchesOnlyPiGlobalMCPDestination(t *testing.T) {
 		t.Fatalf("unrelated override = %q, %v, %v", got, matched, err)
 	}
 }
+
+func TestDestinationOverrideMapsPiAgentRootAndPreservesRootHomeDestinations(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing pi agent")
+	projectRoot := t.TempDir()
+	t.Setenv(AgentRootEnvironmentVariable, root)
+	override := DestinationOverride(projectRoot)
+
+	piDestination, err := output.Parse("@pi-agent/agents/reviewer.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, matched, err := override(piDestination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matched || got != filepath.Join(root, "agents", "reviewer.md") {
+		t.Fatalf("Pi agent destination override = %q, %v", got, matched)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("resolving Pi agent root changed its existence: %v", err)
+	}
+
+	rootHomeDestination, err := output.Parse("~/.pi/agent/agents/reviewer.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, matched, err := override(rootHomeDestination); err != nil || matched || got != "" {
+		t.Fatalf("RootHome override = %q, %v, %v", got, matched, err)
+	}
+}
+
+func TestDestinationOverrideIgnoresInvalidPiRootForOtherRoles(t *testing.T) {
+	t.Setenv(AgentRootEnvironmentVariable, " relative ")
+	override := DestinationOverride(t.TempDir())
+	codexDestination, err := output.Parse("@codex-home/config.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, matched, err := override(codexDestination); err != nil || matched || got != "" {
+		t.Fatalf("Codex destination override = %q, %v, %v", got, matched, err)
+	}
+}

@@ -129,6 +129,9 @@ func (source Source) S3() (S3Source, bool) {
 // Path returns the canonical lexical local path.
 func (source LocalSource) Path() string { return source.path }
 
+// IsAbsolute classifies the canonical lexical source path without filesystem I/O.
+func (source LocalSource) IsAbsolute() bool { return filepath.IsAbs(source.path) }
+
 // Mode returns the admitted local reproducibility mode.
 func (source LocalSource) Mode() LocalSourceMode { return source.mode }
 
