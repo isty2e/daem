@@ -54,7 +54,7 @@ func TestDocumentGroupDraftFreezesInputsAndBranchesWithoutChangingEarlierRecords
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded := nativeRecordJSON(t, before)
+	encoded := nativeRecordJSON(t, before.record)
 
 	second, err := draft.withComparison(comparison, 1, nil)
 	if err != nil {
@@ -65,10 +65,10 @@ func TestDocumentGroupDraftFreezesInputsAndBranchesWithoutChangingEarlierRecords
 		t.Fatal(err)
 	}
 	after, _, err := first.seal(t.Context(), nil)
-	if err != nil || !bytes.Equal(encoded, nativeRecordJSON(t, after)) {
+	if err != nil || !bytes.Equal(encoded, nativeRecordJSON(t, after.record)) {
 		t.Fatal("later value transition changed an earlier record", err)
 	}
-	if before.Original.Artifact.Path == other.Original.Artifact.Path || before.Expected.Artifact.Path == other.Expected.Artifact.Path {
+	if before.record.Original.Artifact.Path == other.record.Original.Artifact.Path || before.record.Expected.Artifact.Path == other.record.Expected.Artifact.Path {
 		t.Fatal("branching lost its distinct group image references")
 	}
 	fixture.requireUnchangedHost(t)
@@ -88,7 +88,7 @@ func TestDocumentGroupDraftRefusesIncompleteTransitionsWithoutRecords(t *testing
 		if err == nil || candidate.Comparison().Validate() == nil {
 			t.Fatal("incomplete metadata produced capture evidence")
 		}
-		if group, comparison, err := candidate.seal(t.Context(), nil); err == nil || len(group.Aliases) != 0 || comparison.Validate() == nil {
+		if group, comparison, err := candidate.seal(t.Context(), nil); err == nil || group.initialized || comparison.Validate() == nil {
 			t.Fatal("failed transition produced a usable record")
 		}
 		if next, _, err := draft.withPiOrder(pipackage.OrderObservation{}); err == nil || next.phase != 0 {

@@ -19,6 +19,37 @@ type documentWriterPath struct {
 	group      int
 }
 
+// Copies after the first Add refer to the same mutable collection.
+type documentWriterPartition struct {
+	state *documentWriterPartitionState
+}
+
+type documentWriterPartitionState struct {
+	paths []documentWriterPath
+}
+
+func (partition *documentWriterPartition) Add(path string, group int) error {
+	if partition == nil {
+		return fmt.Errorf("document writer partition is required")
+	}
+	if partition.state == nil {
+		partition.state = &documentWriterPartitionState{}
+	}
+	volume, components := recoveryFilesystemPathComponents(path)
+	partition.state.paths = append(partition.state.paths, documentWriterPath{volume: volume, components: components, group: group})
+	return nil
+}
+
+func (partition *documentWriterPartition) Validate(ctx context.Context) error {
+	if partition == nil || ctx == nil {
+		return fmt.Errorf("document writer partition and context are required")
+	}
+	if partition.state == nil {
+		return validateDocumentWriterPaths(ctx, nil)
+	}
+	return validateDocumentWriterPaths(ctx, partition.state.paths)
+}
+
 // Metadata partitioning does not qualify current roots or replace alias leases.
 func (record nativeJournalRecord) validateWriterSpellingPartition(ctx context.Context) error {
 	if ctx == nil {

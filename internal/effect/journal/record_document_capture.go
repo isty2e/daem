@@ -54,6 +54,13 @@ type documentGroupRecordCandidate struct {
 	initialized bool
 }
 
+// sealedDocumentGroup holds complete captured group facts, not operation
+// admission, a published revision or permission to mutate a host document.
+type sealedDocumentGroup struct {
+	record      recoveryDocumentGroup
+	initialized bool
+}
+
 func (candidate documentGroupRecordCandidate) Comparison() journaldocument.Comparison {
 	return candidate.comparison
 }
@@ -233,26 +240,26 @@ func (draft documentGroupRecordDraft) withComparison(comparison journaldocument.
 	return documentGroupRecordCandidate{record: record, comparison: comparison, manifest: draft.manifest, initialized: true}, nil
 }
 
-func (candidate documentGroupRecordCandidate) seal(ctx context.Context, removal *recovery.DocumentRemoval) (recoveryDocumentGroup, journaldocument.Comparison, error) {
+func (candidate documentGroupRecordCandidate) seal(ctx context.Context, removal *recovery.DocumentRemoval) (sealedDocumentGroup, journaldocument.Comparison, error) {
 	if !candidate.initialized {
-		return recoveryDocumentGroup{}, journaldocument.Comparison{}, fmt.Errorf("document group capture candidate is required")
+		return sealedDocumentGroup{}, journaldocument.Comparison{}, fmt.Errorf("document group capture candidate is required")
 	}
 
 	record := candidate.record
 	if removal != nil {
 		evidence, err := persistedDocumentRemoval(*removal)
 		if err != nil {
-			return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
+			return sealedDocumentGroup{}, journaldocument.Comparison{}, err
 		}
 		record.Removal = &evidence
 	}
 	if err := record.validate(persistedNativeRoot(candidate.manifest)); err != nil {
-		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
+		return sealedDocumentGroup{}, journaldocument.Comparison{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
+		return sealedDocumentGroup{}, journaldocument.Comparison{}, err
 	}
-	return record, candidate.comparison, nil
+	return sealedDocumentGroup{record: record, initialized: true}, candidate.comparison, nil
 }
 
 func (record recoveryDocumentPiOrder) qualificationContext() (documentPiContext, error) {

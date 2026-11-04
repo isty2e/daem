@@ -23,6 +23,57 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
+func TestDocumentWriterPartitionAccumulatorKeepsGroupAndEmptySemantics(t *testing.T) {
+	var empty documentWriterPartition
+	if err := empty.Validate(t.Context()); err != nil {
+		t.Fatal("empty writer partition was refused", err)
+	}
+	parent := filepath.Join(t.TempDir(), "parent")
+	for _, sameGroup := range []bool{true, false} {
+		var partition documentWriterPartition
+		childGroup := 1
+		if sameGroup {
+			childGroup = 0
+		}
+		if err := partition.Add(filepath.Join(parent, "child"), childGroup); err != nil {
+			t.Fatal(err)
+		}
+		if err := partition.Add(parent, 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := partition.Validate(t.Context()); (err == nil) != sameGroup {
+			t.Fatal("writer grouping changed overlap admission", sameGroup, err)
+		}
+	}
+	var absent *documentWriterPartition
+	if absent.Add(parent, 0) == nil || absent.Validate(t.Context()) == nil || empty.Validate(nil) == nil {
+		t.Fatal("missing writer accumulator or context was admitted")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := empty.Validate(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatal("writer accumulator discarded cancellation", err)
+	}
+}
+
+func TestDocumentWriterPartitionCopiesRetainEveryCollectedPath(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "parent")
+	var original documentWriterPartition
+	if err := original.Add(parent, 0); err != nil {
+		t.Fatal(err)
+	}
+	copied := original
+	if err := original.Add(filepath.Join(parent, "child"), 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := copied.Add(parent+"-sibling", 2); err != nil {
+		t.Fatal(err)
+	}
+	if original.Validate(t.Context()) == nil || copied.Validate(t.Context()) == nil {
+		t.Fatal("a copied writer collection lost an observed cross-group conflict")
+	}
+}
+
 func TestNativeWriterPartitionPathOrdering(t *testing.T) {
 	for _, test := range []struct {
 		name    string

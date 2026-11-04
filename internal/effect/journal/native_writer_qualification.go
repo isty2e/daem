@@ -21,14 +21,12 @@ type ordinaryWriterAddress struct {
 }
 
 func qualifyWriterPartition(ctx context.Context, entries []recordedPathEntry, namespaces []journalnamespace.DocumentNamespace, manifest journalnamespace.RootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *physicalwork.Budget, protected []pathauthority.Exact) error {
-	var paths []documentWriterPath
+	var partition documentWriterPartition
 	appendObservation := func(observation mutation.DirectoryEntryAuthorityObservation, group int) error {
 		if err := observation.Validate(); err != nil {
 			return err
 		}
-		volume, components := recoveryFilesystemPathComponents(nativeDocumentObservationKey(observation))
-		paths = append(paths, documentWriterPath{volume, components, group})
-		return nil
+		return partition.Add(nativeDocumentObservationKey(observation), group)
 	}
 	for index, namespace := range namespaces {
 		if err := ctx.Err(); err != nil {
@@ -96,10 +94,11 @@ func qualifyWriterPartition(ctx context.Context, entries []recordedPathEntry, na
 		if err := path.Validate(); err != nil {
 			return err
 		}
-		volume, components := recoveryFilesystemPathComponents(path.Key())
-		paths = append(paths, documentWriterPath{volume, components, -2 - index})
+		if err := partition.Add(path.Key(), -2-index); err != nil {
+			return err
+		}
 	}
-	return validateDocumentWriterPaths(ctx, paths)
+	return partition.Validate(ctx)
 }
 
 func acquireNativeOrdinaryGlobalWriter(entry recordedPathEntry, destination output.Destination, acquire RootedCapabilityResolver, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {

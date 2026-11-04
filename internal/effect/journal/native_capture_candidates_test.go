@@ -47,7 +47,7 @@ func TestNativeCaptureCandidatesAdmitExactCombinedDebtAfterRealReads(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 2 || len(comparisons) != 2 || complete.Len() != 3 || groups[0].Removal == nil || groups[1].Removal == nil {
+	if len(groups) != 2 || len(comparisons) != 2 || complete.Len() != 3 || groups[0].record.Removal == nil || groups[1].record.Removal == nil {
 		t.Fatal("capture lost a native/ordinary logical relation or exposed incomplete facts")
 	}
 	if budget.RemainingBytes() > remaining {
@@ -77,7 +77,7 @@ func TestNativeCaptureCandidatesDoNotInventRemovalForRetainedRoots(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 2 || len(comparisons) != 2 || demands.Len() != 0 || groups[0].Removal != nil || groups[1].Removal != nil || !comparisons[1].ExpectedDocument().Exists() {
+	if len(groups) != 2 || len(comparisons) != 2 || demands.Len() != 0 || groups[0].record.Removal != nil || groups[1].record.Removal != nil || !comparisons[1].ExpectedDocument().Exists() {
 		t.Fatal("retained root or logical key release gained physical removal debt")
 	}
 	if budget.AdmitRemovalDemands(recovery.RemovalDemandSet{}) == nil {

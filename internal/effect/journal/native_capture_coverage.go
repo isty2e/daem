@@ -173,17 +173,21 @@ func validateNativePublicationPartition(ctx context.Context, directory string, b
 	if err != nil {
 		return err
 	}
-	var paths []documentWriterPath
-	appendPath := func(path string, group int) {
-		volume, components := recoveryFilesystemPathComponents(path)
-		paths = append(paths, documentWriterPath{volume: volume, components: components, group: group})
+	var partition documentWriterPartition
+	if err := partition.Add(nativeDocumentObservationKey(publication), -1); err != nil {
+		return err
 	}
-	appendPath(nativeDocumentObservationKey(publication), -1)
-	appendPath(batch.owner.StatefileKey(), -2)
+	if err := partition.Add(batch.owner.StatefileKey(), -2); err != nil {
+		return err
+	}
 	for index, namespace := range batch.Evidence().Namespaces() {
-		appendPath(nativeDocumentObservationKey(namespace.Observation()), index)
+		if err := partition.Add(nativeDocumentObservationKey(namespace.Observation()), index); err != nil {
+			return err
+		}
 		for _, alias := range namespace.Aliases() {
-			appendPath(nativeDocumentObservationKey(alias.Observation()), index)
+			if err := partition.Add(nativeDocumentObservationKey(alias.Observation()), index); err != nil {
+				return err
+			}
 		}
 	}
 	for _, action := range mutations {
@@ -203,7 +207,9 @@ func validateNativePublicationPartition(ctx context.Context, directory string, b
 		if err != nil {
 			return err
 		}
-		appendPath(nativeDocumentObservationKey(observed), -3)
+		if err := partition.Add(nativeDocumentObservationKey(observed), -3); err != nil {
+			return err
+		}
 	}
-	return validateDocumentWriterPaths(ctx, paths)
+	return partition.Validate(ctx)
 }

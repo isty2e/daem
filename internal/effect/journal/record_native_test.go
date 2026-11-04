@@ -1,10 +1,62 @@
 package journal
 
 import (
+	"bytes"
 	"testing"
+	"time"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 )
+
+func TestNativeCaptureBoxesOnlySealedGroupsWithoutMovingFamilyAdmission(t *testing.T) {
+	fixture := nativeJournalFixture(t)
+	createdAt, err := time.Parse(time.RFC3339, fixture.record.CreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := fixture.record.ManifestRootProvenance.canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := []sealedDocumentGroup{{record: fixture.record.DocumentGroups[0], initialized: true}}
+	value, err := newNativeCapture(fixture.record.OperationID, createdAt, fixture.claims.owner, manifest, fixture.before, fixture.after, groups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := marshalNativeJournalRecord(t.Context(), fixture.record, fixture.before, fixture.after, fixture.codec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups[0] = sealedDocumentGroup{}
+	got, err := value.Encode(t.Context(), fixture.codec)
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatal("native capture changed bytes or retained the caller group array", err)
+	}
+	if result, err := newNativeCapture(fixture.record.OperationID, createdAt, fixture.claims.owner, manifest, fixture.before, fixture.after, groups); err == nil || result.requireNativeValue() == nil {
+		t.Fatal("zero sealed group produced a native value")
+	}
+	if result, err := newNativeCapture(fixture.record.OperationID, createdAt, stateauthority.Authority{}, manifest, fixture.before, fixture.after, nil); err == nil || result.requireNativeValue() == nil {
+		t.Fatal("zero owner produced a native value")
+	}
+	empty, err := newNativeCapture(fixture.record.OperationID, createdAt, fixture.claims.owner, manifest, fixture.before, fixture.after, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present, err := empty.HasDocumentGroups(); err != nil || present {
+		t.Fatal("empty captured facts were confused with zero Native", err)
+	}
+	if aliases, err := empty.DocumentAliases(); err != nil || len(aliases) != 0 {
+		t.Fatal("empty captured aliases were confused with zero Native", err)
+	}
+	unadmitted, err := newNativeCapture("", createdAt, fixture.claims.owner, manifest, fixture.before, fixture.after, []sealedDocumentGroup{{record: fixture.record.DocumentGroups[0], initialized: true}})
+	if err != nil {
+		t.Fatal("family header admission moved into construction", err)
+	}
+	if content, err := unadmitted.Encode(t.Context(), fixture.codec); err == nil || content != nil {
+		t.Fatal("incomplete native header bypassed encoding admission")
+	}
+}
 
 func TestNativeRecordQueriesDistinguishZeroFromEmptyFamilyFacts(t *testing.T) {
 	zero := nativeJournalSnapshots{}

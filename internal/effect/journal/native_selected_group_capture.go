@@ -106,16 +106,6 @@ func (index documentCaptureSubjects) selectedSubjects(ctx context.Context, edits
 	return subjects, nil
 }
 
-// prepareSelectedDocumentGroup captures edit/order facts. Complete Snapshot and
-// operation-authority admission remain the containing caller's responsibility.
-func prepareSelectedDocumentGroup(ctx context.Context, namespace journalnamespace.DocumentNamespace, input selectedDocumentCaptureInput, subjects documentCaptureSubjects) (recoveryDocumentGroup, journaldocument.Comparison, error) {
-	candidate, err := prepareSelectedDocumentCandidate(ctx, namespace, input, subjects)
-	if err != nil {
-		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
-	}
-	return candidate.captureRemoval(ctx, input.Budget())
-}
-
 func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalnamespace.DocumentNamespace, input selectedDocumentCaptureInput, subjects documentCaptureSubjects) (nativeDocumentCaptureCandidate, error) {
 	if err := input.CaptureInput.Validate(ctx); err != nil {
 		return nativeDocumentCaptureCandidate{}, err

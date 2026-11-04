@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
@@ -15,6 +16,25 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
+
+func newNativeCapture(operationID string, createdAt time.Time, owner stateauthority.Authority, manifest rootedpath.AuthorityProvenance, before, after durable.Snapshot, groups []sealedDocumentGroup) (nativeJournalSnapshots, error) {
+	if err := owner.Validate(); err != nil {
+		return nativeJournalSnapshots{}, err
+	}
+	records := make([]recoveryDocumentGroup, len(groups))
+	for index, group := range groups {
+		if !group.initialized {
+			return nativeJournalSnapshots{}, fmt.Errorf("captured document group is required")
+		}
+		records[index] = group.record
+	}
+	record := nativeJournalRecord{
+		Version: nativeRecoveryJournalVersion, Operation: recoveryOperationApply, OperationID: operationID, CreatedAt: createdAt.UTC().Format(time.RFC3339),
+		StateAuthority:         recoveryStateAuthority{StatefileAuthority: *persistedPathAuthority(owner.StatefileAuthority()), ManifestPath: owner.ManifestPath()},
+		ManifestRootProvenance: persistedNativeRoot(manifest), Entries: []recoveryEntry{}, ClaimTransitions: []recoveryClaimTransition{}, ProvisionalAcquires: []recoveryProvisionalAcquireIntent{}, RemovalIntents: []recoveryRemovalIntent{}, DocumentGroups: records,
+	}
+	return nativeJournalSnapshots{record: record, owner: owner, before: before, after: after}, nil
+}
 
 func (journal nativeJournalSnapshots) requireNativeValue() error {
 	if journal.record.Version != nativeRecoveryJournalVersion {

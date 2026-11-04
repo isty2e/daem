@@ -22,16 +22,6 @@ type wholeDocumentCaptureInput struct {
 	payloads payload.PayloadSet
 }
 
-// prepareWholeDocumentGroup captures persistence facts, not a publication seal.
-// The containing operation must admit complete snapshots and all group relations.
-func prepareWholeDocumentGroup(ctx context.Context, namespace journalnamespace.DocumentNamespace, input wholeDocumentCaptureInput) (recoveryDocumentGroup, journaldocument.Comparison, error) {
-	candidate, err := prepareWholeDocumentCandidate(ctx, namespace, input)
-	if err != nil {
-		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
-	}
-	return candidate.captureRemoval(ctx, input.Budget())
-}
-
 func prepareWholeDocumentCandidate(ctx context.Context, namespace journalnamespace.DocumentNamespace, input wholeDocumentCaptureInput) (nativeDocumentCaptureCandidate, error) {
 	if err := input.CaptureInput.Validate(ctx); err != nil {
 		return nativeDocumentCaptureCandidate{}, err

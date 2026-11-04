@@ -22,18 +22,18 @@ type nativeDocumentCaptureCandidate struct {
 	budget    *physicalwork.Budget
 }
 
-func (candidate nativeDocumentCaptureCandidate) captureRemoval(ctx context.Context, budget *physicalwork.Budget) (recoveryDocumentGroup, journaldocument.Comparison, error) {
+func (candidate nativeDocumentCaptureCandidate) captureRemoval(ctx context.Context, budget *physicalwork.Budget) (sealedDocumentGroup, journaldocument.Comparison, error) {
 	if ctx == nil || budget == nil || budget != candidate.budget {
-		return recoveryDocumentGroup{}, journaldocument.Comparison{}, fmt.Errorf("document capture requires context and its original physical budget")
+		return sealedDocumentGroup{}, journaldocument.Comparison{}, fmt.Errorf("document capture requires context and its original physical budget")
 	}
 	removal, err := captureDocumentRemoval(ctx, candidate.namespace, candidate.record.Comparison(), candidate.relations, budget)
 	if err != nil {
-		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
+		return sealedDocumentGroup{}, journaldocument.Comparison{}, err
 	}
 	return candidate.record.seal(ctx, removal)
 }
 
-func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDocumentCaptureCandidate, ordinary recovery.RemovalDemandSet, budget *physicalwork.Budget) ([]recoveryDocumentGroup, []journaldocument.Comparison, recovery.RemovalDemandSet, error) {
+func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDocumentCaptureCandidate, ordinary recovery.RemovalDemandSet, budget *physicalwork.Budget) ([]sealedDocumentGroup, []journaldocument.Comparison, recovery.RemovalDemandSet, error) {
 	if ctx == nil || budget == nil {
 		return nil, nil, recovery.RemovalDemandSet{}, fmt.Errorf("native capture requires context and the shared physical budget")
 	}
@@ -59,7 +59,7 @@ func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDoc
 		return nil, nil, recovery.RemovalDemandSet{}, err
 	}
 
-	groups := make([]recoveryDocumentGroup, 0, len(candidates))
+	groups := make([]sealedDocumentGroup, 0, len(candidates))
 	comparisons := make([]journaldocument.Comparison, 0, len(candidates))
 	for _, candidate := range candidates {
 		group, comparison, err := candidate.captureRemoval(ctx, budget)
