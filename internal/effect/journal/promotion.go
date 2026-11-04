@@ -101,11 +101,11 @@ func PromoteProvisionalAcquire(
 		)
 	}
 
-	candidate, err := recoveryJournalAfterPromotion(current, intent, transition, stateCodec)
+	candidate, err := current.PromoteProvisionalAcquire(intent, transition, stateCodec)
 	if err != nil {
 		return ProvisionalAcquirePromotion{}, errors.Join(err, capability.Close())
 	}
-	content, err := marshalRecoveryJournalWithStateContentForPromotion(candidate, stateCodec)
+	content, err := candidate.Encode(stateCodec)
 	if err != nil {
 		return ProvisionalAcquirePromotion{}, errors.Join(err, capability.Close())
 	}
@@ -158,7 +158,7 @@ func PromoteProvisionalAcquire(
 	closeErr := verificationCapability.Close()
 	if verifiedFingerprint != candidateFingerprint ||
 		!bytes.Equal(verifiedSnapshot.Content(), content) ||
-		!samePromotedJournal(candidate, verified, stateCodec) {
+		!candidate.SameAuthorityFingerprint(verified, stateCodec) {
 		return result, errors.Join(
 			fmt.Errorf("promoted recovery journal postcondition differs from committed candidate"),
 			closeErr,
@@ -187,13 +187,13 @@ func readPromotionRecord(
 ) (
 	rootedpath.CommitCapability,
 	mutationfs.RegularFileSnapshot,
-	recoveryJournal,
+	ordinaryRecord,
 	string,
 	error,
 ) {
 	capability, err := authority.Acquire()
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, recoveryJournal{}, "", err
+		return nil, mutationfs.RegularFileSnapshot{}, ordinaryRecord{}, "", err
 	}
 	content, mode, identity, err := filesystem.ReadRootedRegularFileUpTo(
 		ctx,
@@ -201,15 +201,15 @@ func readPromotionRecord(
 		maximumRecoveryJournalBytes,
 	)
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, recoveryJournal{}, "", errors.Join(err, capability.Close())
+		return nil, mutationfs.RegularFileSnapshot{}, ordinaryRecord{}, "", errors.Join(err, capability.Close())
 	}
 	snapshot, err := mutationfs.NewRegularFileSnapshot(content, mode, identity)
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, recoveryJournal{}, "", errors.Join(err, capability.Close())
+		return nil, mutationfs.RegularFileSnapshot{}, ordinaryRecord{}, "", errors.Join(err, capability.Close())
 	}
-	current, err := decodeRecoveryJournalSnapshot(snapshot, recoveryJournalFileName, stateCodec)
+	current, err := decodeOrdinarySnapshot(snapshot, recoveryJournalFileName, stateCodec)
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, recoveryJournal{}, "", errors.Join(err, capability.Close())
+		return nil, mutationfs.RegularFileSnapshot{}, ordinaryRecord{}, "", errors.Join(err, capability.Close())
 	}
 	return capability, snapshot, current, recoveryJournalRecordFingerprint(content), nil
 }

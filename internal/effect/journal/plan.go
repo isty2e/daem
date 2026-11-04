@@ -372,7 +372,7 @@ func loadActivePlanFromInventory(
 	if inventory.active == nil {
 		return recovery.Plan{}, fmt.Errorf("active recovery inventory is incomplete")
 	}
-	journal, ok := inventory.active.record.(recoveryJournal)
+	journal, ok := inventory.active.record.Ordinary()
 	if !ok {
 		return recovery.Plan{}, fmt.Errorf("legacy recovery planning requires a journal15 inventory record")
 	}
@@ -382,7 +382,7 @@ func loadActivePlanFromInventory(
 		}
 	}
 	operationDir := inventory.active.operationDir
-	basis, err := journal.recoveryPlanningBasis(operationDir, inventory.active.identity.JournalAuthorityFingerprint(), selected)
+	basis, err := journal.RecoveryPlanningBasis(operationDir, inventory.active.identity.JournalAuthorityFingerprint(), selected)
 	if err != nil {
 		return recovery.Plan{}, err
 	}

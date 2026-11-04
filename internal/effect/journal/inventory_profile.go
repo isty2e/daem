@@ -23,10 +23,10 @@ func NewNativeRecoveryInventoryProfile(legacy, native durable.SnapshotCodec) (Re
 }
 
 func nativeRecoveryInventoryDecoder(legacy, native durable.SnapshotCodec) inventoryJournalDecoder {
-	return func(ctx context.Context, snapshot mutationfs.RegularFileSnapshot, path string, _ durable.SnapshotCodec) (inventoryJournalRecord, error) {
+	return func(ctx context.Context, snapshot mutationfs.RegularFileSnapshot, path string, _ durable.SnapshotCodec) (loadedJournalRecord, error) {
 		version, err := jsonstrict.ValidateVersionedObject(snapshot.Content(), "recovery inventory journal", maximumRecoveryJournalJSONDepth)
 		if err != nil {
-			return nil, err
+			return loadedJournalRecord{}, err
 		}
 		switch version {
 		case recoveryJournalVersion:
@@ -34,7 +34,7 @@ func nativeRecoveryInventoryDecoder(legacy, native durable.SnapshotCodec) invent
 		case nativeRecoveryJournalVersion:
 			return decodeNativeInventoryJournal(ctx, snapshot, path, native)
 		default:
-			return nil, unsupportedRecoveryJournalVersion(version)
+			return loadedJournalRecord{}, unsupportedRecoveryJournalVersion(version)
 		}
 	}
 }

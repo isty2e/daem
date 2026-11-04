@@ -7,7 +7,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 )
 
-type inventoryJournalDecoder func(context.Context, mutationfs.RegularFileSnapshot, string, durable.SnapshotCodec) (inventoryJournalRecord, error)
+type inventoryJournalDecoder func(context.Context, mutationfs.RegularFileSnapshot, string, durable.SnapshotCodec) (loadedJournalRecord, error)
 
 // Native inventory admits only v16; default lifecycle entrypoints stay on v15.
 func loadNativeRecoveryRootInventory(ctx context.Context, root string, options inventoryOptions) (recoveryRootInventory, error) {

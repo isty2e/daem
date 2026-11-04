@@ -40,11 +40,10 @@ type recoveryStateAuthority struct {
 }
 
 type nativeJournalSnapshots struct {
-	record         nativeJournalRecord
-	owner          stateauthority.Authority
-	before         durable.Snapshot
-	after          durable.Snapshot
-	inventoryCodec durable.SnapshotCodec
+	record nativeJournalRecord
+	owner  stateauthority.Authority
+	before durable.Snapshot
+	after  durable.Snapshot
 }
 
 func decodeNativeJournalRecord(ctx context.Context, content []byte, codec durable.SnapshotCodec) (nativeJournalSnapshots, error) {

@@ -26,8 +26,8 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 		return CapturedNativeJournal{}, fmt.Errorf("published native journal is not the sole active operation")
 	}
 	active := inventory.active
-	journal, admitted := active.record.(nativeJournalSnapshots)
-	if !admitted || journal.record.OperationID != operationID || active.operationDir != directory || active.identity.JournalAuthorityFingerprint() != fingerprint {
+	journal, admitted := active.record.Native()
+	if !admitted || active.record.OperationID() != operationID || active.operationDir != directory || active.identity.JournalAuthorityFingerprint() != fingerprint {
 		return CapturedNativeJournal{}, fmt.Errorf("published native operation or fingerprint differs from its staged record")
 	}
 	if !journal.owner.Equal(batch.owner) || !journal.before.Equal(batch.before) || !journal.after.Equal(after) {
@@ -82,13 +82,13 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	}, nil
 }
 
-func decodeNativeCaptureInventoryJournal(ctx context.Context, snapshot mutationfs.RegularFileSnapshot, path string, codec durable.SnapshotCodec) (inventoryJournalRecord, error) {
+func decodeNativeCaptureInventoryJournal(ctx context.Context, snapshot mutationfs.RegularFileSnapshot, path string, codec durable.SnapshotCodec) (loadedJournalRecord, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return loadedJournalRecord{}, err
 	}
 	version, err := jsonstrict.ValidateVersionedObject(snapshot.Content(), "capture recovery inventory journal", maximumRecoveryJournalJSONDepth)
 	if err != nil {
-		return nil, err
+		return loadedJournalRecord{}, err
 	}
 	switch version {
 	case recoveryJournalVersion:
@@ -96,7 +96,7 @@ func decodeNativeCaptureInventoryJournal(ctx context.Context, snapshot mutationf
 	case nativeRecoveryJournalVersion:
 		return decodeNativeInventoryJournal(ctx, snapshot, path, codec)
 	default:
-		return nil, unsupportedRecoveryJournalVersion(version)
+		return loadedJournalRecord{}, unsupportedRecoveryJournalVersion(version)
 	}
 }
 

@@ -237,7 +237,7 @@ func requireJournalFingerprintWithDecoder(
 	if err != nil {
 		return errors.Join(err, capability.Close())
 	}
-	fingerprint, err := journal.authorityFingerprint(ctx, stateCodec)
+	fingerprint, err := journal.AuthorityFingerprint(ctx, stateCodec)
 	if err != nil {
 		return errors.Join(err, capability.Close())
 	}

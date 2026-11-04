@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -92,7 +93,7 @@ func TestPromoteProvisionalAcquireReplacesExactlyOneIntent(t *testing.T) {
 			fixture.fingerprint,
 		)
 	}
-	capability, _, loaded, _, err := readPromotionRecord(
+	capability, _, loaded, fingerprint, err := readPromotionRecord(
 		t.Context(), fixture.filesystem, fixture.authority, testStateCodec(),
 	)
 	if err != nil {
@@ -101,25 +102,30 @@ func TestPromoteProvisionalAcquireReplacesExactlyOneIntent(t *testing.T) {
 	if err := capability.Close(); err != nil {
 		t.Fatal(err)
 	}
-	intents, err := canonicalProvisionalAcquireIntents(loaded.ProvisionalAcquires)
+	basis, err := loaded.RecoveryPlanningBasis(filepath.Dir(fixture.recordPath), fingerprint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	transitions, err := canonicalClaimTransitions(loaded.ClaimTransitions)
-	if err != nil {
-		t.Fatal(err)
-	}
+	intents, transitions := basis.ProvisionalAcquires(), basis.ClaimTransitions()
 	if len(intents) != 0 || len(transitions) != 1 || !transitions[0].Equal(fixture.transition) {
 		t.Fatalf("promoted journal intents = %d, transitions = %#v", len(intents), transitions)
 	}
-	if len(loaded.Entries) != 1 || loaded.Entries[0].OwnershipPathAuthority == nil {
-		t.Fatalf("promoted journal entry authority = %#v, want one exact foreign key", loaded.Entries)
+	var encoded struct {
+		Entries []struct {
+			Authority *struct {
+				Key     string `json:"key"`
+				Witness string `json:"semantics_witness"`
+			} `json:"ownership_path_authority"`
+		} `json:"entries"`
 	}
-	entryAuthority, err := canonicalPathAuthority(*loaded.Entries[0].OwnershipPathAuthority)
-	if err != nil {
+	if err := json.Unmarshal(content, &encoded); err != nil {
 		t.Fatal(err)
 	}
-	if !entryAuthority.Equal(fixture.transition.Address().PathAuthority()) {
+	if len(encoded.Entries) != 1 || encoded.Entries[0].Authority == nil {
+		t.Fatal("promoted artifact has no exact entry foreign key")
+	}
+	entryAuthority, expectedAuthority := encoded.Entries[0].Authority, fixture.transition.Address().PathAuthority()
+	if entryAuthority.Key != expectedAuthority.Key() || entryAuthority.Witness != expectedAuthority.Witness() {
 		t.Fatalf("promoted entry authority = %#v, want %#v", entryAuthority, fixture.transition.Address().PathAuthority())
 	}
 }
@@ -146,7 +152,7 @@ func TestPromoteProvisionalAcquireIndeterminateReplacementRetainsClassifiableJou
 	if _, available := promotion.ActiveJournalAuthority(); !available {
 		t.Fatal("indeterminate promotion lost refreshed active journal authority")
 	}
-	capability, _, loaded, _, loadErr := readPromotionRecord(
+	capability, _, loaded, fingerprint, loadErr := readPromotionRecord(
 		t.Context(), base, fixture.authority, testStateCodec(),
 	)
 	if loadErr != nil {
@@ -155,14 +161,11 @@ func TestPromoteProvisionalAcquireIndeterminateReplacementRetainsClassifiableJou
 	if closeErr := capability.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	intents, canonicalErr := canonicalProvisionalAcquireIntents(loaded.ProvisionalAcquires)
+	basis, canonicalErr := loaded.RecoveryPlanningBasis(filepath.Dir(fixture.recordPath), fingerprint, nil)
 	if canonicalErr != nil {
 		t.Fatal(canonicalErr)
 	}
-	transitions, canonicalErr := canonicalClaimTransitions(loaded.ClaimTransitions)
-	if canonicalErr != nil {
-		t.Fatal(canonicalErr)
-	}
+	intents, transitions := basis.ProvisionalAcquires(), basis.ClaimTransitions()
 	if len(intents) != 0 || len(transitions) != 1 || !transitions[0].Equal(fixture.transition) {
 		t.Fatalf("indeterminate journal intents = %d, transitions = %#v", len(intents), transitions)
 	}

@@ -78,7 +78,7 @@ type recoveryRootInventory struct {
 
 type journalDirectoryEvidence struct {
 	identity     retirement.Identity
-	record       inventoryJournalRecord
+	record       loadedJournalRecord
 	operationDir string
 }
 
@@ -507,10 +507,10 @@ func loadActiveJournalEvidence(
 	if err != nil {
 		return journalDirectoryEvidence{}, err
 	}
-	if loaded.record.operationID() != entry.Name() {
+	if loaded.record.OperationID() != entry.Name() {
 		return journalDirectoryEvidence{}, fmt.Errorf(
 			"recovery journal operation_id %q does not match directory %q",
-			loaded.record.operationID(),
+			loaded.record.OperationID(),
 			entry.Name(),
 		)
 	}
@@ -610,14 +610,14 @@ func loadJournalDirectoryEvidence(
 	if err != nil {
 		return journalDirectoryEvidence{}, err
 	}
-	if record == nil {
+	if !record.Initialized() {
 		return journalDirectoryEvidence{}, fmt.Errorf("recovery inventory has no admitted journal record")
 	}
-	fingerprint, err := record.authorityFingerprint(ctx, options.StateCodec)
+	fingerprint, err := record.AuthorityFingerprint(ctx, options.StateCodec)
 	if err != nil {
 		return journalDirectoryEvidence{}, err
 	}
-	identity, err := retirement.NewIdentity(record.operationID(), fingerprint)
+	identity, err := retirement.NewIdentity(record.OperationID(), fingerprint)
 	if err != nil {
 		return journalDirectoryEvidence{}, fmt.Errorf("derive recovery journal retirement identity: %w", err)
 	}
