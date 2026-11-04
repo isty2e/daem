@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -234,18 +235,21 @@ func TestNativeJournalProvisionalClaimsPromoteWithinTheSameCompleteRecord(t *tes
 	if len(loaded.provisional[0]) != 1 || len(loaded.claims[0].After()) != 0 {
 		t.Fatal("provisional record fabricated exact claims before promotion")
 	}
-	group.ExclusiveClaims, err = group.ExclusiveClaims.promoted([]aggregate.DocumentAddress{fixture.claims.alias}, fixture.claims.owner, fixture.record.OperationID, pending, fixture.claims.exact)
+	current := nativeJournalSnapshots{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	original, err := current.Encode(t.Context(), fixture.codec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	promoted, err := binding.Promote(fixture.claims.exact)
-	if err != nil {
-		t.Fatal(err)
+	promoted, changed, err := current.PromoteDocument(t.Context(), 0, []aggregate.DocumentAddress{fixture.claims.alias}, fixture.claims.exact)
+	if err != nil || !changed {
+		t.Fatal("native family did not promote actual pending evidence", err)
 	}
-	group.BindingIntents[0], err = persistedDocumentBindingIntent(promoted)
-	if err != nil {
-		t.Fatal(err)
+	unchanged, err := current.Encode(t.Context(), fixture.codec)
+	if err != nil || !bytes.Equal(original, unchanged) {
+		t.Fatal("promotion changed its input record", err)
 	}
+	fixture.record = promoted.record
+	group = &fixture.record.DocumentGroups[0]
 	loaded = nativeRecordLoadFixture(t, fixture)
 	if len(loaded.provisional[0]) != 0 || len(loaded.claims[0].Prepared()) != 1 || loaded.images[0].original.document.Exists() {
 		t.Fatal("promoted record lost original namespace/absence or exact prepared exclusion")
