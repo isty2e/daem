@@ -239,87 +239,35 @@ func validateRecoveryClaimAuthorities(
 	return nil
 }
 
-func bindRecoveryClaimCoverage(
-	ctx context.Context,
-	entries []recoveryEntry,
-	transitions []ownershipmutation.ClaimTransition,
-	intents []ownership.ProvisionalAcquireIntent,
-	resolver func(output.Destination) (string, error),
-) ([]recoveryEntry, error) {
-	if err := validateRecoveryOwnershipWorkBudget(len(entries), len(transitions), len(intents)); err != nil {
+func bindRecoveryClaimCoverage(ctx context.Context, entries []recoveryEntry, transitions []ownershipmutation.ClaimTransition, intents []ownership.ProvisionalAcquireIntent, resolver func(output.Destination) (string, error)) ([]recoveryEntry, error) {
+	session, err := newClaimCoverageSession(entries, transitions, intents)
+	if err != nil {
 		return nil, err
 	}
-	bound := append([]recoveryEntry(nil), entries...)
-	transitionsByAddress := make(map[string]struct{}, len(transitions))
-	for index, transition := range transitions {
-		if err := transition.Validate(); err != nil {
-			return nil, fmt.Errorf("recovery claim transitions[%d]: %w", index, err)
-		}
-		key := ownershipAddressKey(transition.Address())
-		if _, duplicate := transitionsByAddress[key]; duplicate {
-			return nil, fmt.Errorf("recovery journal has duplicate exact ownership transition")
-		}
-		transitionsByAddress[key] = struct{}{}
-	}
-	intentKeys := make(map[string]struct{}, len(intents))
-	for index, intent := range intents {
-		key, err := legacyProvisionalAcquireIntentKey(intent)
+	for {
+		demand, present, err := session.next(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("recovery provisional acquisition intents[%d]: %w", index, err)
-		}
-		if _, duplicate := intentKeys[key]; duplicate {
-			return nil, fmt.Errorf("recovery journal has duplicate provisional acquisition intent")
-		}
-		intentKeys[key] = struct{}{}
-	}
-	for index := range bound {
-		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		entry := bound[index]
-		if entry.OwnershipPathAuthority != nil {
-			return nil, fmt.Errorf("recovery entries[%d] capture already carries ownership path authority", index)
-		}
-		if !recoveryEntryRequiresOwnership(entry) {
-			continue
-		}
-		destination, err := output.Parse(entry.Path)
-		if err != nil {
-			return nil, fmt.Errorf("recovery entries[%d] destination: %w", index, err)
-		}
-		intentKey := provisionalAcquireIntentKey(destination, output.ContentPath(entry.ContentPath))
-		if _, present := intentKeys[intentKey]; present {
-			continue
+		if !present {
+			break
 		}
 		if resolver == nil {
 			return nil, fmt.Errorf("ownership coverage destination resolver is required")
 		}
-		physical, err := resolver(destination)
+		physical, err := resolver(demand.destination)
 		if err != nil {
-			return nil, fmt.Errorf("recovery entries[%d] resolve ownership path: %w", index, err)
+			return nil, fmt.Errorf("recovery entries[%d] resolve ownership path: %w", demand.index, err)
 		}
-		authority, err := mutation.ObserveDirectoryEntryAuthority(physical)
+		observation, err := mutation.ObserveDirectoryEntryAuthority(physical)
 		if err != nil {
-			return nil, fmt.Errorf("recovery entries[%d] canonicalize ownership path: %w", index, err)
+			return nil, fmt.Errorf("recovery entries[%d] canonicalize ownership path: %w", demand.index, err)
 		}
-		exact, present := authority.Exact()
-		if !present {
-			return nil, fmt.Errorf("recovery entries[%d] global output lacks exact ownership authority", index)
+		if err := session.bind(observation); err != nil {
+			return nil, err
 		}
-		address, err := ownership.NewManagedAddressFromLegacy(exact, entry.ContentPath)
-		if err != nil {
-			return nil, fmt.Errorf("recovery entries[%d] ownership address: %w", index, err)
-		}
-		key := ownershipAddressKey(address)
-		if _, present := transitionsByAddress[key]; !present {
-			return nil, fmt.Errorf("recovery entries[%d] global output has no exact ownership transition", index)
-		}
-		bound[index].OwnershipPathAuthority = persistedPathAuthority(exact)
 	}
-	if err := validateRecoveryClaimCoverage(bound, transitions, intents); err != nil {
-		return nil, err
-	}
-	return bound, nil
+	return session.finish()
 }
 
 func validateRecoveryClaimCoverage(
