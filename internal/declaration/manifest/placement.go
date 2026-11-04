@@ -51,6 +51,11 @@ func ValidatePlacement(paths daempaths.Paths, environment desired.Environment) e
 			return projectScopeFromUserDefaultError(paths, fmt.Sprintf("extension %q", extension.ID().Name()))
 		}
 	}
+	for _, config := range environment.HostConfigs() {
+		if config.Scope() == target.ScopeProject {
+			return projectScopeFromUserDefaultError(paths, fmt.Sprintf("host_config %q", config.ID().Name()))
+		}
+	}
 
 	return nil
 }

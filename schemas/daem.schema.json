@@ -199,6 +199,75 @@
         "target"
       ]
     },
+    "HostConfig": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "ownership": {
+          "type": "string",
+          "enum": [
+            "",
+            "keys",
+            "document"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "",
+            "global",
+            "project"
+          ],
+          "description": "Omission or an empty string uses the applicable default scope."
+        },
+        "source": {
+          "$ref": "#/definitions/HostConfigSource"
+        },
+        "syntax": {
+          "type": "string",
+          "enum": [
+            "",
+            "json",
+            "jsonc",
+            "json-line-comments",
+            "toml"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "pi",
+              "codex"
+            ]
+          },
+          "maxItems": 1,
+          "description": "Omission or an empty array inherits the manifest target set."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "source"
+      ]
+    },
+    "HostConfigSource": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/Source"
+        }
+      ]
+    },
     "InstructionSource": {
       "anyOf": [
         {
@@ -389,6 +458,12 @@
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/HookAsset"
+          }
+        },
+        "host_config": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/HostConfig"
           }
         },
         "instructions": {

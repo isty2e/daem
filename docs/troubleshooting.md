@@ -85,17 +85,26 @@ Old statefile v7, ownership/carrier registry v1 and journal v7 recorded path
 strings without current filesystem witnesses. Daem cannot infer their case or
 Unicode namespace semantics.
 
+Output ownership registry v4 stores whole-path or native-key claims separately
+from document identity bindings. Populated v2 and v3 registries remain readable
+without rewriting them. The next state-changing guarded write upgrades to v4
+and preserves v2 keys as literal slash-separated segments, not JSON Pointer
+escapes. After that write, use a daem version that understands v4; older binaries
+cannot read the new registry.
+
 Only exact empty artifacts can retire automatically: v7 state with all seven
 fact arrays present/empty, or v1 registries with present/empty `claims`. Reads
 do not rewrite/delete them; the next state-changing guarded write uses current
 schema. Missing, null, populated or unknown fields remain blocked. Fields
 require exact ASCII `lower_snake_case`; `CLAIMS` is not an alias.
 
-Every pre-v13 journal is blocked, never rewritten or adopted. These journals
-lack current recovery authority: v12 removal-demand coverage, v10 durable Linux
-mount identity, v9 transition foreign key/global-root binding, or v8's current
-transaction contract. Ordinarily recover with the writer before upgrading, but
-**v10 requires the continuity check below**.
+Every pre-v15 journal is blocked, never rewritten or adopted. Version 14 used
+the previous canonical state encoding for authority fingerprints. Version 13
+lacks the current tagged ownership footprint. Earlier versions also lack
+recovery authority: v12 removal-demand coverage, v10 durable Linux mount
+identity, v9 transition foreign key/global-root binding, or v8's transaction
+contract. Ordinarily recover with the writer before upgrading, but **v10
+requires the continuity check below**.
 
 Do not unconditionally open a v10 journal with its old writer. That writer can
 authorize Linux recovery with a reusable mount witness that lacks the current

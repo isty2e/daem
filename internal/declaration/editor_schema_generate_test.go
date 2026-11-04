@@ -31,6 +31,7 @@ type editorSchemaNode struct {
 	Items                *editorSchemaNode            `json:"items,omitempty"`
 	OneOf                []*editorSchemaNode          `json:"oneOf,omitempty"`
 	AnyOf                []*editorSchemaNode          `json:"anyOf,omitempty"`
+	MaxItems             int                          `json:"maxItems,omitempty"`
 	Description          string                       `json:"description,omitempty"`
 }
 
@@ -200,6 +201,10 @@ func (builder *editorSchemaBuilder) field(owner reflect.Type, field reflect.Stru
 		if !manifest {
 			property.Description = "Omission or an empty array inherits the manifest target set."
 		}
+		if owner == reflect.TypeFor[HostConfig]() {
+			property.Items.Enum = editorSchemaStringEnum("pi", "codex")
+			property.MaxItems = 1
+		}
 	case (resource || owner == reflect.TypeFor[Defaults]()) && field.Name == "Scope":
 		values := []string{""}
 		for _, scope := range target.SupportedScopes() {
@@ -207,6 +212,10 @@ func (builder *editorSchemaBuilder) field(owner reflect.Type, field reflect.Stru
 		}
 		property.Enum = editorSchemaStringEnum(values...)
 		property.Description = "Omission or an empty string uses the applicable default scope."
+	case owner == reflect.TypeFor[HostConfig]() && field.Name == "Ownership":
+		property.Enum = editorSchemaStringEnum("", "keys", "document")
+	case owner == reflect.TypeFor[HostConfig]() && field.Name == "Syntax":
+		property.Enum = editorSchemaStringEnum("", "json", "jsonc", "json-line-comments", "toml")
 	case owner == reflect.TypeFor[HookTargetOverride]() && field.Name == "Target":
 		property.Enum = editorSchemaTargetEnum()
 	case field.Name == "Target" && (owner == reflect.TypeFor[Skill]() ||
@@ -230,7 +239,7 @@ func editorSchemaResource(typ reflect.Type) bool {
 	switch typ {
 	case reflect.TypeFor[Skill](), reflect.TypeFor[SkillGroup](), reflect.TypeFor[Hook](),
 		reflect.TypeFor[HookAsset](), reflect.TypeFor[MCPServer](), reflect.TypeFor[Instructions](),
-		reflect.TypeFor[Extension]():
+		reflect.TypeFor[Extension](), reflect.TypeFor[HostConfig]():
 		return true
 	default:
 		return false
@@ -245,6 +254,8 @@ func editorSchemaRequired(typ reflect.Type) []string {
 		return []string{"name", "source"}
 	case reflect.TypeFor[SkillGroup](), reflect.TypeFor[Instructions]():
 		return []string{"source"}
+	case reflect.TypeFor[HostConfig]():
+		return []string{"id", "path", "source"}
 	case reflect.TypeFor[Hook]():
 		return []string{"name", "event", "command"}
 	case reflect.TypeFor[HookAsset]():

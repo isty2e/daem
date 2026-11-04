@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestMain(m *testing.M) {
@@ -18,7 +18,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "preserve Go build caches: %v\n", err)
 		os.Exit(1)
 	}
-	os.Exit(testkit.RunWithIsolatedDefaultRoots(m))
+	os.Exit(nativefixture.RunPackage(m))
 }
 
 func preserveGoBuildCaches() error {

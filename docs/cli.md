@@ -20,7 +20,8 @@ or [Use An Existing Environment](migration.md).
 - Commands: [`version`](#version), [`init`](#init), [`import`](#import),
   [`add`](#add), [`remove`](#remove), [`unmanage extension`](#unmanage-extension),
   [`lock`](#lock), [`outdated`](#outdated), [`list`](#list), [`status`](#status),
-  [`apply`](#apply), [`recover`](#recover), [`migrate state`](#migrate-state), [`doctor`](#doctor),
+  [`apply`](#apply),
+  [`recover`](#recover), [`migrate state`](#migrate-state), [`doctor`](#doctor),
   [`probe mcp-server`](#probe-mcp-server), [`refresh extension`](#refresh-extension)
 - [Authoring JSON](#authoring-json), [progress](#progress),
   [streams and exit codes](#streams-and-exit-codes),
@@ -346,6 +347,23 @@ are unrelated and must not be compared as a product-wide sequence:
 | `refresh extension` | Extension refresh | `4` |
 | Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `1` |
 
+Native host-configuration key addresses use a `key_path` array of literal names
+in lock comparisons, reconciliation actions/projections/previous state, and
+apply results. For example, `["ext", "a/b"]` selects a property literally named
+`a/b`, and `[""]` selects an empty property name. Legacy aggregate rows retain
+`content_path`; native rows do not encode their names in that field.
+
+Default human status, previews and apply results group native keys by declaration,
+target, scope and destination. Each displayed key retains its action or status.
+A blocked document names the keys preventing Apply without marking current
+siblings as blocked. Grouping does not change JSON actions or output-entry counts.
+Quoted dotted-path segments distinguish `ext."a/b"` and `"a.b"` from nested keys.
+`--verbose` retains per-key detail.
+
+`list outputs` displays native keys by declaration and literal key path too.
+Its JSON adds `resource` and `key_path` for native rows while retaining the
+existing machine `subject`, optional `resource_id`, row counts and other fields.
+
 The resource-name cutover replaces the v0.5.x envelopes for manifest authoring
 (`6`), resource inventory (`2`), output inventory (`4`), agent location inventory
 (`1`), reconciliation plans (`14`), apply results (`21`) and recovery (`9`).
@@ -369,6 +387,16 @@ Both use `state: "unobserved"`; `EFFECTIVE_OBSERVER_UNSUPPORTED` replaces the
 previous `EFFECTIVE_STATE_UNOBSERVED` reason only for the unsupported case.
 Consumers of the earlier versions must not interpret the new reason as an
 observation failure or a claim that no shadowing definition exists.
+
+Plan version `18` and apply-result version `24` add the optional
+`native_narrowing_actions` array for document-to-key ownership transitions.
+Each row identifies the declaration, target, scope, destination and desired key
+count; zero keys explicitly means releasing whole-file ownership. Native values,
+key selectors and source contents are omitted, with `values_omitted: true`.
+These transitions are separate from projection `actions` and do not increase
+the plan's projection `action_count`. A transition row describes planned intent,
+not proof that a host write occurred. Ordinary results omit the array, but all
+results use the new envelope version.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject
@@ -1807,6 +1835,28 @@ update matching user and trusted-project rows. Success remains
 host-owned, and trust refusal or no match is a host failure. Daem adds no
 approval, self-update, model-update, or bulk-update flags. See [host
 integrations](host-integrations.md) for route details.
+
+With managed settings keys, Pi, Codex, Claude Code, OpenCode and Antigravity CLI
+refresh require those keys to be already applied and current; they do not apply
+changed settings sources. They check selected values in each managed settings
+layer and preserve other captured content outside the refreshed package's rows
+(Pi) or marketplace entry (Codex). Codex refresh does not
+admit plugin-entry changes. Unexpected key/content changes or broadened file access
+make refresh fail without automatic content repair. Broadened access is restricted
+even when the host command fails; interruption may require `daem recover` before
+another refresh. Claude Code, OpenCode and Antigravity CLI require physical
+separation between their private plugin namespaces and the managed settings;
+aliases or nested overlaps without an admitted rewrite profile refuse before execution.
+Their commands do not receive permission to change captured native settings.
+
+Dedicated whole files must already be applied, with contents and permissions
+matching their recorded ownership. Refresh does not adopt externally matching
+files, apply changed sources or complete key/whole-file ownership changes.
+Removing a declaration does not make Refresh delete its file or release its
+ownership; use Apply for that change. Whole-owned files must be physically
+separate from the configuration the refresh command can rewrite, including
+through aliases. Unexpected byte changes fail without automatic content repair;
+permission safety and recovery follow the same rules as managed keys.
 
 Antigravity explicit-global refresh repeats the locked install route rather than
 using a dedicated update command. Local evidence can show bundle replacement and

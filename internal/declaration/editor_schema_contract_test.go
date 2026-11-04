@@ -161,6 +161,27 @@ name = 1979-05-27T07:32:00
 transport = "stdio"
 command = "npx"
 `},
+		{"inherited host_config target cardinality", `version = 1
+targets = ["pi", "codex"]
+[[host_config]]
+id = "inherited-hosts"
+path = "settings.json"
+source = "/missing/settings.json"
+`},
+		{"host_config local link source", `version = 1
+targets = ["pi"]
+[[host_config]]
+id = "link"
+path = "settings.json"
+source = { path = "/missing/settings.json", mode = "link" }
+`},
+		{"host_config S3 archive source", `version = 1
+targets = ["pi"]
+[[host_config]]
+id = "archive"
+path = "settings.json"
+source = { s3 = "s3://settings-bucket/settings.tar.gz", format = "tar.gz" }
+`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			content := []byte(test.content)

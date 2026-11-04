@@ -22,6 +22,10 @@ func (HookAssetSource) editorSchema(builder *editorSchemaBuilder) (*editorSchema
 	return sourceValueEditorSchema(builder)
 }
 
+func (HostConfigSource) editorSchema(builder *editorSchemaBuilder) (*editorSchemaNode, error) {
+	return sourceValueEditorSchema(builder)
+}
+
 func (MCPEnvReference) editorSchema(_ *editorSchemaBuilder) (*editorSchemaNode, error) {
 	return &editorSchemaNode{
 		Type: "object", Properties: map[string]*editorSchemaNode{"from_env": {Type: "string"}},

@@ -8,6 +8,8 @@
   instruction file from a local source.
 - [Use An Existing Environment](migration.md) — import live configuration,
   declare local sources, and decide which matching outputs to register.
+- [Manage Selected Host Settings](manifest.md#manage-selected-settings) — keep
+  chosen Codex or Pi settings consistent without owning the whole file.
 - [Use Daem From Your Agent](../skills/daem/README.md) — install the daem skill.
 - [Troubleshooting](troubleshooting.md) — respond to conflicts, drift, skipped
   imports, and interrupted operations.
