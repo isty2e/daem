@@ -114,7 +114,11 @@ func (journal nativeJournalSnapshots) qualifyDocumentNamespaces(ctx context.Cont
 			}
 		}
 		if record.PiOrder != nil {
-			if err := qualifyNativePiContext(ctx, *record.PiOrder, manifest, namespace, options.budget); err != nil {
+			facts, err := record.PiOrder.qualificationContext()
+			if err != nil {
+				return nil, err
+			}
+			if err := qualifyNativePiContext(ctx, facts, manifest, namespace, options.budget); err != nil {
 				return nil, err
 			}
 		}
@@ -220,19 +224,19 @@ func matchRetainedNativeObservation(record recoveryDocumentObservation, current 
 	return fmt.Errorf("native document path differs from the retained namespace observation")
 }
 
-func qualifyNativePiContext(ctx context.Context, record recoveryDocumentPiOrder, manifest journalnamespace.RootGrant, namespace journalnamespace.DocumentNamespace, budget rootedpath.PhysicalTraversalBudget) error {
-	if persistedNativeRoot(manifest.Provenance()) != record.CommandRoot.Provenance {
+func qualifyNativePiContext(ctx context.Context, facts documentPiContext, manifest journalnamespace.RootGrant, namespace journalnamespace.DocumentNamespace, budget rootedpath.PhysicalTraversalBudget) error {
+	if manifest.Provenance() != facts.commandRoot {
 		return fmt.Errorf("Pi command root differs from the selected manifest incarnation")
 	}
-	for _, relation := range record.Evidence.Relations {
+	for _, root := range facts.relationBaseRoots {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := manifest.ValidateSelection(relation.SourceContext.BaseRoot, budget); err != nil {
+		if err := manifest.ValidateSelection(root, budget); err != nil {
 			return err
 		}
 	}
-	settingsPath := filepath.Join(record.Evidence.SettingsContext.BaseRoot, "settings.json")
+	settingsPath := filepath.Join(facts.settingsBaseRoot, "settings.json")
 	referent, err := rootedpath.ResolveReferentPathBounded(settingsPath, physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		return err

@@ -376,8 +376,7 @@ func TestDocumentCaptureSubjectIndexKeepsFullRetargetedIdentity(t *testing.T) {
 		if err != nil || len(refs) != 1 {
 			t.Fatalf("retargeted side lost state-backed identity: %v", err)
 		}
-		subject, err := refs[0].canonical()
-		if err != nil || subject != before.Subject() {
+		if refs[0] != before.Subject() {
 			t.Fatal("retargeting changed the canonical full subject identity")
 		}
 	}

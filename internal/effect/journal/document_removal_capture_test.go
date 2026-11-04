@@ -297,8 +297,8 @@ func TestNativeRemovalPreservesLogicalAliasesWithOneNamespace(t *testing.T) {
 	if err != nil || record == nil {
 		t.Fatalf("group cleanup did not capture once: %v", err)
 	}
-	removal, err := record.canonical()
-	if err != nil || removal.Demands().Len() != 2 {
+	removal := *record
+	if removal.Demands().Len() != 2 {
 		t.Fatalf("target aliases were not one logical relation, or distinct relations collapsed: %v", err)
 	}
 	physical, err := removal.PhysicalIntent()
@@ -313,8 +313,7 @@ func TestNativeRemovalPreservesLogicalAliasesWithOneNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	one, err := observedOnly.canonical()
-	if err != nil || one.Demands().Len() != 1 {
+	if observedOnly.Demands().Len() != 1 {
 		t.Fatalf("unmodified namespace aliases gained removal authority: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(pi.SelectedPath, "settings.json")); !errors.Is(err, os.ErrNotExist) {

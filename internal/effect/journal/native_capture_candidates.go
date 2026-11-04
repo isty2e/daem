@@ -16,31 +16,21 @@ import (
 // nativeDocumentCaptureCandidate retains actual comparison inputs before the
 // operation's complete removal set can be admitted. It is not a valid record.
 type nativeDocumentCaptureCandidate struct {
-	group      recoveryDocumentGroup
-	comparison journaldocument.Comparison
-	namespace  journalnamespace.DocumentNamespace
-	manifest   journalnamespace.RootGrant
-	relations  []aggregate.DocumentAddress
-	budget     *physicalwork.Budget
+	record    documentGroupRecordCandidate
+	namespace journalnamespace.DocumentNamespace
+	relations []aggregate.DocumentAddress
+	budget    *physicalwork.Budget
 }
 
 func (candidate nativeDocumentCaptureCandidate) captureRemoval(ctx context.Context, budget *physicalwork.Budget) (recoveryDocumentGroup, journaldocument.Comparison, error) {
 	if ctx == nil || budget == nil || budget != candidate.budget {
 		return recoveryDocumentGroup{}, journaldocument.Comparison{}, fmt.Errorf("document capture requires context and its original physical budget")
 	}
-	group := candidate.group
-	var err error
-	group.Removal, err = captureDocumentRemoval(ctx, candidate.namespace, candidate.comparison, candidate.relations, budget)
+	removal, err := captureDocumentRemoval(ctx, candidate.namespace, candidate.record.Comparison(), candidate.relations, budget)
 	if err != nil {
 		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
 	}
-	if err := group.validate(persistedNativeRoot(candidate.manifest.Provenance())); err != nil {
-		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return recoveryDocumentGroup{}, journaldocument.Comparison{}, err
-	}
-	return group, candidate.comparison, nil
+	return candidate.record.seal(ctx, removal)
 }
 
 func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDocumentCaptureCandidate, ordinary recovery.RemovalDemandSet, budget *physicalwork.Budget) ([]recoveryDocumentGroup, []journaldocument.Comparison, recovery.RemovalDemandSet, error) {
@@ -52,7 +42,7 @@ func captureNativeDocumentCandidates(ctx context.Context, candidates []nativeDoc
 		if candidate.budget != budget {
 			return nil, nil, recovery.RemovalDemandSet{}, fmt.Errorf("document candidate was prepared under a different physical budget")
 		}
-		groupDemands, err := candidate.comparison.RemovalDemands(ctx, candidate.relations)
+		groupDemands, err := candidate.record.Comparison().RemovalDemands(ctx, candidate.relations)
 		if err != nil {
 			return nil, nil, recovery.RemovalDemandSet{}, err
 		}

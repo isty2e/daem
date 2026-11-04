@@ -292,10 +292,11 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 		if err != nil {
 			return nativeJournalSnapshots{}, nil, err
 		}
-		if !batch.evidence.MatchesOriginal(index, candidate.comparison.BeforeDocument(), candidate.comparison.BeforeMode()) {
+		comparison := candidate.record.Comparison()
+		if !batch.evidence.MatchesOriginal(index, comparison.BeforeDocument(), comparison.BeforeMode()) {
 			return nativeJournalSnapshots{}, nil, fmt.Errorf("selected candidate differs from its decision original")
 		}
-		documentWork = documentWork || !candidate.comparison.BeforeDocument().Equal(candidate.comparison.ExpectedDocument()) || !candidate.comparison.BeforeState().SameRootMetadata(candidate.comparison.ExpectedState())
+		documentWork = documentWork || !comparison.BeforeDocument().Equal(comparison.ExpectedDocument()) || !comparison.BeforeState().SameRootMetadata(comparison.ExpectedState())
 		work = work || documentWork
 		candidates = append(candidates, candidate)
 	}

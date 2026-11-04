@@ -30,7 +30,7 @@ func TestNativeCaptureCandidatesAdmitExactCombinedDebtAfterRealReads(t *testing.
 		t.Fatal("actual image/namespace preparation did not remain before removal admission")
 	}
 	remaining := budget.RemainingBytes()
-	native, err := first.comparison.RemovalDemands(t.Context(), first.relations)
+	native, err := first.record.Comparison().RemovalDemands(t.Context(), first.relations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,12 +97,12 @@ func TestNativeCaptureCandidatesRefuseWholeUnionBeforeRemovalObservation(t *test
 			switch failure {
 			case "duplicate":
 				var err error
-				ordinary, err = candidate.comparison.RemovalDemands(t.Context(), candidate.relations)
+				ordinary, err = candidate.record.Comparison().RemovalDemands(t.Context(), candidate.relations)
 				if err != nil {
 					t.Fatal(err)
 				}
 			case "over-limit":
-				native, err := candidate.comparison.RemovalDemands(t.Context(), candidate.relations)
+				native, err := candidate.record.Comparison().RemovalDemands(t.Context(), candidate.relations)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -121,7 +121,7 @@ func TestNativeCaptureCandidatesRefuseWholeUnionBeforeRemovalObservation(t *test
 				}
 			case "invalid-later":
 				bad := candidate
-				bad.comparison = journaldocument.Comparison{}
+				bad.record.comparison = journaldocument.Comparison{}
 				candidates = append(candidates, bad)
 			case "different-budget":
 				budget = physicalwork.NewCaptureBudget(paths)

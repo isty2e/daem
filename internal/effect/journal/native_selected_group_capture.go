@@ -53,7 +53,7 @@ func indexDocumentCaptureSubjects(ctx context.Context, before, after durable.Sna
 	return index, nil
 }
 
-func (index documentCaptureSubjects) selectedSubjects(ctx context.Context, edits []compose.ProjectionEdit, aliases []aggregate.DocumentAddress) ([]persistedSubjectRef, error) {
+func (index documentCaptureSubjects) selectedSubjects(ctx context.Context, edits []compose.ProjectionEdit, aliases []aggregate.DocumentAddress) ([]topology.SubjectID, error) {
 	addresses, err := journaldocument.AliasSet(ctx, aliases)
 	if err != nil {
 		return nil, err
@@ -100,14 +100,10 @@ func (index documentCaptureSubjects) selectedSubjects(ctx context.Context, edits
 		subjects = append(subjects, subject)
 	}
 	slices.SortFunc(subjects, topology.CompareSubjectID)
-	refs := make([]persistedSubjectRef, 0, len(subjects))
-	for _, subject := range subjects {
-		refs = append(refs, persistedSubjectRef{Kind: string(subject.Kind()), Namespace: subject.Namespace(), Name: subject.Key()})
-	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return refs, nil
+	return subjects, nil
 }
 
 // prepareSelectedDocumentGroup captures edit/order facts. Complete Snapshot and
@@ -128,28 +124,23 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	group, manifest, err := nativeDocumentGroupMetadata(ctx, namespace, input.CaptureInput)
+	draft, manifest, err := nativeDocumentGroupMetadata(ctx, namespace, input.CaptureInput)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
+	var orderAlias *aggregate.DocumentAddress
 	if input.order != nil && input.order.Changed() {
-		evidence, err := persistedPiOrderEvidence(*input.order)
+		var facts documentPiContext
+		draft, facts, err = draft.withPiOrder(*input.order)
 		if err != nil {
 			return nativeDocumentCaptureCandidate{}, err
 		}
-		captured, err := input.order.CaptureInput()
-		if err != nil {
-			return nativeDocumentCaptureCandidate{}, err
-		}
-		alias, err := piOrderDocumentAlias(captured.Scope)
-		if err != nil || !slices.Contains(namespace.Addresses(), alias) {
-			return nativeDocumentCaptureCandidate{}, fmt.Errorf("selected Pi order has no captured settings alias")
-		}
-		group.PiOrder = &recoveryDocumentPiOrder{Alias: persistedDocumentAlias(alias), CommandRoot: recoveryDocumentLogicalRoot{Role: "manifest-root", Provenance: persistedNativeRoot(manifest.Provenance())}, Evidence: evidence}
-		if err := qualifyNativePiContext(ctx, *group.PiOrder, manifest, namespace, input.Budget()); err != nil {
+		orderAlias = &facts.alias
+		if err := qualifyNativePiContext(ctx, facts, manifest, namespace, input.Budget()); err != nil {
 			return nativeDocumentCaptureCandidate{}, err
 		}
 	}
+
 	original, mode, _, err := namespace.ReadReferent(ctx, min(input.Limits().MaximumBytes, recovery.MaximumRecoveryBackupFileBytes), input.Budget())
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
@@ -175,27 +166,23 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	group.Extent, group.SelectedSubjects = "selected", refs
 	comparison := candidate.Comparison()
-	_, group.Original, group.Expected, err = documentImageReferences(comparison, input.GroupIndex())
+	record, err := draft.withComparison(comparison, input.GroupIndex(), refs)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
+
 	relations := make([]aggregate.DocumentAddress, 0, len(input.edits)+1)
 	for _, edit := range input.edits {
 		for _, contract := range edit.Participant().Selection().Contracts() {
 			relations = append(relations, contract.Address().Document())
 		}
 	}
-	if group.PiOrder != nil {
-		alias, err := group.PiOrder.Alias.canonical()
-		if err != nil {
-			return nativeDocumentCaptureCandidate{}, err
-		}
-		relations = append(relations, alias)
+	if orderAlias != nil {
+		relations = append(relations, *orderAlias)
 	}
 	if err := ctx.Err(); err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	return nativeDocumentCaptureCandidate{group: group, comparison: comparison, namespace: namespace, manifest: manifest, relations: relations, budget: input.Budget()}, nil
+	return nativeDocumentCaptureCandidate{record: record, namespace: namespace, relations: relations, budget: input.Budget()}, nil
 }

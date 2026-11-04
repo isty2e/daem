@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -240,6 +241,31 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 	restored, err := comparison.RestoreBefore(t.Context(), comparison.ExpectedDocument(), &mode)
 	if err != nil || !restored.Document().Equal(comparison.BeforeDocument()) {
 		t.Fatalf("qualified Pi-order evidence lost its actual inverse: %v", err)
+	}
+	for _, source := range []string{"settings", "relation"} {
+		t.Run("invalid "+source+" context", func(t *testing.T) {
+			changed := decoded
+			changed.record.DocumentGroups = slices.Clone(decoded.record.DocumentGroups)
+			order := *changed.record.DocumentGroups[0].PiOrder
+			order.Evidence = clonePiEvidence(t, order.Evidence)
+			if source == "settings" {
+				order.Evidence.SettingsContext.HomeRoot = ""
+			} else {
+				order.Evidence.Relations[0].SourceContext.HomeRoot = ""
+			}
+			changed.record.DocumentGroups[0].PiOrder = &order
+			reader := &imageReader{RootedReader: fixture.read.filesystem}
+			options := fixture.read
+			options.filesystem, options.budget = reader, imageBudget(t)
+
+			result, err := changed.loadQualifiedDocuments(t.Context(), options, roots)
+			if err == nil || result.records.groups != nil || result.namespaces != nil {
+				t.Fatal("invalid source context returned qualified evidence")
+			}
+			if reader.calls != 2 {
+				t.Fatal("source-context admission moved ahead of the recorded image pair")
+			}
+		})
 	}
 	other := nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "different-command"))
 	decoded.record.DocumentGroups[0].PiOrder.Evidence.Relations[0].SourceContext.BaseRoot = other.SelectedPath

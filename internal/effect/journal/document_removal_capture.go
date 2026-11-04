@@ -14,7 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-func captureDocumentRemoval(ctx context.Context, namespace journalnamespace.DocumentNamespace, comparison journaldocument.Comparison, relations []aggregate.DocumentAddress, budget *physicalwork.Budget) (*recoveryDocumentRemoval, error) {
+func captureDocumentRemoval(ctx context.Context, namespace journalnamespace.DocumentNamespace, comparison journaldocument.Comparison, relations []aggregate.DocumentAddress, budget *physicalwork.Budget) (*recovery.DocumentRemoval, error) {
 	demands, err := comparison.RemovalDemands(ctx, relations)
 	if err != nil || demands.Len() == 0 {
 		return nil, err
@@ -60,14 +60,10 @@ func captureDocumentRemoval(ctx context.Context, namespace journalnamespace.Docu
 	if err != nil {
 		return nil, err
 	}
-	record, err := persistedDocumentRemoval(removal)
-	if err != nil {
-		return nil, err
-	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return &record, nil
+	return &removal, nil
 }
 
 func (record recoveryDocumentGroup) validateRemovalImages(images loadedDocumentImages) error {
