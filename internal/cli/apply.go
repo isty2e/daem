@@ -84,7 +84,14 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				ManageUnmanagedMatches: *manageExisting,
 			})
 			if err != nil {
-				return response.failure(operationFailure, applyFailureDiagnostic(*manifestPath, err, applyFailurePlanning, planning.CommandResult, *verbose).WithGuidance(applyWorkflowGuidance(*manifestPath, planning.CommandResult, err)...))
+				failure := applyworkflow.ClassifyFailure(err, planning.CommandResult)
+				if arguments.output != requestedJSON && planning.ReconciliationReady && failure.Reason() == applyworkflow.FailureReasonApplyRefused {
+					fmt.Fprintln(stdout, "Apply preview (not executable):")
+					humanOptions := clipresent.HumanOptions{Verbose: *verbose}
+					printApplyPreviewPlan(stdout, planning.CommandResult, nil, humanOptions)
+					clipresent.PrintDiagnosticsWithOptions(stdout, planning.Diagnostics, humanOptions)
+				}
+				return response.failure(operationFailure, applyFailureDiagnostic(*manifestPath, err, applyFailurePlanning, planning.CommandResult, *verbose).WithPrefix("apply preview failed: ").WithGuidance(applyWorkflowGuidance(*manifestPath, planning.CommandResult, err)...))
 			}
 			if err := response.selectOrdinaryResult(); err != nil {
 				return response.failure(operationFailure, humanFailureDiagnostic(err))
@@ -97,13 +104,14 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 
 			if arguments.output == requestedJSON {
 				jsonInput := clipresent.PlanJSONInput{
-					Command:        "apply",
-					Mode:           "dry-run",
-					LockfilePath:   planning.LockfilePath,
-					LockOnly:       clipresent.LockOnlyResourcesFrom(planning.LockOnly),
-					Reconciliation: planning.Reconciliation,
-					Diagnostics:    planning.Diagnostics,
-					MCPStatuses:    mcpStatuses,
+					PermissionProtection: planning.PermissionProtection,
+					Command:              "apply",
+					Mode:                 "dry-run",
+					LockfilePath:         planning.LockfilePath,
+					LockOnly:             clipresent.LockOnlyResourcesFrom(planning.LockOnly),
+					Reconciliation:       planning.Reconciliation,
+					Diagnostics:          planning.Diagnostics,
+					MCPStatuses:          mcpStatuses,
 				}
 				if err := clipresent.PrintPlanJSON(stdout, jsonInput); err != nil {
 					markOutputFailureReported(stdout)
@@ -117,15 +125,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			}
 
 			humanOptions := clipresent.HumanOptions{Verbose: *verbose}
-			clipresent.PrintDryRunPlanWithOptions(stdout, clipresent.HumanPlanInput{
-				Reconciliation: planning.Reconciliation,
-				MCPStatuses:    mcpStatuses,
-			}, humanOptions)
-			clipresent.PrintLockOnlyResourceSummary(stdout, clipresent.LockOnlyResourcesFrom(planning.LockOnly))
-			clipresent.PrintRelationActionsWithOptions(stdout, planning.Reconciliation.Relations(), humanOptions)
-			clipresent.PrintRelationOrderActionsWithOptions(stdout, planning.Reconciliation.RelationOrders(), humanOptions)
-			clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, planning.Reconciliation.CarrierAdoptions(), humanOptions)
-			clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, planning.Reconciliation.CarrierAbsences(), humanOptions)
+			printApplyPreviewPlan(stdout, planning.CommandResult, mcpStatuses, humanOptions)
 			if planning.Reconciliation.HasLockReadinessErrors() {
 				printLockCommandHint(stdout, planning.ManifestPath, *manifestPath)
 			}
@@ -176,13 +176,14 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				}
 				failure := applyworkflow.ClassifyFailure(err, readinessPlanning.CommandResult)
 				jsonInput := clipresent.ApplyResultJSONInput{
-					ActionCount:    0,
-					StatefilePath:  readinessPlanning.StatefilePath,
-					LockOnly:       clipresent.LockOnlyResourcesFrom(readinessPlanning.LockOnly),
-					Reconciliation: readinessPlanning.Reconciliation,
-					MCPStatuses:    mcpStatuses,
-					Diagnostics:    readinessPlanning.Diagnostics,
-					Failure:        &failure,
+					ActionCount:          0,
+					PermissionProtection: readinessPlanning.PermissionProtection,
+					StatefilePath:        readinessPlanning.StatefilePath,
+					LockOnly:             clipresent.LockOnlyResourcesFrom(readinessPlanning.LockOnly),
+					Reconciliation:       readinessPlanning.Reconciliation,
+					MCPStatuses:          mcpStatuses,
+					Diagnostics:          readinessPlanning.Diagnostics,
+					Failure:              &failure,
 				}
 				if jsonErr := clipresent.PrintApplyResultJSON(stdout, jsonInput); jsonErr != nil {
 					markOutputFailureReported(stdout)
@@ -192,7 +193,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				return 1
 			}
 			if arguments.output == requestedJSON {
-				return response.failure(operationFailure, applyFailureDiagnostic(*manifestPath, err, applyFailurePlanning, readinessPlanning.CommandResult, false).WithGuidance(applyWorkflowGuidance(*manifestPath, readinessPlanning.CommandResult, err)...))
+				return response.failure(operationFailure, applyFailureDiagnostic(*manifestPath, err, applyFailurePlanning, readinessPlanning.CommandResult, false).WithPrefix("apply failed: ").WithGuidance(applyWorkflowGuidance(*manifestPath, readinessPlanning.CommandResult, err)...))
 			}
 			printApplyFailure(stderr, err, applyFailurePlanning, readinessPlanning.CommandResult, *verbose)
 			if readinessPlanning.ReconciliationReady {
@@ -230,6 +231,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 		carrierAbsencesDisclosed := false
 		humanOptions := clipresent.HumanOptions{Verbose: *verbose}
 		if interactiveConfirmation {
+			clipresent.PrintPermissionProtection(stdout, readinessPlanning.PermissionProtection)
 			clipresent.PrintLockOnlyResourceSummary(stdout, clipresent.LockOnlyResourcesFrom(readinessPlanning.LockOnly))
 			clipresent.PrintRelationActionsWithOptions(stdout, readinessPlanning.Reconciliation.Relations(), humanOptions)
 			relationActionsDisclosed = true
@@ -268,6 +270,15 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			clipresent.PrintDelegateActionsWithOptions(stdout, readinessPlanning.Reconciliation.Delegates(), humanOptions)
 		}
 
+		if arguments.output == requestedJSON {
+			if err := clipresent.PrintApplyResultJSON(io.Discard, clipresent.ApplyResultJSONInput{
+				PermissionProtection: readinessPlanning.PermissionProtection,
+				Reconciliation:       readinessPlanning.Reconciliation,
+			}); err != nil {
+				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("apply refused: prepare JSON output: "))
+			}
+		}
+
 		progress := newApplyProgressRenderer(arguments.output == requestedJSON, stderr, options)
 		executeOptions := options.applyExecuteOptions
 		executeOptions.ExecuteEvents = progress.Sink()
@@ -289,6 +300,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				failure := applyworkflow.ClassifyFailure(err, result)
 				jsonInput := clipresent.ApplyResultJSONInput{
 					ActionCount:            result.ActionCount,
+					PermissionProtection:   result.PermissionProtection,
 					StatefilePath:          result.StatefilePath,
 					LockOnly:               clipresent.LockOnlyResourcesFrom(result.LockOnly),
 					Reconciliation:         result.Reconciliation,
@@ -337,6 +349,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 		if arguments.output == requestedJSON {
 			jsonInput := clipresent.ApplyResultJSONInput{
 				ActionCount:            result.ActionCount,
+				PermissionProtection:   result.PermissionProtection,
 				StatefilePath:          result.StatefilePath,
 				LockOnly:               clipresent.LockOnlyResourcesFrom(result.LockOnly),
 				Reconciliation:         result.Reconciliation,
@@ -356,6 +369,9 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 		}
 
 		fmt.Fprintf(stdout, "applied: %s\n", clipresent.CountLabel(result.ActionCount, "action", "actions"))
+		if !interactiveConfirmation {
+			clipresent.PrintPermissionProtection(stdout, result.PermissionProtection)
+		}
 		clipresent.PrintCarrierAdoptionResultsWithOptions(
 			stdout,
 			result.Reconciliation.CarrierAdoptions(),
@@ -396,7 +412,7 @@ func printApplyFailure(
 	result applyworkflow.CommandResult,
 	verbose bool,
 ) {
-	fmt.Fprintln(output, applyFailureDiagnostic("", err, stage, result, verbose).HumanText())
+	fmt.Fprintln(output, applyFailureDiagnostic("", err, stage, result, verbose).WithPrefix("apply failed: ").HumanText())
 }
 
 func applyFailureDiagnostic(
@@ -407,9 +423,11 @@ func applyFailureDiagnostic(
 	verbose bool,
 ) clipresent.FailureDiagnostic {
 	diagnostic, reason := applyFailurePrimary(stage, err, result)
-	diagnostic = diagnostic.WithPrefix("apply failed: ")
+	diagnostic = diagnostic.WithPermissionProtection(result.PermissionProtection)
 	var instruction string
 	switch reason {
+	case applyworkflow.FailureReasonApplyRefused:
+		instruction = applyworkflow.ClassifyFailure(err, result).NativeSupportRepairInstruction()
 	case applyworkflow.FailureReasonRelationOrderRiskExpanded:
 		instruction = "inspect a fresh dry-run with daem apply --dry-run, then rerun interactively to authorize the updated extension order"
 	case applyworkflow.FailureReasonInterruptedApply:
@@ -566,12 +584,12 @@ func printApplyWorkflowHints(
 	result applyworkflow.CommandResult,
 	err error,
 ) {
-	for _, guidance := range applyWorkflowGuidance(manifestPath, result, err) {
+	for _, guidance := range applyInputWorkflowGuidance(manifestPath, result, err) {
 		fmt.Fprintln(output, guidance.HumanText())
 	}
 }
 
-func applyWorkflowGuidance(manifestPath string, result applyworkflow.CommandResult, err error) []clipresent.Guidance {
+func applyInputWorkflowGuidance(manifestPath string, result applyworkflow.CommandResult, err error) []clipresent.Guidance {
 	var guidance []clipresent.Guidance
 	selectedManifest := result.ManifestPath
 	if selectedManifest == "" {

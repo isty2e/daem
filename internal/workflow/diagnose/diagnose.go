@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/diagnose"
 	"github.com/isty2e/daem/internal/findings"
@@ -25,11 +26,12 @@ type Input struct {
 }
 
 type Result struct {
-	ManifestPath     string
-	ManifestExplicit bool
-	Selection        targetselection.Selection
-	Checks           []findings.Check
-	HasErrors        bool
+	PermissionProtection ownershipobserve.ProtectionObservation
+	ManifestPath         string
+	ManifestExplicit     bool
+	Selection            targetselection.Selection
+	Checks               []findings.Check
+	HasErrors            bool
 }
 
 func Run(ctx context.Context, input Input, assessment platformsupport.PlatformAssessment) (Result, error) {
@@ -59,9 +61,11 @@ func Run(ctx context.Context, input Input, assessment platformsupport.PlatformAs
 	}
 	result.ManifestPath = paths.ManifestPath
 	if !assessment.IsAdmitted() {
+		result.PermissionProtection = ownershipobserve.UnsupportedProtections()
 		selection, checks := remainingChecks(ctx, input, paths, platformCheck, result.Selection, remainingCheckIndependent)
 		return finishDiagnose(ctx, result, selection, checks)
 	}
+	result.PermissionProtection = ownershipobserve.ObservePendingProtections(ctx, paths)
 	if err := refuseJournalAndFileSet(ctx, paths); err != nil {
 		return result, err
 	}
@@ -161,6 +165,9 @@ func finishDiagnose(ctx context.Context, result Result, selection targetselectio
 		return result, err
 	}
 	result.Selection = selection
+	if result.PermissionProtection.State() != ownershipobserve.ProtectionUnobserved {
+		checks = append(checks, permissionProtectionCheck(result.PermissionProtection))
+	}
 	result.Checks = checks
 	result.HasErrors = findings.HasCheckErrors(checks)
 	return result, nil

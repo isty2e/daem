@@ -3,11 +3,11 @@ package apply
 import (
 	"fmt"
 
-	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
+	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
 	"github.com/isty2e/daem/internal/operationplan"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -18,10 +18,13 @@ import (
 // Effect-owned core is consumed here; rollback and outer continuations remain
 // later migration units.
 type applyForwardEffectSchedule struct {
-	full         operationplan.EffectStructure
-	final        operationplan.EffectStructure
-	continuation applyContinuationPlan
-	effectPlan   applyprogram.Plan
+	full           operationplan.EffectStructure
+	prefix         operationplan.EffectStructure
+	final          operationplan.EffectStructure
+	continuation   applyContinuationPlan
+	effectPlan     applyprogram.Plan
+	managedSuffix  *nativeoperation.NativeManagedSuffixShape
+	delegateSuffix *nativeoperation.NativeManagedSuffixShape
 }
 
 type applyFinalScheduleBinding struct {
@@ -87,7 +90,7 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 	envelope operationplan.Envelope,
 	executeGates int,
 ) (applyForwardEffectSchedule, error) {
-	effectPlan, err := execute.PrepareApplyEffectPlan(applyInput)
+	effectPlan, err := prepareCommandApplyEffectPlan(current, applyInput)
 	if err != nil {
 		return applyForwardEffectSchedule{}, err
 	}
@@ -101,12 +104,61 @@ func compileApplyForwardEffectScheduleWithEnvelope(
 	if err != nil {
 		return applyForwardEffectSchedule{}, err
 	}
+	if current.nativePlan != nil && current.nativePlan.opaque {
+		prefix, err := nativePrefixApplyInputFor(current)
+		if err != nil {
+			return applyForwardEffectSchedule{}, err
+		}
+		prefixGates, err := nativeoperation.MaximumNativeForwardEffectValidationCount(prefix)
+		if err != nil {
+			return applyForwardEffectSchedule{}, err
+		}
+		if prefixGates != 0 {
+			input.positivePrefix = &applyDirectPrefix{segment: effectPlan.Segment(), gates: prefixGates}
+		}
+		input.core, input.coreChanged = operationplan.EffectSequence(), false
+		full, err := nativeApplyInputFor(current)
+		if err != nil {
+			return applyForwardEffectSchedule{}, err
+		}
+		shape, late, err := nativeInvocationSuffixes(current, full)
+		if err != nil {
+			return applyForwardEffectSchedule{}, err
+		}
+		if shape.ForwardValidationCount() != 0 {
+			input.managedSuffix = &shape
+		}
+		if late.ForwardValidationCount() != 0 {
+			input.delegateSuffix = &late
+		}
+	}
 	schedule, err := compileApplySchedule(input, envelope.Demand())
 	if err != nil {
 		return applyForwardEffectSchedule{}, err
 	}
 	schedule.effectPlan = effectPlan
+	schedule.managedSuffix = input.managedSuffix
+	schedule.delegateSuffix = input.delegateSuffix
 	return schedule, nil
+}
+
+func nativeInvocationSuffixes(current commandPlan, full nativeoperation.NativeApplyInput) (nativeoperation.NativeManagedSuffixShape, nativeoperation.NativeManagedSuffixShape, error) {
+	if nativeDelegatesScheduled(current.assessment.Reconciliation.Delegates()) {
+		return nativeoperation.ProjectNativeDelegateSuffixes(full, current.nativePlan.prefix, current.nativePlan.suffix, current.nativePlan.orders)
+	}
+	shape, err := nativeoperation.ProjectNativeManagedSuffix(full, current.nativePlan.prefix, current.nativePlan.suffix, current.nativePlan.orders)
+	return shape, nativeoperation.NativeManagedSuffixShape{}, err
+}
+
+func nativeBeforeDelegateInput(current commandPlan) (nativeoperation.NativeApplyInput, error) {
+	input, err := nativeApplyInputFor(current)
+	if err != nil {
+		return nativeoperation.NativeApplyInput{}, err
+	}
+	if nativeDelegatesScheduled(current.assessment.Reconciliation.Delegates()) {
+		return input.DelegatePrerequisites()
+	}
+	return input, nil
 }
 
 func applyScheduleInputFor(
@@ -224,7 +276,7 @@ func applyOrderScheduleFacts(classes []admittedOrderClass) []applyOrderScheduleF
 		result = append(result, applyOrderScheduleFact{
 			ref:              applyOrdinalScheduleReference("apply/relation-order", index),
 			classID:          class.classID,
-			requiresMutation: relationOrderMutationRequired(class.decisions),
+			requiresMutation: relationOrderMutationRequired(class.decisions) && !class.native,
 		})
 	}
 	return result

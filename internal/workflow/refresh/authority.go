@@ -96,10 +96,14 @@ func buildAuthorityEvidence(
 	); err != nil {
 		return authorityEvidence{}, err
 	}
+	stateReferentAccess := mutation.AccessShared
+	if planned.native != nil {
+		stateReferentAccess = mutation.AccessExclusive
+	}
 	if err := builder.AddLogicalPair(
 		planned.paths.StatefilePath,
 		mutation.AccessExclusive,
-		mutation.AccessShared,
+		stateReferentAccess,
 	); err != nil {
 		return authorityEvidence{}, err
 	}
@@ -125,6 +129,20 @@ func buildAuthorityEvidence(
 			}
 		}
 	}
+	if planned.protectionFence.identity != "" {
+		registryPath, err := mutation.CanonicalDirectoryEntryKey(planned.paths.OwnershipRegistryPath)
+		if err != nil {
+			return authorityEvidence{}, err
+		}
+		if err := builder.AddOwnershipRegistry(registryPath, mutation.AccessShared, planned.protectionFence.identity); err != nil {
+			return authorityEvidence{}, err
+		}
+		for _, request := range planned.protectionFence.requests {
+			if err := builder.AddPhysicalPair(request.Path, mutation.AccessShared, request.Target, request.Scope); err != nil {
+				return authorityEvidence{}, err
+			}
+		}
+	}
 	builder.AddDomains(planned.barrier.Domains())
 	for _, revision := range planned.barrier.RevisionRequests() {
 		builder.AddRevision(revision)
@@ -146,6 +164,20 @@ func buildAuthorityEvidence(
 			string(observedPath.Scope()),
 		); err != nil {
 			return authorityEvidence{}, err
+		}
+	}
+	if planned.native != nil {
+		registryPath, err := mutation.CanonicalDirectoryEntryKey(planned.paths.OwnershipRegistryPath)
+		if err != nil {
+			return authorityEvidence{}, err
+		}
+		if err := builder.AddOwnershipRegistry(registryPath, mutation.AccessExclusive, planned.native.registryIdentity); err != nil {
+			return authorityEvidence{}, err
+		}
+		for _, request := range planned.native.requests {
+			if err := builder.AddPhysicalPair(request.Path, mutation.AccessExclusive, request.Target, request.Scope); err != nil {
+				return authorityEvidence{}, err
+			}
 		}
 	}
 	if err := builder.AddRoute(

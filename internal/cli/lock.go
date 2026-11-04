@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -33,13 +34,24 @@ func prepareLockInvocation(args []string, stdout io.Writer, stderr io.Writer, op
 			return response.failure(usageFailure, humanFailureDiagnostic(err))
 		}
 
+		var preparedJSON []byte
+		var prepareResult func(workflowlock.Result) error
+		if plan.output == requestedJSON {
+			prepareResult = func(result workflowlock.Result) error {
+				var err error
+				preparedJSON, err = prepareLockResultJSON(result, *dryRun)
+				return err
+			}
+		}
+
 		progress := newLockProgressRenderer(plan.output == requestedJSON, stderr, options)
 		result, err := workflowlock.RunLock(options.context, workflowlock.LockInput{
-			ManifestPath: *manifestPath,
-			LockfilePath: "",
-			DryRun:       *dryRun,
-			SourceEvents: progress.SourceSink(),
-			LockEvents:   progress.LockSink(),
+			ManifestPath:  *manifestPath,
+			LockfilePath:  "",
+			DryRun:        *dryRun,
+			SourceEvents:  progress.SourceSink(),
+			LockEvents:    progress.LockSink(),
+			PrepareResult: prepareResult,
 		})
 		progress.Close()
 		if err != nil {
@@ -52,15 +64,7 @@ func prepareLockInvocation(args []string, stdout io.Writer, stderr io.Writer, op
 
 		if *dryRun {
 			if plan.output == requestedJSON {
-				if err := clipresent.PrintJSON(stdout, clipresent.JSONInput{
-					Command:       "lock",
-					Mode:          "dry-run",
-					ManifestPath:  result.ManifestPath,
-					LockfilePath:  result.LockfilePath,
-					PreviousFound: result.PreviousFound,
-					Lockfile:      result.Lockfile,
-					Delta:         result.Delta,
-				}); err != nil {
+				if _, err := io.Copy(stdout, bytes.NewReader(preparedJSON)); err != nil {
 					return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("lock failed: write json: "))
 				}
 				return 0
@@ -75,15 +79,7 @@ func prepareLockInvocation(args []string, stdout io.Writer, stderr io.Writer, op
 		}
 
 		if plan.output == requestedJSON {
-			if err := clipresent.PrintJSON(stdout, clipresent.JSONInput{
-				Command:       "lock",
-				Mode:          "write",
-				ManifestPath:  result.ManifestPath,
-				LockfilePath:  result.LockfilePath,
-				PreviousFound: result.PreviousFound,
-				Lockfile:      result.Lockfile,
-				Delta:         result.Delta,
-			}); err != nil {
+			if _, err := io.Copy(stdout, bytes.NewReader(preparedJSON)); err != nil {
 				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("lock failed: write json: "))
 			}
 			return 0

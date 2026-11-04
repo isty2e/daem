@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -30,6 +31,7 @@ type Input struct {
 	HookEncoder            commandhook.ContributionEncoder
 	MCPEncoder             lockrefine.MCPContributionEncoder
 	ExtensionOrderIdentity lockrefine.ExtensionOrderIdentityResolver
+	NativeDocumentLimits   configdocument.Limits
 }
 
 // Result carries a generated canonical lock snapshot and its boundary
@@ -51,6 +53,11 @@ func (result Result) Content() []byte {
 // Build resolves lockable desired resources into a canonical lock snapshot
 // and lockfile bytes.
 func Build(ctx context.Context, input Input) (Result, error) {
+	if len(input.Environment.HostConfigs()) != 0 {
+		if err := input.NativeDocumentLimits.Validate(); err != nil {
+			return Result{}, err
+		}
+	}
 	if err := lockrefine.ValidateManagedPathIntent(input.Environment); err != nil {
 		return Result{}, err
 	}
@@ -73,18 +80,24 @@ func Build(ctx context.Context, input Input) (Result, error) {
 		baseResolver = baseResolver.WithCachePreparation(input.PreparePersistentCache)
 	}
 
-	lockfileSnapshot, err := lockbuild.BuildWithOptions(ctx, input.Environment, baseResolver, lockbuild.Options{
+	options := lockbuild.Options{
 		MaxParallelSourceOps:    input.MaxParallelSourceOps,
 		Events:                  input.Events,
 		SourceEvents:            input.SourceEvents,
 		HookContributionEncoder: input.HookEncoder,
 		MCPContributionEncoder:  input.MCPEncoder,
 		ExtensionOrderIdentity:  input.ExtensionOrderIdentity,
-	})
+	}
+	var lockfileSnapshot lock.File
+	if len(input.Environment.HostConfigs()) != 0 {
+		lockfileSnapshot, err = lockbuild.BuildNativeDocumentsWithOptions(ctx, input.Environment, baseResolver, options, input.NativeDocumentLimits)
+	} else {
+		lockfileSnapshot, err = lockbuild.BuildWithOptions(ctx, input.Environment, baseResolver, options)
+	}
 	if err != nil {
 		return Result{}, err
 	}
-	content, err := lockfile.Marshal(lockfileSnapshot)
+	content, err := lockfile.MarshalContext(ctx, lockfileSnapshot)
 	if err != nil {
 		return Result{}, fmt.Errorf("marshal lockfile: %w", err)
 	}

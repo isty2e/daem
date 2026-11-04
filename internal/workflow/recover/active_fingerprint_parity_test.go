@@ -34,7 +34,7 @@ func TestCompiledActiveRecoveryFingerprintMatchesOwnerProjection(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = prepared.Close() })
-			planned := prepared.lifecycle.planned
+			planned := prepared.lifecycle.planned.(recoveryPreparation)
 			active, ok := journal.ActiveRecoveryPlan(planned.plan)
 			if !ok {
 				t.Fatalf("authority kind = %q, want active", planned.plan.AuthorityKind())

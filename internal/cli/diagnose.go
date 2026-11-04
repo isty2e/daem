@@ -74,17 +74,18 @@ func prepareDoctorInvocation(
 			if errors.Is(err, diagnoseworkflow.ErrInvalidTargetSelection) {
 				class = usageFailure
 			}
-			return response.failure(class, humanFailureDiagnostic(err).WithPrefix("doctor failed: "))
+			return response.failure(class, humanFailureDiagnostic(err).WithPermissionProtection(result.PermissionProtection).WithPrefix("doctor failed: "))
 		}
 		if err := response.selectOrdinaryResult(); err != nil {
 			return response.failure(operationFailure, humanFailureDiagnostic(err))
 		}
 		if arguments.output == requestedJSON {
 			if err := clipresent.PrintDoctorJSON(stdout, clipresent.DoctorJSONInput{
-				ManifestPath:     result.ManifestPath,
-				ManifestExplicit: result.ManifestExplicit,
-				Selection:        result.Selection,
-				Checks:           result.Checks,
+				PermissionProtection: result.PermissionProtection,
+				ManifestPath:         result.ManifestPath,
+				ManifestExplicit:     result.ManifestExplicit,
+				Selection:            result.Selection,
+				Checks:               result.Checks,
 			}); err != nil {
 				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("doctor failed: write json: "))
 			}
@@ -96,6 +97,7 @@ func prepareDoctorInvocation(
 			}
 			fmt.Fprintf(stdout, "targets: %s\n", strings.Join(targetNames, ","))
 			clipresent.PrintDoctorChecksWithOptions(stdout, result.Checks, clipresent.HumanOptions{Verbose: *verbose})
+			clipresent.PrintPermissionProtection(stdout, result.PermissionProtection)
 		}
 		if result.HasErrors {
 			return 1

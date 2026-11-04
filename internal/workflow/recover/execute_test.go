@@ -292,7 +292,7 @@ func TestExecuteRejectsStatefileAfterAuthorityDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer current.Close()
-	if planned.lifecycle.planned.operationEvidence.Equal(current.lifecycle.planned.operationEvidence) {
+	if planned.lifecycle.planned.(recoveryPreparation).operationEvidence.Equal(current.lifecycle.planned.(recoveryPreparation).operationEvidence) {
 		t.Fatal("statefile_after drift retained the disclosed recovery operation fingerprint")
 	}
 
@@ -361,7 +361,7 @@ func TestActiveRecoveryAuthorityCoversCompleteRemovalContinuation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence := prepared.lifecycle.planned.authorityEvidence
+	evidence := prepared.lifecycle.planned.(recoveryPreparation).authorityEvidence
 	resolver := destinationResolver(paths)
 	var leasedRemovalPaths []string
 	var oneParentPath string

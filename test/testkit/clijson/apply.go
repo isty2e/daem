@@ -41,16 +41,18 @@ type ApplyResult struct {
 			Name string `json:"name"`
 		} `json:"resource"`
 		Projection *struct {
-			Target      string `json:"target"`
-			Scope       string `json:"scope"`
-			ConfigPath  string `json:"config_path"`
-			ContentPath string `json:"content_path"`
+			Target      string   `json:"target"`
+			Scope       string   `json:"scope"`
+			ConfigPath  string   `json:"config_path"`
+			ContentPath string   `json:"content_path"`
+			KeyPath     []string `json:"key_path"`
 		} `json:"projection"`
 		Target           string   `json:"target"`
 		Targets          []string `json:"targets"`
 		Scope            string   `json:"scope"`
 		Destination      string   `json:"destination"`
 		ContentPath      string   `json:"content_path"`
+		KeyPath          []string `json:"key_path"`
 		PlacementMode    string   `json:"placement_mode"`
 		ContentKind      string   `json:"content_kind"`
 		PermissionPolicy string   `json:"permission_policy"`
@@ -77,6 +79,7 @@ type ApplyResult struct {
 			Scope            string   `json:"scope"`
 			Destination      string   `json:"destination"`
 			ContentPath      string   `json:"content_path"`
+			KeyPath          []string `json:"key_path"`
 			ContentHash      string   `json:"content_hash"`
 			ContentKind      string   `json:"content_kind"`
 			PermissionPolicy string   `json:"permission_policy"`
@@ -89,6 +92,7 @@ type ApplyResult struct {
 	RelationOrderResults []RelationOrderResult   `json:"relation_order_results"`
 	CarrierAdoptions     []CarrierAdoptionAction `json:"carrier_adoption_actions"`
 	CarrierAbsences      []CarrierAbsenceAction  `json:"carrier_absence_actions"`
+	NativeNarrowings     []NativeNarrowingAction `json:"native_narrowing_actions"`
 	DelegateAttempts     []DelegateAttempt       `json:"delegate_attempts"`
 	HostRouteAttempts    []HostRouteAttempt      `json:"host_route_attempts"`
 	MCPStatuses          []MCPStatus             `json:"mcp_statuses"`
@@ -121,6 +125,15 @@ type ApplyResult struct {
 			FileSet string `json:"file_set,omitempty"`
 		} `json:"recovery_barrier,omitempty"`
 	} `json:"errors"`
+}
+
+type NativeNarrowingAction struct {
+	Name            string `json:"name"`
+	Target          string `json:"target"`
+	Scope           string `json:"scope"`
+	Destination     string `json:"destination"`
+	DesiredKeyCount int    `json:"desired_key_count"`
+	ValuesOmitted   bool   `json:"values_omitted"`
 }
 
 func DecodeApplyResult(t *testing.T, content []byte) ApplyResult {

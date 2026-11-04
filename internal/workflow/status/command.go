@@ -9,12 +9,11 @@ import (
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/diagnose"
-	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -26,6 +25,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/recoverygate"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
+	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -37,24 +37,26 @@ type CommandInput struct {
 }
 
 type CommandResult struct {
-	ManifestPath      string
-	LockfilePath      string
-	LockfileExplicit  bool
-	StatefilePath     string
-	LockfileMissing   bool
-	Reconciliation    reconcile.Result
-	Diagnostics       []findings.Diagnostic
-	LockOnly          []readiness.UnsupportedProjection
-	MCPProjections    []mcpobserve.LockedProjectionObservation
-	HostRouteAttempts []durableattempt.HostRouteAttempt
+	PermissionProtection ownershipobserve.ProtectionObservation
+	ManifestPath         string
+	LockfilePath         string
+	LockfileExplicit     bool
+	StatefilePath        string
+	LockfileMissing      bool
+	Reconciliation       reconcile.Result
+	Diagnostics          []findings.Diagnostic
+	LockOnly             []readiness.UnsupportedProjection
+	MCPProjections       []mcpobserve.LockedProjectionObservation
+	HostRouteAttempts    []durableattempt.HostRouteAttempt
 }
 
 // CheckClean evaluates the status --check predicate for this observation.
 // It does not certify runtime readiness or permission to apply.
 func (result CommandResult) CheckClean() bool {
-	return !result.LockfileMissing &&
+	return result.PermissionProtection.KnownClear() && !result.LockfileMissing &&
 		len(result.Reconciliation.PendingManagedPaths()) == 0 &&
 		len(result.Reconciliation.PendingAggregates()) == 0 &&
+		len(result.Reconciliation.NativeNarrowings()) == 0 &&
 		!result.HasBlockedRelationActions() &&
 		!result.Reconciliation.HasNonExactRelationOrders() &&
 		!result.Reconciliation.HasBlockedCarrierAdoptions() &&
@@ -72,7 +74,7 @@ func Run(ctx context.Context, input CommandInput) (CommandResult, error) {
 		return result, err
 	}
 
-	assessment, err := readiness.Assess(ctx, readiness.Input{
+	assessment, err := nativeconfig.Assess(ctx, readiness.Input{
 		Context:                 reconcile.ContextInspect,
 		Paths:                   loaded.Paths,
 		Resolver:                liveobserve.DestinationResolver(destinationResolver(loaded.Paths).Resolve),
@@ -132,10 +134,11 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		return commandInputs{}, CommandResult{}, err
 	}
 	result := CommandResult{
-		ManifestPath:     paths.ManifestPath,
-		LockfilePath:     selectedLockfilePath(paths, input.LockfilePath),
-		LockfileExplicit: input.LockfilePath != "",
-		StatefilePath:    paths.StatefilePath,
+		ManifestPath:         paths.ManifestPath,
+		LockfilePath:         selectedLockfilePath(paths, input.LockfilePath),
+		LockfileExplicit:     input.LockfilePath != "",
+		StatefilePath:        paths.StatefilePath,
+		PermissionProtection: ownershipobserve.ObservePendingProtections(ctx, paths),
 	}
 
 	if err := refuseJournalAndFileSet(ctx, paths); err != nil {
@@ -163,23 +166,18 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 	}
 
 	// Target selection and readiness share this command-local persistence epoch.
-	currentState, err := statefile.LoadOptional(ctx, paths.StatefilePath)
+	persistenceEpoch, err := nativeconfig.LoadPersistenceEpoch(ctx, paths)
 	if err != nil {
 		return commandInputs{}, result, err
 	}
-	carrierStore, err := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
+	currentState, err := persistenceEpoch.Snapshot()
 	if err != nil {
 		return commandInputs{}, result, err
 	}
-	globalCarrierClaims, err := carrierStore.LoadForSelectedAuthority(
-		ctx,
-		paths.StatefilePath,
-		paths.ManifestPath,
-	)
+	globalCarrierClaims, err := persistenceEpoch.CarrierClaims()
 	if err != nil {
 		return commandInputs{}, result, err
 	}
-	persistenceEpoch := readiness.NewPersistenceEpoch(currentState, globalCarrierClaims)
 
 	availableTargets, err := readiness.FromManifestLockAndState(
 		environment,
@@ -206,7 +204,7 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 			return commandInputs{}, result, fmt.Errorf("build runtime desired environment: %w", err)
 		}
 	}
-	sourceEpoch, err := lockobserve.ResolveSourceEpoch(
+	sourceEpoch, err := nativeconfig.ResolveSourceEpoch(
 		ctx,
 		paths,
 		runtimeEnvironment,

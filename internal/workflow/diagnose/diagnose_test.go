@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/platformsupport"
@@ -79,6 +80,10 @@ func TestRunUnsupportedPlatformReportsNamedRemainingChecks(t *testing.T) {
 	assertCheckStatus(t, result.Checks, "platform", findings.CheckError)
 	assertCheckStatus(t, result.Checks, "file_set", findings.CheckUnsupported)
 	assertCheckStatus(t, result.Checks, "recovery", findings.CheckUnsupported)
+	assertCheckStatus(t, result.Checks, "permission_protection", findings.CheckUnsupported)
+	if result.PermissionProtection.State() != ownershipobserve.ProtectionUnsupported || result.PermissionProtection.Cause() != nil {
+		t.Fatalf("unsupported platform claimed native observation: %+v", result.PermissionProtection)
+	}
 	assertCheckStatus(t, result.Checks, "manifest", findings.CheckError)
 	git, ok := checkNamed(result.Checks, "git")
 	if !ok {

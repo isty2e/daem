@@ -13,10 +13,11 @@ import (
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -296,7 +297,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 				entry,
 				nextState,
 				records,
-				statefile.Codec{},
+				options.stateCodec(),
 			)
 			return err
 		}
@@ -396,6 +397,9 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 		}
 		binding, bindErr := acquireHostRouteWorkingDirectory(options, paths.ManifestRoot)
 		if bindErr != nil {
+			if options.nativeInvocations != nil {
+				return nextState, globalCarrierClaims, records, bindErr
+			}
 			attemptedPhase = phase
 			attempt := options.HostRouteExecutor.ExecuteInWorkingDirectory(
 				ctx,
@@ -425,40 +429,57 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 				bindErr,
 			)
 		}
-		entry, entryErr := stateAuthority.EntryForCommit()
-		if entryErr != nil {
-			_ = binding.Close()
-			return nextState, globalCarrierClaims, records, entryErr
+		var entry *rootedpath.EntryAuthority
+		var entryErr error
+		prepareCorrelation := func(ctx context.Context, budget *physicalwork.Budget) error {
+			entry, err := stateAuthority.EntryForCommit()
+			if err != nil {
+				return err
+			}
+			options.markAttempted()
+			commit := func(entry *rootedpath.EntryAuthority) (durable.Snapshot, error) {
+				return execute.CommitPendingCarrierInstalls(ctx, storagecommit.Adapter{}, entry, nextState, owner, []reconciliation.RelationAction{item.action}, options.stateCodec())
+			}
+			if budget == nil {
+				nextState, err = commit(entry)
+			} else {
+				nextState, err = options.nativeInvocations.commitCorrelation(ctx, budget, commit)
+			}
+			if err != nil {
+				return fmt.Errorf("persist pending carrier install: %w", err)
+			}
+			return stateAuthority.Validate(ctx)
 		}
-		var err error
-		options.markAttempted()
-		nextState, err = execute.CommitPendingCarrierInstalls(
-			ctx,
-			storagecommit.Adapter{},
-			entry,
-			nextState,
-			owner,
-			[]reconciliation.RelationAction{item.action},
-			statefile.Codec{},
-		)
-		if err != nil {
-			_ = binding.Close()
-			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), fmt.Errorf("persist pending carrier install: %w", err))
-		}
-		if err := stateAuthority.Validate(ctx); err != nil {
-			_ = binding.Close()
-			return nextState, globalCarrierClaims, records, errors.Join(
-				hostRouteFailuresError(failures),
-				fmt.Errorf("validate StateDir before host route command: %w", err),
-			)
+		var attempt subprocess.CommandAttemptResult
+		var bindingReleaseErr error
+		if options.nativeInvocations != nil {
+			var observed bool
+			attemptedPhase = phase
+			attempt, observed, bindingReleaseErr = options.nativeInvocations.execute(ctx, options.HostRouteExecutor, item.command.AttemptRequest(), binding, prepareCorrelation)
+			if bindingReleaseErr != nil {
+				if observed {
+					classified, classifyErr := assurancehostroute.ClassifyResult(assurancehostroute.ResultInput{
+						Subject: item.command.Subject(), RouteRequest: item.command.RouteRequest(), Attempt: observedHostRouteAttempt(attempt),
+						Observation: assurancehostroute.ObservationUnavailable(assurancehostroute.ResultReasonObservationUnavailable), RequiredPostcondition: installRelationPostcondition(item.action),
+					})
+					if classifyErr != nil {
+						return nextState, globalCarrierClaims, records, errors.Join(bindingReleaseErr, classifyErr)
+					}
+					record, err := durableAttemptFromHostRouteResult(item.action, classified, false)
+					if err != nil {
+						return nextState, globalCarrierClaims, records, errors.Join(bindingReleaseErr, err)
+					}
+					records = append(records, record)
+				}
+				return nextState, globalCarrierClaims, records, bindingReleaseErr
+			}
+		} else {
+			if err := prepareCorrelation(ctx, nil); err != nil {
+				return nextState, globalCarrierClaims, records, errors.Join(err, binding.Close())
+			}
+			attempt, bindingReleaseErr = executeHostRouteAttempt(ctx, options.HostRouteExecutor, item.command.AttemptRequest(), binding)
 		}
 		attemptedPhase = phase
-		attempt, bindingReleaseErr := executeHostRouteAttempt(
-			ctx,
-			options.HostRouteExecutor,
-			item.command.AttemptRequest(),
-			binding,
-		)
 		if authorityErr := stateAuthority.Validate(ctx); authorityErr != nil {
 			if errors.Is(authorityErr, context.Canceled) || errors.Is(authorityErr, context.DeadlineExceeded) {
 				return nextState, globalCarrierClaims, records, errors.Join(authorityErr, bindingReleaseErr)
@@ -569,7 +590,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 				nextState,
 				owner,
 				item.action,
-				statefile.Codec{},
+				options.stateCodec(),
 			)
 			if err != nil {
 				return nextState, globalCarrierClaims, records, errors.Join(
@@ -611,7 +632,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 				entry,
 				nextState,
 				[]durableattempt.HostRouteAttempt{record},
-				statefile.Codec{},
+				options.stateCodec(),
 			)
 			if err != nil {
 				return nextState, globalCarrierClaims, records, errors.Join(
@@ -712,7 +733,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 					nextState,
 					item.action,
 					correlation,
-					statefile.Codec{},
+					options.stateCodec(),
 				)
 			}
 			if err != nil {
@@ -753,7 +774,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 			nextState,
 			owner,
 			item.action,
-			statefile.Codec{},
+			options.stateCodec(),
 		)
 		if err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(
@@ -791,7 +812,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 			entry,
 			nextState,
 			[]durableattempt.HostRouteAttempt{record},
-			statefile.Codec{},
+			options.stateCodec(),
 		)
 		if err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), fmt.Errorf("persist host route attempt record: %w", err), bindingReleaseErr)

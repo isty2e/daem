@@ -208,6 +208,13 @@ func TestRelationOrderConvergenceRequiresRenewedRiskAuthorization(t *testing.T) 
 	if strings.Index(got, "npm:a@1") > strings.Index(got, "npm:b@1") {
 		t.Fatalf("Pi package order did not converge: %s", got)
 	}
+	completed := result
+	options.nativeOrderResult = &completed
+	result, err = runRelationOrderConvergence(t.Context(), paths, locked, initial, options)
+	if err != nil || authorized != 1 || result.actionCount != 0 || result.results[0].Outcome() != RelationOrderConverged || !result.results[0].Changed() {
+		t.Fatalf("completed order was reauthorized, replayed or lost: result=%#v authorized=%d err=%v", result, authorized, err)
+	}
+	options.nativeOrderResult = nil
 
 	exact := relationOrderTestReconciliation(t, paths, locked, nil)
 	var eventCount int

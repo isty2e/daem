@@ -368,7 +368,7 @@ targets = ["codex"]
 				`, mode))
 			assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
 			stdout, stderr, exitCode := runManagedSkillCLI("apply", "--manifest", manifestPath, "--dry-run")
-			if exitCode != 1 || stdout != "" || !strings.Contains(stderr, "unsupported placement mode") {
+			if exitCode != 1 || !strings.Contains(stdout, "Apply preview (not executable)") || !strings.Contains(stderr, "unsupported placement mode") {
 				t.Fatalf("unsupported placement exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 			}
 			if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "oracle")); !os.IsNotExist(err) {
@@ -446,7 +446,7 @@ targets = ["codex"]
 	}
 
 	stdout, stderr, exitCode := runManagedSkillCLI("apply", "--manifest", manifestPath, "--dry-run")
-	if exitCode != 1 || stdout != "" || !strings.Contains(stderr, "overlaps managed mutation destination") {
+	if exitCode != 1 || !strings.Contains(stdout, "Apply preview (not executable)") || !strings.Contains(stderr, "overlaps managed mutation destination") {
 		t.Fatalf("source-overlap dry-run exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
 	stdout, stderr, exitCode = runManagedSkillCLI("apply", "--manifest", manifestPath, "--yes")

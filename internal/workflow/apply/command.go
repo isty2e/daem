@@ -7,13 +7,15 @@ import (
 	"os"
 	"path/filepath"
 
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/diagnose"
@@ -24,9 +26,10 @@ import (
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
@@ -36,6 +39,8 @@ import (
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/recoverygate"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -104,6 +109,7 @@ type Failure struct {
 	outcome           FailureOutcome
 	barrier           recoverygate.State
 	backendTransition *readiness.MCPBackendTransitionError
+	nativeSupport     nativeSupportReason
 }
 
 // ClassifyFailure derives public failure facts without copying internal error text.
@@ -123,12 +129,17 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 	if reason == FailureReasonMCPBackendTransition {
 		errors.As(err, &transition)
 	}
+	var nativeSupport nativeSupportError
+	if reason == FailureReasonApplyRefused {
+		errors.As(err, &nativeSupport)
+	}
 	return Failure{
 		reason:            reason,
 		phase:             phase,
 		outcome:           outcome,
 		barrier:           recoverygate.StateOf(err),
 		backendTransition: transition,
+		nativeSupport:     nativeSupport.reason,
 	}
 }
 
@@ -275,6 +286,13 @@ func (failure Failure) MCPBackendRepairInstruction() string {
 	return "retire the existing binding before re-authoring"
 }
 
+func (failure Failure) NativeSupportRepairInstruction() string {
+	if failure.reason != FailureReasonApplyRefused {
+		return ""
+	}
+	return failure.nativeSupport.repairInstruction()
+}
+
 func (failure Failure) withOutcomeFacts(detail string) string {
 	if failure.barrier.JournalObserved() && !failure.barrier.JournalKnown() {
 		detail += "; journal recovery authority could not be classified"
@@ -289,6 +307,9 @@ func (failure Failure) withOutcomeFacts(detail string) string {
 }
 
 func (failure Failure) reasonDetail() string {
+	if failure.reason == FailureReasonApplyRefused && failure.nativeSupport != 0 {
+		return failure.nativeSupport.detail()
+	}
 	switch failure.reason {
 	case FailureReasonStaleSnapshot:
 		return "authoritative inputs changed before apply completed"
@@ -360,9 +381,12 @@ type CommandInput struct {
 	RelationObservations   *relationobserve.Batch
 	ManageUnmanagedMatches bool
 	environmentPresent     environmentSourcePresence
+	nativeReplacement      *topologyprojection.HostConfigKeySelection
+	persistenceBudget      *physicalwork.Budget
 }
 
 type CommandResult struct {
+	PermissionProtection   ownershipobserve.ProtectionObservation
 	ManifestPath           string
 	LockfilePath           string
 	LockfileExplicit       bool
@@ -399,14 +423,17 @@ type commandContext struct {
 	PersistenceEpoch             readiness.PersistenceEpoch
 	RelationObservationsExplicit bool
 	ManageUnmanagedMatches       bool
+	nativeReplacement            *topologyprojection.HostConfigKeySelection
 }
 
 type commandPlan struct {
-	result      CommandResult
-	context     commandContext
-	assessment  readiness.Assessment
-	projectRoot *rootedpath.CapturedRoot
-	barrier     recoverygate.EffectAuthority
+	result          CommandResult
+	context         commandContext
+	assessment      readiness.Assessment
+	projectRoot     *rootedpath.CapturedRoot
+	barrier         recoverygate.EffectAuthority
+	nativePlan      *nativePlanInputs
+	nativeOperation *nativeconfig.AssessmentOperation
 }
 
 // DryRunPlan is a capability-free dry-run result plus the immutable inputs
@@ -424,11 +451,37 @@ func PlanDryRun(ctx context.Context, input CommandInput) (DryRunPlan, error) {
 	if err := rejectLocalSourceMutationOverlap(planned); err != nil {
 		return newDryRunPlan(planned), err
 	}
-	if err := execute.RejectUnsupportedExecutableActions(planned.assessment.Reconciliation); err != nil {
+	if err := rejectUnsupportedPreviewActions(planned.assessment); err != nil {
 		return newDryRunPlan(planned), err
 	}
 
 	return newDryRunPlan(planned), nil
+}
+
+func rejectUnsupportedPreviewActions(assessment readiness.Assessment) error {
+	if err := checkNativeCommandSupport(assessment); err != nil {
+		return err
+	}
+	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsHostConfig() && !assessment.Reconciliation.ContainsHostConfig() {
+		return execute.RejectUnsupportedExecutableActions(assessment.Reconciliation)
+	}
+	var paths []reconcile.ManagedPathDecision
+	for _, decision := range assessment.Reconciliation.ManagedPaths() {
+		if !decision.IsBlocked() && !decision.IsNoOp() && !aggregate.IsHostConfigDocumentSubject(decision.Subject()) {
+			paths = append(paths, decision)
+		}
+	}
+	if _, err := effectpreparation.ManagedPathEffects(paths); err != nil {
+		return err
+	}
+	var aggregates []reconcile.AggregateDecision
+	for _, decision := range assessment.Reconciliation.Aggregates() {
+		if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); !native && !decision.IsBlocked() && !decision.IsNoOp() {
+			aggregates = append(aggregates, decision)
+		}
+	}
+	_, err := effectpreparation.AggregateEffects(aggregates)
+	return err
 }
 
 // PlanWrite builds an executable apply plan and retains its selected physical
@@ -440,6 +493,15 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 	if err != nil {
 		return unavailablePreparedWrite(CommandResult{}), err
 	}
+	// Early barrier and declaration refusals precede normal input observation.
+	// Retain diagnostic facts without granting an execution capability.
+	defer func() {
+		if returnErr != nil && prepared != nil && prepared.PermissionProtection.State() == ownershipobserve.ProtectionUnobserved {
+			prepared.ManifestPath = paths.ManifestPath
+			prepared.StatefilePath = paths.StatefilePath
+			prepared.PermissionProtection = ownershipobserve.ObservePendingProtections(ctx, paths)
+		}
+	}()
 	barrier, err := recoverygate.NewEffectAuthority(ctx, paths)
 	if err != nil {
 		return unavailablePreparedWrite(CommandResult{}), err
@@ -476,7 +538,7 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 	if err != nil {
 		return unavailablePreparedWrite(planned.result), err
 	}
-	if err := execute.RejectUnsupportedActions(planned.assessment.Reconciliation); err != nil {
+	if err := rejectUnsupportedCommandPlan(planned); err != nil {
 		return unavailablePreparedWrite(planned.result), err
 	}
 	if err := rejectBlockedRelationActions(planned.assessment.Reconciliation); err != nil {
@@ -596,13 +658,14 @@ func planReadinessAtPathsWithBarrier(
 	)
 }
 
-func planReadinessAtPathsWithBarrierValidation(
+func planReadinessAtPathsWithAssessor(
 	ctx context.Context,
 	input CommandInput,
 	operationContext reconcile.OperationContext,
 	paths daempaths.Paths,
 	barrier *recoverygate.EffectAuthority,
 	validateBarrier func(context.Context) error,
+	assessor readinessAssessor,
 ) (commandPlan, error) {
 	loaded, result, err := loadCommandInputsAtPaths(ctx, input, paths, barrier, validateBarrier)
 	planned := commandPlan{result: result, context: loaded}
@@ -613,7 +676,7 @@ func planReadinessAtPathsWithBarrierValidation(
 		return planned, err
 	}
 
-	planning, err := readiness.Assess(ctx, readiness.Input{
+	planning, observation, err := assessor(ctx, readiness.Input{
 		Context:                 operationContext,
 		Paths:                   loaded.Paths,
 		Resolver:                liveobserve.DestinationResolver(destinationResolver(loaded.Paths).Resolve),
@@ -624,10 +687,12 @@ func planReadinessAtPathsWithBarrierValidation(
 		PersistenceEpoch:        &loaded.PersistenceEpoch,
 		RelationObservations:    input.RelationObservations,
 		ManageUnmanagedMatches:  input.ManageUnmanagedMatches,
+		NativeReplacement:       input.nativeReplacement,
 		Codecs:                  aggregatecodec.Catalog(),
 		HookContributionEncoder: hookcodec.CanonicalHookContribution,
 		MCPContributionEncoder:  mcpcodec.CanonicalMCPBindingContribution,
 	})
+	planned.nativeOperation = observation
 	if err != nil {
 		return planned, err
 	}
@@ -653,6 +718,11 @@ func planReadinessAtPathsWithBarrierValidation(
 
 	planned.result = result
 	planned.assessment = planning
+	if operationContext == reconcile.ContextApply || operationContext == reconcile.ContextDryRun {
+		if err := admitNativeCommandPlan(ctx, &planned); err != nil {
+			return planned, err
+		}
+	}
 	return planned, nil
 }
 
@@ -732,16 +802,17 @@ func loadCommandInputsAtPaths(
 	barrier *recoverygate.EffectAuthority,
 	validateBarrier func(context.Context) error,
 ) (commandContext, CommandResult, error) {
+	result := CommandResult{
+		ManifestPath:         paths.ManifestPath,
+		StatefilePath:        paths.StatefilePath,
+		LockfileExplicit:     input.LockfilePath != "",
+		PermissionProtection: ownershipobserve.ObservePendingProtections(ctx, paths),
+	}
 	lockfilePath, err := selectedLockfilePath(paths, input.LockfilePath)
 	if err != nil {
-		return commandContext{}, CommandResult{}, err
+		return commandContext{}, result, err
 	}
-	result := CommandResult{
-		ManifestPath:     paths.ManifestPath,
-		LockfilePath:     lockfilePath,
-		LockfileExplicit: input.LockfilePath != "",
-		StatefilePath:    paths.StatefilePath,
-	}
+	result.LockfilePath = lockfilePath
 
 	if barrier != nil {
 		if validateBarrier == nil {
@@ -762,7 +833,26 @@ func loadCommandInputsAtPaths(
 		return commandContext{}, result, fmt.Errorf("resolve selected manifest context: %w", err)
 	}
 
+	if input.nativeReplacement != nil {
+		environment, err = environment.HostConfigOnly(input.nativeReplacement.Declaration())
+		if err != nil {
+			return commandContext{}, result, err
+		}
+		input.TargetValues = []string{string(environment.HostConfigs()[0].Target())}
+	}
 	locked, lockfileErr := lockfile.Load(ctx, result.LockfilePath)
+	if lockfileErr == nil && input.nativeReplacement != nil {
+		var selected []lock.LockedSubjectContract
+		for _, contract := range locked.Locked.Subjects() {
+			if contract.EntityID() == input.nativeReplacement.Declaration() {
+				selected = append(selected, contract)
+			}
+		}
+		locked.Locked, err = lock.NewLockedSection(selected, nil)
+		if err != nil {
+			return commandContext{}, result, err
+		}
+	}
 	lockfileMissing := false
 	if lockfileErr != nil {
 		if !os.IsNotExist(lockfileErr) {
@@ -779,23 +869,23 @@ func loadCommandInputsAtPaths(
 
 	// Each planning pass owns one persistence epoch. Execute performs a new pass
 	// after acquiring mutation leases rather than reusing the disclosed plan.
-	currentState, err := statefile.LoadOptional(ctx, paths.StatefilePath)
+	var persistenceEpoch readiness.PersistenceEpoch
+	if input.persistenceBudget == nil {
+		persistenceEpoch, err = nativeconfig.LoadPersistenceEpoch(ctx, paths)
+	} else {
+		persistenceEpoch, err = nativeconfig.LoadPersistenceEpochWithBudget(ctx, paths, input.persistenceBudget)
+	}
 	if err != nil {
 		return commandContext{}, result, err
 	}
-	carrierStore, err := carrierclaimstore.New(paths.CarrierClaimRegistryPath)
+	currentState, err := persistenceEpoch.Snapshot()
 	if err != nil {
 		return commandContext{}, result, err
 	}
-	globalCarrierClaims, err := carrierStore.LoadForSelectedAuthority(
-		ctx,
-		paths.StatefilePath,
-		paths.ManifestPath,
-	)
+	globalCarrierClaims, err := persistenceEpoch.CarrierClaims()
 	if err != nil {
 		return commandContext{}, result, err
 	}
-	persistenceEpoch := readiness.NewPersistenceEpoch(currentState, globalCarrierClaims)
 
 	availableTargets, err := readiness.FromManifestLockAndState(
 		environment,
@@ -824,7 +914,7 @@ func loadCommandInputsAtPaths(
 		return commandContext{}, result, fmt.Errorf("build runtime desired environment: %w", err)
 	}
 
-	sourceEpoch, err := lockobserve.ResolveSourceEpoch(
+	sourceEpoch, err := nativeconfig.ResolveSourceEpoch(
 		ctx,
 		paths,
 		runtimeEnvironment,
@@ -843,6 +933,7 @@ func loadCommandInputsAtPaths(
 		PersistenceEpoch:             persistenceEpoch,
 		RelationObservationsExplicit: input.RelationObservations != nil,
 		ManageUnmanagedMatches:       input.ManageUnmanagedMatches,
+		nativeReplacement:            input.nativeReplacement,
 	}
 	skillDiagnostics := diagnose.SkillRepairDiagnosticsFromSourceEpoch(
 		ctx,
