@@ -65,7 +65,7 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 	}
 	if err := validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry},
+		recordedPathEntries([]recoveryEntry{entry}),
 		resolver,
 		nil,
 		newRecoveryPathBudget(t),
@@ -77,7 +77,7 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 	}
 	if err := validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry},
+		recordedPathEntries([]recoveryEntry{entry}),
 		resolver,
 		nil,
 		exhausted,
@@ -115,7 +115,7 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 			forged.GlobalPathBinding = &forgedBinding
 			err := validateRecoveryGlobalPathBindings(
 				t.Context(),
-				[]recoveryEntry{forged},
+				recordedPathEntries([]recoveryEntry{forged}),
 				resolver,
 				nil,
 				newRecoveryPathBudget(t),
@@ -131,7 +131,7 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 	conflicting.GlobalPathBinding = &conflictingBinding
 	if err := validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry, conflicting},
+		recordedPathEntries([]recoveryEntry{entry, conflicting}),
 		resolver,
 		nil,
 		newRecoveryPathBudget(t),
@@ -142,7 +142,7 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 	differentRoot := t.TempDir()
 	err = validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry},
+		recordedPathEntries([]recoveryEntry{entry}),
 		func(output.Destination) (string, error) {
 			return filepath.Join(differentRoot, ".codex", "AGENTS.md"), nil
 		},
@@ -185,11 +185,11 @@ func TestRecoveryGlobalPathBindingPassesSharedBudgetIntoRetainedCapability(t *te
 	sawSharedBudget := false
 	err = validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{{
+		recordedPathEntries([]recoveryEntry{{
 			Scope:             string(target.ScopeGlobal),
 			Path:              destination.String(),
 			GlobalPathBinding: persisted,
-		}},
+		}}),
 		resolver,
 		func(
 			requested output.Destination,
@@ -267,7 +267,7 @@ func TestRecoveryGlobalPathBindingRejectsSamePathRootReplacement(t *testing.T) {
 	}
 	err = validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry},
+		recordedPathEntries([]recoveryEntry{entry}),
 		resolver,
 		nil,
 		newRecoveryPathBudget(t),
@@ -322,7 +322,7 @@ func TestRecoveryGlobalPathBindingAcceptsNewSameMountDescendantRoot(t *testing.T
 	}
 	if err := validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry},
+		recordedPathEntries([]recoveryEntry{entry}),
 		resolver,
 		nil,
 		newRecoveryPathBudget(t),

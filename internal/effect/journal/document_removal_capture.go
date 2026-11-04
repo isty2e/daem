@@ -65,29 +65,3 @@ func captureDocumentRemoval(ctx context.Context, namespace journalnamespace.Docu
 	}
 	return &removal, nil
 }
-
-func (record recoveryDocumentGroup) validateRemovalImages(images loadedDocumentImages) error {
-	if err := record.validateRemoval(); err != nil || record.Removal == nil {
-		return err
-	}
-	states, err := journaldocument.RemovalStates(images.original.document, images.original.mode, images.expected.document, images.expected.mode)
-	if err != nil {
-		return err
-	}
-	removal, err := record.Removal.canonical()
-	if err != nil {
-		return err
-	}
-	for _, demand := range removal.Demands().Demands() {
-		actual := demand.States()
-		if len(actual) != len(states) {
-			return fmt.Errorf("document removal states do not match its complete root transition")
-		}
-		for index, state := range states {
-			if !state.Equal(actual[index]) {
-				return fmt.Errorf("document removal states do not match actual image bytes and modes")
-			}
-		}
-	}
-	return nil
-}

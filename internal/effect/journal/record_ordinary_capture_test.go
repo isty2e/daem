@@ -11,8 +11,12 @@ func TestOrdinaryCaptureEvidenceEnclosesNativeJoinWithoutChangingInputs(t *testi
 	source, _ := fixture.source(t, imageBudget(t))
 	before := nativeRecordJSON(t, fixture.journal.record)
 	entries := nativeRecordJSON(t, source.record.entries)
+	views, err := source.record.recordedEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
 	joined, err := fixture.journal.withOrdinaryCapture(source.record)
-	if err != nil || len(joined.recordedEntries()) != len(source.record.recordedEntries()) || len(joined.record.Entries) == 0 {
+	if err != nil || len(joined.recordedEntries()) != len(views) || len(joined.record.Entries) == 0 {
 		t.Fatalf("matching complete capture facts did not join: %v", err)
 	}
 	joined.record.Entries[0].Path += "-changed"
@@ -28,10 +32,10 @@ func TestOrdinaryCaptureEvidenceEnclosesNativeJoinWithoutChangingInputs(t *testi
 
 func TestOrdinaryCaptureEvidenceRefusesZeroWithoutARecord(t *testing.T) {
 	zero := ordinaryCaptureMaterial{}
-	if len(zero.recordedEntries()) != 0 {
+	if entries, err := zero.recordedEntries(); err == nil || len(entries) != 0 {
 		t.Fatal("zero evidence supplied capture facts")
 	}
-	if record, err := zero.ordinaryJournal(); err == nil || record.Version != 0 {
+	if content, err := zero.encodeOrdinary([]byte(`{}`), []byte(`{}`)); err == nil || len(content) != 0 {
 		t.Fatal("zero evidence produced an ordinary record")
 	}
 	if record, err := (nativeJournalSnapshots{}).withOrdinaryCapture(zero); err == nil || record.record.Version != 0 {

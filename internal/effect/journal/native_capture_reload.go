@@ -69,7 +69,7 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	if err := ValidateActiveJournalAuthority(ctx, options.Filesystem, options.OperationAuthority, active.physicalAuthority); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if _, _, err := journal.ordinaryBackups(ctx, directory, active.physicalAuthority, options.Filesystem, batch.budget); err != nil {
+	if _, _, err := ordinaryBackups(ctx, journal, directory, active.physicalAuthority, options.Filesystem, batch.budget); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	capture := CaptureResult{OperationID: operationID, Directory: directory, JournalPath: filepath.Join(directory, recoveryJournalFileName), RecordFingerprint: fingerprint}

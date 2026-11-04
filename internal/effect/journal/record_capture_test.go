@@ -207,11 +207,11 @@ func TestOrdinaryRecordDraftRetainsNativeSnapshotsWithoutAdmittingOrdinary15(t *
 	if !material.before.Equal(fixture.before) || !material.after.Equal(fixture.after) {
 		t.Fatal("ordinary material dropped native snapshot members")
 	}
-	ordinary, err := material.ordinaryJournal()
+	before, after, err := encodeRecoveryJournalSnapshots(fixture.before, fixture.after, fixture.codec)
 	if err != nil {
-		t.Fatal("ordinary projection prematurely rejected native snapshot facts", err)
+		t.Fatal(err)
 	}
-	if content, err := marshalRecoveryJournal(ordinary, fixture.codec); err == nil || len(content) != 0 {
+	if content, err := material.encodeOrdinary(before, after); err == nil || len(content) != 0 {
 		t.Fatal("family-neutral completion widened ordinary15 admission")
 	}
 }

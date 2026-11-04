@@ -138,7 +138,7 @@ func CaptureJournalWithOptions(
 		}
 	}()
 
-	journal, err := buildRecoveryJournal(
+	material, err := buildOrdinaryCaptureMaterial(
 		ctx,
 		paths,
 		tempDir,
@@ -147,12 +147,12 @@ func CaptureJournalWithOptions(
 		currentState,
 		nextState,
 		options,
+		&ordinaryCaptureWork{},
 	)
 	if err != nil {
 		return CaptureResult{}, err
 	}
-	content, err := marshalRecoveryJournalWithStateContent(
-		journal,
+	content, err := material.encodeOrdinary(
 		statefileBefore,
 		statefileAfter,
 	)

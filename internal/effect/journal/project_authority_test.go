@@ -55,7 +55,7 @@ func TestObserveGlobalRecoveryPathPreservesSymlinkTargetThroughRootedFallback(t 
 	}
 }
 
-func TestBuildRecoveryJournalBorrowsProjectRootAndPersistsProvenance(t *testing.T) {
+func TestOrdinaryCaptureBorrowsProjectRootAndEncodesProvenance(t *testing.T) {
 	root := t.TempDir()
 	hostPath := filepath.Join(root, "AGENTS.md")
 	content := []byte("instructions\n")
@@ -67,7 +67,7 @@ func TestBuildRecoveryJournalBorrowsProjectRootAndPersistsProvenance(t *testing.
 	captured := mustJournalProjectRoot(t, root)
 	defer captured.Close()
 
-	journal, err := buildRecoveryJournal(
+	material, err := buildOrdinaryCaptureMaterial(
 		context.Background(),
 		Paths{ManifestRoot: root},
 		t.TempDir(),
@@ -85,13 +85,34 @@ func TestBuildRecoveryJournalBorrowsProjectRootAndPersistsProvenance(t *testing.
 				return hostPath, nil
 			},
 		},
+		&ordinaryCaptureWork{},
 	)
 	if err != nil {
-		t.Fatalf("buildRecoveryJournal returned error: %v", err)
+		t.Fatalf("ordinary capture returned error: %v", err)
 	}
 	authority, err := captured.Authority()
 	if err != nil {
 		t.Fatalf("borrowed root was closed by journal capture: %v", err)
+	}
+	before, after, err := encodeRecoveryJournalSnapshots(current, current, testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := material.encodeOrdinary(before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalPath := filepath.Join(journalRoot, "journal.json")
+	if err := os.WriteFile(journalPath, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := loadRecoveryJournal(t.Context(), journalTestFilesystem(), journalPath, testStateCodec())
+	if err != nil {
+		t.Fatal(err)
 	}
 	persisted, err := journal.ManifestRootProvenance.canonical()
 	if err != nil {
@@ -102,12 +123,12 @@ func TestBuildRecoveryJournalBorrowsProjectRootAndPersistsProvenance(t *testing.
 	}
 }
 
-func TestBuildRecoveryJournalRejectsBorrowedRootForDifferentManifest(t *testing.T) {
+func TestOrdinaryCaptureRejectsBorrowedRootForDifferentManifest(t *testing.T) {
 	manifestRoot := t.TempDir()
 	borrowed := mustJournalProjectRoot(t, t.TempDir())
 	defer borrowed.Close()
 
-	_, err := buildRecoveryJournal(
+	_, err := buildOrdinaryCaptureMaterial(
 		context.Background(),
 		Paths{ManifestRoot: manifestRoot},
 		t.TempDir(),
@@ -121,9 +142,10 @@ func TestBuildRecoveryJournalRejectsBorrowedRootForDifferentManifest(t *testing.
 			Resolver:     func(output.Destination) (string, error) { return "", nil },
 			StateCodec:   testStateCodec(),
 		},
+		&ordinaryCaptureWork{},
 	)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) {
-		t.Fatalf("buildRecoveryJournal error = %v, want %s", err, rootedpath.FailureRootReplaced)
+		t.Fatalf("ordinary capture error = %v, want %s", err, rootedpath.FailureRootReplaced)
 	}
 }
 
@@ -270,8 +292,6 @@ func TestManifestRecoveryAuthorityAdmitsBudgetBeforeRootObservation(t *testing.T
 	if err := captured.Close(); err != nil {
 		t.Fatalf("close captured manifest authority: %v", err)
 	}
-	journal := defaultRecoveryJournal()
-	journal.ManifestRootProvenance = persistedRecoveryRootProvenance(provenance)
 	budget := newRecoveryPathBudget(t)
 	for budget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
@@ -284,7 +304,7 @@ func TestManifestRecoveryAuthorityAdmitsBudgetBeforeRootObservation(t *testing.T
 
 	_, err = manifestAuthorityForRecovery(
 		Paths{ManifestRoot: manifestRoot},
-		journal,
+		provenance,
 		budget,
 	)
 	if err == nil || !strings.Contains(err.Error(), "path-component work exceeds operation limit") {

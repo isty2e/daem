@@ -2,7 +2,6 @@ package journal
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -185,19 +184,6 @@ func encodeRecoveryJournal(
 		return nil, fmt.Errorf("recovery journal exceeds %d bytes", maximumRecoveryJournalBytes)
 	}
 	return content, nil
-}
-
-func loadRecoveryJournal(
-	ctx context.Context,
-	filesystem mutationfs.PathReader,
-	path string,
-	stateCodec durable.SnapshotCodec,
-) (recoveryJournal, error) {
-	snapshot, err := filesystem.ReadRegularFileSnapshotUpTo(ctx, path, maximumRecoveryJournalBytes)
-	if err != nil {
-		return recoveryJournal{}, fmt.Errorf("read recovery journal: %w", err)
-	}
-	return decodeRecoveryJournalSnapshot(snapshot, path, stateCodec)
 }
 
 func decodeRecoveryJournalSnapshot(

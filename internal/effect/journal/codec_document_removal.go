@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 )
 
@@ -141,6 +142,32 @@ func (record recoveryDocumentGroup) validateRemoval() error {
 	want := filepath.Dir(filepath.Join(record.Writer.Root.PhysicalRoot, filepath.FromSlash(record.Writer.RelativePath)))
 	if actual != want {
 		return fmt.Errorf("document removal namespace does not belong to its physical writer")
+	}
+	return nil
+}
+
+func (record recoveryDocumentGroup) validateRemovalImages(images loadedDocumentImages) error {
+	if err := record.validateRemoval(); err != nil || record.Removal == nil {
+		return err
+	}
+	states, err := journaldocument.RemovalStates(images.original.document, images.original.mode, images.expected.document, images.expected.mode)
+	if err != nil {
+		return err
+	}
+	removal, err := record.Removal.canonical()
+	if err != nil {
+		return err
+	}
+	for _, demand := range removal.Demands().Demands() {
+		actual := demand.States()
+		if len(actual) != len(states) {
+			return fmt.Errorf("document removal states do not match its complete root transition")
+		}
+		for index, state := range states {
+			if !state.Equal(actual[index]) {
+				return fmt.Errorf("document removal states do not match actual image bytes and modes")
+			}
+		}
 	}
 	return nil
 }

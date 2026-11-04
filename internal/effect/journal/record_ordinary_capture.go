@@ -52,16 +52,17 @@ func (basis ordinaryCaptureBasis) Validate() error {
 	return nil
 }
 
-func (material ordinaryCaptureMaterial) ordinaryJournal() (recoveryJournal, error) {
+func (material ordinaryCaptureMaterial) encodeOrdinary(statefileBefore, statefileAfter []byte) ([]byte, error) {
 	if !material.initialized {
-		return recoveryJournal{}, fmt.Errorf("completed ordinary capture evidence is required")
+		return nil, fmt.Errorf("completed ordinary capture evidence is required")
 	}
-	return recoveryJournal{
+	journal := recoveryJournal{
 		Version: recoveryJournalVersion, OperationID: material.operationID, Operation: material.operation,
 		CreatedAt: material.createdAt, ManifestRootProvenance: material.manifest,
 		Entries: material.entries, StatefileBefore: material.before, StatefileAfter: material.after,
 		ClaimTransitions: material.claims, ProvisionalAcquires: material.provisional, RemovalIntents: material.removals,
-	}, nil
+	}
+	return marshalRecoveryJournalWithStateContent(journal, statefileBefore, statefileAfter)
 }
 
 func (journal nativeJournalSnapshots) withOrdinaryCapture(material ordinaryCaptureMaterial) (nativeJournalSnapshots, error) {

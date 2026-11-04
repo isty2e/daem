@@ -317,7 +317,7 @@ func TestRecoveryBackupObservationRejectsExhaustedPathBudgetBeforePayloadWork(t 
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
-		[]recoveryEntry{entry},
+		recordedPathEntries([]recoveryEntry{entry}),
 		storagecommit.Adapter{},
 		budget,
 	)
@@ -358,7 +358,7 @@ func TestRecoveryBackupObservationRejectsReplacedOperationDirectory(t *testing.T
 		t.Context(),
 		operationDir,
 		authority,
-		[]recoveryEntry{entry},
+		recordedPathEntries([]recoveryEntry{entry}),
 		storagecommit.Adapter{},
 		recoveryBackupBudgetForTest(t),
 	)
@@ -395,7 +395,7 @@ func TestRecoveryBackupObservationRejectsOperationDirectoryReplacementAfterIdent
 		t.Context(),
 		operationDir,
 		authority,
-		[]recoveryEntry{entry},
+		recordedPathEntries([]recoveryEntry{entry}),
 		filesystem,
 		recoveryBackupBudgetForTest(t),
 	)
@@ -423,7 +423,7 @@ func TestRecoveryBackupObservationReportsMissingBoundedEntry(t *testing.T) {
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
-		[]recoveryEntry{entry},
+		recordedPathEntries([]recoveryEntry{entry}),
 		storagecommit.Adapter{},
 		recoveryBackupBudgetForTest(t),
 	)
@@ -453,7 +453,7 @@ func TestRecoveryBackupObservationRejectsSymlink(t *testing.T) {
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
-		[]recoveryEntry{entry},
+		recordedPathEntries([]recoveryEntry{entry}),
 		storagecommit.Adapter{},
 		recoveryBackupBudgetForTest(t),
 	)
@@ -720,7 +720,7 @@ func recoveryBackupObservationsForTest(
 		ctx,
 		canonicalOperationDir,
 		recoveryBackupActiveAuthorityForTest(t, canonicalOperationDir),
-		entries,
+		recordedPathEntries(entries),
 		storagecommit.Adapter{},
 		budget,
 	)

@@ -2,13 +2,17 @@ package journal
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -364,4 +368,85 @@ func canonicalRecoveryBackupEvidence(values []recoveryBackupObservation) []recov
 		}
 	}
 	return result
+}
+
+func canonicalRecoveryAggregateContract(
+	entry recoveryEntry,
+) (*aggregate.ProjectionContract, error) {
+	var contract aggregate.ProjectionContract
+	if entry.Aggregate != nil {
+		canonical, err := entry.Aggregate.canonical()
+		if err != nil {
+			return nil, fmt.Errorf("recovery aggregate contract: %w", err)
+		}
+		contract = canonical
+	} else {
+		if entry.ContentPath != "" {
+			return nil, fmt.Errorf("recovery aggregate projection contract is required")
+		}
+		return nil, nil
+	}
+
+	subject, err := entry.Subject.canonical()
+	if err != nil {
+		return nil, fmt.Errorf("recovery aggregate projection subject: %w", err)
+	}
+	selectedTarget, err := target.ParseTarget(entry.Target)
+	if err != nil {
+		return nil, fmt.Errorf("recovery aggregate projection target: %w", err)
+	}
+	selectedScope, err := target.ParseScope(entry.Scope)
+	if err != nil {
+		return nil, fmt.Errorf("recovery aggregate projection scope: %w", err)
+	}
+	destination, err := output.Parse(entry.Path)
+	if err != nil {
+		return nil, fmt.Errorf("recovery aggregate projection destination: %w", err)
+	}
+	if err := validateAggregateProjectionCorrelation(
+		subject,
+		selectedTarget,
+		selectedScope,
+		destination,
+		output.ContentPath(entry.ContentPath),
+		contract,
+	); err != nil {
+		return nil, fmt.Errorf("recovery %w", err)
+	}
+	return pointerToAggregateContract(contract), nil
+}
+
+func (binding recoveryGlobalPathBinding) canonical() (string, rootedpath.AuthorityProvenance, error) {
+	if err := validateRecoveryResolvedGlobalPath(binding.ResolvedPath); err != nil {
+		return "", rootedpath.AuthorityProvenance{}, err
+	}
+	provenance, err := binding.RootProvenance.canonical()
+	if err != nil {
+		return "", rootedpath.AuthorityProvenance{}, err
+	}
+	relative, err := filepath.Rel(provenance.PhysicalRoot(), binding.ResolvedPath)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", rootedpath.AuthorityProvenance{}, fmt.Errorf(
+			"resolved path %q is not below captured root %q",
+			binding.ResolvedPath,
+			provenance.PhysicalRoot(),
+		)
+	}
+	return binding.ResolvedPath, provenance, nil
+}
+
+func (provenance recoveryRootProvenance) canonical() (rootedpath.AuthorityProvenance, error) {
+	return rootedpath.NewAuthorityProvenance(
+		provenance.PhysicalRoot,
+		provenance.ObjectFingerprint,
+		provenance.MountFingerprint,
+	)
+}
+
+func persistedRecoveryRootProvenance(provenance rootedpath.AuthorityProvenance) recoveryRootProvenance {
+	return recoveryRootProvenance{
+		PhysicalRoot:      provenance.PhysicalRoot(),
+		ObjectFingerprint: provenance.ObjectFingerprint(),
+		MountFingerprint:  provenance.MountFingerprint(),
+	}
 }
