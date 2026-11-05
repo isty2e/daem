@@ -18,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -1095,7 +1096,7 @@ func newGlobalFileRecoveryFixture(
 		t.Fatalf("construct next global managed path state: %v", err)
 	}
 	var (
-		mutationRequest journal.ManagedPathMutation
+		mutationRequest journalrecord.ManagedPathMutation
 		evidence        observe.ManagedPathEvidence
 		currentState    durable.Snapshot
 	)
@@ -1113,7 +1114,7 @@ func newGlobalFileRecoveryFixture(
 		if err != nil {
 			t.Fatalf("construct previous global managed path state: %v", err)
 		}
-		mutationRequest, err = journal.NewManagedPathReplaceMutation(
+		mutationRequest, err = journalrecord.NewManagedPathReplaceMutation(
 			subject,
 			consumers,
 			target.ScopeGlobal,
@@ -1138,7 +1139,7 @@ func newGlobalFileRecoveryFixture(
 			t.Fatalf("construct current global snapshot: %v", err)
 		}
 	} else {
-		mutationRequest, err = journal.NewManagedPathCreateMutation(
+		mutationRequest, err = journalrecord.NewManagedPathCreateMutation(
 			subject,
 			consumers,
 			target.ScopeGlobal,
@@ -1229,7 +1230,7 @@ func newGlobalFileRecoveryFixture(
 		journal.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ClaimTransitions:     []ownershipmutation.ClaimTransition{transition},
-			ManagedPathMutations: []journal.ManagedPathMutation{mutationRequest},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			RemovalDemands:       removalDemands,
 			Resolver:             resolver.Resolve,

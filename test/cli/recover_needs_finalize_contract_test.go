@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -114,7 +115,7 @@ func captureCLIRecoveryNeedsFinalizeJournal(t *testing.T, manifestPath string) d
 		testkit.InstructionPathState(t, "global", []string{"codex"}, "global", "~/.codex/AGENTS.md", desiredHash),
 	)
 	desired := singleCLIManagedPath(t, nextState)
-	managedMutation, err := journal.NewManagedPathCreateMutation(
+	managedMutation, err := journalrecord.NewManagedPathCreateMutation(
 		desired.Subject(),
 		[]target.Target{target.TargetCodex},
 		target.ScopeGlobal,
@@ -160,7 +161,7 @@ func captureCLIRecoveryNeedsFinalizeJournal(t *testing.T, manifestPath string) d
 		journal.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ClaimTransitions:     []ownershipmutation.ClaimTransition{transition},
-			ManagedPathMutations: []journal.ManagedPathMutation{managedMutation},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{managedMutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{managedEvidence},
 			Resolver:             resolver.Resolve,
 			StateCodec:           statefile.Codec{},

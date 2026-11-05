@@ -14,6 +14,7 @@ import (
 	"strconv"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -197,7 +198,7 @@ func requireJournalFingerprint(
 	stateCodec durable.SnapshotCodec,
 	label string,
 ) error {
-	return requireJournalFingerprintWithDecoder(ctx, filesystem, authority, expected, stateCodec, label, decodeLegacyInventoryJournal)
+	return requireJournalFingerprintWithDecoder(ctx, filesystem, authority, expected, stateCodec, label, journalrecord.DecodeOrdinarySnapshot)
 }
 
 func requireJournalFingerprintWithDecoder(
@@ -219,13 +220,13 @@ func requireJournalFingerprintWithDecoder(
 		return fmt.Errorf("%s state codec is required", label)
 	}
 	if decoder == nil {
-		decoder = decodeLegacyInventoryJournal
+		decoder = journalrecord.DecodeOrdinarySnapshot
 	}
 	capability, err := authority.Acquire()
 	if err != nil {
 		return err
 	}
-	content, mode, identity, readErr := filesystem.ReadRootedRegularFileUpTo(ctx, capability, maximumRecoveryJournalBytes)
+	content, mode, identity, readErr := filesystem.ReadRootedRegularFileUpTo(ctx, capability, journalrecord.MaximumBytes)
 	if readErr != nil {
 		return errors.Join(readErr, capability.Close())
 	}
@@ -233,11 +234,11 @@ func requireJournalFingerprintWithDecoder(
 	if err != nil {
 		return errors.Join(err, capability.Close())
 	}
-	journal, err := decoder(ctx, snapshot, recoveryJournalFileName, stateCodec)
+	journal, err := decoder(ctx, snapshot, journalrecord.FileName, stateCodec)
 	if err != nil {
 		return errors.Join(err, capability.Close())
 	}
-	fingerprint, err := journal.authorityFingerprint(ctx, stateCodec)
+	fingerprint, err := journal.AuthorityFingerprint(ctx, stateCodec)
 	if err != nil {
 		return errors.Join(err, capability.Close())
 	}
@@ -471,8 +472,8 @@ func observeRetirementPreparation(
 		if !execution.activeAuthority.matches(evidence.active.identity) {
 			return retirementExecutionEvidence{}, fmt.Errorf("active recovery journal identity changed before retirement preparation")
 		}
-		journalBytes := evidence.active.fileSizes[recoveryJournalFileName]
-		if journalBytes <= 0 || journalBytes > maximumRecoveryJournalBytes {
+		journalBytes := evidence.active.fileSizes[journalrecord.FileName]
+		if journalBytes <= 0 || journalBytes > journalrecord.MaximumBytes {
 			return retirementExecutionEvidence{}, fmt.Errorf("active recovery journal record has invalid size")
 		}
 		if !journalFingerprintMatchesEvidence(execution.journalFingerprint, evidence.active) {
@@ -699,7 +700,7 @@ func observeActiveRetirementDirectory(
 		filesystem,
 		authority,
 		limits,
-		newRetirementTreeSnapshotSinkWithMutableFile(recoveryJournalFileName),
+		newRetirementTreeSnapshotSinkWithMutableFile(journalrecord.FileName),
 	)
 	if err != nil {
 		return retirementTreeEvidence{}, err
@@ -760,11 +761,11 @@ func exactRetirementTreeLimits(
 func activeRetirementEnvelopeLimits(
 	evidence retirementTreeEvidence,
 ) (mutationfs.TreeTraversalLimits, error) {
-	journalBytes := evidence.fileSizes[recoveryJournalFileName]
-	if journalBytes <= 0 || journalBytes > maximumRecoveryJournalBytes {
+	journalBytes := evidence.fileSizes[journalrecord.FileName]
+	if journalBytes <= 0 || journalBytes > journalrecord.MaximumBytes {
 		return mutationfs.TreeTraversalLimits{}, fmt.Errorf("active recovery journal record has invalid size")
 	}
-	maximumBytes := evidence.work.Bytes() - journalBytes + maximumRecoveryJournalBytes
+	maximumBytes := evidence.work.Bytes() - journalBytes + journalrecord.MaximumBytes
 	work, err := workmeasure.NewArtifactWork(evidence.work.Entries(), maximumBytes)
 	if err != nil {
 		return mutationfs.TreeTraversalLimits{}, err
@@ -777,7 +778,7 @@ func journalFingerprintMatchesEvidence(
 	evidence retirementTreeEvidence,
 ) bool {
 	return fingerprint != "" &&
-		fingerprint == "sha256:"+evidence.fileFingerprint(recoveryJournalFileName)
+		fingerprint == "sha256:"+evidence.fileFingerprint(journalrecord.FileName)
 }
 
 func retirementEntryPresent(

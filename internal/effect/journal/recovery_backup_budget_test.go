@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -122,11 +123,11 @@ func TestRecoveryBackupObservationsDeduplicateSharedPayloadWork(t *testing.T) {
 	if err := os.WriteFile(backupPath, []byte("abc"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	entry := recoveryEntry{Before: recoveryBeforePathDTO{
+	entry := backupEntryForTest(t, recovery.BeforePathState{
 		Existed:    true,
 		Kind:       recovery.PathKindFile,
 		BackupPath: backupRelativePath,
-	}}
+	})
 	budget := recoveryBackupBudgetForTest(t)
 	before := budget.RemainingTreeWork()
 
@@ -134,7 +135,7 @@ func TestRecoveryBackupObservationsDeduplicateSharedPayloadWork(t *testing.T) {
 		t,
 		t.Context(),
 		root,
-		[]recoveryEntry{entry, entry},
+		[]journalrecord.PathEntry{entry, entry},
 		budget,
 	)
 	if err != nil {
@@ -151,7 +152,7 @@ func TestRecoveryBackupObservationsDeduplicateSharedPayloadWork(t *testing.T) {
 
 func TestRecoveryBackupObservationsBoundAggregateContentWork(t *testing.T) {
 	root := t.TempDir()
-	entries := make([]recoveryEntry, 0, 2)
+	entries := make([]journalrecord.PathEntry, 0, 2)
 	for _, name := range []string{"first", "second"} {
 		relativePath := filepath.ToSlash(filepath.Join("backups", name))
 		path := filepath.Join(root, filepath.FromSlash(relativePath))
@@ -161,11 +162,11 @@ func TestRecoveryBackupObservationsBoundAggregateContentWork(t *testing.T) {
 		if err := os.WriteFile(path, []byte("abc"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		entries = append(entries, recoveryEntry{Before: recoveryBeforePathDTO{
+		entries = append(entries, backupEntryForTest(t, recovery.BeforePathState{
 			Existed:    true,
 			Kind:       recovery.PathKindFile,
 			BackupPath: relativePath,
-		}})
+		}))
 	}
 	budget := recoveryBackupBudgetForTest(t)
 	consumeRecoveryBackupBudgetLeaving(t, budget, budget.RemainingEntries(), 4)
@@ -303,11 +304,11 @@ func TestRecoveryBackupObservationRejectsExhaustedPathBudgetBeforePayloadWork(t 
 	if err := os.WriteFile(backupPath, []byte("must-not-be-read"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	entry := recoveryEntry{Before: recoveryBeforePathDTO{
+	entry := backupEntryForTest(t, recovery.BeforePathState{
 		Existed:    true,
 		Kind:       recovery.PathKindFile,
 		BackupPath: backupRelativePath,
-	}}
+	})
 	budget := recoveryBackupBudgetForTest(t)
 	for budget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
@@ -317,7 +318,7 @@ func TestRecoveryBackupObservationRejectsExhaustedPathBudgetBeforePayloadWork(t 
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
-		[]recoveryEntry{entry},
+		[]journalrecord.PathEntry{entry},
 		storagecommit.Adapter{},
 		budget,
 	)
@@ -348,17 +349,17 @@ func TestRecoveryBackupObservationRejectsReplacedOperationDirectory(t *testing.T
 	if err := os.WriteFile(filepath.Join(operationDir, "backups", "file"), []byte("replacement"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	entry := recoveryEntry{Before: recoveryBeforePathDTO{
+	entry := backupEntryForTest(t, recovery.BeforePathState{
 		Existed:    true,
 		Kind:       recovery.PathKindFile,
 		BackupPath: "backups/file",
-	}}
+	})
 
 	_, err = recoveryBackupObservations(
 		t.Context(),
 		operationDir,
 		authority,
-		[]recoveryEntry{entry},
+		[]journalrecord.PathEntry{entry},
 		storagecommit.Adapter{},
 		recoveryBackupBudgetForTest(t),
 	)
@@ -381,11 +382,11 @@ func TestRecoveryBackupObservationRejectsOperationDirectoryReplacementAfterIdent
 		t.Fatal(err)
 	}
 	authority := recoveryBackupActiveAuthorityForTest(t, operationDir)
-	entry := recoveryEntry{Before: recoveryBeforePathDTO{
+	entry := backupEntryForTest(t, recovery.BeforePathState{
 		Existed:    true,
 		Kind:       recovery.PathKindFile,
 		BackupPath: "backups/file",
-	}}
+	})
 	filesystem := &replaceOperationDirectoryAfterIdentityReader{
 		operationDir: operationDir,
 		movedDir:     filepath.Join(parent, "moved-operation"),
@@ -395,7 +396,7 @@ func TestRecoveryBackupObservationRejectsOperationDirectoryReplacementAfterIdent
 		t.Context(),
 		operationDir,
 		authority,
-		[]recoveryEntry{entry},
+		[]journalrecord.PathEntry{entry},
 		filesystem,
 		recoveryBackupBudgetForTest(t),
 	)
@@ -413,17 +414,17 @@ func TestRecoveryBackupObservationRejectsOperationDirectoryReplacementAfterIdent
 
 func TestRecoveryBackupObservationReportsMissingBoundedEntry(t *testing.T) {
 	operationDir := canonicalRecoveryBackupOperationDir(t)
-	entry := recoveryEntry{Before: recoveryBeforePathDTO{
+	entry := backupEntryForTest(t, recovery.BeforePathState{
 		Existed:    true,
 		Kind:       recovery.PathKindFile,
 		BackupPath: "backups/missing",
-	}}
+	})
 
 	observations, err := recoveryBackupObservations(
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
-		[]recoveryEntry{entry},
+		[]journalrecord.PathEntry{entry},
 		storagecommit.Adapter{},
 		recoveryBackupBudgetForTest(t),
 	)
@@ -443,17 +444,17 @@ func TestRecoveryBackupObservationRejectsSymlink(t *testing.T) {
 	if err := os.Symlink("target", filepath.Join(operationDir, "backups", "link")); err != nil {
 		t.Fatal(err)
 	}
-	entry := recoveryEntry{Before: recoveryBeforePathDTO{
+	entry := backupEntryForTest(t, recovery.BeforePathState{
 		Existed:    true,
 		Kind:       recovery.PathKindFile,
 		BackupPath: "backups/link",
-	}}
+	})
 
 	observations, err := recoveryBackupObservations(
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
-		[]recoveryEntry{entry},
+		[]journalrecord.PathEntry{entry},
 		storagecommit.Adapter{},
 		recoveryBackupBudgetForTest(t),
 	)
@@ -641,15 +642,6 @@ func TestRemovalCleanupAssessmentContinuesConsumedPlanningBudget(t *testing.T) {
 	}
 }
 
-func recoveryBackupBudgetForTest(t *testing.T) *physicalwork.Budget {
-	t.Helper()
-	budget, err := physicalwork.NewBudget(1)
-	if err != nil {
-		t.Fatalf("construct recovery backup work budget: %v", err)
-	}
-	return budget
-}
-
 func consumeRecoveryBackupBudgetLeaving(
 	t *testing.T,
 	budget *physicalwork.Budget,
@@ -708,7 +700,7 @@ func recoveryBackupObservationsForTest(
 	t *testing.T,
 	ctx context.Context,
 	operationDir string,
-	entries []recoveryEntry,
+	entries []journalrecord.PathEntry,
 	budget *physicalwork.Budget,
 ) ([]recoveryBackupObservation, error) {
 	t.Helper()

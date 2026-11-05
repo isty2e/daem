@@ -97,6 +97,19 @@ func (observation DirectoryEntryAuthorityObservation) Exact() (pathauthority.Exa
 	return observation.exact, !observation.exact.IsZero()
 }
 
+// MatchesRetainedExact accepts the same exact entry or the corresponding
+// currently missing namespace; it does not supply fresh mutation authority.
+func (observation DirectoryEntryAuthorityObservation) MatchesRetainedExact(retained pathauthority.Exact) bool {
+	if observation.Validate() != nil || retained.Validate() != nil {
+		return false
+	}
+	if exact, present := observation.Exact(); present {
+		return exact.Equal(retained)
+	}
+	missing, present := observation.Provisional()
+	return present && missing.MatchesMissingExact(retained)
+}
+
 // Provisional returns the future-path intent when exact authority is not yet observable.
 func (observation DirectoryEntryAuthorityObservation) Provisional() (pathauthority.Provisional, bool) {
 	return observation.provisional, !observation.provisional.IsZero()

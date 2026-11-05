@@ -7,9 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -23,31 +26,32 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 	if err := os.Symlink(physicalRoot, aliasRoot); err != nil {
 		t.Fatalf("create global-root alias: %v", err)
 	}
-	destination, err := output.Parse("~/.codex/AGENTS.md")
+	destination, err := output.Parse("~/.claude.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resolverCalls := 0
 	resolver := func(output.Destination) (string, error) {
 		resolverCalls++
-		return filepath.Join(aliasRoot, ".codex", "AGENTS.md"), nil
+		return filepath.Join(aliasRoot, ".claude.json"), nil
 	}
-	actions := []pathMutation{
-		{Scope: target.ScopeGlobal, Destination: destination},
-		{Scope: target.ScopeGlobal, Destination: destination, ContentPath: "/servers/context7"},
+	actions := []journalrecord.CaptureMutation{claudeRecoveryBaselineMutation(t, target.ScopeGlobal, "context7"), claudeRecoveryBaselineMutation(t, target.ScopeGlobal, "other")}
+	if actions[0].ContentPath() == actions[1].ContentPath() {
+		t.Fatal("fixture requires two different selected members")
 	}
 
 	bindings, err := captureRecoveryGlobalPathBindings(actions, resolver, nil)
 	if err != nil {
 		t.Fatalf("captureRecoveryGlobalPathBindings returned error: %v", err)
 	}
-	want := filepath.Join(physicalRoot, ".codex", "AGENTS.md")
-	persisted, err := bindings.persisted(target.ScopeGlobal, destination)
+	want := filepath.Join(physicalRoot, ".claude.json")
+	persisted, err := bindings.captured(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatalf("persist global path binding: %v", err)
 	}
-	if persisted.ResolvedPath != want {
-		t.Fatalf("captured global path = %q, want %q", persisted.ResolvedPath, want)
+	entry := globalEntryForTest(t, destination, bindings[destination].resolvedPath, persisted)
+	if entry.GlobalPath() != want {
+		t.Fatalf("captured global path = %q, want %q", entry.GlobalPath(), want)
 	}
 	if resolverCalls != 1 {
 		t.Fatalf("capture resolver calls = %d, want 1 per logical destination", resolverCalls)
@@ -58,14 +62,9 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 	if resolverCalls != 1 {
 		t.Fatalf("bound resolver called ambient resolver; calls = %d, want 1", resolverCalls)
 	}
-	entry := recoveryEntry{
-		Scope:             string(target.ScopeGlobal),
-		Path:              destination.String(),
-		GlobalPathBinding: persisted,
-	}
 	if err := validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry},
+		[]journalrecord.PathEntry{entry},
 		resolver,
 		nil,
 		newRecoveryPathBudget(t),
@@ -77,61 +76,47 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 	}
 	if err := validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry},
+		[]journalrecord.PathEntry{entry},
 		resolver,
 		nil,
 		exhausted,
 	); err == nil || !strings.Contains(err.Error(), "path-component work exceeds operation limit") {
 		t.Fatalf("exhausted global path budget error = %v, want pre-observation rejection", err)
 	}
+	provenance, err := bindings[destination].rootAuthority.Provenance()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
 		name string
 		kind rootedpath.FailureKind
-		edit func(*recoveryGlobalPathBinding)
 	}{
-		{
-			name: "object",
-			kind: rootedpath.FailureRootReplaced,
-			edit: func(binding *recoveryGlobalPathBinding) {
-				binding.RootProvenance.ObjectFingerprint = differentRecoveryFingerprint(
-					binding.RootProvenance.ObjectFingerprint,
-				)
-			},
-		},
-		{
-			name: "mount",
-			kind: rootedpath.FailureMountChanged,
-			edit: func(binding *recoveryGlobalPathBinding) {
-				binding.RootProvenance.MountFingerprint = differentRecoveryFingerprint(
-					binding.RootProvenance.MountFingerprint,
-				)
-			},
-		},
+		{name: "object", kind: rootedpath.FailureRootReplaced},
+		{name: "mount", kind: rootedpath.FailureMountChanged},
 	} {
 		t.Run("rejects-forged-"+test.name+"-provenance", func(t *testing.T) {
-			forged := entry
-			forgedBinding := *persisted
-			test.edit(&forgedBinding)
-			forged.GlobalPathBinding = &forgedBinding
-			err := validateRecoveryGlobalPathBindings(
-				t.Context(),
-				[]recoveryEntry{forged},
-				resolver,
-				nil,
-				newRecoveryPathBudget(t),
-			)
+			object, mount := provenance.ObjectFingerprint(), provenance.MountFingerprint()
+			if test.name == "object" {
+				object = differentRecoveryFingerprint(object)
+			} else {
+				mount = differentRecoveryFingerprint(mount)
+			}
+			forgedProvenance, err := rootedpath.NewAuthorityProvenance(provenance.PhysicalRoot(), object, mount)
+			if err != nil {
+				t.Fatal(err)
+			}
+			forged := globalEntryForTest(t, destination, want, journalrecord.NewGlobalBinding(want, forgedProvenance))
+			err = validateRecoveryGlobalPathBindings(t.Context(), []journalrecord.PathEntry{forged}, resolver, nil, newRecoveryPathBudget(t))
 			if !hasRootedPathFailureKind(err, test.kind) {
 				t.Fatalf("forged %s provenance error = %v, want %s", test.name, err, test.kind)
 			}
 		})
 	}
-	conflicting := entry
-	conflictingBinding := *persisted
-	conflictingBinding.ResolvedPath = filepath.Join(physicalRoot, ".codex", "OTHER.md")
-	conflicting.GlobalPathBinding = &conflictingBinding
+	conflictingPath := filepath.Join(physicalRoot, ".codex", "OTHER.md")
+	conflicting := globalEntryForTest(t, destination, conflictingPath, journalrecord.NewGlobalBinding(conflictingPath, provenance))
 	if err := validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry, conflicting},
+		[]journalrecord.PathEntry{entry, conflicting},
 		resolver,
 		nil,
 		newRecoveryPathBudget(t),
@@ -142,9 +127,9 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 	differentRoot := t.TempDir()
 	err = validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry},
+		[]journalrecord.PathEntry{entry},
 		func(output.Destination) (string, error) {
-			return filepath.Join(differentRoot, ".codex", "AGENTS.md"), nil
+			return filepath.Join(differentRoot, ".claude.json"), nil
 		},
 		nil,
 		newRecoveryPathBudget(t),
@@ -172,7 +157,7 @@ func TestRecoveryGlobalPathBindingPassesSharedBudgetIntoRetainedCapability(t *te
 	if err != nil {
 		t.Fatalf("capture global path binding: %v", err)
 	}
-	persisted, err := captured.persisted()
+	persisted, err := captured.captureFacts()
 	if err != nil {
 		t.Fatalf("persist global path binding: %v", err)
 	}
@@ -185,11 +170,7 @@ func TestRecoveryGlobalPathBindingPassesSharedBudgetIntoRetainedCapability(t *te
 	sawSharedBudget := false
 	err = validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{{
-			Scope:             string(target.ScopeGlobal),
-			Path:              destination.String(),
-			GlobalPathBinding: persisted,
-		}},
+		[]journalrecord.PathEntry{globalEntryForTest(t, destination, captured.resolvedPath, persisted)},
 		resolver,
 		func(
 			requested output.Destination,
@@ -240,14 +221,14 @@ func TestRecoveryGlobalPathBindingRejectsSamePathRootReplacement(t *testing.T) {
 	resolvedPath := filepath.Join(selectedRoot, ".codex", "AGENTS.md")
 	resolver := func(output.Destination) (string, error) { return resolvedPath, nil }
 	bindings, err := captureRecoveryGlobalPathBindings(
-		[]pathMutation{{Scope: target.ScopeGlobal, Destination: destination}},
+		[]journalrecord.CaptureMutation{normalizedPathCapture(t, journalrecord.CaptureCreate, target.ScopeGlobal, destination, "", realization.PathProjectionDirectory)},
 		resolver,
 		nil,
 	)
 	if err != nil {
 		t.Fatalf("capture global root provenance: %v", err)
 	}
-	persisted, err := bindings.persisted(target.ScopeGlobal, destination)
+	persisted, err := bindings.captured(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatalf("persist global root provenance: %v", err)
 	}
@@ -260,14 +241,10 @@ func TestRecoveryGlobalPathBindingRejectsSamePathRootReplacement(t *testing.T) {
 		t.Fatalf("create replacement global root: %v", err)
 	}
 
-	entry := recoveryEntry{
-		Scope:             string(target.ScopeGlobal),
-		Path:              destination.String(),
-		GlobalPathBinding: persisted,
-	}
+	entry := globalEntryForTest(t, destination, bindings[destination].resolvedPath, persisted)
 	err = validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry},
+		[]journalrecord.PathEntry{entry},
 		resolver,
 		nil,
 		newRecoveryPathBudget(t),
@@ -289,14 +266,14 @@ func TestRecoveryGlobalPathBindingAcceptsNewSameMountDescendantRoot(t *testing.T
 	resolvedPath := filepath.Join(selectedRoot, "missing-parent", "server.json")
 	resolver := func(output.Destination) (string, error) { return resolvedPath, nil }
 	bindings, err := captureRecoveryGlobalPathBindings(
-		[]pathMutation{{Scope: target.ScopeGlobal, Destination: destination}},
+		[]journalrecord.CaptureMutation{normalizedPathCapture(t, journalrecord.CaptureCreate, target.ScopeGlobal, destination, "", realization.PathProjectionDirectory)},
 		resolver,
 		nil,
 	)
 	if err != nil {
 		t.Fatalf("capture global root provenance: %v", err)
 	}
-	persisted, err := bindings.persisted(target.ScopeGlobal, destination)
+	persisted, err := bindings.captured(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatalf("persist global root provenance: %v", err)
 	}
@@ -304,10 +281,10 @@ func TestRecoveryGlobalPathBindingAcceptsNewSameMountDescendantRoot(t *testing.T
 	if err != nil {
 		t.Fatalf("resolve selected global root: %v", err)
 	}
-	if persisted.RootProvenance.PhysicalRoot != physicalRoot {
+	if bindings[destination].rootAuthority.PhysicalRoot() != physicalRoot {
 		t.Fatalf(
 			"capture root = %q, want nearest existing ancestor %q",
-			persisted.RootProvenance.PhysicalRoot,
+			bindings[destination].rootAuthority.PhysicalRoot(),
 			physicalRoot,
 		)
 	}
@@ -315,27 +292,14 @@ func TestRecoveryGlobalPathBindingAcceptsNewSameMountDescendantRoot(t *testing.T
 		t.Fatalf("create same-mount destination parent: %v", err)
 	}
 
-	entry := recoveryEntry{
-		Scope:             string(target.ScopeGlobal),
-		Path:              destination.String(),
-		GlobalPathBinding: persisted,
-	}
+	entry := globalEntryForTest(t, destination, bindings[destination].resolvedPath, persisted)
 	if err := validateRecoveryGlobalPathBindings(
 		t.Context(),
-		[]recoveryEntry{entry},
+		[]journalrecord.PathEntry{entry},
 		resolver,
 		nil,
 		newRecoveryPathBudget(t),
 	); err != nil {
 		t.Fatalf("new same-mount descendant root rejected: %v", err)
 	}
-}
-
-func newRecoveryPathBudget(t *testing.T) *physicalwork.Budget {
-	t.Helper()
-	budget, err := physicalwork.NewBudget(0)
-	if err != nil {
-		t.Fatalf("new recovery path budget: %v", err)
-	}
-	return budget
 }

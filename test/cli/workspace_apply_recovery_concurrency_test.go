@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	clipkg "github.com/isty2e/daem/internal/cli"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/hostpath"
@@ -247,7 +248,7 @@ func writeInterruptedRecoveryFixture(t *testing.T, root string, home string) int
 		testkit.InstructionPathState(t, "shared", []string{"codex"}, "global", "~/.codex/AGENTS.md", afterHash),
 	)
 	previous := singleCLIManagedPath(t, currentState)
-	managedMutation, err := journal.NewManagedPathReplaceMutation(
+	managedMutation, err := journalrecord.NewManagedPathReplaceMutation(
 		previous.Subject(),
 		[]target.Target{target.TargetCodex},
 		target.ScopeGlobal,
@@ -292,7 +293,7 @@ func writeInterruptedRecoveryFixture(t *testing.T, root string, home string) int
 		journal.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ClaimTransitions:     []ownershipmutation.ClaimTransition{claimTransition},
-			ManagedPathMutations: []journal.ManagedPathMutation{managedMutation},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{managedMutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{managedEvidence},
 			Resolver:             hostpath.NewResolver(root).Resolve,
 			StateCodec:           statefile.Codec{},

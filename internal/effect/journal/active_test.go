@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/output"
 )
@@ -20,7 +21,7 @@ func TestLoadActivePlanRetainsCorruptJournalEvidence(t *testing.T) {
 	if err := os.MkdirAll(operationDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll returned error: %v", err)
 	}
-	journalPath := filepath.Join(operationDir, recoveryJournalFileName)
+	journalPath := filepath.Join(operationDir, journalrecord.FileName)
 	if err := os.WriteFile(
 		journalPath,
 		[]byte(`{"version":11,"manifest_root_provenance":{},"entries":[],"unexpected":true}`),
@@ -61,8 +62,8 @@ func TestRecoveryInventoryIgnoresUnrelatedHiddenEntries(t *testing.T) {
 		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		operationID,
 		time.Date(2026, time.July, 11, 12, 0, 0, 0, time.UTC),
-		beforeStatefile(),
-		afterStatefile(),
+		inventoryJournalSnapshot(t, "before"),
+		inventoryJournalSnapshot(t, "after"),
 		CaptureOptions{
 			Filesystem: journalTestFilesystem(),
 			Resolver: func(output.Destination) (string, error) {
@@ -96,11 +97,11 @@ func TestSafeRecoveryOperationIDRejectsRetirementNamespaces(t *testing.T) {
 		".daem-journal-gc-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		".daem-tombstone-legacy",
 	} {
-		if isSafeRecoveryOperationID(operationID) {
-			t.Fatalf("isSafeRecoveryOperationID(%q) = true", operationID)
+		if journalrecord.IsSafeOperationID(operationID) {
+			t.Fatalf("IsSafeOperationID(%q) = true", operationID)
 		}
 	}
-	if !isSafeRecoveryOperationID("20260730T120000.000000000Z-apply") {
+	if !journalrecord.IsSafeOperationID("20260730T120000.000000000Z-apply") {
 		t.Fatal("ordinary generated operation id was rejected")
 	}
 }

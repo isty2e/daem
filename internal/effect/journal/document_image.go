@@ -5,198 +5,63 @@ import (
 	"errors"
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
-	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
-type recoveryDocumentImage struct {
-	Kind     string                    `json:"kind"`
-	Mode     *recovery.PermissionMode  `json:"mode,omitempty"`
-	Artifact *recoveryDocumentArtifact `json:"artifact,omitempty"`
-}
-
-type recoveryDocumentArtifact struct {
-	Path   string               `json:"path"`
-	Size   *int64               `json:"size"`
-	Digest artifact.ContentHash `json:"digest"`
-}
-
-// Loaded bytes and recorded host mode are not active-journal authority or
-// permission to restore unselected bytes onto a host document.
-type loadedDocumentImage struct {
-	document    aggregate.Document
-	mode        *recovery.PermissionMode
-	initialized bool
-}
-
-type loadedDocumentImages struct {
-	original loadedDocumentImage
-	expected loadedDocumentImage
-}
-
-func loadDocumentImages(ctx context.Context, original, expected recoveryDocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (loadedDocumentImages, error) {
+func loadDocumentImages(ctx context.Context, original, expected journalrecord.DocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (journalrecord.LoadedImage, journalrecord.LoadedImage, error) {
 	before, err := loadDocumentImage(ctx, original, root, filesystem, budget, maximumBytes)
 	if err != nil {
-		return loadedDocumentImages{}, err
+		return journalrecord.LoadedImage{}, journalrecord.LoadedImage{}, err
 	}
 	after, err := loadDocumentImage(ctx, expected, root, filesystem, budget, maximumBytes)
 	if err != nil {
-		return loadedDocumentImages{}, err
+		return journalrecord.LoadedImage{}, journalrecord.LoadedImage{}, err
 	}
-	return loadedDocumentImages{original: before, expected: after}, nil
+	return before, after, nil
 }
 
-func (image loadedDocumentImage) validate() error {
-	if !image.initialized {
-		return fmt.Errorf("loaded document image is required")
-	}
-	if err := image.document.Validate(); err != nil {
-		return err
-	}
-	_, err := recovery.NewPartialDocumentState(image.document.Exists(), image.mode, nil)
-	return err
-}
-
-func (record *recoveryDocumentImage) UnmarshalJSON(content []byte) error {
-	if record == nil {
-		return fmt.Errorf("document image destination is nil")
-	}
-	if err := requireDocumentEvidenceFields(content, "kind"); err != nil {
-		return err
-	}
-	type wire recoveryDocumentImage
-	var decoded wire
-	if err := decodeRecoveryJSONStrict(content, &decoded); err != nil {
-		return err
-	}
-	candidate := recoveryDocumentImage(decoded)
-	if err := candidate.validate(); err != nil {
-		return err
-	}
-	*record = candidate
-	return nil
-}
-
-func (record *recoveryDocumentArtifact) UnmarshalJSON(content []byte) error {
-	if record == nil {
-		return fmt.Errorf("document artifact destination is nil")
-	}
-	if err := requireDocumentEvidenceFields(content, "path", "size", "digest"); err != nil {
-		return err
-	}
-	type wire recoveryDocumentArtifact
-	var decoded wire
-	if err := decodeRecoveryJSONStrict(content, &decoded); err != nil {
-		return err
-	}
-	candidate := recoveryDocumentArtifact(decoded)
-	if err := candidate.validate(); err != nil {
-		return err
-	}
-	*record = candidate
-	return nil
-}
-
-func (record recoveryDocumentImage) validate() error {
-	switch record.Kind {
-	case "absent":
-		if record.Mode != nil || record.Artifact != nil {
-			return fmt.Errorf("absent document image carries file evidence")
-		}
-		return nil
-	case "file":
-		if record.Mode == nil || record.Artifact == nil {
-			return fmt.Errorf("file document image requires mode and artifact")
-		}
-		if _, err := recovery.NewPartialDocumentState(true, record.Mode, nil); err != nil {
-			return err
-		}
-		return record.Artifact.validate()
-	default:
-		return fmt.Errorf("unsupported document image kind")
-	}
-}
-
-func (record recoveryDocumentArtifact) validate() error {
-	if _, err := rootedpath.NewRelativeDestination(record.Path); err != nil {
-		return fmt.Errorf("document artifact relative path: %w", err)
-	}
-	if record.Size == nil || *record.Size < 0 || *record.Size > recovery.MaximumRecoveryBackupFileBytes {
-		return fmt.Errorf("document artifact size is outside the backup envelope")
-	}
-	return record.Digest.Validate()
-}
-
-func persistedDocumentImage(document aggregate.Document, mode *recovery.PermissionMode, relativePath string) (recoveryDocumentImage, error) {
-	if err := document.Validate(); err != nil {
-		return recoveryDocumentImage{}, err
-	}
-	if _, err := recovery.NewPartialDocumentState(document.Exists(), mode, nil); err != nil {
-		return recoveryDocumentImage{}, err
-	}
-	if !document.Exists() {
-		if relativePath != "" {
-			return recoveryDocumentImage{}, fmt.Errorf("absent document image has an artifact path")
-		}
-		return recoveryDocumentImage{Kind: "absent"}, nil
-	}
-	size := document.ContentSize()
-	if size > recovery.MaximumRecoveryBackupFileBytes {
-		return recoveryDocumentImage{}, fmt.Errorf("document image exceeds the backup byte envelope")
-	}
-	record := recoveryDocumentImage{
-		Kind: "file", Mode: clonePermissionMode(mode),
-		Artifact: &recoveryDocumentArtifact{Path: relativePath, Size: &size, Digest: artifact.HashFileContent(document.Content())},
-	}
-	if err := record.validate(); err != nil {
-		return recoveryDocumentImage{}, err
-	}
-	return record, nil
-}
-
-func loadDocumentImage(ctx context.Context, record recoveryDocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (loadedDocumentImage, error) {
+func loadDocumentImage(ctx context.Context, record journalrecord.DocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (journalrecord.LoadedImage, error) {
 	if ctx == nil {
-		return loadedDocumentImage{}, fmt.Errorf("document image context is required")
+		return journalrecord.LoadedImage{}, fmt.Errorf("document image context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
-	if err := record.validate(); err != nil {
-		return loadedDocumentImage{}, err
+	plan, err := record.AdmitRead(maximumBytes)
+	if err != nil {
+		return journalrecord.LoadedImage{}, err
 	}
-	if maximumBytes <= 0 || maximumBytes > recovery.MaximumRecoveryBackupFileBytes {
-		return loadedDocumentImage{}, fmt.Errorf("document image byte limit is outside the backup envelope")
-	}
-	if record.Kind == "absent" {
-		return loadedDocumentImage{document: aggregate.AbsentDocument(), initialized: true}, nil
+	if !plan.Exists() {
+		return plan.Absent()
 	}
 	if root == nil || filesystem == nil || budget == nil {
-		return loadedDocumentImage{}, fmt.Errorf("document image root, filesystem and shared budget are required")
+		return journalrecord.LoadedImage{}, fmt.Errorf("document image root, filesystem and shared budget are required")
 	}
-	size := *record.Artifact.Size
+	size := plan.Size()
 	if size > maximumBytes || size > budget.RemainingBytes() {
-		return loadedDocumentImage{}, fmt.Errorf("document image exceeds the remaining byte envelope")
+		return journalrecord.LoadedImage{}, fmt.Errorf("document image exceeds the remaining byte envelope")
 	}
 	rootAuthority, err := root.AuthorityBounded(budget)
 	if err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
-	relative, err := rootedpath.NewRelativeDestination(record.Artifact.Path)
+	relative, err := rootedpath.NewRelativeDestination(plan.Reference())
 	if err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
 	destination, err := rootAuthority.Bind(relative)
 	if err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
 	capability, err := root.AcquireBounded(destination, physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
 	content, mode, _, readErr := filesystem.ReadRootedRegularFileUpTo(ctx, capability, size)
 	closeErr := capability.Close()
@@ -209,13 +74,14 @@ func loadDocumentImage(ctx context.Context, record recoveryDocumentImage, root *
 		workErr = budget.AdmitTree(work)
 	}
 	if err := errors.Join(readErr, closeErr, workErr); err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
-	if int64(len(content)) != size || mode.Perm() != recoveryJournalMode || artifact.HashFileContent(content) != record.Artifact.Digest {
-		return loadedDocumentImage{}, fmt.Errorf("document image size, private mode or digest changed")
+	loaded, err := plan.Load(content, recovery.PermissionMode(mode.Perm()))
+	if err != nil {
+		return journalrecord.LoadedImage{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return loadedDocumentImage{}, err
+		return journalrecord.LoadedImage{}, err
 	}
-	return loadedDocumentImage{document: aggregate.ExistingDocument(content), mode: clonePermissionMode(record.Mode), initialized: true}, nil
+	return loaded, nil
 }

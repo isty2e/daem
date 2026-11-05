@@ -10,12 +10,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/test/testkit/fsclock"
 )
 
@@ -84,7 +83,7 @@ func TestRecoveryRootInventoryClassifiesClosedPhysicalStates(t *testing.T) {
 				identity, result := captureInventoryJournal(t, root, "inventory-finalizing")
 				writeInventoryControl(t, root, identity, retirement.PhaseFinalizing)
 				residue := renameInventoryJournalToResidue(t, result, identity)
-				if err := os.Remove(filepath.Join(residue, recoveryJournalFileName)); err != nil {
+				if err := os.Remove(filepath.Join(residue, journalrecord.FileName)); err != nil {
 					t.Fatalf("remove residue journal payload: %v", err)
 				}
 				return identity
@@ -250,7 +249,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 				legacy := renameInventoryJournalToLegacy(t, result, "c")
 				writePrivateFile(
 					t,
-					filepath.Join(legacy, recoveryJournalFileName),
+					filepath.Join(legacy, journalrecord.FileName),
 					[]byte(`{"schema_version":7}`),
 				)
 			},
@@ -335,7 +334,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 				identity, result := captureInventoryJournal(t, root, "missing-residue-journal")
 				writeInventoryControl(t, root, identity, retirement.PhasePrepared)
 				residue := renameInventoryJournalToResidue(t, result, identity)
-				if err := os.Remove(filepath.Join(residue, recoveryJournalFileName)); err != nil {
+				if err := os.Remove(filepath.Join(residue, journalrecord.FileName)); err != nil {
 					t.Fatalf("remove residue journal: %v", err)
 				}
 			},
@@ -360,7 +359,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 				identity, result := captureInventoryJournal(t, root, "residue-drift")
 				writeInventoryControl(t, root, identity, retirement.PhasePrepared)
 				residue := renameInventoryJournalToResidue(t, result, identity)
-				journalPath := filepath.Join(residue, recoveryJournalFileName)
+				journalPath := filepath.Join(residue, journalrecord.FileName)
 				content, err := os.ReadFile(journalPath)
 				if err != nil {
 					t.Fatalf("read residue journal: %v", err)
@@ -451,7 +450,7 @@ func TestRecoveryRootInventoryBlocksPre10TombstoneWithoutNestedObservation(t *te
 		".daem-tombstone-"+strings.Repeat("a", 32),
 	)
 	mkdirPrivate(t, tombstone)
-	writePrivateFile(t, filepath.Join(tombstone, recoveryJournalFileName), []byte("not json"))
+	writePrivateFile(t, filepath.Join(tombstone, journalrecord.FileName), []byte("not json"))
 
 	filesystem := &rejectNestedTombstoneObservationStore{Store: journalTestFilesystem()}
 	inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
@@ -573,51 +572,6 @@ func (filesystem *replacingAfterReadFilesystem) ReadRegularFileSnapshotUpTo(
 		filesystem.once.Do(filesystem.replace)
 	}
 	return snapshot, err
-}
-
-func captureInventoryJournal(
-	t *testing.T,
-	recoveryRoot string,
-	operationID string,
-) (retirement.Identity, CaptureResult) {
-	t.Helper()
-
-	result, err := CaptureJournalWithOptions(
-		t.Context(),
-		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
-		operationID,
-		time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC),
-		beforeStatefile(),
-		afterStatefile(),
-		CaptureOptions{
-			Filesystem: journalTestFilesystem(),
-			Resolver: func(output.Destination) (string, error) {
-				return "", nil
-			},
-			StateCodec: testStateCodec(),
-		},
-	)
-	if err != nil {
-		t.Fatalf("CaptureJournalWithOptions: %v", err)
-	}
-	loaded, err := loadRecoveryJournal(
-		t.Context(),
-		journalTestFilesystem(),
-		result.JournalPath,
-		testStateCodec(),
-	)
-	if err != nil {
-		t.Fatalf("loadRecoveryJournal: %v", err)
-	}
-	fingerprint, err := recoveryJournalAuthorityFingerprint(loaded, testStateCodec())
-	if err != nil {
-		t.Fatalf("recoveryJournalAuthorityFingerprint: %v", err)
-	}
-	identity, err := retirement.NewIdentity(operationID, fingerprint)
-	if err != nil {
-		t.Fatalf("retirement.NewIdentity: %v", err)
-	}
-	return identity, result
 }
 
 func writeInventoryControl(

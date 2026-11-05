@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -32,8 +33,8 @@ import (
 type CaptureOptions struct {
 	ClaimTransitions          []ownershipmutation.ClaimTransition
 	ProvisionalAcquires       []ownership.ProvisionalAcquireIntent
-	ManagedPathMutations      []ManagedPathMutation
-	ManagedAggregateMutations []ManagedAggregateMutation
+	ManagedPathMutations      []journalrecord.ManagedPathMutation
+	ManagedAggregateMutations []journalrecord.ManagedAggregateMutation
 	ManagedPathEvidence       []observe.ManagedPathEvidence
 	RemovalDemands            recovery.RemovalDemandSet
 	Resolver                  func(destination output.Destination) (string, error)
@@ -60,12 +61,12 @@ func CaptureJournalWithOptions(
 		return CaptureResult{}, fmt.Errorf("recovery journal destination resolver is required")
 	}
 	if options.StateCodec == nil {
-		return CaptureResult{}, errRecoveryJournalStateCodecRequired
+		return CaptureResult{}, journalrecord.ErrStateCodecRequired
 	}
 	if options.Filesystem == nil {
 		return CaptureResult{}, fmt.Errorf("recovery journal filesystem is required")
 	}
-	statefileBefore, statefileAfter, err := encodeRecoveryJournalSnapshots(
+	statefileBefore, statefileAfter, err := journalrecord.EncodeSnapshots(
 		currentState,
 		nextState,
 		options.StateCodec,
@@ -79,7 +80,7 @@ func CaptureJournalWithOptions(
 	}); err != nil {
 		return CaptureResult{}, err
 	}
-	if !isSafeRecoveryOperationID(operationID) {
+	if !journalrecord.IsSafeOperationID(operationID) {
 		return CaptureResult{}, fmt.Errorf("recovery operation id %q must be a safe path component", operationID)
 	}
 	finalDir, err := mutation.CanonicalDirectoryEntryPath(filepath.Join(paths.RecoveryDir, operationID))
@@ -138,7 +139,7 @@ func CaptureJournalWithOptions(
 		}
 	}()
 
-	journal, err := buildRecoveryJournal(
+	material, err := buildOrdinaryCaptureMaterial(
 		ctx,
 		paths,
 		tempDir,
@@ -147,20 +148,20 @@ func CaptureJournalWithOptions(
 		currentState,
 		nextState,
 		options,
+		&ordinaryCaptureWork{},
 	)
 	if err != nil {
 		return CaptureResult{}, err
 	}
-	content, err := marshalRecoveryJournalWithStateContent(
-		journal,
+	content, err := material.EncodeOrdinary(
 		statefileBefore,
 		statefileAfter,
 	)
 	if err != nil {
 		return CaptureResult{}, err
 	}
-	journalPath := filepath.Join(tempDir, recoveryJournalFileName)
-	if err := os.WriteFile(journalPath, content, recoveryJournalMode); err != nil {
+	journalPath := filepath.Join(tempDir, journalrecord.FileName)
+	if err := os.WriteFile(journalPath, content, journalrecord.Mode); err != nil {
 		return CaptureResult{}, fmt.Errorf("stage recovery journal: %w", err)
 	}
 	stagedHash, stagedKind, err := access.HashPath(ctx, tempDir)
@@ -206,8 +207,8 @@ func CaptureJournalWithOptions(
 	return CaptureResult{
 		OperationID:       operationID,
 		Directory:         finalDir,
-		JournalPath:       filepath.Join(finalDir, recoveryJournalFileName),
-		RecordFingerprint: recoveryJournalRecordFingerprint(content),
+		JournalPath:       filepath.Join(finalDir, journalrecord.FileName),
+		RecordFingerprint: journalrecord.Fingerprint(content),
 	}, nil
 }
 
@@ -296,9 +297,9 @@ func buildOrdinaryCaptureMaterial(
 	nextState durable.Snapshot,
 	options CaptureOptions,
 	work *ordinaryCaptureWork,
-) (result ordinaryCaptureMaterial, resultErr error) {
+) (result journalrecord.OrdinaryEvidence, resultErr error) {
 	if work == nil {
-		return ordinaryCaptureMaterial{}, fmt.Errorf("ordinary capture requires its selected work policy")
+		return journalrecord.OrdinaryEvidence{}, fmt.Errorf("ordinary capture requires its selected work policy")
 	}
 	options.RootedCapability = work.rootedResolver(options.RootedCapability)
 	var filesystem mutationfs.Reader = options.Filesystem
@@ -306,13 +307,13 @@ func buildOrdinaryCaptureMaterial(
 		filesystem = ordinaryCaptureReader{Reader: filesystem, work: work}
 	}
 
-	mutations, err := pathMutations(
+	mutations, err := journalrecord.NormalizeCaptureMutations(
 		options.ManagedPathMutations,
 		options.ManagedAggregateMutations,
 		options.ManagedPathEvidence,
 	)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+		return journalrecord.OrdinaryEvidence{}, err
 	}
 	globalPathBindings, err := work.globalBindings(
 		mutations,
@@ -320,232 +321,69 @@ func buildOrdinaryCaptureMaterial(
 		options.RootedCapability,
 	)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+		return journalrecord.OrdinaryEvidence{}, err
 	}
 	boundResolver := globalPathBindings.resolver(options.Resolver)
 	manifestAuthority, err := work.manifest(paths, options.ManifestRoot)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+		return journalrecord.OrdinaryEvidence{}, err
 	}
 	if manifestAuthority.owned {
 		defer func() {
 			if closeErr := manifestAuthority.close(); closeErr != nil {
-				result = ordinaryCaptureMaterial{}
+				result = journalrecord.OrdinaryEvidence{}
 				resultErr = errors.Join(resultErr, fmt.Errorf("close recovery journal manifest root: %w", closeErr))
 			}
 		}()
 	}
-	stateByAction, err := recoveryStateByAction(currentState)
+	draft, err := journalrecord.NewOrdinaryDraft(operationID, createdAt, currentState, nextState, manifestAuthority.provenance, mutations, options.RemovalDemands)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
-	}
-	if err := options.RemovalDemands.Validate(); err != nil {
-		return ordinaryCaptureMaterial{}, fmt.Errorf("validate executable removal demands: %w", err)
-	}
-	removalDemands := make(map[removalRelationKey]recovery.RemovalDemand, options.RemovalDemands.Len())
-	for _, demand := range options.RemovalDemands.Demands() {
-		removalDemands[removalRelationKey{
-			scope: demand.Scope(), destination: demand.Destination(),
-		}] = demand
+		return journalrecord.OrdinaryEvidence{}, err
 	}
 	backupIndex := 0
-	contentPathBaselines, err := newRecoveryContentPathBaselineCache(
-		mutations,
-		options.Codecs,
-		filesystem,
-	)
+	contentPathBaselines, err := newRecoveryContentPathBaselineCache(mutations, options.Codecs, filesystem)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+		return journalrecord.OrdinaryEvidence{}, err
 	}
-	entries := make([]recoveryEntry, 0, len(mutations))
-	for _, action := range mutations {
-		if err := ctx.Err(); err != nil {
-			return ordinaryCaptureMaterial{}, err
+	for range draft.EntryCount() {
+		action, err := draft.BeginEntry(ctx)
+		if err != nil {
+			return journalrecord.OrdinaryEvidence{}, err
 		}
-
 		before, nextBackupIndex, err := captureRecoveryBeforePath(
-			ctx,
-			operationDir,
-			backupIndex,
-			action,
-			filesystem,
-			boundResolver,
-			manifestAuthority,
-			options.RootedCapability,
-			contentPathBaselines,
-			work,
+			ctx, operationDir, backupIndex, action, filesystem, boundResolver,
+			manifestAuthority, options.RootedCapability, contentPathBaselines, work,
 		)
 		if err != nil {
-			return ordinaryCaptureMaterial{}, err
+			return journalrecord.OrdinaryEvidence{}, err
 		}
 		backupIndex = nextBackupIndex
-		stateBefore, err := captureRecoveryStateBefore(action, stateByAction)
-		if err != nil {
-			return ordinaryCaptureMaterial{}, err
+		if err := draft.SupplyBefore(before); err != nil {
+			return journalrecord.OrdinaryEvidence{}, err
 		}
-		expectedAfter, stateExpectedAfter, err := captureRecoveryExpectedAfter(action)
+		binding, err := globalPathBindings.captured(action.Scope(), action.Destination())
 		if err != nil {
-			return ordinaryCaptureMaterial{}, err
+			return journalrecord.OrdinaryEvidence{}, err
 		}
-		globalPathBinding, err := globalPathBindings.persisted(action.Scope, action.Destination)
-		if err != nil {
-			return ordinaryCaptureMaterial{}, err
+		if err := draft.SupplyGlobalBinding(binding); err != nil {
+			return journalrecord.OrdinaryEvidence{}, err
 		}
-		rootedBefore, rootedExpected := completeRemovalTransitionStates(
-			action,
-			before,
-			expectedAfter,
-		)
-		removalTransition, err := removalTransitionForCapture(
-			action.Scope,
-			action.Destination,
-			rootedBefore,
-			rootedExpected,
-			removalDemands,
-		)
-		if err != nil {
-			return ordinaryCaptureMaterial{}, fmt.Errorf("capture removal transition for %q: %w", action.Destination, err)
-		}
-		aggregateContract, err := persistedAggregateContractFromMutation(action)
-		if err != nil {
-			return ordinaryCaptureMaterial{}, err
-		}
-		entries = append(entries, recoveryEntry{
-			Subject:             subjectRefFromAction(action),
-			Target:              string(action.Target),
-			Targets:             targetStrings(action.ConsumerTargets),
-			Scope:               string(action.Scope),
-			Path:                action.Destination.String(),
-			GlobalPathBinding:   globalPathBinding,
-			ContentPath:         string(action.ContentPath),
-			ContentKind:         string(action.ContentKind),
-			RemovalTransition:   removalTransition,
-			Before:              persistedBeforePathState(before),
-			ExpectedAfter:       persistedExpectedPathState(expectedAfter),
-			StateBeforeIdentity: stateBeforeIdentityFromAction(action),
-			StateBefore:         stateBefore,
-			StateExpectedAfter:  stateExpectedAfter,
-			Aggregate:           aggregateContract,
-			StateIndependent:    action.StateIndependent,
-		})
 	}
-	capturedDemands, err := removalDemandSetFromEntries(entries)
-	if err != nil {
-		return ordinaryCaptureMaterial{}, err
-	}
-	if !options.RemovalDemands.Equal(capturedDemands) {
-		return ordinaryCaptureMaterial{}, fmt.Errorf(
-			"executable removal demands do not exactly match captured removal transitions",
-		)
+	if err := draft.CloseEntries(); err != nil {
+		return journalrecord.OrdinaryEvidence{}, err
 	}
 	removalIntents, err := work.removalIntents(ctx, options.RemovalDemands, boundResolver)
 	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+		return journalrecord.OrdinaryEvidence{}, err
 	}
-	if err := validateRecoveryRemovalCoverage(options.RemovalDemands, removalIntents); err != nil {
-		return ordinaryCaptureMaterial{}, err
+	if err := draft.SupplyRemovalIntents(removalIntents); err != nil {
+		return journalrecord.OrdinaryEvidence{}, err
 	}
-	persistedRemovalIntents, err := persistedRecoveryRemovalIntents(removalIntents)
-	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+	if err := draft.BeginClaimCoverage(options.ClaimTransitions, options.ProvisionalAcquires); err != nil {
+		return journalrecord.OrdinaryEvidence{}, err
 	}
-
-	sortRecoveryEntries(entries)
-	entries, err = bindRecoveryClaimCoverage(
-		ctx,
-		entries,
-		options.ClaimTransitions,
-		options.ProvisionalAcquires,
-		boundResolver,
-	)
-	if err != nil {
-		return ordinaryCaptureMaterial{}, err
+	if err := captureClaimAuthorities(ctx, boundResolver, draft.NextClaimAuthority, draft.BindClaimAuthority); err != nil {
+		return journalrecord.OrdinaryEvidence{}, err
 	}
-	persistedTransitions, err := recoveryClaimTransitions(options.ClaimTransitions)
-	if err != nil {
-		return ordinaryCaptureMaterial{}, err
-	}
-	persistedIntents, err := recoveryProvisionalAcquireIntents(options.ProvisionalAcquires)
-	if err != nil {
-		return ordinaryCaptureMaterial{}, err
-	}
-	return ordinaryCaptureMaterial{
-		OperationID:            operationID,
-		Operation:              recoveryOperationApply,
-		CreatedAt:              createdAt.UTC().Format(time.RFC3339),
-		ManifestRootProvenance: manifestAuthority.persisted(),
-		Entries:                entries,
-		StatefileBefore:        currentState,
-		StatefileAfter:         nextState,
-		ClaimTransitions:       persistedTransitions,
-		ProvisionalAcquires:    persistedIntents,
-		RemovalIntents:         persistedRemovalIntents,
-	}, nil
-}
-
-func stateBeforeIdentityFromAction(action pathMutation) *recoveryStateIdentity {
-	if action.StateIndependent || action.PreviousState == nil {
-		return nil
-	}
-
-	previous := recoveryStateIdentityFromPrevious(*action.PreviousState)
-	current := recoveryStateIdentityFromAction(action)
-	if sameRecoveryStateIdentity(previous, current) {
-		return nil
-	}
-	return &previous
-}
-
-func recoveryStateIdentityFromAction(action pathMutation) recoveryStateIdentity {
-	return recoveryStateIdentity{
-		Subject:     subjectRefFromAction(action),
-		Target:      string(action.Target),
-		Targets:     targetStrings(action.ConsumerTargets),
-		Scope:       string(action.Scope),
-		Path:        action.Destination.String(),
-		ContentPath: string(action.ContentPath),
-		ContentKind: string(action.ContentKind),
-		Aggregate:   action.AggregateContract != nil,
-	}
-}
-
-func recoveryStateIdentityFromPrevious(previous previousPathState) recoveryStateIdentity {
-	return recoveryStateIdentity{
-		Subject: persistedSubjectRef{
-			Kind:      string(previous.Subject.Kind()),
-			Namespace: previous.Subject.Namespace(),
-			Name:      previous.Subject.Key(),
-		},
-		Target:      string(previous.Target),
-		Targets:     targetStrings(previous.ConsumerTargets),
-		Scope:       string(previous.Scope),
-		Path:        previous.Destination.String(),
-		ContentPath: string(previous.ContentPath),
-		ContentKind: string(previous.ContentKind),
-	}
-}
-
-func sameRecoveryStateIdentity(left recoveryStateIdentity, right recoveryStateIdentity) bool {
-	if left.Subject != right.Subject || left.Target != right.Target ||
-		left.Scope != right.Scope || left.Path != right.Path || left.ContentPath != right.ContentPath ||
-		left.ContentKind != right.ContentKind || left.Aggregate != right.Aggregate || len(left.Targets) != len(right.Targets) {
-		return false
-	}
-	for index := range left.Targets {
-		if left.Targets[index] != right.Targets[index] {
-			return false
-		}
-	}
-	return true
-}
-
-func subjectRefFromAction(action pathMutation) persistedSubjectRef {
-	if action.Subject.IsZero() {
-		return persistedSubjectRef{}
-	}
-	return persistedSubjectRef{
-		Kind:      string(action.Subject.Kind()),
-		Namespace: action.Subject.Namespace(),
-		Name:      action.Subject.Key(),
-	}
+	return draft.Finish()
 }

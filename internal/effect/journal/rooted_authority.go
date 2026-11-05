@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
+
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -34,27 +35,30 @@ type recoveryGlobalPathObservation struct {
 type recoveryGlobalPathBindings map[output.Destination]recoveryGlobalPathObservation
 
 func captureRecoveryGlobalPathBindings(
-	actions []pathMutation,
+	actions []journalrecord.CaptureMutation,
 	resolver func(output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
 ) (recoveryGlobalPathBindings, error) {
+	if err := journalrecord.ValidateCaptureMutations(actions); err != nil {
+		return nil, err
+	}
 	bindings := make(recoveryGlobalPathBindings)
 	for _, action := range actions {
-		if action.Scope != target.ScopeGlobal {
+		if action.Scope() != target.ScopeGlobal {
 			continue
 		}
-		if _, present := bindings[action.Destination]; present {
+		if _, present := bindings[action.Destination()]; present {
 			continue
 		}
 		observed, err := observeRecoveryGlobalPathBinding(
-			action.Destination,
+			action.Destination(),
 			resolver,
 			rootedCapability,
 		)
 		if err != nil {
 			return nil, err
 		}
-		bindings[action.Destination] = observed
+		bindings[action.Destination()] = observed
 	}
 	return bindings, nil
 }
@@ -70,10 +74,10 @@ func (bindings recoveryGlobalPathBindings) resolver(
 	}
 }
 
-func (bindings recoveryGlobalPathBindings) persisted(
+func (bindings recoveryGlobalPathBindings) captured(
 	scope target.Scope,
 	destination output.Destination,
-) (*recoveryGlobalPathBinding, error) {
+) (*journalrecord.GlobalBinding, error) {
 	if scope != target.ScopeGlobal {
 		return nil, nil
 	}
@@ -81,34 +85,37 @@ func (bindings recoveryGlobalPathBindings) persisted(
 	if !present {
 		return nil, fmt.Errorf("global destination %q has no capture-time path binding", destination)
 	}
-	return binding.persisted()
+	return binding.captureFacts()
 }
 
 func validateRecoveryGlobalPathBindings(
 	ctx context.Context,
-	entries []recoveryEntry,
+	entries []journalrecord.PathEntry,
 	resolver func(output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
 	budget *physicalwork.Budget,
 ) error {
-	validated := make(map[output.Destination]recoveryGlobalPathBinding)
+	validated := make(map[output.Destination]journalrecord.GlobalBindingKey)
 	currentRoots := make(map[string]rootedpath.Authority)
 	for index, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if entry.Scope != string(target.ScopeGlobal) {
+		if err := entry.Validate(); err != nil {
+			return err
+		}
+		if entry.Scope() != target.ScopeGlobal {
 			continue
 		}
-		destination, err := output.Parse(entry.Path)
+		destination, err := output.Parse(entry.Path())
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] global destination: %w", index, err)
 		}
-		if entry.GlobalPathBinding == nil {
+		if !entry.HasGlobalBinding() {
 			return fmt.Errorf("recovery entries[%d] global destination has no capture-time path binding", index)
 		}
 		if previous, present := validated[destination]; present {
-			if previous != *entry.GlobalPathBinding {
+			if previous != entry.BindingIdentity() {
 				return fmt.Errorf(
 					"recovery entries[%d] global destination %q has inconsistent capture-time bindings",
 					index,
@@ -126,10 +133,10 @@ func validateRecoveryGlobalPathBindings(
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d]: %w", index, err)
 		}
-		if err := entry.GlobalPathBinding.match(current, currentRoots, budget); err != nil {
+		if err := matchRecordedGlobalBinding(entry, current, currentRoots, budget); err != nil {
 			return fmt.Errorf("recovery entries[%d] global destination %q: %w", index, destination, err)
 		}
-		validated[destination] = *entry.GlobalPathBinding
+		validated[destination] = entry.BindingIdentity()
 	}
 	return nil
 }
@@ -264,42 +271,21 @@ func observeRecoveryGlobalPathBinding(
 	return recoveryGlobalPathObservation{resolvedPath: path, rootAuthority: authority}, nil
 }
 
-func (binding recoveryGlobalPathObservation) persisted() (*recoveryGlobalPathBinding, error) {
+func (binding recoveryGlobalPathObservation) captureFacts() (*journalrecord.GlobalBinding, error) {
 	provenance, err := binding.rootAuthority.Provenance()
 	if err != nil {
 		return nil, err
 	}
-	return &recoveryGlobalPathBinding{
-		ResolvedPath:   binding.resolvedPath,
-		RootProvenance: persistedRecoveryRootProvenance(provenance),
-	}, nil
+	return journalrecord.NewGlobalBinding(binding.resolvedPath, provenance), nil
 }
 
-func (binding recoveryGlobalPathBinding) canonical() (string, rootedpath.AuthorityProvenance, error) {
-	if err := validateRecoveryResolvedGlobalPath(binding.ResolvedPath); err != nil {
-		return "", rootedpath.AuthorityProvenance{}, err
-	}
-	provenance, err := binding.RootProvenance.canonical()
-	if err != nil {
-		return "", rootedpath.AuthorityProvenance{}, err
-	}
-	relative, err := filepath.Rel(provenance.PhysicalRoot(), binding.ResolvedPath)
-	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", rootedpath.AuthorityProvenance{}, fmt.Errorf(
-			"resolved path %q is not below captured root %q",
-			binding.ResolvedPath,
-			provenance.PhysicalRoot(),
-		)
-	}
-	return binding.ResolvedPath, provenance, nil
-}
-
-func (binding recoveryGlobalPathBinding) match(
+func matchRecordedGlobalBinding(
+	binding journalrecord.PathEntry,
 	current recoveryGlobalPathObservation,
 	currentRoots map[string]rootedpath.Authority,
 	budget *physicalwork.Budget,
 ) error {
-	expectedPath, expectedRoot, err := binding.canonical()
+	expectedPath, expectedRoot, err := binding.GlobalBinding()
 	if err != nil {
 		return err
 	}
@@ -371,13 +357,9 @@ func manifestAuthorityForCapture(
 
 func manifestAuthorityForRecovery(
 	paths Paths,
-	journal recoveryJournal,
+	expected rootedpath.AuthorityProvenance,
 	budget *physicalwork.Budget,
 ) (*manifestAuthoritySession, error) {
-	expected, err := journal.ManifestRootProvenance.canonical()
-	if err != nil {
-		return nil, err
-	}
 	root, err := rootedpath.CaptureRootBounded(
 		paths.ManifestRoot,
 		physicalwork.MaximumPhysicalPathDepth,
@@ -434,18 +416,6 @@ func newManifestAuthoritySessionFromAuthority(
 	}, nil
 }
 
-func (session *manifestAuthoritySession) persisted() recoveryRootProvenance {
-	return persistedRecoveryRootProvenance(session.provenance)
-}
-
-func persistedRecoveryRootProvenance(provenance rootedpath.AuthorityProvenance) recoveryRootProvenance {
-	return recoveryRootProvenance{
-		PhysicalRoot:      provenance.PhysicalRoot(),
-		ObjectFingerprint: provenance.ObjectFingerprint(),
-		MountFingerprint:  provenance.MountFingerprint(),
-	}
-}
-
 func (session *manifestAuthoritySession) acquire(
 	destination output.Destination,
 ) (rootedpath.CommitCapability, error) {
@@ -495,33 +465,6 @@ func (session *manifestAuthoritySession) close() error {
 	err := session.root.Close()
 	session.root = nil
 	return err
-}
-
-func (provenance recoveryRootProvenance) canonical() (rootedpath.AuthorityProvenance, error) {
-	return rootedpath.NewAuthorityProvenance(
-		provenance.PhysicalRoot,
-		provenance.ObjectFingerprint,
-		provenance.MountFingerprint,
-	)
-}
-
-func validateManifestRootProvenance(journal recoveryJournal) error {
-	for index, entry := range journal.Entries {
-		scope, err := target.ParseScope(entry.Scope)
-		if err != nil {
-			return fmt.Errorf("recovery entries[%d].scope: %w", index, err)
-		}
-		if scope != target.ScopeProject {
-			continue
-		}
-		if _, err := rootedpath.NewRelativeDestination(entry.Path); err != nil {
-			return fmt.Errorf("recovery entries[%d] project destination: %w", index, err)
-		}
-	}
-	if _, err := journal.ManifestRootProvenance.canonical(); err != nil {
-		return fmt.Errorf("recovery journal manifest_root_provenance: %w", err)
-	}
-	return nil
 }
 
 // RootedCapabilityResolver acquires a borrowed, current capability for one

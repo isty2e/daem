@@ -7,8 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
@@ -43,12 +46,7 @@ func TestCaptureProjectExistingDirectoryCreatesHashEquivalentRootedBackup(t *tes
 	}
 	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
-	mutation := pathMutation{
-		Kind: pathMutationReplace, Scope: target.ScopeProject,
-		Destination: outputtest.Parse(t, ".agents/skills/review"),
-		LiveExists:  true, LiveHash: contentHash,
-		LivePathExists: true, LivePathHash: contentHash,
-	}
+	mutation := normalizedPathCapture(t, journalrecord.CaptureReplace, target.ScopeProject, outputtest.Parse(t, ".agents/skills/review"), contentHash, realization.PathProjectionDirectory)
 	operationDir := t.TempDir()
 	before, backupIndex, err := captureProjectExistingRecoveryBeforePath(
 		context.Background(),
@@ -96,12 +94,7 @@ func TestCaptureProjectExistingDirectoryRejectsAncestorSymlinkWithoutBackup(t *t
 	}
 	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
-	mutation := pathMutation{
-		Kind: pathMutationReplace, Scope: target.ScopeProject,
-		Destination: outputtest.Parse(t, ".agents/skills/review"),
-		LiveExists:  true, LiveHash: "sha256:unreachable",
-		LivePathExists: true, LivePathHash: "sha256:unreachable",
-	}
+	mutation := normalizedPathCapture(t, journalrecord.CaptureReplace, target.ScopeProject, outputtest.Parse(t, ".agents/skills/review"), testContentHash("unreachable"), realization.PathProjectionDirectory)
 	operationDir := t.TempDir()
 	_, _, err := captureProjectExistingRecoveryBeforePath(
 		context.Background(),
@@ -143,13 +136,7 @@ func TestCaptureProjectExistingFileRejectsOversizedRecoveryBackup(t *testing.T) 
 	}
 	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
-	mutation := pathMutation{
-		Kind: pathMutationReplace, Scope: target.ScopeProject,
-		Destination: outputtest.Parse(t, "large.bin"),
-		LiveExists:  true, LiveHash: artifact.ContentHash("sha256:" + strings.Repeat("0", 64)),
-		LivePathExists: true,
-		LivePathHash:   artifact.ContentHash("sha256:" + strings.Repeat("0", 64)),
-	}
+	mutation := normalizedPathCapture(t, journalrecord.CaptureReplace, target.ScopeProject, outputtest.Parse(t, "large.bin"), artifact.ContentHash("sha256:"+strings.Repeat("0", 64)), realization.PathProjectionFile)
 	operationDir := t.TempDir()
 
 	_, _, err = captureProjectExistingRecoveryBeforePath(

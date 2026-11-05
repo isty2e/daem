@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -29,7 +31,7 @@ func TestRecoveryContentPathBaselineRejectsGlobalFinalSymlink(t *testing.T) {
 	}
 	action := globalClaudeRecoveryBaselineMutation(t)
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]pathMutation{action},
+		[]journalrecord.CaptureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -57,7 +59,7 @@ func TestRecoveryContentPathBaselineResolvesGlobalAncestorSymlink(t *testing.T) 
 	}
 	action := globalClaudeRecoveryBaselineMutation(t)
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]pathMutation{action},
+		[]journalrecord.CaptureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -96,7 +98,7 @@ func TestRecoveryContentPathBaselineRejectsOversizedAggregateDocument(t *testing
 		t.Fatal(err)
 	}
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]pathMutation{action},
+		[]journalrecord.CaptureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -135,11 +137,15 @@ func TestObserveRecoveryContentPathRejectsOversizedAggregateDocument(t *testing.
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
+	contract, present := action.AggregateContract()
+	if !present {
+		t.Fatal("aggregate fixture has no contract")
+	}
 	observation, err := observeGlobalRecoveryPath(
 		t.Context(),
-		action.Destination.String(),
-		string(action.ContentPath),
-		action.AggregateContract,
+		action.Destination().String(),
+		string(action.ContentPath()),
+		&contract,
 		hostPath,
 		journalTestFilesystem(),
 		nil,
@@ -191,7 +197,7 @@ func TestRecoveryContentPathBaselineRejectsPhysicalRootReplacement(t *testing.T)
 
 	action := globalClaudeRecoveryBaselineMutation(t)
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]pathMutation{action},
+		[]journalrecord.CaptureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -239,7 +245,7 @@ func TestRecoveryContentPathBaselineRejectsMismatchedResolverAndCapability(t *te
 
 	action := globalClaudeRecoveryBaselineMutation(t)
 	cache, err := newRecoveryContentPathBaselineCache(
-		[]pathMutation{action},
+		[]journalrecord.CaptureMutation{action},
 		journalTestCodecs(),
 		journalTestFilesystem(),
 	)
@@ -310,19 +316,20 @@ func TestAcquireMatchingRootedCapabilityClosesContradictoryAbsentCapability(t *t
 	}
 }
 
-func globalClaudeRecoveryBaselineMutation(t *testing.T) pathMutation {
+func globalClaudeRecoveryBaselineMutation(t *testing.T) journalrecord.CaptureMutation {
 	t.Helper()
 	return claudeRecoveryBaselineMutation(t, target.ScopeGlobal, "context7")
 }
 
-func recoveryAggregateDocumentMaximumBytes(t *testing.T, action pathMutation) int64 {
+func recoveryAggregateDocumentMaximumBytes(t *testing.T, action journalrecord.CaptureMutation) int64 {
 	t.Helper()
-	if action.AggregateContract == nil {
+	contract, present := action.AggregateContract()
+	if !present {
 		t.Fatal("aggregate recovery action has no contract")
 	}
-	codec, ok := journalTestCodecs().Lookup(action.AggregateContract.CodecContractID())
+	codec, ok := journalTestCodecs().Lookup(contract.CodecContractID())
 	if !ok {
-		t.Fatalf("aggregate codec %q is not admitted", action.AggregateContract.CodecContractID())
+		t.Fatalf("aggregate codec %q is not admitted", contract.CodecContractID())
 	}
 	return codec.MaximumDocumentBytes()
 }

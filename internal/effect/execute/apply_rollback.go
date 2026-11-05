@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -120,7 +122,7 @@ func loadCapturedJournalPlanForStateEntries(
 	ctx context.Context,
 	paths Paths,
 	currentState durable.Snapshot,
-	selected []journal.EntrySelection,
+	selected []journalrecord.EntrySelection,
 	authority *mutationAuthority,
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
@@ -192,7 +194,7 @@ func loadApplyActivePlanForStateEntries(
 	ctx context.Context,
 	paths Paths,
 	currentState durable.Snapshot,
-	selected []journal.EntrySelection,
+	selected []journalrecord.EntrySelection,
 	authority *mutationAuthority,
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
@@ -257,7 +259,7 @@ func settlePreHostApplyFailure(
 			ctx,
 			paths,
 			currentState,
-			[]journal.EntrySelection{},
+			[]journalrecord.EntrySelection{},
 			authority,
 			stateCodec,
 			codecs,
@@ -296,7 +298,7 @@ func applyRecoveryErrorWithEvents(
 	paths Paths,
 	currentState durable.Snapshot,
 	progress hostActionProgress,
-	selections []journal.EntrySelection,
+	selections []journalrecord.EntrySelection,
 	events applyEventEmitter,
 	authority *mutationAuthority,
 	stateCodec durable.SnapshotCodec,
@@ -327,7 +329,7 @@ func applyRecoveryErrorWithEvents(
 	}
 
 	recoveryCtx := context.WithoutCancel(ctx)
-	var rollbackEntries []journal.EntrySelection
+	var rollbackEntries []journalrecord.EntrySelection
 	err := effectExecution.runObservation(
 		settlementPrefix+"/rollback-selection",
 		applyForwardFailureUnavailable,
@@ -522,12 +524,12 @@ func (progress hostEffectProgress) rollbackEligible() bool {
 }
 
 func (progress hostActionProgress) rollbackEntries(
-	selections []journal.EntrySelection,
-) ([]journal.EntrySelection, error) {
+	selections []journalrecord.EntrySelection,
+) ([]journalrecord.EntrySelection, error) {
 	if len(progress.states) != len(selections) {
 		return nil, fmt.Errorf("host action progress count %d does not match entry selection count %d", len(progress.states), len(selections))
 	}
-	selected := make([]journal.EntrySelection, 0, len(selections))
+	selected := make([]journalrecord.EntrySelection, 0, len(selections))
 	for index, state := range progress.states {
 		if state.rollbackEligible() {
 			selected = append(selected, selections[index])

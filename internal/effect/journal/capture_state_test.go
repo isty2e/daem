@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
@@ -18,73 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
-	"github.com/isty2e/daem/test/outputtest"
 )
-
-func TestCaptureRecoveryStateBeforeUsesPreviousStateIdentity(t *testing.T) {
-	sharedHash := testContentHashString("shared")
-	previousState := resourceState(defaultRecoveryEntry(), sharedHash)
-	action := pathMutationFromManagedState(t, previousState)
-	action.Subject = mustTestManagedPathSubject("relocated", "instructions.project.claude")
-	action.ConsumerTargets = []target.Target{target.TargetClaudeCode}
-	action.Destination = outputtest.Parse(t, "CLAUDE.md")
-	state := recoveryManagedStateMap(previousState)
-
-	got, err := captureRecoveryStateBefore(action, state)
-	if err != nil {
-		t.Fatalf("captureRecoveryStateBefore returned error: %v", err)
-	}
-	if !got.Managed || got.ContentHash != sharedHash {
-		t.Fatalf("state before = %#v, want managed previous state", got)
-	}
-}
-
-func TestCaptureRecoveryStateBeforeAcceptsUnchangedIdentity(t *testing.T) {
-	sharedHash := testContentHashString("shared")
-	previousState := resourceState(defaultRecoveryEntry(), sharedHash)
-	action := pathMutationFromManagedState(t, previousState)
-	state := recoveryManagedStateMap(previousState)
-
-	got, err := captureRecoveryStateBefore(action, state)
-	if err != nil {
-		t.Fatalf("captureRecoveryStateBefore returned error: %v", err)
-	}
-	if !got.Managed || got.ContentHash != sharedHash {
-		t.Fatalf("state before = %#v, want managed unchanged state", got)
-	}
-}
-
-func TestCaptureRecoveryStateBeforeRejectsMissingPreviousIdentity(t *testing.T) {
-	sharedHash := testContentHashString("shared")
-	previousState := resourceState(defaultRecoveryEntry(), sharedHash)
-	action := pathMutationFromManagedState(t, previousState)
-	postEntry := recoveryEntryFor(
-		"relocated",
-		"CLAUDE.md",
-		sharedHash,
-		sharedHash,
-		"backup-0000",
-	)
-	postState := resourceState(postEntry, sharedHash)
-	state := recoveryManagedStateMap(postState)
-
-	_, err := captureRecoveryStateBefore(action, state)
-	if err == nil || !strings.Contains(err.Error(), "missing state observation") {
-		t.Fatalf("error = %v, want missing previous identity rejection", err)
-	}
-}
-
-func TestCaptureRecoveryStateBeforeRejectsPreviousHashMismatch(t *testing.T) {
-	previousState := resourceState(defaultRecoveryEntry(), testContentHashString("expected"))
-	action := pathMutationFromManagedState(t, previousState)
-	observed := resourceState(defaultRecoveryEntry(), testContentHashString("observed"))
-	state := recoveryManagedStateMap(observed)
-
-	_, err := captureRecoveryStateBefore(action, state)
-	if err == nil || !strings.Contains(err.Error(), "does not match action previous state hash") {
-		t.Fatalf("error = %v, want previous hash mismatch rejection", err)
-	}
-}
 
 func TestCaptureJournalRejectsBlankRecoveryDirectory(t *testing.T) {
 	_, err := CaptureJournalWithOptions(
@@ -115,16 +51,9 @@ func TestCaptureJournalMissingPreviousIdentityLeavesNoActiveJournalOrHostEffect(
 		t.Fatalf("write host path: %v", err)
 	}
 	contentHash := artifact.HashFileContent(content)
-	previous := resourceState(defaultRecoveryEntry(), string(contentHash))
-	nextEntry := recoveryEntryFor(
-		"shared",
-		"CLAUDE.md",
-		string(contentHash),
-		string(contentHash),
-		"backup-0000",
-	)
-	next := resourceState(nextEntry, string(contentHash))
-	mutation, err := NewManagedPathRecordMutation(
+	previous := inventoryJournalSnapshot(t, string(contentHash)).ManagedPaths()[0]
+	next := testAppliedState(target.TargetClaudeCode, string(contentHash))
+	mutation, err := journalrecord.NewManagedPathRecordMutation(
 		next.Subject(),
 		next.ConsumerTargets(),
 		next.Scope(),
@@ -164,7 +93,7 @@ func TestCaptureJournalMissingPreviousIdentityLeavesNoActiveJournalOrHostEffect(
 		currentState,
 		CaptureOptions{
 			Filesystem:           journalTestFilesystem(),
-			ManagedPathMutations: []ManagedPathMutation{mutation},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             func(output.Destination) (string, error) { return hostPath, nil },
 			StateCodec:           testStateCodec(),
@@ -205,7 +134,7 @@ func TestCaptureJournalRecordsCurrentPhysicalFileMode(t *testing.T) {
 	}
 	contentHash := artifact.HashFileContentWithExecutable(content, true)
 	previous := testAppliedState(target.TargetCodex, string(contentHash))
-	mutation, err := NewManagedPathRecordMutation(
+	mutation, err := journalrecord.NewManagedPathRecordMutation(
 		previous.Subject(),
 		previous.ConsumerTargets(),
 		previous.Scope(),
@@ -246,7 +175,7 @@ func TestCaptureJournalRecordsCurrentPhysicalFileMode(t *testing.T) {
 		currentState,
 		CaptureOptions{
 			Filesystem:           journalTestFilesystem(),
-			ManagedPathMutations: []ManagedPathMutation{mutation},
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             func(output.Destination) (string, error) { return hostPath, nil },
 			StateCodec:           stateEncoder,
@@ -259,20 +188,48 @@ func TestCaptureJournalRecordsCurrentPhysicalFileMode(t *testing.T) {
 		t.Fatalf("state encoder calls = %d, want one call per snapshot", stateEncoder.calls)
 	}
 
-	captured, err := loadRecoveryJournal(
-		context.Background(),
-		journalTestFilesystem(),
-		result.JournalPath,
-		testStateCodec(),
+	plan, err := LoadActivePlanForStateWithOptions(
+		t.Context(),
+		paths,
+		currentState,
+		PlanLoadOptions{
+			Filesystem: journalTestFilesystem(),
+			Resolver:   func(output.Destination) (string, error) { return hostPath, nil },
+			StateCodec: testStateCodec(),
+		},
 	)
 	if err != nil {
-		t.Fatalf("loadRecoveryJournal returned error: %v", err)
+		t.Fatalf("load captured physical-mode recovery plan: %v", err)
 	}
-	mode := captured.Entries[0].Before.PathMode
+	actions := plan.GuardedActions()
+	if len(actions) != 1 {
+		t.Fatalf("guarded recovery actions = %d, want one captured path", len(actions))
+	}
+	mode := actions[0].BeforePathMode
 	if mode == nil || mode.FileMode() != 0o700 {
 		t.Fatalf("before path mode = %v, want 0700", mode)
 	}
-	backupPath := filepath.Join(result.Directory, filepath.FromSlash(captured.Entries[0].Before.BackupPath))
+	snapshot, err := journalTestFilesystem().ReadRegularFileSnapshotUpTo(t.Context(), result.JournalPath, journalrecord.MaximumBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := journalrecord.DecodeOrdinarySnapshot(t.Context(), snapshot, result.JournalPath, testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinary, present := loaded.Ordinary()
+	if !present {
+		t.Fatal("ordinary capture decoded as another journal family")
+	}
+	basis, err := ordinary.RecoveryPlanningBasis(result.Directory, result.RecordFingerprint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := basis.AllEntries()
+	if len(entries) != 1 {
+		t.Fatalf("recorded recovery entries = %d, want one", len(entries))
+	}
+	backupPath := filepath.Join(result.Directory, filepath.FromSlash(entries[0].Backup().Path()))
 	backupInfo, err := os.Stat(backupPath)
 	if err != nil {
 		t.Fatalf("stat executable recovery backup: %v", err)
@@ -424,31 +381,4 @@ func TestCaptureJournalWithOptionsRejectsAfterStateEncodingFailureBeforeFilesyst
 	if _, statErr := os.Lstat(recoveryDir); !os.IsNotExist(statErr) {
 		t.Fatalf("statefile_after encoding failure created recovery storage: %v", statErr)
 	}
-}
-
-func pathMutationFromManagedState(t *testing.T, previous durable.ManagedPathState) pathMutation {
-	t.Helper()
-	return pathMutation{
-		Kind:            pathMutationRecord,
-		Subject:         previous.Subject(),
-		ConsumerTargets: previous.ConsumerTargets(),
-		Scope:           previous.Scope(),
-		Destination:     previous.Destination(),
-		DesiredHash:     previous.ContentHash(),
-		LiveHash:        previous.ContentHash(),
-		LivePathHash:    previous.ContentHash(),
-		ContentKind:     previous.ContentKind(),
-		PreviousState:   previousPathStateFromManaged(previous),
-	}
-}
-
-func recoveryManagedStateMap(states ...durable.ManagedPathState) map[recoveryStateKey]recoveryManagedState {
-	result := make(map[recoveryStateKey]recoveryManagedState, len(states))
-	for _, state := range states {
-		result[recoveryStateKeyForManagedPath(state)] = recoveryManagedState{
-			identity:    recoveryStateIdentityFromManagedPath(state),
-			contentHash: string(state.ContentHash()),
-		}
-	}
-	return result
 }

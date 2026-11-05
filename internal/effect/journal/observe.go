@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -125,7 +127,7 @@ func applyRecoveryIntentOwnershipEvidence(
 
 func recoveryPathObservations(
 	ctx context.Context,
-	entries []recoveryEntry,
+	entries []journalrecord.PathEntry,
 	filesystem mutationfs.Reader,
 	manifestAuthority *manifestAuthoritySession,
 	resolver func(destination output.Destination) (string, error),
@@ -139,24 +141,27 @@ func recoveryPathObservations(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		key := recoveryPathObservationKey{path: entry.Path, contentPath: entry.ContentPath}
+		if err := entry.Validate(); err != nil {
+			return nil, err
+		}
+		key := recoveryPathObservationKey{path: entry.Path(), contentPath: entry.ContentPath()}
 		if _, exists := seen[key]; exists {
 			continue
 		}
 		seen[key] = struct{}{}
-		aggregateContract, err := canonicalRecoveryAggregateContract(entry)
+		aggregateContract, err := entry.AggregateContract()
 		if err != nil {
 			observations = append(observations, recoveryPathObservation{
-				Path: entry.Path, ContentPath: entry.ContentPath, Error: err.Error(),
+				Path: entry.Path(), ContentPath: entry.ContentPath(), Error: err.Error(),
 			})
 			continue
 		}
 
-		if entry.Scope == string(target.ScopeProject) {
+		if entry.Scope() == target.ScopeProject {
 			observation, observeErr := observeProjectRecoveryPath(
 				ctx,
-				entry.Path,
-				entry.ContentPath,
+				entry.Path(),
+				entry.ContentPath(),
 				aggregateContract,
 				filesystem,
 				manifestAuthority,
@@ -164,31 +169,31 @@ func recoveryPathObservations(
 				budget,
 			)
 			if observeErr != nil {
-				return nil, fmt.Errorf("observe project recovery path %q: %w", entry.Path, observeErr)
+				return nil, fmt.Errorf("observe project recovery path %q: %w", entry.Path(), observeErr)
 			}
 			observations = append(observations, observation)
 			continue
 		}
-		destination, err := output.Parse(entry.Path)
+		destination, err := output.Parse(entry.Path())
 		if err != nil {
 			observations = append(observations, recoveryPathObservation{
-				Path: entry.Path, ContentPath: entry.ContentPath, Error: err.Error(),
+				Path: entry.Path(), ContentPath: entry.ContentPath(), Error: err.Error(),
 			})
 			continue
 		}
 		hostPath, err := resolver(destination)
 		if err != nil {
 			observations = append(observations, recoveryPathObservation{
-				Path:        entry.Path,
-				ContentPath: entry.ContentPath,
+				Path:        entry.Path(),
+				ContentPath: entry.ContentPath(),
 				Error:       err.Error(),
 			})
 			continue
 		}
 		observation, observeErr := observeGlobalRecoveryPath(
 			ctx,
-			entry.Path,
-			entry.ContentPath,
+			entry.Path(),
+			entry.ContentPath(),
 			aggregateContract,
 			hostPath,
 			filesystem,
@@ -197,58 +202,12 @@ func recoveryPathObservations(
 			budget,
 		)
 		if observeErr != nil {
-			return nil, fmt.Errorf("observe recovery path %q: %w", entry.Path, observeErr)
+			return nil, fmt.Errorf("observe recovery path %q: %w", entry.Path(), observeErr)
 		}
 		observations = append(observations, observation)
 	}
 
 	return observations, nil
-}
-
-func canonicalRecoveryAggregateContract(
-	entry recoveryEntry,
-) (*aggregate.ProjectionContract, error) {
-	var contract aggregate.ProjectionContract
-	if entry.Aggregate != nil {
-		canonical, err := entry.Aggregate.canonical()
-		if err != nil {
-			return nil, fmt.Errorf("recovery aggregate contract: %w", err)
-		}
-		contract = canonical
-	} else {
-		if entry.ContentPath != "" {
-			return nil, fmt.Errorf("recovery aggregate projection contract is required")
-		}
-		return nil, nil
-	}
-
-	subject, err := entry.Subject.canonical()
-	if err != nil {
-		return nil, fmt.Errorf("recovery aggregate projection subject: %w", err)
-	}
-	selectedTarget, err := target.ParseTarget(entry.Target)
-	if err != nil {
-		return nil, fmt.Errorf("recovery aggregate projection target: %w", err)
-	}
-	selectedScope, err := target.ParseScope(entry.Scope)
-	if err != nil {
-		return nil, fmt.Errorf("recovery aggregate projection scope: %w", err)
-	}
-	destination, err := output.Parse(entry.Path)
-	if err != nil {
-		return nil, fmt.Errorf("recovery aggregate projection destination: %w", err)
-	}
-	if err := validateAggregateProjectionCorrelation(
-		subject,
-		selectedTarget,
-		selectedScope,
-		destination,
-		output.ContentPath(entry.ContentPath),
-		contract,
-	); err != nil {
-		return nil, fmt.Errorf("recovery %w", err)
-	}
-	return pointerToAggregateContract(contract), nil
 }
 
 type recoveryPathObservationKey struct {
@@ -260,7 +219,7 @@ func recoveryBackupObservations(
 	ctx context.Context,
 	operationDir string,
 	activeAuthority ActiveJournalAuthority,
-	entries []recoveryEntry,
+	entries []journalrecord.PathEntry,
 	filesystem mutationfs.RootedReader,
 	budget *physicalwork.Budget,
 ) ([]recoveryBackupObservation, error) {
@@ -270,15 +229,18 @@ func recoveryBackupObservations(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if !entry.Before.Existed ||
-			(entry.Before.Kind != recovery.PathKindFile && entry.Before.Kind != recovery.PathKindDirectory) {
+		if err := entry.Validate(); err != nil {
+			return nil, err
+		}
+		if !entry.Backup().Existed() ||
+			(entry.Backup().Kind() != recovery.PathKindFile && entry.Backup().Kind() != recovery.PathKindDirectory) {
 			continue
 		}
-		if _, exists := seen[entry.Before.BackupPath]; exists {
+		if _, exists := seen[entry.Backup().Path()]; exists {
 			continue
 		}
-		seen[entry.Before.BackupPath] = struct{}{}
-		backupPaths = append(backupPaths, entry.Before.BackupPath)
+		seen[entry.Backup().Path()] = struct{}{}
+		backupPaths = append(backupPaths, entry.Backup().Path())
 	}
 	if len(backupPaths) == 0 {
 		return []recoveryBackupObservation{}, nil
@@ -523,4 +485,44 @@ func recoveryArtifactWorkLimits(
 		max(int64(1), maximumBytes),
 	)
 	return maximum, readerCapacity, err
+}
+
+func canonicalRecoveryPathEvidence(values []recoveryPathObservation) []recovery.PathEvidence {
+	result := make([]recovery.PathEvidence, len(values))
+	for index, value := range values {
+		mode := value.PathMode
+		if mode != nil {
+			copied := *mode
+			mode = &copied
+		}
+		result[index] = recovery.PathEvidence{
+			Path:          value.Path,
+			ContentPath:   value.ContentPath,
+			Exists:        value.Exists,
+			PathExisted:   value.PathExisted,
+			PathMode:      mode,
+			Kind:          value.Kind,
+			ContentHash:   value.ContentHash,
+			LinkTarget:    value.LinkTarget,
+			BlockedReason: value.BlockedReason,
+			BlockedDetail: value.BlockedDetail,
+			Error:         value.Error,
+		}
+	}
+	return result
+}
+
+func canonicalRecoveryBackupEvidence(values []recoveryBackupObservation) []recovery.BackupEvidence {
+	result := make([]recovery.BackupEvidence, len(values))
+	for index, value := range values {
+		result[index] = recovery.BackupEvidence{
+			BackupPath:  value.BackupPath,
+			Exists:      value.Exists,
+			Kind:        value.Kind,
+			ContentHash: value.ContentHash,
+			Error:       value.Error,
+			Work:        value.Work,
+		}
+	}
+	return result
 }

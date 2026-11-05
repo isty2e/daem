@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -22,7 +24,7 @@ func captureRecoveryBeforePath(
 	ctx context.Context,
 	operationDir string,
 	backupIndex int,
-	action pathMutation,
+	action journalrecord.CaptureMutation,
 	filesystem mutationfs.Reader,
 	resolver func(destination output.Destination) (string, error),
 	manifestAuthority *manifestAuthoritySession,
@@ -30,8 +32,11 @@ func captureRecoveryBeforePath(
 	contentPathBaselines *recoveryContentPathBaselineCache,
 	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
-	if action.ContentPath != "" {
-		if action.Scope == target.ScopeProject {
+	if err := action.Validate(); err != nil {
+		return recovery.BeforePathState{}, backupIndex, err
+	}
+	if action.ContentPath() != "" {
+		if action.Scope() == target.ScopeProject {
 			return captureProjectContentPathRecoveryBeforePath(
 				ctx,
 				operationDir,
@@ -55,17 +60,17 @@ func captureRecoveryBeforePath(
 			work,
 		)
 	}
-	if action.Kind == pathMutationCreate {
-		if action.LiveExists {
-			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q exists before create action", action.Destination)
+	if action.Kind() == journalrecord.CaptureCreate {
+		if action.LiveExists() {
+			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q exists before create action", action.Destination())
 		}
-		if !action.LivePathExists {
-			if action.Scope == target.ScopeProject {
+		if !action.LivePathExists() {
+			if action.Scope() == target.ScopeProject {
 				if err := validateAbsentProjectRecoveryPath(ctx, filesystem, action, manifestAuthority); err != nil {
 					return recovery.BeforePathState{}, backupIndex, err
 				}
 			} else if capability, present, err := acquireRootedJournalCapability(
-				action.Destination,
+				action.Destination(),
 				resolver,
 				rootedCapability,
 			); err != nil {
@@ -73,7 +78,7 @@ func captureRecoveryBeforePath(
 			} else if present {
 				if _, captureErr := filesystem.CaptureRootedEntryIdentity(ctx, capability); captureErr == nil {
 					_ = capability.Close()
-					return recovery.BeforePathState{}, backupIndex, fmt.Errorf("destination %q appeared after observation", action.Destination)
+					return recovery.BeforePathState{}, backupIndex, fmt.Errorf("destination %q appeared after observation", action.Destination())
 				} else if !errors.Is(captureErr, os.ErrNotExist) {
 					return recovery.BeforePathState{}, backupIndex, errors.Join(captureErr, capability.Close())
 				}
@@ -83,7 +88,7 @@ func captureRecoveryBeforePath(
 			}
 			return recovery.BeforePathState{Existed: false}, backupIndex, nil
 		}
-		if action.Scope == target.ScopeProject {
+		if action.Scope() == target.ScopeProject {
 			return captureProjectExistingRecoveryBeforePath(
 				ctx,
 				filesystem,
@@ -95,7 +100,7 @@ func captureRecoveryBeforePath(
 			)
 		}
 		if capability, present, err := acquireRootedJournalCapability(
-			action.Destination,
+			action.Destination(),
 			resolver,
 			rootedCapability,
 		); err != nil {
@@ -109,20 +114,20 @@ func captureRecoveryBeforePath(
 			ctx, filesystem, operationDir, backupIndex, action, resolver,
 		)
 	}
-	if !action.LiveExists {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q is missing before %s action", action.Destination, action.Kind)
+	if !action.LiveExists() {
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q is missing before %s action", action.Destination(), action.Kind())
 	}
-	if action.LiveHash == "" {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation %q content hash is required", action.Destination)
+	if action.LiveHash() == "" {
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation %q content hash is required", action.Destination())
 	}
-	if !action.LivePathExists {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation path %q is missing before %s action", action.Destination, action.Kind)
+	if !action.LivePathExists() {
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation path %q is missing before %s action", action.Destination(), action.Kind())
 	}
-	if action.LivePathHash == "" {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation %q path content hash is required", action.Destination)
+	if action.LivePathHash() == "" {
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation %q path content hash is required", action.Destination())
 	}
 
-	if action.Scope == target.ScopeProject {
+	if action.Scope() == target.ScopeProject {
 		return captureProjectExistingRecoveryBeforePath(
 			ctx,
 			filesystem,
@@ -134,7 +139,7 @@ func captureRecoveryBeforePath(
 		)
 	}
 	if capability, present, err := acquireRootedJournalCapability(
-		action.Destination,
+		action.Destination(),
 		resolver,
 		rootedCapability,
 	); err != nil {
@@ -179,7 +184,7 @@ func captureAndCloseRootedRecoveryBefore(
 	filesystem mutationfs.RootedReader,
 	operationDir string,
 	backupIndex int,
-	action pathMutation,
+	action journalrecord.CaptureMutation,
 	capability rootedpath.CommitCapability,
 	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
@@ -197,16 +202,16 @@ func captureContentPathRecoveryBeforePath(
 	ctx context.Context,
 	operationDir string,
 	backupIndex int,
-	action pathMutation,
+	action journalrecord.CaptureMutation,
 	resolver func(destination output.Destination) (string, error),
 	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,
 	contentPathBaselines *recoveryContentPathBaselineCache,
 	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
-	if action.Kind == pathMutationCreate {
-		if action.LiveExists {
-			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q content path %q exists before create action", action.Destination, action.ContentPath)
+	if action.Kind() == journalrecord.CaptureCreate {
+		if action.LiveExists() {
+			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q content path %q exists before create action", action.Destination(), action.ContentPath())
 		}
 		before, err := captureAbsentContentPathRecoveryBefore(
 			ctx,
@@ -218,14 +223,14 @@ func captureContentPathRecoveryBeforePath(
 		)
 		return before, backupIndex, err
 	}
-	if !action.LiveExists {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q content path %q is missing before %s action", action.Destination, action.ContentPath, action.Kind)
+	if !action.LiveExists() {
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q content path %q is missing before %s action", action.Destination(), action.ContentPath(), action.Kind())
 	}
-	if action.LiveHash == "" {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation %q content path %q content hash is required", action.Destination, action.ContentPath)
+	if action.LiveHash() == "" {
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation %q content path %q content hash is required", action.Destination(), action.ContentPath())
 	}
-	if !action.LivePathExists {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation path %q is missing before %s action", action.Destination, action.Kind)
+	if !action.LivePathExists() {
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation path %q is missing before %s action", action.Destination(), action.Kind())
 	}
 
 	baseline, err := contentPathBaselines.capture(
@@ -238,22 +243,22 @@ func captureContentPathRecoveryBeforePath(
 	if err != nil {
 		return recovery.BeforePathState{}, backupIndex, err
 	}
-	projection, present, err := baseline.projection(action.ContentPath)
+	projection, present, err := baseline.projection(action.ContentPath())
 	if err != nil {
 		return recovery.BeforePathState{}, backupIndex, err
 	}
 	if !present {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q content path %q reported existing projection but extraction found none", action.Destination, action.ContentPath)
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation for %q content path %q reported existing projection but extraction found none", action.Destination(), action.ContentPath())
 	}
-	if hash := artifact.HashFileContent(projection); hash != action.LiveHash {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation %q content path %q hash %q does not match extracted projection hash %q", action.Destination, action.ContentPath, action.LiveHash, hash)
+	if hash := artifact.HashFileContent(projection); hash != action.LiveHash() {
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("live observation %q content path %q hash %q does not match extracted projection hash %q", action.Destination(), action.ContentPath(), action.LiveHash(), hash)
 	}
 
 	backupIndex++
 	backupPath := filepath.ToSlash(filepath.Join("files", fmt.Sprintf("%06d", backupIndex)))
 	absoluteBackupPath := filepath.Join(operationDir, filepath.FromSlash(backupPath))
 	if err := work.writeFile(absoluteBackupPath, projection, 0o600); err != nil {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("copy recovery projection backup for %q content path %q: %w", action.Destination, action.ContentPath, err)
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("copy recovery projection backup for %q content path %q: %w", action.Destination(), action.ContentPath(), err)
 	}
 
 	return recovery.BeforePathState{
@@ -262,20 +267,20 @@ func captureContentPathRecoveryBeforePath(
 		ParentExisted: true,
 		PathMode:      recovery.NewPermissionMode(baseline.mode),
 		Kind:          recovery.PathKindFile,
-		ContentHash:   string(action.LiveHash),
+		ContentHash:   string(action.LiveHash()),
 		BackupPath:    backupPath,
 	}, backupIndex, nil
 }
 
 func captureAbsentContentPathRecoveryBefore(
 	ctx context.Context,
-	action pathMutation,
+	action journalrecord.CaptureMutation,
 	resolver func(destination output.Destination) (string, error),
 	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,
 	contentPathBaselines *recoveryContentPathBaselineCache,
 ) (recovery.BeforePathState, error) {
-	if !action.LivePathExists {
+	if !action.LivePathExists() {
 		return recovery.BeforePathState{Existed: false}, nil
 	}
 	baseline, err := contentPathBaselines.capture(
@@ -288,7 +293,7 @@ func captureAbsentContentPathRecoveryBefore(
 	if err != nil {
 		return recovery.BeforePathState{}, err
 	}
-	parentExisted, err := baseline.parentExisted(action.ContentPath)
+	parentExisted, err := baseline.parentExisted(action.ContentPath())
 	if err != nil {
 		return recovery.BeforePathState{}, err
 	}
@@ -305,22 +310,22 @@ func captureExistingRecoveryBeforePath(
 	filesystem mutationfs.PathReader,
 	operationDir string,
 	backupIndex int,
-	action pathMutation,
+	action journalrecord.CaptureMutation,
 	resolver func(destination output.Destination) (string, error),
 ) (recovery.BeforePathState, int, error) {
-	hostPath, err := resolver(action.Destination)
+	hostPath, err := resolver(action.Destination())
 	if err != nil {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("resolve destination %q: %w", action.Destination, err)
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("resolve destination %q: %w", action.Destination(), err)
 	}
 	info, err := os.Lstat(hostPath)
 	if err != nil {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("stat destination %q: %w", action.Destination, err)
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("stat destination %q: %w", action.Destination(), err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("recovery journal cannot capture symlink destination %q yet", action.Destination)
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("recovery journal cannot capture symlink destination %q yet", action.Destination())
 	}
 	if !info.Mode().IsRegular() && !info.IsDir() {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("destination %q has unsupported file mode %s", action.Destination, info.Mode())
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("destination %q has unsupported file mode %s", action.Destination(), info.Mode())
 	}
 
 	backupIndex++
@@ -331,14 +336,14 @@ func captureExistingRecoveryBeforePath(
 	if info.IsDir() {
 		pathKind = recovery.PathKindDirectory
 		if err := copyDirectory(hostPath, absoluteBackupPath); err != nil {
-			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("copy recovery backup for %q: %w", action.Destination, err)
+			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("copy recovery backup for %q: %w", action.Destination(), err)
 		}
 	} else {
 		commitPath, err := mutation.CanonicalDirectoryEntryPath(hostPath)
 		if err != nil {
 			return recovery.BeforePathState{}, backupIndex, fmt.Errorf(
 				"canonicalize recovery backup source for %q: %w",
-				action.Destination,
+				action.Destination(),
 				err,
 			)
 		}
@@ -348,23 +353,23 @@ func captureExistingRecoveryBeforePath(
 			recovery.MaximumRecoveryBackupFileBytes,
 		)
 		if err != nil {
-			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("read recovery backup for %q: %w", action.Destination, err)
+			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("read recovery backup for %q: %w", action.Destination(), err)
 		}
 		content := snapshot.Content()
 		capturedHash := artifact.HashFileContentWithExecutable(
 			content,
 			snapshot.Mode().Perm()&0o111 != 0,
 		)
-		if capturedHash != action.LivePathHash {
+		if capturedHash != action.LivePathHash() {
 			return recovery.BeforePathState{}, backupIndex, fmt.Errorf(
 				"captured path %q hash %q does not match live observation %q",
-				action.Destination,
+				action.Destination(),
 				capturedHash,
-				action.LivePathHash,
+				action.LivePathHash(),
 			)
 		}
 		if err := writeRecoveryBackupFile(absoluteBackupPath, content, snapshot.Mode()); err != nil {
-			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("copy recovery backup for %q: %w", action.Destination, err)
+			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("copy recovery backup for %q: %w", action.Destination(), err)
 		}
 		pathMode = recovery.NewPermissionMode(snapshot.Mode())
 	}
@@ -373,7 +378,7 @@ func captureExistingRecoveryBeforePath(
 		Existed:     true,
 		PathMode:    pathMode,
 		Kind:        pathKind,
-		ContentHash: string(action.LivePathHash),
+		ContentHash: string(action.LivePathHash()),
 		BackupPath:  backupPath,
 	}, backupIndex, nil
 }

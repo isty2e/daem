@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -586,7 +587,7 @@ func newProjectPathRecoveryFixture(
 		DataDir:       filepath.Join(stateDir, "data"),
 	}
 
-	mutations := make([]journal.ManagedPathMutation, 0, len(specs))
+	mutations := make([]journalrecord.ManagedPathMutation, 0, len(specs))
 	evidence := make([]observe.ManagedPathEvidence, 0, len(specs))
 	currentPaths := make([]durable.ManagedPathState, 0, len(specs))
 	nextPaths := make([]durable.ManagedPathState, 0, len(specs))
@@ -657,7 +658,7 @@ func newProjectPathRecoveryFixture(
 		if err != nil {
 			t.Fatalf("construct next recovery path %q: %v", spec.destination, err)
 		}
-		mutationRequest, err := journal.NewManagedPathReplaceMutation(
+		mutationRequest, err := journalrecord.NewManagedPathReplaceMutation(
 			subject,
 			spec.consumerTargets,
 			target.ScopeProject,

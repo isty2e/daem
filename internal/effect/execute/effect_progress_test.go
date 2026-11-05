@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
@@ -44,7 +44,7 @@ func TestHostEffectProgressSeparatesUntouchedTouchedAndIndeterminate(t *testing.
 }
 
 func TestHostActionProgressSelectsOnlySuccessfullyTouchedEntries(t *testing.T) {
-	selections := make([]journal.EntrySelection, 3)
+	selections := make([]journalrecord.EntrySelection, 3)
 	progress := newHostActionProgress(len(selections))
 	progress.record(1, hostEffectExpectedAfter)
 
@@ -60,7 +60,7 @@ func TestHostActionProgressSelectsOnlySuccessfullyTouchedEntries(t *testing.T) {
 func TestHostActionProgressRejectsExpectedStateCardinalityDrift(t *testing.T) {
 	progress := newHostActionProgress(2)
 
-	_, err := progress.rollbackEntries([]journal.EntrySelection{{}})
+	_, err := progress.rollbackEntries([]journalrecord.EntrySelection{{}})
 	if err == nil || !strings.Contains(err.Error(), "progress count 2 does not match entry selection count 1") {
 		t.Fatalf("rollbackEntries error = %v, want cardinality mismatch", err)
 	}

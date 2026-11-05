@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -66,7 +67,7 @@ func PromoteProvisionalAcquire(
 		return ProvisionalAcquirePromotion{}, fmt.Errorf("recovery journal promotion fingerprint is required")
 	}
 	if stateCodec == nil {
-		return ProvisionalAcquirePromotion{}, errRecoveryJournalStateCodecRequired
+		return ProvisionalAcquirePromotion{}, journalrecord.ErrStateCodecRequired
 	}
 	if err := intent.Validate(); err != nil {
 		return ProvisionalAcquirePromotion{}, fmt.Errorf("recovery journal promotion intent: %w", err)
@@ -101,20 +102,20 @@ func PromoteProvisionalAcquire(
 		)
 	}
 
-	candidate, err := recoveryJournalAfterPromotion(current, intent, transition, stateCodec)
+	candidate, err := current.PromoteProvisionalAcquire(intent, transition, stateCodec)
 	if err != nil {
 		return ProvisionalAcquirePromotion{}, errors.Join(err, capability.Close())
 	}
-	content, err := marshalRecoveryJournalWithStateContentForPromotion(candidate, stateCodec)
+	content, err := candidate.Encode(stateCodec)
 	if err != nil {
 		return ProvisionalAcquirePromotion{}, errors.Join(err, capability.Close())
 	}
-	candidateFingerprint := recoveryJournalRecordFingerprint(content)
+	candidateFingerprint := journalrecord.Fingerprint(content)
 	outcome, refreshedParent, replaceErr := filesystem.ReplaceRootedFileAndRefreshParent(
 		ctx,
 		capability,
 		content,
-		recoveryJournalMode,
+		journalrecord.Mode,
 		snapshot.Identity(),
 		activeAuthority.identity,
 	)
@@ -158,7 +159,7 @@ func PromoteProvisionalAcquire(
 	closeErr := verificationCapability.Close()
 	if verifiedFingerprint != candidateFingerprint ||
 		!bytes.Equal(verifiedSnapshot.Content(), content) ||
-		!samePromotedJournal(candidate, verified, stateCodec) {
+		!candidate.SameAuthorityFingerprint(verified, stateCodec) {
 		return result, errors.Join(
 			fmt.Errorf("promoted recovery journal postcondition differs from committed candidate"),
 			closeErr,
@@ -187,111 +188,33 @@ func readPromotionRecord(
 ) (
 	rootedpath.CommitCapability,
 	mutationfs.RegularFileSnapshot,
-	recoveryJournal,
+	journalrecord.Ordinary,
 	string,
 	error,
 ) {
 	capability, err := authority.Acquire()
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, recoveryJournal{}, "", err
+		return nil, mutationfs.RegularFileSnapshot{}, journalrecord.Ordinary{}, "", err
 	}
 	content, mode, identity, err := filesystem.ReadRootedRegularFileUpTo(
 		ctx,
 		capability,
-		maximumRecoveryJournalBytes,
+		journalrecord.MaximumBytes,
 	)
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, recoveryJournal{}, "", errors.Join(err, capability.Close())
+		return nil, mutationfs.RegularFileSnapshot{}, journalrecord.Ordinary{}, "", errors.Join(err, capability.Close())
 	}
 	snapshot, err := mutationfs.NewRegularFileSnapshot(content, mode, identity)
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, recoveryJournal{}, "", errors.Join(err, capability.Close())
+		return nil, mutationfs.RegularFileSnapshot{}, journalrecord.Ordinary{}, "", errors.Join(err, capability.Close())
 	}
-	current, err := decodeRecoveryJournalSnapshot(snapshot, recoveryJournalFileName, stateCodec)
+	loaded, err := journalrecord.DecodeOrdinarySnapshot(ctx, snapshot, journalrecord.FileName, stateCodec)
 	if err != nil {
-		return nil, mutationfs.RegularFileSnapshot{}, recoveryJournal{}, "", errors.Join(err, capability.Close())
+		return nil, mutationfs.RegularFileSnapshot{}, journalrecord.Ordinary{}, "", errors.Join(err, capability.Close())
 	}
-	return capability, snapshot, current, recoveryJournalRecordFingerprint(content), nil
-}
-
-func recoveryJournalAfterPromotion(
-	current recoveryJournal,
-	intent outputownership.ProvisionalAcquireIntent,
-	transition ownershipmutation.ClaimTransition,
-	stateCodec durable.SnapshotCodec,
-) (recoveryJournal, error) {
-	material := ordinaryCaptureMaterial{
-		OperationID: current.OperationID, Entries: current.Entries,
-		ClaimTransitions: current.ClaimTransitions, ProvisionalAcquires: current.ProvisionalAcquires,
+	current, ordinary := loaded.Ordinary()
+	if !ordinary {
+		return nil, mutationfs.RegularFileSnapshot{}, journalrecord.Ordinary{}, "", errors.Join(fmt.Errorf("ordinary promotion record is required"), capability.Close())
 	}
-	promoted, err := material.promoteOwnership(intent, transition)
-	if err != nil {
-		return recoveryJournal{}, err
-	}
-	candidate := current
-	candidate.Entries, candidate.ClaimTransitions, candidate.ProvisionalAcquires = promoted.Entries, promoted.ClaimTransitions, promoted.ProvisionalAcquires
-	if err := validateRecoveryJournal(candidate, stateCodec); err != nil {
-		return recoveryJournal{}, fmt.Errorf("validate promoted recovery journal: %w", err)
-	}
-	return candidate, nil
-}
-
-func promotedIntentEntryIndex(
-	entries []recoveryEntry,
-	intent outputownership.ProvisionalAcquireIntent,
-) (int, error) {
-	contentPath, err := intent.LegacyContentPath()
-	if err != nil {
-		return -1, err
-	}
-	matchedIndex := -1
-	for index, entry := range entries {
-		if entry.Path != intent.Destination().String() ||
-			entry.ContentPath != string(contentPath) {
-			continue
-		}
-		if matchedIndex >= 0 {
-			return -1, fmt.Errorf("recovery journal contains multiple entries for promoted ownership intent")
-		}
-		allowed, err := recoveryEntryAllowsTransition(entry, ownershipmutation.TransitionAcquire)
-		if err != nil {
-			return -1, err
-		}
-		if !allowed {
-			return -1, fmt.Errorf("recovery journal entry does not admit ownership acquisition")
-		}
-		if entry.OwnershipPathAuthority != nil {
-			return -1, fmt.Errorf("provisional ownership intent entry already carries exact path authority")
-		}
-		matchedIndex = index
-	}
-	if matchedIndex < 0 {
-		return -1, fmt.Errorf("recovery journal contains no entry for promoted ownership intent")
-	}
-	return matchedIndex, nil
-}
-
-func marshalRecoveryJournalWithStateContentForPromotion(
-	journal recoveryJournal,
-	stateCodec durable.SnapshotCodec,
-) ([]byte, error) {
-	before, after, err := encodeRecoveryJournalSnapshots(
-		journal.StatefileBefore,
-		journal.StatefileAfter,
-		stateCodec,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return marshalRecoveryJournalWithStateContent(journal, before, after)
-}
-
-func samePromotedJournal(
-	expected recoveryJournal,
-	actual recoveryJournal,
-	stateCodec durable.SnapshotCodec,
-) bool {
-	expectedFingerprint, expectedErr := recoveryJournalAuthorityFingerprint(expected, stateCodec)
-	actualFingerprint, actualErr := recoveryJournalAuthorityFingerprint(actual, stateCodec)
-	return expectedErr == nil && actualErr == nil && expectedFingerprint == actualFingerprint
+	return capability, snapshot, current, journalrecord.Fingerprint(content), nil
 }

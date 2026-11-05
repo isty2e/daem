@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -190,7 +191,7 @@ func TestRecoveryRootInventoryBlocksJournalPayloadViolations(t *testing.T) {
 		{
 			name: "oversized",
 			mutate: func(t *testing.T, result CaptureResult) {
-				if err := os.Truncate(result.JournalPath, maximumRecoveryJournalBytes+1); err != nil {
+				if err := os.Truncate(result.JournalPath, journalrecord.MaximumBytes+1); err != nil {
 					t.Fatalf("enlarge recovery journal: %v", err)
 				}
 			},
@@ -382,7 +383,7 @@ func TestRecoveryPlanLoadersSelectOneAuthorityKind(t *testing.T) {
 				Filesystem: journalTestFilesystem(),
 				StateCodec: testStateCodec(),
 				StateReader: func(context.Context) (durable.Snapshot, error) {
-					return beforeStatefile(), nil
+					return inventoryJournalSnapshot(t, "before"), nil
 				},
 				ValidateBeforeActiveObservation: func(context.Context) error {
 					validationCalls++
@@ -466,7 +467,7 @@ func TestRecoveryRootInventoryPropagatesCapabilityAndCancellationErrors(t *testi
 	_, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
 		Filesystem: journalTestFilesystem(),
 	})
-	if !errors.Is(err, errRecoveryJournalStateCodecRequired) {
+	if !errors.Is(err, journalrecord.ErrStateCodecRequired) {
 		t.Fatalf("missing-codec error = %v", err)
 	}
 

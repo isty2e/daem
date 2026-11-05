@@ -1,0 +1,219 @@
+package observation
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
+	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/output/ownership"
+	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/target"
+)
+
+type nativePlanningOwnershipBaseline struct {
+	namespace  journalnamespace.DocumentNamespace
+	comparison pathauthority.Exact
+	claims     []ownership.Claim
+}
+
+// OwnershipProjection answers read-only questions about the batch's
+// retained Registry and qualified before facts. It neither observes again nor
+// grants live state, root, source or mutation authority.
+type OwnershipProjection struct {
+	owner       stateauthority.Authority
+	registry    ownership.Registry
+	before      journaldocument.SnapshotIndex
+	baselines   map[aggregate.DocumentAddress]nativePlanningOwnershipBaseline
+	budget      *physicalwork.Budget
+	initialized bool
+}
+
+func (batch Batch) Ownership(ctx context.Context) (OwnershipProjection, error) {
+	if ctx == nil || !batch.initialized {
+		return OwnershipProjection{}, fmt.Errorf("native observation batch and context are required")
+	}
+	if err := errors.Join(ctx.Err(), batch.budget.RequireCapturePending()); err != nil {
+		return OwnershipProjection{}, err
+	}
+	before, err := journaldocument.IndexSnapshot(ctx, batch.before)
+	if err != nil {
+		return OwnershipProjection{}, err
+	}
+	native, err := before.NativeDestinations(ctx)
+	if err != nil {
+		return OwnershipProjection{}, err
+	}
+	owned := make(map[string][]ownership.Claim)
+	for _, claim := range batch.registry.Claims() {
+		if err := ctx.Err(); err != nil {
+			return OwnershipProjection{}, err
+		}
+		if claim.OwnedBy(batch.owner) {
+			owned[claim.Address().Path()] = append(owned[claim.Address().Path()], claim)
+		}
+	}
+	baselines := make(map[aggregate.DocumentAddress]nativePlanningOwnershipBaseline)
+	input := nativeCaptureOwnershipInput{owner: batch.owner}
+	for _, namespace := range batch.namespaces {
+		footprints, err := before.Footprints(ctx, namespace.Addresses())
+		if err != nil {
+			return OwnershipProjection{}, err
+		}
+		comparison, claims, err := nativeDocumentClaimBaseline(namespace, owned, footprints)
+		if err != nil {
+			return OwnershipProjection{}, err
+		}
+		bindings, err := input.documentBindings(ctx, namespace, batch.registry, native, native)
+		if err != nil {
+			return OwnershipProjection{}, err
+		}
+		if comparison.IsZero() {
+			for _, binding := range bindings {
+				if value, present := binding.Before().Get(); present {
+					comparison = value.PathAuthority()
+					break
+				}
+			}
+		}
+		baseline := nativePlanningOwnershipBaseline{namespace: namespace, comparison: comparison, claims: claims}
+		for _, alias := range namespace.Addresses() {
+			baselines[alias] = baseline
+		}
+	}
+	projection := OwnershipProjection{owner: batch.owner, registry: batch.registry, before: before, baselines: baselines, budget: batch.budget, initialized: true}
+	if err := projection.validate(ctx); err != nil {
+		return OwnershipProjection{}, err
+	}
+	return projection, nil
+}
+
+func (projection OwnershipProjection) validate(ctx context.Context) error {
+	if ctx == nil || !projection.initialized {
+		return fmt.Errorf("native ownership projection and context are required")
+	}
+	return errors.Join(ctx.Err(), projection.budget.RequireCapturePending())
+}
+
+func (projection OwnershipProjection) Global(ctx context.Context, alias aggregate.DocumentAddress, footprint output.Footprint) (observe.OwnershipObservation, error) {
+	if err := projection.validate(ctx); err != nil {
+		return observe.OwnershipObservation{}, err
+	}
+	baseline, present := projection.baselines[alias]
+	if !present || alias.Scope() != target.ScopeGlobal {
+		return observe.OwnershipObservation{}, fmt.Errorf("global ownership requires an observed global alias")
+	}
+	if err := footprint.Validate(); err != nil {
+		return observe.OwnershipObservation{}, err
+	}
+	claimValue := ownership.NoClaim()
+	if !baseline.comparison.IsZero() {
+		address, err := ownership.NewManagedAddress(baseline.comparison, footprint)
+		if err != nil {
+			return observe.OwnershipObservation{}, err
+		}
+		if claim, found := projection.registry.Conflict(address); found {
+			claimValue, _ = ownership.PresentClaim(claim)
+		}
+	} else {
+		missing, _ := baseline.namespace.Observation().Provisional()
+		if claim, found := projection.registry.ProvisionalAncestorConflict(missing); found {
+			claimValue, _ = ownership.PresentClaim(claim)
+		}
+	}
+	if err := projection.validate(ctx); err != nil {
+		return observe.OwnershipObservation{}, err
+	}
+	if exact, current := baseline.namespace.Observation().Exact(); current {
+		address, err := ownership.NewManagedAddress(exact, footprint)
+		if err != nil {
+			return observe.OwnershipObservation{}, err
+		}
+		return observe.NewExactOwnershipObservation(alias.AggregateRoot(), footprint, address, claimValue)
+	}
+	missing, _ := baseline.namespace.Observation().Provisional()
+	return observe.NewProvisionalOwnershipObservation(alias.AggregateRoot(), footprint, missing, claimValue)
+}
+
+func (projection OwnershipProjection) Participants(ctx context.Context, alias aggregate.DocumentAddress) (observe.NativeDocumentParticipants, error) {
+	if err := projection.validate(ctx); err != nil {
+		return observe.NativeDocumentParticipants{}, err
+	}
+	baseline, present := projection.baselines[alias]
+	if !present {
+		return observe.NativeDocumentParticipants{}, fmt.Errorf("native participants require an observed alias")
+	}
+	var bindings []ownership.DocumentBinding
+	var err error
+	if exact, current := baseline.namespace.Observation().Exact(); current {
+		bindings, err = projection.registry.DocumentBindingsAt(exact)
+	} else if missing, provisional := baseline.namespace.Observation().Provisional(); provisional {
+		bindings, err = projection.registry.DocumentBindingsForMissing(missing)
+	} else {
+		return observe.NativeDocumentParticipants{}, fmt.Errorf("native participants require the selected namespace observation")
+	}
+	if err != nil {
+		return observe.NativeDocumentParticipants{}, err
+	}
+	aliases := baseline.namespace.Addresses()
+	subjects, err := projection.before.Subjects(ctx, aliases)
+	if err != nil {
+		return observe.NativeDocumentParticipants{}, err
+	}
+	result, err := observe.NewNativeDocumentParticipants(observe.NativeDocumentParticipantsInput{
+		Owner: projection.owner, Aliases: aliases, BeforeSubjects: subjects, CurrentBindings: bindings,
+	})
+	if err != nil {
+		return observe.NativeDocumentParticipants{}, err
+	}
+	if err := projection.validate(ctx); err != nil {
+		return observe.NativeDocumentParticipants{}, err
+	}
+	return result, nil
+}
+
+func (projection OwnershipProjection) Document(ctx context.Context, alias aggregate.DocumentAddress) (observe.NativeDocumentClaimObservation, error) {
+	if err := projection.validate(ctx); err != nil {
+		return observe.NativeDocumentClaimObservation{}, err
+	}
+	baseline, present := projection.baselines[alias]
+	if !present || baseline.comparison.IsZero() {
+		return observe.NativeDocumentClaimObservation{}, fmt.Errorf("document claim projection requires an observed comparison namespace")
+	}
+	whole, err := ownership.NewManagedAddress(baseline.comparison, output.WholePathFootprint())
+	if err != nil {
+		return observe.NativeDocumentClaimObservation{}, err
+	}
+	claims, err := projection.registry.Overlapping(whole)
+	if err != nil {
+		return observe.NativeDocumentClaimObservation{}, err
+	}
+	bindings, err := projection.registry.DocumentBindingsAt(baseline.comparison)
+	if err != nil {
+		return observe.NativeDocumentClaimObservation{}, err
+	}
+	aliases := baseline.namespace.Addresses()
+	subjects, err := projection.before.Subjects(ctx, aliases)
+	if err != nil {
+		return observe.NativeDocumentClaimObservation{}, err
+	}
+	result, err := observe.NewNativeDocumentClaimObservation(observe.NativeDocumentClaimObservationInput{
+		Owner: projection.owner, Aliases: aliases, Comparison: baseline.comparison,
+		BeforeSubjects: subjects, BeforeClaims: baseline.claims, CurrentClaims: claims, CurrentBindings: bindings,
+	})
+	if err != nil {
+		return observe.NativeDocumentClaimObservation{}, err
+	}
+	if err := projection.validate(ctx); err != nil {
+		return observe.NativeDocumentClaimObservation{}, err
+	}
+	return result, nil
+}

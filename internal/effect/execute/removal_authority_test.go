@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -599,7 +601,7 @@ func TestValidateRemovalNamespaceRejectsRelocatedExistingParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve removal namespace destination: %v", err)
 	}
-	observation, err := journal.ObserveRemovalNamespace(
+	observation, err := removalnamespace.Observe(
 		context.Background(),
 		removalDestination.root,
 		removalDestination.destination,
@@ -616,7 +618,7 @@ func TestValidateRemovalNamespaceRejectsRelocatedExistingParent(t *testing.T) {
 	if err := os.Rename(parent+"-moved", parent); err != nil {
 		t.Fatalf("restore relocated removal parent: %v", err)
 	}
-	observation, err = journal.ObserveRemovalNamespace(
+	observation, err = removalnamespace.Observe(
 		context.Background(),
 		removalDestination.root,
 		removalDestination.destination,
@@ -665,7 +667,7 @@ func TestObserveRemovalNamespaceAdmitsRootValidationBeforeFilesystemWork(t *test
 		t.Fatalf("create replacement selected root: %v", err)
 	}
 
-	_, err = journal.ObserveRemovalNamespace(
+	_, err = removalnamespace.Observe(
 		t.Context(),
 		removalDestination.root,
 		removalDestination.destination,
@@ -768,7 +770,7 @@ func TestValidateRemovalNamespaceHandlesInitiallyAbsentParentVariants(t *testing
 				test.prepare(t, filepath.Join(root, ".agent"))
 			}
 
-			observation, err := journal.ObserveRemovalNamespace(
+			observation, err := removalnamespace.Observe(
 				t.Context(),
 				captured,
 				bound,
