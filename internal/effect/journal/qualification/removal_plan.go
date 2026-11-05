@@ -256,4 +256,3 @@ func acquireRemovalObservationSlot(
 		budget,
 	)
 }
-
