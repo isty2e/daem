@@ -10,11 +10,11 @@ import (
 
 func TestNativeRecoveryDocumentRefusesZeroClosedAndInvalidIndexes(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	records, err := journalqualification.LoadDocuments(fixture.journal, t.Context(), fixture.read)
+	qualified, err := journalqualification.QualifyDocuments(fixture.journal, t.Context(), fixture.read, fixture.roots)
 	if err != nil {
 		t.Fatal(err)
 	}
-	operation := &NativeRecoveryOperation{qualified: nativeQualifiedDocumentRecords{records: records}}
+	operation := &NativeRecoveryOperation{qualified: qualified}
 	closed := *operation
 	closed.closed = true
 	for name, document := range map[string]NativeRecoveryDocument{
@@ -52,13 +52,13 @@ func TestNativeRecoveryDocumentRefusesZeroClosedAndInvalidIndexes(t *testing.T) 
 
 func TestNativeRecoveryDocumentFailedRemovalIsNotPresent(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	records, err := journalqualification.LoadDocuments(fixture.journal, t.Context(), fixture.read)
+	qualified, err := journalqualification.QualifyDocuments(fixture.journal, t.Context(), fixture.read, fixture.roots)
 	if err != nil {
 		t.Fatal(err)
 	}
 	operation := &NativeRecoveryOperation{
 		plan:      NativeRecoveryPlan{journal: journalrecord.Native{}},
-		qualified: nativeQualifiedDocumentRecords{records: records},
+		qualified: qualified,
 	}
 	if _, present, err := (NativeRecoveryDocument{operation: operation}).Removal(); err == nil || present {
 		t.Fatal("failed removal conversion supplied a present result")

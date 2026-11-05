@@ -133,12 +133,13 @@ func TestQualifiedNativeRecordJoinsActualRootsImagesAndSemanticRollback(t *testi
 	roots := fixture.roots
 	reader := &nativeNamespaceReader{RootedReader: fixture.read.Filesystem}
 	fixture.read.Filesystem = reader
-	loaded, err := loadQualifiedDocuments(fixture.journal, t.Context(), fixture.read, roots)
-	recorded, present := loaded.records.At(0)
-	if err != nil || len(loaded.namespaces) != 1 || loaded.records.Len() != 1 || !present || reader.imageReads != 2 {
+	loaded, err := journalqualification.QualifyDocuments(fixture.journal, t.Context(), fixture.read, roots)
+	recorded, present := loaded.Records().At(0)
+	namespace, qualified := loaded.NamespaceAt(0)
+	if err != nil || !qualified || loaded.Len() != 1 || !present || reader.imageReads != 2 {
 		t.Fatalf("live namespace + complete image/record join: %v", err)
 	}
-	capability, err := loaded.namespaces[0].AcquireReferent(t.Context(), fixture.read.Budget)
+	capability, err := namespace.AcquireReferent(t.Context(), fixture.read.Budget)
 	if err != nil {
 		t.Fatal(err)
 	}

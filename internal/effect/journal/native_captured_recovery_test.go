@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -58,6 +59,21 @@ func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
 				if err := document.Namespace().Observation().Validate(); err != nil {
 					t.Fatal("live recovery lost its namespace evidence", err)
 				}
+			}
+			plan := operation.Plan()
+			aliases, err := plan.DocumentWriteAliases()
+			if err != nil {
+				t.Fatal("live operation could not freeze document write facts", err)
+			}
+			if err := operation.Close(); err != nil {
+				t.Fatal(err)
+			}
+			closedAliases, err := plan.DocumentWriteAliases()
+			if err != nil || !reflect.DeepEqual(aliases, closedAliases) || plan.Classification() != recovery.ClassificationCleanBefore {
+				t.Fatal("closing live recovery invalidated immutable plan facts", err)
+			}
+			if len(operation.Documents()) != 0 || operation.InitialAssessment().CleanBefore() {
+				t.Fatal("closed recovery exposed live documents or assessment")
 			}
 			input.requireUnchanged(t)
 			if _, err := os.Stat(residue); err != nil {

@@ -55,7 +55,10 @@ func (captured CapturedNativeJournal) PromoteDocument(ctx context.Context, index
 	if !assessment.state.Equal(captured.journal.Before()) || !assessment.stages[index].expected {
 		return CapturedNativeJournal{}, fmt.Errorf("native promotion requires observed Before state and a published expected document")
 	}
-	namespace := assessment.qualified.namespaces[index]
+	namespace, present := assessment.qualified.NamespaceAt(index)
+	if !present {
+		return CapturedNativeJournal{}, fmt.Errorf("native recovery document facts are incomplete")
+	}
 	exact, known := namespace.Observation().Exact()
 	if !known {
 		return CapturedNativeJournal{}, fmt.Errorf("published native document still has no exact namespace")
@@ -98,8 +101,8 @@ func (observed NativeRecoveryAssessment) HostReadyForStateCommit() bool {
 		return false
 	}
 	assessment := observed.assessment
-	for index := range assessment.qualified.records.Len() {
-		loaded, present := assessment.qualified.records.At(index)
+	for index := range assessment.documents.Len() {
+		loaded, present := assessment.documents.At(index)
 		if !present {
 			return false
 		}

@@ -4,15 +4,17 @@ import (
 	"context"
 	"fmt"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
-	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -26,7 +28,7 @@ import (
 type CapturedNativeJournal struct {
 	capture     CaptureResult
 	journal     journalrecord.Native
-	qualified   nativeQualifiedDocumentRecords
+	qualified   journalqualification.Documents
 	active      ActiveJournalAuthority
 	budget      *physicalwork.Budget
 	publication nativePublicationContext
@@ -67,21 +69,21 @@ type CapturedNativeDocument struct {
 }
 
 func (document CapturedNativeDocument) valid() bool {
-	return document.captured != nil && document.captured.initialized && document.index >= 0 && document.index < document.captured.qualified.records.Len()
+	return document.captured != nil && document.captured.initialized && document.index >= 0 && document.index < document.captured.qualified.Records().Len()
 }
 
 func (document CapturedNativeDocument) loadedEvidence() (journalrecord.LoadedDocument, bool) {
 	if !document.valid() {
 		return journalrecord.LoadedDocument{}, false
 	}
-	return document.captured.qualified.records.At(document.index)
+	return document.captured.qualified.Records().At(document.index)
 }
 
 func (captured CapturedNativeJournal) Documents() []CapturedNativeDocument {
 	if !captured.initialized {
 		return nil
 	}
-	result := make([]CapturedNativeDocument, captured.qualified.records.Len())
+	result := make([]CapturedNativeDocument, captured.qualified.Records().Len())
 	for index := range result {
 		result[index] = CapturedNativeDocument{captured: &captured, index: index}
 	}
@@ -92,7 +94,11 @@ func (document CapturedNativeDocument) Namespace() journalnamespace.DocumentName
 	if !document.valid() {
 		return journalnamespace.DocumentNamespace{}
 	}
-	return document.captured.qualified.namespaces[document.index]
+	namespace, present := document.captured.qualified.NamespaceAt(document.index)
+	if !present {
+		return journalnamespace.DocumentNamespace{}
+	}
+	return namespace
 }
 
 func (document CapturedNativeDocument) Comparison() journaldocument.Comparison {

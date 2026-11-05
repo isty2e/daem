@@ -37,7 +37,7 @@ type NativeRecoveryPlan struct {
 	capture       CaptureResult
 	active        ActiveJournalAuthority
 	inventory     recoverableInventoryAuthority
-	assessment    nativeDocumentAssessment
+	assessment    nativeDocumentAssessmentFacts
 	registryScope ownership.DocumentScope
 	blocked       bool
 	cleanup       []recovery.RemovalCleanupObligation
@@ -166,7 +166,7 @@ type NativeRecoveryOperation struct {
 	roots                       journalnamespace.Roots
 	ownedRoots                  *recoveryoperation.OwnedRoots
 	retained                    []*rootedpath.CapturedRoot
-	qualified                   nativeQualifiedDocumentRecords
+	qualified                   journalqualification.Documents
 	closed                      bool
 	inventoryProfile            RecoveryInventoryProfile
 	capturedRemovalReservations bool
@@ -299,8 +299,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 	if err != nil {
 		return nil, err
 	}
-	assessment.qualified = nativeQualifiedDocumentRecords{records: assessment.qualified.records}
-	operation.plan = NativeRecoveryPlan{blocked: blocked, journal: journal, capture: CaptureResult{OperationID: journal.OperationID(), Directory: active.OperationDir(), JournalPath: filepath.Join(active.OperationDir(), journalrecord.FileName), RecordFingerprint: active.Identity().JournalAuthorityFingerprint()}, active: active.PhysicalAuthority(), inventory: inv, assessment: assessment, registryScope: scope}
+	operation.plan = NativeRecoveryPlan{blocked: blocked, journal: journal, capture: CaptureResult{OperationID: journal.OperationID(), Directory: active.OperationDir(), JournalPath: filepath.Join(active.OperationDir(), journalrecord.FileName), RecordFingerprint: active.Identity().JournalAuthorityFingerprint()}, active: active.PhysicalAuthority(), inventory: inv, assessment: assessment.nativeDocumentAssessmentFacts, registryScope: scope}
 	operation.plan, err = operation.plan.assessCleanup(ctx, options, profile.Budget)
 	if err != nil {
 		return nil, err
@@ -345,7 +344,7 @@ func (operation *NativeRecoveryOperation) Documents() []NativeRecoveryDocument {
 	if operation == nil || operation.closed {
 		return nil
 	}
-	result := make([]NativeRecoveryDocument, operation.qualified.records.Len())
+	result := make([]NativeRecoveryDocument, operation.qualified.Records().Len())
 	for index := range result {
 		result[index] = NativeRecoveryDocument{operation: operation, index: index}
 	}
@@ -353,17 +352,21 @@ func (operation *NativeRecoveryOperation) Documents() []NativeRecoveryDocument {
 }
 
 func (document NativeRecoveryDocument) Namespace() journalnamespace.DocumentNamespace {
-	if !document.valid() || document.index >= len(document.operation.qualified.namespaces) {
+	if !document.valid() {
 		return journalnamespace.DocumentNamespace{}
 	}
-	return document.operation.qualified.namespaces[document.index]
+	namespace, present := document.operation.qualified.NamespaceAt(document.index)
+	if !present {
+		return journalnamespace.DocumentNamespace{}
+	}
+	return namespace
 }
 
 func (document NativeRecoveryDocument) Comparison() journaldocument.Comparison {
 	if !document.valid() {
 		return journaldocument.Comparison{}
 	}
-	loaded, present := document.operation.qualified.records.At(document.index)
+	loaded, present := document.operation.qualified.Records().At(document.index)
 	if !present {
 		return journaldocument.Comparison{}
 	}
@@ -416,5 +419,5 @@ func (plan NativeRecoveryPlan) CleanupReady(discharged []recovery.RemovalCleanup
 }
 
 func (document NativeRecoveryDocument) valid() bool {
-	return document.operation != nil && !document.operation.closed && document.index >= 0 && document.index < document.operation.qualified.records.Len()
+	return document.operation != nil && !document.operation.closed && document.index >= 0 && document.index < document.operation.qualified.Records().Len()
 }

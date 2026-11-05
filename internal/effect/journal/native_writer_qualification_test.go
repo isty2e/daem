@@ -158,8 +158,9 @@ func TestQualifiedNativeWriterCaseCollisionRefusesBeforeImages(t *testing.T) {
 	read := fixture.whole.envelope.read
 	reader := &nativeNamespaceReader{RootedReader: read.Filesystem}
 	read.Filesystem, read.Budget = reader, imageBudget(t)
-	loaded, err := loadQualifiedDocuments(journal, t.Context(), read, fixture.whole.roots)
-	if err == nil || loaded.namespaces != nil || loaded.records.Len() != 0 || reader.imageReads != 0 {
+	loaded, err := journalqualification.QualifyDocuments(journal, t.Context(), read, fixture.whole.roots)
+	_, hasNamespace := loaded.NamespaceAt(0)
+	if err == nil || hasNamespace || loaded.Len() != 0 || reader.imageReads != 0 {
 		t.Fatal("case collision reached artifact reads or returned a qualified prefix")
 	}
 	fixture.whole.requireUnchangedHost(t)

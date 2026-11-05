@@ -81,8 +81,9 @@ func TestQualifiedNativeRecordRefusesWriterOrLogicalRootSubstitution(t *testing.
 			})
 			reader := &nativeNamespaceReader{RootedReader: fixture.read.Filesystem}
 			fixture.read.Filesystem = reader
-			loaded, err := loadQualifiedDocuments(decoded, t.Context(), fixture.read, roots)
-			if err == nil || loaded.namespaces != nil || loaded.records.Len() != 0 || reader.imageReads != 0 {
+			loaded, err := journalqualification.QualifyDocuments(decoded, t.Context(), fixture.read, roots)
+			_, hasNamespace := loaded.NamespaceAt(0)
+			if err == nil || hasNamespace || loaded.Len() != 0 || reader.imageReads != 0 {
 				t.Fatal("substituted roots/writer returned a qualified prefix or read private images")
 			}
 		})
@@ -158,8 +159,9 @@ func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.
 	}
 	reader := &nativeNamespaceReader{RootedReader: fixture.read.Filesystem}
 	fixture.read.Filesystem = reader
-	result, err := loadQualifiedDocuments(journal, t.Context(), fixture.read, roots)
-	if err == nil || result.namespaces != nil || result.records.Len() != 0 || reader.imageReads != 0 {
+	result, err := journalqualification.QualifyDocuments(journal, t.Context(), fixture.read, roots)
+	_, hasNamespace := result.NamespaceAt(0)
+	if err == nil || hasNamespace || result.Len() != 0 || reader.imageReads != 0 {
 		t.Fatal("two logical groups qualified the same physical file or returned a prefix")
 	}
 }
@@ -183,11 +185,11 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 	roots := fixture.roots
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
-	loaded, err := loadQualifiedDocuments(fixture.journal, t.Context(), fixture.read, roots)
-	if err != nil || loaded.records.Len() != 1 || !requireLoadedNativeDocument(t, loaded.records, 0).Group().Comparison().Changed() {
+	loaded, err := journalqualification.QualifyDocuments(fixture.journal, t.Context(), fixture.read, roots)
+	if err != nil || loaded.Records().Len() != 1 || !requireLoadedNativeDocument(t, loaded.Records(), 0).Group().Comparison().Changed() {
 		t.Fatalf("captured lexical/physical context was conflated: %v", err)
 	}
-	comparison := requireLoadedNativeDocument(t, loaded.records, 0).Group().Comparison()
+	comparison := requireLoadedNativeDocument(t, loaded.Records(), 0).Group().Comparison()
 	mode, present := comparison.ExpectedState().RegularFileMode()
 	if !present {
 		t.Fatal("loaded Pi-order witness lost its regular-file mode")
@@ -214,8 +216,9 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 			reader := &imageReader{RootedReader: fixture.read.Filesystem}
 			options := fixture.read
 			options.Filesystem, options.Budget = reader, imageBudget(t)
-			result, err := loadQualifiedDocuments(changed, t.Context(), options, roots)
-			if err == nil || result.records.Len() != 0 || result.namespaces != nil {
+			result, err := journalqualification.QualifyDocuments(changed, t.Context(), options, roots)
+			_, hasNamespace := result.NamespaceAt(0)
+			if err == nil || result.Len() != 0 || hasNamespace {
 				t.Fatal("invalid source context returned qualified evidence")
 			}
 			if reader.calls != 2 {
@@ -234,7 +237,9 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 	})
 	options := fixture.read
 	options.Budget = imageBudget(t)
-	if result, err := loadQualifiedDocuments(changed, t.Context(), options, roots); err == nil || result.records.Len() != 0 || result.namespaces != nil {
+	result, err := journalqualification.QualifyDocuments(changed, t.Context(), options, roots)
+	_, hasNamespace := result.NamespaceAt(0)
+	if err == nil || result.Len() != 0 || hasNamespace {
 		t.Fatal("Pi replay accepted a different command-root incarnation")
 	}
 }

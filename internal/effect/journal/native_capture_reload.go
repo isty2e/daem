@@ -62,7 +62,7 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	if _, err := journalrecord.DecodeNativeSnapshot(ctx, snapshot, filepath.Join(directory, journalrecord.FileName), options.StateCodec); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	qualified, err := loadQualifiedDocuments(journal, ctx, journalqualification.ReadOptions{
+	qualified, err := journalqualification.QualifyDocuments(journal, ctx, journalqualification.ReadOptions{
 		Artifacts: root, Filesystem: options.Filesystem, Budget: batch.budget, Limits: batch.limits,
 		Codecs: options.Codecs, OrdinaryCapabilities: batch.ordinaryCapabilities,
 	}, batch.roots)

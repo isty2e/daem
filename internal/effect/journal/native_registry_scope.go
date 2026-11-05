@@ -20,8 +20,8 @@ func (operation *NativeRecoveryOperation) RegistryScope() (ownership.DocumentSco
 	return operation.plan.registryScope, nil
 }
 
-func (assessment nativeDocumentAssessment) documentWriteIndexes() ([]int, error) {
-	records := assessment.qualified.records
+func (assessment nativeDocumentAssessmentFacts) documentWriteIndexes() ([]int, error) {
+	records := assessment.documents
 	if records.Len() != len(assessment.stages) {
 		return nil, fmt.Errorf("native recovery document facts are incomplete")
 	}
@@ -56,7 +56,7 @@ func (assessment nativeDocumentAssessment) documentWriteIndexes() ([]int, error)
 }
 
 func (assessment nativeDocumentAssessment) registryScope() (ownership.DocumentScope, error) {
-	if assessment.qualified.records.Len() != len(assessment.qualified.namespaces) {
+	if assessment.documents.Len() != assessment.qualified.Len() {
 		return ownership.DocumentScope{}, fmt.Errorf("live native namespace qualification is required before freezing scope")
 	}
 	indexes, err := assessment.documentWriteIndexes()
@@ -65,7 +65,11 @@ func (assessment nativeDocumentAssessment) registryScope() (ownership.DocumentSc
 	}
 	namespaces := make([]journalnamespace.DocumentNamespace, 0, len(indexes))
 	for _, index := range indexes {
-		namespaces = append(namespaces, assessment.qualified.namespaces[index])
+		namespace, present := assessment.qualified.NamespaceAt(index)
+		if !present {
+			return ownership.DocumentScope{}, fmt.Errorf("live native namespace qualification is required before freezing scope")
+		}
+		namespaces = append(namespaces, namespace)
 	}
 	return journalnamespace.RegistryScope(namespaces)
 }
@@ -79,7 +83,7 @@ func (plan NativeRecoveryPlan) DocumentWriteAliases() ([][]aggregate.DocumentAdd
 	}
 	aliases := make([][]aggregate.DocumentAddress, 0, len(indexes))
 	for _, index := range indexes {
-		loaded, present := plan.assessment.qualified.records.At(index)
+		loaded, present := plan.assessment.documents.At(index)
 		if !present {
 			return nil, fmt.Errorf("native recovery document facts are incomplete")
 		}

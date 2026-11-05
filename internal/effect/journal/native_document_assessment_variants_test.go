@@ -117,7 +117,7 @@ func TestNativeDocumentAssessmentLateRefusalDiscardsEveryEarlierStage(t *testing
 	}
 	journal, options := setup.reader(t)
 	result, err := assessDocumentRecovery(journal, t.Context(), options)
-	if err == nil || result.stages != nil || result.disposition != "" || result.qualified.records.Len() != 0 {
+	if err == nil || result.stages != nil || result.disposition != "" || result.qualified.Records().Len() != 0 {
 		t.Fatal("late third-value refusal exposed a staged prefix")
 	}
 	setup.assertPersisted(t, fixture.before, registry, host)

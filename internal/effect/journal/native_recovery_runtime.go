@@ -37,7 +37,8 @@ func (operation *NativeRecoveryOperation) InitialAssessment() NativeRecoveryAsse
 	if operation == nil || operation.closed {
 		return NativeRecoveryAssessment{}
 	}
-	return NativeRecoveryAssessment{capture: operation.plan.capture, active: operation.plan.active, assessment: operation.plan.assessment, valid: true}
+	assessment := nativeDocumentAssessment{nativeDocumentAssessmentFacts: operation.plan.assessment, qualified: operation.qualified}
+	return NativeRecoveryAssessment{capture: operation.plan.capture, active: operation.plan.active, assessment: assessment, valid: true}
 }
 
 func (operation *NativeRecoveryOperation) ObservedState() durable.Snapshot {

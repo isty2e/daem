@@ -67,8 +67,9 @@ func TestNativeRemovalQualifiedReadRejectsStaleCleanupParentBeforeImages(t *test
 	}
 	options.Budget = imageBudget(t)
 	reads := fixture.reader.imageReads
-	result, err := loadQualifiedDocuments(journal, t.Context(), options, fixture.roots)
-	if err == nil || result.namespaces != nil || fixture.reader.imageReads != reads {
+	result, err := journalqualification.QualifyDocuments(journal, t.Context(), options, fixture.roots)
+	_, hasNamespace := result.NamespaceAt(0)
+	if err == nil || hasNamespace || result.Len() != 0 || fixture.reader.imageReads != reads {
 		t.Fatal("stale cleanup parent reached artifact reads or usable qualified groups")
 	}
 }

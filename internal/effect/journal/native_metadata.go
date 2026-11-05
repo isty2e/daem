@@ -32,7 +32,7 @@ func (captured CapturedNativeJournal) PreparationClaims(ctx context.Context) (ow
 	if err != nil {
 		return ownership.ClaimConvergence{}, err
 	}
-	prepared, _, _, err := nativeDocumentClaimConvergences(ctx, captured.qualified.records, transitions)
+	prepared, _, _, err := nativeDocumentClaimConvergences(ctx, captured.qualified.Records(), transitions)
 	return prepared, err
 }
 
