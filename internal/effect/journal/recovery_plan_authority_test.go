@@ -6,12 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 )
 
 func TestLoadActivePlanRequiresResolverForRootedAuthority(t *testing.T) {
-	paths := Paths{RecoveryDir: filepath.Join(t.TempDir(), "recovery")}
+	paths := journalpublication.Paths{RecoveryDir: filepath.Join(t.TempDir(), "recovery")}
 	resolver := func(output.Destination) (string, error) {
 		return "/unused", nil
 	}
@@ -38,7 +39,7 @@ func TestLoadActivePlanRequiresResolverForRootedAuthority(t *testing.T) {
 func TestLoadActivePlanRequiresFilesystemBeforeRecoveryObservation(t *testing.T) {
 	_, err := LoadActivePlanWithOptions(
 		context.Background(),
-		Paths{},
+		journalpublication.Paths{},
 		PlanLoadOptions{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "filesystem is required") {

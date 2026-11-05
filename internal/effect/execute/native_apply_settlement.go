@@ -5,15 +5,19 @@ import (
 	"errors"
 	"fmt"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
-func settleNativeApplyFailure(ctx context.Context, primary error, input NativeApplyInput, options ApplyOptions, authority *mutationAuthority, store ownershipmutation.RegistryStore, captured journal.CapturedNativeJournal, retiring *journal.NativeJournalRetirement, execution *applyEffectExecution, result *ApplyResult) (resultErr error) {
+func settleNativeApplyFailure(ctx context.Context, primary error, input NativeApplyInput, options ApplyOptions, authority *mutationAuthority, store ownershipmutation.RegistryStore, captured journalpublication.CapturedNativeJournal, retiring *journal.NativeJournalRetirement, execution *applyEffectExecution, result *ApplyResult) (resultErr error) {
 	prefix, err := execution.beginFailureSettlement(applyFailureSettlementGuardedRecovery)
 	if err != nil {
 		return errors.Join(primary, err)
@@ -43,7 +47,7 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 	var operation *journal.NativeRecoveryOperation
 	if err := execution.runObservation(prefix+"/journal-load", applyForwardFailureUnavailable, func() error {
 		var err error
-		operation, err = journal.OpenCapturedNativeRecovery(recoveryCtx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journal.NativeRecoveryOptions{
+		operation, err = journal.OpenCapturedNativeRecovery(recoveryCtx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journalqualification.NativeRecoveryOptions{
 			Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 			State: func(ctx context.Context) (durable.Snapshot, error) {
 				return authority.readNativeState(ctx, input.StateCodec, input.Budget)

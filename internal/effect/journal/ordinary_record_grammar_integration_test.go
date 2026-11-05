@@ -12,6 +12,8 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -411,7 +413,7 @@ func malformedRecoveryJournalErrors(
 	_, loadErr := journalrecord.DecodeOrdinarySnapshot(t.Context(), snapshot, journalPath, testStateCodec())
 	plan, planErr := LoadRecoverablePlanWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
+		journalpublication.Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		PlanLoadOptions{
 			Filesystem: journalTestFilesystem(),
 			StateCodec: testStateCodec(),

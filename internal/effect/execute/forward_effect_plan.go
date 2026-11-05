@@ -5,8 +5,9 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
-	"github.com/isty2e/daem/internal/effect/journal"
 )
 
 type applyStateTransition struct {
@@ -144,7 +145,7 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 }
 
 func forwardEffectPlanningOperationID() string {
-	return journal.OperationID(time.Unix(0, 0).UTC())
+	return journalpublication.OperationID(time.Unix(0, 0).UTC())
 }
 
 func managedPathValidationCount(schedule managedPathExecutionSchedule) int {

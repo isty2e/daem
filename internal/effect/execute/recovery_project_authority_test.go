@@ -12,10 +12,13 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -23,6 +26,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -710,14 +714,14 @@ func newProjectPathRecoveryFixture(
 		t.Fatalf("construct next project recovery snapshot: %v", err)
 	}
 	createdAt := time.Date(2026, time.July, 13, 12, 0, 0, 0, time.UTC)
-	if _, err := journal.CaptureJournalWithOptions(
+	if _, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		paths.journalPaths(),
-		journal.OperationID(createdAt),
+		journalpublication.OperationID(createdAt),
 		createdAt,
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: mutations,
 			ManagedPathEvidence:  evidence,

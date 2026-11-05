@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
@@ -35,7 +37,7 @@ import (
 type NativeRecoveryPlan struct {
 	source        journalinventory.ActiveJournal
 	journal       journalrecord.Native
-	capture       CaptureResult
+	capture       journalpublication.CaptureResult
 	active        ActiveJournalAuthority
 	inventory     recoverableInventoryAuthority
 	assessment    journalqualification.AssessmentFacts
@@ -136,12 +138,12 @@ type NativeRecoveryOperation struct {
 	retained             []*rootedpath.CapturedRoot
 	qualified            journalqualification.Documents
 	initial              journalqualification.NativeRecoveryAssessment
-	captured             *CapturedNativeJournal
+	captured             *journalpublication.CapturedNativeJournal
 	borrowedManifest     *rootedpath.CapturedRoot
 	closed               bool
 	inventoryProfile     RecoveryInventoryProfile
 	resolver             func(output.Destination) (string, error)
-	ordinaryCapabilities RootedCapabilityResolver
+	ordinaryCapabilities journalnamespace.CapabilityResolver
 }
 
 func (operation *NativeRecoveryOperation) Close() error {
@@ -168,7 +170,7 @@ func (operation *NativeRecoveryOperation) Budget() *physicalwork.Budget {
 	return operation.profile.Budget
 }
 
-func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanLoadOptions, inventory journalinventory.RootInventory) (result *NativeRecoveryOperation, resultErr error) {
+func loadNativeRecoveryOperation(ctx context.Context, paths journalpublication.Paths, options PlanLoadOptions, inventory journalinventory.RootInventory) (result *NativeRecoveryOperation, resultErr error) {
 	if options.NativeDocuments == nil || options.NativeDocuments.Budget == nil || options.NativeDocuments.StateCodec == nil {
 		return nil, fmt.Errorf("native recovery requires its selected profile and original physical allocation")
 	}
@@ -270,7 +272,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 
 // OpenNativeRecovery requalifies the exact disclosed operation. No source or
 // manifest declarations are reinterpreted as recovery authority.
-func OpenNativeRecovery(ctx context.Context, paths Paths, selected NativeRecoveryPlan, options PlanLoadOptions) (*NativeRecoveryOperation, error) {
+func OpenNativeRecovery(ctx context.Context, paths journalpublication.Paths, selected NativeRecoveryPlan, options PlanLoadOptions) (*NativeRecoveryOperation, error) {
 	if options.NativeDocuments == nil || selected.Blocked() {
 		return nil, fmt.Errorf("native recovery profile is required")
 	}

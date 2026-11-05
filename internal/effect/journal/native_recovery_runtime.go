@@ -28,7 +28,7 @@ func (operation *NativeRecoveryOperation) ObservedRegistry() ownership.Registry 
 	return registry
 }
 
-func (operation *NativeRecoveryOperation) Assess(ctx context.Context, options NativeRecoveryOptions) (journalqualification.NativeRecoveryAssessment, error) {
+func (operation *NativeRecoveryOperation) Assess(ctx context.Context, options journalqualification.NativeRecoveryOptions) (journalqualification.NativeRecoveryAssessment, error) {
 	if operation == nil || operation.closed {
 		return journalqualification.NativeRecoveryAssessment{}, fmt.Errorf("live native recovery operation is required")
 	}

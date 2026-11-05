@@ -7,11 +7,14 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -44,17 +47,17 @@ func captureInventoryJournal(
 	t *testing.T,
 	recoveryRoot string,
 	operationID string,
-) (retirement.Identity, CaptureResult) {
+) (retirement.Identity, journalpublication.CaptureResult) {
 	t.Helper()
 
-	result, err := CaptureJournalWithOptions(
+	result, err := journalpublication.CaptureJournalWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
+		journalpublication.Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		operationID,
 		time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC),
 		inventoryJournalSnapshot(t, "before"),
 		inventoryJournalSnapshot(t, "after"),
-		CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem: journalTestFilesystem(),
 			Resolver: func(output.Destination) (string, error) {
 				return "", nil

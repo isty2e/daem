@@ -12,6 +12,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
@@ -313,7 +314,7 @@ func TestApplyReportsFinalizedGCFailureWithoutImpossibleRecoveryAdvice(t *testin
 
 	_, loadErr := journal.LoadRecoverablePlanWithOptions(
 		t.Context(),
-		journal.Paths{RecoveryDir: fixture.paths.RecoveryDir},
+		journalpublication.Paths{RecoveryDir: fixture.paths.RecoveryDir},
 		journal.PlanLoadOptions{
 			Filesystem: filesystem,
 			StateCodec: statefile.Codec{},
@@ -378,7 +379,7 @@ func TestApplyReportsPostRetirementAcceptanceFailureWithoutRecoveryAdvice(t *tes
 
 	_, loadErr := journal.LoadRecoverablePlanWithOptions(
 		t.Context(),
-		journal.Paths{RecoveryDir: fixture.paths.RecoveryDir},
+		journalpublication.Paths{RecoveryDir: fixture.paths.RecoveryDir},
 		journal.PlanLoadOptions{
 			Filesystem: input.Filesystem,
 			StateCodec: statefile.Codec{},

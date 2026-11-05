@@ -7,36 +7,16 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-
-	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 )
-
-type NativeRecoveryOptions struct {
-	Filesystem         mutationfs.RootedStore
-	OperationAuthority *rootedpath.EntryAuthority
-	State              durable.SnapshotReader
-	Registry           ownershipmutation.RegistryReader
-	Codecs             aggregate.CodecCatalog
-}
-
-func (captured CapturedNativeJournal) AssessRecovery(ctx context.Context, options NativeRecoveryOptions) (journalqualification.NativeRecoveryAssessment, error) {
-	if err := captured.Validate(); err != nil {
-		return journalqualification.NativeRecoveryAssessment{}, err
-	}
-	return journalqualification.ReassessNativeSource(ctx, captured.source, journalqualification.NativeReadOptions{
-		Documents: journalqualification.ReadOptions{Filesystem: options.Filesystem, Budget: captured.budget, Limits: captured.publication.limits, Codecs: options.Codecs, OrdinaryCapabilities: captured.publication.ordinaryCapabilities},
-		Roots:     captured.publication.roots, State: options.State, Registry: options.Registry, Resolver: captured.publication.resolver,
-	}, options.OperationAuthority)
-}
 
 // NativeJournalRetirement owns the existing bounded retirement mechanism, but
 // accepts only a clean native assessment of its exact published record.
@@ -48,14 +28,14 @@ type NativeJournalRetirement struct {
 	budget    *physicalwork.Budget
 }
 
-func PrepareNativeJournalRetirement(ctx context.Context, captured CapturedNativeJournal, budget *physicalwork.Budget, filesystem mutationfs.RootedStore, stateCodec durable.SnapshotCodec) (*NativeJournalRetirement, error) {
+func PrepareNativeJournalRetirement(ctx context.Context, captured journalpublication.CapturedNativeJournal, budget *physicalwork.Budget, filesystem mutationfs.RootedStore, stateCodec durable.SnapshotCodec) (*NativeJournalRetirement, error) {
 	if err := captured.RequireAllocation(budget); err != nil {
 		return nil, err
 	}
 	return prepareNativeRetirement(ctx, captured.CaptureResult(), captured.ActiveJournalAuthority(), budget, filesystem, stateCodec)
 }
 
-func prepareNativeRetirement(ctx context.Context, capture CaptureResult, active ActiveJournalAuthority, budget *physicalwork.Budget, filesystem mutationfs.RootedStore, stateCodec durable.SnapshotCodec) (*NativeJournalRetirement, error) {
+func prepareNativeRetirement(ctx context.Context, capture journalpublication.CaptureResult, active ActiveJournalAuthority, budget *physicalwork.Budget, filesystem mutationfs.RootedStore, stateCodec durable.SnapshotCodec) (*NativeJournalRetirement, error) {
 	if stateCodec == nil {
 		return nil, fmt.Errorf("native retirement requires its selected state codec")
 	}

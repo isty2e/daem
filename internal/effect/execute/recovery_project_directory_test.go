@@ -11,11 +11,14 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -155,14 +158,14 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 	}
 	createdAt := time.Date(2026, time.July, 13, 13, 0, 0, 0, time.UTC)
 	removalDemands := testManagedPathRemovalDemandSet(t, &previous, 0, &next, 0)
-	if _, err := journal.CaptureJournalWithOptions(
+	if _, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		paths.journalPaths(),
-		journal.OperationID(createdAt),
+		journalpublication.OperationID(createdAt),
 		createdAt,
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},

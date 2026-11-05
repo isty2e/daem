@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -1284,7 +1286,7 @@ func loadCleanActiveRetirementPlan(
 	t.Helper()
 	plan, err := LoadActivePlanForStateWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
+		journalpublication.Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		inventoryJournalSnapshot(t, "before"),
 		PlanLoadOptions{
 			Filesystem: filesystem,
@@ -1462,7 +1464,7 @@ func loadCleanupRetirementPlan(
 	t.Helper()
 	recoverable, err := LoadRecoverablePlanWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
+		journalpublication.Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		PlanLoadOptions{
 			Filesystem: filesystem,
 			StateCodec: testStateCodec(),

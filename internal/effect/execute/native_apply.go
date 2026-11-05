@@ -8,11 +8,13 @@ import (
 	"slices"
 	"time"
 
-	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -29,7 +31,7 @@ import (
 type NativeApplyInput struct {
 	ApplyInput
 	Preparation effectpreparation.NativeApplyStatePreparation
-	Documents   journal.NativeDocumentObservationBatch
+	Documents   journalpublication.NativeDocumentObservationBatch
 	Registry    ownership.Registry
 	Budget      *physicalwork.Budget
 	// RecoveryCodecs reconstructs the same profile without inheriting forward cancellation.
@@ -37,7 +39,7 @@ type NativeApplyInput struct {
 }
 
 type nativeApplyWork struct {
-	documents          journal.NativeDocumentObservationBatch
+	documents          journalpublication.NativeDocumentObservationBatch
 	managed            []effectpreparation.ManagedPathEffect
 	whole              []effectpreparation.ManagedPathEffect
 	ordinaryAggregates []effectpreparation.AggregateEffect
@@ -440,7 +442,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return step.acceptAfter(ctx)
 	}
 	created := time.Now().UTC()
-	id := journal.OperationID(created)
+	id := journalpublication.OperationID(created)
 	ordinary, err := nativeOrdinaryApplyFor(input, work, id)
 	if err != nil {
 		return ApplyResult{}, err
@@ -450,14 +452,14 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	if err != nil {
 		return result, err
 	}
-	var captured journal.CapturedNativeJournal
+	var captured journalpublication.CapturedNativeJournal
 	if err := run("apply/native-journal-publication", func() error {
 		result.ExecutionAttempted = true
 		if err := authority.bindRecoveryJournal(input.Paths.ManifestRoot, filepath.Join(input.Paths.RecoveryDir, id)); err != nil {
 			return err
 		}
 		var err error
-		captured, err = journal.CaptureNativeJournalWithOptions(ctx, input.Paths.journalPaths(), id, created, work.documents, input.Preparation.AfterState(), work.edits, journal.NativeCaptureOptions{CaptureOptions: journal.CaptureOptions{
+		captured, err = journalpublication.CaptureNativeJournalWithOptions(ctx, input.Paths.journalPaths(), id, created, work.documents, input.Preparation.AfterState(), work.edits, journalpublication.NativeCaptureOptions{CaptureOptions: journalpublication.CaptureOptions{
 			Filesystem: input.Filesystem, StateCodec: input.StateCodec, Codecs: input.Codecs,
 			OperationAuthority: authority.recoveryJournal, ManifestRoot: authority.capturedRoot,
 			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,

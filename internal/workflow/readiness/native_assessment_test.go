@@ -4,25 +4,36 @@ import (
 	"context"
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
+
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
-	"github.com/isty2e/daem/internal/effect/journal"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
+
 	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
+
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
+
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+
 	lockbuild "github.com/isty2e/daem/internal/realization/lock/build"
 	"github.com/isty2e/daem/internal/reconcile"
+
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -79,7 +90,7 @@ func TestNativeAssessmentBorrowsLiveBatchAndOriginalAllocation(t *testing.T) {
 	fixture.refreshEpoch(t)
 	reader := &assessmentRegistryReader{RegistryReader: fixture.observation.Registry}
 	fixture.observation.Registry = reader
-	documents, err := journal.ObserveNativeDocuments(t.Context(), fixture.observation)
+	documents, err := journalpublication.ObserveNativeDocuments(t.Context(), fixture.observation)
 	if err != nil {
 		t.Fatal(err)
 	}

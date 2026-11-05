@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -188,12 +190,12 @@ func TestRecoveryRootInventoryBlocksJournalPayloadViolations(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		mutate func(*testing.T, CaptureResult)
+		mutate func(*testing.T, journalpublication.CaptureResult)
 		want   string
 	}{
 		{
 			name: "oversized",
-			mutate: func(t *testing.T, result CaptureResult) {
+			mutate: func(t *testing.T, result journalpublication.CaptureResult) {
 				if err := os.Truncate(result.JournalPath, journalrecord.MaximumBytes+1); err != nil {
 					t.Fatalf("enlarge recovery journal: %v", err)
 				}
@@ -202,7 +204,7 @@ func TestRecoveryRootInventoryBlocksJournalPayloadViolations(t *testing.T) {
 		},
 		{
 			name: "wrong mode",
-			mutate: func(t *testing.T, result CaptureResult) {
+			mutate: func(t *testing.T, result journalpublication.CaptureResult) {
 				if err := os.Chmod(result.JournalPath, 0o640); err != nil {
 					t.Fatalf("change recovery journal mode: %v", err)
 				}
@@ -211,7 +213,7 @@ func TestRecoveryRootInventoryBlocksJournalPayloadViolations(t *testing.T) {
 		},
 		{
 			name: "operation id drift",
-			mutate: func(t *testing.T, result CaptureResult) {
+			mutate: func(t *testing.T, result journalpublication.CaptureResult) {
 				content, err := os.ReadFile(result.JournalPath)
 				if err != nil {
 					t.Fatalf("read recovery journal: %v", err)
@@ -381,7 +383,7 @@ func TestRecoveryPlanLoadersSelectOneAuthorityKind(t *testing.T) {
 
 		plan, err := LoadRecoverablePlanWithOptions(
 			t.Context(),
-			Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
+			journalpublication.Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 			PlanLoadOptions{
 				Filesystem: journalTestFilesystem(),
 				StateCodec: testStateCodec(),
@@ -424,7 +426,7 @@ func TestRecoveryPlanLoadersSelectOneAuthorityKind(t *testing.T) {
 
 		plan, err := LoadRecoverablePlanWithOptions(
 			t.Context(),
-			Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
+			journalpublication.Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 			PlanLoadOptions{
 				Filesystem: journalTestFilesystem(),
 				StateCodec: testStateCodec(),

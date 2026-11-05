@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
 
@@ -14,7 +15,7 @@ func TestLoadRecoverablePlanChargesInventoryToProvidedPhysicalBudget(t *testing.
 
 	_, err := LoadRecoverablePlanWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: t.TempDir()},
+		journalpublication.Paths{RecoveryDir: t.TempDir()},
 		PlanLoadOptions{
 			Filesystem:         journalTestFilesystem(),
 			PhysicalPathBudget: budget,

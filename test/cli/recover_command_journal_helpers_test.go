@@ -5,7 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
@@ -39,8 +40,8 @@ func loadCLIRecoveryJournalForTest(t *testing.T, path string) cliRecoveryJournal
 	return journal
 }
 
-func recoveryJournalPaths(paths daempaths.Paths) journal.Paths {
-	return journal.Paths{
+func recoveryJournalPaths(paths daempaths.Paths) journalpublication.Paths {
+	return journalpublication.Paths{
 		RecoveryDir:   paths.RecoveryDir,
 		StatefilePath: paths.StatefilePath,
 		ManifestRoot:  paths.ManifestRoot,

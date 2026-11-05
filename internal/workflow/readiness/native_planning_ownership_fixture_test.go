@@ -11,8 +11,9 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -146,7 +147,7 @@ func (fixture *nativePlanningFixture) persistBefore(t *testing.T, before durable
 func (fixture *nativePlanningFixture) observe(t *testing.T) {
 	t.Helper()
 	var err error
-	fixture.input.Documents, err = journal.ObserveNativeDocuments(t.Context(), fixture.observation)
+	fixture.input.Documents, err = journalpublication.ObserveNativeDocuments(t.Context(), fixture.observation)
 	if err != nil {
 		t.Fatal(err)
 	}

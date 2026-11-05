@@ -9,7 +9,9 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -31,11 +33,11 @@ func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			operation, err := OpenCapturedNativeRecovery(t.Context(), captured, input.options.StateCodec, input.options.ManifestRoot, input.batch.budget, NativeRecoveryOptions{
+			operation, err := OpenCapturedNativeRecovery(t.Context(), captured, input.options.StateCodec, input.options.ManifestRoot, input.budget, journalqualification.NativeRecoveryOptions{
 				Filesystem: input.options.Filesystem, OperationAuthority: input.options.OperationAuthority,
 				Registry: registry, Codecs: input.options.Codecs,
 				State: func(ctx context.Context) (durable.Snapshot, error) {
-					return statefile.LoadOptionalWithOptions(ctx, input.paths.StatefilePath, statefile.ReadOptions{Codec: input.options.StateCodec, PhysicalPathBudget: input.batch.budget})
+					return statefile.LoadOptionalWithOptions(ctx, input.paths.StatefilePath, statefile.ReadOptions{Codec: input.options.StateCodec, PhysicalPathBudget: input.budget})
 				},
 			})
 			if err != nil {

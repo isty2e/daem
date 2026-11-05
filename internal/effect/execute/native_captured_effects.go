@@ -6,13 +6,15 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
-func prepareNativeCapturedEffects(ctx context.Context, captured journal.CapturedNativeJournal, input NativeApplyInput) (retiring *journal.NativeJournalRetirement, preparation ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence, resultErr error) {
+func prepareNativeCapturedEffects(ctx context.Context, captured journalpublication.CapturedNativeJournal, input NativeApplyInput) (retiring *journal.NativeJournalRetirement, preparation ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence, resultErr error) {
 	var err error
 	if !captured.NeedsPromotion() {
 		retiring, err = journal.PrepareNativeJournalRetirement(ctx, captured, input.Budget, input.Filesystem, input.StateCodec)
@@ -34,8 +36,8 @@ func prepareNativeCapturedEffects(ctx context.Context, captured journal.Captured
 	return retiring, preparation, bindings, err
 }
 
-func observeNativeRuntime(ctx context.Context, captured journal.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryReader) (journalqualification.NativeRecoveryAssessment, error) {
-	return captured.AssessRecovery(ctx, journal.NativeRecoveryOptions{
+func observeNativeRuntime(ctx context.Context, captured journalpublication.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryReader) (journalqualification.NativeRecoveryAssessment, error) {
+	return captured.AssessRecovery(ctx, journalqualification.NativeRecoveryOptions{
 		Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal,
 		State: func(ctx context.Context) (durable.Snapshot, error) {
 			return readNativeCommittedState(ctx, authority, input)

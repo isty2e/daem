@@ -13,12 +13,16 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/contractversion"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -151,14 +155,14 @@ func captureCLIRecoveryNeedsFinalizeJournal(t *testing.T, manifestPath string) d
 		t.Fatalf("NewAcquireTransition returned error: %v", err)
 	}
 
-	_, err = journal.CaptureJournalWithOptions(
+	_, err = journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		recoveryJournalPaths(paths),
 		operationID,
 		time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC),
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ClaimTransitions:     []ownershipmutation.ClaimTransition{transition},
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{managedMutation},
@@ -168,7 +172,7 @@ func captureCLIRecoveryNeedsFinalizeJournal(t *testing.T, manifestPath string) d
 		},
 	)
 	if err != nil {
-		t.Fatalf("journal.CaptureJournalWithOptions returned error: %v", err)
+		t.Fatalf("journalpublication.CaptureJournalWithOptions returned error: %v", err)
 	}
 
 	testkit.WriteFile(t, home, ".codex/AGENTS.md", desiredContent)

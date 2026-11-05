@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/filesnapshot"
+
 	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
@@ -28,7 +30,7 @@ func TestNativeMCPReaderReusesObservedAliasesWithoutIO(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture.observation.Aliases = append(fixture.observation.Aliases, alias)
-	documents, err := journal.ObserveNativeDocuments(t.Context(), fixture.observation)
+	documents, err := journalpublication.ObserveNativeDocuments(t.Context(), fixture.observation)
 	if err != nil {
 		t.Fatal(err)
 	}

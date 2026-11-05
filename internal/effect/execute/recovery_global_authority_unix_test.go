@@ -18,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -1171,7 +1172,7 @@ func newGlobalFileRecoveryFixture(
 	if err != nil {
 		t.Fatalf("construct next global snapshot: %v", err)
 	}
-	operationID := journal.OperationID(time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC))
+	operationID := journalpublication.OperationID(time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC))
 	statefileKey, err := mutation.CanonicalDirectoryEntryKey(paths.StatefilePath)
 	if err != nil {
 		t.Fatalf("canonicalize global recovery statefile: %v", err)
@@ -1220,14 +1221,14 @@ func newGlobalFileRecoveryFixture(
 	if !beforeExists {
 		removalDemands = testManagedPathRemovalDemandSet(t, nil, 0, &nextPath, stateMode)
 	}
-	if _, err := journal.CaptureJournalWithOptions(
+	if _, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		paths.journalPaths(),
 		operationID,
 		time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC),
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ClaimTransitions:     []ownershipmutation.ClaimTransition{transition},
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutationRequest},

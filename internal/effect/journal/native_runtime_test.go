@@ -6,8 +6,12 @@ import (
 	"os"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -20,7 +24,7 @@ func TestNativeCapturedRuntimeRequiresWholeCleanPhaseForRetirement(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			retiring, err := PrepareNativeJournalRetirement(t.Context(), captured, input.batch.budget, input.options.Filesystem, input.options.StateCodec)
+			retiring, err := PrepareNativeJournalRetirement(t.Context(), captured, input.budget, input.options.Filesystem, input.options.StateCodec)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -43,10 +47,10 @@ func TestNativeCapturedRuntimeRequiresWholeCleanPhaseForRetirement(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			assessment, err := captured.AssessRecovery(t.Context(), NativeRecoveryOptions{
+			assessment, err := captured.AssessRecovery(t.Context(), journalqualification.NativeRecoveryOptions{
 				Filesystem: input.options.Filesystem, OperationAuthority: input.options.OperationAuthority,
 				State: func(ctx context.Context) (durable.Snapshot, error) {
-					return statefile.LoadOptionalWithOptions(ctx, input.paths.StatefilePath, statefile.ReadOptions{Codec: input.options.StateCodec, PhysicalPathBudget: input.batch.budget})
+					return statefile.LoadOptionalWithOptions(ctx, input.paths.StatefilePath, statefile.ReadOptions{Codec: input.options.StateCodec, PhysicalPathBudget: input.budget})
 				},
 				Registry: reader, Codecs: input.options.Codecs,
 			})
@@ -60,14 +64,19 @@ func TestNativeCapturedRuntimeRequiresWholeCleanPhaseForRetirement(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !assessment.MatchesSource(captured.source) {
+			capture := captured.CaptureResult()
+			identity, err := retirement.NewIdentity(capture.OperationID, capture.RecordFingerprint)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !assessment.MatchesRevision(identity, capture.Directory, captured.ActiveJournalAuthority()) {
 				t.Fatal("recovery phase lost its actual published source")
 			}
 			if phase == "partial" {
 				if !assessment.RequiresRollback() || retiring.ExecuteWithGate(t.Context(), assessment, nil) == nil {
 					t.Fatal("unsettled host/state phase was allowed to retire")
 				}
-				if _, err := os.Stat(captured.capture.JournalPath); err != nil {
+				if _, err := os.Stat(capture.JournalPath); err != nil {
 					t.Fatal("refused retirement lost its recovery evidence", err)
 				}
 				return
@@ -82,7 +91,7 @@ func TestNativeCapturedRuntimeRequiresWholeCleanPhaseForRetirement(t *testing.T)
 			if err := retiring.ExecuteWithGate(t.Context(), assessment, nil); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := os.Stat(captured.capture.Directory); !os.IsNotExist(err) {
+			if _, err := os.Stat(capture.Directory); !os.IsNotExist(err) {
 				t.Fatal("native journal remained active after clean retirement", err)
 			}
 			afterHost, err := os.ReadFile(input.host)

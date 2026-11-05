@@ -1,4 +1,4 @@
-// Package publication prepares and stages complete journal witnesses in an
-// unpublished tree. The containing operation owns commit, exact readback and the
-// separate qualification needed before captured evidence can be returned.
+// Package publication captures journal artifacts, publishes them and qualifies
+// their exact reread. Host namespaces stay borrowed from the containing operation;
+// captured evidence grants no host, state or ownership write authority.
 package publication

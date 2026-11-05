@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -32,7 +34,7 @@ func TestLoadActivePlanRetainsCorruptJournalEvidence(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	_, err := LoadActivePlanWithOptions(context.Background(), Paths{
+	_, err := LoadActivePlanWithOptions(context.Background(), journalpublication.Paths{
 		RecoveryDir:   recoveryRoot,
 		StatefilePath: filepath.Join(root, "state.json"),
 		ManifestRoot:  root,
@@ -43,7 +45,7 @@ func TestLoadActivePlanRetainsCorruptJournalEvidence(t *testing.T) {
 	if _, statErr := os.Stat(operationDir); statErr != nil {
 		t.Fatalf("corrupt recovery evidence was not retained: %v", statErr)
 	}
-	if err := ensureNoActive(t.Context(), recoveryRoot, journalinventory.Options{
+	if err := journalinventory.RequireClear(t.Context(), recoveryRoot, journalinventory.Options{
 		Filesystem: journalTestFilesystem(),
 		StateCodec: testStateCodec(),
 	}); err == nil {
@@ -59,14 +61,14 @@ func TestRecoveryInventoryIgnoresUnrelatedHiddenEntries(t *testing.T) {
 		}
 	}
 	operationID := "20260711T120000.000000000Z-apply"
-	if _, err := CaptureJournalWithOptions(
+	if _, err := journalpublication.CaptureJournalWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
+		journalpublication.Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		operationID,
 		time.Date(2026, time.July, 11, 12, 0, 0, 0, time.UTC),
 		inventoryJournalSnapshot(t, "before"),
 		inventoryJournalSnapshot(t, "after"),
-		CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem: journalTestFilesystem(),
 			Resolver: func(output.Destination) (string, error) {
 				return "", nil

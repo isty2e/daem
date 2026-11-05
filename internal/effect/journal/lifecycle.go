@@ -15,11 +15,11 @@ import (
 
 // ErrInterruptedApply reports that RecoveryDir contains an active or prepared
 // apply journal. daem recover can produce a plan for that authority.
-var ErrInterruptedApply = errors.New("interrupted apply operation found")
+var ErrInterruptedApply = journalinventory.ErrInterruptedApply
 
 // ErrIncompleteJournalCleanup reports that RecoveryDir contains retained or
 // finalizing journal cleanup. daem recover can produce a plan for that authority.
-var ErrIncompleteJournalCleanup = errors.New("journal cleanup is incomplete")
+var ErrIncompleteJournalCleanup = journalinventory.ErrIncompleteJournalCleanup
 
 // InterruptionKind is the closed journal readiness axis used by workflow
 // recovery barriers.
@@ -56,7 +56,7 @@ func InterruptionKindOf(err error) InterruptionKind {
 // RequireNoInterruptedApply applies the canonical recovery-root readiness
 // policy through the production filesystem and state codecs.
 func RequireNoInterruptedApply(ctx context.Context, recoveryRoot string) error {
-	return ensureNoActive(ctx, recoveryRoot, journalinventory.Options{
+	return journalinventory.RequireClear(ctx, recoveryRoot, journalinventory.Options{
 		Filesystem: storagecommit.Adapter{},
 		StateCodec: statefile.Codec{},
 	})
@@ -68,35 +68,9 @@ func RequireNoInterruptedApplyBounded(ctx context.Context, recoveryRoot string, 
 	if budget == nil {
 		return fmt.Errorf("journal readiness physical work budget is required")
 	}
-	return ensureNoActive(ctx, recoveryRoot, journalinventory.Options{
+	return journalinventory.RequireClear(ctx, recoveryRoot, journalinventory.Options{
 		Filesystem: storagecommit.Adapter{}, StateCodec: statefile.Codec{}, PhysicalPathBudget: budget,
 	})
-}
-
-// ensureNoActive permits mutation only when the canonical recovery inventory
-// is clean or contains inert finalized GC residue.
-func ensureNoActive(
-	ctx context.Context,
-	recoveryRoot string,
-	options journalinventory.Options,
-) error {
-	inventory, err := journalinventory.LoadRoot(ctx, recoveryRoot, options)
-	if err != nil {
-		return err
-	}
-	switch inventory.Decision().State() {
-	case retirement.StateClean, retirement.StateFinalized:
-		return nil
-	case retirement.StateActive, retirement.StatePrepared:
-		return fmt.Errorf("%w; run: daem recover --dry-run", ErrInterruptedApply)
-	case retirement.StateRetained,
-		retirement.StateFinalizing:
-		return fmt.Errorf("%w; run: daem recover --dry-run", ErrIncompleteJournalCleanup)
-	case retirement.StateBlocked:
-		return fmt.Errorf("recovery inventory is blocked: %s", inventory.Decision().Detail())
-	default:
-		return fmt.Errorf("recovery inventory classification is invalid")
-	}
 }
 
 // CleanupFailurePhase identifies the semantic phase in which one cleanup-only

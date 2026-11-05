@@ -10,6 +10,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
@@ -17,7 +19,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	"github.com/isty2e/daem/internal/effect/journal"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
@@ -374,7 +375,7 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 	}
 	budget := physicalwork.NewCaptureBudget(nil)
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
-	documents, err := journal.ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Registry: reader, Filesystem: testFilesystem(), Limits: limits, Budget: budget})
+	documents, err := journalpublication.ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Registry: reader, Filesystem: testFilesystem(), Limits: limits, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}

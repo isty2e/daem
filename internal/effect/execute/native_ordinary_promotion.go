@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -14,7 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutationState, keys []ownershipOutputKey, captured *journal.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore, gate visibilityEffectGate, execution *applyEffectExecution) error {
+func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutationState, keys []ownershipOutputKey, captured *journalpublication.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore, gate visibilityEffectGate, execution *applyEffectExecution) error {
 	requested := make(map[ownershipOutputKey]struct{}, len(keys))
 	for _, key := range keys {
 		requested[key] = struct{}{}
@@ -61,8 +64,8 @@ func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutation
 			return err
 		}
 		if err := journalGate.applyEffect(func() error {
-			promoted, err := captured.PromoteOrdinary(ctx, intent, transition, journal.NativePromotionOptions{
-				NativeRecoveryOptions: journal.NativeRecoveryOptions{
+			promoted, err := captured.PromoteOrdinary(ctx, intent, transition, journalpublication.NativePromotionOptions{
+				NativeRecoveryOptions: journalqualification.NativeRecoveryOptions{
 					Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 					State: func(ctx context.Context) (durable.Snapshot, error) {
 						return readNativeCommittedState(ctx, authority, input)

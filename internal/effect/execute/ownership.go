@@ -9,7 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/effect/mutation"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -450,10 +450,10 @@ func promoteVisibleAcquire(
 	if err := journalGate.validateBefore(ctx); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
-	var promotion journal.ProvisionalAcquirePromotion
+	var promotion journalpublication.ProvisionalAcquirePromotion
 	if err := journalGate.applyEffect(func() error {
 		var promoteErr error
-		promotion, promoteErr = journal.PromoteProvisionalAcquire(
+		promotion, promoteErr = journalpublication.PromoteProvisionalAcquire(
 			ctx,
 			authority.filesystem,
 			authority.recoveryJournalRecord,

@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"time"
 
-	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
@@ -41,8 +43,8 @@ type Paths struct {
 	OwnershipRegistryPath string
 }
 
-func (paths Paths) journalPaths() journal.Paths {
-	return journal.Paths{
+func (paths Paths) journalPaths() journalpublication.Paths {
+	return journalpublication.Paths{
 		RecoveryDir:   paths.RecoveryDir,
 		StatefilePath: paths.StatefilePath,
 		ManifestRoot:  paths.ManifestRoot,
@@ -164,7 +166,7 @@ func applyWithOptions(
 	nextState := transition.nextState
 
 	createdAt := time.Now().UTC()
-	operationID := journal.OperationID(createdAt)
+	operationID := journalpublication.OperationID(createdAt)
 	events := applyEventEmitter{
 		sink: options.Events,
 		totalActions: len(input.ManagedPathEffects) +
@@ -339,14 +341,14 @@ func applyWithOptions(
 		}
 		events.emit(EventJournalCaptureStarted, EventStageJournalCapture, nil, nil)
 		executionAttempted = true
-		captureResult, captureErr := journal.CaptureJournalWithOptions(
+		captureResult, captureErr := journalpublication.CaptureJournalWithOptions(
 			ctx,
 			input.Paths.journalPaths(),
 			operationID,
 			createdAt,
 			input.CurrentState,
 			nextState,
-			journal.CaptureOptions{
+			journalpublication.CaptureOptions{
 				Filesystem:                input.Filesystem,
 				ClaimTransitions:          ownershipState.transitions,
 				ProvisionalAcquires:       ownershipState.provisional,

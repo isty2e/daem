@@ -9,10 +9,12 @@ import (
 	"testing"
 	"time"
 
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -60,108 +62,6 @@ func TestObserveGlobalRecoveryPathPreservesSymlinkTargetThroughRootedFallback(t 
 	}
 }
 
-func TestOrdinaryCaptureBorrowsProjectRootAndEncodesProvenance(t *testing.T) {
-	root := t.TempDir()
-	hostPath := filepath.Join(root, "AGENTS.md")
-	content := []byte("instructions\n")
-	if err := os.WriteFile(hostPath, content, 0o600); err != nil {
-		t.Fatalf("write project destination: %v", err)
-	}
-	contentHash := artifact.HashFileContent(content)
-	mutation, evidence, current := projectJournalCaptureFacts(t, contentHash)
-	captured := mustJournalProjectRoot(t, root)
-	defer captured.Close()
-
-	material, err := buildOrdinaryCaptureMaterial(
-		context.Background(),
-		Paths{ManifestRoot: root},
-		t.TempDir(),
-		"borrowed-project-root",
-		time.Date(2026, time.July, 13, 0, 0, 0, 0, time.UTC),
-		current,
-		current,
-		CaptureOptions{
-			Filesystem:           journalTestFilesystem(),
-			ManifestRoot:         captured,
-			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
-			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
-			StateCodec:           testStateCodec(),
-			Resolver: func(output.Destination) (string, error) {
-				return hostPath, nil
-			},
-		},
-		&ordinaryCaptureWork{},
-	)
-	if err != nil {
-		t.Fatalf("ordinary capture returned error: %v", err)
-	}
-	authority, err := captured.Authority()
-	if err != nil {
-		t.Fatalf("borrowed root was closed by journal capture: %v", err)
-	}
-	before, after, err := journalrecord.EncodeSnapshots(current, current, testStateCodec())
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := material.EncodeOrdinary(before, after)
-	if err != nil {
-		t.Fatal(err)
-	}
-	journalRoot, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	journalPath := filepath.Join(journalRoot, "journal.json")
-	if err := os.WriteFile(journalPath, encoded, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := journalTestFilesystem().ReadRegularFileSnapshotUpTo(t.Context(), journalPath, journalrecord.MaximumBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := journalrecord.DecodeOrdinarySnapshot(t.Context(), snapshot, journalPath, testStateCodec())
-	if err != nil {
-		t.Fatal(err)
-	}
-	journal, present := loaded.Ordinary()
-	if !present {
-		t.Fatal("ordinary capture decoded as another family")
-	}
-	basis, err := journal.RecoveryPlanningBasis(journalRoot, journalrecord.Fingerprint(encoded), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := basis.ManifestProvenance().Match(authority); err != nil {
-		t.Fatalf("persisted provenance does not match borrowed authority: %v", err)
-	}
-}
-
-func TestOrdinaryCaptureRejectsBorrowedRootForDifferentManifest(t *testing.T) {
-	manifestRoot := t.TempDir()
-	borrowed := mustJournalProjectRoot(t, t.TempDir())
-	defer borrowed.Close()
-
-	_, err := buildOrdinaryCaptureMaterial(
-		context.Background(),
-		Paths{ManifestRoot: manifestRoot},
-		t.TempDir(),
-		"mismatched-manifest-root",
-		time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
-		durable.EmptySnapshot(),
-		inventoryJournalSnapshot(t, "after"),
-		CaptureOptions{
-			Filesystem:   journalTestFilesystem(),
-			ManifestRoot: borrowed,
-			Resolver:     func(output.Destination) (string, error) { return "", nil },
-			StateCodec:   testStateCodec(),
-		},
-		&ordinaryCaptureWork{},
-	)
-	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) {
-		t.Fatalf("ordinary capture error = %v, want %s", err, rootedpath.FailureRootReplaced)
-	}
-}
-
 func TestLoadActivePlanRejectsReplacedProjectRootBeforePathClassification(t *testing.T) {
 	base := t.TempDir()
 	root := filepath.Join(base, "project")
@@ -179,21 +79,21 @@ func TestLoadActivePlanRejectsReplacedProjectRootBeforePathClassification(t *tes
 	}
 	contentHash := artifact.HashFileContent(content)
 	mutation, evidence, current := projectJournalCaptureFacts(t, contentHash)
-	paths := Paths{
+	paths := journalpublication.Paths{
 		RecoveryDir:   filepath.Join(stateRoot, "recovery"),
 		StatefilePath: filepath.Join(stateRoot, "state.json"),
 		ManifestRoot:  root,
 		DataDir:       filepath.Join(stateRoot, "data"),
 	}
 	captured := mustJournalProjectRoot(t, root)
-	_, err := CaptureJournalWithOptions(
+	_, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		paths,
 		"replace-root",
 		time.Date(2026, time.July, 13, 0, 0, 0, 0, time.UTC),
 		current,
 		current,
-		CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           journalTestFilesystem(),
 			ManifestRoot:         captured,
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
@@ -206,7 +106,7 @@ func TestLoadActivePlanRejectsReplacedProjectRootBeforePathClassification(t *tes
 	)
 	if err != nil {
 		_ = captured.Close()
-		t.Fatalf("CaptureJournalWithOptions returned error: %v", err)
+		t.Fatalf("journalpublication.CaptureJournalWithOptions returned error: %v", err)
 	}
 	if err := captured.Close(); err != nil {
 		t.Fatalf("close original project root witness: %v", err)
@@ -246,26 +146,26 @@ func TestLoadStateOnlyPlanRejectsReplacedManifestRootBeforeClassification(t *tes
 	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
 		t.Fatalf("create state root: %v", err)
 	}
-	paths := Paths{
+	paths := journalpublication.Paths{
 		RecoveryDir:   filepath.Join(stateRoot, "recovery"),
 		StatefilePath: filepath.Join(stateRoot, "state.json"),
 		ManifestRoot:  manifestRoot,
 		DataDir:       filepath.Join(stateRoot, "data"),
 	}
-	if _, err := CaptureJournalWithOptions(
+	if _, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		paths,
 		"replace-state-only-root",
 		time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
 		durable.EmptySnapshot(),
 		inventoryJournalSnapshot(t, "after"),
-		CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem: journalTestFilesystem(),
 			Resolver:   func(output.Destination) (string, error) { return "", nil },
 			StateCodec: testStateCodec(),
 		},
 	); err != nil {
-		t.Fatalf("CaptureJournalWithOptions returned error: %v", err)
+		t.Fatalf("journalpublication.CaptureJournalWithOptions returned error: %v", err)
 	}
 
 	moved := filepath.Join(base, "original-manifest")

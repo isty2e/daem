@@ -6,17 +6,20 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/build/projection"
+
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -24,7 +27,7 @@ type NativeSourcePreparationInput struct {
 	Environment            desired.Environment
 	Selection              targetselection.Selection
 	SourceEpoch            lockobserve.SourceEpoch
-	Documents              journal.NativeDocumentObservationBatch
+	Documents              journalpublication.NativeDocumentObservationBatch
 	DocumentLimits         configdocument.Limits
 	ValueLimits            configdocument.Limits
 	ManageUnmanagedMatches bool

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/reconcile"
 
@@ -302,14 +304,14 @@ func TestStateOnlyRecoveryRejectsManifestRootReplacementAfterFinalReload(t *test
 	after := durable.EmptySnapshot()
 	writeRecoveryTestStatefile(t, paths.StatefilePath, before)
 
-	if _, err := journal.CaptureJournalWithOptions(
+	if _, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		paths.journalPaths(),
 		"state-only-root-replacement",
 		time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
 		before,
 		after,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem: testFilesystem(),
 			Resolver:   func(output.Destination) (string, error) { return "", nil },
 			StateCodec: testStateCodec(),

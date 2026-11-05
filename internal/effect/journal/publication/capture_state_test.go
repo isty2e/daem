@@ -1,0 +1,263 @@
+package publication
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/observe"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
+	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/supply/artifact"
+	"github.com/isty2e/daem/internal/target"
+)
+
+func TestCaptureJournalRejectsBlankRecoveryDirectory(t *testing.T) {
+	_, err := CaptureJournalWithOptions(
+		t.Context(),
+		Paths{},
+		"blank-recovery-root",
+		time.Date(2026, time.July, 31, 0, 0, 0, 0, time.UTC),
+		durable.EmptySnapshot(),
+		durable.EmptySnapshot(),
+		CaptureOptions{
+			Resolver: func(output.Destination) (string, error) {
+				return "", errors.New("resolver must not run")
+			},
+			StateCodec: testStateCodec(),
+			Filesystem: journalTestFilesystem(),
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "recovery directory is required") {
+		t.Fatalf("CaptureJournalWithOptions error = %v, want required-directory rejection", err)
+	}
+}
+
+func TestCaptureJournalMissingPreviousIdentityLeavesNoActiveJournalOrHostEffect(t *testing.T) {
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "CLAUDE.md")
+	content := []byte("shared instructions\n")
+	if err := os.WriteFile(hostPath, content, 0o600); err != nil {
+		t.Fatalf("write host path: %v", err)
+	}
+	contentHash := artifact.HashFileContent(content)
+	previous := inventoryJournalSnapshot(t, string(contentHash)).ManagedPaths()[0]
+	next := testAppliedState(target.TargetClaudeCode, string(contentHash))
+	mutation, err := journalrecord.NewManagedPathRecordMutation(
+		next.Subject(),
+		next.ConsumerTargets(),
+		next.Scope(),
+		next.Destination(),
+		next.ContentHash(),
+		next.ContentHash(),
+		next.ContentKind(),
+		0o600,
+		&previous,
+	)
+	if err != nil {
+		t.Fatalf("NewManagedPathRecordMutation returned error: %v", err)
+	}
+	evidence, err := observe.NewManagedPathEvidence(
+		next.Subject(),
+		next.Destination(),
+		true,
+		next.ContentHash(),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("NewManagedPathEvidence returned error: %v", err)
+	}
+	currentState := statefileFor(next)
+	paths := Paths{
+		RecoveryDir:   filepath.Join(root, "recovery"),
+		StatefilePath: filepath.Join(root, "state.json"),
+		ManifestRoot:  root,
+	}
+
+	_, err = CaptureJournalWithOptions(
+		context.Background(),
+		paths,
+		"missing-previous",
+		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
+		currentState,
+		currentState,
+		CaptureOptions{
+			Filesystem:           journalTestFilesystem(),
+			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
+			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
+			Resolver:             func(output.Destination) (string, error) { return hostPath, nil },
+			StateCodec:           testStateCodec(),
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "missing state observation") {
+		t.Fatalf("CaptureJournal error = %v, want missing previous identity", err)
+	}
+	inventory, inventoryErr := journalinventory.LoadRoot(
+		t.Context(),
+		paths.RecoveryDir,
+		journalinventory.Options{
+			Filesystem: journalTestFilesystem(),
+			StateCodec: testStateCodec(),
+		},
+	)
+	if inventoryErr != nil {
+		t.Fatalf("loadRecoveryRootInventory returned error: %v", inventoryErr)
+	}
+	if inventory.Decision().State() != retirement.StateClean {
+		t.Fatalf("recovery inventory state = %q, want clean", inventory.Decision().State())
+	}
+	got, readErr := os.ReadFile(hostPath)
+	if readErr != nil {
+		t.Fatalf("read host path: %v", readErr)
+	}
+	if !bytes.Equal(got, content) {
+		t.Fatalf("host content = %q, want unchanged %q", got, content)
+	}
+}
+
+func TestCaptureJournalWithOptionsRejectsMissingResolverBeforeFilesystemWork(t *testing.T) {
+	recoveryDir := filepath.Join(t.TempDir(), "recovery")
+	_, err := CaptureJournalWithOptions(
+		context.Background(),
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
+		"missing-resolver",
+		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
+		durable.EmptySnapshot(),
+		durable.EmptySnapshot(),
+		CaptureOptions{StateCodec: testStateCodec()},
+	)
+	if err == nil || !strings.Contains(err.Error(), "destination resolver is required") {
+		t.Fatalf("error = %v, want missing resolver", err)
+	}
+	if _, statErr := os.Lstat(recoveryDir); !os.IsNotExist(statErr) {
+		t.Fatalf("missing resolver created recovery storage: %v", statErr)
+	}
+}
+
+func TestCaptureJournalWithOptionsRejectsMissingStateCodecBeforeFilesystemWork(t *testing.T) {
+	recoveryDir := filepath.Join(t.TempDir(), "recovery")
+	_, err := CaptureJournalWithOptions(
+		context.Background(),
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
+		"missing-codec",
+		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
+		durable.EmptySnapshot(),
+		durable.EmptySnapshot(),
+		CaptureOptions{
+			Resolver: func(output.Destination) (string, error) { return "", nil },
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "state codec is required") {
+		t.Fatalf("error = %v, want missing state codec", err)
+	}
+	if _, statErr := os.Lstat(recoveryDir); !os.IsNotExist(statErr) {
+		t.Fatalf("missing codec created recovery storage: %v", statErr)
+	}
+}
+
+func TestCaptureJournalWithOptionsRejectsMissingFilesystemBeforeFilesystemWork(t *testing.T) {
+	recoveryDir := filepath.Join(t.TempDir(), "recovery")
+	_, err := CaptureJournalWithOptions(
+		context.Background(),
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
+		"missing-filesystem",
+		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
+		durable.EmptySnapshot(),
+		durable.EmptySnapshot(),
+		CaptureOptions{
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: testStateCodec(),
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "filesystem is required") {
+		t.Fatalf("error = %v, want missing filesystem", err)
+	}
+	if _, statErr := os.Lstat(recoveryDir); !os.IsNotExist(statErr) {
+		t.Fatalf("missing filesystem created recovery storage: %v", statErr)
+	}
+}
+
+func TestCaptureJournalWithOptionsRejectsStateEncodingFailureBeforeFilesystemWork(t *testing.T) {
+	recoveryDir := filepath.Join(t.TempDir(), "recovery")
+	codecErr := fmt.Errorf("injected state encoding failure")
+	_, err := CaptureJournalWithOptions(
+		context.Background(),
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
+		"encoding-failure",
+		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
+		durable.EmptySnapshot(),
+		durable.EmptySnapshot(),
+		CaptureOptions{
+			Filesystem: journalTestFilesystem(),
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: failingStateCodec{encodeErr: codecErr},
+		},
+	)
+	if !errors.Is(err, codecErr) {
+		t.Fatalf("error = %v, want state encoding failure", err)
+	}
+	if _, statErr := os.Lstat(recoveryDir); !os.IsNotExist(statErr) {
+		t.Fatalf("encoding failure created recovery storage: %v", statErr)
+	}
+}
+
+func TestCaptureJournalWithOptionsRejectsInvalidStateEncodingBeforeFilesystemWork(t *testing.T) {
+	recoveryDir := filepath.Join(t.TempDir(), "recovery")
+	_, err := CaptureJournalWithOptions(
+		context.Background(),
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
+		"invalid-encoding",
+		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
+		durable.EmptySnapshot(),
+		durable.EmptySnapshot(),
+		CaptureOptions{
+			Filesystem: journalTestFilesystem(),
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: invalidStateEncoder{},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "statefile_before is not valid JSON") {
+		t.Fatalf("error = %v, want invalid state encoding", err)
+	}
+	if _, statErr := os.Lstat(recoveryDir); !os.IsNotExist(statErr) {
+		t.Fatalf("invalid encoding created recovery storage: %v", statErr)
+	}
+}
+
+func TestCaptureJournalWithOptionsRejectsAfterStateEncodingFailureBeforeFilesystemWork(t *testing.T) {
+	recoveryDir := filepath.Join(t.TempDir(), "recovery")
+	codecErr := fmt.Errorf("injected statefile_after encoding failure")
+	encoder := &failAtCallStateEncoder{failureAt: 2, err: codecErr}
+	_, err := CaptureJournalWithOptions(
+		context.Background(),
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
+		"after-encoding-failure",
+		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
+		durable.EmptySnapshot(),
+		durable.EmptySnapshot(),
+		CaptureOptions{
+			Filesystem: journalTestFilesystem(),
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: encoder,
+		},
+	)
+	if !errors.Is(err, codecErr) || !strings.Contains(err.Error(), "statefile_after") {
+		t.Fatalf("error = %v, want statefile_after encoding failure", err)
+	}
+	if encoder.calls != 2 {
+		t.Fatalf("state encoder calls = %d, want failure on second snapshot", encoder.calls)
+	}
+	if _, statErr := os.Lstat(recoveryDir); !os.IsNotExist(statErr) {
+		t.Fatalf("statefile_after encoding failure created recovery storage: %v", statErr)
+	}
+}

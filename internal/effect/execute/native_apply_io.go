@@ -7,14 +7,14 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-func publishNativeDocument(ctx context.Context, input NativeApplyInput, document journal.CapturedNativeDocument, authority *mutationAuthority) (resultErr error) {
+func publishNativeDocument(ctx context.Context, input NativeApplyInput, document journalpublication.CapturedNativeDocument, authority *mutationAuthority) (resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

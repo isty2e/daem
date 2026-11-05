@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal"
@@ -18,9 +20,12 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -67,7 +72,7 @@ func TestExecuteRejectsActiveJournalReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	replacementID := journal.OperationID(time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC))
+	replacementID := journalpublication.OperationID(time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC))
 	replacementDir := filepath.Join(filepath.Dir(fixture.operationDir), replacementID)
 	if err := os.Rename(fixture.operationDir, replacementDir); err != nil {
 		t.Fatal(err)

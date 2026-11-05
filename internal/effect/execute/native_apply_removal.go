@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 )
 
-func prepareNativeApplyRemovals(ctx context.Context, captured journal.CapturedNativeJournal, ordinary nativeOrdinaryApply, work nativeApplyWork, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore) (resultErr error) {
-	operation, err := journal.OpenCapturedNativeRecovery(ctx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journal.NativeRecoveryOptions{
+func prepareNativeApplyRemovals(ctx context.Context, captured journalpublication.CapturedNativeJournal, ordinary nativeOrdinaryApply, work nativeApplyWork, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore) (resultErr error) {
+	operation, err := journal.OpenCapturedNativeRecovery(ctx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journalqualification.NativeRecoveryOptions{
 		Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 		State: func(ctx context.Context) (durable.Snapshot, error) {
 			return readNativeCommittedState(ctx, authority, input)

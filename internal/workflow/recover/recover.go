@@ -10,13 +10,19 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
+
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/recoverygate"
 )
@@ -513,8 +519,8 @@ func stateReaderForPath(path string) durable.SnapshotReader {
 	}
 }
 
-func journalPaths(paths daempaths.Paths) journal.Paths {
-	return journal.Paths{
+func journalPaths(paths daempaths.Paths) journalpublication.Paths {
+	return journalpublication.Paths{
 		RecoveryDir:   paths.RecoveryDir,
 		StatefilePath: paths.StatefilePath,
 		ManifestRoot:  paths.ManifestRoot,

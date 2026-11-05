@@ -6,23 +6,27 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
+
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output/ownership"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
+
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
 // NativeAssessmentInput borrows observation-only facts for this assessment.
 // The caller keeps the batch's selected roots and pending allocation alive.
 type NativeAssessmentInput struct {
-	Documents *journal.NativeDocumentObservationBatch
+	Documents *journalpublication.NativeDocumentObservationBatch
 	Registry  ownership.Registry
 	Owner     stateauthority.Authority
 	Budget    *physicalwork.Budget

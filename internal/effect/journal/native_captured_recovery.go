@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"path/filepath"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
@@ -16,9 +21,17 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
+func nativeCaptureResult(source journalinventory.ActiveJournal) journalpublication.CaptureResult {
+	return journalpublication.CaptureResult{
+		OperationID: source.Identity().OperationID(), Directory: source.OperationDir(),
+		JournalPath:       filepath.Join(source.OperationDir(), journalrecord.FileName),
+		RecordFingerprint: source.Identity().JournalAuthorityFingerprint(),
+	}
+}
+
 // OpenCapturedNativeRecovery reloads and classifies a published operation for its containing
 // Apply. Root grants and the allocation stay borrowed from that live operation.
-func OpenCapturedNativeRecovery(ctx context.Context, captured CapturedNativeJournal, codec durable.SnapshotCodec, manifest *rootedpath.CapturedRoot, budget *physicalwork.Budget, options NativeRecoveryOptions) (*NativeRecoveryOperation, error) {
+func OpenCapturedNativeRecovery(ctx context.Context, captured journalpublication.CapturedNativeJournal, codec durable.SnapshotCodec, manifest *rootedpath.CapturedRoot, budget *physicalwork.Budget, options journalqualification.NativeRecoveryOptions) (*NativeRecoveryOperation, error) {
 	if err := captured.RequireRecoverySelection(manifest, budget); err != nil {
 		return nil, err
 	}

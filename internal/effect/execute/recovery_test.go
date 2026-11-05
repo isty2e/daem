@@ -10,25 +10,34 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
+
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
+
 	lock "github.com/isty2e/daem/internal/realization/lock"
+
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -107,14 +116,14 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 	resolver := func(destination output.Destination) (string, error) {
 		return filepath.Join(root, filepath.FromSlash(destination.RelativePath())), nil
 	}
-	result, err := journal.CaptureJournalWithOptions(
+	result, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		journalPaths,
-		journal.OperationID(time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)),
+		journalpublication.OperationID(time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)),
 		time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC),
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},

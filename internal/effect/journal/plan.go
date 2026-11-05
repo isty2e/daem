@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
@@ -36,7 +38,7 @@ var ErrNoRecoverableJournal = errors.New("no recoverable journal operation")
 // classification. Rooted capabilities and the ownership reader are borrowed
 // for the load.
 type PlanLoadOptions struct {
-	RootedCapability   RootedCapabilityResolver
+	RootedCapability   journalnamespace.CapabilityResolver
 	Resolver           func(destination output.Destination) (string, error)
 	OwnershipRegistry  ownershipmutation.RegistryReader
 	Codecs             aggregate.CodecCatalog
@@ -230,7 +232,7 @@ func JournalCleanupPlan(recoverable RecoverablePlan) (retirement.CleanupPlan, bo
 // cleanup-only plan from a single stable recovery-root inventory.
 func LoadRecoverablePlanWithOptions(
 	ctx context.Context,
-	paths Paths,
+	paths journalpublication.Paths,
 	options PlanLoadOptions,
 ) (RecoverablePlan, error) {
 	if err := validatePlanLoadFilesystem(options); err != nil {
@@ -323,7 +325,7 @@ func LoadRecoverablePlanWithOptions(
 
 // LoadActivePlanWithOptions classifies the active journal using any supplied
 // rooted global-destination authority.
-func LoadActivePlanWithOptions(ctx context.Context, paths Paths, options PlanLoadOptions) (recovery.Plan, error) {
+func LoadActivePlanWithOptions(ctx context.Context, paths journalpublication.Paths, options PlanLoadOptions) (recovery.Plan, error) {
 	return loadActivePlan(ctx, paths, nil, nil, options)
 }
 
@@ -331,7 +333,7 @@ func LoadActivePlanWithOptions(ctx context.Context, paths Paths, options PlanLoa
 // caller-owned state and any supplied rooted global-destination authority.
 func LoadActivePlanForStateWithOptions(
 	ctx context.Context,
-	paths Paths,
+	paths journalpublication.Paths,
 	currentState durable.Snapshot,
 	options PlanLoadOptions,
 ) (recovery.Plan, error) {
@@ -342,7 +344,7 @@ func LoadActivePlanForStateWithOptions(
 // using caller-owned state and any supplied rooted global-destination authority.
 func LoadActivePlanForStateEntriesWithOptions(
 	ctx context.Context,
-	paths Paths,
+	paths journalpublication.Paths,
 	currentState durable.Snapshot,
 	selected []journalrecord.EntrySelection,
 	options PlanLoadOptions,
@@ -352,7 +354,7 @@ func LoadActivePlanForStateEntriesWithOptions(
 
 func loadActivePlan(
 	ctx context.Context,
-	paths Paths,
+	paths journalpublication.Paths,
 	suppliedState *durable.Snapshot,
 	selected *[]journalrecord.EntrySelection,
 	options PlanLoadOptions,
@@ -385,7 +387,7 @@ func loadActivePlan(
 
 func loadActivePlanFromInventory(
 	ctx context.Context,
-	paths Paths,
+	paths journalpublication.Paths,
 	suppliedState *durable.Snapshot,
 	selected *[]journalrecord.EntrySelection,
 	options PlanLoadOptions,

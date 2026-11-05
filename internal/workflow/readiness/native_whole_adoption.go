@@ -6,9 +6,10 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -16,7 +17,7 @@ import (
 
 type NativeWholeAdoptionInput struct {
 	Source                 lockobserve.NativeSourceObservation
-	Documents              journal.NativeDocumentObservationBatch
+	Documents              journalpublication.NativeDocumentObservationBatch
 	ManageUnmanagedMatches bool
 }
 

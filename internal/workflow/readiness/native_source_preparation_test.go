@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
@@ -22,7 +24,6 @@ import (
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -210,7 +211,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 		t.Fatal(err)
 	}
 	observation := journalobservation.Input{Owner: owner, Before: loaded, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: storagecommit.Adapter{}, Registry: store, Limits: narrowingLimits, Budget: budget}
-	documents, err := journal.ObserveNativeDocuments(t.Context(), observation)
+	documents, err := journalpublication.ObserveNativeDocuments(t.Context(), observation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +303,7 @@ func TestNativeSourcePreparationFailureHasNoUsablePrefix(t *testing.T) {
 			ctx := t.Context()
 			switch fault {
 			case "zero documents":
-				fixture.input.Documents = journal.NativeDocumentObservationBatch{}
+				fixture.input.Documents = journalpublication.NativeDocumentObservationBatch{}
 			case "zero epoch":
 				fixture.input.SourceEpoch = lockobserve.SourceEpoch{}
 			case "stale source":
@@ -359,7 +360,7 @@ func TestNativeSourcePreparationPreservesOtherRowsInCompleteBefore(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.input.Documents, err = journal.ObserveNativeDocuments(t.Context(), fixture.observation)
+	fixture.input.Documents, err = journalpublication.ObserveNativeDocuments(t.Context(), fixture.observation)
 	if err != nil {
 		t.Fatal(err)
 	}

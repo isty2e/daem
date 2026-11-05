@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -158,7 +160,7 @@ func TestRecoveryRootInventoryClassifiesClosedPhysicalStates(t *testing.T) {
 				t.Fatalf("state %q retained active authority %#v", test.want, inventory.Active())
 			}
 
-			readinessErr := ensureNoActive(t.Context(), recoveryRoot, options)
+			readinessErr := journalinventory.RequireClear(t.Context(), recoveryRoot, options)
 			if (readinessErr == nil) != test.ready {
 				t.Fatalf("EnsureNoActive error = %v, ready want %t", readinessErr, test.ready)
 			}
@@ -179,7 +181,7 @@ func TestRecoveryRootInventoryClassifiesClosedPhysicalStates(t *testing.T) {
 			if !test.wantCleanup {
 				return
 			}
-			recoverable, err := LoadRecoverablePlanWithOptions(t.Context(), Paths{
+			recoverable, err := LoadRecoverablePlanWithOptions(t.Context(), journalpublication.Paths{
 				RecoveryDir: recoveryRoot,
 			}, PlanLoadOptions{
 				Filesystem: journalTestFilesystem(),
@@ -434,7 +436,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 			}
 			if _, err := LoadRecoverablePlanWithOptions(
 				t.Context(),
-				Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
+				journalpublication.Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 				PlanLoadOptions{
 					Filesystem: journalTestFilesystem(),
 					StateCodec: testStateCodec(),
@@ -605,7 +607,7 @@ func writeInventoryControl(
 
 func renameInventoryJournalToResidue(
 	t *testing.T,
-	result CaptureResult,
+	result journalpublication.CaptureResult,
 	identity retirement.Identity,
 ) string {
 	t.Helper()
@@ -619,7 +621,7 @@ func renameInventoryJournalToResidue(
 
 func renameInventoryJournalToLegacy(
 	t *testing.T,
-	result CaptureResult,
+	result journalpublication.CaptureResult,
 	digestCharacter string,
 ) string {
 	t.Helper()

@@ -3,6 +3,8 @@ package journal
 import (
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -66,7 +68,7 @@ func TestNativeRecoveryDocumentFailedRemovalIsNotPresent(t *testing.T) {
 }
 
 func TestNativePromotionRefusesUnusableCapturedFacts(t *testing.T) {
-	if !(CapturedNativeJournal{}).NeedsPromotion() {
+	if !(journalpublication.CapturedNativeJournal{}).NeedsPromotion() {
 		t.Fatal("unavailable promotion facts allowed retirement preparation")
 	}
 }

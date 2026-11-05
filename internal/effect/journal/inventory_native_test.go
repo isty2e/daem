@@ -10,10 +10,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
@@ -60,7 +61,7 @@ func TestNativeInventoryRetainsActualRecordAndFeedsDocumentAssessment(t *testing
 		t.Fatalf("read-only native inventory changed its journal: %v", err)
 	}
 	called := false
-	legacy, err := loadActivePlanFromInventory(t.Context(), Paths{RecoveryDir: root}, nil, nil, PlanLoadOptions{
+	legacy, err := loadActivePlanFromInventory(t.Context(), journalpublication.Paths{RecoveryDir: root}, nil, nil, PlanLoadOptions{
 		ValidateBeforeActiveObservation: func(context.Context) error { called = true; return nil },
 	}, inventory)
 	if err == nil || legacy.Classification() != "" || called {
