@@ -37,7 +37,7 @@ type NativeRecoveryPlan struct {
 	capture       CaptureResult
 	active        ActiveJournalAuthority
 	inventory     recoverableInventoryAuthority
-	assessment    nativeDocumentAssessmentFacts
+	assessment    journalqualification.AssessmentFacts
 	registryScope ownership.DocumentScope
 	blocked       bool
 	cleanup       []recovery.RemovalCleanupObligation
@@ -80,43 +80,19 @@ func (plan NativeRecoveryPlan) Classification() recovery.Classification {
 	if plan.Blocked() {
 		return recovery.ClassificationBlocked
 	}
-	switch plan.assessment.disposition {
-	case nativeDocumentsBefore:
-		return recovery.ClassificationCleanBefore
-	case nativeDocumentsAfter:
-		return recovery.ClassificationCleanAfter
-	case nativeDocumentsRollback:
-		return recovery.ClassificationNeedsRollback
-	case nativeDocumentsFinalize:
-		return recovery.ClassificationNeedsFinalize
-	default:
-		return recovery.ClassificationBlocked
-	}
+	return plan.assessment.Classification()
 }
 
 func (plan NativeRecoveryPlan) SameExecutionAuthority(other RecoverablePlan) bool {
 	typed, ok := other.(NativeRecoveryPlan)
-	if !ok || plan.blocked != typed.blocked || !plan.sameCleanup(typed) || plan.capture != typed.capture || !plan.active.Equal(typed.active) || !plan.inventory.equal(typed.inventory) || plan.assessment.disposition != typed.assessment.disposition || !plan.assessment.state.Equal(typed.assessment.state) || plan.assessment.ordinary.observationFingerprint() != typed.assessment.ordinary.observationFingerprint() || len(plan.assessment.stages) != len(typed.assessment.stages) {
+	if !ok || plan.blocked != typed.blocked || !plan.sameCleanup(typed) || plan.capture != typed.capture || !plan.active.Equal(typed.active) || !plan.inventory.equal(typed.inventory) {
 		return false
 	}
 	scope := plan.registryScope
 	if !scope.Equal(typed.registryScope) {
 		return false
 	}
-	if same, err := scope.Matches(plan.assessment.registry, typed.assessment.registry); err != nil || !same {
-		return false
-	}
-	for index, stage := range plan.assessment.stages {
-		candidate := typed.assessment.stages[index]
-		if !stage.current.Equal(candidate.current) || !sameNativeRecoveryMode(stage.mode, candidate.mode) || (stage.identity == nil) != (candidate.identity == nil) || stage.identity != nil && !stage.identity.Equal(candidate.identity) {
-			return false
-		}
-	}
-	return true
-}
-
-func sameNativeRecoveryMode(left, right *recovery.PermissionMode) bool {
-	return left == nil && right == nil || left != nil && right != nil && *left == *right
+	return plan.assessment.SameObservedAuthority(typed.assessment, scope)
 }
 
 // ObservationFingerprint supplements the durable record revision with actual
@@ -124,16 +100,7 @@ func sameNativeRecoveryMode(left, right *recovery.PermissionMode) bool {
 // additionally required by SameExecutionAuthority.
 func (plan NativeRecoveryPlan) ObservationFingerprint() string {
 	hash := sha256.New()
-	fmt.Fprintf(hash, "%s\x00%s\x00", plan.capture.RecordFingerprint, plan.assessment.disposition)
-	for _, stage := range plan.assessment.stages {
-		mode := "absent"
-		if stage.mode != nil {
-			mode = fmt.Sprintf("%04o", *stage.mode)
-		}
-		content := sha256.Sum256(stage.current.Content())
-		fmt.Fprintf(hash, "%t\x00%s\x00%x\x00", stage.current.Exists(), mode, content)
-	}
-	fmt.Fprintf(hash, "%s\x00", plan.assessment.ordinary.observationFingerprint())
+	fmt.Fprintf(hash, "%s\x00%s\x00", plan.capture.RecordFingerprint, plan.assessment.ObservationFingerprint())
 	for _, obligation := range plan.cleanup {
 		fmt.Fprintf(hash, "%s\x00%s\x00%s\x00%s\x00", obligation.Readiness(), obligation.Action(), obligation.Reason(), obligation.Detail())
 	}
@@ -167,6 +134,7 @@ type NativeRecoveryOperation struct {
 	ownedRoots                  *recoveryoperation.OwnedRoots
 	retained                    []*rootedpath.CapturedRoot
 	qualified                   journalqualification.Documents
+	initial                     journalqualification.Assessment
 	closed                      bool
 	inventoryProfile            RecoveryInventoryProfile
 	capturedRemovalReservations bool
@@ -243,7 +211,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 	if err != nil {
 		return nil, err
 	}
-	ordinaryCapabilities, ordinaryRoots, err := captureNativeOrdinaryRecoveryRoots(ctx, ordinaryViews, options.Resolver, options.RootedCapability, profile.Budget)
+	ordinaryCapabilities, ordinaryRoots, err := recoveryoperation.OpenOrdinaryRoots(ctx, ordinaryViews, options.Resolver, options.RootedCapability, profile.Budget)
 	if err != nil {
 		return nil, err
 	}
@@ -265,13 +233,13 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 		return nil, err
 	}
 	blocked := false
-	assessment, err := assessDocumentRecovery(journal, ctx, nativeDocumentRecoveryReadOptions{
-		documents: journalqualification.ReadOptions{Artifacts: root, Filesystem: filesystem, Budget: profile.Budget, Limits: profile.Limits, Codecs: profile.Codecs, OrdinaryCapabilities: ordinaryCapabilities},
-		roots:     roots, state: profile.StateReader, registry: options.OwnershipRegistry,
-		directory: active.OperationDir(), active: active.PhysicalAuthority(), resolver: options.Resolver,
+	assessment, err := journalqualification.AssessNativeDocuments(journal, ctx, journalqualification.NativeReadOptions{
+		Documents: journalqualification.ReadOptions{Artifacts: root, Filesystem: filesystem, Budget: profile.Budget, Limits: profile.Limits, Codecs: profile.Codecs, OrdinaryCapabilities: ordinaryCapabilities},
+		Roots:     roots, State: profile.StateReader, Registry: options.OwnershipRegistry,
+		Directory: active.OperationDir(), Active: active.PhysicalAuthority(), Resolver: options.Resolver,
 	})
 	if err != nil {
-		var phase *nativeSelectedPhaseError
+		var phase *journalqualification.SelectedPhaseError
 		if !errors.As(err, &phase) || ctx.Err() != nil {
 			return nil, err
 		}
@@ -291,15 +259,16 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 	if err != nil {
 		return nil, err
 	}
-	operation.qualified = assessment.qualified
+	operation.qualified = assessment.Documents()
+	operation.initial = assessment
 	scope, err := ownership.NewDocumentScope(nil, nil)
 	if !blocked {
-		scope, err = assessment.registryScope()
+		scope, err = assessment.RegistryScope()
 	}
 	if err != nil {
 		return nil, err
 	}
-	operation.plan = NativeRecoveryPlan{blocked: blocked, journal: journal, capture: CaptureResult{OperationID: journal.OperationID(), Directory: active.OperationDir(), JournalPath: filepath.Join(active.OperationDir(), journalrecord.FileName), RecordFingerprint: active.Identity().JournalAuthorityFingerprint()}, active: active.PhysicalAuthority(), inventory: inv, assessment: assessment.nativeDocumentAssessmentFacts, registryScope: scope}
+	operation.plan = NativeRecoveryPlan{blocked: blocked, journal: journal, capture: CaptureResult{OperationID: journal.OperationID(), Directory: active.OperationDir(), JournalPath: filepath.Join(active.OperationDir(), journalrecord.FileName), RecordFingerprint: active.Identity().JournalAuthorityFingerprint()}, active: active.PhysicalAuthority(), inventory: inv, assessment: assessment.Facts(), registryScope: scope}
 	operation.plan, err = operation.plan.assessCleanup(ctx, options, profile.Budget)
 	if err != nil {
 		return nil, err
@@ -374,23 +343,26 @@ func (document NativeRecoveryDocument) Comparison() journaldocument.Comparison {
 }
 
 func (document NativeRecoveryDocument) Current() (aggregate.Document, *recovery.PermissionMode) {
-	if !document.valid() || document.index >= len(document.operation.plan.assessment.stages) {
+	if !document.valid() {
 		return aggregate.Document{}, nil
 	}
-	stage := document.operation.plan.assessment.stages[document.index]
-	var mode *recovery.PermissionMode
-	if stage.mode != nil {
-		copy := *stage.mode
-		mode = &copy
+	stage, present := document.operation.plan.assessment.DocumentAt(document.index)
+	if !present {
+		return aggregate.Document{}, nil
 	}
-	return stage.current, mode
+	current, mode, _ := stage.CurrentState()
+	return current, mode
 }
 
 func (document NativeRecoveryDocument) Restoration() journaldocument.Restoration {
-	if !document.valid() || document.index >= len(document.operation.plan.assessment.stages) {
+	if !document.valid() {
 		return journaldocument.Restoration{}
 	}
-	return document.operation.plan.assessment.stages[document.index].restoration
+	stage, present := document.operation.plan.assessment.DocumentAt(document.index)
+	if !present {
+		return journaldocument.Restoration{}
+	}
+	return stage.Restoration()
 }
 
 func (document NativeRecoveryDocument) Removal() (recovery.DocumentRemoval, bool, error) {

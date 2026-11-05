@@ -25,7 +25,7 @@ func (plan NativeRecoveryPlan) assessCleanup(ctx context.Context, options PlanLo
 			return NativeRecoveryPlan{}, err
 		}
 		var cached *recovery.RemovalCleanupObligation
-		for _, checkpoint := range plan.assessment.ordinary.checkpoints {
+		for _, checkpoint := range plan.assessment.OrdinaryCheckpoints() {
 			if pending.SameBasis(checkpoint) {
 				cached = &checkpoint
 				break

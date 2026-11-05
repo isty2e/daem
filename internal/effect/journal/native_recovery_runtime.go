@@ -37,16 +37,17 @@ func (operation *NativeRecoveryOperation) InitialAssessment() NativeRecoveryAsse
 	if operation == nil || operation.closed {
 		return NativeRecoveryAssessment{}
 	}
-	assessment := nativeDocumentAssessment{nativeDocumentAssessmentFacts: operation.plan.assessment, qualified: operation.qualified}
-	return NativeRecoveryAssessment{capture: operation.plan.capture, active: operation.plan.active, assessment: assessment, valid: true}
+	return NativeRecoveryAssessment{capture: operation.plan.capture, active: operation.plan.active, assessment: operation.initial, valid: true}
 }
 
 func (operation *NativeRecoveryOperation) ObservedState() durable.Snapshot {
-	return operation.plan.assessment.state
+	state, _ := operation.plan.assessment.Persistence()
+	return state
 }
 
 func (operation *NativeRecoveryOperation) ObservedRegistry() ownership.Registry {
-	return operation.plan.assessment.registry
+	_, registry := operation.plan.assessment.Persistence()
+	return registry
 }
 
 func (operation *NativeRecoveryOperation) basis() nativeRecoveryBasis {
@@ -85,10 +86,10 @@ func assessNativeRecoveryBasis(ctx context.Context, basis nativeRecoveryBasis, o
 			result = NativeRecoveryAssessment{}
 		}
 	}()
-	assessment, err := assessDocumentRecovery(basis.journal, ctx, nativeDocumentRecoveryReadOptions{
-		documents: journalqualification.ReadOptions{Artifacts: root, Filesystem: options.Filesystem, Budget: basis.budget, Limits: basis.limits, Codecs: options.Codecs, OrdinaryCapabilities: basis.ordinaryCapabilities},
-		roots:     basis.roots, state: options.State, registry: options.Registry,
-		directory: basis.capture.Directory, active: basis.active, resolver: basis.resolver,
+	assessment, err := journalqualification.AssessNativeDocuments(basis.journal, ctx, journalqualification.NativeReadOptions{
+		Documents: journalqualification.ReadOptions{Artifacts: root, Filesystem: options.Filesystem, Budget: basis.budget, Limits: basis.limits, Codecs: options.Codecs, OrdinaryCapabilities: basis.ordinaryCapabilities},
+		Roots:     basis.roots, State: options.State, Registry: options.Registry,
+		Directory: basis.capture.Directory, Active: basis.active, Resolver: basis.resolver,
 	})
 	if err != nil {
 		return NativeRecoveryAssessment{}, err

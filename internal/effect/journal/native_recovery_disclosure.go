@@ -25,20 +25,18 @@ func (plan NativeRecoveryPlan) DocumentActions() []NativeRecoveryDocumentAction 
 		kind := recovery.ActionKindNoOp
 		if plan.Blocked() {
 			kind = recovery.ActionKindError
-		} else if plan.assessment.disposition == nativeDocumentsRollback && plan.assessment.stages[index].restoration.Changed() {
-			kind = recovery.ActionKindRestoreWrite
-			if !plan.assessment.stages[index].restoration.Document().Exists() {
-				kind = recovery.ActionKindRestoreDelete
+		} else if plan.assessment.Classification() == recovery.ClassificationNeedsRollback {
+			document, present := plan.assessment.DocumentAt(index)
+			if !present {
+				kind = recovery.ActionKindError
+			} else if document.Restoration().Changed() {
+				kind = recovery.ActionKindRestoreWrite
+				if !document.Restoration().Document().Exists() {
+					kind = recovery.ActionKindRestoreDelete
+				}
 			}
 		}
 		result = append(result, NativeRecoveryDocumentAction{Address: group[0], Kind: kind})
 	}
 	return result
 }
-
-type nativeSelectedPhaseError struct{ cause error }
-
-func (failure *nativeSelectedPhaseError) Error() string {
-	return "native selected document does not admit recovery"
-}
-func (failure *nativeSelectedPhaseError) Unwrap() error { return failure.cause }

@@ -8,22 +8,27 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output/ownership"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
@@ -161,11 +166,11 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 					t.Fatal("published missing history lost its actual provisional observation", err)
 				}
 				for _, committed := range []bool{false, true} {
-					state, want := before, nativeDocumentsBefore
+					state, want := before, recovery.ClassificationCleanBefore
 					if committed {
-						state, want = after, nativeDocumentsFinalize
+						state, want = after, recovery.ClassificationNeedsFinalize
 						if retained && scope == target.ScopeProject {
-							want = nativeDocumentsAfter
+							want = recovery.ClassificationCleanAfter
 						}
 					}
 					stateBytes, err := fixture.envelope.codec.Encode(state)
@@ -177,14 +182,14 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 					}
 					documents := fixture.envelope.read
 					documents.Budget = imageBudget(t)
-					assessment, err := assessDocumentRecovery(journal, t.Context(), nativeDocumentRecoveryReadOptions{
-						documents: documents, roots: fixture.roots, registry: store,
-						state: func(ctx context.Context) (durable.Snapshot, error) {
+					assessment, err := journalqualification.AssessNativeDocuments(journal, t.Context(), journalqualification.NativeReadOptions{
+						Documents: documents, Roots: fixture.roots, Registry: store,
+						State: func(ctx context.Context) (durable.Snapshot, error) {
 							return statefile.LoadOptionalWithOptions(ctx, statePath, statefile.ReadOptions{Codec: fixture.envelope.codec, PhysicalPathBudget: documents.Budget})
 						},
 					})
-					if err != nil || assessment.disposition != want || len(assessment.stages) != 1 || assessment.stages[0].restoration.Changed() {
-						t.Fatalf("committed=%t: no-write metadata phase=%s want=%s error=%v", committed, assessment.disposition, want, err)
+					if err != nil || assessment.Facts().Classification() != want || assessment.Facts().DocumentCount() != 1 || requireAssessedDocument(t, assessment, 0).Restoration().Changed() {
+						t.Fatalf("committed=%t: no-write metadata phase=%s want=%s error=%v", committed, assessment.Facts().Classification(), want, err)
 					}
 					actual, err := os.ReadFile(registryPath)
 					if err != nil || !bytes.Equal(actual, registryBytes) {
@@ -202,7 +207,7 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 						if !supported {
 							t.Fatal("actual rooted store lacks document-qualified settlement")
 						}
-						result, err := writer.ConvergeForDocuments(t.Context(), assessment.finalize, assessment.bindings, owner, []pathauthority.Provisional{pending}, physicalwork.MaximumPhysicalPathDepth, documents.Budget)
+						result, err := writer.ConvergeForDocuments(t.Context(), assessment.Facts().FinalizeClaims(), assessment.Facts().FinalizeBindings(), owner, []pathauthority.Provisional{pending}, physicalwork.MaximumPhysicalPathDepth, documents.Budget)
 						if err != nil {
 							t.Fatalf("persisted after-state metadata did not settle: %v", err)
 						}

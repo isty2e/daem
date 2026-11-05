@@ -3,9 +3,10 @@ package journal
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
@@ -32,14 +33,13 @@ func (captured CapturedNativeJournal) PreparationClaims(ctx context.Context) (ow
 	if err != nil {
 		return ownership.ClaimConvergence{}, err
 	}
-	prepared, _, _, err := nativeDocumentClaimConvergences(ctx, captured.qualified.Records(), transitions)
-	return prepared, err
+	return journalqualification.PrepareClaims(ctx, captured.qualified.Records(), transitions)
 }
 
 func (assessment NativeRecoveryAssessment) ExpectedClaimRemovals() []ownership.Claim {
-	return slices.Clone(assessment.assessment.expectedRemovals)
+	return assessment.assessment.Facts().ExpectedClaimRemovals()
 }
 
 func (assessment NativeRecoveryAssessment) MissingDocuments() []pathauthority.Provisional {
-	return slices.Clone(assessment.assessment.missingHistory)
+	return assessment.assessment.Facts().MissingDocuments()
 }

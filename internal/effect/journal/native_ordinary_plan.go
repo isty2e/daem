@@ -1,8 +1,6 @@
 package journal
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"slices"
 
@@ -13,30 +11,13 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
-func (ordinary nativeOrdinaryAssessment) observationFingerprint() string {
-	hash := sha256.New()
-	fmt.Fprintf(hash, "%t\x00%t\x00%t\x00", ordinary.entries.MatchesBefore(), ordinary.entries.MatchesExpected(), ordinary.entries.Recoverable())
-	for _, path := range ordinary.paths {
-		mode := "absent"
-		if path.PathMode != nil {
-			mode = fmt.Sprintf("%04o", *path.PathMode)
-		}
-		path.PathMode = nil
-		fmt.Fprintf(hash, "%#v\x00%s\x00", path, mode)
-	}
-	for _, backup := range ordinary.backups {
-		fmt.Fprintf(hash, "%#v\x00", backup)
-	}
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
 // OrdinaryActions projects only the rollback phase selected by the complete
 // operation. Committed After-state recovery never replays host restoration.
 func (plan NativeRecoveryPlan) OrdinaryActions() []recovery.Action {
-	if plan.Blocked() || plan.assessment.disposition != nativeDocumentsRollback {
+	if plan.Blocked() || plan.assessment.Classification() != recovery.ClassificationNeedsRollback {
 		return nil
 	}
-	return plan.assessment.ordinary.entries.Actions()
+	return plan.assessment.OrdinaryActions()
 }
 
 func (plan NativeRecoveryPlan) OrdinaryProvisionalAcquires() ([]ownership.ProvisionalAcquireIntent, error) {
@@ -101,5 +82,5 @@ func (operation *NativeRecoveryOperation) Owner() stateauthority.Authority {
 // GuardedOrdinaryActions supplies every ordinary address in the observed
 // operation, including current entries and metadata-only finalization.
 func (plan NativeRecoveryPlan) GuardedOrdinaryActions() []recovery.Action {
-	return plan.assessment.ordinary.entries.Actions()
+	return plan.assessment.OrdinaryActions()
 }

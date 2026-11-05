@@ -9,21 +9,28 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -41,11 +48,11 @@ type nativeAssessmentFixture struct {
 func TestNativeDocumentAssessmentUsesActualStateRegistryAndHost(t *testing.T) {
 	for _, test := range []struct {
 		name, state, host string
-		want              nativeDocumentDisposition
+		want              recovery.Classification
 	}{
-		{"before/no-op", "before", "before", nativeDocumentsBefore},
-		{"before/rollback", "before", "after", nativeDocumentsRollback},
-		{"after/clean", "after", "after", nativeDocumentsAfter},
+		{"before/no-op", "before", "before", recovery.ClassificationCleanBefore},
+		{"before/rollback", "before", "after", recovery.ClassificationNeedsRollback},
+		{"after/clean", "after", "after", recovery.ClassificationCleanAfter},
 		{"after/refuses-before", "after", "before", ""},
 		{"before/refuses-third", "before", "third", ""},
 		{"after/refuses-third", "after", "third", ""},
@@ -69,13 +76,13 @@ func TestNativeDocumentAssessmentUsesActualStateRegistryAndHost(t *testing.T) {
 			}
 			setup.persist(t, state, registry, host)
 			journal, options := setup.reader(t)
-			result, err := assessDocumentRecovery(journal, t.Context(), options)
+			result, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options)
 			if test.want == "" {
-				if err == nil || result.stages != nil || result.disposition != "" {
+				if err == nil || result.Facts().DocumentCount() != 0 || result.Facts().Classification() != recovery.ClassificationBlocked {
 					t.Fatalf("refused phase returned usable assessment: %v", err)
 				}
-			} else if err != nil || result.disposition != test.want || len(result.stages) != 1 {
-				t.Fatalf("disposition=%s, want=%s: %v", result.disposition, test.want, err)
+			} else if err != nil || result.Facts().Classification() != test.want || result.Facts().DocumentCount() != 1 {
+				t.Fatalf("disposition=%s, want=%s: %v", result.Facts().Classification(), test.want, err)
 			}
 			setup.assertPersisted(t, state, registry, host)
 		})
@@ -85,18 +92,18 @@ func TestNativeDocumentAssessmentUsesActualStateRegistryAndHost(t *testing.T) {
 func TestNativeDocumentAssessmentRequiresCompleteClaimAndBindingPhases(t *testing.T) {
 	for _, test := range []struct {
 		name, state, claims, binding string
-		want                         nativeDocumentDisposition
+		want                         recovery.Classification
 	}{
-		{"rollback-unprepared", "before", "before", "before", nativeDocumentsRollback},
-		{"rollback-prepared", "before", "prepared", "before", nativeDocumentsRollback},
+		{"rollback-unprepared", "before", "before", "before", recovery.ClassificationNeedsRollback},
+		{"rollback-prepared", "before", "prepared", "before", recovery.ClassificationNeedsRollback},
 		{"rollback-refuses-active", "before", "after", "before", ""},
 		{"rollback-refuses-after-binding", "before", "prepared", "after", ""},
 		{"rollback-refuses-third-binding", "before", "prepared", "third", ""},
 		{"finalize-refuses-third-binding", "after", "prepared", "third", ""},
-		{"finalize-both", "after", "prepared", "before", nativeDocumentsFinalize},
-		{"finalize-claims", "after", "prepared", "after", nativeDocumentsFinalize},
-		{"finalize-binding", "after", "after", "before", nativeDocumentsFinalize},
-		{"after-complete", "after", "after", "after", nativeDocumentsAfter},
+		{"finalize-both", "after", "prepared", "before", recovery.ClassificationNeedsFinalize},
+		{"finalize-claims", "after", "prepared", "after", recovery.ClassificationNeedsFinalize},
+		{"finalize-binding", "after", "after", "before", recovery.ClassificationNeedsFinalize},
+		{"after-complete", "after", "after", "after", recovery.ClassificationCleanAfter},
 		{"after-refuses-absent-claims", "after", "before", "before", ""},
 		{"before-refuses-third", "before", "third", "before", ""},
 		{"after-refuses-third", "after", "third", "after", ""},
@@ -154,13 +161,13 @@ func TestNativeDocumentAssessmentRequiresCompleteClaimAndBindingPhases(t *testin
 			host := setup.image(true)
 			setup.persist(t, state, registry, host)
 			journal, options := setup.reader(t)
-			result, err := assessDocumentRecovery(journal, t.Context(), options)
+			result, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options)
 			if test.want == "" {
-				if err == nil || result.stages != nil || result.disposition != "" {
+				if err == nil || result.Facts().DocumentCount() != 0 || result.Facts().Classification() != recovery.ClassificationBlocked {
 					t.Fatalf("metadata mismatch returned a usable prefix: %v", err)
 				}
-			} else if err != nil || result.disposition != test.want {
-				t.Fatalf("metadata disposition=%s want=%s: %v", result.disposition, test.want, err)
+			} else if err != nil || result.Facts().Classification() != test.want {
+				t.Fatalf("metadata disposition=%s want=%s: %v", result.Facts().Classification(), test.want, err)
 			}
 			setup.assertPersisted(t, state, registry, host)
 		})
@@ -208,11 +215,11 @@ func TestNativeDocumentAssessmentStagesExactNarrowingBeforeSemanticNoOp(t *testi
 			}
 			setup.persist(t, fixture.before, registry, host)
 			journal, options := setup.reader(t)
-			result, err := assessDocumentRecovery(journal, t.Context(), options)
-			if err != nil || result.disposition != nativeDocumentsRollback || len(result.stages) != 1 {
+			result, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options)
+			if err != nil || result.Facts().Classification() != recovery.ClassificationNeedsRollback || result.Facts().DocumentCount() != 1 {
 				t.Fatalf("narrowing assessment: %v", err)
 			}
-			restored := result.stages[0].restoration.Document().Content()
+			restored := requireAssessedDocument(t, result, 0).Restoration().Document().Content()
 			if !external && !bytes.Equal(restored, original) {
 				t.Fatalf("unmodified expected did not stage exact actual original: %s", restored)
 			}
@@ -227,8 +234,8 @@ func TestNativeDocumentAssessmentStagesExactNarrowingBeforeSemanticNoOp(t *testi
 				t.Fatal(err)
 			}
 			journal, options = setup.reader(t)
-			retry, err := assessDocumentRecovery(journal, t.Context(), options)
-			if err != nil || retry.disposition != nativeDocumentsBefore || retry.stages[0].restoration.Changed() {
+			retry, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options)
+			if err != nil || retry.Facts().Classification() != recovery.ClassificationCleanBefore || requireAssessedDocument(t, retry, 0).Restoration().Changed() {
 				t.Fatalf("retry did not recognize actual no-op: %v", err)
 			}
 		})
@@ -246,8 +253,8 @@ func TestNativeDocumentAssessmentEqualStateAndObservationFailures(t *testing.T) 
 	registry := assessmentRegistry(t, transition.Before(), binding)
 	setup.persist(t, fixture.before, registry, before)
 	journal, options := setup.reader(t)
-	result, err := assessDocumentRecovery(journal, t.Context(), options)
-	if err != nil || result.disposition != nativeDocumentsAfter || result.stages[0].restoration.Changed() {
+	result, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options)
+	if err != nil || result.Facts().Classification() != recovery.ClassificationCleanAfter || requireAssessedDocument(t, result, 0).Restoration().Changed() {
 		t.Fatalf("equal-state expected should remain clean-after: %v", err)
 	}
 
@@ -257,21 +264,21 @@ func TestNativeDocumentAssessmentEqualStateAndObservationFailures(t *testing.T) 
 			sentinel := errors.New("native observation refused")
 			switch failure {
 			case "state reader":
-				options.state = func(context.Context) (durable.Snapshot, error) { return durable.Snapshot{}, sentinel }
+				options.State = func(context.Context) (durable.Snapshot, error) { return durable.Snapshot{}, sentinel }
 			case "cancellation":
 				ctx, cancel := context.WithCancel(t.Context())
 				cancel()
-				result, err := assessDocumentRecovery(journal, ctx, options)
-				if !errors.Is(err, context.Canceled) || result.stages != nil {
+				result, err := journalqualification.AssessNativeDocuments(journal, ctx, options)
+				if !errors.Is(err, context.Canceled) || result.Facts().DocumentCount() != 0 {
 					t.Fatalf("cancellation returned a usable prefix: %v", err)
 				}
 				return
 			case "host budget":
-				read := options.state
-				options.state = func(ctx context.Context) (durable.Snapshot, error) {
-					work, err := workmeasure.NewArtifactWork(0, options.documents.Budget.RemainingBytes())
+				read := options.State
+				options.State = func(ctx context.Context) (durable.Snapshot, error) {
+					work, err := workmeasure.NewArtifactWork(0, options.Documents.Budget.RemainingBytes())
 					if err == nil {
-						err = options.documents.Budget.AdmitTree(work)
+						err = options.Documents.Budget.AdmitTree(work)
 					}
 					if err != nil {
 						return durable.Snapshot{}, err
@@ -279,23 +286,23 @@ func TestNativeDocumentAssessmentEqualStateAndObservationFailures(t *testing.T) 
 					return read(ctx)
 				}
 			case "host read":
-				read := options.state
-				options.state = func(ctx context.Context) (durable.Snapshot, error) {
+				read := options.State
+				options.State = func(ctx context.Context) (durable.Snapshot, error) {
 					if err := os.WriteFile(setup.host, []byte("invalid selected JSON"), 0o600); err != nil {
 						return durable.Snapshot{}, err
 					}
 					return read(ctx)
 				}
 			}
-			result, err := assessDocumentRecovery(journal, t.Context(), options)
-			if err == nil || result.stages != nil || result.disposition != "" || failure == "state reader" && !errors.Is(err, sentinel) {
+			result, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options)
+			if err == nil || result.Facts().DocumentCount() != 0 || result.Facts().Classification() != recovery.ClassificationBlocked || failure == "state reader" && !errors.Is(err, sentinel) {
 				t.Fatalf("observation failure returned a usable prefix: %v", err)
 			}
 		})
 	}
 }
 
-func (setup *nativeAssessmentFixture) reader(t *testing.T) (journalrecord.Native, nativeDocumentRecoveryReadOptions) {
+func (setup *nativeAssessmentFixture) reader(t *testing.T) (journalrecord.Native, journalqualification.NativeReadOptions) {
 	t.Helper()
 	setup.publish(t)
 	registry, err := ownershipstore.NewRecoveryReader(setup.registry)
@@ -304,7 +311,7 @@ func (setup *nativeAssessmentFixture) reader(t *testing.T) (journalrecord.Native
 	}
 	documents := setup.fixture.read
 	documents.Budget = imageBudget(t)
-	return setup.fixture.journal, nativeDocumentRecoveryReadOptions{documents: documents, roots: setup.roots, registry: registry, state: func(ctx context.Context) (durable.Snapshot, error) {
+	return setup.fixture.journal, journalqualification.NativeReadOptions{Documents: documents, Roots: setup.roots, Registry: registry, State: func(ctx context.Context) (durable.Snapshot, error) {
 		return statefile.LoadOptionalWithOptions(ctx, setup.statePath, statefile.ReadOptions{Codec: setup.fixture.codec, PhysicalPathBudget: documents.Budget})
 	}}
 }

@@ -1,11 +1,11 @@
-package journal
+package qualification
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -26,14 +26,14 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-type nativeDocumentRecoveryReadOptions struct {
-	documents journalqualification.ReadOptions
-	roots     journalnamespace.Roots
-	state     durable.SnapshotReader
-	registry  ownershipmutation.RegistryReader
-	directory string
-	active    ActiveJournalAuthority
-	resolver  func(output.Destination) (string, error)
+type NativeReadOptions struct {
+	Documents ReadOptions
+	Roots     journalnamespace.Roots
+	State     durable.SnapshotReader
+	Registry  ownershipmutation.RegistryReader
+	Directory string
+	Active    journalinventory.ActiveJournalAuthority
+	Resolver  func(output.Destination) (string, error)
 }
 
 type nativeDocumentDisposition string
@@ -45,7 +45,7 @@ const (
 	nativeDocumentsFinalize nativeDocumentDisposition = "documents_finalize"
 )
 
-type nativeDocumentRecoveryStage struct {
+type DocumentAssessment struct {
 	current     aggregate.Document
 	mode        *recovery.PermissionMode
 	identity    mutationfs.EntryIdentity
@@ -55,11 +55,11 @@ type nativeDocumentRecoveryStage struct {
 
 // This assessment joins ordinary entries and all document groups with one state
 // and ownership phase. It grants no execution or retirement authority.
-type nativeDocumentAssessmentFacts struct {
+type AssessmentFacts struct {
 	documents        journalrecord.LoadedDocuments
 	state            durable.Snapshot
 	registry         ownership.Registry
-	stages           []nativeDocumentRecoveryStage
+	stages           []DocumentAssessment
 	disposition      nativeDocumentDisposition
 	rollback         ownership.ClaimConvergence
 	finalize         ownership.ClaimConvergence
@@ -71,51 +71,51 @@ type nativeDocumentAssessmentFacts struct {
 	claimsReady      bool
 }
 
-type nativeDocumentAssessment struct {
-	nativeDocumentAssessmentFacts
-	qualified journalqualification.Documents
+type Assessment struct {
+	facts     AssessmentFacts
+	qualified Documents
 }
 
-func assessDocumentRecovery(journal journalrecord.Native, ctx context.Context, options nativeDocumentRecoveryReadOptions) (nativeDocumentAssessment, error) {
-	if ctx == nil || options.state == nil || options.registry == nil {
-		return nativeDocumentAssessment{}, fmt.Errorf("native recovery context, selected state reader and registry reader are required")
+func AssessNativeDocuments(journal journalrecord.Native, ctx context.Context, options NativeReadOptions) (Assessment, error) {
+	if ctx == nil || options.State == nil || options.Registry == nil {
+		return Assessment{}, fmt.Errorf("native recovery context, selected state reader and registry reader are required")
 	}
-	qualified, err := journalqualification.QualifyDocuments(journal, ctx, options.documents, options.roots)
+	qualified, err := QualifyDocuments(journal, ctx, options.Documents, options.Roots)
 	if err != nil {
-		return nativeDocumentAssessment{}, err
+		return Assessment{}, err
 	}
-	state, err := options.state(ctx)
+	state, err := options.State(ctx)
 	if err != nil {
-		return nativeDocumentAssessment{}, fmt.Errorf("observe native recovery state: %w", err)
+		return Assessment{}, fmt.Errorf("observe native recovery state: %w", err)
 	}
 	before, after := state.Equal(journal.Before()), state.Equal(journal.After())
 	if !before && !after {
-		return nativeDocumentAssessment{}, fmt.Errorf("native recovery state differs from both recorded Snapshots")
+		return Assessment{}, fmt.Errorf("native recovery state differs from both recorded Snapshots")
 	}
 
 	independent, err := journal.ClaimTransitions()
 	if err != nil {
-		return nativeDocumentAssessment{}, err
+		return Assessment{}, err
 	}
 	for _, transition := range independent {
 		if !transition.Owner().Equal(journal.Owner()) {
-			return nativeDocumentAssessment{}, fmt.Errorf("ordinary claim transition has another journal owner")
+			return Assessment{}, fmt.Errorf("ordinary claim transition has another journal owner")
 		}
 	}
 	preparation, rollback, finalize, err := nativeDocumentClaimConvergences(ctx, qualified.Records(), independent)
 	if err != nil {
-		return nativeDocumentAssessment{}, err
+		return Assessment{}, err
 	}
 	removals := append(rollback.ExpectedRemovals(), finalize.ExpectedRemovals()...)
 	var missingHistory []pathauthority.Provisional
 	for index := range qualified.Len() {
 		namespace, present := qualified.NamespaceAt(index)
 		if !present {
-			return nativeDocumentAssessment{}, fmt.Errorf("native recovery document facts are incomplete")
+			return Assessment{}, fmt.Errorf("native recovery document facts are incomplete")
 		}
 		loaded, present := qualified.Records().At(index)
 		if !present {
-			return nativeDocumentAssessment{}, fmt.Errorf("native recovery document facts are incomplete")
+			return Assessment{}, fmt.Errorf("native recovery document facts are incomplete")
 		}
 		claims := loaded.Claims()
 		if missing, provisional := namespace.Observation().Provisional(); provisional && len(claims.Before())+len(claims.After()) != 0 {
@@ -124,32 +124,32 @@ func assessDocumentRecovery(journal journalrecord.Native, ctx context.Context, o
 	}
 	var registry ownership.Registry
 	if len(missingHistory) == 0 {
-		registry, err = options.registry.LoadForClaimRemovals(ctx, removals, physicalwork.MaximumPhysicalPathDepth, options.documents.Budget)
+		registry, err = options.Registry.LoadForClaimRemovals(ctx, removals, physicalwork.MaximumPhysicalPathDepth, options.Documents.Budget)
 	} else {
-		reader, supported := options.registry.(ownershipmutation.DocumentRegistryReader)
+		reader, supported := options.Registry.(ownershipmutation.DocumentRegistryReader)
 		if !supported {
-			return nativeDocumentAssessment{}, fmt.Errorf("missing native history requires a document-qualified registry reader")
+			return Assessment{}, fmt.Errorf("missing native history requires a document-qualified registry reader")
 		}
-		registry, err = reader.LoadForDocuments(ctx, journal.Owner(), missingHistory, removals, physicalwork.MaximumPhysicalPathDepth, options.documents.Budget)
+		registry, err = reader.LoadForDocuments(ctx, journal.Owner(), missingHistory, removals, physicalwork.MaximumPhysicalPathDepth, options.Documents.Budget)
 	}
 	if err != nil {
-		return nativeDocumentAssessment{}, fmt.Errorf("observe native recovery registry: %w", err)
+		return Assessment{}, fmt.Errorf("observe native recovery registry: %w", err)
 	}
 	if err := validateNativeProvisionalRegistry(ctx, qualified, registry); err != nil {
-		return nativeDocumentAssessment{}, err
+		return Assessment{}, err
 	}
 	ordinaryIntents, err := journal.ProvisionalAcquires()
 	if err != nil {
-		return nativeDocumentAssessment{}, err
+		return Assessment{}, err
 	}
 	claimsReady := len(ordinaryIntents) == 0
 	for index := range qualified.Records().Len() {
 		if err := ctx.Err(); err != nil {
-			return nativeDocumentAssessment{}, err
+			return Assessment{}, err
 		}
 		loaded, present := qualified.Records().At(index)
 		if !present {
-			return nativeDocumentAssessment{}, fmt.Errorf("native recovery document facts are incomplete")
+			return Assessment{}, fmt.Errorf("native recovery document facts are incomplete")
 		}
 		claimsReady = claimsReady && len(loaded.Provisional()) == 0
 	}
@@ -157,51 +157,51 @@ func assessDocumentRecovery(journal journalrecord.Native, ctx context.Context, o
 	_, finalizeChanged, finalizeErr := finalize.Apply(registry)
 	metadata, err := nativeDocumentBindingPhases(ctx, qualified.Records(), registry)
 	if err != nil {
-		return nativeDocumentAssessment{}, err
+		return Assessment{}, err
 	}
 	ordinary, err := assessOrdinaryRecovery(journal, ctx, options, registry)
 	if err != nil {
-		return nativeDocumentAssessment{}, err
+		return Assessment{}, err
 	}
 	if before && after && (!ordinaryClaimsUnchanged(independent) || !metadata.unchanged || !nativeDocumentClaimsUnchanged(qualified.Records()) || !metadata.ready || !claimsReady) {
-		return nativeDocumentAssessment{}, fmt.Errorf("equal native Snapshots retain nontrivial document metadata work")
+		return Assessment{}, fmt.Errorf("equal native Snapshots retain nontrivial document metadata work")
 	}
 
 	narrowed, err := narrowedDocumentGroups(journal, ctx, qualified.Records())
 	if err != nil {
-		return nativeDocumentAssessment{}, err
+		return Assessment{}, err
 	}
-	stages := make([]nativeDocumentRecoveryStage, 0, qualified.Records().Len())
+	stages := make([]DocumentAssessment, 0, qualified.Records().Len())
 	allBefore, allExpected := ordinary.entries.MatchesBefore(), ordinary.entries.MatchesExpected()
 	for index := range qualified.Records().Len() {
 		if err := ctx.Err(); err != nil {
-			return nativeDocumentAssessment{}, err
+			return Assessment{}, err
 		}
 		loaded, present := qualified.Records().At(index)
 		if !present {
-			return nativeDocumentAssessment{}, fmt.Errorf("native recovery document facts are incomplete")
+			return Assessment{}, fmt.Errorf("native recovery document facts are incomplete")
 		}
 		group := loaded.Group()
 		namespace, present := qualified.NamespaceAt(index)
 		if !present {
-			return nativeDocumentAssessment{}, fmt.Errorf("native recovery document facts are incomplete")
+			return Assessment{}, fmt.Errorf("native recovery document facts are incomplete")
 		}
-		current, mode, identity, err := namespace.ReadReferent(ctx, group.Comparison().MaximumDocumentBytes(), options.documents.Budget)
+		current, mode, identity, err := namespace.ReadReferent(ctx, group.Comparison().MaximumDocumentBytes(), options.Documents.Budget)
 		if err != nil {
-			return nativeDocumentAssessment{}, fmt.Errorf("observe native document[%d]: %w", index, err)
+			return Assessment{}, fmt.Errorf("observe native document[%d]: %w", index, err)
 		}
 		match, err := group.Comparison().Match(ctx, current, mode)
 		if err != nil {
-			return nativeDocumentAssessment{}, err
+			return Assessment{}, err
 		}
 		var restoration journaldocument.Restoration
 		if _, narrowing := narrowed[index]; before && narrowing && current.Equal(group.Comparison().ExpectedDocument()) {
 			root, err := recovery.NewPartialDocumentState(current.Exists(), mode, nil)
 			if err != nil {
-				return nativeDocumentAssessment{}, err
+				return Assessment{}, err
 			}
 			if !root.SameRootMetadata(group.Comparison().BeforeState()) && !root.SameRootMetadata(group.Comparison().ExpectedState()) {
-				return nativeDocumentAssessment{}, fmt.Errorf("narrowed document root is outside the recorded metadata envelope")
+				return Assessment{}, fmt.Errorf("narrowed document root is outside the recorded metadata envelope")
 			}
 			restoration, err = journaldocument.NewRestoration(current, mode, group.Comparison().BeforeDocument(), group.Comparison().BeforeMode())
 		} else {
@@ -209,35 +209,35 @@ func assessDocumentRecovery(journal journalrecord.Native, ctx context.Context, o
 		}
 		if err != nil {
 			if !match.Recoverable() && ctx.Err() == nil && !errors.Is(err, configdocument.ErrLimitExceeded) {
-				return nativeDocumentAssessment{}, &nativeSelectedPhaseError{cause: err}
+				return Assessment{}, &SelectedPhaseError{cause: err}
 			}
-			return nativeDocumentAssessment{}, fmt.Errorf("stage native document[%d]: %w", index, err)
+			return Assessment{}, fmt.Errorf("stage native document[%d]: %w", index, err)
 		}
 		allBefore = allBefore && !restoration.Changed()
 		allExpected = allExpected && match.MatchesExpected()
-		stages = append(stages, nativeDocumentRecoveryStage{current: current, mode: mode, identity: identity, restoration: restoration, expected: match.MatchesExpected()})
+		stages = append(stages, DocumentAssessment{current: current, mode: mode, identity: identity, restoration: restoration, expected: match.MatchesExpected()})
 	}
 
-	result := nativeDocumentAssessment{
-		nativeDocumentAssessmentFacts: nativeDocumentAssessmentFacts{documents: qualified.Records(), state: state, registry: registry, stages: stages, rollback: rollback, finalize: finalize, bindings: metadata.convergence, preparation: preparation, claimsReady: claimsReady, ordinary: ordinary, missingHistory: missingHistory, expectedRemovals: removals},
-		qualified:                     qualified,
+	result := Assessment{
+		facts:     AssessmentFacts{documents: qualified.Records(), state: state, registry: registry, stages: stages, rollback: rollback, finalize: finalize, bindings: metadata.convergence, preparation: preparation, claimsReady: claimsReady, ordinary: ordinary, missingHistory: missingHistory, expectedRemovals: removals},
+		qualified: qualified,
 	}
 	switch {
 	case after && allExpected && claimsReady && metadata.ready && finalizeErr == nil:
-		result.disposition = nativeDocumentsAfter
+		result.facts.disposition = nativeDocumentsAfter
 		if finalizeChanged || !metadata.after {
-			result.disposition = nativeDocumentsFinalize
+			result.facts.disposition = nativeDocumentsFinalize
 		}
 	case before && metadata.before && rollbackErr == nil:
-		result.disposition = nativeDocumentsRollback
+		result.facts.disposition = nativeDocumentsRollback
 		if !after && allBefore && !rollbackChanged {
-			result.disposition = nativeDocumentsBefore
+			result.facts.disposition = nativeDocumentsBefore
 		}
 	default:
-		return nativeDocumentAssessment{}, errors.Join(fmt.Errorf("native document state, host and registry phases do not admit recovery"), rollbackErr, finalizeErr)
+		return Assessment{}, errors.Join(fmt.Errorf("native document state, host and registry phases do not admit recovery"), rollbackErr, finalizeErr)
 	}
 	if err := ctx.Err(); err != nil {
-		return nativeDocumentAssessment{}, err
+		return Assessment{}, err
 	}
 	return result, nil
 }
@@ -374,7 +374,7 @@ func ordinaryClaimsUnchanged(transitions []ownershipmutation.ClaimTransition) bo
 	return true
 }
 
-func validateNativeProvisionalRegistry(ctx context.Context, qualified journalqualification.Documents, registry ownership.Registry) error {
+func validateNativeProvisionalRegistry(ctx context.Context, qualified Documents, registry ownership.Registry) error {
 	for index := range qualified.Records().Len() {
 		loaded, present := qualified.Records().At(index)
 		if !present {

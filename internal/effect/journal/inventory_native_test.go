@@ -10,8 +10,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -25,7 +29,7 @@ import (
 func TestNativeInventoryRetainsActualRecordAndFeedsDocumentAssessment(t *testing.T) {
 	setup, root, path := nativeInventoryFixture(t)
 	_, read := setup.reader(t)
-	options := journalinventory.Options{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec, PhysicalPathBudget: read.documents.Budget}
+	options := journalinventory.Options{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec, PhysicalPathBudget: read.Documents.Budget}
 	inventory, err := journalinventory.LoadNativeRoot(t.Context(), root, options)
 	if err != nil || inventory.Decision().State() != retirement.StateActive || inventory.Active() == nil {
 		t.Fatalf("native active inventory: %v, %s", err, inventory.Decision().Detail())
@@ -44,11 +48,11 @@ func TestNativeInventoryRetainsActualRecordAndFeedsDocumentAssessment(t *testing
 	if err := inventory.Active().PhysicalAuthority().Validate(); err != nil {
 		t.Fatal(err)
 	}
-	assessment, err := assessDocumentRecovery(current, t.Context(), read)
-	if err != nil || assessment.disposition != nativeDocumentsBefore || len(assessment.stages) != 1 {
+	assessment, err := journalqualification.AssessNativeDocuments(current, t.Context(), read)
+	if err != nil || assessment.Facts().Classification() != recovery.ClassificationCleanBefore || assessment.Facts().DocumentCount() != 1 {
 		t.Fatalf("native actual inventory-to-state/registry/image/host pipeline: %v", err)
 	}
-	if err := setup.fixture.read.Artifacts.ValidateSelectionBounded(inventory.Active().OperationDir(), physicalwork.MaximumPhysicalPathDepth, read.documents.Budget); err != nil {
+	if err := setup.fixture.read.Artifacts.ValidateSelectionBounded(inventory.Active().OperationDir(), physicalwork.MaximumPhysicalPathDepth, read.Documents.Budget); err != nil {
 		t.Fatalf("test image grant is not the selected active directory: %v", err)
 	}
 	retained, err := os.ReadFile(path)

@@ -6,12 +6,16 @@ import (
 	"path/filepath"
 	"testing"
 
-	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 
-	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -19,6 +23,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -46,12 +51,12 @@ func TestNativeDocumentAssessmentMixedSelectedValuesBlockAfterOnly(t *testing.T)
 		host := []byte(`{"model":"fast","other":0,"outside":1}`)
 		setup.persist(t, state, registry, host)
 		journal, options := setup.reader(t)
-		result, err := assessDocumentRecovery(journal, t.Context(), options)
+		result, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options)
 		if committed {
-			if err == nil || result.stages != nil {
+			if err == nil || result.Facts().DocumentCount() != 0 {
 				t.Fatal("committed state admitted a mixed before/expected host")
 			}
-		} else if err != nil || result.disposition != nativeDocumentsRollback || !result.stages[0].restoration.Changed() || result.stages[0].expected {
+		} else if err != nil || result.Facts().Classification() != recovery.ClassificationNeedsRollback || !requireAssessedDocument(t, result, 0).Restoration().Changed() || requireAssessedDocument(t, result, 0).MatchesExpected() {
 			t.Fatalf("before-state mixed document did not stage rollback: %v", err)
 		}
 		setup.assertPersisted(t, state, registry, host)
@@ -116,8 +121,8 @@ func TestNativeDocumentAssessmentLateRefusalDiscardsEveryEarlierStage(t *testing
 		t.Fatal(err)
 	}
 	journal, options := setup.reader(t)
-	result, err := assessDocumentRecovery(journal, t.Context(), options)
-	if err == nil || result.stages != nil || result.disposition != "" || result.qualified.Records().Len() != 0 {
+	result, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options)
+	if err == nil || result.Facts().DocumentCount() != 0 || result.Facts().Classification() != recovery.ClassificationBlocked || result.Documents().Len() != 0 {
 		t.Fatal("late third-value refusal exposed a staged prefix")
 	}
 	setup.assertPersisted(t, fixture.before, registry, host)
@@ -160,14 +165,14 @@ func TestNativeDocumentAssessmentProvisionalDebtDoesNotAuthorizeAfterState(t *te
 	registry := ownership.EmptyRegistry()
 	setup.persist(t, fixture.before, registry, host)
 	journal, options := setup.reader(t)
-	result, err := assessDocumentRecovery(journal, t.Context(), options)
-	if err != nil || result.disposition != nativeDocumentsRollback || result.stages[0].restoration.Document().Exists() {
+	result, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options)
+	if err != nil || result.Facts().Classification() != recovery.ClassificationNeedsRollback || requireAssessedDocument(t, result, 0).Restoration().Document().Exists() {
 		t.Fatalf("before-side provisional crash did not stage guarded deletion: %v", err)
 	}
 	setup.assertPersisted(t, fixture.before, registry, host)
 	setup.persist(t, fixture.after, registry, host)
 	journal, options = setup.reader(t)
-	if result, err := assessDocumentRecovery(journal, t.Context(), options); err == nil || result.stages != nil {
+	if result, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options); err == nil || result.Facts().DocumentCount() != 0 {
 		t.Fatal("unpromoted claim/binding debt became after-side authority")
 	}
 	setup.assertPersisted(t, fixture.after, registry, host)
@@ -202,15 +207,15 @@ func TestNativeDocumentAssessmentEqualSnapshotsKeepPiOnlyRollback(t *testing.T) 
 	setup.groups[0] = nativeAssessmentGroup{namespace: namespace, original: input.Document, expected: expected, order: &order}
 	fixture.before, fixture.after = durable.EmptySnapshot(), durable.EmptySnapshot()
 	for _, after := range []bool{false, true} {
-		host, want := input.Document.Content(), nativeDocumentsRollback
+		host, want := input.Document.Content(), recovery.ClassificationNeedsRollback
 		if after {
-			host, want = expected.Content(), nativeDocumentsAfter
+			host, want = expected.Content(), recovery.ClassificationCleanAfter
 		}
 		setup.persist(t, fixture.before, ownership.EmptyRegistry(), host)
 		journal, options := setup.reader(t)
-		result, err := assessDocumentRecovery(journal, t.Context(), options)
-		if err != nil || result.disposition != want || result.stages[0].restoration.Changed() != after {
-			t.Fatalf("equal Snapshot Pi phase=%s want=%s: %v", result.disposition, want, err)
+		result, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options)
+		if err != nil || result.Facts().Classification() != want || requireAssessedDocument(t, result, 0).Restoration().Changed() != after {
+			t.Fatalf("equal Snapshot Pi phase=%s want=%s: %v", result.Facts().Classification(), want, err)
 		}
 		setup.assertPersisted(t, fixture.before, ownership.EmptyRegistry(), host)
 	}
@@ -255,8 +260,8 @@ func TestNativeDocumentAssessmentRestoresRemovedWholeFileBeforeCommit(t *testing
 		t.Fatal(err)
 	}
 	journal, options := setup.reader(t)
-	result, err := assessDocumentRecovery(journal, t.Context(), options)
-	if err != nil || result.disposition != nativeDocumentsRollback || !result.stages[0].restoration.Document().Equal(original) {
+	result, err := journalqualification.AssessNativeDocuments(journal, t.Context(), options)
+	if err != nil || result.Facts().Classification() != recovery.ClassificationNeedsRollback || !requireAssessedDocument(t, result, 0).Restoration().Document().Equal(original) {
 		t.Fatalf("missing whole file did not stage its opaque actual original: %v", err)
 	}
 	if _, err := os.Stat(setup.host); !os.IsNotExist(err) {

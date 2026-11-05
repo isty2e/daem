@@ -51,19 +51,7 @@ func (captured CapturedNativeJournal) PromoteDocument(ctx context.Context, index
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	assessment := observed.assessment
-	if !assessment.state.Equal(captured.journal.Before()) || !assessment.stages[index].expected {
-		return CapturedNativeJournal{}, fmt.Errorf("native promotion requires observed Before state and a published expected document")
-	}
-	namespace, present := assessment.qualified.NamespaceAt(index)
-	if !present {
-		return CapturedNativeJournal{}, fmt.Errorf("native recovery document facts are incomplete")
-	}
-	exact, known := namespace.Observation().Exact()
-	if !known {
-		return CapturedNativeJournal{}, fmt.Errorf("published native document still has no exact namespace")
-	}
-	candidate, changed, err := captured.journal.PromoteDocument(ctx, index, namespace.Addresses(), exact)
+	candidate, changed, err := observed.assessment.PromoteDocument(ctx, captured.journal, index)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
@@ -97,22 +85,5 @@ func (captured CapturedNativeJournal) NeedsPromotion() bool {
 // HostReadyForStateCommit requires both expected host data and already prepared
 // exact metadata. A pending binding or unreserved new claim is not commit-ready.
 func (observed NativeRecoveryAssessment) HostReadyForStateCommit() bool {
-	if !observed.HostMatchesExpected() || !observed.assessment.claimsReady {
-		return false
-	}
-	assessment := observed.assessment
-	for index := range assessment.documents.Len() {
-		loaded, present := assessment.documents.At(index)
-		if !present {
-			return false
-		}
-		group := loaded.Group()
-		for _, intent := range group.BindingIntents() {
-			if _, ready := intent.KnownAfter(); !ready {
-				return false
-			}
-		}
-	}
-	_, changed, err := assessment.preparation.Apply(assessment.registry)
-	return err == nil && !changed
+	return observed.valid && observed.assessment.Facts().HostReadyForStateCommit()
 }

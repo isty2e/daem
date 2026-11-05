@@ -6,10 +6,16 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -30,7 +36,7 @@ type NativeRecoveryOptions struct {
 type NativeRecoveryAssessment struct {
 	capture    CaptureResult
 	active     ActiveJournalAuthority
-	assessment nativeDocumentAssessment
+	assessment journalqualification.Assessment
 	valid      bool
 }
 
@@ -46,47 +52,40 @@ func (captured CapturedNativeJournal) AssessRecovery(ctx context.Context, option
 }
 
 func (assessment NativeRecoveryAssessment) CleanBefore() bool {
-	return assessment.valid && assessment.assessment.disposition == nativeDocumentsBefore
+	return assessment.valid && assessment.assessment.Facts().Classification() == recovery.ClassificationCleanBefore
 }
 
 func (assessment NativeRecoveryAssessment) CleanAfter() bool {
-	return assessment.valid && assessment.assessment.disposition == nativeDocumentsAfter
+	return assessment.valid && assessment.assessment.Facts().Classification() == recovery.ClassificationCleanAfter
 }
 
 func (assessment NativeRecoveryAssessment) RequiresRollback() bool {
-	return assessment.valid && assessment.assessment.disposition == nativeDocumentsRollback
+	return assessment.valid && assessment.assessment.Facts().Classification() == recovery.ClassificationNeedsRollback
 }
 
 func (assessment NativeRecoveryAssessment) RequiresFinalization() bool {
-	return assessment.valid && assessment.assessment.disposition == nativeDocumentsFinalize
+	return assessment.valid && assessment.assessment.Facts().Classification() == recovery.ClassificationNeedsFinalize
 }
 
 func (assessment NativeRecoveryAssessment) HostMatchesExpected() bool {
-	if !assessment.valid || !assessment.assessment.ordinary.entries.MatchesExpected() {
-		return false
-	}
-	for _, stage := range assessment.assessment.stages {
-		if !stage.expected {
-			return false
-		}
-	}
-	return true
+	return assessment.valid && assessment.assessment.Facts().HostMatchesExpected()
 }
 
 func (assessment NativeRecoveryAssessment) RollbackClaims() ownership.ClaimConvergence {
-	return assessment.assessment.rollback
+	return assessment.assessment.Facts().RollbackClaims()
 }
 
 func (assessment NativeRecoveryAssessment) FinalizeClaims() ownership.ClaimConvergence {
-	return assessment.assessment.finalize
+	return assessment.assessment.Facts().FinalizeClaims()
 }
 
 func (assessment NativeRecoveryAssessment) FinalizeBindings() ownership.DocumentBindingConvergence {
-	return assessment.assessment.bindings
+	return assessment.assessment.Facts().FinalizeBindings()
 }
 
 func (assessment NativeRecoveryAssessment) ObservedPersistence() (durable.Snapshot, ownership.Registry, bool) {
-	return assessment.assessment.state, assessment.assessment.registry, assessment.valid
+	state, registry := assessment.assessment.Facts().Persistence()
+	return state, registry, assessment.valid
 }
 
 // NativeJournalRetirement owns the existing bounded retirement mechanism, but

@@ -26,6 +26,15 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
+func requireAssessedDocument(t testing.TB, assessment journalqualification.Assessment, index int) journalqualification.DocumentAssessment {
+	t.Helper()
+	document, present := assessment.Facts().DocumentAt(index)
+	if !present {
+		t.Fatalf("assessed document %d is missing from %d observations", index, assessment.Facts().DocumentCount())
+	}
+	return document
+}
+
 type nativeAssessmentGroup struct {
 	namespace          journalnamespace.DocumentNamespace
 	original, expected aggregate.Document

@@ -42,17 +42,17 @@ func OpenCapturedNativeRecovery(ctx context.Context, captured CapturedNativeJour
 	if err != nil {
 		return nil, err
 	}
-	qualified := assessment.assessment.qualified
+	qualified := assessment.assessment.Documents()
 	observed := assessment.assessment
-	scope, err := observed.registryScope()
+	scope, err := observed.RegistryScope()
 	if err != nil {
 		return nil, err
 	}
-	plan := NativeRecoveryPlan{journal: captured.journal, capture: captured.capture, active: captured.active, inventory: inv, assessment: observed.nativeDocumentAssessmentFacts, registryScope: scope}
+	plan := NativeRecoveryPlan{journal: captured.journal, capture: captured.capture, active: captured.active, inventory: inv, assessment: observed.Facts(), registryScope: scope}
 	return &NativeRecoveryOperation{
 		plan:    plan,
 		profile: recoveryoperation.Profile{StateCodec: codec, Codecs: options.Codecs, Limits: captured.publication.limits, Budget: captured.budget},
-		roots:   captured.publication.roots, qualified: qualified, capturedRemovalReservations: true,
+		roots:   captured.publication.roots, qualified: qualified, initial: observed, capturedRemovalReservations: true,
 		resolver: captured.publication.resolver, ordinaryCapabilities: captured.publication.ordinaryCapabilities,
 	}, nil
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -22,16 +21,16 @@ func (captured CapturedNativeJournal) PromoteOrdinary(ctx context.Context, inten
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if !observed.assessment.state.Equal(captured.journal.Before()) || captured.publication.resolver == nil {
+	state, _ := observed.assessment.Facts().Persistence()
+	if !state.Equal(captured.journal.Before()) || captured.publication.resolver == nil {
 		return CapturedNativeJournal{}, fmt.Errorf("ordinary promotion requires observed Before and independent path selection")
 	}
 	entry, err := captured.journal.ProvisionalAcquireEntry(intent)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	ordinary := observed.assessment.ordinary
-	matched, err := recovery.AssessEntries([]recovery.Entry{entry}, recovery.ClonePathEvidence(ordinary.paths), recovery.CloneBackupEvidence(ordinary.backups))
-	if err != nil || !matched.MatchesExpected() {
+	matched, err := observed.assessment.Facts().OrdinaryMatchesExpected(entry)
+	if err != nil || !matched {
 		return CapturedNativeJournal{}, errors.Join(fmt.Errorf("ordinary promotion requires a published expected path"), err)
 	}
 	path, err := captured.publication.resolver(intent.Destination())
