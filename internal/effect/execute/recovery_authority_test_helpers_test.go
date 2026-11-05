@@ -118,10 +118,9 @@ func beginGeneralRecoveryExecutionForTest(t *testing.T, authority *mutationAutho
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := authority.generalTraversalPhase.advance(control); err != nil {
+		if err := authority.generalTraversalPhase.Advance(control, host); err != nil {
 			t.Fatal(err)
 		}
-		authority.hostExecutionTraversal = host
 		authority.generalExecutionWorkBudget = host
 		return
 	}
@@ -163,7 +162,9 @@ func installGeneralRecoveryExecutionBudgetForTest(t *testing.T, authority *mutat
 		t.Fatal(err)
 	}
 	authority.generalExecutionWorkBudget = host
-	authority.hostExecutionTraversal = pathBudget
+	if err := authority.generalTraversalPhase.Advance(authority.physicalWorkBudget, pathBudget); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func mustObservedPathAuthority(t *testing.T, path string) pathauthority.Exact {

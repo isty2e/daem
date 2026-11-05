@@ -463,7 +463,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			OperationAuthority: authority.recoveryJournal, ManifestRoot: authority.capturedRoot,
 			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
 			ClaimTransitions: ordinary.ownership.transitions, ProvisionalAcquires: ordinary.ownership.provisional, RemovalDemands: ordinary.demands,
-			Resolver: authority.rootedJournalResolver(input.Resolver), RootedCapability: authority.rootedJournalCapability,
+			Resolver: authority.destinations.JournalResolver(input.Resolver), RootedCapability: authority.destinations.JournalCapability,
 		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), OrderObservations: input.Preparation.PiOrders(), WholeDocuments: wholeMutations, Payloads: input.Payloads})
 		if err != nil {
 			return err

@@ -242,17 +242,25 @@ func TestRecoveryRequiresEveryGlobalBindingBeforeEffects(t *testing.T) {
 		Scope:       target.ScopeGlobal,
 		Destination: destination.String(),
 	}
-	authority := &mutationAuthority{
-		globalDestinationBindings: map[output.Destination]globalDestinationBinding{
-			outputtest.Parse(t, "~/.codex/OTHER.md"): {},
-		},
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	paths := Paths{}
+	authority, err := captureScopedDestinationsForTest(
+		paths,
+		[]scopedDestinationForTest{{scope: target.ScopeGlobal, destination: outputtest.Parse(t, "~/.codex/OTHER.md")}},
+		emptyRemovalDemandsForTest(), nil, destinationResolver(paths), testFilesystem(),
+	)
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = authority.close() })
 
-	err := requireRecoveryGlobalBindings(authority, []recovery.Action{action})
+	err = requireRecoveryGlobalBindings(authority, []recovery.Action{action})
 	if err == nil || !strings.Contains(err.Error(), destination.String()) {
 		t.Fatalf("requireRecoveryGlobalBindings error = %v, want exact unbound destination refusal", err)
 	}
-	if _, err := authority.resolveBoundDestination(target.ScopeGlobal, destination); err == nil ||
+	if _, err := authority.destinations.Resolve(target.ScopeGlobal, destination); err == nil ||
 		!strings.Contains(err.Error(), "was not bound before effects") {
 		t.Fatalf("resolveBoundDestination error = %v, want lexical fallback refusal", err)
 	}
@@ -885,7 +893,7 @@ func TestRecoveryHostActionsStopAtLostVisibilityAuthority(t *testing.T) {
 		if parseErr != nil {
 			t.Fatalf("parse recovery test destination %d: %v", index, parseErr)
 		}
-		destination, resolveErr := authority.resolveBoundDestination(action.Scope, logical)
+		destination, resolveErr := authority.destinations.Resolve(action.Scope, logical)
 		if resolveErr != nil {
 			t.Fatalf("resolve recovery test destination %d: %v", index, resolveErr)
 		}

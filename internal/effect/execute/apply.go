@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -55,7 +57,7 @@ func (paths Paths) journalPaths() journalpublication.Paths {
 // ApplyInput retains typed effects, native transition intents and prepared payloads.
 type ApplyInput struct {
 	Paths                       Paths
-	Resolver                    DestinationResolver
+	Resolver                    mutationnamespace.Resolver
 	ManagedPathEffects          []effectpreparation.ManagedPathEffect
 	AggregateEffects            []effectpreparation.AggregateEffect
 	NativeNarrowings            []reconciliation.NativeNarrowingAction
@@ -294,7 +296,7 @@ func applyWithOptions(
 	); err != nil {
 		return ApplyResult{}, err
 	}
-	journalResolver := mutationAuthority.rootedJournalResolver(resolver)
+	journalResolver := mutationAuthority.destinations.JournalResolver(resolver)
 	var registryStore ownershipmutation.RegistryStore
 	if ownershipState.hasMutations() {
 		if err := mutationAuthority.bindOwnershipRegistry(input.Paths.OwnershipRegistryPath); err != nil {
@@ -359,7 +361,7 @@ func applyWithOptions(
 				Resolver:                  journalResolver,
 				ManifestRoot:              mutationAuthority.capturedRoot,
 				OperationAuthority:        mutationAuthority.recoveryJournal,
-				RootedCapability:          mutationAuthority.rootedJournalCapability,
+				RootedCapability:          mutationAuthority.destinations.JournalCapability,
 				Codecs:                    input.Codecs,
 				StateCodec:                input.StateCodec,
 			},

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -32,15 +34,15 @@ type recoveryHostAction struct {
 	AggregateContract   *aggregate.ProjectionContract
 }
 
-type recoveryHostOwnershipGuard func(context.Context, recoveryHostAction, mutationDestination) error
+type recoveryHostOwnershipGuard func(context.Context, recoveryHostAction, mutationnamespace.Destination) error
 
 type recoveryAggregateActionGroup struct {
 	indexes     []int
-	destination mutationDestination
+	destination mutationnamespace.Destination
 }
 
 type recoveryHostExecutionPlan struct {
-	resolvedDestinations []mutationDestination
+	resolvedDestinations []mutationnamespace.Destination
 	aggregateGroups      map[int]recoveryAggregateActionGroup
 	aggregateMembers     map[int]struct{}
 	visitOrder           []activeRecoveryHostVisit
@@ -125,7 +127,7 @@ func orderRecoveryHostActions(actions []recoveryHostAction) []recoveryHostAction
 func newRecoveryMutationAuthority(
 	paths Paths,
 	plan recovery.Plan,
-	resolver DestinationResolver,
+	resolver mutationnamespace.Resolver,
 	filesystem mutationfs.Store,
 	ownershipRegistryBinder ownershipmutation.RootedRegistryBinder,
 ) (*mutationAuthority, error) {
@@ -187,7 +189,7 @@ func requireRecoveryGlobalBindings(authority *mutationAuthority, actions []recov
 		if err != nil {
 			return err
 		}
-		if _, present := authority.globalDestinationBindings[destination]; !present {
+		if !authority.destinations.IsGlobalBound(destination) {
 			return fmt.Errorf("global recovery destination %q was not bound before effects", action.Destination)
 		}
 	}
@@ -228,7 +230,7 @@ func prepareRecoveryHostExecutionPlan(
 	authority *mutationAuthority,
 	actions []recoveryHostAction,
 ) (recoveryHostExecutionPlan, error) {
-	resolvedDestinations := make([]mutationDestination, len(actions))
+	resolvedDestinations := make([]mutationnamespace.Destination, len(actions))
 	aggregateGroups := make(map[int]recoveryAggregateActionGroup)
 	aggregateGroupByDestination := make(map[string]int)
 	aggregateMembers := make(map[int]struct{})
@@ -240,7 +242,7 @@ func prepareRecoveryHostExecutionPlan(
 		if err != nil {
 			return recoveryHostExecutionPlan{}, err
 		}
-		destination, err := authority.resolveBoundDestination(action.Scope, logical)
+		destination, err := authority.destinations.Resolve(action.Scope, logical)
 		if err != nil {
 			return recoveryHostExecutionPlan{}, err
 		}
@@ -248,7 +250,7 @@ func prepareRecoveryHostExecutionPlan(
 		if action.ContentPath == "" {
 			continue
 		}
-		destinationKey := filepath.Clean(destination.hostPath)
+		destinationKey := filepath.Clean(destination.HostPath())
 		firstIndex, present := aggregateGroupByDestination[destinationKey]
 		if !present {
 			firstIndex = index

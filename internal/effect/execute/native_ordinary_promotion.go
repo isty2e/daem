@@ -35,11 +35,11 @@ func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutation
 		}
 		var transition ownershipmutation.ClaimTransition
 		if err := execution.runObservation(prefix+"/observation", applyForwardFailureGuardedRecovery, func() error {
-			destination, err := authority.resolveBoundDestination(target.ScopeGlobal, intent.Destination())
+			destination, err := authority.destinations.Resolve(target.ScopeGlobal, intent.Destination())
 			if err != nil {
 				return err
 			}
-			actual, err := mutation.ObserveDirectoryEntryAuthorityBounded(destination.hostPath, physicalwork.MaximumPhysicalPathDepth, input.Budget)
+			actual, err := mutation.ObserveDirectoryEntryAuthorityBounded(destination.HostPath(), physicalwork.MaximumPhysicalPathDepth, input.Budget)
 			if err != nil {
 				return err
 			}

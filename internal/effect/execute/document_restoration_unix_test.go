@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -299,7 +301,7 @@ func TestDocumentRestorationPublicationPreservesWholeMetadataAndRequiresRemovalA
 	assertMutationTestFile(t, path, "opaque original")
 }
 
-func restorationPublicationFixture(t *testing.T, current string) (*mutationAuthority, mutationDestination, string, *documentRestorationTestStore) {
+func restorationPublicationFixture(t *testing.T, current string) (*mutationAuthority, mutationnamespace.Destination, string, *documentRestorationTestStore) {
 	t.Helper()
 	root := newProjectRootForMutationTest(t)
 	path := filepath.Join(root, ".pi", "settings.json")

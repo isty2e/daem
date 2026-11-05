@@ -127,7 +127,7 @@ func TestManagedPathAuthorityRetainsBoundGlobalPathAfterAncestorSymlinkRetarget(
 		t.Fatalf("newMutationAuthorityWithProjectionEffects: %v", err)
 	}
 	t.Cleanup(func() { _ = authority.close() })
-	bound, err := authority.resolveBoundDestination(target.ScopeGlobal, destination)
+	bound, err := authority.destinations.Resolve(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatalf("resolve bound managed path: %v", err)
 	}
@@ -149,10 +149,10 @@ func TestManagedPathAuthorityRetainsBoundGlobalPathAfterAncestorSymlinkRetarget(
 	if err != nil {
 		t.Fatalf("canonicalize admitted managed path: %v", err)
 	}
-	if bound.hostPath != want {
-		t.Fatalf("bound managed path = %q, want %q", bound.hostPath, want)
+	if bound.HostPath() != want {
+		t.Fatalf("bound managed path = %q, want %q", bound.HostPath(), want)
 	}
-	journalPath, err := authority.rootedJournalResolver(destinationResolver(paths))(destination)
+	journalPath, err := authority.destinations.JournalResolver(destinationResolver(paths))(destination)
 	if err != nil {
 		t.Fatalf("resolve bound journal path: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestManagedPathAuthorityRetainsDataRootRoleAfterDataDirSymlinkRetarget(t *t
 		t.Fatalf("newMutationAuthorityWithProjectionEffects: %v", err)
 	}
 	t.Cleanup(func() { _ = authority.close() })
-	bound, err := authority.resolveBoundDestination(target.ScopeGlobal, destination)
+	bound, err := authority.destinations.Resolve(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatalf("resolve bound managed path: %v", err)
 	}
@@ -234,10 +234,10 @@ func TestManagedPathAuthorityRetainsDataRootRoleAfterDataDirSymlinkRetarget(t *t
 	if err != nil {
 		t.Fatalf("canonicalize admitted data destination: %v", err)
 	}
-	if bound.hostPath != want {
-		t.Fatalf("bound managed path = %q, want %q", bound.hostPath, want)
+	if bound.HostPath() != want {
+		t.Fatalf("bound managed path = %q, want %q", bound.HostPath(), want)
 	}
-	journalPath, err := authority.rootedJournalResolver(destinationResolver(paths))(destination)
+	journalPath, err := authority.destinations.JournalResolver(destinationResolver(paths))(destination)
 	if err != nil {
 		t.Fatalf("resolve bound journal path: %v", err)
 	}
@@ -297,18 +297,13 @@ func TestManagedPathAuthoritySharesCapturedRootAcrossGlobalSiblings(t *testing.T
 		t.Fatalf("bind sibling managed paths: %v", err)
 	}
 	t.Cleanup(func() { _ = authority.close() })
-	if len(authority.globalDestinationBindings) != effectCount {
-		t.Fatalf("global bindings = %d, want %d", len(authority.globalDestinationBindings), effectCount)
-	}
-	if len(authority.retainedRoots) != 1 {
-		t.Fatalf("retained roots = %d, want 1 shared root", len(authority.retainedRoots))
-	}
-	retained := authority.retainedRoots[0]
-	for logical, binding := range authority.globalDestinationBindings {
-		if binding.root != retained {
-			t.Fatalf("binding %q retained a duplicate root witness", logical)
+	for _, selected := range selected {
+		logical := selected.destination
+		binding, err := authority.destinations.Resolve(selected.scope, logical)
+		if err != nil {
+			t.Fatalf("binding %q was omitted by the containing operation: %v", logical, err)
 		}
-		capability, err := binding.root.Acquire(binding.destination)
+		capability, err := authority.destinations.Acquire(binding)
 		if err != nil {
 			t.Fatalf("binding %q lost shared root authority: %v", logical, err)
 		}
@@ -344,7 +339,7 @@ func captureBoundGlobalManagedPathPrecondition(
 		t.Fatalf("bind global managed path: %v", err)
 	}
 	t.Cleanup(func() { _ = authority.close() })
-	bound, err := authority.resolveBoundDestination(target.ScopeGlobal, destination)
+	bound, err := authority.destinations.Resolve(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatalf("resolve bound global managed path: %v", err)
 	}

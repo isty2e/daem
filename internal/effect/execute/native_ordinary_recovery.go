@@ -31,7 +31,7 @@ func prepareNativeOrdinaryRecovery(ctx context.Context, authority *mutationAutho
 		if err != nil {
 			return nativeOrdinaryRecoveryStage{}, err
 		}
-		if err := authority.bindScopedDestination(action.Scope, destination); err != nil {
+		if err := authority.destinations.Bind(action.Scope, destination); err != nil {
 			return nativeOrdinaryRecoveryStage{}, err
 		}
 	}
@@ -98,9 +98,9 @@ func (authority *mutationAuthority) beginJointGeneralRecoveryExecution() error {
 	if err != nil {
 		return err
 	}
-	if err := authority.generalTraversalPhase.advance(authority.physicalWorkBudget); err != nil {
+	if err := authority.generalTraversalPhase.Advance(authority.physicalWorkBudget, host); err != nil {
 		return err
 	}
-	authority.hostExecutionTraversal, authority.generalExecutionWorkBudget = host, host
+	authority.generalExecutionWorkBudget = host
 	return nil
 }

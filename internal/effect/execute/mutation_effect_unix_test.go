@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization"
@@ -185,7 +187,7 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 	destinationPath := filepath.Join(root, ".agent", "config")
 	writeMutationTestFile(t, destinationPath, "inside")
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		t.Fatalf("acquire original destination: %v", err)
 	}
@@ -213,7 +215,7 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 
 func TestMutationHelpersRejectInvalidDestination(t *testing.T) {
 	err := commitFileDestinationAgainst(
-		context.Background(), nil, mutationDestination{}, []byte("content"), 0o600, false, nil,
+		context.Background(), nil, mutationnamespace.Destination{}, []byte("content"), 0o600, false, nil,
 	)
 	if err == nil {
 		t.Fatal("commitFileDestinationAgainst accepted an invalid destination")
@@ -224,7 +226,7 @@ func projectMutationDestinationForTest(
 	t *testing.T,
 	root string,
 	relative string,
-) (*mutationAuthority, mutationDestination) {
+) (*mutationAuthority, mutationnamespace.Destination) {
 	t.Helper()
 	selected := scopedDestinationForTest{scope: target.ScopeProject, destination: outputtest.Parse(t, relative)}
 	paths := Paths{ManifestRoot: root}
@@ -244,7 +246,7 @@ func projectMutationDestinationForTest(
 			t.Errorf("close mutation authority: %v", err)
 		}
 	})
-	destination, err := authority.resolveBoundDestination(target.ScopeProject, outputtest.Parse(t, relative))
+	destination, err := authority.destinations.Resolve(target.ScopeProject, outputtest.Parse(t, relative))
 	if err != nil {
 		t.Fatalf("resolve mutation destination: %v", err)
 	}

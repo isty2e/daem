@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 
@@ -247,7 +249,7 @@ func (authority *mutationAuthority) prepareForwardRemovalReservationsFor(
 	for _, demand := range demands.Demands() {
 		relation := removalRelationKey{scope: demand.Scope(), destination: demand.Destination()}
 		destination, present := authority.removalDestinations[relation]
-		if !present || !destination.isRooted() {
+		if !present || !destination.IsRooted() {
 			return fmt.Errorf("forward removal relation %q has no physical destination", relation.destination)
 		}
 		states := demand.States()
@@ -293,7 +295,7 @@ func (authority *mutationAuthority) prepareForwardRemovalReservationsFor(
 			}
 			capacity, err := removalnamespace.ReserveForwardRootedCleanupWork(
 				authority.physicalWorkBudget,
-				destination.destination,
+				destination.RootedPath(),
 				work,
 				kind == recovery.PathKindDirectory,
 			)
@@ -329,11 +331,11 @@ func (authority *mutationAuthority) reserveForwardRemovalExecutionBudget(
 		relation := removalRelationKey{scope: demand.Scope(), destination: demand.Destination()}
 		relationReservations := reservations[relation]
 		destination, present := authority.removalDestinations[relation]
-		if !present || !destination.isRooted() {
+		if !present || !destination.IsRooted() {
 			return nil, fmt.Errorf("forward removal relation %q has no physical destination", relation.destination)
 		}
 		for range relationReservations {
-			destinationPaths = append(destinationPaths, destination.hostPath)
+			destinationPaths = append(destinationPaths, destination.HostPath())
 		}
 	}
 	if err := removalnamespace.ReserveForwardRemovalExecutionWork(
@@ -387,16 +389,12 @@ func (authority *mutationAuthority) observeForwardRemovalCurrent(
 	certificates []forwardRemovalCertificate,
 ) (recovery.RemovalState, workmeasure.ArtifactWork, bool, error) {
 	destination, present := authority.removalDestinations[relation]
-	if !present || !destination.isRooted() {
+	if !present || !destination.IsRooted() {
 		return recovery.RemovalState{}, workmeasure.ArtifactWork{}, false, fmt.Errorf(
 			"forward removal destination is not physically bound",
 		)
 	}
-	capability, err := destination.root.AcquireBounded(
-		destination.destination,
-		physicalwork.MaximumPhysicalPathDepth,
-		authority.physicalWorkBudget,
-	)
+	capability, err := authority.destinations.AcquireBounded(destination, authority.physicalWorkBudget)
 	if err != nil {
 		return recovery.RemovalState{}, workmeasure.ArtifactWork{}, false, err
 	}
@@ -441,7 +439,7 @@ func (authority *mutationAuthority) observeForwardRemovalCurrent(
 
 func (authority *mutationAuthority) beginForwardRemoval(
 	ctx context.Context,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
 	intent recovery.RemovalIntent,
@@ -449,7 +447,7 @@ func (authority *mutationAuthority) beginForwardRemoval(
 	if !authority.forwardRemovalPrepared {
 		return mutationfs.TreeTraversalLimits{}, fmt.Errorf("forward removal capacity was not prepared before effects")
 	}
-	relation := removalRelationKey{scope: destination.scope, destination: destination.logical}
+	relation := removalRelationKey{scope: destination.Scope(), destination: destination.Logical()}
 	reservations := authority.forwardRemovalReservations[relation]
 	var envelope physicalwork.ForwardRemovalCapacity
 	haveEnvelope := false

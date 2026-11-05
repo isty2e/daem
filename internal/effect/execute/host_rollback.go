@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 
@@ -48,7 +50,7 @@ type preparedRollbackCleanup struct {
 }
 
 type hostRollbackEntry struct {
-	destination        mutationDestination
+	destination        mutationnamespace.Destination
 	existed            bool
 	kind               string
 	maximumFileBytes   int64
@@ -66,7 +68,7 @@ type hostRollbackEntry struct {
 
 type rollbackStageAction struct {
 	actionIndex int
-	destination mutationDestination
+	destination mutationnamespace.Destination
 	action      recoveryHostAction
 }
 
@@ -102,21 +104,17 @@ func (reservation recoveryGeneralPathReservation) AdmitPathComponents(count int)
 
 func reserveRecoveryHostExecution(
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	baseline *hostRollbackEntry,
 	actions []rollbackStageAction,
 ) error {
 	if authority == nil || authority.physicalWorkBudget == nil ||
-		baseline == nil || !destination.isRooted() {
+		baseline == nil || !destination.IsRooted() {
 		return fmt.Errorf("recovery host execution reservation requires bounded destination authority")
 	}
 	reservation := recoveryGeneralPathReservation{budget: authority.physicalWorkBudget}
 	for range recoveryHostDestinationAccesses {
-		if err := destination.root.ReserveDestinationAccess(
-			destination.destination,
-			physicalwork.MaximumPhysicalPathDepth,
-			reservation,
-		); err != nil {
+		if err := authority.destinations.ReserveDestinationAccess(destination, reservation); err != nil {
 			return fmt.Errorf("reserve recovery host destination access: %w", err)
 		}
 	}
@@ -280,12 +278,12 @@ func stageRollbackDestinations(
 	if len(actions) == 0 {
 		return nil, fmt.Errorf("rollback stage requires at least one action")
 	}
-	physicalDestination := filepath.Clean(actions[0].destination.hostPath)
+	physicalDestination := filepath.Clean(actions[0].destination.HostPath())
 	for _, action := range actions {
-		if !action.destination.isRooted() {
+		if !action.destination.IsRooted() {
 			return nil, fmt.Errorf("rollback destination is invalid")
 		}
-		if filepath.Clean(action.destination.hostPath) != physicalDestination {
+		if filepath.Clean(action.destination.HostPath()) != physicalDestination {
 			return nil, fmt.Errorf("rollback stage actions do not share one physical destination")
 		}
 	}
@@ -314,11 +312,11 @@ func stageRecoveryRollback(
 		if err != nil {
 			return hostRollback{}, errors.Join(err, rollback.abortCleanup(context.WithoutCancel(ctx), authority))
 		}
-		destination, err := authority.resolveBoundDestination(action.Scope, logical)
+		destination, err := authority.destinations.Resolve(action.Scope, logical)
 		if err != nil {
 			return hostRollback{}, errors.Join(err, rollback.abortCleanup(context.WithoutCancel(ctx), authority))
 		}
-		key := filepath.Clean(destination.hostPath)
+		key := filepath.Clean(destination.HostPath())
 		groupIndex, present := stageGroupByDestination[key]
 		if !present {
 			groupIndex = len(stageGroups)
@@ -364,12 +362,12 @@ func (rollback hostRollback) restore(
 	var failures []error
 	groups := make(map[string][]hostRollbackEntry, len(rollback.entries))
 	for _, entry := range rollback.entries {
-		key := filepath.Clean(entry.destination.hostPath)
+		key := filepath.Clean(entry.destination.HostPath())
 		groups[key] = append(groups[key], entry)
 	}
 	restored := make(map[string]struct{})
 	for index := len(rollback.entries) - 1; index >= 0; index-- {
-		key := filepath.Clean(rollback.entries[index].destination.hostPath)
+		key := filepath.Clean(rollback.entries[index].destination.HostPath())
 		if _, present := restored[key]; present {
 			continue
 		}
@@ -684,10 +682,10 @@ func restoreRollbackGroup(
 	attempted := false
 	for _, entry := range entries {
 		if !entry.stagedState.equal(baseline.stagedState) {
-			return fmt.Errorf("rollback stage for %q has inconsistent physical baselines", baseline.destination.logical)
+			return fmt.Errorf("rollback stage for %q has inconsistent physical baselines", baseline.destination.Logical())
 		}
 		if entry.maximumFileBytes != baseline.maximumFileBytes {
-			return fmt.Errorf("rollback stage for %q has inconsistent file byte limits", baseline.destination.logical)
+			return fmt.Errorf("rollback stage for %q has inconsistent file byte limits", baseline.destination.Logical())
 		}
 		attempted = attempted || entry.attempted
 	}
@@ -713,7 +711,7 @@ func restoreRollbackGroup(
 	if err != nil {
 		return fmt.Errorf(
 			"rollback destination %q changed outside the recovery attempt: %w",
-			baseline.destination.logical,
+			baseline.destination.Logical(),
 			err,
 		)
 	}
@@ -728,14 +726,14 @@ func restoreRollbackGroup(
 		}
 	}
 	if !matchesEffect {
-		return fmt.Errorf("rollback destination %q changed outside the recovery attempt", baseline.destination.logical)
+		return fmt.Errorf("rollback destination %q changed outside the recovery attempt", baseline.destination.Logical())
 	}
 	if !baseline.existed {
 		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
 		if err := removeDestinationAgainst(ctx, authority, baseline.destination, identity); err != nil {
-			return fmt.Errorf("rollback remove %q: %w", baseline.destination.logical, err)
+			return fmt.Errorf("rollback remove %q: %w", baseline.destination.Logical(), err)
 		}
 		return nil
 	}
@@ -750,7 +748,7 @@ func restoreRollbackGroup(
 		}
 		content, err := baseline.backup.readFile(ctx, max(int64(1), baseline.stagedWork.Bytes()))
 		if err != nil {
-			return fmt.Errorf("read rollback file for %q: %w", baseline.destination.logical, err)
+			return fmt.Errorf("read rollback file for %q: %w", baseline.destination.Logical(), err)
 		}
 		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
@@ -764,7 +762,7 @@ func restoreRollbackGroup(
 			current.existed,
 			identity,
 		); err != nil {
-			return fmt.Errorf("rollback restore file %q: %w", baseline.destination.logical, err)
+			return fmt.Errorf("rollback restore file %q: %w", baseline.destination.Logical(), err)
 		}
 	case recovery.PathKindDirectory:
 		if err := admitRecoveryObservation(
@@ -788,10 +786,10 @@ func restoreRollbackGroup(
 			current.existed,
 			identity,
 		); err != nil {
-			return fmt.Errorf("rollback restore directory %q: %w", baseline.destination.logical, err)
+			return fmt.Errorf("rollback restore directory %q: %w", baseline.destination.Logical(), err)
 		}
 	default:
-		return fmt.Errorf("rollback kind %q for %q is not supported", baseline.kind, baseline.destination.logical)
+		return fmt.Errorf("rollback kind %q for %q is not supported", baseline.kind, baseline.destination.Logical())
 	}
 	return nil
 }

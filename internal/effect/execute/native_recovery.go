@@ -200,7 +200,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 				if err := semanticGuard(ctx); err != nil {
 					return err
 				}
-				destination, err := nativeRecoveryDestination(ctx, document, budget)
+				destination, err := nativeRecoveryDestination(ctx, authority.destinations, document, budget)
 				if err != nil {
 					return err
 				}

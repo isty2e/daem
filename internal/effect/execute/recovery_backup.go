@@ -327,7 +327,9 @@ func (authority *mutationAuthority) prepareRecoveryBackups(
 		}
 		backups[path] = backup
 	}
-	authority.retainedRoots = append(authority.retainedRoots, root)
+	if err := authority.destinations.RetainArtifactRoot(root); err != nil {
+		return err
+	}
 	retained = true
 	authority.recoveryBackups = backups
 	authority.recoveryBackupExecution = execution

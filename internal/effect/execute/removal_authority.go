@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
+
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -79,24 +80,24 @@ func (authority *mutationAuthority) prepareRemovalDemands(
 	if budget == nil {
 		return fmt.Errorf("removal operation work budget is required")
 	}
-	destinations := make(map[removalRelationKey]mutationDestination, demands.Len())
+	destinations := make(map[removalRelationKey]mutationnamespace.Destination, demands.Len())
 	for index, demand := range demands.Demands() {
 		key := removalRelationKey{scope: demand.Scope(), destination: demand.Destination()}
 		if _, duplicate := destinations[key]; duplicate {
 			return fmt.Errorf("removal demands contain duplicate relation %q", demand.Destination())
 		}
-		var destination mutationDestination
+		var destination mutationnamespace.Destination
 		var err error
 		switch demand.Scope() {
 		case target.ScopeProject:
-			destination, err = authority.resolveProject(demand.Destination())
+			destination, err = authority.destinations.ResolveProject(demand.Destination())
 			if err == nil {
-				err = removalnamespace.ChargeRemovalPathWork(budget, destination.hostPath)
+				err = removalnamespace.ChargeRemovalPathWork(budget, destination.HostPath())
 			}
 		case target.ScopeGlobal:
-			err = authority.bindGlobalDestination(demand.Destination())
+			err = authority.destinations.Bind(target.ScopeGlobal, demand.Destination())
 			if err == nil {
-				destination, err = authority.resolveBoundDestination(
+				destination, err = authority.destinations.Resolve(
 					demand.Scope(),
 					demand.Destination(),
 				)
@@ -188,7 +189,7 @@ func (authority *mutationAuthority) validateReloadedRemovalIntents(
 		return fmt.Errorf("reloaded removal authority has incomplete physical bindings")
 	}
 	for key, destination := range authority.removalDestinations {
-		if _, present := authority.removalIntents[key]; !present || !destination.isRooted() {
+		if _, present := authority.removalIntents[key]; !present || !destination.IsRooted() {
 			return fmt.Errorf("reloaded removal authority has an invalid physical binding")
 		}
 	}
@@ -212,27 +213,27 @@ func (authority *mutationAuthority) removalIntentFor(
 func (authority *mutationAuthority) removalDestinationFor(
 	scope target.Scope,
 	destination output.Destination,
-) (mutationDestination, error) {
+) (mutationnamespace.Destination, error) {
 	if authority == nil || !authority.removalAuthorityBound {
-		return mutationDestination{}, fmt.Errorf("complete removal authority is not bound before rooted removal")
+		return mutationnamespace.Destination{}, fmt.Errorf("complete removal authority is not bound before rooted removal")
 	}
 	bound, present := authority.removalDestinations[removalRelationKey{scope: scope, destination: destination}]
-	if !present || !bound.isRooted() {
-		return mutationDestination{}, fmt.Errorf("journalized rooted removal %q has no physical namespace binding", destination)
+	if !present || !bound.IsRooted() {
+		return mutationnamespace.Destination{}, fmt.Errorf("journalized rooted removal %q has no physical namespace binding", destination)
 	}
 	return bound, nil
 }
 
 func (authority *mutationAuthority) removeJournaledRootedEntry(
 	ctx context.Context,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
 ) (mutationfs.CommitOutcome, error) {
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return uncommittedRemovalFailure(fmt.Errorf("mutation destination is invalid"))
 	}
-	intent, err := authority.removalIntentFor(destination.scope, destination.logical)
+	intent, err := authority.removalIntentFor(destination.Scope(), destination.Logical())
 	if err != nil {
 		if capability != nil {
 			_ = capability.Close()
@@ -252,14 +253,14 @@ func (authority *mutationAuthority) removeJournaledRootedEntry(
 		}
 		return uncommittedRemovalFailure(err)
 	}
-	removalDestination, err := authority.removalDestinationFor(destination.scope, destination.logical)
+	removalDestination, err := authority.removalDestinationFor(destination.Scope(), destination.Logical())
 	if err != nil {
 		if capability != nil {
 			_ = capability.Close()
 		}
 		return uncommittedRemovalFailure(err)
 	}
-	if filepath.Clean(destination.hostPath) != filepath.Clean(removalDestination.hostPath) {
+	if filepath.Clean(destination.HostPath()) != filepath.Clean(removalDestination.HostPath()) {
 		if capability != nil {
 			_ = capability.Close()
 		}
@@ -273,15 +274,11 @@ func (authority *mutationAuthority) removeJournaledRootedEntry(
 	if err := capability.Close(); err != nil {
 		return uncommittedRemovalFailure(fmt.Errorf("close pre-removal capability: %w", err))
 	}
-	capability, err = removalDestination.root.AcquireBounded(
-		removalDestination.destination,
-		physicalwork.MaximumPhysicalPathDepth,
-		budget,
-	)
+	capability, err = authority.destinations.AcquireBounded(removalDestination, budget)
 	if err != nil {
 		return uncommittedRemovalFailure(fmt.Errorf("acquire bounded forward removal capability: %w", err))
 	}
-	if err := validateRemovalNamespace(ctx, removalDestination, intent.Namespace(), budget); err != nil {
+	if err := authority.destinations.RequireRemoval(ctx, removalDestination, intent.Namespace(), budget); err != nil {
 		if capability != nil {
 			_ = capability.Close()
 		}
@@ -350,31 +347,9 @@ func (failure *rootedRemovalCommitError) Outcome() mutationfs.CommitOutcome {
 	return failure.outcome
 }
 
-func validateRemovalNamespace(
-	ctx context.Context,
-	destination mutationDestination,
-	namespace recovery.RemovalNamespaceAuthority,
-	budget *physicalwork.Budget,
-) error {
-	observation, err := removalnamespace.Observe(
-		ctx,
-		destination.root,
-		destination.destination,
-		namespace,
-		budget,
-	)
-	if err != nil {
-		return err
-	}
-	if observation.Status() != recovery.RemovalNamespaceMatched {
-		return fmt.Errorf("removal namespace is %s: %s", observation.Status(), observation.Detail())
-	}
-	return nil
-}
-
 type removalCleanupCandidate struct {
 	intent               recovery.RemovalIntent
-	destination          mutationDestination
+	destination          mutationnamespace.Destination
 	residuePath          string
 	cleanupPath          string
 	obligation           recovery.RemovalCleanupObligation
@@ -423,10 +398,9 @@ func (authority *mutationAuthority) cleanupRemovalIntentList(
 		if err := budget.AdmitObservation(); err != nil {
 			return nil, err
 		}
-		namespace, err := removalnamespace.Observe(
+		namespace, err := authority.destinations.ObserveRemoval(
 			ctx,
-			destination.root,
-			destination.destination,
+			destination,
 			intent.Namespace(),
 			budget,
 		)
@@ -486,7 +460,7 @@ func (authority *mutationAuthority) cleanupRemovalIntentList(
 			if !capturedNamespaceReservation {
 				if err := removalnamespace.ReserveRemovalExecutionObservationWork(
 					budget,
-					destination.hostPath,
+					destination.HostPath(),
 					residuePath,
 					cleanupPath,
 				); err != nil {
@@ -509,7 +483,7 @@ func (authority *mutationAuthority) cleanupRemovalIntentList(
 			if cleanupRecursive || cleanupFile {
 				if err := removalnamespace.ReserveRootedCleanupWork(
 					budget,
-					destination.destination,
+					destination.RootedPath(),
 					cleanupWork,
 					cleanupRecursive,
 				); err != nil {
@@ -593,7 +567,7 @@ func (authority *mutationAuthority) prepareRecoveryRemovalCleanup(
 		}
 		if err := removalnamespace.ReserveRemovalCleanupLifecycleWork(
 			authority.physicalWorkBudget,
-			destination.hostPath,
+			destination.HostPath(),
 			residuePath,
 			cleanupPath,
 		); err != nil {
@@ -658,13 +632,13 @@ func unavailableRemovalSlots() (recovery.RemovalResidueObservation, error) {
 
 func (authority *mutationAuthority) observeRemovalSlot(
 	ctx context.Context,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	path string,
 	role string,
 	budget *physicalwork.Budget,
 	maximumWork workmeasure.ArtifactWork,
 ) (removalSlotObservation, error) {
-	capability, err := authority.acquireRemovalSlot(destination, path, budget)
+	capability, err := authority.destinations.AcquireRemovalSlot(destination, path, budget)
 	if err != nil {
 		return unavailableRemovalSlotObservation(role + " authority could not be bound")
 	}
@@ -773,10 +747,9 @@ func (authority *mutationAuthority) observeRemovalCleanupCandidate(
 	if err := budget.AdmitObservation(); err != nil {
 		return recovery.RemovalCleanupObligation{}, removalSlotObservation{}, removalSlotObservation{}, err
 	}
-	namespace, err := removalnamespace.Observe(
+	namespace, err := authority.destinations.ObserveRemoval(
 		ctx,
-		candidate.destination.root,
-		candidate.destination.destination,
+		candidate.destination,
 		candidate.intent.Namespace(),
 		budget,
 	)
@@ -855,7 +828,7 @@ func (authority *mutationAuthority) executeRemovalCleanupAction(
 		if residue.identity == nil {
 			return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, nil)
 		}
-		capability, acquireErr := authority.acquireRemovalSlot(
+		capability, acquireErr := authority.destinations.AcquireRemovalSlot(
 			candidate.destination,
 			candidate.residuePath,
 			candidate.budget,
@@ -883,7 +856,7 @@ func (authority *mutationAuthority) executeRemovalCleanupAction(
 		if cleanup.identity == nil {
 			return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, nil)
 		}
-		capability, acquireErr := authority.acquireRemovalSlot(
+		capability, acquireErr := authority.destinations.AcquireRemovalSlot(
 			candidate.destination,
 			candidate.cleanupPath,
 			candidate.budget,
@@ -925,7 +898,7 @@ func (authority *mutationAuthority) cleanupRemovalProgress(
 	obligation recovery.RemovalCleanupObligation,
 	identity mutationfs.EntryIdentity,
 ) error {
-	capability, err := authority.acquireRemovalSlot(
+	capability, err := authority.destinations.AcquireRemovalSlot(
 		candidate.destination,
 		candidate.cleanupPath,
 		candidate.budget,
@@ -966,7 +939,7 @@ func (authority *mutationAuthority) confirmRemovalSlotsAbsent(
 				return newRemovalCleanupError(obligation, err)
 			}
 		}
-		capability, err := authority.acquireRemovalSlot(candidate.destination, path, candidate.budget)
+		capability, err := authority.destinations.AcquireRemovalSlot(candidate.destination, path, candidate.budget)
 		if err != nil {
 			return newRemovalCleanupError(obligation, err)
 		}
@@ -985,37 +958,6 @@ func removalCleanupTraversalLimits(
 		work.Entries(),
 		recovery.MaximumArtifactTreeDepth,
 		work.Bytes(),
-	)
-}
-
-func (authority *mutationAuthority) acquireRemovalSlot(
-	destination mutationDestination,
-	slotPath string,
-	budget *physicalwork.Budget,
-) (rootedpath.CommitCapability, error) {
-	if authority == nil || destination.root == nil {
-		return nil, fmt.Errorf("removal slot root authority is unavailable")
-	}
-	rootAuthority, err := destination.root.AuthorityBounded(budget)
-	if err != nil {
-		return nil, err
-	}
-	relative, err := filepath.Rel(rootAuthority.PhysicalRoot(), filepath.Clean(slotPath))
-	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("removal slot path %q escaped destination root", slotPath)
-	}
-	rootRelative, err := rootedpath.NewRelativeDestination(filepath.ToSlash(relative))
-	if err != nil {
-		return nil, err
-	}
-	bound, err := rootAuthority.Bind(rootRelative)
-	if err != nil {
-		return nil, err
-	}
-	return destination.root.AcquireBounded(
-		bound,
-		physicalwork.MaximumPhysicalPathDepth,
-		budget,
 	)
 }
 

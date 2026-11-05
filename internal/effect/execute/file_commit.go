@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 )
 
@@ -23,16 +25,16 @@ func attemptedFileMutation(err error) fileMutationOutcome {
 func commitFileDestinationAgainst(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	content []byte,
 	fileMode os.FileMode,
 	expectedExists bool,
 	expected mutationfs.EntryIdentity,
 ) error {
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
 	}
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return err
 	}
@@ -45,16 +47,16 @@ func commitFileDestinationAgainst(
 func mutateFileDestinationWithOutcome(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	fileMode os.FileMode,
 	allowMissing bool,
 	maximumBytes int64,
 	mutation fileContentMutation,
 ) fileMutationOutcome {
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return fileMutationOutcome{err: errors.New("mutation destination is invalid")}
 	}
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return fileMutationOutcome{err: err}
 	}
@@ -86,13 +88,13 @@ func mutateFileDestinationWithOutcome(
 func readRegularFileDestination(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	maximumBytes int64,
 ) ([]byte, os.FileMode, error) {
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return nil, 0, errors.New("mutation destination is invalid")
 	}
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -104,12 +106,12 @@ func readRegularFileDestination(
 func destinationEntryExists(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 ) (bool, error) {
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return false, errors.New("mutation destination is invalid")
 	}
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return false, err
 	}
@@ -126,13 +128,13 @@ func destinationEntryExists(
 func removeDestinationAgainst(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	expected mutationfs.EntryIdentity,
 ) error {
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
 	}
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return err
 	}
@@ -143,13 +145,13 @@ func removeDestinationAgainst(
 func removeManagedPathDestination(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	precondition *managedPathPrecondition,
 ) error {
-	if precondition == nil || !precondition.existed || precondition.destination.logical != destination.logical {
-		return fmt.Errorf("managed removal requires a matching existing precondition for %q", destination.logical)
+	if precondition == nil || !precondition.existed || precondition.destination.Logical() != destination.Logical() {
+		return fmt.Errorf("managed removal requires a matching existing precondition for %q", destination.Logical())
 	}
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
 	}
 	capability, err := precondition.takeRootedCapability()
@@ -162,15 +164,15 @@ func removeManagedPathDestination(
 
 func commitManagedFileDestination(
 	ctx context.Context,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	content []byte,
 	fileMode os.FileMode,
 	precondition *managedPathPrecondition,
 ) error {
-	if precondition == nil || precondition.destination.logical != destination.logical {
-		return fmt.Errorf("managed file precondition does not match destination %q", destination.logical)
+	if precondition == nil || precondition.destination.Logical() != destination.Logical() {
+		return fmt.Errorf("managed file precondition does not match destination %q", destination.Logical())
 	}
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
 	}
 	capability, err := precondition.takeRootedCapability()

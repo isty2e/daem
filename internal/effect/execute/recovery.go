@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
@@ -29,7 +31,7 @@ type RecoveryOptions struct {
 	ValidateVisibilityAuthority func(context.Context) error
 	AcceptVisibilityChanges     func(context.Context) error
 	ActiveJournalAuthority      journalinventory.ActiveJournalAuthority
-	Resolver                    DestinationResolver
+	Resolver                    mutationnamespace.Resolver
 	Codecs                      aggregate.CodecCatalog
 	OwnershipRegistryBinder     ownershipmutation.RootedRegistryBinder
 	StateCodec                  durable.SnapshotCodec
@@ -516,8 +518,8 @@ func recoveryPlanLoadOptions(
 ) journal.PlanLoadOptions {
 	return journal.PlanLoadOptions{
 		Filesystem:        options.Filesystem,
-		RootedCapability:  authority.rootedJournalCapability,
-		Resolver:          authority.rootedJournalResolver(options.Resolver),
+		RootedCapability:  authority.destinations.JournalCapability,
+		Resolver:          authority.destinations.JournalResolver(options.Resolver),
 		OwnershipRegistry: authority.rootedOwnershipRegistryOption(),
 		Codecs:            options.Codecs,
 		StateCodec:        options.StateCodec,
@@ -702,7 +704,7 @@ func executeRecoveryRollbackEffects(
 				return err
 			}
 		}
-		provenance, err := authority.projectAuthority.Provenance()
+		provenance, err := authority.destinations.ProjectProvenance()
 		if err != nil {
 			return fmt.Errorf("derive recovery manifest root provenance: %w", err)
 		}
@@ -967,7 +969,7 @@ func recoveryIntentClaimGuardWithReader(
 	for _, intent := range intents {
 		byOutput[provisionalRecoveryOutputKey{destination: intent.Destination().String(), footprint: intent.Footprint()}] = intent
 	}
-	return func(ctx context.Context, action recoveryHostAction, destination mutationDestination) error {
+	return func(ctx context.Context, action recoveryHostAction, destination mutationnamespace.Destination) error {
 		footprint, err := output.FootprintFromLegacy(output.ContentPath(action.ContentPath))
 		if err != nil {
 			return fmt.Errorf("provisional recovery action scope: %w", err)
@@ -980,7 +982,7 @@ func recoveryIntentClaimGuardWithReader(
 			return fmt.Errorf("ownership registry is required for provisional recovery rollback")
 		}
 		authorityObservation, err := mutation.ObserveDirectoryEntryAuthorityBounded(
-			destination.hostPath,
+			destination.HostPath(),
 			physicalwork.MaximumPhysicalPathDepth,
 			authority.generalTraversalPhase,
 		)

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -18,13 +20,13 @@ func commitManagedDirectoryDestination(
 	authority *mutationAuthority,
 	identity artifact.ExactIdentity,
 	view access.View,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	precondition *managedPathPrecondition,
 ) error {
-	if precondition == nil || precondition.destination.logical != destination.logical {
-		return fmt.Errorf("managed directory precondition does not match destination %q", destination.logical)
+	if precondition == nil || precondition.destination.Logical() != destination.Logical() {
+		return fmt.Errorf("managed directory precondition does not match destination %q", destination.Logical())
 	}
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
 	}
 	return commitRootedDirectoryWithPrecondition(ctx, authority, destination, func(writer mutationfs.RootedTreeWriter) error {
@@ -39,11 +41,11 @@ func commitManagedDirectoryDestination(
 func commitRootedDirectoryWithPrecondition(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	populate func(mutationfs.RootedTreeWriter) error,
 	precondition *managedPathPrecondition,
 ) (resultErr error) {
-	publicationCapability, err := authority.acquire(destination)
+	publicationCapability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return err
 	}
@@ -64,7 +66,7 @@ func commitRootedDirectoryWithPrecondition(
 	if precondition != nil {
 		removalCapability, err = precondition.takeRootedCapability()
 	} else {
-		removalCapability, err = authority.acquire(destination)
+		removalCapability, err = authority.destinations.Acquire(destination)
 	}
 	if err != nil {
 		return err
@@ -111,14 +113,14 @@ func commitRecoveryDirectoryDestinationAgainst(
 	ctx context.Context,
 	authority *mutationAuthority,
 	backup recoveryDirectorySource,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	expectedExists bool,
 	expected mutationfs.EntryIdentity,
 ) error {
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
 	}
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return err
 	}

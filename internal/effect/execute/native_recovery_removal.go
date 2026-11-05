@@ -4,25 +4,27 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
 
-func nativeRecoveryDestination(ctx context.Context, document journal.NativeRecoveryDocument, budget *physicalwork.Budget) (mutationDestination, error) {
+func nativeRecoveryDestination(ctx context.Context, destinations mutationnamespace.Namespace, document journal.NativeRecoveryDocument, budget *physicalwork.Budget) (mutationnamespace.Destination, error) {
 	aliases := document.Namespace().Addresses()
 	if len(aliases) == 0 {
-		return mutationDestination{}, fmt.Errorf("native recovery document has no aliases")
+		return mutationnamespace.Destination{}, fmt.Errorf("native recovery document has no aliases")
 	}
 	alias := aliases[0]
 	removal, present, err := document.Removal()
 	if err != nil {
-		return mutationDestination{}, err
+		return mutationnamespace.Destination{}, err
 	}
 	if present {
 		intent, err := removal.PhysicalIntent()
 		if err != nil {
-			return mutationDestination{}, err
+			return mutationnamespace.Destination{}, err
 		}
 		found := false
 		for _, candidate := range aliases {
@@ -33,18 +35,14 @@ func nativeRecoveryDestination(ctx context.Context, document journal.NativeRecov
 			}
 		}
 		if !found {
-			return mutationDestination{}, fmt.Errorf("native physical removal has no actual alias")
+			return mutationnamespace.Destination{}, fmt.Errorf("native physical removal has no actual alias")
 		}
 	}
 	root, bound, err := document.Namespace().WriterBinding(ctx, budget)
 	if err != nil {
-		return mutationDestination{}, err
+		return mutationnamespace.Destination{}, err
 	}
-	path, err := bound.LexicalPath()
-	if err != nil {
-		return mutationDestination{}, err
-	}
-	return mutationDestination{scope: alias.Scope(), logical: alias.AggregateRoot(), hostPath: path, root: root, destination: bound}, nil
+	return destinations.BorrowDestination(alias.Scope(), alias.AggregateRoot(), root, bound)
 }
 
 func prepareNativeRecoveryRemovals(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, ordinary []recoveryHostAction) error {

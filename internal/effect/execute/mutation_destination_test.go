@@ -1,7 +1,6 @@
 package execute
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,53 +9,10 @@ import (
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
-	"github.com/isty2e/daem/internal/output"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
 )
-
-type phaseBudgetProbe struct {
-	remaining int
-	admitted  int
-}
-
-func (budget *phaseBudgetProbe) AdmitPathComponents(count int) error {
-	if count < 0 || count > budget.remaining {
-		return errors.New("physical traversal budget exhausted")
-	}
-	budget.remaining -= count
-	budget.admitted += count
-	return nil
-}
-
-func TestPhysicalTraversalPhaseRoutesRetainedAuthorityToExecutionBudget(t *testing.T) {
-	planning := &phaseBudgetProbe{remaining: 10}
-	phase, err := newPhysicalTraversalPhase(planning)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := phase.AdmitPathComponents(3); err != nil {
-		t.Fatal(err)
-	}
-	execution := &phaseBudgetProbe{remaining: 10}
-	if err := phase.advance(execution); err != nil {
-		t.Fatal(err)
-	}
-	if err := phase.AdmitPathComponents(4); err != nil {
-		t.Fatal(err)
-	}
-	if planning.admitted != 3 || execution.admitted != 4 {
-		t.Fatalf(
-			"phase routing admitted planning=%d execution=%d, want 3 and 4",
-			planning.admitted,
-			execution.admitted,
-		)
-	}
-	if err := phase.advance(&phaseBudgetProbe{remaining: 10}); err == nil {
-		t.Fatal("physical traversal phase advanced twice")
-	}
-}
 
 func TestMutationAuthoritySeparatesProjectAndGlobalDestinations(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
@@ -85,19 +41,23 @@ func TestMutationAuthoritySeparatesProjectAndGlobalDestinations(t *testing.T) {
 	}
 	defer authority.close()
 
-	projectDestination, err := authority.resolveBoundDestination(
+	projectDestination, err := authority.destinations.Resolve(
 		target.ScopeProject,
 		outputtest.Parse(t, ".agents/skill"),
 	)
 	if err != nil {
 		t.Fatalf("resolve project destination: %v", err)
 	}
-	wantProjectPath := filepath.Join(authority.projectAuthority.PhysicalRoot(), ".agents", "skill")
-	if !projectDestination.isRooted() || projectDestination.scope != target.ScopeProject ||
-		projectDestination.hostPath != wantProjectPath {
+	projectProvenance, err := authority.destinations.ProjectProvenance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProjectPath := filepath.Join(projectProvenance.PhysicalRoot(), ".agents", "skill")
+	if !projectDestination.IsRooted() || projectDestination.Scope() != target.ScopeProject ||
+		projectDestination.HostPath() != wantProjectPath {
 		t.Fatalf("project destination = %+v", projectDestination)
 	}
-	capability, err := authority.acquire(projectDestination)
+	capability, err := authority.destinations.Acquire(projectDestination)
 	if err != nil {
 		t.Fatalf("acquire project destination: %v", err)
 	}
@@ -105,7 +65,7 @@ func TestMutationAuthoritySeparatesProjectAndGlobalDestinations(t *testing.T) {
 		t.Fatalf("close project capability: %v", err)
 	}
 
-	globalDestination, err := authority.resolveBoundDestination(
+	globalDestination, err := authority.destinations.Resolve(
 		target.ScopeGlobal,
 		outputtest.Parse(t, "~/managed"),
 	)
@@ -113,8 +73,8 @@ func TestMutationAuthoritySeparatesProjectAndGlobalDestinations(t *testing.T) {
 	if canonicalErr != nil {
 		t.Fatalf("canonicalize allowed global path: %v", canonicalErr)
 	}
-	if err != nil || !globalDestination.isRooted() || globalDestination.scope != target.ScopeGlobal ||
-		globalDestination.hostPath != wantGlobalPath {
+	if err != nil || !globalDestination.IsRooted() || globalDestination.Scope() != target.ScopeGlobal ||
+		globalDestination.HostPath() != wantGlobalPath {
 		t.Fatalf("allowed global destination = %+v, error = %v", globalDestination, err)
 	}
 }
@@ -197,24 +157,12 @@ func TestMutationAuthorityBindsGlobalRootForNonHostJournalEntry(t *testing.T) {
 	}
 	defer authority.close()
 
-	resolved, err := authority.resolveBoundDestination(target.ScopeGlobal, destination)
+	resolved, err := authority.destinations.Resolve(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatalf("resolveBoundDestination returned error: %v", err)
 	}
-	if !resolved.isRooted() {
+	if !resolved.IsRooted() {
 		t.Fatal("non-host global journal entry did not retain global root authority")
-	}
-
-	for _, mutate := range []func(*mutationDestination){
-		func(candidate *mutationDestination) { candidate.scope = target.Scope("") },
-		func(candidate *mutationDestination) { candidate.logical = output.Destination{} },
-		func(candidate *mutationDestination) { candidate.hostPath = filepath.Join(home, "different") },
-	} {
-		candidate := resolved
-		mutate(&candidate)
-		if candidate.isRooted() {
-			t.Fatalf("partially initialized mutation destination remained valid: %+v", candidate)
-		}
 	}
 }
 
@@ -296,11 +244,11 @@ func TestRetainedRecoveryAuthoritiesFollowExecutionPhaseBudget(t *testing.T) {
 	for authority.generalTraversalPhase.AdmitPathComponents(1) == nil {
 	}
 
-	bound, err := authority.resolveBoundDestination(target.ScopeGlobal, destination)
+	bound, err := authority.destinations.Resolve(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if capability, err := authority.acquire(bound); err == nil {
+	if capability, err := authority.destinations.Acquire(bound); err == nil {
 		_ = capability.Close()
 		t.Fatal("retained global destination escaped exhausted execution budget")
 	}

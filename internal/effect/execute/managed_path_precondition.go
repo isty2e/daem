@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization"
@@ -15,7 +17,7 @@ import (
 )
 
 type managedPathPrecondition struct {
-	destination mutationDestination
+	destination mutationnamespace.Destination
 	existed     bool
 	hash        artifact.ContentHash
 	identity    mutationfs.EntryIdentity
@@ -46,13 +48,13 @@ func managedTreeTraversalLimits() mutationfs.TreeTraversalLimits {
 func captureManagedPathPrecondition(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	expectedExists bool,
 	expectedHash artifact.ContentHash,
 	contentKind realization.PathProjectionContentKind,
 	expectedFileMode *os.FileMode,
 ) (managedPathPrecondition, error) {
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return managedPathPrecondition{}, fmt.Errorf("managed path mutation destination is invalid")
 	}
 	return captureRootedManagedPathPrecondition(
@@ -69,7 +71,7 @@ func captureManagedPathPrecondition(
 func captureRootedManagedPathPrecondition(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	expectedExists bool,
 	expectedHash artifact.ContentHash,
 	contentKind realization.PathProjectionContentKind,
@@ -79,17 +81,17 @@ func captureRootedManagedPathPrecondition(
 		if err := expectedHash.Validate(); err != nil {
 			return managedPathPrecondition{}, fmt.Errorf(
 				"managed destination %q expected hash: %w",
-				destination.logical,
+				destination.Logical(),
 				err,
 			)
 		}
 	} else if expectedHash != "" {
 		return managedPathPrecondition{}, fmt.Errorf(
 			"absent managed destination %q must not carry an expected hash",
-			destination.logical,
+			destination.Logical(),
 		)
 	}
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return managedPathPrecondition{}, err
 	}
@@ -98,7 +100,7 @@ func captureRootedManagedPathPrecondition(
 	}
 	if !expectedExists {
 		if _, err := authority.filesystem.CaptureRootedEntryIdentity(ctx, capability); err == nil {
-			return fail(fmt.Errorf("managed destination %q appeared after planning", destination.logical))
+			return fail(fmt.Errorf("managed destination %q appeared after planning", destination.Logical()))
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fail(err)
 		}
@@ -121,7 +123,7 @@ func captureRootedManagedPathPrecondition(
 		if hash != expectedHash {
 			return fail(fmt.Errorf(
 				"managed destination %q hash %q does not match expected %q",
-				destination.logical,
+				destination.Logical(),
 				hash,
 				expectedHash,
 			))
@@ -129,7 +131,7 @@ func captureRootedManagedPathPrecondition(
 		if !managedPathFileModeMatches(mode, expectedFileMode) {
 			return fail(fmt.Errorf(
 				"managed destination %q mode %04o does not match expected %04o",
-				destination.logical,
+				destination.Logical(),
 				mode.Perm(),
 				expectedFileMode.Perm(),
 			))
@@ -140,7 +142,7 @@ func captureRootedManagedPathPrecondition(
 		}, nil
 	}
 	if contentKind != realization.PathProjectionDirectory {
-		return fail(fmt.Errorf("managed destination %q content kind %q is unsupported", destination.logical, contentKind))
+		return fail(fmt.Errorf("managed destination %q content kind %q is unsupported", destination.Logical(), contentKind))
 	}
 	sink := newManagedPathHashSink(ctx)
 	identity, err := authority.filesystem.SnapshotRootedDirectory(
@@ -159,7 +161,7 @@ func captureRootedManagedPathPrecondition(
 	if hash != expectedHash {
 		return fail(fmt.Errorf(
 			"managed destination %q hash %q does not match expected %q",
-			destination.logical,
+			destination.Logical(),
 			hash,
 			expectedHash,
 		))
@@ -175,7 +177,7 @@ func managedPathFileModeMatches(actual os.FileMode, expected *os.FileMode) bool 
 }
 
 func (precondition *managedPathPrecondition) takeRootedCapability() (rootedpath.CommitCapability, error) {
-	if precondition == nil || !precondition.destination.isRooted() || precondition.capability == nil || precondition.consumed {
+	if precondition == nil || !precondition.destination.IsRooted() || precondition.capability == nil || precondition.consumed {
 		return nil, fmt.Errorf("managed rooted precondition capability is unavailable")
 	}
 	precondition.consumed = true

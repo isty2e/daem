@@ -1,9 +1,7 @@
-package execute
+package physicalwork
 
 import (
 	"testing"
-
-	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
 
 type pathOnlyPhaseBudget struct {
@@ -16,11 +14,11 @@ func (budget *pathOnlyPhaseBudget) AdmitPathComponents(count int) error {
 }
 
 func TestPhysicalTraversalPhaseForwardsPhysicalWorkToCapableBudget(t *testing.T) {
-	underlying, err := physicalwork.NewBudget(0)
+	underlying, err := NewBudget(0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	phase, err := newPhysicalTraversalPhase(underlying)
+	phase, err := NewTraversalPhase(underlying)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +29,7 @@ func TestPhysicalTraversalPhaseForwardsPhysicalWorkToCapableBudget(t *testing.T)
 
 func TestPhysicalTraversalPhasePathOnlyBudgetAdmitsOnlyPathWork(t *testing.T) {
 	underlying := &pathOnlyPhaseBudget{}
-	phase, err := newPhysicalTraversalPhase(underlying)
+	phase, err := NewTraversalPhase(underlying)
 	if err != nil {
 		t.Fatal(err)
 	}

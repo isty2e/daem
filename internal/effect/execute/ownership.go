@@ -386,12 +386,12 @@ func promoteVisibleAcquire(
 			if stateCodec == nil {
 				return fmt.Errorf("state codec is unavailable")
 			}
-			destination, resolveErr := authority.resolveBoundDestination(target.ScopeGlobal, intent.Destination())
+			destination, resolveErr := authority.destinations.Resolve(target.ScopeGlobal, intent.Destination())
 			if resolveErr != nil {
 				return resolveErr
 			}
 			observed, observeErr := mutation.ObserveDirectoryEntryAuthorityBounded(
-				destination.hostPath,
+				destination.HostPath(),
 				physicalwork.MaximumPhysicalPathDepth,
 				authority.generalTraversalPhase,
 			)
@@ -758,7 +758,7 @@ func (authority *mutationAuthority) bindOwnershipRegistry(path string) error {
 	if err != nil {
 		return fmt.Errorf("capture ownership registry authority: %w", err)
 	}
-	root, err = authority.retainRoot(root, destination)
+	root, err = authority.destinations.RetainRoot(root, destination)
 	if err != nil {
 		return err
 	}
@@ -796,10 +796,9 @@ func (authority *mutationAuthority) beginGeneralRecoveryExecution() error {
 	if err != nil {
 		return err
 	}
-	if err := authority.generalTraversalPhase.advance(controlBudget); err != nil {
+	if err := authority.generalTraversalPhase.Advance(controlBudget, hostBudget); err != nil {
 		return err
 	}
-	authority.hostExecutionTraversal = hostBudget
 	authority.generalExecutionWorkBudget = hostBudget
 	return nil
 }

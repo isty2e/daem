@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 )
@@ -27,12 +29,12 @@ func bindNativeRemovalIntents(ctx context.Context, authority *mutationAuthority,
 	if err != nil {
 		return recovery.RemovalDemandSet{}, err
 	}
-	destinations := make(map[removalRelationKey]mutationDestination, len(intents))
+	destinations := make(map[removalRelationKey]mutationnamespace.Destination, len(intents))
 	for _, intent := range intents {
-		if err := authority.bindScopedDestination(intent.Scope(), intent.Destination()); err != nil {
+		if err := authority.destinations.Bind(intent.Scope(), intent.Destination()); err != nil {
 			return recovery.RemovalDemandSet{}, err
 		}
-		destination, err := authority.resolveBoundDestination(intent.Scope(), intent.Destination())
+		destination, err := authority.destinations.Resolve(intent.Scope(), intent.Destination())
 		if err != nil {
 			return recovery.RemovalDemandSet{}, err
 		}
@@ -51,7 +53,7 @@ func bindNativeRemovalIntents(ctx context.Context, authority *mutationAuthority,
 		if err != nil {
 			return recovery.RemovalDemandSet{}, err
 		}
-		destination, err := nativeRecoveryDestination(ctx, document, budget)
+		destination, err := nativeRecoveryDestination(ctx, authority.destinations, document, budget)
 		if err != nil {
 			return recovery.RemovalDemandSet{}, err
 		}

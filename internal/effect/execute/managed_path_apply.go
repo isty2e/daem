@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/payload"
@@ -98,7 +100,7 @@ func applyManagedPathPhaseWithEvents(
 				prefix+"/record",
 				applyForwardFailureGuardedRecovery,
 				func() error {
-					destination, resolveErr := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
+					destination, resolveErr := authority.destinations.Resolve(effect.Scope(), effect.Destination())
 					if resolveErr != nil {
 						return resolveErr
 					}
@@ -163,7 +165,7 @@ func applyManagedPathSingleMutation(
 	progress hostActionProgress,
 	mutationIndex int,
 ) error {
-	destination, err := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
+	destination, err := authority.destinations.Resolve(effect.Scope(), effect.Destination())
 	if err != nil {
 		return err
 	}
@@ -228,7 +230,7 @@ func applyManagedPathRelocationPublish(
 	progress hostActionProgress,
 	mutationIndex int,
 ) error {
-	newDestination, err := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
+	newDestination, err := authority.destinations.Resolve(effect.Scope(), effect.Destination())
 	if err != nil {
 		return err
 	}
@@ -270,7 +272,7 @@ func applyManagedPathRelocationRetire(
 	progress hostActionProgress,
 	mutationIndex int,
 ) error {
-	oldDestination, err := authority.resolveBoundDestination(previous.Scope(), previous.Destination())
+	oldDestination, err := authority.destinations.Resolve(previous.Scope(), previous.Destination())
 	if err != nil {
 		return err
 	}
@@ -300,7 +302,7 @@ func commitManagedPathDestination(
 	authority *mutationAuthority,
 	effect effectpreparation.ManagedPathEffect,
 	prepared payload.Payload,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	precondition *managedPathPrecondition,
 ) error {
 	switch effect.ContentKind() {
@@ -337,7 +339,7 @@ func commitManagedPathDestination(
 func verifyManagedPathPostcondition(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	expectedExists bool,
 	expectedHash artifact.ContentHash,
 	contentKind realization.PathProjectionContentKind,

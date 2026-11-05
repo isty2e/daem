@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	"github.com/isty2e/daem/internal/assurance/observe"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
@@ -101,9 +103,9 @@ func mustResolveEffectDestination(
 	t *testing.T,
 	authority *mutationAuthority,
 	effect effectpreparation.AggregateEffect,
-) mutationDestination {
+) mutationnamespace.Destination {
 	t.Helper()
-	destination, err := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
+	destination, err := authority.destinations.Resolve(effect.Scope(), effect.Destination())
 	if err != nil {
 		t.Fatal(err)
 	}

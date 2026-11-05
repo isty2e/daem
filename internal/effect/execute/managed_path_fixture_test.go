@@ -3,6 +3,8 @@ package execute
 import (
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -73,7 +75,7 @@ func recordedPathAuthorityEffectForTest(t *testing.T, scope target.Scope, destin
 	})
 }
 
-func captureScopedDestinationsForTest(paths Paths, selected []scopedDestinationForTest, demands recovery.RemovalDemandSet, borrowed *rootedpath.CapturedRoot, resolver DestinationResolver, filesystem mutationfs.Store) (*mutationAuthority, error) {
+func captureScopedDestinationsForTest(paths Paths, selected []scopedDestinationForTest, demands recovery.RemovalDemandSet, borrowed *rootedpath.CapturedRoot, resolver mutationnamespace.Resolver, filesystem mutationfs.Store) (*mutationAuthority, error) {
 	if err := demands.Validate(); err != nil {
 		return nil, err
 	}

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -20,7 +22,7 @@ import (
 func restoreDocumentDestination(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	comparison journaldocument.Comparison,
 	staged aggregate.Document,
 	stagedMode *recovery.PermissionMode,
@@ -41,7 +43,7 @@ func restoreDocumentDestination(
 func publishDocumentRestoration(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	maximumBytes int64,
 	staged aggregate.Document,
 	stagedMode *recovery.PermissionMode,
@@ -67,7 +69,7 @@ func publishDocumentRestoration(
 		return fileMutationOutcome{err: fmt.Errorf("document restoration filesystem authority is required")}
 	}
 
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return fileMutationOutcome{err: err}
 	}
@@ -127,7 +129,7 @@ func publishDocumentRestoration(
 		return attemptedFileMutation(nil)
 	}
 
-	verification, err := authority.acquire(destination)
+	verification, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return attemptedFileMutation(markHostEffectIndeterminate(err))
 	}

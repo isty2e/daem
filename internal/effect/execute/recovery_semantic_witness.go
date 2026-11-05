@@ -75,7 +75,7 @@ func (authority *mutationAuthority) bindRecoveryStatefileSemanticEntry(path stri
 	if err != nil {
 		return fmt.Errorf("bind recovery statefile semantic authority: %w", err)
 	}
-	root, err = authority.retainRoot(root, destination)
+	root, err = authority.destinations.RetainRoot(root, destination)
 	if err != nil {
 		return err
 	}

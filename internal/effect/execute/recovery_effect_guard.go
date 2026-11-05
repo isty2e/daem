@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -217,7 +219,7 @@ func stageRootedRollbackDestinations(
 		}
 		return rollbackEntriesForStageActions(baseline, actions), nil
 	}
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +243,7 @@ func stageRootedRollbackDestinations(
 		})
 	}
 	if err != nil {
-		return nil, fmt.Errorf("inspect rooted rollback source %q: %w", destination.logical, err)
+		return nil, fmt.Errorf("inspect rooted rollback source %q: %w", destination.Logical(), err)
 	}
 
 	backupPath := filepath.Join(rollbackDir, fmt.Sprintf("%06d", index))
@@ -262,10 +264,10 @@ func stageRootedRollbackDestinations(
 			readLimit,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("read rooted rollback source %q: %w", destination.logical, err)
+			return nil, fmt.Errorf("read rooted rollback source %q: %w", destination.Logical(), err)
 		}
 		if !identity.Equal(captured) {
-			return nil, fmt.Errorf("rooted rollback source %q changed while staging", destination.logical)
+			return nil, fmt.Errorf("rooted rollback source %q changed while staging", destination.Logical())
 		}
 		work, err := workmeasure.NewArtifactWork(0, int64(len(content)))
 		if err != nil {
@@ -280,7 +282,7 @@ func stageRootedRollbackDestinations(
 			}
 		}
 		if err := os.WriteFile(backupPath, content, 0o600); err != nil {
-			return nil, fmt.Errorf("stage rooted rollback file %q: %w", destination.logical, err)
+			return nil, fmt.Errorf("stage rooted rollback file %q: %w", destination.Logical(), err)
 		}
 		baseline.kind = recovery.PathKindFile
 		baseline.stagedWork = work
@@ -298,7 +300,7 @@ func stageRootedRollbackDestinations(
 			baseline.stagedState.contentHash,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("bind rooted rollback file %q: %w", destination.logical, err)
+			return nil, fmt.Errorf("bind rooted rollback file %q: %w", destination.Logical(), err)
 		}
 		return finish(baseline)
 	case mutationfs.EntryKindDirectory:
@@ -314,13 +316,13 @@ func stageRootedRollbackDestinations(
 			sink,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("stage rooted rollback directory %q: %w", destination.logical, err)
+			return nil, fmt.Errorf("stage rooted rollback directory %q: %w", destination.Logical(), err)
 		}
 		if !identity.Equal(captured) {
-			return nil, fmt.Errorf("rooted rollback source %q changed while staging", destination.logical)
+			return nil, fmt.Errorf("rooted rollback source %q changed while staging", destination.Logical())
 		}
 		if err := sink.finalize(); err != nil {
-			return nil, fmt.Errorf("finalize rooted rollback directory %q: %w", destination.logical, err)
+			return nil, fmt.Errorf("finalize rooted rollback directory %q: %w", destination.Logical(), err)
 		}
 		work, err := sink.artifactWork()
 		if err != nil {
@@ -352,13 +354,13 @@ func stageRootedRollbackDestinations(
 			baseline.stagedState.contentHash,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("bind rooted rollback directory %q: %w", destination.logical, err)
+			return nil, fmt.Errorf("bind rooted rollback directory %q: %w", destination.Logical(), err)
 		}
 		return finish(baseline)
 	default:
 		return nil, fmt.Errorf(
 			"rooted rollback source %q has unsupported kind %q",
-			destination.logical,
+			destination.Logical(),
 			identity.Kind(),
 		)
 	}
@@ -380,14 +382,14 @@ func rollbackEntriesForStageActions(
 func observeRecoveryWholePathState(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	maximumFileBytes int64,
 	maximumKinds map[string]workmeasure.ArtifactWork,
 ) (result recoveryWholePathState, identity mutationfs.EntryIdentity, resultErr error) {
 	if maximumFileBytes <= 0 {
 		return recoveryWholePathState{}, nil, fmt.Errorf("recovery observation file byte limit must be positive")
 	}
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return recoveryWholePathState{}, nil, err
 	}
@@ -410,7 +412,7 @@ func observeRecoveryWholePathState(
 	default:
 		return recoveryWholePathState{}, nil, fmt.Errorf(
 			"rollback source %q has unsupported kind %q",
-			destination.logical,
+			destination.Logical(),
 			identity.Kind(),
 		)
 	}
@@ -418,7 +420,7 @@ func observeRecoveryWholePathState(
 	if !admitted {
 		return recoveryWholePathState{}, nil, fmt.Errorf(
 			"rollback source %q changed to unreserved kind %q",
-			destination.logical,
+			destination.Logical(),
 			kind,
 		)
 	}
@@ -442,7 +444,7 @@ func observeRecoveryWholePathState(
 		if !identity.Equal(captured) {
 			return recoveryWholePathState{}, nil, fmt.Errorf(
 				"rollback source %q changed while observing",
-				destination.logical,
+				destination.Logical(),
 			)
 		}
 		return recoveryWholePathState{
@@ -468,7 +470,7 @@ func observeRecoveryWholePathState(
 		if !identity.Equal(captured) {
 			return recoveryWholePathState{}, nil, fmt.Errorf(
 				"rollback source %q changed while observing",
-				destination.logical,
+				destination.Logical(),
 			)
 		}
 		hash, err := sink.sum()
@@ -479,7 +481,7 @@ func observeRecoveryWholePathState(
 			existed: true, kind: recovery.PathKindDirectory, contentHash: string(hash),
 		}, captured, nil
 	}
-	return recoveryWholePathState{}, nil, fmt.Errorf("rollback source %q has no admitted state", destination.logical)
+	return recoveryWholePathState{}, nil, fmt.Errorf("rollback source %q has no admitted state", destination.Logical())
 }
 
 func validateStagedRecoveryDestination(
@@ -488,7 +490,7 @@ func validateStagedRecoveryDestination(
 	entry hostRollbackEntry,
 ) error {
 	if !entry.existed {
-		capability, err := authority.acquire(entry.destination)
+		capability, err := authority.destinations.Acquire(entry.destination)
 		if err != nil {
 			return err
 		}
@@ -501,7 +503,7 @@ func validateStagedRecoveryDestination(
 			return errors.Join(observeErr, closeErr)
 		}
 		return errors.Join(
-			fmt.Errorf("absent recovery destination %q gained entry identity", entry.destination.logical),
+			fmt.Errorf("absent recovery destination %q gained entry identity", entry.destination.Logical()),
 			closeErr,
 		)
 	}
@@ -515,20 +517,20 @@ func validateStagedRecoveryDestination(
 	if err != nil {
 		return fmt.Errorf(
 			"recovery destination %q changed after rollback staging: %w",
-			entry.destination.logical,
+			entry.destination.Logical(),
 			err,
 		)
 	}
 	if !current.equal(entry.stagedState) {
 		return fmt.Errorf(
 			"recovery destination %q changed after rollback staging",
-			entry.destination.logical,
+			entry.destination.Logical(),
 		)
 	}
 	if entry.identity == nil || identity == nil || !entry.identity.Equal(identity) {
 		return fmt.Errorf(
 			"recovery destination %q changed entry identity after rollback staging",
-			entry.destination.logical,
+			entry.destination.Logical(),
 		)
 	}
 	return nil

@@ -181,8 +181,8 @@ func loadApplyActivePlanForState(
 		currentState,
 		journal.PlanLoadOptions{
 			Filesystem:        authority.filesystem,
-			RootedCapability:  authority.rootedJournalCapability,
-			Resolver:          authority.rootedJournalResolver(authority.lexical),
+			RootedCapability:  authority.destinations.JournalCapability,
+			Resolver:          authority.destinations.JournalResolver(authority.lexical),
 			OwnershipRegistry: authority.rootedOwnershipRegistryOption(),
 			Codecs:            codecs,
 			StateCodec:        stateCodec,
@@ -209,8 +209,8 @@ func loadApplyActivePlanForStateEntries(
 		selected,
 		journal.PlanLoadOptions{
 			Filesystem:        authority.filesystem,
-			RootedCapability:  authority.rootedJournalCapability,
-			Resolver:          authority.rootedJournalResolver(authority.lexical),
+			RootedCapability:  authority.destinations.JournalCapability,
+			Resolver:          authority.destinations.JournalResolver(authority.lexical),
 			OwnershipRegistry: authority.rootedOwnershipRegistryOption(),
 			Codecs:            codecs,
 			StateCodec:        stateCodec,

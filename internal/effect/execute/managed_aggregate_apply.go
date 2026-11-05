@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/topology"
 
@@ -42,9 +44,9 @@ func applyAggregateEffectsWithEvents(
 		}
 
 		prefix := applyAggregateScheduleReference(effectIndex)
-		var destination mutationDestination
+		var destination mutationnamespace.Destination
 		observePreconditions := func() error {
-			resolved, err := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
+			resolved, err := authority.destinations.Resolve(effect.Scope(), effect.Destination())
 			if err != nil {
 				return err
 			}
@@ -127,7 +129,7 @@ func verifyAggregateOperationPreconditions(
 ) error {
 	for _, precondition := range preconditions {
 		document := precondition.DocumentAddress()
-		destination, err := authority.resolveBoundDestination(
+		destination, err := authority.destinations.Resolve(
 			document.Scope(),
 			document.AggregateRoot(),
 		)
@@ -153,14 +155,14 @@ func verifyAggregateOperationPreconditions(
 func commitAggregateEffect(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	effect effectpreparation.AggregateEffect,
 	codecs aggregate.CodecCatalog,
 ) fileMutationOutcome {
-	if !destination.isRooted() {
+	if !destination.IsRooted() {
 		return fileMutationOutcome{err: fmt.Errorf("aggregate mutation destination is invalid")}
 	}
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		return fileMutationOutcome{err: err}
 	}
@@ -209,7 +211,7 @@ func commitAggregateEffect(
 func commitRootedAggregateCandidate(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	capability rootedpath.CommitCapability,
 	identity mutationfs.EntryIdentity,
 	exists bool,
@@ -290,7 +292,7 @@ func validateAggregateBefore(
 func verifyAggregateBefore(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	effect effectpreparation.AggregateEffect,
 	codecs aggregate.CodecCatalog,
 ) error {
@@ -313,7 +315,7 @@ func verifyAggregateBefore(
 func verifyAggregatePostcondition(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	effect effectpreparation.AggregateEffect,
 	expectedDocument aggregate.Document,
 	codecs aggregate.CodecCatalog,
@@ -354,7 +356,7 @@ func verifyAggregatePostcondition(
 func readAggregateDocumentDestination(
 	ctx context.Context,
 	authority *mutationAuthority,
-	destination mutationDestination,
+	destination mutationnamespace.Destination,
 	maximumBytes int64,
 ) (aggregate.Document, os.FileMode, error) {
 	content, mode, err := readRegularFileDestination(ctx, authority, destination, maximumBytes)
