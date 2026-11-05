@@ -18,7 +18,7 @@ func (retiring *NativeJournalRetirement) BindRecoveryOperation(operation *Native
 	if prepared.closed || prepared.consumed {
 		return fmt.Errorf("native retirement continuation is no longer available")
 	}
-	if retiring.capture != operation.plan.capture || !retiring.active.equal(operation.plan.active) || retiring.budget != operation.profile.Budget {
+	if retiring.capture != operation.plan.capture || !retiring.active.Equal(operation.plan.active) || retiring.budget != operation.profile.Budget {
 		return fmt.Errorf("native retirement reader belongs to another operation")
 	}
 	prepared.stateCodec = operation.profile.StateCodec

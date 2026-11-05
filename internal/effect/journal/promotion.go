@@ -7,10 +7,15 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -31,7 +36,7 @@ func (promotion ProvisionalAcquirePromotion) RecordFingerprint() string {
 // replacement attempt. The boolean is false when storage could not prove
 // directory-object continuity.
 func (promotion ProvisionalAcquirePromotion) ActiveJournalAuthority() (ActiveJournalAuthority, bool) {
-	return promotion.activeAuthority, promotion.activeAuthority.valid()
+	return promotion.activeAuthority, promotion.activeAuthority.Validate() == nil
 }
 
 // PromoteProvisionalAcquire atomically replaces one provisional ownership
@@ -117,11 +122,11 @@ func PromoteProvisionalAcquire(
 		content,
 		journalrecord.Mode,
 		snapshot.Identity(),
-		activeAuthority.identity,
+		activeAuthority.Identity(),
 	)
 	result := ProvisionalAcquirePromotion{}
 	if refreshedParent != nil {
-		refreshedAuthority, refreshErr := newActiveJournalAuthority(refreshedParent)
+		refreshedAuthority, refreshErr := journalinventory.NewActiveAuthority(refreshedParent)
 		if refreshErr != nil {
 			replaceErr = errors.Join(replaceErr, refreshErr)
 		} else {
@@ -135,10 +140,10 @@ func PromoteProvisionalAcquire(
 			replaceErr,
 		)
 	}
-	if !result.activeAuthority.valid() {
+	if result.activeAuthority.Validate() != nil {
 		return result, fmt.Errorf("promote recovery journal ownership intent: refreshed directory authority is unavailable")
 	}
-	if err := ValidateActiveJournalAuthority(
+	if err := journalinventory.ValidateActiveJournalAuthority(
 		ctx,
 		filesystem,
 		directoryAuthority,
@@ -168,7 +173,7 @@ func PromoteProvisionalAcquire(
 	if closeErr != nil {
 		return result, closeErr
 	}
-	if err := ValidateActiveJournalAuthority(
+	if err := journalinventory.ValidateActiveJournalAuthority(
 		ctx,
 		filesystem,
 		directoryAuthority,

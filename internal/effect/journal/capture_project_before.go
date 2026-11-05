@@ -10,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
@@ -259,7 +261,7 @@ func captureRootedExistingWithCapability(
 		if _, err := filesystem.SnapshotRootedDirectory(
 			ctx,
 			capability,
-			recoveryTreeTraversalLimits(),
+			journalinventory.RecoveryTreeTraversalLimits(),
 			sink,
 		); err != nil {
 			return recovery.BeforePathState{}, backupIndex, err

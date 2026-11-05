@@ -12,11 +12,16 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
+
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -66,7 +71,7 @@ func TestPromoteProvisionalAcquireReplacesExactlyOneIntent(t *testing.T) {
 	if !available {
 		t.Fatal("PromoteProvisionalAcquire did not return refreshed active authority")
 	}
-	if err := ValidateActiveJournalAuthority(
+	if err := journalinventory.ValidateActiveJournalAuthority(
 		t.Context(),
 		fixture.filesystem,
 		fixture.directoryAuthority,
@@ -74,7 +79,7 @@ func TestPromoteProvisionalAcquireReplacesExactlyOneIntent(t *testing.T) {
 	); err != nil {
 		t.Fatalf("refreshed active authority: %v", err)
 	}
-	if err := ValidateActiveJournalAuthority(
+	if err := journalinventory.ValidateActiveJournalAuthority(
 		t.Context(),
 		fixture.filesystem,
 		fixture.directoryAuthority,
@@ -263,7 +268,7 @@ func newPromotionFixture(t *testing.T, filesystem mutationfs.Store) promotionFix
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = directoryAuthority.Close() })
-	activeAuthority, err := CaptureActiveJournalAuthority(
+	activeAuthority, err := journalinventory.CaptureActiveJournalAuthority(
 		t.Context(),
 		filesystem,
 		directoryAuthority,

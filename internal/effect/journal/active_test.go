@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/output"
@@ -41,7 +43,7 @@ func TestLoadActivePlanRetainsCorruptJournalEvidence(t *testing.T) {
 	if _, statErr := os.Stat(operationDir); statErr != nil {
 		t.Fatalf("corrupt recovery evidence was not retained: %v", statErr)
 	}
-	if err := ensureNoActive(t.Context(), recoveryRoot, inventoryOptions{
+	if err := ensureNoActive(t.Context(), recoveryRoot, journalinventory.Options{
 		Filesystem: journalTestFilesystem(),
 		StateCodec: testStateCodec(),
 	}); err == nil {
@@ -75,16 +77,16 @@ func TestRecoveryInventoryIgnoresUnrelatedHiddenEntries(t *testing.T) {
 		t.Fatalf("CaptureJournalWithOptions: %v", err)
 	}
 
-	inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+	inventory, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, journalinventory.Options{
 		Filesystem: journalTestFilesystem(),
 		StateCodec: testStateCodec(),
 	})
 	if err != nil {
 		t.Fatalf("loadRecoveryRootInventory returned error: %v", err)
 	}
-	if inventory.decision.State() != retirement.StateActive ||
-		inventory.active == nil ||
-		inventory.active.identity.OperationID() != operationID {
+	if inventory.Decision().State() != retirement.StateActive ||
+		inventory.Active() == nil ||
+		inventory.Active().Identity().OperationID() != operationID {
 		t.Fatalf("inventory = %#v, want active %q", inventory, operationID)
 	}
 }
@@ -113,15 +115,15 @@ func TestRecoveryInventoryFailsClosedOnMalformedRetirementControl(t *testing.T) 
 		t.Fatalf("Mkdir retirement control returned error: %v", err)
 	}
 
-	inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+	inventory, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, journalinventory.Options{
 		Filesystem: journalTestFilesystem(),
 		StateCodec: testStateCodec(),
 	})
 	if err != nil {
 		t.Fatalf("loadRecoveryRootInventory returned error: %v", err)
 	}
-	if inventory.decision.State() != retirement.StateBlocked ||
-		!strings.Contains(inventory.decision.Detail(), controlName) {
+	if inventory.Decision().State() != retirement.StateBlocked ||
+		!strings.Contains(inventory.Decision().Detail(), controlName) {
 		t.Fatalf("inventory = %#v, want fail-closed control diagnostic", inventory)
 	}
 }

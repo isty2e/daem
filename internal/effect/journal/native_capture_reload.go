@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"path/filepath"
 
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -19,18 +22,18 @@ import (
 )
 
 func reloadNativePublication(ctx context.Context, directory, operationID, fingerprint string, batch nativePublicationContext, after durable.Snapshot, options CaptureOptions) (result CapturedNativeJournal, resultErr error) {
-	inventory, err := loadRecoveryRootInventory(ctx, filepath.Dir(directory), inventoryOptions{
-		Filesystem: options.Filesystem, StateCodec: options.StateCodec, PhysicalPathBudget: batch.budget, recordDecoder: decodeNativeCaptureInventoryJournal,
+	inventory, err := journalinventory.LoadRoot(ctx, filepath.Dir(directory), journalinventory.Options{
+		Filesystem: options.Filesystem, StateCodec: options.StateCodec, PhysicalPathBudget: batch.budget, Decoder: decodeNativeCaptureInventoryJournal,
 	})
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if inventory.decision.State() != retirement.StateActive || inventory.active == nil {
+	if inventory.Decision().State() != retirement.StateActive || inventory.Active() == nil {
 		return CapturedNativeJournal{}, fmt.Errorf("published native journal is not the sole active operation")
 	}
-	active := inventory.active
-	journal, admitted := active.record.Native()
-	if !admitted || active.record.OperationID() != operationID || active.operationDir != directory || active.identity.JournalAuthorityFingerprint() != fingerprint {
+	active := inventory.Active()
+	journal, admitted := active.Record().Native()
+	if !admitted || active.Record().OperationID() != operationID || active.OperationDir() != directory || active.Identity().JournalAuthorityFingerprint() != fingerprint {
 		return CapturedNativeJournal{}, fmt.Errorf("published native operation or fingerprint differs from its staged record")
 	}
 	if !journal.MatchesContext(batch.owner, batch.before, after) {
@@ -46,7 +49,7 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 			result = CapturedNativeJournal{}
 		}
 	}()
-	if err := ValidateActiveJournalRoot(ctx, options.Filesystem, root, batch.budget, active.physicalAuthority); err != nil {
+	if err := journalinventory.ValidateActiveJournalRoot(ctx, options.Filesystem, root, batch.budget, active.PhysicalAuthority()); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	snapshot, err := readNativeCaptureRecord(ctx, root, options.Filesystem, batch.budget)
@@ -66,22 +69,22 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if err := ValidateActiveJournalRoot(ctx, options.Filesystem, root, batch.budget, active.physicalAuthority); err != nil {
+	if err := journalinventory.ValidateActiveJournalRoot(ctx, options.Filesystem, root, batch.budget, active.PhysicalAuthority()); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if err := ValidateActiveJournalAuthority(ctx, options.Filesystem, options.OperationAuthority, active.physicalAuthority); err != nil {
+	if err := journalinventory.ValidateActiveJournalAuthority(ctx, options.Filesystem, options.OperationAuthority, active.PhysicalAuthority()); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if _, _, err := ordinaryBackups(ctx, journal, directory, active.physicalAuthority, options.Filesystem, batch.budget); err != nil {
+	if _, _, err := ordinaryBackups(ctx, journal, directory, active.PhysicalAuthority(), options.Filesystem, batch.budget); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	capture := CaptureResult{OperationID: operationID, Directory: directory, JournalPath: filepath.Join(directory, journalrecord.FileName), RecordFingerprint: fingerprint}
-	if err := validateNativeActive(ctx, capture, active.physicalAuthority, options.Filesystem, options.OperationAuthority, batch.budget); err != nil {
+	if err := validateNativeActive(ctx, capture, active.PhysicalAuthority(), options.Filesystem, options.OperationAuthority, batch.budget); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	return CapturedNativeJournal{
 		capture: capture,
-		journal: journal, qualified: qualified, active: active.physicalAuthority, budget: batch.budget, publication: batch, initialized: true,
+		journal: journal, qualified: qualified, active: active.PhysicalAuthority(), budget: batch.budget, publication: batch, initialized: true,
 	}, nil
 }
 

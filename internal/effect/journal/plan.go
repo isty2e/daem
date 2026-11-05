@@ -5,15 +5,17 @@ import (
 	"errors"
 	"fmt"
 
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -97,7 +99,7 @@ func (plan activeRecoverablePlan) SameExecutionAuthority(other RecoverablePlan) 
 	typed, ok := other.(activeRecoverablePlan)
 	return ok &&
 		plan.plan.SameExecutionAuthority(typed.plan) &&
-		plan.physicalAuthority.equal(typed.physicalAuthority) &&
+		plan.physicalAuthority.Equal(typed.physicalAuthority) &&
 		plan.inventory.equal(typed.inventory)
 }
 
@@ -138,27 +140,27 @@ type recoverableInventoryAuthority struct {
 }
 
 func newRecoverableInventoryAuthority(
-	inventory recoveryRootInventory,
+	inventory journalinventory.RootInventory,
 	requireControl bool,
 ) (recoverableInventoryAuthority, error) {
-	if inventory.root.RootIdentity() == nil {
+	if inventory.RootSnapshot().RootIdentity() == nil {
 		return recoverableInventoryAuthority{}, fmt.Errorf(
 			"recovery-root inventory authority is uninitialized",
 		)
 	}
-	if requireControl && inventory.control == nil {
+	if requireControl && inventory.ControlSnapshot() == nil {
 		return recoverableInventoryAuthority{}, fmt.Errorf(
 			"recovery control inventory authority is unavailable",
 		)
 	}
-	if inventory.control != nil && inventory.control.RootIdentity() == nil {
+	if inventory.ControlSnapshot() != nil && inventory.ControlSnapshot().RootIdentity() == nil {
 		return recoverableInventoryAuthority{}, fmt.Errorf(
 			"recovery control inventory authority is uninitialized",
 		)
 	}
 	return recoverableInventoryAuthority{
-		root:    inventory.root,
-		control: cloneDirectorySnapshot(inventory.control),
+		root:    inventory.RootSnapshot(),
+		control: cloneDirectorySnapshot(inventory.ControlSnapshot()),
 	}, nil
 }
 
@@ -202,10 +204,10 @@ func ActiveRecoveryJournalAuthority(
 	recoverable RecoverablePlan,
 ) (ActiveJournalAuthority, bool) {
 	if native, ok := NativeActiveRecoveryPlan(recoverable); ok {
-		return native.active, native.active.valid()
+		return native.active, native.active.Validate() == nil
 	}
 	active, ok := recoverable.(activeRecoverablePlan)
-	if !ok || !active.physicalAuthority.valid() {
+	if !ok || active.physicalAuthority.Validate() != nil {
 		return ActiveJournalAuthority{}, false
 	}
 	return active.physicalAuthority, true
@@ -235,7 +237,7 @@ func LoadRecoverablePlanWithOptions(
 		return nil, err
 	}
 	options.PhysicalPathBudget = planningBudget
-	inventory, err := loadRecoveryRootInventory(
+	inventory, err := journalinventory.LoadRoot(
 		ctx,
 		paths.RecoveryDir,
 		inventoryOptionsFromPlan(options),
@@ -243,13 +245,13 @@ func LoadRecoverablePlanWithOptions(
 	if err != nil {
 		return nil, err
 	}
-	switch inventory.decision.State() {
+	switch inventory.Decision().State() {
 	case retirement.StateActive, retirement.StatePrepared:
 		if err := validateActivePlanLoadOptions(options); err != nil {
 			return nil, err
 		}
-		if inventory.active != nil {
-			if _, native := inventory.active.record.Native(); native {
+		if inventory.Active() != nil {
+			if _, native := inventory.Active().Record().Native(); native {
 				if options.ValidateBeforeActiveObservation != nil {
 					if err := options.ValidateBeforeActiveObservation(ctx); err != nil {
 						return nil, err
@@ -279,19 +281,19 @@ func LoadRecoverablePlanWithOptions(
 		}
 		authority, err := newRecoverableInventoryAuthority(
 			inventory,
-			inventory.decision.State() == retirement.StatePrepared,
+			inventory.Decision().State() == retirement.StatePrepared,
 		)
 		if err != nil {
 			return nil, err
 		}
 		return activeRecoverablePlan{
 			plan:              plan.Clone(),
-			physicalAuthority: inventory.active.physicalAuthority,
+			physicalAuthority: inventory.Active().PhysicalAuthority(),
 			inventory:         authority,
 		}, nil
 	case retirement.StateRetained,
 		retirement.StateFinalizing:
-		plan, ok := inventory.decision.CleanupPlan()
+		plan, ok := inventory.Decision().CleanupPlan()
 		if !ok {
 			return nil, fmt.Errorf(
 				"journal cleanup classification has no cleanup plan",
@@ -308,7 +310,7 @@ func LoadRecoverablePlanWithOptions(
 	case retirement.StateBlocked:
 		return nil, fmt.Errorf(
 			"recovery inventory is blocked: %s",
-			inventory.decision.Detail(),
+			inventory.Decision().Detail(),
 		)
 	default:
 		return nil, ErrNoRecoverableJournal
@@ -359,7 +361,7 @@ func loadActivePlan(
 		return recovery.Plan{}, err
 	}
 	options.PhysicalPathBudget = planningBudget
-	inventory, err := loadRecoveryRootInventory(
+	inventory, err := journalinventory.LoadRoot(
 		ctx,
 		paths.RecoveryDir,
 		inventoryOptionsFromPlan(options),
@@ -383,22 +385,22 @@ func loadActivePlanFromInventory(
 	suppliedState *durable.Snapshot,
 	selected *[]journalrecord.EntrySelection,
 	options PlanLoadOptions,
-	inventory recoveryRootInventory,
+	inventory journalinventory.RootInventory,
 ) (recovery.Plan, error) {
-	switch inventory.decision.State() {
+	switch inventory.Decision().State() {
 	case retirement.StateActive, retirement.StatePrepared:
 	case retirement.StateBlocked:
 		return recovery.Plan{}, fmt.Errorf(
 			"recovery inventory is blocked: %s",
-			inventory.decision.Detail(),
+			inventory.Decision().Detail(),
 		)
 	default:
 		return recovery.Plan{}, fmt.Errorf("no active recovery journal")
 	}
-	if inventory.active == nil {
+	if inventory.Active() == nil {
 		return recovery.Plan{}, fmt.Errorf("active recovery inventory is incomplete")
 	}
-	journal, ok := inventory.active.record.Ordinary()
+	journal, ok := inventory.Active().Record().Ordinary()
 	if !ok {
 		return recovery.Plan{}, fmt.Errorf("legacy recovery planning requires a journal15 inventory record")
 	}
@@ -407,8 +409,8 @@ func loadActivePlanFromInventory(
 			return recovery.Plan{}, err
 		}
 	}
-	operationDir := inventory.active.operationDir
-	basis, err := journal.RecoveryPlanningBasis(operationDir, inventory.active.identity.JournalAuthorityFingerprint(), selected)
+	operationDir := inventory.Active().OperationDir()
+	basis, err := journal.RecoveryPlanningBasis(operationDir, inventory.Active().Identity().JournalAuthorityFingerprint(), selected)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
@@ -524,7 +526,7 @@ func loadActivePlanFromInventory(
 	backupObservations, err := recoveryBackupObservations(
 		ctx,
 		operationDir,
-		inventory.active.physicalAuthority,
+		inventory.Active().PhysicalAuthority(),
 		planningEntries,
 		options.Filesystem,
 		planningBudget,
@@ -579,13 +581,13 @@ func validatePlanLoadFilesystem(options PlanLoadOptions) error {
 	return nil
 }
 
-func inventoryOptionsFromPlan(options PlanLoadOptions) inventoryOptions {
-	result := inventoryOptions{
+func inventoryOptionsFromPlan(options PlanLoadOptions) journalinventory.Options {
+	result := journalinventory.Options{
 		Filesystem: options.Filesystem, StateCodec: options.StateCodec,
 		PhysicalPathBudget: options.PhysicalPathBudget,
 	}
 	if options.NativeDocuments != nil {
-		result.recordDecoder = nativeRecoveryInventoryDecoder(options.StateCodec, options.NativeDocuments.StateCodec)
+		result.Decoder = nativeRecoveryInventoryDecoder(options.StateCodec, options.NativeDocuments.StateCodec)
 	}
 	return result
 }

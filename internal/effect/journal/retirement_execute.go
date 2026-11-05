@@ -37,18 +37,18 @@ func (execution retirementExecution) valid() bool {
 	switch execution.start {
 	case retirementStartActive:
 		return execution.activePath != "" &&
-			execution.activeAuthority.valid() &&
+			execution.activeAuthority.Validate() == nil &&
 			execution.journalFingerprint != "" &&
 			execution.record.Phase() == retirement.PhasePrepared
 	case retirementStartPrepared:
 		return execution.activePath == "" &&
-			!execution.activeAuthority.valid() &&
+			execution.activeAuthority.Validate() != nil &&
 			execution.journalFingerprint == "" &&
 			execution.record.Phase() == retirement.PhasePrepared
 	case retirementStartFinalizingWithResidue,
 		retirementStartFinalizingWithoutResidue:
 		return execution.activePath == "" &&
-			!execution.activeAuthority.valid() &&
+			execution.activeAuthority.Validate() != nil &&
 			execution.journalFingerprint == "" &&
 			execution.record.Phase() == retirement.PhaseFinalizing
 	default:
@@ -122,7 +122,7 @@ func executePreparedRetirement(
 				if err != nil {
 					return err
 				}
-				if !execution.activeAuthority.matches(identity) {
+				if !execution.activeAuthority.Matches(identity) {
 					return errors.Join(
 						fmt.Errorf("active recovery journal identity changed before retirement"),
 						capability.Close(),

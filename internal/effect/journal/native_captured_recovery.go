@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+	"github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -26,18 +27,18 @@ func OpenCapturedNativeRecovery(ctx context.Context, captured CapturedNativeJour
 	if !ok {
 		return nil, fmt.Errorf("captured native recovery requires inventory observation")
 	}
-	inventory, err := loadNativeRecoveryRootInventory(ctx, filepath.Dir(captured.capture.Directory), inventoryOptions{Filesystem: reader, StateCodec: codec, PhysicalPathBudget: captured.budget})
+	inventory, err := journalinventory.LoadNativeRoot(ctx, filepath.Dir(captured.capture.Directory), journalinventory.Options{Filesystem: reader, StateCodec: codec, PhysicalPathBudget: captured.budget})
 	if err != nil {
 		return nil, err
 	}
-	if inventory.active == nil || !inventory.active.physicalAuthority.equal(captured.active) || inventory.active.operationDir != captured.capture.Directory || inventory.active.identity.JournalAuthorityFingerprint() != captured.capture.RecordFingerprint {
+	if inventory.Active() == nil || !inventory.Active().PhysicalAuthority().Equal(captured.active) || inventory.Active().OperationDir() != captured.capture.Directory || inventory.Active().Identity().JournalAuthorityFingerprint() != captured.capture.RecordFingerprint {
 		return nil, fmt.Errorf("captured native recovery operation changed")
 	}
 	assessment, err := captured.AssessRecovery(ctx, options)
 	if err != nil {
 		return nil, err
 	}
-	inv, err := newRecoverableInventoryAuthority(inventory, inventory.decision.State() == retirement.StatePrepared)
+	inv, err := newRecoverableInventoryAuthority(inventory, inventory.Decision().State() == retirement.StatePrepared)
 	if err != nil {
 		return nil, err
 	}

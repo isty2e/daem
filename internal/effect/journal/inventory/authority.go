@@ -1,4 +1,4 @@
-package journal
+package inventory
 
 import (
 	"context"
@@ -16,7 +16,11 @@ type ActiveJournalAuthority struct {
 	identity mutationfs.EntryIdentity
 }
 
-func newActiveJournalAuthority(
+func (authority ActiveJournalAuthority) Identity() mutationfs.EntryIdentity {
+	return authority.identity
+}
+
+func NewActiveAuthority(
 	identity mutationfs.EntryIdentity,
 ) (ActiveJournalAuthority, error) {
 	if identity == nil || identity.Kind() != mutationfs.EntryKindDirectory {
@@ -61,7 +65,7 @@ func CaptureActiveJournalAuthority(
 	if closeErr != nil {
 		return ActiveJournalAuthority{}, closeErr
 	}
-	return newActiveJournalAuthority(identity)
+	return NewActiveAuthority(identity)
 }
 
 // ValidateActiveJournalAuthority compares current physical evidence for an
@@ -79,7 +83,7 @@ func ValidateActiveJournalAuthority(
 	if err != nil {
 		return err
 	}
-	if !expected.equal(current) {
+	if !expected.Equal(current) {
 		return fmt.Errorf("active recovery journal identity changed before effects")
 	}
 	return nil
@@ -123,7 +127,7 @@ func ValidateActiveJournalRoot(
 	if captureErr != nil || closeErr != nil {
 		return errors.Join(captureErr, closeErr)
 	}
-	if !expected.matches(identity) {
+	if !expected.Matches(identity) {
 		return fmt.Errorf("active recovery journal identity changed")
 	}
 	return nil
@@ -142,7 +146,7 @@ func (authority ActiveJournalAuthority) Validate() error {
 	return nil
 }
 
-func (authority ActiveJournalAuthority) equal(
+func (authority ActiveJournalAuthority) Equal(
 	other ActiveJournalAuthority,
 ) bool {
 	return authority.valid() &&
@@ -150,7 +154,7 @@ func (authority ActiveJournalAuthority) equal(
 		authority.identity.Equal(other.identity)
 }
 
-func (authority ActiveJournalAuthority) matches(
+func (authority ActiveJournalAuthority) Matches(
 	identity mutationfs.EntryIdentity,
 ) bool {
 	return authority.valid() &&

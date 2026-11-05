@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -111,7 +114,7 @@ func validateNativeActive(ctx context.Context, capture CaptureResult, active Act
 	if err := errors.Join(pathErr, identityErr, capability.Close()); err != nil {
 		return err
 	}
-	if !active.matches(identity) {
+	if !active.Matches(identity) {
 		return fmt.Errorf("published native journal directory identity changed")
 	}
 	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(capture.Directory, physicalwork.MaximumPhysicalPathDepth, budget)
@@ -119,7 +122,7 @@ func validateNativeActive(ctx context.Context, capture CaptureResult, active Act
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, root.Close(), ctx.Err()) }()
-	if err := ValidateActiveJournalRoot(ctx, filesystem, root, budget, active); err != nil {
+	if err := journalinventory.ValidateActiveJournalRoot(ctx, filesystem, root, budget, active); err != nil {
 		return err
 	}
 	snapshot, err := readNativeCaptureRecord(ctx, root, filesystem, budget)
@@ -129,5 +132,5 @@ func validateNativeActive(ctx context.Context, capture CaptureResult, active Act
 	if snapshot.Mode().Perm() != journalrecord.Mode || journalrecord.Fingerprint(snapshot.Content()) != capture.RecordFingerprint {
 		return fmt.Errorf("published native journal record revision changed")
 	}
-	return ValidateActiveJournalRoot(ctx, filesystem, root, budget, active)
+	return journalinventory.ValidateActiveJournalRoot(ctx, filesystem, root, budget, active)
 }

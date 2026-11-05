@@ -11,11 +11,15 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
@@ -724,7 +728,7 @@ func recoveryBackupActiveAuthorityForTest(t *testing.T, operationDir string) Act
 	if err != nil {
 		t.Fatalf("capture recovery operation identity: %v", err)
 	}
-	authority, err := newActiveJournalAuthority(identity)
+	authority, err := journalinventory.NewActiveAuthority(identity)
 	if err != nil {
 		t.Fatalf("construct recovery operation authority: %v", err)
 	}

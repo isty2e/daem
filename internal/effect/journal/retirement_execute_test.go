@@ -12,9 +12,12 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -1444,7 +1447,7 @@ func activeJournalAuthorityForTest(
 			err,
 		)
 	}
-	authority, err := newActiveJournalAuthority(identity)
+	authority, err := journalinventory.NewActiveAuthority(identity)
 	if err != nil {
 		return ActiveJournalAuthority{}, err
 	}
@@ -1494,10 +1497,10 @@ func captureRetirementTestRoot(t *testing.T, recoveryRoot string) *rootedpath.Ca
 
 func assertRetirementState(t *testing.T, recoveryRoot string, want retirement.State) {
 	t.Helper()
-	inventory, err := loadRecoveryRootInventory(
+	inventory, err := journalinventory.LoadRoot(
 		t.Context(),
 		recoveryRoot,
-		inventoryOptions{
+		journalinventory.Options{
 			Filesystem: journalTestFilesystem(),
 			StateCodec: testStateCodec(),
 		},
@@ -1505,11 +1508,11 @@ func assertRetirementState(t *testing.T, recoveryRoot string, want retirement.St
 	if err != nil {
 		t.Fatalf("loadRecoveryRootInventory: %v", err)
 	}
-	if inventory.decision.State() != want {
+	if inventory.Decision().State() != want {
 		t.Fatalf(
 			"retirement state = %q detail=%q, want %q",
-			inventory.decision.State(),
-			inventory.decision.Detail(),
+			inventory.Decision().State(),
+			inventory.Decision().Detail(),
 			want,
 		)
 	}

@@ -11,8 +11,11 @@ import (
 	"sync"
 	"testing"
 
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/test/testkit/fsclock"
@@ -125,34 +128,34 @@ func TestRecoveryRootInventoryClassifiesClosedPhysicalStates(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			recoveryRoot := filepath.Join(t.TempDir(), "recovery")
 			identity := test.setup(t, recoveryRoot)
-			options := inventoryOptions{
+			options := journalinventory.Options{
 				Filesystem: journalTestFilesystem(),
 				StateCodec: testStateCodec(),
 			}
-			inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, options)
+			inventory, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, options)
 			if err != nil {
 				t.Fatalf("loadRecoveryRootInventory: %v", err)
 			}
-			if inventory.decision.State() != test.want {
+			if inventory.Decision().State() != test.want {
 				t.Fatalf(
 					"decision = state %q detail=%q, want %q",
-					inventory.decision.State(),
-					inventory.decision.Detail(),
+					inventory.Decision().State(),
+					inventory.Decision().Detail(),
 					test.want,
 				)
 			}
-			_, hasCleanup := inventory.decision.CleanupPlan()
+			_, hasCleanup := inventory.Decision().CleanupPlan()
 			if hasCleanup != test.wantCleanup {
 				t.Fatalf("cleanup plan present = %t, want %t", hasCleanup, test.wantCleanup)
 			}
 			if test.want == retirement.StateActive || test.want == retirement.StatePrepared {
-				if inventory.active == nil ||
-					inventory.active.identity.OperationID() != identity.OperationID() ||
-					inventory.active.identity.JournalAuthorityFingerprint() != identity.JournalAuthorityFingerprint() {
-					t.Fatalf("active evidence = %#v, want identity %#v", inventory.active, identity)
+				if inventory.Active() == nil ||
+					inventory.Active().Identity().OperationID() != identity.OperationID() ||
+					inventory.Active().Identity().JournalAuthorityFingerprint() != identity.JournalAuthorityFingerprint() {
+					t.Fatalf("active evidence = %#v, want identity %#v", inventory.Active(), identity)
 				}
-			} else if inventory.active != nil {
-				t.Fatalf("state %q retained active authority %#v", test.want, inventory.active)
+			} else if inventory.Active() != nil {
+				t.Fatalf("state %q retained active authority %#v", test.want, inventory.Active())
 			}
 
 			readinessErr := ensureNoActive(t.Context(), recoveryRoot, options)
@@ -407,7 +410,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 		t.Run(test.name, func(t *testing.T) {
 			recoveryRoot := filepath.Join(t.TempDir(), "recovery")
 			test.setup(t, recoveryRoot)
-			inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+			inventory, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, journalinventory.Options{
 				Filesystem: journalTestFilesystem(),
 				StateCodec: testStateCodec(),
 			})
@@ -415,17 +418,17 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 				t.Fatalf("loadRecoveryRootInventory: %v", err)
 			}
 			if test.allowLoad {
-				if inventory.decision.State() != retirement.StateFinalizing {
-					t.Fatalf("valid temporary decision = %#v", inventory.decision)
+				if inventory.Decision().State() != retirement.StateFinalizing {
+					t.Fatalf("valid temporary decision = %#v", inventory.Decision())
 				}
 				return
 			}
-			if inventory.decision.State() != retirement.StateBlocked ||
-				!strings.Contains(inventory.decision.Detail(), test.want) {
+			if inventory.Decision().State() != retirement.StateBlocked ||
+				!strings.Contains(inventory.Decision().Detail(), test.want) {
 				t.Fatalf(
 					"decision = state=%q detail=%q, want %q",
-					inventory.decision.State(),
-					inventory.decision.Detail(),
+					inventory.Decision().State(),
+					inventory.Decision().Detail(),
 					test.want,
 				)
 			}
@@ -453,16 +456,16 @@ func TestRecoveryRootInventoryBlocksPre10TombstoneWithoutNestedObservation(t *te
 	writePrivateFile(t, filepath.Join(tombstone, journalrecord.FileName), []byte("not json"))
 
 	filesystem := &rejectNestedTombstoneObservationStore{Store: journalTestFilesystem()}
-	inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+	inventory, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, journalinventory.Options{
 		Filesystem: filesystem,
 		StateCodec: testStateCodec(),
 	})
 	if err != nil {
 		t.Fatalf("loadRecoveryRootInventory: %v", err)
 	}
-	if inventory.decision.State() != retirement.StateBlocked ||
-		!strings.Contains(inventory.decision.Detail(), "unsupported authority schema") {
-		t.Fatalf("decision = %#v, want unsupported pre-1.0 tombstone", inventory.decision)
+	if inventory.Decision().State() != retirement.StateBlocked ||
+		!strings.Contains(inventory.Decision().Detail(), "unsupported authority schema") {
+		t.Fatalf("decision = %#v, want unsupported pre-1.0 tombstone", inventory.Decision())
 	}
 	if filesystem.calls != 0 {
 		t.Fatalf("nested tombstone observation calls = %d, want none", filesystem.calls)
@@ -544,7 +547,7 @@ func TestRecoveryRootInventoryRejectsJournalIdentityReplacement(t *testing.T) {
 		},
 	}
 
-	_, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+	_, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, journalinventory.Options{
 		Filesystem: &filesystem,
 		StateCodec: testStateCodec(),
 	})

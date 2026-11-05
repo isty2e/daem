@@ -12,9 +12,12 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
@@ -22,12 +25,12 @@ import (
 func TestNativeInventoryRetainsActualRecordAndFeedsDocumentAssessment(t *testing.T) {
 	setup, root, path := nativeInventoryFixture(t)
 	_, read := setup.reader(t)
-	options := inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec, PhysicalPathBudget: read.documents.Budget}
-	inventory, err := loadNativeRecoveryRootInventory(t.Context(), root, options)
-	if err != nil || inventory.decision.State() != retirement.StateActive || inventory.active == nil {
-		t.Fatalf("native active inventory: %v, %s", err, inventory.decision.Detail())
+	options := journalinventory.Options{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec, PhysicalPathBudget: read.documents.Budget}
+	inventory, err := journalinventory.LoadNativeRoot(t.Context(), root, options)
+	if err != nil || inventory.Decision().State() != retirement.StateActive || inventory.Active() == nil {
+		t.Fatalf("native active inventory: %v, %s", err, inventory.Decision().Detail())
 	}
-	current, native := inventory.active.record.Native()
+	current, native := inventory.Active().Record().Native()
 	if !native || !current.Before().Equal(setup.fixture.before) || !current.After().Equal(setup.fixture.after) {
 		t.Fatal("native inventory lost its complete typed Snapshots")
 	}
@@ -35,17 +38,17 @@ func TestNativeInventoryRetainsActualRecordAndFeedsDocumentAssessment(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inventory.active.identity.JournalAuthorityFingerprint() != journalrecord.Fingerprint(content) {
+	if inventory.Active().Identity().JournalAuthorityFingerprint() != journalrecord.Fingerprint(content) {
 		t.Fatal("native inventory fingerprint differs from canonical full journal bytes")
 	}
-	if err := inventory.active.physicalAuthority.Validate(); err != nil {
+	if err := inventory.Active().PhysicalAuthority().Validate(); err != nil {
 		t.Fatal(err)
 	}
 	assessment, err := assessDocumentRecovery(current, t.Context(), read)
 	if err != nil || assessment.disposition != nativeDocumentsBefore || len(assessment.stages) != 1 {
 		t.Fatalf("native actual inventory-to-state/registry/image/host pipeline: %v", err)
 	}
-	if err := setup.fixture.read.Artifacts.ValidateSelectionBounded(inventory.active.operationDir, physicalwork.MaximumPhysicalPathDepth, read.documents.Budget); err != nil {
+	if err := setup.fixture.read.Artifacts.ValidateSelectionBounded(inventory.Active().OperationDir(), physicalwork.MaximumPhysicalPathDepth, read.documents.Budget); err != nil {
 		t.Fatalf("test image grant is not the selected active directory: %v", err)
 	}
 	retained, err := os.ReadFile(path)
@@ -64,8 +67,8 @@ func TestNativeInventoryRetainsActualRecordAndFeedsDocumentAssessment(t *testing
 func TestDefaultInventoryRejectsNativeBeforeStateDecoding(t *testing.T) {
 	setup, root, _ := nativeInventoryFixture(t)
 	codec := &nativeInventoryCodecProbe{SnapshotCodec: setup.fixture.codec}
-	inventory, err := loadRecoveryRootInventory(t.Context(), root, inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: codec})
-	if err != nil || inventory.decision.State() != retirement.StateBlocked || inventory.active != nil || codec.decodes != 0 {
+	inventory, err := journalinventory.LoadRoot(t.Context(), root, journalinventory.Options{Filesystem: journalTestFilesystem(), StateCodec: codec})
+	if err != nil || inventory.Decision().State() != retirement.StateBlocked || inventory.Active() != nil || codec.decodes != 0 {
 		t.Fatalf("default inventory admitted native state or read it before refusal: %v, decodes=%d", err, codec.decodes)
 	}
 }
@@ -73,12 +76,12 @@ func TestDefaultInventoryRejectsNativeBeforeStateDecoding(t *testing.T) {
 func TestNativeAndDefaultInventoryKeepGenerationIsolation(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "recovery")
 	identity, _ := captureInventoryJournal(t, root, "ordinary-native-reader")
-	inventory, err := loadRecoveryRootInventory(t.Context(), root, inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: testStateCodec()})
-	if err != nil || inventory.active == nil || inventory.decision.State() != retirement.StateActive {
+	inventory, err := journalinventory.LoadRoot(t.Context(), root, journalinventory.Options{Filesystem: journalTestFilesystem(), StateCodec: testStateCodec()})
+	if err != nil || inventory.Active() == nil || inventory.Decision().State() != retirement.StateActive {
 		t.Fatalf("default reader lost ordinary v15 recovery: %v", err)
 	}
-	legacy, ok := inventory.active.record.Ordinary()
-	if !ok || legacy.OperationID() != identity.OperationID() || inventory.active.identity.JournalAuthorityFingerprint() != identity.JournalAuthorityFingerprint() {
+	legacy, ok := inventory.Active().Record().Ordinary()
+	if !ok || legacy.OperationID() != identity.OperationID() || inventory.Active().Identity().JournalAuthorityFingerprint() != identity.JournalAuthorityFingerprint() {
 		t.Fatal("default reader changed legacy record/fingerprint semantics")
 	}
 	native, err := statefile.NewNativeCodec(aggregatecodec.Catalog().Contributions())
@@ -86,8 +89,8 @@ func TestNativeAndDefaultInventoryKeepGenerationIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	probe := &nativeInventoryCodecProbe{SnapshotCodec: native}
-	rejected, err := loadNativeRecoveryRootInventory(t.Context(), root, inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: probe})
-	if err != nil || rejected.decision.State() != retirement.StateBlocked || rejected.active != nil || probe.decodes != 0 {
+	rejected, err := journalinventory.LoadNativeRoot(t.Context(), root, journalinventory.Options{Filesystem: journalTestFilesystem(), StateCodec: probe})
+	if err != nil || rejected.Decision().State() != retirement.StateBlocked || rejected.Active() != nil || probe.decodes != 0 {
 		t.Fatalf("native reader admitted pending v15 or decoded its state: %v, decodes=%d", err, probe.decodes)
 	}
 }
@@ -120,9 +123,9 @@ func TestNativeInventoryCorrelatesCompleteRecordWithControlAndResidue(t *testing
 					}
 				}
 			}
-			inventory, err := loadNativeRecoveryRootInventory(t.Context(), root, inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec})
-			if err != nil || inventory.decision.State() != state || (inventory.active != nil) != (state == retirement.StatePrepared) {
-				t.Fatalf("native control/residue state=%s want=%s: %v, %s", inventory.decision.State(), state, err, inventory.decision.Detail())
+			inventory, err := journalinventory.LoadNativeRoot(t.Context(), root, journalinventory.Options{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec})
+			if err != nil || inventory.Decision().State() != state || (inventory.Active() != nil) != (state == retirement.StatePrepared) {
+				t.Fatalf("native control/residue state=%s want=%s: %v, %s", inventory.Decision().State(), state, err, inventory.Decision().Detail())
 			}
 		})
 	}
@@ -152,8 +155,8 @@ func TestNativeInventoryFingerprintIncludesGroupImageEvidence(t *testing.T) {
 		original["artifact"] = nativeRecordJSON(t, reference)
 		group["original"] = nativeRecordJSON(t, original)
 	})
-	inventory, err := loadNativeRecoveryRootInventory(t.Context(), root, inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec})
-	if err != nil || inventory.decision.State() != retirement.StateBlocked || inventory.active != nil {
+	inventory, err := journalinventory.LoadNativeRoot(t.Context(), root, journalinventory.Options{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec})
+	if err != nil || inventory.Decision().State() != retirement.StateBlocked || inventory.Active() != nil {
 		t.Fatalf("changed complete native witness was paired with an old control identity: %v", err)
 	}
 }
@@ -180,8 +183,8 @@ func TestNativeInventoryRejectsUnknownAndMalformedRecordsBeforeState(t *testing.
 				t.Fatal(err)
 			}
 			codec := &nativeInventoryCodecProbe{SnapshotCodec: setup.fixture.codec}
-			inventory, err := loadNativeRecoveryRootInventory(t.Context(), root, inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: codec})
-			if err != nil || inventory.decision.State() != retirement.StateBlocked || inventory.active != nil || codec.decodes != 0 {
+			inventory, err := journalinventory.LoadNativeRoot(t.Context(), root, journalinventory.Options{Filesystem: journalTestFilesystem(), StateCodec: codec})
+			if err != nil || inventory.Decision().State() != retirement.StateBlocked || inventory.Active() != nil || codec.decodes != 0 {
 				t.Fatalf("unknown version reached state decoding or yielded active evidence: %v, %d", err, codec.decodes)
 			}
 		})
@@ -192,7 +195,7 @@ func TestNativeInventoryRejectsInconsistentActiveLayouts(t *testing.T) {
 	for _, kind := range []string{"directory name", "mixed families", "multiple native records", "record revision"} {
 		t.Run(kind, func(t *testing.T) {
 			setup, root, path := nativeInventoryFixture(t)
-			options := inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec}
+			options := journalinventory.Options{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec}
 			switch kind {
 			case "directory name":
 				if err := os.Rename(filepath.Dir(path), filepath.Join(root, "foreign-operation")); err != nil {
@@ -229,9 +232,9 @@ func TestNativeInventoryRejectsInconsistentActiveLayouts(t *testing.T) {
 				}
 				options.StateCodec = probe
 			}
-			inventory, err := loadNativeRecoveryRootInventory(t.Context(), root, options)
-			if inventory.active != nil || err == nil && inventory.decision.State() != retirement.StateBlocked {
-				t.Fatalf("inconsistent actual native inventory admitted: %v, %s", err, inventory.decision.Detail())
+			inventory, err := journalinventory.LoadNativeRoot(t.Context(), root, options)
+			if inventory.Active() != nil || err == nil && inventory.Decision().State() != retirement.StateBlocked {
+				t.Fatalf("inconsistent actual native inventory admitted: %v, %s", err, inventory.Decision().Detail())
 			}
 		})
 	}
@@ -239,14 +242,14 @@ func TestNativeInventoryRejectsInconsistentActiveLayouts(t *testing.T) {
 
 func TestNativeInventoryPreservesBudgetCodecAndCancellationFailures(t *testing.T) {
 	setup, root, _ := nativeInventoryFixture(t)
-	options := inventoryOptions{Filesystem: journalTestFilesystem()}
-	if inventory, err := loadNativeRecoveryRootInventory(t.Context(), root, options); !errors.Is(err, journalrecord.ErrStateCodecRequired) || inventory.active != nil {
+	options := journalinventory.Options{Filesystem: journalTestFilesystem()}
+	if inventory, err := journalinventory.LoadNativeRoot(t.Context(), root, options); !errors.Is(err, journalrecord.ErrStateCodecRequired) || inventory.Active() != nil {
 		t.Fatalf("missing native state codec was hidden as a layout decision: %v", err)
 	}
 	sentinel := errors.New("native inventory path budget refused")
 	options.StateCodec = setup.fixture.codec
 	options.PhysicalPathBudget = &refusedWriterPathBudget{err: sentinel}
-	if inventory, err := loadNativeRecoveryRootInventory(t.Context(), root, options); !errors.Is(err, sentinel) || inventory.active != nil {
+	if inventory, err := journalinventory.LoadNativeRoot(t.Context(), root, options); !errors.Is(err, sentinel) || inventory.Active() != nil {
 		t.Fatalf("native path-budget refusal lost its cause: %v", err)
 	}
 	options.PhysicalPathBudget = nil
@@ -254,7 +257,7 @@ func TestNativeInventoryPreservesBudgetCodecAndCancellationFailures(t *testing.T
 	defer cancel()
 	probe := &nativeInventoryCodecProbe{SnapshotCodec: setup.fixture.codec, beforeDecode: cancel}
 	options.StateCodec = probe
-	if inventory, err := loadNativeRecoveryRootInventory(ctx, root, options); !errors.Is(err, context.Canceled) || inventory.active != nil || probe.decodes == 0 {
+	if inventory, err := journalinventory.LoadNativeRoot(ctx, root, options); !errors.Is(err, context.Canceled) || inventory.Active() != nil || probe.decodes == 0 {
 		t.Fatalf("cancellation during native state decode returned a prefix or lost its cause: %v", err)
 	}
 }

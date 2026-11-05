@@ -9,8 +9,11 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
@@ -157,28 +160,28 @@ func TestRecoveryRootInventoryBlocksJournalPayloadViolations(t *testing.T) {
 	t.Run("truncated", func(t *testing.T) {
 		recoveryRoot := filepath.Join(t.TempDir(), "recovery")
 		_, result := captureInventoryJournal(t, recoveryRoot, "journal-payload-truncated")
-		options := inventoryOptions{
+		options := journalinventory.Options{
 			Filesystem: journalTestFilesystem(),
 			StateCodec: testStateCodec(),
 		}
 
-		inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, options)
+		inventory, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, options)
 		if err != nil {
 			t.Fatalf("load valid journal inventory: %v", err)
 		}
-		if inventory.decision.State() != retirement.StateActive {
-			t.Fatalf("valid journal state = %q detail=%q, want active", inventory.decision.State(), inventory.decision.Detail())
+		if inventory.Decision().State() != retirement.StateActive {
+			t.Fatalf("valid journal state = %q detail=%q, want active", inventory.Decision().State(), inventory.Decision().Detail())
 		}
 
 		writePrivateFile(t, result.JournalPath, []byte("{"))
-		inventory, err = loadRecoveryRootInventory(t.Context(), recoveryRoot, options)
+		inventory, err = journalinventory.LoadRoot(t.Context(), recoveryRoot, options)
 		if err != nil {
 			t.Fatalf("load truncated journal inventory: %v", err)
 		}
-		if inventory.decision.State() != retirement.StateBlocked {
-			t.Fatalf("truncated journal state = %q detail=%q, want blocked", inventory.decision.State(), inventory.decision.Detail())
+		if inventory.Decision().State() != retirement.StateBlocked {
+			t.Fatalf("truncated journal state = %q detail=%q, want blocked", inventory.Decision().State(), inventory.Decision().Detail())
 		}
-		if _, ok := inventory.decision.CleanupPlan(); ok {
+		if _, ok := inventory.Decision().CleanupPlan(); ok {
 			t.Fatal("truncated journal granted cleanup authority")
 		}
 	})
@@ -241,31 +244,31 @@ func TestRecoveryRootInventoryBlocksControlRecordViolations(t *testing.T) {
 		recoveryRoot := filepath.Join(t.TempDir(), "recovery")
 		identity := inventoryTestIdentity(t, "control-record-truncated-record", "3")
 		control := writeInventoryControl(t, recoveryRoot, identity, retirement.PhaseFinalizing)
-		options := inventoryOptions{
+		options := journalinventory.Options{
 			Filesystem: journalTestFilesystem(),
 			StateCodec: testStateCodec(),
 		}
 
-		inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, options)
+		inventory, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, options)
 		if err != nil {
 			t.Fatalf("load valid control inventory: %v", err)
 		}
-		if inventory.decision.State() != retirement.StateFinalizing {
-			t.Fatalf("valid control state = %q detail=%q, want finalizing", inventory.decision.State(), inventory.decision.Detail())
+		if inventory.Decision().State() != retirement.StateFinalizing {
+			t.Fatalf("valid control state = %q detail=%q, want finalizing", inventory.Decision().State(), inventory.Decision().Detail())
 		}
-		if _, ok := inventory.decision.CleanupPlan(); !ok {
+		if _, ok := inventory.Decision().CleanupPlan(); !ok {
 			t.Fatal("valid finalizing control did not grant cleanup authority")
 		}
 
 		writePrivateFile(t, filepath.Join(control, retirement.RecordFileName), []byte("{"))
-		inventory, err = loadRecoveryRootInventory(t.Context(), recoveryRoot, options)
+		inventory, err = journalinventory.LoadRoot(t.Context(), recoveryRoot, options)
 		if err != nil {
 			t.Fatalf("load truncated control inventory: %v", err)
 		}
-		if inventory.decision.State() != retirement.StateBlocked {
-			t.Fatalf("truncated control state = %q detail=%q, want blocked", inventory.decision.State(), inventory.decision.Detail())
+		if inventory.Decision().State() != retirement.StateBlocked {
+			t.Fatalf("truncated control state = %q detail=%q, want blocked", inventory.Decision().State(), inventory.Decision().Detail())
 		}
-		if _, ok := inventory.decision.CleanupPlan(); ok {
+		if _, ok := inventory.Decision().CleanupPlan(); ok {
 			t.Fatal("truncated control granted cleanup authority")
 		}
 	})
@@ -357,16 +360,16 @@ func TestRecoveryRootInventoryBlocksUnownedReservedEntryEvidence(t *testing.T) {
 		name:  identity.GCName(),
 	}
 
-	inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+	inventory, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, journalinventory.Options{
 		Filesystem: filesystem,
 		StateCodec: testStateCodec(),
 	})
 	if err != nil {
 		t.Fatalf("loadRecoveryRootInventory: %v", err)
 	}
-	if inventory.decision.State() != retirement.StateBlocked ||
-		!strings.Contains(inventory.decision.Detail(), "not owned by the invoking user") {
-		t.Fatalf("decision = %#v, want unowned-entry blocker", inventory.decision)
+	if inventory.Decision().State() != retirement.StateBlocked ||
+		!strings.Contains(inventory.Decision().Detail(), "not owned by the invoking user") {
+		t.Fatalf("decision = %#v, want unowned-entry blocker", inventory.Decision())
 	}
 }
 
@@ -464,7 +467,7 @@ func TestRecoveryRootInventoryPropagatesCapabilityAndCancellationErrors(t *testi
 	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
 	captureInventoryJournal(t, recoveryRoot, "inventory-operational-errors")
 
-	_, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+	_, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, journalinventory.Options{
 		Filesystem: journalTestFilesystem(),
 	})
 	if !errors.Is(err, journalrecord.ErrStateCodecRequired) {
@@ -473,7 +476,7 @@ func TestRecoveryRootInventoryPropagatesCapabilityAndCancellationErrors(t *testi
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err = loadRecoveryRootInventory(ctx, recoveryRoot, inventoryOptions{
+	_, err = journalinventory.LoadRoot(ctx, recoveryRoot, journalinventory.Options{
 		Filesystem: journalTestFilesystem(),
 		StateCodec: testStateCodec(),
 	})
@@ -484,7 +487,7 @@ func TestRecoveryRootInventoryPropagatesCapabilityAndCancellationErrors(t *testi
 
 func TestRecoveryRootInventoryRejectsBlankRecoveryDirectory(t *testing.T) {
 	for _, recoveryRoot := range []string{"", " \t\n"} {
-		_, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+		_, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, journalinventory.Options{
 			Filesystem: journalTestFilesystem(),
 			StateCodec: testStateCodec(),
 		})
@@ -583,19 +586,19 @@ func inventoryTestIdentity(
 
 func assertRecoveryInventoryBlocked(t *testing.T, recoveryRoot string, want string) {
 	t.Helper()
-	inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+	inventory, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, journalinventory.Options{
 		Filesystem: journalTestFilesystem(),
 		StateCodec: testStateCodec(),
 	})
 	if err != nil {
 		t.Fatalf("loadRecoveryRootInventory: %v", err)
 	}
-	if inventory.decision.State() != retirement.StateBlocked ||
-		!strings.Contains(inventory.decision.Detail(), want) {
+	if inventory.Decision().State() != retirement.StateBlocked ||
+		!strings.Contains(inventory.Decision().Detail(), want) {
 		t.Fatalf(
 			"decision = state %q detail=%q, want %q",
-			inventory.decision.State(),
-			inventory.decision.Detail(),
+			inventory.Decision().State(),
+			inventory.Decision().Detail(),
 			want,
 		)
 	}
@@ -610,19 +613,19 @@ func assertRecoveryInventoryCardinalityBlocked(
 	filesystem := &cardinalityBoundInventoryFilesystem{
 		Store: journalTestFilesystem(),
 	}
-	inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+	inventory, err := journalinventory.LoadRoot(t.Context(), recoveryRoot, journalinventory.Options{
 		Filesystem: filesystem,
 		StateCodec: testStateCodec(),
 	})
 	if err != nil {
 		t.Fatalf("loadRecoveryRootInventory: %v", err)
 	}
-	if inventory.decision.State() != retirement.StateBlocked ||
-		!strings.Contains(inventory.decision.Detail(), want) {
+	if inventory.Decision().State() != retirement.StateBlocked ||
+		!strings.Contains(inventory.Decision().Detail(), want) {
 		t.Fatalf(
 			"decision = state %q detail=%q, want %q",
-			inventory.decision.State(),
-			inventory.decision.Detail(),
+			inventory.Decision().State(),
+			inventory.Decision().Detail(),
 			want,
 		)
 	}

@@ -12,13 +12,15 @@ import (
 	"testing"
 	"time"
 
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
-	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 
-	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -26,15 +28,19 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -600,7 +606,7 @@ func TestCaptureNativeJournalInventoryFamilyAdmission(t *testing.T) {
 				if err != nil || captured.Validate() != nil || len(captured.Documents()) != 1 {
 					t.Fatalf("inert legacy residue prevented native publication/reload: %v", err)
 				}
-				if err := ensureNoActive(t.Context(), input.paths.RecoveryDir, inventoryOptions{Filesystem: filesystem, StateCodec: input.options.StateCodec, PhysicalPathBudget: input.batch.budget, recordDecoder: decodeNativeCaptureInventoryJournal}); !errors.Is(err, ErrInterruptedApply) {
+				if err := ensureNoActive(t.Context(), input.paths.RecoveryDir, journalinventory.Options{Filesystem: filesystem, StateCodec: input.options.StateCodec, PhysicalPathBudget: input.batch.budget, Decoder: decodeNativeCaptureInventoryJournal}); !errors.Is(err, ErrInterruptedApply) {
 					t.Fatalf("published native16 was not recognized as active: %v", err)
 				}
 			} else {

@@ -11,10 +11,11 @@ import (
 	"testing"
 	"time"
 
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -102,10 +103,10 @@ func TestCaptureJournalMissingPreviousIdentityLeavesNoActiveJournalOrHostEffect(
 	if err == nil || !strings.Contains(err.Error(), "missing state observation") {
 		t.Fatalf("CaptureJournal error = %v, want missing previous identity", err)
 	}
-	inventory, inventoryErr := loadRecoveryRootInventory(
+	inventory, inventoryErr := journalinventory.LoadRoot(
 		t.Context(),
 		paths.RecoveryDir,
-		inventoryOptions{
+		journalinventory.Options{
 			Filesystem: journalTestFilesystem(),
 			StateCodec: testStateCodec(),
 		},
@@ -113,8 +114,8 @@ func TestCaptureJournalMissingPreviousIdentityLeavesNoActiveJournalOrHostEffect(
 	if inventoryErr != nil {
 		t.Fatalf("loadRecoveryRootInventory returned error: %v", inventoryErr)
 	}
-	if inventory.decision.State() != retirement.StateClean {
-		t.Fatalf("recovery inventory state = %q, want clean", inventory.decision.State())
+	if inventory.Decision().State() != retirement.StateClean {
+		t.Fatalf("recovery inventory state = %q, want clean", inventory.Decision().State())
 	}
 	got, readErr := os.ReadFile(hostPath)
 	if readErr != nil {

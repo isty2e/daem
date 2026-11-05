@@ -1,4 +1,4 @@
-package journal
+package inventory
 
 import (
 	"context"
@@ -17,12 +17,12 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
 
-// inventoryOptions binds recovery-root observation capabilities and record admission.
-type inventoryOptions struct {
+// Options binds recovery-root observation capabilities and record admission.
+type Options struct {
 	Filesystem         mutationfs.Reader
 	StateCodec         durable.SnapshotCodec
 	PhysicalPathBudget rootedpath.PhysicalTraversalBudget
-	recordDecoder      inventoryJournalDecoder
+	Decoder            JournalDecoder
 }
 
 type budgetedInventoryFilesystem struct {
@@ -70,9 +70,9 @@ func (filesystem budgetedInventoryFilesystem) charge(path string) error {
 	)
 }
 
-type recoveryRootInventory struct {
+type RootInventory struct {
 	decision retirement.Decision
-	active   *activeJournalEvidence
+	active   *ActiveJournal
 	root     mutationfs.DirectorySnapshot
 	control  *mutationfs.DirectorySnapshot
 }
@@ -83,9 +83,39 @@ type journalDirectoryEvidence struct {
 	operationDir string
 }
 
-type activeJournalEvidence struct {
+type ActiveJournal struct {
 	journalDirectoryEvidence
 	physicalAuthority ActiveJournalAuthority
+}
+
+func (inventory RootInventory) Decision() retirement.Decision { return inventory.decision }
+
+func (inventory RootInventory) Active() *ActiveJournal {
+	if inventory.active == nil {
+		return nil
+	}
+	copy := *inventory.active
+	return &copy
+}
+
+func (inventory RootInventory) RootSnapshot() mutationfs.DirectorySnapshot { return inventory.root }
+
+func (inventory RootInventory) ControlSnapshot() *mutationfs.DirectorySnapshot {
+	if inventory.control == nil {
+		return nil
+	}
+	copy := *inventory.control
+	return &copy
+}
+
+func (active ActiveJournal) Identity() retirement.Identity { return active.identity }
+
+func (active ActiveJournal) Record() journalrecord.Loaded { return active.record }
+
+func (active ActiveJournal) OperationDir() string { return active.operationDir }
+
+func (active ActiveJournal) PhysicalAuthority() ActiveJournalAuthority {
+	return active.physicalAuthority
 }
 
 const (
@@ -99,7 +129,7 @@ const (
 	maximumRetirementControlTreeBytes = 1 << 20
 )
 
-func recoveryTreeTraversalLimits() mutationfs.TreeTraversalLimits {
+func RecoveryTreeTraversalLimits() mutationfs.TreeTraversalLimits {
 	limits, err := mutationfs.NewTreeTraversalLimits(
 		maximumRecoveryTreeEntries,
 		maximumRecoveryTreeDepth,
@@ -111,7 +141,7 @@ func recoveryTreeTraversalLimits() mutationfs.TreeTraversalLimits {
 	return limits
 }
 
-func retirementControlTraversalLimits() mutationfs.TreeTraversalLimits {
+func RetirementControlTraversalLimits() mutationfs.TreeTraversalLimits {
 	limits, err := mutationfs.NewTreeTraversalLimits(
 		maximumRetirementControlEntries,
 		maximumRetirementControlTreeDepth,
@@ -123,22 +153,22 @@ func retirementControlTraversalLimits() mutationfs.TreeTraversalLimits {
 	return limits
 }
 
-func loadRecoveryRootInventory(
+func LoadRoot(
 	ctx context.Context,
 	recoveryRoot string,
-	options inventoryOptions,
-) (recoveryRootInventory, error) {
+	options Options,
+) (RootInventory, error) {
 	if ctx == nil {
-		return recoveryRootInventory{}, fmt.Errorf("recovery inventory context is required")
+		return RootInventory{}, fmt.Errorf("recovery inventory context is required")
 	}
 	if options.Filesystem == nil {
-		return recoveryRootInventory{}, fmt.Errorf("recovery inventory filesystem is required")
+		return RootInventory{}, fmt.Errorf("recovery inventory filesystem is required")
 	}
 	if options.PhysicalPathBudget == nil {
 		options.PhysicalPathBudget = physicalwork.NewPathBudget()
 	}
 	if strings.TrimSpace(recoveryRoot) == "" {
-		return recoveryRootInventory{}, fmt.Errorf("recovery directory is required")
+		return RootInventory{}, fmt.Errorf("recovery directory is required")
 	}
 	physicalRoot, err := mutation.ResolveDirectoryEntryPathBounded(
 		recoveryRoot,
@@ -146,7 +176,7 @@ func loadRecoveryRootInventory(
 		options.PhysicalPathBudget,
 	)
 	if err != nil {
-		return recoveryRootInventory{}, fmt.Errorf("canonicalize recovery directory: %w", err)
+		return RootInventory{}, fmt.Errorf("canonicalize recovery directory: %w", err)
 	}
 
 	options.Filesystem = budgetedInventoryFilesystem{
@@ -162,7 +192,7 @@ func loadRecoveryRootInventory(
 		return emptyRecoveryRootInventory(), nil
 	}
 	if err != nil {
-		return recoveryRootInventory{}, fmt.Errorf("snapshot recovery directory: %w", err)
+		return RootInventory{}, fmt.Errorf("snapshot recovery directory: %w", err)
 	}
 
 	var (
@@ -219,7 +249,7 @@ func loadRecoveryRootInventory(
 		)
 		if loadErr != nil {
 			if inventoryObservationInterrupted(ctx, loadErr) {
-				return recoveryRootInventory{}, loadErr
+				return RootInventory{}, loadErr
 			}
 			blockers = append(blockers, mustInventoryBlocker(entry.Name(), loadErr.Error()))
 			observeNested = false
@@ -234,7 +264,7 @@ func loadRecoveryRootInventory(
 	}
 
 	activeIdentities := make([]retirement.Identity, 0, len(activeEntries))
-	var active *activeJournalEvidence
+	var active *ActiveJournal
 	for _, entry := range activeEntries {
 		if !observeNested {
 			break
@@ -247,13 +277,13 @@ func loadRecoveryRootInventory(
 		)
 		if loadErr != nil {
 			if inventoryObservationInterrupted(ctx, loadErr) {
-				return recoveryRootInventory{}, loadErr
+				return RootInventory{}, loadErr
 			}
 			blockers = append(blockers, mustInventoryBlocker(entry.Name(), loadErr.Error()))
 			observeNested = false
 			break
 		}
-		physicalAuthority, authorityErr := newActiveJournalAuthority(entry.Identity())
+		physicalAuthority, authorityErr := NewActiveAuthority(entry.Identity())
 		if authorityErr != nil {
 			blockers = append(
 				blockers,
@@ -264,7 +294,7 @@ func loadRecoveryRootInventory(
 		}
 		activeIdentities = append(activeIdentities, loaded.identity)
 		if active == nil {
-			candidate := activeJournalEvidence{
+			candidate := ActiveJournal{
 				journalDirectoryEvidence: loaded,
 				physicalAuthority:        physicalAuthority,
 			}
@@ -301,7 +331,7 @@ func loadRecoveryRootInventory(
 			)
 			if loadErr != nil {
 				if inventoryObservationInterrupted(ctx, loadErr) {
-					return recoveryRootInventory{}, loadErr
+					return RootInventory{}, loadErr
 				}
 				blockers = append(blockers, mustInventoryBlocker(entry.Name(), loadErr.Error()))
 				continue
@@ -338,10 +368,10 @@ func loadRecoveryRootInventory(
 		maximumRecoveryRootEntries,
 	)
 	if err != nil {
-		return recoveryRootInventory{}, fmt.Errorf("revalidate recovery directory: %w", err)
+		return RootInventory{}, fmt.Errorf("revalidate recovery directory: %w", err)
 	}
 	if !root.Equal(currentRoot) {
-		return recoveryRootInventory{}, fmt.Errorf("recovery directory changed while inventorying")
+		return RootInventory{}, fmt.Errorf("recovery directory changed while inventorying")
 	}
 
 	decision := retirement.Classify(retirement.NewLayoutEvidence(
@@ -354,7 +384,7 @@ func loadRecoveryRootInventory(
 	switch decision.State() {
 	case retirement.StateActive, retirement.StatePrepared:
 		if active == nil || len(activeIdentities) != 1 {
-			return recoveryRootInventory{}, fmt.Errorf(
+			return RootInventory{}, fmt.Errorf(
 				"active recovery classification has no unique loaded journal",
 			)
 		}
@@ -366,7 +396,7 @@ func loadRecoveryRootInventory(
 		snapshot := controlSnapshots[0]
 		control = &snapshot
 	}
-	return recoveryRootInventory{
+	return RootInventory{
 		decision: decision,
 		active:   active,
 		root:     root,
@@ -374,8 +404,8 @@ func loadRecoveryRootInventory(
 	}, nil
 }
 
-func emptyRecoveryRootInventory() recoveryRootInventory {
-	return recoveryRootInventory{
+func emptyRecoveryRootInventory() RootInventory {
+	return RootInventory{
 		decision: retirement.Classify(retirement.NewLayoutEvidence(
 			nil,
 			nil,
@@ -497,7 +527,7 @@ func loadActiveJournalEvidence(
 	ctx context.Context,
 	recoveryRoot string,
 	entry mutationfs.DirectoryEntrySnapshot,
-	options inventoryOptions,
+	options Options,
 ) (journalDirectoryEvidence, error) {
 	loaded, err := loadJournalDirectoryEvidence(
 		ctx,
@@ -522,7 +552,7 @@ func loadResidueJournalEvidence(
 	ctx context.Context,
 	recoveryRoot string,
 	entry mutationfs.DirectoryEntrySnapshot,
-	options inventoryOptions,
+	options Options,
 ) (journalDirectoryEvidence, error) {
 	return loadJournalDirectoryEvidence(
 		ctx,
@@ -536,7 +566,7 @@ func loadJournalDirectoryEvidence(
 	ctx context.Context,
 	directoryPath string,
 	entry mutationfs.DirectoryEntrySnapshot,
-	options inventoryOptions,
+	options Options,
 ) (journalDirectoryEvidence, error) {
 	if err := validateJournalDirectoryEntry(entry); err != nil {
 		return journalDirectoryEvidence{}, err
@@ -603,7 +633,7 @@ func loadJournalDirectoryEvidence(
 			entry.Name(),
 		)
 	}
-	decode := options.recordDecoder
+	decode := options.Decoder
 	if decode == nil {
 		decode = journalrecord.DecodeOrdinarySnapshot
 	}

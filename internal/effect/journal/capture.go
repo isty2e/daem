@@ -10,11 +10,15 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
@@ -74,7 +78,7 @@ func CaptureJournalWithOptions(
 	if err != nil {
 		return CaptureResult{}, err
 	}
-	if err := ensureNoActive(ctx, paths.RecoveryDir, inventoryOptions{
+	if err := ensureNoActive(ctx, paths.RecoveryDir, journalinventory.Options{
 		Filesystem: options.Filesystem,
 		StateCodec: options.StateCodec,
 	}); err != nil {

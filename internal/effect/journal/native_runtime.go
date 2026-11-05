@@ -140,7 +140,7 @@ func (retiring *NativeJournalRetirement) ExecuteWithGate(ctx context.Context, as
 		if !assessment.CleanBefore() && !assessment.CleanAfter() {
 			return fmt.Errorf("native journal is not clean enough to retire")
 		}
-		if assessment.capture != retiring.capture || !assessment.active.equal(retiring.active) {
+		if assessment.capture != retiring.capture || !assessment.active.Equal(retiring.active) {
 			return fmt.Errorf("native retirement assessment belongs to another published record")
 		}
 		return ctx.Err()

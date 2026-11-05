@@ -6,8 +6,10 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
@@ -54,7 +56,7 @@ func InterruptionKindOf(err error) InterruptionKind {
 // RequireNoInterruptedApply applies the canonical recovery-root readiness
 // policy through the production filesystem and state codecs.
 func RequireNoInterruptedApply(ctx context.Context, recoveryRoot string) error {
-	return ensureNoActive(ctx, recoveryRoot, inventoryOptions{
+	return ensureNoActive(ctx, recoveryRoot, journalinventory.Options{
 		Filesystem: storagecommit.Adapter{},
 		StateCodec: statefile.Codec{},
 	})
@@ -66,7 +68,7 @@ func RequireNoInterruptedApplyBounded(ctx context.Context, recoveryRoot string, 
 	if budget == nil {
 		return fmt.Errorf("journal readiness physical work budget is required")
 	}
-	return ensureNoActive(ctx, recoveryRoot, inventoryOptions{
+	return ensureNoActive(ctx, recoveryRoot, journalinventory.Options{
 		Filesystem: storagecommit.Adapter{}, StateCodec: statefile.Codec{}, PhysicalPathBudget: budget,
 	})
 }
@@ -76,13 +78,13 @@ func RequireNoInterruptedApplyBounded(ctx context.Context, recoveryRoot string, 
 func ensureNoActive(
 	ctx context.Context,
 	recoveryRoot string,
-	options inventoryOptions,
+	options journalinventory.Options,
 ) error {
-	inventory, err := loadRecoveryRootInventory(ctx, recoveryRoot, options)
+	inventory, err := journalinventory.LoadRoot(ctx, recoveryRoot, options)
 	if err != nil {
 		return err
 	}
-	switch inventory.decision.State() {
+	switch inventory.Decision().State() {
 	case retirement.StateClean, retirement.StateFinalized:
 		return nil
 	case retirement.StateActive, retirement.StatePrepared:
@@ -91,7 +93,7 @@ func ensureNoActive(
 		retirement.StateFinalizing:
 		return fmt.Errorf("%w; run: daem recover --dry-run", ErrIncompleteJournalCleanup)
 	case retirement.StateBlocked:
-		return fmt.Errorf("recovery inventory is blocked: %s", inventory.decision.Detail())
+		return fmt.Errorf("recovery inventory is blocked: %s", inventory.Decision().Detail())
 	default:
 		return fmt.Errorf("recovery inventory classification is invalid")
 	}

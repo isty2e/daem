@@ -8,17 +8,20 @@ import (
 	"fmt"
 	"path/filepath"
 
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -93,7 +96,7 @@ func (plan NativeRecoveryPlan) Classification() recovery.Classification {
 
 func (plan NativeRecoveryPlan) SameExecutionAuthority(other RecoverablePlan) bool {
 	typed, ok := other.(NativeRecoveryPlan)
-	if !ok || plan.blocked != typed.blocked || !plan.sameCleanup(typed) || plan.capture != typed.capture || !plan.active.equal(typed.active) || !plan.inventory.equal(typed.inventory) || plan.assessment.disposition != typed.assessment.disposition || !plan.assessment.state.Equal(typed.assessment.state) || plan.assessment.ordinary.observationFingerprint() != typed.assessment.ordinary.observationFingerprint() || len(plan.assessment.stages) != len(typed.assessment.stages) {
+	if !ok || plan.blocked != typed.blocked || !plan.sameCleanup(typed) || plan.capture != typed.capture || !plan.active.Equal(typed.active) || !plan.inventory.equal(typed.inventory) || plan.assessment.disposition != typed.assessment.disposition || !plan.assessment.state.Equal(typed.assessment.state) || plan.assessment.ordinary.observationFingerprint() != typed.assessment.ordinary.observationFingerprint() || len(plan.assessment.stages) != len(typed.assessment.stages) {
 		return false
 	}
 	scope := plan.registryScope
@@ -192,7 +195,7 @@ func (operation *NativeRecoveryOperation) Budget() *physicalwork.Budget {
 	return operation.profile.Budget
 }
 
-func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanLoadOptions, inventory recoveryRootInventory) (result *NativeRecoveryOperation, resultErr error) {
+func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanLoadOptions, inventory journalinventory.RootInventory) (result *NativeRecoveryOperation, resultErr error) {
 	if options.NativeDocuments == nil || options.NativeDocuments.Budget == nil || options.NativeDocuments.StateCodec == nil {
 		return nil, fmt.Errorf("native recovery requires its selected profile and original physical allocation")
 	}
@@ -204,7 +207,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 	if !ok {
 		return nil, fmt.Errorf("native recovery requires rooted observation")
 	}
-	journal, ok := inventory.active.record.Native()
+	journal, ok := inventory.Active().Record().Native()
 	if !ok {
 		return nil, fmt.Errorf("native recovery requires a native16 inventory record")
 	}
@@ -246,7 +249,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 	}
 	operation.retained = append(operation.retained, ordinaryRoots...)
 	operation.ordinaryCapabilities = ordinaryCapabilities
-	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(inventory.active.operationDir, physicalwork.MaximumPhysicalPathDepth, profile.Budget)
+	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(inventory.Active().OperationDir(), physicalwork.MaximumPhysicalPathDepth, profile.Budget)
 	if err != nil {
 		return nil, err
 	}
@@ -257,15 +260,15 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 			result = nil
 		}
 	}()
-	active := inventory.active
-	if err := ValidateActiveJournalRoot(ctx, filesystem, root, profile.Budget, active.physicalAuthority); err != nil {
+	active := inventory.Active()
+	if err := journalinventory.ValidateActiveJournalRoot(ctx, filesystem, root, profile.Budget, active.PhysicalAuthority()); err != nil {
 		return nil, err
 	}
 	blocked := false
 	assessment, err := assessDocumentRecovery(journal, ctx, nativeDocumentRecoveryReadOptions{
 		documents: journalqualification.ReadOptions{Artifacts: root, Filesystem: filesystem, Budget: profile.Budget, Limits: profile.Limits, Codecs: profile.Codecs, OrdinaryCapabilities: ordinaryCapabilities},
 		roots:     roots, state: profile.StateReader, registry: options.OwnershipRegistry,
-		directory: active.operationDir, active: active.physicalAuthority, resolver: options.Resolver,
+		directory: active.OperationDir(), active: active.PhysicalAuthority(), resolver: options.Resolver,
 	})
 	if err != nil {
 		var phase *nativeSelectedPhaseError
@@ -278,13 +281,13 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 	if err != nil {
 		return nil, err
 	}
-	if journalrecord.Fingerprint(snapshot.Content()) != active.identity.JournalAuthorityFingerprint() {
+	if journalrecord.Fingerprint(snapshot.Content()) != active.Identity().JournalAuthorityFingerprint() {
 		return nil, fmt.Errorf("native recovery journal changed during qualification")
 	}
-	if err := ValidateActiveJournalRoot(ctx, filesystem, root, profile.Budget, active.physicalAuthority); err != nil {
+	if err := journalinventory.ValidateActiveJournalRoot(ctx, filesystem, root, profile.Budget, active.PhysicalAuthority()); err != nil {
 		return nil, err
 	}
-	inv, err := newRecoverableInventoryAuthority(inventory, inventory.decision.State() == retirement.StatePrepared)
+	inv, err := newRecoverableInventoryAuthority(inventory, inventory.Decision().State() == retirement.StatePrepared)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +300,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 		return nil, err
 	}
 	assessment.qualified = nativeQualifiedDocumentRecords{records: assessment.qualified.records}
-	operation.plan = NativeRecoveryPlan{blocked: blocked, journal: journal, capture: CaptureResult{OperationID: journal.OperationID(), Directory: active.operationDir, JournalPath: filepath.Join(active.operationDir, journalrecord.FileName), RecordFingerprint: active.identity.JournalAuthorityFingerprint()}, active: active.physicalAuthority, inventory: inv, assessment: assessment, registryScope: scope}
+	operation.plan = NativeRecoveryPlan{blocked: blocked, journal: journal, capture: CaptureResult{OperationID: journal.OperationID(), Directory: active.OperationDir(), JournalPath: filepath.Join(active.OperationDir(), journalrecord.FileName), RecordFingerprint: active.Identity().JournalAuthorityFingerprint()}, active: active.PhysicalAuthority(), inventory: inv, assessment: assessment, registryScope: scope}
 	operation.plan, err = operation.plan.assessCleanup(ctx, options, profile.Budget)
 	if err != nil {
 		return nil, err
@@ -312,12 +315,12 @@ func OpenNativeRecovery(ctx context.Context, paths Paths, selected NativeRecover
 		return nil, fmt.Errorf("native recovery profile is required")
 	}
 	inventoryOptions := inventoryOptionsFromPlan(options)
-	inventoryOptions.recordDecoder = nativeRecoveryInventoryDecoder(options.StateCodec, options.NativeDocuments.StateCodec)
-	inventory, err := loadRecoveryRootInventory(ctx, paths.RecoveryDir, inventoryOptions)
+	inventoryOptions.Decoder = nativeRecoveryInventoryDecoder(options.StateCodec, options.NativeDocuments.StateCodec)
+	inventory, err := journalinventory.LoadRoot(ctx, paths.RecoveryDir, inventoryOptions)
 	if err != nil {
 		return nil, err
 	}
-	if inventory.active == nil {
+	if inventory.Active() == nil {
 		return nil, fmt.Errorf("native recovery active authority disappeared")
 	}
 	operation, err := loadNativeRecoveryOperation(ctx, paths, options, inventory)

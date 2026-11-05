@@ -5,15 +5,18 @@ import (
 	"errors"
 	"fmt"
 
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
+
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
@@ -282,7 +285,7 @@ func observeRecoveryBackupsRooted(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := ValidateActiveJournalRoot(
+	if err := journalinventory.ValidateActiveJournalRoot(
 		ctx,
 		filesystem,
 		root,

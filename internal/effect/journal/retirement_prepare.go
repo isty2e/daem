@@ -8,9 +8,12 @@ import (
 	"sync"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -61,7 +64,7 @@ type retirementContinuationState struct {
 	maximumPhysicalDepth int
 	filesystem           mutationfs.RootedStore
 	stateCodec           durable.SnapshotCodec
-	journalDecoder       inventoryJournalDecoder
+	journalDecoder       journalinventory.JournalDecoder
 	rebased              bool
 	consumed             bool
 	closed               bool
@@ -563,7 +566,7 @@ func (prepared *RetirementContinuation) AdvanceActiveAuthority(
 		return fmt.Errorf("prepared journal retirement cannot advance its active authority")
 	}
 	if prepared.execution.start != retirementStartActive ||
-		!prepared.execution.activeAuthority.equal(previous) {
+		!prepared.execution.activeAuthority.Equal(previous) {
 		return fmt.Errorf("prepared journal retirement authority advance has a stale basis")
 	}
 	if err := current.Validate(); err != nil {
@@ -607,7 +610,7 @@ func (prepared *RetirementContinuation) advanceActiveBasisLocked(
 	if err := activeAuthority.Validate(); err != nil {
 		return err
 	}
-	if !prepared.execution.activeAuthority.equal(activeAuthority) {
+	if !prepared.execution.activeAuthority.Equal(activeAuthority) {
 		return fmt.Errorf("active recovery journal authority differs from its prepared continuation")
 	}
 	current, err := observeRetirementDirectoryWithLimits(
@@ -620,7 +623,7 @@ func (prepared *RetirementContinuation) advanceActiveBasisLocked(
 	if err != nil {
 		return fmt.Errorf("refresh active recovery journal retirement evidence: %w", err)
 	}
-	if !activeAuthority.matches(current.identity) {
+	if !activeAuthority.Matches(current.identity) {
 		return fmt.Errorf("active recovery journal identity changed before retirement")
 	}
 	if !prepared.evidence.active.sameTreeExceptMutableFile(current) {
@@ -688,7 +691,7 @@ func (prepared *RetirementContinuation) advanceActiveBasisLocked(
 		prepared.destinations = destinations
 		prepared.bindings = bindings
 	}
-	activeLimits, err := exactRetirementTreeLimits(current.work, maximumRecoveryTreeDepth)
+	activeLimits, err := exactRetirementTreeLimits(current.work, journalinventory.RecoveryTreeTraversalLimits().MaximumDepth())
 	if err != nil {
 		return err
 	}

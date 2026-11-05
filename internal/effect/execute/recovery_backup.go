@@ -7,8 +7,9 @@ import (
 	"io"
 	"io/fs"
 
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -248,7 +249,7 @@ func (authority *mutationAuthority) prepareRecoveryBackups(
 			_ = root.Close()
 		}
 	}()
-	if err := journal.ValidateActiveJournalRoot(
+	if err := journalinventory.ValidateActiveJournalRoot(
 		ctx,
 		authority.filesystem,
 		root,

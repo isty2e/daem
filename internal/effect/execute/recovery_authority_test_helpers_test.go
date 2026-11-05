@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -43,7 +43,7 @@ func executeRecoveryPlanWithOptionsForTest(
 	if err != nil {
 		return errors.Join(err, root.Close())
 	}
-	active, err := journal.CaptureActiveJournalAuthority(
+	active, err := journalinventory.CaptureActiveJournalAuthority(
 		ctx,
 		options.Filesystem,
 		entry,
@@ -77,7 +77,7 @@ func prepareRecoveryBackupsForTest(
 		_ = root.Close()
 		t.Fatal(err)
 	}
-	active, err := journal.CaptureActiveJournalAuthority(ctx, authority.filesystem, entry)
+	active, err := journalinventory.CaptureActiveJournalAuthority(ctx, authority.filesystem, entry)
 	closeErr := errors.Join(entry.Close(), root.Close())
 	if err != nil || closeErr != nil {
 		t.Fatal(errors.Join(err, closeErr))

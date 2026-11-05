@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -193,12 +194,12 @@ func recoveryTreeTraversalLimitsForBudget(
 		)
 	}
 	maximumEntries := min(
-		maximumRecoveryTreeEntries,
+		journalinventory.RecoveryTreeTraversalLimits().MaximumEntries(),
 		maximumWork.Entries(),
 		budget.RemainingEntries()-1,
 	)
 	maximumBytes := min(
-		int64(maximumRecoveryTreeBytes),
+		int64(journalinventory.RecoveryTreeTraversalLimits().MaximumBytes()),
 		maximumWork.Bytes(),
 		budget.RemainingBytes(),
 	)

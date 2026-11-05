@@ -14,8 +14,11 @@ import (
 	"strconv"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -208,7 +211,7 @@ func requireJournalFingerprintWithDecoder(
 	expected string,
 	stateCodec durable.SnapshotCodec,
 	label string,
-	decoder inventoryJournalDecoder,
+	decoder journalinventory.JournalDecoder,
 ) error {
 	if authority == nil {
 		return fmt.Errorf("%s record authority is required", label)
@@ -462,14 +465,14 @@ func observeRetirementPreparation(
 			filesystem,
 			bindings.active,
 			budget,
-			maximumRecoveryTreeEntries,
-			maximumRecoveryTreeDepth,
-			maximumRecoveryTreeBytes,
+			journalinventory.RecoveryTreeTraversalLimits().MaximumEntries(),
+			journalinventory.RecoveryTreeTraversalLimits().MaximumDepth(),
+			journalinventory.RecoveryTreeTraversalLimits().MaximumBytes(),
 		)
 		if err != nil {
 			return retirementExecutionEvidence{}, fmt.Errorf("observe active recovery journal: %w", err)
 		}
-		if !execution.activeAuthority.matches(evidence.active.identity) {
+		if !execution.activeAuthority.Matches(evidence.active.identity) {
 			return retirementExecutionEvidence{}, fmt.Errorf("active recovery journal identity changed before retirement preparation")
 		}
 		journalBytes := evidence.active.fileSizes[journalrecord.FileName]
@@ -481,7 +484,7 @@ func observeRetirementPreparation(
 		}
 		evidence.activeLimits, err = exactRetirementTreeLimits(
 			evidence.active.work,
-			maximumRecoveryTreeDepth,
+			journalinventory.RecoveryTreeTraversalLimits().MaximumDepth(),
 		)
 		if err != nil {
 			return retirementExecutionEvidence{}, err
@@ -529,7 +532,7 @@ func observeRetirementPreparation(
 	if evidence.residuePresent {
 		evidence.residueLimits, err = exactRetirementTreeLimits(
 			evidence.residue.work,
-			maximumRecoveryTreeDepth,
+			journalinventory.RecoveryTreeTraversalLimits().MaximumDepth(),
 		)
 		if err != nil {
 			return retirementExecutionEvidence{}, err
@@ -557,7 +560,7 @@ func observeRetirementPreparation(
 	evidence.controlCurrentWork = currentWork
 	evidence.controlCurrentLimits, err = exactRetirementTreeLimits(
 		currentWork,
-		maximumRetirementControlTreeDepth,
+		journalinventory.RetirementControlTraversalLimits().MaximumDepth(),
 	)
 	if err != nil {
 		return retirementExecutionEvidence{}, err
@@ -580,7 +583,7 @@ func observeRetirementPreparation(
 	evidence.controlFinalWork = finalWork
 	evidence.controlFinalLimits, err = exactRetirementTreeLimits(
 		finalWork,
-		maximumRetirementControlTreeDepth,
+		journalinventory.RetirementControlTraversalLimits().MaximumDepth(),
 	)
 	if err != nil {
 		return retirementExecutionEvidence{}, err
@@ -601,9 +604,9 @@ func observeOptionalRetirementControl(
 	}
 	limits, err := retirementPreparationLimits(
 		budget,
-		maximumRetirementControlEntries,
-		maximumRetirementControlTreeDepth,
-		maximumRetirementControlTreeBytes,
+		journalinventory.RetirementControlTraversalLimits().MaximumEntries(),
+		journalinventory.RetirementControlTraversalLimits().MaximumDepth(),
+		journalinventory.RetirementControlTraversalLimits().MaximumBytes(),
 	)
 	if err != nil {
 		return retirementTreeEvidence{}, false, err
@@ -633,9 +636,9 @@ func observeOptionalRetirementDirectory(
 		filesystem,
 		authority,
 		budget,
-		maximumRecoveryTreeEntries,
-		maximumRecoveryTreeDepth,
-		maximumRecoveryTreeBytes,
+		journalinventory.RecoveryTreeTraversalLimits().MaximumEntries(),
+		journalinventory.RecoveryTreeTraversalLimits().MaximumDepth(),
+		journalinventory.RecoveryTreeTraversalLimits().MaximumBytes(),
 	)
 	if err != nil {
 		return retirementTreeEvidence{}, false, err
@@ -770,7 +773,7 @@ func activeRetirementEnvelopeLimits(
 	if err != nil {
 		return mutationfs.TreeTraversalLimits{}, err
 	}
-	return exactRetirementTreeLimits(work, maximumRecoveryTreeDepth)
+	return exactRetirementTreeLimits(work, journalinventory.RecoveryTreeTraversalLimits().MaximumDepth())
 }
 
 func journalFingerprintMatchesEvidence(

@@ -8,18 +8,21 @@ import (
 	"slices"
 	"time"
 
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -112,8 +115,8 @@ func CaptureNativeJournalWithOptions(
 	if err := validateNativeCaptureWork(batch.Evidence().BeforeState(), after, edits, append(slices.Clone(mutations), wholeMutations...), options.ProjectCarrierCompletions); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	if err := ensureNoActive(ctx, paths.RecoveryDir, inventoryOptions{
-		Filesystem: options.Filesystem, StateCodec: options.StateCodec, PhysicalPathBudget: batch.budget, recordDecoder: decodeNativeCaptureInventoryJournal,
+	if err := ensureNoActive(ctx, paths.RecoveryDir, journalinventory.Options{
+		Filesystem: options.Filesystem, StateCodec: options.StateCodec, PhysicalPathBudget: batch.budget, Decoder: decodeNativeCaptureInventoryJournal,
 	}); err != nil {
 		return CapturedNativeJournal{}, err
 	}

@@ -5,8 +5,11 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
@@ -14,7 +17,9 @@ import (
 
 // RecoveryInventoryProfile admits journal families through their own codecs.
 // It contains no host, statefile, Registry or root acquisition capability.
-type RecoveryInventoryProfile struct{ decoder inventoryJournalDecoder }
+type RecoveryInventoryProfile struct {
+	decoder journalinventory.JournalDecoder
+}
 
 func NewNativeRecoveryInventoryProfile(legacy, native durable.SnapshotCodec) (RecoveryInventoryProfile, error) {
 	if legacy == nil || native == nil {
@@ -23,7 +28,7 @@ func NewNativeRecoveryInventoryProfile(legacy, native durable.SnapshotCodec) (Re
 	return RecoveryInventoryProfile{decoder: nativeRecoveryInventoryDecoder(legacy, native)}, nil
 }
 
-func nativeRecoveryInventoryDecoder(legacy, native durable.SnapshotCodec) inventoryJournalDecoder {
+func nativeRecoveryInventoryDecoder(legacy, native durable.SnapshotCodec) journalinventory.JournalDecoder {
 	return func(ctx context.Context, snapshot mutationfs.RegularFileSnapshot, path string, _ durable.SnapshotCodec) (journalrecord.Loaded, error) {
 		version, err := jsonstrict.ValidateVersionedObject(snapshot.Content(), "recovery inventory journal", journalrecord.MaximumJSONDepth)
 		if err != nil {

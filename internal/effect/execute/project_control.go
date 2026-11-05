@@ -11,7 +11,9 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -94,7 +96,7 @@ func (authority *mutationAuthority) captureJournalExecutionBasis(
 	if authority == nil || authority.filesystem == nil {
 		return fmt.Errorf("recovery journal retirement authority is unavailable")
 	}
-	captured, err := journal.CaptureActiveJournalAuthority(
+	captured, err := journalinventory.CaptureActiveJournalAuthority(
 		ctx,
 		authority.filesystem,
 		authority.recoveryJournal,
@@ -136,7 +138,7 @@ func (authority *mutationAuthority) validateJournalExecutionBasis(
 	if err := authority.journalBasis.validate(); err != nil {
 		return fmt.Errorf("recovery journal execution basis is unavailable: %w", err)
 	}
-	if err := journal.ValidateActiveJournalAuthority(
+	if err := journalinventory.ValidateActiveJournalAuthority(
 		ctx,
 		authority.filesystem,
 		authority.recoveryJournal,
