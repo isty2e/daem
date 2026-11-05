@@ -6,7 +6,9 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/payload"
@@ -396,7 +398,7 @@ func (authority *mutationAuthority) observeForwardRemovalCurrent(
 	if err != nil {
 		return recovery.RemovalState{}, workmeasure.ArtifactWork{}, false, err
 	}
-	observation, _, work, observeErr := journal.ObserveRootedRemovalEntry(
+	observation, _, work, observeErr := journalqualification.ObserveRootedRemovalEntry(
 		ctx,
 		authority.filesystem,
 		capability,
@@ -471,7 +473,7 @@ func (authority *mutationAuthority) beginForwardRemoval(
 	if err != nil {
 		return mutationfs.TreeTraversalLimits{}, err
 	}
-	observation, observedIdentity, work, err := journal.ObserveRootedRemovalEntry(
+	observation, observedIdentity, work, err := journalqualification.ObserveRootedRemovalEntry(
 		ctx,
 		authority.filesystem,
 		capability,

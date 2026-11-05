@@ -9,16 +9,19 @@ import (
 	"strings"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
-
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
+
 	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
@@ -143,7 +146,7 @@ func TestObserveRecoveryContentPathRejectsOversizedAggregateDocument(t *testing.
 	if !present {
 		t.Fatal("aggregate fixture has no contract")
 	}
-	observation, err := observeGlobalRecoveryPath(
+	observation, err := journalqualification.ObserveGlobalPath(
 		t.Context(),
 		action.Destination().String(),
 		string(action.ContentPath()),

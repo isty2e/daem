@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -20,13 +22,13 @@ import (
 )
 
 type nativeOrdinaryAssessment struct {
-	paths       []recoveryPathObservation
-	backups     []recoveryBackupObservation
+	paths       []recovery.PathEvidence
+	backups     []recovery.BackupEvidence
 	entries     recovery.EntryAssessment
 	checkpoints []recovery.RemovalCleanupObligation
 }
 
-func ordinaryBackups(ctx context.Context, journal journalrecord.Native, directory string, active ActiveJournalAuthority, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) ([]recovery.Entry, []recoveryBackupObservation, error) {
+func ordinaryBackups(ctx context.Context, journal journalrecord.Native, directory string, active ActiveJournalAuthority, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) ([]recovery.Entry, []recovery.BackupEvidence, error) {
 	entries, err := journal.OrdinaryEntries(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -35,11 +37,11 @@ func ordinaryBackups(ctx context.Context, journal journalrecord.Native, director
 	if err != nil {
 		return nil, nil, err
 	}
-	backups, err := recoveryBackupObservations(ctx, directory, active, views, filesystem, budget)
+	backups, err := journalqualification.ObserveBackups(ctx, directory, active, views, filesystem, budget)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := recovery.ValidateBackups(entries, canonicalRecoveryBackupEvidence(backups)); err != nil {
+	if err := recovery.ValidateBackups(entries, recovery.CloneBackupEvidence(backups)); err != nil {
 		return nil, nil, err
 	}
 	return entries, backups, nil
@@ -62,14 +64,14 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	if err := validateRecoveryGlobalPathBindings(ctx, ordinaryViews, options.resolver, options.documents.OrdinaryCapabilities, options.documents.Budget); err != nil {
+	if err := journalqualification.ValidateGlobalPathBindings(ctx, ordinaryViews, options.resolver, options.documents.OrdinaryCapabilities, options.documents.Budget); err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
 	manifest, err := journalnamespace.CaptureManifestAuthority(options.roots.Manifest.SelectedPath, options.roots.Manifest.Root, options.documents.Budget)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	paths, err := recoveryPathObservations(ctx, ordinaryViews, filesystem, manifest, options.resolver, options.documents.OrdinaryCapabilities, options.documents.Codecs, options.documents.Budget)
+	paths, err := journalqualification.ObservePaths(ctx, ordinaryViews, filesystem, manifest, options.resolver, options.documents.OrdinaryCapabilities, options.documents.Codecs, options.documents.Budget)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
@@ -77,7 +79,7 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	paths, err = applyRecoveryIntentOwnershipEvidence(ctx, paths, intents, registry, options.resolver, options.documents.Budget)
+	paths, err = journalqualification.ApplyIntentOwnershipEvidence(ctx, paths, intents, registry, options.resolver, options.documents.Budget)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
@@ -85,7 +87,7 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	assessed, err := recovery.AssessEntriesWithRemovalCleanup(entries, canonicalRecoveryPathEvidence(paths), canonicalRecoveryBackupEvidence(backups), checkpoints)
+	assessed, err := recovery.AssessEntriesWithRemovalCleanup(entries, recovery.ClonePathEvidence(paths), recovery.CloneBackupEvidence(backups), checkpoints)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
@@ -95,7 +97,7 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 	return nativeOrdinaryAssessment{entries: assessed, paths: paths, backups: backups, checkpoints: checkpoints}, nil
 }
 
-func ordinaryRetirementCheckpoints(journal journalrecord.Native, ctx context.Context, paths []recoveryPathObservation, options nativeDocumentRecoveryReadOptions) ([]recovery.RemovalCleanupObligation, error) {
+func ordinaryRetirementCheckpoints(journal journalrecord.Native, ctx context.Context, paths []recovery.PathEvidence, options nativeDocumentRecoveryReadOptions) ([]recovery.RemovalCleanupObligation, error) {
 	absent := make(map[string]bool)
 	for _, path := range paths {
 		if path.ContentPath == "" && !path.Exists && !path.PathExisted && path.Error == "" && path.BlockedReason == "" {
@@ -184,11 +186,11 @@ func captureNativeOrdinaryRecoveryRoots(ctx context.Context, entries []journalre
 		if resolver == nil || !entry.HasGlobalBinding() {
 			return nil, retained, fmt.Errorf("ordinary global recovery requires independent selection and recorded root evidence")
 		}
-		observed, err := observeRecoveryGlobalPathBindingForRecovery(destination, resolver, nil, budget)
+		observed, err := journalqualification.ObserveRecoveryGlobalBinding(destination, resolver, nil, budget)
 		if err != nil {
 			return nil, retained, err
 		}
-		if err := matchRecordedGlobalBinding(entry, observed, currentRoots, budget); err != nil {
+		if err := journalqualification.MatchRecordedGlobalBinding(entry, observed, currentRoots, budget); err != nil {
 			return nil, retained, err
 		}
 		_, expected, err := entry.GlobalBinding()
@@ -207,7 +209,7 @@ func captureNativeOrdinaryRecoveryRoots(ctx context.Context, entries []journalre
 		if err := expected.Match(authority); err != nil {
 			return nil, retained, err
 		}
-		path, err := filepath.Rel(expected.PhysicalRoot(), observed.resolvedPath)
+		path, err := filepath.Rel(expected.PhysicalRoot(), observed.ResolvedPath())
 		if err != nil {
 			return nil, retained, err
 		}

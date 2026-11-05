@@ -9,10 +9,12 @@ import (
 	"testing"
 	"time"
 
-	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -37,7 +39,7 @@ func TestObserveGlobalRecoveryPathPreservesSymlinkTargetThroughRootedFallback(t 
 	if err != nil {
 		t.Fatalf("parse global destination: %v", err)
 	}
-	observation, err := observeGlobalRecoveryPath(
+	observation, err := journalqualification.ObserveGlobalPath(
 		t.Context(),
 		destination.String(),
 		"",
@@ -324,7 +326,7 @@ func TestManifestRecoveryAuthorityAdmitsBudgetBeforeRootObservation(t *testing.T
 }
 
 func TestObserveGlobalRecoveryPathRejectsNilPresentCapability(t *testing.T) {
-	observation, err := observeGlobalRecoveryPath(
+	observation, err := journalqualification.ObserveGlobalPath(
 		context.Background(),
 		"~/.codex/config.toml",
 		"",
@@ -352,7 +354,7 @@ func TestObserveGlobalRecoveryPathRejectsResolverCapabilityMismatch(t *testing.T
 	}
 	defer root.Close()
 
-	observation, err := observeGlobalRecoveryPath(
+	observation, err := journalqualification.ObserveGlobalPath(
 		context.Background(),
 		"~/.codex/config.toml",
 		"",

@@ -8,18 +8,20 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired/entity"
-	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -101,10 +103,10 @@ func TestUninitializedCaptureInputIsRejectedBeforeEffects(t *testing.T) {
 			work.budget = imageBudget(t)
 		}
 		calls := 0
-		_, err := work.globalBindings([]journalrecord.CaptureMutation{valid, {}}, func(output.Destination) (string, error) {
+		_, err := journalqualification.CaptureGlobalPathBindings([]journalrecord.CaptureMutation{valid, {}}, func(output.Destination) (string, error) {
 			calls++
 			return "", nil
-		}, nil)
+		}, nil, work.budget)
 		if err == nil || calls != 0 {
 			t.Fatalf("bounded=%t: invalid input reached global observation: %d %v", bounded, calls, err)
 		}

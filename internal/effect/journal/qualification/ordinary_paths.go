@@ -1,4 +1,4 @@
-package journal
+package qualification
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
-func observeProjectRecoveryPath(
+func ObserveProjectPath(
 	ctx context.Context,
 	journalPath string,
 	contentPath string,
@@ -28,8 +28,8 @@ func observeProjectRecoveryPath(
 	manifestAuthority *journalnamespace.ManifestAuthority,
 	codecs aggregate.CodecCatalog,
 	budget *physicalwork.Budget,
-) (recoveryPathObservation, error) {
-	base := recoveryPathObservation{Path: journalPath, ContentPath: contentPath}
+) (recovery.PathEvidence, error) {
+	base := recovery.PathEvidence{Path: journalPath, ContentPath: contentPath}
 	if manifestAuthority == nil {
 		base.Error = "project root authority is required"
 		return base, nil
@@ -56,7 +56,7 @@ func observeProjectRecoveryPath(
 	)
 	closeErr := capability.Close()
 	if observeErr != nil {
-		return recoveryPathObservation{}, errors.Join(observeErr, closeErr)
+		return recovery.PathEvidence{}, errors.Join(observeErr, closeErr)
 	}
 	if closeErr != nil {
 		if observation.Error != "" {
@@ -68,18 +68,18 @@ func observeProjectRecoveryPath(
 	return observation, nil
 }
 
-func observeGlobalRecoveryPath(
+func ObserveGlobalPath(
 	ctx context.Context,
 	journalPath string,
 	contentPath string,
 	aggregateContract *aggregate.ProjectionContract,
 	resolvedPath string,
 	filesystem mutationfs.RootedReader,
-	resolver RootedCapabilityResolver,
+	resolver journalnamespace.CapabilityResolver,
 	codecs aggregate.CodecCatalog,
 	budget *physicalwork.Budget,
-) (recoveryPathObservation, error) {
-	base := recoveryPathObservation{Path: journalPath, ContentPath: contentPath}
+) (recovery.PathEvidence, error) {
+	base := recovery.PathEvidence{Path: journalPath, ContentPath: contentPath}
 	destination, err := output.Parse(journalPath)
 	if err != nil {
 		base.Error = fmt.Sprintf("parse global destination: %v", err)
@@ -135,7 +135,7 @@ func observeGlobalRecoveryPath(
 	)
 	closeErr := capability.Close()
 	if observeErr != nil {
-		return recoveryPathObservation{}, errors.Join(observeErr, closeErr)
+		return recovery.PathEvidence{}, errors.Join(observeErr, closeErr)
 	}
 	if closeErr != nil {
 		if observation.Error != "" {
@@ -156,15 +156,15 @@ func observeRootedRecoveryCapability(
 	capability rootedpath.CommitCapability,
 	codecs aggregate.CodecCatalog,
 	budget *physicalwork.Budget,
-) (recoveryPathObservation, error) {
-	base := recoveryPathObservation{Path: journalPath, ContentPath: contentPath}
+) (recovery.PathEvidence, error) {
+	base := recovery.PathEvidence{Path: journalPath, ContentPath: contentPath}
 	identity, err := filesystem.CaptureRootedEntryIdentity(ctx, capability)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return base, nil
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return recoveryPathObservation{}, err
+			return recovery.PathEvidence{}, err
 		}
 		var rootedFailure *rootedpath.Failure
 		if errors.As(err, &rootedFailure) && rootedFailure.Kind() == rootedpath.FailureFinalSymlink {
@@ -191,7 +191,7 @@ func observeRootedRecoveryCapability(
 		}
 		maximum, readerCapacity, err := recoveryArtifactWorkLimits(false, maximumBytes, budget)
 		if err != nil {
-			return recoveryPathObservation{}, err
+			return recovery.PathEvidence{}, err
 		}
 		content, mode, _, err := filesystem.ReadRootedRegularFileUpTo(
 			ctx,
@@ -200,10 +200,10 @@ func observeRootedRecoveryCapability(
 		)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return recoveryPathObservation{}, err
+				return recovery.PathEvidence{}, err
 			}
 			if chargeErr := budget.AdmitIndeterminateTreeWork(maximum, readerCapacity); chargeErr != nil {
-				return recoveryPathObservation{}, chargeErr
+				return recovery.PathEvidence{}, chargeErr
 			}
 			base.Exists = true
 			base.Error = fmt.Sprintf("read rooted destination: %v", err)
@@ -211,10 +211,10 @@ func observeRootedRecoveryCapability(
 		}
 		work, err := workmeasure.NewArtifactWork(0, int64(len(content)))
 		if err != nil {
-			return recoveryPathObservation{}, err
+			return recovery.PathEvidence{}, err
 		}
 		if err := budget.AdmitTreeWithin(work, maximum); err != nil {
-			return recoveryPathObservation{}, err
+			return recovery.PathEvidence{}, err
 		}
 		if contentPath != "" {
 			observation := observeRootedRecoveryContentPath(
@@ -249,7 +249,7 @@ func observeRootedRecoveryCapability(
 			budget,
 		)
 		if err != nil {
-			return recoveryPathObservation{}, err
+			return recovery.PathEvidence{}, err
 		}
 		if _, err := filesystem.SnapshotRootedDirectory(
 			ctx,
@@ -258,20 +258,20 @@ func observeRootedRecoveryCapability(
 			sink,
 		); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return recoveryPathObservation{}, err
+				return recovery.PathEvidence{}, err
 			}
 			if chargeErr := budget.AdmitIndeterminateDirectoryWork(maximum, readerCapacity); chargeErr != nil {
-				return recoveryPathObservation{}, chargeErr
+				return recovery.PathEvidence{}, chargeErr
 			}
 			base.Error = fmt.Sprintf("hash rooted destination: %v", err)
 			return base, nil
 		}
 		work, err := sink.removalWork()
 		if err != nil {
-			return recoveryPathObservation{}, err
+			return recovery.PathEvidence{}, err
 		}
 		if err := budget.AdmitTreeWithin(work, maximum); err != nil {
-			return recoveryPathObservation{}, err
+			return recovery.PathEvidence{}, err
 		}
 		contentHash, err := sink.hash()
 		if err != nil {
@@ -291,12 +291,12 @@ func observeRootedRecoveryCapability(
 
 func observeRootedRecoverySymlink(
 	ctx context.Context,
-	base recoveryPathObservation,
+	base recovery.PathEvidence,
 	contentPath string,
 	filesystem mutationfs.RootedReader,
 	capability rootedpath.CommitCapability,
 	budget *physicalwork.Budget,
-) (recoveryPathObservation, error) {
+) (recovery.PathEvidence, error) {
 	base.Exists = true
 	if contentPath != "" {
 		base.Error = "content path requires a regular file"
@@ -305,7 +305,7 @@ func observeRootedRecoverySymlink(
 	target, _, err := filesystem.ReadRootedSymlinkTarget(ctx, capability)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return recoveryPathObservation{}, err
+			return recovery.PathEvidence{}, err
 		}
 		base.Error = fmt.Sprintf("read rooted symbolic link: %v", err)
 		return base, nil
@@ -322,8 +322,8 @@ func observeRootedRecoveryContentPath(
 	mode fs.FileMode,
 	aggregateContract *aggregate.ProjectionContract,
 	codecs aggregate.CodecCatalog,
-) recoveryPathObservation {
-	base := recoveryPathObservation{
+) recovery.PathEvidence {
+	base := recovery.PathEvidence{
 		Path:        journalPath,
 		ContentPath: contentPath,
 		PathExisted: true,

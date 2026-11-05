@@ -12,8 +12,11 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
@@ -21,6 +24,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -136,11 +140,11 @@ func ordinaryGrammarJournalBytes(t *testing.T) []byte {
 }
 
 func TestZeroRecordedPathFactsRefuseBeforeObservation(t *testing.T) {
-	observations, err := recoveryPathObservations(t.Context(), []journalrecord.PathEntry{{}}, nil, nil, nil, nil, aggregate.CodecCatalog{}, nil)
+	observations, err := journalqualification.ObservePaths(t.Context(), []journalrecord.PathEntry{{}}, nil, nil, nil, nil, aggregate.CodecCatalog{}, nil)
 	if err == nil || observations != nil {
 		t.Fatal("zero path view reached observation or supplied a prefix")
 	}
-	if err := validateRecoveryGlobalPathBindings(t.Context(), []journalrecord.PathEntry{{}}, nil, nil, nil); err == nil {
+	if err := journalqualification.ValidateGlobalPathBindings(t.Context(), []journalrecord.PathEntry{{}}, nil, nil, nil); err == nil {
 		t.Fatal("zero entry passed complete global binding validation")
 	}
 }
@@ -171,7 +175,7 @@ func TestRecordedPathObservationKeepsEntryFailureInItsDiagnostic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observations, err := recoveryPathObservations(t.Context(), basis.PlanningEntries(), nil, nil, nil, nil, aggregate.CodecCatalog{}, nil)
+	observations, err := journalqualification.ObservePaths(t.Context(), basis.PlanningEntries(), nil, nil, nil, nil, aggregate.CodecCatalog{}, nil)
 	if err != nil || len(observations) != 1 || observations[0].Path != "AGENTS.md" || observations[0].Error == "" {
 		t.Fatal("missing project authority did not remain an entry-local observation error", err)
 	}

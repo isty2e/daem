@@ -10,6 +10,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
@@ -321,15 +323,16 @@ func buildOrdinaryCaptureMaterial(
 	if err != nil {
 		return journalrecord.OrdinaryEvidence{}, err
 	}
-	globalPathBindings, err := work.globalBindings(
+	globalPathBindings, err := journalqualification.CaptureGlobalPathBindings(
 		mutations,
 		options.Resolver,
 		options.RootedCapability,
+		work.budget,
 	)
 	if err != nil {
 		return journalrecord.OrdinaryEvidence{}, err
 	}
-	boundResolver := globalPathBindings.resolver(options.Resolver)
+	boundResolver := globalPathBindings.Resolver(options.Resolver)
 	manifestAuthority, err := journalnamespace.CaptureManifestAuthority(paths.ManifestRoot, options.ManifestRoot, work.budget)
 	if err != nil {
 		return journalrecord.OrdinaryEvidence{}, err
@@ -365,7 +368,7 @@ func buildOrdinaryCaptureMaterial(
 		if err := draft.SupplyBefore(before); err != nil {
 			return journalrecord.OrdinaryEvidence{}, err
 		}
-		binding, err := globalPathBindings.captured(action.Scope(), action.Destination())
+		binding, err := globalPathBindings.Captured(action.Scope(), action.Destination())
 		if err != nil {
 			return journalrecord.OrdinaryEvidence{}, err
 		}

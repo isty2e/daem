@@ -1,4 +1,4 @@
-package journal
+package qualification
 
 import (
 	"context"
@@ -14,75 +14,83 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-// recoveryGlobalPathObservation binds one logical global destination to the
+// GlobalPathObservation binds one logical global destination to the
 // exact retained root incarnation used for capture or recovery observation.
 // It is runtime authority, not persistence or ownership identity.
-type recoveryGlobalPathObservation struct {
+type GlobalPathObservation struct {
 	resolvedPath  string
 	rootAuthority rootedpath.Authority
 }
 
-type recoveryGlobalPathBindings map[output.Destination]recoveryGlobalPathObservation
+type GlobalPathBindings struct {
+	values map[output.Destination]GlobalPathObservation
+}
 
-func captureRecoveryGlobalPathBindings(
+func CaptureGlobalPathBindings(
 	actions []journalrecord.CaptureMutation,
 	resolver func(output.Destination) (string, error),
-	rootedCapability RootedCapabilityResolver,
-) (recoveryGlobalPathBindings, error) {
+	rootedCapability journalnamespace.CapabilityResolver,
+	budget *physicalwork.Budget,
+) (GlobalPathBindings, error) {
 	if err := journalrecord.ValidateCaptureMutations(actions); err != nil {
-		return nil, err
+		return GlobalPathBindings{}, err
 	}
-	bindings := make(recoveryGlobalPathBindings)
+	bindings := GlobalPathBindings{values: make(map[output.Destination]GlobalPathObservation)}
 	for _, action := range actions {
 		if action.Scope() != target.ScopeGlobal {
 			continue
 		}
-		if _, present := bindings[action.Destination()]; present {
+		if _, present := bindings.values[action.Destination()]; present {
 			continue
 		}
-		observed, err := observeRecoveryGlobalPathBinding(
-			action.Destination(),
-			resolver,
-			rootedCapability,
-		)
-		if err != nil {
-			return nil, err
+		var observed GlobalPathObservation
+		var err error
+		if budget == nil {
+			observed, err = ObserveGlobalBinding(action.Destination(), resolver, rootedCapability)
+		} else {
+			if rootedCapability == nil {
+				return GlobalPathBindings{}, fmt.Errorf("native ordinary capture requires retained global authority")
+			}
+			observed, err = ObserveRecoveryGlobalBinding(action.Destination(), resolver, rootedCapability, budget)
 		}
-		bindings[action.Destination()] = observed
+		if err != nil {
+			return GlobalPathBindings{}, err
+		}
+		bindings.values[action.Destination()] = observed
 	}
 	return bindings, nil
 }
 
-func (bindings recoveryGlobalPathBindings) resolver(
+func (bindings GlobalPathBindings) Resolver(
 	fallback func(output.Destination) (string, error),
 ) func(output.Destination) (string, error) {
 	return func(destination output.Destination) (string, error) {
-		if binding, present := bindings[destination]; present {
+		if binding, present := bindings.values[destination]; present {
 			return binding.resolvedPath, nil
 		}
 		return fallback(destination)
 	}
 }
 
-func (bindings recoveryGlobalPathBindings) captured(
+func (bindings GlobalPathBindings) Captured(
 	scope target.Scope,
 	destination output.Destination,
 ) (*journalrecord.GlobalBinding, error) {
 	if scope != target.ScopeGlobal {
 		return nil, nil
 	}
-	binding, present := bindings[destination]
+	binding, present := bindings.values[destination]
 	if !present {
 		return nil, fmt.Errorf("global destination %q has no capture-time path binding", destination)
 	}
-	return binding.captureFacts()
+	return binding.CaptureFacts()
 }
 
-func validateRecoveryGlobalPathBindings(
+func ValidateGlobalPathBindings(
 	ctx context.Context,
 	entries []journalrecord.PathEntry,
 	resolver func(output.Destination) (string, error),
-	rootedCapability RootedCapabilityResolver,
+	rootedCapability journalnamespace.CapabilityResolver,
 	budget *physicalwork.Budget,
 ) error {
 	validated := make(map[output.Destination]journalrecord.GlobalBindingKey)
@@ -114,7 +122,7 @@ func validateRecoveryGlobalPathBindings(
 			}
 			continue
 		}
-		current, err := observeRecoveryGlobalPathBindingForRecovery(
+		current, err := ObserveRecoveryGlobalBinding(
 			destination,
 			resolver,
 			rootedCapability,
@@ -123,7 +131,7 @@ func validateRecoveryGlobalPathBindings(
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d]: %w", index, err)
 		}
-		if err := matchRecordedGlobalBinding(entry, current, currentRoots, budget); err != nil {
+		if err := MatchRecordedGlobalBinding(entry, current, currentRoots, budget); err != nil {
 			return fmt.Errorf("recovery entries[%d] global destination %q: %w", index, destination, err)
 		}
 		validated[destination] = entry.BindingIdentity()
@@ -131,21 +139,21 @@ func validateRecoveryGlobalPathBindings(
 	return nil
 }
 
-func observeRecoveryGlobalPathBindingForRecovery(
+func ObserveRecoveryGlobalBinding(
 	destination output.Destination,
 	resolver func(output.Destination) (string, error),
-	rootedCapability RootedCapabilityResolver,
+	rootedCapability journalnamespace.CapabilityResolver,
 	budget *physicalwork.Budget,
-) (recoveryGlobalPathObservation, error) {
+) (GlobalPathObservation, error) {
 	if budget == nil {
-		return recoveryGlobalPathObservation{}, fmt.Errorf("recovery path work budget is required")
+		return GlobalPathObservation{}, fmt.Errorf("recovery path work budget is required")
 	}
 	if resolver == nil {
-		return recoveryGlobalPathObservation{}, fmt.Errorf("recovery global destination resolver is required")
+		return GlobalPathObservation{}, fmt.Errorf("recovery global destination resolver is required")
 	}
 	resolved, err := resolver(destination)
 	if err != nil {
-		return recoveryGlobalPathObservation{}, fmt.Errorf("resolve global destination %q: %w", destination, err)
+		return GlobalPathObservation{}, fmt.Errorf("resolve global destination %q: %w", destination, err)
 	}
 	if rootedCapability != nil {
 		capability, present, err := journalnamespace.AcquireMatchingCapability(
@@ -155,10 +163,10 @@ func observeRecoveryGlobalPathBindingForRecovery(
 			budget,
 		)
 		if err != nil {
-			return recoveryGlobalPathObservation{}, err
+			return GlobalPathObservation{}, err
 		}
 		if !present {
-			return recoveryGlobalPathObservation{}, fmt.Errorf(
+			return GlobalPathObservation{}, fmt.Errorf(
 				"global destination %q has no retained root authority",
 				destination,
 			)
@@ -167,9 +175,9 @@ func observeRecoveryGlobalPathBindingForRecovery(
 		path, pathErr := bound.LexicalPath()
 		closeErr := capability.Close()
 		if pathErr != nil || closeErr != nil {
-			return recoveryGlobalPathObservation{}, errors.Join(pathErr, closeErr)
+			return GlobalPathObservation{}, errors.Join(pathErr, closeErr)
 		}
-		return recoveryGlobalPathObservation{
+		return GlobalPathObservation{
 			resolvedPath:  path,
 			rootAuthority: bound.Root(),
 		}, nil
@@ -180,7 +188,7 @@ func observeRecoveryGlobalPathBindingForRecovery(
 		budget,
 	)
 	if err != nil {
-		return recoveryGlobalPathObservation{}, fmt.Errorf("bind global destination %q: %w", destination, err)
+		return GlobalPathObservation{}, fmt.Errorf("bind global destination %q: %w", destination, err)
 	}
 	path, pathErr := bound.LexicalPath()
 	if pathErr != nil {
@@ -192,22 +200,22 @@ func observeRecoveryGlobalPathBindingForRecovery(
 		closeErr = fmt.Errorf("close global destination %q root authority: %w", destination, closeErr)
 	}
 	if pathErr != nil || closeErr != nil {
-		return recoveryGlobalPathObservation{}, errors.Join(pathErr, closeErr)
+		return GlobalPathObservation{}, errors.Join(pathErr, closeErr)
 	}
-	return recoveryGlobalPathObservation{resolvedPath: path, rootAuthority: authority}, nil
+	return GlobalPathObservation{resolvedPath: path, rootAuthority: authority}, nil
 }
 
-func observeRecoveryGlobalPathBinding(
+func ObserveGlobalBinding(
 	destination output.Destination,
 	resolver func(output.Destination) (string, error),
-	rootedCapability RootedCapabilityResolver,
-) (recoveryGlobalPathObservation, error) {
+	rootedCapability journalnamespace.CapabilityResolver,
+) (GlobalPathObservation, error) {
 	if resolver == nil {
-		return recoveryGlobalPathObservation{}, fmt.Errorf("recovery global destination resolver is required")
+		return GlobalPathObservation{}, fmt.Errorf("recovery global destination resolver is required")
 	}
 	resolved, err := resolver(destination)
 	if err != nil {
-		return recoveryGlobalPathObservation{}, fmt.Errorf("resolve global destination %q: %w", destination, err)
+		return GlobalPathObservation{}, fmt.Errorf("resolve global destination %q: %w", destination, err)
 	}
 	if rootedCapability != nil {
 		capability, present, err := journalnamespace.AcquireMatchingCapability(
@@ -217,31 +225,31 @@ func observeRecoveryGlobalPathBinding(
 			nil,
 		)
 		if err != nil {
-			return recoveryGlobalPathObservation{}, err
+			return GlobalPathObservation{}, err
 		}
 		if !present {
-			return recoveryGlobalPathObservation{}, fmt.Errorf(
+			return GlobalPathObservation{}, fmt.Errorf(
 				"global destination %q has no retained root authority",
 				destination,
 			)
 		}
 		if err := capability.Validate(); err != nil {
-			return recoveryGlobalPathObservation{}, errors.Join(err, capability.Close())
+			return GlobalPathObservation{}, errors.Join(err, capability.Close())
 		}
 		bound := capability.Destination()
 		path, pathErr := bound.LexicalPath()
 		closeErr := capability.Close()
 		if pathErr != nil || closeErr != nil {
-			return recoveryGlobalPathObservation{}, errors.Join(pathErr, closeErr)
+			return GlobalPathObservation{}, errors.Join(pathErr, closeErr)
 		}
-		return recoveryGlobalPathObservation{
+		return GlobalPathObservation{
 			resolvedPath:  path,
 			rootAuthority: bound.Root(),
 		}, nil
 	}
 	root, bound, err := rootedpath.CaptureDestination(resolved)
 	if err != nil {
-		return recoveryGlobalPathObservation{}, fmt.Errorf("bind global destination %q: %w", destination, err)
+		return GlobalPathObservation{}, fmt.Errorf("bind global destination %q: %w", destination, err)
 	}
 	path, pathErr := bound.LexicalPath()
 	if pathErr != nil {
@@ -256,12 +264,12 @@ func observeRecoveryGlobalPathBinding(
 		closeErr = fmt.Errorf("close global destination %q root authority: %w", destination, closeErr)
 	}
 	if pathErr != nil || authorityErr != nil || closeErr != nil {
-		return recoveryGlobalPathObservation{}, errors.Join(pathErr, authorityErr, closeErr)
+		return GlobalPathObservation{}, errors.Join(pathErr, authorityErr, closeErr)
 	}
-	return recoveryGlobalPathObservation{resolvedPath: path, rootAuthority: authority}, nil
+	return GlobalPathObservation{resolvedPath: path, rootAuthority: authority}, nil
 }
 
-func (binding recoveryGlobalPathObservation) captureFacts() (*journalrecord.GlobalBinding, error) {
+func (binding GlobalPathObservation) CaptureFacts() (*journalrecord.GlobalBinding, error) {
 	provenance, err := binding.rootAuthority.Provenance()
 	if err != nil {
 		return nil, err
@@ -269,9 +277,9 @@ func (binding recoveryGlobalPathObservation) captureFacts() (*journalrecord.Glob
 	return journalrecord.NewGlobalBinding(binding.resolvedPath, provenance), nil
 }
 
-func matchRecordedGlobalBinding(
+func MatchRecordedGlobalBinding(
 	binding journalrecord.PathEntry,
-	current recoveryGlobalPathObservation,
+	current GlobalPathObservation,
 	currentRoots map[string]rootedpath.Authority,
 	budget *physicalwork.Budget,
 ) error {
@@ -319,8 +327,4 @@ func matchRecordedGlobalBinding(
 	return nil
 }
 
-// RootedCapabilityResolver acquires a borrowed, current capability for one
-// already-bound global destination. A non-nil budget must cover acquisition
-// before descriptor validation begins. The caller retains the root authority;
-// the receiver closes each returned capability.
-type RootedCapabilityResolver = journalnamespace.CapabilityResolver
+func (binding GlobalPathObservation) ResolvedPath() string { return binding.resolvedPath }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/test/outputtest"
@@ -21,7 +22,7 @@ func TestLegacyRecoveryObservationRefusesNativeScopeWithoutPartialResults(t *tes
 			t.Fatal(err)
 		}
 		for _, intents := range [][]ownership.ProvisionalAcquireIntent{{legacy, native}, {native, legacy}} {
-			observed, err := applyRecoveryIntentOwnershipEvidence(t.Context(), nil, intents, ownership.Registry{}, nil, nil)
+			observed, err := journalqualification.ApplyIntentOwnershipEvidence(t.Context(), nil, intents, ownership.Registry{}, nil, nil)
 			if !errors.Is(err, output.ErrNotLegacyFootprint) || observed != nil {
 				t.Fatalf("old recovery observation returned partial or lossy evidence: %#v, %v", observed, err)
 			}

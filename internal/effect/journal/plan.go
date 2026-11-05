@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 
-	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
@@ -430,7 +432,7 @@ func loadActivePlanFromInventory(
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	if err := validateRecoveryGlobalPathBindings(
+	if err := journalqualification.ValidateGlobalPathBindings(
 		ctx,
 		basis.AllEntries(),
 		options.Resolver,
@@ -496,7 +498,7 @@ func loadActivePlanFromInventory(
 	if manifestAuthority != nil {
 		defer manifestAuthority.Close()
 	}
-	observations, err := recoveryPathObservations(
+	observations, err := journalqualification.ObservePaths(
 		ctx,
 		planningEntries,
 		options.Filesystem,
@@ -509,7 +511,7 @@ func loadActivePlanFromInventory(
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	observations, err = applyRecoveryIntentOwnershipEvidence(
+	observations, err = journalqualification.ApplyIntentOwnershipEvidence(
 		ctx,
 		observations,
 		provisionalAcquires,
@@ -525,7 +527,7 @@ func loadActivePlanFromInventory(
 			return recovery.Plan{}, fmt.Errorf("close recovery manifest root authority: %w", err)
 		}
 	}
-	backupObservations, err := recoveryBackupObservations(
+	backupObservations, err := journalqualification.ObserveBackups(
 		ctx,
 		operationDir,
 		inventory.Active().PhysicalAuthority(),
@@ -544,8 +546,8 @@ func loadActivePlanFromInventory(
 		authority,
 		selection,
 		currentState,
-		canonicalRecoveryPathEvidence(observations),
-		canonicalRecoveryBackupEvidence(backupObservations),
+		recovery.ClonePathEvidence(observations),
+		recovery.CloneBackupEvidence(backupObservations),
 		registry,
 	)
 	if err != nil {

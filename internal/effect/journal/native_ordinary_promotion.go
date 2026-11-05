@@ -30,7 +30,7 @@ func (captured CapturedNativeJournal) PromoteOrdinary(ctx context.Context, inten
 		return CapturedNativeJournal{}, err
 	}
 	ordinary := observed.assessment.ordinary
-	matched, err := recovery.AssessEntries([]recovery.Entry{entry}, canonicalRecoveryPathEvidence(ordinary.paths), canonicalRecoveryBackupEvidence(ordinary.backups))
+	matched, err := recovery.AssessEntries([]recovery.Entry{entry}, recovery.ClonePathEvidence(ordinary.paths), recovery.CloneBackupEvidence(ordinary.backups))
 	if err != nil || !matched.MatchesExpected() {
 		return CapturedNativeJournal{}, errors.Join(fmt.Errorf("ordinary promotion requires a published expected path"), err)
 	}

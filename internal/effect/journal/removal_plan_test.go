@@ -5,17 +5,19 @@ package journal
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
@@ -96,7 +98,7 @@ func TestReservedRemovalReobservationReadsEmptyFileAndDirectory(t *testing.T) {
 			if err != nil {
 				t.Fatalf("begin reserved execution: %v", err)
 			}
-			entry, _, work, err := ObserveRootedRemovalEntry(
+			entry, _, work, err := journalqualification.ObserveRootedRemovalEntry(
 				t.Context(),
 				storagecommit.Adapter{},
 				capability,
@@ -183,7 +185,7 @@ func TestReservedEmptyRemovalReobservationRejectsPositiveGrowth(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			observation, _, _, err := ObserveRootedRemovalEntry(
+			observation, _, _, err := journalqualification.ObserveRootedRemovalEntry(
 				t.Context(),
 				storagecommit.Adapter{},
 				capability,
@@ -231,7 +233,7 @@ func TestRemovalObservationPreservesCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, _, _, err = ObserveRootedRemovalEntry(
+	_, _, _, err = journalqualification.ObserveRootedRemovalEntry(
 		ctx,
 		storagecommit.Adapter{},
 		capability,
@@ -281,7 +283,7 @@ func TestRemovalObservationFailureConsumesReservedMaximumWork(t *testing.T) {
 	}
 	reader := failingRemovalRegularFileReader{RootedReader: storagecommit.Adapter{}}
 
-	observation, _, work, err := ObserveRootedRemovalEntry(
+	observation, _, work, err := journalqualification.ObserveRootedRemovalEntry(
 		t.Context(),
 		reader,
 		capability,
@@ -289,7 +291,7 @@ func TestRemovalObservationFailureConsumesReservedMaximumWork(t *testing.T) {
 		maximum,
 	)
 	if err != nil {
-		t.Fatalf("ObserveRootedRemovalEntry() error = %v", err)
+		t.Fatalf("journalqualification.ObserveRootedRemovalEntry() error = %v", err)
 	}
 	if observation.Status() != recovery.RemovalResidueEntryUnavailable ||
 		work.Entries() != 0 || work.Bytes() != 0 {
@@ -297,15 +299,6 @@ func TestRemovalObservationFailureConsumesReservedMaximumWork(t *testing.T) {
 	}
 	if execution.RemainingBytes() != 0 {
 		t.Fatalf("failed observation remaining bytes = %d, want 0", execution.RemainingBytes())
-	}
-}
-
-func TestRemovalObservationCancellationPreservesBoundaryCause(t *testing.T) {
-	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
-		wrapped := fmt.Errorf("storage observation interrupted: %w", cause)
-		if got := removalObservationCancellation(wrapped); got != wrapped {
-			t.Fatalf("cancellation translation = %v, want original %v", got, wrapped)
-		}
 	}
 }
 

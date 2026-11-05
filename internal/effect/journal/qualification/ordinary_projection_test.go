@@ -1,4 +1,4 @@
-package journal
+package qualification
 
 import (
 	"strings"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/test/outputtest"
 	mcptest "github.com/isty2e/daem/test/testkit/mcp"
@@ -40,7 +41,7 @@ func TestExtractRecoveryObservationProjectionRequiresMatchingContractAddress(t *
 		outputtest.Parse(t, "unknown-mcp-config.json"),
 		output.ContentPath(mcpcodec.ClaudeProjectMCPContentPath("context7")),
 		&contract,
-		journalTestCodecs(),
+		aggregatecodec.Catalog(),
 	)
 	if err == nil || !strings.Contains(err.Error(), "does not match observation") {
 		t.Fatalf("error = %v, want mismatched contract address", err)

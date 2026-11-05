@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -177,7 +179,7 @@ func TestObserveProjectRecoveryPathRejectsOversizedRegularFile(t *testing.T) {
 	session := mustManifestAuthoritySession(t, root)
 	defer session.Close()
 
-	observation, err := observeProjectRecoveryPath(
+	observation, err := journalqualification.ObserveProjectPath(
 		t.Context(),
 		"large.bin",
 		"",
@@ -210,7 +212,7 @@ func TestObserveProjectRecoveryPathUsesRootedDirectoryHashAndBlocksSymlink(t *te
 	}
 	session := mustManifestAuthoritySession(t, root)
 	defer session.Close()
-	observation, err := observeProjectRecoveryPath(
+	observation, err := journalqualification.ObserveProjectPath(
 		context.Background(),
 		"tree",
 		"",
@@ -234,7 +236,7 @@ func TestObserveProjectRecoveryPathUsesRootedDirectoryHashAndBlocksSymlink(t *te
 	if err := os.Symlink("moved", destination); err != nil {
 		t.Fatalf("create final symlink: %v", err)
 	}
-	symlinkObservation, err := observeProjectRecoveryPath(
+	symlinkObservation, err := journalqualification.ObserveProjectPath(
 		context.Background(),
 		"tree",
 		"",
@@ -262,7 +264,7 @@ func TestObserveProjectRecoveryPathReportsRootedAbsence(t *testing.T) {
 	session := mustManifestAuthoritySession(t, root)
 	defer session.Close()
 
-	observation, err := observeProjectRecoveryPath(
+	observation, err := journalqualification.ObserveProjectPath(
 		context.Background(),
 		"missing",
 		"",

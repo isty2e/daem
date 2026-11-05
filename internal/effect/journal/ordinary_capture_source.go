@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -91,7 +92,7 @@ func validateOrdinaryCaptureBackups(ctx context.Context, directory string, view 
 		if err != nil {
 			return err
 		}
-		observed, observeErr := observeRecoveryBackup(ctx, before.Path(), filesystem, capability, budget)
+		observed, observeErr := journalqualification.ObserveBackup(ctx, before.Path(), filesystem, capability, budget)
 		if err := errors.Join(observeErr, capability.Close()); err != nil {
 			return err
 		}

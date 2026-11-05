@@ -7,10 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/effect/journal"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 
-	"github.com/isty2e/daem/internal/effect/journal"
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -668,7 +669,7 @@ func (authority *mutationAuthority) observeRemovalSlot(
 	if err != nil {
 		return unavailableRemovalSlotObservation(role + " authority could not be bound")
 	}
-	entry, identity, work, observeErr := journal.ObserveRootedRemovalEntry(
+	entry, identity, work, observeErr := journalqualification.ObserveRootedRemovalEntry(
 		ctx,
 		authority.filesystem,
 		capability,

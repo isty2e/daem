@@ -1,4 +1,4 @@
-package journal
+package qualification
 
 import (
 	"context"
@@ -24,38 +24,14 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-type recoveryPathObservation struct {
-	Path          string
-	ContentPath   string
-	Exists        bool
-	PathExisted   bool
-	PathMode      *recovery.PermissionMode
-	Kind          string
-	ContentHash   string
-	LinkTarget    string
-	BlockedReason string
-	BlockedDetail string
-	Error         string
-	Work          workmeasure.ArtifactWork
-}
-
-type recoveryBackupObservation struct {
-	BackupPath  string
-	Exists      bool
-	Kind        string
-	ContentHash string
-	Error       string
-	Work        workmeasure.ArtifactWork
-}
-
-func applyRecoveryIntentOwnershipEvidence(
+func ApplyIntentOwnershipEvidence(
 	ctx context.Context,
-	observations []recoveryPathObservation,
+	observations []recovery.PathEvidence,
 	intents []outputownership.ProvisionalAcquireIntent,
 	registry outputownership.Registry,
 	resolver func(output.Destination) (string, error),
 	budget *physicalwork.Budget,
-) ([]recoveryPathObservation, error) {
+) ([]recovery.PathEvidence, error) {
 	observationIndexes := make(map[recoveryPathObservationKey]int, len(observations))
 	for index, observation := range observations {
 		key := recoveryPathObservationKey{path: observation.Path, contentPath: observation.ContentPath}
@@ -130,17 +106,17 @@ func applyRecoveryIntentOwnershipEvidence(
 	return observations, nil
 }
 
-func recoveryPathObservations(
+func ObservePaths(
 	ctx context.Context,
 	entries []journalrecord.PathEntry,
 	filesystem mutationfs.Reader,
 	manifestAuthority *journalnamespace.ManifestAuthority,
 	resolver func(destination output.Destination) (string, error),
-	rootedCapability RootedCapabilityResolver,
+	rootedCapability journalnamespace.CapabilityResolver,
 	codecs aggregate.CodecCatalog,
 	budget *physicalwork.Budget,
-) ([]recoveryPathObservation, error) {
-	observations := make([]recoveryPathObservation, 0, len(entries))
+) ([]recovery.PathEvidence, error) {
+	observations := make([]recovery.PathEvidence, 0, len(entries))
 	seen := make(map[recoveryPathObservationKey]struct{}, len(entries))
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
@@ -156,14 +132,14 @@ func recoveryPathObservations(
 		seen[key] = struct{}{}
 		aggregateContract, err := entry.AggregateContract()
 		if err != nil {
-			observations = append(observations, recoveryPathObservation{
+			observations = append(observations, recovery.PathEvidence{
 				Path: entry.Path(), ContentPath: entry.ContentPath(), Error: err.Error(),
 			})
 			continue
 		}
 
 		if entry.Scope() == target.ScopeProject {
-			observation, observeErr := observeProjectRecoveryPath(
+			observation, observeErr := ObserveProjectPath(
 				ctx,
 				entry.Path(),
 				entry.ContentPath(),
@@ -181,21 +157,21 @@ func recoveryPathObservations(
 		}
 		destination, err := output.Parse(entry.Path())
 		if err != nil {
-			observations = append(observations, recoveryPathObservation{
+			observations = append(observations, recovery.PathEvidence{
 				Path: entry.Path(), ContentPath: entry.ContentPath(), Error: err.Error(),
 			})
 			continue
 		}
 		hostPath, err := resolver(destination)
 		if err != nil {
-			observations = append(observations, recoveryPathObservation{
+			observations = append(observations, recovery.PathEvidence{
 				Path:        entry.Path(),
 				ContentPath: entry.ContentPath(),
 				Error:       err.Error(),
 			})
 			continue
 		}
-		observation, observeErr := observeGlobalRecoveryPath(
+		observation, observeErr := ObserveGlobalPath(
 			ctx,
 			entry.Path(),
 			entry.ContentPath(),
@@ -220,14 +196,14 @@ type recoveryPathObservationKey struct {
 	contentPath string
 }
 
-func recoveryBackupObservations(
+func ObserveBackups(
 	ctx context.Context,
 	operationDir string,
-	activeAuthority ActiveJournalAuthority,
+	activeAuthority journalinventory.ActiveJournalAuthority,
 	entries []journalrecord.PathEntry,
 	filesystem mutationfs.RootedReader,
 	budget *physicalwork.Budget,
-) ([]recoveryBackupObservation, error) {
+) ([]recovery.BackupEvidence, error) {
 	backupPaths := make([]string, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
@@ -248,7 +224,7 @@ func recoveryBackupObservations(
 		backupPaths = append(backupPaths, entry.Backup().Path())
 	}
 	if len(backupPaths) == 0 {
-		return []recoveryBackupObservation{}, nil
+		return []recovery.BackupEvidence{}, nil
 	}
 	if filesystem == nil {
 		return nil, fmt.Errorf("recovery backup filesystem is required")
@@ -279,11 +255,11 @@ func recoveryBackupObservations(
 func observeRecoveryBackupsRooted(
 	ctx context.Context,
 	root *rootedpath.CapturedRoot,
-	activeAuthority ActiveJournalAuthority,
+	activeAuthority journalinventory.ActiveJournalAuthority,
 	backupPaths []string,
 	filesystem mutationfs.RootedReader,
 	budget *physicalwork.Budget,
-) ([]recoveryBackupObservation, error) {
+) ([]recovery.BackupEvidence, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -301,7 +277,7 @@ func observeRecoveryBackupsRooted(
 	if err != nil {
 		return nil, err
 	}
-	observations := make([]recoveryBackupObservation, 0, len(backupPaths))
+	observations := make([]recovery.BackupEvidence, 0, len(backupPaths))
 	for _, backupPath := range backupPaths {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -322,7 +298,7 @@ func observeRecoveryBackupsRooted(
 		if err != nil {
 			return nil, fmt.Errorf("acquire recovery backup %q: %w", backupPath, err)
 		}
-		observation, observeErr := observeRecoveryBackup(
+		observation, observeErr := ObserveBackup(
 			ctx,
 			backupPath,
 			filesystem,
@@ -417,13 +393,13 @@ func extractRecoveryObservationProjection(
 	return []byte(states[0].CanonicalProjection()), states[0].Present(), nil
 }
 
-func observeRecoveryBackup(
+func ObserveBackup(
 	ctx context.Context,
 	journalPath string,
 	filesystem mutationfs.RootedReader,
 	capability rootedpath.CommitCapability,
 	budget *physicalwork.Budget,
-) (recoveryBackupObservation, error) {
+) (recovery.BackupEvidence, error) {
 	observed, err := observeRootedRecoveryCapability(
 		ctx,
 		journalPath,
@@ -435,9 +411,9 @@ func observeRecoveryBackup(
 		budget,
 	)
 	if err != nil {
-		return recoveryBackupObservation{}, err
+		return recovery.BackupEvidence{}, err
 	}
-	result := recoveryBackupObservation{
+	result := recovery.BackupEvidence{
 		BackupPath:  journalPath,
 		Exists:      observed.Exists,
 		Kind:        observed.Kind,
@@ -490,44 +466,4 @@ func recoveryArtifactWorkLimits(
 		max(int64(1), maximumBytes),
 	)
 	return maximum, readerCapacity, err
-}
-
-func canonicalRecoveryPathEvidence(values []recoveryPathObservation) []recovery.PathEvidence {
-	result := make([]recovery.PathEvidence, len(values))
-	for index, value := range values {
-		mode := value.PathMode
-		if mode != nil {
-			copied := *mode
-			mode = &copied
-		}
-		result[index] = recovery.PathEvidence{
-			Path:          value.Path,
-			ContentPath:   value.ContentPath,
-			Exists:        value.Exists,
-			PathExisted:   value.PathExisted,
-			PathMode:      mode,
-			Kind:          value.Kind,
-			ContentHash:   value.ContentHash,
-			LinkTarget:    value.LinkTarget,
-			BlockedReason: value.BlockedReason,
-			BlockedDetail: value.BlockedDetail,
-			Error:         value.Error,
-		}
-	}
-	return result
-}
-
-func canonicalRecoveryBackupEvidence(values []recoveryBackupObservation) []recovery.BackupEvidence {
-	result := make([]recovery.BackupEvidence, len(values))
-	for index, value := range values {
-		result[index] = recovery.BackupEvidence{
-			BackupPath:  value.BackupPath,
-			Exists:      value.Exists,
-			Kind:        value.Kind,
-			ContentHash: value.ContentHash,
-			Error:       value.Error,
-			Work:        value.Work,
-		}
-	}
-	return result
 }

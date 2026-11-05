@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -222,27 +224,6 @@ func TestRecoveryBackupObservationChargesIndeterminateDirectoryMaximum(t *testin
 	}
 }
 
-func TestRecoveryDirectoryObservationRequiresOverflowCapacityBeforeRead(t *testing.T) {
-	budget, err := physicalwork.NewBudget(1)
-	if err != nil {
-		t.Fatalf("construct recovery budget: %v", err)
-	}
-	allEntries, err := workmeasure.NewArtifactWork(budget.RemainingEntries(), 0)
-	if err != nil {
-		t.Fatalf("construct aggregate entry work: %v", err)
-	}
-	if err := budget.AdmitTree(allEntries); err != nil {
-		t.Fatalf("consume aggregate entry capacity: %v", err)
-	}
-	if _, _, err := recoveryArtifactWorkLimits(
-		true,
-		recovery.MaximumArtifactTreeBytes,
-		budget,
-	); err == nil || !strings.Contains(err.Error(), "remaining operation entry capacity") {
-		t.Fatalf("directory limits error = %v, want pre-read overflow-capacity rejection", err)
-	}
-}
-
 func TestRecoveryBackupObservationKeepsZeroWorkProofSeparate(t *testing.T) {
 	root := t.TempDir()
 	backupPath := filepath.Join(root, "backup")
@@ -318,7 +299,7 @@ func TestRecoveryBackupObservationRejectsExhaustedPathBudgetBeforePayloadWork(t 
 	}
 	before := budget.RemainingTreeWork()
 
-	_, err := recoveryBackupObservations(
+	_, err := journalqualification.ObserveBackups(
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
@@ -359,7 +340,7 @@ func TestRecoveryBackupObservationRejectsReplacedOperationDirectory(t *testing.T
 		BackupPath: "backups/file",
 	})
 
-	_, err = recoveryBackupObservations(
+	_, err = journalqualification.ObserveBackups(
 		t.Context(),
 		operationDir,
 		authority,
@@ -396,7 +377,7 @@ func TestRecoveryBackupObservationRejectsOperationDirectoryReplacementAfterIdent
 		movedDir:     filepath.Join(parent, "moved-operation"),
 	}
 
-	_, err = recoveryBackupObservations(
+	_, err = journalqualification.ObserveBackups(
 		t.Context(),
 		operationDir,
 		authority,
@@ -424,7 +405,7 @@ func TestRecoveryBackupObservationReportsMissingBoundedEntry(t *testing.T) {
 		BackupPath: "backups/missing",
 	})
 
-	observations, err := recoveryBackupObservations(
+	observations, err := journalqualification.ObserveBackups(
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
@@ -454,7 +435,7 @@ func TestRecoveryBackupObservationRejectsSymlink(t *testing.T) {
 		BackupPath: "backups/link",
 	})
 
-	observations, err := recoveryBackupObservations(
+	observations, err := journalqualification.ObserveBackups(
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
@@ -472,7 +453,7 @@ func TestRecoveryBackupObservationRejectsSymlink(t *testing.T) {
 }
 
 func TestRecoveryBackupObservationsNeedNoFilesystemWithoutBackupEvidence(t *testing.T) {
-	observations, err := recoveryBackupObservations(
+	observations, err := journalqualification.ObserveBackups(
 		t.Context(),
 		"unused",
 		ActiveJournalAuthority{},
@@ -504,7 +485,7 @@ func TestRecoveryPathAndBackupShareAggregateContentBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse recovery destination: %v", err)
 	}
-	pathObservation, err := observeGlobalRecoveryPath(
+	pathObservation, err := journalqualification.ObserveGlobalPath(
 		t.Context(),
 		destination.String(),
 		"",
@@ -556,7 +537,7 @@ func TestProjectRecoveryPathChargesRootedDirectoryWork(t *testing.T) {
 	budget := recoveryBackupBudgetForTest(t)
 	before := budget.RemainingTreeWork()
 
-	observation, err := observeProjectRecoveryPath(
+	observation, err := journalqualification.ObserveProjectPath(
 		t.Context(),
 		"tree",
 		"",
@@ -672,7 +653,7 @@ func observeRecoveryBackupPathForTest(
 	journalPath string,
 	hostPath string,
 	budget *physicalwork.Budget,
-) (recoveryBackupObservation, error) {
+) (recovery.BackupEvidence, error) {
 	t.Helper()
 	root, destination, err := rootedpath.CaptureDestinationBounded(
 		hostPath,
@@ -690,7 +671,7 @@ func observeRecoveryBackupPathForTest(
 	if err != nil {
 		t.Fatalf("acquire recovery backup: %v", errors.Join(err, root.Close()))
 	}
-	observation, observeErr := observeRecoveryBackup(
+	observation, observeErr := journalqualification.ObserveBackup(
 		ctx,
 		journalPath,
 		storagecommit.Adapter{},
@@ -706,13 +687,13 @@ func recoveryBackupObservationsForTest(
 	operationDir string,
 	entries []journalrecord.PathEntry,
 	budget *physicalwork.Budget,
-) ([]recoveryBackupObservation, error) {
+) ([]recovery.BackupEvidence, error) {
 	t.Helper()
 	canonicalOperationDir, err := filepath.EvalSymlinks(operationDir)
 	if err != nil {
 		t.Fatalf("canonicalize recovery operation directory: %v", err)
 	}
-	return recoveryBackupObservations(
+	return journalqualification.ObserveBackups(
 		ctx,
 		canonicalOperationDir,
 		recoveryBackupActiveAuthorityForTest(t, canonicalOperationDir),
