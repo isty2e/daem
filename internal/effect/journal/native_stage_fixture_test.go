@@ -61,7 +61,7 @@ func requireStagedDocumentJournal(t *testing.T, fixture nativeRecordFixture, jou
 		t.Fatal(err)
 	}
 	defer root.Close()
-	snapshot, err := readNativeCaptureRecord(t.Context(), root, journalTestFilesystem(), imageBudget(t))
+	snapshot, err := journalqualification.ReadJournalSnapshot(t.Context(), root, journalTestFilesystem(), imageBudget(t))
 	if err != nil {
 		t.Fatal(err)
 	}

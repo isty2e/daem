@@ -245,7 +245,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 		}
 		blocked = true
 	}
-	snapshot, err := readNativeCaptureRecord(ctx, root, filesystem, profile.Budget)
+	snapshot, err := journalqualification.ReadJournalSnapshot(ctx, root, filesystem, profile.Budget)
 	if err != nil {
 		return nil, err
 	}

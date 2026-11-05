@@ -8,13 +8,15 @@ import (
 	"slices"
 	"time"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
@@ -134,7 +136,7 @@ func CaptureNativeJournalWithOptions(
 			resultErr = errors.Join(resultErr, capability.Close())
 		}
 	}()
-	if err := validateOperationCapabilityPath(capability, directory); err != nil {
+	if err := journalqualification.RequireOperationDestination(capability, directory); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	members, err := batch.captureMembers(ctx, after, options.OrderObservations...)

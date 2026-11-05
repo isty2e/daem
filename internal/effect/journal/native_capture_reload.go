@@ -17,7 +17,6 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
-	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 )
 
@@ -52,7 +51,7 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	if err := journalinventory.ValidateActiveJournalRoot(ctx, options.Filesystem, root, batch.budget, active.PhysicalAuthority()); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	snapshot, err := readNativeCaptureRecord(ctx, root, options.Filesystem, batch.budget)
+	snapshot, err := journalqualification.ReadJournalSnapshot(ctx, root, options.Filesystem, batch.budget)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
@@ -79,7 +78,7 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 		return CapturedNativeJournal{}, err
 	}
 	capture := CaptureResult{OperationID: operationID, Directory: directory, JournalPath: filepath.Join(directory, journalrecord.FileName), RecordFingerprint: fingerprint}
-	if err := validateNativeActive(ctx, capture, active.PhysicalAuthority(), options.Filesystem, options.OperationAuthority, batch.budget); err != nil {
+	if err := journalqualification.ValidateNativeRevision(ctx, capture.Directory, capture.RecordFingerprint, active.PhysicalAuthority(), options.Filesystem, options.OperationAuthority, batch.budget); err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	return CapturedNativeJournal{
@@ -106,42 +105,6 @@ func decodeNativeCaptureInventoryJournal(ctx context.Context, snapshot mutationf
 	}
 }
 
-func readNativeCaptureRecord(ctx context.Context, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) (mutationfs.RegularFileSnapshot, error) {
-	maximum := min(journalrecord.MaximumBytes, budget.RemainingBytes())
-	if maximum <= 0 {
-		return mutationfs.RegularFileSnapshot{}, fmt.Errorf("native journal reload exceeds the remaining byte allocation")
-	}
-	authority, err := root.AuthorityBounded(budget)
-	if err != nil {
-		return mutationfs.RegularFileSnapshot{}, err
-	}
-	relative, err := rootedpath.NewRelativeDestination(journalrecord.FileName)
-	if err != nil {
-		return mutationfs.RegularFileSnapshot{}, err
-	}
-	bound, err := authority.Bind(relative)
-	if err != nil {
-		return mutationfs.RegularFileSnapshot{}, err
-	}
-	capability, err := root.AcquireBounded(bound, physicalwork.MaximumPhysicalPathDepth, budget)
-	if err != nil {
-		return mutationfs.RegularFileSnapshot{}, err
-	}
-	content, mode, identity, readErr := filesystem.ReadRootedRegularFileUpTo(ctx, capability, maximum)
-	charged := int64(len(content))
-	if readErr != nil {
-		charged = maximum
-	}
-	work, workErr := workmeasure.NewArtifactWork(0, charged)
-	if workErr == nil {
-		workErr = budget.AdmitTree(work)
-	}
-	if err := errors.Join(readErr, capability.Close(), workErr, ctx.Err()); err != nil {
-		return mutationfs.RegularFileSnapshot{}, err
-	}
-	return mutationfs.NewRegularFileSnapshot(content, mode, identity)
-}
-
 // ValidateActive checks the selected directory identity and exact published
 // record revision. It does not refresh sources, host state, Registry or leases.
 func (captured CapturedNativeJournal) ValidateActive(ctx context.Context, filesystem mutationfs.RootedReader, entry *rootedpath.EntryAuthority, budget *physicalwork.Budget) error {
@@ -151,5 +114,5 @@ func (captured CapturedNativeJournal) ValidateActive(ctx context.Context, filesy
 	if budget != captured.budget {
 		return fmt.Errorf("native active validation requires the original allocation")
 	}
-	return validateNativeActive(ctx, captured.capture, captured.active, filesystem, entry, budget)
+	return journalqualification.ValidateNativeRevision(ctx, captured.capture.Directory, captured.capture.RecordFingerprint, captured.active, filesystem, entry, budget)
 }

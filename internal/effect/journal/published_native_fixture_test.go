@@ -237,7 +237,7 @@ func publishedNativeVariant(t *testing.T, fixture nativeRecordFixture, revise fu
 	if err := os.WriteFile(filepath.Join(authority.PhysicalRoot(), journalrecord.FileName), content, journalrecord.Mode); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := readNativeCaptureRecord(t.Context(), fixture.read.Artifacts, journalTestFilesystem(), nativeFixtureBudget(t))
+	snapshot, err := journalqualification.ReadJournalSnapshot(t.Context(), fixture.read.Artifacts, journalTestFilesystem(), nativeFixtureBudget(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func publishNativeFixtureAt(t *testing.T, destination string, journal journalrec
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = artifacts.Close() })
-	snapshot, err := readNativeCaptureRecord(t.Context(), artifacts, journalTestFilesystem(), setupBudget)
+	snapshot, err := journalqualification.ReadJournalSnapshot(t.Context(), artifacts, journalTestFilesystem(), setupBudget)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -255,7 +255,7 @@ func captureOperationCapability(
 		if err != nil {
 			return nil, nil, err
 		}
-		if err := validateOperationCapabilityPath(capability, finalDir); err != nil {
+		if err := journalqualification.RequireOperationDestination(capability, finalDir); err != nil {
 			return nil, nil, errors.Join(err, capability.Close())
 		}
 		return capability, nil, nil
@@ -268,31 +268,10 @@ func captureOperationCapability(
 	if err != nil {
 		return nil, root, err
 	}
-	if err := validateOperationCapabilityPath(capability, finalDir); err != nil {
+	if err := journalqualification.RequireOperationDestination(capability, finalDir); err != nil {
 		return nil, root, errors.Join(err, capability.Close())
 	}
 	return capability, root, nil
-}
-
-func validateOperationCapabilityPath(
-	capability rootedpath.CommitCapability,
-	finalDir string,
-) error {
-	if capability == nil {
-		return fmt.Errorf("recovery journal publication capability is required")
-	}
-	capabilityPath, err := capability.Destination().LexicalPath()
-	if err != nil {
-		return fmt.Errorf("read recovery journal publication destination: %w", err)
-	}
-	if filepath.Clean(capabilityPath) != filepath.Clean(finalDir) {
-		return fmt.Errorf(
-			"recovery journal publication destination %q does not match operation directory %q",
-			capabilityPath,
-			finalDir,
-		)
-	}
-	return nil
 }
 
 func buildOrdinaryCaptureMaterial(
