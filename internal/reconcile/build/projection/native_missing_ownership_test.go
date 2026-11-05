@@ -22,7 +22,7 @@ import (
 )
 
 func TestNativeAbsentRetirementDoesNotAdmitDesiredRecreationOrOrdinaryAbsence(t *testing.T) {
-	_, sets := nativeNarrowingPlanFixture(t, `{"a":2,"z":2}`, "@pi-agent/extension-settings/test.json")
+	_, sets := nativeOwnershipDocumentFixture(t, `{"a":2,"z":2}`, "@pi-agent/extension-settings/test.json")
 	set := sets[0]
 	item := set.Contributions()[0]
 	row, err := durable.NewManagedAggregateState(item.SubjectID(), item.Contribution())

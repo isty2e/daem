@@ -1,4 +1,4 @@
-package readiness
+package documenttransition
 
 import (
 	"testing"

@@ -1,4 +1,4 @@
-package readiness
+package documenttransition
 
 import (
 	"bytes"
@@ -14,7 +14,6 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	nativecodec "github.com/isty2e/daem/internal/realization/aggregate/codec/native"
-	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -87,7 +86,7 @@ func TestNativeDocumentNarrowingUsesWholeHashOrDesiredValues(t *testing.T) {
 			input := narrowingInput(t, configdocument.JSON, `{"model":"balanced","released":1}`, test.current, `{"model":"fast"}`)
 			result, err := BuildNativeDocumentNarrowing(t.Context(), input)
 			if test.refuse {
-				if !errors.Is(err, reconcileprojection.ErrNativeNarrowingNeedsCapture) || result.Validate() == nil {
+				if !errors.Is(err, ErrNativeNarrowingNeedsCapture) || result.Validate() == nil {
 					t.Fatalf("retained drift yielded usable narrowing: %v", err)
 				}
 			} else if err != nil || result.Validate() != nil {

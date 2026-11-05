@@ -1,4 +1,4 @@
-package readiness
+package documenttransition
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	nativecodec "github.com/isty2e/daem/internal/realization/aggregate/codec/native"
-	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
@@ -123,7 +122,7 @@ func BuildNativeDocumentNarrowing(ctx context.Context, input NativeDocumentNarro
 		return NativeDocumentNarrowing{}, err
 	}
 	result.wholeFileChanged = observation.ContentHash() != input.Baseline.ContentHash()
-	plan, err := reconcileprojection.BuildNativeNarrowingPlan(observation, input.Desired, input.Baseline)
+	plan, err := BuildNativeNarrowingPlan(observation, input.Desired, input.Baseline)
 	if err != nil {
 		return NativeDocumentNarrowing{}, err
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/reconcile/build/documenttransition"
 )
 
 type NativeNarrowingActionInput struct {
@@ -51,7 +52,7 @@ func BuildNativeNarrowingAction(ctx context.Context, input NativeNarrowingAction
 	if err != nil {
 		return reconcile.NativeNarrowingAction{}, err
 	}
-	narrowing, err := BuildNativeDocumentNarrowing(ctx, NativeDocumentNarrowingInput{
+	narrowing, err := documenttransition.BuildNativeDocumentNarrowing(ctx, documenttransition.NativeDocumentNarrowingInput{
 		Baseline: input.Baseline, Current: input.Current, Desired: sets, CodecID: codecID,
 		DocumentLimits: input.DocumentLimits, ValueLimits: input.ValueLimits,
 	})
