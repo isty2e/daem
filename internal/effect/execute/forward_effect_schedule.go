@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
@@ -82,7 +83,7 @@ func compileApplyEffectPlan(
 	transition applyStateTransition,
 	managedSchedule managedPathExecutionSchedule,
 	ownershipState ownershipMutationState,
-	aggregateEffects []AggregateEffect,
+	aggregateEffects []effectpreparation.AggregateEffect,
 ) (ApplyEffectPlan, error) {
 	var builder operationplan.EffectStructureBuilder
 	if !transition.changed {

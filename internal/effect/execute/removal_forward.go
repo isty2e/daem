@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
@@ -34,7 +35,7 @@ type forwardRemovalCertificate struct {
 func (authority *mutationAuthority) prepareApplyForwardRemovals(
 	ctx context.Context,
 	managed []ManagedPathEffect,
-	aggregates []AggregateEffect,
+	aggregates []effectpreparation.AggregateEffect,
 	payloads payload.PayloadSet,
 ) error {
 	if authority == nil || !authority.removalBindingsPrepared || authority.physicalWorkBudget == nil {
@@ -49,7 +50,7 @@ func (authority *mutationAuthority) prepareApplyForwardRemovals(
 
 func applyForwardRemovalCertificates(
 	managed []ManagedPathEffect,
-	aggregates []AggregateEffect,
+	aggregates []effectpreparation.AggregateEffect,
 	payloads payload.PayloadSet,
 	demands recovery.RemovalDemandSet,
 ) ([]forwardRemovalCertificate, error) {
@@ -112,7 +113,7 @@ func applyForwardRemovalCertificates(
 		})
 	}
 	for index, effect := range aggregates {
-		if effect.Kind() != AggregateEffectCreate {
+		if effect.Kind() != effectpreparation.AggregateEffectCreate {
 			continue
 		}
 		state, err := aggregateDocumentExpectedRemovalState(effect)

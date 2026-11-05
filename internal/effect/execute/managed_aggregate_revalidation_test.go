@@ -8,15 +8,22 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	desiredhook "github.com/isty2e/daem/internal/desired/hook"
+
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
+
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/refine"
+
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
 )
 
@@ -93,7 +100,7 @@ func TestAggregateEffectRejectsOversizedDocumentAtRootedReadBoundary(t *testing.
 func mustResolveEffectDestination(
 	t *testing.T,
 	authority *mutationAuthority,
-	effect AggregateEffect,
+	effect effectpreparation.AggregateEffect,
 ) mutationDestination {
 	t.Helper()
 	destination, err := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
@@ -146,11 +153,10 @@ func TestAggregateEffectRechecksOperationPreconditionBeforeMutation(t *testing.T
 			t.Fatalf("bind precondition authority: %v", err)
 		}
 	}
-	effect := AggregateEffect{preconditions: preconditions}
 	if err := verifyAggregateOperationPreconditions(
 		context.Background(),
 		authority,
-		effect,
+		preconditions,
 	); err != nil {
 		t.Fatalf("absent alternate config rejected: %v", err)
 	}
@@ -159,13 +165,13 @@ func TestAggregateEffectRechecksOperationPreconditionBeforeMutation(t *testing.T
 	if err := os.WriteFile(alternatePath, []byte(`{"mcp":{}}`), 0o600); err != nil {
 		t.Fatalf("write alternate config after planning: %v", err)
 	}
-	err = verifyAggregateOperationPreconditions(context.Background(), authority, effect)
+	err = verifyAggregateOperationPreconditions(context.Background(), authority, preconditions)
 	if err == nil || !strings.Contains(err.Error(), "document_absent") {
 		t.Fatalf("effect-time precondition error = %v, want document_absent rejection", err)
 	}
 }
 
-func hookAggregateInsertionEffect(t *testing.T, before aggregate.Document) AggregateEffect {
+func hookAggregateInsertionEffect(t *testing.T, before aggregate.Document) effectpreparation.AggregateEffect {
 	t.Helper()
 	value := desiredtest.Hook(t, desiredhook.Spec{
 		Name: "guard", Event: "Stop", Type: desiredhook.TypeCommand, Command: "echo guard",
@@ -228,11 +234,11 @@ func hookAggregateInsertionEffect(t *testing.T, before aggregate.Document) Aggre
 	if err != nil {
 		t.Fatalf("BuildAggregateDecisions returned error: %v", err)
 	}
-	effects, err := AggregateEffects(decisions)
+	effects, err := effectpreparation.AggregateEffects(decisions)
 	if err != nil {
 		t.Fatalf("AggregateEffects returned error: %v", err)
 	}
-	if len(effects) != 1 || effects[0].Kind() != AggregateEffectReplace {
+	if len(effects) != 1 || effects[0].Kind() != effectpreparation.AggregateEffectReplace {
 		t.Fatalf("effects = %#v, want one document replacement", effects)
 	}
 	return effects[0]

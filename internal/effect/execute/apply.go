@@ -8,21 +8,26 @@ import (
 	"path/filepath"
 	"time"
 
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 )
 
@@ -50,7 +55,7 @@ type ApplyInput struct {
 	Paths                       Paths
 	Resolver                    DestinationResolver
 	ManagedPathEffects          []ManagedPathEffect
-	AggregateEffects            []AggregateEffect
+	AggregateEffects            []effectpreparation.AggregateEffect
 	NativeNarrowings            []reconciliation.NativeNarrowingAction
 	ManagedPathEvidence         []observe.ManagedPathEvidence
 	CurrentState                durable.Snapshot
@@ -138,7 +143,7 @@ func applyWithOptions(
 		}
 	}
 	for index, effect := range input.AggregateEffects {
-		if err := effect.validate(); err != nil {
+		if err := effect.Validate(); err != nil {
 			return ApplyResult{}, fmt.Errorf("aggregate effect[%d]: %w", index, err)
 		}
 	}
@@ -163,7 +168,7 @@ func applyWithOptions(
 	events := applyEventEmitter{
 		sink: options.Events,
 		totalActions: len(input.ManagedPathEffects) +
-			aggregateSubjectCount(input.AggregateEffects) +
+			effectpreparation.AggregateSubjectCount(input.AggregateEffects) +
 			transition.retiredProjectClaimCount +
 			transition.adoptedProjectClaimCount,
 	}
@@ -204,7 +209,7 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	aggregateMutations, err := aggregateJournalMutations(input.AggregateEffects)
+	aggregateMutations, err := effectpreparation.AggregateJournalMutations(input.AggregateEffects)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -536,7 +541,7 @@ func applyWithOptions(
 		events,
 		visibilityGate,
 		effectExecution,
-		func(ctx context.Context, effect AggregateEffect) error {
+		func(ctx context.Context, effect effectpreparation.AggregateEffect) error {
 			keys := provisionalAcquireKeysForAggregate(effect)
 			return ownershipState.promoteVisibleAcquires(
 				ctx,
@@ -637,7 +642,7 @@ func applyWithOptions(
 	}
 	committedResult := ApplyResult{
 		ActionCount: len(input.ManagedPathEffects) +
-			aggregateSubjectCount(input.AggregateEffects) +
+			effectpreparation.AggregateSubjectCount(input.AggregateEffects) +
 			transition.retiredProjectClaimCount +
 			transition.adoptedProjectClaimCount,
 		StatePath: input.Paths.StatefilePath,

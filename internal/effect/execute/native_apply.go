@@ -8,11 +8,13 @@ import (
 	"slices"
 	"time"
 
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -38,7 +40,7 @@ type nativeApplyWork struct {
 	documents          journal.NativeDocumentObservationBatch
 	managed            []ManagedPathEffect
 	whole              []ManagedPathEffect
-	ordinaryAggregates []AggregateEffect
+	ordinaryAggregates []effectpreparation.AggregateEffect
 	edits              []compose.ProjectionEdit
 	mutating           []bool
 	promoting          []bool
@@ -203,7 +205,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 			return nativeApplyWork{}, err
 		}
 		work.edits = append(work.edits, edit)
-		work.mutating[group] = work.mutating[group] || effect.Kind() != AggregateEffectRecord
+		work.mutating[group] = work.mutating[group] || effect.Kind() != effectpreparation.AggregateEffectRecord
 		if effect.BeforeDocument().Exists() && !effect.Rendered().Document().Exists() {
 			return nativeApplyWork{}, fmt.Errorf("native root removal requires its bounded document removal integration")
 		}
@@ -262,7 +264,7 @@ func maximumNativeWorkValidationCount(input NativeApplyInput, work nativeApplyWo
 		}
 	}
 	for _, effect := range work.ordinaryAggregates {
-		if effect.Kind() != AggregateEffectRecord {
+		if effect.Kind() != effectpreparation.AggregateEffectRecord {
 			count++
 		}
 	}
@@ -517,7 +519,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			}
 		}
 	}
-	events := applyEventEmitter{sink: options.Events, totalActions: len(work.managed) + aggregateSubjectCount(input.Preparation.AggregateEffects())}
+	events := applyEventEmitter{sink: options.Events, totalActions: len(work.managed) + effectpreparation.AggregateSubjectCount(input.Preparation.AggregateEffects())}
 	managedProgress := newHostActionProgress(ordinary.managedSchedule.mutationCount)
 	promoteManaged := func(ctx context.Context, effect ManagedPathEffect, phase managedPathPhase) error {
 		return promoteNativeOrdinaryAcquires(ctx, &ordinary.ownership, provisionalAcquireKeysForManagedPath(effect, phase), &captured, authority, input, store, gate, execution)
@@ -525,7 +527,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	if err := applyManagedPathPhaseWithEvents(ctx, ordinary.managedSchedule, managedPathPublishPhase, input.Payloads, authority, managedProgress, 0, events, gate, execution, promoteManaged); err != nil {
 		return result, settle(err)
 	}
-	if _, err := applyAggregateEffectsWithEvents(ctx, work.ordinaryAggregates, authority, input.Codecs, len(work.managed), events, gate, execution, func(ctx context.Context, effect AggregateEffect) error {
+	if _, err := applyAggregateEffectsWithEvents(ctx, work.ordinaryAggregates, authority, input.Codecs, len(work.managed), events, gate, execution, func(ctx context.Context, effect effectpreparation.AggregateEffect) error {
 		return promoteNativeOrdinaryAcquires(ctx, &ordinary.ownership, provisionalAcquireKeysForAggregate(effect), &captured, authority, input, store, gate, execution)
 	}); err != nil {
 		return result, settle(err)

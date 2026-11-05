@@ -6,7 +6,10 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/topology"
@@ -152,12 +155,12 @@ func snapshotAfterManagedPathEffects(
 
 func snapshotAfterAggregateEffects(
 	snapshot durable.Snapshot,
-	effects []AggregateEffect,
+	effects []effectpreparation.AggregateEffect,
 ) (durable.Snapshot, error) {
 	removeSubjects := make(map[topology.SubjectID]struct{})
 	replacements := make(map[topology.SubjectID]durable.ManagedAggregateState)
 	for index, effect := range effects {
-		if err := effect.validate(); err != nil {
+		if err := effect.Validate(); err != nil {
 			return durable.Snapshot{}, fmt.Errorf("aggregate effect[%d]: %w", index, err)
 		}
 		for _, previous := range effect.PreviousStates() {

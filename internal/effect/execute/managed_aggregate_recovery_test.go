@@ -11,13 +11,17 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
+
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -328,7 +332,7 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 	}
 	if len(completed) != 2 ||
 		completed[0].Index != 0 || completed[0].ManagedPathKind != ManagedPathEffectCreate ||
-		completed[1].Index != 1 || completed[1].AggregateKind != AggregateEffectCreate {
+		completed[1].Index != 1 || completed[1].AggregateKind != effectpreparation.AggregateEffectCreate {
 		t.Fatalf("completed action facts = %#v, want distinct managed-path and aggregate indices", completed)
 	}
 	assertHostMissing(t, filepath.Join(root, filepath.FromSlash(destination.RelativePath())))
@@ -524,28 +528,28 @@ func TestApplyRollsBackMixedAggregateProjectionRowsAfterStatefileFailure(t *test
 	if err != nil {
 		t.Fatalf("BuildAggregateDecisions returned error: %v", err)
 	}
-	effects, err := AggregateEffects(decisions)
+	effects, err := effectpreparation.AggregateEffects(decisions)
 	if err != nil {
 		t.Fatalf("AggregateEffects returned error: %v", err)
 	}
 	if len(effects) != 1 {
 		t.Fatalf("effects = %d, want one document effect", len(effects))
 	}
-	projectionKinds := make(map[string]AggregateEffectKind)
+	projectionKinds := make(map[string]effectpreparation.AggregateEffectKind)
 	for _, projection := range effects[0].ProjectionEffects() {
 		projectionKinds[string(outputtest.LegacyContentPath(t, projection.Contract().Address()))] = projection.Kind()
 	}
-	for contentPath, want := range map[string]AggregateEffectKind{
-		"/mcpServers/alpha": AggregateEffectReplace,
-		"/mcpServers/adopt": AggregateEffectRecord,
-		"/mcpServers/beta":  AggregateEffectRemove,
-		"/mcpServers/gamma": AggregateEffectRecord,
+	for contentPath, want := range map[string]effectpreparation.AggregateEffectKind{
+		"/mcpServers/alpha": effectpreparation.AggregateEffectReplace,
+		"/mcpServers/adopt": effectpreparation.AggregateEffectRecord,
+		"/mcpServers/beta":  effectpreparation.AggregateEffectRemove,
+		"/mcpServers/gamma": effectpreparation.AggregateEffectRecord,
 	} {
 		if got := projectionKinds[contentPath]; got != want {
 			t.Fatalf("projection %q kind = %q, want %q", contentPath, got, want)
 		}
 	}
-	mutations, err := aggregateJournalMutations(effects)
+	mutations, err := effectpreparation.AggregateJournalMutations(effects)
 	if err != nil {
 		t.Fatalf("aggregateJournalMutations returned error: %v", err)
 	}
@@ -690,7 +694,7 @@ func managedMCPAggregateEffects(
 	t *testing.T,
 	before aggregate.Document,
 	specs []mcpEffectSpec,
-) []AggregateEffect {
+) []effectpreparation.AggregateEffect {
 	t.Helper()
 	contracts := make([]lock.LockedSubjectContract, 0, len(specs))
 	desired := make([]aggregate.SubjectContribution, 0, len(specs))
@@ -755,7 +759,7 @@ func managedMCPAggregateEffects(
 	if err != nil {
 		t.Fatalf("BuildAggregateDecisions returned error: %v", err)
 	}
-	effects, err := AggregateEffects(decisions)
+	effects, err := effectpreparation.AggregateEffects(decisions)
 	if err != nil {
 		t.Fatalf("AggregateEffects returned error: %v", err)
 	}

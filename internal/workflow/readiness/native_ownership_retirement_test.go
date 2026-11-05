@@ -6,7 +6,9 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/effect/execute"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/build/projection"
@@ -61,7 +63,7 @@ func TestNativeMissingHistoryRetiresThroughActualGlobalPlanner(t *testing.T) {
 		t.Fatal("missing historical key did not retire its actual baseline", err)
 	}
 	effect := state.AggregateEffects()[0]
-	if effect.Kind() != execute.AggregateEffectRecord || effect.BeforeDocument().Exists() || effect.Rendered().Document().Exists() || len(effect.ProjectionEffects()) != 1 || effect.ProjectionEffects()[0].MutatesHost() {
+	if effect.Kind() != effectpreparation.AggregateEffectRecord || effect.BeforeDocument().Exists() || effect.Rendered().Document().Exists() || len(effect.ProjectionEffects()) != 1 || effect.ProjectionEffects()[0].MutatesHost() {
 		t.Fatal("absent retirement became a host mutation or invented document presence")
 	}
 	if _, err := os.Lstat(fixture.hostPath); !os.IsNotExist(err) {

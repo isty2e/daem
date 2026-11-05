@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal"
 )
 
@@ -89,7 +90,7 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 	managedMutations := managedPathValidationCount(managedSchedule)
 	aggregateMutations := 0
 	for _, effect := range input.AggregateEffects {
-		if effect.Kind() != AggregateEffectRecord {
+		if effect.Kind() != effectpreparation.AggregateEffectRecord {
 			aggregateMutations++
 		}
 	}

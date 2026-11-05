@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+	"github.com/isty2e/daem/internal/topology"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -14,18 +17,18 @@ import (
 
 func applyAggregateEffectsWithEvents(
 	ctx context.Context,
-	effects []AggregateEffect,
+	effects []effectpreparation.AggregateEffect,
 	authority *mutationAuthority,
 	codecs aggregate.CodecCatalog,
 	eventIndexOffset int,
 	events applyEventEmitter,
 	gate visibilityEffectGate,
 	execution *applyEffectExecution,
-	afterMutation func(context.Context, AggregateEffect) error,
+	afterMutation func(context.Context, effectpreparation.AggregateEffect) error,
 ) (hostActionProgress, error) {
 	journaledProjectionCount := 0
 	for _, effect := range effects {
-		journaledProjectionCount += effect.journaledProjectionCount()
+		journaledProjectionCount += effect.JournaledProjectionCount()
 	}
 	progress := newHostActionProgress(journaledProjectionCount)
 	journalProjectionIndex := 0
@@ -33,7 +36,7 @@ func applyAggregateEffectsWithEvents(
 	for effectIndex, effect := range effects {
 		subjects := effect.SubjectEffects()
 		for _, subject := range subjects {
-			facts := aggregateEventFacts(eventIndex, subject)
+			facts := aggregateEventFacts(eventIndex, subject.Kind(), subject.Subject(), subject.Contract())
 			events.emit(EventActionStarted, EventStageAction, cloneActionEventFacts(facts), nil)
 			eventIndex++
 		}
@@ -46,11 +49,11 @@ func applyAggregateEffectsWithEvents(
 				return err
 			}
 			destination = resolved
-			return verifyAggregateOperationPreconditions(ctx, authority, effect)
+			return verifyAggregateOperationPreconditions(ctx, authority, effect.OperationPreconditions())
 		}
 		hostProgress := hostEffectNotStarted
 		var err error
-		if effect.Kind() == AggregateEffectRecord {
+		if effect.Kind() == effectpreparation.AggregateEffectRecord {
 			err = execution.runObservation(
 				prefix+"/record",
 				applyForwardFailureGuardedRecovery,
@@ -93,8 +96,8 @@ func applyAggregateEffectsWithEvents(
 				err = afterMutation(ctx, effect)
 			}
 		}
-		for _, projection := range effect.projections {
-			if !projection.isJournaled() {
+		for _, projection := range effect.ProjectionEffects() {
+			if !projection.IsJournaled() {
 				continue
 			}
 			if projection.MutatesHost() {
@@ -103,7 +106,7 @@ func applyAggregateEffectsWithEvents(
 			journalProjectionIndex++
 		}
 		for index, subject := range subjects {
-			facts := aggregateEventFacts(eventIndex-len(subjects)+index, subject)
+			facts := aggregateEventFacts(eventIndex-len(subjects)+index, subject.Kind(), subject.Subject(), subject.Contract())
 			if err != nil {
 				events.emit(EventActionFailed, EventStageAction, cloneActionEventFacts(facts), err)
 			} else {
@@ -120,9 +123,9 @@ func applyAggregateEffectsWithEvents(
 func verifyAggregateOperationPreconditions(
 	ctx context.Context,
 	authority *mutationAuthority,
-	effect AggregateEffect,
+	preconditions []aggregate.OperationPrecondition,
 ) error {
-	for _, precondition := range effect.OperationPreconditions() {
+	for _, precondition := range preconditions {
 		document := precondition.DocumentAddress()
 		destination, err := authority.resolveBoundDestination(
 			document.Scope(),
@@ -151,7 +154,7 @@ func commitAggregateEffect(
 	ctx context.Context,
 	authority *mutationAuthority,
 	destination mutationDestination,
-	effect AggregateEffect,
+	effect effectpreparation.AggregateEffect,
 	codecs aggregate.CodecCatalog,
 ) fileMutationOutcome {
 	if !destination.isRooted() {
@@ -240,7 +243,7 @@ func commitRootedAggregateCandidate(
 }
 
 func validateAndRenderAggregate(
-	effect AggregateEffect,
+	effect effectpreparation.AggregateEffect,
 	current aggregate.Document,
 	mode os.FileMode,
 	codec aggregate.Codec,
@@ -259,7 +262,7 @@ func validateAndRenderAggregate(
 }
 
 func validateAggregateBefore(
-	effect AggregateEffect,
+	effect effectpreparation.AggregateEffect,
 	current aggregate.Document,
 	mode os.FileMode,
 	codec aggregate.Codec,
@@ -288,7 +291,7 @@ func verifyAggregateBefore(
 	ctx context.Context,
 	authority *mutationAuthority,
 	destination mutationDestination,
-	effect AggregateEffect,
+	effect effectpreparation.AggregateEffect,
 	codecs aggregate.CodecCatalog,
 ) error {
 	codec, ok := codecs.Lookup(effect.CodecContractID())
@@ -311,7 +314,7 @@ func verifyAggregatePostcondition(
 	ctx context.Context,
 	authority *mutationAuthority,
 	destination mutationDestination,
-	effect AggregateEffect,
+	effect effectpreparation.AggregateEffect,
 	expectedDocument aggregate.Document,
 	codecs aggregate.CodecCatalog,
 ) error {
@@ -364,10 +367,9 @@ func readAggregateDocumentDestination(
 	return aggregate.ExistingDocument(content), mode, nil
 }
 
-func aggregateEventFacts(index int, subject AggregateSubjectEffect) ActionEventFacts {
-	contract := subject.Contract()
+func aggregateEventFacts(index int, kind effectpreparation.AggregateEffectKind, subject topology.SubjectID, contract aggregate.ProjectionContract) ActionEventFacts {
 	return ActionEventFacts{
-		Index: index, AggregateKind: subject.Kind(), Subject: subject.Subject(),
+		Index: index, AggregateKind: kind, Subject: subject,
 		Target: contract.Address().Document().Target(), Scope: contract.Address().Document().Scope(),
 		Destination: contract.Address().Document().AggregateRoot(),
 	}

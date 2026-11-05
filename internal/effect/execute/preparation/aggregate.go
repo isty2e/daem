@@ -1,4 +1,4 @@
-package execute
+package preparation
 
 import (
 	"fmt"
@@ -120,7 +120,7 @@ func aggregateEffects(decisions []reconcile.AggregateDecision) ([]AggregateEffec
 			preconditions:   decision.OperationPreconditions(),
 			nativeOperation: nativeOperation, hasNativeOperation: hasNativeOperation,
 		}
-		if err := effect.validate(); err != nil {
+		if err := effect.Validate(); err != nil {
 			return nil, fmt.Errorf("aggregate effect[%d]: %w", index, err)
 		}
 		effects = append(effects, effect)
@@ -184,7 +184,7 @@ func aggregateSubjectEffectKind(kind reconcile.AggregateDecisionKind) (Aggregate
 	}
 }
 
-func (effect AggregateEffect) validate() error {
+func (effect AggregateEffect) Validate() error {
 	if len(effect.projections) == 0 {
 		return fmt.Errorf("aggregate effect requires at least one projection")
 	}
@@ -443,10 +443,10 @@ func (effect AggregateEffect) NativeOperationContract() (profile.NativeAggregate
 	return effect.nativeOperation, effect.hasNativeOperation
 }
 
-func (effect AggregateEffect) journaledProjectionCount() int {
+func (effect AggregateEffect) JournaledProjectionCount() int {
 	count := 0
 	for _, projection := range effect.projections {
-		if projection.isJournaled() {
+		if projection.IsJournaled() {
 			count++
 		}
 	}
@@ -471,13 +471,17 @@ func (projection AggregateProjectionEffect) Subjects() []AggregateSubjectEffect 
 	return append([]AggregateSubjectEffect(nil), projection.subjects...)
 }
 
+func (projection AggregateProjectionEffect) PreviousStates() []durable.ManagedAggregateState {
+	return append([]durable.ManagedAggregateState(nil), projection.previous...)
+}
+
 func (projection AggregateProjectionEffect) MutatesHost() bool {
 	return projection.kind == AggregateEffectCreate ||
 		projection.kind == AggregateEffectReplace ||
 		projection.kind == AggregateEffectRemove
 }
 
-func (projection AggregateProjectionEffect) isJournaled() bool {
+func (projection AggregateProjectionEffect) IsJournaled() bool {
 	return len(projection.subjects) != 0
 }
 
@@ -496,11 +500,11 @@ func cloneAggregateProjectionEffects(values []AggregateProjectionEffect) []Aggre
 	return result
 }
 
-func aggregateJournalMutations(effects []AggregateEffect) ([]journalrecord.ManagedAggregateMutation, error) {
+func AggregateJournalMutations(effects []AggregateEffect) ([]journalrecord.ManagedAggregateMutation, error) {
 	mutations := make([]journalrecord.ManagedAggregateMutation, 0, len(effects))
 	for index, effect := range effects {
 		for projectionIndex, projection := range effect.ProjectionEffects() {
-			if !projection.isJournaled() {
+			if !projection.IsJournaled() {
 				continue
 			}
 			subjects := projection.Subjects()
@@ -551,7 +555,7 @@ func aggregateJournalMutationKind(kind AggregateEffectKind) (journalrecord.Aggre
 	}
 }
 
-func aggregateSubjectCount(effects []AggregateEffect) int {
+func AggregateSubjectCount(effects []AggregateEffect) int {
 	count := 0
 	for _, effect := range effects {
 		count += len(effect.SubjectEffects())

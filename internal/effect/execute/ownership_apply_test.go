@@ -12,17 +12,22 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
+
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
@@ -810,7 +815,7 @@ func globalAggregateOwnershipInputAtHome(
 	if err != nil {
 		t.Fatalf("BuildAggregateDecisions returned error: %v", err)
 	}
-	effects, err := AggregateEffects(decisions)
+	effects, err := effectpreparation.AggregateEffects(decisions)
 	if err != nil {
 		t.Fatalf("AggregateEffects returned error: %v", err)
 	}

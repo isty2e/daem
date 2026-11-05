@@ -3,8 +3,11 @@ package execute
 import (
 	"testing"
 
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
+
 	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -31,12 +34,9 @@ func TestAggregateEventFactsPreserveAggregateEffectAxis(t *testing.T) {
 	}
 
 	facts := aggregateEventFacts(
-		7,
-		AggregateSubjectEffect{
-			kind: AggregateEffectReplace, subject: subject, contract: contribution.Contract(),
-		},
+		7, effectpreparation.AggregateEffectReplace, subject, contribution.Contract(),
 	)
-	if facts.AggregateKind != AggregateEffectReplace || facts.ManagedPathKind != "" {
+	if facts.AggregateKind != effectpreparation.AggregateEffectReplace || facts.ManagedPathKind != "" {
 		t.Fatalf(
 			"aggregate event axes = aggregate %q managed-path %q",
 			facts.AggregateKind,

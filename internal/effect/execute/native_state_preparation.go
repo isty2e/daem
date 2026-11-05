@@ -1,5 +1,7 @@
 package execute
 
+import effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 import (
 	"context"
 	"fmt"
@@ -51,7 +53,7 @@ type NativeApplyStatePreparation struct {
 	before             durable.Snapshot
 	after              durable.Snapshot
 	managed            []ManagedPathEffect
-	aggregates         []AggregateEffect
+	aggregates         []effectpreparation.AggregateEffect
 	nativeOperations   []profile.NativeAggregateOperationContract
 	narrowings         []reconcile.NativeNarrowingAction
 	adoptions          []NativeWholeAdoption
@@ -85,8 +87,8 @@ func (preparation NativeApplyStatePreparation) ManagedPathEffects() []ManagedPat
 	return append([]ManagedPathEffect(nil), preparation.managed...)
 }
 
-func (preparation NativeApplyStatePreparation) AggregateEffects() []AggregateEffect {
-	return append([]AggregateEffect(nil), preparation.aggregates...)
+func (preparation NativeApplyStatePreparation) AggregateEffects() []effectpreparation.AggregateEffect {
+	return append([]effectpreparation.AggregateEffect(nil), preparation.aggregates...)
 }
 
 func (preparation NativeApplyStatePreparation) PiOrders() []pipackage.OrderObservation {
@@ -94,7 +96,7 @@ func (preparation NativeApplyStatePreparation) PiOrders() []pipackage.OrderObser
 }
 
 func (preparation NativeApplyStatePreparation) actionCount() int {
-	return len(preparation.managed) + aggregateSubjectCount(preparation.aggregates) + len(preparation.orders) + len(preparation.narrowings)
+	return len(preparation.managed) + effectpreparation.AggregateSubjectCount(preparation.aggregates) + len(preparation.orders) + len(preparation.narrowings)
 }
 
 // NativeAggregateOperations retains static admission for every selected native
@@ -160,7 +162,7 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
-	aggregates, err := AggregateEffectsForNativeOperation(input.Aggregates)
+	aggregates, err := effectpreparation.AggregateEffectsForNativeOperation(input.Aggregates)
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
@@ -350,7 +352,7 @@ func validateNativeManagedStateInputs(before nativeApplyStateIndexes, effects []
 	return nil
 }
 
-func validateNativeAggregateStateInputs(before nativeApplyStateIndexes, effects []AggregateEffect) error {
+func validateNativeAggregateStateInputs(before nativeApplyStateIndexes, effects []effectpreparation.AggregateEffect) error {
 	touched := make(map[topology.SubjectID]struct{})
 	for _, effect := range effects {
 		subjects := make(map[topology.SubjectID]struct{})
@@ -499,7 +501,7 @@ func nativeNarrowingStateDelta(ctx context.Context, before nativeApplyStateIndex
 	return retired, desired, nil
 }
 
-func rejectNativeStateEffectOverlap(managed []ManagedPathEffect, aggregates []AggregateEffect, retiredPaths, retiredKeys map[topology.SubjectID]struct{}, desired []aggregate.SubjectContribution) error {
+func rejectNativeStateEffectOverlap(managed []ManagedPathEffect, aggregates []effectpreparation.AggregateEffect, retiredPaths, retiredKeys map[topology.SubjectID]struct{}, desired []aggregate.SubjectContribution) error {
 	for _, effect := range managed {
 		_, overlaps := retiredPaths[effect.Subject()]
 		previous, present := effect.PreviousState()

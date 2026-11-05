@@ -1,4 +1,4 @@
-package execute
+package preparation
 
 import (
 	"testing"
@@ -99,6 +99,13 @@ func TestNativeProjectionEffectBindsContributionSubject(t *testing.T) {
 			projection.subjects = []AggregateSubjectEffect{{kind: subjectKind, subject: subject, contract: contract}}
 			if err := projection.validate(projection.before, projection.expected); err != nil {
 				t.Fatal("actual contribution subject was refused", err)
+			}
+			if states := projection.PreviousStates(); len(states) != 0 {
+				want := states[0]
+				states[0] = durable.ManagedAggregateState{}
+				if !projection.PreviousStates()[0].Equal(want) {
+					t.Fatal("previous-state view overwrote the admitted transition")
+				}
 			}
 			if !projection.before.Present() {
 				for _, fault := range []string{"no prior", "no removals", "wrong kind", "duplicate removal"} {

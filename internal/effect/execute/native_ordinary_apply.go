@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/target"
@@ -22,7 +24,7 @@ func nativeOrdinaryApplyFor(input NativeApplyInput, work nativeApplyWork, operat
 	if err != nil {
 		return nativeOrdinaryApply{}, err
 	}
-	aggregates, err := aggregateJournalMutations(work.ordinaryAggregates)
+	aggregates, err := effectpreparation.AggregateJournalMutations(work.ordinaryAggregates)
 	if err != nil {
 		return nativeOrdinaryApply{}, err
 	}

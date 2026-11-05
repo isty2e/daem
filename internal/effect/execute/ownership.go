@@ -8,8 +8,10 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -118,7 +120,7 @@ func ownershipPlanForManagedPathEffects(
 }
 
 func ownershipPlanForAggregateEffects(
-	effects []AggregateEffect,
+	effects []effectpreparation.AggregateEffect,
 	owner stateauthority.Authority,
 	observations []observe.OwnershipObservation,
 	operationID string,
@@ -133,11 +135,11 @@ func ownershipPlanForAggregateEffects(
 		if document.Scope() != target.ScopeGlobal {
 			continue
 		}
-		for _, projection := range effect.projections {
-			if len(projection.subjects) == 0 {
+		for _, projection := range effect.ProjectionEffects() {
+			if len(projection.Subjects()) == 0 {
 				continue
 			}
-			address := projection.contract.Address()
+			address := projection.Contract().Address()
 			key := ownershipOutputKey{
 				destination: document.AggregateRoot(),
 				footprint:   address.Footprint(),
@@ -151,7 +153,7 @@ func ownershipPlanForAggregateEffects(
 				)
 			}
 
-			if len(projection.previous) == 0 {
+			if len(projection.PreviousStates()) == 0 {
 				if err := appendOwnershipAcquire(&plan, observation, owner, operationID); err != nil {
 					return ownershipMutationPlan{}, fmt.Errorf(
 						"new global aggregate projection for %q footprint %s: %w",
@@ -171,12 +173,12 @@ func ownershipPlanForAggregateEffects(
 					err,
 				)
 			}
-			if projection.kind == AggregateEffectRecord {
+			if projection.Kind() == effectpreparation.AggregateEffectRecord {
 				continue
 			}
 
 			var transition ownershipmutation.ClaimTransition
-			if projection.kind == AggregateEffectRemove {
+			if projection.Kind() == effectpreparation.AggregateEffectRemove {
 				transition, err = ownershipmutation.NewReleaseTransition(claim)
 			} else {
 				transition, err = ownershipmutation.NewRetainTransition(claim)
@@ -210,18 +212,19 @@ func provisionalAcquireKeysForManagedPath(
 	return []ownershipOutputKey{{destination: effect.Destination(), footprint: output.WholePathFootprint()}}
 }
 
-func provisionalAcquireKeysForAggregate(effect AggregateEffect) []ownershipOutputKey {
-	if effect.Scope() != target.ScopeGlobal || effect.Kind() == AggregateEffectRecord {
+func provisionalAcquireKeysForAggregate(effect effectpreparation.AggregateEffect) []ownershipOutputKey {
+	if effect.Scope() != target.ScopeGlobal || effect.Kind() == effectpreparation.AggregateEffectRecord {
 		return nil
 	}
-	keys := make([]ownershipOutputKey, 0, len(effect.projections))
-	for _, projection := range effect.projections {
-		if len(projection.subjects) == 0 || len(projection.previous) != 0 {
+	projections := effect.ProjectionEffects()
+	keys := make([]ownershipOutputKey, 0, len(projections))
+	for _, projection := range projections {
+		if len(projection.Subjects()) == 0 || len(projection.PreviousStates()) != 0 {
 			continue
 		}
 		keys = append(keys, ownershipOutputKey{
 			destination: effect.Destination(),
-			footprint:   projection.contract.Address().Footprint(),
+			footprint:   projection.Contract().Address().Footprint(),
 		})
 	}
 	return keys

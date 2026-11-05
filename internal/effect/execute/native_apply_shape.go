@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -19,7 +20,7 @@ type NativeManagedSuffixShape struct {
 	validations int
 	managed     []ManagedPathEffect
 	whole       []ManagedPathEffect
-	aggregates  []AggregateEffect
+	aggregates  []effectpreparation.AggregateEffect
 	narrowings  []reconcile.NativeNarrowingAction
 	adoptions   []NativeWholeAdoption
 	orders      []pipackage.OrderObservation
@@ -27,7 +28,7 @@ type NativeManagedSuffixShape struct {
 
 // ValidateAggregatePhaseSplit checks both managed projection families without
 // manufacturing a post-prefix observation or granting execution authority.
-func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefix NativeApplyStatePreparation, residual []AggregateEffect) error {
+func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefix NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect) error {
 	if err := preparation.Validate(); err != nil {
 		return err
 	}
@@ -60,7 +61,7 @@ func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefi
 	return nil
 }
 
-func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStatePreparation, residual []AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, error) {
+func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, error) {
 	err := input.Preparation.ValidateAggregatePhaseSplit(prefix, residual)
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
@@ -99,7 +100,7 @@ func nativeDelegatePrerequisites(input NativeApplyInput, baseline durable.Snapsh
 	preparation.managed = slices.DeleteFunc(slices.Clone(preparation.managed), func(effect ManagedPathEffect) bool {
 		return aggregate.IsHostConfigDocumentSubject(effect.Subject())
 	})
-	preparation.aggregates = slices.DeleteFunc(slices.Clone(preparation.aggregates), func(effect AggregateEffect) bool {
+	preparation.aggregates = slices.DeleteFunc(slices.Clone(preparation.aggregates), func(effect effectpreparation.AggregateEffect) bool {
 		_, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID())
 		return native
 	})
@@ -121,7 +122,7 @@ func nativeDelegatePrerequisites(input NativeApplyInput, baseline durable.Snapsh
 
 // ProjectNativeDelegateSuffixes partitions an admitted suffix without inventing
 // live intermediate observations. Both shapes require fresh input when bound.
-func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix NativeApplyStatePreparation, residual []AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, NativeManagedSuffixShape, error) {
+func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, NativeManagedSuffixShape, error) {
 	if err := input.Preparation.ValidateAggregatePhaseSplit(prefix, residual); err != nil {
 		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
 	}
@@ -133,7 +134,7 @@ func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix NativeApplySta
 	late.Preparation.managed = slices.DeleteFunc(slices.Clone(input.Preparation.managed), func(effect ManagedPathEffect) bool {
 		return !aggregate.IsHostConfigDocumentSubject(effect.Subject())
 	})
-	late.Preparation.aggregates = slices.DeleteFunc(slices.Clone(residual), func(effect AggregateEffect) bool {
+	late.Preparation.aggregates = slices.DeleteFunc(slices.Clone(residual), func(effect effectpreparation.AggregateEffect) bool {
 		_, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID())
 		return !native
 	})
@@ -265,7 +266,7 @@ func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectP
 		!slices.EqualFunc(shape.whole, work.whole, sameManagedPathEffect) ||
 		!slices.EqualFunc(shape.narrowings, input.Preparation.narrowings, reconcile.NativeNarrowingAction.Equal) ||
 		!slices.EqualFunc(shape.adoptions, input.Preparation.adoptions, sameNativeWholeAdoption) ||
-		!slices.EqualFunc(shape.aggregates, input.Preparation.AggregateEffects(), sameAggregateSuffixEffect) {
+		!slices.EqualFunc(shape.aggregates, input.Preparation.AggregateEffects(), effectpreparation.AggregateEffect.SameMutation) {
 		return ApplyEffectPlan{}, fmt.Errorf("native suffix actors changed")
 	}
 	for _, order := range input.Preparation.PiOrders() {
@@ -289,30 +290,6 @@ func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectP
 func sameNativeWholeAdoption(left, right NativeWholeAdoption) bool {
 	return left.source.Equal(right.source) && sameManagedPathEffect(left.record, right.record) &&
 		slices.EqualFunc(left.retired, right.retired, durable.ManagedAggregateState.Equal)
-}
-
-func sameAggregateSuffixEffect(left, right AggregateEffect) bool {
-	if left.documentAddress != right.documentAddress || left.codecContractID != right.codecContractID {
-		return false
-	}
-	// No-op projections remain codec validation context, not suffix actors.
-	validationOnly := func(projection AggregateProjectionEffect) bool { return !projection.isJournaled() }
-	leftActors := slices.DeleteFunc(slices.Clone(left.projections), validationOnly)
-	rightActors := slices.DeleteFunc(slices.Clone(right.projections), validationOnly)
-	return slices.EqualFunc(leftActors, rightActors, func(a, b AggregateProjectionEffect) bool {
-		if a.kind != b.kind || !a.contract.Equal(b.contract) ||
-			!a.before.SelectedValueEqual(b.before) || !a.expected.SelectedValueEqual(b.expected) ||
-			!slices.EqualFunc(a.previous, b.previous, durable.ManagedAggregateState.Equal) ||
-			!slices.EqualFunc(a.subjects, b.subjects, func(a, b AggregateSubjectEffect) bool {
-				return a.kind == b.kind && a.subject == b.subject && a.contract.Equal(b.contract)
-			}) {
-			return false
-		}
-		if a.desired == nil || b.desired == nil {
-			return a.desired == nil && b.desired == nil
-		}
-		return a.desired.Equal(*b.desired)
-	})
 }
 
 func sameManagedPathEffect(left, right ManagedPathEffect) bool {

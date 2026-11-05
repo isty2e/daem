@@ -6,28 +6,38 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
+
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
-	lock "github.com/isty2e/daem/internal/realization/lock"
-	"github.com/isty2e/daem/internal/subprocess"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/subprocess"
+
 	payloadbuild "github.com/isty2e/daem/internal/effect/payload/build"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
+
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -112,7 +122,7 @@ func runWithOptions(
 	if err != nil {
 		return runResult{}, err
 	}
-	aggregateEffects, err := execute.AggregateEffects(assessment.Reconciliation.Aggregates())
+	aggregateEffects, err := effectpreparation.AggregateEffects(assessment.Reconciliation.Aggregates())
 	if err != nil {
 		return runResult{}, err
 	}

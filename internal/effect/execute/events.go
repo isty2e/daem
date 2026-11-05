@@ -1,7 +1,9 @@
 package execute
 
 import (
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/output"
+
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -57,7 +59,7 @@ const (
 type ActionEventFacts struct {
 	Index           int
 	ManagedPathKind ManagedPathEffectKind
-	AggregateKind   AggregateEffectKind
+	AggregateKind   effectpreparation.AggregateEffectKind
 	Subject         topology.SubjectID
 	Target          target.Target
 	ConsumerTargets []target.Target

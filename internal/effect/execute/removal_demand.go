@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
@@ -20,7 +21,7 @@ import (
 // this typed result to fresh physical evidence.
 func removalDemandSetForExecution(
 	managed []ManagedPathEffect,
-	aggregates []AggregateEffect,
+	aggregates []effectpreparation.AggregateEffect,
 	evidence []observe.ManagedPathEvidence,
 ) (recovery.RemovalDemandSet, error) {
 	evidenceByDestination := make(map[output.Destination][]observe.ManagedPathEvidence, len(evidence))
@@ -216,20 +217,20 @@ func expectedManagedPathRemovalState(effect ManagedPathEffect) (recovery.Removal
 }
 
 func addAggregateRemovalDemands(
-	effect AggregateEffect,
+	effect effectpreparation.AggregateEffect,
 	add func(target.Scope, output.Destination, recovery.RemovalState) error,
 ) error {
-	if effect.journaledProjectionCount() == 0 {
+	if effect.JournaledProjectionCount() == 0 {
 		return nil
 	}
 	switch effect.Kind() {
-	case AggregateEffectCreate:
+	case effectpreparation.AggregateEffectCreate:
 		state, err := aggregateDocumentExpectedRemovalState(effect)
 		if err != nil {
 			return err
 		}
 		return add(effect.Scope(), effect.Destination(), state)
-	case AggregateEffectRemove:
+	case effectpreparation.AggregateEffectRemove:
 		// Removing one contribution usually rewrites a still-present shared
 		// document. Only a document transition to absent can invoke the
 		// journaled rooted-removal operation and therefore needs a residue
@@ -242,18 +243,18 @@ func addAggregateRemovalDemands(
 			return err
 		}
 		return add(effect.Scope(), effect.Destination(), state)
-	case AggregateEffectReplace, AggregateEffectRecord:
+	case effectpreparation.AggregateEffectReplace, effectpreparation.AggregateEffectRecord:
 		return nil
 	default:
 		return fmt.Errorf("unsupported aggregate effect kind %q", effect.Kind())
 	}
 }
 
-func aggregateDocumentBeforeRemovalState(effect AggregateEffect) (recovery.RemovalState, error) {
+func aggregateDocumentBeforeRemovalState(effect effectpreparation.AggregateEffect) (recovery.RemovalState, error) {
 	return aggregateDocumentRemovalState(effect.BeforeDocument(), aggregate.DocumentFileMode, false)
 }
 
-func aggregateDocumentExpectedRemovalState(effect AggregateEffect) (recovery.RemovalState, error) {
+func aggregateDocumentExpectedRemovalState(effect effectpreparation.AggregateEffect) (recovery.RemovalState, error) {
 	return aggregateDocumentRemovalState(effect.Rendered().Document(), aggregate.DocumentFileMode, true)
 }
 

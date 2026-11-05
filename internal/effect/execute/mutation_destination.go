@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"path/filepath"
 
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
+
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -157,7 +161,7 @@ type globalDestinationBinding struct {
 func newMutationAuthorityWithProjectionEffects(
 	paths Paths,
 	managedPaths []ManagedPathEffect,
-	aggregates []AggregateEffect,
+	aggregates []effectpreparation.AggregateEffect,
 	removalDemands recovery.RemovalDemandSet,
 	borrowedRoot *rootedpath.CapturedRoot,
 	resolver DestinationResolver,
@@ -236,7 +240,7 @@ func newMutationAuthorityWithProjectionEffects(
 
 func hasProjectAuthorityUse(
 	managedPaths []ManagedPathEffect,
-	aggregates []AggregateEffect,
+	aggregates []effectpreparation.AggregateEffect,
 ) bool {
 	for _, effect := range managedPaths {
 		if effect.Scope() == target.ScopeProject {
