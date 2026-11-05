@@ -9,37 +9,23 @@ import (
 	"path/filepath"
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	"github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
-	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
-
-// NativeRecoveryProfile is an explicit command-selected reader and root grant.
-// Persisted selectors cannot create or enlarge these independently selected roots.
-type NativeRecoveryProfile struct {
-	StateCodec   durable.SnapshotCodec
-	Codecs       aggregate.CodecCatalog
-	Limits       configdocument.Limits
-	Manifest     string
-	ManifestPath string
-	ResolveRoot  func(output.RootRole) (string, error)
-	Budget       *physicalwork.Budget
-	StateReader  durable.SnapshotReader
-}
 
 // NativeRecoveryPlan retains immutable observations, not live root capabilities.
 // Execution must reopen and requalify the complete operation under its leases.
@@ -168,72 +154,14 @@ func (plan NativeRecoveryPlan) RemovalDemands() (recovery.RemovalDemandSet, erro
 	return plan.journal.RemovalDemands()
 }
 
-func (profile NativeRecoveryProfile) decodeInventory(legacy durable.SnapshotCodec) inventoryJournalDecoder {
-	return nativeRecoveryInventoryDecoder(legacy, profile.StateCodec)
-}
-
-func (profile NativeRecoveryProfile) captureRoots(ctx context.Context, journal journalrecord.Native) (roots journalnamespace.Roots, retained []*rootedpath.CapturedRoot, resultErr error) {
-	defer func() {
-		if resultErr != nil {
-			for _, root := range retained {
-				resultErr = errors.Join(resultErr, root.Close())
-			}
-			retained = nil
-		}
-	}()
-	anchors, err := journal.RecordedRootAnchors()
-	if err != nil {
-		return roots, retained, err
-	}
-	for _, role := range []output.RootRole{output.RootProject, output.RootPiAgent, output.RootCodexHome} {
-		if _, needed := anchors[role]; !needed {
-			continue
-		}
-		var selected *journalnamespace.RootSelection
-		var path string
-		switch role {
-		case output.RootProject:
-			selected, path = &roots.Manifest, profile.Manifest
-		case output.RootPiAgent:
-			selected = &roots.PiAgent
-		case output.RootCodexHome:
-			selected = &roots.CodexHome
-		}
-		if path == "" && profile.ResolveRoot != nil {
-			var err error
-			path, err = profile.ResolveRoot(role)
-			if err != nil {
-				return roots, retained, err
-			}
-		}
-		if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
-			return roots, retained, fmt.Errorf("native recovery requires a canonical independently selected root")
-		}
-		var selection journalnamespace.RootSelection
-		var err error
-		if role == output.RootProject {
-			var root *rootedpath.CapturedRoot
-			root, err = rootedpath.CaptureCanonicalRootBounded(path, physicalwork.MaximumPhysicalPathDepth, profile.Budget)
-			selection = journalnamespace.RootSelection{SelectedPath: path, Root: root}
-		} else {
-			selection, err = journalnamespace.CaptureRecordedRoot(ctx, path, anchors[role], profile.Budget)
-		}
-		if err != nil {
-			return roots, retained, err
-		}
-		retained = append(retained, selection.Root)
-		*selected = selection
-	}
-	return roots, retained, ctx.Err()
-}
-
 // NativeRecoveryOperation uses qualified roots for one revalidation/execution.
 // Close releases independently captured roots, never roots borrowed from a live
 // capture. Its plan projection carries neither kind of capability.
 type NativeRecoveryOperation struct {
 	plan                        NativeRecoveryPlan
-	profile                     NativeRecoveryProfile
+	profile                     recoveryoperation.Profile
 	roots                       journalnamespace.Roots
+	ownedRoots                  *recoveryoperation.OwnedRoots
 	retained                    []*rootedpath.CapturedRoot
 	qualified                   nativeQualifiedDocumentRecords
 	closed                      bool
@@ -248,7 +176,7 @@ func (operation *NativeRecoveryOperation) Close() error {
 		return nil
 	}
 	operation.closed = true
-	var err error
+	err := operation.ownedRoots.Close()
 	for _, root := range operation.retained {
 		err = errors.Join(err, root.Close())
 	}
@@ -296,11 +224,12 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 	if err != nil || !observed.Exact().Equal(journal.Owner().StatefileAuthority()) {
 		return nil, errors.Join(fmt.Errorf("native recovery state authority differs from its selected owner"), err)
 	}
-	roots, retained, err := profile.captureRoots(ctx, journal)
+	ownedRoots, err := profile.OpenRoots(ctx, journal)
 	if err != nil {
 		return nil, err
 	}
-	operation := &NativeRecoveryOperation{profile: profile, roots: roots, retained: retained, resolver: options.Resolver, inventoryProfile: RecoveryInventoryProfile{decoder: profile.decodeInventory(options.StateCodec)}}
+	roots := ownedRoots.Selection()
+	operation := &NativeRecoveryOperation{profile: profile, roots: roots, ownedRoots: ownedRoots, resolver: options.Resolver, inventoryProfile: RecoveryInventoryProfile{decoder: nativeRecoveryInventoryDecoder(options.StateCodec, profile.StateCodec)}}
 	defer func() {
 		if resultErr != nil {
 			resultErr = errors.Join(resultErr, operation.Close())
@@ -383,7 +312,7 @@ func OpenNativeRecovery(ctx context.Context, paths Paths, selected NativeRecover
 		return nil, fmt.Errorf("native recovery profile is required")
 	}
 	inventoryOptions := inventoryOptionsFromPlan(options)
-	inventoryOptions.recordDecoder = options.NativeDocuments.decodeInventory(options.StateCodec)
+	inventoryOptions.recordDecoder = nativeRecoveryInventoryDecoder(options.StateCodec, options.NativeDocuments.StateCodec)
 	inventory, err := loadRecoveryRootInventory(ctx, paths.RecoveryDir, inventoryOptions)
 	if err != nil {
 		return nil, err

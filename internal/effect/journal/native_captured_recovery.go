@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -49,7 +51,7 @@ func OpenCapturedNativeRecovery(ctx context.Context, captured CapturedNativeJour
 	plan := NativeRecoveryPlan{journal: captured.journal, capture: captured.capture, active: captured.active, inventory: inv, assessment: observed, registryScope: scope}
 	return &NativeRecoveryOperation{
 		plan:    plan,
-		profile: NativeRecoveryProfile{StateCodec: codec, Codecs: options.Codecs, Limits: captured.publication.limits, Budget: captured.budget},
+		profile: recoveryoperation.Profile{StateCodec: codec, Codecs: options.Codecs, Limits: captured.publication.limits, Budget: captured.budget},
 		roots:   captured.publication.roots, qualified: qualified, capturedRemovalReservations: true,
 		resolver: captured.publication.resolver, ordinaryCapabilities: captured.publication.ordinaryCapabilities,
 	}, nil

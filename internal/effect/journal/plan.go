@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -36,7 +38,7 @@ type PlanLoadOptions struct {
 	StateReader        durable.SnapshotReader
 	Filesystem         mutationfs.Reader
 	PhysicalPathBudget rootedpath.PhysicalTraversalBudget
-	NativeDocuments    *NativeRecoveryProfile
+	NativeDocuments    *recoveryoperation.Profile
 	// ValidateBeforeActiveObservation runs after one recovery-root inventory
 	// selects active-journal recovery and before host, state, or ownership
 	// observation. Cleanup-only selection never invokes it.
@@ -583,7 +585,7 @@ func inventoryOptionsFromPlan(options PlanLoadOptions) inventoryOptions {
 		PhysicalPathBudget: options.PhysicalPathBudget,
 	}
 	if options.NativeDocuments != nil {
-		result.recordDecoder = options.NativeDocuments.decodeInventory(options.StateCodec)
+		result.recordDecoder = nativeRecoveryInventoryDecoder(options.StateCodec, options.NativeDocuments.StateCodec)
 	}
 	return result
 }
