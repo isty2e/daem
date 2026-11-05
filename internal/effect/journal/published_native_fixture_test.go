@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -154,7 +156,7 @@ func nativeJournalFixture(t *testing.T) nativeRecordFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, artifacts := publishNativeFixture(t, journal, comparison, nativeDocumentStageOptions{stateCodec: codec, codecs: codecs, limits: limits, budget: setupBudget})
+	decoded, artifacts := publishNativeFixture(t, journal, comparison, journalpublication.StageOptions{StateCodec: codec, Codecs: codecs, Limits: limits, Budget: setupBudget})
 	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: rootSet, comparison: comparison, capturedGroups: []journalrecord.SealedDocumentGroup{group}}
 }
 
@@ -250,14 +252,14 @@ func publishedNativeVariant(t *testing.T, fixture nativeRecordFixture, revise fu
 	return journal
 }
 
-func publishNativeFixture(t *testing.T, journal journalrecord.Native, comparison journaldocument.Comparison, options nativeDocumentStageOptions) (journalrecord.Native, *rootedpath.CapturedRoot) {
+func publishNativeFixture(t *testing.T, journal journalrecord.Native, comparison journaldocument.Comparison, options journalpublication.StageOptions) (journalrecord.Native, *rootedpath.CapturedRoot) {
 	t.Helper()
 	return publishNativeFixtureAt(t, filepath.Join(t.TempDir(), "published-journal"), journal, []journaldocument.Comparison{comparison}, options)
 }
 
-func publishNativeFixtureAt(t *testing.T, destination string, journal journalrecord.Native, comparisons []journaldocument.Comparison, options nativeDocumentStageOptions) (journalrecord.Native, *rootedpath.CapturedRoot) {
+func publishNativeFixtureAt(t *testing.T, destination string, journal journalrecord.Native, comparisons []journaldocument.Comparison, options journalpublication.StageOptions) (journalrecord.Native, *rootedpath.CapturedRoot) {
 	t.Helper()
-	codec, codecs, limits, setupBudget := options.stateCodec, options.codecs, options.limits, options.budget
+	codec, codecs, limits, setupBudget := options.StateCodec, options.Codecs, options.Limits, options.Budget
 	root, bound, err := rootedpath.CaptureDestination(destination)
 	if err != nil {
 		t.Fatal(err)
@@ -269,7 +271,7 @@ func publishNativeFixtureAt(t *testing.T, destination string, journal journalrec
 	}
 	defer capability.Close()
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
-		_, err := stageDocumentJournal(journal, t.Context(), comparisons, writer, nativeDocumentStageOptions{stateCodec: codec, codecs: codecs, limits: limits, budget: setupBudget})
+		_, err := journalpublication.StageDocuments(journal, t.Context(), comparisons, writer, journalpublication.StageOptions{StateCodec: codec, Codecs: codecs, Limits: limits, Budget: setupBudget})
 		return err
 	})
 	if err != nil {

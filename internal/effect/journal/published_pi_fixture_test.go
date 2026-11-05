@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -115,6 +117,6 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 		t.Fatal(err)
 	}
 	codec, codecs := statefile.Codec{}, aggregatecodec.Catalog()
-	decoded, artifacts := publishNativeFixture(t, journal, comparison, nativeDocumentStageOptions{stateCodec: codec, codecs: codecs, limits: limits, budget: setupBudget})
+	decoded, artifacts := publishNativeFixture(t, journal, comparison, journalpublication.StageOptions{StateCodec: codec, Codecs: codecs, Limits: limits, Budget: setupBudget})
 	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: roots, comparison: comparison}, input
 }

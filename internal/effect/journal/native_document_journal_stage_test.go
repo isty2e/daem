@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
@@ -76,7 +78,7 @@ func TestNativeDocumentJournalStageRejectsAllInvalidMetadataBeforeWrites(t *test
 					expected["artifact"] = nativeRecordJSON(t, expectedArtifact)
 					group["expected"] = nativeRecordJSON(t, expected)
 				})
-				options.budget = imageBudget(t)
+				options.Budget = imageBudget(t)
 			case "wrong state":
 				invalid := whole
 				invalid.envelope.after = invalid.envelope.before
@@ -101,24 +103,24 @@ func TestNativeDocumentJournalStageRejectsAllInvalidMetadataBeforeWrites(t *test
 				first, _, groups, validComparisons := twoWholeGroupStageFixture(t)
 				journal = first.recordForGroups(t, groups)
 				options = documentStageOptions(first.envelope, imageBudget(t))
-				prepared, err := journal.PrepareDocuments(ctx, validComparisons, options.limits, options.codecs)
+				prepared, err := journal.PrepareDocuments(ctx, validComparisons, options.Limits, options.Codecs)
 				if err != nil {
 					t.Fatal("non-overlapping groups failed before their negative control", err)
 				}
-				if _, err := prepared.Encode(ctx, options.stateCodec); err != nil {
+				if _, err := prepared.Encode(ctx, options.StateCodec); err != nil {
 					t.Fatal("valid multi-group preparation could not encode", err)
 				}
 				comparisons = append([]journaldocument.Comparison(nil), validComparisons...)
 				comparisons[1] = journaldocument.Comparison{}
 			case "missing codec":
-				options.stateCodec = nil
+				options.StateCodec = nil
 			case "pre-cancel":
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()
 			}
 			writer := &imageStageWriter{}
-			fingerprint, err := stageDocumentJournal(journal, ctx, comparisons, writer, options)
+			fingerprint, err := journalpublication.StageDocuments(journal, ctx, comparisons, writer, options)
 			if err == nil || fingerprint != "" || writer.directories != 0 || writer.writes != 0 {
 				t.Fatalf("invalid whole envelope caused private I/O or returned a fingerprint: %v", err)
 			}
@@ -159,7 +161,7 @@ func TestNativeDocumentJournalStagePreflightsJournalAndAllImageWork(t *testing.T
 			}
 			remainingBytes, remainingEntries = budget.RemainingBytes(), budget.RemainingEntries()
 			writer := &imageStageWriter{}
-			fingerprint, err := stageDocumentJournal(decoded, t.Context(), []journaldocument.Comparison{comparison}, writer, documentStageOptions(fixture, budget))
+			fingerprint, err := journalpublication.StageDocuments(decoded, t.Context(), []journaldocument.Comparison{comparison}, writer, documentStageOptions(fixture, budget))
 			if err == nil || fingerprint != "" || writer.writes != 0 || writer.directories != 0 || budget.RemainingBytes() != remainingBytes || budget.RemainingEntries() != remainingEntries {
 				t.Fatalf("budget refusal wrote or charged unattempted artifacts: %v", err)
 			}
@@ -196,7 +198,7 @@ func TestNativeDocumentJournalStageLateFailureAbortsCompletePrivateTree(t *testi
 					return failure
 				}}
 				var err error
-				fingerprint, err = stageDocumentJournal(decoded, ctx, []journaldocument.Comparison{comparison}, wrapped, documentStageOptions(fixture, budget))
+				fingerprint, err = journalpublication.StageDocuments(decoded, ctx, []journaldocument.Comparison{comparison}, wrapped, documentStageOptions(fixture, budget))
 				return err
 			})
 			cause := failure
@@ -231,7 +233,7 @@ func TestNativeDocumentJournalStageDiscardsFingerprintAfterFinalCheckCancellatio
 	var stageErr error
 	_, err := journalTestFilesystem().PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
 		wrapped := journalCompletionWriter{RootedTreeWriter: writer, context: ctx}
-		fingerprint, stageErr = stageDocumentJournal(decoded, ctx, []journaldocument.Comparison{comparison}, wrapped, documentStageOptions(fixture, imageBudget(t)))
+		fingerprint, stageErr = journalpublication.StageDocuments(decoded, ctx, []journaldocument.Comparison{comparison}, wrapped, documentStageOptions(fixture, imageBudget(t)))
 		return stageErr
 	})
 	if !errors.Is(stageErr, context.Canceled) || fingerprint != "" || !errors.Is(err, context.Canceled) {

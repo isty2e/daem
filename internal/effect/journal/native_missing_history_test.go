@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -150,7 +152,7 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 				fixture.stageAndReconstruct(t, group, comparison)
 
 				journal := fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
-				journal, fixture.envelope.read.Artifacts = publishNativeFixture(t, journal, comparison, nativeDocumentStageOptions{stateCodec: fixture.envelope.codec, codecs: fixture.envelope.read.Codecs, limits: fixture.input.Limits(), budget: imageBudget(t)})
+				journal, fixture.envelope.read.Artifacts = publishNativeFixture(t, journal, comparison, journalpublication.StageOptions{StateCodec: fixture.envelope.codec, Codecs: fixture.envelope.read.Codecs, Limits: fixture.input.Limits(), Budget: imageBudget(t)})
 				recorded, err := journal.DocumentAt(0)
 				if err != nil {
 					t.Fatal(err)

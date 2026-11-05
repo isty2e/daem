@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -189,7 +191,7 @@ func (setup *nativeAssessmentFixture) publish(t *testing.T) {
 	if destination == "" {
 		destination = filepath.Join(t.TempDir(), "published-assessment")
 	}
-	fixture.journal, fixture.read.Artifacts = publishNativeFixtureAt(t, destination, journal, comparisons, nativeDocumentStageOptions{stateCodec: fixture.codec, codecs: fixture.read.Codecs, limits: fixture.read.Limits, budget: budget})
+	fixture.journal, fixture.read.Artifacts = publishNativeFixtureAt(t, destination, journal, comparisons, journalpublication.StageOptions{StateCodec: fixture.codec, Codecs: fixture.read.Codecs, Limits: fixture.read.Limits, Budget: budget})
 	fixture.capturedGroups = groups
 	setup.published = true
 }

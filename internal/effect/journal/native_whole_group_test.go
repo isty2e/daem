@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -576,7 +578,7 @@ func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group jou
 	destination, capability := imageStageDestination(t)
 	defer capability.Close()
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
-		original, expected, err := stageDocumentImages(t.Context(), comparison, fixture.input.GroupIndex(), writer, fixture.input.Budget())
+		original, expected, err := journalpublication.StageImages(t.Context(), comparison, fixture.input.GroupIndex(), writer, fixture.input.Budget())
 		if err != nil {
 			return err
 		}

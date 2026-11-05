@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -30,7 +32,7 @@ func requireStagedDocumentJournal(t *testing.T, fixture nativeRecordFixture, jou
 	var fingerprint string
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		var err error
-		fingerprint, err = stageDocumentJournal(journal, t.Context(), comparisons, writer, documentStageOptions(fixture, budget))
+		fingerprint, err = journalpublication.StageDocuments(journal, t.Context(), comparisons, writer, documentStageOptions(fixture, budget))
 		return err
 	})
 	if err != nil {

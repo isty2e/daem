@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -149,17 +151,17 @@ func CaptureNativeJournalWithOptions(
 	}
 	roots := batch.roots
 	options.ManifestRoot = roots.Manifest.Root
-	stageOptions := nativeDocumentStageOptions{stateCodec: options.StateCodec, codecs: options.Codecs, limits: batch.Evidence().DocumentLimits(), budget: batch.budget}
+	stageOptions := journalpublication.StageOptions{StateCodec: options.StateCodec, Codecs: options.Codecs, Limits: batch.Evidence().DocumentLimits(), Budget: batch.budget}
 	var fingerprint string
 	prepared, err := options.Filesystem.PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
 		var err error
 		if len(mutations)+len(options.ClaimTransitions)+len(options.ProvisionalAcquires) != 0 || options.RemovalDemands.Len() != 0 || !hasDocuments {
-			fingerprint, err = stageMixedDocumentJournal(journal, ctx, paths, options.CaptureOptions, comparisons, writer, nativeMixedStageOptions{nativeDocumentStageOptions: stageOptions, roots: roots})
+			fingerprint, err = stageMixedDocumentJournal(journal, ctx, paths, options.CaptureOptions, comparisons, writer, nativeMixedStageOptions{StageOptions: stageOptions, roots: roots})
 		} else {
 			if err := writer.SetRootMode(retirement.DirectoryMode); err != nil {
 				return err
 			}
-			fingerprint, err = stageDocumentJournal(journal, ctx, comparisons, writer, stageOptions)
+			fingerprint, err = journalpublication.StageDocuments(journal, ctx, comparisons, writer, stageOptions)
 		}
 		return err
 	})

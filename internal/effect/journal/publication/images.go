@@ -1,4 +1,4 @@
-package journal
+package publication
 
 import (
 	"bytes"
@@ -17,9 +17,9 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-// stageDocumentImages writes only into the containing unpublished tree. Its
+// StageImages writes only into the containing unpublished tree. Its
 // caller must propagate failures so that the tree owner aborts partial artifacts.
-func stageDocumentImages(ctx context.Context, comparison journaldocument.Comparison, groupIndex int, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) (journalrecord.DocumentImage, journalrecord.DocumentImage, error) {
+func StageImages(ctx context.Context, comparison journaldocument.Comparison, groupIndex int, writer mutationfs.RootedTreeWriter, budget *physicalwork.Budget) (journalrecord.DocumentImage, journalrecord.DocumentImage, error) {
 	if ctx == nil {
 		return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, fmt.Errorf("document image staging context is required")
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -35,14 +36,14 @@ type ordinaryCaptureSource struct {
 }
 
 type nativeMixedStageOptions struct {
-	nativeDocumentStageOptions
+	journalpublication.StageOptions
 	roots journalnamespace.Roots
 }
 
 // stageMixedDocumentJournal populates one unpublished tree. Capture options must
 // contain only ordinary work; the containing operation still owns live authority.
 func stageMixedDocumentJournal(journal journalrecord.Native, ctx context.Context, paths Paths, capture CaptureOptions, comparisons []journaldocument.Comparison, writer mutationfs.RootedTreeWriter, options nativeMixedStageOptions) (fingerprint string, resultErr error) {
-	if ctx == nil || writer == nil || options.budget == nil || options.stateCodec == nil || capture.Filesystem == nil || capture.Resolver == nil {
+	if ctx == nil || writer == nil || options.Budget == nil || options.StateCodec == nil || capture.Filesystem == nil || capture.Resolver == nil {
 		return "", fmt.Errorf("mixed journal staging requires context, private writer, codec, shared budget and ordinary capture adapters")
 	}
 	if err := ctx.Err(); err != nil {
@@ -66,7 +67,7 @@ func stageMixedDocumentJournal(journal journalrecord.Native, ctx context.Context
 		}
 	}()
 
-	ordinary, err := captureOrdinarySource(ctx, paths, directory, basis, capture, options.budget)
+	ordinary, err := captureOrdinarySource(ctx, paths, directory, basis, capture, options.Budget)
 	if err != nil {
 		return "", err
 	}
@@ -131,7 +132,7 @@ func stageWithOrdinarySource(journal journalrecord.Native, ctx context.Context, 
 	if err != nil {
 		return "", err
 	}
-	if _, err := journalqualification.LoadNamespaces(journal, ctx, journalqualification.ReadOptions{Filesystem: ordinary.filesystem, Budget: options.budget, OrdinaryCapabilities: ordinary.capabilities}, options.roots); err != nil {
+	if _, err := journalqualification.LoadNamespaces(journal, ctx, journalqualification.ReadOptions{Filesystem: ordinary.filesystem, Budget: options.Budget, OrdinaryCapabilities: ordinary.capabilities}, options.roots); err != nil {
 		return "", err
 	}
 	// Each traversal may enumerate one overflow entry when refusing source growth.
@@ -143,7 +144,7 @@ func stageWithOrdinarySource(journal journalrecord.Native, ctx context.Context, 
 	if err != nil {
 		return "", err
 	}
-	prepared, content, err := prepareDocumentJournal(journal, ctx, comparisons, options.nativeDocumentStageOptions, work)
+	prepared, err := journalpublication.PrepareJournal(journal, ctx, comparisons, options.StageOptions, work)
 	if err != nil {
 		return "", err
 	}
@@ -156,7 +157,7 @@ func stageWithOrdinarySource(journal journalrecord.Native, ctx context.Context, 
 	if measureErr != nil {
 		measuredWork = allowance
 	}
-	if err := errors.Join(measureErr, options.budget.AdmitTree(measuredWork), ctx.Err()); err != nil {
+	if err := errors.Join(measureErr, options.Budget.AdmitTree(measuredWork), ctx.Err()); err != nil {
 		return "", err
 	}
 	sink, err := artifactstage.New(writer)
@@ -168,10 +169,10 @@ func stageWithOrdinarySource(journal journalrecord.Native, ctx context.Context, 
 	if copyErr != nil {
 		copiedWork = allowance
 	}
-	if err := errors.Join(copyErr, options.budget.AdmitTree(copiedWork), ctx.Err()); err != nil {
+	if err := errors.Join(copyErr, options.Budget.AdmitTree(copiedWork), ctx.Err()); err != nil {
 		return "", err
 	}
-	return stagePreparedDocumentJournal(prepared, ctx, content, writer, options.budget)
+	return prepared.Stage(ctx, writer)
 }
 
 func ordinarySourceLimits(work workmeasure.ArtifactWork) (access.TraversalLimit, access.TreeStructureLimit, error) {

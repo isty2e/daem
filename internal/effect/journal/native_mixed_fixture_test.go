@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -28,7 +30,7 @@ type mixedJournalFixture struct {
 }
 
 func (fixture mixedJournalFixture) stageOptions(budget *physicalwork.Budget) nativeMixedStageOptions {
-	return nativeMixedStageOptions{nativeDocumentStageOptions: documentStageOptions(fixture.whole.envelope, budget), roots: fixture.whole.roots}
+	return nativeMixedStageOptions{StageOptions: documentStageOptions(fixture.whole.envelope, budget), roots: fixture.whole.roots}
 }
 
 func mixedStageFixture(t *testing.T) mixedJournalFixture {
@@ -97,6 +99,6 @@ func (fixture mixedJournalFixture) source(t *testing.T, budget *physicalwork.Bud
 	return source, directory
 }
 
-func documentStageOptions(fixture nativeRecordFixture, budget *physicalwork.Budget) nativeDocumentStageOptions {
-	return nativeDocumentStageOptions{stateCodec: fixture.codec, codecs: fixture.read.Codecs, limits: fixture.read.Limits, budget: budget}
+func documentStageOptions(fixture nativeRecordFixture, budget *physicalwork.Budget) journalpublication.StageOptions {
+	return journalpublication.StageOptions{StateCodec: fixture.codec, Codecs: fixture.read.Codecs, Limits: fixture.read.Limits, Budget: budget}
 }

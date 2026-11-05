@@ -375,7 +375,11 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				_, content, err := prepareDocumentJournal(merged, t.Context(), comparisons, documentStageOptions(fixture.whole.envelope, budget), workmeasure.ArtifactWork{})
+				prepared, err := merged.PrepareDocuments(t.Context(), comparisons, fixture.whole.envelope.read.Limits, fixture.whole.envelope.read.Codecs)
+				if err != nil {
+					t.Fatal(err)
+				}
+				content, err := prepared.Encode(t.Context(), fixture.whole.envelope.codec)
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -42,7 +44,7 @@ func TestDocumentImageStagePublishesExactPrivateImages(t *testing.T) {
 			var original, expected journalrecord.DocumentImage
 			prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 				var err error
-				original, expected, err = stageDocumentImages(t.Context(), comparison, 0, writer, budget)
+				original, expected, err = journalpublication.StageImages(t.Context(), comparison, 0, writer, budget)
 				return err
 			})
 			if err != nil {
@@ -107,7 +109,7 @@ func TestDocumentImageStageFeedsStrictNativeRecordReconstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 	comparison := requireLoadedNativeDocument(t, loaded, 0).Group().Comparison()
-	decoded, root := publishNativeFixture(t, fixture.journal, comparison, nativeDocumentStageOptions{stateCodec: fixture.codec, codecs: fixture.read.Codecs, limits: fixture.read.Limits, budget: imageBudget(t)})
+	decoded, root := publishNativeFixture(t, fixture.journal, comparison, journalpublication.StageOptions{StateCodec: fixture.codec, Codecs: fixture.read.Codecs, Limits: fixture.read.Limits, Budget: imageBudget(t)})
 	fixture.read.Artifacts, fixture.read.Budget = root, imageBudget(t)
 	reconstructed, err := journalqualification.LoadDocuments(decoded, t.Context(), fixture.read)
 	if err != nil || reconstructed.Len() != 1 {
@@ -147,7 +149,7 @@ func TestDocumentImageStageFailureAndCancellationAbortActualPartialTree(t *testi
 					return failure
 				}}
 				var err error
-				original, expected, err = stageDocumentImages(ctx, comparison, 0, wrapped, budget)
+				original, expected, err = journalpublication.StageImages(ctx, comparison, 0, wrapped, budget)
 				return err
 			})
 			cause := failure
@@ -194,7 +196,7 @@ func TestDocumentImageStagePreflightsWholePairAgainstSharedWork(t *testing.T) {
 				t.Fatal(err)
 			}
 			writer := &imageStageWriter{}
-			original, expected, err := stageDocumentImages(t.Context(), comparison, 0, writer, budget)
+			original, expected, err := journalpublication.StageImages(t.Context(), comparison, 0, writer, budget)
 			if err == nil || original != (journalrecord.DocumentImage{}) || expected != (journalrecord.DocumentImage{}) || writer.directories != 0 || writer.writes != 0 {
 				t.Fatal("insufficient pair budget reached writer or exposed an image")
 			}
@@ -208,11 +210,11 @@ func TestDocumentImageStageDoesNotOverwriteAnotherGroup(t *testing.T) {
 	budget := imageBudget(t)
 	var original, expected journalrecord.DocumentImage
 	_, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
-		if _, _, err := stageDocumentImages(t.Context(), comparison, 0, writer, budget); err != nil {
+		if _, _, err := journalpublication.StageImages(t.Context(), comparison, 0, writer, budget); err != nil {
 			return err
 		}
 		var err error
-		original, expected, err = stageDocumentImages(t.Context(), comparison, 0, writer, budget)
+		original, expected, err = journalpublication.StageImages(t.Context(), comparison, 0, writer, budget)
 		return err
 	})
 	if err == nil || original != (journalrecord.DocumentImage{}) || expected != (journalrecord.DocumentImage{}) {
@@ -239,7 +241,7 @@ func TestDocumentImageStageKeepsDistinctGroupsOnOneBudget(t *testing.T) {
 	prepared, err := journalTestFilesystem().PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		for index, comparison := range comparisons {
 			var err error
-			records[index][0], records[index][1], err = stageDocumentImages(t.Context(), comparison, index, writer, budget)
+			records[index][0], records[index][1], err = journalpublication.StageImages(t.Context(), comparison, index, writer, budget)
 			if err != nil {
 				return err
 			}
@@ -298,7 +300,7 @@ func TestDocumentImageStageRejectsMissingLifecycleInputs(t *testing.T) {
 			if test.missingBudget {
 				budget = nil
 			}
-			original, expected, err := stageDocumentImages(test.ctx, test.comparison, test.index, port, budget)
+			original, expected, err := journalpublication.StageImages(test.ctx, test.comparison, test.index, port, budget)
 			if err == nil || original != (journalrecord.DocumentImage{}) || expected != (journalrecord.DocumentImage{}) || writer.directories != 0 || writer.writes != 0 {
 				t.Fatal("missing lifecycle input produced usable records or storage work")
 			}
