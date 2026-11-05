@@ -11,32 +11,39 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
 // OpenCapturedNativeRecovery reloads and classifies a published operation for its containing
 // Apply. Root grants and the allocation stay borrowed from that live operation.
-func OpenCapturedNativeRecovery(ctx context.Context, captured CapturedNativeJournal, codec durable.SnapshotCodec, options NativeRecoveryOptions) (*NativeRecoveryOperation, error) {
-	if err := captured.Validate(); err != nil {
+func OpenCapturedNativeRecovery(ctx context.Context, captured CapturedNativeJournal, codec durable.SnapshotCodec, manifest *rootedpath.CapturedRoot, budget *physicalwork.Budget, options NativeRecoveryOptions) (*NativeRecoveryOperation, error) {
+	if err := captured.RequireRecoverySelection(manifest, budget); err != nil {
 		return nil, err
 	}
-	if codec == nil || captured.publication.roots.Manifest.Root == nil {
+	if codec == nil {
 		return nil, fmt.Errorf("captured native recovery requires its selected codec and roots")
 	}
 	reader, ok := options.Filesystem.(mutationfs.Reader)
 	if !ok {
 		return nil, fmt.Errorf("captured native recovery requires inventory observation")
 	}
-	inventory, err := journalinventory.LoadNativeRoot(ctx, filepath.Dir(captured.capture.Directory), journalinventory.Options{Filesystem: reader, StateCodec: codec, PhysicalPathBudget: captured.budget})
+	capture := captured.CaptureResult()
+	inventory, err := journalinventory.LoadNativeRoot(ctx, filepath.Dir(capture.Directory), journalinventory.Options{Filesystem: reader, StateCodec: codec, PhysicalPathBudget: budget})
 	if err != nil {
 		return nil, err
 	}
-	if inventory.Active() == nil || !inventory.Active().PhysicalAuthority().Equal(captured.active) || inventory.Active().OperationDir() != captured.capture.Directory || inventory.Active().Identity().JournalAuthorityFingerprint() != captured.capture.RecordFingerprint {
+	if inventory.Active() == nil || !inventory.Active().PhysicalAuthority().Equal(captured.ActiveJournalAuthority()) || inventory.Active().OperationDir() != capture.Directory || inventory.Active().Identity().JournalAuthorityFingerprint() != capture.RecordFingerprint {
 		return nil, fmt.Errorf("captured native recovery operation changed")
 	}
 	assessment, err := captured.AssessRecovery(ctx, options)
 	if err != nil {
 		return nil, err
+	}
+	journal, native := inventory.Active().Record().Native()
+	if !native || !assessment.MatchesSource(*inventory.Active()) {
+		return nil, fmt.Errorf("captured recovery assessment differs from its reread source")
 	}
 	inv, err := newRecoverableInventoryAuthority(inventory, inventory.Decision().State() == retirement.StatePrepared)
 	if err != nil {
@@ -48,12 +55,12 @@ func OpenCapturedNativeRecovery(ctx context.Context, captured CapturedNativeJour
 	if err != nil {
 		return nil, err
 	}
-	plan := NativeRecoveryPlan{source: captured.source, journal: captured.journal, capture: captured.capture, active: captured.active, inventory: inv, assessment: observed.Facts(), registryScope: scope}
+	plan := NativeRecoveryPlan{source: *inventory.Active(), journal: journal, capture: nativeCaptureResult(*inventory.Active()), active: inventory.Active().PhysicalAuthority(), inventory: inv, assessment: observed.Facts(), registryScope: scope}
 	return &NativeRecoveryOperation{
-		plan:    plan,
-		profile: recoveryoperation.Profile{StateCodec: codec, Codecs: options.Codecs, Limits: captured.publication.limits, Budget: captured.budget},
-		roots:   captured.publication.roots, qualified: qualified, initial: observed, capturedRemovalReservations: true,
-		resolver: captured.publication.resolver, ordinaryCapabilities: captured.publication.ordinaryCapabilities,
+		plan: plan, captured: &captured, borrowedManifest: manifest,
+		profile:   recoveryoperation.Profile{StateCodec: codec, Codecs: options.Codecs, Budget: budget},
+		qualified: qualified, initial: observed,
+		resolver: captured.ResolveOrdinaryDestination,
 	}, nil
 }
 

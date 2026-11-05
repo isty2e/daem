@@ -32,6 +32,9 @@ func (operation *NativeRecoveryOperation) Assess(ctx context.Context, options Na
 	if operation == nil || operation.closed {
 		return journalqualification.NativeRecoveryAssessment{}, fmt.Errorf("live native recovery operation is required")
 	}
+	if operation.captured != nil {
+		return operation.captured.AssessRecovery(ctx, options)
+	}
 	return journalqualification.ReassessNativeSource(ctx, operation.plan.source, journalqualification.NativeReadOptions{
 		Documents: journalqualification.ReadOptions{Filesystem: options.Filesystem, Budget: operation.profile.Budget, Limits: operation.profile.Limits, Codecs: options.Codecs, OrdinaryCapabilities: operation.ordinaryCapabilities},
 		Roots:     operation.roots, State: options.State, Registry: options.Registry, Resolver: operation.resolver,
@@ -42,7 +45,7 @@ func (operation *NativeRecoveryOperation) PrepareRetirement(ctx context.Context,
 	if operation == nil || operation.closed {
 		return nil, fmt.Errorf("live native recovery operation is required")
 	}
-	retiring, err := prepareNativeRetirement(ctx, operation.plan.source, operation.profile.Budget, filesystem, operation.profile.StateCodec)
+	retiring, err := prepareNativeRetirement(ctx, operation.plan.capture, operation.plan.active, operation.profile.Budget, filesystem, operation.profile.StateCodec)
 	if err == nil && operation.inventoryProfile.decoder != nil {
 		retiring.prepared.journalDecoder = operation.inventoryProfile.decoder
 	}

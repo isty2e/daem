@@ -129,18 +129,19 @@ func (plan NativeRecoveryPlan) RemovalDemands() (recovery.RemovalDemandSet, erro
 // Close releases independently captured roots, never roots borrowed from a live
 // capture. Its plan projection carries neither kind of capability.
 type NativeRecoveryOperation struct {
-	plan                        NativeRecoveryPlan
-	profile                     recoveryoperation.Profile
-	roots                       journalnamespace.Roots
-	ownedRoots                  *recoveryoperation.OwnedRoots
-	retained                    []*rootedpath.CapturedRoot
-	qualified                   journalqualification.Documents
-	initial                     journalqualification.NativeRecoveryAssessment
-	closed                      bool
-	inventoryProfile            RecoveryInventoryProfile
-	capturedRemovalReservations bool
-	resolver                    func(output.Destination) (string, error)
-	ordinaryCapabilities        RootedCapabilityResolver
+	plan                 NativeRecoveryPlan
+	profile              recoveryoperation.Profile
+	roots                journalnamespace.Roots
+	ownedRoots           *recoveryoperation.OwnedRoots
+	retained             []*rootedpath.CapturedRoot
+	qualified            journalqualification.Documents
+	initial              journalqualification.NativeRecoveryAssessment
+	captured             *CapturedNativeJournal
+	borrowedManifest     *rootedpath.CapturedRoot
+	closed               bool
+	inventoryProfile     RecoveryInventoryProfile
+	resolver             func(output.Destination) (string, error)
+	ordinaryCapabilities RootedCapabilityResolver
 }
 
 func (operation *NativeRecoveryOperation) Close() error {
@@ -157,6 +158,9 @@ func (operation *NativeRecoveryOperation) Close() error {
 
 func (operation *NativeRecoveryOperation) Plan() NativeRecoveryPlan { return operation.plan }
 func (operation *NativeRecoveryOperation) ManifestRoot() *rootedpath.CapturedRoot {
+	if operation.captured != nil {
+		return operation.borrowedManifest
+	}
 	return operation.roots.Manifest.Root
 }
 

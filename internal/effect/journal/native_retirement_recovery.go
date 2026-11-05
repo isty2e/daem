@@ -18,7 +18,7 @@ func (retiring *NativeJournalRetirement) BindRecoveryOperation(operation *Native
 	if prepared.closed || prepared.consumed {
 		return fmt.Errorf("native retirement continuation is no longer available")
 	}
-	if !retiring.source.SameSource(operation.plan.source) || retiring.budget != operation.profile.Budget {
+	if !operation.plan.source.MatchesRevision(retiring.identity, retiring.directory, retiring.active) || retiring.budget != operation.profile.Budget {
 		return fmt.Errorf("native retirement reader belongs to another operation")
 	}
 	prepared.stateCodec = operation.profile.StateCodec
@@ -30,5 +30,5 @@ func (retiring *NativeJournalRetirement) BindRecoveryOperation(operation *Native
 }
 
 func (operation *NativeRecoveryOperation) UsesCapturedRemovalReservations() bool {
-	return operation != nil && !operation.closed && operation.capturedRemovalReservations
+	return operation != nil && !operation.closed && operation.captured != nil
 }

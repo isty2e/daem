@@ -10,7 +10,7 @@ import (
 )
 
 func prepareNativeApplyRemovals(ctx context.Context, captured journal.CapturedNativeJournal, ordinary nativeOrdinaryApply, work nativeApplyWork, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore) (resultErr error) {
-	operation, err := journal.OpenCapturedNativeRecovery(ctx, captured, input.StateCodec, journal.NativeRecoveryOptions{
+	operation, err := journal.OpenCapturedNativeRecovery(ctx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journal.NativeRecoveryOptions{
 		Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 		State: func(ctx context.Context) (durable.Snapshot, error) {
 			return readNativeCommittedState(ctx, authority, input)

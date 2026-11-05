@@ -10,6 +10,7 @@ import (
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -88,6 +89,10 @@ func ReassessNativeSource(ctx context.Context, source journalinventory.ActiveJou
 
 func (observed NativeRecoveryAssessment) MatchesSource(source journalinventory.ActiveJournal) bool {
 	return observed.valid && observed.source.SameSource(source)
+}
+
+func (observed NativeRecoveryAssessment) MatchesRevision(identity retirement.Identity, directory string, physical journalinventory.ActiveJournalAuthority) bool {
+	return observed.valid && observed.source.MatchesRevision(identity, directory, physical)
 }
 
 func (observed NativeRecoveryAssessment) Facts() AssessmentFacts { return observed.assessment.Facts() }

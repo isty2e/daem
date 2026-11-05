@@ -20,7 +20,7 @@ func TestNativeCapturedRuntimeRequiresWholeCleanPhaseForRetirement(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			retiring, err := PrepareNativeJournalRetirement(t.Context(), captured, input.options.Filesystem, input.options.StateCodec)
+			retiring, err := PrepareNativeJournalRetirement(t.Context(), captured, input.batch.budget, input.options.Filesystem, input.options.StateCodec)
 			if err != nil {
 				t.Fatal(err)
 			}

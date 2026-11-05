@@ -119,10 +119,14 @@ func (active ActiveJournal) PhysicalAuthority() ActiveJournalAuthority {
 }
 
 func (active ActiveJournal) SameSource(other ActiveJournal) bool {
-	return active.operationDir == other.operationDir &&
-		active.identity.OperationID() == other.identity.OperationID() &&
-		active.identity.JournalAuthorityFingerprint() == other.identity.JournalAuthorityFingerprint() &&
-		active.physicalAuthority.Equal(other.physicalAuthority)
+	return active.MatchesRevision(other.identity, other.operationDir, other.physicalAuthority)
+}
+
+func (active ActiveJournal) MatchesRevision(identity retirement.Identity, directory string, physical ActiveJournalAuthority) bool {
+	return active.operationDir == directory &&
+		active.identity.OperationID() == identity.OperationID() &&
+		active.identity.JournalAuthorityFingerprint() == identity.JournalAuthorityFingerprint() &&
+		active.physicalAuthority.Equal(physical)
 }
 
 const (

@@ -43,7 +43,7 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 	var operation *journal.NativeRecoveryOperation
 	if err := execution.runObservation(prefix+"/journal-load", applyForwardFailureUnavailable, func() error {
 		var err error
-		operation, err = journal.OpenCapturedNativeRecovery(recoveryCtx, captured, input.StateCodec, journal.NativeRecoveryOptions{
+		operation, err = journal.OpenCapturedNativeRecovery(recoveryCtx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journal.NativeRecoveryOptions{
 			Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 			State: func(ctx context.Context) (durable.Snapshot, error) {
 				return authority.readNativeState(ctx, input.StateCodec, input.Budget)

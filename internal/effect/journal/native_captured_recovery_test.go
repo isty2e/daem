@@ -31,7 +31,7 @@ func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			operation, err := OpenCapturedNativeRecovery(t.Context(), captured, input.options.StateCodec, NativeRecoveryOptions{
+			operation, err := OpenCapturedNativeRecovery(t.Context(), captured, input.options.StateCodec, input.options.ManifestRoot, input.batch.budget, NativeRecoveryOptions{
 				Filesystem: input.options.Filesystem, OperationAuthority: input.options.OperationAuthority,
 				Registry: registry, Codecs: input.options.Codecs,
 				State: func(ctx context.Context) (durable.Snapshot, error) {

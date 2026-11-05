@@ -542,7 +542,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			}
 			if retiring == nil {
 				var err error
-				retiring, err = journal.PrepareNativeJournalRetirement(ctx, captured, input.Filesystem, input.StateCodec)
+				retiring, err = journal.PrepareNativeJournalRetirement(ctx, captured, input.Budget, input.Filesystem, input.StateCodec)
 				return err
 			}
 			return nil

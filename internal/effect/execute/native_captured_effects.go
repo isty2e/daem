@@ -15,7 +15,7 @@ import (
 func prepareNativeCapturedEffects(ctx context.Context, captured journal.CapturedNativeJournal, input NativeApplyInput) (retiring *journal.NativeJournalRetirement, preparation ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence, resultErr error) {
 	var err error
 	if !captured.NeedsPromotion() {
-		retiring, err = journal.PrepareNativeJournalRetirement(ctx, captured, input.Filesystem, input.StateCodec)
+		retiring, err = journal.PrepareNativeJournalRetirement(ctx, captured, input.Budget, input.Filesystem, input.StateCodec)
 		if err != nil {
 			return nil, preparation, bindings, err
 		}
