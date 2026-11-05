@@ -1,4 +1,4 @@
-package execute
+package registrysettlement
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
-func nativeRecoveryRegistry(ctx context.Context, operation *journal.NativeRecoveryOperation, assessment journal.NativeRecoveryAssessment, store ownershipmutation.RegistryStore) (ownership.Registry, error) {
+func Read(ctx context.Context, operation *journal.NativeRecoveryOperation, assessment journal.NativeRecoveryAssessment, store ownershipmutation.RegistryStore) (ownership.Registry, error) {
 	if len(assessment.MissingDocuments()) == 0 {
 		return store.LoadForClaimRemovals(ctx, assessment.ExpectedClaimRemovals(), physicalwork.MaximumPhysicalPathDepth, operation.Budget())
 	}
@@ -21,7 +21,7 @@ func nativeRecoveryRegistry(ctx context.Context, operation *journal.NativeRecove
 	return selected.LoadForDocuments(ctx, operation.Owner(), assessment.MissingDocuments(), assessment.ExpectedClaimRemovals(), physicalwork.MaximumPhysicalPathDepth, operation.Budget())
 }
 
-func convergeNativeRecoveryRegistry(ctx context.Context, operation *journal.NativeRecoveryOperation, assessment journal.NativeRecoveryAssessment, store ownershipmutation.RegistryStore, claims ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence) error {
+func Converge(ctx context.Context, operation *journal.NativeRecoveryOperation, assessment journal.NativeRecoveryAssessment, store ownershipmutation.RegistryStore, claims ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence) error {
 	if len(assessment.MissingDocuments()) == 0 {
 		_, err := store.ConvergeRegistry(ctx, claims, bindings)
 		return err

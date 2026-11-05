@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
+
 	"github.com/isty2e/daem/internal/effect/journal"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -68,7 +70,7 @@ func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority 
 		return err
 	}
 	reader := func(ctx context.Context) (ownership.Registry, error) {
-		return nativeRecoveryRegistry(ctx, operation, operation.InitialAssessment(), store)
+		return registrysettlement.Read(ctx, operation, operation.InitialAssessment(), store)
 	}
 	visit := 0
 	beforeAction := func(index int) error {

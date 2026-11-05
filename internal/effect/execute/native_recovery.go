@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -107,7 +109,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		if err != nil || !state.Equal(operation.ObservedState()) {
 			return errors.Join(fmt.Errorf("joint recovery state changed before restoration"), err)
 		}
-		registry, err := nativeRecoveryRegistry(ctx, operation, initial, store)
+		registry, err := registrysettlement.Read(ctx, operation, initial, store)
 		if err != nil {
 			return errors.Join(fmt.Errorf("joint recovery Registry changed before restoration"), err)
 		}
@@ -242,9 +244,9 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		}
 		switch {
 		case assessment.RequiresRollback(), assessment.CleanBefore():
-			err = convergeNativeRecoveryRegistry(ctx, operation, assessment, store, assessment.RollbackClaims(), emptyBindings)
+			err = registrysettlement.Converge(ctx, operation, assessment, store, assessment.RollbackClaims(), emptyBindings)
 		case assessment.RequiresFinalization(), assessment.CleanAfter():
-			err = convergeNativeRecoveryRegistry(ctx, operation, assessment, store, assessment.FinalizeClaims(), assessment.FinalizeBindings())
+			err = registrysettlement.Converge(ctx, operation, assessment, store, assessment.FinalizeClaims(), assessment.FinalizeBindings())
 		default:
 			return fmt.Errorf("native recovery metadata phase changed")
 		}
