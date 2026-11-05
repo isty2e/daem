@@ -774,7 +774,7 @@ func (authority *mutationAuthority) bindOwnershipRegistry(path string) error {
 	if registry == nil {
 		return fmt.Errorf("rooted ownership registry binder returned a nil store")
 	}
-	if err := authority.bindOwnershipSemanticEntry(root, destination); err != nil {
+	if err := authority.control.BindOwnership(root, destination, registry); err != nil {
 		return err
 	}
 	authority.ownershipRegistry = registry
@@ -789,7 +789,7 @@ func (authority *mutationAuthority) beginGeneralRecoveryExecution() error {
 	if authority.generalExecutionWorkBudget != nil {
 		return fmt.Errorf("general recovery execution was already started")
 	}
-	if err := authority.beginRecoverySemanticExecution(); err != nil {
+	if err := authority.control.BeginExecution(authority.physicalWorkBudget); err != nil {
 		return err
 	}
 	hostBudget, controlBudget, err := authority.physicalWorkBudget.BeginGeneralExecution()

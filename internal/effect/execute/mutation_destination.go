@@ -1,10 +1,10 @@
 package execute
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/controlwitness"
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -19,47 +19,39 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 
-	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/target"
 )
 
 type mutationAuthority struct {
-	destinations                mutationnamespace.Namespace
-	lexical                     mutationnamespace.Resolver
-	filesystem                  mutationfs.Store
-	capturedRoot                *rootedpath.CapturedRoot
-	projectStatefile            *rootedpath.EntryAuthority
-	recoveryJournal             *rootedpath.EntryAuthority
-	recoveryJournalRecord       *rootedpath.EntryAuthority
-	journalBasis                journalExecutionBasis
-	statefileSemanticEntry      recoverySemanticEntryBinding
-	ownershipSemanticEntry      recoverySemanticEntryBinding
-	semanticWitness             recoverySemanticWitness
-	ownershipSuccessor          outputownership.Registry
-	hasOwnershipSuccessor       bool
-	recoverySemanticValidation  bool
-	nativeRecoverySemanticCheck func(context.Context) error
-	physicalAuthorityRequests   []mutation.PhysicalAuthorityRequest
-	removalDemands              recovery.RemovalDemandSet
-	removalIntents              map[removalRelationKey]recovery.RemovalIntent
-	removalDestinations         map[removalRelationKey]mutationnamespace.Destination
-	physicalWorkBudget          *physicalwork.Budget
-	generalTraversalPhase       *physicalwork.TraversalPhase
-	removalBindingsPrepared     bool
-	removalAuthorityBound       bool
-	forwardRemovalReservations  map[removalRelationKey][]forwardRemovalReservation
-	forwardRemovalPrepared      bool
-	forwardRemovalExecution     *physicalwork.Budget
-	recoveryBackups             map[string]recoveryBackup
-	recoveryBackupExecution     *physicalwork.Budget
-	generalExecutionWorkBudget  *physicalwork.Budget
-	semanticExecutionWorkBudget *physicalwork.Budget
-	removalCleanupExecution     *physicalwork.Budget
-	preparedRetirement          *journal.RetirementContinuation
-	ownershipRegistry           ownershipmutation.RegistryStore
-	ownershipRegistryBinder     ownershipmutation.RootedRegistryBinder
-	hasOwnershipRegistry        bool
-	ownsCapturedRoot            bool
+	destinations               mutationnamespace.Namespace
+	control                    *controlwitness.Guard
+	lexical                    mutationnamespace.Resolver
+	filesystem                 mutationfs.Store
+	capturedRoot               *rootedpath.CapturedRoot
+	projectStatefile           *rootedpath.EntryAuthority
+	recoveryJournal            *rootedpath.EntryAuthority
+	recoveryJournalRecord      *rootedpath.EntryAuthority
+	journalBasis               journalExecutionBasis
+	physicalAuthorityRequests  []mutation.PhysicalAuthorityRequest
+	removalDemands             recovery.RemovalDemandSet
+	removalIntents             map[removalRelationKey]recovery.RemovalIntent
+	removalDestinations        map[removalRelationKey]mutationnamespace.Destination
+	physicalWorkBudget         *physicalwork.Budget
+	generalTraversalPhase      *physicalwork.TraversalPhase
+	removalBindingsPrepared    bool
+	removalAuthorityBound      bool
+	forwardRemovalReservations map[removalRelationKey][]forwardRemovalReservation
+	forwardRemovalPrepared     bool
+	forwardRemovalExecution    *physicalwork.Budget
+	recoveryBackups            map[string]recoveryBackup
+	recoveryBackupExecution    *physicalwork.Budget
+	generalExecutionWorkBudget *physicalwork.Budget
+	removalCleanupExecution    *physicalwork.Budget
+	preparedRetirement         *journal.RetirementContinuation
+	ownershipRegistry          ownershipmutation.RegistryStore
+	ownershipRegistryBinder    ownershipmutation.RootedRegistryBinder
+	hasOwnershipRegistry       bool
+	ownsCapturedRoot           bool
 }
 
 func newMutationAuthorityWithProjectionEffects(
@@ -211,6 +203,7 @@ func captureMutationAuthorityWithPhysicalWorkBudget(
 	authority := &mutationAuthority{
 		lexical: resolver, filesystem: filesystem,
 		destinations:       destinations,
+		control:            controlwitness.New(filesystem),
 		physicalWorkBudget: physicalWorkBudget, generalTraversalPhase: traversalPhase,
 	}
 	if projectRequired {

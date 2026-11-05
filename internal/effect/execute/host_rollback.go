@@ -729,7 +729,7 @@ func restoreRollbackGroup(
 		return fmt.Errorf("rollback destination %q changed outside the recovery attempt", baseline.destination.Logical())
 	}
 	if !baseline.existed {
-		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
 		if err := removeDestinationAgainst(ctx, authority, baseline.destination, identity); err != nil {
@@ -750,7 +750,7 @@ func restoreRollbackGroup(
 		if err != nil {
 			return fmt.Errorf("read rollback file for %q: %w", baseline.destination.Logical(), err)
 		}
-		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
 		if err := commitFileDestinationAgainst(
@@ -772,7 +772,7 @@ func restoreRollbackGroup(
 		); err != nil {
 			return err
 		}
-		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
 		if err := commitRecoveryDirectoryDestinationAgainst(

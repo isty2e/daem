@@ -94,7 +94,7 @@ func prepareRecoveryBackupsForTest(
 	}
 }
 
-func beginGeneralRecoveryExecutionForTest(t *testing.T, authority *mutationAuthority) {
+func beginUnclassifiedRecoveryExecutionForTest(t *testing.T, authority *mutationAuthority) {
 	t.Helper()
 	if authority.preparedRetirement == nil {
 		if err := authority.physicalWorkBudget.ConcludeRetirementNotApplicable(); err != nil {
@@ -108,25 +108,17 @@ func beginGeneralRecoveryExecutionForTest(t *testing.T, authority *mutationAutho
 		}
 		authority.removalCleanupExecution = execution
 	}
-	if !authority.semanticWitness.initialized {
-		semantic, err := authority.physicalWorkBudget.BeginReservedSemanticExecution()
-		if err != nil {
-			t.Fatal(err)
-		}
-		authority.semanticExecutionWorkBudget = semantic
-		host, control, err := authority.physicalWorkBudget.BeginGeneralExecution()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := authority.generalTraversalPhase.Advance(control, host); err != nil {
-			t.Fatal(err)
-		}
-		authority.generalExecutionWorkBudget = host
-		return
-	}
-	if err := authority.beginGeneralRecoveryExecution(); err != nil {
+	if _, err := authority.physicalWorkBudget.BeginReservedSemanticExecution(); err != nil {
 		t.Fatal(err)
 	}
+	host, control, err := authority.physicalWorkBudget.BeginGeneralExecution()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authority.generalTraversalPhase.Advance(control, host); err != nil {
+		t.Fatal(err)
+	}
+	authority.generalExecutionWorkBudget = host
 }
 
 func installGeneralRecoveryExecutionBudgetForTest(t *testing.T, authority *mutationAuthority) {

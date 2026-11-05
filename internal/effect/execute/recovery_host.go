@@ -360,7 +360,7 @@ func executeRecoveryHostActionPlan(
 				if err != nil {
 					return fmt.Errorf("read backup for %q: %w", action.Destination, err)
 				}
-				if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+				if err := authority.control.Validate(ctx); err != nil {
 					return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
 				}
 				staged[index].attempted = true
@@ -381,7 +381,7 @@ func executeRecoveryHostActionPlan(
 					return fmt.Errorf("restore file %q: %w", action.Destination, err)
 				}
 			case recovery.PathKindDirectory:
-				if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+				if err := authority.control.Validate(ctx); err != nil {
 					return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
 				}
 				staged[index].attempted = true
@@ -403,7 +403,7 @@ func executeRecoveryHostActionPlan(
 				return fmt.Errorf("backup kind %q for %q is not supported", action.BackupKind, action.Destination)
 			}
 		case recovery.ActionKindRestoreDelete:
-			if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+			if err := authority.control.Validate(ctx); err != nil {
 				return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
 			}
 			staged[index].attempted = true
@@ -582,7 +582,7 @@ func executeRecoveryAggregateActionGroup(
 			err,
 		)
 	}
-	if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+	if err := authority.control.Validate(ctx); err != nil {
 		return recoveryWholePathState{}, fmt.Errorf(
 			"validate aggregate recovery group at action %d semantics: %w",
 			firstIndex,

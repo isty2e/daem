@@ -60,11 +60,11 @@ func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority 
 	if len(stage.actions) == 0 {
 		return nil
 	}
-	if authority.recoverySemanticValidation || authority.nativeRecoverySemanticCheck != nil {
-		return fmt.Errorf("ordinary recovery already has a semantic decision owner")
+	releaseCheck, err := authority.control.InstallNativeCheck(semanticGuard)
+	if err != nil {
+		return err
 	}
-	authority.nativeRecoverySemanticCheck = semanticGuard
-	defer func() { authority.nativeRecoverySemanticCheck = nil }()
+	defer releaseCheck()
 	intents, err := operation.Plan().OrdinaryProvisionalAcquires()
 	if err != nil {
 		return err

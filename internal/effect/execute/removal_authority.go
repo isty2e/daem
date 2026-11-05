@@ -818,7 +818,7 @@ func (authority *mutationAuthority) executeRemovalCleanupAction(
 ) (recovery.RemovalCleanupObligation, error) {
 	switch obligation.Action() {
 	case recovery.RemovalCleanupActionConfirmAbsence:
-		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+		if err := authority.control.Validate(ctx); err != nil {
 			return recovery.RemovalCleanupObligation{}, err
 		}
 		if err := authority.confirmRemovalSlotsAbsent(ctx, candidate, obligation); err != nil {
@@ -836,7 +836,7 @@ func (authority *mutationAuthority) executeRemovalCleanupAction(
 		if acquireErr != nil {
 			return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, acquireErr)
 		}
-		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+		if err := authority.control.Validate(ctx); err != nil {
 			_ = capability.Close()
 			return recovery.RemovalCleanupObligation{}, err
 		}
@@ -869,7 +869,7 @@ func (authority *mutationAuthority) executeRemovalCleanupAction(
 			_ = capability.Close()
 			return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, limitErr)
 		}
-		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+		if err := authority.control.Validate(ctx); err != nil {
 			_ = capability.Close()
 			return recovery.RemovalCleanupObligation{}, err
 		}
@@ -911,7 +911,7 @@ func (authority *mutationAuthority) cleanupRemovalProgress(
 		_ = capability.Close()
 		return newRemovalCleanupError(obligation, limitErr)
 	}
-	if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+	if err := authority.control.Validate(ctx); err != nil {
 		_ = capability.Close()
 		return err
 	}

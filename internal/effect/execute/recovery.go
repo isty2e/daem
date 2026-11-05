@@ -294,7 +294,7 @@ func executeRecoveryPlanEffects(
 			if err := requireRecoveryGlobalBindings(authority, plan.GuardedActions()); err != nil {
 				return err
 			}
-			if !authority.statefileSemanticEntry.valid() {
+			if !authority.control.StatefileBound() {
 				if err := authority.bindRecoveryStatefileSemanticEntry(paths.StatefilePath); err != nil {
 					return err
 				}
@@ -377,8 +377,9 @@ func executeRecoveryPlanEffects(
 	case recovery.ClassificationCleanBefore, recovery.ClassificationCleanAfter:
 		steps := activeRecoveryCleanPreparationSteps()
 		if err := execution.runTerminalStep(steps[0], func() error {
-			if err := authority.reserveRecoverySemanticValidations(
+			if err := authority.control.Reserve(
 				recoverySemanticValidationCount(plan, 0),
+				authority.physicalWorkBudget,
 			); err != nil {
 				return fmt.Errorf("reserve recovery semantic validation: %w", err)
 			}
@@ -423,8 +424,9 @@ func executeRecoveryPlanEffects(
 	case recovery.ClassificationNeedsFinalize:
 		steps := activeRecoveryFinalizePreparationSteps()
 		if err := execution.runTerminalStep(steps[0], func() error {
-			if err := authority.reserveRecoverySemanticValidations(
+			if err := authority.control.Reserve(
 				recoverySemanticValidationCount(plan, 0),
+				authority.physicalWorkBudget,
 			); err != nil {
 				return fmt.Errorf("reserve recovery semantic validation: %w", err)
 			}
@@ -475,7 +477,7 @@ func executeRecoveryPlanEffects(
 					registryStore,
 					plan.ClaimTransitions(),
 					recoveryClaimEffectGate(authority, visibilityGate),
-					authority.acceptRecoveryOwnershipSuccessor,
+					authority.control.AdmitRegistrySuccessor,
 				); err != nil {
 					return fmt.Errorf("finalize recovery ownership claims: %w", err)
 				}
@@ -506,7 +508,7 @@ func recoveryClaimEffectGate(
 			if err := gate.validateBefore(ctx); err != nil {
 				return err
 			}
-			return authority.validateRecoverySemanticWitness(ctx)
+			return authority.control.Validate(ctx)
 		},
 		after: gate.after,
 	}
@@ -533,10 +535,7 @@ func reloadRecoveryPlanAfterEffects(
 	options RecoveryOptions,
 	authority *mutationAuthority,
 ) (recovery.Plan, error) {
-	before, err := authority.observeRecoverySemanticWitness(
-		ctx,
-		authority.semanticExecutionWorkBudget,
-	)
+	before, err := authority.control.ObserveExecution(ctx)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
@@ -544,21 +543,18 @@ func reloadRecoveryPlanAfterEffects(
 	if err != nil {
 		return recovery.Plan{}, fmt.Errorf("reload recovery plan after effects: %w", err)
 	}
-	after, err := authority.observeRecoverySemanticWitness(
-		ctx,
-		authority.semanticExecutionWorkBudget,
-	)
+	after, err := authority.control.ObserveExecution(ctx)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	if err := authority.validateRecoverySemanticWitnessPair(
+	if err := authority.control.ValidatePair(
 		before,
 		after,
 		"before post-effect reclassification",
 	); err != nil {
 		return recovery.Plan{}, err
 	}
-	if err := authority.validateExpectedRecoveryOwnership(ctx); err != nil {
+	if err := authority.control.ValidateRegistrySuccessor(ctx); err != nil {
 		return recovery.Plan{}, err
 	}
 	if err := authority.validateJournalExecutionBasis(
@@ -601,7 +597,7 @@ func recoveryPlanBeforeEffects(
 	if options.mutationAuthority == nil {
 		return recovery.Plan{}, fmt.Errorf("recovery mutation authority is unavailable")
 	}
-	before, err := options.mutationAuthority.observeRecoverySemanticWitness(
+	before, err := options.mutationAuthority.control.Observe(
 		ctx,
 		options.mutationAuthority.generalTraversalPhase,
 	)
@@ -612,14 +608,14 @@ func recoveryPlanBeforeEffects(
 	if err != nil {
 		return recovery.Plan{}, fmt.Errorf("reload recovery plan before effects: %w", err)
 	}
-	after, err := options.mutationAuthority.observeRecoverySemanticWitness(
+	after, err := options.mutationAuthority.control.Observe(
 		ctx,
 		options.mutationAuthority.generalTraversalPhase,
 	)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	if err := options.mutationAuthority.establishRecoverySemanticWitness(before, after); err != nil {
+	if err := options.mutationAuthority.control.Establish(before, after); err != nil {
 		return recovery.Plan{}, err
 	}
 	if err := options.mutationAuthority.validateJournalExecutionBasis(
@@ -689,8 +685,9 @@ func executeRecoveryRollbackEffects(
 		return err
 	}
 	if err := execution.runTerminalStep(steps[1], func() error {
-		if err := authority.reserveRecoverySemanticValidations(
+		if err := authority.control.Reserve(
 			recoverySemanticValidationCount(plan, len(hostActions)),
+			authority.physicalWorkBudget,
 		); err != nil {
 			return fmt.Errorf("reserve recovery semantic validation: %w", err)
 		}
@@ -892,7 +889,7 @@ func executeRecoveryRollbackEffects(
 			registryStore,
 			plan.ClaimTransitions(),
 			recoveryClaimEffectGate(authority, gate),
-			authority.acceptRecoveryOwnershipSuccessor,
+			authority.control.AdmitRegistrySuccessor,
 		); err != nil {
 			return fmt.Errorf("rollback recovery ownership claims: %w; recovery journal retained", err)
 		}

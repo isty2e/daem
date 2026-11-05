@@ -381,7 +381,7 @@ func (authority *mutationAuthority) retireActiveJournal(
 			id:   "active-recovery/retirement/validate-semantics",
 			kind: operationplan.EffectStepObservation,
 		},
-		func() error { return authority.validateRecoverySemanticWitness(ctx) },
+		func() error { return authority.control.Validate(ctx) },
 	); err != nil {
 		return err
 	}

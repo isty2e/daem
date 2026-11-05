@@ -325,7 +325,7 @@ func TestRecoveryRollbackStageAndRestoreUseSameGlobalRootAuthority(t *testing.T)
 		contentHash: string(artifact.HashFileContentWithExecutable(partial, false)),
 		fileMode:    0o600,
 	}
-	beginGeneralRecoveryExecutionForTest(t, authority)
+	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 
 	if err := rollback.restore(context.Background(), authority, visibilityEffectGate{}); err != nil {
 		t.Fatalf("restore recovery rollback: %v", err)
@@ -408,7 +408,7 @@ func TestRecoveryRollbackCleanupRejectsScratchGrowth(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(rollback.dir, "unexpected"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	beginGeneralRecoveryExecutionForTest(t, authority)
+	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 
 	err = rollback.cleanup(t.Context(), authority)
 	if err == nil || (!strings.Contains(err.Error(), "changed before cleanup") &&
@@ -559,7 +559,7 @@ func TestRecoveryRollbackRejectsReplacedStageArtifact(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	beginGeneralRecoveryExecutionForTest(t, authority)
+	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 
 	err = rollback.restore(t.Context(), authority, visibilityEffectGate{})
 	if err == nil || !strings.Contains(err.Error(), "does not match expected hash") {
@@ -761,7 +761,7 @@ func TestRecoveryDirectFileCommitRejectsStagedEntryDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = rollback.cleanup(context.Background(), authority) })
-	beginGeneralRecoveryExecutionForTest(t, authority)
+	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 
 	external := []byte("external after staging\n")
 	writeRecoveryTestFile(t, fixture.admittedPath, external)
@@ -813,7 +813,7 @@ func TestRecoveryRollbackRefusesExternalChangeAfterCommittedRecoveryEffect(t *te
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = rollback.cleanup(context.Background(), authority) })
-	beginGeneralRecoveryExecutionForTest(t, authority)
+	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 	if err := executeRecoveryHostActions(
 		context.Background(),
 		authority,
@@ -911,7 +911,7 @@ func TestRecoveryHostActionsStopAtLostVisibilityAuthority(t *testing.T) {
 	); err != nil {
 		t.Fatalf("prepare bounded test removals: %v", err)
 	}
-	beginGeneralRecoveryExecutionForTest(t, authority)
+	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 	validations := 0
 	accepts := 0
 	gate := visibilityEffectGate{

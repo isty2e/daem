@@ -234,7 +234,7 @@ func TestRetainedRecoveryAuthoritiesFollowExecutionPhaseBudget(t *testing.T) {
 	if err := authority.physicalWorkBudget.ConcludeScratchCleanupNotApplicable(); err != nil {
 		t.Fatal(err)
 	}
-	beginGeneralRecoveryExecutionForTest(t, authority)
+	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 	for authority.generalExecutionWorkBudget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 	}
 	for authority.generalExecutionWorkBudget.AdmitPathComponents(1) == nil {
