@@ -113,19 +113,15 @@ func TestManagedPathAuthorityRetainsBoundGlobalPathAfterAncestorSymlinkRetarget(
 	t.Setenv("USERPROFILE", homeAlias)
 
 	destination := outputtest.Parse(t, "~/.agents/skills/oracle")
-	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeGlobal, destination: destination,
-	}}}
+	selected := scopedDestinationForTest{scope: target.ScopeGlobal, destination: destination}
 	paths := Paths{ManifestRoot: root, DataDir: filepath.Join(root, "data")}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		paths,
-		[]ManagedPathEffect{effect},
-		nil,
+		[]scopedDestinationForTest{selected},
 		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("newMutationAuthorityWithProjectionEffects: %v", err)
@@ -202,19 +198,15 @@ func TestManagedPathAuthorityRetainsDataRootRoleAfterDataDirSymlinkRetarget(t *t
 	}
 
 	destination := outputtest.Parse(t, "@data/hook-assets/guard/sha256-deadbeef/asset")
-	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeGlobal, destination: destination,
-	}}}
+	selected := scopedDestinationForTest{scope: target.ScopeGlobal, destination: destination}
 	paths := Paths{ManifestRoot: root, DataDir: dataAlias}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		paths,
-		[]ManagedPathEffect{effect},
-		nil,
+		[]scopedDestinationForTest{selected},
 		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("newMutationAuthorityWithProjectionEffects: %v", err)
@@ -284,24 +276,22 @@ func TestManagedPathAuthoritySharesCapturedRootAcrossGlobalSiblings(t *testing.T
 	t.Setenv("USERPROFILE", home)
 
 	const effectCount = 300
-	effects := make([]ManagedPathEffect, 0, effectCount)
+	selected := make([]scopedDestinationForTest, 0, effectCount)
 	for index := range effectCount {
-		effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
+		destination := scopedDestinationForTest{
 			scope:       target.ScopeGlobal,
 			destination: outputtest.Parse(t, fmt.Sprintf("~/.agents/skills/skill-%03d", index)),
-		}}}
-		effects = append(effects, effect, effect)
+		}
+		selected = append(selected, destination, destination)
 	}
 	paths := Paths{ManifestRoot: home, DataDir: filepath.Join(home, ".daem")}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		paths,
-		effects,
-		nil,
+		selected,
 		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("bind sibling managed paths: %v", err)
@@ -340,19 +330,15 @@ func captureBoundGlobalManagedPathPrecondition(
 	t.Setenv("HOME", root)
 	t.Setenv("USERPROFILE", root)
 	destination := outputtest.Parse(t, "~/"+filepath.Base(path))
-	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeGlobal, destination: destination,
-	}}}
+	selected := scopedDestinationForTest{scope: target.ScopeGlobal, destination: destination}
 	paths := Paths{ManifestRoot: root, DataDir: root}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		paths,
-		[]ManagedPathEffect{effect},
-		nil,
+		[]scopedDestinationForTest{selected},
 		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("bind global managed path: %v", err)

@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
@@ -18,7 +19,9 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -120,8 +123,8 @@ func (fixture *applyEventFixture) input(actions []applyEventAction) ApplyInput {
 	}
 }
 
-func (fixture *applyEventFixture) managedPathInputs(actions []applyEventAction) ([]ManagedPathEffect, []observe.ManagedPathEvidence) {
-	effects := make([]ManagedPathEffect, 0, len(actions))
+func (fixture *applyEventFixture) managedPathInputs(actions []applyEventAction) ([]effectpreparation.ManagedPathEffect, []observe.ManagedPathEvidence) {
+	effects := make([]effectpreparation.ManagedPathEffect, 0, len(actions))
 	evidence := make([]observe.ManagedPathEvidence, 0, len(actions)+1)
 	for _, action := range actions {
 		desiredMode := action.DesiredFileMode.Perm()
@@ -151,32 +154,37 @@ func (fixture *applyEventFixture) managedPathInputs(actions []applyEventAction) 
 			previous = &state
 		}
 
-		facts := managedPathEffectFacts{
-			subject: action.Subject, consumerTargets: []target.Target{target.TargetCodex},
-			scope: action.Scope, destination: action.Destination,
-			desiredHash: action.DesiredHash, liveHash: action.LivePathHash,
-			contentKind:      realization.PathProjectionFile,
-			permissionPolicy: realization.PathPermissionsExact,
-			desiredFileMode:  desiredMode, liveFileMode: liveMode, previous: previous,
+		input := reconcile.ManagedPathDecisionInput{
+			Subject: action.Subject, ConsumerTargets: []target.Target{target.TargetCodex},
+			Scope: action.Scope, Destination: action.Destination,
+			DesiredHash: action.DesiredHash, LiveHash: action.LivePathHash,
+			ContentKind: realization.PathProjectionFile, PermissionPolicy: realization.PathPermissionsExact,
+			DesiredFileMode: desiredMode, LiveFileMode: liveMode, Previous: previous, Reason: action.Reason,
 		}
-		var effect ManagedPathEffect
 		switch action.Kind {
 		case reconcile.ActionKindCreate:
-			effect.create = &managedPathCreateEffect{facts: facts}
+			input.Kind = reconcile.ManagedPathCreate
 		case reconcile.ActionKindUpdate:
-			effect.replace = &managedPathReplaceEffect{facts: facts}
+			input.Kind = reconcile.ManagedPathReplace
 		case reconcile.ActionKindDelete:
-			facts.consumerTargets = nil
-			effect.remove = &managedPathRemoveEffect{facts: facts}
+			input.Kind, input.ConsumerTargets = reconcile.ManagedPathRemove, nil
 		case reconcile.ActionKindRecord:
-			effect.record = &managedPathRecordEffect{facts: facts}
+			input.Kind = reconcile.ManagedPathRecord
 		default:
 			panic("unsupported apply event fixture action")
 		}
-		if err := effect.validate(); err != nil {
+		decision, err := reconcile.NewManagedPathDecision(input)
+		if err != nil {
 			panic(err)
 		}
-		effects = append(effects, effect)
+		admitted, err := effectpreparation.ManagedPathEffects([]reconcile.ManagedPathDecision{decision})
+		if err != nil {
+			panic(err)
+		}
+		if len(admitted) != 1 {
+			panic("apply event fixture requires one admitted managed path effect")
+		}
+		effects = append(effects, admitted[0])
 
 		if previous != nil && previous.Destination() != action.Destination {
 			absent, err := observe.NewManagedPathEvidence(action.Subject, action.Destination, false, "", 0)

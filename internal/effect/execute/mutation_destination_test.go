@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
@@ -66,24 +67,18 @@ func TestMutationAuthoritySeparatesProjectAndGlobalDestinations(t *testing.T) {
 	allowedGlobalPath := filepath.Join(dataDir, "managed")
 	t.Setenv("HOME", dataDir)
 	t.Setenv("USERPROFILE", dataDir)
-	effects := []ManagedPathEffect{
-		{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-			scope: target.ScopeProject, destination: outputtest.Parse(t, ".agents/skill"),
-		}}},
-		{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-			scope: target.ScopeGlobal, destination: outputtest.Parse(t, "~/managed"),
-		}}},
+	selected := []scopedDestinationForTest{
+		{scope: target.ScopeProject, destination: outputtest.Parse(t, ".agents/skill")},
+		{scope: target.ScopeGlobal, destination: outputtest.Parse(t, "~/managed")},
 	}
 	paths := Paths{ManifestRoot: root, DataDir: dataDir}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		paths,
-		effects,
-		nil,
+		selected,
 		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("newMutationAuthorityWithProjectionEffects returned error: %v", err)
@@ -130,23 +125,20 @@ func TestMutationAuthorityRejectsScopePathContradictions(t *testing.T) {
 		t.Fatalf("create project root: %v", err)
 	}
 	paths := Paths{ManifestRoot: root}
-	tests := []managedPathEffectFacts{
+	tests := []scopedDestinationForTest{
 		{scope: target.ScopeProject, destination: outputtest.Parse(t, "~/.agent/config")},
 		{scope: target.ScopeGlobal, destination: outputtest.Parse(t, ".agent/config")},
 		{scope: target.ScopeGlobal},
 		{destination: outputtest.Parse(t, ".agent/config")},
 	}
 	for _, facts := range tests {
-		effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: facts}}
-		candidate, err := newMutationAuthorityWithProjectionEffects(
+		candidate, err := captureScopedDestinationsForTest(
 			paths,
-			[]ManagedPathEffect{effect},
-			nil,
+			[]scopedDestinationForTest{facts},
 			emptyRemovalDemandsForTest(),
 			nil,
 			destinationResolver(paths),
 			testFilesystem(),
-			nil,
 		)
 		if candidate != nil {
 			_ = candidate.close()
@@ -162,13 +154,11 @@ func TestMutationAuthorityRetainsProjectRootForNonHostJournalEntry(t *testing.T)
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatalf("create project root: %v", err)
 	}
-	effect := ManagedPathEffect{record: &managedPathRecordEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeProject, destination: outputtest.Parse(t, "AGENTS.md"),
-	}}}
+	effect := recordedPathAuthorityEffectForTest(t, target.ScopeProject, outputtest.Parse(t, "AGENTS.md"))
 	paths := Paths{ManifestRoot: root}
 	authority, err := newMutationAuthorityWithProjectionEffects(
 		paths,
-		[]ManagedPathEffect{effect},
+		[]effectpreparation.ManagedPathEffect{effect},
 		nil,
 		emptyRemovalDemandsForTest(),
 		nil,
@@ -190,13 +180,11 @@ func TestMutationAuthorityBindsGlobalRootForNonHostJournalEntry(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	destination := outputtest.Parse(t, "~/.codex/config.toml")
-	effect := ManagedPathEffect{record: &managedPathRecordEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeGlobal, destination: destination,
-	}}}
+	effect := recordedPathAuthorityEffectForTest(t, target.ScopeGlobal, destination)
 	paths := Paths{}
 	authority, err := newMutationAuthorityWithProjectionEffects(
 		paths,
-		[]ManagedPathEffect{effect},
+		[]effectpreparation.ManagedPathEffect{effect},
 		nil,
 		emptyRemovalDemandsForTest(),
 		nil,

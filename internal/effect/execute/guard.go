@@ -75,7 +75,7 @@ func RejectUnsupportedExecutableActions(planResult reconcile.Result) error {
 		}
 		executableManagedPaths = append(executableManagedPaths, decision)
 	}
-	if _, err := ManagedPathEffects(executableManagedPaths); err != nil {
+	if _, err := effectpreparation.ManagedPathEffects(executableManagedPaths); err != nil {
 		return err
 	}
 	aggregates := planResult.Aggregates()

@@ -20,7 +20,7 @@ import (
 // schedule before journal capture; journal capture only validates and binds
 // this typed result to fresh physical evidence.
 func removalDemandSetForExecution(
-	managed []ManagedPathEffect,
+	managed []effectpreparation.ManagedPathEffect,
 	aggregates []effectpreparation.AggregateEffect,
 	evidence []observe.ManagedPathEvidence,
 ) (recovery.RemovalDemandSet, error) {
@@ -83,24 +83,24 @@ func removalDemandSetForExecution(
 }
 
 func addManagedPathRemovalDemands(
-	effect ManagedPathEffect,
+	effect effectpreparation.ManagedPathEffect,
 	evidenceByDestination map[output.Destination][]observe.ManagedPathEvidence,
 	add func(target.Scope, output.Destination, recovery.RemovalState) error,
 ) error {
 	switch effect.Kind() {
-	case ManagedPathEffectCreate:
+	case effectpreparation.ManagedPathEffectCreate:
 		expected, err := expectedManagedPathRemovalState(effect)
 		if err != nil {
 			return err
 		}
 		return add(effect.Scope(), effect.Destination(), expected)
-	case ManagedPathEffectRemove:
+	case effectpreparation.ManagedPathEffectRemove:
 		before, err := beforeManagedPathRemovalState(effect, effect.Destination(), evidenceByDestination)
 		if err != nil {
 			return err
 		}
 		return add(effect.Scope(), effect.Destination(), before)
-	case ManagedPathEffectReplace:
+	case effectpreparation.ManagedPathEffectReplace:
 		expected, err := expectedManagedPathRemovalState(effect)
 		if err != nil {
 			return err
@@ -138,7 +138,7 @@ func addManagedPathRemovalDemands(
 			return err
 		}
 		return add(effect.Scope(), effect.Destination(), expected)
-	case ManagedPathEffectRecord:
+	case effectpreparation.ManagedPathEffectRecord:
 		return nil
 	default:
 		return fmt.Errorf("unsupported managed path effect kind %q", effect.Kind())
@@ -146,7 +146,7 @@ func addManagedPathRemovalDemands(
 }
 
 func beforeManagedPathRemovalState(
-	effect ManagedPathEffect,
+	effect effectpreparation.ManagedPathEffect,
 	destination output.Destination,
 	evidenceByDestination map[output.Destination][]observe.ManagedPathEvidence,
 ) (recovery.RemovalState, error) {
@@ -177,7 +177,7 @@ func beforeManagedPathRemovalState(
 }
 
 func managedRemovalFileMode(
-	effect ManagedPathEffect,
+	effect effectpreparation.ManagedPathEffect,
 	destination output.Destination,
 	previous durable.ManagedPathState,
 	evidenceByDestination map[output.Destination][]observe.ManagedPathEvidence,
@@ -200,7 +200,7 @@ func managedRemovalFileMode(
 	)
 }
 
-func expectedManagedPathRemovalState(effect ManagedPathEffect) (recovery.RemovalState, error) {
+func expectedManagedPathRemovalState(effect effectpreparation.ManagedPathEffect) (recovery.RemovalState, error) {
 	kind, err := recoveryPathKind(effect.ContentKind())
 	if err != nil {
 		return recovery.RemovalState{}, err

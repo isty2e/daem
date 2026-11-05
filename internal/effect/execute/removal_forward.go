@@ -34,7 +34,7 @@ type forwardRemovalCertificate struct {
 
 func (authority *mutationAuthority) prepareApplyForwardRemovals(
 	ctx context.Context,
-	managed []ManagedPathEffect,
+	managed []effectpreparation.ManagedPathEffect,
 	aggregates []effectpreparation.AggregateEffect,
 	payloads payload.PayloadSet,
 ) error {
@@ -49,7 +49,7 @@ func (authority *mutationAuthority) prepareApplyForwardRemovals(
 }
 
 func applyForwardRemovalCertificates(
-	managed []ManagedPathEffect,
+	managed []effectpreparation.ManagedPathEffect,
 	aggregates []effectpreparation.AggregateEffect,
 	payloads payload.PayloadSet,
 	demands recovery.RemovalDemandSet,
@@ -91,7 +91,7 @@ func applyForwardRemovalCertificates(
 			))
 			continue
 		}
-		verified, err := managedPathPayload(effect, payloads)
+		verified, err := effectpreparation.ManagedPathPayload(effect, payloads)
 		if err != nil {
 			return nil, fmt.Errorf("managed effect[%d] forward removal directory payload: %w", index, err)
 		}

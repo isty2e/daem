@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/reconcile"
 
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 
@@ -269,15 +270,11 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 	if err != nil {
 		t.Fatalf("construct managed directory identity: %v", err)
 	}
-	pathEffect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		subject:          projection.Subject(),
-		consumerTargets:  projection.ConsumerTargets(),
-		scope:            projection.Scope(),
-		destination:      destination,
-		desiredHash:      desiredHash,
-		contentKind:      realization.PathProjectionDirectory,
-		permissionPolicy: realization.PathPermissionsNone,
-	}}}
+	pathEffect := managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathCreate, Subject: projection.Subject(), ConsumerTargets: projection.ConsumerTargets(),
+		Scope: projection.Scope(), Destination: destination, DesiredHash: desiredHash,
+		ContentKind: realization.PathProjectionDirectory, PermissionPolicy: realization.PathPermissionsNone,
+	})
 	directoryPayload, err := payload.NewDirectoryPayload(t.Context(), projection.Subject(), identity, view)
 	if err != nil {
 		t.Fatalf("construct managed directory payload: %v", err)
@@ -310,7 +307,7 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 	var completed []ActionEventFacts
 	_, err = ApplyWithOptions(t.Context(), ApplyInput{
 		Paths: paths, Resolver: destinationResolver(paths),
-		ManagedPathEffects:  []ManagedPathEffect{pathEffect},
+		ManagedPathEffects:  []effectpreparation.ManagedPathEffect{pathEffect},
 		ManagedPathEvidence: []observe.ManagedPathEvidence{pathEvidence},
 		AggregateEffects:    aggregateEffects,
 		CurrentState:        durable.EmptySnapshot(), Payloads: payloads,
@@ -331,7 +328,7 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 		t.Fatalf("ApplyWithOptions error = %v, want successful mixed-family rollback", err)
 	}
 	if len(completed) != 2 ||
-		completed[0].Index != 0 || completed[0].ManagedPathKind != ManagedPathEffectCreate ||
+		completed[0].Index != 0 || completed[0].ManagedPathKind != effectpreparation.ManagedPathEffectCreate ||
 		completed[1].Index != 1 || completed[1].AggregateKind != effectpreparation.AggregateEffectCreate {
 		t.Fatalf("completed action facts = %#v, want distinct managed-path and aggregate indices", completed)
 	}

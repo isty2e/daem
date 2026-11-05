@@ -160,7 +160,7 @@ type globalDestinationBinding struct {
 
 func newMutationAuthorityWithProjectionEffects(
 	paths Paths,
-	managedPaths []ManagedPathEffect,
+	managedPaths []effectpreparation.ManagedPathEffect,
 	aggregates []effectpreparation.AggregateEffect,
 	removalDemands recovery.RemovalDemandSet,
 	borrowedRoot *rootedpath.CapturedRoot,
@@ -239,7 +239,7 @@ func newMutationAuthorityWithProjectionEffects(
 }
 
 func hasProjectAuthorityUse(
-	managedPaths []ManagedPathEffect,
+	managedPaths []effectpreparation.ManagedPathEffect,
 	aggregates []effectpreparation.AggregateEffect,
 ) bool {
 	for _, effect := range managedPaths {

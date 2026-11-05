@@ -453,12 +453,11 @@ func TestRemovalBindingReusesCanonicalGlobalDestination(t *testing.T) {
 		t.Fatalf("construct removal demand set: %v", err)
 	}
 	resolverCalls := 0
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		Paths{},
-		[]ManagedPathEffect{{remove: &managedPathRemoveEffect{facts: managedPathEffectFacts{
+		[]scopedDestinationForTest{{
 			scope: target.ScopeGlobal, destination: destination,
-		}}}},
-		nil,
+		}},
 		demands,
 		nil,
 		func(output.Destination) (string, error) {
@@ -469,7 +468,6 @@ func TestRemovalBindingReusesCanonicalGlobalDestination(t *testing.T) {
 			return filepath.Join(secondParent, "config"), nil
 		},
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("construct mutation authority: %v", err)
@@ -534,17 +532,15 @@ func TestRemovalDemandBoundsProjectRootBeforeMutationBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct removal demand set: %v", err)
 	}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		Paths{ManifestRoot: alias},
-		[]ManagedPathEffect{{remove: &managedPathRemoveEffect{facts: managedPathEffectFacts{
+		[]scopedDestinationForTest{{
 			scope: target.ScopeProject, destination: destination,
-		}}}},
-		nil,
+		}},
 		demands,
 		nil,
 		destinationResolver(Paths{ManifestRoot: alias}),
 		testFilesystem(),
-		nil,
 	)
 	if authority != nil {
 		_ = authority.close()

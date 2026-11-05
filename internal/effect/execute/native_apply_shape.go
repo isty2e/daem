@@ -18,8 +18,8 @@ type NativeManagedSuffixShape struct {
 	plans       []ApplyEffectPlan
 	segment     operationplan.EffectNode
 	validations int
-	managed     []ManagedPathEffect
-	whole       []ManagedPathEffect
+	managed     []effectpreparation.ManagedPathEffect
+	whole       []effectpreparation.ManagedPathEffect
 	aggregates  []effectpreparation.AggregateEffect
 	narrowings  []reconcile.NativeNarrowingAction
 	adoptions   []NativeWholeAdoption
@@ -97,7 +97,7 @@ func nativeDelegatePrerequisites(input NativeApplyInput, baseline durable.Snapsh
 		return NativeApplyInput{}, err
 	}
 	preparation := input.Preparation
-	preparation.managed = slices.DeleteFunc(slices.Clone(preparation.managed), func(effect ManagedPathEffect) bool {
+	preparation.managed = slices.DeleteFunc(slices.Clone(preparation.managed), func(effect effectpreparation.ManagedPathEffect) bool {
 		return aggregate.IsHostConfigDocumentSubject(effect.Subject())
 	})
 	preparation.aggregates = slices.DeleteFunc(slices.Clone(preparation.aggregates), func(effect effectpreparation.AggregateEffect) bool {
@@ -131,7 +131,7 @@ func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix NativeApplySta
 		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
 	}
 	late := input
-	late.Preparation.managed = slices.DeleteFunc(slices.Clone(input.Preparation.managed), func(effect ManagedPathEffect) bool {
+	late.Preparation.managed = slices.DeleteFunc(slices.Clone(input.Preparation.managed), func(effect effectpreparation.ManagedPathEffect) bool {
 		return !aggregate.IsHostConfigDocumentSubject(effect.Subject())
 	})
 	late.Preparation.aggregates = slices.DeleteFunc(slices.Clone(residual), func(effect effectpreparation.AggregateEffect) bool {
@@ -262,8 +262,8 @@ func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectP
 	if err != nil {
 		return ApplyEffectPlan{}, err
 	}
-	if !slices.EqualFunc(shape.managed, work.managed, sameManagedPathEffect) ||
-		!slices.EqualFunc(shape.whole, work.whole, sameManagedPathEffect) ||
+	if !slices.EqualFunc(shape.managed, work.managed, effectpreparation.ManagedPathEffect.Equal) ||
+		!slices.EqualFunc(shape.whole, work.whole, effectpreparation.ManagedPathEffect.Equal) ||
 		!slices.EqualFunc(shape.narrowings, input.Preparation.narrowings, reconcile.NativeNarrowingAction.Equal) ||
 		!slices.EqualFunc(shape.adoptions, input.Preparation.adoptions, sameNativeWholeAdoption) ||
 		!slices.EqualFunc(shape.aggregates, input.Preparation.AggregateEffects(), effectpreparation.AggregateEffect.SameMutation) {
@@ -288,20 +288,6 @@ func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectP
 }
 
 func sameNativeWholeAdoption(left, right NativeWholeAdoption) bool {
-	return left.source.Equal(right.source) && sameManagedPathEffect(left.record, right.record) &&
+	return left.source.Equal(right.source) && effectpreparation.ManagedPathEffect.Equal(left.record, right.record) &&
 		slices.EqualFunc(left.retired, right.retired, durable.ManagedAggregateState.Equal)
-}
-
-func sameManagedPathEffect(left, right ManagedPathEffect) bool {
-	a, b := left.facts(), right.facts()
-	if left.Kind() != right.Kind() || a.subject != b.subject || !slices.Equal(a.consumerTargets, b.consumerTargets) ||
-		a.scope != b.scope || a.destination != b.destination || a.desiredHash != b.desiredHash || a.liveHash != b.liveHash ||
-		a.contentKind != b.contentKind || a.permissionPolicy != b.permissionPolicy ||
-		a.desiredFileMode != b.desiredFileMode || a.liveFileMode != b.liveFileMode {
-		return false
-	}
-	if a.previous == nil || b.previous == nil {
-		return a.previous == nil && b.previous == nil
-	}
-	return a.previous.Equal(*b.previous)
 }

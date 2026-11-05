@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization"
@@ -26,22 +27,22 @@ type managedPathPhaseOperation struct {
 }
 
 type managedPathExecutionSchedule struct {
-	effects       []ManagedPathEffect
+	effects       []effectpreparation.ManagedPathEffect
 	publish       []managedPathPhaseOperation
 	retire        []managedPathPhaseOperation
 	mutationCount int
 }
 
-func newManagedPathExecutionSchedule(effects []ManagedPathEffect) (managedPathExecutionSchedule, error) {
-	mutations, err := ManagedPathJournalMutations(effects)
+func newManagedPathExecutionSchedule(effects []effectpreparation.ManagedPathEffect) (managedPathExecutionSchedule, error) {
+	mutations, err := effectpreparation.ManagedPathJournalMutations(effects)
 	if err != nil {
 		return managedPathExecutionSchedule{}, err
 	}
-	schedule := managedPathExecutionSchedule{effects: append([]ManagedPathEffect(nil), effects...), mutationCount: len(mutations)}
+	schedule := managedPathExecutionSchedule{effects: append([]effectpreparation.ManagedPathEffect(nil), effects...), mutationCount: len(mutations)}
 	mutationIndex := 0
 	for effectIndex, effect := range effects {
 		operation := managedPathPhaseOperation{effectIndex: effectIndex, mutationIndex: mutationIndex}
-		if effect.Kind() == ManagedPathEffectReplace {
+		if effect.Kind() == effectpreparation.ManagedPathEffectReplace {
 			previous, _ := effect.PreviousState()
 			if previous.Scope() != effect.Scope() || previous.Destination() != effect.Destination() {
 				operation.relocation = true
@@ -53,7 +54,7 @@ func newManagedPathExecutionSchedule(effects []ManagedPathEffect) (managedPathEx
 				continue
 			}
 		}
-		if effect.Kind() == ManagedPathEffectRemove {
+		if effect.Kind() == effectpreparation.ManagedPathEffectRemove {
 			schedule.retire = append(schedule.retire, operation)
 		} else {
 			schedule.publish = append(schedule.publish, operation)
@@ -77,7 +78,7 @@ func applyManagedPathPhaseWithEvents(
 	events applyEventEmitter,
 	gate visibilityEffectGate,
 	execution *applyEffectExecution,
-	afterMutation func(context.Context, ManagedPathEffect, managedPathPhase) error,
+	afterMutation func(context.Context, effectpreparation.ManagedPathEffect, managedPathPhase) error,
 ) error {
 	operations := schedule.publish
 	if phase == managedPathRetirePhase {
@@ -90,9 +91,9 @@ func applyManagedPathPhaseWithEvents(
 			events.emit(EventActionStarted, EventStageAction, cloneActionEventFacts(facts), nil)
 		}
 		var err error
-		mutatesHost := effect.Kind() != ManagedPathEffectRecord
+		mutatesHost := effect.Kind() != effectpreparation.ManagedPathEffectRecord
 		prefix := applyManagedPathScheduleReference(phase, operation.effectIndex)
-		if effect.Kind() == ManagedPathEffectRecord {
+		if effect.Kind() == effectpreparation.ManagedPathEffectRecord {
 			err = execution.runObservation(
 				prefix+"/record",
 				applyForwardFailureGuardedRecovery,
@@ -156,7 +157,7 @@ func applyManagedPathPhaseWithEvents(
 
 func applyManagedPathSingleMutation(
 	ctx context.Context,
-	effect ManagedPathEffect,
+	effect effectpreparation.ManagedPathEffect,
 	payloads payload.PayloadSet,
 	authority *mutationAuthority,
 	progress hostActionProgress,
@@ -166,7 +167,7 @@ func applyManagedPathSingleMutation(
 	if err != nil {
 		return err
 	}
-	expectedExists := effect.Kind() != ManagedPathEffectCreate
+	expectedExists := effect.Kind() != effectpreparation.ManagedPathEffectCreate
 	expectedHash := effect.LiveHash()
 	precondition, err := captureManagedPathPrecondition(
 		ctx,
@@ -182,7 +183,7 @@ func applyManagedPathSingleMutation(
 	}
 	defer precondition.close()
 
-	if effect.Kind() == ManagedPathEffectRemove {
+	if effect.Kind() == effectpreparation.ManagedPathEffectRemove {
 		if err := removeManagedPathDestination(ctx, authority, destination, &precondition); err != nil {
 			progress.record(mutationIndex, progressAfterMutationError(err))
 			return fmt.Errorf("remove managed destination %q: %w", effect.Destination(), err)
@@ -195,7 +196,7 @@ func applyManagedPathSingleMutation(
 		return nil
 	}
 
-	prepared, err := managedPathPayload(effect, payloads)
+	prepared, err := effectpreparation.ManagedPathPayload(effect, payloads)
 	if err != nil {
 		return err
 	}
@@ -221,7 +222,7 @@ func applyManagedPathSingleMutation(
 
 func applyManagedPathRelocationPublish(
 	ctx context.Context,
-	effect ManagedPathEffect,
+	effect effectpreparation.ManagedPathEffect,
 	payloads payload.PayloadSet,
 	authority *mutationAuthority,
 	progress hostActionProgress,
@@ -238,7 +239,7 @@ func applyManagedPathRelocationPublish(
 		return err
 	}
 	defer newPrecondition.close()
-	prepared, err := managedPathPayload(effect, payloads)
+	prepared, err := effectpreparation.ManagedPathPayload(effect, payloads)
 	if err != nil {
 		return err
 	}
@@ -294,45 +295,10 @@ func applyManagedPathRelocationRetire(
 	return nil
 }
 
-func managedPathPayload(effect ManagedPathEffect, payloads payload.PayloadSet) (payload.Payload, error) {
-	prepared, ok := payloads.LookupSubject(effect.Subject())
-	if !ok {
-		return payload.Payload{}, fmt.Errorf(
-			"missing managed path payload for subject %s/%s %q",
-			effect.Subject().Kind(), effect.Subject().Namespace(), effect.Subject().Key(),
-		)
-	}
-	if err := prepared.VerifyHash(effect.DesiredHash(), effect.Destination()); err != nil {
-		return payload.Payload{}, err
-	}
-	switch effect.ContentKind() {
-	case realization.PathProjectionFile:
-		file, isFile := prepared.File()
-		if !isFile {
-			return payload.Payload{}, fmt.Errorf("managed file effect for %q has a non-file payload", effect.Destination())
-		}
-		if file.Mode().Perm() != effect.DesiredFileMode().Perm() {
-			return payload.Payload{}, fmt.Errorf(
-				"managed file payload mode %04o does not match planned mode %04o for %q",
-				file.Mode().Perm(),
-				effect.DesiredFileMode().Perm(),
-				effect.Destination(),
-			)
-		}
-	case realization.PathProjectionDirectory:
-		if _, isDirectory := prepared.Directory(); !isDirectory {
-			return payload.Payload{}, fmt.Errorf("managed directory effect for %q has a non-directory payload", effect.Destination())
-		}
-	default:
-		return payload.Payload{}, fmt.Errorf("managed path content kind %q is unsupported", effect.ContentKind())
-	}
-	return prepared, nil
-}
-
 func commitManagedPathDestination(
 	ctx context.Context,
 	authority *mutationAuthority,
-	effect ManagedPathEffect,
+	effect effectpreparation.ManagedPathEffect,
 	prepared payload.Payload,
 	destination mutationDestination,
 	precondition *managedPathPrecondition,

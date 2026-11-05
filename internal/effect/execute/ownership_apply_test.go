@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/reconcile"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -186,13 +187,13 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			previous := test.previous
-			effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: managedPathEffectFacts{
-				subject: previous.Subject(), consumerTargets: previous.ConsumerTargets(),
-				scope: test.scope, destination: test.destination,
-				desiredHash: testArtifactHash("new"), contentKind: previous.ContentKind(), previous: &previous,
-			}}}
+			effect := managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+				Kind: reconcile.ManagedPathReplace, Subject: previous.Subject(), ConsumerTargets: previous.ConsumerTargets(),
+				Scope: test.scope, Destination: test.destination, DesiredHash: testArtifactHash("new"),
+				ContentKind: previous.ContentKind(), PermissionPolicy: previous.PermissionPolicy(), Previous: &previous,
+			})
 			plan, err := ownershipPlanForManagedPathEffects(
-				[]ManagedPathEffect{effect}, owner, test.observations, "operation-1",
+				[]effectpreparation.ManagedPathEffect{effect}, owner, test.observations, "operation-1",
 			)
 			if err != nil {
 				t.Fatalf("ownershipPlanForManagedPathEffects returned error: %v", err)

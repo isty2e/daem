@@ -20,7 +20,7 @@ type nativeOrdinaryApply struct {
 }
 
 func nativeOrdinaryApplyFor(input NativeApplyInput, work nativeApplyWork, operationID string) (nativeOrdinaryApply, error) {
-	managed, err := ManagedPathJournalMutations(work.managed)
+	managed, err := effectpreparation.ManagedPathJournalMutations(work.managed)
 	if err != nil {
 		return nativeOrdinaryApply{}, err
 	}
@@ -60,8 +60,8 @@ func bindNativeOrdinaryApply(ctx context.Context, input NativeApplyInput, work n
 				return err
 			}
 		}
-		if effect.Kind() == ManagedPathEffectCreate || effect.Kind() == ManagedPathEffectReplace {
-			if _, err := managedPathPayload(effect, input.Payloads); err != nil {
+		if effect.Kind() == effectpreparation.ManagedPathEffectCreate || effect.Kind() == effectpreparation.ManagedPathEffectReplace {
+			if _, err := effectpreparation.ManagedPathPayload(effect, input.Payloads); err != nil {
 				return fmt.Errorf("prepare joint managed payload: %w", err)
 			}
 		}

@@ -11,6 +11,7 @@ import (
 	cliprogress "github.com/isty2e/daem/internal/cli/present/progress"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/execute"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -141,7 +142,7 @@ func TestApplyProgressRendererAttributesEntityBackedManagedPath(t *testing.T) {
 	renderer.Sink()(execute.Event{
 		Kind: execute.EventActionStarted, TotalActions: 1,
 		Action: &execute.ActionEventFacts{
-			Index: 0, ManagedPathKind: execute.ManagedPathEffectCreate, Subject: subject,
+			Index: 0, ManagedPathKind: effectpreparation.ManagedPathEffectCreate, Subject: subject,
 			ConsumerTargets: []target.Target{target.TargetCodex}, Scope: target.ScopeProject,
 			Destination: outputtest.Parse(t, ".agents/skills/oracle"),
 		},
@@ -226,7 +227,7 @@ func applyProgressActionFacts(t testing.TB) *execute.ActionEventFacts {
 	}
 	return &execute.ActionEventFacts{
 		Index:           1,
-		ManagedPathKind: execute.ManagedPathEffectCreate,
+		ManagedPathKind: effectpreparation.ManagedPathEffectCreate,
 		Subject:         subject,
 		Target:          target.TargetCodex,
 		Scope:           target.ScopeProject,

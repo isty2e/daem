@@ -1,4 +1,4 @@
-package execute
+package preparation
 
 import (
 	"os"
@@ -33,11 +33,11 @@ func TestManagedPathEffectRejectsMissingCurrentEvidence(t *testing.T) {
 	}
 
 	replace := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: facts}}
-	if err := replace.validate(); err == nil || !strings.Contains(err.Error(), "fresh live hash") {
+	if err := replace.Validate(); err == nil || !strings.Contains(err.Error(), "fresh live hash") {
 		t.Fatalf("replace validation error = %v, want missing live evidence rejection", err)
 	}
 	record := ManagedPathEffect{record: &managedPathRecordEffect{facts: facts}}
-	if err := record.validate(); err == nil || !strings.Contains(err.Error(), "fresh live hash") {
+	if err := record.Validate(); err == nil || !strings.Contains(err.Error(), "fresh live hash") {
 		t.Fatalf("record validation error = %v, want missing live evidence rejection", err)
 	}
 }
@@ -56,7 +56,7 @@ func TestManagedPathEffectAllowsRelocationWithAbsentNewDestination(t *testing.T)
 	}
 
 	effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: facts}}
-	if err := effect.validate(); err != nil {
+	if err := effect.Validate(); err != nil {
 		t.Fatalf("relocation effect validation: %v", err)
 	}
 }
@@ -77,7 +77,7 @@ func TestManagedPathEffectRejectsPreviousStateFromAnotherSubject(t *testing.T) {
 	}
 
 	effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: facts}}
-	if err := effect.validate(); err == nil || !strings.Contains(err.Error(), "subject") {
+	if err := effect.Validate(); err == nil || !strings.Contains(err.Error(), "subject") {
 		t.Fatalf("cross-subject validation error = %v, want rejection", err)
 	}
 }
@@ -103,7 +103,7 @@ func TestManagedPathEffectCorrelatesExactCrossPlacementRelocation(t *testing.T) 
 	}
 	effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: facts}}
 
-	if err := effect.validate(); err != nil {
+	if err := effect.Validate(); err != nil {
 		t.Fatalf("cross-placement relocation validation: %v", err)
 	}
 	mutations, err := ManagedPathJournalMutations([]ManagedPathEffect{effect})
@@ -120,9 +120,9 @@ func TestManagedPathEffectCorrelatesExactCrossPlacementRelocation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("NewSnapshot returned error: %v", err)
 	}
-	next, err := snapshotAfterManagedPathEffects(current, []ManagedPathEffect{effect})
+	next, err := AfterManagedPaths(current, []ManagedPathEffect{effect})
 	if err != nil {
-		t.Fatalf("snapshotAfterManagedPathEffects returned error: %v", err)
+		t.Fatalf("AfterManagedPaths returned error: %v", err)
 	}
 	states := next.ManagedPaths()
 	if len(states) != 1 {
@@ -193,7 +193,7 @@ func TestManagedPathEffectRejectsInexactCrossPlacementRelocation(t *testing.T) {
 			facts := base
 			test.mutate(&facts)
 			effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: facts}}
-			if err := effect.validate(); err == nil || !strings.Contains(err.Error(), "relocation") {
+			if err := effect.Validate(); err == nil || !strings.Contains(err.Error(), "relocation") {
 				t.Fatalf("cross-placement validation error = %v, want exact-correlation rejection", err)
 			}
 		})
@@ -218,7 +218,7 @@ func TestManagedPathEffectRejectsMalformedDesiredAndLiveHashes(t *testing.T) {
 	malformedDesired.desiredHash = "sha256:short"
 	if err := (ManagedPathEffect{
 		replace: &managedPathReplaceEffect{facts: malformedDesired},
-	}).validate(); err == nil || !strings.Contains(err.Error(), "desired hash") {
+	}).Validate(); err == nil || !strings.Contains(err.Error(), "desired hash") {
 		t.Fatalf("malformed desired hash error = %v", err)
 	}
 
@@ -226,7 +226,7 @@ func TestManagedPathEffectRejectsMalformedDesiredAndLiveHashes(t *testing.T) {
 	malformedLive.liveHash = artifact.ContentHash("sha512:" + strings.Repeat("a", 64))
 	if err := (ManagedPathEffect{
 		replace: &managedPathReplaceEffect{facts: malformedLive},
-	}).validate(); err == nil || !strings.Contains(err.Error(), "replace effect live hash") {
+	}).Validate(); err == nil || !strings.Contains(err.Error(), "replace effect live hash") {
 		t.Fatalf("malformed live hash error = %v", err)
 	}
 
@@ -245,7 +245,7 @@ func TestManagedPathEffectRejectsMalformedDesiredAndLiveHashes(t *testing.T) {
 		malformedDestination.destination = test.destination
 		if err := (ManagedPathEffect{
 			replace: &managedPathReplaceEffect{facts: malformedDestination},
-		}).validate(); err == nil || !strings.Contains(err.Error(), test.want) {
+		}).Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
 			t.Fatalf("scope %q destination %q error = %v", test.scope, test.destination, err)
 		}
 	}
@@ -281,7 +281,7 @@ func TestManagedPathEffectValidatesExactModeWithoutFamilyAssumptions(t *testing.
 			facts := base
 			facts.permissionPolicy = test.policy
 			facts.desiredFileMode = test.mode
-			err := (ManagedPathEffect{create: &managedPathCreateEffect{facts: facts}}).validate()
+			err := (ManagedPathEffect{create: &managedPathCreateEffect{facts: facts}}).Validate()
 			if test.wantErr == "" {
 				if err != nil {
 					t.Fatalf("validate returned error: %v", err)
@@ -368,7 +368,7 @@ func TestManagedPathPayloadRejectsContentVariantAndExactModeMismatch(t *testing.
 				t.Fatalf("NewPayloadSet returned error: %v", err)
 			}
 			effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: test.facts}}
-			if _, err := managedPathPayload(effect, set); err == nil || !strings.Contains(err.Error(), test.wantErr) {
+			if _, err := ManagedPathPayload(effect, set); err == nil || !strings.Contains(err.Error(), test.wantErr) {
 				t.Fatalf("managedPathPayload error = %v, want containing %q", err, test.wantErr)
 			}
 		})
@@ -387,28 +387,28 @@ func TestManagedPathEffectRejectsUncorrelatedRecordAndRemoveEvidence(t *testing.
 	recordHashMismatch := base
 	recordHashMismatch.consumerTargets = previous.ConsumerTargets()
 	recordHashMismatch.liveHash = testArtifactHash("foreign")
-	if err := (ManagedPathEffect{record: &managedPathRecordEffect{facts: recordHashMismatch}}).validate(); err == nil || !strings.Contains(err.Error(), "live hash") {
+	if err := (ManagedPathEffect{record: &managedPathRecordEffect{facts: recordHashMismatch}}).Validate(); err == nil || !strings.Contains(err.Error(), "live hash") {
 		t.Fatalf("record hash mismatch error = %v", err)
 	}
 
 	recordModeMismatch := base
 	recordModeMismatch.consumerTargets = previous.ConsumerTargets()
 	recordModeMismatch.liveFileMode = 0o755
-	if err := (ManagedPathEffect{record: &managedPathRecordEffect{facts: recordModeMismatch}}).validate(); err == nil || !strings.Contains(err.Error(), "live mode") {
+	if err := (ManagedPathEffect{record: &managedPathRecordEffect{facts: recordModeMismatch}}).Validate(); err == nil || !strings.Contains(err.Error(), "live mode") {
 		t.Fatalf("record mode mismatch error = %v", err)
 	}
 
 	removeHashMismatch := base
 	removeHashMismatch.liveHash = testArtifactHash("foreign")
 	removeHashMismatch.previous = &previous
-	if err := (ManagedPathEffect{remove: &managedPathRemoveEffect{facts: removeHashMismatch}}).validate(); err == nil || !strings.Contains(err.Error(), "live hash") {
+	if err := (ManagedPathEffect{remove: &managedPathRemoveEffect{facts: removeHashMismatch}}).Validate(); err == nil || !strings.Contains(err.Error(), "live hash") {
 		t.Fatalf("remove hash mismatch error = %v", err)
 	}
 
 	removeModeMismatch := base
 	removeModeMismatch.liveFileMode = 0o755
 	removeModeMismatch.previous = &previous
-	if err := (ManagedPathEffect{remove: &managedPathRemoveEffect{facts: removeModeMismatch}}).validate(); err == nil || !strings.Contains(err.Error(), "live mode") {
+	if err := (ManagedPathEffect{remove: &managedPathRemoveEffect{facts: removeModeMismatch}}).Validate(); err == nil || !strings.Contains(err.Error(), "live mode") {
 		t.Fatalf("remove mode mismatch error = %v", err)
 	}
 }

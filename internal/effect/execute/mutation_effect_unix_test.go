@@ -226,19 +226,15 @@ func projectMutationDestinationForTest(
 	relative string,
 ) (*mutationAuthority, mutationDestination) {
 	t.Helper()
-	effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeProject, destination: outputtest.Parse(t, relative),
-	}}}
+	selected := scopedDestinationForTest{scope: target.ScopeProject, destination: outputtest.Parse(t, relative)}
 	paths := Paths{ManifestRoot: root}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		paths,
-		[]ManagedPathEffect{effect},
-		nil,
+		[]scopedDestinationForTest{selected},
 		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("newMutationAuthorityWithProjectionEffects returned error: %v", err)

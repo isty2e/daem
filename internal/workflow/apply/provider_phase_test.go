@@ -886,7 +886,7 @@ func TestExecuteSettlesPendingPiProviderWithoutReplayingConvergedEffects(t *test
 	if err != nil {
 		t.Fatalf("retry PlanWrite returned error: %v", err)
 	}
-	if effects, err := execute.ManagedPathEffects(retry.Reconciliation.ManagedPaths()); err != nil || len(effects) != 0 {
+	if effects, err := effectpreparation.ManagedPathEffects(retry.Reconciliation.ManagedPaths()); err != nil || len(effects) != 0 {
 		t.Fatalf("retry managed path effects = %#v, error = %v, want none", effects, err)
 	}
 	if effects, err := effectpreparation.AggregateEffects(retry.Reconciliation.Aggregates()); err != nil || len(effects) != 0 {
@@ -1048,7 +1048,7 @@ args = ["project.js"]
 				t.Fatal(err)
 			}
 			if !withProjectProvider {
-				if effects, err := execute.ManagedPathEffects(retry.Reconciliation.ManagedPaths()); err != nil || len(effects) != 0 {
+				if effects, err := effectpreparation.ManagedPathEffects(retry.Reconciliation.ManagedPaths()); err != nil || len(effects) != 0 {
 					t.Fatalf("pending-only managed effects=%#v error=%v", effects, err)
 				}
 				if effects, err := effectpreparation.AggregateEffects(retry.Reconciliation.Aggregates()); err != nil || len(effects) != 0 {

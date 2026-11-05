@@ -21,7 +21,7 @@ func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) 
 		return applyStateTransition{}, err
 	}
 
-	nextState, err := snapshotAfterManagedPathEffects(input.CurrentState, input.ManagedPathEffects)
+	nextState, err := effectpreparation.AfterManagedPaths(input.CurrentState, input.ManagedPathEffects)
 	if err != nil {
 		return applyStateTransition{}, err
 	}
@@ -151,7 +151,7 @@ func managedPathValidationCount(schedule managedPathExecutionSchedule) int {
 	count := 0
 	for _, operations := range [][]managedPathPhaseOperation{schedule.publish, schedule.retire} {
 		for _, operation := range operations {
-			if schedule.effects[operation.effectIndex].Kind() != ManagedPathEffectRecord {
+			if schedule.effects[operation.effectIndex].Kind() != effectpreparation.ManagedPathEffectRecord {
 				count++
 			}
 		}

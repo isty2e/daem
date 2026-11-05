@@ -1,4 +1,4 @@
-package execute
+package preparation
 
 import (
 	"fmt"
@@ -117,7 +117,7 @@ func ManagedPathEffects(decisions []reconcile.ManagedPathDecision) ([]ManagedPat
 		default:
 			return nil, fmt.Errorf("managed path decision[%d] has unsupported kind %q", index, decision.Kind())
 		}
-		if err := effect.validate(); err != nil {
+		if err := effect.Validate(); err != nil {
 			return nil, fmt.Errorf("managed path effect[%d]: %w", index, err)
 		}
 		effects = append(effects, effect)
@@ -125,7 +125,7 @@ func ManagedPathEffects(decisions []reconcile.ManagedPathDecision) ([]ManagedPat
 	return effects, nil
 }
 
-func (effect ManagedPathEffect) validate() error {
+func (effect ManagedPathEffect) Validate() error {
 	facts := effect.facts()
 	if err := facts.subject.Validate(); err != nil {
 		return fmt.Errorf("subject: %w", err)

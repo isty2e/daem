@@ -10,7 +10,7 @@ func ordinaryApplyEffectNodes(builder *operationplan.EffectStructureBuilder, man
 	for _, operation := range managed.publish {
 		effect := managed.effects[operation.effectIndex]
 		prefix := applyManagedPathScheduleReference(managedPathPublishPhase, operation.effectIndex)
-		if effect.Kind() == ManagedPathEffectRecord {
+		if effect.Kind() == effectpreparation.ManagedPathEffectRecord {
 			nodes = append(nodes, applyCheckedStep(builder, prefix+"/record", operationplan.EffectStepObservation))
 		} else {
 			nodes = append(nodes, applyForwardObligation(builder, prefix, operationplan.EffectStepPersistence))
@@ -31,7 +31,7 @@ func ordinaryApplyEffectNodes(builder *operationplan.EffectStructureBuilder, man
 		nodes = append(nodes, promotions.forKeys(builder, provisionalAcquireKeysForAggregate(effect))...)
 	}
 	for _, operation := range managed.retire {
-		if managed.effects[operation.effectIndex].Kind() == ManagedPathEffectRecord {
+		if managed.effects[operation.effectIndex].Kind() == effectpreparation.ManagedPathEffectRecord {
 			continue
 		}
 		nodes = append(nodes, applyForwardObligation(builder, applyManagedPathScheduleReference(managedPathRetirePhase, operation.effectIndex), operationplan.EffectStepPersistence))

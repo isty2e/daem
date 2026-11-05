@@ -118,7 +118,7 @@ func runWithOptions(
 		return runResult{}, err
 	}
 
-	managedPathEffects, err := execute.ManagedPathEffects(assessment.Reconciliation.ManagedPaths())
+	managedPathEffects, err := effectpreparation.ManagedPathEffects(assessment.Reconciliation.ManagedPaths())
 	if err != nil {
 		return runResult{}, err
 	}
@@ -324,7 +324,7 @@ func applyWithPreparedEffectPlan(
 	return execute.ApplyWithEffectPlan(ctx, input, *plan, options)
 }
 
-func managedPathPayloadSubjects(effects []execute.ManagedPathEffect) []topology.SubjectID {
+func managedPathPayloadSubjects(effects []effectpreparation.ManagedPathEffect) []topology.SubjectID {
 	subjects := make([]topology.SubjectID, 0, len(effects))
 	for _, effect := range effects {
 		if effect.RequiresPayload() {

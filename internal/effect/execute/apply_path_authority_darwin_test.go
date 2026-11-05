@@ -11,14 +11,17 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -140,7 +143,7 @@ func newPathAuthorityApplyScenario(t *testing.T, spellings []string) pathAuthori
 		t.Fatal(err)
 	}
 
-	effects := make([]ManagedPathEffect, 0, len(spellings))
+	effects := make([]effectpreparation.ManagedPathEffect, 0, len(spellings))
 	evidence := make([]observe.ManagedPathEvidence, 0, len(spellings))
 	payloads := make([]payload.Payload, 0, len(spellings))
 	domains := make([]mutation.Domain, 0, len(spellings)*2)
@@ -159,11 +162,11 @@ func newPathAuthorityApplyScenario(t *testing.T, spellings []string) pathAuthori
 			t.Fatal(err)
 		}
 		destinations = append(destinations, destination)
-		effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-			subject: subject, consumerTargets: []target.Target{target.TargetCodex},
-			scope: target.ScopeProject, destination: destination, desiredHash: hash,
-			contentKind: realization.PathProjectionDirectory, permissionPolicy: realization.PathPermissionsNone,
-		}}}
+		effect := managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+			Kind: reconcile.ManagedPathCreate, Subject: subject, ConsumerTargets: []target.Target{target.TargetCodex},
+			Scope: target.ScopeProject, Destination: destination, DesiredHash: hash,
+			ContentKind: realization.PathProjectionDirectory, PermissionPolicy: realization.PathPermissionsNone,
+		})
 		effects = append(effects, effect)
 		observed, err := observe.NewManagedPathEvidence(subject, destination, false, "", 0)
 		if err != nil {

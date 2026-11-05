@@ -45,7 +45,7 @@ func (state ownershipMutationState) hasMutations() bool {
 }
 
 func ownershipPlanForManagedPathEffects(
-	effects []ManagedPathEffect,
+	effects []effectpreparation.ManagedPathEffect,
 	owner stateauthority.Authority,
 	observations []observe.OwnershipObservation,
 	operationID string,
@@ -106,7 +106,7 @@ func ownershipPlanForManagedPathEffects(
 			return ownershipMutationPlan{}, fmt.Errorf("existing global managed path %q: %w", effect.Destination(), err)
 		}
 		var transition ownershipmutation.ClaimTransition
-		if effect.Kind() == ManagedPathEffectRemove {
+		if effect.Kind() == effectpreparation.ManagedPathEffectRemove {
 			transition, err = ownershipmutation.NewReleaseTransition(claim)
 		} else {
 			transition, err = ownershipmutation.NewRetainTransition(claim)
@@ -198,11 +198,11 @@ type ownershipOutputKey struct {
 }
 
 func provisionalAcquireKeysForManagedPath(
-	effect ManagedPathEffect,
+	effect effectpreparation.ManagedPathEffect,
 	phase managedPathPhase,
 ) []ownershipOutputKey {
 	if phase != managedPathPublishPhase || effect.Scope() != target.ScopeGlobal ||
-		effect.Kind() == ManagedPathEffectRemove || effect.Kind() == ManagedPathEffectRecord {
+		effect.Kind() == effectpreparation.ManagedPathEffectRemove || effect.Kind() == effectpreparation.ManagedPathEffectRecord {
 		return nil
 	}
 	previous, present := effect.PreviousState()

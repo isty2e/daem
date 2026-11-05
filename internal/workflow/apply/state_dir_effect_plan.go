@@ -55,7 +55,7 @@ func applyEffectInput(
 	if err != nil {
 		return execute.ApplyInput{}, err
 	}
-	managedEffects, err := execute.ManagedPathEffects(
+	managedEffects, err := effectpreparation.ManagedPathEffects(
 		current.assessment.Reconciliation.ManagedPaths(),
 	)
 	if err != nil {

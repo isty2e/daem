@@ -58,7 +58,7 @@ const (
 // ActionEventFacts is the execute-owned action projection for apply progress.
 type ActionEventFacts struct {
 	Index           int
-	ManagedPathKind ManagedPathEffectKind
+	ManagedPathKind effectpreparation.ManagedPathEffectKind
 	AggregateKind   effectpreparation.AggregateEffectKind
 	Subject         topology.SubjectID
 	Target          target.Target
@@ -76,7 +76,7 @@ type RelationOrderEventFacts struct {
 	Changed    bool
 }
 
-func managedPathEventFacts(index int, effect ManagedPathEffect) ActionEventFacts {
+func managedPathEventFacts(index int, effect effectpreparation.ManagedPathEffect) ActionEventFacts {
 	return ActionEventFacts{
 		Index: index, ManagedPathKind: effect.Kind(), Subject: effect.Subject(),
 		ConsumerTargets: effect.ConsumerTargets(), Scope: effect.Scope(), Destination: effect.Destination(),

@@ -54,7 +54,7 @@ func (paths Paths) journalPaths() journal.Paths {
 type ApplyInput struct {
 	Paths                       Paths
 	Resolver                    DestinationResolver
-	ManagedPathEffects          []ManagedPathEffect
+	ManagedPathEffects          []effectpreparation.ManagedPathEffect
 	AggregateEffects            []effectpreparation.AggregateEffect
 	NativeNarrowings            []reconciliation.NativeNarrowingAction
 	ManagedPathEvidence         []observe.ManagedPathEvidence
@@ -138,7 +138,7 @@ func applyWithOptions(
 		result.ExecutionAttempted = executionAttempted
 	}()
 	for index, effect := range input.ManagedPathEffects {
-		if err := effect.validate(); err != nil {
+		if err := effect.Validate(); err != nil {
 			return ApplyResult{}, fmt.Errorf("managed path effect[%d]: %w", index, err)
 		}
 	}
@@ -201,7 +201,7 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("marshal statefile: %w", err)
 	}
-	managedMutations, err := ManagedPathJournalMutations(input.ManagedPathEffects)
+	managedMutations, err := effectpreparation.ManagedPathJournalMutations(input.ManagedPathEffects)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -505,7 +505,7 @@ func applyWithOptions(
 	managedProgress := newHostActionProgress(managedSchedule.mutationCount)
 	promoteManagedOwnership := func(
 		ctx context.Context,
-		effect ManagedPathEffect,
+		effect effectpreparation.ManagedPathEffect,
 		phase managedPathPhase,
 	) error {
 		return ownershipState.promoteVisibleAcquires(

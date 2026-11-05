@@ -38,8 +38,8 @@ type NativeApplyInput struct {
 
 type nativeApplyWork struct {
 	documents          journal.NativeDocumentObservationBatch
-	managed            []ManagedPathEffect
-	whole              []ManagedPathEffect
+	managed            []effectpreparation.ManagedPathEffect
+	whole              []effectpreparation.ManagedPathEffect
 	ordinaryAggregates []effectpreparation.AggregateEffect
 	edits              []compose.ProjectionEdit
 	mutating           []bool
@@ -119,7 +119,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 					return nativeApplyWork{}, fmt.Errorf("native document has multiple whole writers")
 				}
 				wholeGroups[index] = struct{}{}
-				work.mutating[index], found = effect.Kind() != ManagedPathEffectRecord, true
+				work.mutating[index], found = effect.Kind() != effectpreparation.ManagedPathEffectRecord, true
 			}
 			if !found {
 				return nativeApplyWork{}, fmt.Errorf("native whole effect has no retained namespace")
@@ -446,7 +446,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return ApplyResult{}, err
 	}
 	ordinaryPromoting := len(ordinary.ownership.provisional) != 0
-	wholeMutations, err := ManagedPathJournalMutations(work.whole)
+	wholeMutations, err := effectpreparation.ManagedPathJournalMutations(work.whole)
 	if err != nil {
 		return result, err
 	}
@@ -521,7 +521,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	}
 	events := applyEventEmitter{sink: options.Events, totalActions: len(work.managed) + effectpreparation.AggregateSubjectCount(input.Preparation.AggregateEffects())}
 	managedProgress := newHostActionProgress(ordinary.managedSchedule.mutationCount)
-	promoteManaged := func(ctx context.Context, effect ManagedPathEffect, phase managedPathPhase) error {
+	promoteManaged := func(ctx context.Context, effect effectpreparation.ManagedPathEffect, phase managedPathPhase) error {
 		return promoteNativeOrdinaryAcquires(ctx, &ordinary.ownership, provisionalAcquireKeysForManagedPath(effect, phase), &captured, authority, input, store, gate, execution)
 	}
 	if err := applyManagedPathPhaseWithEvents(ctx, ordinary.managedSchedule, managedPathPublishPhase, input.Payloads, authority, managedProgress, 0, events, gate, execution, promoteManaged); err != nil {

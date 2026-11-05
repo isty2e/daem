@@ -11,8 +11,12 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+	"github.com/isty2e/daem/internal/reconcile"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -23,8 +27,11 @@ import (
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
+
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
+
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
+
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -147,15 +154,11 @@ func TestManagedPathApplyRollsBackOnlyProvenUncommittedStatefileFailure(t *testi
 		t.Fatalf("construct managed path payload identity: %v", err)
 	}
 	desiredHash := hash
-	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		subject:          projection.Subject(),
-		consumerTargets:  projection.ConsumerTargets(),
-		scope:            projection.Scope(),
-		destination:      destination,
-		desiredHash:      desiredHash,
-		contentKind:      realization.PathProjectionDirectory,
-		permissionPolicy: realization.PathPermissionsNone,
-	}}}
+	effect := managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathCreate, Subject: projection.Subject(), ConsumerTargets: projection.ConsumerTargets(),
+		Scope: projection.Scope(), Destination: destination, DesiredHash: desiredHash,
+		ContentKind: realization.PathProjectionDirectory, PermissionPolicy: realization.PathPermissionsNone,
+	})
 	directoryPayload, err := payload.NewDirectoryPayload(t.Context(), projection.Subject(), identity, view)
 	if err != nil {
 		t.Fatalf("construct managed path payload: %v", err)
@@ -172,7 +175,7 @@ func TestManagedPathApplyRollsBackOnlyProvenUncommittedStatefileFailure(t *testi
 	_, err = ApplyWithOptions(t.Context(), ApplyInput{
 		Paths:               fixture.paths,
 		Resolver:            destinationResolver(fixture.paths),
-		ManagedPathEffects:  []ManagedPathEffect{effect},
+		ManagedPathEffects:  []effectpreparation.ManagedPathEffect{effect},
 		ManagedPathEvidence: []observe.ManagedPathEvidence{evidence},
 		CurrentState:        durable.EmptySnapshot(),
 		Payloads:            payloads,

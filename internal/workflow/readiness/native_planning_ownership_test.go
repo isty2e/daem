@@ -6,9 +6,10 @@ import (
 	"os"
 	"testing"
 
-	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	"github.com/isty2e/daem/internal/effect/execute"
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -89,7 +90,7 @@ func TestNativeWholeProducerUsesActualBeforeWithoutHostMutation(t *testing.T) {
 				if err != nil || len(state.AfterState().ManagedAggregates()) != 0 || len(state.AfterState().ManagedPaths()) != 1 || len(state.AggregateEffects()) != 0 || len(state.WholeAdoptions()) != 1 || len(state.WholeAdoptions()[0].RetiredKeys()) != 1 {
 					t.Fatal("actual Record did not retire only its real keys", err)
 				}
-				if len(state.ManagedPathEffects()) != 1 || state.ManagedPathEffects()[0].Kind() != execute.ManagedPathEffectRecord {
+				if len(state.ManagedPathEffects()) != 1 || state.ManagedPathEffects()[0].Kind() != effectpreparation.ManagedPathEffectRecord {
 					t.Fatal("adoption became a content replacement or removal")
 				}
 				retired := plan.RetiredSubjects()
