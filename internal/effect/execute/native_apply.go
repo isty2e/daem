@@ -8,11 +8,12 @@ import (
 	"slices"
 	"time"
 
-	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -581,10 +582,10 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	if err := stateGate.acceptAfter(ctx); err != nil {
 		return result, settle(err)
 	}
-	observe := func() (journal.NativeRecoveryAssessment, error) {
+	observe := func() (journalqualification.NativeRecoveryAssessment, error) {
 		return observeNativeRuntime(ctx, captured, authority, input, store)
 	}
-	var assessment journal.NativeRecoveryAssessment
+	var assessment journalqualification.NativeRecoveryAssessment
 	if err := execution.runObservation("apply/native-finalization-observation", applyForwardFailureGuardedRecovery, func() error { var err error; assessment, err = observe(); return err }); err != nil {
 		return result, settle(err)
 	}

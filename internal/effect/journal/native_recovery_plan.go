@@ -33,6 +33,7 @@ import (
 // NativeRecoveryPlan retains immutable observations, not live root capabilities.
 // Execution must reopen and requalify the complete operation under its leases.
 type NativeRecoveryPlan struct {
+	source        journalinventory.ActiveJournal
 	journal       journalrecord.Native
 	capture       CaptureResult
 	active        ActiveJournalAuthority
@@ -134,7 +135,7 @@ type NativeRecoveryOperation struct {
 	ownedRoots                  *recoveryoperation.OwnedRoots
 	retained                    []*rootedpath.CapturedRoot
 	qualified                   journalqualification.Documents
-	initial                     journalqualification.Assessment
+	initial                     journalqualification.NativeRecoveryAssessment
 	closed                      bool
 	inventoryProfile            RecoveryInventoryProfile
 	capturedRemovalReservations bool
@@ -229,14 +230,11 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 		}
 	}()
 	active := inventory.Active()
-	if err := journalinventory.ValidateActiveJournalRoot(ctx, filesystem, root, profile.Budget, active.PhysicalAuthority()); err != nil {
-		return nil, err
-	}
 	blocked := false
-	assessment, err := journalqualification.AssessNativeDocuments(journal, ctx, journalqualification.NativeReadOptions{
+	assessment, err := journalqualification.ReadNativeSourceAssessment(ctx, *active, journalqualification.NativeReadOptions{
 		Documents: journalqualification.ReadOptions{Artifacts: root, Filesystem: filesystem, Budget: profile.Budget, Limits: profile.Limits, Codecs: profile.Codecs, OrdinaryCapabilities: ordinaryCapabilities},
 		Roots:     roots, State: profile.StateReader, Registry: options.OwnershipRegistry,
-		Directory: active.OperationDir(), Active: active.PhysicalAuthority(), Resolver: options.Resolver,
+		Resolver: options.Resolver,
 	})
 	if err != nil {
 		var phase *journalqualification.SelectedPhaseError
@@ -244,16 +242,6 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 			return nil, err
 		}
 		blocked = true
-	}
-	snapshot, err := journalqualification.ReadJournalSnapshot(ctx, root, filesystem, profile.Budget)
-	if err != nil {
-		return nil, err
-	}
-	if journalrecord.Fingerprint(snapshot.Content()) != active.Identity().JournalAuthorityFingerprint() {
-		return nil, fmt.Errorf("native recovery journal changed during qualification")
-	}
-	if err := journalinventory.ValidateActiveJournalRoot(ctx, filesystem, root, profile.Budget, active.PhysicalAuthority()); err != nil {
-		return nil, err
 	}
 	inv, err := newRecoverableInventoryAuthority(inventory, inventory.Decision().State() == retirement.StatePrepared)
 	if err != nil {
@@ -268,7 +256,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 	if err != nil {
 		return nil, err
 	}
-	operation.plan = NativeRecoveryPlan{blocked: blocked, journal: journal, capture: CaptureResult{OperationID: journal.OperationID(), Directory: active.OperationDir(), JournalPath: filepath.Join(active.OperationDir(), journalrecord.FileName), RecordFingerprint: active.Identity().JournalAuthorityFingerprint()}, active: active.PhysicalAuthority(), inventory: inv, assessment: assessment.Facts(), registryScope: scope}
+	operation.plan = NativeRecoveryPlan{source: *active, blocked: blocked, journal: journal, capture: nativeCaptureResult(*active), active: active.PhysicalAuthority(), inventory: inv, assessment: assessment.Facts(), registryScope: scope}
 	operation.plan, err = operation.plan.assessCleanup(ctx, options, profile.Budget)
 	if err != nil {
 		return nil, err

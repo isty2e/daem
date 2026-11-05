@@ -3,7 +3,9 @@ package journal
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -26,6 +28,7 @@ import (
 // reload and qualification. Host namespaces remain borrowed from the containing
 // operation. This value is capture evidence, not a lease or execution grant.
 type CapturedNativeJournal struct {
+	source      journalinventory.ActiveJournal
 	capture     CaptureResult
 	journal     journalrecord.Native
 	qualified   journalqualification.Documents
@@ -43,6 +46,14 @@ func (captured CapturedNativeJournal) Validate() error {
 }
 
 func (captured CapturedNativeJournal) CaptureResult() CaptureResult { return captured.capture }
+
+func nativeCaptureResult(source journalinventory.ActiveJournal) CaptureResult {
+	return CaptureResult{
+		OperationID: source.Identity().OperationID(), Directory: source.OperationDir(),
+		JournalPath:       filepath.Join(source.OperationDir(), journalrecord.FileName),
+		RecordFingerprint: source.Identity().JournalAuthorityFingerprint(),
+	}
+}
 
 // BeforeState returns the complete Before snapshot, or its zero value for zero capture.
 func (captured CapturedNativeJournal) BeforeState() durable.Snapshot {

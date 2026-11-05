@@ -21,7 +21,7 @@ func (captured CapturedNativeJournal) PromoteOrdinary(ctx context.Context, inten
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	state, _ := observed.assessment.Facts().Persistence()
+	state, _ := observed.Facts().Persistence()
 	if !state.Equal(captured.journal.Before()) || captured.publication.resolver == nil {
 		return CapturedNativeJournal{}, fmt.Errorf("ordinary promotion requires observed Before and independent path selection")
 	}
@@ -29,7 +29,7 @@ func (captured CapturedNativeJournal) PromoteOrdinary(ctx context.Context, inten
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	matched, err := observed.assessment.Facts().OrdinaryMatchesExpected(entry)
+	matched, err := observed.Facts().OrdinaryMatchesExpected(entry)
 	if err != nil || !matched {
 		return CapturedNativeJournal{}, errors.Join(fmt.Errorf("ordinary promotion requires a published expected path"), err)
 	}

@@ -82,6 +82,7 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 		return CapturedNativeJournal{}, err
 	}
 	return CapturedNativeJournal{
+		source:  *active,
 		capture: capture,
 		journal: journal, qualified: qualified, active: active.PhysicalAuthority(), budget: batch.budget, publication: batch, initialized: true,
 	}, nil

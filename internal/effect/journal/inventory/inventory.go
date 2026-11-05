@@ -118,6 +118,13 @@ func (active ActiveJournal) PhysicalAuthority() ActiveJournalAuthority {
 	return active.physicalAuthority
 }
 
+func (active ActiveJournal) SameSource(other ActiveJournal) bool {
+	return active.operationDir == other.operationDir &&
+		active.identity.OperationID() == other.identity.OperationID() &&
+		active.identity.JournalAuthorityFingerprint() == other.identity.JournalAuthorityFingerprint() &&
+		active.physicalAuthority.Equal(other.physicalAuthority)
+}
+
 const (
 	maximumRecoveryRootEntries        = 4_096
 	maximumRecoveryJournalEntries     = 100_000

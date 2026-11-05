@@ -6,6 +6,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
@@ -32,7 +34,7 @@ func prepareNativeCapturedEffects(ctx context.Context, captured journal.Captured
 	return retiring, preparation, bindings, err
 }
 
-func observeNativeRuntime(ctx context.Context, captured journal.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryReader) (journal.NativeRecoveryAssessment, error) {
+func observeNativeRuntime(ctx context.Context, captured journal.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryReader) (journalqualification.NativeRecoveryAssessment, error) {
 	return captured.AssessRecovery(ctx, journal.NativeRecoveryOptions{
 		Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal,
 		State: func(ctx context.Context) (durable.Snapshot, error) {

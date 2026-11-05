@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -34,12 +33,4 @@ func (captured CapturedNativeJournal) PreparationClaims(ctx context.Context) (ow
 		return ownership.ClaimConvergence{}, err
 	}
 	return journalqualification.PrepareClaims(ctx, captured.qualified.Records(), transitions)
-}
-
-func (assessment NativeRecoveryAssessment) ExpectedClaimRemovals() []ownership.Claim {
-	return assessment.assessment.Facts().ExpectedClaimRemovals()
-}
-
-func (assessment NativeRecoveryAssessment) MissingDocuments() []pathauthority.Provisional {
-	return assessment.assessment.Facts().MissingDocuments()
 }

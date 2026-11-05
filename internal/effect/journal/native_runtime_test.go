@@ -51,13 +51,17 @@ func TestNativeCapturedRuntimeRequiresWholeCleanPhaseForRetirement(t *testing.T)
 				Registry: reader, Codecs: input.options.Codecs,
 			})
 			if phase == "third" {
-				if err == nil || assessment.valid {
+				_, _, observed := assessment.ObservedPersistence()
+				if err == nil || observed {
 					t.Fatal("third-value document produced usable recovery evidence", err)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatal(err)
+			}
+			if !assessment.MatchesSource(captured.source) {
+				t.Fatal("recovery phase lost its actual published source")
 			}
 			if phase == "partial" {
 				if !assessment.RequiresRollback() || retiring.ExecuteWithGate(t.Context(), assessment, nil) == nil {

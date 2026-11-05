@@ -51,7 +51,7 @@ func (captured CapturedNativeJournal) PromoteDocument(ctx context.Context, index
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	candidate, changed, err := observed.assessment.PromoteDocument(ctx, captured.journal, index)
+	candidate, changed, err := observed.PromoteDocument(ctx, index)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
@@ -80,10 +80,4 @@ func (captured CapturedNativeJournal) NeedsPromotion() bool {
 		}
 	}
 	return false
-}
-
-// HostReadyForStateCommit requires both expected host data and already prepared
-// exact metadata. A pending binding or unreserved new claim is not commit-ready.
-func (observed NativeRecoveryAssessment) HostReadyForStateCommit() bool {
-	return observed.valid && observed.assessment.Facts().HostReadyForStateCommit()
 }

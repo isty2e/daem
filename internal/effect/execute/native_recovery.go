@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -121,10 +122,10 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		}
 		return nil
 	}
-	observe := func() (journal.NativeRecoveryAssessment, error) {
+	observe := func() (journalqualification.NativeRecoveryAssessment, error) {
 		state, err := stateReader(ctx)
 		if err != nil || !state.Equal(operation.ObservedState()) {
-			return journal.NativeRecoveryAssessment{}, errors.Join(fmt.Errorf("native recovery state changed during settlement"), err)
+			return journalqualification.NativeRecoveryAssessment{}, errors.Join(fmt.Errorf("native recovery state changed during settlement"), err)
 		}
 		return operation.Assess(ctx, journal.NativeRecoveryOptions{Filesystem: options.Filesystem, OperationAuthority: authority.recoveryJournal, State: stateReader, Registry: store, Codecs: operation.Codecs()})
 	}
