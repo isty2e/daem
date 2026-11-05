@@ -136,7 +136,7 @@ func ordinaryRetirementCheckpoints(journal journalrecord.Native, ctx context.Con
 		if err := options.documents.Budget.AdmitObservation(); err != nil {
 			return nil, err
 		}
-		checkpoint, err := observeRemovalCleanupIntent(ctx, intent, PlanLoadOptions{Filesystem: filesystem, Resolver: options.resolver}, options.documents.Budget, false)
+		checkpoint, err := journalqualification.ObserveRemovalCleanupIntent(ctx, intent, journalqualification.RemovalReadOptions{Filesystem: filesystem, Resolver: options.resolver}, options.documents.Budget)
 		if err != nil {
 			return nil, err
 		}

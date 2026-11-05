@@ -553,7 +553,7 @@ func loadActivePlanFromInventory(
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	return assessRemovalCleanupPlan(ctx, plan, options, planningBudget)
+	return journalqualification.AssessRemovalCleanupPlan(ctx, plan, journalqualification.RemovalReadOptions{Filesystem: options.Filesystem, Resolver: options.Resolver}, planningBudget)
 }
 
 func recoveryClaimRemovalCandidates(transitions []ownershipmutation.ClaimTransition) []ownership.Claim {

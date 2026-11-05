@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -445,7 +446,7 @@ func (rollback *hostRollback) prepareCleanup(
 			return fmt.Errorf("reserve recovery rollback cleanup path: %w", err)
 		}
 	}
-	if err := journal.ReserveScratchRootedCleanupWork(
+	if err := removalnamespace.ReserveScratchRootedCleanupWork(
 		authority.physicalWorkBudget,
 		destination,
 		work,
@@ -621,7 +622,7 @@ func (rollback *hostRollback) abortCleanup(
 			return errors.Join(err, root.Close())
 		}
 	}
-	if err := journal.ReserveScratchRootedCleanupWork(budget, destination, work); err != nil {
+	if err := removalnamespace.ReserveScratchRootedCleanupWork(budget, destination, work); err != nil {
 		return errors.Join(err, root.Close())
 	}
 	executionBudget, reservedWork, err := budget.BeginReservedScratchCleanup()

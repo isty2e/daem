@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package journal
+package qualification
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -98,7 +97,7 @@ func TestReservedRemovalReobservationReadsEmptyFileAndDirectory(t *testing.T) {
 			if err != nil {
 				t.Fatalf("begin reserved execution: %v", err)
 			}
-			entry, _, work, err := journalqualification.ObserveRootedRemovalEntry(
+			entry, _, work, err := ObserveRootedRemovalEntry(
 				t.Context(),
 				storagecommit.Adapter{},
 				capability,
@@ -185,7 +184,7 @@ func TestReservedEmptyRemovalReobservationRejectsPositiveGrowth(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			observation, _, _, err := journalqualification.ObserveRootedRemovalEntry(
+			observation, _, _, err := ObserveRootedRemovalEntry(
 				t.Context(),
 				storagecommit.Adapter{},
 				capability,
@@ -233,7 +232,7 @@ func TestRemovalObservationPreservesCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, _, _, err = journalqualification.ObserveRootedRemovalEntry(
+	_, _, _, err = ObserveRootedRemovalEntry(
 		ctx,
 		storagecommit.Adapter{},
 		capability,
@@ -283,7 +282,7 @@ func TestRemovalObservationFailureConsumesReservedMaximumWork(t *testing.T) {
 	}
 	reader := failingRemovalRegularFileReader{RootedReader: storagecommit.Adapter{}}
 
-	observation, _, work, err := journalqualification.ObserveRootedRemovalEntry(
+	observation, _, work, err := ObserveRootedRemovalEntry(
 		t.Context(),
 		reader,
 		capability,
@@ -291,7 +290,7 @@ func TestRemovalObservationFailureConsumesReservedMaximumWork(t *testing.T) {
 		maximum,
 	)
 	if err != nil {
-		t.Fatalf("journalqualification.ObserveRootedRemovalEntry() error = %v", err)
+		t.Fatalf("ObserveRootedRemovalEntry() error = %v", err)
 	}
 	if observation.Status() != recovery.RemovalResidueEntryUnavailable ||
 		work.Entries() != 0 || work.Bytes() != 0 {
@@ -344,7 +343,7 @@ func TestAssessRemovalCleanupIntentDisclosesPhysicalContinuation(t *testing.T) {
 			obligation, err := assessRemovalCleanupIntent(
 				t.Context(),
 				intent,
-				PlanLoadOptions{
+				RemovalReadOptions{
 					Filesystem: storagecommit.Adapter{},
 					Resolver: func(output.Destination) (string, error) {
 						return filepath.Join(parent, "config"), nil

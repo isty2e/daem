@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -364,7 +365,7 @@ func TestActiveRecoveryAuthorityCoversCompleteRemovalContinuation(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+		residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/isty2e/daem/internal/effect/journal"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
@@ -92,7 +91,7 @@ func (authority *mutationAuthority) prepareRemovalDemands(
 		case target.ScopeProject:
 			destination, err = authority.resolveProject(demand.Destination())
 			if err == nil {
-				err = journal.ChargeRemovalPathWork(budget, destination.hostPath)
+				err = removalnamespace.ChargeRemovalPathWork(budget, destination.hostPath)
 			}
 		case target.ScopeGlobal:
 			err = authority.bindGlobalDestination(demand.Destination())
@@ -434,7 +433,7 @@ func (authority *mutationAuthority) cleanupRemovalIntentList(
 		if err != nil {
 			return nil, fmt.Errorf("observe removal intent[%d] namespace contract: %w", index, err)
 		}
-		residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+		residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 		if err != nil {
 			return nil, fmt.Errorf("derive removal intent[%d] namespace paths: %w", index, err)
 		}
@@ -485,7 +484,7 @@ func (authority *mutationAuthority) cleanupRemovalIntentList(
 		}
 		if obligation.Readiness() == recovery.RemovalCleanupReady {
 			if !capturedNamespaceReservation {
-				if err := journal.ReserveRemovalExecutionObservationWork(
+				if err := removalnamespace.ReserveRemovalExecutionObservationWork(
 					budget,
 					destination.hostPath,
 					residuePath,
@@ -508,7 +507,7 @@ func (authority *mutationAuthority) cleanupRemovalIntentList(
 				cleanupFile = residue.entry.Kind() == recovery.PathKindFile
 			}
 			if cleanupRecursive || cleanupFile {
-				if err := journal.ReserveRootedCleanupWork(
+				if err := removalnamespace.ReserveRootedCleanupWork(
 					budget,
 					destination.destination,
 					cleanupWork,
@@ -588,11 +587,11 @@ func (authority *mutationAuthority) prepareRecoveryRemovalCleanup(
 		if err != nil {
 			return fmt.Errorf("reserve removal intent[%d] cleanup destination: %w", index, err)
 		}
-		residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+		residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 		if err != nil {
 			return fmt.Errorf("reserve removal intent[%d] cleanup namespace: %w", index, err)
 		}
-		if err := journal.ReserveRemovalCleanupLifecycleWork(
+		if err := removalnamespace.ReserveRemovalCleanupLifecycleWork(
 			authority.physicalWorkBudget,
 			destination.hostPath,
 			residuePath,

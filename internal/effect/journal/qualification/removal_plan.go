@@ -1,4 +1,4 @@
-package journal
+package qualification
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 
@@ -14,12 +13,18 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
+	"github.com/isty2e/daem/internal/output"
 )
 
-func assessRemovalCleanupPlan(
+type RemovalReadOptions struct {
+	Filesystem mutationfs.RootedReader
+	Resolver   func(output.Destination) (string, error)
+}
+
+func AssessRemovalCleanupPlan(
 	ctx context.Context,
 	plan recovery.Plan,
-	options PlanLoadOptions,
+	options RemovalReadOptions,
 	budget *physicalwork.Budget,
 ) (recovery.Plan, error) {
 	intents := plan.RemovalIntents()
@@ -43,16 +48,20 @@ func assessRemovalCleanupPlan(
 func assessRemovalCleanupIntent(
 	ctx context.Context,
 	intent recovery.RemovalIntent,
-	options PlanLoadOptions,
+	options RemovalReadOptions,
 	budget *physicalwork.Budget,
 ) (recovery.RemovalCleanupObligation, error) {
 	return observeRemovalCleanupIntent(ctx, intent, options, budget, true)
 }
 
+func ObserveRemovalCleanupIntent(ctx context.Context, intent recovery.RemovalIntent, options RemovalReadOptions, budget *physicalwork.Budget) (recovery.RemovalCleanupObligation, error) {
+	return observeRemovalCleanupIntent(ctx, intent, options, budget, false)
+}
+
 func observeRemovalCleanupIntent(
 	ctx context.Context,
 	intent recovery.RemovalIntent,
-	options PlanLoadOptions,
+	options RemovalReadOptions,
 	budget *physicalwork.Budget,
 	reserveExecution bool,
 ) (recovery.RemovalCleanupObligation, error) {
@@ -85,7 +94,7 @@ func observeRemovalCleanupIntent(
 		return recovery.RemovalCleanupObligation{}, err
 	}
 	if namespace.Status() == recovery.RemovalNamespaceMatched {
-		residuePath, cleanupPath, err := RemovalNamespacePaths(intent.Namespace())
+		residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 		if err != nil {
 			return recovery.RemovalCleanupObligation{}, err
 		}
@@ -113,7 +122,7 @@ func observeRemovalCleanupIntent(
 			kind = residue.entry.Kind()
 		}
 		if reserveExecution && obligation.Readiness() == recovery.RemovalCleanupReady {
-			if err := ReserveRemovalExecutionObservationWork(budget, physicalPath, residuePath, cleanupPath); err != nil {
+			if err := removalnamespace.ReserveRemovalExecutionObservationWork(budget, physicalPath, residuePath, cleanupPath); err != nil {
 				return recovery.RemovalCleanupObligation{}, err
 			}
 			var reserveErr error
@@ -126,7 +135,7 @@ func observeRemovalCleanupIntent(
 				return recovery.RemovalCleanupObligation{}, reserveErr
 			}
 			if kind == recovery.PathKindDirectory || kind == recovery.PathKindFile {
-				if err := ReserveRootedCleanupWork(
+				if err := removalnamespace.ReserveRootedCleanupWork(
 					budget,
 					destination,
 					work,
@@ -195,7 +204,7 @@ func observeRemovalSlotForPlan(
 		entry, entryErr := unavailableRemovalEntry(role + " authority could not be bound")
 		return removalPlanSlotObservation{entry: entry}, entryErr
 	}
-	entry, _, work, observeErr := journalqualification.ObserveRootedRemovalEntry(
+	entry, _, work, observeErr := ObserveRootedRemovalEntry(
 		ctx,
 		filesystem,
 		capability,
@@ -211,151 +220,6 @@ func observeRemovalSlotForPlan(
 		return removalPlanSlotObservation{entry: entry}, entryErr
 	}
 	return removalPlanSlotObservation{entry: entry, work: work}, nil
-}
-
-// ChargeRemovalPathWork normalizes one physical cleanup path into bounded
-// component work without moving path interpretation into the pure recovery
-// model.
-func ChargeRemovalPathWork(
-	budget *physicalwork.Budget,
-	value string,
-) error {
-	depth, err := removalPathComponentCount(value)
-	if err != nil {
-		return err
-	}
-	return budget.AdmitPathComponents(depth)
-}
-
-// ReserveForwardRemovalExecutionWork reserves every physical path visit that
-// one reachable forward-removal state may perform after effects begin.
-func ReserveForwardRemovalExecutionWork(
-	budget *physicalwork.Budget,
-	destinationPaths []string,
-) error {
-	depths := make([]int, 0, len(destinationPaths))
-	for _, destinationPath := range destinationPaths {
-		destinationDepth, err := removalPathComponentCount(destinationPath)
-		if err != nil {
-			return err
-		}
-		depths = append(depths, destinationDepth)
-	}
-	return budget.ReserveForwardExecutionPathWork(depths)
-}
-
-// ReserveForwardRootedCleanupWork charges one future observation plus the
-// complete bounded storage cleanup envelope for a reachable removal state.
-func ReserveForwardRootedCleanupWork(
-	budget *physicalwork.Budget,
-	destination rootedpath.Destination,
-	work workmeasure.ArtifactWork,
-	directory bool,
-) (physicalwork.ForwardRemovalCapacity, error) {
-	validationWork, err := destination.ParentChainValidationWork()
-	if err != nil {
-		return physicalwork.ForwardRemovalCapacity{}, err
-	}
-	return budget.ReserveForwardRemoval(work, directory, validationWork)
-}
-
-// ReserveRootedCleanupWork charges the complete bounded storage cleanup
-// envelope for one effect-time candidate.
-func ReserveRootedCleanupWork(
-	budget *physicalwork.Budget,
-	destination rootedpath.Destination,
-	work workmeasure.ArtifactWork,
-	directory bool,
-) error {
-	validationWork, err := destination.ParentChainValidationWork()
-	if err != nil {
-		return err
-	}
-	return budget.ReserveRootedCleanup(work, directory, validationWork)
-}
-
-// ReserveScratchRootedCleanupWork charges the complete rollback-stage cleanup
-// envelope against the operation budget.
-func ReserveScratchRootedCleanupWork(
-	budget *physicalwork.Budget,
-	destination rootedpath.Destination,
-	work workmeasure.ArtifactWork,
-) error {
-	validationWork, err := destination.ParentChainValidationWork()
-	if err != nil {
-		return err
-	}
-	return budget.ReserveScratchCleanup(work, validationWork)
-}
-
-// ReserveRemovalExecutionObservationWork reserves every physical-path visit
-// performed by one ready cleanup candidate after preflight.
-func ReserveRemovalExecutionObservationWork(
-	budget *physicalwork.Budget,
-	destinationPath string,
-	residuePath string,
-	cleanupPath string,
-) error {
-	destinationDepth, err := removalPathComponentCount(destinationPath)
-	if err != nil {
-		return err
-	}
-	residueDepth, err := removalPathComponentCount(residuePath)
-	if err != nil {
-		return err
-	}
-	cleanupDepth, err := removalPathComponentCount(cleanupPath)
-	if err != nil {
-		return err
-	}
-	return budget.ReserveExecutionObservations(
-		destinationDepth,
-		residueDepth,
-		cleanupDepth,
-		mutationfs.RootedAbsencePathObservationCount,
-	)
-}
-
-// ReserveRemovalCleanupLifecycleWork reserves the complete post-effect
-// cleanup preflight and execution path envelope before any recovery effect.
-func ReserveRemovalCleanupLifecycleWork(
-	budget *physicalwork.Budget,
-	destinationPath string,
-	residuePath string,
-	cleanupPath string,
-) error {
-	destinationDepth, err := removalPathComponentCount(destinationPath)
-	if err != nil {
-		return err
-	}
-	residueDepth, err := removalPathComponentCount(residuePath)
-	if err != nil {
-		return err
-	}
-	cleanupDepth, err := removalPathComponentCount(cleanupPath)
-	if err != nil {
-		return err
-	}
-	return budget.ReserveCleanupLifecycle(
-		destinationDepth,
-		residueDepth,
-		cleanupDepth,
-		mutationfs.RootedAbsencePathObservationCount,
-	)
-}
-
-func removalPathComponentCount(value string) (int, error) {
-	clean := filepath.Clean(value)
-	if strings.TrimSpace(value) == "" || clean == "." {
-		return 0, fmt.Errorf("removal path is required")
-	}
-	volume := filepath.VolumeName(clean)
-	relative := strings.TrimPrefix(clean, volume)
-	relative = strings.Trim(relative, string(filepath.Separator))
-	if relative == "" {
-		return 0, nil
-	}
-	return len(strings.Split(relative, string(filepath.Separator))), nil
 }
 
 func unavailableRemovalEntry(detail string) (recovery.RemovalResidueEntryObservation, error) {
@@ -393,28 +257,3 @@ func acquireRemovalObservationSlot(
 	)
 }
 
-// RemovalNamespacePaths returns the two exact same-parent slot paths selected
-// by durable namespace authority.
-func RemovalNamespacePaths(
-	namespace recovery.RemovalNamespaceAuthority,
-) (string, string, error) {
-	var parent string
-	switch namespace.Variant() {
-	case recovery.RemovalNamespaceExistingParent:
-		provenance, present := namespace.ParentProvenance()
-		if !present {
-			return "", "", fmt.Errorf("existing-parent namespace lacks parent provenance")
-		}
-		parent = provenance.PhysicalRoot()
-	case recovery.RemovalNamespaceInitiallyAbsentParent:
-		provenance, present := namespace.RetainedAncestorProvenance()
-		if !present {
-			return "", "", fmt.Errorf("initially-absent namespace lacks retained ancestor provenance")
-		}
-		parent = filepath.Join(provenance.PhysicalRoot(), filepath.FromSlash(namespace.MissingSuffix()))
-	default:
-		return "", "", fmt.Errorf("unsupported removal namespace variant %q", namespace.Variant())
-	}
-	return filepath.Join(parent, namespace.Names().Residue()),
-		filepath.Join(parent, namespace.Names().Cleanup()), nil
-}

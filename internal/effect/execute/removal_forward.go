@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 
@@ -289,7 +290,7 @@ func (authority *mutationAuthority) prepareForwardRemovalReservationsFor(
 			if err != nil {
 				return fmt.Errorf("establish forward removal capacity for %q: %w", demand.Destination(), err)
 			}
-			capacity, err := journal.ReserveForwardRootedCleanupWork(
+			capacity, err := removalnamespace.ReserveForwardRootedCleanupWork(
 				authority.physicalWorkBudget,
 				destination.destination,
 				work,
@@ -334,7 +335,7 @@ func (authority *mutationAuthority) reserveForwardRemovalExecutionBudget(
 			destinationPaths = append(destinationPaths, destination.hostPath)
 		}
 	}
-	if err := journal.ReserveForwardRemovalExecutionWork(
+	if err := removalnamespace.ReserveForwardRemovalExecutionWork(
 		authority.physicalWorkBudget,
 		destinationPaths,
 	); err != nil {

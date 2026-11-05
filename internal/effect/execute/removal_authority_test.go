@@ -14,7 +14,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -834,7 +833,7 @@ func TestExecuteRemovalCleanupCandidateResumesPartialCleanupStage(t *testing.T) 
 	intent := authority.removalIntents[removalRelationKey{
 		scope: target.ScopeProject, destination: destination.logical,
 	}]
-	residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+	residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 	if err != nil {
 		t.Fatalf("derive removal namespace paths: %v", err)
 	}
@@ -879,7 +878,7 @@ func TestExecuteRemovalCleanupCandidatePromotesValidatedResidue(t *testing.T) {
 	intent := authority.removalIntents[removalRelationKey{
 		scope: target.ScopeProject, destination: destination.logical,
 	}]
-	residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+	residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 	if err != nil {
 		t.Fatalf("derive removal namespace paths: %v", err)
 	}
@@ -922,7 +921,7 @@ func TestExecuteRemovalCleanupCandidatePreservesMismatchedResidue(t *testing.T) 
 	intent := authority.removalIntents[removalRelationKey{
 		scope: target.ScopeProject, destination: destination.logical,
 	}]
-	residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+	residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 	if err != nil {
 		t.Fatalf("derive removal namespace paths: %v", err)
 	}
@@ -958,7 +957,7 @@ func TestExecuteRemovalCleanupCandidateDurablyConfirmsBothSlotsAbsent(t *testing
 	intent := authority.removalIntents[removalRelationKey{
 		scope: target.ScopeProject, destination: destination.logical,
 	}]
-	residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+	residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 	if err != nil {
 		t.Fatalf("derive removal namespace paths: %v", err)
 	}
@@ -995,7 +994,7 @@ func TestExecuteRemovalCleanupCandidateHandlesZeroWorkEntries(t *testing.T) {
 				intent := authority.removalIntents[removalRelationKey{
 					scope: target.ScopeProject, destination: destination.logical,
 				}]
-				residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+				residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -1017,7 +1016,7 @@ func TestExecuteRemovalCleanupCandidateHandlesZeroWorkEntries(t *testing.T) {
 				intent := authority.removalIntents[removalRelationKey{
 					scope: target.ScopeProject, destination: destination.logical,
 				}]
-				residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+				residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -1147,7 +1146,7 @@ func TestExecuteRemovalCleanupRejectsGrowthBeyondZeroSemanticWork(t *testing.T) 
 			intent := authority.removalIntents[removalRelationKey{
 				scope: target.ScopeProject, destination: destination.logical,
 			}]
-			residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+			residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1237,7 +1236,7 @@ func preflightRemovalCleanupCandidateWithWorkForTest(
 	if err != nil {
 		t.Fatalf("construct removal work budget: %v", err)
 	}
-	if err := journal.ReserveRemovalExecutionObservationWork(
+	if err := removalnamespace.ReserveRemovalExecutionObservationWork(
 		budget,
 		candidate.destination.hostPath,
 		candidate.residuePath,
@@ -1254,7 +1253,7 @@ func preflightRemovalCleanupCandidateWithWorkForTest(
 	if reserveErr != nil {
 		t.Fatalf("reserve removal reobservation: %v", reserveErr)
 	}
-	if err := journal.ReserveRootedCleanupWork(
+	if err := removalnamespace.ReserveRootedCleanupWork(
 		budget,
 		candidate.destination.destination,
 		work,

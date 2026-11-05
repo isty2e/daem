@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 )
@@ -37,7 +38,7 @@ func (plan NativeRecoveryPlan) assessCleanup(ctx context.Context, options PlanLo
 		if err := budget.AdmitObservation(); err != nil {
 			return NativeRecoveryPlan{}, err
 		}
-		obligation, err := observeRemovalCleanupIntent(ctx, intent, options, budget, false)
+		obligation, err := journalqualification.ObserveRemovalCleanupIntent(ctx, intent, journalqualification.RemovalReadOptions{Filesystem: options.Filesystem, Resolver: options.Resolver}, budget)
 		if err != nil {
 			return NativeRecoveryPlan{}, fmt.Errorf("assess joint removal[%d]: %w", index, err)
 		}

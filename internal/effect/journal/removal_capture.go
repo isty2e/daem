@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -97,7 +99,7 @@ func reserveRemovalIntentNamespacePathCapacity(
 	destinationPath string,
 	namespace recovery.RemovalNamespaceAuthority,
 ) error {
-	residuePath, cleanupPath, err := RemovalNamespacePaths(namespace)
+	residuePath, cleanupPath, err := removalnamespace.Paths(namespace)
 	if err != nil {
 		return err
 	}
@@ -105,11 +107,11 @@ func reserveRemovalIntentNamespacePathCapacity(
 		if err := budget.AdmitObservation(); err != nil {
 			return err
 		}
-		if err := ChargeRemovalPathWork(budget, slotPath); err != nil {
+		if err := removalnamespace.ChargeRemovalPathWork(budget, slotPath); err != nil {
 			return err
 		}
 	}
-	return ReserveRemovalExecutionObservationWork(
+	return removalnamespace.ReserveRemovalExecutionObservationWork(
 		budget,
 		destinationPath,
 		residuePath,

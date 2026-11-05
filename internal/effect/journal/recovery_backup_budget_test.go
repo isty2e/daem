@@ -611,10 +611,10 @@ func TestRemovalCleanupAssessmentContinuesConsumedPlanningBudget(t *testing.T) {
 	budget := recoveryBackupBudgetForTest(t)
 	consumeRecoveryBackupBudgetLeaving(t, budget, budget.RemainingEntries(), 0)
 
-	_, err = assessRemovalCleanupPlan(
+	_, err = journalqualification.AssessRemovalCleanupPlan(
 		t.Context(),
 		plan,
-		PlanLoadOptions{
+		journalqualification.RemovalReadOptions{
 			Filesystem: storagecommit.Adapter{},
 			Resolver: func(output.Destination) (string, error) {
 				return filepath.Join(parent, "config"), nil
