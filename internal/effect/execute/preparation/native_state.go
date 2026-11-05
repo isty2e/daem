@@ -1,11 +1,10 @@
-package execute
+package preparation
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
@@ -34,7 +33,7 @@ type NativeApplyStateInput struct {
 // retirement. Root, source freshness and registry authority remain operation-owned.
 type NativeWholeAdoption struct {
 	source  lock.LockedSubjectContract
-	record  effectpreparation.ManagedPathEffect
+	record  ManagedPathEffect
 	retired []durable.ManagedAggregateState
 }
 
@@ -42,7 +41,7 @@ func (adoption NativeWholeAdoption) SourceContract() lock.LockedSubjectContract 
 	return adoption.source
 }
 
-func (adoption NativeWholeAdoption) RecordEffect() effectpreparation.ManagedPathEffect {
+func (adoption NativeWholeAdoption) RecordEffect() ManagedPathEffect {
 	return adoption.record
 }
 
@@ -55,8 +54,8 @@ func (adoption NativeWholeAdoption) RetiredKeys() []durable.ManagedAggregateStat
 type NativeApplyStatePreparation struct {
 	before             durable.Snapshot
 	after              durable.Snapshot
-	managed            []effectpreparation.ManagedPathEffect
-	aggregates         []effectpreparation.AggregateEffect
+	managed            []ManagedPathEffect
+	aggregates         []AggregateEffect
 	nativeOperations   []profile.NativeAggregateOperationContract
 	narrowings         []reconcile.NativeNarrowingAction
 	adoptions          []NativeWholeAdoption
@@ -86,20 +85,20 @@ func (preparation NativeApplyStatePreparation) AfterState() durable.Snapshot {
 	return preparation.after
 }
 
-func (preparation NativeApplyStatePreparation) ManagedPathEffects() []effectpreparation.ManagedPathEffect {
-	return append([]effectpreparation.ManagedPathEffect(nil), preparation.managed...)
+func (preparation NativeApplyStatePreparation) ManagedPathEffects() []ManagedPathEffect {
+	return append([]ManagedPathEffect(nil), preparation.managed...)
 }
 
-func (preparation NativeApplyStatePreparation) AggregateEffects() []effectpreparation.AggregateEffect {
-	return append([]effectpreparation.AggregateEffect(nil), preparation.aggregates...)
+func (preparation NativeApplyStatePreparation) AggregateEffects() []AggregateEffect {
+	return append([]AggregateEffect(nil), preparation.aggregates...)
 }
 
 func (preparation NativeApplyStatePreparation) PiOrders() []pipackage.OrderObservation {
 	return append([]pipackage.OrderObservation(nil), preparation.orders...)
 }
 
-func (preparation NativeApplyStatePreparation) actionCount() int {
-	return len(preparation.managed) + effectpreparation.AggregateSubjectCount(preparation.aggregates) + len(preparation.orders) + len(preparation.narrowings)
+func (preparation NativeApplyStatePreparation) ActionCount() int {
+	return len(preparation.managed) + AggregateSubjectCount(preparation.aggregates) + len(preparation.orders) + len(preparation.narrowings)
 }
 
 // NativeAggregateOperations retains static admission for every selected native
@@ -161,11 +160,11 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 		orders = append(orders, order)
 	}
 
-	managed, err := effectpreparation.ManagedPathEffects(input.ManagedPaths)
+	managed, err := ManagedPathEffects(input.ManagedPaths)
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
-	aggregates, err := effectpreparation.AggregateEffectsForNativeOperation(input.Aggregates)
+	aggregates, err := AggregateEffectsForNativeOperation(input.Aggregates)
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
@@ -228,7 +227,7 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
-	completion, err := completeProjectCarrierInstalls(after, input.ConfirmedRelationActions)
+	completion, err := CompleteProjectCarrierInstalls(after, input.ConfirmedRelationActions)
 	if err != nil {
 		return NativeApplyStatePreparation{}, err
 	}
@@ -281,11 +280,11 @@ func (preparation NativeApplyStatePreparation) managedSuccessor(before durable.S
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	after, err = effectpreparation.AfterManagedPaths(after, preparation.managed)
+	after, err = AfterManagedPaths(after, preparation.managed)
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	after, err = snapshotAfterAggregateEffects(after, preparation.aggregates)
+	after, err = AfterAggregates(after, preparation.aggregates)
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
@@ -328,7 +327,7 @@ func indexNativeApplyState(before durable.Snapshot) nativeApplyStateIndexes {
 	return indexes
 }
 
-func validateNativeManagedStateInputs(before nativeApplyStateIndexes, effects []effectpreparation.ManagedPathEffect) error {
+func validateNativeManagedStateInputs(before nativeApplyStateIndexes, effects []ManagedPathEffect) error {
 	touched := make(map[topology.SubjectID]struct{})
 	for _, effect := range effects {
 		previous, hasPrevious := effect.PreviousState()
@@ -355,7 +354,7 @@ func validateNativeManagedStateInputs(before nativeApplyStateIndexes, effects []
 	return nil
 }
 
-func validateNativeAggregateStateInputs(before nativeApplyStateIndexes, effects []effectpreparation.AggregateEffect) error {
+func validateNativeAggregateStateInputs(before nativeApplyStateIndexes, effects []AggregateEffect) error {
 	touched := make(map[topology.SubjectID]struct{})
 	for _, effect := range effects {
 		subjects := make(map[topology.SubjectID]struct{})
@@ -408,7 +407,7 @@ func nativeWholeStateSources(sources []lock.LockedSubjectContract) (map[entity.I
 	return result, nil
 }
 
-func prepareNativeWholeAdoptions(ctx context.Context, before nativeApplyStateIndexes, decisions []reconcile.ManagedPathDecision, effects []effectpreparation.ManagedPathEffect, sources map[entity.ID]nativeWholeStateSource) ([]NativeWholeAdoption, error) {
+func prepareNativeWholeAdoptions(ctx context.Context, before nativeApplyStateIndexes, decisions []reconcile.ManagedPathDecision, effects []ManagedPathEffect, sources map[entity.ID]nativeWholeStateSource) ([]NativeWholeAdoption, error) {
 	var adoptions []NativeWholeAdoption
 	effectIndex := 0
 	for _, decision := range decisions {
@@ -421,7 +420,7 @@ func prepareNativeWholeAdoptions(ctx context.Context, before nativeApplyStateInd
 			return nil, err
 		}
 		id, entityBacked := topologyprojection.EntityID(effect.Subject())
-		if !entityBacked || id.Kind() != entity.KindHostConfig || effect.Kind() == effectpreparation.ManagedPathEffectRemove {
+		if !entityBacked || id.Kind() != entity.KindHostConfig || effect.Kind() == ManagedPathEffectRemove {
 			continue
 		}
 		source, present := sources[id]
@@ -453,11 +452,11 @@ func prepareNativeWholeAdoptions(ctx context.Context, before nativeApplyStateInd
 			owned = append(owned, state)
 		}
 		_, hasPrevious := effect.PreviousState()
-		adopting := effect.Kind() == effectpreparation.ManagedPathEffectRecord && !hasPrevious && decision.Reason() == reconcile.ReasonManagedExisting
+		adopting := effect.Kind() == ManagedPathEffectRecord && !hasPrevious && decision.Reason() == reconcile.ReasonManagedExisting
 		if len(owned) != 0 && !adopting {
 			return nil, fmt.Errorf("keys-to-whole transition requires an exact manage-existing record")
 		}
-		if effect.Kind() == effectpreparation.ManagedPathEffectRecord && !hasPrevious {
+		if effect.Kind() == ManagedPathEffectRecord && !hasPrevious {
 			if !adopting || effect.LiveHash() != effect.DesiredHash() || !effect.PermissionPolicy().AcceptsMode(effect.DesiredFileMode(), effect.LiveFileMode()) {
 				return nil, fmt.Errorf("native whole adoption requires exact record identity, mode and approval")
 			}
@@ -504,7 +503,7 @@ func nativeNarrowingStateDelta(ctx context.Context, before nativeApplyStateIndex
 	return retired, desired, nil
 }
 
-func rejectNativeStateEffectOverlap(managed []effectpreparation.ManagedPathEffect, aggregates []effectpreparation.AggregateEffect, retiredPaths, retiredKeys map[topology.SubjectID]struct{}, desired []aggregate.SubjectContribution) error {
+func rejectNativeStateEffectOverlap(managed []ManagedPathEffect, aggregates []AggregateEffect, retiredPaths, retiredKeys map[topology.SubjectID]struct{}, desired []aggregate.SubjectContribution) error {
 	for _, effect := range managed {
 		_, overlaps := retiredPaths[effect.Subject()]
 		previous, present := effect.PreviousState()

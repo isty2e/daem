@@ -8,38 +8,47 @@ import (
 	"path/filepath"
 	"testing"
 
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
+
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
-	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
+
 	lockbuild "github.com/isty2e/daem/internal/realization/lock/build"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source"
+
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/target"
+
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
@@ -262,7 +271,7 @@ func TestNativeSourcePreparationConsumesActualWholeBeforeGenericRemoval(t *testi
 				if hasPlan == (fragment == `{}`) || (len(prepared.Sources()[0].Projections()) == 0) != (fragment == `{}`) {
 					t.Fatal("empty source became absent intent or a content deletion")
 				}
-				state, err := execute.PrepareNativeApplyState(t.Context(), execute.NativeApplyStateInput{Before: fixture.input.Documents.Evidence().BeforeState(), Narrowings: prepared.Narrowings(), StateCodec: fixture.codec})
+				state, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: fixture.input.Documents.Evidence().BeforeState(), Narrowings: prepared.Narrowings(), StateCodec: fixture.codec})
 				if err != nil || len(state.ManagedPathEffects()) != 0 || len(state.AfterState().ManagedPaths()) != 0 || len(state.Narrowings()) != 1 || (len(state.AfterState().ManagedAggregates()) == 0) != (fragment == `{}`) {
 					t.Fatal("produced narrowing lost its state-only release or manufactured whole deletion", err)
 				}
@@ -358,7 +367,7 @@ func TestNativeSourcePreparationPreservesOtherRowsInCompleteBefore(t *testing.T)
 	if err != nil || len(prepared.Narrowings()) != 1 || len(prepared.RemainingManagedPaths()) != 1 || !prepared.RemainingManagedPaths()[0].Equal(other) || !fixture.input.Documents.Evidence().BeforeState().Equal(complete) {
 		t.Fatal("narrowing consumed unrelated state or truncated canonical before", err)
 	}
-	state, err := execute.PrepareNativeApplyState(t.Context(), execute.NativeApplyStateInput{Before: complete, Narrowings: prepared.Narrowings(), StateCodec: fixture.codec})
+	state, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: complete, Narrowings: prepared.Narrowings(), StateCodec: fixture.codec})
 	if err != nil || len(state.AfterState().ManagedPaths()) != 1 || !state.AfterState().ManagedPaths()[0].Equal(other) {
 		t.Fatal("state consumer lost a row outside the narrowing", err)
 	}

@@ -25,7 +25,7 @@ func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) 
 	if err != nil {
 		return applyStateTransition{}, err
 	}
-	nextState, err = snapshotAfterAggregateEffects(nextState, input.AggregateEffects)
+	nextState, err = effectpreparation.AfterAggregates(nextState, input.AggregateEffects)
 	if err != nil {
 		return applyStateTransition{}, err
 	}
@@ -35,21 +35,21 @@ func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) 
 	if err != nil {
 		return applyStateTransition{}, err
 	}
-	nextState, retiredProjectClaimCount, err := snapshotAfterRetiredProjectCarrierClaims(
+	nextState, retiredProjectClaimCount, err := effectpreparation.AfterRetiredProjectCarrierClaims(
 		nextState,
 		input.RetiredProjectCarrierClaims,
 	)
 	if err != nil {
 		return applyStateTransition{}, err
 	}
-	completion, err := completeProjectCarrierInstalls(
+	completion, err := effectpreparation.CompleteProjectCarrierInstalls(
 		nextState,
 		input.ConfirmedRelationActions,
 	)
 	if err != nil {
 		return applyStateTransition{}, err
 	}
-	nextState = completion.after
+	nextState = completion.AfterState()
 	projectClaimCountBeforeAdoption := len(nextState.ManagedCarrierClaims())
 	nextState, adoptionStateChanged, err := nextState.WithAdoptedCarrierClaims(
 		input.AdoptedProjectCarrierClaims,
@@ -62,7 +62,7 @@ func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) 
 		len(input.AggregateEffects) != 0 ||
 		globalCarrierStateChanged ||
 		retiredProjectClaimCount != 0 ||
-		completion.changed ||
+		completion.Changed() ||
 		adoptionStateChanged
 	return applyStateTransition{
 		nextState:                nextState,

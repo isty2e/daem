@@ -11,14 +11,16 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
-	"github.com/isty2e/daem/internal/effect/execute"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
@@ -58,7 +60,7 @@ func newNativePlanningFixture(t *testing.T, scope target.Scope, path string) nat
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := execute.PrepareNativeApplyState(t.Context(), execute.NativeApplyStateInput{Before: base.observation.Before, Narrowings: narrowing.Narrowings(), StateCodec: base.codec})
+	state, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: base.observation.Before, Narrowings: narrowing.Narrowings(), StateCodec: base.codec})
 	if err != nil || len(state.AfterState().ManagedAggregates()) != 1 {
 		t.Fatal("key baseline was not produced by actual narrowing preparation", err)
 	}

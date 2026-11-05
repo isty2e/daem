@@ -28,7 +28,7 @@ import (
 // derived state. Ordinary Apply entrypoints remain closed to native effects.
 type NativeApplyInput struct {
 	ApplyInput
-	Preparation NativeApplyStatePreparation
+	Preparation effectpreparation.NativeApplyStatePreparation
 	Documents   journal.NativeDocumentObservationBatch
 	Registry    ownership.Registry
 	Budget      *physicalwork.Budget
@@ -576,7 +576,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			return fmt.Errorf("native state commit: %w", commit.failure())
 		}
 		result.State, result.StatePath = input.Preparation.AfterState(), input.Paths.StatefilePath
-		result.ActionCount = input.Preparation.actionCount()
+		result.ActionCount = input.Preparation.ActionCount()
 		return nil
 	}); err != nil {
 		return result, settle(err)

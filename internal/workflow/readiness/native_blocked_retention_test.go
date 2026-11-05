@@ -6,8 +6,9 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
-	"github.com/isty2e/daem/internal/effect/execute"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -73,7 +74,7 @@ func TestBlockedNativeWholeAdoptionRetainsPriorKeysAsBlockedNotRemoval(t *testin
 	if err != nil || !result.HasErrors() || len(result.MutatingManagedPaths()) != 0 || len(result.MutatingAggregates()) != 0 {
 		t.Fatal("blocked native diagnostic result became invalid or clean/mutating", err)
 	}
-	state, err := execute.PrepareNativeApplyState(t.Context(), execute.NativeApplyStateInput{Before: fixture.observation.Before, ManagedPaths: result.ManagedPaths(), Aggregates: result.Aggregates(), WholeSources: []lock.LockedSubjectContract{input.Source.SourceContract()}, StateCodec: fixture.codec})
+	state, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: fixture.observation.Before, ManagedPaths: result.ManagedPaths(), Aggregates: result.Aggregates(), WholeSources: []lock.LockedSubjectContract{input.Source.SourceContract()}, StateCodec: fixture.codec})
 	if err == nil || state.Validate() == nil {
 		t.Fatal("blocked native result exposed usable successor state")
 	}

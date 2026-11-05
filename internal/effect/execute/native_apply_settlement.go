@@ -92,7 +92,7 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 	}
 	result.State, result.StatePath = operation.ObservedState(), input.Paths.StatefilePath
 	if result.State.Equal(input.Preparation.AfterState()) {
-		result.ActionCount = input.Preparation.actionCount()
+		result.ActionCount = input.Preparation.ActionCount()
 		return fmt.Errorf("%w; committed native state finalized without replaying host writes", primary)
 	}
 	result.ActionCount = 0

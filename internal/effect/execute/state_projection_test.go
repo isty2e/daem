@@ -5,11 +5,17 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
+
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
+
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -29,13 +35,14 @@ func TestPromotedProjectCarrierClaimsSelectOnlyExactPendingNoOp(t *testing.T) {
 		PendingCarrierInstalls: []durablecarrier.PendingCarrierInstall{pending},
 	})
 
-	claims, err := promotedProjectCarrierClaims(
+	completion, err := effectpreparation.CompleteProjectCarrierInstalls(
 		current,
 		[]reconciliation.RelationAction{action},
 	)
 	if err != nil {
-		t.Fatalf("promotedProjectCarrierClaims returned error: %v", err)
+		t.Fatalf("CompleteProjectCarrierInstalls returned error: %v", err)
 	}
+	claims := completion.Claims()
 	if len(claims) != 1 ||
 		!claims[0].Owner().ExactEqual(owner) ||
 		!claims[0].Identity().ExactEqual(action.CarrierIdentity()) ||
@@ -47,6 +54,14 @@ func TestPromotedProjectCarrierClaimsSelectOnlyExactPendingNoOp(t *testing.T) {
 		len(next.PendingCarrierInstalls()) != 0 ||
 		len(next.ManagedCarrierClaims()) != 1 {
 		t.Fatalf("promote exact pending = (%#v, %t, %v)", next, changed, err)
+	}
+	if !completion.Changed() || !completion.AfterState().Equal(next) {
+		t.Fatal("carrier completion lost the exact state/claim equation")
+	}
+	view := completion.Claims()
+	view[0] = durablecarrier.ManagedCarrierClaim{}
+	if !completion.Claims()[0].ExactEqual(claims[0]) {
+		t.Fatal("carrier claim view overwrote completed facts")
 	}
 }
 
@@ -73,15 +88,19 @@ func TestPromotedProjectCarrierClaimsIgnoreRouteMismatch(t *testing.T) {
 		PendingCarrierInstalls: []durablecarrier.PendingCarrierInstall{stale},
 	})
 
-	claims, err := promotedProjectCarrierClaims(
+	completion, err := effectpreparation.CompleteProjectCarrierInstalls(
 		current,
 		[]reconciliation.RelationAction{action},
 	)
 	if err != nil {
-		t.Fatalf("promotedProjectCarrierClaims returned error: %v", err)
+		t.Fatalf("CompleteProjectCarrierInstalls returned error: %v", err)
 	}
+	claims := completion.Claims()
 	if len(claims) != 0 {
 		t.Fatalf("route-mismatched pending produced claims: %#v", claims)
+	}
+	if completion.Changed() || !completion.AfterState().Equal(current) {
+		t.Fatal("route-mismatched completion changed the state")
 	}
 	if got := current.PendingCarrierInstalls(); len(got) != 1 ||
 		!got[0].ExactEqual(stale) {

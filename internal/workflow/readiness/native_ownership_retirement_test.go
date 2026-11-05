@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
-	"github.com/isty2e/daem/internal/effect/execute"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 
@@ -58,7 +57,7 @@ func TestNativeMissingHistoryRetiresThroughActualGlobalPlanner(t *testing.T) {
 	if err != nil || len(decisions) != 1 || decisions[0].Kind() != reconcile.AggregateRecord {
 		t.Fatal("actual retained missing ownership was rejected by native planning", err)
 	}
-	state, err := execute.PrepareNativeApplyState(t.Context(), execute.NativeApplyStateInput{Before: fixture.observation.Before, Aggregates: decisions, StateCodec: fixture.codec})
+	state, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: fixture.observation.Before, Aggregates: decisions, StateCodec: fixture.codec})
 	if err != nil || len(state.AfterState().ManagedAggregates()) != 0 || len(state.AggregateEffects()) != 1 {
 		t.Fatal("missing historical key did not retire its actual baseline", err)
 	}

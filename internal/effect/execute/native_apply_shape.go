@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 )
 
@@ -22,54 +20,17 @@ type NativeManagedSuffixShape struct {
 	whole       []effectpreparation.ManagedPathEffect
 	aggregates  []effectpreparation.AggregateEffect
 	narrowings  []reconcile.NativeNarrowingAction
-	adoptions   []NativeWholeAdoption
+	adoptions   []effectpreparation.NativeWholeAdoption
 	orders      []pipackage.OrderObservation
 }
 
-// ValidateAggregatePhaseSplit checks both managed projection families without
-// manufacturing a post-prefix observation or granting execution authority.
-func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefix NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect) error {
-	if err := preparation.Validate(); err != nil {
-		return err
-	}
-	if err := prefix.Validate(); err != nil {
-		return err
-	}
-	if len(prefix.orders) != 0 {
-		return fmt.Errorf("positive native prefix contains Pi order work")
-	}
-	if !prefix.before.Equal(preparation.before) || len(prefix.managed)+len(prefix.adoptions)+len(prefix.projectCompletions)+len(preparation.projectCompletions) != 0 {
-		return fmt.Errorf("native suffix requires a positive-only prefix from the same complete Before")
-	}
-	if !slices.EqualFunc(prefix.narrowings, preparation.PositiveNarrowings(), reconcile.NativeNarrowingAction.Equal) {
-		return fmt.Errorf("native prefix does not cover its positive ownership transitions")
-	}
-	for _, effect := range prefix.aggregates {
-		if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); !native {
-			return fmt.Errorf("positive native prefix contains ordinary aggregate work")
-		}
-	}
-	remaining := preparation
-	remaining.aggregates, remaining.narrowings = residual, preparation.narrowingPhase(false)
-	after, err := remaining.managedSuccessor(prefix.after)
-	if err != nil {
-		return err
-	}
-	if !slices.EqualFunc(after.ManagedPaths(), preparation.after.ManagedPaths(), durable.ManagedPathState.Equal) || !slices.EqualFunc(after.ManagedAggregates(), preparation.after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
-		return fmt.Errorf("native phases do not produce the complete managed successor")
-	}
-	return nil
-}
-
-func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, error) {
-	err := input.Preparation.ValidateAggregatePhaseSplit(prefix, residual)
+func ProjectNativeManagedSuffix(input NativeApplyInput, prefix effectpreparation.NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, error) {
+	remaining, err := input.Preparation.ManagedRemainder(prefix, residual)
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
 	}
 	projection := input
-	projection.Preparation.aggregates = residual
-	projection.Preparation.orders = nil
-	projection.Preparation.narrowings = input.Preparation.narrowingPhase(false)
+	projection.Preparation = remaining
 	work, err := nativeApplyWorkFor(projection)
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
@@ -82,71 +43,30 @@ func ProjectNativeManagedSuffix(input NativeApplyInput, prefix NativeApplyStateP
 	}
 
 	suppressNativePrefixPromotions(&work, prefixWork)
-	work.changed = len(work.managed)+len(work.whole)+len(residual)+len(projection.Preparation.narrowings) != 0
+	work.changed = len(work.managed)+len(work.whole)+len(residual)+len(projection.Preparation.Narrowings()) != 0
 	return projectNativeSuffixWork(projection, work, orders)
 }
 
 // DelegatePrerequisites retains ordinary/MCP actors in their existing phase,
 // leaving native retirement, ownership transitions and order for later.
 func (input NativeApplyInput) DelegatePrerequisites() (NativeApplyInput, error) {
-	return nativeDelegatePrerequisites(input, input.CurrentState)
-}
-
-func nativeDelegatePrerequisites(input NativeApplyInput, baseline durable.Snapshot) (NativeApplyInput, error) {
-	if err := input.Preparation.Validate(); err != nil {
-		return NativeApplyInput{}, err
-	}
-	preparation := input.Preparation
-	preparation.managed = slices.DeleteFunc(slices.Clone(preparation.managed), func(effect effectpreparation.ManagedPathEffect) bool {
-		return aggregate.IsHostConfigDocumentSubject(effect.Subject())
-	})
-	preparation.aggregates = slices.DeleteFunc(slices.Clone(preparation.aggregates), func(effect effectpreparation.AggregateEffect) bool {
-		_, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID())
-		return native
-	})
-	preparation.narrowings, preparation.adoptions, preparation.orders, preparation.projectCompletions, preparation.nativeOperations = nil, nil, nil, nil, nil
-	after, err := preparation.managedSuccessor(baseline)
+	preparation, err := input.Preparation.DelegatePrerequisites(input.CurrentState)
 	if err != nil {
 		return NativeApplyInput{}, err
 	}
-	if after.Equal(baseline) && len(preparation.managed)+len(preparation.aggregates) != 0 {
-		after, err = after.AdvanceNativeDocumentCommit()
-		if err != nil {
-			return NativeApplyInput{}, err
-		}
-	}
-	preparation.after = after
 	input.Preparation = preparation
 	return input, nil
 }
 
 // ProjectNativeDelegateSuffixes partitions an admitted suffix without inventing
 // live intermediate observations. Both shapes require fresh input when bound.
-func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, NativeManagedSuffixShape, error) {
-	if err := input.Preparation.ValidateAggregatePhaseSplit(prefix, residual); err != nil {
-		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
-	}
-	prerequisites, err := nativeDelegatePrerequisites(input, prefix.AfterState())
+func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix effectpreparation.NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, NativeManagedSuffixShape, error) {
+	prerequisiteState, lateState, err := input.Preparation.DelegatePhases(prefix, residual)
 	if err != nil {
 		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
 	}
-	late := input
-	late.Preparation.managed = slices.DeleteFunc(slices.Clone(input.Preparation.managed), func(effect effectpreparation.ManagedPathEffect) bool {
-		return !aggregate.IsHostConfigDocumentSubject(effect.Subject())
-	})
-	late.Preparation.aggregates = slices.DeleteFunc(slices.Clone(residual), func(effect effectpreparation.AggregateEffect) bool {
-		_, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID())
-		return !native
-	})
-	late.Preparation.narrowings, late.Preparation.orders = input.Preparation.narrowingPhase(false), nil
-	projected, err := late.Preparation.managedSuccessor(prerequisites.Preparation.AfterState())
-	if err != nil {
-		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
-	}
-	if !slices.EqualFunc(projected.ManagedPaths(), input.Preparation.after.ManagedPaths(), durable.ManagedPathState.Equal) ||
-		!slices.EqualFunc(projected.ManagedAggregates(), input.Preparation.after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
-		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, fmt.Errorf("delegate phases do not preserve the complete managed successor")
-	}
+	prerequisites, late := input, input
+	prerequisites.Preparation, late.Preparation = prerequisiteState, lateState
 	prefixInput := input
 	prefixInput.Preparation = prefix
 	prefixWork, err := nativeApplyWorkFor(prefixInput)
@@ -169,7 +89,7 @@ func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix NativeApplySta
 	}
 	suppressNativePrefixPromotions(&lastWork, prefixWork)
 	suppressNativePrefixPromotions(&lastWork, firstWork)
-	lastWork.changed = len(lastWork.managed)+len(lastWork.whole)+len(late.Preparation.aggregates)+len(late.Preparation.narrowings) != 0
+	lastWork.changed = len(lastWork.managed)+len(lastWork.whole)+len(late.Preparation.AggregateEffects())+len(late.Preparation.Narrowings()) != 0
 	last, err := projectNativeSuffixWork(late, lastWork, orders)
 	return first, last, err
 }
@@ -264,8 +184,8 @@ func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectP
 	}
 	if !slices.EqualFunc(shape.managed, work.managed, effectpreparation.ManagedPathEffect.Equal) ||
 		!slices.EqualFunc(shape.whole, work.whole, effectpreparation.ManagedPathEffect.Equal) ||
-		!slices.EqualFunc(shape.narrowings, input.Preparation.narrowings, reconcile.NativeNarrowingAction.Equal) ||
-		!slices.EqualFunc(shape.adoptions, input.Preparation.adoptions, sameNativeWholeAdoption) ||
+		!slices.EqualFunc(shape.narrowings, input.Preparation.Narrowings(), reconcile.NativeNarrowingAction.Equal) ||
+		!slices.EqualFunc(shape.adoptions, input.Preparation.WholeAdoptions(), effectpreparation.NativeWholeAdoption.Equal) ||
 		!slices.EqualFunc(shape.aggregates, input.Preparation.AggregateEffects(), effectpreparation.AggregateEffect.SameMutation) {
 		return ApplyEffectPlan{}, fmt.Errorf("native suffix actors changed")
 	}
@@ -285,9 +205,4 @@ func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectP
 		}
 	}
 	return ApplyEffectPlan{}, fmt.Errorf("native suffix structure changed")
-}
-
-func sameNativeWholeAdoption(left, right NativeWholeAdoption) bool {
-	return left.source.Equal(right.source) && effectpreparation.ManagedPathEffect.Equal(left.record, right.record) &&
-		slices.EqualFunc(left.retired, right.retired, durable.ManagedAggregateState.Equal)
 }

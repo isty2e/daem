@@ -6,13 +6,9 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
-
-	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/topology"
 )
 
 type statefileCommitStatus uint8
@@ -88,92 +84,4 @@ func (outcome statefileCommitOutcome) valid() bool {
 	default:
 		return false
 	}
-}
-
-func snapshotAfterAggregateEffects(
-	snapshot durable.Snapshot,
-	effects []effectpreparation.AggregateEffect,
-) (durable.Snapshot, error) {
-	removeSubjects := make(map[topology.SubjectID]struct{})
-	replacements := make(map[topology.SubjectID]durable.ManagedAggregateState)
-	for index, effect := range effects {
-		if err := effect.Validate(); err != nil {
-			return durable.Snapshot{}, fmt.Errorf("aggregate effect[%d]: %w", index, err)
-		}
-		for _, previous := range effect.PreviousStates() {
-			removeSubjects[previous.Subject()] = struct{}{}
-		}
-		for _, item := range effect.DesiredContributions() {
-			if _, duplicate := replacements[item.SubjectID()]; duplicate {
-				return durable.Snapshot{}, fmt.Errorf(
-					"duplicate aggregate state replacement for subject %q",
-					item.SubjectID(),
-				)
-			}
-			state, err := durable.NewManagedAggregateState(item.SubjectID(), item.Contribution())
-			if err != nil {
-				return durable.Snapshot{}, fmt.Errorf(
-					"aggregate effect[%d] state subject %q: %w",
-					index,
-					item.SubjectID(),
-					err,
-				)
-			}
-			replacements[item.SubjectID()] = state
-			delete(removeSubjects, item.SubjectID())
-		}
-	}
-
-	current := snapshot.ManagedAggregates()
-	next := make([]durable.ManagedAggregateState, 0, len(current)+len(replacements))
-	for _, existing := range current {
-		subject := existing.Subject()
-		if replacement, replace := replacements[subject]; replace {
-			next = append(next, replacement)
-			delete(replacements, subject)
-			continue
-		}
-		if _, remove := removeSubjects[subject]; remove {
-			continue
-		}
-		next = append(next, existing)
-	}
-	for _, replacement := range replacements {
-		next = append(next, replacement)
-	}
-	return snapshot.WithManagedAggregates(next)
-}
-
-func snapshotAfterRetiredProjectCarrierClaims(
-	snapshot durable.Snapshot,
-	claims []durablecarrier.ManagedCarrierClaim,
-) (durable.Snapshot, int, error) {
-	next := snapshot
-	for index, claim := range claims {
-		for previous := range index {
-			if claims[previous].ExactEqual(claim) {
-				return durable.Snapshot{}, 0, fmt.Errorf(
-					"retired project carrier claim[%d] duplicates claim[%d]",
-					index,
-					previous,
-				)
-			}
-		}
-		updated, changed, err := next.WithoutManagedCarrierClaim(claim)
-		if err != nil {
-			return durable.Snapshot{}, 0, fmt.Errorf(
-				"retire project carrier claim[%d]: %w",
-				index,
-				err,
-			)
-		}
-		if !changed {
-			return durable.Snapshot{}, 0, fmt.Errorf(
-				"retire project carrier claim[%d]: exact claim is absent",
-				index,
-			)
-		}
-		next = updated
-	}
-	return next, len(claims), nil
 }

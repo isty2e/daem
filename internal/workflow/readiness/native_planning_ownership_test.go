@@ -8,7 +8,6 @@ import (
 
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
-	"github.com/isty2e/daem/internal/effect/execute"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/output"
@@ -83,7 +82,7 @@ func TestNativeWholeProducerUsesActualBeforeWithoutHostMutation(t *testing.T) {
 				if err != nil || plan.Validate() != nil || plan.Decision().Kind() != reconcile.ManagedPathRecord || len(plan.RetiredSubjects()) != 1 {
 					t.Fatal("actual qualified source did not produce exact Record adoption", err)
 				}
-				state, err := execute.PrepareNativeApplyState(t.Context(), execute.NativeApplyStateInput{
+				state, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{
 					Before: fixture.observation.Before, ManagedPaths: []reconcile.ManagedPathDecision{plan.Decision()},
 					WholeSources: []lock.LockedSubjectContract{input.Source.SourceContract()}, StateCodec: fixture.codec,
 				})
@@ -142,7 +141,7 @@ func TestNativeWholeProducerRefusesForcedAdoptionAndLaterBlockers(t *testing.T) 
 			if err != nil || plan.Validate() != nil || !plan.Decision().IsBlocked() || len(plan.RetiredSubjects()) != 0 {
 				t.Fatal("native widening forced creation/replacement or ignored ownership", err)
 			}
-			if state, err := execute.PrepareNativeApplyState(t.Context(), execute.NativeApplyStateInput{Before: fixture.observation.Before, ManagedPaths: []reconcile.ManagedPathDecision{plan.Decision()}, WholeSources: []lock.LockedSubjectContract{fixture.adoption(t, true).Source.SourceContract()}, StateCodec: fixture.codec}); err == nil || state.Validate() == nil {
+			if state, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: fixture.observation.Before, ManagedPaths: []reconcile.ManagedPathDecision{plan.Decision()}, WholeSources: []lock.LockedSubjectContract{fixture.adoption(t, true).Source.SourceContract()}, StateCodec: fixture.codec}); err == nil || state.Validate() == nil {
 				t.Fatal("blocked adoption exposed usable successor state")
 			}
 		})

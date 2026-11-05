@@ -10,26 +10,36 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/journal"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
+
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
@@ -308,7 +318,7 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 		t.Fatal(err)
 	}
 	before := durable.EmptySnapshot()
-	prepared, err := PrepareNativeApplyState(t.Context(), NativeApplyStateInput{Before: before, PiOrders: []pipackage.OrderObservation{order}, StateCodec: codec})
+	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: before, PiOrders: []pipackage.OrderObservation{order}, StateCodec: codec})
 	if err != nil {
 		t.Fatal(err)
 	}
