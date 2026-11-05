@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -69,8 +71,8 @@ func requireStagedDocumentJournal(t *testing.T, fixture nativeRecordFixture, jou
 	if !present {
 		t.Fatal("staged record changed native family")
 	}
-	fixture.read.artifacts, fixture.read.budget = root, imageBudget(t)
-	loaded, err := loadDocuments(reconstructed, t.Context(), fixture.read)
+	fixture.read.Artifacts, fixture.read.Budget = root, imageBudget(t)
+	loaded, err := journalqualification.LoadDocuments(reconstructed, t.Context(), fixture.read)
 	if err != nil || loaded.Len() != len(comparisons) {
 		t.Fatalf("staged complete native record cannot reconstruct: %v", err)
 	}

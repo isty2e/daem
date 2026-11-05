@@ -93,7 +93,7 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 	if !known {
 		t.Fatal("fixture path requires normalization-stable exact authority")
 	}
-	input := selectedDocumentCaptureInput{edits: edits, order: order, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: fixture.claims.owner, OperationID: fixture.journal.OperationID(), GroupIndex: 2, Limits: fixture.read.limits, Budget: budget})}
+	input := selectedDocumentCaptureInput{edits: edits, order: order, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: fixture.claims.owner, OperationID: fixture.journal.OperationID(), GroupIndex: 2, Limits: fixture.read.Limits, Budget: budget})}
 	indexes, err := journaldocument.IndexSnapshots(t.Context(), fixture.before, fixture.after)
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +152,7 @@ func selectedCaptureEdits(t *testing.T, fixture nativeRecordFixture, original ag
 	if err != nil {
 		t.Fatal(err)
 	}
-	codec, found := fixture.read.codecs.Lookup(selection.CodecContractID())
+	codec, found := fixture.read.Codecs.Lookup(selection.CodecContractID())
 	if !found {
 		t.Fatal("selected fixture codec missing")
 	}
@@ -190,7 +190,7 @@ func selectedCaptureEdits(t *testing.T, fixture nativeRecordFixture, original ag
 	if err != nil {
 		t.Fatal(err)
 	}
-	participant, err := journaldocument.Participant(selection, fixture.read.codecs)
+	participant, err := journaldocument.Participant(selection, fixture.read.Codecs)
 	if err != nil {
 		t.Fatal(err)
 	}

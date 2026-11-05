@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -86,7 +88,7 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := qualifyNativePiContext(t.Context(), qualification, manifestGrant, namespace, setupBudget); err != nil {
+	if err := journalqualification.QualifyPiContext(t.Context(), qualification, manifestGrant, namespace, setupBudget); err != nil {
 		t.Fatal(err)
 	}
 	expectedBytes, exists := order.Candidate()
@@ -114,5 +116,5 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 	}
 	codec, codecs := statefile.Codec{}, aggregatecodec.Catalog()
 	decoded, artifacts := publishNativeFixture(t, journal, comparison, nativeDocumentStageOptions{stateCodec: codec, codecs: codecs, limits: limits, budget: setupBudget})
-	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: nativeDocumentReadOptions{artifacts: artifacts, filesystem: journalTestFilesystem(), budget: nativeFixtureBudget(t), limits: limits, codecs: codecs}, claims: claims, roots: roots, comparison: comparison}, input
+	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: roots, comparison: comparison}, input
 }

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -20,7 +22,7 @@ import (
 
 func TestPiOrderEvidenceJoinsRealImageCustodyAndSelectedRecovery(t *testing.T) {
 	fixture, input := publishedPiOrderFixture(t, target.ScopeProject)
-	loaded, err := loadDocuments(fixture.journal, t.Context(), fixture.read)
+	loaded, err := journalqualification.LoadDocuments(fixture.journal, t.Context(), fixture.read)
 	if err != nil || loaded.Len() != 1 {
 		t.Fatal("published Pi order did not reconstruct", err)
 	}
@@ -43,7 +45,7 @@ func TestPiOrderEvidenceJoinsRealImageCustodyAndSelectedRecovery(t *testing.T) {
 		image["artifact"] = nativeRecordJSON(t, reference)
 		group["expected"] = nativeRecordJSON(t, image)
 	})
-	session, err := changed.BeginLoadedDocuments(t.Context(), fixture.read.limits, fixture.read.codecs)
+	session, err := changed.BeginLoadedDocuments(t.Context(), fixture.read.Limits, fixture.read.Codecs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,14 +57,14 @@ func TestPiOrderEvidenceJoinsRealImageCustodyAndSelectedRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := fixture.read.artifacts.Authority()
+	root, err := fixture.read.Artifacts.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root.PhysicalRoot(), filepath.FromSlash(reference)), input.Document.Content(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	original, expected, err := loadDocumentImages(t.Context(), demand.Original(), demand.Expected(), fixture.read.artifacts, journalTestFilesystem(), nativeFixtureBudget(t), pipackage.MaximumSettingsBytes)
+	original, expected, err := journalqualification.LoadImages(t.Context(), demand.Original(), demand.Expected(), fixture.read.Artifacts, journalTestFilesystem(), nativeFixtureBudget(t), pipackage.MaximumSettingsBytes)
 	if err != nil || !expected.Document().Equal(input.Document) {
 		t.Fatal("wrong-order image did not reach semantic validation with a valid hash", err)
 	}

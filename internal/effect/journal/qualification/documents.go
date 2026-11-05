@@ -1,9 +1,10 @@
-package journal
+package qualification
 
 import (
 	"context"
 	"fmt"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -14,20 +15,20 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-type nativeDocumentReadOptions struct {
-	ordinaryCapabilities RootedCapabilityResolver
-	artifacts            *rootedpath.CapturedRoot
-	filesystem           mutationfs.RootedReader
-	budget               *physicalwork.Budget
-	limits               configdocument.Limits
-	codecs               aggregate.CodecCatalog
+type ReadOptions struct {
+	OrdinaryCapabilities journalnamespace.CapabilityResolver
+	Artifacts            *rootedpath.CapturedRoot
+	Filesystem           mutationfs.RootedReader
+	Budget               *physicalwork.Budget
+	Limits               configdocument.Limits
+	Codecs               aggregate.CodecCatalog
 }
 
-func loadDocuments(journal journalrecord.Native, ctx context.Context, options nativeDocumentReadOptions) (journalrecord.LoadedDocuments, error) {
-	if ctx == nil || options.artifacts == nil || options.filesystem == nil || options.budget == nil {
+func LoadDocuments(journal journalrecord.Native, ctx context.Context, options ReadOptions) (journalrecord.LoadedDocuments, error) {
+	if ctx == nil || options.Artifacts == nil || options.Filesystem == nil || options.Budget == nil {
 		return journalrecord.LoadedDocuments{}, fmt.Errorf("native document read context, artifact root, filesystem and shared budget are required")
 	}
-	session, err := journal.BeginLoadedDocuments(ctx, options.limits, options.codecs)
+	session, err := journal.BeginLoadedDocuments(ctx, options.Limits, options.Codecs)
 	if err != nil {
 		return journalrecord.LoadedDocuments{}, err
 	}
@@ -39,7 +40,7 @@ func loadDocuments(journal journalrecord.Native, ctx context.Context, options na
 		if !present {
 			break
 		}
-		original, expected, err := loadDocumentImages(ctx, demand.Original(), demand.Expected(), options.artifacts, options.filesystem, options.budget, recovery.MaximumRecoveryBackupFileBytes)
+		original, expected, err := LoadImages(ctx, demand.Original(), demand.Expected(), options.Artifacts, options.Filesystem, options.Budget, recovery.MaximumRecoveryBackupFileBytes)
 		if err != nil {
 			return journalrecord.LoadedDocuments{}, err
 		}

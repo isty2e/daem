@@ -1,4 +1,4 @@
-package journal
+package qualification
 
 import (
 	"context"
@@ -14,19 +14,19 @@ import (
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 )
 
-func loadDocumentImages(ctx context.Context, original, expected journalrecord.DocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (journalrecord.LoadedImage, journalrecord.LoadedImage, error) {
-	before, err := loadDocumentImage(ctx, original, root, filesystem, budget, maximumBytes)
+func LoadImages(ctx context.Context, original, expected journalrecord.DocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (journalrecord.LoadedImage, journalrecord.LoadedImage, error) {
+	before, err := LoadImage(ctx, original, root, filesystem, budget, maximumBytes)
 	if err != nil {
 		return journalrecord.LoadedImage{}, journalrecord.LoadedImage{}, err
 	}
-	after, err := loadDocumentImage(ctx, expected, root, filesystem, budget, maximumBytes)
+	after, err := LoadImage(ctx, expected, root, filesystem, budget, maximumBytes)
 	if err != nil {
 		return journalrecord.LoadedImage{}, journalrecord.LoadedImage{}, err
 	}
 	return before, after, nil
 }
 
-func loadDocumentImage(ctx context.Context, record journalrecord.DocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (journalrecord.LoadedImage, error) {
+func LoadImage(ctx context.Context, record journalrecord.DocumentImage, root *rootedpath.CapturedRoot, filesystem mutationfs.RootedReader, budget *physicalwork.Budget, maximumBytes int64) (journalrecord.LoadedImage, error) {
 	if ctx == nil {
 		return journalrecord.LoadedImage{}, fmt.Errorf("document image context is required")
 	}

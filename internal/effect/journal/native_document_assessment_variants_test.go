@@ -67,7 +67,7 @@ func TestNativeDocumentAssessmentLateRefusalDiscardsEveryEarlierStage(t *testing
 		t.Fatal(err)
 	}
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/other.json")
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, setup.roots, fixture.read.filesystem, fixture.read.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, setup.roots, fixture.read.Filesystem, fixture.read.Budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestNativeDocumentAssessmentProvisionalDebtDoesNotAuthorizeAfterState(t *te
 	setup := newNativeAssessmentFixture(t)
 	fixture := &setup.fixture
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/Caf\u00e9.json")
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, setup.roots, fixture.read.filesystem, fixture.read.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, setup.roots, fixture.read.Filesystem, fixture.read.Budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestNativeDocumentAssessmentEqualSnapshotsKeepPiOnlyRollback(t *testing.T) 
 		t.Fatal(err)
 	}
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/settings.json")
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, setup.roots, fixture.read.filesystem, fixture.read.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, setup.roots, fixture.read.Filesystem, fixture.read.Budget)
 	if err != nil {
 		t.Fatal(err)
 	}

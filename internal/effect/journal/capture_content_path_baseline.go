@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/fs"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -201,7 +203,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 		if rootedCapability != nil {
 			var capability rootedpath.CommitCapability
 			var present bool
-			capability, present, err = acquireMatchingRootedCapability(
+			capability, present, err = journalnamespace.AcquireMatchingCapability(
 				action.Destination(),
 				hostPath,
 				rootedCapability,

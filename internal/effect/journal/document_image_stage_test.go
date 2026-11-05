@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
@@ -58,7 +60,7 @@ func TestDocumentImageStagePublishesExactPrivateImages(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer root.Close()
-			loadedOriginal, loadedExpected, err := loadDocumentImages(t.Context(), original, expected, root, journalTestFilesystem(), imageBudget(t), 4096)
+			loadedOriginal, loadedExpected, err := journalqualification.LoadImages(t.Context(), original, expected, root, journalTestFilesystem(), imageBudget(t), 4096)
 			if err != nil || !loadedOriginal.Document().Equal(test.before) || !loadedExpected.Document().Equal(test.expected) {
 				t.Fatalf("staged pair lost exact content or presence: %v", err)
 			}
@@ -100,14 +102,14 @@ func TestDocumentImageStagePublishesExactPrivateImages(t *testing.T) {
 
 func TestDocumentImageStageFeedsStrictNativeRecordReconstruction(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	loaded, err := loadDocuments(fixture.journal, t.Context(), fixture.read)
+	loaded, err := journalqualification.LoadDocuments(fixture.journal, t.Context(), fixture.read)
 	if err != nil {
 		t.Fatal(err)
 	}
 	comparison := requireLoadedNativeDocument(t, loaded, 0).Group().Comparison()
-	decoded, root := publishNativeFixture(t, fixture.journal, comparison, nativeDocumentStageOptions{stateCodec: fixture.codec, codecs: fixture.read.codecs, limits: fixture.read.limits, budget: imageBudget(t)})
-	fixture.read.artifacts, fixture.read.budget = root, imageBudget(t)
-	reconstructed, err := loadDocuments(decoded, t.Context(), fixture.read)
+	decoded, root := publishNativeFixture(t, fixture.journal, comparison, nativeDocumentStageOptions{stateCodec: fixture.codec, codecs: fixture.read.Codecs, limits: fixture.read.Limits, budget: imageBudget(t)})
+	fixture.read.Artifacts, fixture.read.Budget = root, imageBudget(t)
+	reconstructed, err := journalqualification.LoadDocuments(decoded, t.Context(), fixture.read)
 	if err != nil || reconstructed.Len() != 1 {
 		t.Fatalf("actual staged native16 images cannot reconstruct: %v", err)
 	}
@@ -258,7 +260,7 @@ func TestDocumentImageStageKeepsDistinctGroupsOnOneBudget(t *testing.T) {
 	defer root.Close()
 	readBudget := imageBudget(t)
 	for index, comparison := range comparisons {
-		loadedOriginal, loadedExpected, err := loadDocumentImages(t.Context(), records[index][0], records[index][1], root, journalTestFilesystem(), readBudget, 4096)
+		loadedOriginal, loadedExpected, err := journalqualification.LoadImages(t.Context(), records[index][0], records[index][1], root, journalTestFilesystem(), readBudget, 4096)
 		if err != nil || !loadedOriginal.Document().Equal(comparison.BeforeDocument()) || !loadedExpected.Document().Equal(comparison.ExpectedDocument()) {
 			t.Fatalf("group images were confused: %v", err)
 		}

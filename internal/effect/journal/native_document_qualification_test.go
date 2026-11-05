@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -67,9 +69,9 @@ func TestNativeDocumentReaderKeepsMetadataRefusalBeforeImageReads(t *testing.T) 
 					group["exclusive_claims"] = json.RawMessage(`{"kind":"absent"}`)
 				}
 			})
-			reader := &preparedNativeReadCounter{RootedReader: fixture.read.filesystem}
-			fixture.read.filesystem = reader
-			loaded, err := loadDocuments(decoded, t.Context(), fixture.read)
+			reader := &preparedNativeReadCounter{RootedReader: fixture.read.Filesystem}
+			fixture.read.Filesystem = reader
+			loaded, err := journalqualification.LoadDocuments(decoded, t.Context(), fixture.read)
 			assertNoPreparedNativeDocuments(t, loaded, err)
 			if reader.reads != 0 {
 				t.Fatal("metadata refusal eagerly read private images")
@@ -80,7 +82,7 @@ func TestNativeDocumentReaderKeepsMetadataRefusalBeforeImageReads(t *testing.T) 
 
 func TestPreparedNativeDocumentsDoNotReadUnavailablePrivateImages(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	session, err := fixture.journal.BeginLoadedDocuments(t.Context(), fixture.read.limits, fixture.read.codecs)
+	session, err := fixture.journal.BeginLoadedDocuments(t.Context(), fixture.read.Limits, fixture.read.Codecs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +94,7 @@ func TestPreparedNativeDocumentsDoNotReadUnavailablePrivateImages(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := fixture.read.artifacts.Authority()
+	root, err := fixture.read.Artifacts.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,8 +102,8 @@ func TestPreparedNativeDocumentsDoNotReadUnavailablePrivateImages(t *testing.T) 
 	if err := os.Rename(path, path+".unavailable"); err != nil {
 		t.Fatal(err)
 	}
-	remaining := fixture.read.budget.RemainingBytes()
-	prepared, err := fixture.journal.PrepareDocuments(t.Context(), []journaldocument.Comparison{fixture.comparison}, fixture.read.limits, fixture.read.codecs)
+	remaining := fixture.read.Budget.RemainingBytes()
+	prepared, err := fixture.journal.PrepareDocuments(t.Context(), []journaldocument.Comparison{fixture.comparison}, fixture.read.Limits, fixture.read.Codecs)
 	if err != nil {
 		t.Fatal("pre-artifact preparation read private images", err)
 	}
@@ -109,10 +111,10 @@ func TestPreparedNativeDocumentsDoNotReadUnavailablePrivateImages(t *testing.T) 
 	if err != nil || len(comparisons) != 1 || !comparisons[0].ExpectedDocument().Equal(fixture.comparison.ExpectedDocument()) {
 		t.Fatal("pre-artifact preparation lost its complete comparison", err)
 	}
-	if fixture.read.budget.RemainingBytes() != remaining {
+	if fixture.read.Budget.RemainingBytes() != remaining {
 		t.Fatal("pure preparation consumed image bytes")
 	}
-	loaded, err := loadDocuments(fixture.journal, t.Context(), fixture.read)
+	loaded, err := journalqualification.LoadDocuments(fixture.journal, t.Context(), fixture.read)
 	assertNoPreparedNativeDocuments(t, loaded, err)
 }
 
@@ -129,14 +131,14 @@ func (reader *preparedNativeReadCounter) ReadRootedRegularFileUpTo(ctx context.C
 func TestQualifiedNativeRecordJoinsActualRootsImagesAndSemanticRollback(t *testing.T) {
 	fixture := nativeJournalFixture(t)
 	roots := fixture.roots
-	reader := &nativeNamespaceReader{RootedReader: fixture.read.filesystem}
-	fixture.read.filesystem = reader
+	reader := &nativeNamespaceReader{RootedReader: fixture.read.Filesystem}
+	fixture.read.Filesystem = reader
 	loaded, err := loadQualifiedDocuments(fixture.journal, t.Context(), fixture.read, roots)
 	recorded, present := loaded.records.At(0)
 	if err != nil || len(loaded.namespaces) != 1 || loaded.records.Len() != 1 || !present || reader.imageReads != 2 {
 		t.Fatalf("live namespace + complete image/record join: %v", err)
 	}
-	capability, err := loaded.namespaces[0].AcquireReferent(t.Context(), fixture.read.budget)
+	capability, err := loaded.namespaces[0].AcquireReferent(t.Context(), fixture.read.Budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,17 +168,17 @@ func TestQualifiedNativeWriterRefusesProtectedArtifactRoot(t *testing.T) {
 	fixture := nativeJournalFixture(t)
 	roots := fixture.roots
 	read := fixture.read
-	read.artifacts = roots.Manifest.Root
+	read.Artifacts = roots.Manifest.Root
 	journal := fixture.journal
-	namespaces, err := qualifyDocumentNamespaces(journal, t.Context(), read, roots)
+	namespaces, err := journalqualification.LoadNamespaces(journal, t.Context(), read, roots)
 	if err == nil || namespaces != nil {
 		t.Fatal("native writer inside the protected artifact root was admitted", err)
 	}
 }
 
 func TestZeroNativeQualificationRefusesBeforeRootQualification(t *testing.T) {
-	_, err := qualifyDocumentNamespaces(journalrecord.Native{}, t.Context(), nativeDocumentReadOptions{
-		filesystem: journalTestFilesystem(), budget: nativeFixtureBudget(t),
+	_, err := journalqualification.LoadNamespaces(journalrecord.Native{}, t.Context(), journalqualification.ReadOptions{
+		Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t),
 	}, journalnamespace.Roots{})
 	if err == nil || err.Error() != "native journal record is required" {
 		t.Fatal("root selection obscured the uninitialized record refusal", err)

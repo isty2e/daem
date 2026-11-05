@@ -7,6 +7,8 @@ import (
 	"io"
 	"io/fs"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -83,7 +85,7 @@ func observeGlobalRecoveryPath(
 		base.Error = fmt.Sprintf("parse global destination: %v", err)
 		return base, nil
 	}
-	capability, present, err := acquireMatchingRootedCapability(
+	capability, present, err := journalnamespace.AcquireMatchingCapability(
 		destination,
 		resolvedPath,
 		resolver,

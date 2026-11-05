@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
@@ -332,7 +334,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths Paths, options PlanL
 	}
 	blocked := false
 	assessment, err := assessDocumentRecovery(journal, ctx, nativeDocumentRecoveryReadOptions{
-		documents: nativeDocumentReadOptions{artifacts: root, filesystem: filesystem, budget: profile.Budget, limits: profile.Limits, codecs: profile.Codecs, ordinaryCapabilities: ordinaryCapabilities},
+		documents: journalqualification.ReadOptions{Artifacts: root, Filesystem: filesystem, Budget: profile.Budget, Limits: profile.Limits, Codecs: profile.Codecs, OrdinaryCapabilities: ordinaryCapabilities},
 		roots:     roots, state: profile.StateReader, registry: options.OwnershipRegistry,
 		directory: active.operationDir, active: active.physicalAuthority, resolver: options.Resolver,
 	})

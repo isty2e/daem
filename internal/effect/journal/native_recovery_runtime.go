@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -80,7 +82,7 @@ func assessNativeRecoveryBasis(ctx context.Context, basis nativeRecoveryBasis, o
 		}
 	}()
 	assessment, err := assessDocumentRecovery(basis.journal, ctx, nativeDocumentRecoveryReadOptions{
-		documents: nativeDocumentReadOptions{artifacts: root, filesystem: options.Filesystem, budget: basis.budget, limits: basis.limits, codecs: options.Codecs, ordinaryCapabilities: basis.ordinaryCapabilities},
+		documents: journalqualification.ReadOptions{Artifacts: root, Filesystem: options.Filesystem, Budget: basis.budget, Limits: basis.limits, Codecs: options.Codecs, OrdinaryCapabilities: basis.ordinaryCapabilities},
 		roots:     basis.roots, state: options.State, registry: options.Registry,
 		directory: basis.capture.Directory, active: basis.active, resolver: basis.resolver,
 	})

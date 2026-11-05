@@ -183,18 +183,18 @@ func validateNativePublicationPartition(ctx context.Context, directory string, b
 		return err
 	}
 	var partition journalrecord.WriterPartition
-	if err := partition.Add(nativeDocumentObservationKey(publication), -1); err != nil {
+	if err := partition.Add(publication.NamespaceKey(), -1); err != nil {
 		return err
 	}
 	if err := partition.Add(batch.owner.StatefileKey(), -2); err != nil {
 		return err
 	}
 	for index, namespace := range batch.Evidence().Namespaces() {
-		if err := partition.Add(nativeDocumentObservationKey(namespace.Observation()), index); err != nil {
+		if err := partition.Add(namespace.Observation().NamespaceKey(), index); err != nil {
 			return err
 		}
 		for _, alias := range namespace.Aliases() {
-			if err := partition.Add(nativeDocumentObservationKey(alias.Observation()), index); err != nil {
+			if err := partition.Add(alias.Observation().NamespaceKey(), index); err != nil {
 				return err
 			}
 		}
@@ -216,7 +216,7 @@ func validateNativePublicationPartition(ctx context.Context, directory string, b
 		if err != nil {
 			return err
 		}
-		if err := partition.Add(nativeDocumentObservationKey(observed), -3); err != nil {
+		if err := partition.Add(observed.NamespaceKey(), -3); err != nil {
 			return err
 		}
 	}

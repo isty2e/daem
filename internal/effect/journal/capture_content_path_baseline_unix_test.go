@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -268,7 +270,7 @@ func TestRecoveryContentPathBaselineRejectsMismatchedResolverAndCapability(t *te
 }
 
 func TestAcquireMatchingRootedCapabilityRejectsNilPresentCapability(t *testing.T) {
-	_, _, err := acquireMatchingRootedCapability(
+	_, _, err := journalnamespace.AcquireMatchingCapability(
 		outputtest.Parse(t, "~/.claude.json"),
 		filepath.Join(t.TempDir(), "config.json"),
 		func(output.Destination, rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
@@ -300,7 +302,7 @@ func TestAcquireMatchingRootedCapabilityClosesContradictoryAbsentCapability(t *t
 		t.Fatalf("acquire destination: %v", err)
 	}
 
-	_, _, err = acquireMatchingRootedCapability(
+	_, _, err = journalnamespace.AcquireMatchingCapability(
 		outputtest.Parse(t, "~/.claude.json"),
 		resolvedPath,
 		func(output.Destination, rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {

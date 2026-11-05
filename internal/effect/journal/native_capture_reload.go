@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
@@ -57,9 +59,9 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 	if _, err := journalrecord.DecodeNativeSnapshot(ctx, snapshot, filepath.Join(directory, journalrecord.FileName), options.StateCodec); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	qualified, err := loadQualifiedDocuments(journal, ctx, nativeDocumentReadOptions{
-		artifacts: root, filesystem: options.Filesystem, budget: batch.budget, limits: batch.limits,
-		codecs: options.Codecs, ordinaryCapabilities: batch.ordinaryCapabilities,
+	qualified, err := loadQualifiedDocuments(journal, ctx, journalqualification.ReadOptions{
+		Artifacts: root, Filesystem: options.Filesystem, Budget: batch.budget, Limits: batch.limits,
+		Codecs: options.Codecs, OrdinaryCapabilities: batch.ordinaryCapabilities,
 	}, batch.roots)
 	if err != nil {
 		return CapturedNativeJournal{}, err

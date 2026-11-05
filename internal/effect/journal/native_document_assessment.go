@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
@@ -25,7 +27,7 @@ import (
 )
 
 type nativeDocumentRecoveryReadOptions struct {
-	documents nativeDocumentReadOptions
+	documents journalqualification.ReadOptions
 	roots     journalnamespace.Roots
 	state     durable.SnapshotReader
 	registry  ownershipmutation.RegistryReader
@@ -116,13 +118,13 @@ func assessDocumentRecovery(journal journalrecord.Native, ctx context.Context, o
 	}
 	var registry ownership.Registry
 	if len(missingHistory) == 0 {
-		registry, err = options.registry.LoadForClaimRemovals(ctx, removals, physicalwork.MaximumPhysicalPathDepth, options.documents.budget)
+		registry, err = options.registry.LoadForClaimRemovals(ctx, removals, physicalwork.MaximumPhysicalPathDepth, options.documents.Budget)
 	} else {
 		reader, supported := options.registry.(ownershipmutation.DocumentRegistryReader)
 		if !supported {
 			return nativeDocumentAssessment{}, fmt.Errorf("missing native history requires a document-qualified registry reader")
 		}
-		registry, err = reader.LoadForDocuments(ctx, journal.Owner(), missingHistory, removals, physicalwork.MaximumPhysicalPathDepth, options.documents.budget)
+		registry, err = reader.LoadForDocuments(ctx, journal.Owner(), missingHistory, removals, physicalwork.MaximumPhysicalPathDepth, options.documents.Budget)
 	}
 	if err != nil {
 		return nativeDocumentAssessment{}, fmt.Errorf("observe native recovery registry: %w", err)
@@ -174,7 +176,7 @@ func assessDocumentRecovery(journal journalrecord.Native, ctx context.Context, o
 			return nativeDocumentAssessment{}, fmt.Errorf("native recovery document facts are incomplete")
 		}
 		group := loaded.Group()
-		current, mode, identity, err := qualified.namespaces[index].ReadReferent(ctx, group.Comparison().MaximumDocumentBytes(), options.documents.budget)
+		current, mode, identity, err := qualified.namespaces[index].ReadReferent(ctx, group.Comparison().MaximumDocumentBytes(), options.documents.Budget)
 		if err != nil {
 			return nativeDocumentAssessment{}, fmt.Errorf("observe native document[%d]: %w", index, err)
 		}

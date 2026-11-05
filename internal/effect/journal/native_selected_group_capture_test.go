@@ -123,11 +123,11 @@ func TestSelectedGroupCaptureCombinesActualNativeAndMCPPlans(t *testing.T) {
 	before = selectionNativeRow(t, before.Contribution().Contract(), nativeRecordCanonical(t, "true"))
 	after := selectionNativeRow(t, before.Contribution().Contract(), nativeRecordCanonical(t, `"fast"`))
 	fixture.before, fixture.after = selectionState(t, before, mcpRows[0]), selectionState(t, after, mcpRows[1])
-	fixture.read.codecs, err = aggregatecodec.ForOperation(t.Context(), []aggregate.CodecContractID{after.Contribution().CodecContractID(), mcpRows[1].Contribution().CodecContractID()}, fixture.read.limits, fixture.read.limits)
+	fixture.read.Codecs, err = aggregatecodec.ForOperation(t.Context(), []aggregate.CodecContractID{after.Contribution().CodecContractID(), mcpRows[1].Contribution().CodecContractID()}, fixture.read.Limits, fixture.read.Limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.codec, err = statefile.NewNativeCodec(fixture.read.codecs.Contributions())
+	fixture.codec, err = statefile.NewNativeCodec(fixture.read.Codecs.Contributions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestSelectedGroupCaptureCombinesActualNativeAndMCPPlans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	codec, available := fixture.read.codecs.Lookup(selection.CodecContractID())
+	codec, available := fixture.read.Codecs.Lookup(selection.CodecContractID())
 	if !available {
 		t.Fatal("foreign MCP verification codec missing")
 	}
@@ -430,7 +430,7 @@ func (capture selectedGroupCaptureFixture) requireCompleteStage(t *testing.T, gr
 	if _, err := journal.Encode(t.Context(), fixture.codec); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := journal.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs); err != nil {
+	if _, err := journal.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.Limits, fixture.read.Codecs); err != nil {
 		t.Fatal(err)
 	}
 	decoded := requireStagedDocumentJournal(t, fixture, journal, []journaldocument.Comparison{comparison})
@@ -489,7 +489,7 @@ func TestNativeSelectedRemovalUsesActualEditsNotObservedAliases(t *testing.T) {
 	}
 	capture.namespace = namespace
 	baseline := capture.requireCompleteStage(t, group, comparison)
-	prepared, err := baseline.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs)
+	prepared, err := baseline.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.Limits, fixture.read.Codecs)
 	if err != nil {
 		t.Fatalf("valid selected removal failed before its negative control: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestNativeSelectedRemovalUsesActualEditsNotObservedAliases(t *testing.T) {
 	}
 	variant := capture.fixture
 	variant.journal = baseline
-	variant.read.artifacts = nativeNamespaceRoot(t, t.TempDir()).Root
+	variant.read.Artifacts = nativeNamespaceRoot(t, t.TempDir()).Root
 	decoded := publishedNativeGroupVariant(t, variant, func(group map[string]json.RawMessage) {
 		var removal map[string]json.RawMessage
 		if err := json.Unmarshal(group["removal"], &removal); err != nil {
@@ -529,7 +529,7 @@ func TestNativeSelectedRemovalUsesActualEditsNotObservedAliases(t *testing.T) {
 	if !decoded.MatchesManifestRoot(provenance) {
 		t.Fatal("removal variant changed its captured manifest")
 	}
-	result, err := decoded.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.limits, fixture.read.codecs)
+	result, err := decoded.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.read.Limits, fixture.read.Codecs)
 	assertNoPreparedDocumentRecord(t, result, err, fixture.codec)
 }
 

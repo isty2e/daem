@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -169,7 +171,7 @@ func acquireRootedJournalCapability(
 	if err != nil {
 		return nil, false, fmt.Errorf("resolve destination %q: %w", destination, err)
 	}
-	capability, present, err := acquireMatchingRootedCapability(destination, resolvedPath, acquire, nil)
+	capability, present, err := journalnamespace.AcquireMatchingCapability(destination, resolvedPath, acquire, nil)
 	if err != nil {
 		return nil, false, err
 	}

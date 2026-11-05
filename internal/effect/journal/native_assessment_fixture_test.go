@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -113,7 +115,7 @@ func (setup *nativeAssessmentFixture) publish(t *testing.T) {
 		}
 		participants := make([]compose.Participant, 0, len(selections))
 		for _, selection := range selections {
-			participant, err := journaldocument.Participant(selection, fixture.read.codecs)
+			participant, err := journaldocument.Participant(selection, fixture.read.Codecs)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -126,7 +128,7 @@ func (setup *nativeAssessmentFixture) publish(t *testing.T) {
 		if group.expected.Exists() {
 			expectedMode = recovery.NewPermissionMode(0o600)
 		}
-		images := journaldocument.ComparisonInput{Before: group.original, Expected: group.expected, BeforeMode: beforeMode, ExpectedMode: expectedMode, Limits: fixture.read.limits}
+		images := journaldocument.ComparisonInput{Before: group.original, Expected: group.expected, BeforeMode: beforeMode, ExpectedMode: expectedMode, Limits: fixture.read.Limits}
 		var comparison journaldocument.Comparison
 		if group.whole {
 			comparison, err = journaldocument.NewWholeComparison(t.Context(), images)
@@ -165,7 +167,7 @@ func (setup *nativeAssessmentFixture) publish(t *testing.T) {
 			if !present {
 				t.Fatal("assessment Pi fixture has no manifest grant")
 			}
-			if err := qualifyNativePiContext(t.Context(), qualification, manifest, group.namespace, budget); err != nil {
+			if err := journalqualification.QualifyPiContext(t.Context(), qualification, manifest, group.namespace, budget); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -187,7 +189,7 @@ func (setup *nativeAssessmentFixture) publish(t *testing.T) {
 	if destination == "" {
 		destination = filepath.Join(t.TempDir(), "published-assessment")
 	}
-	fixture.journal, fixture.read.artifacts = publishNativeFixtureAt(t, destination, journal, comparisons, nativeDocumentStageOptions{stateCodec: fixture.codec, codecs: fixture.read.codecs, limits: fixture.read.limits, budget: budget})
+	fixture.journal, fixture.read.Artifacts = publishNativeFixtureAt(t, destination, journal, comparisons, nativeDocumentStageOptions{stateCodec: fixture.codec, codecs: fixture.read.Codecs, limits: fixture.read.Limits, budget: budget})
 	fixture.capturedGroups = groups
 	setup.published = true
 }

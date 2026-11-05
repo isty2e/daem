@@ -1,4 +1,4 @@
-package journal
+package qualification
 
 import (
 	"context"
@@ -22,13 +22,13 @@ type ordinaryWriterAddress struct {
 	destination output.Destination
 }
 
-func qualifyWriterPartition(ctx context.Context, entries []journalrecord.PathEntry, namespaces []journalnamespace.DocumentNamespace, manifest journalnamespace.RootGrant, ordinaryCapabilities RootedCapabilityResolver, budget *physicalwork.Budget, protected []pathauthority.Exact) error {
+func QualifyWriterPartition(ctx context.Context, entries []journalrecord.PathEntry, namespaces []journalnamespace.DocumentNamespace, manifest journalnamespace.RootGrant, ordinaryCapabilities journalnamespace.CapabilityResolver, budget *physicalwork.Budget, protected []pathauthority.Exact) error {
 	var partition journalrecord.WriterPartition
 	appendObservation := func(observation mutation.DirectoryEntryAuthorityObservation, group int) error {
 		if err := observation.Validate(); err != nil {
 			return err
 		}
-		return partition.Add(nativeDocumentObservationKey(observation), group)
+		return partition.Add(observation.NamespaceKey(), group)
 	}
 	for index, namespace := range namespaces {
 		if err := ctx.Err(); err != nil {
@@ -103,11 +103,11 @@ func qualifyWriterPartition(ctx context.Context, entries []journalrecord.PathEnt
 	return partition.Validate(ctx)
 }
 
-func acquireNativeOrdinaryGlobalWriter(entry journalrecord.PathEntry, destination output.Destination, acquire RootedCapabilityResolver, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
+func acquireNativeOrdinaryGlobalWriter(entry journalrecord.PathEntry, destination output.Destination, acquire journalnamespace.CapabilityResolver, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
 	if !entry.HasGlobalBinding() || acquire == nil {
 		return nil, fmt.Errorf("ordinary global writer requires independently selected capability and stored binding")
 	}
-	capability, present, err := acquireMatchingRootedCapability(destination, entry.GlobalPath(), acquire, budget)
+	capability, present, err := journalnamespace.AcquireMatchingCapability(destination, entry.GlobalPath(), acquire, budget)
 	if err != nil {
 		return nil, err
 	}

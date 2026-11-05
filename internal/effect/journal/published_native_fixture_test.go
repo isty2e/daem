@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -31,7 +33,7 @@ type nativeRecordFixture struct {
 	journal        journalrecord.Native
 	before, after  durable.Snapshot
 	codec          durable.SnapshotCodec
-	read           nativeDocumentReadOptions
+	read           journalqualification.ReadOptions
 	claims         documentClaimFixture
 	roots          journalnamespace.Roots
 	comparison     journaldocument.Comparison
@@ -153,7 +155,7 @@ func nativeJournalFixture(t *testing.T) nativeRecordFixture {
 		t.Fatal(err)
 	}
 	decoded, artifacts := publishNativeFixture(t, journal, comparison, nativeDocumentStageOptions{stateCodec: codec, codecs: codecs, limits: limits, budget: setupBudget})
-	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: nativeDocumentReadOptions{artifacts: artifacts, filesystem: journalTestFilesystem(), budget: nativeFixtureBudget(t), limits: limits, codecs: codecs}, claims: claims, roots: rootSet, comparison: comparison, capturedGroups: []journalrecord.SealedDocumentGroup{group}}
+	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: rootSet, comparison: comparison, capturedGroups: []journalrecord.SealedDocumentGroup{group}}
 }
 
 func publishedNativeComparison(t *testing.T, before aggregate.Document, row durable.ManagedAggregateState, codecs aggregate.CodecCatalog, limits configdocument.Limits) journaldocument.Comparison {
@@ -226,14 +228,14 @@ func publishedNativeVariant(t *testing.T, fixture nativeRecordFixture, revise fu
 	}
 	revise(object)
 	content = nativeRecordJSON(t, object)
-	authority, err := fixture.read.artifacts.Authority()
+	authority, err := fixture.read.Artifacts.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(authority.PhysicalRoot(), journalrecord.FileName), content, journalrecord.Mode); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := readNativeCaptureRecord(t.Context(), fixture.read.artifacts, journalTestFilesystem(), nativeFixtureBudget(t))
+	snapshot, err := readNativeCaptureRecord(t.Context(), fixture.read.Artifacts, journalTestFilesystem(), nativeFixtureBudget(t))
 	if err != nil {
 		t.Fatal(err)
 	}

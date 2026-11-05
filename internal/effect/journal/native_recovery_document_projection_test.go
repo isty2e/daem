@@ -3,12 +3,14 @@ package journal
 import (
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 )
 
 func TestNativeRecoveryDocumentRefusesZeroClosedAndInvalidIndexes(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	records, err := loadDocuments(fixture.journal, t.Context(), fixture.read)
+	records, err := journalqualification.LoadDocuments(fixture.journal, t.Context(), fixture.read)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +52,7 @@ func TestNativeRecoveryDocumentRefusesZeroClosedAndInvalidIndexes(t *testing.T) 
 
 func TestNativeRecoveryDocumentFailedRemovalIsNotPresent(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	records, err := loadDocuments(fixture.journal, t.Context(), fixture.read)
+	records, err := journalqualification.LoadDocuments(fixture.journal, t.Context(), fixture.read)
 	if err != nil {
 		t.Fatal(err)
 	}

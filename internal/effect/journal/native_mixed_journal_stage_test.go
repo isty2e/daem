@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
@@ -136,8 +138,8 @@ func TestNativeMixedJournalCombinesSelectedWholeAndDirectoryBackups(t *testing.T
 	}
 	defer artifacts.Close()
 	read := fixture.whole.envelope.read
-	read.artifacts, read.budget = artifacts, imageBudget(t)
-	loaded, err := loadDocuments(decoded, t.Context(), read)
+	read.Artifacts, read.Budget = artifacts, imageBudget(t)
+	loaded, err := journalqualification.LoadDocuments(decoded, t.Context(), read)
 	if err != nil || loaded.Len() != 2 || !requireLoadedNativeDocument(t, loaded, 1).Images().Original().Document().Equal(comparison.BeforeDocument()) || !requireLoadedNativeDocument(t, loaded, 1).Images().Expected().Document().Equal(comparison.ExpectedDocument()) {
 		t.Fatalf("multiple mixed groups cannot reconstruct: %v", err)
 	}
@@ -220,8 +222,8 @@ func TestNativeMixedJournalStagesActualOrdinaryAndWholeProducers(t *testing.T) {
 	}
 	defer root.Close()
 	read := fixture.whole.envelope.read
-	read.artifacts, read.budget = root, imageBudget(t)
-	loaded, err := loadDocuments(decoded, t.Context(), read)
+	read.Artifacts, read.Budget = root, imageBudget(t)
+	loaded, err := journalqualification.LoadDocuments(decoded, t.Context(), read)
 	if err != nil || loaded.Len() != 1 || !requireLoadedNativeDocument(t, loaded, 0).Images().Original().Document().Equal(fixture.comparison.BeforeDocument()) || !requireLoadedNativeDocument(t, loaded, 0).Images().Expected().Document().Equal(fixture.comparison.ExpectedDocument()) {
 		t.Fatalf("mixed document images cannot reconstruct: %v", err)
 	}

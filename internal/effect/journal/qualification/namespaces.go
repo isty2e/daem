@@ -1,4 +1,4 @@
-package journal
+package qualification
 
 import (
 	"context"
@@ -17,27 +17,8 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-// This combined read stage is still not an executable operation authority:
-// active-journal, state/control, registry, phase and execution-lease joins remain.
-type nativeQualifiedDocumentRecords struct {
-	records    journalrecord.LoadedDocuments
-	namespaces []journalnamespace.DocumentNamespace
-}
-
-func loadQualifiedDocuments(journal journalrecord.Native, ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) (nativeQualifiedDocumentRecords, error) {
-	namespaces, err := qualifyDocumentNamespaces(journal, ctx, options, roots)
-	if err != nil {
-		return nativeQualifiedDocumentRecords{}, err
-	}
-	records, err := loadDocuments(journal, ctx, options)
-	if err != nil {
-		return nativeQualifiedDocumentRecords{}, err
-	}
-	return nativeQualifiedDocumentRecords{records: records, namespaces: namespaces}, nil
-}
-
-func qualifyDocumentNamespaces(journal journalrecord.Native, ctx context.Context, options nativeDocumentReadOptions, roots journalnamespace.Roots) ([]journalnamespace.DocumentNamespace, error) {
-	if ctx == nil || options.filesystem == nil || options.budget == nil {
+func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options ReadOptions, roots journalnamespace.Roots) ([]journalnamespace.DocumentNamespace, error) {
+	if ctx == nil || options.Filesystem == nil || options.Budget == nil {
 		return nil, fmt.Errorf("qualified document read context, filesystem and shared budget are required")
 	}
 	if err := ctx.Err(); err != nil {
@@ -47,7 +28,7 @@ func qualifyDocumentNamespaces(journal journalrecord.Native, ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	grants, err := roots.Qualify(ctx, options.budget)
+	grants, err := roots.Qualify(ctx, options.Budget)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +53,7 @@ func qualifyDocumentNamespaces(journal journalrecord.Native, ctx context.Context
 		if err != nil {
 			return nil, err
 		}
-		namespace, err := journalnamespace.Reobserve(ctx, aliases, roots, options.filesystem, options.budget, pin)
+		namespace, err := journalnamespace.Reobserve(ctx, aliases, roots, options.Filesystem, options.Budget, pin)
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +88,7 @@ func qualifyDocumentNamespaces(journal journalrecord.Native, ctx context.Context
 			return nil, err
 		}
 		if present {
-			if err := qualifyNativePiContext(ctx, pi, manifest, namespace, options.budget); err != nil {
+			if err := QualifyPiContext(ctx, pi, manifest, namespace, options.Budget); err != nil {
 				return nil, err
 			}
 		}
@@ -116,7 +97,7 @@ func qualifyDocumentNamespaces(journal journalrecord.Native, ctx context.Context
 			return nil, err
 		}
 		if present {
-			observed, err := namespace.ObserveRemovalNamespace(ctx, removal.Namespace(), options.budget)
+			observed, err := namespace.ObserveRemovalNamespace(ctx, removal.Namespace(), options.Budget)
 			if err != nil {
 				return nil, err
 			}
@@ -127,12 +108,12 @@ func qualifyDocumentNamespaces(journal journalrecord.Native, ctx context.Context
 		namespaces = append(namespaces, namespace)
 	}
 	protected := []pathauthority.Exact{journal.Owner().StatefileAuthority()}
-	if options.artifacts != nil {
-		artifacts, err := options.artifacts.AuthorityBounded(options.budget)
+	if options.Artifacts != nil {
+		artifacts, err := options.Artifacts.AuthorityBounded(options.Budget)
 		if err != nil {
 			return nil, err
 		}
-		observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(artifacts.PhysicalRoot(), physicalwork.MaximumPhysicalPathDepth, options.budget)
+		observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(artifacts.PhysicalRoot(), physicalwork.MaximumPhysicalPathDepth, options.Budget)
 		if err != nil {
 			return nil, err
 		}
@@ -146,7 +127,7 @@ func qualifyDocumentNamespaces(journal journalrecord.Native, ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	if err := qualifyWriterPartition(ctx, entries, namespaces, manifest, options.ordinaryCapabilities, options.budget, protected); err != nil {
+	if err := QualifyWriterPartition(ctx, entries, namespaces, manifest, options.OrdinaryCapabilities, options.Budget, protected); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -155,7 +136,7 @@ func qualifyDocumentNamespaces(journal journalrecord.Native, ctx context.Context
 	return namespaces, nil
 }
 
-func qualifyNativePiContext(ctx context.Context, facts journalrecord.PiQualification, manifest journalnamespace.RootGrant, namespace journalnamespace.DocumentNamespace, budget rootedpath.PhysicalTraversalBudget) error {
+func QualifyPiContext(ctx context.Context, facts journalrecord.PiQualification, manifest journalnamespace.RootGrant, namespace journalnamespace.DocumentNamespace, budget rootedpath.PhysicalTraversalBudget) error {
 	if manifest.Provenance() != facts.CommandRoot() {
 		return fmt.Errorf("Pi command root differs from the selected manifest incarnation")
 	}
@@ -180,12 +161,4 @@ func qualifyNativePiContext(ctx context.Context, facts journalrecord.PiQualifica
 		return fmt.Errorf("captured Pi settings context does not identify the current settings referent")
 	}
 	return ctx.Err()
-}
-
-func nativeDocumentObservationKey(observation mutation.DirectoryEntryAuthorityObservation) string {
-	if exact, known := observation.Exact(); known {
-		return exact.Key()
-	}
-	provisional, _ := observation.Provisional()
-	return provisional.CandidateKey()
 }

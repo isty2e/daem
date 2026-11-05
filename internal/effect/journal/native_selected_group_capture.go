@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
@@ -129,7 +131,7 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 		}
 		alias := facts.Alias()
 		orderAlias = &alias
-		if err := qualifyNativePiContext(ctx, facts, manifest, namespace, input.Budget()); err != nil {
+		if err := journalqualification.QualifyPiContext(ctx, facts, manifest, namespace, input.Budget()); err != nil {
 			return nativeDocumentCaptureCandidate{}, err
 		}
 	}

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -129,7 +131,7 @@ func stageWithOrdinarySource(journal journalrecord.Native, ctx context.Context, 
 	if err != nil {
 		return "", err
 	}
-	if _, err := qualifyDocumentNamespaces(journal, ctx, nativeDocumentReadOptions{filesystem: ordinary.filesystem, budget: options.budget, ordinaryCapabilities: ordinary.capabilities}, options.roots); err != nil {
+	if _, err := journalqualification.LoadNamespaces(journal, ctx, journalqualification.ReadOptions{Filesystem: ordinary.filesystem, Budget: options.budget, OrdinaryCapabilities: ordinary.capabilities}, options.roots); err != nil {
 		return "", err
 	}
 	// Each traversal may enumerate one overflow entry when refusing source growth.

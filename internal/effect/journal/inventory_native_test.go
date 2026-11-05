@@ -22,7 +22,7 @@ import (
 func TestNativeInventoryRetainsActualRecordAndFeedsDocumentAssessment(t *testing.T) {
 	setup, root, path := nativeInventoryFixture(t)
 	_, read := setup.reader(t)
-	options := inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec, PhysicalPathBudget: read.documents.budget}
+	options := inventoryOptions{Filesystem: journalTestFilesystem(), StateCodec: setup.fixture.codec, PhysicalPathBudget: read.documents.Budget}
 	inventory, err := loadNativeRecoveryRootInventory(t.Context(), root, options)
 	if err != nil || inventory.decision.State() != retirement.StateActive || inventory.active == nil {
 		t.Fatalf("native active inventory: %v, %s", err, inventory.decision.Detail())
@@ -45,7 +45,7 @@ func TestNativeInventoryRetainsActualRecordAndFeedsDocumentAssessment(t *testing
 	if err != nil || assessment.disposition != nativeDocumentsBefore || len(assessment.stages) != 1 {
 		t.Fatalf("native actual inventory-to-state/registry/image/host pipeline: %v", err)
 	}
-	if err := setup.fixture.read.artifacts.ValidateSelectionBounded(inventory.active.operationDir, physicalwork.MaximumPhysicalPathDepth, read.documents.budget); err != nil {
+	if err := setup.fixture.read.Artifacts.ValidateSelectionBounded(inventory.active.operationDir, physicalwork.MaximumPhysicalPathDepth, read.documents.Budget); err != nil {
 		t.Fatalf("test image grant is not the selected active directory: %v", err)
 	}
 	retained, err := os.ReadFile(path)

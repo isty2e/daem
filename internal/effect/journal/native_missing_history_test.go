@@ -150,7 +150,7 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 				fixture.stageAndReconstruct(t, group, comparison)
 
 				journal := fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
-				journal, fixture.envelope.read.artifacts = publishNativeFixture(t, journal, comparison, nativeDocumentStageOptions{stateCodec: fixture.envelope.codec, codecs: fixture.envelope.read.codecs, limits: fixture.input.Limits(), budget: imageBudget(t)})
+				journal, fixture.envelope.read.Artifacts = publishNativeFixture(t, journal, comparison, nativeDocumentStageOptions{stateCodec: fixture.envelope.codec, codecs: fixture.envelope.read.Codecs, limits: fixture.input.Limits(), budget: imageBudget(t)})
 				recorded, err := journal.DocumentAt(0)
 				if err != nil {
 					t.Fatal(err)
@@ -174,11 +174,11 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 						t.Fatal(err)
 					}
 					documents := fixture.envelope.read
-					documents.budget = imageBudget(t)
+					documents.Budget = imageBudget(t)
 					assessment, err := assessDocumentRecovery(journal, t.Context(), nativeDocumentRecoveryReadOptions{
 						documents: documents, roots: fixture.roots, registry: store,
 						state: func(ctx context.Context) (durable.Snapshot, error) {
-							return statefile.LoadOptionalWithOptions(ctx, statePath, statefile.ReadOptions{Codec: fixture.envelope.codec, PhysicalPathBudget: documents.budget})
+							return statefile.LoadOptionalWithOptions(ctx, statePath, statefile.ReadOptions{Codec: fixture.envelope.codec, PhysicalPathBudget: documents.Budget})
 						},
 					})
 					if err != nil || assessment.disposition != want || len(assessment.stages) != 1 || assessment.stages[0].restoration.Changed() {
@@ -200,7 +200,7 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 						if !supported {
 							t.Fatal("actual rooted store lacks document-qualified settlement")
 						}
-						result, err := writer.ConvergeForDocuments(t.Context(), assessment.finalize, assessment.bindings, owner, []pathauthority.Provisional{pending}, physicalwork.MaximumPhysicalPathDepth, documents.budget)
+						result, err := writer.ConvergeForDocuments(t.Context(), assessment.finalize, assessment.bindings, owner, []pathauthority.Provisional{pending}, physicalwork.MaximumPhysicalPathDepth, documents.Budget)
 						if err != nil {
 							t.Fatalf("persisted after-state metadata did not settle: %v", err)
 						}

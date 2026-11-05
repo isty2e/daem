@@ -97,6 +97,14 @@ func (observation DirectoryEntryAuthorityObservation) Exact() (pathauthority.Exa
 	return observation.exact, !observation.exact.IsZero()
 }
 
+func (observation DirectoryEntryAuthorityObservation) NamespaceKey() string {
+	if exact, present := observation.Exact(); present {
+		return exact.Key()
+	}
+	provisional, _ := observation.Provisional()
+	return provisional.CandidateKey()
+}
+
 // MatchesRetainedExact accepts the same exact entry or the corresponding
 // currently missing namespace; it does not supply fresh mutation authority.
 func (observation DirectoryEntryAuthorityObservation) MatchesRetainedExact(retained pathauthority.Exact) bool {

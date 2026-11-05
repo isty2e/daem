@@ -43,7 +43,7 @@ func ordinaryBackups(ctx context.Context, journal journalrecord.Native, director
 }
 
 func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, options nativeDocumentRecoveryReadOptions, registry ownership.Registry) (nativeOrdinaryAssessment, error) {
-	entries, backups, err := ordinaryBackups(ctx, journal, options.directory, options.active, options.documents.filesystem, options.documents.budget)
+	entries, backups, err := ordinaryBackups(ctx, journal, options.directory, options.active, options.documents.Filesystem, options.documents.Budget)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
@@ -51,7 +51,7 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 		assessed, err := recovery.AssessEntries(nil, nil, nil)
 		return nativeOrdinaryAssessment{entries: assessed}, err
 	}
-	filesystem, supported := options.documents.filesystem.(mutationfs.Reader)
+	filesystem, supported := options.documents.Filesystem.(mutationfs.Reader)
 	if !supported {
 		return nativeOrdinaryAssessment{}, fmt.Errorf("ordinary recovery requires its selected observation ports")
 	}
@@ -59,15 +59,15 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	if err := validateRecoveryGlobalPathBindings(ctx, ordinaryViews, options.resolver, options.documents.ordinaryCapabilities, options.documents.budget); err != nil {
+	if err := validateRecoveryGlobalPathBindings(ctx, ordinaryViews, options.resolver, options.documents.OrdinaryCapabilities, options.documents.Budget); err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	work := &ordinaryCaptureWork{budget: options.documents.budget}
+	work := &ordinaryCaptureWork{budget: options.documents.Budget}
 	manifest, err := work.manifest(Paths{ManifestRoot: options.roots.Manifest.SelectedPath}, options.roots.Manifest.Root)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	paths, err := recoveryPathObservations(ctx, ordinaryViews, filesystem, manifest, options.resolver, options.documents.ordinaryCapabilities, options.documents.codecs, options.documents.budget)
+	paths, err := recoveryPathObservations(ctx, ordinaryViews, filesystem, manifest, options.resolver, options.documents.OrdinaryCapabilities, options.documents.Codecs, options.documents.Budget)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
@@ -75,7 +75,7 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	paths, err = applyRecoveryIntentOwnershipEvidence(ctx, paths, intents, registry, options.resolver, options.documents.budget)
+	paths, err = applyRecoveryIntentOwnershipEvidence(ctx, paths, intents, registry, options.resolver, options.documents.Budget)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
@@ -117,7 +117,7 @@ func ordinaryRetirementCheckpoints(journal journalrecord.Native, ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	filesystem, supported := options.documents.filesystem.(mutationfs.Reader)
+	filesystem, supported := options.documents.Filesystem.(mutationfs.Reader)
 	if !supported {
 		return nil, fmt.Errorf("ordinary removal observation requires selected filesystem ports")
 	}
@@ -129,10 +129,10 @@ func ordinaryRetirementCheckpoints(journal journalrecord.Native, ctx context.Con
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err := options.documents.budget.AdmitObservation(); err != nil {
+		if err := options.documents.Budget.AdmitObservation(); err != nil {
 			return nil, err
 		}
-		checkpoint, err := observeRemovalCleanupIntent(ctx, intent, PlanLoadOptions{Filesystem: filesystem, Resolver: options.resolver}, options.documents.budget, false)
+		checkpoint, err := observeRemovalCleanupIntent(ctx, intent, PlanLoadOptions{Filesystem: filesystem, Resolver: options.resolver}, options.documents.Budget, false)
 		if err != nil {
 			return nil, err
 		}

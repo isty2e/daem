@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -77,8 +79,8 @@ func TestQualifiedNativeRecordRefusesWriterOrLogicalRootSubstitution(t *testing.
 				}
 				object["document_groups"] = nativeRecordJSON(t, groups)
 			})
-			reader := &nativeNamespaceReader{RootedReader: fixture.read.filesystem}
-			fixture.read.filesystem = reader
+			reader := &nativeNamespaceReader{RootedReader: fixture.read.Filesystem}
+			fixture.read.Filesystem = reader
 			loaded, err := loadQualifiedDocuments(decoded, t.Context(), fixture.read, roots)
 			if err == nil || loaded.namespaces != nil || loaded.records.Len() != 0 || reader.imageReads != 0 {
 				t.Fatal("substituted roots/writer returned a qualified prefix or read private images")
@@ -108,7 +110,7 @@ func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.
 	}
 	before := selectionState(t, fixture.before.ManagedAggregates()[0], other)
 	after := selectionState(t, fixture.after.ManagedAggregates()[0], other)
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), fixture.read.budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), fixture.read.Budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +136,7 @@ func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	comparison := publishedNativeComparison(t, fixture.comparison.BeforeDocument(), other, fixture.read.codecs, fixture.read.limits)
+	comparison := publishedNativeComparison(t, fixture.comparison.BeforeDocument(), other, fixture.read.Codecs, fixture.read.Limits)
 	candidate, err := draft.WithComparison(comparison, 1, []topology.SubjectID{other.Subject()})
 	if err != nil {
 		t.Fatal(err)
@@ -151,11 +153,11 @@ func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.
 	if content, err := journal.Encode(t.Context(), fixture.codec); err == nil || content != nil {
 		t.Fatal("two logical groups at one recorded writer escaped strict construction")
 	}
-	if records, err := loadDocuments(journal, t.Context(), fixture.read); err == nil || records.Len() != 0 {
+	if records, err := journalqualification.LoadDocuments(journal, t.Context(), fixture.read); err == nil || records.Len() != 0 {
 		t.Fatal("bypassing decode admitted overlapping physical writers")
 	}
-	reader := &nativeNamespaceReader{RootedReader: fixture.read.filesystem}
-	fixture.read.filesystem = reader
+	reader := &nativeNamespaceReader{RootedReader: fixture.read.Filesystem}
+	fixture.read.Filesystem = reader
 	result, err := loadQualifiedDocuments(journal, t.Context(), fixture.read, roots)
 	if err == nil || result.namespaces != nil || result.records.Len() != 0 || reader.imageReads != 0 {
 		t.Fatal("two logical groups qualified the same physical file or returned a prefix")
@@ -209,9 +211,9 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 				}
 				group["pi_order"] = nativeRecordJSON(t, order)
 			})
-			reader := &imageReader{RootedReader: fixture.read.filesystem}
+			reader := &imageReader{RootedReader: fixture.read.Filesystem}
 			options := fixture.read
-			options.filesystem, options.budget = reader, imageBudget(t)
+			options.Filesystem, options.Budget = reader, imageBudget(t)
 			result, err := loadQualifiedDocuments(changed, t.Context(), options, roots)
 			if err == nil || result.records.Len() != 0 || result.namespaces != nil {
 				t.Fatal("invalid source context returned qualified evidence")
@@ -231,7 +233,7 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 		group["pi_order"] = nativeRecordJSON(t, order)
 	})
 	options := fixture.read
-	options.budget = imageBudget(t)
+	options.Budget = imageBudget(t)
 	if result, err := loadQualifiedDocuments(changed, t.Context(), options, roots); err == nil || result.records.Len() != 0 || result.namespaces != nil {
 		t.Fatal("Pi replay accepted a different command-root incarnation")
 	}

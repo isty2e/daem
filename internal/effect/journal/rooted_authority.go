@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -158,7 +158,7 @@ func observeRecoveryGlobalPathBindingForRecovery(
 		return recoveryGlobalPathObservation{}, fmt.Errorf("resolve global destination %q: %w", destination, err)
 	}
 	if rootedCapability != nil {
-		capability, present, err := acquireMatchingRootedCapability(
+		capability, present, err := journalnamespace.AcquireMatchingCapability(
 			destination,
 			resolved,
 			rootedCapability,
@@ -220,7 +220,7 @@ func observeRecoveryGlobalPathBinding(
 		return recoveryGlobalPathObservation{}, fmt.Errorf("resolve global destination %q: %w", destination, err)
 	}
 	if rootedCapability != nil {
-		capability, present, err := acquireMatchingRootedCapability(
+		capability, present, err := journalnamespace.AcquireMatchingCapability(
 			destination,
 			resolved,
 			rootedCapability,
@@ -471,56 +471,4 @@ func (session *manifestAuthoritySession) close() error {
 // already-bound global destination. A non-nil budget must cover acquisition
 // before descriptor validation begins. The caller retains the root authority;
 // the receiver closes each returned capability.
-type RootedCapabilityResolver func(
-	destination output.Destination,
-	budget rootedpath.PhysicalTraversalBudget,
-) (rootedpath.CommitCapability, bool, error)
-
-func acquireMatchingRootedCapability(
-	destination output.Destination,
-	resolvedPath string,
-	acquire RootedCapabilityResolver,
-	budget rootedpath.PhysicalTraversalBudget,
-) (rootedpath.CommitCapability, bool, error) {
-	if acquire == nil {
-		return nil, false, nil
-	}
-	capability, present, err := acquire(destination, budget)
-	if err != nil {
-		if capability != nil {
-			err = errors.Join(err, capability.Close())
-		}
-		return nil, false, err
-	}
-	if !present {
-		if capability == nil {
-			return nil, false, nil
-		}
-		return nil, false, errors.Join(
-			fmt.Errorf("destination %q returned retained root authority while reporting it absent", destination),
-			capability.Close(),
-		)
-	}
-	if capability == nil {
-		return nil, false, fmt.Errorf("destination %q returned nil retained root authority", destination)
-	}
-	capabilityPath, err := capability.Destination().LexicalPath()
-	if err != nil {
-		return nil, false, errors.Join(
-			fmt.Errorf("read destination %q retained authority path: %w", destination, err),
-			capability.Close(),
-		)
-	}
-	if filepath.Clean(capabilityPath) != filepath.Clean(resolvedPath) {
-		return nil, false, errors.Join(
-			fmt.Errorf(
-				"destination %q resolver path %q does not match retained authority path %q",
-				destination,
-				resolvedPath,
-				capabilityPath,
-			),
-			capability.Close(),
-		)
-	}
-	return capability, true, nil
-}
+type RootedCapabilityResolver = journalnamespace.CapabilityResolver

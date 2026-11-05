@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -85,11 +87,11 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	if create {
 		fixture.before, original = durable.EmptySnapshot(), aggregate.AbsentDocument()
 	}
-	fixture.read.codecs, err = aggregatecodec.ForOperation(t.Context(), []aggregate.CodecContractID{after.Contribution().CodecContractID()}, fixture.read.limits, fixture.read.limits)
+	fixture.read.Codecs, err = aggregatecodec.ForOperation(t.Context(), []aggregate.CodecContractID{after.Contribution().CodecContractID()}, fixture.read.Limits, fixture.read.Limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.codec, err = statefile.NewNativeCodec(fixture.read.codecs.Contributions())
+	fixture.codec, err = statefile.NewNativeCodec(fixture.read.Codecs.Contributions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +161,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	if err != nil {
 		t.Fatal(err)
 	}
-	batch, err := ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: actualBefore, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.limits, Budget: budget})
+	batch, err := ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: actualBefore, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.Limits, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +173,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	return nativeCaptureTestInput{
 		paths: paths, batch: batch, after: fixture.after,
 		edits:   selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{after.Contribution().Contract()}, []durable.ManagedAggregateState{after}),
-		options: NativeCaptureOptions{CaptureOptions: CaptureOptions{Filesystem: journalTestFilesystem(), StateCodec: fixture.codec, Codecs: fixture.read.codecs, ManifestRoot: roots.Manifest.Root, OperationAuthority: entry}},
+		options: NativeCaptureOptions{CaptureOptions: CaptureOptions{Filesystem: journalTestFilesystem(), StateCodec: fixture.codec, Codecs: fixture.read.Codecs, ManifestRoot: roots.Manifest.Root, OperationAuthority: entry}},
 		host:    host, registry: registryPath, original: original, stateBytes: stateBytes, registryBytes: registryBytes,
 	}
 }
@@ -634,7 +636,7 @@ func TestCaptureNativeJournalRefusesHostReferentInsidePublicationTree(t *testing
 	row := membershipNativeRow(t, alias, "native-toml-v1", "model")
 	row = selectionNativeRow(t, row.Contribution().Contract(), nativeRecordCanonical(t, `"fast"`))
 	input.after = selectionState(t, row)
-	input.edits = selectedCaptureEdits(t, nativeRecordFixture{read: nativeDocumentReadOptions{codecs: input.options.Codecs}}, aggregate.AbsentDocument(), []aggregate.ProjectionContract{row.Contribution().Contract()}, []durable.ManagedAggregateState{row})
+	input.edits = selectedCaptureEdits(t, nativeRecordFixture{read: journalqualification.ReadOptions{Codecs: input.options.Codecs}}, aggregate.AbsentDocument(), []aggregate.ProjectionContract{row.Contribution().Contract()}, []durable.ManagedAggregateState{row})
 	input.host = filepath.Join(input.paths.RecoveryDir, "native-record-apply", "document-000000", "expected")
 	reader, err := ownershipstore.NewRecoveryReader(input.registry)
 	if err != nil {
@@ -705,7 +707,7 @@ func TestCaptureNativeJournalLastSelectedRemovalRetainsOriginalAndBindingRelease
 		t.Fatal(err)
 	}
 	contract := input.batch.Evidence().BeforeState().ManagedAggregates()[0].Contribution().Contract()
-	input.edits = selectedCaptureEdits(t, nativeRecordFixture{read: nativeDocumentReadOptions{codecs: input.options.Codecs}}, input.original, []aggregate.ProjectionContract{contract}, nil)
+	input.edits = selectedCaptureEdits(t, nativeRecordFixture{read: journalqualification.ReadOptions{Codecs: input.options.Codecs}}, input.original, []aggregate.ProjectionContract{contract}, nil)
 	captured, err := input.capture(t.Context())
 	if err != nil {
 		t.Fatal(err)

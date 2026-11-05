@@ -155,7 +155,7 @@ func nativeOrderCaptureInput(t *testing.T, scope target.Scope) (nativeCaptureTes
 	}
 	host := filepath.Join(selectedRoot.SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
 	requireWholeGroupWrite(t, host, loaded.Document.Content(), 0o644)
-	batch, err := ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.limits, Budget: budget})
+	batch, err := ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.Limits, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func nativeOrderCaptureInput(t *testing.T, scope target.Scope) (nativeCaptureTes
 	t.Cleanup(func() { _ = entry.Close() })
 	return nativeCaptureTestInput{
 		paths: paths, batch: batch, after: before,
-		options: NativeCaptureOptions{CaptureOptions: CaptureOptions{Filesystem: journalTestFilesystem(), StateCodec: fixture.codec, Codecs: fixture.read.codecs, ManifestRoot: roots.Manifest.Root, OperationAuthority: entry}, OrderObservations: []pipackage.OrderObservation{order}},
+		options: NativeCaptureOptions{CaptureOptions: CaptureOptions{Filesystem: journalTestFilesystem(), StateCodec: fixture.codec, Codecs: fixture.read.Codecs, ManifestRoot: roots.Manifest.Root, OperationAuthority: entry}, OrderObservations: []pipackage.OrderObservation{order}},
 		host:    host, registry: registryPath, original: loaded.Document, stateBytes: stateBytes, registryBytes: registryBytes,
 	}, order
 }

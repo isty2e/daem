@@ -77,7 +77,7 @@ func mixedStageFixture(t *testing.T) mixedJournalFixture {
 	combined.envelope.before, combined.envelope.after = appendState(whole.envelope.before), appendState(whole.envelope.after)
 	journal := combined.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
 	paths := Paths{ManifestRoot: root.SelectedPath, StatefilePath: filepath.Join(root.SelectedPath, "state.json"), RecoveryDir: filepath.Join(root.SelectedPath, "recovery")}
-	capture := CaptureOptions{ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation}, ManagedPathEvidence: []observe.ManagedPathEvidence{evidence}, ManifestRoot: root.Root, Filesystem: journalTestFilesystem(), StateCodec: whole.envelope.codec, Codecs: whole.envelope.read.codecs, Resolver: func(destination output.Destination) (string, error) {
+	capture := CaptureOptions{ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation}, ManagedPathEvidence: []observe.ManagedPathEvidence{evidence}, ManifestRoot: root.Root, Filesystem: journalTestFilesystem(), StateCodec: whole.envelope.codec, Codecs: whole.envelope.read.Codecs, Resolver: func(destination output.Destination) (string, error) {
 		return filepath.Join(root.SelectedPath, filepath.FromSlash(destination.RelativePath())), nil
 	}}
 	return mixedJournalFixture{whole: whole, journal: journal, groups: []journalrecord.SealedDocumentGroup{group}, comparison: comparison, paths: paths, capture: capture, ordinary: ordinary}
@@ -98,5 +98,5 @@ func (fixture mixedJournalFixture) source(t *testing.T, budget *physicalwork.Bud
 }
 
 func documentStageOptions(fixture nativeRecordFixture, budget *physicalwork.Budget) nativeDocumentStageOptions {
-	return nativeDocumentStageOptions{stateCodec: fixture.codec, codecs: fixture.read.codecs, limits: fixture.read.limits, budget: budget}
+	return nativeDocumentStageOptions{stateCodec: fixture.codec, codecs: fixture.read.Codecs, limits: fixture.read.Limits, budget: budget}
 }

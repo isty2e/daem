@@ -269,9 +269,9 @@ func TestNativeDocumentAssessmentEqualStateAndObservationFailures(t *testing.T) 
 			case "host budget":
 				read := options.state
 				options.state = func(ctx context.Context) (durable.Snapshot, error) {
-					work, err := workmeasure.NewArtifactWork(0, options.documents.budget.RemainingBytes())
+					work, err := workmeasure.NewArtifactWork(0, options.documents.Budget.RemainingBytes())
 					if err == nil {
-						err = options.documents.budget.AdmitTree(work)
+						err = options.documents.Budget.AdmitTree(work)
 					}
 					if err != nil {
 						return durable.Snapshot{}, err
@@ -303,9 +303,9 @@ func (setup *nativeAssessmentFixture) reader(t *testing.T) (journalrecord.Native
 		t.Fatal(err)
 	}
 	documents := setup.fixture.read
-	documents.budget = imageBudget(t)
+	documents.Budget = imageBudget(t)
 	return setup.fixture.journal, nativeDocumentRecoveryReadOptions{documents: documents, roots: setup.roots, registry: registry, state: func(ctx context.Context) (durable.Snapshot, error) {
-		return statefile.LoadOptionalWithOptions(ctx, setup.statePath, statefile.ReadOptions{Codec: setup.fixture.codec, PhysicalPathBudget: documents.budget})
+		return statefile.LoadOptionalWithOptions(ctx, setup.statePath, statefile.ReadOptions{Codec: setup.fixture.codec, PhysicalPathBudget: documents.Budget})
 	}}
 }
 

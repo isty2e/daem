@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -30,8 +32,8 @@ func TestNativeRemovalQualifiedReadRejectsStaleCleanupParentBeforeImages(t *test
 	published := fixture.envelope
 	published.journal = fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
 	options := fixture.envelope.read
-	options.filesystem, options.budget = fixture.reader, imageBudget(t)
-	if _, err := qualifyDocumentNamespaces(published.journal, t.Context(), options, fixture.roots); err != nil {
+	options.Filesystem, options.Budget = fixture.reader, imageBudget(t)
+	if _, err := journalqualification.LoadNamespaces(published.journal, t.Context(), options, fixture.roots); err != nil {
 		t.Fatal("valid cleanup namespace did not qualify", err)
 	}
 	other := nativeNamespaceRoot(t, t.TempDir())
@@ -63,7 +65,7 @@ func TestNativeRemovalQualifiedReadRejectsStaleCleanupParentBeforeImages(t *test
 	if _, present, err := document.Removal(); err != nil || !present {
 		t.Fatal("stale namespace fixture is not syntactically valid", err)
 	}
-	options.budget = imageBudget(t)
+	options.Budget = imageBudget(t)
 	reads := fixture.reader.imageReads
 	result, err := loadQualifiedDocuments(journal, t.Context(), options, fixture.roots)
 	if err == nil || result.namespaces != nil || fixture.reader.imageReads != reads {
@@ -109,7 +111,7 @@ func TestNativeRemovalDerivesWholeTransitionDebt(t *testing.T) {
 			if before != (action == "remove") || expected != (action == "create") {
 				t.Fatal("create rollback and forward removal debt were conflated")
 			}
-			if _, err := journal.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.input.Limits(), fixture.envelope.read.codecs); err != nil {
+			if _, err := journal.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.input.Limits(), fixture.envelope.read.Codecs); err != nil {
 				t.Fatalf("removal lost actual image facts: %v", err)
 			}
 			fixture.stageAndReconstruct(t, group, comparison)

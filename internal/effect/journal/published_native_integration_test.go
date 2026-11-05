@@ -8,14 +8,16 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
 func TestPublishedNativeJournalReadsChargeActualImagesAndPreserveRollback(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	remaining := fixture.read.budget.RemainingBytes()
-	loaded, err := loadDocuments(fixture.journal, t.Context(), fixture.read)
+	remaining := fixture.read.Budget.RemainingBytes()
+	loaded, err := journalqualification.LoadDocuments(fixture.journal, t.Context(), fixture.read)
 	if err != nil || loaded.Len() != 1 {
 		t.Fatal("published record did not reconstruct one complete group", err)
 	}
@@ -24,7 +26,7 @@ func TestPublishedNativeJournalReadsChargeActualImagesAndPreserveRollback(t *tes
 		t.Fatal("complete document facts were lost")
 	}
 	wantBytes := fixture.comparison.BeforeDocument().ContentSize() + fixture.comparison.ExpectedDocument().ContentSize()
-	if remaining-fixture.read.budget.RemainingBytes() != wantBytes {
+	if remaining-fixture.read.Budget.RemainingBytes() != wantBytes {
 		t.Fatal("the whole image pair did not use the shared physical byte allocation")
 	}
 	mode := recovery.NewPermissionMode(0o600)
@@ -44,7 +46,7 @@ func TestPublishedNativeJournalReadsChargeActualImagesAndPreserveRollback(t *tes
 
 func TestPublishedNativeJournalRefusesChangedPrivateImageWithoutPrefix(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	session, err := fixture.journal.BeginLoadedDocuments(t.Context(), fixture.read.limits, fixture.read.codecs)
+	session, err := fixture.journal.BeginLoadedDocuments(t.Context(), fixture.read.Limits, fixture.read.Codecs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,14 +58,14 @@ func TestPublishedNativeJournalRefusesChangedPrivateImageWithoutPrefix(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := fixture.read.artifacts.Authority()
+	root, err := fixture.read.Artifacts.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root.PhysicalRoot(), filepath.FromSlash(reference)), []byte(`{"model":"wrong"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := loadDocuments(fixture.journal, t.Context(), fixture.read)
+	loaded, err := journalqualification.LoadDocuments(fixture.journal, t.Context(), fixture.read)
 	if err == nil || loaded.Len() != 0 {
 		t.Fatal("changed private expected payload returned compiled reconstruction")
 	}
@@ -71,14 +73,14 @@ func TestPublishedNativeJournalRefusesChangedPrivateImageWithoutPrefix(t *testin
 
 func TestPublishedNativeJournalCancellationReturnsNoGroup(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	remaining := fixture.read.budget.RemainingBytes()
+	remaining := fixture.read.Budget.RemainingBytes()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	loaded, err := loadDocuments(fixture.journal, ctx, fixture.read)
+	loaded, err := journalqualification.LoadDocuments(fixture.journal, ctx, fixture.read)
 	if !errors.Is(err, context.Canceled) || loaded.Len() != 0 {
 		t.Fatal("canceled reconstruction returned a group", err)
 	}
-	if fixture.read.budget.RemainingBytes() != remaining {
+	if fixture.read.Budget.RemainingBytes() != remaining {
 		t.Fatal("canceled reconstruction consumed image bytes")
 	}
 }

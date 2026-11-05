@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/mutation"
 
@@ -154,8 +156,8 @@ func TestQualifiedNativeWriterCaseCollisionRefusesBeforeImages(t *testing.T) {
 		t.Fatalf("case fixture must pass the spelling-only metadata check: %v", err)
 	}
 	read := fixture.whole.envelope.read
-	reader := &nativeNamespaceReader{RootedReader: read.filesystem}
-	read.filesystem, read.budget = reader, imageBudget(t)
+	reader := &nativeNamespaceReader{RootedReader: read.Filesystem}
+	read.Filesystem, read.Budget = reader, imageBudget(t)
 	loaded, err := loadQualifiedDocuments(journal, t.Context(), read, fixture.whole.roots)
 	if err == nil || loaded.namespaces != nil || loaded.records.Len() != 0 || reader.imageReads != 0 {
 		t.Fatal("case collision reached artifact reads or returned a qualified prefix")
@@ -256,7 +258,7 @@ func TestQualifiedWriterKeepsCaseSensitiveFilesDistinct(t *testing.T) {
 	requireWholeGroupWrite(t, variant, []byte("distinct ordinary file"), 0o600)
 	entry, acquire, closed := ordinaryWriterCapability(t, roots.PiAgent, "CUSTOM.JSON")
 	namespaces, manifest, protected := writerPartitionInputsForTest(t, fixture, roots)
-	err := qualifyWriterPartition(t.Context(), []journalrecord.PathEntry{entry}, namespaces, manifest, acquire, imageBudget(t), protected)
+	err := journalqualification.QualifyWriterPartition(t.Context(), []journalrecord.PathEntry{entry}, namespaces, manifest, acquire, imageBudget(t), protected)
 	if err != nil || len(namespaces) != 1 || *closed != 1 {
 		t.Fatalf("distinct case-sensitive files were merged or a capability leaked: %v, closed=%d", err, *closed)
 	}
@@ -278,7 +280,7 @@ func TestQualifiedWriterKeepsNativeProjectSymlinkAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	journal := fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
-	qualified, err := qualifyDocumentNamespaces(journal, t.Context(), nativeDocumentReadOptions{filesystem: fixture.reader, budget: imageBudget(t)}, roots)
+	qualified, err := journalqualification.LoadNamespaces(journal, t.Context(), journalqualification.ReadOptions{Filesystem: fixture.reader, Budget: imageBudget(t)}, roots)
 	if err != nil || len(qualified) != 1 || len(qualified[0].Aliases()) != 2 {
 		t.Fatalf("ordinary/native partition rejected a supported project symlink alias: %v", err)
 	}
@@ -342,7 +344,7 @@ func TestQualifiedOrdinaryWriterRequiresSelectedRootAndClosesCapabilities(t *tes
 				}
 				entries = append(entries, second)
 			}
-			err := qualifyWriterPartition(ctx, entries, namespaces, manifest, acquire, imageBudget(t), protected)
+			err := journalqualification.QualifyWriterPartition(ctx, entries, namespaces, manifest, acquire, imageBudget(t), protected)
 			if (err == nil) != (change == "valid" || change == "duplicate") || *closed != wantCloses {
 				t.Fatalf("root/capability failure was admitted or leaked a capability: %v, closed=%d want=%d", err, *closed, wantCloses)
 			}
@@ -352,7 +354,7 @@ func TestQualifiedOrdinaryWriterRequiresSelectedRootAndClosesCapabilities(t *tes
 
 func writerPartitionInputsForTest(t *testing.T, fixture nativeRecordFixture, roots journalnamespace.Roots) ([]journalnamespace.DocumentNamespace, journalnamespace.RootGrant, []pathauthority.Exact) {
 	t.Helper()
-	namespaces, err := qualifyDocumentNamespaces(fixture.journal, t.Context(), fixture.read, roots)
+	namespaces, err := journalqualification.LoadNamespaces(fixture.journal, t.Context(), fixture.read, roots)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,8 +367,8 @@ func writerPartitionInputsForTest(t *testing.T, fixture nativeRecordFixture, roo
 		t.Fatal("writer fixture lost its manifest grant")
 	}
 	protected := []pathauthority.Exact{fixture.journal.Owner().StatefileAuthority()}
-	if fixture.read.artifacts != nil {
-		authority, err := fixture.read.artifacts.Authority()
+	if fixture.read.Artifacts != nil {
+		authority, err := fixture.read.Artifacts.Authority()
 		if err != nil {
 			t.Fatal(err)
 		}

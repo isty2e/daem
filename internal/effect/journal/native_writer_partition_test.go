@@ -6,6 +6,8 @@ import (
 	"slices"
 	"testing"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
@@ -128,15 +130,15 @@ func TestNativeWriterPartitionRefusesAtEveryRecordBoundary(t *testing.T) {
 	if content, err := journal.Encode(t.Context(), fixture.whole.envelope.codec); err == nil || content != nil {
 		t.Error("strict record construction admitted overlapping physical writers")
 	}
-	if prepared, err := journal.PrepareDocuments(t.Context(), []journaldocument.Comparison{fixture.comparison}, fixture.whole.input.Limits(), fixture.whole.envelope.read.codecs); err == nil {
+	if prepared, err := journal.PrepareDocuments(t.Context(), []journaldocument.Comparison{fixture.comparison}, fixture.whole.input.Limits(), fixture.whole.envelope.read.Codecs); err == nil {
 		t.Error("prepared comparison boundary admitted an overlapping group")
 	} else if comparisons, err := prepared.Comparisons(); err == nil || comparisons != nil {
 		t.Error("prepared comparison boundary returned an overlapping group prefix")
 	}
 	read := fixture.whole.envelope.read
-	reader := &nativeNamespaceReader{RootedReader: read.filesystem}
-	read.filesystem, read.budget = reader, imageBudget(t)
-	if loaded, err := loadDocuments(journal, t.Context(), read); err == nil || loaded.Len() != 0 || reader.imageReads != 0 {
+	reader := &nativeNamespaceReader{RootedReader: read.Filesystem}
+	read.Filesystem, read.Budget = reader, imageBudget(t)
+	if loaded, err := journalqualification.LoadDocuments(journal, t.Context(), read); err == nil || loaded.Len() != 0 || reader.imageReads != 0 {
 		t.Error("artifact boundary admitted overlap or read images before refusing it")
 	}
 }

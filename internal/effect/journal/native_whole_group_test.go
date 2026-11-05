@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/topology"
 
@@ -420,7 +422,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := wholeDocumentCaptureInput{mutation: mutation, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: envelope.claims.owner, OperationID: envelope.journal.OperationID(), GroupIndex: 3, Limits: envelope.read.limits, Budget: budget})}
+	input := wholeDocumentCaptureInput{mutation: mutation, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: envelope.claims.owner, OperationID: envelope.journal.OperationID(), GroupIndex: 3, Limits: envelope.read.Limits, Budget: budget})}
 	input.payloads = wholeGroupPayload(t, mutation.Subject(), desired)
 	beforeImage, expectedImage := aggregate.ExistingDocument(original), aggregate.ExistingDocument(desired)
 	var beforeRows, afterRows []durable.ManagedPathState
@@ -559,7 +561,7 @@ func (fixture wholeGroupTestFixture) requireUnchangedHost(t *testing.T) {
 func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group journalrecord.SealedDocumentGroup, comparison journaldocument.Comparison) {
 	t.Helper()
 	journal := fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
-	session, err := journal.BeginLoadedDocuments(t.Context(), fixture.input.Limits(), fixture.envelope.read.codecs)
+	session, err := journal.BeginLoadedDocuments(t.Context(), fixture.input.Limits(), fixture.envelope.read.Codecs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,7 +613,7 @@ func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group jou
 	if !present {
 		t.Fatal("whole capture decoded as another record family")
 	}
-	admitted, err := decoded.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.input.Limits(), fixture.envelope.read.codecs)
+	admitted, err := decoded.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.input.Limits(), fixture.envelope.read.Codecs)
 	if err != nil {
 		t.Fatalf("prepared group does not pass full snapshot admission: %v", err)
 	}
@@ -619,8 +621,8 @@ func (fixture wholeGroupTestFixture) stageAndReconstruct(t *testing.T, group jou
 	if err != nil || len(comparisons) != 1 {
 		t.Fatal("prepared group lost its completed comparison", err)
 	}
-	fixture.envelope.read.artifacts, fixture.envelope.read.budget = root, imageBudget(t)
-	loaded, err := loadDocuments(decoded, t.Context(), fixture.envelope.read)
+	fixture.envelope.read.Artifacts, fixture.envelope.read.Budget = root, imageBudget(t)
+	loaded, err := journalqualification.LoadDocuments(decoded, t.Context(), fixture.envelope.read)
 	if err != nil || loaded.Len() != 1 {
 		t.Fatalf("actual group cannot reconstruct: %v", err)
 	}

@@ -56,7 +56,7 @@ func TestNativeDocumentJournalStageRejectsAllInvalidMetadataBeforeWrites(t *test
 			case "wrong image":
 				decoded, artifacts := publishNativeFixture(t, journal, comparison, options)
 				variant := whole.envelope
-				variant.journal, variant.read.artifacts = decoded, artifacts
+				variant.journal, variant.read.Artifacts = decoded, artifacts
 				journal = publishedNativeGroupVariant(t, variant, func(group map[string]json.RawMessage) {
 					var original, expected map[string]json.RawMessage
 					if err := json.Unmarshal(group["original"], &original); err != nil {
