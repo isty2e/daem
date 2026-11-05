@@ -1,4 +1,6 @@
-package execute
+// Package removaloperation owns exact removal bindings, reserved forward work
+// and complete-preflight cleanup for one containing operation.
+package removaloperation
 
 import (
 	"context"
@@ -6,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/execute/controlwitness"
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
@@ -20,9 +23,30 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-type removalRelationKey struct {
-	scope       target.Scope
-	destination output.Destination
+type Operation struct {
+	destinations               mutationnamespace.Namespace
+	filesystem                 mutationfs.Store
+	control                    *controlwitness.Guard
+	physicalWorkBudget         *physicalwork.Budget
+	removalDemands             recovery.RemovalDemandSet
+	removalIntents             map[Relation]recovery.RemovalIntent
+	removalDestinations        map[Relation]mutationnamespace.Destination
+	removalBindingsPrepared    bool
+	removalAuthorityBound      bool
+	forwardRemovalReservations map[Relation][]forwardRemovalReservation
+	forwardRemovalPrepared     bool
+	forwardRemovalExecution    *physicalwork.Budget
+	removalCleanupExecution    *physicalwork.Budget
+	traversal                  *physicalwork.TraversalPhase
+}
+
+func New(destinations mutationnamespace.Namespace, filesystem mutationfs.Store, control *controlwitness.Guard, budget *physicalwork.Budget, traversal *physicalwork.TraversalPhase) *Operation {
+	return &Operation{destinations: destinations, filesystem: filesystem, control: control, physicalWorkBudget: budget, traversal: traversal}
+}
+
+type Relation struct {
+	Scope       target.Scope
+	Destination output.Destination
 }
 
 // removalCleanupError keeps retirement failures typed and truthful without
@@ -61,7 +85,7 @@ func (failure *removalCleanupError) Unwrap() error {
 	return failure.cause
 }
 
-func (authority *mutationAuthority) prepareRemovalDemands(
+func (authority *Operation) PrepareDemands(
 	demands recovery.RemovalDemandSet,
 	budget *physicalwork.Budget,
 ) error {
@@ -80,9 +104,9 @@ func (authority *mutationAuthority) prepareRemovalDemands(
 	if budget == nil {
 		return fmt.Errorf("removal operation work budget is required")
 	}
-	destinations := make(map[removalRelationKey]mutationnamespace.Destination, demands.Len())
+	destinations := make(map[Relation]mutationnamespace.Destination, demands.Len())
 	for index, demand := range demands.Demands() {
-		key := removalRelationKey{scope: demand.Scope(), destination: demand.Destination()}
+		key := Relation{Scope: demand.Scope(), Destination: demand.Destination()}
 		if _, duplicate := destinations[key]; duplicate {
 			return fmt.Errorf("removal demands contain duplicate relation %q", demand.Destination())
 		}
@@ -117,7 +141,7 @@ func (authority *mutationAuthority) prepareRemovalDemands(
 	return nil
 }
 
-func (authority *mutationAuthority) bindRemovalIntentList(intents []recovery.RemovalIntent) error {
+func (authority *Operation) BindIntents(intents []recovery.RemovalIntent) error {
 	if authority == nil {
 		return fmt.Errorf("removal mutation authority is unavailable")
 	}
@@ -127,19 +151,19 @@ func (authority *mutationAuthority) bindRemovalIntentList(intents []recovery.Rem
 	if !authority.removalBindingsPrepared || authority.physicalWorkBudget == nil {
 		return fmt.Errorf("removal physical bindings were not prepared before journal authority")
 	}
-	demands, err := removalDemandSetFromIntents(intents)
+	demands, err := DemandsForIntents(intents)
 	if err != nil {
 		return err
 	}
 	if !authority.removalDemands.Equal(demands) {
 		return fmt.Errorf("captured removal intents do not match the prepared demand set")
 	}
-	next := make(map[removalRelationKey]recovery.RemovalIntent, len(intents))
+	next := make(map[Relation]recovery.RemovalIntent, len(intents))
 	for index, intent := range intents {
 		if err := intent.Validate(); err != nil {
 			return fmt.Errorf("removal intent[%d]: %w", index, err)
 		}
-		key := removalRelationKey{scope: intent.Scope(), destination: intent.Destination()}
+		key := Relation{Scope: intent.Scope(), Destination: intent.Destination()}
 		if _, duplicate := next[key]; duplicate {
 			return fmt.Errorf("removal authority contains duplicate relation %q", intent.Destination())
 		}
@@ -153,7 +177,7 @@ func (authority *mutationAuthority) bindRemovalIntentList(intents []recovery.Rem
 	return nil
 }
 
-func removalDemandSetFromIntents(
+func DemandsForIntents(
 	intents []recovery.RemovalIntent,
 ) (recovery.RemovalDemandSet, error) {
 	demands := make([]recovery.RemovalDemand, 0, len(intents))
@@ -166,7 +190,7 @@ func removalDemandSetFromIntents(
 	return recovery.NewRemovalDemandSet(demands)
 }
 
-func (authority *mutationAuthority) validateReloadedRemovalIntents(
+func (authority *Operation) validateReloadedRemovalIntents(
 	intents []recovery.RemovalIntent,
 ) error {
 	if len(intents) != len(authority.removalIntents) {
@@ -176,7 +200,7 @@ func (authority *mutationAuthority) validateReloadedRemovalIntents(
 		if err := intent.Validate(); err != nil {
 			return fmt.Errorf("removal intent[%d]: %w", index, err)
 		}
-		key := removalRelationKey{scope: intent.Scope(), destination: intent.Destination()}
+		key := Relation{Scope: intent.Scope(), Destination: intent.Destination()}
 		previous, present := authority.removalIntents[key]
 		if !present || !previous.Equal(intent) {
 			return fmt.Errorf("reloaded removal authority changed relation %q", intent.Destination())
@@ -196,35 +220,35 @@ func (authority *mutationAuthority) validateReloadedRemovalIntents(
 	return nil
 }
 
-func (authority *mutationAuthority) removalIntentFor(
+func (authority *Operation) IntentFor(
 	scope target.Scope,
 	destination output.Destination,
 ) (recovery.RemovalIntent, error) {
 	if authority == nil || !authority.removalAuthorityBound {
 		return recovery.RemovalIntent{}, fmt.Errorf("complete removal authority is not bound before rooted removal")
 	}
-	intent, present := authority.removalIntents[removalRelationKey{scope: scope, destination: destination}]
+	intent, present := authority.removalIntents[Relation{Scope: scope, Destination: destination}]
 	if !present {
 		return recovery.RemovalIntent{}, fmt.Errorf("journalized rooted removal %q has no exact removal intent", destination)
 	}
 	return intent, nil
 }
 
-func (authority *mutationAuthority) removalDestinationFor(
+func (authority *Operation) DestinationFor(
 	scope target.Scope,
 	destination output.Destination,
 ) (mutationnamespace.Destination, error) {
 	if authority == nil || !authority.removalAuthorityBound {
 		return mutationnamespace.Destination{}, fmt.Errorf("complete removal authority is not bound before rooted removal")
 	}
-	bound, present := authority.removalDestinations[removalRelationKey{scope: scope, destination: destination}]
+	bound, present := authority.removalDestinations[Relation{Scope: scope, Destination: destination}]
 	if !present || !bound.IsRooted() {
 		return mutationnamespace.Destination{}, fmt.Errorf("journalized rooted removal %q has no physical namespace binding", destination)
 	}
 	return bound, nil
 }
 
-func (authority *mutationAuthority) removeJournaledRootedEntry(
+func (authority *Operation) RemoveRootedEntry(
 	ctx context.Context,
 	destination mutationnamespace.Destination,
 	capability rootedpath.CommitCapability,
@@ -233,7 +257,7 @@ func (authority *mutationAuthority) removeJournaledRootedEntry(
 	if !destination.IsRooted() {
 		return uncommittedRemovalFailure(fmt.Errorf("mutation destination is invalid"))
 	}
-	intent, err := authority.removalIntentFor(destination.Scope(), destination.Logical())
+	intent, err := authority.IntentFor(destination.Scope(), destination.Logical())
 	if err != nil {
 		if capability != nil {
 			_ = capability.Close()
@@ -253,7 +277,7 @@ func (authority *mutationAuthority) removeJournaledRootedEntry(
 		}
 		return uncommittedRemovalFailure(err)
 	}
-	removalDestination, err := authority.removalDestinationFor(destination.Scope(), destination.Logical())
+	removalDestination, err := authority.DestinationFor(destination.Scope(), destination.Logical())
 	if err != nil {
 		if capability != nil {
 			_ = capability.Close()
@@ -305,20 +329,20 @@ func (authority *mutationAuthority) removeJournaledRootedEntry(
 		limits,
 	)
 	if err != nil {
-		return outcome, &rootedRemovalCommitError{outcome: outcome, cause: err}
+		return outcome, NewCommitError(outcome, err)
 	}
 	return outcome, nil
 }
 
-// rootedRemovalCommitError preserves the storage conclusion across the
+// CommitError preserves the storage conclusion across the
 // execute boundary. The storage layer owns the outcome; execute only uses it
 // to choose truthful rollback progress and diagnostics.
-type rootedRemovalCommitError struct {
+type CommitError struct {
 	outcome mutationfs.CommitOutcome
 	cause   error
 }
 
-func (failure *rootedRemovalCommitError) Error() string {
+func (failure *CommitError) Error() string {
 	if failure == nil {
 		return "rooted removal commit failed"
 	}
@@ -328,19 +352,19 @@ func (failure *rootedRemovalCommitError) Error() string {
 func uncommittedRemovalFailure(cause error) (mutationfs.CommitOutcome, error) {
 	outcome, err := mutationfs.NewCommitOutcome(mutationfs.CommitOutcomeUncommitted, nil)
 	if err != nil {
-		return mutationfs.CommitOutcome{}, &rootedRemovalCommitError{cause: cause}
+		return mutationfs.CommitOutcome{}, NewCommitError(mutationfs.CommitOutcome{}, cause)
 	}
-	return outcome, &rootedRemovalCommitError{outcome: outcome, cause: cause}
+	return outcome, NewCommitError(outcome, cause)
 }
 
-func (failure *rootedRemovalCommitError) Unwrap() error {
+func (failure *CommitError) Unwrap() error {
 	if failure == nil {
 		return nil
 	}
 	return failure.cause
 }
 
-func (failure *rootedRemovalCommitError) Outcome() mutationfs.CommitOutcome {
+func (failure *CommitError) Outcome() mutationfs.CommitOutcome {
 	if failure == nil {
 		return mutationfs.CommitOutcome{}
 	}
@@ -366,17 +390,20 @@ type removalSlotObservation struct {
 	work     workmeasure.ArtifactWork
 }
 
-// cleanupRemovalResidues performs a complete read-only retirement preflight
+// CleanupIntents performs a complete read-only retirement preflight
 // before executing any removal-slot action. This prevents one blocked intent from
 // being discovered after another intent has already been mutated.
-func (authority *mutationAuthority) cleanupRemovalIntentList(
+func (authority *Operation) CleanupIntents(
 	ctx context.Context,
 	intents []recovery.RemovalIntent,
 	capturedNamespaceReservation bool,
 	retirementReady func([]recovery.RemovalCleanupObligation) bool,
 ) ([]recovery.RemovalCleanupObligation, error) {
 	budget := authority.physicalWorkBudget
-	if authority.generalExecutionWorkBudget != nil {
+	if authority.traversal == nil {
+		return nil, fmt.Errorf("removal traversal phase is unavailable")
+	}
+	if authority.traversal.Executing() {
 		budget = authority.removalCleanupExecution
 	}
 	if budget == nil {
@@ -387,7 +414,7 @@ func (authority *mutationAuthority) cleanupRemovalIntentList(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		destination, err := authority.removalDestinationFor(intent.Scope(), intent.Destination())
+		destination, err := authority.DestinationFor(intent.Scope(), intent.Destination())
 		if err != nil {
 			obligation, obligationErr := unavailableRemovalObligation(intent, "destination authority could not be resolved")
 			if obligationErr != nil {
@@ -547,8 +574,8 @@ func (authority *mutationAuthority) cleanupRemovalIntentList(
 	return discharged, nil
 }
 
-func (authority *mutationAuthority) prepareRecoveryRemovalCleanup(
-	plan recovery.Plan,
+func (authority *Operation) PrepareCleanup(
+	intents []recovery.RemovalIntent,
 ) error {
 	if authority == nil || authority.physicalWorkBudget == nil {
 		return fmt.Errorf("removal cleanup operation budget is unavailable")
@@ -556,8 +583,8 @@ func (authority *mutationAuthority) prepareRecoveryRemovalCleanup(
 	if authority.removalCleanupExecution != nil {
 		return fmt.Errorf("removal cleanup lifecycle was already prepared")
 	}
-	for index, intent := range plan.RemovalIntents() {
-		destination, err := authority.removalDestinationFor(intent.Scope(), intent.Destination())
+	for index, intent := range intents {
+		destination, err := authority.DestinationFor(intent.Scope(), intent.Destination())
 		if err != nil {
 			return fmt.Errorf("reserve removal intent[%d] cleanup destination: %w", index, err)
 		}
@@ -630,7 +657,7 @@ func unavailableRemovalSlots() (recovery.RemovalResidueObservation, error) {
 	return recovery.NewRemovalResidueObservation(residue, cleanup), nil
 }
 
-func (authority *mutationAuthority) observeRemovalSlot(
+func (authority *Operation) observeRemovalSlot(
 	ctx context.Context,
 	destination mutationnamespace.Destination,
 	path string,
@@ -695,7 +722,7 @@ func newRemovalCleanupErrorWithOutcome(
 	}
 }
 
-func (authority *mutationAuthority) executeRemovalCleanupCandidate(
+func (authority *Operation) executeRemovalCleanupCandidate(
 	ctx context.Context,
 	candidate removalCleanupCandidate,
 	execution *removalCleanupExecution,
@@ -734,7 +761,7 @@ func (authority *mutationAuthority) executeRemovalCleanupCandidate(
 	return discharged, actionErr
 }
 
-func (authority *mutationAuthority) observeRemovalCleanupCandidate(
+func (authority *Operation) observeRemovalCleanupCandidate(
 	ctx context.Context,
 	candidate removalCleanupCandidate,
 ) (
@@ -809,7 +836,7 @@ func (authority *mutationAuthority) observeRemovalCleanupCandidate(
 	}
 }
 
-func (authority *mutationAuthority) executeRemovalCleanupAction(
+func (authority *Operation) executeRemovalCleanupAction(
 	ctx context.Context,
 	candidate removalCleanupCandidate,
 	obligation recovery.RemovalCleanupObligation,
@@ -892,7 +919,7 @@ func (authority *mutationAuthority) executeRemovalCleanupAction(
 	return obligation.Discharge()
 }
 
-func (authority *mutationAuthority) cleanupRemovalProgress(
+func (authority *Operation) cleanupRemovalProgress(
 	ctx context.Context,
 	candidate removalCleanupCandidate,
 	obligation recovery.RemovalCleanupObligation,
@@ -928,7 +955,7 @@ func (authority *mutationAuthority) cleanupRemovalProgress(
 	return authority.confirmRemovalSlotsAbsent(ctx, candidate, obligation)
 }
 
-func (authority *mutationAuthority) confirmRemovalSlotsAbsent(
+func (authority *Operation) confirmRemovalSlotsAbsent(
 	ctx context.Context,
 	candidate removalCleanupCandidate,
 	obligation recovery.RemovalCleanupObligation,
@@ -961,10 +988,51 @@ func removalCleanupTraversalLimits(
 	)
 }
 
-func (authority *mutationAuthority) bindRemovalIntents(plan recovery.Plan) error {
-	return authority.bindRemovalIntentList(plan.RemovalIntents())
+func (authority *Operation) BindPlan(plan recovery.Plan) error {
+	return authority.BindIntents(plan.RemovalIntents())
 }
 
-func (authority *mutationAuthority) cleanupRemovalResidues(ctx context.Context, plan recovery.Plan) ([]recovery.RemovalCleanupObligation, error) {
-	return authority.cleanupRemovalIntentList(ctx, plan.RemovalIntents(), false, plan.RetirementReady)
+func (authority *Operation) CleanupResidues(ctx context.Context, plan recovery.Plan) ([]recovery.RemovalCleanupObligation, error) {
+	return authority.CleanupIntents(ctx, plan.RemovalIntents(), false, plan.RetirementReady)
+}
+
+// PrepareNativeSource retains the selected writer bindings and actual native
+// allocation. Native writers replace ordinary selections by relation.
+func (authority *Operation) PrepareNativeSource(demands recovery.RemovalDemandSet, ordinary, native []mutationnamespace.Destination, budget *physicalwork.Budget, intents []recovery.RemovalIntent) error {
+	if authority == nil || budget == nil {
+		return fmt.Errorf("removal operation work budget is required")
+	}
+	if err := demands.Validate(); err != nil {
+		return fmt.Errorf("removal demands: %w", err)
+	}
+	declared := make(map[Relation]struct{}, demands.Len())
+	for _, demand := range demands.Demands() {
+		declared[Relation{Scope: demand.Scope(), Destination: demand.Destination()}] = struct{}{}
+	}
+	bindings := make(map[Relation]mutationnamespace.Destination, len(ordinary))
+	for _, binding := range ordinary {
+		key := Relation{Scope: binding.Scope(), Destination: binding.Logical()}
+		if _, present := declared[key]; !present || !binding.IsRooted() {
+			return fmt.Errorf("ordinary removal binding has no declared physical relation")
+		}
+		bindings[key] = binding
+	}
+	seenNative := make(map[Relation]struct{})
+	for _, binding := range native {
+		key := Relation{Scope: binding.Scope(), Destination: binding.Logical()}
+		if _, present := declared[key]; !present || !binding.IsRooted() {
+			return fmt.Errorf("native removal binding has no declared physical relation")
+		}
+		if _, duplicate := seenNative[key]; duplicate {
+			return fmt.Errorf("native recovery repeats a physical removal relation")
+		}
+		seenNative[key], bindings[key] = struct{}{}, binding
+	}
+	authority.removalDemands, authority.removalDestinations = demands, bindings
+	authority.physicalWorkBudget, authority.removalBindingsPrepared = budget, true
+	return authority.BindIntents(intents)
+}
+
+func NewCommitError(outcome mutationfs.CommitOutcome, cause error) *CommitError {
+	return &CommitError{outcome: outcome, cause: cause}
 }

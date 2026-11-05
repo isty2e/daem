@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
+
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
@@ -323,11 +325,11 @@ func applyWithOptions(
 		operationplan.EffectStepPersistence,
 		applyForwardFailureNoCompensation,
 	)
-	if err := mutationAuthority.prepareApplyForwardRemovals(
+	if err := mutationAuthority.removals.PrepareApplyForward(
 		ctx,
-		input.ManagedPathEffects,
-		input.AggregateEffects,
-		input.Payloads,
+		func(demands recovery.RemovalDemandSet) ([]removaloperation.ForwardCandidate, error) {
+			return applyForwardRemovalCertificates(input.ManagedPathEffects, input.AggregateEffects, input.Payloads, demands)
+		},
 	); err != nil {
 		return ApplyResult{}, fmt.Errorf("prepare bounded forward removals: %w", err)
 	}
@@ -397,7 +399,7 @@ func applyWithOptions(
 			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, basisErr)
 			return basisErr
 		}
-		if bindErr := mutationAuthority.bindRemovalIntents(activePlan); bindErr != nil {
+		if bindErr := mutationAuthority.removals.BindPlan(activePlan); bindErr != nil {
 			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, bindErr)
 			return fmt.Errorf("bind captured removal authority: %w", bindErr)
 		}

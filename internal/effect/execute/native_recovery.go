@@ -172,7 +172,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		if err != nil {
 			return err
 		}
-		discharged, err = authority.cleanupRemovalIntentList(ctx, intents, operation.UsesCapturedRemovalReservations(), plan.CleanupReady)
+		discharged, err = authority.removals.CleanupIntents(ctx, intents, operation.UsesCapturedRemovalReservations(), plan.CleanupReady)
 		if err != nil {
 			return err
 		}

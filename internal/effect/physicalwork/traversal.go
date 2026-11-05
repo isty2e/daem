@@ -24,6 +24,10 @@ func (phase *TraversalPhase) Validate() error {
 	return nil
 }
 
+func (phase *TraversalPhase) Executing() bool {
+	return phase != nil && phase.sealed
+}
+
 func (phase *TraversalPhase) AdmitPathComponents(count int) error {
 	if err := phase.Validate(); err != nil {
 		return err

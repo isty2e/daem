@@ -888,6 +888,7 @@ func TestRecoveryHostActionsStopAtLostVisibilityAuthority(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	var testIntents []recovery.RemovalIntent
 	for index, action := range hostActions {
 		logical, parseErr := output.Parse(action.Destination)
 		if parseErr != nil {
@@ -897,15 +898,17 @@ func TestRecoveryHostActionsStopAtLostVisibilityAuthority(t *testing.T) {
 		if resolveErr != nil {
 			t.Fatalf("resolve recovery test destination %d: %v", index, resolveErr)
 		}
-		bindTestFileRemovalIntent(t, authority, destination, contents[index])
+		testIntents = append(testIntents, testFileRemovalIntent(t, destination, contents[index]))
 	}
+	installRemovalIntentsForTest(t, authority, testIntents)
 	rollback, err := stageRecoveryRollback(t.Context(), authority, hostActions, testAggregateCodecs())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = rollback.cleanup(context.Background(), authority) })
-	if err := authority.prepareRecoveryForwardRemovals(
+	if err := prepareRecoveryForwardRemovals(
 		t.Context(),
+		authority.removals,
 		hostActions,
 		testAggregateCodecs(),
 	); err != nil {

@@ -73,12 +73,12 @@ func publishNativeDocument(ctx context.Context, input NativeApplyInput, document
 		if err != nil {
 			return err
 		}
-		destination, err := authority.removalDestinationFor(intent.Scope(), intent.Destination())
+		destination, err := authority.removals.DestinationFor(intent.Scope(), intent.Destination())
 		if err != nil {
 			return err
 		}
 		open = false
-		_, err = authority.removeJournaledRootedEntry(ctx, destination, capability, identity)
+		_, err = authority.removals.RemoveRootedEntry(ctx, destination, capability, identity)
 		return err
 	}
 	open = false

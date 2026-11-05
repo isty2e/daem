@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package execute
+package removaloperation
 
 import (
 	"context"
@@ -25,7 +25,6 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
-	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestObserveRemovalSlotPreservesCancellation(t *testing.T) {
@@ -174,7 +173,7 @@ func testManagedPathRemovalState(
 
 func bindTestFileRemovalIntent(
 	t *testing.T,
-	authority *mutationAuthority,
+	authority *Operation,
 	destination mutationnamespace.Destination,
 	content []byte,
 ) {
@@ -195,7 +194,7 @@ func bindTestFileRemovalIntent(
 
 func bindTestDirectoryRemovalIntent(
 	t *testing.T,
-	authority *mutationAuthority,
+	authority *Operation,
 	destination mutationnamespace.Destination,
 ) {
 	t.Helper()
@@ -214,7 +213,7 @@ func bindTestDirectoryRemovalIntent(
 
 func bindTestRemovalIntent(
 	t *testing.T,
-	authority *mutationAuthority,
+	authority *Operation,
 	destination mutationnamespace.Destination,
 	state recovery.RemovalState,
 ) {
@@ -288,12 +287,12 @@ func bindTestRemovalIntent(
 		authority.removalDestinations = nil
 		authority.physicalWorkBudget = nil
 	}
-	if err := authority.prepareRemovalDemands(demands, budget); err != nil {
+	if err := authority.PrepareDemands(demands, budget); err != nil {
 		t.Fatalf("prepare test removal demands: %v", err)
 	}
-	key := removalRelationKey{scope: destination.Scope(), destination: destination.Logical()}
+	key := Relation{Scope: destination.Scope(), Destination: destination.Logical()}
 	if authority.removalIntents == nil {
-		authority.removalIntents = make(map[removalRelationKey]recovery.RemovalIntent)
+		authority.removalIntents = make(map[Relation]recovery.RemovalIntent)
 	}
 	authority.removalIntents[key] = intent
 	authority.removalAuthorityBound = true
@@ -314,17 +313,17 @@ func TestForwardPathCapacityIsPreparedBeforeJournalIntentBinding(t *testing.T) {
 
 	// Resource capacity belongs to the transition demand and physical binding.
 	// Durable journal intent authority is established later and remains required
-	// by removeJournaledRootedEntry itself.
+	// by RemoveRootedEntry itself.
 	authority.removalIntents = nil
 	authority.removalAuthorityBound = false
-	if err := authority.prepareForwardRemovalReservations(t.Context(), nil); err != nil {
+	if err := authority.PrepareForward(t.Context(), nil); err != nil {
 		t.Fatalf("prepare forward removal before journal intent binding: %v", err)
 	}
 	if authority.forwardRemovalExecution == nil {
 		t.Fatal("forward removal path capacity was not transferred before journal publication")
 	}
 	executionBudget := authority.forwardRemovalExecution
-	if err := authority.prepareForwardRemovalReservations(t.Context(), nil); err != nil {
+	if err := authority.PrepareForward(t.Context(), nil); err != nil {
 		t.Fatalf("repeat forward removal preparation: %v", err)
 	}
 	if authority.forwardRemovalExecution != executionBudget {
@@ -353,12 +352,12 @@ func TestForwardCleanupCapacityFailureDoesNotPublishPartialPreparation(t *testin
 	}
 
 	demand := authority.removalDemands.Demands()[0]
-	relation := removalRelationKey{scope: demand.Scope(), destination: demand.Destination()}
+	relation := Relation{Scope: demand.Scope(), Destination: demand.Destination()}
 	state := demand.States()[0]
-	certificate := forwardRemovalCertificate{
-		relation: relation,
-		state:    state,
-		measure: func(context.Context, workmeasure.ArtifactWork) (workmeasure.ArtifactWork, error) {
+	certificate := ForwardCandidate{
+		Relation: relation,
+		State:    state,
+		Measure: func(context.Context, workmeasure.ArtifactWork) (workmeasure.ArtifactWork, error) {
 			for authority.physicalWorkBudget.AdmitPathComponents(physicalwork.MaximumPhysicalPathDepth) == nil {
 			}
 			for authority.physicalWorkBudget.AdmitPathComponents(1) == nil {
@@ -367,7 +366,7 @@ func TestForwardCleanupCapacityFailureDoesNotPublishPartialPreparation(t *testin
 		},
 	}
 
-	err := authority.prepareForwardRemovalReservations(t.Context(), []forwardRemovalCertificate{certificate})
+	err := authority.PrepareForward(t.Context(), []ForwardCandidate{certificate})
 	if err == nil || !strings.Contains(err.Error(), "reserve forward removal capacity") {
 		t.Fatalf("forward preparation error = %v, want cleanup-capacity reservation failure", err)
 	}
@@ -395,7 +394,7 @@ func TestForwardRemovalReacquiresCapabilityAgainstExecutionBudget(t *testing.T) 
 	}
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 	bindTestFileRemovalIntent(t, authority, destination, content)
-	if err := authority.prepareForwardRemovalReservations(t.Context(), nil); err != nil {
+	if err := authority.PrepareForward(t.Context(), nil); err != nil {
 		t.Fatalf("prepare forward removal: %v", err)
 	}
 	for authority.forwardRemovalExecution.AdmitPathComponents(1) == nil {
@@ -410,7 +409,7 @@ func TestForwardRemovalReacquiresCapabilityAgainstExecutionBudget(t *testing.T) 
 		_ = capability.Close()
 		t.Fatalf("capture removal identity: %v", err)
 	}
-	_, err = authority.removeJournaledRootedEntry(
+	_, err = authority.RemoveRootedEntry(
 		t.Context(),
 		destination,
 		capability,
@@ -425,136 +424,9 @@ func TestForwardRemovalReacquiresCapabilityAgainstExecutionBudget(t *testing.T) 
 	}
 }
 
-func TestRemovalBindingReusesCanonicalGlobalDestination(t *testing.T) {
-	firstParent := filepath.Join(t.TempDir(), "first")
-	secondParent := filepath.Join(t.TempDir(), "second")
-	for _, parent := range []string{firstParent, secondParent} {
-		if err := os.Mkdir(parent, 0o700); err != nil {
-			t.Fatalf("create global parent %q: %v", parent, err)
-		}
-	}
-	selectedPath := filepath.Join(firstParent, "config")
-	destination := outputtest.Parse(t, "~/config")
-	state, err := recovery.NewBeforeRemovalState(recovery.BeforePathState{
-		Existed:       true,
-		PathExisted:   true,
-		ParentExisted: true,
-		PathMode:      recovery.NewPermissionMode(0o600),
-		Kind:          recovery.PathKindFile,
-		ContentHash:   string(artifact.HashFileContent([]byte("inside"))),
-	})
-	if err != nil {
-		t.Fatalf("construct removal state: %v", err)
-	}
-	demand, err := recovery.NewRemovalDemand(target.ScopeGlobal, destination, []recovery.RemovalState{state})
-	if err != nil {
-		t.Fatalf("construct removal demand: %v", err)
-	}
-	demands, err := recovery.NewRemovalDemandSet([]recovery.RemovalDemand{demand})
-	if err != nil {
-		t.Fatalf("construct removal demand set: %v", err)
-	}
-	resolverCalls := 0
-	authority, err := captureScopedDestinationsForTest(
-		Paths{},
-		[]scopedDestinationForTest{{
-			scope: target.ScopeGlobal, destination: destination,
-		}},
-		demands,
-		nil,
-		func(output.Destination) (string, error) {
-			resolverCalls++
-			if resolverCalls == 1 {
-				return selectedPath, nil
-			}
-			return filepath.Join(secondParent, "config"), nil
-		},
-		testFilesystem(),
-	)
-	if err != nil {
-		t.Fatalf("construct mutation authority: %v", err)
-	}
-	defer authority.close()
-	if resolverCalls != 1 {
-		t.Fatalf("global resolver calls = %d, want one bounded selection", resolverCalls)
-	}
-	canonical, err := authority.destinations.Resolve(target.ScopeGlobal, destination)
-	if err != nil {
-		t.Fatalf("resolve canonical global destination: %v", err)
-	}
-	removal, present := authority.removalDestinations[removalRelationKey{
-		scope: target.ScopeGlobal, destination: destination,
-	}]
-	if !present {
-		t.Fatal("prepared removal destination is missing")
-	}
-	if removal.HostPath() != canonical.HostPath() {
-		t.Fatalf(
-			"removal destination = %q, want canonical mutation destination %q",
-			removal.HostPath(),
-			canonical.HostPath(),
-		)
-	}
-	if !removal.RootedPath().Equal(canonical.RootedPath()) {
-		t.Fatal("general mutation and removal did not retain one physical binding")
-	}
-}
-
-func TestRemovalDemandBoundsProjectRootBeforeMutationBinding(t *testing.T) {
-	physicalRoot := t.TempDir()
-	components := make([]string, physicalwork.MaximumPhysicalPathDepth+1)
-	for index := range components {
-		components[index] = "d"
-	}
-	deepRoot := filepath.Join(append([]string{physicalRoot}, components...)...)
-	if err := os.MkdirAll(deepRoot, 0o700); err != nil {
-		t.Fatalf("create deep project root: %v", err)
-	}
-	alias := filepath.Join(t.TempDir(), "project")
-	if err := os.Symlink(deepRoot, alias); err != nil {
-		t.Fatalf("create project alias: %v", err)
-	}
-	destination := outputtest.Parse(t, ".agent/config")
-	state, err := recovery.NewBeforeRemovalState(recovery.BeforePathState{
-		Existed:       true,
-		PathExisted:   true,
-		ParentExisted: true,
-		PathMode:      recovery.NewPermissionMode(0o600),
-		Kind:          recovery.PathKindFile,
-		ContentHash:   string(artifact.HashFileContent([]byte("inside"))),
-	})
-	if err != nil {
-		t.Fatalf("construct removal state: %v", err)
-	}
-	demand, err := recovery.NewRemovalDemand(target.ScopeProject, destination, []recovery.RemovalState{state})
-	if err != nil {
-		t.Fatalf("construct removal demand: %v", err)
-	}
-	demands, err := recovery.NewRemovalDemandSet([]recovery.RemovalDemand{demand})
-	if err != nil {
-		t.Fatalf("construct removal demand set: %v", err)
-	}
-	authority, err := captureScopedDestinationsForTest(
-		Paths{ManifestRoot: alias},
-		[]scopedDestinationForTest{{
-			scope: target.ScopeProject, destination: destination,
-		}},
-		demands,
-		nil,
-		destinationResolver(Paths{ManifestRoot: alias}),
-		testFilesystem(),
-	)
-	if authority != nil {
-		_ = authority.close()
-	}
-	if err == nil || !strings.Contains(err.Error(), "physical path depth") {
-		t.Fatalf("construct mutation authority error = %v, want bounded project-root rejection", err)
-	}
-}
-
 func bindTestFileRemovalIntentForDestination(
 	t *testing.T,
-	authority *mutationAuthority,
+	authority *Operation,
 	destination output.Destination,
 	content []byte,
 ) {
@@ -568,11 +440,11 @@ func bindTestFileRemovalIntentForDestination(
 
 func boundRemovalDestinationForTest(
 	t *testing.T,
-	authority *mutationAuthority,
+	authority *Operation,
 	destination mutationnamespace.Destination,
 ) mutationnamespace.Destination {
 	t.Helper()
-	bound, err := authority.removalDestinationFor(destination.Scope(), destination.Logical())
+	bound, err := authority.DestinationFor(destination.Scope(), destination.Logical())
 	if err != nil {
 		t.Fatalf("resolve test removal destination: %v", err)
 	}
@@ -587,14 +459,14 @@ func TestValidateRemovalNamespaceRejectsRelocatedExistingParent(t *testing.T) {
 	}
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 	bindTestFileRemovalIntent(t, authority, destination, []byte("inside"))
-	intent, present := authority.removalIntents[removalRelationKey{scope: target.ScopeProject, destination: destination.Logical()}]
+	intent, present := authority.removalIntents[Relation{Scope: target.ScopeProject, Destination: destination.Logical()}]
 	if !present {
 		t.Fatal("test removal intent is missing")
 	}
 	if err := os.Rename(parent, parent+"-moved"); err != nil {
 		t.Fatalf("move removal parent away: %v", err)
 	}
-	removalDestination, err := authority.removalDestinationFor(destination.Scope(), destination.Logical())
+	removalDestination, err := authority.DestinationFor(destination.Scope(), destination.Logical())
 	if err != nil {
 		t.Fatalf("resolve removal namespace destination: %v", err)
 	}
@@ -636,13 +508,13 @@ func TestObserveRemovalNamespaceAdmitsRootValidationBeforeFilesystemWork(t *test
 	}
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 	bindTestFileRemovalIntent(t, authority, destination, []byte("inside"))
-	intent, present := authority.removalIntents[removalRelationKey{
-		scope: target.ScopeProject, destination: destination.Logical(),
+	intent, present := authority.removalIntents[Relation{
+		Scope: target.ScopeProject, Destination: destination.Logical(),
 	}]
 	if !present {
 		t.Fatal("test removal intent is missing")
 	}
-	removalDestination, err := authority.removalDestinationFor(
+	removalDestination, err := authority.DestinationFor(
 		destination.Scope(),
 		destination.Logical(),
 	)
@@ -681,7 +553,7 @@ func TestValidateRemovalNamespaceRejectsReplacementExistingParent(t *testing.T) 
 	}
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 	bindTestFileRemovalIntent(t, authority, destination, []byte("inside"))
-	intent, present := authority.removalIntents[removalRelationKey{scope: target.ScopeProject, destination: destination.Logical()}]
+	intent, present := authority.removalIntents[Relation{Scope: target.ScopeProject, Destination: destination.Logical()}]
 	if !present {
 		t.Fatal("test removal intent is missing")
 	}
@@ -691,7 +563,7 @@ func TestValidateRemovalNamespaceRejectsReplacementExistingParent(t *testing.T) 
 	if err := os.Mkdir(parent, 0o700); err != nil {
 		t.Fatalf("replace removal parent: %v", err)
 	}
-	removalDestination, err := authority.removalDestinationFor(destination.Scope(), destination.Logical())
+	removalDestination, err := authority.DestinationFor(destination.Scope(), destination.Logical())
 	if err != nil {
 		t.Fatalf("resolve removal namespace destination: %v", err)
 	}
@@ -821,8 +693,8 @@ func TestExecuteRemovalCleanupCandidateResumesPartialCleanupStage(t *testing.T) 
 	}
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 	bindTestDirectoryRemovalIntent(t, authority, destination)
-	intent := authority.removalIntents[removalRelationKey{
-		scope: target.ScopeProject, destination: destination.Logical(),
+	intent := authority.removalIntents[Relation{
+		Scope: target.ScopeProject, Destination: destination.Logical(),
 	}]
 	residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 	if err != nil {
@@ -866,8 +738,8 @@ func TestExecuteRemovalCleanupCandidatePromotesValidatedResidue(t *testing.T) {
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 	content := []byte("original")
 	bindTestFileRemovalIntent(t, authority, destination, content)
-	intent := authority.removalIntents[removalRelationKey{
-		scope: target.ScopeProject, destination: destination.Logical(),
+	intent := authority.removalIntents[Relation{
+		Scope: target.ScopeProject, Destination: destination.Logical(),
 	}]
 	residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 	if err != nil {
@@ -909,8 +781,8 @@ func TestExecuteRemovalCleanupCandidatePreservesMismatchedResidue(t *testing.T) 
 	}
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 	bindTestFileRemovalIntent(t, authority, destination, []byte("authorized"))
-	intent := authority.removalIntents[removalRelationKey{
-		scope: target.ScopeProject, destination: destination.Logical(),
+	intent := authority.removalIntents[Relation{
+		Scope: target.ScopeProject, Destination: destination.Logical(),
 	}]
 	residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 	if err != nil {
@@ -945,8 +817,8 @@ func TestExecuteRemovalCleanupCandidateDurablyConfirmsBothSlotsAbsent(t *testing
 	}
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 	bindTestFileRemovalIntent(t, authority, destination, []byte("authorized"))
-	intent := authority.removalIntents[removalRelationKey{
-		scope: target.ScopeProject, destination: destination.Logical(),
+	intent := authority.removalIntents[Relation{
+		Scope: target.ScopeProject, Destination: destination.Logical(),
 	}]
 	residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 	if err != nil {
@@ -970,20 +842,20 @@ func TestExecuteRemovalCleanupCandidateDurablyConfirmsBothSlotsAbsent(t *testing
 func TestExecuteRemovalCleanupCandidateHandlesZeroWorkEntries(t *testing.T) {
 	for _, test := range []struct {
 		name      string
-		prepare   func(*testing.T, *mutationAuthority, mutationnamespace.Destination) (recovery.RemovalIntent, string, string)
+		prepare   func(*testing.T, *Operation, mutationnamespace.Destination) (recovery.RemovalIntent, string, string)
 		recursive bool
 		want      recovery.RemovalCleanupActionKind
 	}{
 		{
 			name: "empty file residue",
-			prepare: func(t *testing.T, authority *mutationAuthority, destination mutationnamespace.Destination) (
+			prepare: func(t *testing.T, authority *Operation, destination mutationnamespace.Destination) (
 				recovery.RemovalIntent,
 				string,
 				string,
 			) {
 				bindTestFileRemovalIntent(t, authority, destination, nil)
-				intent := authority.removalIntents[removalRelationKey{
-					scope: target.ScopeProject, destination: destination.Logical(),
+				intent := authority.removalIntents[Relation{
+					Scope: target.ScopeProject, Destination: destination.Logical(),
 				}]
 				residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 				if err != nil {
@@ -998,14 +870,14 @@ func TestExecuteRemovalCleanupCandidateHandlesZeroWorkEntries(t *testing.T) {
 		},
 		{
 			name: "empty directory cleanup stage",
-			prepare: func(t *testing.T, authority *mutationAuthority, destination mutationnamespace.Destination) (
+			prepare: func(t *testing.T, authority *Operation, destination mutationnamespace.Destination) (
 				recovery.RemovalIntent,
 				string,
 				string,
 			) {
 				bindTestDirectoryRemovalIntent(t, authority, destination)
-				intent := authority.removalIntents[removalRelationKey{
-					scope: target.ScopeProject, destination: destination.Logical(),
+				intent := authority.removalIntents[Relation{
+					Scope: target.ScopeProject, Destination: destination.Logical(),
 				}]
 				residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 				if err != nil {
@@ -1134,8 +1006,8 @@ func TestExecuteRemovalCleanupRejectsGrowthBeyondZeroSemanticWork(t *testing.T) 
 			} else {
 				bindTestFileRemovalIntent(t, authority, destination, nil)
 			}
-			intent := authority.removalIntents[removalRelationKey{
-				scope: target.ScopeProject, destination: destination.Logical(),
+			intent := authority.removalIntents[Relation{
+				Scope: target.ScopeProject, Destination: destination.Logical(),
 			}]
 			residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 			if err != nil {
@@ -1177,7 +1049,7 @@ func TestExecuteRemovalCleanupRejectsGrowthBeyondZeroSemanticWork(t *testing.T) 
 
 func executeRemovalCleanupCandidateForTest(
 	t *testing.T,
-	authority *mutationAuthority,
+	authority *Operation,
 	candidate removalCleanupCandidate,
 ) (recovery.RemovalCleanupObligation, error) {
 	t.Helper()
@@ -1265,7 +1137,7 @@ func preflightRemovalCleanupCandidateWithWorkForTest(
 }
 
 func TestExecuteRemovalCleanupCandidateRequiresCompleteOperationPreflight(t *testing.T) {
-	authority := mutationAuthority{}
+	authority := Operation{}
 	_, err := authority.executeRemovalCleanupCandidate(
 		t.Context(),
 		removalCleanupCandidate{},
@@ -1285,8 +1157,8 @@ func TestRemovalCleanupActionFailureHasStablePublicSafeReason(t *testing.T) {
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 	content := []byte("authorized")
 	bindTestFileRemovalIntent(t, authority, destination, content)
-	intent := authority.removalIntents[removalRelationKey{
-		scope: target.ScopeProject, destination: destination.Logical(),
+	intent := authority.removalIntents[Relation{
+		Scope: target.ScopeProject, Destination: destination.Logical(),
 	}]
 	matched, err := recovery.NewRemovalNamespaceObservation(recovery.RemovalNamespaceMatched, "")
 	if err != nil {

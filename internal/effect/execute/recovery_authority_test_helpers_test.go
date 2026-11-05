@@ -101,12 +101,8 @@ func beginUnclassifiedRecoveryExecutionForTest(t *testing.T, authority *mutation
 			t.Fatal(err)
 		}
 	}
-	if authority.removalCleanupExecution == nil {
-		execution, err := authority.physicalWorkBudget.BeginReservedCleanupLifecycle()
-		if err != nil {
-			t.Fatal(err)
-		}
-		authority.removalCleanupExecution = execution
+	if err := authority.removals.PrepareCleanup(nil); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := authority.physicalWorkBudget.BeginReservedSemanticExecution(); err != nil {
 		t.Fatal(err)

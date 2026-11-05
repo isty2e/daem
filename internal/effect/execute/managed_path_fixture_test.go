@@ -91,7 +91,7 @@ func captureScopedDestinationsForTest(paths Paths, selected []scopedDestinationF
 	if err != nil {
 		return nil, err
 	}
-	if err := authority.prepareRemovalDemands(demands, budget); err != nil {
+	if err := authority.removals.PrepareDemands(demands, budget); err != nil {
 		_ = authority.close()
 		return nil, err
 	}

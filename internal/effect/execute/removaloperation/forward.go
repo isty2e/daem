@@ -1,4 +1,4 @@
-package execute
+package removaloperation
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
-	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
@@ -15,11 +14,8 @@ import (
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
-	"github.com/isty2e/daem/internal/supply/artifact"
-	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
 type forwardRemovalReservation struct {
@@ -28,192 +24,30 @@ type forwardRemovalReservation struct {
 	consumed bool
 }
 
-type forwardRemovalCertificate struct {
-	relation removalRelationKey
-	state    recovery.RemovalState
-	measure  func(context.Context, workmeasure.ArtifactWork) (workmeasure.ArtifactWork, error)
+type ForwardCandidate struct {
+	Relation Relation
+	State    recovery.RemovalState
+	Measure  func(context.Context, workmeasure.ArtifactWork) (workmeasure.ArtifactWork, error)
 }
 
-func (authority *mutationAuthority) prepareApplyForwardRemovals(
+func (authority *Operation) PrepareApplyForward(
 	ctx context.Context,
-	managed []effectpreparation.ManagedPathEffect,
-	aggregates []effectpreparation.AggregateEffect,
-	payloads payload.PayloadSet,
+	produce func(recovery.RemovalDemandSet) ([]ForwardCandidate, error),
 ) error {
 	if authority == nil || !authority.removalBindingsPrepared || authority.physicalWorkBudget == nil {
 		return fmt.Errorf("forward removal requires prepared physical bindings")
 	}
-	certificates, err := applyForwardRemovalCertificates(managed, aggregates, payloads, authority.removalDemands)
+	certificates, err := produce(authority.removalDemands)
 	if err != nil {
 		return err
 	}
-	return authority.prepareForwardRemovalReservations(ctx, certificates)
+	return authority.PrepareForward(ctx, certificates)
 }
 
-func applyForwardRemovalCertificates(
-	managed []effectpreparation.ManagedPathEffect,
-	aggregates []effectpreparation.AggregateEffect,
-	payloads payload.PayloadSet,
-	demands recovery.RemovalDemandSet,
-) ([]forwardRemovalCertificate, error) {
-	certificates := make([]forwardRemovalCertificate, 0, len(managed)+len(aggregates))
-	for index, effect := range managed {
-		if !effect.RequiresPayload() {
-			continue
-		}
-		state, err := expectedManagedPathRemovalState(effect)
-		if err != nil {
-			return nil, fmt.Errorf("managed effect[%d] expected removal state: %w", index, err)
-		}
-		relation := removalRelationKey{scope: effect.Scope(), destination: effect.Destination()}
-		if !removalStateIsDemanded(demands, relation, state) {
-			continue
-		}
-		stateKind, _, err := removalStateKind(state)
-		if err != nil {
-			return nil, fmt.Errorf("managed effect[%d] forward removal state: %w", index, err)
-		}
-		prepared, present := payloads.LookupSubject(effect.Subject())
-		if !present {
-			return nil, fmt.Errorf(
-				"managed effect[%d] forward removal payload is missing for subject %s/%s %q",
-				index,
-				effect.Subject().Kind(),
-				effect.Subject().Namespace(),
-				effect.Subject().Key(),
-			)
-		}
-		if file, isFile := prepared.File(); isFile && stateKind == recovery.PathKindFile {
-			contentBytes := int64(len(file.Bytes()))
-			certificates = append(certificates, constantForwardRemovalCertificate(
-				relation,
-				state,
-				0,
-				contentBytes,
-			))
-			continue
-		}
-		verified, err := effectpreparation.ManagedPathPayload(effect, payloads)
-		if err != nil {
-			return nil, fmt.Errorf("managed effect[%d] forward removal directory payload: %w", index, err)
-		}
-		directory, isDirectory := verified.Directory()
-		if !isDirectory {
-			return nil, fmt.Errorf("managed effect[%d] forward removal payload has no content variant", index)
-		}
-		certificates = append(certificates, forwardRemovalCertificate{
-			relation: relation,
-			state:    state,
-			measure: func(ctx context.Context, maximum workmeasure.ArtifactWork) (workmeasure.ArtifactWork, error) {
-				return measureDirectoryArtifactRemovalWork(
-					ctx,
-					directory.View(),
-					directory.Identity(),
-					maximum,
-				)
-			},
-		})
-	}
-	for index, effect := range aggregates {
-		if effect.Kind() != effectpreparation.AggregateEffectCreate {
-			continue
-		}
-		state, err := aggregateDocumentExpectedRemovalState(effect)
-		if err != nil {
-			return nil, fmt.Errorf("aggregate effect[%d] expected removal state: %w", index, err)
-		}
-		relation := removalRelationKey{scope: effect.Scope(), destination: effect.Destination()}
-		if !removalStateIsDemanded(demands, relation, state) {
-			continue
-		}
-		document := effect.Rendered().Document()
-		if !document.Exists() {
-			continue
-		}
-		certificates = append(certificates, constantForwardRemovalCertificate(
-			relation,
-			state,
-			0,
-			int64(len(document.Content())),
-		))
-	}
-	return certificates, nil
-}
-
-func constantForwardRemovalCertificate(
-	relation removalRelationKey,
-	state recovery.RemovalState,
-	entries int,
-	bytes int64,
-) forwardRemovalCertificate {
-	return forwardRemovalCertificate{
-		relation: relation,
-		state:    state,
-		measure: func(context.Context, workmeasure.ArtifactWork) (workmeasure.ArtifactWork, error) {
-			return workmeasure.NewArtifactWork(entries, bytes)
-		},
-	}
-}
-
-func removalStateIsDemanded(
-	demands recovery.RemovalDemandSet,
-	relation removalRelationKey,
-	state recovery.RemovalState,
-) bool {
-	for _, demand := range demands.Demands() {
-		if demand.Scope() != relation.scope || demand.Destination() != relation.destination {
-			continue
-		}
-		for _, admitted := range demand.States() {
-			if admitted.Equal(state) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func measureDirectoryArtifactRemovalWork(
-	ctx context.Context,
-	view access.View,
-	identity artifact.ExactIdentity,
-	maximum workmeasure.ArtifactWork,
-) (workmeasure.ArtifactWork, error) {
-	maximumEntries := min(maximum.Entries(), recovery.MaximumArtifactTreeEntries)
-	maximumBytes := min(maximum.Bytes(), recovery.MaximumArtifactTreeBytes)
-	traversal, err := access.NewTraversalLimit(
-		uint64(maximumEntries+1),
-		max(int64(1), maximumBytes),
-	)
-	if err != nil {
-		return workmeasure.ArtifactWork{}, err
-	}
-	structure, err := access.NewTreeStructureLimit(
-		max(1, maximumEntries),
-		recovery.MaximumArtifactTreeDepth,
-	)
-	if err != nil {
-		return workmeasure.ArtifactWork{}, err
-	}
-	measurement, err := view.MeasureVerifiedDirectory(
-		ctx,
-		identity,
-		traversal,
-		structure,
-	)
-	if err != nil {
-		return workmeasure.ArtifactWork{}, err
-	}
-	return workmeasure.NewArtifactWork(
-		measurement.DescendantEntries(),
-		measurement.RegularFileBytes(),
-	)
-}
-
-func (authority *mutationAuthority) prepareForwardRemovalReservationsFor(
+func (authority *Operation) PrepareForwardFor(
 	ctx context.Context,
 	demands recovery.RemovalDemandSet,
-	certificates []forwardRemovalCertificate,
+	certificates []ForwardCandidate,
 ) error {
 	if authority == nil {
 		return fmt.Errorf("forward removal authority is unavailable")
@@ -230,27 +64,36 @@ func (authority *mutationAuthority) prepareForwardRemovalReservationsFor(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	certificatesByRelation := make(map[removalRelationKey][]forwardRemovalCertificate, len(certificates))
-	for _, certificate := range certificates {
-		values := certificatesByRelation[certificate.relation]
+	certificatesByRelation := make(map[Relation][]ForwardCandidate, len(certificates))
+	for index, certificate := range certificates {
+		if certificate.Measure == nil {
+			return fmt.Errorf("forward removal candidate[%d] has no work measurement", index)
+		}
+		if err := certificate.Relation.Destination.ValidateScope(certificate.Relation.Scope); err != nil {
+			return fmt.Errorf("forward removal candidate[%d] relation: %w", index, err)
+		}
+		if _, _, err := certificate.State.Kind(); err != nil {
+			return fmt.Errorf("forward removal candidate[%d] state: %w", index, err)
+		}
+		values := certificatesByRelation[certificate.Relation]
 		duplicate := false
 		for _, existing := range values {
-			if existing.state.Equal(certificate.state) {
+			if existing.State.Equal(certificate.State) {
 				duplicate = true
 				break
 			}
 		}
 		if !duplicate {
-			certificatesByRelation[certificate.relation] = append(values, certificate)
+			certificatesByRelation[certificate.Relation] = append(values, certificate)
 		}
 	}
 
-	reservations := make(map[removalRelationKey][]forwardRemovalReservation, authority.removalDemands.Len())
+	reservations := make(map[Relation][]forwardRemovalReservation, authority.removalDemands.Len())
 	for _, demand := range demands.Demands() {
-		relation := removalRelationKey{scope: demand.Scope(), destination: demand.Destination()}
+		relation := Relation{Scope: demand.Scope(), Destination: demand.Destination()}
 		destination, present := authority.removalDestinations[relation]
 		if !present || !destination.IsRooted() {
-			return fmt.Errorf("forward removal relation %q has no physical destination", relation.destination)
+			return fmt.Errorf("forward removal relation %q has no physical destination", relation.Destination)
 		}
 		states := demand.States()
 		currentState, currentWork, currentPresent, err := authority.observeForwardRemovalCurrent(
@@ -263,7 +106,7 @@ func (authority *mutationAuthority) prepareForwardRemovalReservationsFor(
 			return fmt.Errorf("observe forward removal state for %q: %w", demand.Destination(), err)
 		}
 		for _, state := range states {
-			kind, exists, err := removalStateKind(state)
+			kind, exists, err := state.Kind()
 			if err != nil {
 				return fmt.Errorf("forward removal state for %q: %w", demand.Destination(), err)
 			}
@@ -285,7 +128,7 @@ func (authority *mutationAuthority) prepareForwardRemovalReservationsFor(
 					// beginForwardRemoval still rejects any unreserved candidate.
 					continue
 				}
-				work, err = certificate.measure(ctx, authority.physicalWorkBudget.RemainingTreeWork())
+				work, err = certificate.Measure(ctx, authority.physicalWorkBudget.RemainingTreeWork())
 				if err == nil {
 					err = authority.physicalWorkBudget.AdmitTree(work)
 				}
@@ -317,8 +160,8 @@ func (authority *mutationAuthority) prepareForwardRemovalReservationsFor(
 	return nil
 }
 
-func (authority *mutationAuthority) reserveForwardRemovalExecutionBudget(
-	reservations map[removalRelationKey][]forwardRemovalReservation,
+func (authority *Operation) reserveForwardRemovalExecutionBudget(
+	reservations map[Relation][]forwardRemovalReservation,
 ) (*physicalwork.Budget, error) {
 	if authority == nil {
 		return nil, fmt.Errorf("forward removal authority is unavailable")
@@ -328,11 +171,11 @@ func (authority *mutationAuthority) reserveForwardRemovalExecutionBudget(
 	}
 	destinationPaths := make([]string, 0)
 	for _, demand := range authority.removalDemands.Demands() {
-		relation := removalRelationKey{scope: demand.Scope(), destination: demand.Destination()}
+		relation := Relation{Scope: demand.Scope(), Destination: demand.Destination()}
 		relationReservations := reservations[relation]
 		destination, present := authority.removalDestinations[relation]
 		if !present || !destination.IsRooted() {
-			return nil, fmt.Errorf("forward removal relation %q has no physical destination", relation.destination)
+			return nil, fmt.Errorf("forward removal relation %q has no physical destination", relation.Destination)
 		}
 		for range relationReservations {
 			destinationPaths = append(destinationPaths, destination.HostPath())
@@ -351,28 +194,18 @@ func (authority *mutationAuthority) reserveForwardRemovalExecutionBudget(
 	return execution, nil
 }
 
-func removalStateKind(state recovery.RemovalState) (string, bool, error) {
-	if before, present := state.Before(); present {
-		return before.Kind, before.Existed, nil
-	}
-	if expected, present := state.Expected(); present {
-		return expected.Kind, expected.Existed, nil
-	}
-	return "", false, fmt.Errorf("removal state is empty")
-}
-
 func findForwardRemovalCertificate(
-	certificates []forwardRemovalCertificate,
+	certificates []ForwardCandidate,
 	state recovery.RemovalState,
-) (forwardRemovalCertificate, bool, error) {
-	var result forwardRemovalCertificate
+) (ForwardCandidate, bool, error) {
+	var result ForwardCandidate
 	found := false
 	for _, certificate := range certificates {
-		if !certificate.state.Equal(state) {
+		if !certificate.State.Equal(state) {
 			continue
 		}
 		if found {
-			return forwardRemovalCertificate{}, false, fmt.Errorf(
+			return ForwardCandidate{}, false, fmt.Errorf(
 				"forward removal state has duplicate writer certificates",
 			)
 		}
@@ -382,11 +215,11 @@ func findForwardRemovalCertificate(
 	return result, found, nil
 }
 
-func (authority *mutationAuthority) observeForwardRemovalCurrent(
+func (authority *Operation) observeForwardRemovalCurrent(
 	ctx context.Context,
-	relation removalRelationKey,
+	relation Relation,
 	states []recovery.RemovalState,
-	certificates []forwardRemovalCertificate,
+	certificates []ForwardCandidate,
 ) (recovery.RemovalState, workmeasure.ArtifactWork, bool, error) {
 	destination, present := authority.removalDestinations[relation]
 	if !present || !destination.IsRooted() {
@@ -437,7 +270,7 @@ func (authority *mutationAuthority) observeForwardRemovalCurrent(
 	return matching[0], work, true, nil
 }
 
-func (authority *mutationAuthority) beginForwardRemoval(
+func (authority *Operation) beginForwardRemoval(
 	ctx context.Context,
 	destination mutationnamespace.Destination,
 	capability rootedpath.CommitCapability,
@@ -447,7 +280,7 @@ func (authority *mutationAuthority) beginForwardRemoval(
 	if !authority.forwardRemovalPrepared {
 		return mutationfs.TreeTraversalLimits{}, fmt.Errorf("forward removal capacity was not prepared before effects")
 	}
-	relation := removalRelationKey{scope: destination.Scope(), destination: destination.Logical()}
+	relation := Relation{Scope: destination.Scope(), Destination: destination.Logical()}
 	reservations := authority.forwardRemovalReservations[relation]
 	var envelope physicalwork.ForwardRemovalCapacity
 	haveEnvelope := false
@@ -512,6 +345,26 @@ func (authority *mutationAuthority) beginForwardRemoval(
 	)
 }
 
-func (authority *mutationAuthority) prepareForwardRemovalReservations(ctx context.Context, certificates []forwardRemovalCertificate) error {
-	return authority.prepareForwardRemovalReservationsFor(ctx, authority.removalDemands, certificates)
+func (authority *Operation) PrepareForward(ctx context.Context, certificates []ForwardCandidate) error {
+	return authority.PrepareForwardFor(ctx, authority.removalDemands, certificates)
+}
+
+func (authority *Operation) PrepareRecoveryForward(
+	ctx context.Context,
+	produce func(recovery.RemovalDemandSet) ([]ForwardCandidate, error),
+) error {
+	if authority == nil || !authority.removalBindingsPrepared || authority.physicalWorkBudget == nil {
+		return fmt.Errorf("recovery forward removal requires prepared physical bindings")
+	}
+	if authority.forwardRemovalPrepared {
+		if authority.forwardRemovalExecution == nil {
+			return fmt.Errorf("recovery forward removal preparation is incomplete")
+		}
+		return nil
+	}
+	certificates, err := produce(authority.removalDemands)
+	if err != nil {
+		return err
+	}
+	return authority.PrepareForward(ctx, certificates)
 }

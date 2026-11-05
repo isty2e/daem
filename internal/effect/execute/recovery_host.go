@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
+
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -131,7 +133,7 @@ func newRecoveryMutationAuthority(
 	filesystem mutationfs.Store,
 	ownershipRegistryBinder ownershipmutation.RootedRegistryBinder,
 ) (*mutationAuthority, error) {
-	demands, err := removalDemandSetFromIntents(plan.RemovalIntents())
+	demands, err := removaloperation.DemandsForIntents(plan.RemovalIntents())
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +153,7 @@ func newRecoveryMutationAuthority(
 		return nil, err
 	}
 	authority.ownershipRegistryBinder = ownershipRegistryBinder
-	if err := authority.prepareRemovalDemands(demands, physicalWorkBudget); err != nil {
+	if err := authority.removals.PrepareDemands(demands, physicalWorkBudget); err != nil {
 		_ = authority.close()
 		return nil, err
 	}

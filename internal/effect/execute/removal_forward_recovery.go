@@ -4,34 +4,24 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-func (authority *mutationAuthority) prepareRecoveryForwardRemovals(
+func prepareRecoveryForwardRemovals(
 	ctx context.Context,
+	removals *removaloperation.Operation,
 	actions []recoveryHostAction,
 	codecs aggregate.CodecCatalog,
 ) error {
-	if authority == nil || !authority.removalBindingsPrepared || authority.physicalWorkBudget == nil {
-		return fmt.Errorf("recovery forward removal requires prepared physical bindings")
-	}
-	if authority.forwardRemovalPrepared {
-		if authority.forwardRemovalExecution == nil {
-			return fmt.Errorf("recovery forward removal preparation is incomplete")
-		}
-		return nil
-	}
-	certificates, err := recoveryForwardRemovalCertificates(
+	return removals.PrepareRecoveryForward(
 		ctx,
-		actions,
-		authority.removalDemands,
-		codecs,
+		func(demands recovery.RemovalDemandSet) ([]removaloperation.ForwardCandidate, error) {
+			return recoveryForwardRemovalCertificates(ctx, actions, demands, codecs)
+		},
 	)
-	if err != nil {
-		return err
-	}
-	return authority.prepareForwardRemovalReservations(ctx, certificates)
 }
 
 func recoveryForwardRemovalCertificates(
@@ -39,8 +29,8 @@ func recoveryForwardRemovalCertificates(
 	actions []recoveryHostAction,
 	demands recovery.RemovalDemandSet,
 	codecs aggregate.CodecCatalog,
-) ([]forwardRemovalCertificate, error) {
-	certificates := make([]forwardRemovalCertificate, 0, len(actions))
+) ([]removaloperation.ForwardCandidate, error) {
+	certificates := make([]removaloperation.ForwardCandidate, 0, len(actions))
 	for index, action := range actions {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -52,7 +42,7 @@ func recoveryForwardRemovalCertificates(
 		if err != nil {
 			return nil, fmt.Errorf("recovery action[%d] forward removal destination: %w", index, err)
 		}
-		relation := removalRelationKey{scope: action.Scope, destination: destination}
+		relation := removaloperation.Relation{Scope: action.Scope, Destination: destination}
 		states := removalStatesForRelation(demands, relation)
 		if len(states) == 0 {
 			continue
@@ -114,11 +104,11 @@ func recoveryForwardRemovalCertificates(
 }
 
 func appendUniqueForwardRemovalCertificate(
-	values []forwardRemovalCertificate,
-	candidate forwardRemovalCertificate,
-) []forwardRemovalCertificate {
+	values []removaloperation.ForwardCandidate,
+	candidate removaloperation.ForwardCandidate,
+) []removaloperation.ForwardCandidate {
 	for _, value := range values {
-		if value.relation == candidate.relation && value.state.Equal(candidate.state) {
+		if value.Relation == candidate.Relation && value.State.Equal(candidate.State) {
 			return values
 		}
 	}
@@ -127,10 +117,10 @@ func appendUniqueForwardRemovalCertificate(
 
 func removalStatesForRelation(
 	demands recovery.RemovalDemandSet,
-	relation removalRelationKey,
+	relation removaloperation.Relation,
 ) []recovery.RemovalState {
 	for _, demand := range demands.Demands() {
-		if demand.Scope() == relation.scope && demand.Destination() == relation.destination {
+		if demand.Scope() == relation.Scope && demand.Destination() == relation.Destination {
 			return demand.States()
 		}
 	}

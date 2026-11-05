@@ -76,7 +76,7 @@ func mutateFileDestinationWithOutcome(
 			_ = capability.Close()
 			return fileMutationOutcome{}
 		}
-		_, err := authority.removeJournaledRootedEntry(ctx, destination, capability, expected)
+		_, err := authority.removals.RemoveRootedEntry(ctx, destination, capability, expected)
 		return attemptedFileMutation(err)
 	}
 	if !exists {
@@ -138,7 +138,7 @@ func removeDestinationAgainst(
 	if err != nil {
 		return err
 	}
-	_, err = authority.removeJournaledRootedEntry(ctx, destination, capability, expected)
+	_, err = authority.removals.RemoveRootedEntry(ctx, destination, capability, expected)
 	return err
 }
 
@@ -158,7 +158,7 @@ func removeManagedPathDestination(
 	if err != nil {
 		return err
 	}
-	_, err = authority.removeJournaledRootedEntry(ctx, destination, capability, precondition.identity)
+	_, err = authority.removals.RemoveRootedEntry(ctx, destination, capability, precondition.identity)
 	return err
 }
 

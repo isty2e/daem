@@ -84,5 +84,5 @@ func prepareNativeRecoveryRemovals(ctx context.Context, authority *mutationAutho
 	if err != nil {
 		return err
 	}
-	return authority.prepareForwardRemovalReservationsFor(ctx, reachableDemands, certificates)
+	return authority.removals.PrepareForwardFor(ctx, reachableDemands, certificates)
 }

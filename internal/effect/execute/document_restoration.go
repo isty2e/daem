@@ -116,7 +116,7 @@ func publishDocumentRestoration(
 	open = false
 	switch {
 	case !candidate.Exists():
-		_, err = authority.removeJournaledRootedEntry(ctx, destination, capability, freshIdentity)
+		_, err = authority.removals.RemoveRootedEntry(ctx, destination, capability, freshIdentity)
 	case !fresh.Exists():
 		err = authority.filesystem.CreateRootedFile(ctx, capability, candidate.Content(), os.FileMode(fileMode))
 	default:

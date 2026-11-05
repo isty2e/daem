@@ -153,7 +153,7 @@ func ExecuteRecoveryPlanWithOptions(
 		return err
 	}
 	if err := execution.runTerminalStep(prefix[4], func() error {
-		if err := authority.bindRemovalIntents(plan); err != nil {
+		if err := authority.removals.BindPlan(plan); err != nil {
 			return fmt.Errorf("bind recovery removal authority: %w", err)
 		}
 		return nil
@@ -344,7 +344,7 @@ func executeRecoveryPlanEffects(
 			kind: operationplan.EffectStepObservation,
 		},
 		func() error {
-			if err := authority.bindRemovalIntents(plan); err != nil {
+			if err := authority.removals.BindPlan(plan); err != nil {
 				return fmt.Errorf("bind reloaded recovery removal authority: %w", err)
 			}
 			return nil
@@ -396,7 +396,7 @@ func executeRecoveryPlanEffects(
 			return err
 		}
 		if err := execution.runTerminalStep(steps[2], func() error {
-			if err := authority.prepareRecoveryRemovalCleanup(plan); err != nil {
+			if err := authority.removals.PrepareCleanup(plan.RemovalIntents()); err != nil {
 				return fmt.Errorf("prepare bounded removal cleanup: %w", err)
 			}
 			return nil
@@ -443,7 +443,7 @@ func executeRecoveryPlanEffects(
 			return err
 		}
 		if err := execution.runTerminalStep(steps[2], func() error {
-			if err := authority.prepareRecoveryRemovalCleanup(plan); err != nil {
+			if err := authority.removals.PrepareCleanup(plan.RemovalIntents()); err != nil {
 				return fmt.Errorf("prepare bounded removal cleanup: %w", err)
 			}
 			return nil
@@ -729,7 +729,7 @@ func executeRecoveryRollbackEffects(
 		return err
 	}
 	if err := execution.runTerminalStep(steps[4], func() error {
-		if err := authority.prepareRecoveryForwardRemovals(ctx, hostActions, codecs); err != nil {
+		if err := prepareRecoveryForwardRemovals(ctx, authority.removals, hostActions, codecs); err != nil {
 			return fmt.Errorf("prepare bounded recovery removals: %w", err)
 		}
 		return nil
@@ -750,7 +750,7 @@ func executeRecoveryRollbackEffects(
 		kind: operationplan.EffectStepObservation,
 	}
 	if err := execution.runBranchingStep(prepareCleanupStep, func() error {
-		if err := authority.prepareRecoveryRemovalCleanup(plan); err != nil {
+		if err := authority.removals.PrepareCleanup(plan.RemovalIntents()); err != nil {
 			return fmt.Errorf("prepare bounded removal cleanup: %w", err)
 		}
 		return nil

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -31,10 +33,10 @@ func removalDemandSetForExecution(
 			item,
 		)
 	}
-	statesByRelation := make(map[removalRelationKey][]recovery.RemovalState)
+	statesByRelation := make(map[removaloperation.Relation][]recovery.RemovalState)
 
 	add := func(scope target.Scope, destination output.Destination, state recovery.RemovalState) error {
-		key := removalRelationKey{scope: scope, destination: destination}
+		key := removaloperation.Relation{Scope: scope, Destination: destination}
 		for _, prior := range statesByRelation[key] {
 			if prior.Equal(state) {
 				return nil
@@ -70,8 +72,8 @@ func removalDemandSetForExecution(
 	demands := make([]recovery.RemovalDemand, 0, len(statesByRelation))
 	for relation, states := range statesByRelation {
 		demand, err := recovery.NewRemovalDemand(
-			relation.scope,
-			relation.destination,
+			relation.Scope,
+			relation.Destination,
 			states,
 		)
 		if err != nil {

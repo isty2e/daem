@@ -224,7 +224,7 @@ func commitRootedAggregateCandidate(
 		}
 		return fileMutationOutcome{}
 	case !candidate.Exists():
-		_, err := authority.removeJournaledRootedEntry(ctx, destination, capability, identity)
+		_, err := authority.removals.RemoveRootedEntry(ctx, destination, capability, identity)
 		return attemptedFileMutation(err)
 	case !exists:
 		return attemptedFileMutation(authority.filesystem.CreateRootedFile(

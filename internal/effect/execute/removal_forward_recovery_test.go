@@ -69,7 +69,7 @@ func TestRecoveryForwardRemovalCertificatesUsePlannedBackupWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	for index, certificate := range certificates {
-		measured, err := certificate.measure(t.Context(), maximum)
+		measured, err := certificate.Measure(t.Context(), maximum)
 		if err != nil {
 			t.Fatalf("measure certificate[%d]: %v", index, err)
 		}

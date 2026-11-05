@@ -2,7 +2,8 @@ package execute
 
 import (
 	"context"
-	"fmt"
+
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
@@ -25,11 +26,11 @@ func bindNativeRemovalIntents(ctx context.Context, authority *mutationAuthority,
 	if err != nil {
 		return recovery.RemovalDemandSet{}, err
 	}
-	physical, err := removalDemandSetFromIntents(intents)
+	physical, err := removaloperation.DemandsForIntents(intents)
 	if err != nil {
 		return recovery.RemovalDemandSet{}, err
 	}
-	destinations := make(map[removalRelationKey]mutationnamespace.Destination, len(intents))
+	destinations := make([]mutationnamespace.Destination, 0, len(intents))
 	for _, intent := range intents {
 		if err := authority.destinations.Bind(intent.Scope(), intent.Destination()); err != nil {
 			return recovery.RemovalDemandSet{}, err
@@ -38,9 +39,9 @@ func bindNativeRemovalIntents(ctx context.Context, authority *mutationAuthority,
 		if err != nil {
 			return recovery.RemovalDemandSet{}, err
 		}
-		destinations[removalRelationKey{scope: intent.Scope(), destination: intent.Destination()}] = destination
+		destinations = append(destinations, destination)
 	}
-	seenNative := make(map[removalRelationKey]struct{})
+	var native []mutationnamespace.Destination
 	for _, document := range operation.Documents() {
 		removal, present, err := document.Removal()
 		if err != nil {
@@ -49,21 +50,15 @@ func bindNativeRemovalIntents(ctx context.Context, authority *mutationAuthority,
 		if !present {
 			continue
 		}
-		intent, err := removal.PhysicalIntent()
-		if err != nil {
+		if _, err := removal.PhysicalIntent(); err != nil {
 			return recovery.RemovalDemandSet{}, err
 		}
 		destination, err := nativeRecoveryDestination(ctx, authority.destinations, document, budget)
 		if err != nil {
 			return recovery.RemovalDemandSet{}, err
 		}
-		key := removalRelationKey{scope: intent.Scope(), destination: intent.Destination()}
-		if _, duplicate := seenNative[key]; duplicate {
-			return recovery.RemovalDemandSet{}, fmt.Errorf("native recovery repeats a physical removal relation")
-		}
-		seenNative[key], destinations[key] = struct{}{}, destination
+		native = append(native, destination)
 	}
-	authority.removalDemands, authority.removalDestinations = physical, destinations
-	authority.physicalWorkBudget, authority.removalBindingsPrepared = budget, true
-	return physical, authority.bindRemovalIntentList(intents)
+	authority.physicalWorkBudget = budget
+	return physical, authority.removals.PrepareNativeSource(physical, destinations, native, budget, intents)
 }

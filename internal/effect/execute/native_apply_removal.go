@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -50,8 +52,8 @@ func prepareNativeApplyRemovals(ctx context.Context, captured journalpublication
 			return err
 		}
 		for _, state := range intent.Demand().States() {
-			certificates = append(certificates, constantForwardRemovalCertificate(removalRelationKey{scope: intent.Scope(), destination: intent.Destination()}, state, 0, int64(len(expected.Content()))))
+			certificates = append(certificates, constantForwardRemovalCertificate(removaloperation.Relation{Scope: intent.Scope(), Destination: intent.Destination()}, state, 0, int64(len(expected.Content()))))
 		}
 	}
-	return authority.prepareForwardRemovalReservationsFor(ctx, physical, certificates)
+	return authority.removals.PrepareForwardFor(ctx, physical, certificates)
 }

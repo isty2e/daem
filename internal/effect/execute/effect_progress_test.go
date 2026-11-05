@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -113,7 +115,7 @@ func TestRootedRemovalOutcomeControlsEffectProgressWithoutRecursion(t *testing.T
 			if err != nil {
 				t.Fatalf("NewCommitOutcome returned error: %v", err)
 			}
-			failure := &rootedRemovalCommitError{outcome: outcome, cause: errors.New("private storage cause")}
+			failure := removaloperation.NewCommitError(outcome, errors.New("private storage cause"))
 			if got := progressAfterMutationError(failure); got != test.want {
 				t.Fatalf("progressAfterMutationError = %v, want %v", got, test.want)
 			}

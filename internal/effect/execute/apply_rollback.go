@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -592,7 +594,7 @@ func progressAfterMutationError(err error) hostEffectProgress {
 	if errors.As(err, &indeterminate) {
 		return hostEffectIndeterminate
 	}
-	var removalFailure *rootedRemovalCommitError
+	var removalFailure *removaloperation.CommitError
 	if errors.As(err, &removalFailure) {
 		return progressAfterCommitOutcome(removalFailure.Outcome(), err)
 	}

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
+
 	"github.com/isty2e/daem/internal/effect/execute/controlwitness"
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
@@ -25,6 +27,7 @@ import (
 type mutationAuthority struct {
 	destinations               mutationnamespace.Namespace
 	control                    *controlwitness.Guard
+	removals                   *removaloperation.Operation
 	lexical                    mutationnamespace.Resolver
 	filesystem                 mutationfs.Store
 	capturedRoot               *rootedpath.CapturedRoot
@@ -33,20 +36,11 @@ type mutationAuthority struct {
 	recoveryJournalRecord      *rootedpath.EntryAuthority
 	journalBasis               journalExecutionBasis
 	physicalAuthorityRequests  []mutation.PhysicalAuthorityRequest
-	removalDemands             recovery.RemovalDemandSet
-	removalIntents             map[removalRelationKey]recovery.RemovalIntent
-	removalDestinations        map[removalRelationKey]mutationnamespace.Destination
 	physicalWorkBudget         *physicalwork.Budget
 	generalTraversalPhase      *physicalwork.TraversalPhase
-	removalBindingsPrepared    bool
-	removalAuthorityBound      bool
-	forwardRemovalReservations map[removalRelationKey][]forwardRemovalReservation
-	forwardRemovalPrepared     bool
-	forwardRemovalExecution    *physicalwork.Budget
 	recoveryBackups            map[string]recoveryBackup
 	recoveryBackupExecution    *physicalwork.Budget
 	generalExecutionWorkBudget *physicalwork.Budget
-	removalCleanupExecution    *physicalwork.Budget
 	preparedRetirement         *journal.RetirementContinuation
 	ownershipRegistry          ownershipmutation.RegistryStore
 	ownershipRegistryBinder    ownershipmutation.RootedRegistryBinder
@@ -83,7 +77,7 @@ func newMutationAuthorityWithProjectionEffects(
 		return nil, err
 	}
 	authority.ownershipRegistryBinder = ownershipRegistryBinder
-	if err := authority.prepareRemovalDemands(removalDemands, physicalWorkBudget); err != nil {
+	if err := authority.removals.PrepareDemands(removalDemands, physicalWorkBudget); err != nil {
 		_ = authority.close()
 		return nil, err
 	}
@@ -206,6 +200,7 @@ func captureMutationAuthorityWithPhysicalWorkBudget(
 		control:            controlwitness.New(filesystem),
 		physicalWorkBudget: physicalWorkBudget, generalTraversalPhase: traversalPhase,
 	}
+	authority.removals = removaloperation.New(destinations, filesystem, authority.control, physicalWorkBudget, traversalPhase)
 	if projectRequired {
 		if err := authority.captureProjectRoot(paths, borrowedRoot); err != nil {
 			return nil, err
@@ -300,20 +295,12 @@ func (authority *mutationAuthority) close() error {
 	}
 	authority.recoveryJournalRecord = nil
 	authority.journalBasis = journalExecutionBasis{}
-	authority.removalIntents = nil
-	authority.removalDemands = recovery.RemovalDemandSet{}
-	authority.removalDestinations = nil
 	authority.physicalWorkBudget = nil
-	authority.removalBindingsPrepared = false
-	authority.removalAuthorityBound = false
-	authority.forwardRemovalReservations = nil
-	authority.forwardRemovalPrepared = false
-	authority.forwardRemovalExecution = nil
 	authority.recoveryBackups = nil
 	authority.recoveryBackupExecution = nil
 	authority.generalExecutionWorkBudget = nil
+	authority.removals = nil
 	authority.generalTraversalPhase = nil
-	authority.removalCleanupExecution = nil
 	if err := authority.preparedRetirement.Close(); err != nil {
 		closeErr = errors.Join(closeErr, fmt.Errorf("close prepared journal retirement: %w", err))
 	}

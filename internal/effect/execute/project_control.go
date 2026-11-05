@@ -286,7 +286,7 @@ func (authority *mutationAuthority) retireActiveJournal(
 			kind: operationplan.EffectStepObservation,
 		},
 		func() error {
-			if err := authority.bindRemovalIntents(plan); err != nil {
+			if err := authority.removals.BindPlan(plan); err != nil {
 				return fmt.Errorf("validate complete removal authority before retirement: %w", err)
 			}
 			return nil
@@ -353,7 +353,7 @@ func (authority *mutationAuthority) retireActiveJournal(
 			kind: operationplan.EffectStepCleanup,
 		},
 		func() error {
-			if _, err := authority.cleanupRemovalResidues(ctx, plan); err != nil {
+			if _, err := authority.removals.CleanupResidues(ctx, plan); err != nil {
 				return fmt.Errorf("reconcile journaled removal residues before retirement: %w", err)
 			}
 			return nil
