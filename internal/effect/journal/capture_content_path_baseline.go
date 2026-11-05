@@ -156,7 +156,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 	ctx context.Context,
 	action journalrecord.CaptureMutation,
 	resolver func(destination output.Destination) (string, error),
-	manifestAuthority *manifestAuthoritySession,
+	manifestAuthority *journalnamespace.ManifestAuthority,
 	rootedCapability RootedCapabilityResolver,
 ) (recoveryContentPathBaseline, error) {
 	if cache == nil {

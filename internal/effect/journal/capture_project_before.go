@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -25,9 +27,9 @@ func validateAbsentProjectRecoveryPath(
 	ctx context.Context,
 	filesystem mutationfs.RootedReader,
 	action journalrecord.CaptureMutation,
-	manifestAuthority *manifestAuthoritySession,
+	manifestAuthority *journalnamespace.ManifestAuthority,
 ) error {
-	capability, err := manifestAuthority.acquire(action.Destination())
+	capability, err := manifestAuthority.Acquire(action.Destination())
 	if err != nil {
 		return err
 	}
@@ -50,7 +52,7 @@ func captureProjectContentPathRecoveryBeforePath(
 	backupIndex int,
 	action journalrecord.CaptureMutation,
 	filesystem mutationfs.Reader,
-	manifestAuthority *manifestAuthoritySession,
+	manifestAuthority *journalnamespace.ManifestAuthority,
 	contentPathBaselines *recoveryContentPathBaselineCache,
 	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
@@ -149,7 +151,7 @@ func captureAbsentProjectContentPathRecoveryBefore(
 	ctx context.Context,
 	action journalrecord.CaptureMutation,
 	filesystem mutationfs.Reader,
-	manifestAuthority *manifestAuthoritySession,
+	manifestAuthority *journalnamespace.ManifestAuthority,
 	contentPathBaselines *recoveryContentPathBaselineCache,
 ) (recovery.BeforePathState, error) {
 	if !action.LivePathExists() {
@@ -183,10 +185,10 @@ func captureProjectExistingRecoveryBeforePath(
 	operationDir string,
 	backupIndex int,
 	action journalrecord.CaptureMutation,
-	manifestAuthority *manifestAuthoritySession,
+	manifestAuthority *journalnamespace.ManifestAuthority,
 	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
-	capability, err := manifestAuthority.acquire(action.Destination())
+	capability, err := manifestAuthority.Acquire(action.Destination())
 	if err != nil {
 		return recovery.BeforePathState{}, backupIndex, err
 	}
@@ -293,10 +295,10 @@ func readProjectRecoveryRegularFile(
 	ctx context.Context,
 	filesystem mutationfs.RootedReader,
 	destination output.Destination,
-	manifestAuthority *manifestAuthoritySession,
+	manifestAuthority *journalnamespace.ManifestAuthority,
 	maximumBytes int64,
 ) ([]byte, fs.FileMode, error) {
-	capability, err := manifestAuthority.acquire(destination)
+	capability, err := manifestAuthority.Acquire(destination)
 	if err != nil {
 		return nil, 0, err
 	}

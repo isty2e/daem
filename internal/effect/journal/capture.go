@@ -10,6 +10,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -328,19 +330,17 @@ func buildOrdinaryCaptureMaterial(
 		return journalrecord.OrdinaryEvidence{}, err
 	}
 	boundResolver := globalPathBindings.resolver(options.Resolver)
-	manifestAuthority, err := work.manifest(paths, options.ManifestRoot)
+	manifestAuthority, err := journalnamespace.CaptureManifestAuthority(paths.ManifestRoot, options.ManifestRoot, work.budget)
 	if err != nil {
 		return journalrecord.OrdinaryEvidence{}, err
 	}
-	if manifestAuthority.owned {
-		defer func() {
-			if closeErr := manifestAuthority.close(); closeErr != nil {
-				result = journalrecord.OrdinaryEvidence{}
-				resultErr = errors.Join(resultErr, fmt.Errorf("close recovery journal manifest root: %w", closeErr))
-			}
-		}()
-	}
-	draft, err := journalrecord.NewOrdinaryDraft(operationID, createdAt, currentState, nextState, manifestAuthority.provenance, mutations, options.RemovalDemands)
+	defer func() {
+		if closeErr := manifestAuthority.Close(); closeErr != nil {
+			result = journalrecord.OrdinaryEvidence{}
+			resultErr = errors.Join(resultErr, fmt.Errorf("close recovery journal manifest root: %w", closeErr))
+		}
+	}()
+	draft, err := journalrecord.NewOrdinaryDraft(operationID, createdAt, currentState, nextState, manifestAuthority.Provenance(), mutations, options.RemovalDemands)
 	if err != nil {
 		return journalrecord.OrdinaryEvidence{}, err
 	}

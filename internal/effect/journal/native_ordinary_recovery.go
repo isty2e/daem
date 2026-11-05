@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"path/filepath"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -62,8 +65,7 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 	if err := validateRecoveryGlobalPathBindings(ctx, ordinaryViews, options.resolver, options.documents.OrdinaryCapabilities, options.documents.Budget); err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	work := &ordinaryCaptureWork{budget: options.documents.Budget}
-	manifest, err := work.manifest(Paths{ManifestRoot: options.roots.Manifest.SelectedPath}, options.roots.Manifest.Root)
+	manifest, err := journalnamespace.CaptureManifestAuthority(options.roots.Manifest.SelectedPath, options.roots.Manifest.Root, options.documents.Budget)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}

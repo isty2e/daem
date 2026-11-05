@@ -552,7 +552,7 @@ func TestProjectRecoveryPathChargesRootedDirectoryWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := mustManifestAuthoritySession(t, root)
-	defer session.root.Close()
+	defer session.Close()
 	budget := recoveryBackupBudgetForTest(t)
 	before := budget.RemainingTreeWork()
 

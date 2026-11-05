@@ -25,7 +25,7 @@ func observeProjectRecoveryPath(
 	contentPath string,
 	aggregateContract *aggregate.ProjectionContract,
 	filesystem mutationfs.RootedReader,
-	manifestAuthority *manifestAuthoritySession,
+	manifestAuthority *journalnamespace.ManifestAuthority,
 	codecs aggregate.CodecCatalog,
 	budget *physicalwork.Budget,
 ) (recoveryPathObservation, error) {
@@ -39,7 +39,7 @@ func observeProjectRecoveryPath(
 		base.Error = fmt.Sprintf("parse project destination: %v", err)
 		return base, nil
 	}
-	capability, err := manifestAuthority.acquireBounded(destination, budget)
+	capability, err := manifestAuthority.AcquireBounded(destination, budget)
 	if err != nil {
 		base.Error = fmt.Sprintf("acquire project destination: %v", err)
 		return base, nil

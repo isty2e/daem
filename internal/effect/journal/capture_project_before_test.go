@@ -7,8 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization"
@@ -45,7 +46,7 @@ func TestCaptureProjectExistingDirectoryCreatesHashEquivalentRootedBackup(t *tes
 		t.Fatalf("hash project directory: %v", err)
 	}
 	session := mustManifestAuthoritySession(t, root)
-	defer session.root.Close()
+	defer session.Close()
 	mutation := normalizedPathCapture(t, journalrecord.CaptureReplace, target.ScopeProject, outputtest.Parse(t, ".agents/skills/review"), contentHash, realization.PathProjectionDirectory)
 	operationDir := t.TempDir()
 	before, backupIndex, err := captureProjectExistingRecoveryBeforePath(
@@ -93,7 +94,7 @@ func TestCaptureProjectExistingDirectoryRejectsAncestorSymlinkWithoutBackup(t *t
 		t.Fatalf("create project ancestor symlink: %v", err)
 	}
 	session := mustManifestAuthoritySession(t, root)
-	defer session.root.Close()
+	defer session.Close()
 	mutation := normalizedPathCapture(t, journalrecord.CaptureReplace, target.ScopeProject, outputtest.Parse(t, ".agents/skills/review"), testContentHash("unreachable"), realization.PathProjectionDirectory)
 	operationDir := t.TempDir()
 	_, _, err := captureProjectExistingRecoveryBeforePath(
@@ -135,7 +136,7 @@ func TestCaptureProjectExistingFileRejectsOversizedRecoveryBackup(t *testing.T) 
 		t.Fatal(err)
 	}
 	session := mustManifestAuthoritySession(t, root)
-	defer session.root.Close()
+	defer session.Close()
 	mutation := normalizedPathCapture(t, journalrecord.CaptureReplace, target.ScopeProject, outputtest.Parse(t, "large.bin"), artifact.ContentHash("sha256:"+strings.Repeat("0", 64)), realization.PathProjectionFile)
 	operationDir := t.TempDir()
 
@@ -174,7 +175,7 @@ func TestObserveProjectRecoveryPathRejectsOversizedRegularFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := mustManifestAuthoritySession(t, root)
-	defer session.root.Close()
+	defer session.Close()
 
 	observation, err := observeProjectRecoveryPath(
 		t.Context(),
@@ -208,7 +209,7 @@ func TestObserveProjectRecoveryPathUsesRootedDirectoryHashAndBlocksSymlink(t *te
 		t.Fatalf("hash directory: %v", err)
 	}
 	session := mustManifestAuthoritySession(t, root)
-	defer session.root.Close()
+	defer session.Close()
 	observation, err := observeProjectRecoveryPath(
 		context.Background(),
 		"tree",
@@ -259,7 +260,7 @@ func TestObserveProjectRecoveryPathReportsRootedAbsence(t *testing.T) {
 		t.Fatalf("create project root: %v", err)
 	}
 	session := mustManifestAuthoritySession(t, root)
-	defer session.root.Close()
+	defer session.Close()
 
 	observation, err := observeProjectRecoveryPath(
 		context.Background(),
@@ -279,13 +280,11 @@ func TestObserveProjectRecoveryPathReportsRootedAbsence(t *testing.T) {
 	}
 }
 
-func mustManifestAuthoritySession(t *testing.T, root string) *manifestAuthoritySession {
+func mustManifestAuthoritySession(t *testing.T, root string) *journalnamespace.ManifestAuthority {
 	t.Helper()
-	captured := mustJournalProjectRoot(t, root)
-	session, err := newManifestAuthoritySession(captured, false)
+	session, err := journalnamespace.CaptureManifestAuthority(root, nil, nil)
 	if err != nil {
-		_ = captured.Close()
-		t.Fatalf("newManifestAuthoritySession returned error: %v", err)
+		t.Fatalf("capture manifest authority: %v", err)
 	}
 	return session
 }

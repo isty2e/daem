@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -312,8 +313,8 @@ func TestManifestRecoveryAuthorityAdmitsBudgetBeforeRootObservation(t *testing.T
 		t.Fatalf("create replacement manifest root: %v", err)
 	}
 
-	_, err = manifestAuthorityForRecovery(
-		Paths{ManifestRoot: manifestRoot},
+	_, err = journalnamespace.RecaptureManifestAuthority(
+		manifestRoot,
 		provenance,
 		budget,
 	)

@@ -8,8 +8,9 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
-	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -19,6 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
 )
 
@@ -136,7 +138,7 @@ func TestOrdinaryDirectoryCaptureBoundsStreamingBeforeAdditionalCopies(t *testin
 		t.Fatal(err)
 	}
 	work := &ordinaryCaptureWork{budget: budget}
-	session, err := work.manifest(Paths{ManifestRoot: root}, nativeNamespaceRoot(t, root).Root)
+	session, err := journalnamespace.CaptureManifestAuthority(root, nativeNamespaceRoot(t, root).Root, budget)
 	if err != nil {
 		t.Fatal(err)
 	}

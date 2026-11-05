@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
+	"github.com/isty2e/daem/internal/assurance/durable"
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
@@ -487,12 +489,12 @@ func loadActivePlanFromInventory(
 			return recovery.Plan{}, err
 		}
 	}
-	manifestAuthority, err := manifestAuthorityForRecovery(paths, basis.ManifestProvenance(), planningBudget)
+	manifestAuthority, err := journalnamespace.RecaptureManifestAuthority(paths.ManifestRoot, basis.ManifestProvenance(), planningBudget)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
 	if manifestAuthority != nil {
-		defer manifestAuthority.close()
+		defer manifestAuthority.Close()
 	}
 	observations, err := recoveryPathObservations(
 		ctx,
@@ -519,7 +521,7 @@ func loadActivePlanFromInventory(
 		return recovery.Plan{}, err
 	}
 	if manifestAuthority != nil {
-		if err := manifestAuthority.close(); err != nil {
+		if err := manifestAuthority.Close(); err != nil {
 			return recovery.Plan{}, fmt.Errorf("close recovery manifest root authority: %w", err)
 		}
 	}

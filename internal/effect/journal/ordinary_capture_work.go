@@ -56,28 +56,6 @@ func (work *ordinaryCaptureWork) writeFile(path string, content []byte, mode fs.
 	return writeRecoveryBackupFile(path, content, mode)
 }
 
-func (work *ordinaryCaptureWork) manifest(paths Paths, root *rootedpath.CapturedRoot) (*manifestAuthoritySession, error) {
-	if work.budget == nil {
-		return manifestAuthorityForCapture(paths, root)
-	}
-	if root == nil {
-		return nil, fmt.Errorf("native ordinary capture requires its retained manifest root")
-	}
-	if err := root.ValidateSelectionBounded(paths.ManifestRoot, physicalwork.MaximumPhysicalPathDepth, work.budget); err != nil {
-		return nil, err
-	}
-	authority, err := root.AuthorityBounded(work.budget)
-	if err != nil {
-		return nil, err
-	}
-	session, err := newManifestAuthoritySessionFromAuthority(root, authority, false)
-	if err != nil {
-		return nil, err
-	}
-	session.budget = work.budget
-	return session, nil
-}
-
 func (work *ordinaryCaptureWork) rootedResolver(resolver RootedCapabilityResolver) RootedCapabilityResolver {
 	if work.budget == nil || resolver == nil {
 		return resolver

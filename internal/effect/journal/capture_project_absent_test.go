@@ -81,7 +81,7 @@ func TestValidateAbsentProjectRecoveryPathRejectsAliasesAndDrift(t *testing.T) {
 			}
 			tt.prepare(t, root, outside)
 			session := mustManifestAuthoritySession(t, root)
-			defer session.root.Close()
+			defer session.Close()
 			mutation := normalizedPathCapture(t, journalrecord.CaptureCreate, target.ScopeProject, outputtest.Parse(t, ".agents/skills/review"), "", realization.PathProjectionDirectory)
 
 			err := validateAbsentProjectRecoveryPath(
@@ -109,7 +109,7 @@ func TestValidateAbsentProjectRecoveryPathAcceptsMissingDestination(t *testing.T
 		t.Fatalf("create project root: %v", err)
 	}
 	session := mustManifestAuthoritySession(t, root)
-	defer session.root.Close()
+	defer session.Close()
 	mutation := normalizedPathCapture(t, journalrecord.CaptureCreate, target.ScopeProject, outputtest.Parse(t, ".agents/skills/review"), "", realization.PathProjectionDirectory)
 
 	if err := validateAbsentProjectRecoveryPath(

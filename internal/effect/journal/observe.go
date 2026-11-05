@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -132,7 +134,7 @@ func recoveryPathObservations(
 	ctx context.Context,
 	entries []journalrecord.PathEntry,
 	filesystem mutationfs.Reader,
-	manifestAuthority *manifestAuthoritySession,
+	manifestAuthority *journalnamespace.ManifestAuthority,
 	resolver func(destination output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
 	codecs aggregate.CodecCatalog,
