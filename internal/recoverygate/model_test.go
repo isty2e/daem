@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/fileset"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 

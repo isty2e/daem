@@ -6,10 +6,14 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -24,7 +28,7 @@ type RecoveryOptions struct {
 	ValidateBeforeEffects       func(context.Context, mutation.PhysicalAuthoritySet) error
 	ValidateVisibilityAuthority func(context.Context) error
 	AcceptVisibilityChanges     func(context.Context) error
-	ActiveJournalAuthority      journal.ActiveJournalAuthority
+	ActiveJournalAuthority      journalinventory.ActiveJournalAuthority
 	Resolver                    DestinationResolver
 	Codecs                      aggregate.CodecCatalog
 	OwnershipRegistryBinder     ownershipmutation.RootedRegistryBinder

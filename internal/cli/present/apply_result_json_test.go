@@ -10,7 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/effect/fileset"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/recoverygate"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )

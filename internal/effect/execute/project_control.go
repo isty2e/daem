@@ -10,9 +10,9 @@ import (
 	"unicode"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/journal"
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -60,12 +60,12 @@ func (authority *mutationAuthority) bindRecoveryJournal(
 
 type journalExecutionBasis struct {
 	recordFingerprint string
-	activeAuthority   journal.ActiveJournalAuthority
+	activeAuthority   journalinventory.ActiveJournalAuthority
 }
 
 func newJournalExecutionBasis(
 	recordFingerprint string,
-	activeAuthority journal.ActiveJournalAuthority,
+	activeAuthority journalinventory.ActiveJournalAuthority,
 ) (journalExecutionBasis, error) {
 	if recordFingerprint == "" {
 		return journalExecutionBasis{}, fmt.Errorf(
@@ -114,7 +114,7 @@ func (authority *mutationAuthority) captureJournalExecutionBasis(
 
 func (authority *mutationAuthority) setJournalExecutionBasis(
 	recordFingerprint string,
-	activeAuthority journal.ActiveJournalAuthority,
+	activeAuthority journalinventory.ActiveJournalAuthority,
 ) error {
 	if authority == nil {
 		return fmt.Errorf("recovery journal retirement authority is unavailable")

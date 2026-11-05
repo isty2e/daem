@@ -12,8 +12,8 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/effect/journal"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"

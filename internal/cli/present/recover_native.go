@@ -5,8 +5,8 @@ import (
 	"io"
 
 	"github.com/isty2e/daem/internal/contractversion"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 )
 
 func printNativeRecoverPlan(output io.Writer, plan journal.NativeRecoveryPlan, options HumanOptions) {

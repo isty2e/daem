@@ -8,9 +8,9 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
-	"github.com/isty2e/daem/internal/effect/journal"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"

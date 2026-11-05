@@ -7,7 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
 
-	"github.com/isty2e/daem/internal/effect/journal"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/ownership"
 )

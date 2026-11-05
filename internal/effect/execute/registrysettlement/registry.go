@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/effect/journal"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output/ownership"

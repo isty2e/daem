@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/effect/journal"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/operationplan"
 )
 

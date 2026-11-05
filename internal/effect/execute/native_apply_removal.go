@@ -7,8 +7,8 @@ import (
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/journal"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 )
