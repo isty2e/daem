@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
@@ -80,8 +81,8 @@ func TestGlobalOwnershipApplyRejectsNilStoreFromRegistryBinder(t *testing.T) {
 func TestGlobalOwnershipRecoveryRequiresReaderAndBinderBeforeEffects(t *testing.T) {
 	fixture, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventStatefileWritten {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.StatefileWritten {
 			cancel()
 		}
 	}})
@@ -242,8 +243,8 @@ func managedPathOwnershipObservation(
 func TestGlobalOwnershipCancellationAfterReservationRestoresAbsentClaim(t *testing.T) {
 	fixture, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventRollbackStageStarted {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.RollbackStageStarted {
 			cancel()
 		}
 	}})
@@ -313,8 +314,8 @@ func TestGlobalOwnershipPreparationRollbackFailureRetainsJournalAndPrimaryError(
 func TestGlobalOwnershipCancellationAfterHostActionRollsBackHostAndClaim(t *testing.T) {
 	fixture, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventActionDone {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.ActionDone {
 			cancel()
 		}
 	}})
@@ -329,8 +330,8 @@ func TestGlobalOwnershipCancellationAfterHostActionRollsBackHostAndClaim(t *test
 func TestGlobalOwnershipCancellationAfterStateCommitRecoversByFinalizingClaim(t *testing.T) {
 	fixture, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventStatefileWritten {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.StatefileWritten {
 			cancel()
 		}
 	}})
@@ -380,8 +381,8 @@ func TestGlobalOwnershipCancellationAfterStateCommitRecoversByFinalizingClaim(t 
 func TestGlobalOwnershipRecoveryRejectsUnadmittedSuccessorAfterConvergence(t *testing.T) {
 	fixture, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventStatefileWritten {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.StatefileWritten {
 			cancel()
 		}
 	}})
@@ -461,8 +462,8 @@ func TestGlobalOwnershipRecoveryRejectsUnadmittedSuccessorAfterConvergence(t *te
 func TestGlobalOwnershipReleaseRemainsActiveUntilRecoveryFinalizesRemoval(t *testing.T) {
 	_, input := globalOwnershipRemoveInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventStatefileWritten {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.StatefileWritten {
 			cancel()
 		}
 	}})
@@ -502,8 +503,8 @@ func TestGlobalOwnershipReleaseRemainsActiveUntilRecoveryFinalizesRemoval(t *tes
 func TestGlobalOwnershipCancellationAfterFinalizationLeavesCleanAfterJournal(t *testing.T) {
 	_, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	result, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventJournalCleanupStarted {
+	result, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.JournalCleanupStarted {
 			cancel()
 		}
 	}})
@@ -546,8 +547,8 @@ func TestGlobalOwnershipContradictoryFinalizeEvidenceBlocksAndPreservesUnrelated
 		t.Fatalf("ownership store New returned error: %v", err)
 	}
 	var tamperErr error
-	result, err := ApplyWithOptions(context.Background(), input, ApplyOptions{Events: func(event Event) {
-		if event.Kind != EventStatefileWritten || tamperErr != nil {
+	result, err := ApplyWithOptions(context.Background(), input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind != executionevent.StatefileWritten || tamperErr != nil {
 			return
 		}
 		registry, loadErr := store.Load(context.Background())

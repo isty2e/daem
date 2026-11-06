@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -460,8 +460,8 @@ func TestExecuteRejectsDeclarationChangeBetweenOrderAndDelegate(
 		) (bool, error) {
 			return true, nil
 		},
-		ExecuteEvents: func(event execute.Event) {
-			if event.Kind != execute.EventRelationOrderDone {
+		ExecuteEvents: func(event executionevent.Event) {
+			if event.Kind != executionevent.RelationOrderDone {
 				return
 			}
 			orderCompleted++

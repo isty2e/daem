@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/reconcile"
 
@@ -46,10 +47,10 @@ func TestApplyRetainsClassifiableJournalForPostVisibilityStatefileFaults(t *test
 		t.Run(phase, func(t *testing.T) {
 			fixture := newApplyEventFixture(t)
 			action := fixture.createAction("create", "CREATE.md", "created\n")
-			var events []Event
+			var events []executionevent.Event
 
 			_, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
-				Events: func(event Event) { events = append(events, event) },
+				Events: func(event executionevent.Event) { events = append(events, event) },
 				commitStatefile: func(ctx context.Context, path string, content []byte, mode os.FileMode) error {
 					if err := commitFile(ctx, testFilesystem(), path, content, mode); err != nil {
 						t.Fatalf("commit visible statefile before injected %s fault: %v", phase, err)
@@ -61,8 +62,8 @@ func TestApplyRetainsClassifiableJournalForPostVisibilityStatefileFaults(t *test
 				t.Fatalf("ApplyWithOptions error = %v, want indeterminate statefile commit", err)
 			}
 			assertHostFileContent(t, fixture.hostPath("CREATE.md"), "created\n")
-			assertNoEventKind(t, events, EventRollbackRestoreStarted)
-			assertNoEventKind(t, events, EventJournalCleaned)
+			assertNoEventKind(t, events, executionevent.RollbackRestoreStarted)
+			assertNoEventKind(t, events, executionevent.JournalCleaned)
 
 			recoveryPlan, planErr := journal.LoadActivePlanWithOptions(
 				context.Background(),

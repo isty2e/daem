@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -57,7 +58,7 @@ type runResult struct {
 }
 
 type runOptions struct {
-	ExecuteEvents                     execute.EventSink
+	ExecuteEvents                     executionevent.Sink
 	HostRouteExecutor                 subprocess.CommandExecutor
 	HostRouteObserver                 HostRouteObserver
 	CarrierRemovalAdapter             executehostroute.RemovalAdapter

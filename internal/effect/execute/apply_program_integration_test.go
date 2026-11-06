@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/mutation"
 )
 
@@ -37,12 +38,12 @@ func TestApplyWithEffectPlanAcceptsExactNoChangePlanWithoutEffects(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var events []Event
+	var events []executionevent.Event
 	result, err := ApplyWithEffectPlan(
 		context.Background(),
 		input,
 		plan,
-		ApplyOptions{Events: func(event Event) { events = append(events, event) }},
+		ApplyOptions{Events: func(event executionevent.Event) { events = append(events, event) }},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -145,17 +146,17 @@ func TestApplyWithEffectPlanRejectsMismatchBeforeJournalCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var events []Event
+	var events []executionevent.Event
 	_, err = ApplyWithEffectPlan(
 		context.Background(),
 		fixture.input([]applyEventAction{create, update}),
 		prepared,
-		ApplyOptions{Events: func(event Event) { events = append(events, event) }},
+		ApplyOptions{Events: func(event executionevent.Event) { events = append(events, event) }},
 	)
 	if err == nil || !strings.Contains(err.Error(), "prepared and current apply effect plans differ") {
 		t.Fatalf("ApplyWithEffectPlan error = %v, want plan mismatch", err)
 	}
-	if containsApplyEventKind(events, EventJournalCaptureStarted) {
+	if containsApplyEventKind(events, executionevent.JournalCaptureStarted) {
 		t.Fatalf("events = %#v, journal capture must not start after plan mismatch", events)
 	}
 }

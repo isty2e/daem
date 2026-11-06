@@ -11,6 +11,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/payload"
@@ -70,8 +71,8 @@ func TestApplyRollsBackSharedAggregateAfterStatefileFailure(t *testing.T) {
 
 	var journalCapture []byte
 	var journalCaptureErr error
-	events := EventSink(func(event Event) {
-		if event.Kind != EventStatefileWriteFailed {
+	events := executionevent.Sink(func(event executionevent.Event) {
+		if event.Kind != executionevent.StatefileWriteFailed {
 			return
 		}
 		journalCapture, journalCaptureErr = readTreeBytes(paths.RecoveryDir)
@@ -238,7 +239,7 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 		t.Fatalf("write before statefile: %v", err)
 	}
 
-	var completed []ActionEventFacts
+	var completed []executionevent.ActionFacts
 	_, err = ApplyWithOptions(t.Context(), ApplyInput{
 		Paths: paths, Resolver: destinationResolver(paths),
 		ManagedPathEffects:  []effectpreparation.ManagedPathEffect{pathEffect},
@@ -247,8 +248,8 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 		CurrentState:        durable.EmptySnapshot(), Payloads: payloads,
 		Codecs: testAggregateCodecs(), StateCodec: testStateCodec(), Filesystem: testFilesystem(),
 	}, ApplyOptions{
-		Events: func(event Event) {
-			if event.Kind == EventActionDone && event.Action != nil {
+		Events: func(event executionevent.Event) {
+			if event.Kind == executionevent.ActionDone && event.Action != nil {
 				completed = append(completed, *event.Action)
 			}
 		},
@@ -544,8 +545,8 @@ func TestAggregateCancellationAfterJournalLeavesHostUntouched(t *testing.T) {
 		StateCodec:       testStateCodec(),
 		Filesystem:       testFilesystem(),
 	}, ApplyOptions{
-		Events: func(event Event) {
-			if event.Kind == EventJournalCaptured {
+		Events: func(event executionevent.Event) {
+			if event.Kind == executionevent.JournalCaptured {
 				cancel()
 			}
 		},
@@ -594,8 +595,8 @@ func TestAggregateCancellationAfterVisibleBatchRollsBackEveryProjection(t *testi
 		StateCodec:       testStateCodec(),
 		Filesystem:       testFilesystem(),
 	}, ApplyOptions{
-		Events: func(event Event) {
-			if event.Kind == EventActionDone {
+		Events: func(event executionevent.Event) {
+			if event.Kind == executionevent.ActionDone {
 				cancel()
 			}
 		},

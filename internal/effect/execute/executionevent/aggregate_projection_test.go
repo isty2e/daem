@@ -1,4 +1,4 @@
-package execute
+package executionevent
 
 import (
 	"testing"
@@ -33,7 +33,7 @@ func TestAggregateEventFactsPreserveAggregateEffectAxis(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	facts := aggregateEventFacts(
+	facts := AggregateFacts(
 		7, effectpreparation.AggregateEffectReplace, subject, contribution.Contract(),
 	)
 	if facts.AggregateKind != effectpreparation.AggregateEffectReplace || facts.ManagedPathKind != "" {

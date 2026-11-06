@@ -1,26 +1,25 @@
-package execute
+package hostmutation
 
 import (
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
-	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
-func ordinaryApplyEffectNodes(builder *operationplan.EffectStructureBuilder, managed hostmutation.ManagedPathSchedule, aggregates []effectpreparation.AggregateEffect, promotions *applyprogram.PromotionSchedule) []operationplan.EffectNode {
+func ForwardEffectNodes(builder *operationplan.EffectStructureBuilder, managed ManagedPathSchedule, aggregates []effectpreparation.AggregateEffect, promotions *applyprogram.PromotionSchedule) []operationplan.EffectNode {
 	var nodes []operationplan.EffectNode
-	for operation := range managed.Operations(hostmutation.ManagedPathPublishPhase) {
+	for operation := range managed.Operations(ManagedPathPublishPhase) {
 		effect := operation.Effect()
-		prefix := applyManagedPathScheduleReference(hostmutation.ManagedPathPublishPhase, operation.EffectIndex())
+		prefix := operation.ScheduleReference()
 		if effect.Kind() == effectpreparation.ManagedPathEffectRecord {
 			nodes = append(nodes, applyprogram.CheckedStep(builder, prefix+"/record", operationplan.EffectStepObservation))
 		} else {
 			nodes = append(nodes, applyprogram.ForwardObligation(builder, prefix, operationplan.EffectStepPersistence))
 		}
-		nodes = append(nodes, promotions.ForKeys(builder, provisionalAcquireKeysForManagedPath(effect, hostmutation.ManagedPathPublishPhase))...)
+		nodes = append(nodes, promotions.ForKeys(builder, ProvisionalAcquireKeysForManagedPath(effect, ManagedPathPublishPhase))...)
 	}
 	for index, effect := range aggregates {
-		prefix := applyAggregateScheduleReference(index)
+		prefix := AggregateScheduleReference(index)
 		if effect.Kind() == effectpreparation.AggregateEffectRecord {
 			nodes = append(nodes, applyprogram.CheckedStep(builder, prefix+"/record", operationplan.EffectStepObservation))
 		} else {
@@ -30,13 +29,13 @@ func ordinaryApplyEffectNodes(builder *operationplan.EffectStructureBuilder, man
 				applyprogram.ForwardObligation(builder, prefix, operationplan.EffectStepPersistence),
 			)
 		}
-		nodes = append(nodes, promotions.ForKeys(builder, provisionalAcquireKeysForAggregate(effect))...)
+		nodes = append(nodes, promotions.ForKeys(builder, ProvisionalAcquireKeysForAggregate(effect))...)
 	}
-	for operation := range managed.Operations(hostmutation.ManagedPathRetirePhase) {
+	for operation := range managed.Operations(ManagedPathRetirePhase) {
 		if operation.Effect().Kind() == effectpreparation.ManagedPathEffectRecord {
 			continue
 		}
-		nodes = append(nodes, applyprogram.ForwardObligation(builder, applyManagedPathScheduleReference(hostmutation.ManagedPathRetirePhase, operation.EffectIndex()), operationplan.EffectStepPersistence))
+		nodes = append(nodes, applyprogram.ForwardObligation(builder, operation.ScheduleReference(), operationplan.EffectStepPersistence))
 	}
 	return nodes
 }

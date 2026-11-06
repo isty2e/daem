@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
@@ -42,11 +43,11 @@ func (filesystem indeterminateCreateFilesystem) CreateRootedFile(
 func TestApplyWithOptionsRollbackStageFailureEmitsCleanupEvents(t *testing.T) {
 	fixture := newApplyEventFixture(t)
 	action := fixture.createAction("create", "CREATE.md", "created\n")
-	var events []Event
+	var events []executionevent.Event
 	_, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventRollbackStageStarted {
+			if event.Kind == executionevent.RollbackStageStarted {
 				writeApplyEventFile(t, fixture.hostPath("CREATE.md"), "external\n")
 			}
 		},
@@ -55,13 +56,13 @@ func TestApplyWithOptionsRollbackStageFailureEmitsCleanupEvents(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "captured recovery journal is blocked") {
 		t.Fatalf("error = %v, want guarded rollback stage failure", err)
 	}
-	assertEventKinds(t, events, []EventKind{
-		EventJournalCaptureStarted,
-		EventJournalCaptured,
-		EventRollbackStageStarted,
-		EventRollbackStageFailed,
-		EventJournalCleanupStarted,
-		EventJournalCleaned,
+	assertEventKinds(t, events, []executionevent.Kind{
+		executionevent.JournalCaptureStarted,
+		executionevent.JournalCaptured,
+		executionevent.RollbackStageStarted,
+		executionevent.RollbackStageFailed,
+		executionevent.JournalCleanupStarted,
+		executionevent.JournalCleaned,
 	})
 	content, readErr := os.ReadFile(fixture.hostPath("CREATE.md"))
 	if readErr != nil || string(content) != "external\n" {
@@ -74,11 +75,11 @@ func TestApplyPreparedEffectRollbackRetirementFailurePreservesPrimary(t *testing
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 	retirement := errors.New("injected prepared-effect retirement acceptance failure")
 
-	var events []Event
+	var events []executionevent.Event
 	_, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventRollbackStageStarted {
+			if event.Kind == executionevent.RollbackStageStarted {
 				writeApplyEventFile(t, fixture.hostPath("CREATE.md"), "external\n")
 			}
 		},
@@ -90,13 +91,13 @@ func TestApplyPreparedEffectRollbackRetirementFailurePreservesPrimary(t *testing
 		!strings.Contains(err.Error(), retirement.Error()) {
 		t.Fatalf("ApplyWithOptions error = %v, want primary and retirement failures", err)
 	}
-	assertEventKinds(t, events, []EventKind{
-		EventJournalCaptureStarted,
-		EventJournalCaptured,
-		EventRollbackStageStarted,
-		EventRollbackStageFailed,
-		EventJournalCleanupStarted,
-		EventJournalCleanupFailed,
+	assertEventKinds(t, events, []executionevent.Kind{
+		executionevent.JournalCaptureStarted,
+		executionevent.JournalCaptured,
+		executionevent.RollbackStageStarted,
+		executionevent.RollbackStageFailed,
+		executionevent.JournalCleanupStarted,
+		executionevent.JournalCleanupFailed,
 	})
 	assertHostFileContent(t, fixture.hostPath("CREATE.md"), "external\n")
 	assertNoActiveRecoveryOperation(t, fixture.paths.RecoveryDir)
@@ -116,17 +117,17 @@ func TestApplyWithOptionsActionFailureEmitsRollbackAndCleanup(t *testing.T) {
 		strings.Contains(err.Error(), "effect structure") {
 		t.Fatalf("guarded rollback exposed cursor failure: %v", err)
 	}
-	assertEventKinds(t, events, []EventKind{
-		EventJournalCaptureStarted,
-		EventJournalCaptured,
-		EventRollbackStageStarted,
-		EventRollbackStaged,
-		EventActionStarted,
-		EventActionFailed,
-		EventRollbackRestoreStarted,
-		EventRollbackRestored,
-		EventJournalCleanupStarted,
-		EventJournalCleaned,
+	assertEventKinds(t, events, []executionevent.Kind{
+		executionevent.JournalCaptureStarted,
+		executionevent.JournalCaptured,
+		executionevent.RollbackStageStarted,
+		executionevent.RollbackStaged,
+		executionevent.ActionStarted,
+		executionevent.ActionFailed,
+		executionevent.RollbackRestoreStarted,
+		executionevent.RollbackRestored,
+		executionevent.JournalCleanupStarted,
+		executionevent.JournalCleaned,
 	})
 	assertHostMissing(t, fixture.hostPath("CREATE.md"))
 }
@@ -145,9 +146,9 @@ func TestApplyWithEffectPlanIndeterminateHostOutcomeRetainsJournal(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var events []Event
+	var events []executionevent.Event
 	_, err = ApplyWithEffectPlan(context.Background(), input, plan, ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
 		},
 	})
@@ -161,17 +162,17 @@ func TestApplyWithEffectPlanIndeterminateHostOutcomeRetainsJournal(t *testing.T)
 	if ApplyHostChangesRolledBack(err) {
 		t.Fatalf("ApplyWithEffectPlan error = %v, want no rollback claim", err)
 	}
-	assertEventKinds(t, events, []EventKind{
-		EventJournalCaptureStarted,
-		EventJournalCaptured,
-		EventRollbackStageStarted,
-		EventRollbackStaged,
-		EventActionStarted,
-		EventActionFailed,
-		EventRollbackRestoreStarted,
-		EventRollbackRestoreFailed,
+	assertEventKinds(t, events, []executionevent.Kind{
+		executionevent.JournalCaptureStarted,
+		executionevent.JournalCaptured,
+		executionevent.RollbackStageStarted,
+		executionevent.RollbackStaged,
+		executionevent.ActionStarted,
+		executionevent.ActionFailed,
+		executionevent.RollbackRestoreStarted,
+		executionevent.RollbackRestoreFailed,
 	})
-	assertNoEventKind(t, events, EventJournalCleanupStarted)
+	assertNoEventKind(t, events, executionevent.JournalCleanupStarted)
 	assertHostFileContent(t, fixture.hostPath("CREATE.md"), "indeterminate\n")
 	assertActiveRecoveryOperation(t, fixture.paths.RecoveryDir)
 }
@@ -312,11 +313,11 @@ func TestApplyWithOptionsCompensatesAfterForwardVisibilityRejection(t *testing.T
 func TestApplyWithOptionsStatefileWriteFailureEmitsRollbackAndCleanup(t *testing.T) {
 	fixture := newApplyEventFixture(t)
 	action := fixture.createAction("create", "CREATE.md", "created\n")
-	var events []Event
+	var events []executionevent.Event
 	result, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventStatefileWriteStarted {
+			if event.Kind == executionevent.StatefileWriteStarted {
 				if err := os.MkdirAll(fixture.paths.StatefilePath, 0o700); err != nil {
 					t.Fatalf("create statefile path directory: %v", err)
 				}
@@ -327,19 +328,19 @@ func TestApplyWithOptionsStatefileWriteFailureEmitsRollbackAndCleanup(t *testing
 	if err == nil || !strings.Contains(err.Error(), "write statefile") {
 		t.Fatalf("result = %#v, error = %v, want statefile write failure", result, err)
 	}
-	assertEventKinds(t, events, []EventKind{
-		EventJournalCaptureStarted,
-		EventJournalCaptured,
-		EventRollbackStageStarted,
-		EventRollbackStaged,
-		EventActionStarted,
-		EventActionDone,
-		EventStatefileWriteStarted,
-		EventStatefileWriteFailed,
-		EventRollbackRestoreStarted,
-		EventRollbackRestored,
-		EventJournalCleanupStarted,
-		EventJournalCleaned,
+	assertEventKinds(t, events, []executionevent.Kind{
+		executionevent.JournalCaptureStarted,
+		executionevent.JournalCaptured,
+		executionevent.RollbackStageStarted,
+		executionevent.RollbackStaged,
+		executionevent.ActionStarted,
+		executionevent.ActionDone,
+		executionevent.StatefileWriteStarted,
+		executionevent.StatefileWriteFailed,
+		executionevent.RollbackRestoreStarted,
+		executionevent.RollbackRestored,
+		executionevent.JournalCleanupStarted,
+		executionevent.JournalCleaned,
 	})
 	assertHostMissing(t, fixture.hostPath("CREATE.md"))
 }
@@ -348,11 +349,11 @@ func TestApplyWithOptionsIgnoresUntouchedPathDriftDuringRollback(t *testing.T) {
 	fixture := newApplyEventFixture(t)
 	action := fixture.updateAction("update", "UPDATE.md", "old update\n", "new update\n")
 	fixture.replacePayloadContent(action.Subject, "mismatch")
-	var events []Event
+	var events []executionevent.Event
 	result, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventRollbackRestoreStarted {
+			if event.Kind == executionevent.RollbackRestoreStarted {
 				hostPath := fixture.hostPath("UPDATE.md")
 				if err := os.Remove(hostPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("remove host path before rollback: %v", err)
@@ -367,17 +368,17 @@ func TestApplyWithOptionsIgnoresUntouchedPathDriftDuringRollback(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "host changes rolled back") {
 		t.Fatalf("result = %#v, error = %v, want clean rollback of untouched action", result, err)
 	}
-	assertEventKinds(t, events, []EventKind{
-		EventJournalCaptureStarted,
-		EventJournalCaptured,
-		EventRollbackStageStarted,
-		EventRollbackStaged,
-		EventActionStarted,
-		EventActionFailed,
-		EventRollbackRestoreStarted,
-		EventRollbackRestored,
-		EventJournalCleanupStarted,
-		EventJournalCleaned,
+	assertEventKinds(t, events, []executionevent.Kind{
+		executionevent.JournalCaptureStarted,
+		executionevent.JournalCaptured,
+		executionevent.RollbackStageStarted,
+		executionevent.RollbackStaged,
+		executionevent.ActionStarted,
+		executionevent.ActionFailed,
+		executionevent.RollbackRestoreStarted,
+		executionevent.RollbackRestored,
+		executionevent.JournalCleanupStarted,
+		executionevent.JournalCleaned,
 	})
 	info, statErr := os.Stat(fixture.hostPath("UPDATE.md"))
 	if statErr != nil || !info.IsDir() {
@@ -390,12 +391,12 @@ func TestApplyWithOptionsRefusesRollbackOverTouchedPathDrift(t *testing.T) {
 	first := fixture.createAction("first", "FIRST.md", "first\n")
 	second := fixture.createAction("second", "SECOND.md", "second\n")
 	fixture.replacePayloadContent(second.Subject, "mismatch")
-	var events []Event
+	var events []executionevent.Event
 
 	_, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{first, second}), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventActionDone && event.Action != nil && event.Action.Destination == first.Destination {
+			if event.Kind == executionevent.ActionDone && event.Action != nil && event.Action.Destination == first.Destination {
 				writeApplyEventFile(t, fixture.hostPath("FIRST.md"), "external\n")
 			}
 		},
@@ -409,19 +410,19 @@ func TestApplyWithOptionsRefusesRollbackOverTouchedPathDrift(t *testing.T) {
 		t.Fatalf("touched external content = %q, error = %v, want preserved", content, readErr)
 	}
 	assertHostMissing(t, fixture.hostPath("SECOND.md"))
-	assertEventKinds(t, events, []EventKind{
-		EventJournalCaptureStarted,
-		EventJournalCaptured,
-		EventRollbackStageStarted,
-		EventRollbackStaged,
-		EventActionStarted,
-		EventActionDone,
-		EventActionStarted,
-		EventActionFailed,
-		EventRollbackRestoreStarted,
-		EventRollbackRestoreFailed,
+	assertEventKinds(t, events, []executionevent.Kind{
+		executionevent.JournalCaptureStarted,
+		executionevent.JournalCaptured,
+		executionevent.RollbackStageStarted,
+		executionevent.RollbackStaged,
+		executionevent.ActionStarted,
+		executionevent.ActionDone,
+		executionevent.ActionStarted,
+		executionevent.ActionFailed,
+		executionevent.RollbackRestoreStarted,
+		executionevent.RollbackRestoreFailed,
 	})
-	assertNoEventKind(t, events, EventJournalCleaned)
+	assertNoEventKind(t, events, executionevent.JournalCleaned)
 	entries, readDirErr := os.ReadDir(fixture.paths.RecoveryDir)
 	if readDirErr != nil || len(entries) != 1 {
 		t.Fatalf("recovery entries = %#v, error = %v, want retained journal", entries, readDirErr)
@@ -481,12 +482,12 @@ func TestApplyWithOptionsCancellationAfterSuccessfulEffectUsesGuardedRollback(t 
 	fixture := newApplyEventFixture(t)
 	action := fixture.updateExecutableFileAction(t, "guard", ".daem/hook-assets/guard/cancel/asset", "old\n", "new\n")
 	ctx, cancel := context.WithCancel(context.Background())
-	var events []Event
+	var events []executionevent.Event
 
 	_, err := ApplyWithOptions(ctx, fixture.input([]applyEventAction{action}), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventActionDone {
+			if event.Kind == executionevent.ActionDone {
 				cancel()
 			}
 		},
@@ -507,7 +508,7 @@ func TestApplyWithOptionsCancellationAfterSuccessfulEffectUsesGuardedRollback(t 
 	if statErr != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("restored mode = %v, error = %v, want 0700", info, statErr)
 	}
-	assertNoEventKind(t, events, EventStatefileWritten)
+	assertNoEventKind(t, events, executionevent.StatefileWritten)
 	assertNoActiveRecoveryOperation(t, fixture.paths.RecoveryDir)
 }
 
@@ -518,8 +519,8 @@ func TestApplyWithOptionsRefusesRollbackOverTouchedModeDrift(t *testing.T) {
 	fixture.replacePayloadContent(second.Subject, "mismatch")
 
 	_, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{first, second}), ApplyOptions{
-		Events: func(event Event) {
-			if event.Kind == EventActionDone && event.Action != nil && event.Action.Destination == first.Destination {
+		Events: func(event executionevent.Event) {
+			if event.Kind == executionevent.ActionDone && event.Action != nil && event.Action.Destination == first.Destination {
 				if err := os.Chmod(fixture.hostPath("FIRST.md"), 0o640); err != nil {
 					t.Fatalf("chmod touched path: %v", err)
 				}
@@ -545,11 +546,11 @@ func TestApplyWithOptionsJournalCleanupFailureDoesNotRollbackAfterStatefileWrite
 	}
 	fixture := newApplyEventFixture(t)
 	action := fixture.createAction("create", "CREATE.md", "created\n")
-	var events []Event
+	var events []executionevent.Event
 	result, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventJournalCleanupStarted {
+			if event.Kind == executionevent.JournalCleanupStarted {
 				if err := os.Chmod(fixture.paths.RecoveryDir, 0o500); err != nil {
 					t.Fatalf("chmod recovery dir: %v", err)
 				}
@@ -563,19 +564,19 @@ func TestApplyWithOptionsJournalCleanupFailureDoesNotRollbackAfterStatefileWrite
 	if err == nil || !strings.Contains(err.Error(), "retire recovery journal") {
 		t.Fatalf("result = %#v, error = %v, want cleanup failure", result, err)
 	}
-	assertEventKinds(t, events, []EventKind{
-		EventJournalCaptureStarted,
-		EventJournalCaptured,
-		EventRollbackStageStarted,
-		EventRollbackStaged,
-		EventActionStarted,
-		EventActionDone,
-		EventStatefileWriteStarted,
-		EventStatefileWritten,
-		EventJournalCleanupStarted,
-		EventJournalCleanupFailed,
+	assertEventKinds(t, events, []executionevent.Kind{
+		executionevent.JournalCaptureStarted,
+		executionevent.JournalCaptured,
+		executionevent.RollbackStageStarted,
+		executionevent.RollbackStaged,
+		executionevent.ActionStarted,
+		executionevent.ActionDone,
+		executionevent.StatefileWriteStarted,
+		executionevent.StatefileWritten,
+		executionevent.JournalCleanupStarted,
+		executionevent.JournalCleanupFailed,
 	})
-	assertNoEventKind(t, events, EventRollbackRestoreStarted)
+	assertNoEventKind(t, events, executionevent.RollbackRestoreStarted)
 	assertHostFileContent(t, fixture.hostPath("CREATE.md"), "created\n")
 	if _, statErr := os.Stat(fixture.paths.StatefilePath); statErr != nil {
 		t.Fatalf("statefile stat after cleanup failure: %v", statErr)

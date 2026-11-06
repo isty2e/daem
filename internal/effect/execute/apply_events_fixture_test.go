@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/output"
@@ -51,7 +52,7 @@ func assertCommittedApplyResult(
 	}
 }
 
-func containsApplyEventKind(events []Event, kind EventKind) bool {
+func containsApplyEventKind(events []executionevent.Event, kind executionevent.Kind) bool {
 	for _, event := range events {
 		if event.Kind == kind {
 			return true
@@ -216,12 +217,12 @@ func (fixture *applyEventFixture) managedPathInputs(actions []applyEventAction) 
 	return effects, evidence
 }
 
-func (fixture *applyEventFixture) applyWithEvents(t *testing.T, actions []applyEventAction) []Event {
+func (fixture *applyEventFixture) applyWithEvents(t *testing.T, actions []applyEventAction) []executionevent.Event {
 	t.Helper()
 
-	var events []Event
+	var events []executionevent.Event
 	result, err := ApplyWithOptions(context.Background(), fixture.input(actions), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
 		},
 	})
@@ -234,10 +235,10 @@ func (fixture *applyEventFixture) applyWithEvents(t *testing.T, actions []applyE
 	return events
 }
 
-func (fixture *applyEventFixture) applyExpectError(action applyEventAction) ([]Event, error) {
-	var events []Event
+func (fixture *applyEventFixture) applyExpectError(action applyEventAction) ([]executionevent.Event, error) {
+	var events []executionevent.Event
 	_, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
 		},
 	})
@@ -450,10 +451,10 @@ func (fixture *applyEventFixture) hostPath(destination string) string {
 	return filepath.Join(fixture.root, filepath.FromSlash(destination))
 }
 
-func assertEventKinds(t *testing.T, events []Event, want []EventKind) {
+func assertEventKinds(t *testing.T, events []executionevent.Event, want []executionevent.Kind) {
 	t.Helper()
 
-	got := make([]EventKind, 0, len(events))
+	got := make([]executionevent.Kind, 0, len(events))
 	for _, event := range events {
 		got = append(got, event.Kind)
 	}
@@ -467,7 +468,7 @@ func assertEventKinds(t *testing.T, events []Event, want []EventKind) {
 	}
 }
 
-func assertActionEventIndexes(t *testing.T, events []Event, want []int) {
+func assertActionEventIndexes(t *testing.T, events []executionevent.Event, want []int) {
 	t.Helper()
 
 	var got []int
@@ -486,7 +487,7 @@ func assertActionEventIndexes(t *testing.T, events []Event, want []int) {
 	}
 }
 
-func assertAllEventsTotalActions(t *testing.T, events []Event, want int) {
+func assertAllEventsTotalActions(t *testing.T, events []executionevent.Event, want int) {
 	t.Helper()
 
 	for _, event := range events {
@@ -496,7 +497,7 @@ func assertAllEventsTotalActions(t *testing.T, events []Event, want int) {
 	}
 }
 
-func assertApplyEventNoErrors(t *testing.T, events []Event) {
+func assertApplyEventNoErrors(t *testing.T, events []executionevent.Event) {
 	t.Helper()
 
 	for _, event := range events {
@@ -506,7 +507,7 @@ func assertApplyEventNoErrors(t *testing.T, events []Event) {
 	}
 }
 
-func assertNoEventKind(t *testing.T, events []Event, reject EventKind) {
+func assertNoEventKind(t *testing.T, events []executionevent.Event, reject executionevent.Kind) {
 	t.Helper()
 
 	for _, event := range events {

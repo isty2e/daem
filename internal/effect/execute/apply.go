@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 
@@ -86,7 +87,7 @@ type ApplyInput struct {
 
 // ApplyOptions configures the final apply boundary and observational execution events.
 type ApplyOptions struct {
-	Events EventSink
+	Events executionevent.Sink
 	// ValidateBeforeEffects runs after all rooted effect authority is bound and
 	// immediately before each forward visibility-changing effect.
 	ValidateBeforeEffects func(context.Context, mutation.PhysicalAuthoritySet) error
@@ -176,13 +177,13 @@ func applyWithOptions(
 
 	createdAt := time.Now().UTC()
 	operationID := journalpublication.OperationID(createdAt)
-	events := applyEventEmitter{
-		sink: options.Events,
-		totalActions: len(input.ManagedPathEffects) +
-			effectpreparation.AggregateSubjectCount(input.AggregateEffects) +
-			transition.retiredProjectClaimCount +
+	events := executionevent.NewEmitter(
+		options.Events,
+		len(input.ManagedPathEffects)+
+			effectpreparation.AggregateSubjectCount(input.AggregateEffects)+
+			transition.retiredProjectClaimCount+
 			transition.adoptedProjectClaimCount,
-	}
+	)
 	if !transition.changed {
 		expectedPlan, planErr := compileApplyEffectPlan(
 			transition,
@@ -345,7 +346,7 @@ func applyWithOptions(
 		); bindErr != nil {
 			return bindErr
 		}
-		events.emit(EventJournalCaptureStarted, EventStageJournalCapture, nil, nil)
+		events.Emit(executionevent.JournalCaptureStarted, executionevent.StageJournalCapture, nil, nil)
 		executionAttempted = true
 		captureResult, captureErr := journalpublication.CaptureJournalWithOptions(
 			ctx,
@@ -371,14 +372,14 @@ func applyWithOptions(
 			},
 		)
 		if captureErr != nil {
-			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, captureErr)
+			events.Emit(executionevent.JournalCaptureFailed, executionevent.StageJournalCapture, nil, captureErr)
 			return fmt.Errorf("capture recovery journal: %w", captureErr)
 		}
 		if basisErr := mutationAuthority.captureJournalExecutionBasis(
 			ctx,
 			captureResult.RecordFingerprint,
 		); basisErr != nil {
-			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, basisErr)
+			events.Emit(executionevent.JournalCaptureFailed, executionevent.StageJournalCapture, nil, basisErr)
 			return basisErr
 		}
 		activePlan, loadErr := loadApplyActivePlanForState(
@@ -390,7 +391,7 @@ func applyWithOptions(
 			input.Codecs,
 		)
 		if loadErr != nil {
-			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, loadErr)
+			events.Emit(executionevent.JournalCaptureFailed, executionevent.StageJournalCapture, nil, loadErr)
 			return fmt.Errorf("bind captured removal authority: %w", loadErr)
 		}
 		if basisErr := mutationAuthority.validateJournalExecutionBasis(
@@ -398,11 +399,11 @@ func applyWithOptions(
 			activePlan,
 			"after publication",
 		); basisErr != nil {
-			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, basisErr)
+			events.Emit(executionevent.JournalCaptureFailed, executionevent.StageJournalCapture, nil, basisErr)
 			return basisErr
 		}
 		if bindErr := mutationAuthority.removals.BindPlan(activePlan); bindErr != nil {
-			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, bindErr)
+			events.Emit(executionevent.JournalCaptureFailed, executionevent.StageJournalCapture, nil, bindErr)
 			return fmt.Errorf("bind captured removal authority: %w", bindErr)
 		}
 		if prepareErr := mutationAuthority.prepareActiveJournalRetirement(
@@ -411,7 +412,7 @@ func applyWithOptions(
 			activePlan,
 			input.StateCodec,
 		); prepareErr != nil {
-			events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, prepareErr)
+			events.Emit(executionevent.JournalCaptureFailed, executionevent.StageJournalCapture, nil, prepareErr)
 			return fmt.Errorf("prepare bounded journal retirement: %w", prepareErr)
 		}
 		return nil
@@ -419,7 +420,7 @@ func applyWithOptions(
 		return ApplyResult{}, effectExecution.SettleFailureWithoutCompensation(err)
 	}
 	if err := journalPublicationGate.AcceptAfter(ctx); err != nil {
-		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
+		events.Emit(executionevent.JournalCaptureFailed, executionevent.StageJournalCapture, nil, err)
 		primary := fmt.Errorf(
 			"accept recovery journal visibility: %w; recovery journal retained; run: daem recover --dry-run",
 			err,
@@ -441,10 +442,10 @@ func applyWithOptions(
 			)
 		},
 	); err != nil {
-		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
+		events.Emit(executionevent.JournalCaptureFailed, executionevent.StageJournalCapture, nil, err)
 		return ApplyResult{}, effectExecution.SettleFailureWithoutCompensation(err)
 	}
-	events.emit(EventJournalCaptured, EventStageJournalCapture, nil, nil)
+	events.Emit(executionevent.JournalCaptured, executionevent.StageJournalCapture, nil, nil)
 	ownershipPreparationGate := effectExecution.VisibilityGate(
 		visibilityGate,
 		"apply/ownership-preparation",
@@ -475,7 +476,7 @@ func applyWithOptions(
 		)
 	}
 
-	events.emit(EventRollbackStageStarted, EventStageRollbackStage, nil, nil)
+	events.Emit(executionevent.RollbackStageStarted, executionevent.StageRollbackStage, nil, nil)
 	if err := effectExecution.Observe(
 		"apply/prepared-effects-validation",
 		applyprogram.FailurePreparedEffects,
@@ -490,7 +491,7 @@ func applyWithOptions(
 			)
 		},
 	); err != nil {
-		events.emit(EventRollbackStageFailed, EventStageRollbackStage, nil, err)
+		events.Emit(executionevent.RollbackStageFailed, executionevent.StageRollbackStage, nil, err)
 		return ApplyResult{}, settlePreHostApplyFailure(
 			ctx,
 			err,
@@ -508,9 +509,9 @@ func applyWithOptions(
 			effectExecution,
 		)
 	}
-	events.emit(EventRollbackStaged, EventStageRollbackStage, nil, nil)
+	events.Emit(executionevent.RollbackStaged, executionevent.StageRollbackStage, nil, nil)
 
-	managedProgress := newHostActionProgress(managedSchedule.MutationCount())
+	managedProgress := hostmutation.NewActionProgress(managedSchedule.MutationCount())
 	promoteManagedOwnership := func(
 		ctx context.Context,
 		effect effectpreparation.ManagedPathEffect,
@@ -518,16 +519,16 @@ func applyWithOptions(
 	) error {
 		return ownershipState.Promote(
 			ctx,
-			provisionalAcquireKeysForManagedPath(effect, phase),
+			hostmutation.ProvisionalAcquireKeysForManagedPath(effect, phase),
 			ordinaryClaimPromoter(mutationAuthority, registryStore, input.StateCodec, visibilityGate, effectExecution),
 		)
 	}
-	if err := applyManagedPathPhaseWithEvents(
-		ctx, managedSchedule, hostmutation.ManagedPathPublishPhase, input.Payloads, mutationAuthority,
+	if err := mutationAuthority.hostMutation().ApplyManagedPathPhase(
+		ctx, managedSchedule, hostmutation.ManagedPathPublishPhase, input.Payloads,
 		managedProgress, 0, events, visibilityGate, effectExecution, promoteManagedOwnership,
 	); err != nil {
-		progress := combineHostActionProgress(
-			managedProgress, newHostActionProgress(len(aggregateMutations)),
+		progress := hostmutation.CombineActionProgress(
+			managedProgress, hostmutation.NewActionProgress(len(aggregateMutations)),
 		)
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
@@ -536,17 +537,16 @@ func applyWithOptions(
 		)
 	}
 
-	aggregateProgress, err := applyAggregateEffectsWithEvents(
+	aggregateProgress, err := mutationAuthority.hostMutation().ApplyAggregateEffects(
 		ctx,
 		input.AggregateEffects,
-		mutationAuthority,
 		input.Codecs,
 		len(input.ManagedPathEffects),
 		events,
 		visibilityGate,
 		effectExecution,
 		func(ctx context.Context, effect effectpreparation.AggregateEffect) error {
-			keys := provisionalAcquireKeysForAggregate(effect)
+			keys := hostmutation.ProvisionalAcquireKeysForAggregate(effect)
 			return ownershipState.Promote(
 				ctx,
 				keys,
@@ -554,7 +554,7 @@ func applyWithOptions(
 			)
 		},
 	)
-	progress := combineHostActionProgress(managedProgress, aggregateProgress)
+	progress := hostmutation.CombineActionProgress(managedProgress, aggregateProgress)
 	if err != nil {
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
@@ -562,18 +562,18 @@ func applyWithOptions(
 			effectExecution,
 		)
 	}
-	if err := applyManagedPathPhaseWithEvents(
-		ctx, managedSchedule, hostmutation.ManagedPathRetirePhase, input.Payloads, mutationAuthority,
+	if err := mutationAuthority.hostMutation().ApplyManagedPathPhase(
+		ctx, managedSchedule, hostmutation.ManagedPathRetirePhase, input.Payloads,
 		managedProgress, 0, events, visibilityGate, effectExecution, promoteManagedOwnership,
 	); err != nil {
-		progress = combineHostActionProgress(managedProgress, aggregateProgress)
+		progress = hostmutation.CombineActionProgress(managedProgress, aggregateProgress)
 		return ApplyResult{}, applyRecoveryErrorWithEvents(
 			ctx, err, input.Paths, input.CurrentState, progress, entrySelections,
 			events, mutationAuthority, input.StateCodec, input.Codecs, compensationGate,
 			effectExecution,
 		)
 	}
-	progress = combineHostActionProgress(managedProgress, aggregateProgress)
+	progress = hostmutation.CombineActionProgress(managedProgress, aggregateProgress)
 	if err := effectExecution.Observe(
 		"apply/statefile-publication/context-validation",
 		applyprogram.FailureGuardedRecovery,
@@ -609,7 +609,7 @@ func applyWithOptions(
 	var commit statefileoperation.Outcome
 	commitAttempted := false
 	commitErr := statefileGate.ApplyEffect(func() error {
-		events.emit(EventStatefileWriteStarted, EventStageStatefileWrite, nil, nil)
+		events.Emit(executionevent.StatefileWriteStarted, executionevent.StageStatefileWrite, nil, nil)
 		commitAttempted = true
 		commit = options.statefileCommit(
 			ctx,
@@ -625,7 +625,7 @@ func applyWithOptions(
 	})
 	if commitErr != nil {
 		if commitAttempted {
-			events.emit(EventStatefileWriteFailed, EventStageStatefileWrite, nil, commitErr)
+			events.Emit(executionevent.StatefileWriteFailed, executionevent.StageStatefileWrite, nil, commitErr)
 			if commit.RequiresRecovery() {
 				primary := fmt.Errorf(
 					"%w; statefile commit is indeterminate; recovery journal retained; run: daem recover --dry-run",
@@ -655,7 +655,7 @@ func applyWithOptions(
 		)
 		return committedResult, effectExecution.SettleFailureWithoutCompensation(primary)
 	}
-	events.emit(EventStatefileWritten, EventStageStatefileWrite, nil, nil)
+	events.Emit(executionevent.StatefileWritten, executionevent.StageStatefileWrite, nil, nil)
 	if err := effectExecution.Observe(
 		"apply/post-statefile/project-validation",
 		applyprogram.FailureNoCompensation,
@@ -815,21 +815,6 @@ func (options ApplyOptions) acceptCompensationVisibilityChanges(ctx context.Cont
 	return options.AcceptCompensationVisibilityChanges(ctx)
 }
 
-type applyEventEmitter struct {
-	sink         EventSink
-	totalActions int
-}
-
-func (emitter applyEventEmitter) emit(kind EventKind, stage EventStage, action *ActionEventFacts, err error) {
-	emitter.sink.Emit(Event{
-		Kind:         kind,
-		Stage:        stage,
-		Action:       action,
-		TotalActions: emitter.totalActions,
-		Err:          err,
-	})
-}
-
 type activeRetirementPlanLoader func(context.Context) (recovery.Plan, error)
 
 type journalRetiredFailure struct {
@@ -856,7 +841,7 @@ func retireRecoveryJournalWithEvents(
 	ctx context.Context,
 	paths Paths,
 	authority *mutationAuthority,
-	events applyEventEmitter,
+	events executionevent.Emitter,
 	loadPlan activeRetirementPlanLoader,
 	stateCodec durable.SnapshotCodec,
 	gate applyprogram.VisibilityGate,
@@ -868,10 +853,10 @@ func retireRecoveryJournalWithEvents(
 		}
 		return execution.runTerminalStep(step, action)
 	}
-	events.emit(EventJournalCleanupStarted, EventStageJournalCleanup, nil, nil)
+	events.Emit(executionevent.JournalCleanupStarted, executionevent.StageJournalCleanup, nil, nil)
 	if loadPlan == nil {
 		err := fmt.Errorf("recovery journal retirement plan loader is required")
-		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
+		events.Emit(executionevent.JournalCleanupFailed, executionevent.StageJournalCleanup, nil, err)
 		return err
 	}
 	if err := run(
@@ -886,7 +871,7 @@ func retireRecoveryJournalWithEvents(
 			)
 		},
 	); err != nil {
-		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
+		events.Emit(executionevent.JournalCleanupFailed, executionevent.StageJournalCleanup, nil, err)
 		return err
 	}
 	if err := run(
@@ -896,7 +881,7 @@ func retireRecoveryJournalWithEvents(
 		},
 		func() error { return gate.ValidateBefore(ctx) },
 	); err != nil {
-		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
+		events.Emit(executionevent.JournalCleanupFailed, executionevent.StageJournalCleanup, nil, err)
 		return err
 	}
 	plan := recovery.Plan{}
@@ -913,13 +898,13 @@ func retireRecoveryJournalWithEvents(
 			})
 		},
 	); err != nil {
-		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
+		events.Emit(executionevent.JournalCleanupFailed, executionevent.StageJournalCleanup, nil, err)
 		return err
 	}
 	if err := gate.ApplyEffect(func() error {
 		return authority.retireActiveJournal(ctx, plan, execution)
 	}); err != nil {
-		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
+		events.Emit(executionevent.JournalCleanupFailed, executionevent.StageJournalCleanup, nil, err)
 		return err
 	}
 	if err := run(
@@ -930,9 +915,9 @@ func retireRecoveryJournalWithEvents(
 		func() error { return gate.AcceptAfter(ctx) },
 	); err != nil {
 		retired := &journalRetiredFailure{cause: err}
-		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, retired)
+		events.Emit(executionevent.JournalCleanupFailed, executionevent.StageJournalCleanup, nil, retired)
 		return retired
 	}
-	events.emit(EventJournalCleaned, EventStageJournalCleanup, nil, nil)
+	events.Emit(executionevent.JournalCleaned, executionevent.StageJournalCleanup, nil, nil)
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -231,7 +232,7 @@ func settlePreHostApplyFailure(
 	authority *mutationAuthority,
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
-	events applyEventEmitter,
+	events executionevent.Emitter,
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
 	gate applyprogram.VisibilityGate,
@@ -300,9 +301,9 @@ func applyRecoveryErrorWithEvents(
 	primary error,
 	paths Paths,
 	currentState durable.Snapshot,
-	progress hostActionProgress,
+	progress hostmutation.ActionProgress,
 	selections []journalrecord.EntrySelection,
-	events applyEventEmitter,
+	events executionevent.Emitter,
 	authority *mutationAuthority,
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
@@ -315,19 +316,19 @@ func applyRecoveryErrorWithEvents(
 	if settlementErr != nil {
 		return errors.Join(primary, settlementErr)
 	}
-	events.emit(EventRollbackRestoreStarted, EventStageRollbackRestore, nil, nil)
+	events.Emit(executionevent.RollbackRestoreStarted, executionevent.StageRollbackRestore, nil, nil)
 	if err := effectExecution.Observe(
 		settlementPrefix+"/progress-classification",
 		applyprogram.FailureUnavailable,
 		func() error {
-			if progress.requiresRecovery() {
+			if progress.RequiresRecovery() {
 				return fmt.Errorf("host effect outcome is indeterminate")
 			}
 			return nil
 		},
 	); err != nil {
 		recoveryErr := err
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, recoveryErr)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, recoveryErr)
 		return fmt.Errorf("%w; %v; recovery journal retained; run: daem recover --dry-run", primary, recoveryErr)
 	}
 
@@ -338,12 +339,12 @@ func applyRecoveryErrorWithEvents(
 		applyprogram.FailureUnavailable,
 		func() error {
 			var selectErr error
-			rollbackEntries, selectErr = progress.rollbackEntries(selections)
+			rollbackEntries, selectErr = progress.RollbackEntries(selections)
 			return selectErr
 		},
 	)
 	if err != nil {
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; select guarded rollback entries failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	var plan recovery.Plan
@@ -366,7 +367,7 @@ func applyRecoveryErrorWithEvents(
 		},
 	)
 	if err != nil {
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; load guarded rollback plan failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	if err := effectExecution.Observe(
@@ -379,7 +380,7 @@ func applyRecoveryErrorWithEvents(
 			return nil
 		},
 	); err != nil {
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	var execution *activeRecoveryExecution
@@ -397,11 +398,11 @@ func applyRecoveryErrorWithEvents(
 		},
 	)
 	if err != nil {
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; compile guarded rollback settlement failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	if err := effectExecution.HandoffGuardedRecovery(); err != nil {
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; handoff guarded rollback settlement failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	if err := executeRecoveryPlanEffects(recoveryCtx, plan, paths, RecoveryOptions{
@@ -427,10 +428,10 @@ func applyRecoveryErrorWithEvents(
 		Filesystem:                  authority.filesystem,
 	}, execution); err != nil {
 		err = execution.finish(err, nil)
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; guarded rollback failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
-	events.emit(EventRollbackRestored, EventStageRollbackRestore, nil, nil)
+	events.Emit(executionevent.RollbackRestored, executionevent.StageRollbackRestore, nil, nil)
 	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
 		return reloadRecoveryPlanAfterEffects(
 			ctx,
@@ -510,52 +511,4 @@ func (failure *applyRollbackError) Unwrap() []error {
 func ApplyHostChangesRolledBack(err error) bool {
 	var failure *applyRollbackError
 	return errors.As(err, &failure)
-}
-
-func (progress hostActionProgress) rollbackEntries(
-	selections []journalrecord.EntrySelection,
-) ([]journalrecord.EntrySelection, error) {
-	if len(progress.states) != len(selections) {
-		return nil, fmt.Errorf("host action progress count %d does not match entry selection count %d", len(progress.states), len(selections))
-	}
-	selected := make([]journalrecord.EntrySelection, 0, len(selections))
-	for index, state := range progress.states {
-		if state.RollbackEligible() {
-			selected = append(selected, selections[index])
-		}
-	}
-	return selected, nil
-}
-
-type hostActionProgress struct {
-	states []hostmutation.EffectProgress
-}
-
-func newHostActionProgress(actionCount int) hostActionProgress {
-	return hostActionProgress{states: make([]hostmutation.EffectProgress, actionCount)}
-}
-
-func combineHostActionProgress(parts ...hostActionProgress) hostActionProgress {
-	count := 0
-	for _, part := range parts {
-		count += len(part.states)
-	}
-	combined := hostActionProgress{states: make([]hostmutation.EffectProgress, 0, count)}
-	for _, part := range parts {
-		combined.states = append(combined.states, part.states...)
-	}
-	return combined
-}
-
-func (progress hostActionProgress) record(index int, state hostmutation.EffectProgress) {
-	progress.states[index] = state
-}
-
-func (progress hostActionProgress) requiresRecovery() bool {
-	for _, state := range progress.states {
-		if state.RequiresRecovery() {
-			return true
-		}
-	}
-	return false
 }

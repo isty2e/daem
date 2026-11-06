@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -91,14 +92,14 @@ func TestApplyCommitsStateThroughCapturedRootAndRejectsSelectedRootReplacement(t
 	fixture := newApplyEventFixture(t)
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 	movedRoot := fixture.root + "-moved"
-	var events []Event
+	var events []executionevent.Event
 
 	_, err := ApplyWithOptions(
 		context.Background(),
 		fixture.input([]applyEventAction{action}),
-		ApplyOptions{Events: func(event Event) {
+		ApplyOptions{Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventStatefileWriteStarted {
+			if event.Kind == executionevent.StatefileWriteStarted {
 				replaceSelectedRoot(t, fixture.root, movedRoot)
 			}
 		}},
@@ -118,25 +119,25 @@ func TestApplyCommitsStateThroughCapturedRootAndRejectsSelectedRootReplacement(t
 		filepath.Join(movedRoot, ".daem", "recovery"),
 		1,
 	)
-	if !containsApplyEventKind(events, EventStatefileWriteFailed) {
+	if !containsApplyEventKind(events, executionevent.StatefileWriteFailed) {
 		t.Fatalf("events = %#v, want refused statefile commit", events)
 	}
-	assertNoEventKind(t, events, EventStatefileWritten)
-	assertNoEventKind(t, events, EventJournalCleanupStarted)
+	assertNoEventKind(t, events, executionevent.StatefileWritten)
+	assertNoEventKind(t, events, executionevent.JournalCleanupStarted)
 }
 
 func TestApplyRetainsJournalWhenProjectRootIsReplacedBeforeCleanup(t *testing.T) {
 	fixture := newApplyEventFixture(t)
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 	movedRoot := fixture.root + "-moved"
-	var events []Event
+	var events []executionevent.Event
 
 	result, err := ApplyWithOptions(
 		context.Background(),
 		fixture.input([]applyEventAction{action}),
-		ApplyOptions{Events: func(event Event) {
+		ApplyOptions{Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventJournalCleanupStarted {
+			if event.Kind == executionevent.JournalCleanupStarted {
 				replaceSelectedRoot(t, fixture.root, movedRoot)
 			}
 		}},
@@ -171,24 +172,24 @@ func TestApplyRetainsJournalWhenProjectRootIsReplacedBeforeCleanup(t *testing.T)
 		filepath.Join(movedRoot, ".daem", "recovery"),
 		1,
 	)
-	if !containsApplyEventKind(events, EventJournalCleanupFailed) {
+	if !containsApplyEventKind(events, executionevent.JournalCleanupFailed) {
 		t.Fatalf("events = %#v, want rooted journal cleanup refusal", events)
 	}
-	assertNoEventKind(t, events, EventJournalCleaned)
+	assertNoEventKind(t, events, executionevent.JournalCleaned)
 }
 
 func TestApplyReportsCommittedResultWhenProjectRootIsReplacedAfterStateCommit(t *testing.T) {
 	fixture := newApplyEventFixture(t)
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 	movedRoot := fixture.root + "-moved"
-	var events []Event
+	var events []executionevent.Event
 
 	result, err := ApplyWithOptions(
 		context.Background(),
 		fixture.input([]applyEventAction{action}),
-		ApplyOptions{Events: func(event Event) {
+		ApplyOptions{Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventStatefileWritten {
+			if event.Kind == executionevent.StatefileWritten {
 				replaceSelectedRoot(t, fixture.root, movedRoot)
 			}
 		}},
@@ -212,7 +213,7 @@ func TestApplyReportsCommittedResultWhenProjectRootIsReplacedAfterStateCommit(t 
 		filepath.Join(movedRoot, ".daem", "recovery"),
 		1,
 	)
-	assertNoEventKind(t, events, EventJournalCleanupStarted)
+	assertNoEventKind(t, events, executionevent.JournalCleanupStarted)
 }
 
 func TestApplyRejectsProjectRootReplacementAfterJournalCleanup(t *testing.T) {
@@ -227,12 +228,12 @@ func TestApplyRejectsProjectRootReplacementAfterJournalCleanup(t *testing.T) {
 		},
 	}
 	input.Filesystem = filesystem
-	var events []Event
+	var events []executionevent.Event
 
 	result, err := ApplyWithOptions(
 		context.Background(),
 		input,
-		ApplyOptions{Events: func(event Event) {
+		ApplyOptions{Events: func(event executionevent.Event) {
 			events = append(events, event)
 		}},
 	)
@@ -266,10 +267,10 @@ func TestApplyRejectsProjectRootReplacementAfterJournalCleanup(t *testing.T) {
 		filepath.Join(movedRoot, ".daem", "recovery"),
 		0,
 	)
-	if !containsApplyEventKind(events, EventJournalCleaned) {
+	if !containsApplyEventKind(events, executionevent.JournalCleaned) {
 		t.Fatalf("events = %#v, want rooted journal cleanup success", events)
 	}
-	assertNoEventKind(t, events, EventJournalCleanupFailed)
+	assertNoEventKind(t, events, executionevent.JournalCleanupFailed)
 }
 
 func TestApplyReportsFinalizedGCFailureWithoutImpossibleRecoveryAdvice(t *testing.T) {
@@ -278,12 +279,12 @@ func TestApplyReportsFinalizedGCFailureWithoutImpossibleRecoveryAdvice(t *testin
 	input := fixture.input([]applyEventAction{action})
 	filesystem := &failProjectJournalGCCleanupStore{Store: input.Filesystem}
 	input.Filesystem = filesystem
-	var events []Event
+	var events []executionevent.Event
 
 	result, err := ApplyWithOptions(
 		t.Context(),
 		input,
-		ApplyOptions{Events: func(event Event) {
+		ApplyOptions{Events: func(event executionevent.Event) {
 			events = append(events, event)
 		}},
 	)
@@ -307,10 +308,10 @@ func TestApplyReportsFinalizedGCFailureWithoutImpossibleRecoveryAdvice(t *testin
 		1,
 	)
 	assertHostFileContent(t, fixture.hostPath("CREATE.md"), "created\n")
-	if !containsApplyEventKind(events, EventJournalCleanupFailed) {
+	if !containsApplyEventKind(events, executionevent.JournalCleanupFailed) {
 		t.Fatalf("events = %#v, want journal cleanup failure", events)
 	}
-	assertNoEventKind(t, events, EventJournalCleaned)
+	assertNoEventKind(t, events, executionevent.JournalCleaned)
 
 	_, loadErr := journal.LoadRecoverablePlanWithOptions(
 		t.Context(),
@@ -337,15 +338,15 @@ func TestApplyReportsPostRetirementAcceptanceFailureWithoutRecoveryAdvice(t *tes
 	input := fixture.input([]applyEventAction{action})
 	acceptanceFailure := errors.New("injected post-retirement acceptance failure")
 	cleanupStarted := false
-	var events []Event
+	var events []executionevent.Event
 
 	result, err := ApplyWithOptions(
 		t.Context(),
 		input,
 		ApplyOptions{
-			Events: func(event Event) {
+			Events: func(event executionevent.Event) {
 				events = append(events, event)
-				if event.Kind == EventJournalCleanupStarted {
+				if event.Kind == executionevent.JournalCleanupStarted {
 					cleanupStarted = true
 				}
 			},
@@ -372,10 +373,10 @@ func TestApplyReportsPostRetirementAcceptanceFailureWithoutRecoveryAdvice(t *tes
 		1,
 	)
 	assertHostFileContent(t, fixture.hostPath("CREATE.md"), "created\n")
-	if !containsApplyEventKind(events, EventJournalCleanupFailed) {
+	if !containsApplyEventKind(events, executionevent.JournalCleanupFailed) {
 		t.Fatalf("events = %#v, want post-retirement acceptance failure", events)
 	}
-	assertNoEventKind(t, events, EventJournalCleaned)
+	assertNoEventKind(t, events, executionevent.JournalCleaned)
 
 	_, loadErr := journal.LoadRecoverablePlanWithOptions(
 		t.Context(),

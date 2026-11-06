@@ -106,7 +106,7 @@ func compileApplyEffectPlan(
 		"apply/prepared-effects-validation",
 		operationplan.EffectStepObservation,
 	))
-	nodes = append(nodes, ordinaryApplyEffectNodes(&builder, managedSchedule, aggregateEffects, promotions)...)
+	nodes = append(nodes, hostmutation.ForwardEffectNodes(&builder, managedSchedule, aggregateEffects, promotions)...)
 	if err := promotions.RequireComplete(); err != nil {
 		return applyprogram.Plan{}, err
 	}
@@ -160,16 +160,4 @@ func compileApplyEffectPlan(
 		return applyprogram.Plan{}, err
 	}
 	return promotions.BindPlan(segment, structure, failureStructure)
-}
-
-func applyManagedPathScheduleReference(phase hostmutation.ManagedPathPhase, effectIndex int) string {
-	prefix := "apply/managed-publish"
-	if phase == hostmutation.ManagedPathRetirePhase {
-		prefix = "apply/managed-retire"
-	}
-	return fmt.Sprintf("%s/%d", prefix, effectIndex)
-}
-
-func applyAggregateScheduleReference(index int) string {
-	return fmt.Sprintf("apply/aggregate/%d", index)
 }

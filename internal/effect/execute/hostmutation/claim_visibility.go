@@ -1,15 +1,14 @@
-package execute
+package hostmutation
 
 import (
-	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/target"
 )
 
-func provisionalAcquireKeysForManagedPath(effect effectpreparation.ManagedPathEffect, phase hostmutation.ManagedPathPhase) []ownership.LogicalKey {
-	if phase != hostmutation.ManagedPathPublishPhase || effect.Scope() != target.ScopeGlobal ||
+func ProvisionalAcquireKeysForManagedPath(effect effectpreparation.ManagedPathEffect, phase ManagedPathPhase) []ownership.LogicalKey {
+	if phase != ManagedPathPublishPhase || effect.Scope() != target.ScopeGlobal ||
 		effect.Kind() == effectpreparation.ManagedPathEffectRemove || effect.Kind() == effectpreparation.ManagedPathEffectRecord {
 		return nil
 	}
@@ -20,7 +19,7 @@ func provisionalAcquireKeysForManagedPath(effect effectpreparation.ManagedPathEf
 	return []ownership.LogicalKey{{Destination: effect.Destination(), Footprint: output.WholePathFootprint()}}
 }
 
-func provisionalAcquireKeysForAggregate(effect effectpreparation.AggregateEffect) []ownership.LogicalKey {
+func ProvisionalAcquireKeysForAggregate(effect effectpreparation.AggregateEffect) []ownership.LogicalKey {
 	if effect.Scope() != target.ScopeGlobal || effect.Kind() == effectpreparation.AggregateEffectRecord {
 		return nil
 	}

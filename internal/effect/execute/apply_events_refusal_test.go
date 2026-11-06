@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 )
 
 func TestApplyWithOptionsRejectsMissingDestinationResolverBeforeEffects(t *testing.T) {
@@ -14,10 +16,10 @@ func TestApplyWithOptionsRejectsMissingDestinationResolverBeforeEffects(t *testi
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 	input := fixture.input([]applyEventAction{action})
 	input.Resolver = nil
-	var events []Event
+	var events []executionevent.Event
 
 	result, err := ApplyWithOptions(context.Background(), input, ApplyOptions{
-		Events: func(event Event) { events = append(events, event) },
+		Events: func(event executionevent.Event) { events = append(events, event) },
 	})
 	if err == nil || !strings.Contains(err.Error(), "apply destination resolver is required") {
 		t.Fatalf("ApplyWithOptions error = %v, want missing-resolver rejection", err)
@@ -38,10 +40,10 @@ func TestApplyWithOptionsRejectsMissingStateCodecBeforeEffects(t *testing.T) {
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 	input := fixture.input([]applyEventAction{action})
 	input.StateCodec = nil
-	var events []Event
+	var events []executionevent.Event
 
 	_, err := ApplyWithOptions(context.Background(), input, ApplyOptions{
-		Events: func(event Event) { events = append(events, event) },
+		Events: func(event executionevent.Event) { events = append(events, event) },
 	})
 	if err == nil || !strings.Contains(err.Error(), "apply state codec is required") {
 		t.Fatalf("ApplyWithOptions error = %v, want missing-codec rejection", err)
@@ -60,10 +62,10 @@ func TestApplyWithOptionsRejectsStateEncodingFailureBeforeEffects(t *testing.T) 
 	input := fixture.input([]applyEventAction{action})
 	codecErr := errors.New("injected state encoding failure")
 	input.StateCodec = failingStateCodec{encodeErr: codecErr}
-	var events []Event
+	var events []executionevent.Event
 
 	_, err := ApplyWithOptions(context.Background(), input, ApplyOptions{
-		Events: func(event Event) { events = append(events, event) },
+		Events: func(event executionevent.Event) { events = append(events, event) },
 	})
 	if !errors.Is(err, codecErr) {
 		t.Fatalf("ApplyWithOptions error = %v, want encoding failure", err)
@@ -98,19 +100,19 @@ func TestApplyWithOptionsJournalCaptureFailureEmitsOnlyCaptureEvents(t *testing.
 	fixture.paths.RecoveryDir = filepath.Join(fixture.root, "recovery-file")
 	writeApplyEventFile(t, fixture.paths.RecoveryDir, "not a directory")
 
-	var events []Event
+	var events []executionevent.Event
 	result, err := ApplyWithOptions(
 		context.Background(),
 		fixture.input([]applyEventAction{action}),
-		ApplyOptions{Events: func(event Event) { events = append(events, event) }},
+		ApplyOptions{Events: func(event executionevent.Event) { events = append(events, event) }},
 	)
 
 	if err == nil || !strings.Contains(err.Error(), "capture recovery journal") {
 		t.Fatalf("error = %v, want capture recovery journal failure", err)
 	}
-	assertEventKinds(t, events, []EventKind{
-		EventJournalCaptureStarted,
-		EventJournalCaptureFailed,
+	assertEventKinds(t, events, []executionevent.Kind{
+		executionevent.JournalCaptureStarted,
+		executionevent.JournalCaptureFailed,
 	})
 	if events[1].Err == nil {
 		t.Fatalf("capture failed event Err = nil")
@@ -124,11 +126,11 @@ func TestApplyWithOptionsCancellationAfterJournalRollsBackWithoutSuccess(t *test
 	fixture := newApplyEventFixture(t)
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 	ctx, cancel := context.WithCancel(context.Background())
-	var events []Event
+	var events []executionevent.Event
 	_, err := ApplyWithOptions(ctx, fixture.input([]applyEventAction{action}), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventJournalCaptured {
+			if event.Kind == executionevent.JournalCaptured {
 				cancel()
 			}
 		},
@@ -138,7 +140,7 @@ func TestApplyWithOptionsCancellationAfterJournalRollsBackWithoutSuccess(t *test
 	}
 	assertHostMissing(t, fixture.hostPath("CREATE.md"))
 	assertHostMissing(t, fixture.paths.StatefilePath)
-	if containsApplyEventKind(events, EventStatefileWritten) {
+	if containsApplyEventKind(events, executionevent.StatefileWritten) {
 		t.Fatalf("events contain statefile success after cancellation: %#v", events)
 	}
 }
@@ -147,11 +149,11 @@ func TestApplyWithOptionsCancellationAfterStateCommitRetainsClassifiableJournal(
 	fixture := newApplyEventFixture(t)
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 	ctx, cancel := context.WithCancel(context.Background())
-	var events []Event
+	var events []executionevent.Event
 	result, err := ApplyWithOptions(ctx, fixture.input([]applyEventAction{action}), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
-			if event.Kind == EventStatefileWritten {
+			if event.Kind == executionevent.StatefileWritten {
 				cancel()
 			}
 		},
@@ -161,7 +163,7 @@ func TestApplyWithOptionsCancellationAfterStateCommitRetainsClassifiableJournal(
 	}
 	assertHostFileContent(t, fixture.hostPath("CREATE.md"), "created\n")
 	assertCommittedApplyResult(t, result, fixture.paths.StatefilePath, fixture.paths.StatefilePath, 1)
-	if containsApplyEventKind(events, EventJournalCleaned) {
+	if containsApplyEventKind(events, executionevent.JournalCleaned) {
 		t.Fatalf("events cleaned journal after cancellation: %#v", events)
 	}
 	entries, err := os.ReadDir(fixture.paths.RecoveryDir)

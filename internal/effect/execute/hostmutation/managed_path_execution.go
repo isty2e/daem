@@ -1,42 +1,41 @@
-package execute
+package hostmutation
 
 import (
 	"context"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
-	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
-func applyManagedPathPhaseWithEvents(
+func (host *Operation) ApplyManagedPathPhase(
 	ctx context.Context,
-	schedule hostmutation.ManagedPathSchedule,
-	phase hostmutation.ManagedPathPhase,
+	schedule ManagedPathSchedule,
+	phase ManagedPathPhase,
 	payloads payload.PayloadSet,
-	authority *mutationAuthority,
-	progress hostActionProgress,
+	progress ActionProgress,
 	eventIndexOffset int,
-	events applyEventEmitter,
+	events executionevent.Emitter,
 	gate applyprogram.VisibilityGate,
 	execution *applyprogram.Execution,
-	afterMutation func(context.Context, effectpreparation.ManagedPathEffect, hostmutation.ManagedPathPhase) error,
+	afterMutation func(context.Context, effectpreparation.ManagedPathEffect, ManagedPathPhase) error,
 ) error {
 	for operation := range schedule.Operations(phase) {
 		effect := operation.Effect()
-		facts := managedPathEventFacts(eventIndexOffset+operation.EffectIndex(), effect)
-		if phase == hostmutation.ManagedPathPublishPhase || !operation.Relocates() {
-			events.emit(EventActionStarted, EventStageAction, cloneActionEventFacts(facts), nil)
+		facts := executionevent.ManagedPathFacts(eventIndexOffset+operation.EffectIndex(), effect)
+		if phase == ManagedPathPublishPhase || !operation.Relocates() {
+			events.Emit(executionevent.ActionStarted, executionevent.StageAction, facts.Snapshot(), nil)
 		}
 		applyStep := func() error {
-			state, err := authority.hostMutation().ApplyManagedPathStep(ctx, operation, payloads)
+			state, err := host.ApplyManagedPathStep(ctx, operation, payloads)
 			progress.record(operation.MutationIndex(), state)
 			return err
 		}
 		var err error
 		mutatesHost := effect.Kind() != effectpreparation.ManagedPathEffectRecord
-		prefix := applyManagedPathScheduleReference(phase, operation.EffectIndex())
+		prefix := operation.ScheduleReference()
 		if !mutatesHost {
 			err = execution.Observe(prefix+"/record", applyprogram.FailureGuardedRecovery, applyStep)
 		} else {
@@ -52,11 +51,11 @@ func applyManagedPathPhaseWithEvents(
 			err = afterMutation(ctx, effect, phase)
 		}
 		if err != nil {
-			events.emit(EventActionFailed, EventStageAction, cloneActionEventFacts(facts), err)
+			events.Emit(executionevent.ActionFailed, executionevent.StageAction, facts.Snapshot(), err)
 			return err
 		}
-		if !operation.Relocates() || phase == hostmutation.ManagedPathRetirePhase {
-			events.emit(EventActionDone, EventStageAction, cloneActionEventFacts(facts), nil)
+		if !operation.Relocates() || phase == ManagedPathRetirePhase {
+			events.Emit(executionevent.ActionDone, executionevent.StageAction, facts.Snapshot(), nil)
 		}
 	}
 	return nil

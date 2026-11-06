@@ -32,6 +32,14 @@ func (operation ManagedPathOperation) MutationIndex() int { return operation.mut
 
 func (operation ManagedPathOperation) Relocates() bool { return operation.relocation }
 
+func (operation ManagedPathOperation) ScheduleReference() string {
+	prefix := "apply/managed-publish"
+	if operation.phase == ManagedPathRetirePhase {
+		prefix = "apply/managed-retire"
+	}
+	return fmt.Sprintf("%s/%d", prefix, operation.effectIndex)
+}
+
 // ManagedPathSchedule retains publication order, not execution authority.
 type ManagedPathSchedule struct {
 	publish       []ManagedPathOperation

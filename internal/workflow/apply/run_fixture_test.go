@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	targetpkg "github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	"github.com/isty2e/daem/test/outputtest"
@@ -28,7 +28,7 @@ func assertHookAggregateState(t *testing.T, snapshot durable.Snapshot, expectedS
 	t.Fatalf("managed Hook aggregate subject %q not found in %#v", expectedSubject, snapshot.ManagedAggregates())
 }
 
-func assertWorkflowApplyEventKinds(t *testing.T, events []execute.Event, wants ...execute.EventKind) {
+func assertWorkflowApplyEventKinds(t *testing.T, events []executionevent.Event, wants ...executionevent.Kind) {
 	t.Helper()
 
 	var got []string

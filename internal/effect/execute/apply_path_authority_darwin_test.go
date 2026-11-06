@@ -11,6 +11,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/payload"
@@ -49,8 +50,8 @@ func TestApplyNormalizationAliasesMutatesAtMostFirstAndRollsBack(t *testing.T) {
 
 	started := 0
 	visibilityCollapse := errors.New("visibility identity collapse")
-	_, err := ApplyWithOptions(t.Context(), scenario.input, scenario.options(func(event Event) {
-		if event.Kind == EventActionStarted {
+	_, err := ApplyWithOptions(t.Context(), scenario.input, scenario.options(func(event executionevent.Event) {
+		if event.Kind == executionevent.ActionStarted {
 			started++
 		}
 	}, visibilityCollapse))
@@ -76,8 +77,8 @@ func TestApplyDistinctNormalizationSensitiveSiblingsCompleteSequentially(t *test
 	scenario := newPathAuthorityApplyScenario(t, []string{"Caf\u00e9", "Tea\u0301"})
 
 	started := 0
-	result, err := ApplyWithOptions(t.Context(), scenario.input, scenario.options(func(event Event) {
-		if event.Kind == EventActionStarted {
+	result, err := ApplyWithOptions(t.Context(), scenario.input, scenario.options(func(event executionevent.Event) {
+		if event.Kind == executionevent.ActionStarted {
 			started++
 		}
 	}, errors.New("visibility identity collapse")))
@@ -220,7 +221,7 @@ func newPathAuthorityApplyScenario(t *testing.T, spellings []string) pathAuthori
 }
 
 func (scenario pathAuthorityApplyScenario) options(
-	events func(Event),
+	events func(executionevent.Event),
 	visibilityRejection error,
 ) ApplyOptions {
 	return ApplyOptions{

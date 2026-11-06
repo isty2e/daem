@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	"github.com/isty2e/daem/internal/effect/execute/documentmutation"
@@ -320,7 +321,7 @@ func prepareNativeApplyEffectPlan(input NativeApplyInput, work nativeApplyWork) 
 			nodes = append(nodes, applyprogram.ForwardObligation(&builder, prefix+"/promotion", operationplan.EffectStepPersistence), applyprogram.ForwardObligation(&builder, prefix+"/claims", operationplan.EffectStepPersistence))
 		}
 	}
-	nodes = append(nodes, ordinaryApplyEffectNodes(&builder, ordinary.managedSchedule, work.ordinaryAggregates, promotions)...)
+	nodes = append(nodes, hostmutation.ForwardEffectNodes(&builder, ordinary.managedSchedule, work.ordinaryAggregates, promotions)...)
 	if err := promotions.RequireComplete(); err != nil {
 		return applyprogram.Plan{}, err
 	}
@@ -523,20 +524,20 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			}
 		}
 	}
-	events := applyEventEmitter{sink: options.Events, totalActions: len(work.managed) + effectpreparation.AggregateSubjectCount(input.Preparation.AggregateEffects())}
-	managedProgress := newHostActionProgress(ordinary.managedSchedule.MutationCount())
+	events := executionevent.NewEmitter(options.Events, len(work.managed)+effectpreparation.AggregateSubjectCount(input.Preparation.AggregateEffects()))
+	managedProgress := hostmutation.NewActionProgress(ordinary.managedSchedule.MutationCount())
 	promoteManaged := func(ctx context.Context, effect effectpreparation.ManagedPathEffect, phase hostmutation.ManagedPathPhase) error {
-		return promoteNativeOrdinaryAcquires(ctx, &ordinary.ownership, provisionalAcquireKeysForManagedPath(effect, phase), &captured, authority, input, store, gate, execution)
+		return promoteNativeOrdinaryAcquires(ctx, &ordinary.ownership, hostmutation.ProvisionalAcquireKeysForManagedPath(effect, phase), &captured, authority, input, store, gate, execution)
 	}
-	if err := applyManagedPathPhaseWithEvents(ctx, ordinary.managedSchedule, hostmutation.ManagedPathPublishPhase, input.Payloads, authority, managedProgress, 0, events, gate, execution, promoteManaged); err != nil {
+	if err := authority.hostMutation().ApplyManagedPathPhase(ctx, ordinary.managedSchedule, hostmutation.ManagedPathPublishPhase, input.Payloads, managedProgress, 0, events, gate, execution, promoteManaged); err != nil {
 		return result, settle(err)
 	}
-	if _, err := applyAggregateEffectsWithEvents(ctx, work.ordinaryAggregates, authority, input.Codecs, len(work.managed), events, gate, execution, func(ctx context.Context, effect effectpreparation.AggregateEffect) error {
-		return promoteNativeOrdinaryAcquires(ctx, &ordinary.ownership, provisionalAcquireKeysForAggregate(effect), &captured, authority, input, store, gate, execution)
+	if _, err := authority.hostMutation().ApplyAggregateEffects(ctx, work.ordinaryAggregates, input.Codecs, len(work.managed), events, gate, execution, func(ctx context.Context, effect effectpreparation.AggregateEffect) error {
+		return promoteNativeOrdinaryAcquires(ctx, &ordinary.ownership, hostmutation.ProvisionalAcquireKeysForAggregate(effect), &captured, authority, input, store, gate, execution)
 	}); err != nil {
 		return result, settle(err)
 	}
-	if err := applyManagedPathPhaseWithEvents(ctx, ordinary.managedSchedule, hostmutation.ManagedPathRetirePhase, input.Payloads, authority, managedProgress, 0, events, gate, execution, promoteManaged); err != nil {
+	if err := authority.hostMutation().ApplyManagedPathPhase(ctx, ordinary.managedSchedule, hostmutation.ManagedPathRetirePhase, input.Payloads, managedProgress, 0, events, gate, execution, promoteManaged); err != nil {
 		return result, settle(err)
 	}
 	if slices.Contains(work.promoting, true) || ordinaryPromoting {

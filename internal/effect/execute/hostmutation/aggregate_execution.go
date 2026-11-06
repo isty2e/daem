@@ -1,55 +1,53 @@
-package execute
+package hostmutation
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
-	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/topology"
 )
 
-func applyAggregateEffectsWithEvents(
+func (host *Operation) ApplyAggregateEffects(
 	ctx context.Context,
 	effects []effectpreparation.AggregateEffect,
-	authority *mutationAuthority,
 	codecs aggregate.CodecCatalog,
 	eventIndexOffset int,
-	events applyEventEmitter,
+	events executionevent.Emitter,
 	gate applyprogram.VisibilityGate,
 	execution *applyprogram.Execution,
 	afterMutation func(context.Context, effectpreparation.AggregateEffect) error,
-) (hostActionProgress, error) {
+) (ActionProgress, error) {
 	journaledProjectionCount := 0
 	for _, effect := range effects {
 		journaledProjectionCount += effect.JournaledProjectionCount()
 	}
-	progress := newHostActionProgress(journaledProjectionCount)
+	progress := NewActionProgress(journaledProjectionCount)
 	journalProjectionIndex := 0
 	eventIndex := eventIndexOffset
 	for effectIndex, effect := range effects {
 		subjects := effect.SubjectEffects()
 		for _, subject := range subjects {
-			facts := aggregateEventFacts(eventIndex, subject.Kind(), subject.Subject(), subject.Contract())
-			events.emit(EventActionStarted, EventStageAction, cloneActionEventFacts(facts), nil)
+			facts := executionevent.AggregateFacts(eventIndex, subject.Kind(), subject.Subject(), subject.Contract())
+			events.Emit(executionevent.ActionStarted, executionevent.StageAction, facts.Snapshot(), nil)
 			eventIndex++
 		}
 
-		prefix := applyAggregateScheduleReference(effectIndex)
+		prefix := AggregateScheduleReference(effectIndex)
 		var destination mutationnamespace.Destination
 		observePreconditions := func() error {
-			resolved, err := authority.destinations.Resolve(effect.Scope(), effect.Destination())
+			resolved, err := host.destinations.Resolve(effect.Scope(), effect.Destination())
 			if err != nil {
 				return err
 			}
 			destination = resolved
-			return authority.hostMutation().VerifyAggregatePreconditions(ctx, effect.OperationPreconditions())
+			return host.VerifyAggregatePreconditions(ctx, effect.OperationPreconditions())
 		}
-		hostProgress := hostmutation.EffectNotStarted
+		hostProgress := EffectNotStarted
 		var err error
 		if effect.Kind() == effectpreparation.AggregateEffectRecord {
 			err = execution.Observe(
@@ -59,7 +57,7 @@ func applyAggregateEffectsWithEvents(
 					if observeErr := observePreconditions(); observeErr != nil {
 						return observeErr
 					}
-					return authority.hostMutation().VerifyAggregateBefore(ctx, destination, effect, codecs)
+					return host.VerifyAggregateBefore(ctx, destination, effect, codecs)
 				},
 			)
 		} else {
@@ -79,10 +77,10 @@ func applyAggregateEffectsWithEvents(
 			}
 			if err == nil {
 				err = operationGate.ApplyEffect(func() error {
-					mutationErr := authority.hostMutation().CommitAggregate(ctx, destination, effect, codecs)
-					hostProgress = hostmutation.EffectExpectedAfter
+					mutationErr := host.CommitAggregate(ctx, destination, effect, codecs)
+					hostProgress = EffectExpectedAfter
 					if mutationErr != nil {
-						hostProgress = hostmutation.ProgressAfterMutationError(mutationErr)
+						hostProgress = ProgressAfterMutationError(mutationErr)
 					}
 					return mutationErr
 				})
@@ -104,11 +102,11 @@ func applyAggregateEffectsWithEvents(
 			journalProjectionIndex++
 		}
 		for index, subject := range subjects {
-			facts := aggregateEventFacts(eventIndex-len(subjects)+index, subject.Kind(), subject.Subject(), subject.Contract())
+			facts := executionevent.AggregateFacts(eventIndex-len(subjects)+index, subject.Kind(), subject.Subject(), subject.Contract())
 			if err != nil {
-				events.emit(EventActionFailed, EventStageAction, cloneActionEventFacts(facts), err)
+				events.Emit(executionevent.ActionFailed, executionevent.StageAction, facts.Snapshot(), err)
 			} else {
-				events.emit(EventActionDone, EventStageAction, cloneActionEventFacts(facts), nil)
+				events.Emit(executionevent.ActionDone, executionevent.StageAction, facts.Snapshot(), nil)
 			}
 		}
 		if err != nil {
@@ -118,10 +116,6 @@ func applyAggregateEffectsWithEvents(
 	return progress, nil
 }
 
-func aggregateEventFacts(index int, kind effectpreparation.AggregateEffectKind, subject topology.SubjectID, contract aggregate.ProjectionContract) ActionEventFacts {
-	return ActionEventFacts{
-		Index: index, AggregateKind: kind, Subject: subject,
-		Target: contract.Address().Document().Target(), Scope: contract.Address().Document().Scope(),
-		Destination: contract.Address().Document().AggregateRoot(),
-	}
+func AggregateScheduleReference(index int) string {
+	return fmt.Sprintf("apply/aggregate/%d", index)
 }

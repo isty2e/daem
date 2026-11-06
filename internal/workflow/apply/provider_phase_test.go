@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -93,8 +93,8 @@ func TestProviderEffectPreventsWholeApplyRolledBackOutcome(t *testing.T) {
 	}
 	result, err := ExecuteWithOptions(ctx, planned, ExecuteOptions{
 		HostRouteExecutor: executor,
-		ExecuteEvents: func(event execute.Event) {
-			if event.Kind == execute.EventActionDone {
+		ExecuteEvents: func(event executionevent.Event) {
+			if event.Kind == executionevent.ActionDone {
 				cancel()
 			}
 		},
