@@ -3,6 +3,7 @@ package execute
 import (
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/target"
@@ -13,7 +14,7 @@ func TestRecoveryForwardRemovalCertificatesUsePlannedBackupWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actions := []recoveryHostAction{
+	actions := []hostmutation.RestorationAction{
 		{
 			Kind: recovery.ActionKindRestoreWrite, Scope: target.ScopeProject,
 			Destination: ".agents/skills/alpha", BackupPath: "backup",
@@ -33,7 +34,7 @@ func TestRecoveryForwardRemovalCertificatesUsePlannedBackupWork(t *testing.T) {
 	}
 	demands := make([]recovery.RemovalDemand, 0, len(actions))
 	for _, action := range actions {
-		destination, err := recoveryDestination(action.Scope, action.Destination)
+		destination, err := hostmutation.ParseRestorationDestination(action.Scope, action.Destination)
 		if err != nil {
 			t.Fatal(err)
 		}

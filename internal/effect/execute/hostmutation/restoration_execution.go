@@ -1,4 +1,4 @@
-package execute
+package hostmutation
 
 import (
 	"context"
@@ -8,13 +8,10 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 
-	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
-
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
@@ -22,7 +19,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-type recoveryHostAction struct {
+type RestorationAction struct {
 	Kind                recovery.ActionKind
 	Scope               target.Scope
 	Destination         string
@@ -38,7 +35,7 @@ type recoveryHostAction struct {
 	AggregateContract   *aggregate.ProjectionContract
 }
 
-type recoveryHostOwnershipGuard func(context.Context, recoveryHostAction, mutationnamespace.Destination) error
+type RestorationOwnershipGuard func(context.Context, RestorationAction, mutationnamespace.Destination) error
 
 type recoveryAggregateActionGroup struct {
 	indexes     []int
@@ -49,10 +46,10 @@ type recoveryHostExecutionPlan struct {
 	resolvedDestinations []mutationnamespace.Destination
 	aggregateGroups      map[int]recoveryAggregateActionGroup
 	aggregateMembers     map[int]struct{}
-	visitOrder           []activeRecoveryHostVisit
+	visitOrder           []int
 }
 
-func recoveryDestination(scope target.Scope, value string) (output.Destination, error) {
+func ParseRestorationDestination(scope target.Scope, value string) (output.Destination, error) {
 	destination, err := output.Parse(value)
 	if err != nil {
 		return output.Destination{}, fmt.Errorf("recovery destination: %w", err)
@@ -63,7 +60,7 @@ func recoveryDestination(scope target.Scope, value string) (output.Destination, 
 	return destination, nil
 }
 
-func (action recoveryHostAction) validateAggregateCorrelation() error {
+func (action RestorationAction) validateAggregateCorrelation() error {
 	if action.ContentPath == "" {
 		if action.AggregateContract != nil {
 			return fmt.Errorf("aggregate contract has no content path")
@@ -103,14 +100,14 @@ func (action recoveryHostAction) validateAggregateCorrelation() error {
 	return nil
 }
 
-// orderRecoveryHostActions restores providers before switching dependent
+// OrderRestorationActions restores providers before switching dependent
 // projections and removes newly published paths only after those projections
 // no longer reference them. Canonical journal order remains stable within each
 // phase.
-func orderRecoveryHostActions(actions []recoveryHostAction) []recoveryHostAction {
-	pathRestores := make([]recoveryHostAction, 0, len(actions))
-	projectionRestores := make([]recoveryHostAction, 0, len(actions))
-	pathDeletes := make([]recoveryHostAction, 0, len(actions))
+func OrderRestorationActions(actions []RestorationAction) []RestorationAction {
+	pathRestores := make([]RestorationAction, 0, len(actions))
+	projectionRestores := make([]RestorationAction, 0, len(actions))
+	pathDeletes := make([]RestorationAction, 0, len(actions))
 	for _, action := range actions {
 		switch {
 		case action.ContentPath != "" || action.AggregateContract != nil:
@@ -121,118 +118,16 @@ func orderRecoveryHostActions(actions []recoveryHostAction) []recoveryHostAction
 			pathDeletes = append(pathDeletes, action)
 		}
 	}
-	ordered := make([]recoveryHostAction, 0, len(actions))
+	ordered := make([]RestorationAction, 0, len(actions))
 	ordered = append(ordered, pathRestores...)
 	ordered = append(ordered, projectionRestores...)
 	ordered = append(ordered, pathDeletes...)
 	return ordered
 }
 
-func newRecoveryMutationAuthority(
-	paths Paths,
-	plan recovery.Plan,
-	resolver mutationnamespace.Resolver,
-	filesystem mutationfs.Store,
-	ownershipRegistryBinder ownershipmutation.RootedRegistryBinder,
-) (*mutationAuthority, error) {
-	demands, err := removaloperation.DemandsForIntents(plan.RemovalIntents())
-	if err != nil {
-		return nil, err
-	}
-	physicalWorkBudget, err := physicalwork.NewBudget(demands.Len())
-	if err != nil {
-		return nil, err
-	}
-	authority, err := captureMutationAuthorityWithPhysicalWorkBudget(
-		paths,
-		true,
-		nil,
-		resolver,
-		filesystem,
-		physicalWorkBudget,
-	)
-	if err != nil {
-		return nil, err
-	}
-	authority.ownershipRegistryBinder = ownershipRegistryBinder
-	if err := authority.removals.PrepareDemands(demands, physicalWorkBudget); err != nil {
-		_ = authority.close()
-		return nil, err
-	}
-	for _, action := range plan.GuardedActions() {
-		destination, err := recoveryDestination(action.Scope, action.Destination)
-		if err != nil {
-			_ = authority.close()
-			return nil, err
-		}
-		targets := append([]target.Target(nil), action.ConsumerTargets...)
-		if action.Target != "" {
-			targets = []target.Target{action.Target}
-		}
-		if err := authority.bindPhysicalAuthority(
-			action.Scope,
-			destination,
-			targets,
-		); err != nil {
-			_ = authority.close()
-			return nil, err
-		}
-	}
-	return authority, nil
-}
-
-func requireRecoveryGlobalBindings(authority *mutationAuthority, actions []recovery.Action) error {
-	if authority == nil {
-		return fmt.Errorf("recovery mutation authority is required")
-	}
-	for _, action := range actions {
-		if action.Scope != target.ScopeGlobal {
-			continue
-		}
-		destination, err := recoveryDestination(action.Scope, action.Destination)
-		if err != nil {
-			return err
-		}
-		if !authority.destinations.IsGlobalBound(destination) {
-			return fmt.Errorf("global recovery destination %q was not bound before effects", action.Destination)
-		}
-	}
-	return nil
-}
-
-func executeRecoveryHostActions(
-	ctx context.Context,
-	authority *mutationAuthority,
-	actions []recoveryHostAction,
-	staged []hostRollbackEntry,
-	beforeAction func(int) error,
-	ownershipGuard recoveryHostOwnershipGuard,
-	codecs aggregate.CodecCatalog,
-	gate applyprogram.VisibilityGate,
-) error {
-	if len(actions) != len(staged) {
-		return fmt.Errorf("recovery action count %d does not match staged precondition count %d", len(actions), len(staged))
-	}
-	plan, err := prepareRecoveryHostExecutionPlan(authority, actions)
-	if err != nil {
-		return err
-	}
-	return executeRecoveryHostActionPlan(
-		ctx,
-		authority,
-		actions,
-		staged,
-		plan,
-		beforeAction,
-		ownershipGuard,
-		codecs,
-		gate,
-	)
-}
-
 func prepareRecoveryHostExecutionPlan(
-	authority *mutationAuthority,
-	actions []recoveryHostAction,
+	authority *Restoration,
+	actions []RestorationAction,
 ) (recoveryHostExecutionPlan, error) {
 	resolvedDestinations := make([]mutationnamespace.Destination, len(actions))
 	aggregateGroups := make(map[int]recoveryAggregateActionGroup)
@@ -242,11 +137,11 @@ func prepareRecoveryHostExecutionPlan(
 		if err := action.validateAggregateCorrelation(); err != nil {
 			return recoveryHostExecutionPlan{}, fmt.Errorf("recovery action %d: %w", index, err)
 		}
-		logical, err := recoveryDestination(action.Scope, action.Destination)
+		logical, err := ParseRestorationDestination(action.Scope, action.Destination)
 		if err != nil {
 			return recoveryHostExecutionPlan{}, err
 		}
-		destination, err := authority.destinations.Resolve(action.Scope, logical)
+		destination, err := authority.operation.destinations.Resolve(action.Scope, logical)
 		if err != nil {
 			return recoveryHostExecutionPlan{}, err
 		}
@@ -266,18 +161,18 @@ func prepareRecoveryHostExecutionPlan(
 		aggregateGroups[firstIndex] = group
 		aggregateMembers[index] = struct{}{}
 	}
-	visitOrder := make([]activeRecoveryHostVisit, 0, len(actions))
+	visitOrder := make([]int, 0, len(actions))
 	for index := range actions {
 		if group, present := aggregateGroups[index]; present {
 			for _, memberIndex := range group.indexes {
-				visitOrder = append(visitOrder, activeRecoveryHostVisit{index: memberIndex})
+				visitOrder = append(visitOrder, memberIndex)
 			}
 			continue
 		}
 		if _, grouped := aggregateMembers[index]; grouped {
 			continue
 		}
-		visitOrder = append(visitOrder, activeRecoveryHostVisit{index: index})
+		visitOrder = append(visitOrder, index)
 	}
 	return recoveryHostExecutionPlan{
 		resolvedDestinations: resolvedDestinations,
@@ -289,12 +184,13 @@ func prepareRecoveryHostExecutionPlan(
 
 func executeRecoveryHostActionPlan(
 	ctx context.Context,
-	authority *mutationAuthority,
-	actions []recoveryHostAction,
+	authority *Restoration,
+	budget *physicalwork.Budget,
+	actions []RestorationAction,
 	staged []hostRollbackEntry,
 	plan recoveryHostExecutionPlan,
 	beforeAction func(int) error,
-	ownershipGuard recoveryHostOwnershipGuard,
+	ownershipGuard RestorationOwnershipGuard,
 	codecs aggregate.CodecCatalog,
 	gate applyprogram.VisibilityGate,
 ) error {
@@ -306,6 +202,7 @@ func executeRecoveryHostActionPlan(
 			_, err := executeRecoveryAggregateActionGroup(
 				ctx,
 				authority,
+				budget,
 				actions,
 				staged,
 				group,
@@ -336,11 +233,11 @@ func executeRecoveryHostActionPlan(
 
 		destination := plan.resolvedDestinations[index]
 		if ownershipGuard != nil {
-			if err := ownershipGuard(ctx, action, destination); err != nil {
+			if err := ownershipGuard(ctx, action.clone(), destination); err != nil {
 				return fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
 			}
 		}
-		if err := validateStagedRecoveryDestination(ctx, authority, staged[index]); err != nil {
+		if err := validateStagedRecoveryDestination(ctx, authority, budget, staged[index]); err != nil {
 			return fmt.Errorf(
 				"validate recovery host action %d baseline: %w",
 				index,
@@ -349,7 +246,7 @@ func executeRecoveryHostActionPlan(
 		}
 		switch action.Kind {
 		case recovery.ActionKindRestoreWrite:
-			backup, err := authority.hostBackups().For(action.backupRequest(index))
+			backup, err := authority.sources.For(action.backupRequest(index))
 			if err != nil {
 				return fmt.Errorf("open backup for %q: %w", action.Destination, err)
 			}
@@ -373,7 +270,7 @@ func executeRecoveryHostActionPlan(
 					contentHash: action.BackupHash, fileMode: fileMode.Perm(),
 				}
 				staged[index].effectKnown = true
-				if err := authority.hostMutation().CommitFileAgainst(
+				if err := authority.operation.CommitFileAgainst(
 					ctx,
 					destination,
 					content,
@@ -392,7 +289,7 @@ func executeRecoveryHostActionPlan(
 					existed: true, kind: recovery.PathKindDirectory, contentHash: action.BackupHash,
 				}
 				staged[index].effectKnown = true
-				if err := authority.hostMutation().CommitDirectoryAgainst(
+				if err := authority.operation.CommitDirectoryAgainst(
 					ctx,
 					destination,
 					staged[index].existed,
@@ -411,7 +308,7 @@ func executeRecoveryHostActionPlan(
 			staged[index].attempted = true
 			staged[index].effectState = recoveryWholePathState{}
 			staged[index].effectKnown = true
-			if err := authority.hostMutation().RemoveAgainst(ctx, destination, staged[index].identity); err != nil {
+			if err := authority.operation.RemoveAgainst(ctx, destination, staged[index].identity); err != nil {
 				return fmt.Errorf("delete restored path %q: %w", action.Destination, err)
 			}
 		}
@@ -426,7 +323,7 @@ func executeRecoveryHostActionPlan(
 	return nil
 }
 
-func requiredBeforeFileMode(action recoveryHostAction) (os.FileMode, error) {
+func requiredBeforeFileMode(action RestorationAction) (os.FileMode, error) {
 	if action.BeforePathMode == nil {
 		return 0, fmt.Errorf("recovery action for %q requires before path mode", action.Destination)
 	}
@@ -435,12 +332,13 @@ func requiredBeforeFileMode(action recoveryHostAction) (os.FileMode, error) {
 
 func executeRecoveryAggregateActionGroup(
 	ctx context.Context,
-	authority *mutationAuthority,
-	actions []recoveryHostAction,
+	authority *Restoration,
+	budget *physicalwork.Budget,
+	actions []RestorationAction,
 	staged []hostRollbackEntry,
 	group recoveryAggregateActionGroup,
 	beforeAction func(int) error,
-	ownershipGuard recoveryHostOwnershipGuard,
+	ownershipGuard RestorationOwnershipGuard,
 	codecs aggregate.CodecCatalog,
 	gate applyprogram.VisibilityGate,
 ) (recoveryWholePathState, error) {
@@ -490,7 +388,7 @@ func executeRecoveryAggregateActionGroup(
 		var projection []byte
 		switch action.Kind {
 		case recovery.ActionKindRestoreWrite:
-			backup, err := authority.hostBackups().For(action.backupRequest(index))
+			backup, err := authority.sources.For(action.backupRequest(index))
 			if err != nil {
 				return recoveryWholePathState{}, fmt.Errorf(
 					"open projection backup for %q content path %q: %w",
@@ -566,7 +464,7 @@ func executeRecoveryAggregateActionGroup(
 	}
 	if ownershipGuard != nil {
 		for _, index := range group.indexes {
-			if err := ownershipGuard(ctx, actions[index], group.destination); err != nil {
+			if err := ownershipGuard(ctx, actions[index].clone(), group.destination); err != nil {
 				return recoveryWholePathState{}, fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
 			}
 		}
@@ -575,7 +473,7 @@ func executeRecoveryAggregateActionGroup(
 		staged[index].attempted = true
 	}
 	if err := admitRecoveryObservation(
-		authority.generalExecutionWorkBudget,
+		budget,
 		recovery.PathKindFile,
 		staged[firstIndex].stagedWork,
 	); err != nil {
@@ -593,7 +491,7 @@ func executeRecoveryAggregateActionGroup(
 	}
 	var expected aggregate.RenderedDocument
 	expectedKnown := false
-	mutationErr := authority.hostMutation().MutateFile(
+	mutationErr := authority.operation.MutateFile(
 		ctx,
 		group.destination,
 		fileMode,
@@ -644,7 +542,7 @@ func executeRecoveryAggregateActionGroup(
 		return recoveryWholePathState{}, err
 	}
 	if err := admitRecoveryObservation(
-		authority.generalExecutionWorkBudget,
+		budget,
 		recovery.PathKindFile,
 		expectedWork,
 	); err != nil {
@@ -653,7 +551,7 @@ func executeRecoveryAggregateActionGroup(
 			err,
 		)
 	}
-	current, mode, err := authority.hostMutation().ReadDocument(
+	current, mode, err := authority.operation.ReadDocument(
 		ctx,
 		group.destination,
 		max(int64(1), expectedWork.Bytes()),

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
 
@@ -15,12 +16,11 @@ import (
 )
 
 type nativeOrdinaryRecoveryStage struct {
-	actions  []recoveryHostAction
-	rollback hostRollback
-	plan     recoveryHostExecutionPlan
+	restoration *hostmutation.Restoration
+	visits      []int
 }
 
-func prepareNativeOrdinaryRecovery(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, actions []recoveryHostAction) (nativeOrdinaryRecoveryStage, error) {
+func prepareNativeOrdinaryRecovery(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, actions []hostmutation.RestorationAction) (nativeOrdinaryRecoveryStage, error) {
 	plan := operation.Plan()
 	if len(actions) == 0 {
 		return nativeOrdinaryRecoveryStage{}, nil
@@ -29,7 +29,7 @@ func prepareNativeOrdinaryRecovery(ctx context.Context, authority *mutationAutho
 		return nativeOrdinaryRecoveryStage{}, err
 	}
 	for _, action := range actions {
-		destination, err := recoveryDestination(action.Scope, action.Destination)
+		destination, err := hostmutation.ParseRestorationDestination(action.Scope, action.Destination)
 		if err != nil {
 			return nativeOrdinaryRecoveryStage{}, err
 		}
@@ -37,29 +37,22 @@ func prepareNativeOrdinaryRecovery(ctx context.Context, authority *mutationAutho
 			return nativeOrdinaryRecoveryStage{}, err
 		}
 	}
-	if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), recoveryBackupRequests(actions), authority.journalBasis.activeAuthority); err != nil {
+	if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), hostmutation.RestorationBackupRequests(actions), authority.journalBasis.activeAuthority); err != nil {
 		return nativeOrdinaryRecoveryStage{}, err
 	}
-	rollback, err := stageRecoveryRollback(ctx, authority, actions, operation.Codecs())
+	restoration, err := authority.hostMutation().StageRestoration(ctx, authority.physicalWorkBudget, authority.control, authority.hostBackups(), actions, operation.Codecs())
 	if err != nil {
 		return nativeOrdinaryRecoveryStage{}, err
 	}
-	hostPlan, err := prepareRecoveryHostExecutionPlan(authority, actions)
+	visits, err := restoration.PrepareExecution()
 	if err != nil {
-		return nativeOrdinaryRecoveryStage{}, errors.Join(err, rollback.scratch.Cleanup(context.WithoutCancel(ctx)))
+		return nativeOrdinaryRecoveryStage{}, errors.Join(err, restoration.Cleanup(context.WithoutCancel(ctx)))
 	}
-	return nativeOrdinaryRecoveryStage{actions: actions, rollback: rollback, plan: hostPlan}, nil
-}
-
-func (stage nativeOrdinaryRecoveryStage) cleanup(ctx context.Context) error {
-	if len(stage.actions) == 0 {
-		return nil
-	}
-	return stage.rollback.scratch.Cleanup(ctx)
+	return nativeOrdinaryRecoveryStage{restoration: restoration, visits: visits}, nil
 }
 
 func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, store ownershipmutation.RegistryStore, semanticGuard func(context.Context) error, gate applyprogram.VisibilityGate) (resultErr error) {
-	if len(stage.actions) == 0 {
+	if stage.restoration == nil {
 		return nil
 	}
 	releaseCheck, err := authority.control.InstallNativeCheck(semanticGuard)
@@ -76,17 +69,17 @@ func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority 
 	}
 	visit := 0
 	beforeAction := func(index int) error {
-		if visit >= len(stage.plan.visitOrder) || stage.plan.visitOrder[visit].index != index {
+		if visit >= len(stage.visits) || stage.visits[visit] != index {
 			return fmt.Errorf("ordinary restoration differs from its exact compiled visit order")
 		}
 		visit++
 		return semanticGuard(ctx)
 	}
-	err = executeRecoveryHostActionPlan(ctx, authority, stage.actions, stage.rollback.entries, stage.plan, beforeAction, recoveryIntentClaimGuardWithReader(intents, reader, authority), operation.Codecs(), gate)
+	err = stage.restoration.Execute(ctx, authority.generalExecutionWorkBudget, beforeAction, recoveryIntentClaimGuardWithReader(intents, reader, authority), gate)
 	if err != nil {
 		return err
 	}
-	if visit != len(stage.plan.visitOrder) {
+	if visit != len(stage.visits) {
 		return fmt.Errorf("ordinary restoration did not consume its complete compiled visit order")
 	}
 	return nil

@@ -1,4 +1,4 @@
-package execute
+package hostmutation
 
 import (
 	"reflect"
@@ -10,14 +10,14 @@ import (
 
 func TestRecoveryOrdersProviderRestoreBeforeProjectionSwitchAndPublishedPathDelete(t *testing.T) {
 	contract := aggregate.ProjectionContract{}
-	actions := []recoveryHostAction{
+	actions := []RestorationAction{
 		{Kind: recovery.ActionKindRestoreWrite, Destination: ".codex/hooks.json", ContentPath: aggregate.HooksContentPath, AggregateContract: &contract},
 		{Kind: recovery.ActionKindRestoreDelete, Destination: ".daem/hook-assets/guard/new/asset"},
 		{Kind: recovery.ActionKindRestoreWrite, Destination: ".daem/hook-assets/guard/old/asset"},
 		{Kind: recovery.ActionKindRestoreDelete, Destination: ".claude/settings.json", ContentPath: aggregate.HooksContentPath, AggregateContract: &contract},
 	}
 
-	ordered := orderRecoveryHostActions(actions)
+	ordered := OrderRestorationActions(actions)
 	got := make([]string, 0, len(ordered))
 	for _, action := range ordered {
 		got = append(got, action.Destination)

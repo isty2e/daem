@@ -1,4 +1,4 @@
-package execute
+package hostmutation
 
 import (
 	"context"
@@ -8,8 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-
-	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
@@ -63,7 +61,7 @@ func validateRecoveryWholeFileInput(
 	return nil
 }
 
-func validateRecoveryExpectedAbsent(action recoveryHostAction, codecs aggregate.CodecCatalog) error {
+func validateRecoveryExpectedAbsent(action RestorationAction, codecs aggregate.CodecCatalog) error {
 	if action.ContentPath != "" {
 		return validateRecoveryExpectedContentPath(action, nil, 0, false, codecs)
 	}
@@ -74,7 +72,7 @@ func validateRecoveryExpectedAbsent(action recoveryHostAction, codecs aggregate.
 }
 
 func validateRecoveryExpectedFile(
-	action recoveryHostAction,
+	action RestorationAction,
 	content []byte,
 	mode os.FileMode,
 	codecs aggregate.CodecCatalog,
@@ -107,7 +105,7 @@ func validateRecoveryExpectedFile(
 }
 
 func validateRecoveryExpectedDirectory(
-	action recoveryHostAction,
+	action RestorationAction,
 	contentHash string,
 	kind string,
 ) error {
@@ -126,7 +124,7 @@ func validateRecoveryExpectedDirectory(
 }
 
 func validateRecoveryExpectedContentPath(
-	action recoveryHostAction,
+	action RestorationAction,
 	content []byte,
 	mode os.FileMode,
 	pathExists bool,
@@ -167,7 +165,7 @@ func validateRecoveryExpectedContentPath(
 }
 
 func recoveryContentPathProjection(
-	action recoveryHostAction,
+	action RestorationAction,
 	content []byte,
 	pathExists bool,
 	codecs aggregate.CodecCatalog,
@@ -201,7 +199,7 @@ func recoveryContentPathProjection(
 
 func stageRootedRollbackDestinations(
 	ctx context.Context,
-	authority *mutationAuthority,
+	authority *Restoration,
 	actions []rollbackStageAction,
 	rollbackDir string,
 	index int,
@@ -221,7 +219,7 @@ func stageRootedRollbackDestinations(
 		}
 		return rollbackEntriesForStageActions(baseline, actions), nil
 	}
-	capability, err := authority.destinations.Acquire(destination)
+	capability, err := authority.operation.destinations.Acquire(destination)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +230,7 @@ func stageRootedRollbackDestinations(
 		}
 	}()
 
-	identity, err := authority.filesystem.CaptureRootedEntryIdentity(ctx, capability)
+	identity, err := authority.operation.filesystem.CaptureRootedEntryIdentity(ctx, capability)
 	if errors.Is(err, os.ErrNotExist) {
 		for _, action := range actions {
 			if err := validateRecoveryExpectedAbsent(action.action, codecs); err != nil {
@@ -256,11 +254,11 @@ func stageRootedRollbackDestinations(
 	}
 	switch identity.Kind() {
 	case mutationfs.EntryKindFile:
-		readLimit := min(maximumFileBytes, authority.physicalWorkBudget.RemainingBytes())
+		readLimit := min(maximumFileBytes, authority.original.RemainingBytes())
 		if readLimit <= 0 {
 			readLimit = 1
 		}
-		content, mode, captured, err := authority.filesystem.ReadRootedRegularFileUpTo(
+		content, mode, captured, err := authority.operation.filesystem.ReadRootedRegularFileUpTo(
 			ctx,
 			capability,
 			readLimit,
@@ -275,7 +273,7 @@ func stageRootedRollbackDestinations(
 		if err != nil {
 			return nil, err
 		}
-		if err := authority.physicalWorkBudget.AdmitTree(work); err != nil {
+		if err := authority.original.AdmitTree(work); err != nil {
 			return nil, fmt.Errorf("charge rooted rollback file staging: %w", err)
 		}
 		for _, action := range actions {
@@ -295,7 +293,7 @@ func stageRootedRollbackDestinations(
 			contentHash: string(artifact.HashFileContentWithExecutable(content, mode.Perm()&0o111 != 0)),
 			fileMode:    mode.Perm(),
 		}
-		baseline.backup, err = hostmutation.OpenRollbackBackup(
+		baseline.backup, err = OpenRollbackBackup(
 			backupPath,
 			filepath.Base(backupPath),
 			baseline.kind,
@@ -307,11 +305,11 @@ func stageRootedRollbackDestinations(
 		return finish(baseline)
 	case mutationfs.EntryKindDirectory:
 		sink := newRollbackTreeBackupSink(ctx, backupPath)
-		limits, err := recoveryStagingTraversalLimits(authority.physicalWorkBudget)
+		limits, err := recoveryStagingTraversalLimits(authority.original)
 		if err != nil {
 			return nil, err
 		}
-		captured, err := authority.filesystem.SnapshotRootedDirectory(
+		captured, err := authority.operation.filesystem.SnapshotRootedDirectory(
 			ctx,
 			capability,
 			limits,
@@ -330,7 +328,7 @@ func stageRootedRollbackDestinations(
 		if err != nil {
 			return nil, err
 		}
-		if err := authority.physicalWorkBudget.AdmitTree(work); err != nil {
+		if err := authority.original.AdmitTree(work); err != nil {
 			return nil, fmt.Errorf("charge rooted rollback directory staging: %w", err)
 		}
 		contentHash := sink.contentHash()
@@ -349,7 +347,7 @@ func stageRootedRollbackDestinations(
 		baseline.stagedState = recoveryWholePathState{
 			existed: true, kind: recovery.PathKindDirectory, contentHash: string(contentHash),
 		}
-		baseline.backup, err = hostmutation.OpenRollbackBackup(
+		baseline.backup, err = OpenRollbackBackup(
 			backupPath,
 			filepath.Base(backupPath),
 			baseline.kind,
@@ -383,7 +381,8 @@ func rollbackEntriesForStageActions(
 
 func observeRecoveryWholePathState(
 	ctx context.Context,
-	authority *mutationAuthority,
+	authority *Restoration,
+	budget *physicalwork.Budget,
 	destination mutationnamespace.Destination,
 	maximumFileBytes int64,
 	maximumKinds map[string]workmeasure.ArtifactWork,
@@ -391,14 +390,14 @@ func observeRecoveryWholePathState(
 	if maximumFileBytes <= 0 {
 		return recoveryWholePathState{}, nil, fmt.Errorf("recovery observation file byte limit must be positive")
 	}
-	capability, err := authority.destinations.Acquire(destination)
+	capability, err := authority.operation.destinations.Acquire(destination)
 	if err != nil {
 		return recoveryWholePathState{}, nil, err
 	}
 	defer func() {
 		resultErr = errors.Join(resultErr, capability.Close())
 	}()
-	identity, err = authority.filesystem.CaptureRootedEntryIdentity(ctx, capability)
+	identity, err = authority.operation.filesystem.CaptureRootedEntryIdentity(ctx, capability)
 	if errors.Is(err, os.ErrNotExist) {
 		return recoveryWholePathState{}, nil, nil
 	}
@@ -427,7 +426,7 @@ func observeRecoveryWholePathState(
 		)
 	}
 	if err := admitRecoveryObservation(
-		authority.generalExecutionWorkBudget,
+		budget,
 		kind,
 		maximumWork,
 	); err != nil {
@@ -435,7 +434,7 @@ func observeRecoveryWholePathState(
 	}
 	switch identity.Kind() {
 	case mutationfs.EntryKindFile:
-		content, mode, captured, err := authority.filesystem.ReadRootedRegularFileUpTo(
+		content, mode, captured, err := authority.operation.filesystem.ReadRootedRegularFileUpTo(
 			ctx,
 			capability,
 			min(maximumFileBytes, max(int64(1), maximumWork.Bytes())),
@@ -455,12 +454,12 @@ func observeRecoveryWholePathState(
 			fileMode:    mode.Perm(),
 		}, captured, nil
 	case mutationfs.EntryKindDirectory:
-		sink := hostmutation.NewDirectoryHashSink(ctx)
+		sink := NewDirectoryHashSink(ctx)
 		limits, err := recoveryTraversalLimits(maximumWork)
 		if err != nil {
 			return recoveryWholePathState{}, nil, err
 		}
-		captured, err := authority.filesystem.SnapshotRootedDirectory(
+		captured, err := authority.operation.filesystem.SnapshotRootedDirectory(
 			ctx,
 			capability,
 			limits,
@@ -488,15 +487,16 @@ func observeRecoveryWholePathState(
 
 func validateStagedRecoveryDestination(
 	ctx context.Context,
-	authority *mutationAuthority,
+	authority *Restoration,
+	budget *physicalwork.Budget,
 	entry hostRollbackEntry,
 ) error {
 	if !entry.existed {
-		capability, err := authority.destinations.Acquire(entry.destination)
+		capability, err := authority.operation.destinations.Acquire(entry.destination)
 		if err != nil {
 			return err
 		}
-		_, observeErr := authority.filesystem.CaptureRootedEntryIdentity(ctx, capability)
+		_, observeErr := authority.operation.filesystem.CaptureRootedEntryIdentity(ctx, capability)
 		closeErr := capability.Close()
 		if errors.Is(observeErr, os.ErrNotExist) {
 			return closeErr
@@ -512,6 +512,7 @@ func validateStagedRecoveryDestination(
 	current, identity, err := observeRecoveryWholePathState(
 		ctx,
 		authority,
+		budget,
 		entry.destination,
 		entry.maximumFileBytes,
 		map[string]workmeasure.ArtifactWork{entry.kind: entry.stagedWork},

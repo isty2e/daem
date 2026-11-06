@@ -20,7 +20,7 @@ func TestRecoveryBackupAdmissionRefusesLateConflictWithoutAReadablePrefix(t *tes
 	}
 	t.Cleanup(func() { _ = authority.close() })
 	active := bindRecoveryBackupSourceForTest(t, t.Context(), authority, fixture.plan)
-	request := action.backupRequest(0)
+	request := hostmutation.RestorationBackupRequests([]hostmutation.RestorationAction{action})[0]
 	conflict := request
 	conflict.Index = 1
 	conflict.BackupHash = string(artifact.HashFileContent([]byte("conflicting backup")))
@@ -51,7 +51,7 @@ func TestRecoveryBackupAdmissionReservesSharedUsesAndRetainsNamespaceCustody(t *
 			}
 			t.Cleanup(func() { _ = authority.close() })
 			active := bindRecoveryBackupSourceForTest(t, t.Context(), authority, fixture.plan)
-			request := action.backupRequest(0)
+			request := hostmutation.RestorationBackupRequests([]hostmutation.RestorationAction{action})[0]
 			shared := request
 			shared.Index = 1
 			set := authority.hostBackups()

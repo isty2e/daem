@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
@@ -411,86 +409,6 @@ func recoveryTestHostRouteAttempt() durableattempt.HostRouteAttempt {
 		panic(err)
 	}
 	return attempt
-}
-
-func TestRecoveryHostActionsRequireAggregateContractForContentPath(t *testing.T) {
-	err := executeRecoveryHostActions(
-		context.Background(),
-		nil,
-		[]recoveryHostAction{{
-			Kind:        recovery.ActionKindRestoreDelete,
-			ContentPath: "/mcpServers/context7",
-		}},
-		[]hostRollbackEntry{{}},
-		nil,
-		nil,
-		testAggregateCodecs(),
-		applyprogram.VisibilityGate{},
-	)
-	if err == nil || !strings.Contains(err.Error(), "has no aggregate contract") {
-		t.Fatalf("error = %v, want missing aggregate contract rejection", err)
-	}
-}
-
-func TestRecoveryHostActionsRejectMismatchedAggregateContract(t *testing.T) {
-	locked := managedMCPContract(t, "context7", "context7-command")
-	contribution, present, err := locked.ManagedAggregateContribution()
-	if err != nil || !present {
-		t.Fatalf("ManagedAggregateContribution = %#v, %t, %v", contribution, present, err)
-	}
-	contract := contribution.Contribution().Contract()
-	valid := recoveryHostAction{
-		Kind:              recovery.ActionKindRestoreDelete,
-		Scope:             target.ScopeProject,
-		Destination:       contract.Address().Document().AggregateRoot().String(),
-		ContentPath:       string(outputtest.LegacyContentPath(t, contract.Address())),
-		AggregateContract: &contract,
-	}
-	for _, test := range []struct {
-		name string
-		edit func(*recoveryHostAction)
-		want string
-	}{
-		{
-			name: "scope",
-			edit: func(action *recoveryHostAction) {
-				action.Scope = target.ScopeGlobal
-			},
-			want: "scope",
-		},
-		{
-			name: "destination",
-			edit: func(action *recoveryHostAction) {
-				action.Destination = "other.json"
-			},
-			want: "aggregate address",
-		},
-		{
-			name: "content path",
-			edit: func(action *recoveryHostAction) {
-				action.ContentPath = "/mcpServers/other"
-			},
-			want: "aggregate address",
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			action := valid
-			test.edit(&action)
-			err := executeRecoveryHostActions(
-				context.Background(),
-				nil,
-				[]recoveryHostAction{action},
-				[]hostRollbackEntry{{}},
-				nil,
-				nil,
-				testAggregateCodecs(),
-				applyprogram.VisibilityGate{},
-			)
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("executeRecoveryHostActions error = %v, want containing %q", err, test.want)
-			}
-		})
-	}
 }
 
 func TestRecoveryRollbackFailureDistinguishesCleanupResidue(t *testing.T) {

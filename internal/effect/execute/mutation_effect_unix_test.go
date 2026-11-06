@@ -9,16 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
-
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization"
-	"github.com/isty2e/daem/internal/realization/aggregate"
-	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
-	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
@@ -104,58 +98,6 @@ func TestMutateFileDestinationRejectsAncestorSwapBetweenReadAndCommit(t *testing
 	}
 	assertMutationTestFile(t, filepath.Join(outside, "config"), "outside")
 	assertMutationTestFile(t, filepath.Join(parent+"-moved", "config"), "inside")
-}
-
-func TestAggregateRecoveryRejectsNewlyAppearedEmptyDocument(t *testing.T) {
-	root := newProjectRootForMutationTest(t)
-	if err := os.Mkdir(filepath.Join(root, ".codex"), 0o700); err != nil {
-		t.Fatalf("create aggregate parent: %v", err)
-	}
-	destinationPath := filepath.Join(root, ".codex", "hooks.json")
-	if err := os.WriteFile(destinationPath, nil, 0o600); err != nil {
-		t.Fatalf("create unmanaged empty aggregate: %v", err)
-	}
-	authority, destination := projectMutationDestinationForTest(t, root, ".codex/hooks.json")
-	placement, ok := aggregate.HookPlacementFor(target.TargetCodex, target.ScopeProject)
-	if !ok {
-		t.Fatal("Codex project Hook placement is missing")
-	}
-	canonical, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
-		Event: "Stop", Type: "command", Command: "echo guard",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	contribution, err := placement.Contribution(canonical)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contract := contribution.Contract()
-
-	action := recoveryHostAction{
-		Kind:  recovery.ActionKindRestoreDelete,
-		Scope: target.ScopeProject, Destination: ".codex/hooks.json", ContentPath: aggregate.HooksContentPath,
-		AggregateContract: &contract,
-	}
-	installGeneralRecoveryExecutionBudgetForTest(t, authority)
-	_, err = executeRecoveryAggregateActionGroup(
-		t.Context(),
-		authority,
-		[]recoveryHostAction{action},
-		[]hostRollbackEntry{{destination: destination}},
-		recoveryAggregateActionGroup{indexes: []int{0}, destination: destination},
-		nil,
-		nil,
-		testAggregateCodecs(),
-		applyprogram.VisibilityGate{},
-	)
-	if err == nil || !strings.Contains(err.Error(), "changed between recovery actions") {
-		t.Fatalf("executeRecoveryAggregateActionGroup error = %v, want appeared-document rejection", err)
-	}
-	content, readErr := os.ReadFile(destinationPath)
-	if readErr != nil || len(content) != 0 {
-		t.Fatalf("unmanaged empty aggregate = %q, %v; want preserved empty file", content, readErr)
-	}
 }
 
 func TestCommitDirectoryDestinationPublishesRootedTree(t *testing.T) {

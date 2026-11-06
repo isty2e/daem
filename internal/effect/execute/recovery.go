@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
@@ -662,7 +663,7 @@ func requireSameActiveJournal(
 	return nil
 }
 
-func recoveryHostActionsForPlan(plan recovery.Plan) ([]recoveryHostAction, error) {
+func recoveryHostActionsForPlan(plan recovery.Plan) ([]hostmutation.RestorationAction, error) {
 	return recoveryHostActionsFor(plan.Actions())
 }
 
@@ -678,7 +679,7 @@ func executeRecoveryRollbackEffects(
 	execution *activeRecoveryExecution,
 ) error {
 	steps := activeRecoveryRollbackPreparationSteps()
-	var hostActions []recoveryHostAction
+	var hostActions []hostmutation.RestorationAction
 	if err := execution.runTerminalStep(steps[0], func() error {
 		var err error
 		hostActions, err = recoveryHostActionsForPlan(plan)
@@ -723,7 +724,7 @@ func executeRecoveryRollbackEffects(
 		return err
 	}
 	if err := execution.runTerminalStep(steps[3], func() error {
-		if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), recoveryBackupRequests(hostActions), authority.journalBasis.activeAuthority); err != nil {
+		if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), hostmutation.RestorationBackupRequests(hostActions), authority.journalBasis.activeAuthority); err != nil {
 			return fmt.Errorf("prepare bounded recovery backups: %w", err)
 		}
 		return nil
@@ -738,10 +739,10 @@ func executeRecoveryRollbackEffects(
 	}); err != nil {
 		return err
 	}
-	var rollback hostRollback
+	var rollback *hostmutation.Restoration
 	if err := execution.runTerminalStep(steps[5], func() error {
 		var err error
-		rollback, err = stageRecoveryRollback(ctx, authority, hostActions, codecs)
+		rollback, err = authority.hostMutation().StageRestoration(ctx, authority.physicalWorkBudget, authority.control, authority.hostBackups(), hostActions, codecs)
 		return err
 	}); err != nil {
 		return err
@@ -759,7 +760,7 @@ func executeRecoveryRollbackEffects(
 	}); err != nil {
 		cleanupErr := execution.runFailureCleanup(
 			"active-recovery/rollback/prepare-removal-cleanup-failure",
-			func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
+			func() error { return rollback.Cleanup(context.WithoutCancel(ctx)) },
 		)
 		return errors.Join(err, cleanupErr)
 	}
@@ -774,7 +775,7 @@ func executeRecoveryRollbackEffects(
 	); err != nil {
 		cleanupErr := execution.runFailureCleanup(
 			"active-recovery/rollback/begin-general-execution-failure",
-			func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
+			func() error { return rollback.Cleanup(context.WithoutCancel(ctx)) },
 		)
 		return errors.Join(
 			fmt.Errorf("prepare bounded recovery execution: %w", err),
@@ -800,19 +801,19 @@ func executeRecoveryRollbackEffects(
 	}); err != nil {
 		cleanupErr := execution.runFailureCleanup(
 			"active-recovery/rollback/rebind-ownership-failure",
-			func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
+			func() error { return rollback.Cleanup(context.WithoutCancel(ctx)) },
 		)
 		return errors.Join(err, cleanupErr)
 	}
 
-	var hostPlan recoveryHostExecutionPlan
+	var hostVisits []int
 	prepareHostStep := activeRecoveryStep{
 		id:   "active-recovery/rollback/prepare-host-execution",
 		kind: operationplan.EffectStepObservation,
 	}
 	if err := execution.runBranchingStep(prepareHostStep, func() error {
 		var err error
-		hostPlan, err = prepareRecoveryHostExecutionPlan(authority, hostActions)
+		hostVisits, err = rollback.PrepareExecution()
 		return err
 	}); err != nil {
 		return executeActiveRecoveryRollbackCompensation(
@@ -820,13 +821,13 @@ func executeRecoveryRollbackEffects(
 			authority,
 			gate,
 			execution,
-			&rollback,
+			rollback,
 			"active-recovery/rollback/prepare-host-execution-failure",
 			err,
 		)
 	}
-	if err := execution.beginHostBatch(hostPlan.visitOrder); err != nil {
-		return errors.Join(err, rollback.scratch.Cleanup(context.WithoutCancel(ctx)))
+	if err := execution.beginHostBatch(hostVisits); err != nil {
+		return errors.Join(err, rollback.Cleanup(context.WithoutCancel(ctx)))
 	}
 	guardedBeforeAction := func(index int) error {
 		if err := execution.visitHostAction(index); err != nil {
@@ -837,15 +838,11 @@ func executeRecoveryRollbackEffects(
 		}
 		return nil
 	}
-	hostErr := executeRecoveryHostActionPlan(
+	hostErr := rollback.Execute(
 		ctx,
-		authority,
-		hostActions,
-		rollback.entries,
-		hostPlan,
+		authority.generalExecutionWorkBudget,
 		guardedBeforeAction,
 		recoveryIntentClaimGuard(plan.ProvisionalAcquireIntents(), registryStore, authority),
-		codecs,
 		gate,
 	)
 	hostErr = execution.settleHostBatch(hostErr)
@@ -855,7 +852,7 @@ func executeRecoveryRollbackEffects(
 			authority,
 			gate,
 			execution,
-			&rollback,
+			rollback,
 			"active-recovery/rollback/host-failure",
 			hostErr,
 		)
@@ -871,7 +868,7 @@ func executeRecoveryRollbackEffects(
 			authority,
 			gate,
 			execution,
-			&rollback,
+			rollback,
 			"active-recovery/rollback/post-host-cancellation",
 			err,
 		)
@@ -899,7 +896,7 @@ func executeRecoveryRollbackEffects(
 	}); err != nil {
 		cleanupErr := execution.runFailureCleanup(
 			"active-recovery/rollback/claim-failure",
-			func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
+			func() error { return rollback.Cleanup(context.WithoutCancel(ctx)) },
 		)
 		return errors.Join(err, cleanupErr)
 	}
@@ -916,7 +913,7 @@ func executeRecoveryRollbackEffects(
 	}); err != nil {
 		cleanupErr := execution.runFailureCleanup(
 			"active-recovery/rollback/post-claim-cancellation",
-			func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
+			func() error { return rollback.Cleanup(context.WithoutCancel(ctx)) },
 		)
 		return errors.Join(err, cleanupErr)
 	}
@@ -927,7 +924,7 @@ func executeRecoveryRollbackEffects(
 			kind: operationplan.EffectStepCleanup,
 		},
 		func() error {
-			if err := rollback.scratch.Cleanup(context.WithoutCancel(ctx)); err != nil {
+			if err := rollback.Cleanup(context.WithoutCancel(ctx)); err != nil {
 				return fmt.Errorf("cleanup recovery rollback stage: %w; recovery journal retained", err)
 			}
 			return nil
@@ -940,18 +937,20 @@ func executeActiveRecoveryRollbackCompensation(
 	authority *mutationAuthority,
 	gate applyprogram.VisibilityGate,
 	execution *activeRecoveryExecution,
-	rollback *hostRollback,
+	rollback *hostmutation.Restoration,
 	prefix string,
 	primary error,
 ) error {
 	rollbackErr := execution.runContinuingOutcomeStep(
 		activeRecoveryStep{id: prefix + "/restore", kind: operationplan.EffectStepCompensation},
 		prefix+"/restore",
-		func() error { return rollback.restore(context.WithoutCancel(ctx), authority, gate) },
+		func() error {
+			return rollback.Restore(context.WithoutCancel(ctx), authority.generalExecutionWorkBudget, gate)
+		},
 	)
 	cleanupErr := execution.runFailureCleanup(
 		prefix,
-		func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
+		func() error { return rollback.Cleanup(context.WithoutCancel(ctx)) },
 	)
 	return recoveryRollbackFailure(primary, rollbackErr, cleanupErr)
 }
@@ -960,7 +959,7 @@ func recoveryIntentClaimGuardWithReader(
 	intents []ownership.ProvisionalAcquireIntent,
 	read func(context.Context) (ownership.Registry, error),
 	authority *mutationAuthority,
-) recoveryHostOwnershipGuard {
+) hostmutation.RestorationOwnershipGuard {
 	if len(intents) == 0 {
 		return nil
 	}
@@ -968,7 +967,7 @@ func recoveryIntentClaimGuardWithReader(
 	for _, intent := range intents {
 		byOutput[provisionalRecoveryOutputKey{destination: intent.Destination().String(), footprint: intent.Footprint()}] = intent
 	}
-	return func(ctx context.Context, action recoveryHostAction, destination mutationnamespace.Destination) error {
+	return func(ctx context.Context, action hostmutation.RestorationAction, destination mutationnamespace.Destination) error {
 		footprint, err := output.FootprintFromLegacy(output.ContentPath(action.ContentPath))
 		if err != nil {
 			return fmt.Errorf("provisional recovery action scope: %w", err)
@@ -1032,7 +1031,7 @@ type provisionalRecoveryOutputKey struct {
 func recoveryRollbackFailure(primary error, rollbackErr error, cleanupErr error) error {
 	result := primary
 	if rollbackErr != nil {
-		result = rollbackError(result, rollbackErr)
+		result = fmt.Errorf("%w; rollback failed: %v", result, rollbackErr)
 	}
 	if cleanupErr != nil {
 		result = errors.Join(

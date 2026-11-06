@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -45,7 +46,7 @@ func nativeRecoveryDestination(ctx context.Context, destinations mutationnamespa
 	return destinations.BorrowDestination(alias.Scope(), alias.AggregateRoot(), root, bound)
 }
 
-func prepareNativeRecoveryRemovals(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, ordinary []recoveryHostAction) error {
+func prepareNativeRecoveryRemovals(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, ordinary []hostmutation.RestorationAction) error {
 	physical, err := bindNativeRemovalIntents(ctx, authority, operation)
 	if err != nil {
 		return err

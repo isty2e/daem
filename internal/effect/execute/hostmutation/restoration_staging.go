@@ -1,4 +1,4 @@
-package execute
+package hostmutation
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
-	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
@@ -35,7 +34,7 @@ const (
 )
 
 type hostRollback struct {
-	scratch *hostmutation.RollbackScratch
+	scratch *RollbackScratch
 	entries []hostRollbackEntry
 }
 
@@ -45,7 +44,7 @@ type hostRollbackEntry struct {
 	kind               string
 	maximumFileBytes   int64
 	backupPath         string
-	backup             hostmutation.RollbackBackup
+	backup             RollbackBackup
 	fileMode           os.FileMode
 	identity           mutationfs.EntryIdentity
 	stagedState        recoveryWholePathState
@@ -59,7 +58,7 @@ type hostRollbackEntry struct {
 type rollbackStageAction struct {
 	actionIndex int
 	destination mutationnamespace.Destination
-	action      recoveryHostAction
+	action      RestorationAction
 }
 
 type recoveryWholePathState struct {
@@ -85,18 +84,18 @@ func (reservation recoveryGeneralPathReservation) AdmitPathComponents(count int)
 }
 
 func reserveRecoveryHostExecution(
-	authority *mutationAuthority,
+	authority *Restoration,
 	destination mutationnamespace.Destination,
 	baseline *hostRollbackEntry,
 	actions []rollbackStageAction,
 ) error {
-	if authority == nil || authority.physicalWorkBudget == nil ||
+	if authority == nil || authority.original == nil ||
 		baseline == nil || !destination.IsRooted() {
 		return fmt.Errorf("recovery host execution reservation requires bounded destination authority")
 	}
-	reservation := recoveryGeneralPathReservation{budget: authority.physicalWorkBudget}
+	reservation := recoveryGeneralPathReservation{budget: authority.original}
 	for range recoveryHostDestinationAccesses {
-		if err := authority.destinations.ReserveDestinationAccess(destination, reservation); err != nil {
+		if err := authority.operation.destinations.ReserveDestinationAccess(destination, reservation); err != nil {
 			return fmt.Errorf("reserve recovery host destination access: %w", err)
 		}
 	}
@@ -104,7 +103,7 @@ func reserveRecoveryHostExecution(
 	if baseline.existed {
 		for range 2 {
 			if err := reserveRecoveryObservation(
-				authority.physicalWorkBudget,
+				authority.original,
 				baseline.kind,
 				baseline.stagedWork,
 			); err != nil {
@@ -134,7 +133,7 @@ func reserveRecoveryHostExecution(
 		baseline.effectMaximumKinds[kind] = work
 		// One postcondition read is used only by aggregate documents. Reserving it
 		// for every group keeps the certificate independent of branch order.
-		if err := reserveRecoveryObservation(authority.physicalWorkBudget, kind, work); err != nil {
+		if err := reserveRecoveryObservation(authority.original, kind, work); err != nil {
 			return err
 		}
 	}
@@ -153,7 +152,7 @@ func reserveRecoveryHostExecution(
 		rollbackKinds[kind] = work
 	}
 	for kind, work := range rollbackKinds {
-		if err := reserveRecoveryObservation(authority.physicalWorkBudget, kind, work); err != nil {
+		if err := reserveRecoveryObservation(authority.original, kind, work); err != nil {
 			return err
 		}
 	}
@@ -161,7 +160,7 @@ func reserveRecoveryHostExecution(
 }
 
 func recoveryActionMaximumWork(
-	action recoveryHostAction,
+	action RestorationAction,
 	maximumDocumentBytes int64,
 ) (string, workmeasure.ArtifactWork, bool, error) {
 	if action.ContentPath != "" {
@@ -251,7 +250,7 @@ func maximumRecoveryArtifactWork(
 
 func stageRollbackDestinations(
 	ctx context.Context,
-	authority *mutationAuthority,
+	authority *Restoration,
 	actions []rollbackStageAction,
 	rollbackDir string,
 	index int,
@@ -274,11 +273,11 @@ func stageRollbackDestinations(
 
 func stageRecoveryRollback(
 	ctx context.Context,
-	authority *mutationAuthority,
-	actions []recoveryHostAction,
+	authority *Restoration,
+	actions []RestorationAction,
 	codecs aggregate.CodecCatalog,
 ) (hostRollback, error) {
-	scratch, err := hostmutation.CreateRollbackScratch(authority.filesystem)
+	scratch, err := CreateRollbackScratch(authority.operation.filesystem)
 	if err != nil {
 		return hostRollback{}, err
 	}
@@ -290,11 +289,11 @@ func stageRecoveryRollback(
 	stageGroups := make([][]rollbackStageAction, 0, len(actions))
 	stageGroupByDestination := make(map[string]int, len(actions))
 	for index, action := range actions {
-		logical, err := recoveryDestination(action.Scope, action.Destination)
+		logical, err := ParseRestorationDestination(action.Scope, action.Destination)
 		if err != nil {
 			return hostRollback{}, errors.Join(err, scratch.Abort(context.WithoutCancel(ctx), rollback.scratchArtifacts()))
 		}
-		destination, err := authority.destinations.Resolve(action.Scope, logical)
+		destination, err := authority.operation.destinations.Resolve(action.Scope, logical)
 		if err != nil {
 			return hostRollback{}, errors.Join(err, scratch.Abort(context.WithoutCancel(ctx), rollback.scratchArtifacts()))
 		}
@@ -327,7 +326,7 @@ func stageRecoveryRollback(
 		}
 	}
 
-	if err := scratch.PrepareCleanup(ctx, authority.physicalWorkBudget, rollback.scratchArtifacts()); err != nil {
+	if err := scratch.PrepareCleanup(ctx, authority.original, rollback.scratchArtifacts()); err != nil {
 		return hostRollback{}, errors.Join(
 			err,
 			scratch.Abort(context.WithoutCancel(ctx), rollback.scratchArtifacts()),
@@ -336,11 +335,11 @@ func stageRecoveryRollback(
 	return rollback, nil
 }
 
-func (rollback hostRollback) scratchArtifacts() []hostmutation.ScratchArtifact {
-	artifacts := make([]hostmutation.ScratchArtifact, 0, len(rollback.entries))
+func (rollback hostRollback) scratchArtifacts() []ScratchArtifact {
+	artifacts := make([]ScratchArtifact, 0, len(rollback.entries))
 	for _, entry := range rollback.entries {
 		if entry.existed && entry.backupPath != "" {
-			artifacts = append(artifacts, hostmutation.ScratchArtifact{Path: entry.backupPath, Work: entry.stagedWork})
+			artifacts = append(artifacts, ScratchArtifact{Path: entry.backupPath, Work: entry.stagedWork})
 		}
 	}
 	return artifacts
@@ -348,7 +347,8 @@ func (rollback hostRollback) scratchArtifacts() []hostmutation.ScratchArtifact {
 
 func (rollback hostRollback) restore(
 	ctx context.Context,
-	authority *mutationAuthority,
+	authority *Restoration,
+	budget *physicalwork.Budget,
 	gate applyprogram.VisibilityGate,
 ) error {
 	var failures []error
@@ -371,7 +371,7 @@ func (rollback hostRollback) restore(
 			failures = append(failures, fmt.Errorf("validate recovery rollback authority: %w", err))
 			continue
 		}
-		if err := restoreRollbackGroup(ctx, authority, groups[key]); err != nil {
+		if err := restoreRollbackGroup(ctx, authority, budget, groups[key]); err != nil {
 			failures = append(failures, err)
 			continue
 		}
@@ -397,7 +397,8 @@ func rollbackGroupAttempted(entries []hostRollbackEntry) bool {
 
 func restoreRollbackGroup(
 	ctx context.Context,
-	authority *mutationAuthority,
+	authority *Restoration,
+	budget *physicalwork.Budget,
 	entries []hostRollbackEntry,
 ) error {
 	if len(entries) == 0 {
@@ -429,6 +430,7 @@ func restoreRollbackGroup(
 	current, identity, err := observeRecoveryWholePathState(
 		ctx,
 		authority,
+		budget,
 		baseline.destination,
 		baseline.maximumFileBytes,
 		maximumKinds,
@@ -457,7 +459,7 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
-		if err := authority.hostMutation().RemoveAgainst(ctx, baseline.destination, identity); err != nil {
+		if err := authority.operation.RemoveAgainst(ctx, baseline.destination, identity); err != nil {
 			return fmt.Errorf("rollback remove %q: %w", baseline.destination.Logical(), err)
 		}
 		return nil
@@ -465,7 +467,7 @@ func restoreRollbackGroup(
 	switch baseline.kind {
 	case recovery.PathKindFile:
 		if err := admitRecoveryObservation(
-			authority.generalExecutionWorkBudget,
+			budget,
 			baseline.kind,
 			baseline.stagedWork,
 		); err != nil {
@@ -478,7 +480,7 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
-		if err := authority.hostMutation().CommitFileAgainst(
+		if err := authority.operation.CommitFileAgainst(
 			ctx,
 			baseline.destination,
 			content,
@@ -490,7 +492,7 @@ func restoreRollbackGroup(
 		}
 	case recovery.PathKindDirectory:
 		if err := admitRecoveryObservation(
-			authority.generalExecutionWorkBudget,
+			budget,
 			baseline.kind,
 			baseline.stagedWork,
 		); err != nil {
@@ -499,7 +501,7 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
-		if err := authority.hostMutation().CommitDirectoryAgainst(
+		if err := authority.operation.CommitDirectoryAgainst(
 			ctx,
 			baseline.destination,
 			current.existed,
@@ -514,12 +516,4 @@ func restoreRollbackGroup(
 		return fmt.Errorf("rollback kind %q for %q is not supported", baseline.kind, baseline.destination.Logical())
 	}
 	return nil
-}
-
-func rollbackError(primary error, rollback error) error {
-	if rollback == nil {
-		return primary
-	}
-
-	return fmt.Errorf("%w; rollback failed: %v", primary, rollback)
 }

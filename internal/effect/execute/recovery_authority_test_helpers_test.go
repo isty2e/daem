@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -64,11 +65,11 @@ func prepareRecoveryBackupsForTest(
 	ctx context.Context,
 	authority *mutationAuthority,
 	plan recovery.Plan,
-	actions []recoveryHostAction,
+	actions []hostmutation.RestorationAction,
 ) {
 	t.Helper()
 	active := bindRecoveryBackupSourceForTest(t, ctx, authority, plan)
-	if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), recoveryBackupRequests(actions), active); err != nil {
+	if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), hostmutation.RestorationBackupRequests(actions), active); err != nil {
 		t.Fatal(err)
 	}
 }
