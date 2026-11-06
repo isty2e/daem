@@ -12,17 +12,20 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/effect/journal"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -179,7 +182,7 @@ func TestRecoveryRejectsDurableJournalDriftAfterFinalValidation(t *testing.T) {
 			if err := os.WriteFile(journalPath, content, 0o600); err != nil {
 				t.Fatalf("rewrite recovery journal: %v", err)
 			}
-			return journal.LoadActivePlanWithOptions(ctx, fixture.paths.journalPaths(), options)
+			return journal.LoadActivePlanWithOptions(ctx, fixture.paths.JournalPaths(), options)
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "captured recovery journal changed before recovery effects") {
@@ -210,7 +213,7 @@ func TestRecoveryRejectsDurableJournalDriftAfterEffectsBeforeRetirement(t *testi
 					t.Fatalf("mutate recovery journal after effects: %v", err)
 				}
 			}
-			return journal.LoadActivePlanWithOptions(ctx, fixture.paths.journalPaths(), options)
+			return journal.LoadActivePlanWithOptions(ctx, fixture.paths.JournalPaths(), options)
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "captured recovery journal changed after recovery effects") {
@@ -371,7 +374,7 @@ func TestRecoveryRejectsByteIdenticalJournalDirectoryReplacementAfterEffects(t *
 					t.Fatalf("preserve replacement journal modes: %v", err)
 				}
 			}
-			return journal.LoadActivePlanWithOptions(ctx, fixture.paths.journalPaths(), options)
+			return journal.LoadActivePlanWithOptions(ctx, fixture.paths.JournalPaths(), options)
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "active recovery journal changed after recovery effects") {
@@ -398,7 +401,7 @@ func TestRecoveryRejectsProjectRootReplacementAfterFinalReload(t *testing.T) {
 		StateReader: testStateReader(fixture.paths.StatefilePath),
 		Filesystem:  testFilesystem(),
 		reloadPlan: func(ctx context.Context, options journal.PlanLoadOptions) (recovery.Plan, error) {
-			current, err := journal.LoadActivePlanWithOptions(ctx, fixture.paths.journalPaths(), options)
+			current, err := journal.LoadActivePlanWithOptions(ctx, fixture.paths.JournalPaths(), options)
 			if err != nil {
 				return recovery.Plan{}, err
 			}
@@ -434,7 +437,7 @@ func TestRecoveryRejectsProjectAncestorSymlinkAfterFinalReload(t *testing.T) {
 		StateReader: testStateReader(fixture.paths.StatefilePath),
 		Filesystem:  testFilesystem(),
 		reloadPlan: func(ctx context.Context, options journal.PlanLoadOptions) (recovery.Plan, error) {
-			current, err := journal.LoadActivePlanWithOptions(ctx, fixture.paths.journalPaths(), options)
+			current, err := journal.LoadActivePlanWithOptions(ctx, fixture.paths.JournalPaths(), options)
 			if err != nil {
 				return recovery.Plan{}, err
 			}
@@ -473,7 +476,7 @@ func TestRecoveryFailureRollsBackPriorProjectWritesThroughRootAuthority(t *testi
 		StateReader: testStateReader(fixture.paths.StatefilePath),
 		Filesystem:  testFilesystem(),
 		reloadPlan: func(ctx context.Context, options journal.PlanLoadOptions) (recovery.Plan, error) {
-			current, err := journal.LoadActivePlanWithOptions(ctx, fixture.paths.journalPaths(), options)
+			current, err := journal.LoadActivePlanWithOptions(ctx, fixture.paths.JournalPaths(), options)
 			if err != nil {
 				return recovery.Plan{}, err
 			}
@@ -710,14 +713,14 @@ func newProjectPathRecoveryFixture(
 		t.Fatalf("construct next project recovery snapshot: %v", err)
 	}
 	createdAt := time.Date(2026, time.July, 13, 12, 0, 0, 0, time.UTC)
-	if _, err := journal.CaptureJournalWithOptions(
+	if _, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
-		paths.journalPaths(),
-		journal.OperationID(createdAt),
+		paths.JournalPaths(),
+		journalpublication.OperationID(createdAt),
 		createdAt,
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: mutations,
 			ManagedPathEvidence:  evidence,
@@ -739,7 +742,7 @@ func newProjectPathRecoveryFixture(
 	writeRecoveryTestStatefile(t, paths.StatefilePath, currentState)
 	recoveryPlan, err := journal.LoadActivePlanWithOptions(
 		context.Background(),
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		testPlanLoadOptions(paths),
 	)
 	if err != nil {

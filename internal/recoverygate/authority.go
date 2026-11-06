@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/isty2e/daem/internal/effect/journal"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"

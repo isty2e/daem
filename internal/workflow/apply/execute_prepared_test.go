@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/reconcile"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -29,9 +29,9 @@ func TestExecuteWithOptionsPassesExecuteEvents(t *testing.T) {
 		t.Fatalf("PlanWrite returned error: %v", err)
 	}
 
-	var events []execute.Event
+	var events []executionevent.Event
 	result, err := ExecuteWithOptions(context.Background(), planned, ExecuteOptions{
-		ExecuteEvents: func(event execute.Event) {
+		ExecuteEvents: func(event executionevent.Event) {
 			events = append(events, event)
 		},
 	})
@@ -42,7 +42,7 @@ func TestExecuteWithOptionsPassesExecuteEvents(t *testing.T) {
 		t.Fatalf("ActionCount = %d, want 1", result.ActionCount)
 	}
 	assertApplyFileContent(t, filepath.Join(tempDir, "AGENTS.md"), "shared instructions\n")
-	assertWorkflowApplyEventKinds(t, events, execute.EventJournalCaptureStarted, execute.EventActionStarted, execute.EventJournalCleaned)
+	assertWorkflowApplyEventKinds(t, events, executionevent.JournalCaptureStarted, executionevent.ActionStarted, executionevent.JournalCleaned)
 }
 
 func TestExecuteWithOptionsLeavesPrivateRecoveryResidueUntouched(t *testing.T) {

@@ -216,13 +216,13 @@ func TestActiveRecoveryRollbackHostSuccessConsumesExactVisitOrder(t *testing.T) 
 	runActiveRecoverySteps(t, execution, activeRecoveryRollbackPreparationSteps())
 	runActiveRecoveryRollbackPostStageSteps(t, execution, true)
 
-	expected := []activeRecoveryHostVisit{{index: 0}, {index: 2}, {index: 1}}
+	expected := []int{0, 2, 1}
 	if err := execution.beginHostBatch(expected); err != nil {
 		t.Fatal(err)
 	}
 	for _, visit := range expected {
-		if err := execution.visitHostAction(visit.index); err != nil {
-			t.Fatalf("visit host action %d: %v", visit.index, err)
+		if err := execution.visitHostAction(visit); err != nil {
+			t.Fatalf("visit host action %d: %v", visit, err)
 		}
 	}
 	if err := execution.settleHostBatch(nil); err != nil {
@@ -353,7 +353,7 @@ func TestActiveRecoveryRollbackHostFailureStopsLaterVisitsAndConsumesCompensatio
 	runActiveRecoverySteps(t, execution, activeRecoveryRollbackPreparationSteps())
 	runActiveRecoveryRollbackPostStageSteps(t, execution, false)
 
-	expected := []activeRecoveryHostVisit{{index: 0}, {index: 2}, {index: 1}}
+	expected := []int{0, 2, 1}
 	if err := execution.beginHostBatch(expected); err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +400,7 @@ func TestActiveRecoveryRollbackRejectsWrongAndDuplicateHostVisit(t *testing.T) {
 	runActiveRecoverySteps(t, execution, activeRecoveryCommonPreparationSteps())
 	runActiveRecoverySteps(t, execution, activeRecoveryRollbackPreparationSteps())
 	runActiveRecoveryRollbackPostStageSteps(t, execution, false)
-	if err := execution.beginHostBatch([]activeRecoveryHostVisit{{index: 1}, {index: 0}}); err != nil {
+	if err := execution.beginHostBatch([]int{1, 0}); err != nil {
 		t.Fatal(err)
 	}
 	if err := execution.visitHostAction(0); err == nil {
@@ -419,12 +419,12 @@ func TestActiveRecoveryHostBatchRejectsIncompleteOrDuplicateBinding(t *testing.T
 
 	tests := []struct {
 		name     string
-		expected []activeRecoveryHostVisit
+		expected []int
 	}{
-		{name: "incomplete", expected: []activeRecoveryHostVisit{{index: 0}}},
-		{name: "duplicate", expected: []activeRecoveryHostVisit{{index: 0}, {index: 0}}},
-		{name: "negative", expected: []activeRecoveryHostVisit{{index: -1}, {index: 0}}},
-		{name: "out of range", expected: []activeRecoveryHostVisit{{index: 0}, {index: 2}}},
+		{name: "incomplete", expected: []int{0}},
+		{name: "duplicate", expected: []int{0, 0}},
+		{name: "negative", expected: []int{-1, 0}},
+		{name: "out of range", expected: []int{0, 2}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

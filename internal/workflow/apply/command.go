@@ -18,15 +18,16 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/diagnose"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	executedelegate "github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/fileset"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -112,7 +113,7 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 	if result.ExecutionAttempted {
 		phase = FailurePhaseExecution
 		outcome = FailureOutcomeIncomplete
-		if execute.ApplyHostChangesRolledBack(err) && !result.UncompensatedEffectsAttempted {
+		if applyprogram.HostChangesRolledBack(err) && !result.UncompensatedEffectsAttempted {
 			outcome = FailureOutcomeRolledBack
 		}
 	}

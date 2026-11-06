@@ -9,8 +9,8 @@ import (
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
-	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/configrelation"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
@@ -421,7 +421,7 @@ func recordRelationOrderEvent(
 	decisions []reconcile.RelationOrderDecision,
 	results []RelationOrderExecutionResult,
 	resultBySequence map[hostrelation.PhysicalSequenceID]int,
-	sink execute.EventSink,
+	sink executionevent.Sink,
 ) {
 	index, present := resultBySequence[event.SequenceID]
 	if !present {
@@ -431,7 +431,7 @@ func recordRelationOrderEvent(
 	if !present {
 		return
 	}
-	facts := &execute.RelationOrderEventFacts{
+	facts := &executionevent.RelationOrderFacts{
 		Target:     decision.Target(),
 		Scope:      decision.Scope(),
 		SequenceID: event.SequenceID,
@@ -439,8 +439,8 @@ func recordRelationOrderEvent(
 	}
 	switch event.Kind {
 	case configrelation.OrderSequenceStarted:
-		sink.Emit(execute.Event{
-			Kind: execute.EventRelationOrderStarted, Stage: execute.EventStageRelationOrder,
+		sink.Emit(executionevent.Event{
+			Kind: executionevent.RelationOrderStarted, Stage: executionevent.StageRelationOrder,
 			RelationOrder: facts,
 		})
 	case configrelation.OrderSequenceDone:
@@ -450,8 +450,8 @@ func recordRelationOrderEvent(
 			results[index].outcome = RelationOrderExact
 		}
 		results[index].changed = event.Changed
-		sink.Emit(execute.Event{
-			Kind: execute.EventRelationOrderDone, Stage: execute.EventStageRelationOrder,
+		sink.Emit(executionevent.Event{
+			Kind: executionevent.RelationOrderDone, Stage: executionevent.StageRelationOrder,
 			RelationOrder: facts,
 		})
 	case configrelation.OrderSequenceFailed:
@@ -460,8 +460,8 @@ func recordRelationOrderEvent(
 		if event.Err != nil {
 			results[index].detail = event.Err.Error()
 		}
-		sink.Emit(execute.Event{
-			Kind: execute.EventRelationOrderFailed, Stage: execute.EventStageRelationOrder,
+		sink.Emit(executionevent.Event{
+			Kind: executionevent.RelationOrderFailed, Stage: executionevent.StageRelationOrder,
 			RelationOrder: facts, Err: event.Err,
 		})
 	}

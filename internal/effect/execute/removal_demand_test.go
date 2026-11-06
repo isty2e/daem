@@ -4,9 +4,12 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -19,7 +22,7 @@ func TestRemovalDemandSetCoversManagedPathTransitionMatrix(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		effect        ManagedPathEffect
+		effect        effectpreparation.ManagedPathEffect
 		scope         target.Scope
 		destination   output.Destination
 		wantRelations int
@@ -36,7 +39,7 @@ func TestRemovalDemandSetCoversManagedPathTransitionMatrix(t *testing.T) {
 		},
 		{
 			name:          "managed directory removal",
-			effect:        managedPathDemandRemove(directoryBefore),
+			effect:        managedPathDemandRemove(t, directoryBefore),
 			scope:         target.ScopeProject,
 			destination:   oldDestination,
 			wantRelations: 1,
@@ -44,7 +47,7 @@ func TestRemovalDemandSetCoversManagedPathTransitionMatrix(t *testing.T) {
 		},
 		{
 			name:          "directory replacement same destination",
-			effect:        managedPathDemandReplace(directoryBefore, oldDestination),
+			effect:        managedPathDemandReplace(t, directoryBefore, oldDestination),
 			scope:         target.ScopeProject,
 			destination:   oldDestination,
 			wantRelations: 1,
@@ -53,19 +56,19 @@ func TestRemovalDemandSetCoversManagedPathTransitionMatrix(t *testing.T) {
 		},
 		{
 			name:          "atomic file replacement has no removal",
-			effect:        managedPathDemandFileReplace(fileBefore),
+			effect:        managedPathDemandFileReplace(t, fileBefore),
 			scope:         target.ScopeProject,
 			destination:   oldDestination,
 			wantRelations: 0,
 		},
 		{
 			name:          "relocation covers both endpoints",
-			effect:        managedPathDemandReplace(directoryBefore, newDestination),
+			effect:        managedPathDemandReplace(t, directoryBefore, newDestination),
 			wantRelations: 2,
 		},
 		{
 			name:          "record has no removal",
-			effect:        managedPathDemandRecord(fileBefore),
+			effect:        managedPathDemandRecord(t, fileBefore),
 			scope:         target.ScopeProject,
 			destination:   oldDestination,
 			wantRelations: 0,
@@ -74,13 +77,13 @@ func TestRemovalDemandSetCoversManagedPathTransitionMatrix(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			set, err := removalDemandSetForExecution(
-				[]ManagedPathEffect{test.effect},
+			set, err := removaloperation.EffectDemands(
+				[]effectpreparation.ManagedPathEffect{test.effect},
 				nil,
 				nil,
 			)
 			if err != nil {
-				t.Fatalf("removalDemandSetForExecution returned error: %v", err)
+				t.Fatalf("removaloperation.EffectDemands returned error: %v", err)
 			}
 			if set.Len() != test.wantRelations {
 				t.Fatalf("demand relation count = %d, want %d", set.Len(), test.wantRelations)
@@ -132,74 +135,56 @@ func assertRemovalDemandStateShape(
 	}
 }
 
-func managedPathDemandCreate(t *testing.T, destination output.Destination) ManagedPathEffect {
+func managedPathDemandCreate(t *testing.T, destination output.Destination) effectpreparation.ManagedPathEffect {
 	t.Helper()
-	return ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		subject:          testManagedPathEffectSubject(t, "created", "skill.project.agents"),
-		consumerTargets:  []target.Target{target.TargetCodex},
-		scope:            target.ScopeProject,
-		destination:      destination,
-		desiredHash:      testArtifactHash("created"),
-		contentKind:      realization.PathProjectionDirectory,
-		permissionPolicy: realization.PathPermissionsNone,
-	}}}
+	return managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathCreate, Subject: testManagedPathEffectSubject(t, "created", "skill.project.agents"),
+		ConsumerTargets: []target.Target{target.TargetCodex}, Scope: target.ScopeProject,
+		Destination: destination, DesiredHash: testArtifactHash("created"),
+		ContentKind: realization.PathProjectionDirectory, PermissionPolicy: realization.PathPermissionsNone,
+	})
 }
 
-func managedPathDemandRemove(previous durable.ManagedPathState) ManagedPathEffect {
-	return ManagedPathEffect{remove: &managedPathRemoveEffect{facts: managedPathEffectFacts{
-		subject:          previous.Subject(),
-		scope:            previous.Scope(),
-		destination:      previous.Destination(),
-		liveHash:         previous.ContentHash(),
-		contentKind:      previous.ContentKind(),
-		permissionPolicy: previous.PermissionPolicy(),
-		previous:         &previous,
-	}}}
+func managedPathDemandRemove(t *testing.T, previous durable.ManagedPathState) effectpreparation.ManagedPathEffect {
+	t.Helper()
+	return managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathRemove, Subject: previous.Subject(), Scope: previous.Scope(),
+		Destination: previous.Destination(), LiveHash: previous.ContentHash(),
+		ContentKind: previous.ContentKind(), PermissionPolicy: previous.PermissionPolicy(), Previous: &previous,
+	})
 }
 
-func managedPathDemandReplace(previous durable.ManagedPathState, destination output.Destination) ManagedPathEffect {
-	return ManagedPathEffect{replace: &managedPathReplaceEffect{facts: managedPathEffectFacts{
-		subject:          previous.Subject(),
-		consumerTargets:  previous.ConsumerTargets(),
-		scope:            previous.Scope(),
-		destination:      destination,
-		desiredHash:      testArtifactHash("replacement"),
-		contentKind:      previous.ContentKind(),
-		permissionPolicy: previous.PermissionPolicy(),
-		previous:         &previous,
-	}}}
+func managedPathDemandReplace(t *testing.T, previous durable.ManagedPathState, destination output.Destination) effectpreparation.ManagedPathEffect {
+	t.Helper()
+	input := reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathReplace, Subject: previous.Subject(), ConsumerTargets: previous.ConsumerTargets(),
+		Scope: previous.Scope(), Destination: destination, DesiredHash: testArtifactHash("replacement"),
+		ContentKind: previous.ContentKind(), PermissionPolicy: previous.PermissionPolicy(), Previous: &previous,
+	}
+	if destination == previous.Destination() {
+		input.LiveHash = previous.ContentHash()
+	}
+	return managedPathEffectForTest(t, input)
 }
 
-func managedPathDemandFileReplace(previous durable.ManagedPathState) ManagedPathEffect {
-	return ManagedPathEffect{replace: &managedPathReplaceEffect{facts: managedPathEffectFacts{
-		subject:          previous.Subject(),
-		consumerTargets:  previous.ConsumerTargets(),
-		scope:            previous.Scope(),
-		destination:      previous.Destination(),
-		desiredHash:      testArtifactHash("file-replacement"),
-		liveHash:         previous.ContentHash(),
-		contentKind:      realization.PathProjectionFile,
-		permissionPolicy: realization.PathPermissionsExact,
-		desiredFileMode:  previous.FileMode(),
-		liveFileMode:     previous.FileMode(),
-		previous:         &previous,
-	}}}
+func managedPathDemandFileReplace(t *testing.T, previous durable.ManagedPathState) effectpreparation.ManagedPathEffect {
+	t.Helper()
+	return managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathReplace, Subject: previous.Subject(), ConsumerTargets: previous.ConsumerTargets(),
+		Scope: previous.Scope(), Destination: previous.Destination(), DesiredHash: testArtifactHash("file-replacement"),
+		LiveHash: previous.ContentHash(), ContentKind: realization.PathProjectionFile,
+		PermissionPolicy: realization.PathPermissionsExact, DesiredFileMode: previous.FileMode(), LiveFileMode: previous.FileMode(), Previous: &previous,
+	})
 }
 
-func managedPathDemandRecord(previous durable.ManagedPathState) ManagedPathEffect {
-	return ManagedPathEffect{record: &managedPathRecordEffect{facts: managedPathEffectFacts{
-		subject:          previous.Subject(),
-		consumerTargets:  previous.ConsumerTargets(),
-		scope:            previous.Scope(),
-		destination:      previous.Destination(),
-		desiredHash:      previous.ContentHash(),
-		liveHash:         previous.ContentHash(),
-		contentKind:      previous.ContentKind(),
-		permissionPolicy: previous.PermissionPolicy(),
-		desiredFileMode:  previous.FileMode(),
-		liveFileMode:     previous.FileMode(),
-		previous:         &previous,
-	}}}
+func managedPathDemandRecord(t *testing.T, previous durable.ManagedPathState) effectpreparation.ManagedPathEffect {
+	t.Helper()
+	return managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathRecord, Subject: previous.Subject(), ConsumerTargets: previous.ConsumerTargets(),
+		Scope: previous.Scope(), Destination: previous.Destination(), DesiredHash: previous.ContentHash(),
+		LiveHash: previous.ContentHash(), ContentKind: previous.ContentKind(), PermissionPolicy: previous.PermissionPolicy(),
+		DesiredFileMode: previous.FileMode(), LiveFileMode: previous.FileMode(), Previous: &previous,
+	})
 }
 
 func testManagedPathFileState(t *testing.T, name string, destination output.Destination) durable.ManagedPathState {

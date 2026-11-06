@@ -11,7 +11,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	executeeffect "github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -157,8 +157,8 @@ func TestProjectCarrierAdoptionReportsCommittedClaimAfterPostCommitCancellation(
 	ctx, cancel := context.WithCancel(context.Background())
 	result, err := ExecuteWithOptions(ctx, planning, ExecuteOptions{
 		RelationObservations: &present,
-		ExecuteEvents: func(event executeeffect.Event) {
-			if event.Kind == executeeffect.EventStatefileWritten {
+		ExecuteEvents: func(event executionevent.Event) {
+			if event.Kind == executionevent.StatefileWritten {
 				cancel()
 			}
 		},

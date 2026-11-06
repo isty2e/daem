@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -38,7 +38,7 @@ func NewApplyProgressRenderer(options ApplyProgressRendererOptions, reference fu
 }
 
 // Sink returns the execute event sink used by apply workflows.
-func (renderer *ApplyProgressRenderer) Sink() execute.EventSink {
+func (renderer *ApplyProgressRenderer) Sink() executionevent.Sink {
 	if renderer == nil {
 		return nil
 	}
@@ -55,7 +55,7 @@ func (renderer *ApplyProgressRenderer) Close() {
 	renderer.line.close()
 }
 
-func (renderer *ApplyProgressRenderer) renderEvent(event execute.Event) {
+func (renderer *ApplyProgressRenderer) renderEvent(event executionevent.Event) {
 	if renderer == nil {
 		return
 	}
@@ -71,10 +71,10 @@ func (renderer *ApplyProgressRenderer) renderEvent(event execute.Event) {
 		renderer.renderRelationOrder(event)
 		return
 	}
-	if event.Kind != execute.EventActionStarted && event.Kind != execute.EventActionDone && event.Kind != execute.EventActionFailed {
+	if event.Kind != executionevent.ActionStarted && event.Kind != executionevent.ActionDone && event.Kind != executionevent.ActionFailed {
 		return
 	}
-	if event.Kind == execute.EventActionDone && event.Action != nil {
+	if event.Kind == executionevent.ActionDone && event.Action != nil {
 		if _, exists := renderer.finished[event.Action.Index]; !exists {
 			renderer.finished[event.Action.Index] = struct{}{}
 			renderer.complete++
@@ -94,10 +94,10 @@ func (renderer *ApplyProgressRenderer) renderEvent(event execute.Event) {
 	renderer.line.write(line)
 }
 
-func (renderer *ApplyProgressRenderer) renderRelationOrder(event execute.Event) {
-	if event.Kind != execute.EventRelationOrderStarted &&
-		event.Kind != execute.EventRelationOrderDone &&
-		event.Kind != execute.EventRelationOrderFailed {
+func (renderer *ApplyProgressRenderer) renderRelationOrder(event executionevent.Event) {
+	if event.Kind != executionevent.RelationOrderStarted &&
+		event.Kind != executionevent.RelationOrderDone &&
+		event.Kind != executionevent.RelationOrderFailed {
 		return
 	}
 	facts := event.RelationOrder
@@ -108,19 +108,19 @@ func (renderer *ApplyProgressRenderer) renderRelationOrder(event execute.Event) 
 		facts.SequenceID,
 	)
 	switch event.Kind {
-	case execute.EventRelationOrderDone:
+	case executionevent.RelationOrderDone:
 		if facts.Changed {
 			line += ": converged"
 		} else {
 			line += ": exact"
 		}
-	case execute.EventRelationOrderFailed:
+	case executionevent.RelationOrderFailed:
 		line += ": failed"
 	}
 	renderer.line.write(line)
 }
 
-func (renderer *ApplyProgressRenderer) actionLabel(action *execute.ActionEventFacts) string {
+func (renderer *ApplyProgressRenderer) actionLabel(action *executionevent.ActionFacts) string {
 	parts := make([]string, 0, 2)
 	if entityID, ok := topologyprojection.EntityID(action.Subject); ok {
 		parts = append(parts, renderer.reference(entityID.Kind(), entityID.Name()))

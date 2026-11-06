@@ -13,12 +13,16 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	clipkg "github.com/isty2e/daem/internal/cli"
-	"github.com/isty2e/daem/internal/effect/journal"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/hostpath"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -272,15 +276,15 @@ func writeInterruptedRecoveryFixture(t *testing.T, root string, home string) int
 	if err != nil {
 		t.Fatal(err)
 	}
-	operationID := journal.OperationID(time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC))
+	operationID := journalpublication.OperationID(time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC))
 	claim := testkit.WriteActiveOwnershipClaim(t, manifestPath, "~/.codex/AGENTS.md", "")
 	claimTransition, err := ownershipmutation.NewRetainTransition(claim)
 	if err != nil {
 		t.Fatal(err)
 	}
-	captured, err := journal.CaptureJournalWithOptions(
+	captured, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
-		journal.Paths{
+		journalpublication.Paths{
 			RecoveryDir:   paths.RecoveryDir,
 			StatefilePath: paths.StatefilePath,
 			ManifestRoot:  paths.ManifestRoot,
@@ -290,7 +294,7 @@ func writeInterruptedRecoveryFixture(t *testing.T, root string, home string) int
 		time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC),
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ClaimTransitions:     []ownershipmutation.ClaimTransition{claimTransition},
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{managedMutation},

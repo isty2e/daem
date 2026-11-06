@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/fileset"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 )
 
 // ExecutionPhase is the public projection of post-execution durable authority

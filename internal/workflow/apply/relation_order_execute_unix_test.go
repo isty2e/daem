@@ -19,6 +19,7 @@ import (
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
@@ -210,7 +211,7 @@ func TestRelationOrderConvergenceRequiresRenewedRiskAuthorization(t *testing.T) 
 
 	exact := relationOrderTestReconciliation(t, paths, locked, nil)
 	var eventCount int
-	options.ExecuteEvents = func(execute.Event) { eventCount++ }
+	options.ExecuteEvents = func(executionevent.Event) { eventCount++ }
 	result, err = runRelationOrderConvergence(
 		t.Context(),
 		paths,
@@ -248,7 +249,7 @@ func TestRelationOrderConvergenceReportsPartialOpenCodeFailure(t *testing.T) {
 	defer cancel()
 	projectRoot := captureRelationOrderTestRoot(t, root)
 	defer projectRoot.Close()
-	var events []execute.Event
+	var events []executionevent.Event
 	result, err := runRelationOrderConvergence(
 		ctx,
 		paths,
@@ -261,9 +262,9 @@ func TestRelationOrderConvergenceReportsPartialOpenCodeFailure(t *testing.T) {
 			validateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
 				return nil
 			},
-			ExecuteEvents: func(event execute.Event) {
+			ExecuteEvents: func(event executionevent.Event) {
 				events = append(events, event)
-				if event.Kind == execute.EventRelationOrderDone {
+				if event.Kind == executionevent.RelationOrderDone {
 					cancel()
 				}
 			},
@@ -300,10 +301,10 @@ func TestRelationOrderConvergenceReportsPartialOpenCodeFailure(t *testing.T) {
 		t.Fatalf("TUI changed after cancellation: %s", got)
 	}
 	if len(events) != 4 ||
-		events[0].Kind != execute.EventRelationOrderStarted ||
-		events[1].Kind != execute.EventRelationOrderDone ||
-		events[2].Kind != execute.EventRelationOrderStarted ||
-		events[3].Kind != execute.EventRelationOrderFailed {
+		events[0].Kind != executionevent.RelationOrderStarted ||
+		events[1].Kind != executionevent.RelationOrderDone ||
+		events[2].Kind != executionevent.RelationOrderStarted ||
+		events[3].Kind != executionevent.RelationOrderFailed {
 		t.Fatalf("partial events = %#v", events)
 	}
 }

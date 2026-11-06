@@ -12,7 +12,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/runtimeprobe"
 	runtimeprobemcp "github.com/isty2e/daem/internal/assurance/runtimeprobe/mcp"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"

@@ -239,6 +239,7 @@ type PathEvidence struct {
 	BlockedReason string
 	BlockedDetail string
 	Error         string
+	Work          workmeasure.ArtifactWork
 }
 
 // BackupEvidence is one fresh backup observation.

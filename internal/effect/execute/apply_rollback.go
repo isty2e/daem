@@ -5,12 +5,16 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
-	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -177,12 +181,12 @@ func loadApplyActivePlanForState(
 	}
 	return journal.LoadActivePlanForStateWithOptions(
 		ctx,
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		currentState,
 		journal.PlanLoadOptions{
 			Filesystem:        authority.filesystem,
-			RootedCapability:  authority.rootedJournalCapability,
-			Resolver:          authority.rootedJournalResolver(authority.lexical),
+			RootedCapability:  authority.destinations.JournalCapability,
+			Resolver:          authority.destinations.JournalResolver(authority.lexical),
 			OwnershipRegistry: authority.rootedOwnershipRegistryOption(),
 			Codecs:            codecs,
 			StateCodec:        stateCodec,
@@ -204,13 +208,13 @@ func loadApplyActivePlanForStateEntries(
 	}
 	return journal.LoadActivePlanForStateEntriesWithOptions(
 		ctx,
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		currentState,
 		selected,
 		journal.PlanLoadOptions{
 			Filesystem:        authority.filesystem,
-			RootedCapability:  authority.rootedJournalCapability,
-			Resolver:          authority.rootedJournalResolver(authority.lexical),
+			RootedCapability:  authority.destinations.JournalCapability,
+			Resolver:          authority.destinations.JournalResolver(authority.lexical),
 			OwnershipRegistry: authority.rootedOwnershipRegistryOption(),
 			Codecs:            codecs,
 			StateCodec:        stateCodec,
@@ -221,28 +225,28 @@ func loadApplyActivePlanForStateEntries(
 func settlePreHostApplyFailure(
 	ctx context.Context,
 	primary error,
-	kind applyFailureSettlementKind,
+	kind applyprogram.FailureSettlement,
 	retirementPhase string,
 	paths Paths,
 	currentState durable.Snapshot,
 	authority *mutationAuthority,
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
-	events applyEventEmitter,
+	events executionevent.Emitter,
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
-	gate visibilityEffectGate,
-	effectExecution *applyEffectExecution,
+	gate applyprogram.VisibilityGate,
+	effectExecution *applyprogram.Execution,
 ) error {
-	settlementPrefix, settlementErr := effectExecution.beginFailureSettlement(kind)
+	settlementPrefix, settlementErr := effectExecution.BeginFailureSettlement(kind)
 	if settlementErr != nil {
 		return errors.Join(primary, settlementErr)
 	}
-	if rollbackErr := rollbackClaimsToBefore(
+	if rollbackErr := claimoperation.RollbackToBefore(
 		context.WithoutCancel(ctx),
 		registryStore,
 		transitions,
-		effectExecution.compensationVisibilityGate(
+		effectExecution.CompensationVisibilityGate(
 			gate,
 			settlementPrefix+"/ownership-rollback",
 			operationplan.EffectStepCompensation,
@@ -273,7 +277,7 @@ func settlePreHostApplyFailure(
 		events,
 		loadRetirementPlan,
 		stateCodec,
-		effectExecution.compensationVisibilityGate(
+		effectExecution.CompensationVisibilityGate(
 			gate,
 			settlementPrefix+"/journal-retirement",
 			operationplan.EffectStepRetirement,
@@ -286,7 +290,7 @@ func settlePreHostApplyFailure(
 			retirementFailureWithRemediation(cleanupErr),
 		)
 	}
-	if settlementErr := effectExecution.completeFailureSettlement(kind); settlementErr != nil {
+	if settlementErr := effectExecution.CompleteFailureSettlement(kind); settlementErr != nil {
 		return errors.Join(primary, settlementErr)
 	}
 	return primary
@@ -297,56 +301,56 @@ func applyRecoveryErrorWithEvents(
 	primary error,
 	paths Paths,
 	currentState durable.Snapshot,
-	progress hostActionProgress,
+	progress hostmutation.ActionProgress,
 	selections []journalrecord.EntrySelection,
-	events applyEventEmitter,
+	events executionevent.Emitter,
 	authority *mutationAuthority,
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
-	gate visibilityEffectGate,
-	effectExecution *applyEffectExecution,
+	gate applyprogram.VisibilityGate,
+	effectExecution *applyprogram.Execution,
 ) error {
-	settlementPrefix, settlementErr := effectExecution.beginFailureSettlement(
-		applyFailureSettlementGuardedRecovery,
+	settlementPrefix, settlementErr := effectExecution.BeginFailureSettlement(
+		applyprogram.SettlementGuardedRecovery,
 	)
 	if settlementErr != nil {
 		return errors.Join(primary, settlementErr)
 	}
-	events.emit(EventRollbackRestoreStarted, EventStageRollbackRestore, nil, nil)
-	if err := effectExecution.runObservation(
+	events.Emit(executionevent.RollbackRestoreStarted, executionevent.StageRollbackRestore, nil, nil)
+	if err := effectExecution.Observe(
 		settlementPrefix+"/progress-classification",
-		applyForwardFailureUnavailable,
+		applyprogram.FailureUnavailable,
 		func() error {
-			if progress.requiresRecovery() {
+			if progress.RequiresRecovery() {
 				return fmt.Errorf("host effect outcome is indeterminate")
 			}
 			return nil
 		},
 	); err != nil {
 		recoveryErr := err
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, recoveryErr)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, recoveryErr)
 		return fmt.Errorf("%w; %v; recovery journal retained; run: daem recover --dry-run", primary, recoveryErr)
 	}
 
 	recoveryCtx := context.WithoutCancel(ctx)
 	var rollbackEntries []journalrecord.EntrySelection
-	err := effectExecution.runObservation(
+	err := effectExecution.Observe(
 		settlementPrefix+"/rollback-selection",
-		applyForwardFailureUnavailable,
+		applyprogram.FailureUnavailable,
 		func() error {
 			var selectErr error
-			rollbackEntries, selectErr = progress.rollbackEntries(selections)
+			rollbackEntries, selectErr = progress.RollbackEntries(selections)
 			return selectErr
 		},
 	)
 	if err != nil {
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; select guarded rollback entries failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	var plan recovery.Plan
-	err = effectExecution.runObservation(
+	err = effectExecution.Observe(
 		settlementPrefix+"/journal-load",
-		applyForwardFailureUnavailable,
+		applyprogram.FailureUnavailable,
 		func() error {
 			var loadErr error
 			plan, loadErr = loadCapturedJournalPlanForStateEntries(
@@ -363,12 +367,12 @@ func applyRecoveryErrorWithEvents(
 		},
 	)
 	if err != nil {
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; load guarded rollback plan failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
-	if err := effectExecution.runObservation(
+	if err := effectExecution.Observe(
 		settlementPrefix+"/journal-validation",
-		applyForwardFailureUnavailable,
+		applyprogram.FailureUnavailable,
 		func() error {
 			if plan.HasErrors() {
 				return fmt.Errorf("guarded rollback is blocked by current evidence")
@@ -376,13 +380,13 @@ func applyRecoveryErrorWithEvents(
 			return nil
 		},
 	); err != nil {
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	var execution *activeRecoveryExecution
-	err = effectExecution.runObservation(
+	err = effectExecution.Observe(
 		settlementPrefix+"/execution-compile",
-		applyForwardFailureUnavailable,
+		applyprogram.FailureUnavailable,
 		func() error {
 			var compileErr error
 			execution, compileErr = newActiveRecoveryExecutionForPlan(
@@ -394,11 +398,11 @@ func applyRecoveryErrorWithEvents(
 		},
 	)
 	if err != nil {
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; compile guarded rollback settlement failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
-	if err := effectExecution.handoffGuardedRecovery(); err != nil {
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+	if err := effectExecution.HandoffGuardedRecovery(); err != nil {
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; handoff guarded rollback settlement failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	if err := executeRecoveryPlanEffects(recoveryCtx, plan, paths, RecoveryOptions{
@@ -408,26 +412,26 @@ func applyRecoveryErrorWithEvents(
 		) (recovery.Plan, error) {
 			return journal.LoadActivePlanForStateEntriesWithOptions(
 				ctx,
-				paths.journalPaths(),
+				paths.JournalPaths(),
 				currentState,
 				rollbackEntries,
 				loadOptions,
 			)
 		},
 		mutationAuthority:           authority,
-		ActiveJournalAuthority:      authority.journalBasis.activeAuthority,
-		ValidateVisibilityAuthority: gate.before,
-		AcceptVisibilityChanges:     gate.after,
+		ActiveJournalAuthority:      authority.journalBasis.ActiveAuthority(),
+		ValidateVisibilityAuthority: gate.ValidateBefore,
+		AcceptVisibilityChanges:     gate.AcceptAfter,
 		Resolver:                    authority.lexical,
 		Codecs:                      codecs,
 		StateCodec:                  stateCodec,
 		Filesystem:                  authority.filesystem,
 	}, execution); err != nil {
 		err = execution.finish(err, nil)
-		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; guarded rollback failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
-	events.emit(EventRollbackRestored, EventStageRollbackRestore, nil, nil)
+	events.Emit(executionevent.RollbackRestored, executionevent.StageRollbackRestore, nil, nil)
 	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
 		return reloadRecoveryPlanAfterEffects(
 			ctx,
@@ -443,7 +447,7 @@ func applyRecoveryErrorWithEvents(
 				) (recovery.Plan, error) {
 					return journal.LoadActivePlanForStateEntriesWithOptions(
 						ctx,
-						paths.journalPaths(),
+						paths.JournalPaths(),
 						currentState,
 						rollbackEntries,
 						loadOptions,
@@ -464,166 +468,10 @@ func applyRecoveryErrorWithEvents(
 		execution,
 	); err != nil {
 		err = execution.finish(err, nil)
-		return newApplyRollbackError(primary, retirementFailureWithRemediation(err))
+		return applyprogram.NewRollbackError(primary, retirementFailureWithRemediation(err))
 	}
 	if err := execution.finish(nil, nil); err != nil {
-		return newApplyRollbackError(primary, retirementFailureWithRemediation(err))
+		return applyprogram.NewRollbackError(primary, retirementFailureWithRemediation(err))
 	}
-	return newApplyRollbackError(primary, nil)
-}
-
-type applyRollbackError struct {
-	primary           error
-	retirementFailure error
-}
-
-func newApplyRollbackError(primary error, retirementFailure error) error {
-	return &applyRollbackError{
-		primary:           primary,
-		retirementFailure: retirementFailure,
-	}
-}
-
-func (failure *applyRollbackError) Error() string {
-	if failure.retirementFailure != nil {
-		return fmt.Sprintf(
-			"%v; host changes rolled back; retire recovery journal failed: %v",
-			failure.primary,
-			failure.retirementFailure,
-		)
-	}
-	return fmt.Sprintf("%v; host changes rolled back", failure.primary)
-}
-
-func (failure *applyRollbackError) Unwrap() []error {
-	if failure.retirementFailure != nil {
-		return []error{failure.primary, failure.retirementFailure}
-	}
-	return []error{failure.primary}
-}
-
-// ApplyHostChangesRolledBack reports whether an unsuccessful apply restored
-// every host change before returning.
-func ApplyHostChangesRolledBack(err error) bool {
-	var failure *applyRollbackError
-	return errors.As(err, &failure)
-}
-
-// hostEffectProgress classifies what apply can truthfully conclude about one
-// host action before deciding whether immediate rollback is safe.
-type hostEffectProgress uint8
-
-const (
-	hostEffectNotStarted hostEffectProgress = iota
-	hostEffectExpectedAfter
-	hostEffectIndeterminate
-)
-
-func (progress hostEffectProgress) rollbackEligible() bool {
-	return progress == hostEffectExpectedAfter
-}
-
-func (progress hostActionProgress) rollbackEntries(
-	selections []journalrecord.EntrySelection,
-) ([]journalrecord.EntrySelection, error) {
-	if len(progress.states) != len(selections) {
-		return nil, fmt.Errorf("host action progress count %d does not match entry selection count %d", len(progress.states), len(selections))
-	}
-	selected := make([]journalrecord.EntrySelection, 0, len(selections))
-	for index, state := range progress.states {
-		if state.rollbackEligible() {
-			selected = append(selected, selections[index])
-		}
-	}
-	return selected, nil
-}
-
-func (progress hostEffectProgress) requiresRecovery() bool {
-	return progress == hostEffectIndeterminate
-}
-
-type hostActionProgress struct {
-	states []hostEffectProgress
-}
-
-type indeterminateHostEffectError struct{ cause error }
-
-func (failure *indeterminateHostEffectError) Error() string { return failure.cause.Error() }
-func (failure *indeterminateHostEffectError) Unwrap() error { return failure.cause }
-
-func markHostEffectIndeterminate(err error) error {
-	if err == nil {
-		return nil
-	}
-	return &indeterminateHostEffectError{cause: err}
-}
-
-func newHostActionProgress(actionCount int) hostActionProgress {
-	return hostActionProgress{states: make([]hostEffectProgress, actionCount)}
-}
-
-func combineHostActionProgress(parts ...hostActionProgress) hostActionProgress {
-	count := 0
-	for _, part := range parts {
-		count += len(part.states)
-	}
-	combined := hostActionProgress{states: make([]hostEffectProgress, 0, count)}
-	for _, part := range parts {
-		combined.states = append(combined.states, part.states...)
-	}
-	return combined
-}
-
-func (progress hostActionProgress) record(index int, state hostEffectProgress) {
-	progress.states[index] = state
-}
-
-func (progress hostActionProgress) requiresRecovery() bool {
-	for _, state := range progress.states {
-		if state.requiresRecovery() {
-			return true
-		}
-	}
-	return false
-}
-
-func progressAfterMutationError(err error) hostEffectProgress {
-	var indeterminate *indeterminateHostEffectError
-	if errors.As(err, &indeterminate) {
-		return hostEffectIndeterminate
-	}
-	var removalFailure *rootedRemovalCommitError
-	if errors.As(err, &removalFailure) {
-		return progressAfterCommitOutcome(removalFailure.Outcome(), err)
-	}
-	kind, classified := mutationfs.FailureKindOf(err)
-	if !classified {
-		return hostEffectIndeterminate
-	}
-	switch kind {
-	case mutationfs.FailureUncommitted, mutationfs.FailureUnsupportedGuarantee:
-		return hostEffectNotStarted
-	case mutationfs.FailureIndeterminateCommit, mutationfs.FailureRetainedResidue:
-		return hostEffectIndeterminate
-	default:
-		return hostEffectIndeterminate
-	}
-}
-
-func progressAfterCommitOutcome(outcome mutationfs.CommitOutcome, err error) hostEffectProgress {
-	if err == nil {
-		return hostEffectExpectedAfter
-	}
-	switch outcome.State() {
-	case mutationfs.CommitOutcomeUncommitted:
-		return hostEffectNotStarted
-	case mutationfs.CommitOutcomeIndeterminate, mutationfs.CommitOutcomeRetainedRecoverable,
-		mutationfs.CommitOutcomeComplete:
-		return hostEffectIndeterminate
-	default:
-		// A rooted removal must always carry a canonical storage outcome. Treat
-		// an unknown outcome as indeterminate rather than recursively trying to
-		// classify the same wrapped error again.
-		return hostEffectIndeterminate
-	}
+	return applyprogram.NewRollbackError(primary, nil)
 }

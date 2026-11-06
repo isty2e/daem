@@ -13,11 +13,15 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+	"github.com/isty2e/daem/internal/reconcile"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -100,8 +104,8 @@ func TestGlobalOwnershipRemovalFinalizesDeletedNonASCIIPath(t *testing.T) {
 func TestGlobalOwnershipRemovalRecoversAfterDeletedNonASCIIPath(t *testing.T) {
 	hostPath, input := globalNonASCIIManagedPathRemovalInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventStatefileWritten {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.StatefileWritten {
 			cancel()
 		}
 	}})
@@ -123,8 +127,8 @@ func TestGlobalOwnershipRemovalRecoversDeletedUnicodeAlias(t *testing.T) {
 	)
 	hostPath, aliasPath, input := globalManagedPathRemovalInput(t, destinationName, storedName)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventStatefileWritten {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.StatefileWritten {
 			cancel()
 		}
 	}})
@@ -264,18 +268,17 @@ func globalManagedPathRemovalInput(
 	if err != nil {
 		t.Fatal(err)
 	}
-	effect := ManagedPathEffect{remove: &managedPathRemoveEffect{facts: managedPathEffectFacts{
-		subject: subject, scope: target.ScopeGlobal, destination: destination,
-		liveHash: hash, contentKind: realization.PathProjectionDirectory,
-		permissionPolicy: realization.PathPermissionsNone,
-		previous:         &previous,
-	}}}
-	if err := effect.validate(); err != nil {
+	effect := managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathRemove, Subject: subject, Scope: target.ScopeGlobal, Destination: destination,
+		LiveHash: hash, ContentKind: realization.PathProjectionDirectory,
+		PermissionPolicy: realization.PathPermissionsNone, Previous: &previous,
+	})
+	if err := effect.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	return hostPath, logicalHostPath, ApplyInput{
 		Paths: paths, Resolver: destinationResolver(paths),
-		ManagedPathEffects: []ManagedPathEffect{effect}, ManagedPathEvidence: []observe.ManagedPathEvidence{pathEvidence},
+		ManagedPathEffects: []effectpreparation.ManagedPathEffect{effect}, ManagedPathEvidence: []observe.ManagedPathEvidence{pathEvidence},
 		CurrentState: current, Owner: owner, Ownership: []observe.OwnershipObservation{ownershipObservation},
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 		StateCodec:              testStateCodec(),
@@ -484,8 +487,8 @@ func TestProvisionalGlobalOwnershipRecoversReservedClaimBeforeStateCommit(t *tes
 	ctx, cancel := context.WithCancel(context.Background())
 
 	_, err := ApplyWithOptions(ctx, input, ApplyOptions{
-		Events: func(event Event) {
-			if event.Kind == EventActionDone {
+		Events: func(event executionevent.Event) {
+			if event.Kind == executionevent.ActionDone {
 				cancel()
 			}
 		},
@@ -513,8 +516,8 @@ func TestProvisionalGlobalOwnershipRecoveryResumesAfterOutputRollbackBeforeClaim
 	ctx, cancel := context.WithCancel(context.Background())
 
 	_, err := ApplyWithOptions(ctx, input, ApplyOptions{
-		Events: func(event Event) {
-			if event.Kind == EventActionDone {
+		Events: func(event executionevent.Event) {
+			if event.Kind == executionevent.ActionDone {
 				cancel()
 			}
 		},
@@ -542,8 +545,8 @@ func TestProvisionalGlobalOwnershipRecoversCommittedStateByFinalizingClaim(t *te
 	fixture, input := provisionalGlobalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventStatefileWritten {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.StatefileWritten {
 			cancel()
 		}
 	}})
@@ -570,8 +573,8 @@ func TestProvisionalGlobalOwnershipRecoversFinalizedClaimByRetiringJournal(t *te
 	fixture, input := provisionalGlobalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventJournalCleanupStarted {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.JournalCleanupStarted {
 			cancel()
 		}
 	}})

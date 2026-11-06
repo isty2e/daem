@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
@@ -117,23 +118,23 @@ func TestApplyWithOptionsSuccessfulApplyEmitsEventsInOrder(t *testing.T) {
 	actions := []applyEventAction{createAction, updateAction, deleteAction, recordAction}
 	events := fixture.applyWithEvents(t, actions)
 
-	assertEventKinds(t, events, []EventKind{
-		EventJournalCaptureStarted,
-		EventJournalCaptured,
-		EventRollbackStageStarted,
-		EventRollbackStaged,
-		EventActionStarted,
-		EventActionDone,
-		EventActionStarted,
-		EventActionStarted,
-		EventActionDone,
-		EventActionDone,
-		EventActionStarted,
-		EventActionDone,
-		EventStatefileWriteStarted,
-		EventStatefileWritten,
-		EventJournalCleanupStarted,
-		EventJournalCleaned,
+	assertEventKinds(t, events, []executionevent.Kind{
+		executionevent.JournalCaptureStarted,
+		executionevent.JournalCaptured,
+		executionevent.RollbackStageStarted,
+		executionevent.RollbackStaged,
+		executionevent.ActionStarted,
+		executionevent.ActionDone,
+		executionevent.ActionStarted,
+		executionevent.ActionStarted,
+		executionevent.ActionDone,
+		executionevent.ActionDone,
+		executionevent.ActionStarted,
+		executionevent.ActionDone,
+		executionevent.StatefileWriteStarted,
+		executionevent.StatefileWritten,
+		executionevent.JournalCleanupStarted,
+		executionevent.JournalCleaned,
 	})
 	assertActionEventIndexes(t, events, []int{0, 0, 1, 3, 3, 1, 2, 2})
 	assertAllEventsTotalActions(t, events, len(actions))
@@ -216,13 +217,13 @@ func TestApplyRejectsJournalChangedAfterAuthorityBindingBeforeHostEffects(t *tes
 	fixture := newApplyEventFixture(t)
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 	mutated := false
-	var events []Event
+	var events []executionevent.Event
 
 	_, err := ApplyWithOptions(
 		context.Background(),
 		fixture.input([]applyEventAction{action}),
 		ApplyOptions{
-			Events: func(event Event) {
+			Events: func(event executionevent.Event) {
 				events = append(events, event)
 			},
 			AcceptVisibilityChanges: func(context.Context) error {
@@ -247,8 +248,8 @@ func TestApplyRejectsJournalChangedAfterAuthorityBindingBeforeHostEffects(t *tes
 	if !mutated {
 		t.Fatal("test callback did not mutate the published recovery journal")
 	}
-	if containsApplyEventKind(events, EventJournalCaptured) ||
-		containsApplyEventKind(events, EventRollbackStageStarted) {
+	if containsApplyEventKind(events, executionevent.JournalCaptured) ||
+		containsApplyEventKind(events, executionevent.RollbackStageStarted) {
 		t.Fatalf("journal drift crossed the prepared-effect boundary: %#v", events)
 	}
 	assertHostMissing(t, fixture.hostPath("CREATE.md"))
@@ -270,17 +271,17 @@ func TestApplyWithOptionsRecordOnlyEmitsActionEventsWithoutHostWrite(t *testing.
 
 	events := fixture.applyWithEvents(t, []applyEventAction{action})
 
-	assertEventKinds(t, events, []EventKind{
-		EventJournalCaptureStarted,
-		EventJournalCaptured,
-		EventRollbackStageStarted,
-		EventRollbackStaged,
-		EventActionStarted,
-		EventActionDone,
-		EventStatefileWriteStarted,
-		EventStatefileWritten,
-		EventJournalCleanupStarted,
-		EventJournalCleaned,
+	assertEventKinds(t, events, []executionevent.Kind{
+		executionevent.JournalCaptureStarted,
+		executionevent.JournalCaptured,
+		executionevent.RollbackStageStarted,
+		executionevent.RollbackStaged,
+		executionevent.ActionStarted,
+		executionevent.ActionDone,
+		executionevent.StatefileWriteStarted,
+		executionevent.StatefileWritten,
+		executionevent.JournalCleanupStarted,
+		executionevent.JournalCleaned,
 	})
 	assertActionEventIndexes(t, events, []int{0, 0})
 	assertHostFileContent(t, fixture.hostPath("readonly/RECORD.md"), "record me\n")
@@ -288,9 +289,9 @@ func TestApplyWithOptionsRecordOnlyEmitsActionEventsWithoutHostWrite(t *testing.
 
 func TestApplyWithOptionsZeroActionsEmitsNoEvents(t *testing.T) {
 	fixture := newApplyEventFixture(t)
-	var events []Event
+	var events []executionevent.Event
 	result, err := ApplyWithOptions(context.Background(), fixture.input(nil), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
 		},
 	})

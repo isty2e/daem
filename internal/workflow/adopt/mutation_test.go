@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"

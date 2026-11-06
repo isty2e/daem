@@ -5,29 +5,42 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
+
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
-	lock "github.com/isty2e/daem/internal/realization/lock"
-	"github.com/isty2e/daem/internal/subprocess"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/subprocess"
+
 	payloadbuild "github.com/isty2e/daem/internal/effect/payload/build"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
+
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -45,7 +58,7 @@ type runResult struct {
 }
 
 type runOptions struct {
-	ExecuteEvents                     execute.EventSink
+	ExecuteEvents                     executionevent.Sink
 	HostRouteExecutor                 subprocess.CommandExecutor
 	HostRouteObserver                 HostRouteObserver
 	CarrierRemovalAdapter             executehostroute.RemovalAdapter
@@ -61,7 +74,7 @@ type runOptions struct {
 	validateStateDir                  func(context.Context) error
 	reserveStatefileAuthority         reserveStatefileEffectAuthority
 	statefileAuthority                *statefileEffectAuthority
-	applyEffectPlan                   *execute.ApplyEffectPlan
+	applyEffectPlan                   *applyprogram.Plan
 	preparedContinuation              applyContinuationPlan
 	currentContinuation               applyContinuationPlan
 	requireContinuation               bool
@@ -108,11 +121,11 @@ func runWithOptions(
 		return runResult{}, err
 	}
 
-	managedPathEffects, err := execute.ManagedPathEffects(assessment.Reconciliation.ManagedPaths())
+	managedPathEffects, err := effectpreparation.ManagedPathEffects(assessment.Reconciliation.ManagedPaths())
 	if err != nil {
 		return runResult{}, err
 	}
-	aggregateEffects, err := execute.AggregateEffects(assessment.Reconciliation.Aggregates())
+	aggregateEffects, err := effectpreparation.AggregateEffects(assessment.Reconciliation.Aggregates())
 	if err != nil {
 		return runResult{}, err
 	}
@@ -304,7 +317,7 @@ func runWithOptions(
 
 func applyWithPreparedEffectPlan(
 	ctx context.Context,
-	plan *execute.ApplyEffectPlan,
+	plan *applyprogram.Plan,
 	input execute.ApplyInput,
 	options execute.ApplyOptions,
 ) (execute.ApplyResult, error) {
@@ -314,7 +327,7 @@ func applyWithPreparedEffectPlan(
 	return execute.ApplyWithEffectPlan(ctx, input, *plan, options)
 }
 
-func managedPathPayloadSubjects(effects []execute.ManagedPathEffect) []topology.SubjectID {
+func managedPathPayloadSubjects(effects []effectpreparation.ManagedPathEffect) []topology.SubjectID {
 	subjects := make([]topology.SubjectID, 0, len(effects))
 	for _, effect := range effects {
 		if effect.RequiresPayload() {

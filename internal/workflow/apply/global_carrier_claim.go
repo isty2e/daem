@@ -5,14 +5,21 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
+
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/operationplan"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
+
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -21,7 +28,7 @@ func isGlobalCarrierPromotionCandidate(
 	current durable.Snapshot,
 	action reconciliation.RelationAction,
 ) bool {
-	_, _, matched := execute.MatchPendingCarrierInstallCompletion(
+	_, _, matched := effectpreparation.MatchPendingCarrierInstallCompletion(
 		current,
 		action,
 		target.ScopeGlobal,
@@ -321,7 +328,7 @@ func globalCarrierPromotionClaim(
 	if action.Scope() != target.ScopeGlobal {
 		return durablecarrier.ManagedCarrierClaim{}, false, nil
 	}
-	pending, matched := execute.MatchPendingCarrierInstall(current, action, target.ScopeGlobal)
+	pending, matched := effectpreparation.MatchPendingCarrierInstall(current, action, target.ScopeGlobal)
 	if !matched {
 		return durablecarrier.ManagedCarrierClaim{}, false, nil
 	}

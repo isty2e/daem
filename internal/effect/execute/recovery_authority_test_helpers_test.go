@@ -7,7 +7,8 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
-	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -43,7 +44,7 @@ func executeRecoveryPlanWithOptionsForTest(
 	if err != nil {
 		return errors.Join(err, root.Close())
 	}
-	active, err := journal.CaptureActiveJournalAuthority(
+	active, err := journalinventory.CaptureActiveJournalAuthority(
 		ctx,
 		options.Filesystem,
 		entry,
@@ -64,8 +65,21 @@ func prepareRecoveryBackupsForTest(
 	ctx context.Context,
 	authority *mutationAuthority,
 	plan recovery.Plan,
-	actions []recoveryHostAction,
+	actions []hostmutation.RestorationAction,
 ) {
+	t.Helper()
+	active := bindRecoveryBackupSourceForTest(t, ctx, authority, plan)
+	if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), hostmutation.RestorationBackupRequests(actions), active); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func bindRecoveryBackupSourceForTest(
+	t *testing.T,
+	ctx context.Context,
+	authority *mutationAuthority,
+	plan recovery.Plan,
+) journalinventory.ActiveJournalAuthority {
 	t.Helper()
 	parent := filepath.Dir(plan.OperationDir())
 	root, err := rootedpath.CaptureRoot(parent)
@@ -77,7 +91,7 @@ func prepareRecoveryBackupsForTest(
 		_ = root.Close()
 		t.Fatal(err)
 	}
-	active, err := journal.CaptureActiveJournalAuthority(ctx, authority.filesystem, entry)
+	active, err := journalinventory.CaptureActiveJournalAuthority(ctx, authority.filesystem, entry)
 	closeErr := errors.Join(entry.Close(), root.Close())
 	if err != nil || closeErr != nil {
 		t.Fatal(errors.Join(err, closeErr))
@@ -89,45 +103,30 @@ func prepareRecoveryBackupsForTest(
 	if err := authority.setJournalExecutionBasis(fingerprint, active); err != nil {
 		t.Fatal(err)
 	}
-	if err := authority.prepareRecoveryBackups(ctx, plan.OperationDir(), actions); err != nil {
-		t.Fatal(err)
-	}
+	return active
 }
 
-func beginGeneralRecoveryExecutionForTest(t *testing.T, authority *mutationAuthority) {
+func beginUnclassifiedRecoveryExecutionForTest(t *testing.T, authority *mutationAuthority) {
 	t.Helper()
 	if authority.preparedRetirement == nil {
 		if err := authority.physicalWorkBudget.ConcludeRetirementNotApplicable(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if authority.removalCleanupExecution == nil {
-		execution, err := authority.physicalWorkBudget.BeginReservedCleanupLifecycle()
-		if err != nil {
-			t.Fatal(err)
-		}
-		authority.removalCleanupExecution = execution
-	}
-	if !authority.semanticWitness.initialized {
-		semantic, err := authority.physicalWorkBudget.BeginReservedSemanticExecution()
-		if err != nil {
-			t.Fatal(err)
-		}
-		authority.semanticExecutionWorkBudget = semantic
-		host, control, err := authority.physicalWorkBudget.BeginGeneralExecution()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := authority.generalTraversalPhase.advance(control); err != nil {
-			t.Fatal(err)
-		}
-		authority.hostExecutionTraversal = host
-		authority.generalExecutionWorkBudget = host
-		return
-	}
-	if err := authority.beginGeneralRecoveryExecution(); err != nil {
+	if err := authority.removals.PrepareCleanup(nil); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := authority.physicalWorkBudget.BeginReservedSemanticExecution(); err != nil {
+		t.Fatal(err)
+	}
+	host, control, err := authority.physicalWorkBudget.BeginGeneralExecution()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authority.generalTraversalPhase.Advance(control, host); err != nil {
+		t.Fatal(err)
+	}
+	authority.generalExecutionWorkBudget = host
 }
 
 func installGeneralRecoveryExecutionBudgetForTest(t *testing.T, authority *mutationAuthority) {
@@ -163,7 +162,9 @@ func installGeneralRecoveryExecutionBudgetForTest(t *testing.T, authority *mutat
 		t.Fatal(err)
 	}
 	authority.generalExecutionWorkBudget = host
-	authority.hostExecutionTraversal = pathBudget
+	if err := authority.generalTraversalPhase.Advance(authority.physicalWorkBudget, pathBudget); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func mustObservedPathAuthority(t *testing.T, path string) pathauthority.Exact {

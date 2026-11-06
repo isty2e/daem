@@ -1,0 +1,112 @@
+package recoveryoperation
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+
+	"github.com/isty2e/daem/internal/assurance/durable"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/aggregate"
+)
+
+// Profile selects recovery readers and permitted root paths independently of
+// persisted selectors. It contains no retained root or execution lease.
+type Profile struct {
+	StateCodec   durable.SnapshotCodec
+	Codecs       aggregate.CodecCatalog
+	Limits       configdocument.Limits
+	Manifest     string
+	ManifestPath string
+	ResolveRoot  func(output.RootRole) (string, error)
+	Budget       *physicalwork.Budget
+	StateReader  durable.SnapshotReader
+}
+
+type OwnedRoots struct {
+	selection journalnamespace.Roots
+	retained  []*rootedpath.CapturedRoot
+	closed    bool
+}
+
+func (profile Profile) OpenRoots(ctx context.Context, journal journalrecord.Native) (result *OwnedRoots, resultErr error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("native recovery context is required")
+	}
+	owned := &OwnedRoots{}
+	defer func() {
+		if resultErr != nil {
+			resultErr = errors.Join(resultErr, owned.Close())
+			result = nil
+		}
+	}()
+	anchors, err := journal.RecordedRootAnchors()
+	if err != nil {
+		return nil, err
+	}
+	for _, role := range []output.RootRole{output.RootProject, output.RootPiAgent, output.RootCodexHome} {
+		if _, needed := anchors[role]; !needed {
+			continue
+		}
+		var selected *journalnamespace.RootSelection
+		var path string
+		switch role {
+		case output.RootProject:
+			selected, path = &owned.selection.Manifest, profile.Manifest
+		case output.RootPiAgent:
+			selected = &owned.selection.PiAgent
+		case output.RootCodexHome:
+			selected = &owned.selection.CodexHome
+		}
+		if path == "" && profile.ResolveRoot != nil {
+			var err error
+			path, err = profile.ResolveRoot(role)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+			return nil, fmt.Errorf("native recovery requires a canonical independently selected root")
+		}
+		var selection journalnamespace.RootSelection
+		var err error
+		if role == output.RootProject {
+			var root *rootedpath.CapturedRoot
+			root, err = rootedpath.CaptureCanonicalRootBounded(path, physicalwork.MaximumPhysicalPathDepth, profile.Budget)
+			selection = journalnamespace.RootSelection{SelectedPath: path, Root: root}
+		} else {
+			selection, err = journalnamespace.CaptureRecordedRoot(ctx, path, anchors[role], profile.Budget)
+		}
+		if err != nil {
+			return nil, err
+		}
+		owned.retained = append(owned.retained, selection.Root)
+		*selected = selection
+	}
+	return owned, ctx.Err()
+}
+
+func (owned *OwnedRoots) Selection() journalnamespace.Roots {
+	if owned == nil || owned.closed {
+		return journalnamespace.Roots{}
+	}
+	return owned.selection
+}
+
+func (owned *OwnedRoots) Close() error {
+	if owned == nil || owned.closed {
+		return nil
+	}
+	owned.closed = true
+	var err error
+	for _, root := range owned.retained {
+		err = errors.Join(err, root.Close())
+	}
+	return err
+}

@@ -3,6 +3,7 @@ package execute
 import (
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/target"
@@ -13,7 +14,7 @@ func TestRecoveryForwardRemovalCertificatesUsePlannedBackupWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actions := []recoveryHostAction{
+	actions := []hostmutation.RestorationAction{
 		{
 			Kind: recovery.ActionKindRestoreWrite, Scope: target.ScopeProject,
 			Destination: ".agents/skills/alpha", BackupPath: "backup",
@@ -33,11 +34,11 @@ func TestRecoveryForwardRemovalCertificatesUsePlannedBackupWork(t *testing.T) {
 	}
 	demands := make([]recovery.RemovalDemand, 0, len(actions))
 	for _, action := range actions {
-		destination, err := recoveryDestination(action.Scope, action.Destination)
+		destination, err := hostmutation.ParseRestorationDestination(action.Scope, action.Destination)
 		if err != nil {
 			t.Fatal(err)
 		}
-		state, err := recoveryActionBeforeRemovalState(action)
+		state, err := action.BeforeRemovalState()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -51,7 +52,7 @@ func TestRecoveryForwardRemovalCertificatesUsePlannedBackupWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	certificates, err := recoveryForwardRemovalCertificates(
+	certificates, err := hostmutation.RecoveryRemovalCandidates(
 		t.Context(),
 		actions,
 		demandSet,
@@ -69,7 +70,7 @@ func TestRecoveryForwardRemovalCertificatesUsePlannedBackupWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	for index, certificate := range certificates {
-		measured, err := certificate.measure(t.Context(), maximum)
+		measured, err := certificate.Measure(t.Context(), maximum)
 		if err != nil {
 			t.Fatalf("measure certificate[%d]: %v", index, err)
 		}

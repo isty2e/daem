@@ -9,12 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization"
-	"github.com/isty2e/daem/internal/realization/aggregate"
-	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
-	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
@@ -34,8 +32,8 @@ func TestCommitFileDestinationAgainstRejectsProjectFinalSymlink(t *testing.T) {
 	}
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 
-	err := commitFileDestinationAgainst(
-		context.Background(), authority, destination, []byte("managed"), 0o600, false, nil,
+	err := authority.hostMutation().CommitFileAgainst(
+		context.Background(), destination, []byte("managed"), 0o600, false, nil,
 	)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureFinalSymlink) {
 		t.Fatalf("commitFileDestinationAgainst error = %v, want %s", err, rootedpath.FailureFinalSymlink)
@@ -58,8 +56,8 @@ func TestCommitFileDestinationAgainstRejectsAncestorRedirectAfterCapture(t *test
 		t.Fatalf("redirect project parent: %v", err)
 	}
 
-	err := commitFileDestinationAgainst(
-		context.Background(), authority, destination, []byte("managed"), 0o600, false, nil,
+	err := authority.hostMutation().CommitFileAgainst(
+		context.Background(), destination, []byte("managed"), 0o600, false, nil,
 	)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureAncestorSymlink) {
 		t.Fatalf("commitFileDestinationAgainst error = %v, want %s", err, rootedpath.FailureAncestorSymlink)
@@ -80,7 +78,7 @@ func TestMutateFileDestinationRejectsAncestorSwapBetweenReadAndCommit(t *testing
 	outside := t.TempDir()
 	writeMutationTestFile(t, filepath.Join(outside, "config"), "outside")
 
-	outcome := mutateFileDestinationWithOutcome(context.Background(), authority, destination, 0o600, false, 1024, func(existing []byte, _ os.FileMode, exists bool) ([]byte, bool, error) {
+	err := authority.hostMutation().MutateFile(context.Background(), destination, 0o600, false, 1024, func(existing []byte, _ os.FileMode, exists bool) ([]byte, bool, error) {
 		if !exists {
 			t.Fatal("mutation input unexpectedly reported missing destination")
 		}
@@ -95,64 +93,11 @@ func TestMutateFileDestinationRejectsAncestorSwapBetweenReadAndCommit(t *testing
 		}
 		return []byte("managed"), true, nil
 	})
-	err := outcome.err
 	if !hasRootedPathFailureKind(err, rootedpath.FailureAncestorSymlink) {
 		t.Fatalf("mutateFileDestinationWithOutcome error = %v, want %s", err, rootedpath.FailureAncestorSymlink)
 	}
 	assertMutationTestFile(t, filepath.Join(outside, "config"), "outside")
 	assertMutationTestFile(t, filepath.Join(parent+"-moved", "config"), "inside")
-}
-
-func TestAggregateRecoveryRejectsNewlyAppearedEmptyDocument(t *testing.T) {
-	root := newProjectRootForMutationTest(t)
-	if err := os.Mkdir(filepath.Join(root, ".codex"), 0o700); err != nil {
-		t.Fatalf("create aggregate parent: %v", err)
-	}
-	destinationPath := filepath.Join(root, ".codex", "hooks.json")
-	if err := os.WriteFile(destinationPath, nil, 0o600); err != nil {
-		t.Fatalf("create unmanaged empty aggregate: %v", err)
-	}
-	authority, destination := projectMutationDestinationForTest(t, root, ".codex/hooks.json")
-	placement, ok := aggregate.HookPlacementFor(target.TargetCodex, target.ScopeProject)
-	if !ok {
-		t.Fatal("Codex project Hook placement is missing")
-	}
-	canonical, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
-		Event: "Stop", Type: "command", Command: "echo guard",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	contribution, err := placement.Contribution(canonical)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contract := contribution.Contract()
-
-	action := recoveryHostAction{
-		Kind:  recovery.ActionKindRestoreDelete,
-		Scope: target.ScopeProject, Destination: ".codex/hooks.json", ContentPath: aggregate.HooksContentPath,
-		AggregateContract: &contract,
-	}
-	installGeneralRecoveryExecutionBudgetForTest(t, authority)
-	_, err = executeRecoveryAggregateActionGroup(
-		t.Context(),
-		authority,
-		[]recoveryHostAction{action},
-		[]hostRollbackEntry{{destination: destination}},
-		recoveryAggregateActionGroup{indexes: []int{0}, destination: destination},
-		nil,
-		nil,
-		testAggregateCodecs(),
-		visibilityEffectGate{},
-	)
-	if err == nil || !strings.Contains(err.Error(), "changed between recovery actions") {
-		t.Fatalf("executeRecoveryAggregateActionGroup error = %v, want appeared-document rejection", err)
-	}
-	content, readErr := os.ReadFile(destinationPath)
-	if readErr != nil || len(content) != 0 {
-		t.Fatalf("unmanaged empty aggregate = %q, %v; want preserved empty file", content, readErr)
-	}
 }
 
 func TestCommitDirectoryDestinationPublishesRootedTree(t *testing.T) {
@@ -164,15 +109,15 @@ func TestCommitDirectoryDestinationPublishesRootedTree(t *testing.T) {
 	writeMutationTestFile(t, filepath.Join(source, "nested", "SKILL.md"), "skill")
 	authority, destination := projectMutationDestinationForTest(t, root, ".agents/skills/review")
 
-	precondition, err := captureManagedPathPrecondition(
-		context.Background(), authority, destination, false, "", realization.PathProjectionDirectory, nil,
+	precondition, err := authority.hostMutation().CapturePath(
+		context.Background(), destination, false, "", realization.PathProjectionDirectory, nil,
 	)
 	if err != nil {
 		t.Fatalf("capture managed directory precondition: %v", err)
 	}
-	t.Cleanup(func() { _ = precondition.close() })
+	t.Cleanup(func() { _ = precondition.Close() })
 	identity, view := directoryPayloadForTest(t, source)
-	if err := commitManagedDirectoryDestination(context.Background(), authority, identity, view, destination, &precondition); err != nil {
+	if err := precondition.WriteDirectory(context.Background(), identity, view); err != nil {
 		t.Fatalf("commitManagedDirectoryDestination returned error: %v", err)
 	}
 	assertMutationTestFile(t, filepath.Join(root, ".agents", "skills", "review", "nested", "SKILL.md"), "skill")
@@ -185,7 +130,7 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 	destinationPath := filepath.Join(root, ".agent", "config")
 	writeMutationTestFile(t, destinationPath, "inside")
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
-	capability, err := authority.acquire(destination)
+	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
 		t.Fatalf("acquire original destination: %v", err)
 	}
@@ -204,7 +149,7 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 		t.Fatalf("substitute final symlink: %v", err)
 	}
 
-	err = removeDestinationAgainst(context.Background(), authority, destination, expected)
+	err = authority.hostMutation().RemoveAgainst(context.Background(), destination, expected)
 	if err == nil || !strings.Contains(err.Error(), "rooted removal commit outcome uncommitted") {
 		t.Fatalf("removeDestinationAgainst error = %v, want uncommitted identity-change rejection", err)
 	}
@@ -212,8 +157,8 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 }
 
 func TestMutationHelpersRejectInvalidDestination(t *testing.T) {
-	err := commitFileDestinationAgainst(
-		context.Background(), nil, mutationDestination{}, []byte("content"), 0o600, false, nil,
+	err := (*mutationAuthority)(nil).hostMutation().CommitFileAgainst(
+		context.Background(), mutationnamespace.Destination{}, []byte("content"), 0o600, false, nil,
 	)
 	if err == nil {
 		t.Fatal("commitFileDestinationAgainst accepted an invalid destination")
@@ -224,21 +169,17 @@ func projectMutationDestinationForTest(
 	t *testing.T,
 	root string,
 	relative string,
-) (*mutationAuthority, mutationDestination) {
+) (*mutationAuthority, mutationnamespace.Destination) {
 	t.Helper()
-	effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeProject, destination: outputtest.Parse(t, relative),
-	}}}
+	selected := scopedDestinationForTest{scope: target.ScopeProject, destination: outputtest.Parse(t, relative)}
 	paths := Paths{ManifestRoot: root}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		paths,
-		[]ManagedPathEffect{effect},
-		nil,
+		[]scopedDestinationForTest{selected},
 		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("newMutationAuthorityWithProjectionEffects returned error: %v", err)
@@ -248,7 +189,7 @@ func projectMutationDestinationForTest(
 			t.Errorf("close mutation authority: %v", err)
 		}
 	})
-	destination, err := authority.resolveBoundDestination(target.ScopeProject, outputtest.Parse(t, relative))
+	destination, err := authority.destinations.Resolve(target.ScopeProject, outputtest.Parse(t, relative))
 	if err != nil {
 		t.Fatalf("resolve mutation destination: %v", err)
 	}

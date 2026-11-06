@@ -11,9 +11,11 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/test/outputtest"
@@ -56,15 +58,11 @@ func TestApplyRejectsDeepDirectoryRemovalCapacityBeforeJournalPublication(t *tes
 	if err != nil {
 		t.Fatalf("construct deep directory payload set: %v", err)
 	}
-	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		subject:          projection.Subject(),
-		consumerTargets:  projection.ConsumerTargets(),
-		scope:            projection.Scope(),
-		destination:      destination,
-		desiredHash:      hash,
-		contentKind:      realization.PathProjectionDirectory,
-		permissionPolicy: realization.PathPermissionsNone,
-	}}}
+	effect := managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathCreate, Subject: projection.Subject(), ConsumerTargets: projection.ConsumerTargets(),
+		Scope: projection.Scope(), Destination: destination, DesiredHash: hash,
+		ContentKind: realization.PathProjectionDirectory, PermissionPolicy: realization.PathPermissionsNone,
+	})
 	evidence, err := observe.NewManagedPathEvidence(projection.Subject(), destination, false, "", 0)
 	if err != nil {
 		t.Fatalf("construct absent path evidence: %v", err)
@@ -73,7 +71,7 @@ func TestApplyRejectsDeepDirectoryRemovalCapacityBeforeJournalPublication(t *tes
 	result, err := ApplyWithOptions(t.Context(), ApplyInput{
 		Paths:               fixture.paths,
 		Resolver:            destinationResolver(fixture.paths),
-		ManagedPathEffects:  []ManagedPathEffect{effect},
+		ManagedPathEffects:  []effectpreparation.ManagedPathEffect{effect},
 		ManagedPathEvidence: []observe.ManagedPathEvidence{evidence},
 		CurrentState:        durable.EmptySnapshot(),
 		Payloads:            payloads,

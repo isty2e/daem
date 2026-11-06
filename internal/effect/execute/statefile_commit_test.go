@@ -11,20 +11,30 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+	"github.com/isty2e/daem/internal/reconcile"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
+
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
+
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
+
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -37,30 +47,27 @@ func TestApplyRetainsClassifiableJournalForPostVisibilityStatefileFaults(t *test
 		t.Run(phase, func(t *testing.T) {
 			fixture := newApplyEventFixture(t)
 			action := fixture.createAction("create", "CREATE.md", "created\n")
-			var events []Event
+			var events []executionevent.Event
 
 			_, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
-				Events: func(event Event) { events = append(events, event) },
-				commitStatefile: func(ctx context.Context, path string, content []byte, mode os.FileMode) statefileCommitOutcome {
+				Events: func(event executionevent.Event) { events = append(events, event) },
+				commitStatefile: func(ctx context.Context, path string, content []byte, mode os.FileMode) error {
 					if err := commitFile(ctx, testFilesystem(), path, content, mode); err != nil {
 						t.Fatalf("commit visible statefile before injected %s fault: %v", phase, err)
 					}
-					return statefileCommitOutcome{
-						status: statefileCommitIndeterminate,
-						err:    fmt.Errorf("injected %s fault", phase),
-					}
+					return fmt.Errorf("injected %s fault", phase)
 				},
 			})
 			if err == nil || !strings.Contains(err.Error(), "statefile commit is indeterminate") {
 				t.Fatalf("ApplyWithOptions error = %v, want indeterminate statefile commit", err)
 			}
 			assertHostFileContent(t, fixture.hostPath("CREATE.md"), "created\n")
-			assertNoEventKind(t, events, EventRollbackRestoreStarted)
-			assertNoEventKind(t, events, EventJournalCleaned)
+			assertNoEventKind(t, events, executionevent.RollbackRestoreStarted)
+			assertNoEventKind(t, events, executionevent.JournalCleaned)
 
 			recoveryPlan, planErr := journal.LoadActivePlanWithOptions(
 				context.Background(),
-				fixture.paths.journalPaths(),
+				fixture.paths.JournalPaths(),
 				testPlanLoadOptions(fixture.paths),
 			)
 			if planErr != nil {
@@ -78,8 +85,8 @@ func TestApplyRetainsNeedsRollbackJournalWhenIndeterminateStatefileIsNotVisible(
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 
 	_, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{status: statefileCommitIndeterminate, err: errors.New("injected uncertain visibility")}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return errors.New("injected uncertain visibility")
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "statefile commit is indeterminate") {
@@ -90,7 +97,7 @@ func TestApplyRetainsNeedsRollbackJournalWhenIndeterminateStatefileIsNotVisible(
 
 	recoveryPlan, planErr := journal.LoadActivePlanWithOptions(
 		context.Background(),
-		fixture.paths.journalPaths(),
+		fixture.paths.JournalPaths(),
 		testPlanLoadOptions(fixture.paths),
 	)
 	if planErr != nil {
@@ -106,8 +113,8 @@ func TestApplyRollsBackOnlyProvenUncommittedStatefileFailure(t *testing.T) {
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 
 	_, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{status: statefileUncommitted, err: errors.New("injected pre-visibility failure")}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return &statefileRefusal{errors.New("injected pre-visibility failure")}
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "host changes rolled back") {
@@ -147,15 +154,11 @@ func TestManagedPathApplyRollsBackOnlyProvenUncommittedStatefileFailure(t *testi
 		t.Fatalf("construct managed path payload identity: %v", err)
 	}
 	desiredHash := hash
-	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		subject:          projection.Subject(),
-		consumerTargets:  projection.ConsumerTargets(),
-		scope:            projection.Scope(),
-		destination:      destination,
-		desiredHash:      desiredHash,
-		contentKind:      realization.PathProjectionDirectory,
-		permissionPolicy: realization.PathPermissionsNone,
-	}}}
+	effect := managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathCreate, Subject: projection.Subject(), ConsumerTargets: projection.ConsumerTargets(),
+		Scope: projection.Scope(), Destination: destination, DesiredHash: desiredHash,
+		ContentKind: realization.PathProjectionDirectory, PermissionPolicy: realization.PathPermissionsNone,
+	})
 	directoryPayload, err := payload.NewDirectoryPayload(t.Context(), projection.Subject(), identity, view)
 	if err != nil {
 		t.Fatalf("construct managed path payload: %v", err)
@@ -172,15 +175,15 @@ func TestManagedPathApplyRollsBackOnlyProvenUncommittedStatefileFailure(t *testi
 	_, err = ApplyWithOptions(t.Context(), ApplyInput{
 		Paths:               fixture.paths,
 		Resolver:            destinationResolver(fixture.paths),
-		ManagedPathEffects:  []ManagedPathEffect{effect},
+		ManagedPathEffects:  []effectpreparation.ManagedPathEffect{effect},
 		ManagedPathEvidence: []observe.ManagedPathEvidence{evidence},
 		CurrentState:        durable.EmptySnapshot(),
 		Payloads:            payloads,
 		StateCodec:          testStateCodec(),
 		Filesystem:          testFilesystem(),
 	}, ApplyOptions{
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{status: statefileUncommitted, err: errors.New("injected statefile failure")}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return &statefileRefusal{errors.New("injected statefile failure")}
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "host changes rolled back") {
@@ -204,11 +207,11 @@ func TestStateOnlyApplyRetainsJournalForIndeterminateStatefileCommit(t *testing.
 	writeRecoveryTestStatefile(t, fixture.paths.StatefilePath, input.CurrentState)
 
 	_, err := ApplyWithOptions(context.Background(), input, ApplyOptions{
-		commitStatefile: func(ctx context.Context, path string, content []byte, mode os.FileMode) statefileCommitOutcome {
+		commitStatefile: func(ctx context.Context, path string, content []byte, mode os.FileMode) error {
 			if err := commitFile(ctx, testFilesystem(), path, content, mode); err != nil {
 				t.Fatalf("commit visible state-only statefile: %v", err)
 			}
-			return statefileCommitOutcome{status: statefileCommitIndeterminate, err: errors.New("injected sync_parent fault")}
+			return errors.New("injected sync_parent fault")
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "statefile commit is indeterminate") {
@@ -217,7 +220,7 @@ func TestStateOnlyApplyRetainsJournalForIndeterminateStatefileCommit(t *testing.
 
 	recoveryPlan, planErr := journal.LoadActivePlanWithOptions(
 		context.Background(),
-		fixture.paths.journalPaths(),
+		fixture.paths.JournalPaths(),
 		testPlanLoadOptions(fixture.paths),
 	)
 	if planErr != nil {
@@ -244,8 +247,8 @@ func TestStateOnlyApplyRetainsCleanBeforeJournalWhenIndeterminateCommitIsNotVisi
 	writeRecoveryTestStatefile(t, fixture.paths.StatefilePath, input.CurrentState)
 
 	_, err := ApplyWithOptions(context.Background(), input, ApplyOptions{
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{status: statefileCommitIndeterminate, err: errors.New("injected uncertain visibility")}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return errors.New("injected uncertain visibility")
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "statefile commit is indeterminate") {
@@ -262,7 +265,7 @@ func TestStateOnlyApplyRetainsCleanBeforeJournalWhenIndeterminateCommitIsNotVisi
 
 	recoveryPlan, planErr := journal.LoadActivePlanWithOptions(
 		context.Background(),
-		fixture.paths.journalPaths(),
+		fixture.paths.JournalPaths(),
 		testPlanLoadOptions(fixture.paths),
 	)
 	if planErr != nil {
@@ -299,14 +302,14 @@ func TestStateOnlyRecoveryRejectsManifestRootReplacementAfterFinalReload(t *test
 	after := durable.EmptySnapshot()
 	writeRecoveryTestStatefile(t, paths.StatefilePath, before)
 
-	if _, err := journal.CaptureJournalWithOptions(
+	if _, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		"state-only-root-replacement",
 		time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
 		before,
 		after,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem: testFilesystem(),
 			Resolver:   func(output.Destination) (string, error) { return "", nil },
 			StateCodec: testStateCodec(),
@@ -316,7 +319,7 @@ func TestStateOnlyRecoveryRejectsManifestRootReplacementAfterFinalReload(t *test
 	}
 	plan, err := journal.LoadActivePlanWithOptions(
 		context.Background(),
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		testPlanLoadOptions(paths),
 	)
 	if err != nil {
@@ -330,7 +333,7 @@ func TestStateOnlyRecoveryRejectsManifestRootReplacementAfterFinalReload(t *test
 		StateReader: testStateReader(paths.StatefilePath),
 		Filesystem:  testFilesystem(),
 		reloadPlan: func(ctx context.Context, options journal.PlanLoadOptions) (recovery.Plan, error) {
-			current, err := journal.LoadActivePlanWithOptions(ctx, paths.journalPaths(), options)
+			current, err := journal.LoadActivePlanWithOptions(ctx, paths.JournalPaths(), options)
 			if err != nil {
 				return recovery.Plan{}, err
 			}
@@ -355,19 +358,6 @@ func TestStateOnlyRecoveryRejectsManifestRootReplacementAfterFinalReload(t *test
 	}
 	if _, statErr := os.Stat(plan.OperationDir()); statErr != nil {
 		t.Fatalf("rejected state-only recovery did not retain journal: %v", statErr)
-	}
-}
-
-func TestInvalidStatefileCommitOutcomesRequireRecovery(t *testing.T) {
-	for _, outcome := range []statefileCommitOutcome{
-		{},
-		{status: statefileCommitted, err: errors.New("contradictory success")},
-		{status: statefileUncommitted},
-		{status: statefileCommitIndeterminate},
-	} {
-		if outcome.committed() || !outcome.requiresRecovery() {
-			t.Fatalf("invalid outcome %#v was treated as committed or rollback-safe", outcome)
-		}
 	}
 }
 

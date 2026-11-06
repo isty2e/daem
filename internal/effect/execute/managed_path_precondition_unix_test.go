@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
+
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -113,35 +115,31 @@ func TestManagedPathAuthorityRetainsBoundGlobalPathAfterAncestorSymlinkRetarget(
 	t.Setenv("USERPROFILE", homeAlias)
 
 	destination := outputtest.Parse(t, "~/.agents/skills/oracle")
-	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeGlobal, destination: destination,
-	}}}
+	selected := scopedDestinationForTest{scope: target.ScopeGlobal, destination: destination}
 	paths := Paths{ManifestRoot: root, DataDir: filepath.Join(root, "data")}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		paths,
-		[]ManagedPathEffect{effect},
-		nil,
+		[]scopedDestinationForTest{selected},
 		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("newMutationAuthorityWithProjectionEffects: %v", err)
 	}
 	t.Cleanup(func() { _ = authority.close() })
-	bound, err := authority.resolveBoundDestination(target.ScopeGlobal, destination)
+	bound, err := authority.destinations.Resolve(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatalf("resolve bound managed path: %v", err)
 	}
-	precondition, err := captureManagedPathPrecondition(
-		t.Context(), authority, bound, false, "", realization.PathProjectionDirectory, nil,
+	precondition, err := authority.hostMutation().CapturePath(
+		t.Context(), bound, false, "", realization.PathProjectionDirectory, nil,
 	)
 	if err != nil {
 		t.Fatalf("capture bound managed path precondition: %v", err)
 	}
-	t.Cleanup(func() { _ = precondition.close() })
+	t.Cleanup(func() { _ = precondition.Close() })
 
 	if err := os.Remove(homeAlias); err != nil {
 		t.Fatalf("remove home alias: %v", err)
@@ -153,10 +151,10 @@ func TestManagedPathAuthorityRetainsBoundGlobalPathAfterAncestorSymlinkRetarget(
 	if err != nil {
 		t.Fatalf("canonicalize admitted managed path: %v", err)
 	}
-	if bound.hostPath != want {
-		t.Fatalf("bound managed path = %q, want %q", bound.hostPath, want)
+	if bound.HostPath() != want {
+		t.Fatalf("bound managed path = %q, want %q", bound.HostPath(), want)
 	}
-	journalPath, err := authority.rootedJournalResolver(destinationResolver(paths))(destination)
+	journalPath, err := authority.destinations.JournalResolver(destinationResolver(paths))(destination)
 	if err != nil {
 		t.Fatalf("resolve bound journal path: %v", err)
 	}
@@ -172,8 +170,8 @@ func TestManagedPathAuthorityRetainsBoundGlobalPathAfterAncestorSymlinkRetarget(
 		t.Fatalf("write payload source: %v", err)
 	}
 	identity, view := directoryPayloadForTest(t, source)
-	if err := commitManagedDirectoryDestination(
-		t.Context(), authority, identity, view, bound, &precondition,
+	if err := precondition.WriteDirectory(
+		t.Context(), identity, view,
 	); err != nil {
 		t.Fatalf("commit through retained managed path authority: %v", err)
 	}
@@ -202,35 +200,31 @@ func TestManagedPathAuthorityRetainsDataRootRoleAfterDataDirSymlinkRetarget(t *t
 	}
 
 	destination := outputtest.Parse(t, "@data/hook-assets/guard/sha256-deadbeef/asset")
-	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeGlobal, destination: destination,
-	}}}
+	selected := scopedDestinationForTest{scope: target.ScopeGlobal, destination: destination}
 	paths := Paths{ManifestRoot: root, DataDir: dataAlias}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		paths,
-		[]ManagedPathEffect{effect},
-		nil,
+		[]scopedDestinationForTest{selected},
 		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("newMutationAuthorityWithProjectionEffects: %v", err)
 	}
 	t.Cleanup(func() { _ = authority.close() })
-	bound, err := authority.resolveBoundDestination(target.ScopeGlobal, destination)
+	bound, err := authority.destinations.Resolve(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatalf("resolve bound managed path: %v", err)
 	}
-	precondition, err := captureManagedPathPrecondition(
-		t.Context(), authority, bound, false, "", realization.PathProjectionDirectory, nil,
+	precondition, err := authority.hostMutation().CapturePath(
+		t.Context(), bound, false, "", realization.PathProjectionDirectory, nil,
 	)
 	if err != nil {
 		t.Fatalf("capture bound managed path precondition: %v", err)
 	}
-	t.Cleanup(func() { _ = precondition.close() })
+	t.Cleanup(func() { _ = precondition.Close() })
 
 	if err := os.Remove(dataAlias); err != nil {
 		t.Fatalf("remove data root alias: %v", err)
@@ -242,10 +236,10 @@ func TestManagedPathAuthorityRetainsDataRootRoleAfterDataDirSymlinkRetarget(t *t
 	if err != nil {
 		t.Fatalf("canonicalize admitted data destination: %v", err)
 	}
-	if bound.hostPath != want {
-		t.Fatalf("bound managed path = %q, want %q", bound.hostPath, want)
+	if bound.HostPath() != want {
+		t.Fatalf("bound managed path = %q, want %q", bound.HostPath(), want)
 	}
-	journalPath, err := authority.rootedJournalResolver(destinationResolver(paths))(destination)
+	journalPath, err := authority.destinations.JournalResolver(destinationResolver(paths))(destination)
 	if err != nil {
 		t.Fatalf("resolve bound journal path: %v", err)
 	}
@@ -261,7 +255,7 @@ func TestManagedPathAuthorityRetainsDataRootRoleAfterDataDirSymlinkRetarget(t *t
 		t.Fatalf("write payload source: %v", err)
 	}
 	identity, view := directoryPayloadForTest(t, source)
-	if err := commitManagedDirectoryDestination(t.Context(), authority, identity, view, bound, &precondition); err != nil {
+	if err := precondition.WriteDirectory(t.Context(), identity, view); err != nil {
 		t.Fatalf("commit through retained data root authority: %v", err)
 	}
 	content, err := os.ReadFile(filepath.Join(want, "marker"))
@@ -284,41 +278,34 @@ func TestManagedPathAuthoritySharesCapturedRootAcrossGlobalSiblings(t *testing.T
 	t.Setenv("USERPROFILE", home)
 
 	const effectCount = 300
-	effects := make([]ManagedPathEffect, 0, effectCount)
+	selected := make([]scopedDestinationForTest, 0, effectCount)
 	for index := range effectCount {
-		effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
+		destination := scopedDestinationForTest{
 			scope:       target.ScopeGlobal,
 			destination: outputtest.Parse(t, fmt.Sprintf("~/.agents/skills/skill-%03d", index)),
-		}}}
-		effects = append(effects, effect, effect)
+		}
+		selected = append(selected, destination, destination)
 	}
 	paths := Paths{ManifestRoot: home, DataDir: filepath.Join(home, ".daem")}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		paths,
-		effects,
-		nil,
+		selected,
 		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("bind sibling managed paths: %v", err)
 	}
 	t.Cleanup(func() { _ = authority.close() })
-	if len(authority.globalDestinationBindings) != effectCount {
-		t.Fatalf("global bindings = %d, want %d", len(authority.globalDestinationBindings), effectCount)
-	}
-	if len(authority.retainedRoots) != 1 {
-		t.Fatalf("retained roots = %d, want 1 shared root", len(authority.retainedRoots))
-	}
-	retained := authority.retainedRoots[0]
-	for logical, binding := range authority.globalDestinationBindings {
-		if binding.root != retained {
-			t.Fatalf("binding %q retained a duplicate root witness", logical)
+	for _, selected := range selected {
+		logical := selected.destination
+		binding, err := authority.destinations.Resolve(selected.scope, logical)
+		if err != nil {
+			t.Fatalf("binding %q was omitted by the containing operation: %v", logical, err)
 		}
-		capability, err := binding.root.Acquire(binding.destination)
+		capability, err := authority.destinations.Acquire(binding)
 		if err != nil {
 			t.Fatalf("binding %q lost shared root authority: %v", logical, err)
 		}
@@ -334,35 +321,31 @@ func captureBoundGlobalManagedPathPrecondition(
 	path string,
 	expectedExists bool,
 	expectedHash artifact.ContentHash,
-) (managedPathPrecondition, error) {
+) (hostmutation.PreparedPath, error) {
 	t.Helper()
 	root := filepath.Dir(path)
 	t.Setenv("HOME", root)
 	t.Setenv("USERPROFILE", root)
 	destination := outputtest.Parse(t, "~/"+filepath.Base(path))
-	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeGlobal, destination: destination,
-	}}}
+	selected := scopedDestinationForTest{scope: target.ScopeGlobal, destination: destination}
 	paths := Paths{ManifestRoot: root, DataDir: root}
-	authority, err := newMutationAuthorityWithProjectionEffects(
+	authority, err := captureScopedDestinationsForTest(
 		paths,
-		[]ManagedPathEffect{effect},
-		nil,
+		[]scopedDestinationForTest{selected},
 		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("bind global managed path: %v", err)
 	}
 	t.Cleanup(func() { _ = authority.close() })
-	bound, err := authority.resolveBoundDestination(target.ScopeGlobal, destination)
+	bound, err := authority.destinations.Resolve(target.ScopeGlobal, destination)
 	if err != nil {
 		t.Fatalf("resolve bound global managed path: %v", err)
 	}
-	return captureManagedPathPrecondition(
-		ctx, authority, bound, expectedExists, expectedHash, realization.PathProjectionDirectory, nil,
+	return authority.hostMutation().CapturePath(
+		ctx, bound, expectedExists, expectedHash, realization.PathProjectionDirectory, nil,
 	)
 }

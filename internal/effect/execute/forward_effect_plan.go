@@ -2,10 +2,14 @@ package execute
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 )
 
 type applyStateTransition struct {
@@ -20,11 +24,11 @@ func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) 
 		return applyStateTransition{}, err
 	}
 
-	nextState, err := snapshotAfterManagedPathEffects(input.CurrentState, input.ManagedPathEffects)
+	nextState, err := effectpreparation.AfterManagedPaths(input.CurrentState, input.ManagedPathEffects)
 	if err != nil {
 		return applyStateTransition{}, err
 	}
-	nextState, err = snapshotAfterAggregateEffects(nextState, input.AggregateEffects)
+	nextState, err = effectpreparation.AfterAggregates(nextState, input.AggregateEffects)
 	if err != nil {
 		return applyStateTransition{}, err
 	}
@@ -34,21 +38,21 @@ func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) 
 	if err != nil {
 		return applyStateTransition{}, err
 	}
-	nextState, retiredProjectClaimCount, err := snapshotAfterRetiredProjectCarrierClaims(
+	nextState, retiredProjectClaimCount, err := effectpreparation.AfterRetiredProjectCarrierClaims(
 		nextState,
 		input.RetiredProjectCarrierClaims,
 	)
 	if err != nil {
 		return applyStateTransition{}, err
 	}
-	completion, err := completeProjectCarrierInstalls(
+	completion, err := effectpreparation.CompleteProjectCarrierInstalls(
 		nextState,
 		input.ConfirmedRelationActions,
 	)
 	if err != nil {
 		return applyStateTransition{}, err
 	}
-	nextState = completion.after
+	nextState = completion.AfterState()
 	projectClaimCountBeforeAdoption := len(nextState.ManagedCarrierClaims())
 	nextState, adoptionStateChanged, err := nextState.WithAdoptedCarrierClaims(
 		input.AdoptedProjectCarrierClaims,
@@ -61,7 +65,7 @@ func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) 
 		len(input.AggregateEffects) != 0 ||
 		globalCarrierStateChanged ||
 		retiredProjectClaimCount != 0 ||
-		completion.changed ||
+		completion.Changed() ||
 		adoptionStateChanged
 	return applyStateTransition{
 		nextState:                nextState,
@@ -82,19 +86,19 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 	if !transition.changed {
 		return 0, nil
 	}
-	managedSchedule, err := newManagedPathExecutionSchedule(input.ManagedPathEffects)
+	managedSchedule, err := hostmutation.PlanManagedPaths(input.ManagedPathEffects)
 	if err != nil {
 		return 0, err
 	}
-	managedMutations := managedPathValidationCount(managedSchedule)
+	managedMutations := managedSchedule.WriteCount()
 	aggregateMutations := 0
 	for _, effect := range input.AggregateEffects {
-		if effect.Kind() != AggregateEffectRecord {
+		if effect.Kind() != effectpreparation.AggregateEffectRecord {
 			aggregateMutations++
 		}
 	}
-	operationID := forwardEffectPlanningOperationID()
-	managedOwnership, err := ownershipPlanForManagedPathEffects(
+	operationID := journalpublication.PlanningOperationID()
+	managedOwnership, err := claimoperation.PlanManagedPaths(
 		input.ManagedPathEffects,
 		input.Owner,
 		input.Ownership,
@@ -103,7 +107,7 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("derive managed path ownership validation plan: %w", err)
 	}
-	aggregateOwnership, err := ownershipPlanForAggregateEffects(
+	aggregateOwnership, err := claimoperation.PlanAggregates(
 		input.AggregateEffects,
 		input.Owner,
 		input.Ownership,
@@ -112,62 +116,32 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("derive managed aggregate ownership validation plan: %w", err)
 	}
-	ownershipState := newOwnershipMutationState(managedOwnership, aggregateOwnership)
+	ownershipState := claimoperation.NewState(managedOwnership, aggregateOwnership)
 	count := 3 // journal publication, statefile publication, and journal retirement
-	count, err = addForwardValidationCount(count, managedMutations)
+	count, err = applyprogram.AddValidationCount(count, managedMutations)
 	if err != nil {
 		return 0, err
 	}
-	count, err = addForwardValidationCount(count, aggregateMutations)
+	count, err = applyprogram.AddValidationCount(count, aggregateMutations)
 	if err != nil {
 		return 0, err
 	}
-	if len(ownershipState.transitions) != 0 {
-		count, err = addForwardValidationCount(count, 2) // preparation and finalization
+	if ownershipState.HasTransitions() {
+		count, err = applyprogram.AddValidationCount(count, 2) // preparation and finalization
 		if err != nil {
 			return 0, err
 		}
-	} else if len(ownershipState.provisional) != 0 {
+	} else if ownershipState.IntentCount() != 0 {
 		// A successful provisional promotion appends an exact transition after
 		// the initial preparation phase. The resulting set still finalizes once.
-		count, err = addForwardValidationCount(count, 1)
+		count, err = applyprogram.AddValidationCount(count, 1)
 		if err != nil {
 			return 0, err
 		}
 	}
-	provisionalValidations, err := multiplyForwardValidationCount(len(ownershipState.provisional), 2)
+	provisionalValidations, err := applyprogram.MultiplyValidationCount(ownershipState.IntentCount(), 2)
 	if err != nil {
 		return 0, err
 	}
-	return addForwardValidationCount(count, provisionalValidations)
-}
-
-func forwardEffectPlanningOperationID() string {
-	return journal.OperationID(time.Unix(0, 0).UTC())
-}
-
-func managedPathValidationCount(schedule managedPathExecutionSchedule) int {
-	count := 0
-	for _, operations := range [][]managedPathPhaseOperation{schedule.publish, schedule.retire} {
-		for _, operation := range operations {
-			if schedule.effects[operation.effectIndex].Kind() != ManagedPathEffectRecord {
-				count++
-			}
-		}
-	}
-	return count
-}
-
-func addForwardValidationCount(left int, right int) (int, error) {
-	if left < 0 || right < 0 || left > int(^uint(0)>>1)-right {
-		return 0, fmt.Errorf("forward effect validation count overflows")
-	}
-	return left + right, nil
-}
-
-func multiplyForwardValidationCount(value int, multiplier int) (int, error) {
-	if value < 0 || multiplier < 0 || value != 0 && multiplier > int(^uint(0)>>1)/value {
-		return 0, fmt.Errorf("forward effect validation count overflows")
-	}
-	return value * multiplier, nil
+	return applyprogram.AddValidationCount(count, provisionalValidations)
 }

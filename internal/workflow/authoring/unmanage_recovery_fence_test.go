@@ -11,14 +11,18 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/fileset"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
@@ -374,9 +378,9 @@ func TestUnmanageMutationAuthorityConflictsWithRecoveryWriters(t *testing.T) {
 func captureUnmanageActiveJournal(
 	t *testing.T,
 	paths daempaths.Paths,
-) (journal.CaptureResult, retirement.Identity) {
+) (journalpublication.CaptureResult, retirement.Identity) {
 	t.Helper()
-	operationID := journal.OperationID(
+	operationID := journalpublication.OperationID(
 		time.Date(2026, time.July, 31, 12, 0, 0, 0, time.UTC),
 	)
 	fixture := newUnmanageTestFixture(
@@ -393,14 +397,14 @@ func captureUnmanageActiveJournal(
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := journal.CaptureJournalWithOptions(
+	result, err := journalpublication.CaptureJournalWithOptions(
 		t.Context(),
 		unmanageJournalPaths(paths),
 		operationID,
 		time.Date(2026, time.July, 31, 12, 0, 0, 0, time.UTC),
 		durable.EmptySnapshot(),
 		after,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Resolver: func(output.Destination) (string, error) {
 				return "", nil
 			},
@@ -478,8 +482,8 @@ func prepareUnmanageRetirementState(
 	}
 }
 
-func unmanageJournalPaths(paths daempaths.Paths) journal.Paths {
-	return journal.Paths{
+func unmanageJournalPaths(paths daempaths.Paths) journalpublication.Paths {
+	return journalpublication.Paths{
 		RecoveryDir:   paths.RecoveryDir,
 		StatefilePath: paths.StatefilePath,
 		ManifestRoot:  paths.ManifestRoot,

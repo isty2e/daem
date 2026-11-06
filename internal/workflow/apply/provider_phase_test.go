@@ -9,18 +9,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
+
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 )
 
@@ -88,8 +93,8 @@ func TestProviderEffectPreventsWholeApplyRolledBackOutcome(t *testing.T) {
 	}
 	result, err := ExecuteWithOptions(ctx, planned, ExecuteOptions{
 		HostRouteExecutor: executor,
-		ExecuteEvents: func(event execute.Event) {
-			if event.Kind == execute.EventActionDone {
+		ExecuteEvents: func(event executionevent.Event) {
+			if event.Kind == executionevent.ActionDone {
 				cancel()
 			}
 		},
@@ -881,10 +886,10 @@ func TestExecuteSettlesPendingPiProviderWithoutReplayingConvergedEffects(t *test
 	if err != nil {
 		t.Fatalf("retry PlanWrite returned error: %v", err)
 	}
-	if effects, err := execute.ManagedPathEffects(retry.Reconciliation.ManagedPaths()); err != nil || len(effects) != 0 {
+	if effects, err := effectpreparation.ManagedPathEffects(retry.Reconciliation.ManagedPaths()); err != nil || len(effects) != 0 {
 		t.Fatalf("retry managed path effects = %#v, error = %v, want none", effects, err)
 	}
-	if effects, err := execute.AggregateEffects(retry.Reconciliation.Aggregates()); err != nil || len(effects) != 0 {
+	if effects, err := effectpreparation.AggregateEffects(retry.Reconciliation.Aggregates()); err != nil || len(effects) != 0 {
 		t.Fatalf("retry aggregate effects = %#v, error = %v, want none", effects, err)
 	}
 	retryCalls := 0
@@ -1043,10 +1048,10 @@ args = ["project.js"]
 				t.Fatal(err)
 			}
 			if !withProjectProvider {
-				if effects, err := execute.ManagedPathEffects(retry.Reconciliation.ManagedPaths()); err != nil || len(effects) != 0 {
+				if effects, err := effectpreparation.ManagedPathEffects(retry.Reconciliation.ManagedPaths()); err != nil || len(effects) != 0 {
 					t.Fatalf("pending-only managed effects=%#v error=%v", effects, err)
 				}
-				if effects, err := execute.AggregateEffects(retry.Reconciliation.Aggregates()); err != nil || len(effects) != 0 {
+				if effects, err := effectpreparation.AggregateEffects(retry.Reconciliation.Aggregates()); err != nil || len(effects) != 0 {
 					t.Fatalf("pending-only aggregate effects=%#v error=%v", effects, err)
 				}
 			}

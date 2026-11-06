@@ -1,15 +1,16 @@
 package execute
 
 import (
-	"errors"
 	"fmt"
+
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 )
 
 // ErrNativeOperationRequired marks work the ordinary Apply pipeline cannot execute.
-var ErrNativeOperationRequired = errors.New("native document work requires its containing execution pipeline")
+var ErrNativeOperationRequired = effectpreparation.ErrNativeOperationRequired
 
 func rejectUnsupportedNativeInput(input ApplyInput) error {
 	if len(input.NativeNarrowings) != 0 || input.CurrentState.ContainsHostConfig() {
@@ -74,7 +75,7 @@ func RejectUnsupportedExecutableActions(planResult reconcile.Result) error {
 		}
 		executableManagedPaths = append(executableManagedPaths, decision)
 	}
-	if _, err := ManagedPathEffects(executableManagedPaths); err != nil {
+	if _, err := effectpreparation.ManagedPathEffects(executableManagedPaths); err != nil {
 		return err
 	}
 	aggregates := planResult.Aggregates()
@@ -85,7 +86,7 @@ func RejectUnsupportedExecutableActions(planResult reconcile.Result) error {
 		}
 		executableAggregates = append(executableAggregates, decision)
 	}
-	if _, err := AggregateEffects(executableAggregates); err != nil {
+	if _, err := effectpreparation.AggregateEffects(executableAggregates); err != nil {
 		return err
 	}
 	return nil

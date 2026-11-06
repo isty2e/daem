@@ -11,13 +11,20 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/test/testkit/aggregatefixture"
+
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
+
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -65,8 +72,8 @@ func TestApplyRollsBackSharedAggregateAfterStatefileFailure(t *testing.T) {
 
 	var journalCapture []byte
 	var journalCaptureErr error
-	events := EventSink(func(event Event) {
-		if event.Kind != EventStatefileWriteFailed {
+	events := executionevent.Sink(func(event executionevent.Event) {
+		if event.Kind != executionevent.StatefileWriteFailed {
 			return
 		}
 		journalCapture, journalCaptureErr = readTreeBytes(paths.RecoveryDir)
@@ -81,11 +88,8 @@ func TestApplyRollsBackSharedAggregateAfterStatefileFailure(t *testing.T) {
 		Filesystem:       testFilesystem(),
 	}, ApplyOptions{
 		Events: events,
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{
-				status: statefileUncommitted,
-				err:    errors.New("injected statefile failure"),
-			}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return &statefileRefusal{errors.New("injected statefile failure")}
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "injected statefile failure") {
@@ -149,11 +153,8 @@ func TestApplyAtomicallyRollsBackNewSharedAggregateAfterStatefileFailure(t *test
 		StateCodec:       testStateCodec(),
 		Filesystem:       testFilesystem(),
 	}, ApplyOptions{
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{
-				status: statefileUncommitted,
-				err:    errors.New("injected statefile failure"),
-			}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return &statefileRefusal{errors.New("injected statefile failure")}
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "injected statefile failure") {
@@ -166,66 +167,6 @@ func TestApplyAtomicallyRollsBackNewSharedAggregateAfterStatefileFailure(t *test
 		t.Fatalf("read recovery directory: %v", err)
 	} else if len(entries) != 0 {
 		t.Fatalf("recovery directory retains %d entries after atomic rollback", len(entries))
-	}
-}
-
-func TestRecoveryStageUsesAggregateCodecDocumentLimit(t *testing.T) {
-	t.Parallel()
-
-	placement, ok := aggregate.ImplementedMCPPlacement(target.TargetClaudeCode, target.ScopeProject)
-	if !ok {
-		t.Fatal("Claude project MCP placement is missing")
-	}
-	contract, err := placement.ProjectionContract("context7")
-	if err != nil {
-		t.Fatal(err)
-	}
-	codecs := testAggregateCodecs()
-	codec, ok := codecs.Lookup(contract.CodecContractID())
-	if !ok {
-		t.Fatalf("aggregate codec %q is missing", contract.CodecContractID())
-	}
-
-	maximumBytes, err := recoveryStageMaximumFileBytes([]rollbackStageAction{{
-		action: recoveryHostAction{
-			Scope:             target.ScopeProject,
-			Destination:       contract.Address().Document().AggregateRoot().String(),
-			ContentPath:       string(outputtest.LegacyContentPath(t, contract.Address())),
-			AggregateContract: &contract,
-		},
-	}}, codecs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if maximumBytes != codec.MaximumDocumentBytes() {
-		t.Fatalf("recovery stage maximum bytes = %d, want codec limit %d", maximumBytes, codec.MaximumDocumentBytes())
-	}
-}
-
-func TestRecoveryStageRejectsMixedAggregateAndWholePathActions(t *testing.T) {
-	t.Parallel()
-
-	placement, ok := aggregate.ImplementedMCPPlacement(target.TargetClaudeCode, target.ScopeProject)
-	if !ok {
-		t.Fatal("Claude project MCP placement is missing")
-	}
-	contract, err := placement.ProjectionContract("context7")
-	if err != nil {
-		t.Fatal(err)
-	}
-	actions := []rollbackStageAction{
-		{action: recoveryHostAction{
-			Scope:             target.ScopeProject,
-			Destination:       contract.Address().Document().AggregateRoot().String(),
-			ContentPath:       string(outputtest.LegacyContentPath(t, contract.Address())),
-			AggregateContract: &contract,
-		}},
-		{action: recoveryHostAction{Scope: target.ScopeProject, Destination: ".agents/skills/example"}},
-	}
-
-	if _, err := recoveryStageMaximumFileBytes(actions, testAggregateCodecs()); err == nil ||
-		!strings.Contains(err.Error(), "mixes aggregate and whole-path") {
-		t.Fatalf("recoveryStageMaximumFileBytes error = %v, want mixed-mode rejection", err)
 	}
 }
 
@@ -265,15 +206,11 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 	if err != nil {
 		t.Fatalf("construct managed directory identity: %v", err)
 	}
-	pathEffect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-		subject:          projection.Subject(),
-		consumerTargets:  projection.ConsumerTargets(),
-		scope:            projection.Scope(),
-		destination:      destination,
-		desiredHash:      desiredHash,
-		contentKind:      realization.PathProjectionDirectory,
-		permissionPolicy: realization.PathPermissionsNone,
-	}}}
+	pathEffect := managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathCreate, Subject: projection.Subject(), ConsumerTargets: projection.ConsumerTargets(),
+		Scope: projection.Scope(), Destination: destination, DesiredHash: desiredHash,
+		ContentKind: realization.PathProjectionDirectory, PermissionPolicy: realization.PathPermissionsNone,
+	})
 	directoryPayload, err := payload.NewDirectoryPayload(t.Context(), projection.Subject(), identity, view)
 	if err != nil {
 		t.Fatalf("construct managed directory payload: %v", err)
@@ -303,22 +240,22 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 		t.Fatalf("write before statefile: %v", err)
 	}
 
-	var completed []ActionEventFacts
+	var completed []executionevent.ActionFacts
 	_, err = ApplyWithOptions(t.Context(), ApplyInput{
 		Paths: paths, Resolver: destinationResolver(paths),
-		ManagedPathEffects:  []ManagedPathEffect{pathEffect},
+		ManagedPathEffects:  []effectpreparation.ManagedPathEffect{pathEffect},
 		ManagedPathEvidence: []observe.ManagedPathEvidence{pathEvidence},
 		AggregateEffects:    aggregateEffects,
 		CurrentState:        durable.EmptySnapshot(), Payloads: payloads,
 		Codecs: testAggregateCodecs(), StateCodec: testStateCodec(), Filesystem: testFilesystem(),
 	}, ApplyOptions{
-		Events: func(event Event) {
-			if event.Kind == EventActionDone && event.Action != nil {
+		Events: func(event executionevent.Event) {
+			if event.Kind == executionevent.ActionDone && event.Action != nil {
 				completed = append(completed, *event.Action)
 			}
 		},
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{status: statefileUncommitted, err: errors.New("injected mixed-family statefile failure")}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return &statefileRefusal{errors.New("injected mixed-family statefile failure")}
 		},
 	})
 	if err == nil ||
@@ -327,8 +264,8 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 		t.Fatalf("ApplyWithOptions error = %v, want successful mixed-family rollback", err)
 	}
 	if len(completed) != 2 ||
-		completed[0].Index != 0 || completed[0].ManagedPathKind != ManagedPathEffectCreate ||
-		completed[1].Index != 1 || completed[1].AggregateKind != AggregateEffectCreate {
+		completed[0].Index != 0 || completed[0].ManagedPathKind != effectpreparation.ManagedPathEffectCreate ||
+		completed[1].Index != 1 || completed[1].AggregateKind != effectpreparation.AggregateEffectCreate {
 		t.Fatalf("completed action facts = %#v, want distinct managed-path and aggregate indices", completed)
 	}
 	assertHostMissing(t, filepath.Join(root, filepath.FromSlash(destination.RelativePath())))
@@ -406,11 +343,8 @@ func TestRecoveryRequiresAggregateCodecCatalogBeforeHostEffects(t *testing.T) {
 		StateCodec:       testStateCodec(),
 		Filesystem:       testFilesystem(),
 	}, ApplyOptions{
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{
-				status: statefileCommitIndeterminate,
-				err:    errors.New("injected indeterminate statefile failure"),
-			}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return errors.New("injected indeterminate statefile failure")
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "recovery journal retained") {
@@ -524,28 +458,28 @@ func TestApplyRollsBackMixedAggregateProjectionRowsAfterStatefileFailure(t *test
 	if err != nil {
 		t.Fatalf("BuildAggregateDecisions returned error: %v", err)
 	}
-	effects, err := AggregateEffects(decisions)
+	effects, err := effectpreparation.AggregateEffects(decisions)
 	if err != nil {
 		t.Fatalf("AggregateEffects returned error: %v", err)
 	}
 	if len(effects) != 1 {
 		t.Fatalf("effects = %d, want one document effect", len(effects))
 	}
-	projectionKinds := make(map[string]AggregateEffectKind)
+	projectionKinds := make(map[string]effectpreparation.AggregateEffectKind)
 	for _, projection := range effects[0].ProjectionEffects() {
 		projectionKinds[string(outputtest.LegacyContentPath(t, projection.Contract().Address()))] = projection.Kind()
 	}
-	for contentPath, want := range map[string]AggregateEffectKind{
-		"/mcpServers/alpha": AggregateEffectReplace,
-		"/mcpServers/adopt": AggregateEffectRecord,
-		"/mcpServers/beta":  AggregateEffectRemove,
-		"/mcpServers/gamma": AggregateEffectRecord,
+	for contentPath, want := range map[string]effectpreparation.AggregateEffectKind{
+		"/mcpServers/alpha": effectpreparation.AggregateEffectReplace,
+		"/mcpServers/adopt": effectpreparation.AggregateEffectRecord,
+		"/mcpServers/beta":  effectpreparation.AggregateEffectRemove,
+		"/mcpServers/gamma": effectpreparation.AggregateEffectRecord,
 	} {
 		if got := projectionKinds[contentPath]; got != want {
 			t.Fatalf("projection %q kind = %q, want %q", contentPath, got, want)
 		}
 	}
-	mutations, err := aggregateJournalMutations(effects)
+	mutations, err := effectpreparation.AggregateJournalMutations(effects)
 	if err != nil {
 		t.Fatalf("aggregateJournalMutations returned error: %v", err)
 	}
@@ -571,11 +505,8 @@ func TestApplyRollsBackMixedAggregateProjectionRowsAfterStatefileFailure(t *test
 		AggregateEffects: effects, CurrentState: currentState, Codecs: testAggregateCodecs(),
 		StateCodec: testStateCodec(), Filesystem: testFilesystem(),
 	}, ApplyOptions{
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{
-				status: statefileUncommitted,
-				err:    errors.New("injected mixed statefile failure"),
-			}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return &statefileRefusal{errors.New("injected mixed statefile failure")}
 		},
 	})
 	if err == nil ||
@@ -615,8 +546,8 @@ func TestAggregateCancellationAfterJournalLeavesHostUntouched(t *testing.T) {
 		StateCodec:       testStateCodec(),
 		Filesystem:       testFilesystem(),
 	}, ApplyOptions{
-		Events: func(event Event) {
-			if event.Kind == EventJournalCaptured {
+		Events: func(event executionevent.Event) {
+			if event.Kind == executionevent.JournalCaptured {
 				cancel()
 			}
 		},
@@ -665,8 +596,8 @@ func TestAggregateCancellationAfterVisibleBatchRollsBackEveryProjection(t *testi
 		StateCodec:       testStateCodec(),
 		Filesystem:       testFilesystem(),
 	}, ApplyOptions{
-		Events: func(event Event) {
-			if event.Kind == EventActionDone {
+		Events: func(event executionevent.Event) {
+			if event.Kind == executionevent.ActionDone {
 				cancel()
 			}
 		},
@@ -690,72 +621,14 @@ func managedMCPAggregateEffects(
 	t *testing.T,
 	before aggregate.Document,
 	specs []mcpEffectSpec,
-) []AggregateEffect {
+) []effectpreparation.AggregateEffect {
 	t.Helper()
-	contracts := make([]lock.LockedSubjectContract, 0, len(specs))
-	desired := make([]aggregate.SubjectContribution, 0, len(specs))
-	projectionContracts := make([]aggregate.ProjectionContract, 0, len(specs))
+	entries := make([]aggregatefixture.MCPEntry, 0, len(specs))
 	for _, spec := range specs {
-		canonical, err := mcpcodec.CanonicalClaudeProjectMCPServerEntry(
-			mcpcodec.ClaudeProjectMCPServerProjection{
-				ServerID:        spec.serverID,
-				Command:         spec.command,
-				AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
-			},
-		)
-		if err != nil {
-			t.Fatalf("canonical MCP entry %q: %v", spec.serverID, err)
-		}
-		contract := snapshottest.MCPProjection(t, snapshottest.MCPProjectionInput{
-			PlacementID:         aggregate.MCPPlacementClaudeProject,
-			ServerID:            spec.serverID,
-			LauncherCommand:     spec.command,
-			CanonicalProjection: string(canonical),
-		})
-		item, present, err := contract.ManagedAggregateContribution()
-		if err != nil || !present {
-			t.Fatalf("aggregate contribution %q = %#v, %t, %v", spec.serverID, item, present, err)
-		}
-		contracts = append(contracts, contract)
-		desired = append(desired, item)
-		projectionContracts = append(projectionContracts, item.Contribution().Contract())
+		entries = append(entries, aggregatefixture.MCPEntry{ServerID: spec.serverID, Command: spec.command})
 	}
-	locked, err := lock.NewLockedSection(contracts, nil)
-	if err != nil {
-		t.Fatalf("NewLockedSection returned error: %v", err)
-	}
-	selection, err := aggregate.NewSelection(projectionContracts)
-	if err != nil {
-		t.Fatalf("NewSelection returned error: %v", err)
-	}
-	codec, present := testAggregateCodecs().Lookup(selection.CodecContractID())
-	if !present {
-		t.Fatalf("codec %q is not admitted", selection.CodecContractID())
-	}
-	snapshot, failure := codec.Read(before, selection)
-	if failure != nil {
-		t.Fatalf("codec Read returned failure: %v", failure)
-	}
-	fileMode := os.FileMode(0)
-	if before.Exists() {
-		fileMode = aggregate.DocumentFileMode
-	}
-	evidence, err := observe.NewAggregateEvidence(before, snapshot, fileMode)
-	if err != nil {
-		t.Fatalf("NewAggregateEvidence returned error: %v", err)
-	}
-	decisions, err := reconcileprojection.BuildAggregateDecisions(reconcileprojection.AggregateInput{
-		Locked:          locked,
-		Expected:        contracts,
-		Desired:         desired,
-		Evidence:        []observe.AggregateEvidence{evidence},
-		SelectedTargets: testSelectedTargets(t, target.TargetClaudeCode),
-		Codecs:          testAggregateCodecs(),
-	})
-	if err != nil {
-		t.Fatalf("BuildAggregateDecisions returned error: %v", err)
-	}
-	effects, err := AggregateEffects(decisions)
+	decisions := aggregatefixture.ClaudeProjectMCP(t, before, entries)
+	effects, err := effectpreparation.AggregateEffects(decisions)
 	if err != nil {
 		t.Fatalf("AggregateEffects returned error: %v", err)
 	}

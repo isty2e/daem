@@ -10,11 +10,13 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -235,14 +237,14 @@ func captureCLIManagedPathJournal(
 	removalDemands recovery.RemovalDemandSet,
 ) {
 	t.Helper()
-	_, err := journal.CaptureJournalWithOptions(
+	_, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		recoveryJournalPaths(paths),
 		"20260621T120000.000000000Z-apply",
 		time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC),
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
@@ -252,7 +254,7 @@ func captureCLIManagedPathJournal(
 		},
 	)
 	if err != nil {
-		t.Fatalf("journal.CaptureJournalWithOptions returned error: %v", err)
+		t.Fatalf("journalpublication.CaptureJournalWithOptions returned error: %v", err)
 	}
 }
 
@@ -331,14 +333,14 @@ func captureCLIRecoverySkillUpdateJournal(t *testing.T, manifestPath string) (da
 		t.Fatalf("NewExpectedRemovalState returned error: %v", err)
 	}
 
-	_, err = journal.CaptureJournalWithOptions(
+	_, err = journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		recoveryJournalPaths(paths),
 		"20260621T120000.000000000Z-apply",
 		time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC),
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
@@ -354,7 +356,7 @@ func captureCLIRecoverySkillUpdateJournal(t *testing.T, manifestPath string) (da
 		},
 	)
 	if err != nil {
-		t.Fatalf("journal.CaptureJournalWithOptions returned error: %v", err)
+		t.Fatalf("journalpublication.CaptureJournalWithOptions returned error: %v", err)
 	}
 
 	return paths, currentState, nextState, oldHash, newHash

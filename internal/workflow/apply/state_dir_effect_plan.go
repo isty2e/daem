@@ -5,6 +5,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/execute"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -53,13 +55,13 @@ func applyEffectInput(
 	if err != nil {
 		return execute.ApplyInput{}, err
 	}
-	managedEffects, err := execute.ManagedPathEffects(
+	managedEffects, err := effectpreparation.ManagedPathEffects(
 		current.assessment.Reconciliation.ManagedPaths(),
 	)
 	if err != nil {
 		return execute.ApplyInput{}, err
 	}
-	aggregateEffects, err := execute.AggregateEffects(
+	aggregateEffects, err := effectpreparation.AggregateEffects(
 		current.assessment.Reconciliation.Aggregates(),
 	)
 	if err != nil {

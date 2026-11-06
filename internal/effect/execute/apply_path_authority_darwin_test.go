@@ -11,14 +11,18 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -46,8 +50,8 @@ func TestApplyNormalizationAliasesMutatesAtMostFirstAndRollsBack(t *testing.T) {
 
 	started := 0
 	visibilityCollapse := errors.New("visibility identity collapse")
-	_, err := ApplyWithOptions(t.Context(), scenario.input, scenario.options(func(event Event) {
-		if event.Kind == EventActionStarted {
+	_, err := ApplyWithOptions(t.Context(), scenario.input, scenario.options(func(event executionevent.Event) {
+		if event.Kind == executionevent.ActionStarted {
 			started++
 		}
 	}, visibilityCollapse))
@@ -73,8 +77,8 @@ func TestApplyDistinctNormalizationSensitiveSiblingsCompleteSequentially(t *test
 	scenario := newPathAuthorityApplyScenario(t, []string{"Caf\u00e9", "Tea\u0301"})
 
 	started := 0
-	result, err := ApplyWithOptions(t.Context(), scenario.input, scenario.options(func(event Event) {
-		if event.Kind == EventActionStarted {
+	result, err := ApplyWithOptions(t.Context(), scenario.input, scenario.options(func(event executionevent.Event) {
+		if event.Kind == executionevent.ActionStarted {
 			started++
 		}
 	}, errors.New("visibility identity collapse")))
@@ -140,7 +144,7 @@ func newPathAuthorityApplyScenario(t *testing.T, spellings []string) pathAuthori
 		t.Fatal(err)
 	}
 
-	effects := make([]ManagedPathEffect, 0, len(spellings))
+	effects := make([]effectpreparation.ManagedPathEffect, 0, len(spellings))
 	evidence := make([]observe.ManagedPathEvidence, 0, len(spellings))
 	payloads := make([]payload.Payload, 0, len(spellings))
 	domains := make([]mutation.Domain, 0, len(spellings)*2)
@@ -159,11 +163,11 @@ func newPathAuthorityApplyScenario(t *testing.T, spellings []string) pathAuthori
 			t.Fatal(err)
 		}
 		destinations = append(destinations, destination)
-		effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-			subject: subject, consumerTargets: []target.Target{target.TargetCodex},
-			scope: target.ScopeProject, destination: destination, desiredHash: hash,
-			contentKind: realization.PathProjectionDirectory, permissionPolicy: realization.PathPermissionsNone,
-		}}}
+		effect := managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+			Kind: reconcile.ManagedPathCreate, Subject: subject, ConsumerTargets: []target.Target{target.TargetCodex},
+			Scope: target.ScopeProject, Destination: destination, DesiredHash: hash,
+			ContentKind: realization.PathProjectionDirectory, PermissionPolicy: realization.PathPermissionsNone,
+		})
 		effects = append(effects, effect)
 		observed, err := observe.NewManagedPathEvidence(subject, destination, false, "", 0)
 		if err != nil {
@@ -217,7 +221,7 @@ func newPathAuthorityApplyScenario(t *testing.T, spellings []string) pathAuthori
 }
 
 func (scenario pathAuthorityApplyScenario) options(
-	events func(Event),
+	events func(executionevent.Event),
 	visibilityRejection error,
 ) ApplyOptions {
 	return ApplyOptions{

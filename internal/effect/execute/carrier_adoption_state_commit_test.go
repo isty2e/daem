@@ -11,8 +11,8 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 )
 
 func TestAdoptedCarrierClaimUsesStateOnlyRecoveryBoundary(t *testing.T) {
@@ -37,16 +37,13 @@ func TestAdoptedCarrierClaimUsesStateOnlyRecoveryBoundary(t *testing.T) {
 			input.AdoptedProjectCarrierClaims = []durablecarrier.ManagedCarrierClaim{claim}
 
 			_, err = ApplyWithOptions(context.Background(), input, ApplyOptions{
-				commitStatefile: func(ctx context.Context, path string, content []byte, mode os.FileMode) statefileCommitOutcome {
+				commitStatefile: func(ctx context.Context, path string, content []byte, mode os.FileMode) error {
 					if visible {
 						if err := commitFile(ctx, testFilesystem(), path, content, mode); err != nil {
 							t.Fatalf("commit visible adopted claim: %v", err)
 						}
 					}
-					return statefileCommitOutcome{
-						status: statefileCommitIndeterminate,
-						err:    errors.New("injected adoption statefile uncertainty"),
-					}
+					return errors.New("injected adoption statefile uncertainty")
 				},
 			})
 			if err == nil || !strings.Contains(err.Error(), "statefile commit is indeterminate") {
@@ -55,7 +52,7 @@ func TestAdoptedCarrierClaimUsesStateOnlyRecoveryBoundary(t *testing.T) {
 
 			recoveryPlan, planErr := journal.LoadActivePlanWithOptions(
 				context.Background(),
-				fixture.paths.journalPaths(),
+				fixture.paths.JournalPaths(),
 				testPlanLoadOptions(fixture.paths),
 			)
 			if planErr != nil {
@@ -137,11 +134,8 @@ func TestMixedProjectionAndAdoptionShareOneStateCommitBoundary(t *testing.T) {
 	t.Run("proven uncommitted", func(t *testing.T) {
 		fixture := newApplyEventFixture(t)
 		_, err := ApplyWithOptions(context.Background(), newInput(t, fixture), ApplyOptions{
-			commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-				return statefileCommitOutcome{
-					status: statefileUncommitted,
-					err:    errors.New("injected mixed statefile failure"),
-				}
+			commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+				return &statefileRefusal{errors.New("injected mixed statefile failure")}
 			},
 		})
 		if err == nil || !strings.Contains(err.Error(), "host changes rolled back") {

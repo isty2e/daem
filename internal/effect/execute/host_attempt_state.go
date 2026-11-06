@@ -3,21 +3,26 @@ package execute
 import (
 	"context"
 	"fmt"
-	"os"
+
+	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/target"
 )
-
-type snapshotCommitter func(context.Context, []byte, os.FileMode) error
 
 // CommitPendingCarrierInstalls records exact write-ahead correlation
 // eligibility before admitted host invocations are launched.
@@ -32,7 +37,7 @@ func CommitPendingCarrierInstalls(
 ) (durable.Snapshot, error) {
 	return commitPendingCarrierInstalls(
 		ctx,
-		rootedSnapshotCommitter(filesystem, authority),
+		statefileoperation.RootedSnapshotCommitter(filesystem, authority),
 		current,
 		owner,
 		actions,
@@ -42,7 +47,7 @@ func CommitPendingCarrierInstalls(
 
 func commitPendingCarrierInstalls(
 	ctx context.Context,
-	commit snapshotCommitter,
+	commit statefileoperation.SnapshotCommitter,
 	current durable.Snapshot,
 	owner stateauthority.Authority,
 	actions []reconciliation.RelationAction,
@@ -87,7 +92,7 @@ func CommitObservedProjectCarrierClaim(
 	if action.Scope() != target.ScopeProject {
 		return current, nil
 	}
-	pending, matched := MatchPendingCarrierInstall(current, action, target.ScopeProject)
+	pending, matched := effectpreparation.MatchPendingCarrierInstall(current, action, target.ScopeProject)
 	if !matched {
 		return current, nil
 	}
@@ -115,7 +120,7 @@ func CommitObservedProjectCarrierClaim(
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("marshal observed project carrier claim: %w", err)
 	}
-	if err := rootedSnapshotCommitter(filesystem, authority)(ctx, content, 0o600); err != nil {
+	if err := statefileoperation.RootedSnapshotCommitter(filesystem, authority)(ctx, content, 0o600); err != nil {
 		return durable.Snapshot{}, fmt.Errorf("write observed project carrier claim: %w", err)
 	}
 	return next, nil
@@ -145,7 +150,7 @@ func CommitConvergedGlobalCarrierClaims(
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("marshal global carrier convergence: %w", err)
 	}
-	if err := rootedSnapshotCommitter(filesystem, authority)(ctx, content, 0o600); err != nil {
+	if err := statefileoperation.RootedSnapshotCommitter(filesystem, authority)(ctx, content, 0o600); err != nil {
 		return durable.Snapshot{}, fmt.Errorf("write global carrier convergence: %w", err)
 	}
 	return next, nil
@@ -165,7 +170,7 @@ func CommitRetiredPendingCarrierInstall(
 ) (durable.Snapshot, error) {
 	return commitRetiredPendingCarrierInstall(
 		ctx,
-		rootedSnapshotCommitter(filesystem, authority),
+		statefileoperation.RootedSnapshotCommitter(filesystem, authority),
 		current,
 		owner,
 		action,
@@ -175,7 +180,7 @@ func CommitRetiredPendingCarrierInstall(
 
 func commitRetiredPendingCarrierInstall(
 	ctx context.Context,
-	commit snapshotCommitter,
+	commit statefileoperation.SnapshotCommitter,
 	current durable.Snapshot,
 	owner stateauthority.Authority,
 	action reconciliation.RelationAction,
@@ -250,7 +255,7 @@ func CommitPendingCarrierRemoval(
 	if !changed {
 		return current, pending, nil
 	}
-	if err := commitCarrierState(
+	if err := statefileoperation.CommitSnapshot(
 		ctx,
 		filesystem,
 		authority,
@@ -281,7 +286,7 @@ func CommitRetiredProjectCarrierRemoval(
 	if !changed {
 		return durable.Snapshot{}, fmt.Errorf("retire project carrier removal made no state transition")
 	}
-	if err := commitCarrierState(
+	if err := statefileoperation.CommitSnapshot(
 		ctx,
 		filesystem,
 		authority,
@@ -319,7 +324,7 @@ func CommitClearedGlobalCarrierRemovalPending(
 			"clear global carrier removal pending has no exact boundary",
 		)
 	}
-	if err := commitCarrierState(
+	if err := statefileoperation.CommitSnapshot(
 		ctx,
 		filesystem,
 		authority,
@@ -344,7 +349,7 @@ func CommitDelegateAttempts(
 ) (durable.Snapshot, error) {
 	return commitDelegateAttempts(
 		ctx,
-		rootedSnapshotCommitter(filesystem, authority),
+		statefileoperation.RootedSnapshotCommitter(filesystem, authority),
 		current,
 		attempts,
 		stateEncoder,
@@ -353,7 +358,7 @@ func CommitDelegateAttempts(
 
 func commitDelegateAttempts(
 	ctx context.Context,
-	commit snapshotCommitter,
+	commit statefileoperation.SnapshotCommitter,
 	current durable.Snapshot,
 	attempts []durableattempt.DelegateAttempt,
 	stateEncoder durable.SnapshotEncoder,
@@ -392,7 +397,7 @@ func CommitHostRouteAttempts(
 ) (durable.Snapshot, error) {
 	return commitHostRouteAttempts(
 		ctx,
-		rootedSnapshotCommitter(filesystem, authority),
+		statefileoperation.RootedSnapshotCommitter(filesystem, authority),
 		current,
 		attempts,
 		stateEncoder,
@@ -401,7 +406,7 @@ func CommitHostRouteAttempts(
 
 func commitHostRouteAttempts(
 	ctx context.Context,
-	commit snapshotCommitter,
+	commit statefileoperation.SnapshotCommitter,
 	current durable.Snapshot,
 	attempts []durableattempt.HostRouteAttempt,
 	stateEncoder durable.SnapshotEncoder,
@@ -460,88 +465,4 @@ func pendingCarrierInstallForInvocation(
 		return durablecarrier.PendingCarrierInstall{}, false, err
 	}
 	return pending, true, nil
-}
-
-// MatchPendingCarrierInstall resolves one exact pending fact for an action and scope.
-func MatchPendingCarrierInstall(
-	current durable.Snapshot,
-	action reconciliation.RelationAction,
-	scope target.Scope,
-) (durablecarrier.PendingCarrierInstall, bool) {
-	if action.Scope() != scope {
-		return durablecarrier.PendingCarrierInstall{}, false
-	}
-	for _, pending := range current.PendingCarrierInstalls() {
-		if pending.Identity().ExactEqual(action.CarrierIdentity()) &&
-			pending.InstallRequest().Equal(action.RouteRequest()) {
-			return pending, true
-		}
-	}
-	return durablecarrier.PendingCarrierInstall{}, false
-}
-
-// MatchPendingCarrierInstallCompletion resolves one exact no-invocation
-// completion fact for the requested scope.
-func MatchPendingCarrierInstallCompletion(
-	current durable.Snapshot,
-	action reconciliation.RelationAction,
-	scope target.Scope,
-) (durablecarrier.PendingCarrierInstall, observerelation.CorrelationResult, bool) {
-	if action.Kind() != reconciliation.ActionNoOp || action.Scope() != scope {
-		return durablecarrier.PendingCarrierInstall{}, observerelation.CorrelationResult{}, false
-	}
-	correlation, present := action.Correlation()
-	if !present {
-		return durablecarrier.PendingCarrierInstall{}, observerelation.CorrelationResult{}, false
-	}
-	pending, matched := MatchPendingCarrierInstall(current, action, scope)
-	if !matched {
-		return durablecarrier.PendingCarrierInstall{}, observerelation.CorrelationResult{}, false
-	}
-	return pending, correlation, true
-}
-
-type projectCarrierCompletion struct {
-	after   durable.Snapshot
-	claims  []durablecarrier.ManagedCarrierClaim
-	changed bool
-}
-
-func completeProjectCarrierInstalls(current durable.Snapshot, actions []reconciliation.RelationAction) (projectCarrierCompletion, error) {
-	claims, err := promotedProjectCarrierClaims(current, actions)
-	if err != nil {
-		return projectCarrierCompletion{}, err
-	}
-	after, changed, err := current.WithPromotedCarrierClaims(claims)
-	if err != nil {
-		return projectCarrierCompletion{}, err
-	}
-	return projectCarrierCompletion{after: after, claims: claims, changed: changed}, nil
-}
-
-func promotedProjectCarrierClaims(
-	current durable.Snapshot,
-	actions []reconciliation.RelationAction,
-) ([]durablecarrier.ManagedCarrierClaim, error) {
-	claims := make([]durablecarrier.ManagedCarrierClaim, 0, len(actions))
-	for _, action := range actions {
-		pending, correlation, matched := MatchPendingCarrierInstallCompletion(
-			current,
-			action,
-			target.ScopeProject,
-		)
-		if !matched {
-			continue
-		}
-		claim, err := durablecarrier.ClaimAfterObservedInstall(
-			pending,
-			correlation,
-			current.ManagedCarrierClaims(),
-		)
-		if err != nil {
-			return nil, err
-		}
-		claims = append(claims, claim)
-	}
-	return claims, nil
 }

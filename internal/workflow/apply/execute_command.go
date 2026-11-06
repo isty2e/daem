@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -19,7 +20,7 @@ import (
 )
 
 type ExecuteOptions struct {
-	ExecuteEvents                  execute.EventSink
+	ExecuteEvents                  executionevent.Sink
 	RelationObservations           *relationobserve.Batch
 	HostRouteExecutor              subprocess.CommandExecutor
 	HostRouteObserver              HostRouteObserver

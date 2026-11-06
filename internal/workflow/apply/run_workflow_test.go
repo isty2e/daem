@@ -7,13 +7,15 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/hook"
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
-	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	"github.com/isty2e/daem/internal/realization/lock/refine"
@@ -78,7 +80,7 @@ func TestRunWithOptionsPassesExecuteEvents(t *testing.T) {
 	locked := applyInstructionLockfile(t, "project", "local:instructions/AGENTS.md?mode=vendor", instructionHash)
 	selection := applySelection(t, []string{"codex"})
 
-	var events []execute.Event
+	var events []executionevent.Event
 	result, err := runWithOptions(
 		context.Background(),
 		paths,
@@ -86,7 +88,7 @@ func TestRunWithOptionsPassesExecuteEvents(t *testing.T) {
 		locked,
 		selection,
 		buildManagedApplyAssessment(t, paths, resources, locked, selection, false),
-		runOptions{ExecuteEvents: func(event execute.Event) {
+		runOptions{ExecuteEvents: func(event executionevent.Event) {
 			events = append(events, event)
 		}},
 	)
@@ -96,7 +98,7 @@ func TestRunWithOptionsPassesExecuteEvents(t *testing.T) {
 	if result.ActionCount != 1 {
 		t.Fatalf("ActionCount = %d, want 1", result.ActionCount)
 	}
-	assertWorkflowApplyEventKinds(t, events, execute.EventJournalCaptureStarted, execute.EventActionStarted, execute.EventJournalCleaned)
+	assertWorkflowApplyEventKinds(t, events, executionevent.JournalCaptureStarted, executionevent.ActionStarted, executionevent.JournalCleaned)
 }
 
 func TestRunWithOptionsThreadsPreparedEffectPlanThroughBothPayloadBranches(t *testing.T) {
@@ -118,7 +120,7 @@ func TestRunWithOptionsThreadsPreparedEffectPlanThroughBothPayloadBranches(t *te
 			locked,
 			selection,
 			assessment,
-			runOptions{applyEffectPlan: &execute.ApplyEffectPlan{}},
+			runOptions{applyEffectPlan: &applyprogram.Plan{}},
 		)
 		if err == nil {
 			t.Fatal("runWithOptions accepted an unavailable prepared plan")
@@ -154,7 +156,7 @@ func TestRunWithOptionsThreadsPreparedEffectPlanThroughBothPayloadBranches(t *te
 			locked,
 			selection,
 			assessment,
-			runOptions{applyEffectPlan: &execute.ApplyEffectPlan{}},
+			runOptions{applyEffectPlan: &applyprogram.Plan{}},
 		)
 		if err == nil {
 			t.Fatal("runWithOptions accepted an unavailable prepared plan")

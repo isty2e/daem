@@ -8,12 +8,8 @@ import (
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
-type activeRecoveryHostVisit struct {
-	index int
-}
-
 type activeRecoveryHostExecution struct {
-	expected []activeRecoveryHostVisit
+	expected []int
 	visited  int
 }
 
@@ -95,7 +91,7 @@ func (execution *activeRecoveryExecution) runBranchingStep(
 }
 
 func (execution *activeRecoveryExecution) beginHostBatch(
-	expected []activeRecoveryHostVisit,
+	expected []int,
 ) error {
 	if execution == nil || execution.cursor == nil {
 		return fmt.Errorf("active recovery execution is unavailable")
@@ -117,13 +113,13 @@ func (execution *activeRecoveryExecution) beginHostBatch(
 		return err
 	}
 	execution.host = &activeRecoveryHostExecution{
-		expected: append([]activeRecoveryHostVisit(nil), expected...),
+		expected: append([]int(nil), expected...),
 	}
 	return nil
 }
 
 func validateActiveRecoveryHostVisits(
-	expected []activeRecoveryHostVisit,
+	expected []int,
 	scheduled int,
 ) error {
 	if len(expected) != scheduled {
@@ -135,21 +131,21 @@ func validateActiveRecoveryHostVisits(
 	}
 	seen := make([]bool, scheduled)
 	for position, visit := range expected {
-		if visit.index < 0 || visit.index >= scheduled {
+		if visit < 0 || visit >= scheduled {
 			return fmt.Errorf(
 				"active recovery host visit %d has out-of-range action index %d",
 				position,
-				visit.index,
+				visit,
 			)
 		}
-		if seen[visit.index] {
+		if seen[visit] {
 			return fmt.Errorf(
 				"active recovery host visit %d repeats action index %d",
 				position,
-				visit.index,
+				visit,
 			)
 		}
-		seen[visit.index] = true
+		seen[visit] = true
 	}
 	return nil
 }
@@ -162,11 +158,11 @@ func (execution *activeRecoveryExecution) visitHostAction(index int) error {
 		return fmt.Errorf("active recovery host batch has no remaining action visit")
 	}
 	expected := execution.host.expected[execution.host.visited]
-	if index != expected.index {
+	if index != expected {
 		return fmt.Errorf(
 			"active recovery host action visit is %d, not %d",
 			index,
-			expected.index,
+			expected,
 		)
 	}
 	if err := execution.cursor.SelectAlternative(activeRecoveryHostVisitChoice, 1); err != nil {

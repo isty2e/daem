@@ -7,10 +7,13 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
@@ -206,7 +209,7 @@ func postProviderPlanningState(
 		if !action.InvokesHostRoute() {
 			continue
 		}
-		pending, matched := execute.MatchPendingCarrierInstall(current, action, action.Scope())
+		pending, matched := effectpreparation.MatchPendingCarrierInstall(current, action, action.Scope())
 		if !matched {
 			continue
 		}

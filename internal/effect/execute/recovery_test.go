@@ -10,25 +10,33 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/effect/journal"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
+
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
+
 	lock "github.com/isty2e/daem/internal/realization/lock"
+
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -41,7 +49,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 		StatefilePath: filepath.Join(root, ".daem", "state.json"),
 		ManifestRoot:  root,
 	}
-	journalPaths := paths.journalPaths()
+	journalPaths := paths.JournalPaths()
 
 	oldContent := []byte("old instructions\n")
 	newContent := []byte("new instructions\n")
@@ -107,14 +115,14 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 	resolver := func(destination output.Destination) (string, error) {
 		return filepath.Join(root, filepath.FromSlash(destination.RelativePath())), nil
 	}
-	result, err := journal.CaptureJournalWithOptions(
+	result, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		journalPaths,
-		journal.OperationID(time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)),
+		journalpublication.OperationID(time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)),
 		time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC),
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
@@ -401,86 +409,6 @@ func recoveryTestHostRouteAttempt() durableattempt.HostRouteAttempt {
 		panic(err)
 	}
 	return attempt
-}
-
-func TestRecoveryHostActionsRequireAggregateContractForContentPath(t *testing.T) {
-	err := executeRecoveryHostActions(
-		context.Background(),
-		nil,
-		[]recoveryHostAction{{
-			Kind:        recovery.ActionKindRestoreDelete,
-			ContentPath: "/mcpServers/context7",
-		}},
-		[]hostRollbackEntry{{}},
-		nil,
-		nil,
-		testAggregateCodecs(),
-		visibilityEffectGate{},
-	)
-	if err == nil || !strings.Contains(err.Error(), "has no aggregate contract") {
-		t.Fatalf("error = %v, want missing aggregate contract rejection", err)
-	}
-}
-
-func TestRecoveryHostActionsRejectMismatchedAggregateContract(t *testing.T) {
-	locked := managedMCPContract(t, "context7", "context7-command")
-	contribution, present, err := locked.ManagedAggregateContribution()
-	if err != nil || !present {
-		t.Fatalf("ManagedAggregateContribution = %#v, %t, %v", contribution, present, err)
-	}
-	contract := contribution.Contribution().Contract()
-	valid := recoveryHostAction{
-		Kind:              recovery.ActionKindRestoreDelete,
-		Scope:             target.ScopeProject,
-		Destination:       contract.Address().Document().AggregateRoot().String(),
-		ContentPath:       string(outputtest.LegacyContentPath(t, contract.Address())),
-		AggregateContract: &contract,
-	}
-	for _, test := range []struct {
-		name string
-		edit func(*recoveryHostAction)
-		want string
-	}{
-		{
-			name: "scope",
-			edit: func(action *recoveryHostAction) {
-				action.Scope = target.ScopeGlobal
-			},
-			want: "scope",
-		},
-		{
-			name: "destination",
-			edit: func(action *recoveryHostAction) {
-				action.Destination = "other.json"
-			},
-			want: "aggregate address",
-		},
-		{
-			name: "content path",
-			edit: func(action *recoveryHostAction) {
-				action.ContentPath = "/mcpServers/other"
-			},
-			want: "aggregate address",
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			action := valid
-			test.edit(&action)
-			err := executeRecoveryHostActions(
-				context.Background(),
-				nil,
-				[]recoveryHostAction{action},
-				[]hostRollbackEntry{{}},
-				nil,
-				nil,
-				testAggregateCodecs(),
-				visibilityEffectGate{},
-			)
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("executeRecoveryHostActions error = %v, want containing %q", err, test.want)
-			}
-		})
-	}
 }
 
 func TestRecoveryRollbackFailureDistinguishesCleanupResidue(t *testing.T) {

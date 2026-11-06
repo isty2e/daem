@@ -1,0 +1,592 @@
+package hostmutation
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
+	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
+	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/target"
+)
+
+type RestorationAction struct {
+	Kind                recovery.ActionKind
+	Scope               target.Scope
+	Destination         string
+	ContentPath         string
+	BackupPath          string
+	BackupHash          string
+	BackupKind          string
+	BackupWork          workmeasure.ArtifactWork
+	BeforePathMode      *recovery.PermissionMode
+	BeforePathExisted   bool
+	BeforeParentExisted bool
+	ExpectedAfter       recovery.ExpectedPathState
+	AggregateContract   *aggregate.ProjectionContract
+}
+
+type RestorationOwnershipGuard func(context.Context, RestorationAction, mutationnamespace.Destination) error
+
+type recoveryAggregateActionGroup struct {
+	indexes     []int
+	destination mutationnamespace.Destination
+}
+
+type recoveryHostExecutionPlan struct {
+	resolvedDestinations []mutationnamespace.Destination
+	aggregateGroups      map[int]recoveryAggregateActionGroup
+	aggregateMembers     map[int]struct{}
+	visitOrder           []int
+}
+
+func ParseRestorationDestination(scope target.Scope, value string) (output.Destination, error) {
+	destination, err := output.Parse(value)
+	if err != nil {
+		return output.Destination{}, fmt.Errorf("recovery destination: %w", err)
+	}
+	if err := destination.ValidateScope(scope); err != nil {
+		return output.Destination{}, fmt.Errorf("recovery destination: %w", err)
+	}
+	return destination, nil
+}
+
+func (action RestorationAction) validateAggregateCorrelation() error {
+	if action.ContentPath == "" {
+		if action.AggregateContract != nil {
+			return fmt.Errorf("aggregate contract has no content path")
+		}
+		return nil
+	}
+	if action.AggregateContract == nil {
+		return fmt.Errorf("content path %q has no aggregate contract", action.ContentPath)
+	}
+	contract := action.AggregateContract.Clone()
+	if err := contract.Validate(); err != nil {
+		return fmt.Errorf("aggregate contract: %w", err)
+	}
+	address := contract.Address()
+	contentPath, err := address.LegacyContentPath()
+	if err != nil {
+		return err
+	}
+	document := address.Document()
+	if action.Scope != document.Scope() {
+		return fmt.Errorf(
+			"scope %q does not match aggregate contract scope %q",
+			action.Scope,
+			document.Scope(),
+		)
+	}
+	if action.Destination != document.AggregateRoot().String() ||
+		action.ContentPath != string(contentPath) {
+		return fmt.Errorf(
+			"aggregate address %q%q does not match contract address %q%q",
+			action.Destination,
+			action.ContentPath,
+			document.AggregateRoot(),
+			contentPath,
+		)
+	}
+	return nil
+}
+
+// OrderRestorationActions restores providers before switching dependent
+// projections and removes newly published paths only after those projections
+// no longer reference them. Canonical journal order remains stable within each
+// phase.
+func OrderRestorationActions(actions []RestorationAction) []RestorationAction {
+	pathRestores := make([]RestorationAction, 0, len(actions))
+	projectionRestores := make([]RestorationAction, 0, len(actions))
+	pathDeletes := make([]RestorationAction, 0, len(actions))
+	for _, action := range actions {
+		switch {
+		case action.ContentPath != "" || action.AggregateContract != nil:
+			projectionRestores = append(projectionRestores, action)
+		case action.Kind == recovery.ActionKindRestoreWrite:
+			pathRestores = append(pathRestores, action)
+		default:
+			pathDeletes = append(pathDeletes, action)
+		}
+	}
+	ordered := make([]RestorationAction, 0, len(actions))
+	ordered = append(ordered, pathRestores...)
+	ordered = append(ordered, projectionRestores...)
+	ordered = append(ordered, pathDeletes...)
+	return ordered
+}
+
+func prepareRecoveryHostExecutionPlan(
+	authority *Restoration,
+	actions []RestorationAction,
+) (recoveryHostExecutionPlan, error) {
+	resolvedDestinations := make([]mutationnamespace.Destination, len(actions))
+	aggregateGroups := make(map[int]recoveryAggregateActionGroup)
+	aggregateGroupByDestination := make(map[string]int)
+	aggregateMembers := make(map[int]struct{})
+	for index, action := range actions {
+		if err := action.validateAggregateCorrelation(); err != nil {
+			return recoveryHostExecutionPlan{}, fmt.Errorf("recovery action %d: %w", index, err)
+		}
+		logical, err := ParseRestorationDestination(action.Scope, action.Destination)
+		if err != nil {
+			return recoveryHostExecutionPlan{}, err
+		}
+		destination, err := authority.operation.destinations.Resolve(action.Scope, logical)
+		if err != nil {
+			return recoveryHostExecutionPlan{}, err
+		}
+		resolvedDestinations[index] = destination
+		if action.ContentPath == "" {
+			continue
+		}
+		destinationKey := filepath.Clean(destination.HostPath())
+		firstIndex, present := aggregateGroupByDestination[destinationKey]
+		if !present {
+			firstIndex = index
+			aggregateGroupByDestination[destinationKey] = firstIndex
+			aggregateGroups[firstIndex] = recoveryAggregateActionGroup{destination: destination}
+		}
+		group := aggregateGroups[firstIndex]
+		group.indexes = append(group.indexes, index)
+		aggregateGroups[firstIndex] = group
+		aggregateMembers[index] = struct{}{}
+	}
+	visitOrder := make([]int, 0, len(actions))
+	for index := range actions {
+		if group, present := aggregateGroups[index]; present {
+			for _, memberIndex := range group.indexes {
+				visitOrder = append(visitOrder, memberIndex)
+			}
+			continue
+		}
+		if _, grouped := aggregateMembers[index]; grouped {
+			continue
+		}
+		visitOrder = append(visitOrder, index)
+	}
+	return recoveryHostExecutionPlan{
+		resolvedDestinations: resolvedDestinations,
+		aggregateGroups:      aggregateGroups,
+		aggregateMembers:     aggregateMembers,
+		visitOrder:           visitOrder,
+	}, nil
+}
+
+func executeRecoveryHostActionPlan(
+	ctx context.Context,
+	authority *Restoration,
+	budget *physicalwork.Budget,
+	actions []RestorationAction,
+	staged []hostRollbackEntry,
+	plan recoveryHostExecutionPlan,
+	beforeAction func(int) error,
+	ownershipGuard RestorationOwnershipGuard,
+	codecs aggregate.CodecCatalog,
+	gate applyprogram.VisibilityGate,
+) error {
+	if len(actions) != len(staged) {
+		return fmt.Errorf("recovery action count %d does not match staged precondition count %d", len(actions), len(staged))
+	}
+	for index, action := range actions {
+		if group, present := plan.aggregateGroups[index]; present {
+			_, err := executeRecoveryAggregateActionGroup(
+				ctx,
+				authority,
+				budget,
+				actions,
+				staged,
+				group,
+				beforeAction,
+				ownershipGuard,
+				codecs,
+				gate,
+			)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if _, grouped := plan.aggregateMembers[index]; grouped {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if beforeAction != nil {
+			if err := beforeAction(index); err != nil {
+				return fmt.Errorf("before recovery host action %d: %w", index, err)
+			}
+		}
+		if err := gate.ValidateBefore(ctx); err != nil {
+			return fmt.Errorf("validate recovery host action %d authority: %w", index, err)
+		}
+
+		destination := plan.resolvedDestinations[index]
+		if ownershipGuard != nil {
+			if err := ownershipGuard(ctx, action.clone(), destination); err != nil {
+				return fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
+			}
+		}
+		if err := validateStagedRecoveryDestination(ctx, authority, budget, staged[index]); err != nil {
+			return fmt.Errorf(
+				"validate recovery host action %d baseline: %w",
+				index,
+				err,
+			)
+		}
+		switch action.Kind {
+		case recovery.ActionKindRestoreWrite:
+			backup, err := authority.sources.For(action.backupRequest(index))
+			if err != nil {
+				return fmt.Errorf("open backup for %q: %w", action.Destination, err)
+			}
+
+			switch action.BackupKind {
+			case recovery.PathKindFile:
+				fileMode, err := requiredBeforeFileMode(action)
+				if err != nil {
+					return err
+				}
+				content, err := backup.ReadFile(ctx)
+				if err != nil {
+					return fmt.Errorf("read backup for %q: %w", action.Destination, err)
+				}
+				if err := authority.control.Validate(ctx); err != nil {
+					return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
+				}
+				staged[index].attempted = true
+				staged[index].effectState = recoveryWholePathState{
+					existed: true, kind: recovery.PathKindFile,
+					contentHash: action.BackupHash, fileMode: fileMode.Perm(),
+				}
+				staged[index].effectKnown = true
+				if err := authority.operation.CommitFileAgainst(
+					ctx,
+					destination,
+					content,
+					fileMode,
+					staged[index].existed,
+					staged[index].identity,
+				); err != nil {
+					return fmt.Errorf("restore file %q: %w", action.Destination, err)
+				}
+			case recovery.PathKindDirectory:
+				if err := authority.control.Validate(ctx); err != nil {
+					return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
+				}
+				staged[index].attempted = true
+				staged[index].effectState = recoveryWholePathState{
+					existed: true, kind: recovery.PathKindDirectory, contentHash: action.BackupHash,
+				}
+				staged[index].effectKnown = true
+				if err := authority.operation.CommitDirectoryAgainst(
+					ctx,
+					destination,
+					staged[index].existed,
+					staged[index].identity,
+					func(writer mutationfs.RootedTreeWriter) error { return backup.CopyDirectory(ctx, writer) },
+				); err != nil {
+					return fmt.Errorf("restore directory %q: %w", action.Destination, err)
+				}
+			default:
+				return fmt.Errorf("backup kind %q for %q is not supported", action.BackupKind, action.Destination)
+			}
+		case recovery.ActionKindRestoreDelete:
+			if err := authority.control.Validate(ctx); err != nil {
+				return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
+			}
+			staged[index].attempted = true
+			staged[index].effectState = recoveryWholePathState{}
+			staged[index].effectKnown = true
+			if err := authority.operation.RemoveAgainst(ctx, destination, staged[index].identity); err != nil {
+				return fmt.Errorf("delete restored path %q: %w", action.Destination, err)
+			}
+		}
+		if !staged[index].effectKnown {
+			return fmt.Errorf("recovery action for %q did not produce an exact whole-path postcondition", action.Destination)
+		}
+		if err := gate.AcceptAfter(ctx); err != nil {
+			return fmt.Errorf("accept recovery host action %d visibility: %w", index, err)
+		}
+	}
+
+	return nil
+}
+
+func requiredBeforeFileMode(action RestorationAction) (os.FileMode, error) {
+	if action.BeforePathMode == nil {
+		return 0, fmt.Errorf("recovery action for %q requires before path mode", action.Destination)
+	}
+	return action.BeforePathMode.FileMode(), nil
+}
+
+func executeRecoveryAggregateActionGroup(
+	ctx context.Context,
+	authority *Restoration,
+	budget *physicalwork.Budget,
+	actions []RestorationAction,
+	staged []hostRollbackEntry,
+	group recoveryAggregateActionGroup,
+	beforeAction func(int) error,
+	ownershipGuard RestorationOwnershipGuard,
+	codecs aggregate.CodecCatalog,
+	gate applyprogram.VisibilityGate,
+) (recoveryWholePathState, error) {
+	if len(group.indexes) == 0 {
+		return recoveryWholePathState{}, fmt.Errorf("aggregate recovery group is empty")
+	}
+	firstIndex := group.indexes[0]
+	firstAction := actions[firstIndex]
+	baselineWholeState := staged[firstIndex].stagedState
+	contracts := make([]aggregate.ProjectionContract, 0, len(group.indexes))
+	states := make([]aggregate.ProjectionState, 0, len(group.indexes))
+	for _, index := range group.indexes {
+		if err := ctx.Err(); err != nil {
+			return recoveryWholePathState{}, err
+		}
+		if beforeAction != nil {
+			if err := beforeAction(index); err != nil {
+				return recoveryWholePathState{}, fmt.Errorf("before recovery host action %d: %w", index, err)
+			}
+		}
+		action := actions[index]
+		if !staged[index].stagedState.equal(baselineWholeState) ||
+			staged[index].existed != staged[firstIndex].existed {
+			return recoveryWholePathState{}, fmt.Errorf(
+				"aggregate recovery group for %q has inconsistent whole-document preconditions",
+				firstAction.Destination,
+			)
+		}
+		if staged[index].existed &&
+			(staged[index].identity == nil || staged[firstIndex].identity == nil ||
+				!staged[index].identity.Equal(staged[firstIndex].identity)) {
+			return recoveryWholePathState{}, fmt.Errorf(
+				"aggregate recovery group for %q has inconsistent document identity",
+				firstAction.Destination,
+			)
+		}
+		if action.BeforePathExisted != firstAction.BeforePathExisted ||
+			action.BeforeParentExisted != firstAction.BeforeParentExisted ||
+			action.ExpectedAfter.PathExisted != firstAction.ExpectedAfter.PathExisted {
+			return recoveryWholePathState{}, fmt.Errorf(
+				"aggregate recovery group for %q has inconsistent document facts",
+				firstAction.Destination,
+			)
+		}
+		contract := action.AggregateContract.Clone()
+		projectionPresent := action.Kind == recovery.ActionKindRestoreWrite
+		var projection []byte
+		switch action.Kind {
+		case recovery.ActionKindRestoreWrite:
+			backup, err := authority.sources.For(action.backupRequest(index))
+			if err != nil {
+				return recoveryWholePathState{}, fmt.Errorf(
+					"open projection backup for %q content path %q: %w",
+					action.Destination,
+					action.ContentPath,
+					err,
+				)
+			}
+			projection, err = backup.ReadFile(ctx)
+			if err != nil {
+				return recoveryWholePathState{}, fmt.Errorf(
+					"read projection backup for %q content path %q: %w",
+					action.Destination,
+					action.ContentPath,
+					err,
+				)
+			}
+		case recovery.ActionKindRestoreDelete:
+		default:
+			return recoveryWholePathState{}, fmt.Errorf(
+				"aggregate recovery action %d has unsupported kind %q",
+				index,
+				action.Kind,
+			)
+		}
+		state, err := aggregate.NewProjectionState(
+			contract,
+			action.BeforeParentExisted,
+			projectionPresent,
+			string(projection),
+		)
+		if err != nil {
+			return recoveryWholePathState{}, fmt.Errorf("aggregate recovery action %d baseline: %w", index, err)
+		}
+		contracts = append(contracts, contract)
+		states = append(states, state)
+	}
+	selection, err := aggregate.NewSelection(contracts)
+	if err != nil {
+		return recoveryWholePathState{}, fmt.Errorf("aggregate recovery selection: %w", err)
+	}
+	baseline, err := aggregate.NewSnapshot(firstAction.BeforePathExisted, selection, states)
+	if err != nil {
+		return recoveryWholePathState{}, fmt.Errorf("aggregate recovery baseline: %w", err)
+	}
+	codec, ok := codecs.Lookup(selection.CodecContractID())
+	if !ok {
+		return recoveryWholePathState{}, fmt.Errorf("aggregate recovery codec %q is not admitted", selection.CodecContractID())
+	}
+	fileMode := aggregate.DocumentFileMode
+	if firstAction.BeforePathExisted {
+		fileMode, err = requiredBeforeFileMode(firstAction)
+		if err != nil {
+			return recoveryWholePathState{}, err
+		}
+	}
+	for _, index := range group.indexes[1:] {
+		action := actions[index]
+		if action.BeforePathExisted &&
+			(action.BeforePathMode == nil || action.BeforePathMode.FileMode().Perm() != fileMode.Perm()) {
+			return recoveryWholePathState{}, fmt.Errorf(
+				"aggregate recovery group for %q has inconsistent document mode",
+				firstAction.Destination,
+			)
+		}
+	}
+	if err := gate.ValidateBefore(ctx); err != nil {
+		return recoveryWholePathState{}, fmt.Errorf(
+			"validate aggregate recovery group at action %d authority: %w",
+			firstIndex,
+			err,
+		)
+	}
+	if ownershipGuard != nil {
+		for _, index := range group.indexes {
+			if err := ownershipGuard(ctx, actions[index].clone(), group.destination); err != nil {
+				return recoveryWholePathState{}, fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
+			}
+		}
+	}
+	for _, index := range group.indexes {
+		staged[index].attempted = true
+	}
+	if err := admitRecoveryObservation(
+		budget,
+		recovery.PathKindFile,
+		staged[firstIndex].stagedWork,
+	); err != nil {
+		return recoveryWholePathState{}, fmt.Errorf(
+			"admit aggregate recovery baseline observation: %w",
+			err,
+		)
+	}
+	if err := authority.control.Validate(ctx); err != nil {
+		return recoveryWholePathState{}, fmt.Errorf(
+			"validate aggregate recovery group at action %d semantics: %w",
+			firstIndex,
+			err,
+		)
+	}
+	var expected aggregate.RenderedDocument
+	expectedKnown := false
+	mutationErr := authority.operation.MutateFile(
+		ctx,
+		group.destination,
+		fileMode,
+		!firstAction.ExpectedAfter.PathExisted,
+		max(int64(1), staged[firstIndex].stagedWork.Bytes()),
+		func(existing []byte, mode os.FileMode, exists bool) ([]byte, bool, error) {
+			if err := validateRecoveryWholeFileInput(
+				firstAction.Destination,
+				baselineWholeState,
+				existing,
+				mode,
+				exists,
+			); err != nil {
+				return nil, true, err
+			}
+			for _, index := range group.indexes {
+				if err := validateRecoveryExpectedContentPath(actions[index], existing, mode, exists, codecs); err != nil {
+					return nil, true, err
+				}
+			}
+			current := aggregate.AbsentDocument()
+			if exists {
+				current = aggregate.ExistingDocument(existing)
+			}
+			rendered, failure := codec.Restore(current, baseline)
+			if failure != nil {
+				return nil, true, failure
+			}
+			expected = rendered
+			expectedKnown = true
+			candidate := expected.Document()
+			return candidate.Content(), candidate.Exists(), nil
+		},
+	)
+	if mutationErr != nil {
+		if expectedKnown {
+			effectState := recoveryDocumentWholeState(expected.Document(), fileMode)
+			for _, index := range group.indexes {
+				staged[index].effectState = effectState
+				staged[index].effectKnown = true
+			}
+			return effectState, mutationErr
+		}
+		return recoveryWholePathState{}, mutationErr
+	}
+	expectedWork, err := workmeasure.NewArtifactWork(0, int64(len(expected.Document().Content())))
+	if err != nil {
+		return recoveryWholePathState{}, err
+	}
+	if err := admitRecoveryObservation(
+		budget,
+		recovery.PathKindFile,
+		expectedWork,
+	); err != nil {
+		return recoveryWholePathState{}, fmt.Errorf(
+			"admit aggregate recovery postcondition observation: %w",
+			err,
+		)
+	}
+	current, mode, err := authority.operation.ReadDocument(
+		ctx,
+		group.destination,
+		max(int64(1), expectedWork.Bytes()),
+	)
+	effectState := recoveryDocumentWholeState(expected.Document(), fileMode)
+	for _, index := range group.indexes {
+		staged[index].effectState = effectState
+		staged[index].effectKnown = true
+	}
+	if err != nil {
+		return effectState, err
+	}
+	if !current.Equal(expected.Document()) {
+		return effectState, fmt.Errorf("aggregate recovery document postcondition failed")
+	}
+	if current.Exists() && mode.Perm() != fileMode.Perm() {
+		return effectState, fmt.Errorf(
+			"aggregate recovery mode = %04o, want %04o",
+			mode.Perm(),
+			fileMode.Perm(),
+		)
+	}
+	postSnapshot, failure := codec.Read(current, selection)
+	if failure != nil {
+		return effectState, failure
+	}
+	if !postSnapshot.Equal(expected.Expected()) {
+		return effectState, fmt.Errorf("aggregate recovery selected postcondition failed")
+	}
+	if err := gate.AcceptAfter(ctx); err != nil {
+		return effectState, fmt.Errorf(
+			"accept aggregate recovery group at action %d visibility: %w",
+			firstIndex,
+			err,
+		)
+	}
+	return effectState, nil
+}

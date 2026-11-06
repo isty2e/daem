@@ -3,6 +3,8 @@ package execute
 import (
 	"context"
 
+	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
@@ -15,7 +17,7 @@ func CommitReservedProjectPinTransition(ctx context.Context, filesystem mutation
 	if err != nil {
 		return current, err
 	}
-	if err := commitCarrierState(ctx, filesystem, authority, next, encoder, "reserved Pi pin transition"); err != nil {
+	if err := statefileoperation.CommitSnapshot(ctx, filesystem, authority, next, encoder, "reserved Pi pin transition"); err != nil {
 		return current, err
 	}
 	return next, nil
@@ -26,7 +28,7 @@ func CommitCompletedProjectPinTransition(ctx context.Context, filesystem mutatio
 	if err != nil {
 		return current, err
 	}
-	if err := commitCarrierState(ctx, filesystem, authority, next, encoder, "completed Pi pin transition"); err != nil {
+	if err := statefileoperation.CommitSnapshot(ctx, filesystem, authority, next, encoder, "completed Pi pin transition"); err != nil {
 		return current, err
 	}
 	return next, nil

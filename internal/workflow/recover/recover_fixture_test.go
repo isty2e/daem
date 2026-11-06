@@ -12,17 +12,22 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output/hostpath"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -140,14 +145,14 @@ func prepareRecoveryFixture(t *testing.T, applied bool) recoveryFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	captured, err := journal.CaptureJournalWithOptions(
+	captured, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
 		journalPaths(paths),
-		journal.OperationID(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)),
+		journalpublication.OperationID(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)),
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           storagecommit.Adapter{},
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
@@ -225,14 +230,14 @@ func prepareRemovalRecoveryFixture(t *testing.T) recoveryFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	captured, err := journal.CaptureJournalWithOptions(
+	captured, err := journalpublication.CaptureJournalWithOptions(
 		t.Context(),
 		journalPaths(paths),
-		journal.OperationID(time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)),
+		journalpublication.OperationID(time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)),
 		time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
 		currentState,
 		durable.EmptySnapshot(),
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           storagecommit.Adapter{},
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},

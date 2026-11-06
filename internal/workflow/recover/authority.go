@@ -7,8 +7,9 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
+	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -564,7 +565,7 @@ func resolveRecoveryAuthorityPaths(
 		if _, occupied := occupancies[physicalKey]; !occupied {
 			occupancies[physicalKey] = recoveryPhysicalOccupancy{destination: key}
 		}
-		residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+		residuePath, cleanupPath, err := removalnamespace.Paths(intent.Namespace())
 		if err != nil {
 			return nil, nil, fmt.Errorf(
 				"resolve recovery removal intent[%d] slots: %w",

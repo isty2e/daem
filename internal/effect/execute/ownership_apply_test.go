@@ -12,17 +12,25 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/reconcile"
+
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
+
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
@@ -73,8 +81,8 @@ func TestGlobalOwnershipApplyRejectsNilStoreFromRegistryBinder(t *testing.T) {
 func TestGlobalOwnershipRecoveryRequiresReaderAndBinderBeforeEffects(t *testing.T) {
 	fixture, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventStatefileWritten {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.StatefileWritten {
 			cancel()
 		}
 	}})
@@ -84,7 +92,7 @@ func TestGlobalOwnershipRecoveryRequiresReaderAndBinderBeforeEffects(t *testing.
 
 	_, err = journal.LoadActivePlanWithOptions(
 		context.Background(),
-		input.Paths.journalPaths(),
+		input.Paths.JournalPaths(),
 		journal.PlanLoadOptions{
 			Filesystem:  testFilesystem(),
 			Resolver:    destinationResolver(input.Paths),
@@ -181,18 +189,18 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			previous := test.previous
-			effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: managedPathEffectFacts{
-				subject: previous.Subject(), consumerTargets: previous.ConsumerTargets(),
-				scope: test.scope, destination: test.destination,
-				desiredHash: testArtifactHash("new"), contentKind: previous.ContentKind(), previous: &previous,
-			}}}
-			plan, err := ownershipPlanForManagedPathEffects(
-				[]ManagedPathEffect{effect}, owner, test.observations, "operation-1",
+			effect := managedPathEffectForTest(t, reconcile.ManagedPathDecisionInput{
+				Kind: reconcile.ManagedPathReplace, Subject: previous.Subject(), ConsumerTargets: previous.ConsumerTargets(),
+				Scope: test.scope, Destination: test.destination, DesiredHash: testArtifactHash("new"),
+				ContentKind: previous.ContentKind(), PermissionPolicy: previous.PermissionPolicy(), Previous: &previous,
+			})
+			plan, err := claimoperation.PlanManagedPaths(
+				[]effectpreparation.ManagedPathEffect{effect}, owner, test.observations, "operation-1",
 			)
 			if err != nil {
 				t.Fatalf("ownershipPlanForManagedPathEffects returned error: %v", err)
 			}
-			transitions := plan.transitions
+			transitions := claimoperation.NewState(plan).Transitions()
 			if len(transitions) != len(test.wantKinds) {
 				t.Fatalf("transitions = %#v, want kinds %#v", transitions, test.wantKinds)
 			}
@@ -235,8 +243,8 @@ func managedPathOwnershipObservation(
 func TestGlobalOwnershipCancellationAfterReservationRestoresAbsentClaim(t *testing.T) {
 	fixture, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventRollbackStageStarted {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.RollbackStageStarted {
 			cancel()
 		}
 	}})
@@ -306,8 +314,8 @@ func TestGlobalOwnershipPreparationRollbackFailureRetainsJournalAndPrimaryError(
 func TestGlobalOwnershipCancellationAfterHostActionRollsBackHostAndClaim(t *testing.T) {
 	fixture, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventActionDone {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.ActionDone {
 			cancel()
 		}
 	}})
@@ -322,8 +330,8 @@ func TestGlobalOwnershipCancellationAfterHostActionRollsBackHostAndClaim(t *test
 func TestGlobalOwnershipCancellationAfterStateCommitRecoversByFinalizingClaim(t *testing.T) {
 	fixture, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventStatefileWritten {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.StatefileWritten {
 			cancel()
 		}
 	}})
@@ -373,8 +381,8 @@ func TestGlobalOwnershipCancellationAfterStateCommitRecoversByFinalizingClaim(t 
 func TestGlobalOwnershipRecoveryRejectsUnadmittedSuccessorAfterConvergence(t *testing.T) {
 	fixture, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventStatefileWritten {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.StatefileWritten {
 			cancel()
 		}
 	}})
@@ -454,8 +462,8 @@ func TestGlobalOwnershipRecoveryRejectsUnadmittedSuccessorAfterConvergence(t *te
 func TestGlobalOwnershipReleaseRemainsActiveUntilRecoveryFinalizesRemoval(t *testing.T) {
 	_, input := globalOwnershipRemoveInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventStatefileWritten {
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.StatefileWritten {
 			cancel()
 		}
 	}})
@@ -495,8 +503,8 @@ func TestGlobalOwnershipReleaseRemainsActiveUntilRecoveryFinalizesRemoval(t *tes
 func TestGlobalOwnershipCancellationAfterFinalizationLeavesCleanAfterJournal(t *testing.T) {
 	_, input := globalOwnershipCreateInput(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	result, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
-		if event.Kind == EventJournalCleanupStarted {
+	result, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind == executionevent.JournalCleanupStarted {
 			cancel()
 		}
 	}})
@@ -539,8 +547,8 @@ func TestGlobalOwnershipContradictoryFinalizeEvidenceBlocksAndPreservesUnrelated
 		t.Fatalf("ownership store New returned error: %v", err)
 	}
 	var tamperErr error
-	result, err := ApplyWithOptions(context.Background(), input, ApplyOptions{Events: func(event Event) {
-		if event.Kind != EventStatefileWritten || tamperErr != nil {
+	result, err := ApplyWithOptions(context.Background(), input, ApplyOptions{Events: func(event executionevent.Event) {
+		if event.Kind != executionevent.StatefileWritten || tamperErr != nil {
 			return
 		}
 		registry, loadErr := store.Load(context.Background())
@@ -810,7 +818,7 @@ func globalAggregateOwnershipInputAtHome(
 	if err != nil {
 		t.Fatalf("BuildAggregateDecisions returned error: %v", err)
 	}
-	effects, err := AggregateEffects(decisions)
+	effects, err := effectpreparation.AggregateEffects(decisions)
 	if err != nil {
 		t.Fatalf("AggregateEffects returned error: %v", err)
 	}

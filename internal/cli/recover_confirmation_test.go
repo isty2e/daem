@@ -13,14 +13,18 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/effect/journal"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output/hostpath"
+
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -200,17 +204,17 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	captured, err := journal.CaptureJournalWithOptions(
+	captured, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
-		journal.Paths{
+		journalpublication.Paths{
 			RecoveryDir: paths.RecoveryDir, StatefilePath: paths.StatefilePath,
 			ManifestRoot: paths.ManifestRoot, DataDir: paths.DataDir,
 		},
-		journal.OperationID(time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC)),
+		journalpublication.OperationID(time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC)),
 		time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC),
 		currentState,
 		nextState,
-		journal.CaptureOptions{
+		journalpublication.CaptureOptions{
 			Filesystem:           storagecommit.Adapter{},
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},

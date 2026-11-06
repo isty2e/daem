@@ -10,6 +10,8 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
@@ -18,7 +20,9 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
+
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -48,7 +52,7 @@ func assertCommittedApplyResult(
 	}
 }
 
-func containsApplyEventKind(events []Event, kind EventKind) bool {
+func containsApplyEventKind(events []executionevent.Event, kind executionevent.Kind) bool {
 	for _, event := range events {
 		if event.Kind == kind {
 			return true
@@ -120,8 +124,8 @@ func (fixture *applyEventFixture) input(actions []applyEventAction) ApplyInput {
 	}
 }
 
-func (fixture *applyEventFixture) managedPathInputs(actions []applyEventAction) ([]ManagedPathEffect, []observe.ManagedPathEvidence) {
-	effects := make([]ManagedPathEffect, 0, len(actions))
+func (fixture *applyEventFixture) managedPathInputs(actions []applyEventAction) ([]effectpreparation.ManagedPathEffect, []observe.ManagedPathEvidence) {
+	effects := make([]effectpreparation.ManagedPathEffect, 0, len(actions))
 	evidence := make([]observe.ManagedPathEvidence, 0, len(actions)+1)
 	for _, action := range actions {
 		desiredMode := action.DesiredFileMode.Perm()
@@ -151,32 +155,37 @@ func (fixture *applyEventFixture) managedPathInputs(actions []applyEventAction) 
 			previous = &state
 		}
 
-		facts := managedPathEffectFacts{
-			subject: action.Subject, consumerTargets: []target.Target{target.TargetCodex},
-			scope: action.Scope, destination: action.Destination,
-			desiredHash: action.DesiredHash, liveHash: action.LivePathHash,
-			contentKind:      realization.PathProjectionFile,
-			permissionPolicy: realization.PathPermissionsExact,
-			desiredFileMode:  desiredMode, liveFileMode: liveMode, previous: previous,
+		input := reconcile.ManagedPathDecisionInput{
+			Subject: action.Subject, ConsumerTargets: []target.Target{target.TargetCodex},
+			Scope: action.Scope, Destination: action.Destination,
+			DesiredHash: action.DesiredHash, LiveHash: action.LivePathHash,
+			ContentKind: realization.PathProjectionFile, PermissionPolicy: realization.PathPermissionsExact,
+			DesiredFileMode: desiredMode, LiveFileMode: liveMode, Previous: previous, Reason: action.Reason,
 		}
-		var effect ManagedPathEffect
 		switch action.Kind {
 		case reconcile.ActionKindCreate:
-			effect.create = &managedPathCreateEffect{facts: facts}
+			input.Kind = reconcile.ManagedPathCreate
 		case reconcile.ActionKindUpdate:
-			effect.replace = &managedPathReplaceEffect{facts: facts}
+			input.Kind = reconcile.ManagedPathReplace
 		case reconcile.ActionKindDelete:
-			facts.consumerTargets = nil
-			effect.remove = &managedPathRemoveEffect{facts: facts}
+			input.Kind, input.ConsumerTargets = reconcile.ManagedPathRemove, nil
 		case reconcile.ActionKindRecord:
-			effect.record = &managedPathRecordEffect{facts: facts}
+			input.Kind = reconcile.ManagedPathRecord
 		default:
 			panic("unsupported apply event fixture action")
 		}
-		if err := effect.validate(); err != nil {
+		decision, err := reconcile.NewManagedPathDecision(input)
+		if err != nil {
 			panic(err)
 		}
-		effects = append(effects, effect)
+		admitted, err := effectpreparation.ManagedPathEffects([]reconcile.ManagedPathDecision{decision})
+		if err != nil {
+			panic(err)
+		}
+		if len(admitted) != 1 {
+			panic("apply event fixture requires one admitted managed path effect")
+		}
+		effects = append(effects, admitted[0])
 
 		if previous != nil && previous.Destination() != action.Destination {
 			absent, err := observe.NewManagedPathEvidence(action.Subject, action.Destination, false, "", 0)
@@ -208,12 +217,12 @@ func (fixture *applyEventFixture) managedPathInputs(actions []applyEventAction) 
 	return effects, evidence
 }
 
-func (fixture *applyEventFixture) applyWithEvents(t *testing.T, actions []applyEventAction) []Event {
+func (fixture *applyEventFixture) applyWithEvents(t *testing.T, actions []applyEventAction) []executionevent.Event {
 	t.Helper()
 
-	var events []Event
+	var events []executionevent.Event
 	result, err := ApplyWithOptions(context.Background(), fixture.input(actions), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
 		},
 	})
@@ -226,10 +235,10 @@ func (fixture *applyEventFixture) applyWithEvents(t *testing.T, actions []applyE
 	return events
 }
 
-func (fixture *applyEventFixture) applyExpectError(action applyEventAction) ([]Event, error) {
-	var events []Event
+func (fixture *applyEventFixture) applyExpectError(action applyEventAction) ([]executionevent.Event, error) {
+	var events []executionevent.Event
 	_, err := ApplyWithOptions(context.Background(), fixture.input([]applyEventAction{action}), ApplyOptions{
-		Events: func(event Event) {
+		Events: func(event executionevent.Event) {
 			events = append(events, event)
 		},
 	})
@@ -442,10 +451,10 @@ func (fixture *applyEventFixture) hostPath(destination string) string {
 	return filepath.Join(fixture.root, filepath.FromSlash(destination))
 }
 
-func assertEventKinds(t *testing.T, events []Event, want []EventKind) {
+func assertEventKinds(t *testing.T, events []executionevent.Event, want []executionevent.Kind) {
 	t.Helper()
 
-	got := make([]EventKind, 0, len(events))
+	got := make([]executionevent.Kind, 0, len(events))
 	for _, event := range events {
 		got = append(got, event.Kind)
 	}
@@ -459,7 +468,7 @@ func assertEventKinds(t *testing.T, events []Event, want []EventKind) {
 	}
 }
 
-func assertActionEventIndexes(t *testing.T, events []Event, want []int) {
+func assertActionEventIndexes(t *testing.T, events []executionevent.Event, want []int) {
 	t.Helper()
 
 	var got []int
@@ -478,7 +487,7 @@ func assertActionEventIndexes(t *testing.T, events []Event, want []int) {
 	}
 }
 
-func assertAllEventsTotalActions(t *testing.T, events []Event, want int) {
+func assertAllEventsTotalActions(t *testing.T, events []executionevent.Event, want int) {
 	t.Helper()
 
 	for _, event := range events {
@@ -488,7 +497,7 @@ func assertAllEventsTotalActions(t *testing.T, events []Event, want int) {
 	}
 }
 
-func assertApplyEventNoErrors(t *testing.T, events []Event) {
+func assertApplyEventNoErrors(t *testing.T, events []executionevent.Event) {
 	t.Helper()
 
 	for _, event := range events {
@@ -498,7 +507,7 @@ func assertApplyEventNoErrors(t *testing.T, events []Event) {
 	}
 }
 
-func assertNoEventKind(t *testing.T, events []Event, reject EventKind) {
+func assertNoEventKind(t *testing.T, events []executionevent.Event, reject executionevent.Kind) {
 	t.Helper()
 
 	for _, event := range events {
