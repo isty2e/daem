@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
+
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -453,7 +455,7 @@ func observeRecoveryWholePathState(
 			fileMode:    mode.Perm(),
 		}, captured, nil
 	case mutationfs.EntryKindDirectory:
-		sink := newManagedPathHashSink(ctx)
+		sink := hostmutation.NewDirectoryHashSink(ctx)
 		limits, err := recoveryTraversalLimits(maximumWork)
 		if err != nil {
 			return recoveryWholePathState{}, nil, err
@@ -473,7 +475,7 @@ func observeRecoveryWholePathState(
 				destination.Logical(),
 			)
 		}
-		hash, err := sink.sum()
+		hash, err := sink.Sum()
 		if err != nil {
 			return recoveryWholePathState{}, nil, err
 		}

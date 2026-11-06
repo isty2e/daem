@@ -1,4 +1,4 @@
-package execute
+package hostmutation
 
 import (
 	"context"
@@ -17,6 +17,7 @@ import (
 )
 
 type managedPathPrecondition struct {
+	operation   *Operation
 	destination mutationnamespace.Destination
 	existed     bool
 	hash        artifact.ContentHash
@@ -26,6 +27,9 @@ type managedPathPrecondition struct {
 	filesystem  mutationfs.RootedStore
 	consumed    bool
 }
+
+// PreparedPath copies share one retained capability's consumption and Close.
+type PreparedPath struct{ state *managedPathPrecondition }
 
 const (
 	maximumManagedTreeEntries = 100_000
@@ -45,32 +49,34 @@ func managedTreeTraversalLimits() mutationfs.TreeTraversalLimits {
 	return limits
 }
 
-func captureManagedPathPrecondition(
+func (operation *Operation) CapturePath(
 	ctx context.Context,
-	authority *mutationAuthority,
 	destination mutationnamespace.Destination,
 	expectedExists bool,
 	expectedHash artifact.ContentHash,
 	contentKind realization.PathProjectionContentKind,
 	expectedFileMode *os.FileMode,
-) (managedPathPrecondition, error) {
+) (PreparedPath, error) {
 	if !destination.IsRooted() {
-		return managedPathPrecondition{}, fmt.Errorf("managed path mutation destination is invalid")
+		return PreparedPath{}, fmt.Errorf("managed path mutation destination is invalid")
 	}
-	return captureRootedManagedPathPrecondition(
+	precondition, err := operation.captureRootedManagedPathPrecondition(
 		ctx,
-		authority,
 		destination,
 		expectedExists,
 		expectedHash,
 		contentKind,
 		expectedFileMode,
 	)
+	if err != nil {
+		return PreparedPath{}, err
+	}
+	precondition.operation = operation
+	return PreparedPath{state: &precondition}, nil
 }
 
-func captureRootedManagedPathPrecondition(
+func (operation *Operation) captureRootedManagedPathPrecondition(
 	ctx context.Context,
-	authority *mutationAuthority,
 	destination mutationnamespace.Destination,
 	expectedExists bool,
 	expectedHash artifact.ContentHash,
@@ -91,7 +97,7 @@ func captureRootedManagedPathPrecondition(
 			destination.Logical(),
 		)
 	}
-	capability, err := authority.destinations.Acquire(destination)
+	capability, err := operation.destinations.Acquire(destination)
 	if err != nil {
 		return managedPathPrecondition{}, err
 	}
@@ -99,7 +105,7 @@ func captureRootedManagedPathPrecondition(
 		return managedPathPrecondition{}, errors.Join(err, capability.Close())
 	}
 	if !expectedExists {
-		if _, err := authority.filesystem.CaptureRootedEntryIdentity(ctx, capability); err == nil {
+		if _, err := operation.filesystem.CaptureRootedEntryIdentity(ctx, capability); err == nil {
 			return fail(fmt.Errorf("managed destination %q appeared after planning", destination.Logical()))
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fail(err)
@@ -107,11 +113,11 @@ func captureRootedManagedPathPrecondition(
 		return managedPathPrecondition{
 			destination: destination,
 			capability:  capability,
-			filesystem:  authority.filesystem,
+			filesystem:  operation.filesystem,
 		}, nil
 	}
 	if contentKind == realization.PathProjectionFile {
-		content, mode, identity, err := authority.filesystem.ReadRootedRegularFile(ctx, capability)
+		content, mode, identity, err := operation.filesystem.ReadRootedRegularFile(ctx, capability)
 		if err != nil {
 			return fail(err)
 		}
@@ -138,14 +144,14 @@ func captureRootedManagedPathPrecondition(
 		}
 		return managedPathPrecondition{
 			destination: destination, existed: true, hash: expectedHash, identity: identity,
-			fileMode: mode.Perm(), capability: capability, filesystem: authority.filesystem,
+			fileMode: mode.Perm(), capability: capability, filesystem: operation.filesystem,
 		}, nil
 	}
 	if contentKind != realization.PathProjectionDirectory {
 		return fail(fmt.Errorf("managed destination %q content kind %q is unsupported", destination.Logical(), contentKind))
 	}
-	sink := newManagedPathHashSink(ctx)
-	identity, err := authority.filesystem.SnapshotRootedDirectory(
+	sink := NewDirectoryHashSink(ctx)
+	identity, err := operation.filesystem.SnapshotRootedDirectory(
 		ctx,
 		capability,
 		managedTreeTraversalLimits(),
@@ -154,7 +160,7 @@ func captureRootedManagedPathPrecondition(
 	if err != nil {
 		return fail(err)
 	}
-	hash, err := sink.sum()
+	hash, err := sink.Sum()
 	if err != nil {
 		return fail(err)
 	}
@@ -168,7 +174,7 @@ func captureRootedManagedPathPrecondition(
 	}
 	return managedPathPrecondition{
 		destination: destination, existed: true, hash: expectedHash, identity: identity,
-		capability: capability, filesystem: authority.filesystem,
+		capability: capability, filesystem: operation.filesystem,
 	}, nil
 }
 
@@ -192,22 +198,39 @@ func (precondition *managedPathPrecondition) close() error {
 	return precondition.capability.Close()
 }
 
-type managedPathHashSink struct {
+func (path PreparedPath) Close() error {
+	return path.state.close()
+}
+
+func (operation *Operation) VerifyPath(ctx context.Context, destination mutationnamespace.Destination, expectedExists bool, expectedHash artifact.ContentHash, contentKind realization.PathProjectionContentKind, expectedFileMode os.FileMode) error {
+	var exactFileMode *os.FileMode
+	if expectedExists && contentKind == realization.PathProjectionFile {
+		mode := expectedFileMode.Perm()
+		exactFileMode = &mode
+	}
+	observed, err := operation.CapturePath(ctx, destination, expectedExists, expectedHash, contentKind, exactFileMode)
+	if err != nil {
+		return err
+	}
+	return observed.Close()
+}
+
+type DirectoryHashSink struct {
 	ctx     context.Context
 	builder *artifact.DirectoryHashBuilder
 }
 
-func newManagedPathHashSink(ctx context.Context) *managedPathHashSink {
-	return &managedPathHashSink{ctx: ctx, builder: artifact.NewDirectoryHashBuilder()}
+func NewDirectoryHashSink(ctx context.Context) *DirectoryHashSink {
+	return &DirectoryHashSink{ctx: ctx, builder: artifact.NewDirectoryHashBuilder()}
 }
 
-func (*managedPathHashSink) VisitRoot(fs.FileMode) error { return nil }
+func (*DirectoryHashSink) VisitRoot(fs.FileMode) error { return nil }
 
-func (sink *managedPathHashSink) VisitDirectory(path mutationfs.TreeRelativePath, _ fs.FileMode) error {
+func (sink *DirectoryHashSink) VisitDirectory(path mutationfs.TreeRelativePath, _ fs.FileMode) error {
 	return sink.builder.AddDirectory(path.Path())
 }
 
-func (sink *managedPathHashSink) VisitRegularFile(
+func (sink *DirectoryHashSink) VisitRegularFile(
 	path mutationfs.TreeRelativePath,
 	mode fs.FileMode,
 	size int64,
@@ -216,6 +239,6 @@ func (sink *managedPathHashSink) VisitRegularFile(
 	return sink.builder.AddFile(sink.ctx, path.Path(), mode.Perm()&0o111 != 0, size, content)
 }
 
-func (sink *managedPathHashSink) sum() (artifact.ContentHash, error) {
+func (sink *DirectoryHashSink) Sum() (artifact.ContentHash, error) {
 	return sink.builder.Sum()
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 
@@ -47,6 +48,13 @@ type mutationAuthority struct {
 	ownershipRegistryBinder    ownershipmutation.RootedRegistryBinder
 	hasOwnershipRegistry       bool
 	ownsCapturedRoot           bool
+}
+
+func (authority *mutationAuthority) hostMutation() *hostmutation.Operation {
+	if authority == nil {
+		return nil
+	}
+	return hostmutation.New(authority.destinations, authority.filesystem, authority.removals)
 }
 
 func newMutationAuthorityWithProjectionEffects(

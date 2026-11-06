@@ -3,20 +3,17 @@ package execute
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-
-	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization"
-	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 type managedPathPhase uint8
@@ -108,8 +105,8 @@ func applyManagedPathPhaseWithEvents(
 					if resolveErr != nil {
 						return resolveErr
 					}
-					if verifyErr := verifyManagedPathPostcondition(
-						ctx, authority, destination, true, effect.DesiredHash(), effect.ContentKind(), effect.LiveFileMode(),
+					if verifyErr := authority.hostMutation().VerifyPath(
+						ctx, destination, true, effect.DesiredHash(), effect.ContentKind(), effect.LiveFileMode(),
 					); verifyErr != nil {
 						return verifyErr
 					}
@@ -175,9 +172,8 @@ func applyManagedPathSingleMutation(
 	}
 	expectedExists := effect.Kind() != effectpreparation.ManagedPathEffectCreate
 	expectedHash := effect.LiveHash()
-	precondition, err := captureManagedPathPrecondition(
+	precondition, err := authority.hostMutation().CapturePath(
 		ctx,
-		authority,
 		destination,
 		expectedExists,
 		expectedHash,
@@ -187,14 +183,14 @@ func applyManagedPathSingleMutation(
 	if err != nil {
 		return err
 	}
-	defer precondition.close()
+	defer precondition.Close()
 
 	if effect.Kind() == effectpreparation.ManagedPathEffectRemove {
-		if err := removeManagedPathDestination(ctx, authority, destination, &precondition); err != nil {
+		if err := precondition.Remove(ctx); err != nil {
 			progress.record(mutationIndex, progressAfterMutationError(err))
 			return fmt.Errorf("remove managed destination %q: %w", effect.Destination(), err)
 		}
-		if err := verifyManagedPathPostcondition(ctx, authority, destination, false, "", effect.ContentKind(), 0); err != nil {
+		if err := authority.hostMutation().VerifyPath(ctx, destination, false, "", effect.ContentKind(), 0); err != nil {
 			progress.record(mutationIndex, hostEffectIndeterminate)
 			return mutationfs.MarkEffectIndeterminate(fmt.Errorf("verify removed managed destination %q: %w", effect.Destination(), err))
 		}
@@ -206,13 +202,12 @@ func applyManagedPathSingleMutation(
 	if err != nil {
 		return err
 	}
-	if err := commitManagedPathDestination(ctx, authority, effect, prepared, destination, &precondition); err != nil {
+	if err := commitManagedPathDestination(ctx, effect, prepared, precondition); err != nil {
 		progress.record(mutationIndex, progressAfterMutationError(err))
 		return fmt.Errorf("write destination %q: %w", effect.Destination(), err)
 	}
-	if err := verifyManagedPathPostcondition(
+	if err := authority.hostMutation().VerifyPath(
 		ctx,
-		authority,
 		destination,
 		true,
 		effect.DesiredHash(),
@@ -238,24 +233,23 @@ func applyManagedPathRelocationPublish(
 	if err != nil {
 		return err
 	}
-	newPrecondition, err := captureManagedPathPrecondition(
-		ctx, authority, newDestination, false, "", effect.ContentKind(), nil,
+	newPrecondition, err := authority.hostMutation().CapturePath(
+		ctx, newDestination, false, "", effect.ContentKind(), nil,
 	)
 	if err != nil {
 		return err
 	}
-	defer newPrecondition.close()
+	defer newPrecondition.Close()
 	prepared, err := effectpreparation.ManagedPathPayload(effect, payloads)
 	if err != nil {
 		return err
 	}
-	if err := commitManagedPathDestination(ctx, authority, effect, prepared, newDestination, &newPrecondition); err != nil {
+	if err := commitManagedPathDestination(ctx, effect, prepared, newPrecondition); err != nil {
 		progress.record(mutationIndex, progressAfterMutationError(err))
 		return fmt.Errorf("write relocated managed destination %q: %w", effect.Destination(), err)
 	}
-	if err := verifyManagedPathPostcondition(
+	if err := authority.hostMutation().VerifyPath(
 		ctx,
-		authority,
 		newDestination,
 		true,
 		effect.DesiredHash(),
@@ -280,19 +274,19 @@ func applyManagedPathRelocationRetire(
 	if err != nil {
 		return err
 	}
-	oldPrecondition, err := captureManagedPathPrecondition(
-		ctx, authority, oldDestination, true, previous.ContentHash(), previous.ContentKind(), nil,
+	oldPrecondition, err := authority.hostMutation().CapturePath(
+		ctx, oldDestination, true, previous.ContentHash(), previous.ContentKind(), nil,
 	)
 	if err != nil {
 		return err
 	}
-	defer oldPrecondition.close()
-	if err := removeManagedPathDestination(ctx, authority, oldDestination, &oldPrecondition); err != nil {
+	defer oldPrecondition.Close()
+	if err := oldPrecondition.Remove(ctx); err != nil {
 		progress.record(mutationIndex, progressAfterMutationError(err))
 		return fmt.Errorf("remove previous managed destination %q: %w", previous.Destination(), err)
 	}
-	if err := verifyManagedPathPostcondition(
-		ctx, authority, oldDestination, false, "", previous.ContentKind(), 0,
+	if err := authority.hostMutation().VerifyPath(
+		ctx, oldDestination, false, "", previous.ContentKind(), 0,
 	); err != nil {
 		progress.record(mutationIndex, hostEffectIndeterminate)
 		return mutationfs.MarkEffectIndeterminate(fmt.Errorf("verify previous managed destination removal %q: %w", previous.Destination(), err))
@@ -303,11 +297,9 @@ func applyManagedPathRelocationRetire(
 
 func commitManagedPathDestination(
 	ctx context.Context,
-	authority *mutationAuthority,
 	effect effectpreparation.ManagedPathEffect,
 	prepared payload.Payload,
-	destination mutationnamespace.Destination,
-	precondition *managedPathPrecondition,
+	precondition hostmutation.PreparedPath,
 ) error {
 	switch effect.ContentKind() {
 	case realization.PathProjectionFile:
@@ -315,56 +307,22 @@ func commitManagedPathDestination(
 		if !ok {
 			return fmt.Errorf("managed file effect for %q has a non-file payload", effect.Destination())
 		}
-		return commitManagedFileDestination(
+		return precondition.WriteFile(
 			ctx,
-			destination,
 			file.Bytes(),
 			effect.DesiredFileMode(),
-			precondition,
 		)
 	case realization.PathProjectionDirectory:
 		directory, ok := prepared.Directory()
 		if !ok {
 			return fmt.Errorf("managed directory effect for %q has a non-directory payload", effect.Destination())
 		}
-		return commitManagedDirectoryDestination(
+		return precondition.WriteDirectory(
 			ctx,
-			authority,
 			directory.Identity(),
 			directory.View(),
-			destination,
-			precondition,
 		)
 	default:
 		return fmt.Errorf("managed path content kind %q is unsupported", effect.ContentKind())
 	}
-}
-
-func verifyManagedPathPostcondition(
-	ctx context.Context,
-	authority *mutationAuthority,
-	destination mutationnamespace.Destination,
-	expectedExists bool,
-	expectedHash artifact.ContentHash,
-	contentKind realization.PathProjectionContentKind,
-	expectedFileMode os.FileMode,
-) error {
-	var exactFileMode *os.FileMode
-	if expectedExists && contentKind == realization.PathProjectionFile {
-		mode := expectedFileMode.Perm()
-		exactFileMode = &mode
-	}
-	observed, err := captureManagedPathPrecondition(
-		ctx,
-		authority,
-		destination,
-		expectedExists,
-		expectedHash,
-		contentKind,
-		exactFileMode,
-	)
-	if err != nil {
-		return err
-	}
-	return observed.close()
 }

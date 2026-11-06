@@ -38,8 +38,8 @@ func TestCommitFileDestinationAgainstRejectsProjectFinalSymlink(t *testing.T) {
 	}
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 
-	err := commitFileDestinationAgainst(
-		context.Background(), authority, destination, []byte("managed"), 0o600, false, nil,
+	err := authority.hostMutation().CommitFileAgainst(
+		context.Background(), destination, []byte("managed"), 0o600, false, nil,
 	)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureFinalSymlink) {
 		t.Fatalf("commitFileDestinationAgainst error = %v, want %s", err, rootedpath.FailureFinalSymlink)
@@ -62,8 +62,8 @@ func TestCommitFileDestinationAgainstRejectsAncestorRedirectAfterCapture(t *test
 		t.Fatalf("redirect project parent: %v", err)
 	}
 
-	err := commitFileDestinationAgainst(
-		context.Background(), authority, destination, []byte("managed"), 0o600, false, nil,
+	err := authority.hostMutation().CommitFileAgainst(
+		context.Background(), destination, []byte("managed"), 0o600, false, nil,
 	)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureAncestorSymlink) {
 		t.Fatalf("commitFileDestinationAgainst error = %v, want %s", err, rootedpath.FailureAncestorSymlink)
@@ -84,7 +84,7 @@ func TestMutateFileDestinationRejectsAncestorSwapBetweenReadAndCommit(t *testing
 	outside := t.TempDir()
 	writeMutationTestFile(t, filepath.Join(outside, "config"), "outside")
 
-	outcome := mutateFileDestinationWithOutcome(context.Background(), authority, destination, 0o600, false, 1024, func(existing []byte, _ os.FileMode, exists bool) ([]byte, bool, error) {
+	err := authority.hostMutation().MutateFile(context.Background(), destination, 0o600, false, 1024, func(existing []byte, _ os.FileMode, exists bool) ([]byte, bool, error) {
 		if !exists {
 			t.Fatal("mutation input unexpectedly reported missing destination")
 		}
@@ -99,7 +99,6 @@ func TestMutateFileDestinationRejectsAncestorSwapBetweenReadAndCommit(t *testing
 		}
 		return []byte("managed"), true, nil
 	})
-	err := outcome.err
 	if !hasRootedPathFailureKind(err, rootedpath.FailureAncestorSymlink) {
 		t.Fatalf("mutateFileDestinationWithOutcome error = %v, want %s", err, rootedpath.FailureAncestorSymlink)
 	}
@@ -168,15 +167,15 @@ func TestCommitDirectoryDestinationPublishesRootedTree(t *testing.T) {
 	writeMutationTestFile(t, filepath.Join(source, "nested", "SKILL.md"), "skill")
 	authority, destination := projectMutationDestinationForTest(t, root, ".agents/skills/review")
 
-	precondition, err := captureManagedPathPrecondition(
-		context.Background(), authority, destination, false, "", realization.PathProjectionDirectory, nil,
+	precondition, err := authority.hostMutation().CapturePath(
+		context.Background(), destination, false, "", realization.PathProjectionDirectory, nil,
 	)
 	if err != nil {
 		t.Fatalf("capture managed directory precondition: %v", err)
 	}
-	t.Cleanup(func() { _ = precondition.close() })
+	t.Cleanup(func() { _ = precondition.Close() })
 	identity, view := directoryPayloadForTest(t, source)
-	if err := commitManagedDirectoryDestination(context.Background(), authority, identity, view, destination, &precondition); err != nil {
+	if err := precondition.WriteDirectory(context.Background(), identity, view); err != nil {
 		t.Fatalf("commitManagedDirectoryDestination returned error: %v", err)
 	}
 	assertMutationTestFile(t, filepath.Join(root, ".agents", "skills", "review", "nested", "SKILL.md"), "skill")
@@ -208,7 +207,7 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 		t.Fatalf("substitute final symlink: %v", err)
 	}
 
-	err = removeDestinationAgainst(context.Background(), authority, destination, expected)
+	err = authority.hostMutation().RemoveAgainst(context.Background(), destination, expected)
 	if err == nil || !strings.Contains(err.Error(), "rooted removal commit outcome uncommitted") {
 		t.Fatalf("removeDestinationAgainst error = %v, want uncommitted identity-change rejection", err)
 	}
@@ -216,8 +215,8 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 }
 
 func TestMutationHelpersRejectInvalidDestination(t *testing.T) {
-	err := commitFileDestinationAgainst(
-		context.Background(), nil, mutationnamespace.Destination{}, []byte("content"), 0o600, false, nil,
+	err := (*mutationAuthority)(nil).hostMutation().CommitFileAgainst(
+		context.Background(), mutationnamespace.Destination{}, []byte("content"), 0o600, false, nil,
 	)
 	if err == nil {
 		t.Fatal("commitFileDestinationAgainst accepted an invalid destination")

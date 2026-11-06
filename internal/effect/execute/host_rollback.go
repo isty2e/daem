@@ -734,7 +734,7 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
-		if err := removeDestinationAgainst(ctx, authority, baseline.destination, identity); err != nil {
+		if err := authority.hostMutation().RemoveAgainst(ctx, baseline.destination, identity); err != nil {
 			return fmt.Errorf("rollback remove %q: %w", baseline.destination.Logical(), err)
 		}
 		return nil
@@ -755,9 +755,8 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
-		if err := commitFileDestinationAgainst(
+		if err := authority.hostMutation().CommitFileAgainst(
 			ctx,
-			authority,
 			baseline.destination,
 			content,
 			baseline.fileMode,
@@ -777,16 +776,14 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
-		if err := commitRecoveryDirectoryDestinationAgainst(
+		if err := authority.hostMutation().CommitDirectoryAgainst(
 			ctx,
-			authority,
-			boundedRollbackDirectorySource{
-				backup: baseline.backup,
-				work:   baseline.stagedWork,
-			},
 			baseline.destination,
 			current.existed,
 			identity,
+			func(writer mutationfs.RootedTreeWriter) error {
+				return (boundedRollbackDirectorySource{backup: baseline.backup, work: baseline.stagedWork}).copyDirectory(ctx, writer)
+			},
 		); err != nil {
 			return fmt.Errorf("rollback restore directory %q: %w", baseline.destination.Logical(), err)
 		}

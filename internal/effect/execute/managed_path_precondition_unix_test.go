@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
+
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -131,13 +133,13 @@ func TestManagedPathAuthorityRetainsBoundGlobalPathAfterAncestorSymlinkRetarget(
 	if err != nil {
 		t.Fatalf("resolve bound managed path: %v", err)
 	}
-	precondition, err := captureManagedPathPrecondition(
-		t.Context(), authority, bound, false, "", realization.PathProjectionDirectory, nil,
+	precondition, err := authority.hostMutation().CapturePath(
+		t.Context(), bound, false, "", realization.PathProjectionDirectory, nil,
 	)
 	if err != nil {
 		t.Fatalf("capture bound managed path precondition: %v", err)
 	}
-	t.Cleanup(func() { _ = precondition.close() })
+	t.Cleanup(func() { _ = precondition.Close() })
 
 	if err := os.Remove(homeAlias); err != nil {
 		t.Fatalf("remove home alias: %v", err)
@@ -168,8 +170,8 @@ func TestManagedPathAuthorityRetainsBoundGlobalPathAfterAncestorSymlinkRetarget(
 		t.Fatalf("write payload source: %v", err)
 	}
 	identity, view := directoryPayloadForTest(t, source)
-	if err := commitManagedDirectoryDestination(
-		t.Context(), authority, identity, view, bound, &precondition,
+	if err := precondition.WriteDirectory(
+		t.Context(), identity, view,
 	); err != nil {
 		t.Fatalf("commit through retained managed path authority: %v", err)
 	}
@@ -216,13 +218,13 @@ func TestManagedPathAuthorityRetainsDataRootRoleAfterDataDirSymlinkRetarget(t *t
 	if err != nil {
 		t.Fatalf("resolve bound managed path: %v", err)
 	}
-	precondition, err := captureManagedPathPrecondition(
-		t.Context(), authority, bound, false, "", realization.PathProjectionDirectory, nil,
+	precondition, err := authority.hostMutation().CapturePath(
+		t.Context(), bound, false, "", realization.PathProjectionDirectory, nil,
 	)
 	if err != nil {
 		t.Fatalf("capture bound managed path precondition: %v", err)
 	}
-	t.Cleanup(func() { _ = precondition.close() })
+	t.Cleanup(func() { _ = precondition.Close() })
 
 	if err := os.Remove(dataAlias); err != nil {
 		t.Fatalf("remove data root alias: %v", err)
@@ -253,7 +255,7 @@ func TestManagedPathAuthorityRetainsDataRootRoleAfterDataDirSymlinkRetarget(t *t
 		t.Fatalf("write payload source: %v", err)
 	}
 	identity, view := directoryPayloadForTest(t, source)
-	if err := commitManagedDirectoryDestination(t.Context(), authority, identity, view, bound, &precondition); err != nil {
+	if err := precondition.WriteDirectory(t.Context(), identity, view); err != nil {
 		t.Fatalf("commit through retained data root authority: %v", err)
 	}
 	content, err := os.ReadFile(filepath.Join(want, "marker"))
@@ -319,7 +321,7 @@ func captureBoundGlobalManagedPathPrecondition(
 	path string,
 	expectedExists bool,
 	expectedHash artifact.ContentHash,
-) (managedPathPrecondition, error) {
+) (hostmutation.PreparedPath, error) {
 	t.Helper()
 	root := filepath.Dir(path)
 	t.Setenv("HOME", root)
@@ -343,7 +345,7 @@ func captureBoundGlobalManagedPathPrecondition(
 	if err != nil {
 		t.Fatalf("resolve bound global managed path: %v", err)
 	}
-	return captureManagedPathPrecondition(
-		ctx, authority, bound, expectedExists, expectedHash, realization.PathProjectionDirectory, nil,
+	return authority.hostMutation().CapturePath(
+		ctx, bound, expectedExists, expectedHash, realization.PathProjectionDirectory, nil,
 	)
 }

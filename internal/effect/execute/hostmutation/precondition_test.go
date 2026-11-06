@@ -1,4 +1,4 @@
-package execute
+package hostmutation
 
 import (
 	"context"
@@ -28,9 +28,8 @@ func TestManagedPathFileModeExpectationDistinguishesAbsentFromExplicitZero(t *te
 
 func TestManagedPathPreconditionRejectsInvalidHashBeforeAuthorityUse(t *testing.T) {
 	destination := mutationnamespace.Destination{}
-	if _, err := captureRootedManagedPathPrecondition(
+	if _, err := (*Operation)(nil).captureRootedManagedPathPrecondition(
 		context.Background(),
-		nil,
 		destination,
 		true,
 		artifact.ContentHash("sha256:short"),
@@ -39,12 +38,11 @@ func TestManagedPathPreconditionRejectsInvalidHashBeforeAuthorityUse(t *testing.
 	); err == nil || !strings.Contains(err.Error(), "lowercase SHA-256 digest") {
 		t.Fatalf("malformed present hash error = %v", err)
 	}
-	if _, err := captureRootedManagedPathPrecondition(
+	if _, err := (*Operation)(nil).captureRootedManagedPathPrecondition(
 		context.Background(),
-		nil,
 		destination,
 		false,
-		testArtifactHash("unexpected"),
+		artifact.HashFileContent([]byte("unexpected")),
 		realization.PathProjectionFile,
 		nil,
 	); err == nil || !strings.Contains(err.Error(), "must not carry an expected hash") {

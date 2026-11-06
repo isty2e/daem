@@ -1,4 +1,4 @@
-package execute
+package hostmutation
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
@@ -68,27 +70,17 @@ func TestAggregateEffectRejectsOversizedDocumentAtRootedReadBoundary(t *testing.
 		t.Fatal(err)
 	}
 
-	paths := Paths{ManifestRoot: root, DataDir: filepath.Join(root, ".daem")}
-	authority, err := captureMutationAuthority(paths, true, nil, destinationResolver(paths), testFilesystem())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if closeErr := authority.close(); closeErr != nil {
-			t.Errorf("close mutation authority: %v", closeErr)
-		}
-	})
-	if err := authority.bindPhysicalAuthority(
+	authority := projectMutationOperation(t, root, storagecommit.Adapter{})
+	if err := authority.destinations.Bind(
 		effect.Scope(),
 		effect.Destination(),
-		[]target.Target{effect.Target()},
 	); err != nil {
 		t.Fatal(err)
 	}
 
-	outcome := commitAggregateEffect(t.Context(), authority, mustResolveEffectDestination(t, authority, effect), effect, testAggregateCodecs())
-	if outcome.err == nil || !strings.Contains(outcome.err.Error(), "exceeds 4194304 bytes") {
-		t.Fatalf("oversized aggregate error = %v, want physical read-limit rejection", outcome.err)
+	commitErr := authority.CommitAggregate(t.Context(), mustResolveEffectDestination(t, authority, effect), effect, testAggregateCodecs())
+	if commitErr == nil || !strings.Contains(commitErr.Error(), "exceeds 4194304 bytes") {
+		t.Fatalf("oversized aggregate error = %v, want physical read-limit rejection", commitErr)
 	}
 	info, err := os.Stat(hostPath)
 	if err != nil {
@@ -101,7 +93,7 @@ func TestAggregateEffectRejectsOversizedDocumentAtRootedReadBoundary(t *testing.
 
 func mustResolveEffectDestination(
 	t *testing.T,
-	authority *mutationAuthority,
+	authority *Operation,
 	effect effectpreparation.AggregateEffect,
 ) mutationnamespace.Destination {
 	t.Helper()
@@ -130,34 +122,18 @@ func TestAggregateEffectRechecksOperationPreconditionBeforeMutation(t *testing.T
 		t.Fatalf("preconditions = %#v, admitted = %t, want one", preconditions, admitted)
 	}
 
-	authority, err := captureMutationAuthority(
-		Paths{ManifestRoot: root, DataDir: filepath.Join(root, ".daem")},
-		true,
-		nil,
-		destinationResolver(Paths{ManifestRoot: root, DataDir: filepath.Join(root, ".daem")}),
-		testFilesystem(),
-	)
-	if err != nil {
-		t.Fatalf("captureMutationAuthority returned error: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := authority.close(); err != nil {
-			t.Errorf("close mutation authority: %v", err)
-		}
-	})
+	authority := projectMutationOperation(t, root, storagecommit.Adapter{})
 	for _, precondition := range preconditions {
 		document := precondition.DocumentAddress()
-		if err := authority.bindPhysicalAuthority(
+		if err := authority.destinations.Bind(
 			document.Scope(),
 			document.AggregateRoot(),
-			[]target.Target{document.Target()},
 		); err != nil {
 			t.Fatalf("bind precondition authority: %v", err)
 		}
 	}
-	if err := verifyAggregateOperationPreconditions(
+	if err := authority.VerifyAggregatePreconditions(
 		context.Background(),
-		authority,
 		preconditions,
 	); err != nil {
 		t.Fatalf("absent alternate config rejected: %v", err)
@@ -167,7 +143,7 @@ func TestAggregateEffectRechecksOperationPreconditionBeforeMutation(t *testing.T
 	if err := os.WriteFile(alternatePath, []byte(`{"mcp":{}}`), 0o600); err != nil {
 		t.Fatalf("write alternate config after planning: %v", err)
 	}
-	err = verifyAggregateOperationPreconditions(context.Background(), authority, preconditions)
+	err = authority.VerifyAggregatePreconditions(context.Background(), preconditions)
 	if err == nil || !strings.Contains(err.Error(), "document_absent") {
 		t.Fatalf("effect-time precondition error = %v, want document_absent rejection", err)
 	}

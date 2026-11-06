@@ -373,9 +373,8 @@ func executeRecoveryHostActionPlan(
 					contentHash: action.BackupHash, fileMode: fileMode.Perm(),
 				}
 				staged[index].effectKnown = true
-				if err := commitFileDestinationAgainst(
+				if err := authority.hostMutation().CommitFileAgainst(
 					ctx,
-					authority,
 					destination,
 					content,
 					fileMode,
@@ -393,13 +392,12 @@ func executeRecoveryHostActionPlan(
 					existed: true, kind: recovery.PathKindDirectory, contentHash: action.BackupHash,
 				}
 				staged[index].effectKnown = true
-				if err := commitRecoveryDirectoryDestinationAgainst(
+				if err := authority.hostMutation().CommitDirectoryAgainst(
 					ctx,
-					authority,
-					backup,
 					destination,
 					staged[index].existed,
 					staged[index].identity,
+					func(writer mutationfs.RootedTreeWriter) error { return backup.copyDirectory(ctx, writer) },
 				); err != nil {
 					return fmt.Errorf("restore directory %q: %w", action.Destination, err)
 				}
@@ -413,7 +411,7 @@ func executeRecoveryHostActionPlan(
 			staged[index].attempted = true
 			staged[index].effectState = recoveryWholePathState{}
 			staged[index].effectKnown = true
-			if err := removeDestinationAgainst(ctx, authority, destination, staged[index].identity); err != nil {
+			if err := authority.hostMutation().RemoveAgainst(ctx, destination, staged[index].identity); err != nil {
 				return fmt.Errorf("delete restored path %q: %w", action.Destination, err)
 			}
 		}
@@ -595,9 +593,8 @@ func executeRecoveryAggregateActionGroup(
 	}
 	var expected aggregate.RenderedDocument
 	expectedKnown := false
-	outcome := mutateFileDestinationWithOutcome(
+	mutationErr := authority.hostMutation().MutateFile(
 		ctx,
-		authority,
 		group.destination,
 		fileMode,
 		!firstAction.ExpectedAfter.PathExisted,
@@ -631,16 +628,16 @@ func executeRecoveryAggregateActionGroup(
 			return candidate.Content(), candidate.Exists(), nil
 		},
 	)
-	if outcome.err != nil {
+	if mutationErr != nil {
 		if expectedKnown {
 			effectState := recoveryDocumentWholeState(expected.Document(), fileMode)
 			for _, index := range group.indexes {
 				staged[index].effectState = effectState
 				staged[index].effectKnown = true
 			}
-			return effectState, outcome.err
+			return effectState, mutationErr
 		}
-		return recoveryWholePathState{}, outcome.err
+		return recoveryWholePathState{}, mutationErr
 	}
 	expectedWork, err := workmeasure.NewArtifactWork(0, int64(len(expected.Document().Content())))
 	if err != nil {
@@ -656,9 +653,8 @@ func executeRecoveryAggregateActionGroup(
 			err,
 		)
 	}
-	current, mode, err := readAggregateDocumentDestination(
+	current, mode, err := authority.hostMutation().ReadDocument(
 		ctx,
-		authority,
 		group.destination,
 		max(int64(1), expectedWork.Bytes()),
 	)
