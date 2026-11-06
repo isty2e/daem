@@ -1,4 +1,4 @@
-package execute
+package claimoperation
 
 import (
 	"path/filepath"
@@ -36,7 +36,7 @@ func TestOwnershipExecutionCarriesNativeScopesIntoAcquisition(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		plan := ownershipMutationPlan{}
+		plan := Plan{}
 		if err := appendOwnershipAcquire(&plan, future, owner, "operation-1"); err != nil {
 			t.Fatal(err)
 		}
@@ -51,7 +51,7 @@ func TestOwnershipExecutionCarriesNativeScopesIntoAcquisition(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		plan = ownershipMutationPlan{}
+		plan = Plan{}
 		if err := appendOwnershipAcquire(&plan, visible, owner, "operation-1"); err != nil {
 			t.Fatal(err)
 		}

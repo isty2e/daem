@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
@@ -192,13 +193,13 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 				Scope: test.scope, Destination: test.destination, DesiredHash: testArtifactHash("new"),
 				ContentKind: previous.ContentKind(), PermissionPolicy: previous.PermissionPolicy(), Previous: &previous,
 			})
-			plan, err := ownershipPlanForManagedPathEffects(
+			plan, err := claimoperation.PlanManagedPaths(
 				[]effectpreparation.ManagedPathEffect{effect}, owner, test.observations, "operation-1",
 			)
 			if err != nil {
 				t.Fatalf("ownershipPlanForManagedPathEffects returned error: %v", err)
 			}
-			transitions := plan.transitions
+			transitions := claimoperation.NewState(plan).Transitions()
 			if len(transitions) != len(test.wantKinds) {
 				t.Fatalf("transitions = %#v, want kinds %#v", transitions, test.wantKinds)
 			}

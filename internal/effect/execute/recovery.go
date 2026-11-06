@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
@@ -475,7 +476,7 @@ func executeRecoveryPlanEffects(
 						return err
 					}
 				}
-				if err := finalizeClaimTransitionsWithAcceptance(
+				if err := claimoperation.FinalizeWithAcceptance(
 					ctx,
 					registryStore,
 					plan.ClaimTransitions(),
@@ -883,7 +884,7 @@ func executeRecoveryRollbackEffects(
 		kind: claimKind,
 	}
 	if err := execution.runBranchingStep(claimStep, func() error {
-		if err := rollbackClaimsToBeforeWithAcceptance(
+		if err := claimoperation.RollbackToBeforeWithAcceptance(
 			ctx,
 			registryStore,
 			plan.ClaimTransitions(),

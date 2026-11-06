@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 
 	"github.com/isty2e/daem/internal/effect/execute/documentmutation"
 
@@ -277,7 +278,7 @@ func maximumNativeWorkValidationCount(input NativeApplyInput, work nativeApplyWo
 	if err != nil {
 		return 0, err
 	}
-	promoting, err := multiplyForwardValidationCount(len(ordinary.ownership.provisional), 2)
+	promoting, err := multiplyForwardValidationCount(ordinary.ownership.IntentCount(), 2)
 	if err != nil {
 		return 0, err
 	}
@@ -295,13 +296,13 @@ func PrepareNativeApplyEffectPlan(input NativeApplyInput) (applyprogram.Plan, er
 func prepareNativeApplyEffectPlan(input NativeApplyInput, work nativeApplyWork) (applyprogram.Plan, error) {
 	var builder operationplan.EffectStructureBuilder
 	if !work.changed {
-		return compileApplyEffectPlan(applyStateTransition{}, managedPathExecutionSchedule{}, ownershipMutationState{}, nil)
+		return compileApplyEffectPlan(applyStateTransition{}, managedPathExecutionSchedule{}, claimoperation.State{}, nil)
 	}
 	ordinary, err := nativeOrdinaryApplyFor(input, work, forwardEffectPlanningOperationID())
 	if err != nil {
 		return applyprogram.Plan{}, err
 	}
-	promotions, err := applyprogram.NewPromotionSchedule(ordinary.ownership.provisional, false)
+	promotions, err := applyprogram.NewPromotionSchedule(ordinary.ownership.Intents(), false)
 	if err != nil {
 		return applyprogram.Plan{}, err
 	}
@@ -326,7 +327,7 @@ func prepareNativeApplyEffectPlan(input NativeApplyInput, work nativeApplyWork) 
 	if err := promotions.RequireComplete(); err != nil {
 		return applyprogram.Plan{}, err
 	}
-	if slices.Contains(work.promoting, true) || len(ordinary.ownership.provisional) != 0 {
+	if slices.Contains(work.promoting, true) || ordinary.ownership.IntentCount() != 0 {
 		nodes = append(nodes, applyprogram.CheckedStep(&builder, "apply/native-promoted-preparation", operationplan.EffectStepObservation))
 	}
 	nodes = append(
@@ -449,7 +450,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	ordinaryPromoting := len(ordinary.ownership.provisional) != 0
+	ordinaryPromoting := ordinary.ownership.IntentCount() != 0
 	wholeMutations, err := effectpreparation.ManagedPathJournalMutations(work.whole)
 	if err != nil {
 		return result, err
@@ -465,7 +466,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			Filesystem: input.Filesystem, StateCodec: input.StateCodec, Codecs: input.Codecs,
 			OperationAuthority: authority.recoveryJournal, ManifestRoot: authority.capturedRoot,
 			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
-			ClaimTransitions: ordinary.ownership.transitions, ProvisionalAcquires: ordinary.ownership.provisional, RemovalDemands: ordinary.demands,
+			ClaimTransitions: ordinary.ownership.Transitions(), ProvisionalAcquires: ordinary.ownership.Intents(), RemovalDemands: ordinary.demands,
 			Resolver: authority.destinations.JournalResolver(input.Resolver), RootedCapability: authority.destinations.JournalCapability,
 		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), OrderObservations: input.Preparation.PiOrders(), WholeDocuments: wholeMutations, Payloads: input.Payloads})
 		if err != nil {

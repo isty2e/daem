@@ -1,4 +1,4 @@
-package execute
+package claimoperation
 
 import (
 	"context"
@@ -8,7 +8,9 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -19,7 +21,7 @@ func TestOwnershipClaimPhasesUseOneStoreAndGateOperation(t *testing.T) {
 
 	store := &countingOwnershipRegistryStore{registry: ownership.EmptyRegistry()}
 	gate := &countingVisibilityGate{}
-	if err := prepareClaimTransitions(t.Context(), store, transitions, gate.effectGate()); err != nil {
+	if err := Prepare(t.Context(), store, transitions, gate.effectGate()); err != nil {
 		t.Fatalf("prepareClaimTransitions returned error: %v", err)
 	}
 	assertOwnershipBatchCounts(t, store, gate, 1)
@@ -29,7 +31,7 @@ func TestOwnershipClaimPhasesUseOneStoreAndGateOperation(t *testing.T) {
 		}
 	}
 
-	if err := finalizeClaimTransitions(t.Context(), store, transitions, gate.effectGate()); err != nil {
+	if err := Finalize(t.Context(), store, transitions, gate.effectGate()); err != nil {
 		t.Fatalf("finalizeClaimTransitions returned error: %v", err)
 	}
 	assertOwnershipBatchCounts(t, store, gate, 2)
@@ -49,10 +51,10 @@ func TestApplyOwnershipClaimPhasesAcceptMixedManifestProvenance(t *testing.T) {
 	store := &countingOwnershipRegistryStore{registry: initial}
 	gate := &countingVisibilityGate{}
 
-	if err := prepareClaimTransitions(t.Context(), store, fixture.transitions, gate.effectGate()); err != nil {
+	if err := Prepare(t.Context(), store, fixture.transitions, gate.effectGate()); err != nil {
 		t.Fatalf("prepareClaimTransitions returned error: %v", err)
 	}
-	if err := finalizeClaimTransitions(t.Context(), store, fixture.transitions, gate.effectGate()); err != nil {
+	if err := Finalize(t.Context(), store, fixture.transitions, gate.effectGate()); err != nil {
 		t.Fatalf("finalizeClaimTransitions returned error: %v", err)
 	}
 	assertOwnershipBatchCounts(t, store, gate, 2)
@@ -84,7 +86,7 @@ func TestRecoveryOwnershipRollbackAcceptsMixedManifestProvenance(t *testing.T) {
 	store := &countingOwnershipRegistryStore{registry: prepared}
 	gate := &countingVisibilityGate{}
 
-	if err := rollbackClaimsToBefore(t.Context(), store, fixture.transitions, gate.effectGate()); err != nil {
+	if err := RollbackToBefore(t.Context(), store, fixture.transitions, gate.effectGate()); err != nil {
 		t.Fatalf("rollbackClaimsToBefore returned error: %v", err)
 	}
 	assertOwnershipBatchCounts(t, store, gate, 1)
@@ -116,7 +118,7 @@ func TestOwnershipClaimRollbackConvergesMixedPreparedSnapshotOnce(t *testing.T) 
 	store := &countingOwnershipRegistryStore{registry: mixed}
 	gate := &countingVisibilityGate{}
 
-	if err := rollbackClaimsToBefore(t.Context(), store, transitions, gate.effectGate()); err != nil {
+	if err := RollbackToBefore(t.Context(), store, transitions, gate.effectGate()); err != nil {
 		t.Fatalf("rollbackClaimsToBefore returned error: %v", err)
 	}
 	assertOwnershipBatchCounts(t, store, gate, 1)
@@ -138,7 +140,7 @@ func TestOwnershipClaimPreparationRejectsStaleBatchWithoutPartialMutation(t *tes
 	store := &countingOwnershipRegistryStore{registry: initial}
 	gate := &countingVisibilityGate{}
 
-	err = prepareClaimTransitions(t.Context(), store, transitions, gate.effectGate())
+	err = Prepare(t.Context(), store, transitions, gate.effectGate())
 	var staleErr *ownership.StaleClaimError
 	if !errors.As(err, &staleErr) {
 		t.Fatalf("prepareClaimTransitions error = %v, want stale claim", err)
@@ -165,7 +167,7 @@ func TestOwnershipClaimPreparationIndeterminateStateRollsBackAsOneBatch(t *testi
 	}
 	forwardGate := &countingVisibilityGate{}
 
-	err := prepareClaimTransitions(t.Context(), store, transitions, forwardGate.effectGate())
+	err := Prepare(t.Context(), store, transitions, forwardGate.effectGate())
 	if !errors.Is(err, indeterminate) {
 		t.Fatalf("prepareClaimTransitions error = %v, want indeterminate commit", err)
 	}
@@ -187,7 +189,7 @@ func TestOwnershipClaimPreparationIndeterminateStateRollsBackAsOneBatch(t *testi
 	}
 
 	compensationGate := &countingVisibilityGate{}
-	if err := rollbackClaimsToBefore(t.Context(), store, transitions, compensationGate.effectGate()); err != nil {
+	if err := RollbackToBefore(t.Context(), store, transitions, compensationGate.effectGate()); err != nil {
 		t.Fatalf("rollbackClaimsToBefore returned error: %v", err)
 	}
 	if claims := store.registry.Claims(); len(claims) != 0 {
@@ -212,7 +214,7 @@ func TestOwnershipClaimPreparationUncommittedFailureLeavesBeforeState(t *testing
 	}
 	forwardGate := &countingVisibilityGate{}
 
-	err := prepareClaimTransitions(t.Context(), store, transitions, forwardGate.effectGate())
+	err := Prepare(t.Context(), store, transitions, forwardGate.effectGate())
 	if !errors.Is(err, uncommitted) {
 		t.Fatalf("prepareClaimTransitions error = %v, want uncommitted failure", err)
 	}
@@ -229,7 +231,7 @@ func TestOwnershipClaimPreparationUncommittedFailureLeavesBeforeState(t *testing
 	}
 
 	compensationGate := &countingVisibilityGate{}
-	if err := rollbackClaimsToBefore(t.Context(), store, transitions, compensationGate.effectGate()); err != nil {
+	if err := RollbackToBefore(t.Context(), store, transitions, compensationGate.effectGate()); err != nil {
 		t.Fatalf("rollbackClaimsToBefore returned error: %v", err)
 	}
 	if claims := store.registry.Claims(); len(claims) != 0 {
@@ -266,7 +268,7 @@ func TestOwnershipClaimFinalizationRetriesIndeterminatePublishedBatch(t *testing
 	}
 	gate := &countingVisibilityGate{}
 
-	err = finalizeClaimTransitions(t.Context(), store, transitions, gate.effectGate())
+	err = Finalize(t.Context(), store, transitions, gate.effectGate())
 	if !errors.Is(err, indeterminate) {
 		t.Fatalf("finalizeClaimTransitions error = %v, want indeterminate commit", err)
 	}
@@ -284,7 +286,7 @@ func TestOwnershipClaimFinalizationRetriesIndeterminatePublishedBatch(t *testing
 		)
 	}
 
-	if err := finalizeClaimTransitions(t.Context(), store, transitions, gate.effectGate()); err != nil {
+	if err := Finalize(t.Context(), store, transitions, gate.effectGate()); err != nil {
 		t.Fatalf("finalizeClaimTransitions retry returned error: %v", err)
 	}
 	if store.convergences != 2 || gate.before != 2 || gate.after != 1 {
@@ -477,4 +479,13 @@ func assertOwnershipBatchCounts(
 			want,
 		)
 	}
+}
+
+func mustObservedPathAuthority(t *testing.T, path string) pathauthority.Exact {
+	t.Helper()
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
+	if err != nil {
+		t.Fatalf("ObservePersistedDirectoryEntryAuthority(%q): %v", path, err)
+	}
+	return authority.Exact()
 }

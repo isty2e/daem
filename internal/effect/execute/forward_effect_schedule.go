@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -19,7 +20,7 @@ func PrepareApplyEffectPlan(input ApplyInput) (applyprogram.Plan, error) {
 		return compileApplyEffectPlan(
 			transition,
 			managedPathExecutionSchedule{},
-			ownershipMutationState{},
+			claimoperation.State{},
 			nil,
 		)
 	}
@@ -28,7 +29,7 @@ func PrepareApplyEffectPlan(input ApplyInput) (applyprogram.Plan, error) {
 		return applyprogram.Plan{}, err
 	}
 	operationID := forwardEffectPlanningOperationID()
-	managedOwnership, err := ownershipPlanForManagedPathEffects(
+	managedOwnership, err := claimoperation.PlanManagedPaths(
 		input.ManagedPathEffects,
 		input.Owner,
 		input.Ownership,
@@ -40,7 +41,7 @@ func PrepareApplyEffectPlan(input ApplyInput) (applyprogram.Plan, error) {
 			err,
 		)
 	}
-	aggregateOwnership, err := ownershipPlanForAggregateEffects(
+	aggregateOwnership, err := claimoperation.PlanAggregates(
 		input.AggregateEffects,
 		input.Owner,
 		input.Ownership,
@@ -55,7 +56,7 @@ func PrepareApplyEffectPlan(input ApplyInput) (applyprogram.Plan, error) {
 	return compileApplyEffectPlan(
 		transition,
 		managedSchedule,
-		newOwnershipMutationState(managedOwnership, aggregateOwnership),
+		claimoperation.NewState(managedOwnership, aggregateOwnership),
 		input.AggregateEffects,
 	)
 }
@@ -63,7 +64,7 @@ func PrepareApplyEffectPlan(input ApplyInput) (applyprogram.Plan, error) {
 func compileApplyEffectPlan(
 	transition applyStateTransition,
 	managedSchedule managedPathExecutionSchedule,
-	ownershipState ownershipMutationState,
+	ownershipState claimoperation.State,
 	aggregateEffects []effectpreparation.AggregateEffect,
 ) (applyprogram.Plan, error) {
 	var builder operationplan.EffectStructureBuilder
@@ -71,12 +72,12 @@ func compileApplyEffectPlan(
 		return applyprogram.NoOpPlan()
 	}
 	failureStructure, err := applyprogram.CompileFailureSettlement(
-		len(ownershipState.transitions) != 0,
+		ownershipState.HasTransitions(),
 	)
 	if err != nil {
 		return applyprogram.Plan{}, err
 	}
-	promotions, err := applyprogram.NewPromotionSchedule(ownershipState.provisional, len(ownershipState.transitions) == 0 && len(ownershipState.provisional) != 0)
+	promotions, err := applyprogram.NewPromotionSchedule(ownershipState.Intents(), !ownershipState.HasTransitions() && ownershipState.IntentCount() != 0)
 	if err != nil {
 		return applyprogram.Plan{}, err
 	}
@@ -93,7 +94,7 @@ func compileApplyEffectPlan(
 			operationplan.EffectStepObservation,
 		),
 	}
-	if len(ownershipState.transitions) != 0 {
+	if ownershipState.HasTransitions() {
 		nodes = append(nodes, applyprogram.ClaimTransitionObligation(
 			&builder,
 			"apply/ownership-preparation",
@@ -137,12 +138,12 @@ func compileApplyEffectPlan(
 		),
 	)
 	switch {
-	case len(ownershipState.transitions) != 0:
+	case ownershipState.HasTransitions():
 		nodes = append(nodes, applyprogram.ClaimTransitionObligation(
 			&builder,
 			"apply/ownership-finalization",
 		))
-	case len(ownershipState.provisional) != 0:
+	case ownershipState.IntentCount() != 0:
 		nodes = append(nodes, builder.Conditional(
 			applyprogram.OwnershipPromotionTrigger,
 			applyprogram.ClaimTransitionObligation(

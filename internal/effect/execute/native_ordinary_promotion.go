@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
@@ -19,21 +20,12 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutationState, keys []ownership.LogicalKey, captured *journalpublication.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore, gate applyprogram.VisibilityGate, execution *applyprogram.Execution) error {
-	requested := make(map[ownership.LogicalKey]struct{}, len(keys))
-	for _, key := range keys {
-		requested[key] = struct{}{}
-	}
-	for index := 0; index < len(state.provisional); {
-		intent := state.provisional[index]
+func promoteNativeOrdinaryAcquires(ctx context.Context, state *claimoperation.State, keys []ownership.LogicalKey, captured *journalpublication.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore, gate applyprogram.VisibilityGate, execution *applyprogram.Execution) error {
+	return state.Promote(ctx, keys, func(ctx context.Context, intent ownership.ProvisionalAcquireIntent) (ownershipmutation.ClaimTransition, bool, error) {
 		key := ownership.LogicalKey{Destination: intent.Destination(), Footprint: intent.Footprint()}
-		if _, needed := requested[key]; !needed {
-			index++
-			continue
-		}
 		prefix, err := execution.PromotionReference(key)
 		if err != nil {
-			return err
+			return ownershipmutation.ClaimTransition{}, false, err
 		}
 		var transition ownershipmutation.ClaimTransition
 		if err := execution.Observe(prefix+"/observation", applyprogram.FailureGuardedRecovery, func() error {
@@ -56,14 +48,14 @@ func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutation
 			transition, err = ownershipmutation.NewAcquireTransitionFromIntent(intent, address)
 			return err
 		}); err != nil {
-			return err
+			return ownershipmutation.ClaimTransition{}, false, err
 		}
 		if err := execution.SelectPromotion(key, true); err != nil {
-			return err
+			return ownershipmutation.ClaimTransition{}, false, err
 		}
 		journalGate := execution.VisibilityGate(gate, prefix+"/journal", operationplan.EffectStepPersistence, applyprogram.FailureGuardedRecovery)
 		if err := journalGate.ValidateBefore(ctx); err != nil {
-			return err
+			return ownershipmutation.ClaimTransition{}, false, err
 		}
 		if err := journalGate.ApplyEffect(func() error {
 			promoted, err := captured.PromoteOrdinary(ctx, intent, transition, journalpublication.NativePromotionOptions{
@@ -81,14 +73,14 @@ func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutation
 			*captured = promoted
 			return authority.setJournalExecutionBasis(promoted.CaptureResult().RecordFingerprint, promoted.ActiveJournalAuthority())
 		}); err != nil {
-			return err
+			return ownershipmutation.ClaimTransition{}, false, err
 		}
 		if err := journalGate.AcceptAfter(ctx); err != nil {
-			return err
+			return ownershipmutation.ClaimTransition{}, false, err
 		}
 		claimGate := execution.VisibilityGate(gate, prefix+"/claim", operationplan.EffectStepPersistence, applyprogram.FailureGuardedRecovery)
 		if err := claimGate.ValidateBefore(ctx); err != nil {
-			return err
+			return ownershipmutation.ClaimTransition{}, false, err
 		}
 		if err := claimGate.ApplyEffect(func() error {
 			claims, err := captured.PreparationClaims(ctx)
@@ -102,13 +94,11 @@ func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutation
 			_, err = store.ConvergeRegistry(ctx, claims, bindings)
 			return err
 		}); err != nil {
-			return err
+			return ownershipmutation.ClaimTransition{}, false, err
 		}
 		if err := claimGate.AcceptAfter(ctx); err != nil {
-			return err
+			return ownershipmutation.ClaimTransition{}, false, err
 		}
-		state.transitions = append(state.transitions, transition)
-		state.provisional = append(state.provisional[:index], state.provisional[index+1:]...)
-	}
-	return nil
+		return transition, true, nil
+	})
 }

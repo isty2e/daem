@@ -80,3 +80,24 @@ func requireRecoveryGlobalBindings(authority *mutationAuthority, actions []recov
 	}
 	return nil
 }
+
+func (authority *mutationAuthority) beginGeneralRecoveryExecution() error {
+	if authority == nil || authority.physicalWorkBudget == nil {
+		return fmt.Errorf("mutation physical work budget is required")
+	}
+	if authority.generalExecutionWorkBudget != nil {
+		return fmt.Errorf("general recovery execution was already started")
+	}
+	if err := authority.control.BeginExecution(authority.physicalWorkBudget); err != nil {
+		return err
+	}
+	hostBudget, controlBudget, err := authority.physicalWorkBudget.BeginGeneralExecution()
+	if err != nil {
+		return err
+	}
+	if err := authority.generalTraversalPhase.Advance(controlBudget, hostBudget); err != nil {
+		return err
+	}
+	authority.generalExecutionWorkBudget = hostBudget
+	return nil
+}

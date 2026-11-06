@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
@@ -185,7 +186,7 @@ func applyWithOptions(
 		expectedPlan, planErr := compileApplyEffectPlan(
 			transition,
 			managedPathExecutionSchedule{},
-			ownershipMutationState{},
+			claimoperation.State{},
 			nil,
 		)
 		if planErr != nil {
@@ -234,7 +235,7 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	managedOwnership, err := ownershipPlanForManagedPathEffects(
+	managedOwnership, err := claimoperation.PlanManagedPaths(
 		input.ManagedPathEffects,
 		input.Owner,
 		input.Ownership,
@@ -243,7 +244,7 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("derive managed path ownership claim transitions: %w", err)
 	}
-	aggregateOwnership, err := ownershipPlanForAggregateEffects(
+	aggregateOwnership, err := claimoperation.PlanAggregates(
 		input.AggregateEffects,
 		input.Owner,
 		input.Ownership,
@@ -252,8 +253,8 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("derive managed aggregate ownership claim transitions: %w", err)
 	}
-	ownershipState := newOwnershipMutationState(managedOwnership, aggregateOwnership)
-	if ownershipState.hasMutations() && input.OwnershipRegistryBinder == nil {
+	ownershipState := claimoperation.NewState(managedOwnership, aggregateOwnership)
+	if ownershipState.HasMutations() && input.OwnershipRegistryBinder == nil {
 		return ApplyResult{}, fmt.Errorf("apply ownership registry binder is required")
 	}
 	expectedPlan, err := compileApplyEffectPlan(
@@ -303,7 +304,7 @@ func applyWithOptions(
 	}
 	journalResolver := mutationAuthority.destinations.JournalResolver(resolver)
 	var registryStore ownershipmutation.RegistryStore
-	if ownershipState.hasMutations() {
+	if ownershipState.HasMutations() {
 		if err := mutationAuthority.bindOwnershipRegistry(input.Paths.OwnershipRegistryPath); err != nil {
 			return ApplyResult{}, err
 		}
@@ -354,8 +355,8 @@ func applyWithOptions(
 			nextState,
 			journalpublication.CaptureOptions{
 				Filesystem:                input.Filesystem,
-				ClaimTransitions:          ownershipState.transitions,
-				ProvisionalAcquires:       ownershipState.provisional,
+				ClaimTransitions:          ownershipState.Transitions(),
+				ProvisionalAcquires:       ownershipState.Intents(),
 				ManagedPathMutations:      managedMutations,
 				ManagedAggregateMutations: aggregateMutations,
 				ManagedPathEvidence:       input.ManagedPathEvidence,
@@ -449,10 +450,10 @@ func applyWithOptions(
 		operationplan.EffectStepPersistence,
 		applyprogram.FailureClaimPreparation,
 	)
-	if err := prepareClaimTransitions(
+	if err := claimoperation.Prepare(
 		ctx,
 		registryStore,
-		ownershipState.transitions,
+		ownershipState.Transitions(),
 		ownershipPreparationGate,
 	); err != nil {
 		return ApplyResult{}, settlePreHostApplyFailure(
@@ -464,7 +465,7 @@ func applyWithOptions(
 			input.CurrentState,
 			mutationAuthority,
 			registryStore,
-			ownershipState.transitions,
+			ownershipState.Transitions(),
 			events,
 			input.StateCodec,
 			input.Codecs,
@@ -498,7 +499,7 @@ func applyWithOptions(
 			input.CurrentState,
 			mutationAuthority,
 			registryStore,
-			ownershipState.transitions,
+			ownershipState.Transitions(),
 			events,
 			input.StateCodec,
 			input.Codecs,
@@ -514,14 +515,10 @@ func applyWithOptions(
 		effect effectpreparation.ManagedPathEffect,
 		phase managedPathPhase,
 	) error {
-		return ownershipState.promoteVisibleAcquires(
+		return ownershipState.Promote(
 			ctx,
 			provisionalAcquireKeysForManagedPath(effect, phase),
-			mutationAuthority,
-			registryStore,
-			input.StateCodec,
-			visibilityGate,
-			effectExecution,
+			ordinaryClaimPromoter(mutationAuthority, registryStore, input.StateCodec, visibilityGate, effectExecution),
 		)
 	}
 	if err := applyManagedPathPhaseWithEvents(
@@ -549,14 +546,10 @@ func applyWithOptions(
 		effectExecution,
 		func(ctx context.Context, effect effectpreparation.AggregateEffect) error {
 			keys := provisionalAcquireKeysForAggregate(effect)
-			return ownershipState.promoteVisibleAcquires(
+			return ownershipState.Promote(
 				ctx,
 				keys,
-				mutationAuthority,
-				registryStore,
-				input.StateCodec,
-				visibilityGate,
-				effectExecution,
+				ordinaryClaimPromoter(mutationAuthority, registryStore, input.StateCodec, visibilityGate, effectExecution),
 			)
 		},
 	)
@@ -689,10 +682,10 @@ func applyWithOptions(
 		operationplan.EffectStepPersistence,
 		applyprogram.FailureNoCompensation,
 	)
-	if err := finalizeClaimTransitions(
+	if err := claimoperation.Finalize(
 		ctx,
 		registryStore,
-		ownershipState.transitions,
+		ownershipState.Transitions(),
 		ownershipFinalizationGate,
 	); err != nil {
 		primary := fmt.Errorf("%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run", err)

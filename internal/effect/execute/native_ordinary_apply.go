@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -16,7 +17,7 @@ type nativeOrdinaryApply struct {
 	aggregateMutations []journalrecord.ManagedAggregateMutation
 	demands            recovery.RemovalDemandSet
 	managedSchedule    managedPathExecutionSchedule
-	ownership          ownershipMutationState
+	ownership          claimoperation.State
 }
 
 func nativeOrdinaryApplyFor(input NativeApplyInput, work nativeApplyWork, operationID string) (nativeOrdinaryApply, error) {
@@ -36,17 +37,17 @@ func nativeOrdinaryApplyFor(input NativeApplyInput, work nativeApplyWork, operat
 	if err != nil {
 		return nativeOrdinaryApply{}, err
 	}
-	managedOwnership, err := ownershipPlanForManagedPathEffects(work.managed, input.Owner, input.Ownership, operationID)
+	managedOwnership, err := claimoperation.PlanManagedPaths(work.managed, input.Owner, input.Ownership, operationID)
 	if err != nil {
 		return nativeOrdinaryApply{}, err
 	}
-	aggregateOwnership, err := ownershipPlanForAggregateEffects(work.ordinaryAggregates, input.Owner, input.Ownership, operationID)
+	aggregateOwnership, err := claimoperation.PlanAggregates(work.ordinaryAggregates, input.Owner, input.Ownership, operationID)
 	if err != nil {
 		return nativeOrdinaryApply{}, err
 	}
 	return nativeOrdinaryApply{
 		managedMutations: managed, aggregateMutations: aggregates, demands: demands,
-		managedSchedule: schedule, ownership: newOwnershipMutationState(managedOwnership, aggregateOwnership),
+		managedSchedule: schedule, ownership: claimoperation.NewState(managedOwnership, aggregateOwnership),
 	}, nil
 }
 

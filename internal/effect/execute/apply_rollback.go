@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 
@@ -242,7 +243,7 @@ func settlePreHostApplyFailure(
 	if settlementErr != nil {
 		return errors.Join(primary, settlementErr)
 	}
-	if rollbackErr := rollbackClaimsToBefore(
+	if rollbackErr := claimoperation.RollbackToBefore(
 		context.WithoutCancel(ctx),
 		registryStore,
 		transitions,

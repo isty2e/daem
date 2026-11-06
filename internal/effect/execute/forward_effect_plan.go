@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 )
 
@@ -96,7 +97,7 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 		}
 	}
 	operationID := forwardEffectPlanningOperationID()
-	managedOwnership, err := ownershipPlanForManagedPathEffects(
+	managedOwnership, err := claimoperation.PlanManagedPaths(
 		input.ManagedPathEffects,
 		input.Owner,
 		input.Ownership,
@@ -105,7 +106,7 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("derive managed path ownership validation plan: %w", err)
 	}
-	aggregateOwnership, err := ownershipPlanForAggregateEffects(
+	aggregateOwnership, err := claimoperation.PlanAggregates(
 		input.AggregateEffects,
 		input.Owner,
 		input.Ownership,
@@ -114,7 +115,7 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("derive managed aggregate ownership validation plan: %w", err)
 	}
-	ownershipState := newOwnershipMutationState(managedOwnership, aggregateOwnership)
+	ownershipState := claimoperation.NewState(managedOwnership, aggregateOwnership)
 	count := 3 // journal publication, statefile publication, and journal retirement
 	count, err = addForwardValidationCount(count, managedMutations)
 	if err != nil {
@@ -124,12 +125,12 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if len(ownershipState.transitions) != 0 {
+	if ownershipState.HasTransitions() {
 		count, err = addForwardValidationCount(count, 2) // preparation and finalization
 		if err != nil {
 			return 0, err
 		}
-	} else if len(ownershipState.provisional) != 0 {
+	} else if ownershipState.IntentCount() != 0 {
 		// A successful provisional promotion appends an exact transition after
 		// the initial preparation phase. The resulting set still finalizes once.
 		count, err = addForwardValidationCount(count, 1)
@@ -137,7 +138,7 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 			return 0, err
 		}
 	}
-	provisionalValidations, err := multiplyForwardValidationCount(len(ownershipState.provisional), 2)
+	provisionalValidations, err := multiplyForwardValidationCount(ownershipState.IntentCount(), 2)
 	if err != nil {
 		return 0, err
 	}
