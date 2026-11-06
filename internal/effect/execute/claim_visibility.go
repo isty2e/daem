@@ -1,14 +1,15 @@
 package execute
 
 import (
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/target"
 )
 
-func provisionalAcquireKeysForManagedPath(effect effectpreparation.ManagedPathEffect, phase managedPathPhase) []ownership.LogicalKey {
-	if phase != managedPathPublishPhase || effect.Scope() != target.ScopeGlobal ||
+func provisionalAcquireKeysForManagedPath(effect effectpreparation.ManagedPathEffect, phase hostmutation.ManagedPathPhase) []ownership.LogicalKey {
+	if phase != hostmutation.ManagedPathPublishPhase || effect.Scope() != target.ScopeGlobal ||
 		effect.Kind() == effectpreparation.ManagedPathEffectRemove || effect.Kind() == effectpreparation.ManagedPathEffectRecord {
 		return nil
 	}

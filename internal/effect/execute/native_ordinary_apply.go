@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -16,7 +17,7 @@ type nativeOrdinaryApply struct {
 	managedMutations   []journalrecord.ManagedPathMutation
 	aggregateMutations []journalrecord.ManagedAggregateMutation
 	demands            recovery.RemovalDemandSet
-	managedSchedule    managedPathExecutionSchedule
+	managedSchedule    hostmutation.ManagedPathSchedule
 	ownership          claimoperation.State
 }
 
@@ -33,7 +34,7 @@ func nativeOrdinaryApplyFor(input NativeApplyInput, work nativeApplyWork, operat
 	if err != nil {
 		return nativeOrdinaryApply{}, err
 	}
-	schedule, err := newManagedPathExecutionSchedule(work.managed)
+	schedule, err := hostmutation.PlanManagedPaths(work.managed)
 	if err != nil {
 		return nativeOrdinaryApply{}, err
 	}

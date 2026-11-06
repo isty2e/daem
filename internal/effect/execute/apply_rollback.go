@@ -7,15 +7,13 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
-
-	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
-	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -514,20 +512,6 @@ func ApplyHostChangesRolledBack(err error) bool {
 	return errors.As(err, &failure)
 }
 
-// hostEffectProgress classifies what apply can truthfully conclude about one
-// host action before deciding whether immediate rollback is safe.
-type hostEffectProgress uint8
-
-const (
-	hostEffectNotStarted hostEffectProgress = iota
-	hostEffectExpectedAfter
-	hostEffectIndeterminate
-)
-
-func (progress hostEffectProgress) rollbackEligible() bool {
-	return progress == hostEffectExpectedAfter
-}
-
 func (progress hostActionProgress) rollbackEntries(
 	selections []journalrecord.EntrySelection,
 ) ([]journalrecord.EntrySelection, error) {
@@ -536,23 +520,19 @@ func (progress hostActionProgress) rollbackEntries(
 	}
 	selected := make([]journalrecord.EntrySelection, 0, len(selections))
 	for index, state := range progress.states {
-		if state.rollbackEligible() {
+		if state.RollbackEligible() {
 			selected = append(selected, selections[index])
 		}
 	}
 	return selected, nil
 }
 
-func (progress hostEffectProgress) requiresRecovery() bool {
-	return progress == hostEffectIndeterminate
-}
-
 type hostActionProgress struct {
-	states []hostEffectProgress
+	states []hostmutation.EffectProgress
 }
 
 func newHostActionProgress(actionCount int) hostActionProgress {
-	return hostActionProgress{states: make([]hostEffectProgress, actionCount)}
+	return hostActionProgress{states: make([]hostmutation.EffectProgress, actionCount)}
 }
 
 func combineHostActionProgress(parts ...hostActionProgress) hostActionProgress {
@@ -560,62 +540,22 @@ func combineHostActionProgress(parts ...hostActionProgress) hostActionProgress {
 	for _, part := range parts {
 		count += len(part.states)
 	}
-	combined := hostActionProgress{states: make([]hostEffectProgress, 0, count)}
+	combined := hostActionProgress{states: make([]hostmutation.EffectProgress, 0, count)}
 	for _, part := range parts {
 		combined.states = append(combined.states, part.states...)
 	}
 	return combined
 }
 
-func (progress hostActionProgress) record(index int, state hostEffectProgress) {
+func (progress hostActionProgress) record(index int, state hostmutation.EffectProgress) {
 	progress.states[index] = state
 }
 
 func (progress hostActionProgress) requiresRecovery() bool {
 	for _, state := range progress.states {
-		if state.requiresRecovery() {
+		if state.RequiresRecovery() {
 			return true
 		}
 	}
 	return false
-}
-
-func progressAfterMutationError(err error) hostEffectProgress {
-	if mutationfs.HasIndeterminateEffect(err) {
-		return hostEffectIndeterminate
-	}
-	var removalFailure *removaloperation.CommitError
-	if errors.As(err, &removalFailure) {
-		return progressAfterCommitOutcome(removalFailure.Outcome(), err)
-	}
-	kind, classified := mutationfs.FailureKindOf(err)
-	if !classified {
-		return hostEffectIndeterminate
-	}
-	switch kind {
-	case mutationfs.FailureUncommitted, mutationfs.FailureUnsupportedGuarantee:
-		return hostEffectNotStarted
-	case mutationfs.FailureIndeterminateCommit, mutationfs.FailureRetainedResidue:
-		return hostEffectIndeterminate
-	default:
-		return hostEffectIndeterminate
-	}
-}
-
-func progressAfterCommitOutcome(outcome mutationfs.CommitOutcome, err error) hostEffectProgress {
-	if err == nil {
-		return hostEffectExpectedAfter
-	}
-	switch outcome.State() {
-	case mutationfs.CommitOutcomeUncommitted:
-		return hostEffectNotStarted
-	case mutationfs.CommitOutcomeIndeterminate, mutationfs.CommitOutcomeRetainedRecoverable,
-		mutationfs.CommitOutcomeComplete:
-		return hostEffectIndeterminate
-	default:
-		// A rooted removal must always carry a canonical storage outcome. Treat
-		// an unknown outcome as indeterminate rather than recursively trying to
-		// classify the same wrapped error again.
-		return hostEffectIndeterminate
-	}
 }

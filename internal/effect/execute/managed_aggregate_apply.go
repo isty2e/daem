@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -48,7 +49,7 @@ func applyAggregateEffectsWithEvents(
 			destination = resolved
 			return authority.hostMutation().VerifyAggregatePreconditions(ctx, effect.OperationPreconditions())
 		}
-		hostProgress := hostEffectNotStarted
+		hostProgress := hostmutation.EffectNotStarted
 		var err error
 		if effect.Kind() == effectpreparation.AggregateEffectRecord {
 			err = execution.Observe(
@@ -79,9 +80,9 @@ func applyAggregateEffectsWithEvents(
 			if err == nil {
 				err = operationGate.ApplyEffect(func() error {
 					mutationErr := authority.hostMutation().CommitAggregate(ctx, destination, effect, codecs)
-					hostProgress = hostEffectExpectedAfter
+					hostProgress = hostmutation.EffectExpectedAfter
 					if mutationErr != nil {
-						hostProgress = progressAfterMutationError(mutationErr)
+						hostProgress = hostmutation.ProgressAfterMutationError(mutationErr)
 					}
 					return mutationErr
 				})

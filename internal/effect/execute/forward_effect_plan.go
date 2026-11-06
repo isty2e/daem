@@ -8,6 +8,7 @@ import (
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 )
 
@@ -85,11 +86,11 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 	if !transition.changed {
 		return 0, nil
 	}
-	managedSchedule, err := newManagedPathExecutionSchedule(input.ManagedPathEffects)
+	managedSchedule, err := hostmutation.PlanManagedPaths(input.ManagedPathEffects)
 	if err != nil {
 		return 0, err
 	}
-	managedMutations := managedPathValidationCount(managedSchedule)
+	managedMutations := managedSchedule.WriteCount()
 	aggregateMutations := 0
 	for _, effect := range input.AggregateEffects {
 		if effect.Kind() != effectpreparation.AggregateEffectRecord {
@@ -147,18 +148,6 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 
 func forwardEffectPlanningOperationID() string {
 	return journalpublication.OperationID(time.Unix(0, 0).UTC())
-}
-
-func managedPathValidationCount(schedule managedPathExecutionSchedule) int {
-	count := 0
-	for _, operations := range [][]managedPathPhaseOperation{schedule.publish, schedule.retire} {
-		for _, operation := range operations {
-			if schedule.effects[operation.effectIndex].Kind() != effectpreparation.ManagedPathEffectRecord {
-				count++
-			}
-		}
-	}
-	return count
 }
 
 func addForwardValidationCount(left int, right int) (int, error) {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -19,12 +20,12 @@ func PrepareApplyEffectPlan(input ApplyInput) (applyprogram.Plan, error) {
 	if !transition.changed {
 		return compileApplyEffectPlan(
 			transition,
-			managedPathExecutionSchedule{},
+			hostmutation.ManagedPathSchedule{},
 			claimoperation.State{},
 			nil,
 		)
 	}
-	managedSchedule, err := newManagedPathExecutionSchedule(input.ManagedPathEffects)
+	managedSchedule, err := hostmutation.PlanManagedPaths(input.ManagedPathEffects)
 	if err != nil {
 		return applyprogram.Plan{}, err
 	}
@@ -63,7 +64,7 @@ func PrepareApplyEffectPlan(input ApplyInput) (applyprogram.Plan, error) {
 
 func compileApplyEffectPlan(
 	transition applyStateTransition,
-	managedSchedule managedPathExecutionSchedule,
+	managedSchedule hostmutation.ManagedPathSchedule,
 	ownershipState claimoperation.State,
 	aggregateEffects []effectpreparation.AggregateEffect,
 ) (applyprogram.Plan, error) {
@@ -161,9 +162,9 @@ func compileApplyEffectPlan(
 	return promotions.BindPlan(segment, structure, failureStructure)
 }
 
-func applyManagedPathScheduleReference(phase managedPathPhase, effectIndex int) string {
+func applyManagedPathScheduleReference(phase hostmutation.ManagedPathPhase, effectIndex int) string {
 	prefix := "apply/managed-publish"
-	if phase == managedPathRetirePhase {
+	if phase == hostmutation.ManagedPathRetirePhase {
 		prefix = "apply/managed-retire"
 	}
 	return fmt.Sprintf("%s/%d", prefix, effectIndex)

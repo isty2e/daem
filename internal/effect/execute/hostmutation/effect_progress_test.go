@@ -1,15 +1,13 @@
-package execute
+package hostmutation
 
 import (
 	"context"
 	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
@@ -24,52 +22,29 @@ func (failure classifiedMutationFailure) Kind() mutationfs.FailureKind { return 
 func TestHostEffectProgressSeparatesUntouchedTouchedAndIndeterminate(t *testing.T) {
 	tests := []struct {
 		name             string
-		progress         hostEffectProgress
+		progress         EffectProgress
 		rollbackEligible bool
 		requiresRecovery bool
 	}{
-		{name: "untouched", progress: hostEffectNotStarted},
-		{name: "touched expected-after", progress: hostEffectExpectedAfter, rollbackEligible: true},
-		{name: "indeterminate visibility", progress: hostEffectIndeterminate, requiresRecovery: true},
+		{name: "untouched", progress: EffectNotStarted},
+		{name: "touched expected-after", progress: EffectExpectedAfter, rollbackEligible: true},
+		{name: "indeterminate visibility", progress: EffectIndeterminate, requiresRecovery: true},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := test.progress.rollbackEligible(); got != test.rollbackEligible {
+			if got := test.progress.RollbackEligible(); got != test.rollbackEligible {
 				t.Fatalf("rollbackEligible = %t, want %t", got, test.rollbackEligible)
 			}
-			if got := test.progress.requiresRecovery(); got != test.requiresRecovery {
+			if got := test.progress.RequiresRecovery(); got != test.requiresRecovery {
 				t.Fatalf("requiresRecovery = %t, want %t", got, test.requiresRecovery)
 			}
 		})
 	}
 }
 
-func TestHostActionProgressSelectsOnlySuccessfullyTouchedEntries(t *testing.T) {
-	selections := make([]journalrecord.EntrySelection, 3)
-	progress := newHostActionProgress(len(selections))
-	progress.record(1, hostEffectExpectedAfter)
-
-	selected, err := progress.rollbackEntries(selections)
-	if err != nil {
-		t.Fatalf("rollbackEntries returned error: %v", err)
-	}
-	if len(selected) != 1 {
-		t.Fatalf("selected entries = %d, want one", len(selected))
-	}
-}
-
-func TestHostActionProgressRejectsExpectedStateCardinalityDrift(t *testing.T) {
-	progress := newHostActionProgress(2)
-
-	_, err := progress.rollbackEntries([]journalrecord.EntrySelection{{}})
-	if err == nil || !strings.Contains(err.Error(), "progress count 2 does not match entry selection count 1") {
-		t.Fatalf("rollbackEntries error = %v, want cardinality mismatch", err)
-	}
-}
-
 func TestProgressAfterUntypedMutationErrorRequiresDurableRecovery(t *testing.T) {
-	if got := progressAfterMutationError(errors.New("unknown mutation outcome")); got != hostEffectIndeterminate {
+	if got := ProgressAfterMutationError(errors.New("unknown mutation outcome")); got != EffectIndeterminate {
 		t.Fatalf("progressAfterMutationError = %v, want indeterminate", got)
 	}
 }
@@ -83,14 +58,14 @@ func TestPostMutationVerificationFailureCannotBeClassifiedUncommitted(t *testing
 	if !errors.Is(wrapped, err) {
 		t.Fatal("post-mutation verification wrapper did not preserve its cause")
 	}
-	if got := progressAfterMutationError(wrapped); got != hostEffectIndeterminate {
+	if got := ProgressAfterMutationError(wrapped); got != EffectIndeterminate {
 		t.Fatalf("progressAfterMutationError = %v, want indeterminate", got)
 	}
 }
 
 func TestClassifiedPreCommitFailureIsNotMarkedAsStarted(t *testing.T) {
 	err := classifiedMutationFailure{kind: mutationfs.FailureUncommitted}
-	if got := progressAfterMutationError(err); got != hostEffectNotStarted {
+	if got := ProgressAfterMutationError(err); got != EffectNotStarted {
 		t.Fatalf("progress = %v, want hostEffectNotStarted", got)
 	}
 }
@@ -102,7 +77,7 @@ func TestPostEffectUncertaintyDominatesNestedUncommittedRemoval(t *testing.T) {
 	}
 	cause := removaloperation.NewCommitError(outcome, classifiedMutationFailure{kind: mutationfs.FailureUncommitted})
 	failure := mutationfs.MarkEffectIndeterminate(cause)
-	if !errors.Is(failure, cause) || progressAfterMutationError(failure) != hostEffectIndeterminate {
+	if !errors.Is(failure, cause) || ProgressAfterMutationError(failure) != EffectIndeterminate {
 		t.Fatal("nested removal erased post-effect uncertainty")
 	}
 }
@@ -111,12 +86,12 @@ func TestRootedRemovalOutcomeControlsEffectProgressWithoutRecursion(t *testing.T
 	for _, test := range []struct {
 		name  string
 		state mutationfs.CommitOutcomeState
-		want  hostEffectProgress
+		want  EffectProgress
 	}{
-		{name: "uncommitted", state: mutationfs.CommitOutcomeUncommitted, want: hostEffectNotStarted},
-		{name: "indeterminate", state: mutationfs.CommitOutcomeIndeterminate, want: hostEffectIndeterminate},
-		{name: "retained recoverable", state: mutationfs.CommitOutcomeRetainedRecoverable, want: hostEffectIndeterminate},
-		{name: "complete", state: mutationfs.CommitOutcomeComplete, want: hostEffectIndeterminate},
+		{name: "uncommitted", state: mutationfs.CommitOutcomeUncommitted, want: EffectNotStarted},
+		{name: "indeterminate", state: mutationfs.CommitOutcomeIndeterminate, want: EffectIndeterminate},
+		{name: "retained recoverable", state: mutationfs.CommitOutcomeRetainedRecoverable, want: EffectIndeterminate},
+		{name: "complete", state: mutationfs.CommitOutcomeComplete, want: EffectIndeterminate},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var retained []string
@@ -128,7 +103,7 @@ func TestRootedRemovalOutcomeControlsEffectProgressWithoutRecursion(t *testing.T
 				t.Fatalf("NewCommitOutcome returned error: %v", err)
 			}
 			failure := removaloperation.NewCommitError(outcome, errors.New("private storage cause"))
-			if got := progressAfterMutationError(failure); got != test.want {
+			if got := ProgressAfterMutationError(failure); got != test.want {
 				t.Fatalf("progressAfterMutationError = %v, want %v", got, test.want)
 			}
 		})

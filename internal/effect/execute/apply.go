@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
@@ -185,7 +186,7 @@ func applyWithOptions(
 	if !transition.changed {
 		expectedPlan, planErr := compileApplyEffectPlan(
 			transition,
-			managedPathExecutionSchedule{},
+			hostmutation.ManagedPathSchedule{},
 			claimoperation.State{},
 			nil,
 		)
@@ -215,7 +216,7 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	managedSchedule, err := newManagedPathExecutionSchedule(input.ManagedPathEffects)
+	managedSchedule, err := hostmutation.PlanManagedPaths(input.ManagedPathEffects)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -509,11 +510,11 @@ func applyWithOptions(
 	}
 	events.emit(EventRollbackStaged, EventStageRollbackStage, nil, nil)
 
-	managedProgress := newHostActionProgress(managedSchedule.mutationCount)
+	managedProgress := newHostActionProgress(managedSchedule.MutationCount())
 	promoteManagedOwnership := func(
 		ctx context.Context,
 		effect effectpreparation.ManagedPathEffect,
-		phase managedPathPhase,
+		phase hostmutation.ManagedPathPhase,
 	) error {
 		return ownershipState.Promote(
 			ctx,
@@ -522,7 +523,7 @@ func applyWithOptions(
 		)
 	}
 	if err := applyManagedPathPhaseWithEvents(
-		ctx, managedSchedule, managedPathPublishPhase, input.Payloads, mutationAuthority,
+		ctx, managedSchedule, hostmutation.ManagedPathPublishPhase, input.Payloads, mutationAuthority,
 		managedProgress, 0, events, visibilityGate, effectExecution, promoteManagedOwnership,
 	); err != nil {
 		progress := combineHostActionProgress(
@@ -562,7 +563,7 @@ func applyWithOptions(
 		)
 	}
 	if err := applyManagedPathPhaseWithEvents(
-		ctx, managedSchedule, managedPathRetirePhase, input.Payloads, mutationAuthority,
+		ctx, managedSchedule, hostmutation.ManagedPathRetirePhase, input.Payloads, mutationAuthority,
 		managedProgress, 0, events, visibilityGate, effectExecution, promoteManagedOwnership,
 	); err != nil {
 		progress = combineHostActionProgress(managedProgress, aggregateProgress)
