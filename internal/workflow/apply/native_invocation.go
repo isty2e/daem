@@ -26,20 +26,14 @@ import (
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
+	configurationinvocation "github.com/isty2e/daem/internal/workflow/nativeconfig/invocation"
 	protection "github.com/isty2e/daem/internal/workflow/protection/invocation"
 )
 
 type nativeInvocationProgram struct {
 	documents nativeconfig.InvocationDocuments
 	state     rootedpath.PathLayout
-	commands  map[string]*nativePreparedInvocation
-}
-
-type nativePreparedInvocation struct {
-	protection *protection.InvocationLayout
-	reads      physicalwork.InvocationWorkReservation
-	rewrite    relationhost.NativeSettingsRewrites
-	used       bool
+	commands  map[string]*configurationinvocation.Invocation
 }
 
 type nativeInvocationWork struct {
@@ -81,7 +75,7 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 	if err != nil {
 		return nil, err
 	}
-	program := &nativeInvocationProgram{commands: make(map[string]*nativePreparedInvocation)}
+	program := &nativeInvocationProgram{commands: make(map[string]*configurationinvocation.Invocation)}
 	native, present := current.nativeOperation.NativeInput()
 	if !present {
 		return nil, fmt.Errorf("native invocation requires its retained document operation")
@@ -117,7 +111,7 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 		return nil, err
 	}
 	for _, command := range commands {
-		prepared := &nativePreparedInvocation{rewrite: command.rewrite}
+		var protected *protection.InvocationLayout
 		var correlation nativeInvocationWork
 		if command.correlation {
 			if err := program.state.ReserveDestinationCapture(physicalwork.MaximumPhysicalPathDepth, &correlation); err != nil {
@@ -156,17 +150,17 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 			if err := layout.ReserveWork(input.Budget, correlationWork); err != nil {
 				return nil, err
 			}
-			prepared.protection = &layout
+			protected = &layout
 			correlationWork = physicalwork.InvocationWork{}
 		}
-		prepared.reads, err = program.documents.ReserveReads(input.Budget, correlationWork)
+		reads, err := program.documents.ReserveReads(input.Budget, correlationWork)
 		if err != nil {
 			return nil, err
 		}
 		if _, duplicate := program.commands[command.key]; duplicate {
 			return nil, fmt.Errorf("native invocation schedule repeats one exact command")
 		}
-		program.commands[command.key] = prepared
+		program.commands[command.key] = configurationinvocation.New(program.documents, reads, command.rewrite, protected, configurationinvocation.CallerContext())
 	}
 	return program, nil
 }
@@ -224,54 +218,8 @@ func (program *nativeInvocationProgram) executeDelegate(ctx context.Context, act
 
 func (program *nativeInvocationProgram) executeCommand(ctx context.Context, key string, executor subprocess.CommandExecutor, request subprocess.CommandAttemptRequest, bind subprocess.WorkingDirectoryBinder, correlation func(context.Context, *physicalwork.Budget) error) (attempt subprocess.CommandAttemptResult, observed bool, returnErr error) {
 	prepared, present := program.commands[key]
-	if !present || prepared.used {
-		return attempt, false, fmt.Errorf("native command is not available in its reserved invocation schedule")
+	if !present {
+		return attempt, false, configurationinvocation.ErrUnavailable
 	}
-	prepared.used = true
-	reads, _, err := prepared.reads.Take()
-	if err != nil {
-		return attempt, false, err
-	}
-	var before nativeconfig.InvocationBaseline
-	preparedContent := false
-	prepare := func(ctx context.Context, budget *physicalwork.Budget) error {
-		var err error
-		before, err = program.documents.Read(ctx, reads)
-		if err != nil {
-			return err
-		}
-		if err := program.documents.Qualify(ctx, before, before, relationhost.NativeSettingsRewrites{}); err != nil {
-			return err
-		}
-		preparedContent = true
-		if correlation != nil {
-			return correlation(ctx, budget)
-		}
-		return nil
-	}
-	if prepared.protection != nil {
-		input, err := prepared.protection.AttachProtection(ctx)
-		if err != nil {
-			return attempt, false, err
-		}
-		result, err := protection.ExecuteInvocation(ctx, input, executor, request, bind, prepare)
-		returnErr = err
-		if process, present := result.Process(); present {
-			attempt, observed = process.Attempt(), true
-		}
-	} else {
-		if err := prepare(ctx, reads); err != nil {
-			return attempt, false, err
-		}
-		attempt = executor.ExecuteInWorkingDirectory(ctx, request, bind)
-		observed = true
-	}
-	if observed && preparedContent {
-		after, err := program.documents.Read(ctx, reads)
-		if err == nil {
-			err = program.documents.Qualify(ctx, before, after, prepared.rewrite)
-		}
-		returnErr = errors.Join(returnErr, err)
-	}
-	return attempt, observed, returnErr
+	return prepared.Execute(ctx, executor, request, bind, correlation)
 }

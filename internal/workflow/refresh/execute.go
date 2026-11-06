@@ -231,7 +231,7 @@ func Execute(
 	var nativeErr error
 	if nativeInvocation != nil {
 		var observed bool
-		attempt, observed, nativeErr = nativeInvocation.execute(ctx, executor, current.command.attemptRequest(), bind)
+		attempt, observed, nativeErr = nativeInvocation.prepared.Execute(ctx, executor, current.command.attemptRequest(), bind, nil)
 		if !observed {
 			if err := forwardExecution.SelectAlternative(refreshAttemptOutcomeChoice, 0); err != nil {
 				return refusedBeforeAttempt(result, ReasonNativeSettings, errors.Join(nativeErr, err))

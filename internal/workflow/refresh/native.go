@@ -24,9 +24,9 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/recoverygate"
-	"github.com/isty2e/daem/internal/subprocess"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
+	configurationinvocation "github.com/isty2e/daem/internal/workflow/nativeconfig/invocation"
 	protection "github.com/isty2e/daem/internal/workflow/protection/invocation"
 )
 
@@ -173,9 +173,7 @@ func planNativeRefresh(ctx context.Context, paths daempaths.Paths, environment d
 
 type nativeRefreshInvocation struct {
 	observation *nativeRefreshObservation
-	reads       physicalwork.InvocationWorkReservation
-	protection  *protection.InvocationLayout
-	rewrites    relationhost.NativeSettingsRewrites
+	prepared    *configurationinvocation.Invocation
 }
 
 func prepareNativeRefreshInvocation(ctx context.Context, current plan, leases *mutation.LeaseSet) (result *nativeRefreshInvocation, returnErr error) {
@@ -212,10 +210,11 @@ func prepareNativeRefreshInvocation(ctx context.Context, current plan, leases *m
 	if err != nil {
 		return nil, err
 	}
-	result.reads, err = observed.documents.ReserveReads(input.Budget, physicalwork.InvocationWork{})
+	reads, err := observed.documents.ReserveReads(input.Budget, physicalwork.InvocationWork{})
 	if err != nil {
 		return nil, err
 	}
+	var protected *protection.InvocationLayout
 	if len(members) != 0 {
 		if _, err := rand.Read(random[:]); err != nil {
 			return nil, err
@@ -240,12 +239,17 @@ func prepareNativeRefreshInvocation(ctx context.Context, current plan, leases *m
 		if err := layout.ReserveWork(input.Budget, physicalwork.InvocationWork{}); err != nil {
 			return nil, err
 		}
-		result.protection = &layout
+		protected = &layout
 	}
-	result.rewrites, err = observed.rewrites(ctx, current.paths, current.settingsProfile)
+	rewrites, err := observed.rewrites(ctx, current.paths, current.settingsProfile)
 	if err != nil {
 		return nil, err
 	}
+	completion, err := configurationinvocation.CompletionWindow(attemptPersistenceTimeout)
+	if err != nil {
+		return nil, err
+	}
+	result.prepared = configurationinvocation.New(observed.documents, reads, rewrites, protected, completion)
 	return result, nil
 }
 
@@ -283,51 +287,4 @@ func (observed *nativeRefreshObservation) rewrites(ctx context.Context, paths da
 		}
 	}
 	return profile.BindInvocationRewrites(paths, groups)
-}
-
-func (invocation *nativeRefreshInvocation) execute(ctx context.Context, executor subprocess.CommandExecutor, request subprocess.CommandAttemptRequest, bind subprocess.WorkingDirectoryBinder) (attempt subprocess.CommandAttemptResult, observed bool, returnErr error) {
-	reads, _, err := invocation.reads.Take()
-	if err != nil {
-		return attempt, false, err
-	}
-	var before nativeconfig.InvocationBaseline
-	prepared := false
-	prepare := func(ctx context.Context, _ *physicalwork.Budget) error {
-		var err error
-		before, err = invocation.observation.documents.Read(ctx, reads)
-		if err != nil {
-			return err
-		}
-		if err := invocation.observation.documents.Qualify(ctx, before, before, relationhost.NativeSettingsRewrites{}); err != nil {
-			return err
-		}
-		prepared = true
-		return nil
-	}
-	if invocation.protection != nil {
-		input, err := invocation.protection.AttachProtection(ctx)
-		if err != nil {
-			return attempt, false, err
-		}
-		result, err := protection.ExecuteInvocation(ctx, input, executor, request, bind, prepare)
-		returnErr = err
-		if process, present := result.Process(); present {
-			attempt, observed = process.Attempt(), true
-		}
-	} else {
-		if err := prepare(ctx, reads); err != nil {
-			return attempt, false, err
-		}
-		attempt, observed = executor.ExecuteInWorkingDirectory(ctx, request, bind), true
-	}
-	if observed && prepared {
-		postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), attemptPersistenceTimeout)
-		defer cancel()
-		after, err := invocation.observation.documents.Read(postCtx, reads)
-		if err == nil {
-			err = invocation.observation.documents.Qualify(postCtx, before, after, invocation.rewrites)
-		}
-		returnErr = errors.Join(returnErr, err)
-	}
-	return attempt, observed, returnErr
 }
