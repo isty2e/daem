@@ -1,4 +1,4 @@
-package execute
+package documentmutation
 
 import (
 	"context"
@@ -17,61 +17,37 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-// restoreDocumentDestination derives comparison-based restoration. Its caller
-// supplies the admitted recovery phase and full journal/state/ownership authority.
-func restoreDocumentDestination(
+func (authority *Operation) PublishRestoration(
 	ctx context.Context,
-	authority *mutationAuthority,
-	destination mutationnamespace.Destination,
-	comparison journaldocument.Comparison,
-	staged aggregate.Document,
-	stagedMode *recovery.PermissionMode,
-) (outcome fileMutationOutcome) {
-	if ctx == nil {
-		return fileMutationOutcome{err: fmt.Errorf("document restoration context is required")}
-	}
-	if err := comparison.Validate(); err != nil {
-		return fileMutationOutcome{err: err}
-	}
-	restored, err := comparison.RestoreBefore(ctx, staged, stagedMode)
-	if err != nil {
-		return fileMutationOutcome{err: err}
-	}
-	return publishDocumentRestoration(ctx, authority, destination, comparison.MaximumDocumentBytes(), staged, stagedMode, restored)
-}
-
-func publishDocumentRestoration(
-	ctx context.Context,
-	authority *mutationAuthority,
 	destination mutationnamespace.Destination,
 	maximumBytes int64,
 	staged aggregate.Document,
 	stagedMode *recovery.PermissionMode,
 	restored journaldocument.Restoration,
-) (outcome fileMutationOutcome) {
+) (outcome restorationOutcome) {
 	if ctx == nil {
-		return fileMutationOutcome{err: fmt.Errorf("document restoration context is required")}
+		return restorationOutcome{err: fmt.Errorf("document restoration context is required")}
 	}
 	if err := ctx.Err(); err != nil {
-		return fileMutationOutcome{err: err}
+		return restorationOutcome{err: err}
 	}
 	if err := restored.Validate(); err != nil {
-		return fileMutationOutcome{err: err}
+		return restorationOutcome{err: err}
 	}
 	if err := staged.Validate(); err != nil {
-		return fileMutationOutcome{err: err}
+		return restorationOutcome{err: err}
 	}
 	stagedRoot, err := recovery.NewPartialDocumentState(staged.Exists(), stagedMode, nil)
 	if err != nil {
-		return fileMutationOutcome{err: err}
+		return restorationOutcome{err: err}
 	}
 	if authority == nil || authority.filesystem == nil {
-		return fileMutationOutcome{err: fmt.Errorf("document restoration filesystem authority is required")}
+		return restorationOutcome{err: fmt.Errorf("document restoration filesystem authority is required")}
 	}
 
 	capability, err := authority.destinations.Acquire(destination)
 	if err != nil {
-		return fileMutationOutcome{err: err}
+		return restorationOutcome{err: err}
 	}
 	open := true
 	defer func() {
@@ -80,38 +56,38 @@ func publishDocumentRestoration(
 		}
 	}()
 
-	current, mode, identity, err := readRootedRestorationDocument(ctx, authority, capability, maximumBytes)
+	current, mode, identity, err := authority.readDocument(ctx, capability, maximumBytes)
 	if err != nil {
-		return fileMutationOutcome{err: err}
+		return restorationOutcome{err: err}
 	}
 	currentRoot, err := recovery.NewPartialDocumentState(current.Exists(), mode, nil)
 	if err != nil {
-		return fileMutationOutcome{err: err}
+		return restorationOutcome{err: err}
 	}
 	if !current.Equal(staged) || !currentRoot.SameRootMetadata(stagedRoot) {
-		return fileMutationOutcome{err: fmt.Errorf("document changed after recovery staging")}
+		return restorationOutcome{err: fmt.Errorf("document changed after recovery staging")}
 	}
 
 	if !restored.Changed() {
-		return fileMutationOutcome{}
+		return restorationOutcome{}
 	}
 
-	fresh, freshMode, freshIdentity, err := readRootedRestorationDocument(ctx, authority, capability, maximumBytes)
+	fresh, freshMode, freshIdentity, err := authority.readDocument(ctx, capability, maximumBytes)
 	if err != nil {
-		return fileMutationOutcome{err: err}
+		return restorationOutcome{err: err}
 	}
 	freshRoot, err := recovery.NewPartialDocumentState(fresh.Exists(), freshMode, nil)
 	if err != nil {
-		return fileMutationOutcome{err: err}
+		return restorationOutcome{err: err}
 	}
 	if !fresh.Equal(current) || !freshRoot.SameRootMetadata(currentRoot) || current.Exists() && (identity == nil || freshIdentity == nil || !identity.Equal(freshIdentity)) {
-		return fileMutationOutcome{err: fmt.Errorf("document changed while preparing recovery publication")}
+		return restorationOutcome{err: fmt.Errorf("document changed while preparing recovery publication")}
 	}
 
 	candidate := restored.Document()
 	fileMode, regular := restored.RegularFileMode()
 	if candidate.Exists() != regular {
-		return fileMutationOutcome{err: fmt.Errorf("restored document has inconsistent root metadata")}
+		return restorationOutcome{err: fmt.Errorf("restored document has inconsistent root metadata")}
 	}
 	open = false
 	switch {
@@ -123,19 +99,19 @@ func publishDocumentRestoration(
 		err = authority.filesystem.ReplaceRootedFile(ctx, capability, candidate.Content(), os.FileMode(fileMode), freshIdentity)
 	}
 	if err != nil {
-		return attemptedFileMutation(err)
+		return attemptedRestoration(err)
 	}
 	if candidate.Exists() {
-		return attemptedFileMutation(nil)
+		return attemptedRestoration(nil)
 	}
 
 	verification, err := authority.destinations.Acquire(destination)
 	if err != nil {
-		return attemptedFileMutation(markHostEffectIndeterminate(err))
+		return attemptedRestoration(mutationfs.MarkEffectIndeterminate(err))
 	}
 	defer func() {
 		if err := verification.Close(); err != nil {
-			outcome.err = errors.Join(outcome.err, markHostEffectIndeterminate(err))
+			outcome.err = errors.Join(outcome.err, mutationfs.MarkEffectIndeterminate(err))
 		}
 	}()
 	_, err = authority.filesystem.CaptureRootedEntryIdentity(ctx, verification)
@@ -143,12 +119,12 @@ func publishDocumentRestoration(
 		if err == nil {
 			err = fmt.Errorf("document entry still exists")
 		}
-		return attemptedFileMutation(markHostEffectIndeterminate(fmt.Errorf("restored document absence did not verify: %w", err)))
+		return attemptedRestoration(mutationfs.MarkEffectIndeterminate(fmt.Errorf("restored document absence did not verify: %w", err)))
 	}
-	return attemptedFileMutation(nil)
+	return attemptedRestoration(nil)
 }
 
-func readRootedRestorationDocument(ctx context.Context, authority *mutationAuthority, capability rootedpath.CommitCapability, maximumBytes int64) (aggregate.Document, *recovery.PermissionMode, mutationfs.EntryIdentity, error) {
+func (authority *Operation) readDocument(ctx context.Context, capability rootedpath.CommitCapability, maximumBytes int64) (aggregate.Document, *recovery.PermissionMode, mutationfs.EntryIdentity, error) {
 	if authority.physicalWorkBudget != nil {
 		maximumBytes = min(maximumBytes, authority.physicalWorkBudget.RemainingBytes())
 		if maximumBytes <= 0 {

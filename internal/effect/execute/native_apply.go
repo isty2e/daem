@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/isty2e/daem/internal/effect/execute/documentmutation"
+
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -497,7 +499,9 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		prefix := fmt.Sprintf("apply/native-document/%d", index)
 		var err error
 		if work.mutating[index] {
-			err = run(prefix, func() error { return publishNativeDocument(ctx, input, document, authority) })
+			err = run(prefix, func() error {
+				return documentmutation.New(authority.destinations, input.Filesystem, authority.removals, input.Budget).PublishCaptured(ctx, document)
+			})
 		} else {
 			err = execution.runObservation(prefix+"/record", applyForwardFailureGuardedRecovery, func() error { return ctx.Err() })
 		}

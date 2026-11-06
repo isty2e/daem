@@ -548,18 +548,6 @@ type hostActionProgress struct {
 	states []hostEffectProgress
 }
 
-type indeterminateHostEffectError struct{ cause error }
-
-func (failure *indeterminateHostEffectError) Error() string { return failure.cause.Error() }
-func (failure *indeterminateHostEffectError) Unwrap() error { return failure.cause }
-
-func markHostEffectIndeterminate(err error) error {
-	if err == nil {
-		return nil
-	}
-	return &indeterminateHostEffectError{cause: err}
-}
-
 func newHostActionProgress(actionCount int) hostActionProgress {
 	return hostActionProgress{states: make([]hostEffectProgress, actionCount)}
 }
@@ -590,8 +578,7 @@ func (progress hostActionProgress) requiresRecovery() bool {
 }
 
 func progressAfterMutationError(err error) hostEffectProgress {
-	var indeterminate *indeterminateHostEffectError
-	if errors.As(err, &indeterminate) {
+	if mutationfs.HasIndeterminateEffect(err) {
 		return hostEffectIndeterminate
 	}
 	var removalFailure *removaloperation.CommitError

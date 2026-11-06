@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/effect/execute/documentmutation"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
@@ -205,9 +207,9 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 					return err
 				}
 				current, mode := document.Current()
-				outcome := publishDocumentRestoration(ctx, authority, destination, document.Comparison().MaximumDocumentBytes(), current, mode, document.Restoration())
-				if outcome.err != nil {
-					return outcome.err
+				outcome := documentmutation.New(authority.destinations, authority.filesystem, authority.removals, authority.physicalWorkBudget).PublishRestoration(ctx, destination, document.Comparison().MaximumDocumentBytes(), current, mode, document.Restoration())
+				if outcome.Err() != nil {
+					return outcome.Err()
 				}
 				return afterEffect()
 			}})

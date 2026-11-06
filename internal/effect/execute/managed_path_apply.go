@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -192,7 +194,7 @@ func applyManagedPathSingleMutation(
 		}
 		if err := verifyManagedPathPostcondition(ctx, authority, destination, false, "", effect.ContentKind(), 0); err != nil {
 			progress.record(mutationIndex, hostEffectIndeterminate)
-			return markHostEffectIndeterminate(fmt.Errorf("verify removed managed destination %q: %w", effect.Destination(), err))
+			return mutationfs.MarkEffectIndeterminate(fmt.Errorf("verify removed managed destination %q: %w", effect.Destination(), err))
 		}
 		progress.record(mutationIndex, hostEffectExpectedAfter)
 		return nil
@@ -216,7 +218,7 @@ func applyManagedPathSingleMutation(
 		effect.DesiredFileMode(),
 	); err != nil {
 		progress.record(mutationIndex, hostEffectIndeterminate)
-		return markHostEffectIndeterminate(fmt.Errorf("verify managed destination %q: %w", effect.Destination(), err))
+		return mutationfs.MarkEffectIndeterminate(fmt.Errorf("verify managed destination %q: %w", effect.Destination(), err))
 	}
 	progress.record(mutationIndex, hostEffectExpectedAfter)
 	return nil
@@ -259,7 +261,7 @@ func applyManagedPathRelocationPublish(
 		effect.DesiredFileMode(),
 	); err != nil {
 		progress.record(mutationIndex, hostEffectIndeterminate)
-		return markHostEffectIndeterminate(fmt.Errorf("verify relocated managed destination %q: %w", effect.Destination(), err))
+		return mutationfs.MarkEffectIndeterminate(fmt.Errorf("verify relocated managed destination %q: %w", effect.Destination(), err))
 	}
 	progress.record(mutationIndex, hostEffectExpectedAfter)
 	return nil
@@ -291,7 +293,7 @@ func applyManagedPathRelocationRetire(
 		ctx, authority, oldDestination, false, "", previous.ContentKind(), 0,
 	); err != nil {
 		progress.record(mutationIndex, hostEffectIndeterminate)
-		return markHostEffectIndeterminate(fmt.Errorf("verify previous managed destination removal %q: %w", previous.Destination(), err))
+		return mutationfs.MarkEffectIndeterminate(fmt.Errorf("verify previous managed destination removal %q: %w", previous.Destination(), err))
 	}
 	progress.record(mutationIndex, hostEffectExpectedAfter)
 	return nil

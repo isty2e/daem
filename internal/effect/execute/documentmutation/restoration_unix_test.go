@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package execute
+package documentmutation
 
 import (
 	"context"
@@ -258,7 +258,7 @@ func TestDocumentRestorationPublicationReportsFailureAfterVisibility(t *testing.
 	store.afterReplace = func() error { return injected }
 	mode := recovery.PermissionMode(0o644)
 	outcome := restoreDocumentDestination(t.Context(), authority, destination, restorationPublicationComparison(t, mode), aggregate.ExistingDocument([]byte(restorationExpected)), &mode)
-	if !errors.Is(outcome.err, injected) || !outcome.commitAttempted || progressAfterMutationError(outcome.err) != hostEffectIndeterminate || store.writes != 1 {
+	if !errors.Is(outcome.err, injected) || !outcome.commitAttempted || !mutationfs.MayHaveVisibleEffect(outcome.err) || store.writes != 1 {
 		t.Fatalf("visible failure was not retained as attempted/indeterminate: %+v", outcome)
 	}
 	actual, err := os.ReadFile(path)
@@ -301,7 +301,7 @@ func TestDocumentRestorationPublicationPreservesWholeMetadataAndRequiresRemovalA
 	assertMutationTestFile(t, path, "opaque original")
 }
 
-func restorationPublicationFixture(t *testing.T, current string) (*mutationAuthority, mutationnamespace.Destination, string, *documentRestorationTestStore) {
+func restorationPublicationFixture(t *testing.T, current string) (*Operation, mutationnamespace.Destination, string, *documentRestorationTestStore) {
 	t.Helper()
 	root := newProjectRootForMutationTest(t)
 	path := filepath.Join(root, ".pi", "settings.json")

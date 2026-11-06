@@ -203,7 +203,7 @@ func commitAggregateEffect(
 		return outcome
 	}
 	if err := verifyAggregatePostcondition(ctx, authority, destination, effect, candidate, codecs); err != nil {
-		return fileMutationOutcome{err: markHostEffectIndeterminate(err), commitAttempted: true}
+		return fileMutationOutcome{err: mutationfs.MarkEffectIndeterminate(err), commitAttempted: true}
 	}
 	return outcome
 }

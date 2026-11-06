@@ -55,7 +55,7 @@ func commitRootedDirectoryWithPrecondition(
 	}
 	defer func() {
 		if abortErr := prepared.Abort(context.Background()); abortErr != nil {
-			resultErr = markHostEffectIndeterminate(
+			resultErr = mutationfs.MarkEffectIndeterminate(
 				errors.Join(resultErr, fmt.Errorf("abort prepared rooted tree: %w", abortErr)),
 			)
 		}
@@ -100,7 +100,7 @@ func commitRootedDirectoryWithPrecondition(
 
 	err = prepared.Commit(ctx)
 	if err != nil && destinationRetired {
-		return markHostEffectIndeterminate(err)
+		return mutationfs.MarkEffectIndeterminate(err)
 	}
 	return err
 }

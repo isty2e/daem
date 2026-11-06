@@ -79,7 +79,7 @@ func TestPostMutationVerificationFailureCannotBeClassifiedUncommitted(t *testing
 	if err == nil {
 		t.Fatal("CaptureEntryIdentity unexpectedly found missing path")
 	}
-	wrapped := markHostEffectIndeterminate(err)
+	wrapped := mutationfs.MarkEffectIndeterminate(err)
 	if !errors.Is(wrapped, err) {
 		t.Fatal("post-mutation verification wrapper did not preserve its cause")
 	}
@@ -92,6 +92,18 @@ func TestClassifiedPreCommitFailureIsNotMarkedAsStarted(t *testing.T) {
 	err := classifiedMutationFailure{kind: mutationfs.FailureUncommitted}
 	if got := progressAfterMutationError(err); got != hostEffectNotStarted {
 		t.Fatalf("progress = %v, want hostEffectNotStarted", got)
+	}
+}
+
+func TestPostEffectUncertaintyDominatesNestedUncommittedRemoval(t *testing.T) {
+	outcome, err := mutationfs.NewCommitOutcome(mutationfs.CommitOutcomeUncommitted, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := removaloperation.NewCommitError(outcome, classifiedMutationFailure{kind: mutationfs.FailureUncommitted})
+	failure := mutationfs.MarkEffectIndeterminate(cause)
+	if !errors.Is(failure, cause) || progressAfterMutationError(failure) != hostEffectIndeterminate {
+		t.Fatal("nested removal erased post-effect uncertainty")
 	}
 }
 
