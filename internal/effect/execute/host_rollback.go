@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -357,7 +359,7 @@ func stageRecoveryRollback(
 func (rollback hostRollback) restore(
 	ctx context.Context,
 	authority *mutationAuthority,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 ) error {
 	var failures []error
 	groups := make(map[string][]hostRollbackEntry, len(rollback.entries))
@@ -375,7 +377,7 @@ func (rollback hostRollback) restore(
 		if !rollbackGroupAttempted(groups[key]) {
 			continue
 		}
-		if err := gate.validateBefore(ctx); err != nil {
+		if err := gate.ValidateBefore(ctx); err != nil {
 			failures = append(failures, fmt.Errorf("validate recovery rollback authority: %w", err))
 			continue
 		}
@@ -383,7 +385,7 @@ func (rollback hostRollback) restore(
 			failures = append(failures, err)
 			continue
 		}
-		if err := gate.acceptAfter(ctx); err != nil {
+		if err := gate.AcceptAfter(ctx); err != nil {
 			failures = append(failures, fmt.Errorf("accept recovery rollback visibility: %w", err))
 		}
 	}

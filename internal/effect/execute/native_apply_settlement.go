@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -17,8 +19,8 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
-func settleNativeApplyFailure(ctx context.Context, primary error, input NativeApplyInput, options ApplyOptions, authority *mutationAuthority, store ownershipmutation.RegistryStore, captured journalpublication.CapturedNativeJournal, retiring *journal.NativeJournalRetirement, execution *applyEffectExecution, result *ApplyResult) (resultErr error) {
-	prefix, err := execution.beginFailureSettlement(applyFailureSettlementGuardedRecovery)
+func settleNativeApplyFailure(ctx context.Context, primary error, input NativeApplyInput, options ApplyOptions, authority *mutationAuthority, store ownershipmutation.RegistryStore, captured journalpublication.CapturedNativeJournal, retiring *journal.NativeJournalRetirement, execution *applyprogram.Execution, result *ApplyResult) (resultErr error) {
+	prefix, err := execution.BeginFailureSettlement(applyprogram.SettlementGuardedRecovery)
 	if err != nil {
 		return errors.Join(primary, err)
 	}
@@ -26,7 +28,7 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 	refuse := func(err error) error {
 		return errors.Join(primary, fmt.Errorf("automatic native settlement did not complete; preserve recovery evidence and run daem recover --dry-run: %w", err))
 	}
-	if err := execution.runObservation(prefix+"/progress-classification", applyForwardFailureUnavailable, func() error {
+	if err := execution.Observe(prefix+"/progress-classification", applyprogram.FailureUnavailable, func() error {
 		if err := captured.Validate(); err != nil {
 			return err
 		}
@@ -36,7 +38,7 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 	}); err != nil {
 		return refuse(err)
 	}
-	if err := execution.runObservation(prefix+"/rollback-selection", applyForwardFailureUnavailable, func() error {
+	if err := execution.Observe(prefix+"/rollback-selection", applyprogram.FailureUnavailable, func() error {
 		if !captured.BeforeState().Equal(input.Preparation.BeforeState()) || !captured.AfterState().Equal(input.Preparation.AfterState()) {
 			return fmt.Errorf("native settlement differs from its complete containing operation")
 		}
@@ -45,7 +47,7 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 		return refuse(err)
 	}
 	var operation *journal.NativeRecoveryOperation
-	if err := execution.runObservation(prefix+"/journal-load", applyForwardFailureUnavailable, func() error {
+	if err := execution.Observe(prefix+"/journal-load", applyprogram.FailureUnavailable, func() error {
 		var err error
 		operation, err = journal.OpenCapturedNativeRecovery(recoveryCtx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journalqualification.NativeRecoveryOptions{
 			Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
@@ -58,7 +60,7 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 		return refuse(err)
 	}
 	defer func() { resultErr = errors.Join(resultErr, operation.Close()) }()
-	if err := execution.runObservation(prefix+"/journal-validation", applyForwardFailureUnavailable, func() error {
+	if err := execution.Observe(prefix+"/journal-validation", applyprogram.FailureUnavailable, func() error {
 		assessment := operation.InitialAssessment()
 		if !assessment.CleanBefore() && !assessment.CleanAfter() && !assessment.RequiresRollback() && !assessment.RequiresFinalization() {
 			return fmt.Errorf("native settlement has no admitted observed phase")
@@ -68,7 +70,7 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 		return refuse(err)
 	}
 	var prepared operationplan.EffectStructure
-	if err := execution.runObservation(prefix+"/execution-compile", applyForwardFailureUnavailable, func() error {
+	if err := execution.Observe(prefix+"/execution-compile", applyprogram.FailureUnavailable, func() error {
 		if retiring != nil {
 			if err := retiring.BindRecoveryOperation(operation); err != nil {
 				return err
@@ -80,7 +82,7 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 	}); err != nil {
 		return refuse(err)
 	}
-	if err := execution.handoffGuardedRecovery(); err != nil {
+	if err := execution.HandoffGuardedRecovery(); err != nil {
 		return refuse(err)
 	}
 	err = executeNativeRecoveryOperation(recoveryCtx, operation, authority, store, RecoveryOptions{

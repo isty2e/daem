@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
@@ -80,8 +82,8 @@ func applyManagedPathPhaseWithEvents(
 	progress hostActionProgress,
 	eventIndexOffset int,
 	events applyEventEmitter,
-	gate visibilityEffectGate,
-	execution *applyEffectExecution,
+	gate applyprogram.VisibilityGate,
+	execution *applyprogram.Execution,
 	afterMutation func(context.Context, effectpreparation.ManagedPathEffect, managedPathPhase) error,
 ) error {
 	operations := schedule.publish
@@ -98,9 +100,9 @@ func applyManagedPathPhaseWithEvents(
 		mutatesHost := effect.Kind() != effectpreparation.ManagedPathEffectRecord
 		prefix := applyManagedPathScheduleReference(phase, operation.effectIndex)
 		if effect.Kind() == effectpreparation.ManagedPathEffectRecord {
-			err = execution.runObservation(
+			err = execution.Observe(
 				prefix+"/record",
-				applyForwardFailureGuardedRecovery,
+				applyprogram.FailureGuardedRecovery,
 				func() error {
 					destination, resolveErr := authority.destinations.Resolve(effect.Scope(), effect.Destination())
 					if resolveErr != nil {
@@ -116,14 +118,14 @@ func applyManagedPathPhaseWithEvents(
 				},
 			)
 		} else {
-			operationGate := execution.visibilityGate(
+			operationGate := execution.VisibilityGate(
 				gate,
 				prefix,
 				operationplan.EffectStepPersistence,
-				applyForwardFailureGuardedRecovery,
+				applyprogram.FailureGuardedRecovery,
 			)
-			if err = operationGate.validateBefore(ctx); err == nil {
-				err = operationGate.applyEffect(func() error {
+			if err = operationGate.ValidateBefore(ctx); err == nil {
+				err = operationGate.ApplyEffect(func() error {
 					switch {
 					case operation.relocation && phase == managedPathPublishPhase:
 						return applyManagedPathRelocationPublish(
@@ -142,7 +144,7 @@ func applyManagedPathPhaseWithEvents(
 				})
 			}
 			if err == nil {
-				err = operationGate.acceptAfter(ctx)
+				err = operationGate.AcceptAfter(ctx)
 			}
 		}
 		if err == nil && mutatesHost && afterMutation != nil {

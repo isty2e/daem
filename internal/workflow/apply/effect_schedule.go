@@ -3,6 +3,8 @@ package apply
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/execute"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
@@ -19,7 +21,7 @@ type applyForwardEffectSchedule struct {
 	full         operationplan.EffectStructure
 	final        operationplan.EffectStructure
 	continuation applyContinuationPlan
-	effectPlan   execute.ApplyEffectPlan
+	effectPlan   applyprogram.Plan
 }
 
 type applyFinalScheduleBinding struct {

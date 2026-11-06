@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -24,8 +26,8 @@ func applyAggregateEffectsWithEvents(
 	codecs aggregate.CodecCatalog,
 	eventIndexOffset int,
 	events applyEventEmitter,
-	gate visibilityEffectGate,
-	execution *applyEffectExecution,
+	gate applyprogram.VisibilityGate,
+	execution *applyprogram.Execution,
 	afterMutation func(context.Context, effectpreparation.AggregateEffect) error,
 ) (hostActionProgress, error) {
 	journaledProjectionCount := 0
@@ -56,9 +58,9 @@ func applyAggregateEffectsWithEvents(
 		hostProgress := hostEffectNotStarted
 		var err error
 		if effect.Kind() == effectpreparation.AggregateEffectRecord {
-			err = execution.runObservation(
+			err = execution.Observe(
 				prefix+"/record",
-				applyForwardFailureGuardedRecovery,
+				applyprogram.FailureGuardedRecovery,
 				func() error {
 					if observeErr := observePreconditions(); observeErr != nil {
 						return observeErr
@@ -67,22 +69,22 @@ func applyAggregateEffectsWithEvents(
 				},
 			)
 		} else {
-			err = execution.runObservation(
+			err = execution.Observe(
 				prefix+"/preconditions",
-				applyForwardFailureGuardedRecovery,
+				applyprogram.FailureGuardedRecovery,
 				observePreconditions,
 			)
-			operationGate := execution.visibilityGate(
+			operationGate := execution.VisibilityGate(
 				gate,
 				prefix,
 				operationplan.EffectStepPersistence,
-				applyForwardFailureGuardedRecovery,
+				applyprogram.FailureGuardedRecovery,
 			)
 			if err == nil {
-				err = operationGate.validateBefore(ctx)
+				err = operationGate.ValidateBefore(ctx)
 			}
 			if err == nil {
-				err = operationGate.applyEffect(func() error {
+				err = operationGate.ApplyEffect(func() error {
 					outcome := commitAggregateEffect(ctx, authority, destination, effect, codecs)
 					hostProgress = hostEffectExpectedAfter
 					if outcome.err != nil {
@@ -92,7 +94,7 @@ func applyAggregateEffectsWithEvents(
 				})
 			}
 			if err == nil {
-				err = operationGate.acceptAfter(ctx)
+				err = operationGate.AcceptAfter(ctx)
 			}
 			if err == nil && afterMutation != nil {
 				err = afterMutation(ctx, effect)

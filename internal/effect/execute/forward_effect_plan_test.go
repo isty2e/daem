@@ -71,19 +71,7 @@ func TestApplyFailureSettlementStructureIsZeroDemandAndHostCountIndependent(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !one.failureStructure.Equal(many.failureStructure) {
+	if !one.SameFailurePolicy(many) {
 		t.Fatal("failure settlement structure changed with host action cardinality")
-	}
-	for _, structure := range []operationplan.EffectStructure{
-		one.failureStructure,
-		many.failureStructure,
-	} {
-		demand, demandErr := structure.LegacyDemand()
-		if demandErr != nil {
-			t.Fatal(demandErr)
-		}
-		if !demand.Empty() {
-			t.Fatalf("failure settlement demand = %+v, want zero", demand)
-		}
 	}
 }

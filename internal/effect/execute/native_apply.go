@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/effect/execute/documentmutation"
 
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
@@ -282,75 +284,74 @@ func maximumNativeWorkValidationCount(input NativeApplyInput, work nativeApplyWo
 	return addForwardValidationCount(count, promoting)
 }
 
-func PrepareNativeApplyEffectPlan(input NativeApplyInput) (ApplyEffectPlan, error) {
+func PrepareNativeApplyEffectPlan(input NativeApplyInput) (applyprogram.Plan, error) {
 	work, err := nativeApplyWorkFor(input)
 	if err != nil {
-		return ApplyEffectPlan{}, err
+		return applyprogram.Plan{}, err
 	}
 	return prepareNativeApplyEffectPlan(input, work)
 }
 
-func prepareNativeApplyEffectPlan(input NativeApplyInput, work nativeApplyWork) (ApplyEffectPlan, error) {
+func prepareNativeApplyEffectPlan(input NativeApplyInput, work nativeApplyWork) (applyprogram.Plan, error) {
 	var builder operationplan.EffectStructureBuilder
 	if !work.changed {
 		return compileApplyEffectPlan(applyStateTransition{}, managedPathExecutionSchedule{}, ownershipMutationState{}, nil)
 	}
 	ordinary, err := nativeOrdinaryApplyFor(input, work, forwardEffectPlanningOperationID())
 	if err != nil {
-		return ApplyEffectPlan{}, err
+		return applyprogram.Plan{}, err
 	}
-	promotions, err := newProvisionalPromotionSchedule(ordinary.ownership)
+	promotions, err := applyprogram.NewPromotionSchedule(ordinary.ownership.provisional, false)
 	if err != nil {
-		return ApplyEffectPlan{}, err
+		return applyprogram.Plan{}, err
 	}
 	// Native16 finalizes the complete metadata set unconditionally.
-	promotions.triggered = false
 	nodes := []operationplan.EffectNode{
-		applyForwardObligation(&builder, "apply/native-journal-publication", operationplan.EffectStepPersistence),
-		applyCheckedStep(&builder, "apply/native-preparation", operationplan.EffectStepObservation),
-		applyForwardObligation(&builder, "apply/native-ownership-preparation", operationplan.EffectStepPersistence),
+		applyprogram.ForwardObligation(&builder, "apply/native-journal-publication", operationplan.EffectStepPersistence),
+		applyprogram.CheckedStep(&builder, "apply/native-preparation", operationplan.EffectStepObservation),
+		applyprogram.ForwardObligation(&builder, "apply/native-ownership-preparation", operationplan.EffectStepPersistence),
 	}
 	for index, mutating := range work.mutating {
 		prefix := fmt.Sprintf("apply/native-document/%d", index)
 		if mutating {
-			nodes = append(nodes, applyForwardObligation(&builder, prefix, operationplan.EffectStepPersistence))
+			nodes = append(nodes, applyprogram.ForwardObligation(&builder, prefix, operationplan.EffectStepPersistence))
 		} else {
-			nodes = append(nodes, applyCheckedStep(&builder, prefix+"/record", operationplan.EffectStepObservation))
+			nodes = append(nodes, applyprogram.CheckedStep(&builder, prefix+"/record", operationplan.EffectStepObservation))
 		}
 		if work.promoting[index] {
-			nodes = append(nodes, applyForwardObligation(&builder, prefix+"/promotion", operationplan.EffectStepPersistence), applyForwardObligation(&builder, prefix+"/claims", operationplan.EffectStepPersistence))
+			nodes = append(nodes, applyprogram.ForwardObligation(&builder, prefix+"/promotion", operationplan.EffectStepPersistence), applyprogram.ForwardObligation(&builder, prefix+"/claims", operationplan.EffectStepPersistence))
 		}
 	}
 	nodes = append(nodes, ordinaryApplyEffectNodes(&builder, ordinary.managedSchedule, work.ordinaryAggregates, promotions)...)
-	if err := promotions.requireComplete(); err != nil {
-		return ApplyEffectPlan{}, err
+	if err := promotions.RequireComplete(); err != nil {
+		return applyprogram.Plan{}, err
 	}
 	if slices.Contains(work.promoting, true) || len(ordinary.ownership.provisional) != 0 {
-		nodes = append(nodes, applyCheckedStep(&builder, "apply/native-promoted-preparation", operationplan.EffectStepObservation))
+		nodes = append(nodes, applyprogram.CheckedStep(&builder, "apply/native-promoted-preparation", operationplan.EffectStepObservation))
 	}
 	nodes = append(
 		nodes,
-		applyCheckedStep(&builder, "apply/native-host-postconditions", operationplan.EffectStepObservation),
-		applyForwardObligation(&builder, "apply/statefile-publication", operationplan.EffectStepPersistence),
-		applyCheckedStep(&builder, "apply/native-finalization-observation", operationplan.EffectStepObservation),
-		applyForwardObligation(&builder, "apply/native-ownership-finalization", operationplan.EffectStepPersistence),
+		applyprogram.CheckedStep(&builder, "apply/native-host-postconditions", operationplan.EffectStepObservation),
+		applyprogram.ForwardObligation(&builder, "apply/statefile-publication", operationplan.EffectStepPersistence),
+		applyprogram.CheckedStep(&builder, "apply/native-finalization-observation", operationplan.EffectStepObservation),
+		applyprogram.ForwardObligation(&builder, "apply/native-ownership-finalization", operationplan.EffectStepPersistence),
 	)
-	nodes = append(nodes, applyJournalRetirementSchedule(&builder)...)
+	nodes = append(nodes, applyprogram.JournalRetirementSchedule(&builder)...)
 	segment := operationplan.EffectSequence(nodes...)
 	structure, err := builder.Compile(builder.ForwardPhase("apply-effect/core", segment))
 	if err != nil {
-		return ApplyEffectPlan{}, err
+		return applyprogram.Plan{}, err
 	}
-	failure, err := compileApplyFailureSettlementStructure(false)
+	failure, err := applyprogram.CompileFailureSettlement(false)
 	if err != nil {
-		return ApplyEffectPlan{}, err
+		return applyprogram.Plan{}, err
 	}
-	return ApplyEffectPlan{segment: segment, structure: structure, failureStructure: failure, promotionIndexes: clonePromotionIndexes(promotions.intentByKey), changed: true, valid: true}, nil
+	return promotions.BindPlan(segment, structure, failure)
 }
 
 // ApplyNativeWithEffectPlan settles failed published effects from the observed
 // durable phase. Unqualified or changed recovery evidence remains retained.
-func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan ApplyEffectPlan, options ApplyOptions) (result ApplyResult, resultErr error) {
+func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan applyprogram.Plan, options ApplyOptions) (result ApplyResult, resultErr error) {
 	defer func() {
 		if resultErr != nil {
 			result.nativeSettlement = nil
@@ -371,11 +372,11 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return ApplyResult{}, err
 	}
 	if !work.changed {
-		execution, err := beginApplyEffectExecution(&plan, expectedPlan)
+		execution, err := applyprogram.Begin(&plan, expectedPlan)
 		if err != nil {
 			return ApplyResult{}, err
 		}
-		defer func() { resultErr = errors.Join(resultErr, execution.finish(resultErr)) }()
+		defer func() { resultErr = errors.Join(resultErr, execution.Finish(resultErr)) }()
 		return ApplyResult{StatePath: input.Paths.StatefilePath, State: input.CurrentState}, nil
 	}
 	stateContent, err := input.StateCodec.Encode(input.Preparation.AfterState())
@@ -422,25 +423,25 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	if err := bindNativeOrdinaryApply(ctx, input, work, authority); err != nil {
 		return ApplyResult{}, err
 	}
-	execution, err := beginApplyEffectExecution(&plan, expectedPlan)
+	execution, err := applyprogram.Begin(&plan, expectedPlan)
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	defer func() { resultErr = errors.Join(resultErr, execution.finish(resultErr)) }()
-	gate := visibilityEffectGate{before: func(ctx context.Context) error { return options.validatePhysicalAuthority(ctx, authority) }, after: options.acceptVisibilityChanges}
+	defer func() { resultErr = errors.Join(resultErr, execution.Finish(resultErr)) }()
+	gate := applyprogram.NewVisibilityGate(func(ctx context.Context) error { return options.validatePhysicalAuthority(ctx, authority) }, options.acceptVisibilityChanges)
 	run := func(prefix string, action func() error) error {
-		failure := applyForwardFailureGuardedRecovery
+		failure := applyprogram.FailureGuardedRecovery
 		if prefix == "apply/native-journal-publication" {
-			failure = applyForwardFailureNoCompensation
+			failure = applyprogram.FailureNoCompensation
 		}
-		step := execution.visibilityGate(gate, prefix, operationplan.EffectStepPersistence, failure)
-		if err := step.validateBefore(ctx); err != nil {
+		step := execution.VisibilityGate(gate, prefix, operationplan.EffectStepPersistence, failure)
+		if err := step.ValidateBefore(ctx); err != nil {
 			return err
 		}
-		if err := step.applyEffect(action); err != nil {
+		if err := step.ApplyEffect(action); err != nil {
 			return err
 		}
-		return step.acceptAfter(ctx)
+		return step.AcceptAfter(ctx)
 	}
 	created := time.Now().UTC()
 	id := journalpublication.OperationID(created)
@@ -472,7 +473,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		}
 		return authority.setJournalExecutionBasis(captured.CaptureResult().RecordFingerprint, captured.ActiveJournalAuthority())
 	}); err != nil {
-		return result, execution.settleFailureWithoutCompensation(err)
+		return result, execution.SettleFailureWithoutCompensation(err)
 	}
 	var retiring *journal.NativeJournalRetirement
 	var preparation ownership.ClaimConvergence
@@ -480,7 +481,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	settle := func(primary error) error {
 		return settleNativeApplyFailure(ctx, primary, input, options, authority, store, captured, retiring, execution, &result)
 	}
-	if err := execution.runObservation("apply/native-preparation", applyForwardFailureGuardedRecovery, func() error {
+	if err := execution.Observe("apply/native-preparation", applyprogram.FailureGuardedRecovery, func() error {
 		var err error
 		if err = prepareNativeApplyRemovals(ctx, captured, ordinary, work, authority, input, store); err != nil {
 			return err
@@ -503,7 +504,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 				return documentmutation.New(authority.destinations, input.Filesystem, authority.removals, input.Budget).PublishCaptured(ctx, document)
 			})
 		} else {
-			err = execution.runObservation(prefix+"/record", applyForwardFailureGuardedRecovery, func() error { return ctx.Err() })
+			err = execution.Observe(prefix+"/record", applyprogram.FailureGuardedRecovery, func() error { return ctx.Err() })
 		}
 		if err != nil {
 			return result, settle(err)
@@ -541,7 +542,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return result, settle(err)
 	}
 	if slices.Contains(work.promoting, true) || ordinaryPromoting {
-		if err := execution.runObservation("apply/native-promoted-preparation", applyForwardFailureGuardedRecovery, func() error {
+		if err := execution.Observe("apply/native-promoted-preparation", applyprogram.FailureGuardedRecovery, func() error {
 			if captured.NeedsPromotion() {
 				return fmt.Errorf("native operation retains unresolved namespace promotion")
 			}
@@ -555,7 +556,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			return result, settle(err)
 		}
 	}
-	if err := execution.runObservation("apply/native-host-postconditions", applyForwardFailureGuardedRecovery, func() error {
+	if err := execution.Observe("apply/native-host-postconditions", applyprogram.FailureGuardedRecovery, func() error {
 		observed, err := observeNativeRuntime(ctx, captured, authority, input, store)
 		if err != nil {
 			return err
@@ -567,11 +568,11 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	}); err != nil {
 		return result, settle(err)
 	}
-	stateGate := execution.visibilityGate(gate, "apply/statefile-publication", operationplan.EffectStepPersistence, applyForwardFailureGuardedRecovery)
-	if err := stateGate.validateBefore(ctx); err != nil {
+	stateGate := execution.VisibilityGate(gate, "apply/statefile-publication", operationplan.EffectStepPersistence, applyprogram.FailureGuardedRecovery)
+	if err := stateGate.ValidateBefore(ctx); err != nil {
 		return result, settle(err)
 	}
-	if err := stateGate.applyEffect(func() error {
+	if err := stateGate.ApplyEffect(func() error {
 		before, err := readNativeCommittedState(ctx, authority, input)
 		if err != nil || !before.Equal(input.CurrentState) {
 			return errors.Join(fmt.Errorf("native state changed before commit"), err)
@@ -586,14 +587,14 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	}); err != nil {
 		return result, settle(err)
 	}
-	if err := stateGate.acceptAfter(ctx); err != nil {
+	if err := stateGate.AcceptAfter(ctx); err != nil {
 		return result, settle(err)
 	}
 	observe := func() (journalqualification.NativeRecoveryAssessment, error) {
 		return observeNativeRuntime(ctx, captured, authority, input, store)
 	}
 	var assessment journalqualification.NativeRecoveryAssessment
-	if err := execution.runObservation("apply/native-finalization-observation", applyForwardFailureGuardedRecovery, func() error { var err error; assessment, err = observe(); return err }); err != nil {
+	if err := execution.Observe("apply/native-finalization-observation", applyprogram.FailureGuardedRecovery, func() error { var err error; assessment, err = observe(); return err }); err != nil {
 		return result, settle(err)
 	}
 	if err := run("apply/native-ownership-finalization", func() error {
@@ -608,15 +609,15 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		run  func() error
 	}{
 		{"project-validation", operationplan.EffectStepObservation, func() error { return authority.validateProjectSelection(input.Paths.ManifestRoot) }},
-		{"forward", operationplan.EffectStepForwardEffect, func() error { return gate.validateBefore(ctx) }},
+		{"forward", operationplan.EffectStepForwardEffect, func() error { return gate.ValidateBefore(ctx) }},
 		{"reload", operationplan.EffectStepObservation, func() error { var err error; assessment, err = observe(); return err }},
 		{"settlement", operationplan.EffectStepRetirement, func() error { return retiring.ExecuteWithGate(ctx, assessment, nil) }},
-		{"acceptance", operationplan.EffectStepObservation, func() error { return gate.acceptAfter(ctx) }},
+		{"acceptance", operationplan.EffectStepObservation, func() error { return gate.AcceptAfter(ctx) }},
 		{"final-project-validation", operationplan.EffectStepObservation, func() error { return authority.validateProjectSelection(input.Paths.ManifestRoot) }},
 	}
 	for _, step := range steps {
-		if err := execution.runCheckedStep("apply/journal-retirement/"+step.name, step.kind, applyForwardFailureNoCompensation, step.run); err != nil {
-			return result, execution.settleFailureWithoutCompensation(err)
+		if err := execution.RunStep("apply/journal-retirement/"+step.name, step.kind, applyprogram.FailureNoCompensation, step.run); err != nil {
+			return result, execution.SettleFailureWithoutCompensation(err)
 		}
 	}
 	state, registry, observed := assessment.ObservedPersistence()

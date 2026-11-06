@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -185,7 +187,7 @@ func ExecuteRecoveryPlanWithOptions(
 			kind: operationplan.EffectStepObservation,
 		},
 		func() error {
-			if err := visibilityGate.validateBefore(ctx); err != nil {
+			if err := visibilityGate.ValidateBefore(ctx); err != nil {
 				return fmt.Errorf("%w; recovery effects committed; recovery journal retained", err)
 			}
 			return nil
@@ -235,7 +237,7 @@ func ExecuteRecoveryPlanWithOptions(
 			kind: operationplan.EffectStepObservation,
 		},
 		func() error {
-			if err := visibilityGate.acceptAfter(ctx); err != nil {
+			if err := visibilityGate.AcceptAfter(ctx); err != nil {
 				return fmt.Errorf("%w; recovery effects committed; recovery journal retired", err)
 			}
 			return nil
@@ -501,17 +503,17 @@ func recoverySemanticValidationCount(plan recovery.Plan, hostActionCount int) in
 
 func recoveryClaimEffectGate(
 	authority *mutationAuthority,
-	gate visibilityEffectGate,
-) visibilityEffectGate {
-	return visibilityEffectGate{
-		before: func(ctx context.Context) error {
-			if err := gate.validateBefore(ctx); err != nil {
+	gate applyprogram.VisibilityGate,
+) applyprogram.VisibilityGate {
+	return applyprogram.NewVisibilityGate(
+		func(ctx context.Context) error {
+			if err := gate.ValidateBefore(ctx); err != nil {
 				return err
 			}
 			return authority.control.Validate(ctx)
 		},
-		after: gate.after,
-	}
+		gate.AcceptAfter,
+	)
 }
 
 func recoveryPlanLoadOptions(
@@ -672,7 +674,7 @@ func executeRecoveryRollbackEffects(
 	registryStore ownershipmutation.RegistryStore,
 	beforeHostAction func(int) error,
 	codecs aggregate.CodecCatalog,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 	execution *activeRecoveryExecution,
 ) error {
 	steps := activeRecoveryRollbackPreparationSteps()
@@ -936,7 +938,7 @@ func executeRecoveryRollbackEffects(
 func executeActiveRecoveryRollbackCompensation(
 	ctx context.Context,
 	authority *mutationAuthority,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 	execution *activeRecoveryExecution,
 	rollback *hostRollback,
 	prefix string,
@@ -1052,9 +1054,6 @@ func validateRecoveryBeforeEffects(
 	return options.ValidateBeforeEffects(ctx, authority)
 }
 
-func recoveryVisibilityGate(options RecoveryOptions) visibilityEffectGate {
-	return visibilityEffectGate{
-		before: options.ValidateVisibilityAuthority,
-		after:  options.AcceptVisibilityChanges,
-	}
+func recoveryVisibilityGate(options RecoveryOptions) applyprogram.VisibilityGate {
+	return applyprogram.NewVisibilityGate(options.ValidateVisibilityAuthority, options.AcceptVisibilityChanges)
 }

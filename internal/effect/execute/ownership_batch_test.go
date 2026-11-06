@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -367,17 +369,17 @@ type countingVisibilityGate struct {
 	after  int
 }
 
-func (gate *countingVisibilityGate) effectGate() visibilityEffectGate {
-	return visibilityEffectGate{
-		before: func(context.Context) error {
+func (gate *countingVisibilityGate) effectGate() applyprogram.VisibilityGate {
+	return applyprogram.NewVisibilityGate(
+		func(context.Context) error {
 			gate.before++
 			return nil
 		},
-		after: func(context.Context) error {
+		func(context.Context) error {
 			gate.after++
 			return nil
 		},
-	}
+	)
 }
 
 func ownershipBatchTransitions(t *testing.T, count int) []ownershipmutation.ClaimTransition {

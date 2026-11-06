@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/effect/execute/documentmutation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -220,7 +222,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 			if err := authority.beginJointGeneralRecoveryExecution(); err != nil {
 				return err
 			}
-			gate := visibilityEffectGate{before: func(ctx context.Context) error {
+			gate := applyprogram.NewVisibilityGate(func(ctx context.Context) error {
 				if err := beforeEffect(); err != nil {
 					return err
 				}
@@ -230,7 +232,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 					}
 				}
 				return semanticGuard(ctx)
-			}, after: options.AcceptVisibilityChanges}
+			}, options.AcceptVisibilityChanges)
 			return ordinary.execute(ctx, authority, operation, store, semanticGuard, gate)
 		}})
 		steps = append(steps, nativeRecoveryStep{name: nativeRecoveryOrdinaryCleanupReference, kind: operationplan.EffectStepCleanup, run: func() error {

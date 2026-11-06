@@ -1,19 +1,20 @@
-package execute
+package applyprogram
 
 import (
 	"errors"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/operationplan"
+	"github.com/isty2e/daem/internal/output/ownership"
 )
 
-type applyEffectExecution struct {
+type Execution struct {
 	cursor                *operationplan.EffectCursor
 	failureStructure      operationplan.EffectStructure
-	promotionIndexes      map[ownershipOutputKey]int
+	promotionIndexes      map[ownership.LogicalKey]int
 	phase                 applyEffectExecutionPhase
 	pendingForwardFailure bool
-	pendingFailure        applyForwardFailureDisposition
+	pendingFailure        ForwardFailure
 	finished              bool
 }
 
@@ -24,31 +25,31 @@ const (
 	applyEffectExecutionSettlement
 )
 
-type applyForwardFailureDisposition uint8
+type ForwardFailure uint8
 
 const (
-	applyForwardFailureUnavailable applyForwardFailureDisposition = iota
-	applyForwardFailureNoCompensation
-	applyForwardFailureClaimPreparation
-	applyForwardFailurePreparedEffects
-	applyForwardFailureGuardedRecovery
-	applyForwardFailureStatefilePublication
+	FailureUnavailable ForwardFailure = iota
+	FailureNoCompensation
+	FailureClaimPreparation
+	FailurePreparedEffects
+	FailureGuardedRecovery
+	FailureStatefilePublication
 )
 
-func beginApplyEffectExecution(
-	prepared *ApplyEffectPlan,
-	expected ApplyEffectPlan,
-) (*applyEffectExecution, error) {
+func Begin(
+	prepared *Plan,
+	expected Plan,
+) (*Execution, error) {
 	if prepared == nil {
 		prepared = &expected
 	}
-	return newApplyEffectExecution(*prepared, expected)
+	return newExecution(*prepared, expected)
 }
 
-func newApplyEffectExecution(
-	prepared ApplyEffectPlan,
-	expected ApplyEffectPlan,
-) (*applyEffectExecution, error) {
+func newExecution(
+	prepared Plan,
+	expected Plan,
+) (*Execution, error) {
 	if !prepared.valid {
 		return nil, fmt.Errorf("prepared apply effect plan is unavailable")
 	}
@@ -56,11 +57,11 @@ func newApplyEffectExecution(
 		return nil, fmt.Errorf("current apply effect plan is unavailable")
 	}
 	if prepared.changed != expected.changed ||
-		!prepared.structure.Equal(expected.structure) ||
-		!prepared.failureStructure.Equal(expected.failureStructure) {
+		!prepared.SameStructure(expected) ||
+		!prepared.SameFailurePolicy(expected) {
 		return nil, fmt.Errorf("prepared and current apply effect plans differ")
 	}
-	return &applyEffectExecution{
+	return &Execution{
 		cursor:           prepared.structure.Begin(),
 		failureStructure: expected.failureStructure,
 		promotionIndexes: clonePromotionIndexes(expected.promotionIndexes),
@@ -68,10 +69,10 @@ func newApplyEffectExecution(
 	}, nil
 }
 
-func (execution *applyEffectExecution) runCheckedStep(
+func (execution *Execution) RunStep(
 	id string,
 	kind operationplan.EffectStepKind,
-	failure applyForwardFailureDisposition,
+	failure ForwardFailure,
 	action func() error,
 ) error {
 	if execution == nil || execution.cursor == nil || execution.finished {
@@ -112,12 +113,12 @@ func (execution *applyEffectExecution) runCheckedStep(
 	return settleErr
 }
 
-func (execution *applyEffectExecution) runObservation(
+func (execution *Execution) Observe(
 	id string,
-	failure applyForwardFailureDisposition,
+	failure ForwardFailure,
 	action func() error,
 ) error {
-	return execution.runCheckedStep(
+	return execution.RunStep(
 		id,
 		operationplan.EffectStepObservation,
 		failure,
@@ -125,12 +126,12 @@ func (execution *applyEffectExecution) runObservation(
 	)
 }
 
-func (execution *applyEffectExecution) visibilityGate(
-	base visibilityEffectGate,
+func (execution *Execution) VisibilityGate(
+	base VisibilityGate,
 	id string,
 	settlement operationplan.EffectStepKind,
-	failure applyForwardFailureDisposition,
-) visibilityEffectGate {
+	failure ForwardFailure,
+) VisibilityGate {
 	base.schedule = &applyVisibilityExecution{
 		execution:         execution,
 		id:                id,
@@ -143,40 +144,40 @@ func (execution *applyEffectExecution) visibilityGate(
 	return base
 }
 
-func (execution *applyEffectExecution) statefileVisibilityGate(
-	base visibilityEffectGate,
-) visibilityEffectGate {
+func (execution *Execution) StatefileVisibilityGate(
+	base VisibilityGate,
+) VisibilityGate {
 	base.schedule = &applyVisibilityExecution{
 		execution:         execution,
 		id:                "apply/statefile-publication",
 		validation:        operationplan.EffectStepForwardEffect,
 		settlement:        operationplan.EffectStepPersistence,
-		validationFailure: applyForwardFailureGuardedRecovery,
-		settlementFailure: applyForwardFailureStatefilePublication,
-		acceptanceFailure: applyForwardFailureNoCompensation,
+		validationFailure: FailureGuardedRecovery,
+		settlementFailure: FailureStatefilePublication,
+		acceptanceFailure: FailureNoCompensation,
 	}
 	return base
 }
 
-func (execution *applyEffectExecution) compensationVisibilityGate(
-	base visibilityEffectGate,
+func (execution *Execution) CompensationVisibilityGate(
+	base VisibilityGate,
 	id string,
 	settlement operationplan.EffectStepKind,
-) visibilityEffectGate {
+) VisibilityGate {
 	base.schedule = &applyVisibilityExecution{
 		execution:         execution,
 		id:                id,
 		validation:        operationplan.EffectStepObservation,
 		settlement:        settlement,
-		validationFailure: applyForwardFailureUnavailable,
-		settlementFailure: applyForwardFailureUnavailable,
-		acceptanceFailure: applyForwardFailureUnavailable,
+		validationFailure: FailureUnavailable,
+		settlementFailure: FailureUnavailable,
+		acceptanceFailure: FailureUnavailable,
 	}
 	return base
 }
 
-func (execution *applyEffectExecution) beginFailureSettlement(
-	kind applyFailureSettlementKind,
+func (execution *Execution) BeginFailureSettlement(
+	kind FailureSettlement,
 ) (string, error) {
 	if execution == nil || execution.cursor == nil || execution.finished {
 		return "", fmt.Errorf("apply effect execution is unavailable")
@@ -188,7 +189,7 @@ func (execution *applyEffectExecution) beginFailureSettlement(
 		return "", fmt.Errorf(
 			"apply forward failure disposition %d does not permit settlement %q",
 			execution.pendingFailure,
-			kind.reference(),
+			kind.Reference(),
 		)
 	}
 	alternative, err := kind.alternative()
@@ -208,11 +209,11 @@ func (execution *applyEffectExecution) beginFailureSettlement(
 	execution.cursor = settlementCursor
 	execution.phase = applyEffectExecutionSettlement
 	execution.pendingForwardFailure = false
-	execution.pendingFailure = applyForwardFailureUnavailable
-	return kind.reference(), nil
+	execution.pendingFailure = FailureUnavailable
+	return kind.Reference(), nil
 }
 
-func (execution *applyEffectExecution) finishForwardFailure() error {
+func (execution *Execution) finishForwardFailure() error {
 	if execution == nil || execution.cursor == nil || execution.finished {
 		return fmt.Errorf("apply effect execution is unavailable")
 	}
@@ -229,12 +230,12 @@ func (execution *applyEffectExecution) finishForwardFailure() error {
 		return fmt.Errorf("finish apply forward failure handoff: %w", err)
 	}
 	execution.pendingForwardFailure = false
-	execution.pendingFailure = applyForwardFailureUnavailable
+	execution.pendingFailure = FailureUnavailable
 	execution.finished = true
 	return nil
 }
 
-func (execution *applyEffectExecution) settleFailureWithoutCompensation(
+func (execution *Execution) SettleFailureWithoutCompensation(
 	primary error,
 ) error {
 	if settlementErr := execution.finishForwardFailure(); settlementErr != nil {
@@ -243,8 +244,8 @@ func (execution *applyEffectExecution) settleFailureWithoutCompensation(
 	return primary
 }
 
-func (execution *applyEffectExecution) completeFailureSettlement(
-	kind applyFailureSettlementKind,
+func (execution *Execution) CompleteFailureSettlement(
+	kind FailureSettlement,
 ) error {
 	if execution == nil || execution.cursor == nil || execution.finished {
 		return fmt.Errorf("apply effect execution is unavailable")
@@ -253,7 +254,7 @@ func (execution *applyEffectExecution) completeFailureSettlement(
 		return fmt.Errorf("apply failure settlement is not active")
 	}
 	if err := execution.cursor.Consume(
-		kind.reference()+"/complete",
+		kind.Reference()+"/complete",
 		operationplan.EffectStepTerminal,
 	); err != nil {
 		return fmt.Errorf("complete apply failure settlement: %w", err)
@@ -265,7 +266,7 @@ func (execution *applyEffectExecution) completeFailureSettlement(
 	return nil
 }
 
-func (execution *applyEffectExecution) handoffGuardedRecovery() error {
+func (execution *Execution) HandoffGuardedRecovery() error {
 	if execution == nil || execution.cursor == nil || execution.finished {
 		return fmt.Errorf("apply effect execution is unavailable")
 	}
@@ -273,7 +274,7 @@ func (execution *applyEffectExecution) handoffGuardedRecovery() error {
 		return fmt.Errorf("apply failure settlement is not active")
 	}
 	if err := execution.cursor.Consume(
-		applyFailureSettlementGuardedRecovery.reference()+"/active-recovery-handoff",
+		SettlementGuardedRecovery.Reference()+"/active-recovery-handoff",
 		operationplan.EffectStepTerminal,
 	); err != nil {
 		return fmt.Errorf("handoff guarded apply recovery: %w", err)
@@ -285,8 +286,8 @@ func (execution *applyEffectExecution) handoffGuardedRecovery() error {
 	return nil
 }
 
-func (execution *applyEffectExecution) selectPromotion(
-	key ownershipOutputKey,
+func (execution *Execution) SelectPromotion(
+	key ownership.LogicalKey,
 	promoted bool,
 ) error {
 	if execution == nil || execution.cursor == nil || execution.finished {
@@ -296,11 +297,11 @@ func (execution *applyEffectExecution) selectPromotion(
 	if !present {
 		return fmt.Errorf(
 			"apply ownership promotion for %q footprint %s is not scheduled",
-			key.destination,
-			key.scopeLabel(),
+			key.Destination,
+			key.ScopeLabel(),
 		)
 	}
-	prefix := applyOwnershipPromotionScheduleReference(index)
+	prefix := OwnershipPromotionReference(index)
 	alternative := 0
 	if promoted {
 		alternative = 1
@@ -314,8 +315,8 @@ func (execution *applyEffectExecution) selectPromotion(
 	return execution.cursor.Consume(prefix+"/noop", operationplan.EffectStepNoOp)
 }
 
-func (execution *applyEffectExecution) promotionReference(
-	key ownershipOutputKey,
+func (execution *Execution) PromotionReference(
+	key ownership.LogicalKey,
 ) (string, error) {
 	if execution == nil {
 		return "", fmt.Errorf("apply effect execution is unavailable")
@@ -324,14 +325,14 @@ func (execution *applyEffectExecution) promotionReference(
 	if !present {
 		return "", fmt.Errorf(
 			"apply ownership promotion for %q footprint %s is not scheduled",
-			key.destination,
-			key.scopeLabel(),
+			key.Destination,
+			key.ScopeLabel(),
 		)
 	}
-	return applyOwnershipPromotionScheduleReference(index), nil
+	return OwnershipPromotionReference(index), nil
 }
 
-func (execution *applyEffectExecution) finish(primary error) error {
+func (execution *Execution) Finish(primary error) error {
 	if execution == nil || execution.cursor == nil || execution.finished {
 		return nil
 	}
@@ -358,20 +359,20 @@ func (execution *applyEffectExecution) finish(primary error) error {
 }
 
 type applyVisibilityExecution struct {
-	execution         *applyEffectExecution
+	execution         *Execution
 	id                string
 	validation        operationplan.EffectStepKind
 	settlement        operationplan.EffectStepKind
-	validationFailure applyForwardFailureDisposition
-	settlementFailure applyForwardFailureDisposition
-	acceptanceFailure applyForwardFailureDisposition
+	validationFailure ForwardFailure
+	settlementFailure ForwardFailure
+	acceptanceFailure ForwardFailure
 }
 
 func (execution *applyVisibilityExecution) validate(action func() error) error {
 	if execution == nil || execution.execution == nil {
 		return fmt.Errorf("apply visibility validation schedule is unavailable")
 	}
-	return execution.execution.runCheckedStep(
+	return execution.execution.RunStep(
 		execution.id+"/forward",
 		execution.validation,
 		execution.validationFailure,
@@ -383,7 +384,7 @@ func (execution *applyVisibilityExecution) apply(action func() error) error {
 	if execution == nil || execution.execution == nil {
 		return fmt.Errorf("apply visibility effect schedule is unavailable")
 	}
-	return execution.execution.runCheckedStep(
+	return execution.execution.RunStep(
 		execution.id+"/settlement",
 		execution.settlement,
 		execution.settlementFailure,
@@ -395,7 +396,7 @@ func (execution *applyVisibilityExecution) accept(action func() error) error {
 	if execution == nil || execution.execution == nil {
 		return fmt.Errorf("apply visibility acceptance schedule is unavailable")
 	}
-	return execution.execution.runCheckedStep(
+	return execution.execution.RunStep(
 		execution.id+"/acceptance",
 		operationplan.EffectStepObservation,
 		execution.acceptanceFailure,

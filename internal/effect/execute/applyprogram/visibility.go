@@ -1,16 +1,20 @@
-package execute
+package applyprogram
 
 import "context"
 
-// visibilityEffectGate keeps authority validation adjacent to each namespace-
+// VisibilityGate keeps authority validation adjacent to each namespace-
 // visible effect without making effect owners depend on workflow leases.
-type visibilityEffectGate struct {
+type VisibilityGate struct {
 	before   func(context.Context) error
 	after    func(context.Context) error
 	schedule *applyVisibilityExecution
 }
 
-func (gate visibilityEffectGate) validateBefore(ctx context.Context) error {
+func NewVisibilityGate(before, after func(context.Context) error) VisibilityGate {
+	return VisibilityGate{before: before, after: after}
+}
+
+func (gate VisibilityGate) ValidateBefore(ctx context.Context) error {
 	action := func() error {
 		if gate.before == nil {
 			return nil
@@ -23,16 +27,16 @@ func (gate visibilityEffectGate) validateBefore(ctx context.Context) error {
 	return action()
 }
 
-func (gate visibilityEffectGate) applyEffect(action func() error) error {
+func (gate VisibilityGate) ApplyEffect(action func() error) error {
 	if gate.schedule != nil {
 		return gate.schedule.apply(action)
 	}
 	return action()
 }
 
-func (gate visibilityEffectGate) observe(suffix string, action func() error) error {
+func (gate VisibilityGate) Observe(suffix string, action func() error) error {
 	if gate.schedule != nil {
-		return gate.schedule.execution.runObservation(
+		return gate.schedule.execution.Observe(
 			gate.schedule.id+"/"+suffix,
 			gate.schedule.validationFailure,
 			action,
@@ -41,7 +45,7 @@ func (gate visibilityEffectGate) observe(suffix string, action func() error) err
 	return action()
 }
 
-func (gate visibilityEffectGate) acceptAfter(ctx context.Context) error {
+func (gate VisibilityGate) AcceptAfter(ctx context.Context) error {
 	action := func() error {
 		if gate.after == nil {
 			return nil

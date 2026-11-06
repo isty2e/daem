@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -17,24 +19,24 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutationState, keys []ownershipOutputKey, captured *journalpublication.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore, gate visibilityEffectGate, execution *applyEffectExecution) error {
-	requested := make(map[ownershipOutputKey]struct{}, len(keys))
+func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutationState, keys []ownership.LogicalKey, captured *journalpublication.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore, gate applyprogram.VisibilityGate, execution *applyprogram.Execution) error {
+	requested := make(map[ownership.LogicalKey]struct{}, len(keys))
 	for _, key := range keys {
 		requested[key] = struct{}{}
 	}
 	for index := 0; index < len(state.provisional); {
 		intent := state.provisional[index]
-		key := ownershipOutputKey{destination: intent.Destination(), footprint: intent.Footprint()}
+		key := ownership.LogicalKey{Destination: intent.Destination(), Footprint: intent.Footprint()}
 		if _, needed := requested[key]; !needed {
 			index++
 			continue
 		}
-		prefix, err := execution.promotionReference(key)
+		prefix, err := execution.PromotionReference(key)
 		if err != nil {
 			return err
 		}
 		var transition ownershipmutation.ClaimTransition
-		if err := execution.runObservation(prefix+"/observation", applyForwardFailureGuardedRecovery, func() error {
+		if err := execution.Observe(prefix+"/observation", applyprogram.FailureGuardedRecovery, func() error {
 			destination, err := authority.destinations.Resolve(target.ScopeGlobal, intent.Destination())
 			if err != nil {
 				return err
@@ -56,14 +58,14 @@ func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutation
 		}); err != nil {
 			return err
 		}
-		if err := execution.selectPromotion(key, true); err != nil {
+		if err := execution.SelectPromotion(key, true); err != nil {
 			return err
 		}
-		journalGate := execution.visibilityGate(gate, prefix+"/journal", operationplan.EffectStepPersistence, applyForwardFailureGuardedRecovery)
-		if err := journalGate.validateBefore(ctx); err != nil {
+		journalGate := execution.VisibilityGate(gate, prefix+"/journal", operationplan.EffectStepPersistence, applyprogram.FailureGuardedRecovery)
+		if err := journalGate.ValidateBefore(ctx); err != nil {
 			return err
 		}
-		if err := journalGate.applyEffect(func() error {
+		if err := journalGate.ApplyEffect(func() error {
 			promoted, err := captured.PromoteOrdinary(ctx, intent, transition, journalpublication.NativePromotionOptions{
 				NativeRecoveryOptions: journalqualification.NativeRecoveryOptions{
 					Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
@@ -81,14 +83,14 @@ func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutation
 		}); err != nil {
 			return err
 		}
-		if err := journalGate.acceptAfter(ctx); err != nil {
+		if err := journalGate.AcceptAfter(ctx); err != nil {
 			return err
 		}
-		claimGate := execution.visibilityGate(gate, prefix+"/claim", operationplan.EffectStepPersistence, applyForwardFailureGuardedRecovery)
-		if err := claimGate.validateBefore(ctx); err != nil {
+		claimGate := execution.VisibilityGate(gate, prefix+"/claim", operationplan.EffectStepPersistence, applyprogram.FailureGuardedRecovery)
+		if err := claimGate.ValidateBefore(ctx); err != nil {
 			return err
 		}
-		if err := claimGate.applyEffect(func() error {
+		if err := claimGate.ApplyEffect(func() error {
 			claims, err := captured.PreparationClaims(ctx)
 			if err != nil {
 				return err
@@ -102,7 +104,7 @@ func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutation
 		}); err != nil {
 			return err
 		}
-		if err := claimGate.acceptAfter(ctx); err != nil {
+		if err := claimGate.AcceptAfter(ctx); err != nil {
 			return err
 		}
 		state.transitions = append(state.transitions, transition)

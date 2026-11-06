@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
 
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
@@ -56,7 +58,7 @@ func (stage nativeOrdinaryRecoveryStage) cleanup(ctx context.Context, authority 
 	return stage.rollback.cleanup(ctx, authority)
 }
 
-func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, store ownershipmutation.RegistryStore, semanticGuard func(context.Context) error, gate visibilityEffectGate) (resultErr error) {
+func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, store ownershipmutation.RegistryStore, semanticGuard func(context.Context) error, gate applyprogram.VisibilityGate) (resultErr error) {
 	if len(stage.actions) == 0 {
 		return nil
 	}

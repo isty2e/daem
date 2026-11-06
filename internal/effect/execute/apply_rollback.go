@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -223,7 +225,7 @@ func loadApplyActivePlanForStateEntries(
 func settlePreHostApplyFailure(
 	ctx context.Context,
 	primary error,
-	kind applyFailureSettlementKind,
+	kind applyprogram.FailureSettlement,
 	retirementPhase string,
 	paths Paths,
 	currentState durable.Snapshot,
@@ -233,10 +235,10 @@ func settlePreHostApplyFailure(
 	events applyEventEmitter,
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
-	gate visibilityEffectGate,
-	effectExecution *applyEffectExecution,
+	gate applyprogram.VisibilityGate,
+	effectExecution *applyprogram.Execution,
 ) error {
-	settlementPrefix, settlementErr := effectExecution.beginFailureSettlement(kind)
+	settlementPrefix, settlementErr := effectExecution.BeginFailureSettlement(kind)
 	if settlementErr != nil {
 		return errors.Join(primary, settlementErr)
 	}
@@ -244,7 +246,7 @@ func settlePreHostApplyFailure(
 		context.WithoutCancel(ctx),
 		registryStore,
 		transitions,
-		effectExecution.compensationVisibilityGate(
+		effectExecution.CompensationVisibilityGate(
 			gate,
 			settlementPrefix+"/ownership-rollback",
 			operationplan.EffectStepCompensation,
@@ -275,7 +277,7 @@ func settlePreHostApplyFailure(
 		events,
 		loadRetirementPlan,
 		stateCodec,
-		effectExecution.compensationVisibilityGate(
+		effectExecution.CompensationVisibilityGate(
 			gate,
 			settlementPrefix+"/journal-retirement",
 			operationplan.EffectStepRetirement,
@@ -288,7 +290,7 @@ func settlePreHostApplyFailure(
 			retirementFailureWithRemediation(cleanupErr),
 		)
 	}
-	if settlementErr := effectExecution.completeFailureSettlement(kind); settlementErr != nil {
+	if settlementErr := effectExecution.CompleteFailureSettlement(kind); settlementErr != nil {
 		return errors.Join(primary, settlementErr)
 	}
 	return primary
@@ -305,19 +307,19 @@ func applyRecoveryErrorWithEvents(
 	authority *mutationAuthority,
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
-	gate visibilityEffectGate,
-	effectExecution *applyEffectExecution,
+	gate applyprogram.VisibilityGate,
+	effectExecution *applyprogram.Execution,
 ) error {
-	settlementPrefix, settlementErr := effectExecution.beginFailureSettlement(
-		applyFailureSettlementGuardedRecovery,
+	settlementPrefix, settlementErr := effectExecution.BeginFailureSettlement(
+		applyprogram.SettlementGuardedRecovery,
 	)
 	if settlementErr != nil {
 		return errors.Join(primary, settlementErr)
 	}
 	events.emit(EventRollbackRestoreStarted, EventStageRollbackRestore, nil, nil)
-	if err := effectExecution.runObservation(
+	if err := effectExecution.Observe(
 		settlementPrefix+"/progress-classification",
-		applyForwardFailureUnavailable,
+		applyprogram.FailureUnavailable,
 		func() error {
 			if progress.requiresRecovery() {
 				return fmt.Errorf("host effect outcome is indeterminate")
@@ -332,9 +334,9 @@ func applyRecoveryErrorWithEvents(
 
 	recoveryCtx := context.WithoutCancel(ctx)
 	var rollbackEntries []journalrecord.EntrySelection
-	err := effectExecution.runObservation(
+	err := effectExecution.Observe(
 		settlementPrefix+"/rollback-selection",
-		applyForwardFailureUnavailable,
+		applyprogram.FailureUnavailable,
 		func() error {
 			var selectErr error
 			rollbackEntries, selectErr = progress.rollbackEntries(selections)
@@ -346,9 +348,9 @@ func applyRecoveryErrorWithEvents(
 		return fmt.Errorf("%w; select guarded rollback entries failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	var plan recovery.Plan
-	err = effectExecution.runObservation(
+	err = effectExecution.Observe(
 		settlementPrefix+"/journal-load",
-		applyForwardFailureUnavailable,
+		applyprogram.FailureUnavailable,
 		func() error {
 			var loadErr error
 			plan, loadErr = loadCapturedJournalPlanForStateEntries(
@@ -368,9 +370,9 @@ func applyRecoveryErrorWithEvents(
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; load guarded rollback plan failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
-	if err := effectExecution.runObservation(
+	if err := effectExecution.Observe(
 		settlementPrefix+"/journal-validation",
-		applyForwardFailureUnavailable,
+		applyprogram.FailureUnavailable,
 		func() error {
 			if plan.HasErrors() {
 				return fmt.Errorf("guarded rollback is blocked by current evidence")
@@ -382,9 +384,9 @@ func applyRecoveryErrorWithEvents(
 		return fmt.Errorf("%w; %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	var execution *activeRecoveryExecution
-	err = effectExecution.runObservation(
+	err = effectExecution.Observe(
 		settlementPrefix+"/execution-compile",
-		applyForwardFailureUnavailable,
+		applyprogram.FailureUnavailable,
 		func() error {
 			var compileErr error
 			execution, compileErr = newActiveRecoveryExecutionForPlan(
@@ -399,7 +401,7 @@ func applyRecoveryErrorWithEvents(
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; compile guarded rollback settlement failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
-	if err := effectExecution.handoffGuardedRecovery(); err != nil {
+	if err := effectExecution.HandoffGuardedRecovery(); err != nil {
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; handoff guarded rollback settlement failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
@@ -418,8 +420,8 @@ func applyRecoveryErrorWithEvents(
 		},
 		mutationAuthority:           authority,
 		ActiveJournalAuthority:      authority.journalBasis.activeAuthority,
-		ValidateVisibilityAuthority: gate.before,
-		AcceptVisibilityChanges:     gate.after,
+		ValidateVisibilityAuthority: gate.ValidateBefore,
+		AcceptVisibilityChanges:     gate.AcceptAfter,
 		Resolver:                    authority.lexical,
 		Codecs:                      codecs,
 		StateCodec:                  stateCodec,

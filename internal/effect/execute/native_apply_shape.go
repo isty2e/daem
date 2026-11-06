@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -13,7 +15,7 @@ import (
 // NativeManagedSuffixShape describes residual work, never a live observation or
 // executable plan. Bind requires fresh complete input after the preceding effects.
 type NativeManagedSuffixShape struct {
-	plans       []ApplyEffectPlan
+	plans       []applyprogram.Plan
 	segment     operationplan.EffectNode
 	validations int
 	managed     []effectpreparation.ManagedPathEffect
@@ -174,35 +176,35 @@ func (shape NativeManagedSuffixShape) Segment() operationplan.EffectNode { retur
 
 func (shape NativeManagedSuffixShape) ForwardValidationCount() int { return shape.validations }
 
-func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (ApplyEffectPlan, error) {
+func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (applyprogram.Plan, error) {
 	if len(shape.plans) == 0 {
-		return ApplyEffectPlan{}, fmt.Errorf("native suffix shape is unavailable")
+		return applyprogram.Plan{}, fmt.Errorf("native suffix shape is unavailable")
 	}
 	work, err := nativeApplyWorkFor(input)
 	if err != nil {
-		return ApplyEffectPlan{}, err
+		return applyprogram.Plan{}, err
 	}
 	if !slices.EqualFunc(shape.managed, work.managed, effectpreparation.ManagedPathEffect.Equal) ||
 		!slices.EqualFunc(shape.whole, work.whole, effectpreparation.ManagedPathEffect.Equal) ||
 		!slices.EqualFunc(shape.narrowings, input.Preparation.Narrowings(), reconcile.NativeNarrowingAction.Equal) ||
 		!slices.EqualFunc(shape.adoptions, input.Preparation.WholeAdoptions(), effectpreparation.NativeWholeAdoption.Equal) ||
 		!slices.EqualFunc(shape.aggregates, input.Preparation.AggregateEffects(), effectpreparation.AggregateEffect.SameMutation) {
-		return ApplyEffectPlan{}, fmt.Errorf("native suffix actors changed")
+		return applyprogram.Plan{}, fmt.Errorf("native suffix actors changed")
 	}
 	for _, order := range input.Preparation.PiOrders() {
 		if !slices.ContainsFunc(shape.orders, order.SameSelection) {
-			return ApplyEffectPlan{}, fmt.Errorf("native suffix order selection changed")
+			return applyprogram.Plan{}, fmt.Errorf("native suffix order selection changed")
 		}
 	}
 
 	plan, err := prepareNativeApplyEffectPlan(input, work)
 	if err != nil {
-		return ApplyEffectPlan{}, err
+		return applyprogram.Plan{}, err
 	}
 	for _, reserved := range shape.plans {
-		if reserved.structure.Equal(plan.structure) {
+		if reserved.SameStructure(plan) {
 			return plan, nil
 		}
 	}
-	return ApplyEffectPlan{}, fmt.Errorf("native suffix structure changed")
+	return applyprogram.Plan{}, fmt.Errorf("native suffix structure changed")
 }

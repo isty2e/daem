@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -327,7 +329,7 @@ func TestRecoveryRollbackStageAndRestoreUseSameGlobalRootAuthority(t *testing.T)
 	}
 	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 
-	if err := rollback.restore(context.Background(), authority, visibilityEffectGate{}); err != nil {
+	if err := rollback.restore(context.Background(), authority, applyprogram.VisibilityGate{}); err != nil {
 		t.Fatalf("restore recovery rollback: %v", err)
 	}
 	assertRecoveryTestContent(t, fixture.admittedPath, fixture.after)
@@ -561,7 +563,7 @@ func TestRecoveryRollbackRejectsReplacedStageArtifact(t *testing.T) {
 	}
 	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 
-	err = rollback.restore(t.Context(), authority, visibilityEffectGate{})
+	err = rollback.restore(t.Context(), authority, applyprogram.VisibilityGate{})
 	if err == nil || !strings.Contains(err.Error(), "does not match expected hash") {
 		t.Fatalf("rollback.restore error = %v, want replaced-stage rejection", err)
 	}
@@ -773,7 +775,7 @@ func TestRecoveryDirectFileCommitRejectsStagedEntryDrift(t *testing.T) {
 		nil,
 		nil,
 		testAggregateCodecs(),
-		visibilityEffectGate{},
+		applyprogram.VisibilityGate{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "changed after rollback staging") {
 		t.Fatalf("executeRecoveryHostActions error = %v, want staged baseline rejection", err)
@@ -822,7 +824,7 @@ func TestRecoveryRollbackRefusesExternalChangeAfterCommittedRecoveryEffect(t *te
 		nil,
 		nil,
 		testAggregateCodecs(),
-		visibilityEffectGate{},
+		applyprogram.VisibilityGate{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -830,7 +832,7 @@ func TestRecoveryRollbackRefusesExternalChangeAfterCommittedRecoveryEffect(t *te
 
 	external := []byte("external after recovery effect\n")
 	writeRecoveryTestFile(t, fixture.admittedPath, external)
-	err = rollback.restore(context.Background(), authority, visibilityEffectGate{})
+	err = rollback.restore(context.Background(), authority, applyprogram.VisibilityGate{})
 	if err == nil || !strings.Contains(err.Error(), "changed outside the recovery attempt") {
 		t.Fatalf("rollback.restore error = %v, want external-change refusal", err)
 	}
@@ -917,19 +919,19 @@ func TestRecoveryHostActionsStopAtLostVisibilityAuthority(t *testing.T) {
 	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 	validations := 0
 	accepts := 0
-	gate := visibilityEffectGate{
-		before: func(context.Context) error {
+	gate := applyprogram.NewVisibilityGate(
+		func(context.Context) error {
 			validations++
 			if validations == 2 {
 				return errors.New("injected visibility authority loss")
 			}
 			return nil
 		},
-		after: func(context.Context) error {
+		func(context.Context) error {
 			accepts++
 			return nil
 		},
-	}
+	)
 	err = executeRecoveryHostActions(
 		t.Context(),
 		authority,

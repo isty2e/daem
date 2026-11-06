@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -62,7 +64,7 @@ func ownershipPlanForManagedPathEffects(
 		previous, hasPrevious := effect.PreviousState()
 		if hasPrevious && (previous.Scope() != effect.Scope() || previous.Destination() != effect.Destination()) {
 			if previous.Scope() == target.ScopeGlobal {
-				old, present := byOutput[ownershipOutputKey{destination: previous.Destination(), footprint: output.WholePathFootprint()}]
+				old, present := byOutput[ownership.LogicalKey{Destination: previous.Destination(), Footprint: output.WholePathFootprint()}]
 				if !present {
 					return ownershipMutationPlan{}, fmt.Errorf("previous global managed path %q has no ownership observation", previous.Destination())
 				}
@@ -77,7 +79,7 @@ func ownershipPlanForManagedPathEffects(
 				plan.transitions = append(plan.transitions, release)
 			}
 			if effect.Scope() == target.ScopeGlobal {
-				current, present := byOutput[ownershipOutputKey{destination: effect.Destination(), footprint: output.WholePathFootprint()}]
+				current, present := byOutput[ownership.LogicalKey{Destination: effect.Destination(), Footprint: output.WholePathFootprint()}]
 				if !present {
 					return ownershipMutationPlan{}, fmt.Errorf("new global managed path %q has no ownership observation", effect.Destination())
 				}
@@ -90,7 +92,7 @@ func ownershipPlanForManagedPathEffects(
 		if effect.Scope() != target.ScopeGlobal {
 			continue
 		}
-		current, present := byOutput[ownershipOutputKey{destination: effect.Destination(), footprint: output.WholePathFootprint()}]
+		current, present := byOutput[ownership.LogicalKey{Destination: effect.Destination(), Footprint: output.WholePathFootprint()}]
 		if !present {
 			return ownershipMutationPlan{}, fmt.Errorf("global managed path effect for %q has no ownership observation", effect.Destination())
 		}
@@ -140,16 +142,16 @@ func ownershipPlanForAggregateEffects(
 				continue
 			}
 			address := projection.Contract().Address()
-			key := ownershipOutputKey{
-				destination: document.AggregateRoot(),
-				footprint:   address.Footprint(),
+			key := ownership.LogicalKey{
+				Destination: document.AggregateRoot(),
+				Footprint:   address.Footprint(),
 			}
 			observation, present := byOutput[key]
 			if !present {
 				return ownershipMutationPlan{}, fmt.Errorf(
 					"global aggregate projection for %q footprint %s has no ownership observation",
-					key.destination,
-					key.scopeLabel(),
+					key.Destination,
+					key.ScopeLabel(),
 				)
 			}
 
@@ -157,8 +159,8 @@ func ownershipPlanForAggregateEffects(
 				if err := appendOwnershipAcquire(&plan, observation, owner, operationID); err != nil {
 					return ownershipMutationPlan{}, fmt.Errorf(
 						"new global aggregate projection for %q footprint %s: %w",
-						key.destination,
-						key.scopeLabel(),
+						key.Destination,
+						key.ScopeLabel(),
 						err,
 					)
 				}
@@ -168,8 +170,8 @@ func ownershipPlanForAggregateEffects(
 			if err != nil {
 				return ownershipMutationPlan{}, fmt.Errorf(
 					"existing global aggregate projection for %q footprint %s: %w",
-					key.destination,
-					key.scopeLabel(),
+					key.Destination,
+					key.ScopeLabel(),
 					err,
 				)
 			}
@@ -192,15 +194,10 @@ func ownershipPlanForAggregateEffects(
 	return plan, nil
 }
 
-type ownershipOutputKey struct {
-	destination output.Destination
-	footprint   output.Footprint
-}
-
 func provisionalAcquireKeysForManagedPath(
 	effect effectpreparation.ManagedPathEffect,
 	phase managedPathPhase,
-) []ownershipOutputKey {
+) []ownership.LogicalKey {
 	if phase != managedPathPublishPhase || effect.Scope() != target.ScopeGlobal ||
 		effect.Kind() == effectpreparation.ManagedPathEffectRemove || effect.Kind() == effectpreparation.ManagedPathEffectRecord {
 		return nil
@@ -209,22 +206,22 @@ func provisionalAcquireKeysForManagedPath(
 	if present && previous.Scope() == effect.Scope() && previous.Destination() == effect.Destination() {
 		return nil
 	}
-	return []ownershipOutputKey{{destination: effect.Destination(), footprint: output.WholePathFootprint()}}
+	return []ownership.LogicalKey{{Destination: effect.Destination(), Footprint: output.WholePathFootprint()}}
 }
 
-func provisionalAcquireKeysForAggregate(effect effectpreparation.AggregateEffect) []ownershipOutputKey {
+func provisionalAcquireKeysForAggregate(effect effectpreparation.AggregateEffect) []ownership.LogicalKey {
 	if effect.Scope() != target.ScopeGlobal || effect.Kind() == effectpreparation.AggregateEffectRecord {
 		return nil
 	}
 	projections := effect.ProjectionEffects()
-	keys := make([]ownershipOutputKey, 0, len(projections))
+	keys := make([]ownership.LogicalKey, 0, len(projections))
 	for _, projection := range projections {
 		if len(projection.Subjects()) == 0 || len(projection.PreviousStates()) != 0 {
 			continue
 		}
-		keys = append(keys, ownershipOutputKey{
-			destination: effect.Destination(),
-			footprint:   projection.Contract().Address().Footprint(),
+		keys = append(keys, ownership.LogicalKey{
+			Destination: effect.Destination(),
+			Footprint:   projection.Contract().Address().Footprint(),
 		})
 	}
 	return keys
@@ -232,21 +229,21 @@ func provisionalAcquireKeysForAggregate(effect effectpreparation.AggregateEffect
 
 func ownershipObservationsByOutput(
 	observations []observe.OwnershipObservation,
-) (map[ownershipOutputKey]observe.OwnershipObservation, error) {
-	byOutput := make(map[ownershipOutputKey]observe.OwnershipObservation, len(observations))
+) (map[ownership.LogicalKey]observe.OwnershipObservation, error) {
+	byOutput := make(map[ownership.LogicalKey]observe.OwnershipObservation, len(observations))
 	for index, observation := range observations {
 		if err := observation.Validate(); err != nil {
 			return nil, fmt.Errorf("execution ownership observation[%d]: %w", index, err)
 		}
-		key := ownershipOutputKey{
-			destination: observation.Destination(),
-			footprint:   observation.Footprint(),
+		key := ownership.LogicalKey{
+			Destination: observation.Destination(),
+			Footprint:   observation.Footprint(),
 		}
 		if _, exists := byOutput[key]; exists {
 			return nil, fmt.Errorf(
 				"duplicate execution ownership observation for %q footprint %s",
-				key.destination,
-				key.scopeLabel(),
+				key.Destination,
+				key.ScopeLabel(),
 			)
 		}
 		byOutput[key] = observation
@@ -294,25 +291,25 @@ func appendOwnershipAcquire(
 
 func (state *ownershipMutationState) promoteVisibleAcquires(
 	ctx context.Context,
-	keys []ownershipOutputKey,
+	keys []ownership.LogicalKey,
 	authority *mutationAuthority,
 	registryStore ownershipmutation.RegistryStore,
 	stateCodec durable.SnapshotCodec,
-	gate visibilityEffectGate,
-	execution *applyEffectExecution,
+	gate applyprogram.VisibilityGate,
+	execution *applyprogram.Execution,
 ) error {
 	if state == nil || len(state.provisional) == 0 || len(keys) == 0 {
 		return nil
 	}
-	requested := make(map[ownershipOutputKey]struct{}, len(keys))
+	requested := make(map[ownership.LogicalKey]struct{}, len(keys))
 	for _, key := range keys {
 		requested[key] = struct{}{}
 	}
 	for index := 0; index < len(state.provisional); {
 		intent := state.provisional[index]
-		key := ownershipOutputKey{
-			destination: intent.Destination(),
-			footprint:   intent.Footprint(),
+		key := ownership.LogicalKey{
+			Destination: intent.Destination(),
+			Footprint:   intent.Footprint(),
 		}
 		if _, selected := requested[key]; !selected {
 			index++
@@ -331,7 +328,7 @@ func (state *ownershipMutationState) promoteVisibleAcquires(
 			return fmt.Errorf(
 				"promote ownership for %q footprint %s: %w",
 				intent.Destination(),
-				key.scopeLabel(),
+				key.ScopeLabel(),
 				err,
 			)
 		}
@@ -354,14 +351,14 @@ func promoteVisibleAcquire(
 	authority *mutationAuthority,
 	registryStore ownershipmutation.RegistryStore,
 	stateCodec durable.SnapshotCodec,
-	gate visibilityEffectGate,
-	execution *applyEffectExecution,
+	gate applyprogram.VisibilityGate,
+	execution *applyprogram.Execution,
 ) (ownershipmutation.ClaimTransition, string, bool, error) {
-	key := ownershipOutputKey{
-		destination: intent.Destination(),
-		footprint:   intent.Footprint(),
+	key := ownership.LogicalKey{
+		Destination: intent.Destination(),
+		Footprint:   intent.Footprint(),
 	}
-	prefix, err := execution.promotionReference(key)
+	prefix, err := execution.PromotionReference(key)
 	if err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
@@ -369,9 +366,9 @@ func promoteVisibleAcquire(
 	var transition ownershipmutation.ClaimTransition
 	var journalFingerprint string
 	visible := false
-	if err := execution.runObservation(
+	if err := execution.Observe(
 		prefix+"/observation",
-		applyForwardFailureGuardedRecovery,
+		applyprogram.FailureGuardedRecovery,
 		func() error {
 			if authority == nil || authority.journalBasis.validate() != nil {
 				return fmt.Errorf("recovery journal execution basis is unavailable")
@@ -434,24 +431,24 @@ func promoteVisibleAcquire(
 	); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
-	if err := execution.selectPromotion(key, visible); err != nil {
+	if err := execution.SelectPromotion(key, visible); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
 	if !visible {
 		return ownershipmutation.ClaimTransition{}, journalFingerprint, false, nil
 	}
 
-	journalGate := execution.visibilityGate(
+	journalGate := execution.VisibilityGate(
 		gate,
 		prefix+"/journal",
 		operationplan.EffectStepPersistence,
-		applyForwardFailureGuardedRecovery,
+		applyprogram.FailureGuardedRecovery,
 	)
-	if err := journalGate.validateBefore(ctx); err != nil {
+	if err := journalGate.ValidateBefore(ctx); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
 	var promotion journalpublication.ProvisionalAcquirePromotion
-	if err := journalGate.applyEffect(func() error {
+	if err := journalGate.ApplyEffect(func() error {
 		var promoteErr error
 		promotion, promoteErr = journalpublication.PromoteProvisionalAcquire(
 			ctx,
@@ -490,20 +487,20 @@ func promoteVisibleAcquire(
 	}); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
-	if err := journalGate.acceptAfter(ctx); err != nil {
+	if err := journalGate.AcceptAfter(ctx); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
 
-	claimGate := execution.visibilityGate(
+	claimGate := execution.VisibilityGate(
 		gate,
 		prefix+"/claim",
 		operationplan.EffectStepPersistence,
-		applyForwardFailureGuardedRecovery,
+		applyprogram.FailureGuardedRecovery,
 	)
-	if err := claimGate.validateBefore(ctx); err != nil {
+	if err := claimGate.ValidateBefore(ctx); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
-	if err := claimGate.applyEffect(func() error {
+	if err := claimGate.ApplyEffect(func() error {
 		return convergeClaim(
 			ctx,
 			registryStore,
@@ -514,7 +511,7 @@ func promoteVisibleAcquire(
 	}); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
-	if err := claimGate.acceptAfter(ctx); err != nil {
+	if err := claimGate.AcceptAfter(ctx); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
 	return transition, promotion.RecordFingerprint(), true, nil
@@ -540,13 +537,13 @@ func prepareClaimTransitions(
 	ctx context.Context,
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
-	forwardGate visibilityEffectGate,
+	forwardGate applyprogram.VisibilityGate,
 ) error {
 	if len(transitions) == 0 {
 		return nil
 	}
 	var convergence ownership.ClaimConvergence
-	if err := forwardGate.observe("transition-plan", func() error {
+	if err := forwardGate.Observe("transition-plan", func() error {
 		set, err := ownershipmutation.NewClaimTransitionSet(transitions)
 		if err != nil {
 			return err
@@ -572,7 +569,7 @@ func finalizeClaimTransitions(
 	ctx context.Context,
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 ) error {
 	return finalizeClaimTransitionsWithAcceptance(ctx, registryStore, transitions, gate, nil)
 }
@@ -581,14 +578,14 @@ func finalizeClaimTransitionsWithAcceptance(
 	ctx context.Context,
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 	acceptSuccessor func(context.Context, ownership.Registry) error,
 ) error {
 	if len(transitions) == 0 {
 		return nil
 	}
 	var convergence ownership.ClaimConvergence
-	if err := gate.observe("transition-plan", func() error {
+	if err := gate.Observe("transition-plan", func() error {
 		set, err := ownershipmutation.NewClaimTransitionSet(transitions)
 		if err != nil {
 			return err
@@ -614,7 +611,7 @@ func rollbackClaimsToBefore(
 	ctx context.Context,
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 ) error {
 	return rollbackClaimsToBeforeWithAcceptance(ctx, registryStore, transitions, gate, nil)
 }
@@ -623,7 +620,7 @@ func rollbackClaimsToBeforeWithAcceptance(
 	ctx context.Context,
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 	acceptSuccessor func(context.Context, ownership.Registry) error,
 ) error {
 	if len(transitions) == 0 {
@@ -636,14 +633,14 @@ func rollbackClaimTransitions(
 	ctx context.Context,
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 	acceptSuccessor func(context.Context, ownership.Registry) error,
 ) error {
 	if len(transitions) == 0 {
 		return nil
 	}
 	var convergence ownership.ClaimConvergence
-	if err := gate.observe("transition-plan", func() error {
+	if err := gate.Observe("transition-plan", func() error {
 		set, err := ownershipmutation.NewClaimTransitionSet(transitions)
 		if err != nil {
 			return err
@@ -669,7 +666,7 @@ func executeClaimConvergence(
 	ctx context.Context,
 	registryStore ownershipmutation.RegistryStore,
 	convergence ownership.ClaimConvergence,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 	validateDetail string,
 	commitDetail string,
 	acceptDetail string,
@@ -678,11 +675,11 @@ func executeClaimConvergence(
 	if registryStore == nil {
 		return fmt.Errorf("ownership registry is unavailable")
 	}
-	if err := gate.validateBefore(ctx); err != nil {
+	if err := gate.ValidateBefore(ctx); err != nil {
 		return fmt.Errorf("%s: %w", validateDetail, err)
 	}
 	var next ownership.Registry
-	if err := gate.applyEffect(func() error {
+	if err := gate.ApplyEffect(func() error {
 		var convergeErr error
 		next, convergeErr = registryStore.Converge(ctx, convergence)
 		return convergeErr
@@ -694,7 +691,7 @@ func executeClaimConvergence(
 			return fmt.Errorf("%s: %w", acceptDetail, err)
 		}
 	}
-	if err := gate.acceptAfter(ctx); err != nil {
+	if err := gate.AcceptAfter(ctx); err != nil {
 		return fmt.Errorf("%s: %w", acceptDetail, err)
 	}
 	return nil

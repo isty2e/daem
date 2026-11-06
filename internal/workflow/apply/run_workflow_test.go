@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
@@ -118,7 +120,7 @@ func TestRunWithOptionsThreadsPreparedEffectPlanThroughBothPayloadBranches(t *te
 			locked,
 			selection,
 			assessment,
-			runOptions{applyEffectPlan: &execute.ApplyEffectPlan{}},
+			runOptions{applyEffectPlan: &applyprogram.Plan{}},
 		)
 		if err == nil {
 			t.Fatal("runWithOptions accepted an unavailable prepared plan")
@@ -154,7 +156,7 @@ func TestRunWithOptionsThreadsPreparedEffectPlanThroughBothPayloadBranches(t *te
 			locked,
 			selection,
 			assessment,
-			runOptions{applyEffectPlan: &execute.ApplyEffectPlan{}},
+			runOptions{applyEffectPlan: &applyprogram.Plan{}},
 		)
 		if err == nil {
 			t.Fatal("runWithOptions accepted an unavailable prepared plan")

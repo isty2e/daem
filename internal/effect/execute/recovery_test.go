@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
@@ -423,7 +425,7 @@ func TestRecoveryHostActionsRequireAggregateContractForContentPath(t *testing.T)
 		nil,
 		nil,
 		testAggregateCodecs(),
-		visibilityEffectGate{},
+		applyprogram.VisibilityGate{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "has no aggregate contract") {
 		t.Fatalf("error = %v, want missing aggregate contract rejection", err)
@@ -482,7 +484,7 @@ func TestRecoveryHostActionsRejectMismatchedAggregateContract(t *testing.T) {
 				nil,
 				nil,
 				testAggregateCodecs(),
-				visibilityEffectGate{},
+				applyprogram.VisibilityGate{},
 			)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("executeRecoveryHostActions error = %v, want containing %q", err, test.want)

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
@@ -71,7 +73,7 @@ type runOptions struct {
 	validateStateDir                  func(context.Context) error
 	reserveStatefileAuthority         reserveStatefileEffectAuthority
 	statefileAuthority                *statefileEffectAuthority
-	applyEffectPlan                   *execute.ApplyEffectPlan
+	applyEffectPlan                   *applyprogram.Plan
 	preparedContinuation              applyContinuationPlan
 	currentContinuation               applyContinuationPlan
 	requireContinuation               bool
@@ -314,7 +316,7 @@ func runWithOptions(
 
 func applyWithPreparedEffectPlan(
 	ctx context.Context,
-	plan *execute.ApplyEffectPlan,
+	plan *applyprogram.Plan,
 	input execute.ApplyInput,
 	options execute.ApplyOptions,
 ) (execute.ApplyResult, error) {

@@ -1,4 +1,4 @@
-package execute
+package applyprogram
 
 import (
 	"fmt"
@@ -6,17 +6,17 @@ import (
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
-type applyFailureSettlementKind uint8
+type FailureSettlement uint8
 
 const (
-	applyFailureSettlementClaimPreparation applyFailureSettlementKind = iota
-	applyFailureSettlementPreparedEffects
-	applyFailureSettlementGuardedRecovery
+	SettlementClaimPreparation FailureSettlement = iota
+	SettlementPreparedEffects
+	SettlementGuardedRecovery
 )
 
 const applyFailureSettlementChoice = "apply/failure-settlement"
 
-func compileApplyFailureSettlementStructure(
+func CompileFailureSettlement(
 	hasOwnershipTransitions bool,
 ) (operationplan.EffectStructure, error) {
 	var builder operationplan.EffectStructureBuilder
@@ -24,12 +24,12 @@ func compileApplyFailureSettlementStructure(
 		applyFailureSettlementChoice,
 		applyPreHostFailureSettlementBranch(
 			&builder,
-			applyFailureSettlementClaimPreparation,
+			SettlementClaimPreparation,
 			hasOwnershipTransitions,
 		),
 		applyPreHostFailureSettlementBranch(
 			&builder,
-			applyFailureSettlementPreparedEffects,
+			SettlementPreparedEffects,
 			hasOwnershipTransitions,
 		),
 		applyGuardedRecoverySettlementBranch(&builder),
@@ -37,34 +37,39 @@ func compileApplyFailureSettlementStructure(
 	if err != nil {
 		return operationplan.EffectStructure{}, err
 	}
-	demand, err := structure.LegacyDemand()
-	if err != nil {
+	if err := validateFailurePolicy(structure); err != nil {
 		return operationplan.EffectStructure{}, err
-	}
-	if !demand.Empty() {
-		return operationplan.EffectStructure{}, fmt.Errorf(
-			"compile apply failure settlement: expected zero State Barrier demand",
-		)
 	}
 	return structure, nil
 }
 
+func validateFailurePolicy(structure operationplan.EffectStructure) error {
+	demand, err := structure.LegacyDemand()
+	if err != nil {
+		return err
+	}
+	if !demand.Empty() {
+		return fmt.Errorf("compile apply failure settlement: expected zero State Barrier demand")
+	}
+	return nil
+}
+
 func applyPreHostFailureSettlementBranch(
 	builder *operationplan.EffectStructureBuilder,
-	kind applyFailureSettlementKind,
+	kind FailureSettlement,
 	hasOwnershipTransitions bool,
 ) operationplan.EffectNode {
-	prefix := kind.reference()
+	prefix := kind.Reference()
 	nodes := make([]operationplan.EffectNode, 0, 9)
 	if hasOwnershipTransitions {
 		nodes = append(
 			nodes,
-			applyCheckedStep(
+			CheckedStep(
 				builder,
 				prefix+"/ownership-rollback/transition-plan",
 				operationplan.EffectStepObservation,
 			),
-			applyVisibilityObligation(
+			VisibilityObligation(
 				builder,
 				prefix+"/ownership-rollback",
 				operationplan.EffectStepObservation,
@@ -74,27 +79,27 @@ func applyPreHostFailureSettlementBranch(
 	}
 	nodes = append(
 		nodes,
-		applyCheckedStep(
+		CheckedStep(
 			builder,
 			prefix+"/journal-retirement/project-validation",
 			operationplan.EffectStepObservation,
 		),
-		applyCheckedStep(
+		CheckedStep(
 			builder,
 			prefix+"/journal-retirement/forward",
 			operationplan.EffectStepObservation,
 		),
-		applyCheckedStep(
+		CheckedStep(
 			builder,
 			prefix+"/journal-retirement/reload",
 			operationplan.EffectStepObservation,
 		),
-		applyCheckedStep(
+		CheckedStep(
 			builder,
 			prefix+"/journal-retirement/settlement",
 			operationplan.EffectStepRetirement,
 		),
-		applyCheckedStep(
+		CheckedStep(
 			builder,
 			prefix+"/journal-retirement/acceptance",
 			operationplan.EffectStepObservation,
@@ -107,29 +112,29 @@ func applyPreHostFailureSettlementBranch(
 func applyGuardedRecoverySettlementBranch(
 	builder *operationplan.EffectStructureBuilder,
 ) operationplan.EffectNode {
-	prefix := applyFailureSettlementGuardedRecovery.reference()
+	prefix := SettlementGuardedRecovery.Reference()
 	return operationplan.EffectSequence(
-		applyCheckedStep(
+		CheckedStep(
 			builder,
 			prefix+"/progress-classification",
 			operationplan.EffectStepObservation,
 		),
-		applyCheckedStep(
+		CheckedStep(
 			builder,
 			prefix+"/rollback-selection",
 			operationplan.EffectStepObservation,
 		),
-		applyCheckedStep(
+		CheckedStep(
 			builder,
 			prefix+"/journal-load",
 			operationplan.EffectStepObservation,
 		),
-		applyCheckedStep(
+		CheckedStep(
 			builder,
 			prefix+"/journal-validation",
 			operationplan.EffectStepObservation,
 		),
-		applyCheckedStep(
+		CheckedStep(
 			builder,
 			prefix+"/execution-compile",
 			operationplan.EffectStepObservation,
@@ -138,62 +143,62 @@ func applyGuardedRecoverySettlementBranch(
 	)
 }
 
-func applyVisibilityObligation(
+func VisibilityObligation(
 	builder *operationplan.EffectStructureBuilder,
 	id string,
 	validation operationplan.EffectStepKind,
 	settlement operationplan.EffectStepKind,
 ) operationplan.EffectNode {
 	return operationplan.EffectSequence(
-		applyCheckedStep(builder, id+"/forward", validation),
-		applyCheckedStep(builder, id+"/settlement", settlement),
-		applyCheckedStep(builder, id+"/acceptance", operationplan.EffectStepObservation),
+		CheckedStep(builder, id+"/forward", validation),
+		CheckedStep(builder, id+"/settlement", settlement),
+		CheckedStep(builder, id+"/acceptance", operationplan.EffectStepObservation),
 	)
 }
 
-func (kind applyFailureSettlementKind) reference() string {
+func (kind FailureSettlement) Reference() string {
 	switch kind {
-	case applyFailureSettlementClaimPreparation:
+	case SettlementClaimPreparation:
 		return "apply/failure-settlement/claim-preparation"
-	case applyFailureSettlementPreparedEffects:
+	case SettlementPreparedEffects:
 		return "apply/failure-settlement/prepared-effects"
-	case applyFailureSettlementGuardedRecovery:
+	case SettlementGuardedRecovery:
 		return "apply/failure-settlement/guarded-recovery"
 	default:
 		return "apply/failure-settlement/invalid"
 	}
 }
 
-func (kind applyFailureSettlementKind) alternative() (int, error) {
+func (kind FailureSettlement) alternative() (int, error) {
 	switch kind {
-	case applyFailureSettlementClaimPreparation:
+	case SettlementClaimPreparation:
 		return 0, nil
-	case applyFailureSettlementPreparedEffects:
+	case SettlementPreparedEffects:
 		return 1, nil
-	case applyFailureSettlementGuardedRecovery:
+	case SettlementGuardedRecovery:
 		return 2, nil
 	default:
 		return 0, fmt.Errorf("invalid apply failure settlement kind %d", kind)
 	}
 }
 
-func (disposition applyForwardFailureDisposition) allows(
-	kind applyFailureSettlementKind,
+func (disposition ForwardFailure) allows(
+	kind FailureSettlement,
 ) bool {
 	switch disposition {
-	case applyForwardFailureClaimPreparation:
-		return kind == applyFailureSettlementClaimPreparation
-	case applyForwardFailurePreparedEffects:
-		return kind == applyFailureSettlementPreparedEffects
-	case applyForwardFailureGuardedRecovery,
-		applyForwardFailureStatefilePublication:
-		return kind == applyFailureSettlementGuardedRecovery
+	case FailureClaimPreparation:
+		return kind == SettlementClaimPreparation
+	case FailurePreparedEffects:
+		return kind == SettlementPreparedEffects
+	case FailureGuardedRecovery,
+		FailureStatefilePublication:
+		return kind == SettlementGuardedRecovery
 	default:
 		return false
 	}
 }
 
-func (disposition applyForwardFailureDisposition) allowsNoCompensation() bool {
-	return disposition == applyForwardFailureNoCompensation ||
-		disposition == applyForwardFailureStatefilePublication
+func (disposition ForwardFailure) allowsNoCompensation() bool {
+	return disposition == FailureNoCompensation ||
+		disposition == FailureStatefilePublication
 }

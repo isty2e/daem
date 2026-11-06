@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -146,7 +148,7 @@ func TestAggregateRecoveryRejectsNewlyAppearedEmptyDocument(t *testing.T) {
 		nil,
 		nil,
 		testAggregateCodecs(),
-		visibilityEffectGate{},
+		applyprogram.VisibilityGate{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "changed between recovery actions") {
 		t.Fatalf("executeRecoveryAggregateActionGroup error = %v, want appeared-document rejection", err)

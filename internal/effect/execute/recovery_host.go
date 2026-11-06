@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
@@ -206,7 +208,7 @@ func executeRecoveryHostActions(
 	beforeAction func(int) error,
 	ownershipGuard recoveryHostOwnershipGuard,
 	codecs aggregate.CodecCatalog,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 ) error {
 	if len(actions) != len(staged) {
 		return fmt.Errorf("recovery action count %d does not match staged precondition count %d", len(actions), len(staged))
@@ -294,7 +296,7 @@ func executeRecoveryHostActionPlan(
 	beforeAction func(int) error,
 	ownershipGuard recoveryHostOwnershipGuard,
 	codecs aggregate.CodecCatalog,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 ) error {
 	if len(actions) != len(staged) {
 		return fmt.Errorf("recovery action count %d does not match staged precondition count %d", len(actions), len(staged))
@@ -328,7 +330,7 @@ func executeRecoveryHostActionPlan(
 				return fmt.Errorf("before recovery host action %d: %w", index, err)
 			}
 		}
-		if err := gate.validateBefore(ctx); err != nil {
+		if err := gate.ValidateBefore(ctx); err != nil {
 			return fmt.Errorf("validate recovery host action %d authority: %w", index, err)
 		}
 
@@ -418,7 +420,7 @@ func executeRecoveryHostActionPlan(
 		if !staged[index].effectKnown {
 			return fmt.Errorf("recovery action for %q did not produce an exact whole-path postcondition", action.Destination)
 		}
-		if err := gate.acceptAfter(ctx); err != nil {
+		if err := gate.AcceptAfter(ctx); err != nil {
 			return fmt.Errorf("accept recovery host action %d visibility: %w", index, err)
 		}
 	}
@@ -442,7 +444,7 @@ func executeRecoveryAggregateActionGroup(
 	beforeAction func(int) error,
 	ownershipGuard recoveryHostOwnershipGuard,
 	codecs aggregate.CodecCatalog,
-	gate visibilityEffectGate,
+	gate applyprogram.VisibilityGate,
 ) (recoveryWholePathState, error) {
 	if len(group.indexes) == 0 {
 		return recoveryWholePathState{}, fmt.Errorf("aggregate recovery group is empty")
@@ -557,7 +559,7 @@ func executeRecoveryAggregateActionGroup(
 			)
 		}
 	}
-	if err := gate.validateBefore(ctx); err != nil {
+	if err := gate.ValidateBefore(ctx); err != nil {
 		return recoveryWholePathState{}, fmt.Errorf(
 			"validate aggregate recovery group at action %d authority: %w",
 			firstIndex,
@@ -685,7 +687,7 @@ func executeRecoveryAggregateActionGroup(
 	if !postSnapshot.Equal(expected.Expected()) {
 		return effectState, fmt.Errorf("aggregate recovery selected postcondition failed")
 	}
-	if err := gate.acceptAfter(ctx); err != nil {
+	if err := gate.AcceptAfter(ctx); err != nil {
 		return effectState, fmt.Errorf(
 			"accept aggregate recovery group at action %d visibility: %w",
 			firstIndex,
