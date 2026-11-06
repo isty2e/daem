@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/subprocess"
+	"github.com/isty2e/daem/internal/subprocess/workdir"
 	"github.com/isty2e/daem/internal/supply/source"
 )
 
@@ -310,7 +310,7 @@ func finishPreparedWorkingDirectoryCommand(
 	if err != nil {
 		return nil, nil, errors.Join(err, directory.Close(), capability.Close())
 	}
-	command, err := subprocess.PrepareCommandInWorkingDirectory(
+	command, err := workdir.PrepareCommand(
 		ctx,
 		executable,
 		commandArgs,
@@ -451,7 +451,7 @@ func (resolver Resolver) prepareCacheRootCommand(
 	if err != nil {
 		return nil, nil, errors.Join(err, directory.Close(), capability.Close())
 	}
-	command, err := subprocess.PrepareCommandInWorkingDirectory(
+	command, err := workdir.PrepareCommand(
 		ctx,
 		executable,
 		detachedGitCommandArgs(args),

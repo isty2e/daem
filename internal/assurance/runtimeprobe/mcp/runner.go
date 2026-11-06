@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/subprocess"
+	"github.com/isty2e/daem/internal/subprocess/workdir"
 )
 
 const (
@@ -50,7 +51,7 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 	if err != nil {
 		return commandResult{MissingRunner: true, Err: err}
 	}
-	cmd, err := subprocess.PrepareCommandInWorkingDirectory(ctx, path, request.Args, request.Env, request.nativeWorkDir)
+	cmd, err := workdir.PrepareCommand(ctx, path, request.Args, request.Env, request.nativeWorkDir)
 	if err != nil {
 		return commandResult{WorkDirAuthorityFailed: true, Err: err}
 	}

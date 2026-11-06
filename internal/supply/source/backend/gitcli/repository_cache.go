@@ -15,7 +15,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
-	"github.com/isty2e/daem/internal/subprocess"
+	"github.com/isty2e/daem/internal/subprocess/workdir"
 	"github.com/isty2e/daem/internal/supply/source"
 )
 
@@ -91,7 +91,7 @@ func decodeRepositoryCacheRecord(content []byte) (repositoryCacheRecord, error) 
 }
 
 func (resolver Resolver) captureCacheRoot(ctx context.Context) (*rootedpath.CapturedRoot, error) {
-	if err := subprocess.ValidateWorkingDirectoryCapability(); err != nil {
+	if err := workdir.ValidateCapability(); err != nil {
 		return nil, fmt.Errorf("git source cache requires descriptor-backed command execution: %w", err)
 	}
 	state, err := resolver.requireState()

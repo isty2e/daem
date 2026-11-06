@@ -9,18 +9,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/isty2e/daem/internal/subprocess/executioncontext"
 	"golang.org/x/sys/unix"
 )
 
 const processGroupPollInterval = 10 * time.Millisecond
-
-type processGroupOccupancy int
-
-const (
-	processGroupAbsent processGroupOccupancy = iota
-	processGroupSignalable
-	processGroupUnsignalable
-)
 
 func configureDedicatedProcessGroup(command *exec.Cmd) error {
 	attributes := command.SysProcAttr
@@ -45,20 +38,20 @@ func terminateDedicatedProcessGroup(pid int, options processTerminationOptions, 
 			return ProcessTermination{}, err
 		}
 		switch occupancy {
-		case processGroupAbsent:
+		case executioncontext.GroupAbsent:
 			return ProcessTermination{}, nil
-		case processGroupUnsignalable:
+		case executioncontext.GroupUnsignalable:
 			return unsignalableProcessGroupTermination(pid, unix.EPERM)
 		}
 	}
-	occupancy, err := observeDedicatedProcessGroup(pid)
+	occupancy, err := executioncontext.ObserveGroup(pid)
 	if err != nil {
 		return ProcessTermination{}, err
 	}
 	switch occupancy {
-	case processGroupAbsent:
+	case executioncontext.GroupAbsent:
 		return ProcessTermination{}, nil
-	case processGroupUnsignalable:
+	case executioncontext.GroupUnsignalable:
 		return unsignalableProcessGroupTermination(pid, unix.EPERM)
 	}
 
@@ -77,9 +70,9 @@ func terminateDedicatedProcessGroup(pid int, options processTerminationOptions, 
 			termErr = waitErr
 		} else {
 			switch occupancy {
-			case processGroupAbsent:
+			case executioncontext.GroupAbsent:
 				return termination, nil
-			case processGroupUnsignalable:
+			case executioncontext.GroupUnsignalable:
 				termination.unsignalableOccupancy = true
 				return termination, unsignalableProcessGroupError(pid, unix.EPERM)
 			}
@@ -100,9 +93,9 @@ func terminateDedicatedProcessGroup(pid int, options processTerminationOptions, 
 		return termination, errors.Join(termErr, killErr, waitErr)
 	}
 	switch occupancy {
-	case processGroupAbsent:
+	case executioncontext.GroupAbsent:
 		return termination, errors.Join(termErr, killErr)
-	case processGroupUnsignalable:
+	case executioncontext.GroupUnsignalable:
 		termination.unsignalableOccupancy = true
 		return termination, errors.Join(termErr, killErr, unsignalableProcessGroupError(pid, unix.EPERM))
 	default:
@@ -118,32 +111,7 @@ func signalDedicatedProcessGroup(pid int, signal syscall.Signal) error {
 	return unix.Kill(-pid, signal)
 }
 
-func observeDedicatedProcessGroup(pid int) (processGroupOccupancy, error) {
-	if pid <= 0 {
-		return processGroupAbsent, fmt.Errorf("invalid process group id %d", pid)
-	}
-	groupErr := unix.Kill(-pid, 0)
-	occupancy, recognized := classifyProcessGroupProbe(groupErr)
-	if !recognized {
-		return processGroupAbsent, fmt.Errorf("probe process group %d: %w", pid, groupErr)
-	}
-	return occupancy, nil
-}
-
-func classifyProcessGroupProbe(err error) (processGroupOccupancy, bool) {
-	switch {
-	case err == nil:
-		return processGroupSignalable, true
-	case errors.Is(err, unix.ESRCH):
-		return processGroupAbsent, true
-	case errors.Is(err, unix.EPERM):
-		return processGroupUnsignalable, true
-	default:
-		return processGroupAbsent, false
-	}
-}
-
-func waitForDedicatedProcessGroup(pid int, timeout time.Duration) (processGroupOccupancy, error) {
+func waitForDedicatedProcessGroup(pid int, timeout time.Duration) (executioncontext.GroupOccupancy, error) {
 	// Darwin can return EPERM for kill(-pgid, 0) while group members are
 	// dying after SIGKILL. Keep polling until ESRCH or the bound; persistent
 	// EPERM is unsignalable occupancy, not a leader-PID override.
@@ -153,17 +121,17 @@ func waitForDedicatedProcessGroup(pid int, timeout time.Duration) (processGroupO
 	defer ticker.Stop()
 
 	for {
-		occupancy, err := observeDedicatedProcessGroup(pid)
+		occupancy, err := executioncontext.ObserveGroup(pid)
 		if err != nil {
 			return occupancy, err
 		}
-		if occupancy == processGroupAbsent {
+		if occupancy == executioncontext.GroupAbsent {
 			return occupancy, nil
 		}
 		select {
 		case <-ticker.C:
 		case <-timer.C:
-			return observeDedicatedProcessGroup(pid)
+			return executioncontext.ObserveGroup(pid)
 		}
 	}
 }
