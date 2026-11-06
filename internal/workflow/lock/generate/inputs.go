@@ -47,6 +47,11 @@ func ConsumedLocalPaths(input Input) ([]string, error) {
 			return nil, err
 		}
 	}
+	for _, config := range input.Environment.HostConfigs() {
+		if err := addResolvedSource(config.Source()); err != nil {
+			return nil, err
+		}
+	}
 
 	result := make([]string, 0, len(paths))
 	for path := range paths {

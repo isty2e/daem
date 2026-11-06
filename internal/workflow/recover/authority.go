@@ -23,6 +23,7 @@ import (
 
 type recoveryAuthorityEvidence struct {
 	domains              []mutation.Domain
+	documentWrites       mutation.PhysicalAuthoritySet
 	authorityFingerprint mutation.OperationFingerprint
 }
 
@@ -72,6 +73,12 @@ func recoveryOperationFingerprint(
 	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
 ) (mutation.OperationFingerprint, error) {
+	if native, ok := journal.NativeActiveRecoveryPlan(selection); ok {
+		if !activeStateDir {
+			return mutation.OperationFingerprint{}, fmt.Errorf("active native recovery StateDir authority is required")
+		}
+		return nativeRecoveryOperationFingerprint(paths, native, stateDir)
+	}
 	switch selection.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
 		plan, ok := journal.ActiveRecoveryPlan(selection)
@@ -226,6 +233,12 @@ func buildRecoveryAuthorityEvidence(
 	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
 ) (recoveryAuthorityEvidence, error) {
+	if native, ok := journal.NativeActiveRecoveryPlan(selection); ok {
+		if !activeStateDir {
+			return recoveryAuthorityEvidence{}, fmt.Errorf("active native recovery StateDir authority is required")
+		}
+		return buildNativeRecoveryAuthorityEvidence(paths, native, stateDir)
+	}
 	switch selection.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
 		plan, ok := journal.ActiveRecoveryPlan(selection)
@@ -337,17 +350,9 @@ func buildActiveRecoveryAuthorityEvidence(
 			return recoveryAuthorityEvidence{}, fmt.Errorf("recovery guarded action destination: %w", err)
 		}
 		resolved := resolvedDestinations[recoveryDestinationKey{scope: action.Scope, destination: destination}]
-		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
-			for _, selected := range targets {
-				if err := builder.AddPhysical(
-					resolved,
-					mutation.AccessExclusive,
-					effect,
-					string(selected),
-					string(action.Scope),
-				); err != nil {
-					return recoveryAuthorityEvidence{}, err
-				}
+		for _, selected := range targets {
+			if err := builder.AddDocumentWritePair(resolved, string(selected), string(action.Scope)); err != nil {
+				return recoveryAuthorityEvidence{}, err
 			}
 		}
 	}
@@ -391,6 +396,10 @@ func buildActiveRecoveryAuthorityEvidence(
 		}
 	}
 	compiled := builder.Compile()
+	documentWrites, err := mutation.NewPhysicalAuthoritySet(compiled.DocumentWriteRequests()...)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	domains, err := lowerRecoveryAuthorityDomainSteps(compiled.DomainSteps())
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
@@ -401,6 +410,7 @@ func buildActiveRecoveryAuthorityEvidence(
 	}
 	return recoveryAuthorityEvidence{
 		domains:              domains,
+		documentWrites:       documentWrites,
 		authorityFingerprint: fingerprint,
 	}, nil
 }

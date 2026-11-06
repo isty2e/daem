@@ -10,7 +10,6 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
@@ -247,7 +246,7 @@ func commitObservedGlobalCarrierClaimWithContinuation(
 							entry,
 							current,
 							nextRegistry,
-							statefile.Codec{},
+							options.stateCodec(),
 						)
 						return entryErr
 					},

@@ -49,6 +49,7 @@ func TestFailureDetailCatalogCoversEveryWorkflowReason(t *testing.T) {
 		{name: "observation unavailable", result: failedResult(ReasonObservationUnavailable), want: "required current relation evidence is unavailable"},
 		{name: "stale plan", result: failedResult(ReasonStalePlan), want: "the authorized refresh plan is stale"},
 		{name: "mutation authority", result: failedResult(ReasonMutationAuthority), want: "required mutation authority is unavailable"},
+		{name: "native settings", result: failedResult(ReasonNativeSettings), want: "managed settings are not current or could not be qualified for refresh"},
 		{name: "interrupted apply", result: failedResult(ReasonInterruptedApply), want: "interrupted apply journal is present; run daem recover first"},
 		{name: "interrupted apply with file-set fence", result: failedResult(ReasonInterruptedApplyFileSetFence), want: "interrupted apply journal is present; run daem recover first; the file-set fence remains after recover"},
 		{name: "journal cleanup", result: failedResult(ReasonJournalCleanupIncomplete), want: "journal cleanup is incomplete; run daem recover first"},

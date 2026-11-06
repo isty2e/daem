@@ -50,8 +50,15 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(evidence.domains) != 15 {
-		t.Fatalf("domain count = %d, want 15 with RecoveryDir and StateDir barrier pairs", len(evidence.domains))
+	if len(evidence.domains) != 17 {
+		t.Fatalf("domain count = %d, want 17 with recovery, state-directory and Registry pairs", len(evidence.domains))
+	}
+	wantDocumentRequest := mutation.PhysicalAuthorityRequest{
+		Path:   filepath.Join(rootAuthority.PhysicalRoot(), ".claude", "skills", "review"),
+		Target: string(target.TargetClaudeCode), Scope: string(target.ScopeProject),
+	}
+	if len(evidence.documentWriteRequests) != 1 || evidence.documentWriteRequests[0] != wantDocumentRequest {
+		t.Fatalf("compiled document requests = %#v, want %#v", evidence.documentWriteRequests, wantDocumentRequest)
 	}
 	if len(evidence.firstEffectRevisions) != 9 {
 		t.Fatalf(
@@ -636,13 +643,14 @@ func applyAuthorityTestPlan(t *testing.T) commandPlan {
 		t.Fatal(err)
 	}
 	paths := daempaths.Paths{
-		ManifestPath:  filepath.Join(root, "daem.toml"),
-		ManifestRoot:  root,
-		LockfilePath:  filepath.Join(root, "daem.lock.toml"),
-		StateDir:      filepath.Join(root, ".daem"),
-		StatefilePath: filepath.Join(root, ".daem", "state.json"),
-		RecoveryDir:   filepath.Join(root, ".daem", "recovery"),
-		DataDir:       filepath.Join(root, "data"),
+		ManifestPath:          filepath.Join(root, "daem.toml"),
+		ManifestRoot:          root,
+		LockfilePath:          filepath.Join(root, "daem.lock.toml"),
+		StateDir:              filepath.Join(root, ".daem"),
+		StatefilePath:         filepath.Join(root, ".daem", "state.json"),
+		RecoveryDir:           filepath.Join(root, ".daem", "recovery"),
+		DataDir:               filepath.Join(root, "data"),
+		OwnershipRegistryPath: filepath.Join(root, "data", "ownership", "claims.json"),
 	}
 	environment := desiredtest.Environment(t, desired.Spec{
 		Targets:  []target.Target{target.TargetClaudeCode},

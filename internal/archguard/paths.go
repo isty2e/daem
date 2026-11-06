@@ -205,7 +205,11 @@ func isForbiddenNestedWorkflowImport(packagePath string, importPath string) bool
 	if importPath == "internal/workflow/protection/invocation" {
 		return packagePath != "internal/workflow/apply" &&
 			packagePath != "internal/workflow/refresh" &&
-			packagePath != "internal/workflow/nativeconfig"
+			packagePath != "internal/workflow/nativeconfig" &&
+			packagePath != "internal/workflow/nativeconfig/invocation"
+	}
+	if importPath == "internal/workflow/nativeconfig/invocation" {
+		return packagePath != "internal/workflow/apply" && packagePath != "internal/workflow/refresh"
 	}
 	if importPath == "internal/workflow/protection/recovery" {
 		return packagePath != "internal/workflow/recover"
@@ -225,7 +229,8 @@ func isForbiddenNestedWorkflowImport(packagePath string, importPath string) bool
 			packagePath != "internal/workflow/apply" &&
 			packagePath != "internal/workflow/status" &&
 			packagePath != "internal/workflow/refresh" &&
-			packagePath != "internal/workflow/recover"
+			packagePath != "internal/workflow/recover" &&
+			packagePath != "internal/workflow/nativeconfig/invocation"
 	}
 	return true
 }

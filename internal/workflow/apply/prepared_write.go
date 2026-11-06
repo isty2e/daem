@@ -158,15 +158,22 @@ func (prepared *PreparedWrite) Close() error {
 }
 
 func closeCommandPlan(planned *commandPlan) error {
-	if planned == nil || planned.projectRoot == nil {
+	if planned == nil {
 		return nil
 	}
-	root := planned.projectRoot
-	planned.projectRoot = nil
-	if err := root.Close(); err != nil {
-		return fmt.Errorf("close apply project-root witness: %w", err)
+	var err error
+	if planned.nativeOperation != nil {
+		err = errors.Join(err, planned.nativeOperation.Close())
+		planned.nativeOperation = nil
 	}
-	return nil
+	if planned.projectRoot != nil {
+		root := planned.projectRoot
+		planned.projectRoot = nil
+		if closeErr := root.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close apply project-root witness: %w", closeErr))
+		}
+	}
+	return err
 }
 
 func cloneCommandResult(result CommandResult) CommandResult {

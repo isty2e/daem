@@ -179,7 +179,7 @@ func TestRunRemoveExtensionGlobalOmissionNeverUninstallsOrPrunes(t *testing.T) {
 	}
 	diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "apply", "operation", true)
 	if exitCode != 1 ||
-		!strings.Contains(diagnostic, "apply failed: apply was refused before effects") ||
+		!strings.Contains(diagnostic, "apply preview failed: apply was refused before effects") ||
 		!strings.Contains(diagnostic, targetHint) {
 		t.Fatalf("targeted apply after remove exitCode = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}

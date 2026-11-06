@@ -8,6 +8,7 @@ Use this page to interpret stored ownership, recovery results and size limits.
 - [User-state authority migration](#user-state-authority-migration)
 - [Shared global ownership](#shared-global-ownership)
 - [Mutation revision evidence](#mutation-revision-evidence)
+- [Permission-only recovery](#permission-only-recovery)
 - [Recovery journal](#recovery-journal)
 - [Retained cleanup](#retained-cleanup)
 - [Forward-operation barriers](#forward-operation-barriers)
@@ -162,6 +163,33 @@ Enumeration and byte streaming honor cancellation. Complete-content files,
 required absence and immediate listings do not inherit the per-tree byte cap.
 Declaration reads use the 64 MiB limit below; extension inventories use their
 host observer's byte limit. Recovery has separate physical-work limits.
+
+## Permission-Only Recovery
+
+`apply`, `status` and `doctor` discover protection records for the selected state
+authority without requiring valid manifest, lockfile or state payloads. If the
+manifest was removed, select its original path explicitly with `--manifest` when
+inspecting or recovering it. Reports identify records observed during the command,
+not a fresh assertion that each remains pending when output is delivered.
+Discovery does not itself block
+an unrelated write or no-op Apply; actual writes still respect document fences.
+
+A permission-protection record is separate from an apply journal. When one
+belongs to the selected state authority, `recover` can plan permission-only work
+without a journal, manifest or lockfile payload. It checks the recorded document
+bindings, current namespace and supported metadata. A bound invocation also
+requires fresh process quiescence before access is restricted. Recovery never
+parses or rewrites protected host content, replays a command, recreates a deleted
+document or finishes an installation.
+
+Dry-run reports actions and blockers without changing permissions. Confirmed
+recovery can restrict independently qualified documents even when another is
+blocked, but succeeds only after every selected protection is confirmed cleared.
+It removes newly granted access without restoring rights already removed.
+Failed or uncertain qualification leaves unresolved work; an `unknown` result
+does not assert that the old record is still present. Clearing a protection is
+not proof that temporary access never occurred. Permission-only recovery does
+not enable otherwise unsupported native Apply or Refresh combinations.
 
 ## Recovery Journal
 

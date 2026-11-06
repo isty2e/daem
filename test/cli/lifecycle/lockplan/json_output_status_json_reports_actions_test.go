@@ -296,7 +296,7 @@ func TestRunApplyDryRunJSONFailsBeforePlanningInvalidLockedSkillSource(t *testin
 		t.Fatalf("exitCode = %d, want 1; stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
 	diagnostic := clijson.FailureText(t, stdout.String(), stderr.String(), "apply", "operation", true)
-	if got, want := diagnostic, "apply failed: apply was refused before effects"; got != want {
+	if got, want := diagnostic, "apply preview failed: apply was refused before effects"; got != want {
 		t.Fatalf("stderr = %q, want closed invalid-source failure %q", got, want)
 	}
 }

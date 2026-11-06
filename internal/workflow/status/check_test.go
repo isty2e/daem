@@ -1,8 +1,10 @@
 package status
 
 import (
+	"errors"
 	"testing"
 
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/findings"
 )
 
@@ -34,9 +36,24 @@ func TestCheckCleanSeparatesStateFromDiagnosticGrade(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			clear, err := ownershipobserve.KnownProtections(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.result.PermissionProtection = clear
 			if got := test.result.CheckClean(); got != test.want {
 				t.Fatalf("CheckClean=%t, want %t", got, test.want)
 			}
 		})
+	}
+}
+
+func TestCheckCleanRequiresKnownOwnerProtectionInventory(t *testing.T) {
+	for _, observation := range []ownershipobserve.ProtectionObservation{
+		{}, ownershipobserve.UnavailableProtections(errors.New("inventory unavailable")), ownershipobserve.UnsupportedProtections(),
+	} {
+		if (CommandResult{PermissionProtection: observation}).CheckClean() {
+			t.Fatalf("uncertified owner was clean: %s", observation.State())
+		}
 	}
 }
