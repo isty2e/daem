@@ -294,7 +294,7 @@ func TestRecoveryRollbackStageAndRestoreUseSameGlobalRootAuthority(t *testing.T)
 	if err != nil {
 		t.Fatalf("stageRecoveryRollback: %v", err)
 	}
-	rollbackDir := rollback.dir
+	rollbackDir := rollback.scratch.Directory()
 	t.Cleanup(func() { _ = os.RemoveAll(rollbackDir) })
 	if filepath.Clean(filepath.Dir(rollbackDir)) != filepath.Clean(os.TempDir()) {
 		t.Fatalf("rollback scratch parent = %q, want system temp %q", filepath.Dir(rollbackDir), os.TempDir())
@@ -334,7 +334,7 @@ func TestRecoveryRollbackStageAndRestoreUseSameGlobalRootAuthority(t *testing.T)
 	}
 	assertRecoveryTestContent(t, fixture.admittedPath, fixture.after)
 	assertRecoveryTestContent(t, fixture.retargetedPath, retargetCanary)
-	if err := rollback.cleanup(context.Background(), authority); err != nil {
+	if err := rollback.scratch.Cleanup(context.Background()); err != nil {
 		t.Fatalf("cleanup rollback scratch: %v", err)
 	}
 	if _, err := os.Lstat(rollbackDir); !os.IsNotExist(err) {
@@ -406,21 +406,21 @@ func TestRecoveryRollbackCleanupRejectsScratchGrowth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(rollback.dir) })
-	if err := os.WriteFile(filepath.Join(rollback.dir, "unexpected"), nil, 0o600); err != nil {
+	t.Cleanup(func() { _ = os.RemoveAll(rollback.scratch.Directory()) })
+	if err := os.WriteFile(filepath.Join(rollback.scratch.Directory(), "unexpected"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 
-	err = rollback.cleanup(t.Context(), authority)
+	err = rollback.scratch.Cleanup(t.Context())
 	if err == nil || (!strings.Contains(err.Error(), "changed before cleanup") &&
 		!strings.Contains(err.Error(), "exceeds 1 entries")) {
 		t.Fatalf("rollback cleanup error = %v, want scratch-growth rejection", err)
 	}
-	if _, err := os.Stat(filepath.Join(rollback.dir, "unexpected")); err != nil {
+	if _, err := os.Stat(filepath.Join(rollback.scratch.Directory(), "unexpected")); err != nil {
 		t.Fatalf("unexpected entry changed after rejected cleanup: %v", err)
 	}
-	if _, err := os.Stat(rollback.dir); err != nil {
+	if _, err := os.Stat(rollback.scratch.Directory()); err != nil {
 		t.Fatalf("scratch changed after rejected cleanup: %v", err)
 	}
 }
@@ -543,7 +543,7 @@ func TestRecoveryRollbackRejectsReplacedStageArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = rollback.cleanup(context.Background(), authority) })
+	t.Cleanup(func() { _ = rollback.scratch.Cleanup(context.Background()) })
 
 	partial := fixture.before
 	writeRecoveryTestFile(t, fixture.admittedPath, partial)
@@ -636,7 +636,7 @@ func TestRecoveryRollbackStagesOneBaselinePerSharedDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stageRecoveryRollback: %v", err)
 	}
-	t.Cleanup(func() { _ = rollback.cleanup(context.Background(), authority) })
+	t.Cleanup(func() { _ = rollback.scratch.Cleanup(context.Background()) })
 	if len(rollback.entries) != actionCount {
 		t.Fatalf("rollback entries = %d, want %d action-aligned entries", len(rollback.entries), actionCount)
 	}
@@ -649,7 +649,7 @@ func TestRecoveryRollbackStagesOneBaselinePerSharedDocument(t *testing.T) {
 			t.Fatalf("rollback entry[%d] backup = %q, want shared %q", index, entry.backupPath, backupPath)
 		}
 	}
-	staged, err := os.ReadDir(rollback.dir)
+	staged, err := os.ReadDir(rollback.scratch.Directory())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -762,7 +762,7 @@ func TestRecoveryDirectFileCommitRejectsStagedEntryDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = rollback.cleanup(context.Background(), authority) })
+	t.Cleanup(func() { _ = rollback.scratch.Cleanup(context.Background()) })
 	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 
 	external := []byte("external after staging\n")
@@ -814,7 +814,7 @@ func TestRecoveryRollbackRefusesExternalChangeAfterCommittedRecoveryEffect(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = rollback.cleanup(context.Background(), authority) })
+	t.Cleanup(func() { _ = rollback.scratch.Cleanup(context.Background()) })
 	beginUnclassifiedRecoveryExecutionForTest(t, authority)
 	if err := executeRecoveryHostActions(
 		context.Background(),
@@ -907,7 +907,7 @@ func TestRecoveryHostActionsStopAtLostVisibilityAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = rollback.cleanup(context.Background(), authority) })
+	t.Cleanup(func() { _ = rollback.scratch.Cleanup(context.Background()) })
 	if err := prepareRecoveryForwardRemovals(
 		t.Context(),
 		authority.removals,

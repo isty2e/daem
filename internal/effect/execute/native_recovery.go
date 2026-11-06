@@ -155,7 +155,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 	if err != nil {
 		return err
 	}
-	defer func() { resultErr = errors.Join(resultErr, ordinary.cleanup(context.WithoutCancel(ctx), authority)) }()
+	defer func() { resultErr = errors.Join(resultErr, ordinary.cleanup(context.WithoutCancel(ctx))) }()
 	if retiring == nil {
 		retiring, err = operation.PrepareRetirement(ctx, options.Filesystem)
 	}
@@ -236,7 +236,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 			return ordinary.execute(ctx, authority, operation, store, semanticGuard, gate)
 		}})
 		steps = append(steps, nativeRecoveryStep{name: nativeRecoveryOrdinaryCleanupReference, kind: operationplan.EffectStepCleanup, run: func() error {
-			return ordinary.cleanup(context.WithoutCancel(ctx), authority)
+			return ordinary.cleanup(context.WithoutCancel(ctx))
 		}})
 	}
 	steps = append(steps, nativeRecoveryStep{name: nativeRecoveryMetadataReference, kind: operationplan.EffectStepPersistence, run: func() error {

@@ -46,16 +46,16 @@ func prepareNativeOrdinaryRecovery(ctx context.Context, authority *mutationAutho
 	}
 	hostPlan, err := prepareRecoveryHostExecutionPlan(authority, actions)
 	if err != nil {
-		return nativeOrdinaryRecoveryStage{}, errors.Join(err, rollback.cleanup(context.WithoutCancel(ctx), authority))
+		return nativeOrdinaryRecoveryStage{}, errors.Join(err, rollback.scratch.Cleanup(context.WithoutCancel(ctx)))
 	}
 	return nativeOrdinaryRecoveryStage{actions: actions, rollback: rollback, plan: hostPlan}, nil
 }
 
-func (stage nativeOrdinaryRecoveryStage) cleanup(ctx context.Context, authority *mutationAuthority) error {
+func (stage nativeOrdinaryRecoveryStage) cleanup(ctx context.Context) error {
 	if len(stage.actions) == 0 {
 		return nil
 	}
-	return stage.rollback.cleanup(ctx, authority)
+	return stage.rollback.scratch.Cleanup(ctx)
 }
 
 func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, store ownershipmutation.RegistryStore, semanticGuard func(context.Context) error, gate applyprogram.VisibilityGate) (resultErr error) {

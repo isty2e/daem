@@ -759,7 +759,7 @@ func executeRecoveryRollbackEffects(
 	}); err != nil {
 		cleanupErr := execution.runFailureCleanup(
 			"active-recovery/rollback/prepare-removal-cleanup-failure",
-			func() error { return rollback.cleanup(context.WithoutCancel(ctx), authority) },
+			func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
 		)
 		return errors.Join(err, cleanupErr)
 	}
@@ -774,7 +774,7 @@ func executeRecoveryRollbackEffects(
 	); err != nil {
 		cleanupErr := execution.runFailureCleanup(
 			"active-recovery/rollback/begin-general-execution-failure",
-			func() error { return rollback.cleanup(context.WithoutCancel(ctx), authority) },
+			func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
 		)
 		return errors.Join(
 			fmt.Errorf("prepare bounded recovery execution: %w", err),
@@ -800,7 +800,7 @@ func executeRecoveryRollbackEffects(
 	}); err != nil {
 		cleanupErr := execution.runFailureCleanup(
 			"active-recovery/rollback/rebind-ownership-failure",
-			func() error { return rollback.cleanup(context.WithoutCancel(ctx), authority) },
+			func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
 		)
 		return errors.Join(err, cleanupErr)
 	}
@@ -826,7 +826,7 @@ func executeRecoveryRollbackEffects(
 		)
 	}
 	if err := execution.beginHostBatch(hostPlan.visitOrder); err != nil {
-		return errors.Join(err, rollback.cleanup(context.WithoutCancel(ctx), authority))
+		return errors.Join(err, rollback.scratch.Cleanup(context.WithoutCancel(ctx)))
 	}
 	guardedBeforeAction := func(index int) error {
 		if err := execution.visitHostAction(index); err != nil {
@@ -899,7 +899,7 @@ func executeRecoveryRollbackEffects(
 	}); err != nil {
 		cleanupErr := execution.runFailureCleanup(
 			"active-recovery/rollback/claim-failure",
-			func() error { return rollback.cleanup(context.WithoutCancel(ctx), authority) },
+			func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
 		)
 		return errors.Join(err, cleanupErr)
 	}
@@ -916,7 +916,7 @@ func executeRecoveryRollbackEffects(
 	}); err != nil {
 		cleanupErr := execution.runFailureCleanup(
 			"active-recovery/rollback/post-claim-cancellation",
-			func() error { return rollback.cleanup(context.WithoutCancel(ctx), authority) },
+			func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
 		)
 		return errors.Join(err, cleanupErr)
 	}
@@ -927,7 +927,7 @@ func executeRecoveryRollbackEffects(
 			kind: operationplan.EffectStepCleanup,
 		},
 		func() error {
-			if err := rollback.cleanup(context.WithoutCancel(ctx), authority); err != nil {
+			if err := rollback.scratch.Cleanup(context.WithoutCancel(ctx)); err != nil {
 				return fmt.Errorf("cleanup recovery rollback stage: %w; recovery journal retained", err)
 			}
 			return nil
@@ -951,7 +951,7 @@ func executeActiveRecoveryRollbackCompensation(
 	)
 	cleanupErr := execution.runFailureCleanup(
 		prefix,
-		func() error { return rollback.cleanup(context.WithoutCancel(ctx), authority) },
+		func() error { return rollback.scratch.Cleanup(context.WithoutCancel(ctx)) },
 	)
 	return recoveryRollbackFailure(primary, rollbackErr, cleanupErr)
 }

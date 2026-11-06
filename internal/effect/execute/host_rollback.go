@@ -7,7 +7,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
@@ -15,10 +14,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
-	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -30,7 +27,6 @@ const (
 	recoveryRollbackObservationAccesses = 3
 	recoveryRollbackMutationAccesses    = 4
 	recoveryPostconditionAccesses       = 2
-	maximumRollbackScratchTreeDepth     = recovery.MaximumArtifactTreeDepth + 1
 	recoveryHostDestinationAccesses     = recoveryBaselineObservationAccesses +
 		recoveryHostMutationAccesses +
 		recoveryRollbackObservationAccesses +
@@ -39,17 +35,8 @@ const (
 )
 
 type hostRollback struct {
-	dir          string
-	entries      []hostRollbackEntry
-	cleanupState *preparedRollbackCleanup
-}
-
-type preparedRollbackCleanup struct {
-	root      *rootedpath.CapturedRoot
-	authority *rootedpath.EntryAuthority
-	identity  mutationfs.EntryIdentity
-	limits    mutationfs.TreeTraversalLimits
-	complete  bool
+	scratch *hostmutation.RollbackScratch
+	entries []hostRollbackEntry
 }
 
 type hostRollbackEntry struct {
@@ -91,14 +78,6 @@ func (state recoveryWholePathState) equal(other recoveryWholePathState) bool {
 
 type recoveryGeneralPathReservation struct {
 	budget *physicalwork.Budget
-}
-
-type recoveryScratchPathReservation struct {
-	budget *physicalwork.Budget
-}
-
-func (reservation recoveryScratchPathReservation) AdmitPathComponents(count int) error {
-	return reservation.budget.ReserveScratchPathComponents(count)
 }
 
 func (reservation recoveryGeneralPathReservation) AdmitPathComponents(count int) error {
@@ -299,13 +278,13 @@ func stageRecoveryRollback(
 	actions []recoveryHostAction,
 	codecs aggregate.CodecCatalog,
 ) (hostRollback, error) {
-	rollbackDir, err := os.MkdirTemp("", "daem-recovery-rollback-")
+	scratch, err := hostmutation.CreateRollbackScratch(authority.filesystem)
 	if err != nil {
-		return hostRollback{}, fmt.Errorf("create recovery rollback directory: %w", err)
+		return hostRollback{}, err
 	}
 
 	rollback := hostRollback{
-		dir:     rollbackDir,
+		scratch: scratch,
 		entries: make([]hostRollbackEntry, len(actions)),
 	}
 	stageGroups := make([][]rollbackStageAction, 0, len(actions))
@@ -313,11 +292,11 @@ func stageRecoveryRollback(
 	for index, action := range actions {
 		logical, err := recoveryDestination(action.Scope, action.Destination)
 		if err != nil {
-			return hostRollback{}, errors.Join(err, rollback.abortCleanup(context.WithoutCancel(ctx), authority))
+			return hostRollback{}, errors.Join(err, scratch.Abort(context.WithoutCancel(ctx), rollback.scratchArtifacts()))
 		}
 		destination, err := authority.destinations.Resolve(action.Scope, logical)
 		if err != nil {
-			return hostRollback{}, errors.Join(err, rollback.abortCleanup(context.WithoutCancel(ctx), authority))
+			return hostRollback{}, errors.Join(err, scratch.Abort(context.WithoutCancel(ctx), rollback.scratchArtifacts()))
 		}
 		key := filepath.Clean(destination.HostPath())
 		groupIndex, present := stageGroupByDestination[key]
@@ -333,14 +312,14 @@ func stageRecoveryRollback(
 		})
 	}
 	for groupIndex, group := range stageGroups {
-		entries, err := stageRollbackDestinations(ctx, authority, group, rollbackDir, groupIndex, codecs)
+		entries, err := stageRollbackDestinations(ctx, authority, group, scratch.Directory(), groupIndex, codecs)
 		if err != nil {
-			return hostRollback{}, errors.Join(err, rollback.abortCleanup(context.WithoutCancel(ctx), authority))
+			return hostRollback{}, errors.Join(err, scratch.Abort(context.WithoutCancel(ctx), rollback.scratchArtifacts()))
 		}
 		if len(entries) != len(group) {
 			return hostRollback{}, errors.Join(
 				fmt.Errorf("rollback stage entry count %d does not match action count %d", len(entries), len(group)),
-				rollback.abortCleanup(context.WithoutCancel(ctx), authority),
+				scratch.Abort(context.WithoutCancel(ctx), rollback.scratchArtifacts()),
 			)
 		}
 		for index, entry := range entries {
@@ -348,13 +327,23 @@ func stageRecoveryRollback(
 		}
 	}
 
-	if err := rollback.prepareCleanup(ctx, authority); err != nil {
+	if err := scratch.PrepareCleanup(ctx, authority.physicalWorkBudget, rollback.scratchArtifacts()); err != nil {
 		return hostRollback{}, errors.Join(
 			err,
-			rollback.abortCleanup(context.WithoutCancel(ctx), authority),
+			scratch.Abort(context.WithoutCancel(ctx), rollback.scratchArtifacts()),
 		)
 	}
 	return rollback, nil
+}
+
+func (rollback hostRollback) scratchArtifacts() []hostmutation.ScratchArtifact {
+	artifacts := make([]hostmutation.ScratchArtifact, 0, len(rollback.entries))
+	for _, entry := range rollback.entries {
+		if entry.existed && entry.backupPath != "" {
+			artifacts = append(artifacts, hostmutation.ScratchArtifact{Path: entry.backupPath, Work: entry.stagedWork})
+		}
+	}
+	return artifacts
 }
 
 func (rollback hostRollback) restore(
@@ -404,273 +393,6 @@ func rollbackGroupAttempted(entries []hostRollbackEntry) bool {
 		}
 	}
 	return false
-}
-
-func (rollback *hostRollback) prepareCleanup(
-	ctx context.Context,
-	authority *mutationAuthority,
-) (returnErr error) {
-	if rollback == nil || rollback.dir == "" {
-		return fmt.Errorf("recovery rollback stage is unavailable")
-	}
-	if rollback.cleanupState != nil {
-		return fmt.Errorf("recovery rollback cleanup is already prepared")
-	}
-	if authority == nil || authority.physicalWorkBudget == nil || authority.filesystem == nil {
-		return fmt.Errorf("recovery rollback cleanup requires bounded mutation authority")
-	}
-	work, err := rollback.cleanupWork()
-	if err != nil {
-		return err
-	}
-	root, destination, err := rootedpath.CaptureDestinationBounded(
-		rollback.dir,
-		physicalwork.MaximumPhysicalPathDepth,
-		authority.physicalWorkBudget,
-	)
-	if err != nil {
-		return fmt.Errorf("capture recovery rollback cleanup authority: %w", err)
-	}
-	defer func() {
-		if returnErr != nil {
-			returnErr = errors.Join(returnErr, root.Close())
-		}
-	}()
-
-	reservation := recoveryScratchPathReservation{budget: authority.physicalWorkBudget}
-	for range 3 {
-		if err := root.ReserveDestinationAccess(
-			destination,
-			physicalwork.MaximumPhysicalPathDepth,
-			reservation,
-		); err != nil {
-			return fmt.Errorf("reserve recovery rollback cleanup path: %w", err)
-		}
-	}
-	if err := removalnamespace.ReserveScratchRootedCleanupWork(
-		authority.physicalWorkBudget,
-		destination,
-		work,
-	); err != nil {
-		return fmt.Errorf("reserve recovery rollback cleanup tree: %w", err)
-	}
-	executionBudget, reservedWork, err := authority.physicalWorkBudget.BeginReservedScratchCleanup()
-	if err != nil {
-		return err
-	}
-	entryAuthority, err := rootedpath.BindCapturedEntryAuthorityBounded(
-		root,
-		destination,
-		physicalwork.MaximumPhysicalPathDepth,
-		executionBudget,
-	)
-	if err != nil {
-		return fmt.Errorf("bind recovery rollback cleanup entry: %w", err)
-	}
-	capability, err := entryAuthority.Acquire()
-	if err != nil {
-		return errors.Join(err, entryAuthority.Close())
-	}
-	identity, err := authority.filesystem.CaptureRootedEntryIdentity(ctx, capability)
-	if err != nil {
-		return errors.Join(err, capability.Close(), entryAuthority.Close())
-	}
-	if identity.Kind() != mutationfs.EntryKindDirectory {
-		return errors.Join(
-			fmt.Errorf("recovery rollback stage is not a directory"),
-			capability.Close(),
-			entryAuthority.Close(),
-		)
-	}
-	if err := capability.Close(); err != nil {
-		return errors.Join(err, entryAuthority.Close())
-	}
-	limits, err := mutationfs.NewTreeTraversalLimits(
-		reservedWork.Entries(),
-		maximumRollbackScratchTreeDepth,
-		reservedWork.Bytes(),
-	)
-	if err != nil {
-		return errors.Join(err, entryAuthority.Close())
-	}
-	rollback.cleanupState = &preparedRollbackCleanup{
-		root: root, authority: entryAuthority, identity: identity, limits: limits,
-	}
-	return nil
-}
-
-func (rollback hostRollback) cleanupWork() (workmeasure.ArtifactWork, error) {
-	seen := make(map[string]struct{}, len(rollback.entries))
-	entries := 0
-	var bytes int64
-	for _, entry := range rollback.entries {
-		if !entry.existed || entry.backupPath == "" {
-			continue
-		}
-		backupPath := filepath.Clean(entry.backupPath)
-		if backupPath == rollback.dir ||
-			!strings.HasPrefix(backupPath, rollback.dir+string(filepath.Separator)) {
-			return workmeasure.ArtifactWork{}, fmt.Errorf("rollback backup escaped its private stage")
-		}
-		if _, duplicate := seen[backupPath]; duplicate {
-			continue
-		}
-		seen[backupPath] = struct{}{}
-		entries += entry.stagedWork.Entries() + 1
-		bytes += entry.stagedWork.Bytes()
-	}
-	return workmeasure.NewArtifactWork(entries, bytes)
-}
-
-func (rollback *hostRollback) cleanup(
-	ctx context.Context,
-	authority *mutationAuthority,
-) error {
-	if rollback == nil || rollback.dir == "" {
-		return nil
-	}
-	if rollback.cleanupState == nil {
-		return fmt.Errorf("recovery rollback cleanup was not prepared")
-	}
-	if rollback.cleanupState.complete {
-		return nil
-	}
-	if authority == nil || authority.filesystem == nil {
-		return fmt.Errorf("recovery rollback cleanup filesystem is unavailable")
-	}
-	return rollback.cleanupState.execute(ctx, authority.filesystem)
-}
-
-func (cleanup *preparedRollbackCleanup) execute(
-	ctx context.Context,
-	filesystem mutationfs.RootedStore,
-) (returnErr error) {
-	if cleanup == nil || cleanup.root == nil || cleanup.authority == nil || cleanup.identity == nil {
-		return fmt.Errorf("recovery rollback cleanup is uninitialized")
-	}
-	defer func() {
-		returnErr = errors.Join(returnErr, cleanup.authority.Close(), cleanup.root.Close())
-		if returnErr == nil {
-			cleanup.complete = true
-		}
-	}()
-	capability, err := cleanup.authority.Acquire()
-	if err != nil {
-		return err
-	}
-	current, err := filesystem.CaptureRootedEntryIdentity(ctx, capability)
-	if err != nil {
-		return errors.Join(err, capability.Close())
-	}
-	if !cleanup.identity.Equal(current) {
-		return errors.Join(
-			fmt.Errorf("recovery rollback stage changed before cleanup"),
-			capability.Close(),
-		)
-	}
-	outcome, err := filesystem.CleanupRootedEntry(
-		ctx,
-		capability,
-		current,
-		cleanup.limits,
-	)
-	if err != nil {
-		return fmt.Errorf(
-			"cleanup recovery rollback stage (%s): %w",
-			outcome.State(),
-			err,
-		)
-	}
-	return nil
-}
-
-func (rollback *hostRollback) abortCleanup(
-	ctx context.Context,
-	authority *mutationAuthority,
-) error {
-	if rollback == nil || rollback.dir == "" {
-		return nil
-	}
-	if rollback.cleanupState != nil {
-		return rollback.cleanup(ctx, authority)
-	}
-	if authority == nil || authority.filesystem == nil {
-		return fmt.Errorf("recovery rollback abort cleanup filesystem is unavailable")
-	}
-	work, err := rollback.cleanupWork()
-	if err != nil {
-		return err
-	}
-	budget, err := physicalwork.NewBudget(0)
-	if err != nil {
-		return err
-	}
-	root, destination, err := rootedpath.CaptureDestinationBounded(
-		rollback.dir,
-		physicalwork.MaximumPhysicalPathDepth,
-		budget,
-	)
-	if err != nil {
-		return err
-	}
-	reservation := recoveryScratchPathReservation{budget: budget}
-	for range 3 {
-		if err := root.ReserveDestinationAccess(
-			destination,
-			physicalwork.MaximumPhysicalPathDepth,
-			reservation,
-		); err != nil {
-			return errors.Join(err, root.Close())
-		}
-	}
-	if err := removalnamespace.ReserveScratchRootedCleanupWork(budget, destination, work); err != nil {
-		return errors.Join(err, root.Close())
-	}
-	executionBudget, reservedWork, err := budget.BeginReservedScratchCleanup()
-	if err != nil {
-		return errors.Join(err, root.Close())
-	}
-	entryAuthority, err := rootedpath.BindCapturedEntryAuthorityBounded(
-		root,
-		destination,
-		physicalwork.MaximumPhysicalPathDepth,
-		executionBudget,
-	)
-	if err != nil {
-		return errors.Join(err, root.Close())
-	}
-	capability, err := entryAuthority.Acquire()
-	if err != nil {
-		return errors.Join(err, entryAuthority.Close(), root.Close())
-	}
-	identity, err := authority.filesystem.CaptureRootedEntryIdentity(ctx, capability)
-	if err != nil {
-		return errors.Join(err, capability.Close(), entryAuthority.Close(), root.Close())
-	}
-	limits, err := mutationfs.NewTreeTraversalLimits(
-		reservedWork.Entries(),
-		maximumRollbackScratchTreeDepth,
-		reservedWork.Bytes(),
-	)
-	if err != nil {
-		return errors.Join(err, capability.Close(), entryAuthority.Close(), root.Close())
-	}
-	outcome, cleanupErr := authority.filesystem.CleanupRootedEntry(
-		ctx,
-		capability,
-		identity,
-		limits,
-	)
-	return errors.Join(
-		func() error {
-			if cleanupErr == nil {
-				return nil
-			}
-			return fmt.Errorf("abort recovery rollback stage (%s): %w", outcome.State(), cleanupErr)
-		}(),
-		entryAuthority.Close(),
-		root.Close(),
-	)
 }
 
 func restoreRollbackGroup(
