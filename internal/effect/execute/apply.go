@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
+	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
@@ -116,7 +117,14 @@ type ApplyResult struct {
 	// ExecutionAttempted reports whether apply reached journal capture or a
 	// later mutation boundary.
 	ExecutionAttempted bool
-	nativeSettlement   *NativeApplySettlement
+	nativeSettlement   *registrysettlement.PersistenceSnapshot
+}
+
+func (result ApplyResult) NativeSettlement() (registrysettlement.PersistenceSnapshot, bool) {
+	if result.nativeSettlement == nil {
+		return registrysettlement.PersistenceSnapshot{}, false
+	}
+	return *result.nativeSettlement, true
 }
 
 // ApplyWithOptions commits typed executable effects and emits observational execution events.

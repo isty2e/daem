@@ -16,7 +16,6 @@ import (
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/operationplan"
-	"github.com/isty2e/daem/internal/output/ownership"
 )
 
 func settleNativeApplyFailure(ctx context.Context, primary error, input NativeApplyInput, options ApplyOptions, authority *mutationAuthority, store ownershipmutation.RegistryStore, captured journalpublication.CapturedNativeJournal, retiring *journal.NativeJournalRetirement, execution *applyprogram.Execution, result *ApplyResult) (resultErr error) {
@@ -103,32 +102,4 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 	}
 	result.ActionCount = 0
 	return newApplyRollbackError(primary, nil)
-}
-
-// NativeApplySettlement retains observed persistence, not execution authority.
-type NativeApplySettlement struct {
-	state     durable.Snapshot
-	scope     ownership.DocumentScope
-	documents ownership.DocumentRegistryView
-}
-
-func (result ApplyResult) NativeSettlement() (NativeApplySettlement, bool) {
-	if result.nativeSettlement == nil {
-		return NativeApplySettlement{}, false
-	}
-	return *result.nativeSettlement, true
-}
-
-func (settlement NativeApplySettlement) Matches(state durable.Snapshot, registry ownership.Registry) (bool, error) {
-	if !settlement.state.Equal(state) {
-		return false, nil
-	}
-	return settlement.MatchesRegistry(registry)
-}
-
-// MatchesRegistry permits later actor-owned diagnostic checkpoints while
-// retaining the exact document/ownership settlement boundary.
-func (settlement NativeApplySettlement) MatchesRegistry(registry ownership.Registry) (bool, error) {
-	documents, err := registry.Documents(settlement.scope)
-	return err == nil && settlement.documents.Equal(documents), err
 }

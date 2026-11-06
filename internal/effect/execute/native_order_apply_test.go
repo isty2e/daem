@@ -108,6 +108,22 @@ func TestNativeApplyPublishesPiOrderOnlyTransaction(t *testing.T) {
 			if err != nil || !registry.Equal(input.Registry) {
 				t.Fatal("order-only publication invented ownership membership", err)
 			}
+			settlement, present := result.NativeSettlement()
+			if !present {
+				t.Fatal("successful native publication lost its persistence snapshot")
+			}
+			if matches, err := settlement.Matches(state, registry); err != nil || !matches {
+				t.Fatalf("committed persistence did not match its result snapshot: %v", err)
+			}
+			if matches, err := settlement.Matches(input.CurrentState, ownership.Registry{}); err != nil || matches {
+				t.Fatalf("different state did not short-circuit Registry comparison: matches=%v error=%v", matches, err)
+			}
+			if matches, err := settlement.Matches(state, ownership.Registry{}); err == nil || matches {
+				t.Fatal("matching state concealed invalid Registry evidence")
+			}
+			if matches, err := settlement.MatchesRegistry(registry); err != nil || !matches {
+				t.Fatalf("Registry-only diagnostic checkpoint lost its scope: %v", err)
+			}
 			entries, err := os.ReadDir(input.Paths.RecoveryDir)
 			if err != nil || len(entries) != 0 {
 				t.Fatal("successful order-only publication left recovery work", err)
@@ -145,6 +161,9 @@ func TestNativeApplyRollsBackPiOrderAfterReturnedPublicationError(t *testing.T) 
 			result, err := ApplyNativeWithEffectPlan(t.Context(), input, plan, options)
 			if !rejected || !errors.Is(err, sentinel) || !result.ExecutionAttempted || result.ActionCount != 0 {
 				t.Fatalf("post-publication failure did not complete guarded rollback: %v", err)
+			}
+			if _, present := result.NativeSettlement(); present {
+				t.Fatal("failed native publication manufactured final settlement evidence")
 			}
 			actual, err := os.ReadFile(host)
 			if err != nil || !bytes.Equal(actual, original) {

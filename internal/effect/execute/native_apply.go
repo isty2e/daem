@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
+	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
 
 	"github.com/isty2e/daem/internal/effect/execute/documentmutation"
 
@@ -627,10 +628,10 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	if err != nil {
 		return result, err
 	}
-	documents, err := registry.Documents(observedScope)
+	settlement, err := registrysettlement.NewPersistenceSnapshot(state, observedScope, registry)
 	if err != nil {
 		return result, err
 	}
-	result.nativeSettlement = &NativeApplySettlement{state: state, scope: observedScope, documents: documents}
+	result.nativeSettlement = &settlement
 	return result, nil
 }
