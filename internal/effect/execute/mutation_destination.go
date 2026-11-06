@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
+	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 
 	"github.com/isty2e/daem/internal/effect/execute/controlwitness"
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
@@ -31,7 +32,7 @@ type mutationAuthority struct {
 	lexical                    mutationnamespace.Resolver
 	filesystem                 mutationfs.Store
 	capturedRoot               *rootedpath.CapturedRoot
-	projectStatefile           *rootedpath.EntryAuthority
+	projectStatefile           *statefileoperation.Selected
 	recoveryJournal            *rootedpath.EntryAuthority
 	recoveryJournalRecord      *rootedpath.EntryAuthority
 	journalBasis               journalExecutionBasis

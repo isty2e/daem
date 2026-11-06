@@ -4,17 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
-	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -31,7 +30,7 @@ func (authority *mutationAuthority) bindProjectStatefile(
 	if err != nil {
 		return fmt.Errorf("bind project statefile: %w", err)
 	}
-	authority.projectStatefile = destination
+	authority.projectStatefile = statefileoperation.NewSelected(authority.filesystem, destination, authority.physicalWorkBudget)
 	return nil
 }
 
@@ -192,60 +191,6 @@ func (authority *mutationAuthority) validateProjectSelection(selectedRoot string
 		physicalwork.MaximumPhysicalPathDepth,
 		authority.generalTraversalPhase,
 	)
-}
-
-func (authority *mutationAuthority) commitProjectStatefile(
-	ctx context.Context,
-	content []byte,
-	mode os.FileMode,
-) statefileCommitOutcome {
-	if authority == nil || authority.filesystem == nil ||
-		authority.projectStatefile == nil {
-		return statefileCommitOutcome{
-			status: statefileUncommitted,
-			err:    fmt.Errorf("project statefile authority is unavailable"),
-		}
-	}
-	err := commitRootedControlFile(
-		ctx,
-		authority.filesystem,
-		authority.projectStatefile,
-		content,
-		mode,
-	)
-	if err == nil {
-		return statefileCommitOutcome{status: statefileCommitted}
-	}
-	status := statefileUncommitted
-	if mutationfs.MayHaveVisibleEffect(err) {
-		status = statefileCommitIndeterminate
-	}
-	return statefileCommitOutcome{status: status, err: err}
-}
-
-func commitRootedControlFile(
-	ctx context.Context,
-	filesystem mutationfs.RootedStore,
-	authority *rootedpath.EntryAuthority,
-	content []byte,
-	mode os.FileMode,
-) error {
-	if filesystem == nil || authority == nil {
-		return fmt.Errorf("rooted control-file authority is required")
-	}
-	capability, err := authority.Acquire()
-	if err != nil {
-		return err
-	}
-	expected, err := filesystem.CaptureRootedEntryIdentity(ctx, capability)
-	if errors.Is(err, os.ErrNotExist) {
-		return filesystem.CreateRootedFile(ctx, capability, content, mode)
-	}
-	if err != nil {
-		_ = capability.Close()
-		return err
-	}
-	return filesystem.ReplaceRootedFile(ctx, capability, content, mode, expected)
 }
 
 func (authority *mutationAuthority) retireActiveJournal(

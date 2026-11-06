@@ -3,7 +3,8 @@ package execute
 import (
 	"context"
 	"fmt"
-	"os"
+
+	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -23,8 +24,6 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-type snapshotCommitter func(context.Context, []byte, os.FileMode) error
-
 // CommitPendingCarrierInstalls records exact write-ahead correlation
 // eligibility before admitted host invocations are launched.
 func CommitPendingCarrierInstalls(
@@ -38,7 +37,7 @@ func CommitPendingCarrierInstalls(
 ) (durable.Snapshot, error) {
 	return commitPendingCarrierInstalls(
 		ctx,
-		rootedSnapshotCommitter(filesystem, authority),
+		statefileoperation.RootedSnapshotCommitter(filesystem, authority),
 		current,
 		owner,
 		actions,
@@ -48,7 +47,7 @@ func CommitPendingCarrierInstalls(
 
 func commitPendingCarrierInstalls(
 	ctx context.Context,
-	commit snapshotCommitter,
+	commit statefileoperation.SnapshotCommitter,
 	current durable.Snapshot,
 	owner stateauthority.Authority,
 	actions []reconciliation.RelationAction,
@@ -121,7 +120,7 @@ func CommitObservedProjectCarrierClaim(
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("marshal observed project carrier claim: %w", err)
 	}
-	if err := rootedSnapshotCommitter(filesystem, authority)(ctx, content, 0o600); err != nil {
+	if err := statefileoperation.RootedSnapshotCommitter(filesystem, authority)(ctx, content, 0o600); err != nil {
 		return durable.Snapshot{}, fmt.Errorf("write observed project carrier claim: %w", err)
 	}
 	return next, nil
@@ -151,7 +150,7 @@ func CommitConvergedGlobalCarrierClaims(
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("marshal global carrier convergence: %w", err)
 	}
-	if err := rootedSnapshotCommitter(filesystem, authority)(ctx, content, 0o600); err != nil {
+	if err := statefileoperation.RootedSnapshotCommitter(filesystem, authority)(ctx, content, 0o600); err != nil {
 		return durable.Snapshot{}, fmt.Errorf("write global carrier convergence: %w", err)
 	}
 	return next, nil
@@ -171,7 +170,7 @@ func CommitRetiredPendingCarrierInstall(
 ) (durable.Snapshot, error) {
 	return commitRetiredPendingCarrierInstall(
 		ctx,
-		rootedSnapshotCommitter(filesystem, authority),
+		statefileoperation.RootedSnapshotCommitter(filesystem, authority),
 		current,
 		owner,
 		action,
@@ -181,7 +180,7 @@ func CommitRetiredPendingCarrierInstall(
 
 func commitRetiredPendingCarrierInstall(
 	ctx context.Context,
-	commit snapshotCommitter,
+	commit statefileoperation.SnapshotCommitter,
 	current durable.Snapshot,
 	owner stateauthority.Authority,
 	action reconciliation.RelationAction,
@@ -256,7 +255,7 @@ func CommitPendingCarrierRemoval(
 	if !changed {
 		return current, pending, nil
 	}
-	if err := commitCarrierState(
+	if err := statefileoperation.CommitSnapshot(
 		ctx,
 		filesystem,
 		authority,
@@ -287,7 +286,7 @@ func CommitRetiredProjectCarrierRemoval(
 	if !changed {
 		return durable.Snapshot{}, fmt.Errorf("retire project carrier removal made no state transition")
 	}
-	if err := commitCarrierState(
+	if err := statefileoperation.CommitSnapshot(
 		ctx,
 		filesystem,
 		authority,
@@ -325,7 +324,7 @@ func CommitClearedGlobalCarrierRemovalPending(
 			"clear global carrier removal pending has no exact boundary",
 		)
 	}
-	if err := commitCarrierState(
+	if err := statefileoperation.CommitSnapshot(
 		ctx,
 		filesystem,
 		authority,
@@ -350,7 +349,7 @@ func CommitDelegateAttempts(
 ) (durable.Snapshot, error) {
 	return commitDelegateAttempts(
 		ctx,
-		rootedSnapshotCommitter(filesystem, authority),
+		statefileoperation.RootedSnapshotCommitter(filesystem, authority),
 		current,
 		attempts,
 		stateEncoder,
@@ -359,7 +358,7 @@ func CommitDelegateAttempts(
 
 func commitDelegateAttempts(
 	ctx context.Context,
-	commit snapshotCommitter,
+	commit statefileoperation.SnapshotCommitter,
 	current durable.Snapshot,
 	attempts []durableattempt.DelegateAttempt,
 	stateEncoder durable.SnapshotEncoder,
@@ -398,7 +397,7 @@ func CommitHostRouteAttempts(
 ) (durable.Snapshot, error) {
 	return commitHostRouteAttempts(
 		ctx,
-		rootedSnapshotCommitter(filesystem, authority),
+		statefileoperation.RootedSnapshotCommitter(filesystem, authority),
 		current,
 		attempts,
 		stateEncoder,
@@ -407,7 +406,7 @@ func CommitHostRouteAttempts(
 
 func commitHostRouteAttempts(
 	ctx context.Context,
-	commit snapshotCommitter,
+	commit statefileoperation.SnapshotCommitter,
 	current durable.Snapshot,
 	attempts []durableattempt.HostRouteAttempt,
 	stateEncoder durable.SnapshotEncoder,

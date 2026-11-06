@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package execute
+package statefileoperation
 
 import (
 	"os"
@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
 func TestRootedControlFileCommitSupportsExternalAuthority(t *testing.T) {
@@ -38,7 +39,7 @@ func TestRootedControlFileCommitSupportsExternalAuthority(t *testing.T) {
 
 	if err := commitRootedControlFile(
 		t.Context(),
-		testFilesystem(),
+		storagecommit.Adapter{},
 		authority,
 		[]byte("state\n"),
 		0o600,
@@ -72,7 +73,7 @@ func TestRootedControlFileCommitCreatesMissingExternalStateParents(t *testing.T)
 
 	if err := commitRootedControlFile(
 		t.Context(),
-		testFilesystem(),
+		storagecommit.Adapter{},
 		authority,
 		[]byte("state\n"),
 		0o600,
@@ -114,7 +115,7 @@ func TestRootedControlFileCommitRejectsExternalParentSymlinkSubstitution(t *test
 
 	if err := commitRootedControlFile(
 		t.Context(),
-		testFilesystem(),
+		storagecommit.Adapter{},
 		authority,
 		[]byte("state\n"),
 		0o600,
@@ -159,7 +160,7 @@ func TestRootedControlFileCommitRejectsExternalStateRootReplacement(t *testing.T
 
 	err = commitRootedControlFile(
 		t.Context(),
-		testFilesystem(),
+		storagecommit.Adapter{},
 		authority,
 		[]byte("state\n"),
 		0o600,

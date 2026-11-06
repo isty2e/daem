@@ -19,7 +19,7 @@ func prepareNativeApplyRemovals(ctx context.Context, captured journalpublication
 	operation, err := journal.OpenCapturedNativeRecovery(ctx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journalqualification.NativeRecoveryOptions{
 		Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 		State: func(ctx context.Context) (durable.Snapshot, error) {
-			return readNativeCommittedState(ctx, authority, input)
+			return authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
 		},
 	})
 	if err != nil {

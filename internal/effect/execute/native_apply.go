@@ -573,13 +573,13 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return result, settle(err)
 	}
 	if err := stateGate.ApplyEffect(func() error {
-		before, err := readNativeCommittedState(ctx, authority, input)
+		before, err := authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
 		if err != nil || !before.Equal(input.CurrentState) {
 			return errors.Join(fmt.Errorf("native state changed before commit"), err)
 		}
 		commit := options.statefileCommit(ctx, authority, input.Paths.StatefilePath, stateContent, 0o600)
-		if !commit.committed() {
-			return fmt.Errorf("native state commit: %w", commit.failure())
+		if !commit.Committed() {
+			return fmt.Errorf("native state commit: %w", commit.Failure())
 		}
 		result.State, result.StatePath = input.Preparation.AfterState(), input.Paths.StatefilePath
 		result.ActionCount = input.Preparation.ActionCount()

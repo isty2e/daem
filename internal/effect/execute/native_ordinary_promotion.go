@@ -70,7 +70,7 @@ func promoteNativeOrdinaryAcquires(ctx context.Context, state *ownershipMutation
 				NativeRecoveryOptions: journalqualification.NativeRecoveryOptions{
 					Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 					State: func(ctx context.Context) (durable.Snapshot, error) {
-						return readNativeCommittedState(ctx, authority, input)
+						return authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
 					},
 				},
 				RecordAuthority: authority.recoveryJournalRecord, StateCodec: input.StateCodec,

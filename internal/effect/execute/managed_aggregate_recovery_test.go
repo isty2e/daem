@@ -86,11 +86,8 @@ func TestApplyRollsBackSharedAggregateAfterStatefileFailure(t *testing.T) {
 		Filesystem:       testFilesystem(),
 	}, ApplyOptions{
 		Events: events,
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{
-				status: statefileUncommitted,
-				err:    errors.New("injected statefile failure"),
-			}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return &statefileRefusal{errors.New("injected statefile failure")}
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "injected statefile failure") {
@@ -154,11 +151,8 @@ func TestApplyAtomicallyRollsBackNewSharedAggregateAfterStatefileFailure(t *test
 		StateCodec:       testStateCodec(),
 		Filesystem:       testFilesystem(),
 	}, ApplyOptions{
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{
-				status: statefileUncommitted,
-				err:    errors.New("injected statefile failure"),
-			}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return &statefileRefusal{errors.New("injected statefile failure")}
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "injected statefile failure") {
@@ -318,8 +312,8 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 				completed = append(completed, *event.Action)
 			}
 		},
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{status: statefileUncommitted, err: errors.New("injected mixed-family statefile failure")}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return &statefileRefusal{errors.New("injected mixed-family statefile failure")}
 		},
 	})
 	if err == nil ||
@@ -407,11 +401,8 @@ func TestRecoveryRequiresAggregateCodecCatalogBeforeHostEffects(t *testing.T) {
 		StateCodec:       testStateCodec(),
 		Filesystem:       testFilesystem(),
 	}, ApplyOptions{
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{
-				status: statefileCommitIndeterminate,
-				err:    errors.New("injected indeterminate statefile failure"),
-			}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return errors.New("injected indeterminate statefile failure")
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "recovery journal retained") {
@@ -572,11 +563,8 @@ func TestApplyRollsBackMixedAggregateProjectionRowsAfterStatefileFailure(t *test
 		AggregateEffects: effects, CurrentState: currentState, Codecs: testAggregateCodecs(),
 		StateCodec: testStateCodec(), Filesystem: testFilesystem(),
 	}, ApplyOptions{
-		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
-			return statefileCommitOutcome{
-				status: statefileUncommitted,
-				err:    errors.New("injected mixed statefile failure"),
-			}
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+			return &statefileRefusal{errors.New("injected mixed statefile failure")}
 		},
 	})
 	if err == nil ||

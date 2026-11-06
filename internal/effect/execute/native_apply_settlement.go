@@ -52,7 +52,7 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 		operation, err = journal.OpenCapturedNativeRecovery(recoveryCtx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journalqualification.NativeRecoveryOptions{
 			Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 			State: func(ctx context.Context) (durable.Snapshot, error) {
-				return authority.readNativeState(ctx, input.StateCodec, input.Budget)
+				return authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
 			},
 		})
 		return err

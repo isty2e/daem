@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 
@@ -100,7 +101,7 @@ type ApplyOptions struct {
 	// AcceptCompensationVisibilityChanges accepts path identity transitions after
 	// one successful compensating effect and its postcondition.
 	AcceptCompensationVisibilityChanges func(context.Context) error
-	commitStatefile                     statefileCommitter
+	commitStatefile                     func(context.Context, string, []byte, os.FileMode) error
 	closeMutationAuthority              func(*mutationAuthority) error
 }
 
@@ -611,7 +612,7 @@ func applyWithOptions(
 			effectExecution,
 		)
 	}
-	var commit statefileCommitOutcome
+	var commit statefileoperation.Outcome
 	commitAttempted := false
 	commitErr := statefileGate.ApplyEffect(func() error {
 		events.emit(EventStatefileWriteStarted, EventStageStatefileWrite, nil, nil)
@@ -623,15 +624,15 @@ func applyWithOptions(
 			stateContent,
 			0o600,
 		)
-		if commit.committed() {
+		if commit.Committed() {
 			return nil
 		}
-		return fmt.Errorf("write statefile: %w", commit.failure())
+		return fmt.Errorf("write statefile: %w", commit.Failure())
 	})
 	if commitErr != nil {
 		if commitAttempted {
 			events.emit(EventStatefileWriteFailed, EventStageStatefileWrite, nil, commitErr)
-			if commit.requiresRecovery() {
+			if commit.RequiresRecovery() {
 				primary := fmt.Errorf(
 					"%w; statefile commit is indeterminate; recovery journal retained; run: daem recover --dry-run",
 					commitErr,
@@ -760,11 +761,15 @@ func (options ApplyOptions) statefileCommit(
 	path string,
 	content []byte,
 	mode os.FileMode,
-) statefileCommitOutcome {
+) statefileoperation.Outcome {
 	if options.commitStatefile == nil {
-		return authority.commitProjectStatefile(ctx, content, mode)
+		var selected *statefileoperation.Selected
+		if authority != nil {
+			selected = authority.projectStatefile
+		}
+		return selected.Commit(ctx, content, mode)
 	}
-	return options.commitStatefile(ctx, path, content, mode)
+	return statefileoperation.FromError(options.commitStatefile(ctx, path, content, mode))
 }
 
 func (options ApplyOptions) validatePhysicalAuthority(ctx context.Context, authority *mutationAuthority) error {
