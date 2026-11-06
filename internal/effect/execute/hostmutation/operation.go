@@ -1,5 +1,6 @@
-// Package hostmutation owns rooted ordinary host publication and retained
-// preconditions. The containing transaction owns leases and semantic ordering.
+// Package hostmutation owns rooted ordinary host publication, retained
+// preconditions and restoration sources. The containing transaction owns leases
+// and semantic ordering.
 package hostmutation
 
 import (

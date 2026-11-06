@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package execute
+package hostmutation
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -40,7 +42,7 @@ func TestRecoveryBackupReadsEmptyFileWithReservedProbeCapacity(t *testing.T) {
 		1,
 	)
 
-	content, err := backup.readFile(t.Context())
+	content, err := backup.ReadFile(t.Context())
 	if err != nil {
 		t.Fatalf("read empty recovery backup: %v", err)
 	}
@@ -66,7 +68,7 @@ func TestRecoveryBackupCopiesEmptyDirectoryWithExactZeroWork(t *testing.T) {
 	backup := boundRecoveryBackupForTest(t, root, "empty", string(kind), string(hash), work, 1)
 	writer := &recordingRecoveryTreeWriter{}
 
-	if err := backup.copyDirectory(t.Context(), writer); err != nil {
+	if err := backup.CopyDirectory(t.Context(), writer); err != nil {
 		t.Fatalf("copy empty recovery directory: %v", err)
 	}
 	if writer.rootMode.Perm() != 0o750 || writer.entries != 0 {
@@ -88,7 +90,7 @@ func TestRollbackBackupCopiesEmptyDirectoryWithProofAllowance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	backup, err := newRollbackBackup(path, "empty", string(kind), string(hash))
+	backup, err := OpenRollbackBackup(path, "empty", string(kind), string(hash))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,9 +100,10 @@ func TestRollbackBackupCopiesEmptyDirectoryWithProofAllowance(t *testing.T) {
 	}
 	writer := &recordingRecoveryTreeWriter{}
 
-	if err := (boundedRollbackDirectorySource{backup: backup, work: work}).copyDirectory(
+	if err := backup.CopyDirectory(
 		t.Context(),
 		writer,
+		work,
 	); err != nil {
 		t.Fatalf("copy empty rollback directory: %v", err)
 	}
@@ -126,7 +129,7 @@ func TestRollbackBackupCopiesZeroByteFilesWithZeroSemanticBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	backup, err := newRollbackBackup(path, "zero-byte-tree", string(kind), string(hash))
+	backup, err := OpenRollbackBackup(path, "zero-byte-tree", string(kind), string(hash))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,9 +139,10 @@ func TestRollbackBackupCopiesZeroByteFilesWithZeroSemanticBytes(t *testing.T) {
 	}
 	writer := &recordingRecoveryTreeWriter{}
 
-	if err := (boundedRollbackDirectorySource{backup: backup, work: work}).copyDirectory(
+	if err := backup.CopyDirectory(
 		t.Context(),
 		writer,
+		work,
 	); err != nil {
 		t.Fatalf("copy zero-byte rollback tree: %v", err)
 	}
@@ -166,7 +170,7 @@ func TestRecoveryBackupRejectsDirectoryGrowthBeyondExactWork(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := backup.copyDirectory(t.Context(), &recordingRecoveryTreeWriter{}); err == nil {
+	if err := backup.CopyDirectory(t.Context(), &recordingRecoveryTreeWriter{}); err == nil {
 		t.Fatal("recovery directory growth was accepted")
 	}
 }
@@ -195,7 +199,7 @@ func TestRecoveryBackupRejectsExecutableModeDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := backup.readFile(t.Context()); err == nil {
+	if _, err := backup.ReadFile(t.Context()); err == nil {
 		t.Fatal("recovery file executable-mode drift was accepted")
 	}
 }
@@ -221,7 +225,7 @@ func TestRecoveryBackupReservesEverySharedUse(t *testing.T) {
 	)
 
 	for index := range 2 {
-		if _, err := backup.readFile(t.Context()); err != nil {
+		if _, err := backup.ReadFile(t.Context()); err != nil {
 			t.Fatalf("read shared recovery backup use %d: %v", index, err)
 		}
 	}
@@ -249,7 +253,7 @@ func TestRecoveryBackupPreservesCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	if _, err := backup.readFile(ctx); !errors.Is(err, context.Canceled) {
+	if _, err := backup.ReadFile(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled recovery backup error = %v, want context cancellation", err)
 	}
 }
@@ -262,7 +266,7 @@ func boundRecoveryBackupForTest(
 	contentHash string,
 	work workmeasure.ArtifactWork,
 	uses int,
-) recoveryBackup {
+) Backup {
 	t.Helper()
 	canonicalRoot, err := filepath.EvalSymlinks(rootPath)
 	if err != nil {
@@ -328,7 +332,7 @@ func boundRecoveryBackupForTest(
 	if err != nil {
 		t.Fatal(err)
 	}
-	backup, err := backupAuthority.bind(testFilesystem(), execution)
+	backup, err := backupAuthority.bind(storagecommit.Adapter{}, execution)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-package execute
+package hostmutation
 
 import (
 	"context"
@@ -27,12 +27,31 @@ type recoveryBackupAuthority struct {
 	work        workmeasure.ArtifactWork
 }
 
-// recoveryBackup is executable backup authority bound to the operation's
+// Backup is executable backup authority bound to the operation's
 // rooted reader and pre-reserved work budget.
-type recoveryBackup struct {
+type Backup struct {
 	authority  recoveryBackupAuthority
 	filesystem mutationfs.RootedReader
 	budget     *physicalwork.Budget
+}
+
+type BackupRequest struct {
+	Index      int
+	BackupPath string
+	BackupKind string
+	BackupHash string
+	BackupWork workmeasure.ArtifactWork
+}
+
+type Backups struct {
+	operation      *Operation
+	planningBudget *physicalwork.Budget
+	execution      *physicalwork.Budget
+	readers        map[string]Backup
+}
+
+func NewBackups(operation *Operation, planningBudget *physicalwork.Budget) *Backups {
+	return &Backups{operation: operation, planningBudget: planningBudget}
 }
 
 func newRecoveryBackupAuthority(
@@ -74,14 +93,14 @@ func (authority recoveryBackupAuthority) equal(other recoveryBackupAuthority) bo
 func (authority recoveryBackupAuthority) bind(
 	filesystem mutationfs.RootedReader,
 	budget *physicalwork.Budget,
-) (recoveryBackup, error) {
+) (Backup, error) {
 	if filesystem == nil || budget == nil {
-		return recoveryBackup{}, fmt.Errorf("recovery backup execution authority is unavailable")
+		return Backup{}, fmt.Errorf("recovery backup execution authority is unavailable")
 	}
-	return recoveryBackup{authority: authority, filesystem: filesystem, budget: budget}, nil
+	return Backup{authority: authority, filesystem: filesystem, budget: budget}, nil
 }
 
-func (backup recoveryBackup) acquire(
+func (backup Backup) acquire(
 	budget *physicalwork.Budget,
 ) (rootedpath.CommitCapability, error) {
 	if budget == nil {
@@ -94,7 +113,7 @@ func (backup recoveryBackup) acquire(
 	)
 }
 
-func (backup recoveryBackup) readFile(ctx context.Context) ([]byte, error) {
+func (backup Backup) ReadFile(ctx context.Context) ([]byte, error) {
 	if backup.filesystem == nil || backup.budget == nil {
 		return nil, fmt.Errorf("recovery backup execution authority is unavailable")
 	}
@@ -139,7 +158,7 @@ func (backup recoveryBackup) readFile(ctx context.Context) ([]byte, error) {
 	return append([]byte(nil), content...), nil
 }
 
-func (backup recoveryBackup) copyDirectory(
+func (backup Backup) CopyDirectory(
 	ctx context.Context,
 	writer mutationfs.RootedTreeWriter,
 ) error {
@@ -208,37 +227,33 @@ func (reservation recoveryBackupPathReservation) AdmitPathComponents(count int) 
 	return reservation.budget.ReserveBackupPathComponents(count)
 }
 
-func (authority *mutationAuthority) prepareRecoveryBackups(
+func (set *Backups) Prepare(
 	ctx context.Context,
 	operationDir string,
-	actions []recoveryHostAction,
+	actions []BackupRequest,
+	active journalinventory.ActiveJournalAuthority,
 ) error {
-	if authority == nil || authority.filesystem == nil || authority.physicalWorkBudget == nil {
+	if set == nil || set.operation == nil || set.operation.filesystem == nil || set.planningBudget == nil {
 		return fmt.Errorf("recovery backup authority is unavailable")
 	}
-	if authority.recoveryBackupExecution != nil {
+	if set.execution != nil {
 		return nil
 	}
-	restoreCount := 0
-	for _, action := range actions {
-		if action.Kind == recovery.ActionKindRestoreWrite {
-			restoreCount++
-		}
-	}
+	restoreCount := len(actions)
 	if restoreCount == 0 {
-		execution, err := authority.physicalWorkBudget.BeginReservedBackupExecution()
+		execution, err := set.planningBudget.BeginReservedBackupExecution()
 		if err != nil {
 			return err
 		}
-		authority.recoveryBackups = map[string]recoveryBackup{}
-		authority.recoveryBackupExecution = execution
+		set.readers = map[string]Backup{}
+		set.execution = execution
 		return nil
 	}
 
 	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(
 		operationDir,
 		physicalwork.MaximumPhysicalPathDepth,
-		authority.physicalWorkBudget,
+		set.planningBudget,
 	)
 	if err != nil {
 		return fmt.Errorf("capture recovery backup root: %w", err)
@@ -251,22 +266,20 @@ func (authority *mutationAuthority) prepareRecoveryBackups(
 	}()
 	if err := journalinventory.ValidateActiveJournalRoot(
 		ctx,
-		authority.filesystem,
+		set.operation.filesystem,
 		root,
-		authority.physicalWorkBudget,
-		authority.journalBasis.activeAuthority,
+		set.planningBudget,
+		active,
 	); err != nil {
 		return fmt.Errorf("validate recovery backup root: %w", err)
 	}
-	rootAuthority, err := root.AuthorityBounded(authority.physicalWorkBudget)
+	rootAuthority, err := root.AuthorityBounded(set.planningBudget)
 	if err != nil {
 		return err
 	}
 	backupAuthorities := make(map[string]recoveryBackupAuthority, restoreCount)
-	for index, action := range actions {
-		if action.Kind != recovery.ActionKindRestoreWrite {
-			continue
-		}
+	for _, action := range actions {
+		index := action.Index
 		relative, err := rootedpath.NewRelativeDestination(action.BackupPath)
 		if err != nil {
 			return fmt.Errorf("recovery action[%d] backup path: %w", index, err)
@@ -294,7 +307,7 @@ func (authority *mutationAuthority) prepareRecoveryBackups(
 			backupAuthorities[action.BackupPath] = backupAuthority
 		}
 
-		reservation := recoveryBackupPathReservation{budget: authority.physicalWorkBudget}
+		reservation := recoveryBackupPathReservation{budget: set.planningBudget}
 		if err := root.ReserveDestinationAccess(
 			destination,
 			physicalwork.MaximumPhysicalPathDepth,
@@ -304,47 +317,47 @@ func (authority *mutationAuthority) prepareRecoveryBackups(
 		}
 		switch action.BackupKind {
 		case recovery.PathKindFile:
-			if err := authority.physicalWorkBudget.ReserveBackupFileExecution(action.BackupWork); err != nil {
+			if err := set.planningBudget.ReserveBackupFileExecution(action.BackupWork); err != nil {
 				return fmt.Errorf("reserve recovery action[%d] file backup work: %w", index, err)
 			}
 		case recovery.PathKindDirectory:
-			if err := authority.physicalWorkBudget.ReserveBackupDirectoryExecution(action.BackupWork); err != nil {
+			if err := set.planningBudget.ReserveBackupDirectoryExecution(action.BackupWork); err != nil {
 				return fmt.Errorf("reserve recovery action[%d] directory backup work: %w", index, err)
 			}
 		default:
 			return fmt.Errorf("recovery action[%d] backup kind %q is unsupported", index, action.BackupKind)
 		}
 	}
-	execution, err := authority.physicalWorkBudget.BeginReservedBackupExecution()
+	execution, err := set.planningBudget.BeginReservedBackupExecution()
 	if err != nil {
 		return err
 	}
-	backups := make(map[string]recoveryBackup, len(backupAuthorities))
+	backups := make(map[string]Backup, len(backupAuthorities))
 	for path, backupAuthority := range backupAuthorities {
-		backup, err := backupAuthority.bind(authority.filesystem, execution)
+		backup, err := backupAuthority.bind(set.operation.filesystem, execution)
 		if err != nil {
 			return err
 		}
 		backups[path] = backup
 	}
-	if err := authority.destinations.RetainArtifactRoot(root); err != nil {
+	if err := set.operation.destinations.RetainArtifactRoot(root); err != nil {
 		return err
 	}
 	retained = true
-	authority.recoveryBackups = backups
-	authority.recoveryBackupExecution = execution
+	set.readers = backups
+	set.execution = execution
 	return nil
 }
 
-func (authority *mutationAuthority) recoveryBackupForAction(
-	action recoveryHostAction,
-) (recoveryBackup, error) {
-	if authority == nil || authority.recoveryBackupExecution == nil {
-		return recoveryBackup{}, fmt.Errorf("recovery backup authority is not prepared")
+func (set *Backups) For(
+	action BackupRequest,
+) (Backup, error) {
+	if set == nil || set.execution == nil {
+		return Backup{}, fmt.Errorf("recovery backup authority is not prepared")
 	}
-	backup, present := authority.recoveryBackups[action.BackupPath]
+	backup, present := set.readers[action.BackupPath]
 	if !present {
-		return recoveryBackup{}, fmt.Errorf("recovery backup %q is not bound", action.BackupPath)
+		return Backup{}, fmt.Errorf("recovery backup %q is not bound", action.BackupPath)
 	}
 	expected, err := newRecoveryBackupAuthority(
 		backup.authority.root,
@@ -355,10 +368,10 @@ func (authority *mutationAuthority) recoveryBackupForAction(
 		action.BackupWork,
 	)
 	if err != nil {
-		return recoveryBackup{}, err
+		return Backup{}, err
 	}
 	if !backup.authority.equal(expected) {
-		return recoveryBackup{}, fmt.Errorf("recovery backup %q action authority changed", action.BackupPath)
+		return Backup{}, fmt.Errorf("recovery backup %q action authority changed", action.BackupPath)
 	}
 	return backup, nil
 }

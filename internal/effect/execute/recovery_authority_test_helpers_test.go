@@ -67,6 +67,19 @@ func prepareRecoveryBackupsForTest(
 	actions []recoveryHostAction,
 ) {
 	t.Helper()
+	active := bindRecoveryBackupSourceForTest(t, ctx, authority, plan)
+	if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), recoveryBackupRequests(actions), active); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func bindRecoveryBackupSourceForTest(
+	t *testing.T,
+	ctx context.Context,
+	authority *mutationAuthority,
+	plan recovery.Plan,
+) journalinventory.ActiveJournalAuthority {
+	t.Helper()
 	parent := filepath.Dir(plan.OperationDir())
 	root, err := rootedpath.CaptureRoot(parent)
 	if err != nil {
@@ -89,9 +102,7 @@ func prepareRecoveryBackupsForTest(
 	if err := authority.setJournalExecutionBasis(fingerprint, active); err != nil {
 		t.Fatal(err)
 	}
-	if err := authority.prepareRecoveryBackups(ctx, plan.OperationDir(), actions); err != nil {
-		t.Fatal(err)
-	}
+	return active
 }
 
 func beginUnclassifiedRecoveryExecutionForTest(t *testing.T, authority *mutationAuthority) {

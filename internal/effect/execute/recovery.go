@@ -723,7 +723,7 @@ func executeRecoveryRollbackEffects(
 		return err
 	}
 	if err := execution.runTerminalStep(steps[3], func() error {
-		if err := authority.prepareRecoveryBackups(ctx, plan.OperationDir(), hostActions); err != nil {
+		if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), recoveryBackupRequests(hostActions), authority.journalBasis.activeAuthority); err != nil {
 			return fmt.Errorf("prepare bounded recovery backups: %w", err)
 		}
 		return nil

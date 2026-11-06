@@ -295,7 +295,7 @@ func stageRootedRollbackDestinations(
 			contentHash: string(artifact.HashFileContentWithExecutable(content, mode.Perm()&0o111 != 0)),
 			fileMode:    mode.Perm(),
 		}
-		baseline.backup, err = newRollbackBackup(
+		baseline.backup, err = hostmutation.OpenRollbackBackup(
 			backupPath,
 			filepath.Base(backupPath),
 			baseline.kind,
@@ -349,7 +349,7 @@ func stageRootedRollbackDestinations(
 		baseline.stagedState = recoveryWholePathState{
 			existed: true, kind: recovery.PathKindDirectory, contentHash: string(contentHash),
 		}
-		baseline.backup, err = newRollbackBackup(
+		baseline.backup, err = hostmutation.OpenRollbackBackup(
 			backupPath,
 			filepath.Base(backupPath),
 			baseline.kind,

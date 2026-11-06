@@ -1,4 +1,4 @@
-package execute
+package hostmutation
 
 import (
 	"context"
@@ -12,22 +12,22 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
-// rollbackBackup is a process-private artifact staged to reverse effects from
+// RollbackBackup is a process-private artifact staged to reverse effects from
 // the current recovery attempt. It is not durable journal authority.
-type rollbackBackup struct {
+type RollbackBackup struct {
 	view     access.View
 	identity artifact.ExactIdentity
 }
 
-func newRollbackBackup(
+func OpenRollbackBackup(
 	path string,
 	reference string,
 	kind string,
 	contentHash string,
-) (rollbackBackup, error) {
+) (RollbackBackup, error) {
 	view, err := access.OpenView(path)
 	if err != nil {
-		return rollbackBackup{}, err
+		return RollbackBackup{}, err
 	}
 	identity, err := artifact.NewExactIdentity(
 		artifact.SourceID("recovery:rollback"),
@@ -36,12 +36,12 @@ func newRollbackBackup(
 		artifact.ContentHash(contentHash),
 	)
 	if err != nil {
-		return rollbackBackup{}, err
+		return RollbackBackup{}, err
 	}
-	return rollbackBackup{view: view, identity: identity}, nil
+	return RollbackBackup{view: view, identity: identity}, nil
 }
 
-func (backup rollbackBackup) readFile(ctx context.Context, maximumBytes int64) ([]byte, error) {
+func (backup RollbackBackup) ReadFile(ctx context.Context, maximumBytes int64) ([]byte, error) {
 	content, err := backup.view.ReadRootFileVerified(
 		ctx,
 		backup.identity,
@@ -53,16 +53,12 @@ func (backup rollbackBackup) readFile(ctx context.Context, maximumBytes int64) (
 	return content.Bytes(), nil
 }
 
-type boundedRollbackDirectorySource struct {
-	backup rollbackBackup
-	work   workmeasure.ArtifactWork
-}
-
-func (source boundedRollbackDirectorySource) copyDirectory(
+func (backup RollbackBackup) CopyDirectory(
 	ctx context.Context,
 	writer mutationfs.RootedTreeWriter,
+	work workmeasure.ArtifactWork,
 ) error {
-	if source.backup.identity.Kind() != artifact.ArtifactKindDirectory {
+	if backup.identity.Kind() != artifact.ArtifactKindDirectory {
 		return fmt.Errorf("rollback backup is not a directory")
 	}
 	sink, err := artifactstage.New(writer)
@@ -70,22 +66,22 @@ func (source boundedRollbackDirectorySource) copyDirectory(
 		return err
 	}
 	traversalLimit, err := access.NewTraversalLimit(
-		uint64(source.work.Entries()+1),
-		max(int64(1), source.work.Bytes()),
+		uint64(work.Entries()+1),
+		max(int64(1), work.Bytes()),
 	)
 	if err != nil {
 		return err
 	}
 	structureLimit, err := access.NewTreeStructureLimit(
-		source.work.Entries(),
+		work.Entries(),
 		recovery.MaximumArtifactTreeDepth,
 	)
 	if err != nil {
 		return err
 	}
-	return source.backup.view.CopyVerifiedWithLimits(
+	return backup.view.CopyVerifiedWithLimits(
 		ctx,
-		source.backup.identity,
+		backup.identity,
 		sink,
 		traversalLimit,
 		structureLimit,

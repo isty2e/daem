@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
@@ -57,7 +58,7 @@ type hostRollbackEntry struct {
 	kind               string
 	maximumFileBytes   int64
 	backupPath         string
-	backup             rollbackBackup
+	backup             hostmutation.RollbackBackup
 	fileMode           os.FileMode
 	identity           mutationfs.EntryIdentity
 	stagedState        recoveryWholePathState
@@ -748,7 +749,7 @@ func restoreRollbackGroup(
 		); err != nil {
 			return err
 		}
-		content, err := baseline.backup.readFile(ctx, max(int64(1), baseline.stagedWork.Bytes()))
+		content, err := baseline.backup.ReadFile(ctx, max(int64(1), baseline.stagedWork.Bytes()))
 		if err != nil {
 			return fmt.Errorf("read rollback file for %q: %w", baseline.destination.Logical(), err)
 		}
@@ -782,7 +783,7 @@ func restoreRollbackGroup(
 			current.existed,
 			identity,
 			func(writer mutationfs.RootedTreeWriter) error {
-				return (boundedRollbackDirectorySource{backup: baseline.backup, work: baseline.stagedWork}).copyDirectory(ctx, writer)
+				return baseline.backup.CopyDirectory(ctx, writer, baseline.stagedWork)
 			},
 		); err != nil {
 			return fmt.Errorf("rollback restore directory %q: %w", baseline.destination.Logical(), err)

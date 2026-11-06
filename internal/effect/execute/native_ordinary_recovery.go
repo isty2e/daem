@@ -37,7 +37,7 @@ func prepareNativeOrdinaryRecovery(ctx context.Context, authority *mutationAutho
 			return nativeOrdinaryRecoveryStage{}, err
 		}
 	}
-	if err := authority.prepareRecoveryBackups(ctx, plan.OperationDir(), actions); err != nil {
+	if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), recoveryBackupRequests(actions), authority.journalBasis.activeAuthority); err != nil {
 		return nativeOrdinaryRecoveryStage{}, err
 	}
 	rollback, err := stageRecoveryRollback(ctx, authority, actions, operation.Codecs())

@@ -40,8 +40,7 @@ type mutationAuthority struct {
 	physicalAuthorityRequests  []mutation.PhysicalAuthorityRequest
 	physicalWorkBudget         *physicalwork.Budget
 	generalTraversalPhase      *physicalwork.TraversalPhase
-	recoveryBackups            map[string]recoveryBackup
-	recoveryBackupExecution    *physicalwork.Budget
+	recoveryBackups            *hostmutation.Backups
 	generalExecutionWorkBudget *physicalwork.Budget
 	preparedRetirement         *journal.RetirementContinuation
 	ownershipRegistry          ownershipmutation.RegistryStore
@@ -55,6 +54,16 @@ func (authority *mutationAuthority) hostMutation() *hostmutation.Operation {
 		return nil
 	}
 	return hostmutation.New(authority.destinations, authority.filesystem, authority.removals)
+}
+
+func (authority *mutationAuthority) hostBackups() *hostmutation.Backups {
+	if authority == nil {
+		return nil
+	}
+	if authority.recoveryBackups == nil {
+		authority.recoveryBackups = hostmutation.NewBackups(authority.hostMutation(), authority.physicalWorkBudget)
+	}
+	return authority.recoveryBackups
 }
 
 func newMutationAuthorityWithProjectionEffects(
@@ -306,7 +315,6 @@ func (authority *mutationAuthority) close() error {
 	authority.journalBasis = journalExecutionBasis{}
 	authority.physicalWorkBudget = nil
 	authority.recoveryBackups = nil
-	authority.recoveryBackupExecution = nil
 	authority.generalExecutionWorkBudget = nil
 	authority.removals = nil
 	authority.generalTraversalPhase = nil

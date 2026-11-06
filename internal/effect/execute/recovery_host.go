@@ -349,7 +349,7 @@ func executeRecoveryHostActionPlan(
 		}
 		switch action.Kind {
 		case recovery.ActionKindRestoreWrite:
-			backup, err := authority.recoveryBackupForAction(action)
+			backup, err := authority.hostBackups().For(action.backupRequest(index))
 			if err != nil {
 				return fmt.Errorf("open backup for %q: %w", action.Destination, err)
 			}
@@ -360,7 +360,7 @@ func executeRecoveryHostActionPlan(
 				if err != nil {
 					return err
 				}
-				content, err := backup.readFile(ctx)
+				content, err := backup.ReadFile(ctx)
 				if err != nil {
 					return fmt.Errorf("read backup for %q: %w", action.Destination, err)
 				}
@@ -397,7 +397,7 @@ func executeRecoveryHostActionPlan(
 					destination,
 					staged[index].existed,
 					staged[index].identity,
-					func(writer mutationfs.RootedTreeWriter) error { return backup.copyDirectory(ctx, writer) },
+					func(writer mutationfs.RootedTreeWriter) error { return backup.CopyDirectory(ctx, writer) },
 				); err != nil {
 					return fmt.Errorf("restore directory %q: %w", action.Destination, err)
 				}
@@ -490,7 +490,7 @@ func executeRecoveryAggregateActionGroup(
 		var projection []byte
 		switch action.Kind {
 		case recovery.ActionKindRestoreWrite:
-			backup, err := authority.recoveryBackupForAction(action)
+			backup, err := authority.hostBackups().For(action.backupRequest(index))
 			if err != nil {
 				return recoveryWholePathState{}, fmt.Errorf(
 					"open projection backup for %q content path %q: %w",
@@ -499,7 +499,7 @@ func executeRecoveryAggregateActionGroup(
 					err,
 				)
 			}
-			projection, err = backup.readFile(ctx)
+			projection, err = backup.ReadFile(ctx)
 			if err != nil {
 				return recoveryWholePathState{}, fmt.Errorf(
 					"read projection backup for %q content path %q: %w",

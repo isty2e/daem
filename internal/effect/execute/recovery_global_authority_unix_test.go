@@ -441,7 +441,7 @@ func TestRecoveryBackupRejectsReplacementAfterViewSelection(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = authority.close() })
 	prepareRecoveryBackupsForTest(t, t.Context(), authority, fixture.plan, []recoveryHostAction{action})
-	backup, err := authority.recoveryBackupForAction(action)
+	backup, err := authority.hostBackups().For(action.backupRequest(0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +453,7 @@ func TestRecoveryBackupRejectsReplacementAfterViewSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := backup.readFile(t.Context()); err == nil {
+	if _, err := backup.ReadFile(t.Context()); err == nil {
 		t.Fatal("recovery backup replacement was accepted")
 	}
 	assertRecoveryTestContent(t, fixture.admittedPath, fixture.after)
@@ -475,7 +475,7 @@ func TestRecoveryBackupAcceptsEquivalentReplacementAfterViewSelection(t *testing
 	}
 	t.Cleanup(func() { _ = authority.close() })
 	prepareRecoveryBackupsForTest(t, t.Context(), authority, fixture.plan, []recoveryHostAction{action})
-	backup, err := authority.recoveryBackupForAction(action)
+	backup, err := authority.hostBackups().For(action.backupRequest(0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +495,7 @@ func TestRecoveryBackupAcceptsEquivalentReplacementAfterViewSelection(t *testing
 		t.Fatal(err)
 	}
 
-	read, err := backup.readFile(t.Context())
+	read, err := backup.ReadFile(t.Context())
 	if err != nil {
 		t.Fatalf("read equivalent replacement: %v", err)
 	}
