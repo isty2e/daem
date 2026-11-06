@@ -181,7 +181,7 @@ func loadApplyActivePlanForState(
 	}
 	return journal.LoadActivePlanForStateWithOptions(
 		ctx,
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		currentState,
 		journal.PlanLoadOptions{
 			Filesystem:        authority.filesystem,
@@ -208,7 +208,7 @@ func loadApplyActivePlanForStateEntries(
 	}
 	return journal.LoadActivePlanForStateEntriesWithOptions(
 		ctx,
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		currentState,
 		selected,
 		journal.PlanLoadOptions{
@@ -412,14 +412,14 @@ func applyRecoveryErrorWithEvents(
 		) (recovery.Plan, error) {
 			return journal.LoadActivePlanForStateEntriesWithOptions(
 				ctx,
-				paths.journalPaths(),
+				paths.JournalPaths(),
 				currentState,
 				rollbackEntries,
 				loadOptions,
 			)
 		},
 		mutationAuthority:           authority,
-		ActiveJournalAuthority:      authority.journalBasis.activeAuthority,
+		ActiveJournalAuthority:      authority.journalBasis.ActiveAuthority(),
 		ValidateVisibilityAuthority: gate.ValidateBefore,
 		AcceptVisibilityChanges:     gate.AcceptAfter,
 		Resolver:                    authority.lexical,
@@ -447,7 +447,7 @@ func applyRecoveryErrorWithEvents(
 				) (recovery.Plan, error) {
 					return journal.LoadActivePlanForStateEntriesWithOptions(
 						ctx,
-						paths.journalPaths(),
+						paths.JournalPaths(),
 						currentState,
 						rollbackEntries,
 						loadOptions,
@@ -468,47 +468,10 @@ func applyRecoveryErrorWithEvents(
 		execution,
 	); err != nil {
 		err = execution.finish(err, nil)
-		return newApplyRollbackError(primary, retirementFailureWithRemediation(err))
+		return applyprogram.NewRollbackError(primary, retirementFailureWithRemediation(err))
 	}
 	if err := execution.finish(nil, nil); err != nil {
-		return newApplyRollbackError(primary, retirementFailureWithRemediation(err))
+		return applyprogram.NewRollbackError(primary, retirementFailureWithRemediation(err))
 	}
-	return newApplyRollbackError(primary, nil)
-}
-
-type applyRollbackError struct {
-	primary           error
-	retirementFailure error
-}
-
-func newApplyRollbackError(primary error, retirementFailure error) error {
-	return &applyRollbackError{
-		primary:           primary,
-		retirementFailure: retirementFailure,
-	}
-}
-
-func (failure *applyRollbackError) Error() string {
-	if failure.retirementFailure != nil {
-		return fmt.Sprintf(
-			"%v; host changes rolled back; retire recovery journal failed: %v",
-			failure.primary,
-			failure.retirementFailure,
-		)
-	}
-	return fmt.Sprintf("%v; host changes rolled back", failure.primary)
-}
-
-func (failure *applyRollbackError) Unwrap() []error {
-	if failure.retirementFailure != nil {
-		return []error{failure.primary, failure.retirementFailure}
-	}
-	return []error{failure.primary}
-}
-
-// ApplyHostChangesRolledBack reports whether an unsuccessful apply restored
-// every host change before returning.
-func ApplyHostChangesRolledBack(err error) bool {
-	var failure *applyRollbackError
-	return errors.As(err, &failure)
+	return applyprogram.NewRollbackError(primary, nil)
 }

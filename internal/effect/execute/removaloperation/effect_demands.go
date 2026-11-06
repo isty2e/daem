@@ -1,10 +1,8 @@
-package execute
+package removaloperation
 
 import (
 	"fmt"
 	"os"
-
-	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -17,11 +15,11 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-// removalDemandSetForExecution is the only production reachability matrix for
+// EffectDemands is the production reachability matrix for
 // journaled rooted removals. It is derived from the executable transition
 // schedule before journal capture; journal capture only validates and binds
 // this typed result to fresh physical evidence.
-func removalDemandSetForExecution(
+func EffectDemands(
 	managed []effectpreparation.ManagedPathEffect,
 	aggregates []effectpreparation.AggregateEffect,
 	evidence []observe.ManagedPathEvidence,
@@ -33,10 +31,10 @@ func removalDemandSetForExecution(
 			item,
 		)
 	}
-	statesByRelation := make(map[removaloperation.Relation][]recovery.RemovalState)
+	statesByRelation := make(map[Relation][]recovery.RemovalState)
 
 	add := func(scope target.Scope, destination output.Destination, state recovery.RemovalState) error {
-		key := removaloperation.Relation{Scope: scope, Destination: destination}
+		key := Relation{Scope: scope, Destination: destination}
 		for _, prior := range statesByRelation[key] {
 			if prior.Equal(state) {
 				return nil
@@ -91,7 +89,7 @@ func addManagedPathRemovalDemands(
 ) error {
 	switch effect.Kind() {
 	case effectpreparation.ManagedPathEffectCreate:
-		expected, err := expectedManagedPathRemovalState(effect)
+		expected, err := ExpectedManagedPathState(effect)
 		if err != nil {
 			return err
 		}
@@ -103,7 +101,7 @@ func addManagedPathRemovalDemands(
 		}
 		return add(effect.Scope(), effect.Destination(), before)
 	case effectpreparation.ManagedPathEffectReplace:
-		expected, err := expectedManagedPathRemovalState(effect)
+		expected, err := ExpectedManagedPathState(effect)
 		if err != nil {
 			return err
 		}
@@ -202,7 +200,7 @@ func managedRemovalFileMode(
 	)
 }
 
-func expectedManagedPathRemovalState(effect effectpreparation.ManagedPathEffect) (recovery.RemovalState, error) {
+func ExpectedManagedPathState(effect effectpreparation.ManagedPathEffect) (recovery.RemovalState, error) {
 	kind, err := recoveryPathKind(effect.ContentKind())
 	if err != nil {
 		return recovery.RemovalState{}, err
@@ -227,7 +225,7 @@ func addAggregateRemovalDemands(
 	}
 	switch effect.Kind() {
 	case effectpreparation.AggregateEffectCreate:
-		state, err := aggregateDocumentExpectedRemovalState(effect)
+		state, err := ExpectedAggregateDocumentState(effect)
 		if err != nil {
 			return err
 		}
@@ -256,7 +254,7 @@ func aggregateDocumentBeforeRemovalState(effect effectpreparation.AggregateEffec
 	return aggregateDocumentRemovalState(effect.BeforeDocument(), aggregate.DocumentFileMode, false)
 }
 
-func aggregateDocumentExpectedRemovalState(effect effectpreparation.AggregateEffect) (recovery.RemovalState, error) {
+func ExpectedAggregateDocumentState(effect effectpreparation.AggregateEffect) (recovery.RemovalState, error) {
 	return aggregateDocumentRemovalState(effect.Rendered().Document(), aggregate.DocumentFileMode, true)
 }
 

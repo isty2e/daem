@@ -1,11 +1,10 @@
-package execute
+package recoveryoperation
 
 import (
 	"errors"
 	"fmt"
 	"testing"
 
-	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
@@ -32,9 +31,9 @@ func TestActiveJournalRetirementStructureConsumesControlAlternatives(t *testing.
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			structure, err := compileActiveJournalRetirementStructure()
+			structure, err := CompileRetirementSchedule()
 			if err != nil {
-				t.Fatalf("compileActiveJournalRetirementStructure returned error: %v", err)
+				t.Fatalf("CompileRetirementSchedule returned error: %v", err)
 			}
 			cursor := structure.Begin()
 			for _, step := range activeRetirementPreControlSteps {
@@ -67,9 +66,9 @@ func TestActiveJournalRetirementStructureConsumesControlAlternatives(t *testing.
 func TestActiveJournalRetirementStructureStopsAfterEverySelectedFailure(t *testing.T) {
 	for _, failed := range activeRetirementAllSteps() {
 		t.Run(failed.id, func(t *testing.T) {
-			structure, err := compileActiveJournalRetirementStructure()
+			structure, err := CompileRetirementSchedule()
 			if err != nil {
-				t.Fatalf("compileActiveJournalRetirementStructure returned error: %v", err)
+				t.Fatalf("CompileRetirementSchedule returned error: %v", err)
 			}
 			cursor := structure.Begin()
 			advanceActiveRetirementBeforeStep(t, cursor, failed)
@@ -93,9 +92,9 @@ func TestActiveJournalRetirementStructureStopsAfterEverySelectedFailure(t *testi
 }
 
 func TestActiveJournalRetirementStructureStopsAfterControlPublicationFailure(t *testing.T) {
-	structure, err := compileActiveJournalRetirementStructure()
+	structure, err := CompileRetirementSchedule()
 	if err != nil {
-		t.Fatalf("compileActiveJournalRetirementStructure returned error: %v", err)
+		t.Fatalf("CompileRetirementSchedule returned error: %v", err)
 	}
 	cursor := structure.Begin()
 	for _, step := range activeRetirementPreControlSteps {
@@ -119,9 +118,9 @@ func TestActiveJournalRetirementStructureStopsAfterControlPublicationFailure(t *
 }
 
 func TestActiveJournalRetirementStructureRejectsWrongOrder(t *testing.T) {
-	structure, err := compileActiveJournalRetirementStructure()
+	structure, err := CompileRetirementSchedule()
 	if err != nil {
-		t.Fatalf("compileActiveJournalRetirementStructure returned error: %v", err)
+		t.Fatalf("CompileRetirementSchedule returned error: %v", err)
 	}
 	cursor := structure.Begin()
 	if err := cursor.Consume(
@@ -134,11 +133,11 @@ func TestActiveJournalRetirementStructureRejectsWrongOrder(t *testing.T) {
 }
 
 func TestActiveJournalRetirementStructureIsDeterministicAndHasNoBarrierDemand(t *testing.T) {
-	first, err := compileActiveJournalRetirementStructure()
+	first, err := CompileRetirementSchedule()
 	if err != nil {
 		t.Fatalf("compile first structure: %v", err)
 	}
-	second, err := compileActiveJournalRetirementStructure()
+	second, err := CompileRetirementSchedule()
 	if err != nil {
 		t.Fatalf("compile second structure: %v", err)
 	}
@@ -155,23 +154,23 @@ func TestActiveJournalRetirementStructureIsDeterministicAndHasNoBarrierDemand(t 
 }
 
 func TestActiveRetirementExecutionUsesSuppliedStructure(t *testing.T) {
-	execution := newActiveRetirementExecution(operationplan.EffectStructure{})
-	if err := execution.AdmitRetirementStep(journal.RetirementStepValidateActivePlan); err == nil {
+	execution := NewRetirementExecution(operationplan.EffectStructure{})
+	if err := execution.AdmitRetirementStep(RetirementStepValidateActivePlan); err == nil {
 		t.Fatal("active retirement recompiled instead of consuming the supplied structure")
 	}
 }
 
 func TestActiveRetirementExecutionConsumesControlAlternatives(t *testing.T) {
-	for _, controlStep := range []journal.RetirementExecutionStep{
-		journal.RetirementStepControlPresent,
-		journal.RetirementStepPublishControl,
+	for _, controlStep := range []RetirementExecutionStep{
+		RetirementStepControlPresent,
+		RetirementStepPublishControl,
 	} {
 		t.Run(activeRetirementControlStepName(controlStep), func(t *testing.T) {
-			structure, err := compileActiveJournalRetirementStructure()
+			structure, err := CompileRetirementSchedule()
 			if err != nil {
 				t.Fatal(err)
 			}
-			execution := newActiveRetirementExecution(structure)
+			execution := NewRetirementExecution(structure)
 			for _, step := range activeRetirementRuntimeSteps(controlStep) {
 				if err := execution.AdmitRetirementStep(step); err != nil {
 					t.Fatalf("AdmitRetirementStep(%d): %v", step, err)
@@ -180,10 +179,10 @@ func TestActiveRetirementExecutionConsumesControlAlternatives(t *testing.T) {
 					t.Fatalf("SettleRetirementStep(%d): %v", step, err)
 				}
 			}
-			if err := execution.finish(nil); err != nil {
+			if err := execution.Finish(nil); err != nil {
 				t.Fatalf("finish: %v", err)
 			}
-			if err := execution.AdmitRetirementStep(journal.RetirementStepValidateActivePlan); err == nil {
+			if err := execution.AdmitRetirementStep(RetirementStepValidateActivePlan); err == nil {
 				t.Fatal("closed active retirement admitted another step")
 			}
 		})
@@ -191,17 +190,17 @@ func TestActiveRetirementExecutionConsumesControlAlternatives(t *testing.T) {
 }
 
 func TestActiveRetirementExecutionStopsAfterEverySelectedFailure(t *testing.T) {
-	runtimeSteps := activeRetirementRuntimeSteps(journal.RetirementStepControlPresent)
+	runtimeSteps := activeRetirementRuntimeSteps(RetirementStepControlPresent)
 	for _, failed := range runtimeSteps {
-		if failed == journal.RetirementStepControlPresent {
+		if failed == RetirementStepControlPresent {
 			continue
 		}
 		t.Run(activeRetirementRuntimeStepName(failed), func(t *testing.T) {
-			structure, err := compileActiveJournalRetirementStructure()
+			structure, err := CompileRetirementSchedule()
 			if err != nil {
 				t.Fatal(err)
 			}
-			execution := newActiveRetirementExecution(structure)
+			execution := NewRetirementExecution(structure)
 			for _, step := range runtimeSteps {
 				if err := execution.AdmitRetirementStep(step); err != nil {
 					t.Fatalf("AdmitRetirementStep(%d): %v", step, err)
@@ -214,11 +213,11 @@ func TestActiveRetirementExecutionStopsAfterEverySelectedFailure(t *testing.T) {
 					break
 				}
 			}
-			if err := execution.AdmitRetirementStep(journal.RetirementStepRetireControl); err == nil {
+			if err := execution.AdmitRetirementStep(RetirementStepRetireControl); err == nil {
 				t.Fatal("failure branch admitted a later retirement step")
 			}
 			failure := errors.New("retirement failed")
-			if err := execution.finish(failure); !errors.Is(err, failure) {
+			if err := execution.Finish(failure); !errors.Is(err, failure) {
 				t.Fatalf("finish error = %v, want retirement failure", err)
 			}
 		})
@@ -226,11 +225,11 @@ func TestActiveRetirementExecutionStopsAfterEverySelectedFailure(t *testing.T) {
 }
 
 func TestActiveRetirementExecutionStopsAfterControlPublicationFailure(t *testing.T) {
-	structure, err := compileActiveJournalRetirementStructure()
+	structure, err := CompileRetirementSchedule()
 	if err != nil {
 		t.Fatal(err)
 	}
-	execution := newActiveRetirementExecution(structure)
+	execution := NewRetirementExecution(structure)
 	for _, step := range activeRetirementPreControlSteps {
 		if err := execution.AdmitRetirementStep(step.retirementStep); err != nil {
 			t.Fatal(err)
@@ -239,44 +238,44 @@ func TestActiveRetirementExecutionStopsAfterControlPublicationFailure(t *testing
 			t.Fatal(err)
 		}
 	}
-	if err := execution.AdmitRetirementStep(journal.RetirementStepPublishControl); err != nil {
+	if err := execution.AdmitRetirementStep(RetirementStepPublishControl); err != nil {
 		t.Fatal(err)
 	}
-	if err := execution.SettleRetirementStep(journal.RetirementStepPublishControl, false); err != nil {
+	if err := execution.SettleRetirementStep(RetirementStepPublishControl, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := execution.AdmitRetirementStep(journal.RetirementStepValidateActiveRecord); err == nil {
+	if err := execution.AdmitRetirementStep(RetirementStepValidateActiveRecord); err == nil {
 		t.Fatal("control-publication failure admitted active-record validation")
 	}
 	failure := errors.New("publish control failed")
-	if err := execution.finish(failure); err != failure {
+	if err := execution.Finish(failure); err != failure {
 		t.Fatalf("finish error = %v, want original publication failure", err)
 	}
 }
 
 func TestActiveRetirementExecutionMismatchDoesNotConsumeExpectedStep(t *testing.T) {
-	structure, err := compileActiveJournalRetirementStructure()
+	structure, err := CompileRetirementSchedule()
 	if err != nil {
 		t.Fatal(err)
 	}
-	execution := newActiveRetirementExecution(structure)
-	if err := execution.AdmitRetirementStep(journal.RetirementStepValidatePreparedLayout); err == nil {
+	execution := NewRetirementExecution(structure)
+	if err := execution.AdmitRetirementStep(RetirementStepValidatePreparedLayout); err == nil {
 		t.Fatal("mismatched active retirement step was admitted")
 	}
-	first := journal.RetirementStepValidateActivePlan
+	first := RetirementStepValidateActivePlan
 	if err := execution.AdmitRetirementStep(first); err != nil {
 		t.Fatalf("admit expected step after mismatch: %v", err)
 	}
 	if err := execution.AdmitRetirementStep(first); err == nil {
 		t.Fatal("active retirement admitted a duplicate pending step")
 	}
-	if err := execution.SettleRetirementStep(journal.RetirementStepValidatePreparedLayout, true); err == nil {
+	if err := execution.SettleRetirementStep(RetirementStepValidatePreparedLayout, true); err == nil {
 		t.Fatal("active retirement settled a step that was not admitted")
 	}
 	if err := execution.SettleRetirementStep(first, true); err != nil {
 		t.Fatalf("settle expected step: %v", err)
 	}
-	if err := execution.finish(nil); err == nil {
+	if err := execution.Finish(nil); err == nil {
 		t.Fatal("under-consumed active retirement finished successfully")
 	}
 }
@@ -330,10 +329,10 @@ func consumeActiveRetirementStepSuccess(
 }
 
 func activeRetirementRuntimeSteps(
-	controlStep journal.RetirementExecutionStep,
-) []journal.RetirementExecutionStep {
+	controlStep RetirementExecutionStep,
+) []RetirementExecutionStep {
 	steps := make(
-		[]journal.RetirementExecutionStep,
+		[]RetirementExecutionStep,
 		0,
 		activeRetirementStepCount(),
 	)
@@ -347,13 +346,13 @@ func activeRetirementRuntimeSteps(
 	return steps
 }
 
-func activeRetirementControlStepName(step journal.RetirementExecutionStep) string {
-	if step == journal.RetirementStepControlPresent {
+func activeRetirementControlStepName(step RetirementExecutionStep) string {
+	if step == RetirementStepControlPresent {
 		return "present"
 	}
 	return "publish"
 }
 
-func activeRetirementRuntimeStepName(step journal.RetirementExecutionStep) string {
+func activeRetirementRuntimeStepName(step RetirementExecutionStep) string {
 	return fmt.Sprintf("step-%d", step)
 }

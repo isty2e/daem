@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -159,7 +160,7 @@ func TestApplyWithEffectPlanIndeterminateHostOutcomeRetainsJournal(t *testing.T)
 		!strings.Contains(err.Error(), "recovery journal retained") {
 		t.Fatalf("ApplyWithEffectPlan error = %v, want indeterminate recovery guidance", err)
 	}
-	if ApplyHostChangesRolledBack(err) {
+	if applyprogram.HostChangesRolledBack(err) {
 		t.Fatalf("ApplyWithEffectPlan error = %v, want no rollback claim", err)
 	}
 	assertEventKinds(t, events, []executionevent.Kind{
@@ -208,7 +209,7 @@ func TestApplyWithEffectPlanGuardedRollbackRetirementFailurePreservesErrors(t *t
 	if !errors.Is(err, primary) || !errors.Is(err, retirement) {
 		t.Fatalf("ApplyWithEffectPlan error = %v, want primary and retirement failures", err)
 	}
-	if !ApplyHostChangesRolledBack(err) {
+	if !applyprogram.HostChangesRolledBack(err) {
 		t.Fatalf("ApplyWithEffectPlan error = %v, want rolled-back classification", err)
 	}
 	if forwardAccepts != 2 {
@@ -247,7 +248,7 @@ func TestApplyWithEffectPlanGuardedRollbackJoinsMutationAuthorityCloseFailure(t 
 	if !errors.Is(err, primary) || !errors.Is(err, closeFailure) {
 		t.Fatalf("ApplyWithEffectPlan error = %v, want primary and close failures", err)
 	}
-	if !ApplyHostChangesRolledBack(err) {
+	if !applyprogram.HostChangesRolledBack(err) {
 		t.Fatalf("ApplyWithEffectPlan error = %v, want rolled-back classification", err)
 	}
 	assertHostMissing(t, fixture.hostPath("CREATE.md"))

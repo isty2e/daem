@@ -160,7 +160,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 	removalDemands := testManagedPathRemovalDemandSet(t, &previous, 0, &next, 0)
 	if _, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		journalpublication.OperationID(createdAt),
 		createdAt,
 		currentState,
@@ -198,7 +198,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 
 	recoveryPlan, err := journal.LoadActivePlanWithOptions(
 		context.Background(),
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		testPlanLoadOptions(paths),
 	)
 	if err != nil {

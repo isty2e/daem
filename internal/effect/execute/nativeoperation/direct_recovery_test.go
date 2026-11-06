@@ -1,4 +1,4 @@
-package execute
+package nativeoperation
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/execute"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -18,7 +20,9 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/testkit/aggregatefixture"
 )
 
 func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
@@ -30,6 +34,10 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 			}
 			t.Run(string(scope)+"/"+phase, func(t *testing.T) {
 				input, host, original := nativeOrderApplyInput(t, scope)
+				ordinaryHost := ""
+				if scope == target.ScopeProject && !committed {
+					input, ordinaryHost = nativeOrderWithOrdinaryMCP(t, input)
+				}
 				plan, err := PrepareNativeApplyEffectPlan(input)
 				if err != nil {
 					t.Fatal(err)
@@ -49,6 +57,13 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 						current, err := os.ReadFile(host)
 						if err != nil || bytes.Equal(current, original) {
 							return err
+						}
+						if ordinaryHost != "" {
+							if _, err := os.ReadFile(ordinaryHost); errors.Is(err, os.ErrNotExist) {
+								return nil
+							} else if err != nil {
+								return err
+							}
 						}
 
 						state, err := statefile.LoadOptionalWithOptions(ctx, input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
@@ -77,6 +92,13 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 				if err != nil || bytes.Equal(current, original) {
 					t.Fatal("fixture did not retain a real host publication", err)
 				}
+				var ordinaryCurrent []byte
+				if ordinaryHost != "" {
+					ordinaryCurrent, err = os.ReadFile(ordinaryHost)
+					if err != nil {
+						t.Fatal("fixture did not retain its ordinary host publication", err)
+					}
+				}
 				entries, err := os.ReadDir(input.Paths.RecoveryDir)
 				if err != nil || len(entries) != 1 {
 					t.Fatal("refused compensation did not retain one journal", err)
@@ -93,13 +115,19 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 					t.Fatal(err)
 				}
 
+				requests := []mutation.PhysicalAuthorityRequest{{Path: host, Target: string(target.TargetPi), Scope: string(scope)}}
+				if ordinaryHost != "" {
+					requests = append(requests, mutation.PhysicalAuthorityRequest{Path: ordinaryHost, Target: string(target.TargetClaudeCode), Scope: string(target.ScopeProject)})
+				}
 				var domains []mutation.Domain
-				for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
-					domain, err := mutation.NewPhysicalPathDomain(mutation.PhysicalPathRequest{Path: host, Access: mutation.AccessExclusive, Effect: effect, Target: string(target.TargetPi), Scope: string(scope)})
-					if err != nil {
-						t.Fatal(err)
+				for _, request := range requests {
+					for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+						domain, err := mutation.NewPhysicalPathDomain(mutation.PhysicalPathRequest{Path: request.Path, Access: mutation.AccessExclusive, Effect: effect, Target: request.Target, Scope: request.Scope})
+						if err != nil {
+							t.Fatal(err)
+						}
+						domains = append(domains, domain)
 					}
-					domains = append(domains, domain)
 				}
 				leases, err := leaseStore.Acquire(t.Context(), domains...)
 				if err != nil {
@@ -112,7 +140,7 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 				})
 
 				validated, accepted := 0, 0
-				options := RecoveryOptions{
+				options := execute.RecoveryOptions{
 					Resolver: input.Resolver, Filesystem: store, StateCodec: input.StateCodec, Codecs: input.Codecs,
 					OwnershipRegistryBinder: input.OwnershipRegistryBinder,
 					ValidateBeforeEffects: func(_ context.Context, selected mutation.PhysicalAuthoritySet) error {
@@ -160,6 +188,12 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 					if err != nil || !bytes.Equal(actual, current) {
 						t.Fatal("refused explicit recovery changed its host", err)
 					}
+					if ordinaryHost != "" {
+						actual, err := os.ReadFile(ordinaryHost)
+						if err != nil || !bytes.Equal(actual, ordinaryCurrent) {
+							t.Fatal("refused explicit recovery changed its ordinary participant", err)
+						}
+					}
 					state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 					if err != nil || !state.Equal(input.CurrentState) {
 						t.Fatal("refused explicit recovery changed durable state", err)
@@ -189,6 +223,11 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 				info, err := os.Stat(host)
 				if err != nil || info.Mode().Perm() != 0o644 {
 					t.Fatal("explicit recovery changed host permissions", err)
+				}
+				if ordinaryHost != "" {
+					if _, err := os.Stat(ordinaryHost); !errors.Is(err, os.ErrNotExist) {
+						t.Fatal("explicit recovery did not restore ordinary participant absence", err)
+					}
 				}
 
 				state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
@@ -233,7 +272,7 @@ func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, 
 			},
 		},
 	}
-	disclosed, err := journal.LoadRecoverablePlanWithOptions(t.Context(), input.Paths.journalPaths(), load)
+	disclosed, err := journal.LoadRecoverablePlanWithOptions(t.Context(), input.Paths.JournalPaths(), load)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,6 +281,30 @@ func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, 
 		t.Fatalf("retained operation did not disclose executable native recovery: %#v", disclosed)
 	}
 	return native, load
+}
+
+func nativeOrderWithOrdinaryMCP(t *testing.T, input NativeApplyInput) (NativeApplyInput, string) {
+	t.Helper()
+	decisions := aggregatefixture.ClaudeProjectMCP(t, aggregate.AbsentDocument(), []aggregatefixture.MCPEntry{{ServerID: "mixed", Command: "mixed-server"}})
+	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: input.CurrentState, Aggregates: decisions, PiOrders: input.Preparation.PiOrders(), StateCodec: input.StateCodec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	effects := prepared.AggregateEffects()
+	if len(effects) != 1 {
+		t.Fatal("mixed recovery fixture requires one ordinary aggregate")
+	}
+	input.Preparation = prepared
+	ordinary := effects[0].DocumentAddress().AggregateRoot()
+	host := filepath.Join(input.Paths.ManifestRoot, ".mcp.json")
+	resolve := input.Resolver
+	input.Resolver = func(destination output.Destination) (string, error) {
+		if destination == ordinary {
+			return host, nil
+		}
+		return resolve(destination)
+	}
+	return input, host
 }
 
 type nativeDirectRecoveryStore struct {

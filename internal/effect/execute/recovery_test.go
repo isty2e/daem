@@ -49,7 +49,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 		StatefilePath: filepath.Join(root, ".daem", "state.json"),
 		ManifestRoot:  root,
 	}
-	journalPaths := paths.journalPaths()
+	journalPaths := paths.JournalPaths()
 
 	oldContent := []byte("old instructions\n")
 	newContent := []byte("new instructions\n")

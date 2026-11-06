@@ -77,7 +77,7 @@ func loadActivePlanWithTestCodecs(ctx context.Context, paths Paths) (recovery.Pl
 	}
 	return journal.LoadActivePlanWithOptions(
 		ctx,
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		journal.PlanLoadOptions{
 			Filesystem:        testFilesystem(),
 			Resolver:          destinationResolver(paths),

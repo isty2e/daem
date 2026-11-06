@@ -1,4 +1,4 @@
-package execute
+package hostmutation
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
-func applyForwardRemovalCertificates(
+func ApplyRemovalCandidates(
 	managed []effectpreparation.ManagedPathEffect,
 	aggregates []effectpreparation.AggregateEffect,
 	payloads payload.PayloadSet,
@@ -24,12 +24,12 @@ func applyForwardRemovalCertificates(
 		if !effect.RequiresPayload() {
 			continue
 		}
-		state, err := expectedManagedPathRemovalState(effect)
+		state, err := removaloperation.ExpectedManagedPathState(effect)
 		if err != nil {
 			return nil, fmt.Errorf("managed effect[%d] expected removal state: %w", index, err)
 		}
 		relation := removaloperation.Relation{Scope: effect.Scope(), Destination: effect.Destination()}
-		if !removalStateIsDemanded(demands, relation, state) {
+		if !removaloperation.DemandsContainState(demands, relation, state) {
 			continue
 		}
 		stateKind, _, err := state.Kind()
@@ -48,7 +48,7 @@ func applyForwardRemovalCertificates(
 		}
 		if file, isFile := prepared.File(); isFile && stateKind == recovery.PathKindFile {
 			contentBytes := int64(len(file.Bytes()))
-			certificates = append(certificates, constantForwardRemovalCertificate(
+			certificates = append(certificates, removaloperation.ConstantForwardCandidate(
 				relation,
 				state,
 				0,
@@ -81,19 +81,19 @@ func applyForwardRemovalCertificates(
 		if effect.Kind() != effectpreparation.AggregateEffectCreate {
 			continue
 		}
-		state, err := aggregateDocumentExpectedRemovalState(effect)
+		state, err := removaloperation.ExpectedAggregateDocumentState(effect)
 		if err != nil {
 			return nil, fmt.Errorf("aggregate effect[%d] expected removal state: %w", index, err)
 		}
 		relation := removaloperation.Relation{Scope: effect.Scope(), Destination: effect.Destination()}
-		if !removalStateIsDemanded(demands, relation, state) {
+		if !removaloperation.DemandsContainState(demands, relation, state) {
 			continue
 		}
 		document := effect.Rendered().Document()
 		if !document.Exists() {
 			continue
 		}
-		certificates = append(certificates, constantForwardRemovalCertificate(
+		certificates = append(certificates, removaloperation.ConstantForwardCandidate(
 			relation,
 			state,
 			0,
@@ -101,39 +101,6 @@ func applyForwardRemovalCertificates(
 		))
 	}
 	return certificates, nil
-}
-
-func constantForwardRemovalCertificate(
-	relation removaloperation.Relation,
-	state recovery.RemovalState,
-	entries int,
-	bytes int64,
-) removaloperation.ForwardCandidate {
-	return removaloperation.ForwardCandidate{
-		Relation: relation,
-		State:    state,
-		Measure: func(context.Context, workmeasure.ArtifactWork) (workmeasure.ArtifactWork, error) {
-			return workmeasure.NewArtifactWork(entries, bytes)
-		},
-	}
-}
-
-func removalStateIsDemanded(
-	demands recovery.RemovalDemandSet,
-	relation removaloperation.Relation,
-	state recovery.RemovalState,
-) bool {
-	for _, demand := range demands.Demands() {
-		if demand.Scope() != relation.Scope || demand.Destination() != relation.Destination {
-			continue
-		}
-		for _, admitted := range demand.States() {
-			if admitted.Equal(state) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func measureDirectoryArtifactRemovalWork(

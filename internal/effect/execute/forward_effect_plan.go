@@ -2,11 +2,11 @@ package execute
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -97,7 +97,7 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 			aggregateMutations++
 		}
 	}
-	operationID := forwardEffectPlanningOperationID()
+	operationID := journalpublication.PlanningOperationID()
 	managedOwnership, err := claimoperation.PlanManagedPaths(
 		input.ManagedPathEffects,
 		input.Owner,
@@ -118,48 +118,30 @@ func MaximumForwardEffectValidationCount(input ApplyInput) (int, error) {
 	}
 	ownershipState := claimoperation.NewState(managedOwnership, aggregateOwnership)
 	count := 3 // journal publication, statefile publication, and journal retirement
-	count, err = addForwardValidationCount(count, managedMutations)
+	count, err = applyprogram.AddValidationCount(count, managedMutations)
 	if err != nil {
 		return 0, err
 	}
-	count, err = addForwardValidationCount(count, aggregateMutations)
+	count, err = applyprogram.AddValidationCount(count, aggregateMutations)
 	if err != nil {
 		return 0, err
 	}
 	if ownershipState.HasTransitions() {
-		count, err = addForwardValidationCount(count, 2) // preparation and finalization
+		count, err = applyprogram.AddValidationCount(count, 2) // preparation and finalization
 		if err != nil {
 			return 0, err
 		}
 	} else if ownershipState.IntentCount() != 0 {
 		// A successful provisional promotion appends an exact transition after
 		// the initial preparation phase. The resulting set still finalizes once.
-		count, err = addForwardValidationCount(count, 1)
+		count, err = applyprogram.AddValidationCount(count, 1)
 		if err != nil {
 			return 0, err
 		}
 	}
-	provisionalValidations, err := multiplyForwardValidationCount(ownershipState.IntentCount(), 2)
+	provisionalValidations, err := applyprogram.MultiplyValidationCount(ownershipState.IntentCount(), 2)
 	if err != nil {
 		return 0, err
 	}
-	return addForwardValidationCount(count, provisionalValidations)
-}
-
-func forwardEffectPlanningOperationID() string {
-	return journalpublication.OperationID(time.Unix(0, 0).UTC())
-}
-
-func addForwardValidationCount(left int, right int) (int, error) {
-	if left < 0 || right < 0 || left > int(^uint(0)>>1)-right {
-		return 0, fmt.Errorf("forward effect validation count overflows")
-	}
-	return left + right, nil
-}
-
-func multiplyForwardValidationCount(value int, multiplier int) (int, error) {
-	if value < 0 || multiplier < 0 || value != 0 && multiplier > int(^uint(0)>>1)/value {
-		return 0, fmt.Errorf("forward effect validation count overflows")
-	}
-	return value * multiplier, nil
+	return applyprogram.AddValidationCount(count, provisionalValidations)
 }

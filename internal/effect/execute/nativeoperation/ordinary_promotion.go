@@ -1,4 +1,4 @@
-package execute
+package nativeoperation
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func promoteNativeOrdinaryAcquires(ctx context.Context, state *claimoperation.State, keys []ownership.LogicalKey, captured *journalpublication.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore, gate applyprogram.VisibilityGate, execution *applyprogram.Execution) error {
+func promoteNativeOrdinaryAcquires(ctx context.Context, state *claimoperation.State, keys []ownership.LogicalKey, captured *journalpublication.CapturedNativeJournal, authority *operation, input NativeApplyInput, store ownershipmutation.RegistryStore, gate applyprogram.VisibilityGate, execution *applyprogram.Execution) error {
 	return state.Promote(ctx, keys, func(ctx context.Context, intent ownership.ProvisionalAcquireIntent) (ownershipmutation.ClaimTransition, bool, error) {
 		key := ownership.LogicalKey{Destination: intent.Destination(), Footprint: intent.Footprint()}
 		prefix, err := execution.PromotionReference(key)

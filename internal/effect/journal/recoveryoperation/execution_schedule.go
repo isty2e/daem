@@ -1,10 +1,9 @@
-package execute
+package recoveryoperation
 
 import (
 	"errors"
 	"fmt"
 
-	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
@@ -21,24 +20,24 @@ const (
 type activeRetirementStep struct {
 	id             string
 	kind           operationplan.EffectStepKind
-	retirementStep journal.RetirementExecutionStep
+	retirementStep RetirementExecutionStep
 }
 
 var activeRetirementPreControlSteps = [...]activeRetirementStep{
 	{
 		id:             "active-retirement/validate-plan",
 		kind:           operationplan.EffectStepObservation,
-		retirementStep: journal.RetirementStepValidateActivePlan,
+		retirementStep: RetirementStepValidateActivePlan,
 	},
 	{
 		id:             "active-retirement/validate-prepared-layout",
 		kind:           operationplan.EffectStepObservation,
-		retirementStep: journal.RetirementStepValidatePreparedLayout,
+		retirementStep: RetirementStepValidatePreparedLayout,
 	},
 	{
 		id:             "active-retirement/validate-active-identity",
 		kind:           operationplan.EffectStepObservation,
-		retirementStep: journal.RetirementStepValidateActiveIdentity,
+		retirementStep: RetirementStepValidateActiveIdentity,
 	},
 }
 
@@ -46,46 +45,46 @@ var activeRetirementPostControlSteps = [...]activeRetirementStep{
 	{
 		id:             "active-retirement/validate-active-record",
 		kind:           operationplan.EffectStepObservation,
-		retirementStep: journal.RetirementStepValidateActiveRecord,
+		retirementStep: RetirementStepValidateActiveRecord,
 	},
 	{
 		id:             "active-retirement/move-active-to-residue",
 		kind:           operationplan.EffectStepRetirement,
-		retirementStep: journal.RetirementStepRetireActiveJournal,
+		retirementStep: RetirementStepRetireActiveJournal,
 	},
 	{
 		id:             "active-retirement/validate-phase-advance-layout",
 		kind:           operationplan.EffectStepObservation,
-		retirementStep: journal.RetirementStepValidatePhaseAdvanceLayout,
+		retirementStep: RetirementStepValidatePhaseAdvanceLayout,
 	},
 	{
 		id:             "active-retirement/advance-record",
 		kind:           operationplan.EffectStepPersistence,
-		retirementStep: journal.RetirementStepAdvanceRecord,
+		retirementStep: RetirementStepAdvanceRecord,
 	},
 	{
 		id:             "active-retirement/validate-finalizing-layout",
 		kind:           operationplan.EffectStepObservation,
-		retirementStep: journal.RetirementStepValidateFinalizingLayout,
+		retirementStep: RetirementStepValidateFinalizingLayout,
 	},
 	{
 		id:             "active-retirement/cleanup-residue",
 		kind:           operationplan.EffectStepCleanup,
-		retirementStep: journal.RetirementStepCleanupResidue,
+		retirementStep: RetirementStepCleanupResidue,
 	},
 	{
 		id:             "active-retirement/retire-control",
 		kind:           operationplan.EffectStepRetirement,
-		retirementStep: journal.RetirementStepRetireControl,
+		retirementStep: RetirementStepRetireControl,
 	},
 	{
 		id:             "active-retirement/cleanup-garbage",
 		kind:           operationplan.EffectStepCleanup,
-		retirementStep: journal.RetirementStepCleanupGarbage,
+		retirementStep: RetirementStepCleanupGarbage,
 	},
 }
 
-var _ journal.RetirementStepGate = (*activeRetirementExecution)(nil)
+var _ RetirementStepGate = (*RetirementExecution)(nil)
 
 type activeRetirementPendingStep struct {
 	step            activeRetirementStep
@@ -93,7 +92,7 @@ type activeRetirementPendingStep struct {
 	failureTerminal string
 }
 
-type activeRetirementExecution struct {
+type RetirementExecution struct {
 	cursor  *operationplan.EffectCursor
 	next    int
 	pending *activeRetirementPendingStep
@@ -101,9 +100,9 @@ type activeRetirementExecution struct {
 	closed  bool
 }
 
-// compileActiveJournalRetirementStructure describes the fixed post-cleanup
+// CompileRetirementSchedule describes the fixed post-cleanup
 // ExecuteActive tail consumed by the runtime gate. It grants no authority.
-func compileActiveJournalRetirementStructure() (operationplan.EffectStructure, error) {
+func CompileRetirementSchedule() (operationplan.EffectStructure, error) {
 	var builder operationplan.EffectStructureBuilder
 	continuation := builder.Step(activeRetirementSuccessStep, operationplan.EffectStepTerminal)
 	for index := len(activeRetirementPostControlSteps) - 1; index >= 0; index-- {
@@ -172,14 +171,14 @@ func activeRetirementStepWithOutcome(
 	)
 }
 
-func newActiveRetirementExecution(
+func NewRetirementExecution(
 	structure operationplan.EffectStructure,
-) *activeRetirementExecution {
-	return &activeRetirementExecution{cursor: structure.Begin()}
+) *RetirementExecution {
+	return &RetirementExecution{cursor: structure.Begin()}
 }
 
-func (execution *activeRetirementExecution) AdmitRetirementStep(
-	retirementStep journal.RetirementExecutionStep,
+func (execution *RetirementExecution) AdmitRetirementStep(
+	retirementStep RetirementExecutionStep,
 ) error {
 	if execution == nil || execution.cursor == nil {
 		return fmt.Errorf("active journal retirement execution is unavailable")
@@ -207,8 +206,8 @@ func (execution *activeRetirementExecution) AdmitRetirementStep(
 	return nil
 }
 
-func (execution *activeRetirementExecution) SettleRetirementStep(
-	retirementStep journal.RetirementExecutionStep,
+func (execution *RetirementExecution) SettleRetirementStep(
+	retirementStep RetirementExecutionStep,
 	succeeded bool,
 ) error {
 	if execution == nil || execution.cursor == nil {
@@ -254,8 +253,8 @@ func (execution *activeRetirementExecution) SettleRetirementStep(
 	return nil
 }
 
-func (execution *activeRetirementExecution) pendingStep(
-	retirementStep journal.RetirementExecutionStep,
+func (execution *RetirementExecution) pendingStep(
+	retirementStep RetirementExecutionStep,
 ) (activeRetirementPendingStep, error) {
 	if execution.next < len(activeRetirementPreControlSteps) {
 		step := activeRetirementPreControlSteps[execution.next]
@@ -263,7 +262,7 @@ func (execution *activeRetirementExecution) pendingStep(
 	}
 	if execution.next == len(activeRetirementPreControlSteps) {
 		switch retirementStep {
-		case journal.RetirementStepControlPresent:
+		case RetirementStepControlPresent:
 			if err := execution.cursor.SelectAlternative(activeRetirementControlModeChoice, 0); err != nil {
 				return activeRetirementPendingStep{}, err
 			}
@@ -274,7 +273,7 @@ func (execution *activeRetirementExecution) pendingStep(
 					retirementStep: retirementStep,
 				},
 			}, nil
-		case journal.RetirementStepPublishControl:
+		case RetirementStepPublishControl:
 			if err := execution.cursor.SelectAlternative(activeRetirementControlModeChoice, 1); err != nil {
 				return activeRetirementPendingStep{}, err
 			}
@@ -291,8 +290,8 @@ func (execution *activeRetirementExecution) pendingStep(
 			return activeRetirementPendingStep{}, fmt.Errorf(
 				"active journal retirement control step is %d, not %d or %d",
 				retirementStep,
-				journal.RetirementStepControlPresent,
-				journal.RetirementStepPublishControl,
+				RetirementStepControlPresent,
+				RetirementStepPublishControl,
 			)
 		}
 	}
@@ -310,7 +309,7 @@ func (execution *activeRetirementExecution) pendingStep(
 
 func activeRetirementPendingStepFor(
 	step activeRetirementStep,
-	retirementStep journal.RetirementExecutionStep,
+	retirementStep RetirementExecutionStep,
 ) (activeRetirementPendingStep, error) {
 	if step.retirementStep != retirementStep {
 		return activeRetirementPendingStep{}, fmt.Errorf(
@@ -326,7 +325,7 @@ func activeRetirementPendingStepFor(
 	}, nil
 }
 
-func (execution *activeRetirementExecution) finish(retirementErr error) error {
+func (execution *RetirementExecution) Finish(retirementErr error) error {
 	if execution == nil || execution.cursor == nil {
 		return errors.Join(
 			retirementErr,

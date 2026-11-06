@@ -1,4 +1,4 @@
-package execute
+package nativeoperation
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -30,7 +31,7 @@ func nativeOrdinaryApplyFor(input NativeApplyInput, work nativeApplyWork, operat
 	if err != nil {
 		return nativeOrdinaryApply{}, err
 	}
-	demands, err := removalDemandSetForExecution(work.managed, work.ordinaryAggregates, input.ManagedPathEvidence)
+	demands, err := removaloperation.EffectDemands(work.managed, work.ordinaryAggregates, input.ManagedPathEvidence)
 	if err != nil {
 		return nativeOrdinaryApply{}, err
 	}
@@ -52,7 +53,7 @@ func nativeOrdinaryApplyFor(input NativeApplyInput, work nativeApplyWork, operat
 	}, nil
 }
 
-func bindNativeOrdinaryApply(ctx context.Context, input NativeApplyInput, work nativeApplyWork, authority *mutationAuthority) error {
+func bindNativeOrdinaryApply(ctx context.Context, input NativeApplyInput, work nativeApplyWork, authority *operation) error {
 	for _, effect := range work.managed {
 		if err := authority.bindPhysicalAuthority(effect.Scope(), effect.Destination(), effect.ConsumerTargets()); err != nil {
 			return err

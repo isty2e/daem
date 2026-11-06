@@ -12,7 +12,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
-	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
@@ -54,7 +53,7 @@ type Paths struct {
 	OwnershipRegistryPath string
 }
 
-func (paths Paths) journalPaths() journalpublication.Paths {
+func (paths Paths) JournalPaths() journalpublication.Paths {
 	return journalpublication.Paths{
 		RecoveryDir:   paths.RecoveryDir,
 		StatefilePath: paths.StatefilePath,
@@ -117,14 +116,6 @@ type ApplyResult struct {
 	// ExecutionAttempted reports whether apply reached journal capture or a
 	// later mutation boundary.
 	ExecutionAttempted bool
-	nativeSettlement   *registrysettlement.PersistenceSnapshot
-}
-
-func (result ApplyResult) NativeSettlement() (registrysettlement.PersistenceSnapshot, bool) {
-	if result.nativeSettlement == nil {
-		return registrysettlement.PersistenceSnapshot{}, false
-	}
-	return *result.nativeSettlement, true
 }
 
 // ApplyWithOptions commits typed executable effects and emits observational execution events.
@@ -233,7 +224,7 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	removalDemands, err := removalDemandSetForExecution(
+	removalDemands, err := removaloperation.EffectDemands(
 		input.ManagedPathEffects,
 		input.AggregateEffects,
 		input.ManagedPathEvidence,
@@ -327,9 +318,9 @@ func applyWithOptions(
 		func(ctx context.Context) error {
 			return options.validatePhysicalAuthority(ctx, mutationAuthority)
 		},
-		options.acceptVisibilityChanges,
+		options.AcceptVisibility,
 	)
-	compensationGate := applyprogram.NewVisibilityGate(options.validateCompensationAuthority, options.acceptCompensationVisibilityChanges)
+	compensationGate := applyprogram.NewVisibilityGate(options.ValidateCompensation, options.AcceptCompensationVisibility)
 	journalPublicationGate := effectExecution.VisibilityGate(
 		visibilityGate,
 		"apply/journal-publication",
@@ -339,7 +330,7 @@ func applyWithOptions(
 	if err := mutationAuthority.removals.PrepareApplyForward(
 		ctx,
 		func(demands recovery.RemovalDemandSet) ([]removaloperation.ForwardCandidate, error) {
-			return applyForwardRemovalCertificates(input.ManagedPathEffects, input.AggregateEffects, input.Payloads, demands)
+			return hostmutation.ApplyRemovalCandidates(input.ManagedPathEffects, input.AggregateEffects, input.Payloads, demands)
 		},
 	); err != nil {
 		return ApplyResult{}, fmt.Errorf("prepare bounded forward removals: %w", err)
@@ -358,7 +349,7 @@ func applyWithOptions(
 		executionAttempted = true
 		captureResult, captureErr := journalpublication.CaptureJournalWithOptions(
 			ctx,
-			input.Paths.journalPaths(),
+			input.Paths.JournalPaths(),
 			operationID,
 			createdAt,
 			input.CurrentState,
@@ -778,14 +769,18 @@ func (options ApplyOptions) validatePhysicalAuthority(ctx context.Context, autho
 	if authority == nil {
 		return fmt.Errorf("mutation authority is required")
 	}
+	return options.ValidatePhysicalRequests(ctx, authority.physicalAuthorityRequests)
+}
+
+func (options ApplyOptions) ValidatePhysicalRequests(ctx context.Context, bound []mutation.PhysicalAuthorityRequest) error {
 	if options.ValidatePhysicalAuthorityRequests != nil {
 		if options.ValidateBeforeEffects != nil {
 			return fmt.Errorf("apply physical authority validators are mutually exclusive")
 		}
-		requests := append([]mutation.PhysicalAuthorityRequest(nil), authority.physicalAuthorityRequests...)
+		requests := append([]mutation.PhysicalAuthorityRequest(nil), bound...)
 		return options.ValidatePhysicalAuthorityRequests(ctx, requests)
 	}
-	physicalAuthority, err := authority.physicalAuthority()
+	physicalAuthority, err := mutation.NewPhysicalAuthoritySet(bound...)
 	if err != nil {
 		return err
 	}
@@ -802,21 +797,21 @@ func (options ApplyOptions) validateBeforeEffects(
 	return options.ValidateBeforeEffects(ctx, authority)
 }
 
-func (options ApplyOptions) acceptVisibilityChanges(ctx context.Context) error {
+func (options ApplyOptions) AcceptVisibility(ctx context.Context) error {
 	if options.AcceptVisibilityChanges == nil {
 		return nil
 	}
 	return options.AcceptVisibilityChanges(ctx)
 }
 
-func (options ApplyOptions) validateCompensationAuthority(ctx context.Context) error {
+func (options ApplyOptions) ValidateCompensation(ctx context.Context) error {
 	if options.ValidateCompensationAuthority == nil {
 		return nil
 	}
 	return options.ValidateCompensationAuthority(ctx)
 }
 
-func (options ApplyOptions) acceptCompensationVisibilityChanges(ctx context.Context) error {
+func (options ApplyOptions) AcceptCompensationVisibility(ctx context.Context) error {
 	if options.AcceptCompensationVisibilityChanges == nil {
 		return nil
 	}

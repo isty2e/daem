@@ -1,4 +1,4 @@
-package execute
+package nativeoperation
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
-func promoteNativeCapturedDocument(ctx context.Context, captured journalpublication.CapturedNativeJournal, index int, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore) (journalpublication.CapturedNativeJournal, error) {
+func promoteNativeCapturedDocument(ctx context.Context, captured journalpublication.CapturedNativeJournal, index int, authority *operation, input NativeApplyInput, store ownershipmutation.RegistryStore) (journalpublication.CapturedNativeJournal, error) {
 	return captured.PromoteDocument(ctx, index, journalpublication.NativePromotionOptions{
 		NativeRecoveryOptions: journalqualification.NativeRecoveryOptions{
 			Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Codecs: input.Codecs, Registry: store,

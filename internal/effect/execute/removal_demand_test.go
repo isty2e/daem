@@ -5,6 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
@@ -76,13 +77,13 @@ func TestRemovalDemandSetCoversManagedPathTransitionMatrix(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			set, err := removalDemandSetForExecution(
+			set, err := removaloperation.EffectDemands(
 				[]effectpreparation.ManagedPathEffect{test.effect},
 				nil,
 				nil,
 			)
 			if err != nil {
-				t.Fatalf("removalDemandSetForExecution returned error: %v", err)
+				t.Fatalf("removaloperation.EffectDemands returned error: %v", err)
 			}
 			if set.Len() != test.wantRelations {
 				t.Fatalf("demand relation count = %d, want %d", set.Len(), test.wantRelations)

@@ -1,9 +1,10 @@
-package execute
+package nativeoperation
 
 import (
 	"context"
 	"errors"
 
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
@@ -15,7 +16,7 @@ import (
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 )
 
-func prepareNativeApplyRemovals(ctx context.Context, captured journalpublication.CapturedNativeJournal, ordinary nativeOrdinaryApply, work nativeApplyWork, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryStore) (resultErr error) {
+func prepareNativeApplyRemovals(ctx context.Context, captured journalpublication.CapturedNativeJournal, ordinary nativeOrdinaryApply, work nativeApplyWork, authority *operation, input NativeApplyInput, store ownershipmutation.RegistryStore) (resultErr error) {
 	operation, err := journal.OpenCapturedNativeRecovery(ctx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journalqualification.NativeRecoveryOptions{
 		Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 		State: func(ctx context.Context) (durable.Snapshot, error) {
@@ -30,7 +31,7 @@ func prepareNativeApplyRemovals(ctx context.Context, captured journalpublication
 	if err != nil {
 		return err
 	}
-	certificates, err := applyForwardRemovalCertificates(work.managed, work.ordinaryAggregates, input.Payloads, ordinary.demands)
+	certificates, err := hostmutation.ApplyRemovalCandidates(work.managed, work.ordinaryAggregates, input.Payloads, ordinary.demands)
 	if err != nil {
 		return err
 	}
@@ -52,7 +53,7 @@ func prepareNativeApplyRemovals(ctx context.Context, captured journalpublication
 			return err
 		}
 		for _, state := range intent.Demand().States() {
-			certificates = append(certificates, constantForwardRemovalCertificate(removaloperation.Relation{Scope: intent.Scope(), Destination: intent.Destination()}, state, 0, int64(len(expected.Content()))))
+			certificates = append(certificates, removaloperation.ConstantForwardCandidate(removaloperation.Relation{Scope: intent.Scope(), Destination: intent.Destination()}, state, 0, int64(len(expected.Content()))))
 		}
 	}
 	return authority.removals.PrepareForwardFor(ctx, physical, certificates)

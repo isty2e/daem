@@ -25,3 +25,7 @@ type CaptureResult struct {
 func OperationID(createdAt time.Time) string {
 	return createdAt.UTC().Format("20060102T150405.000000000Z") + "-apply"
 }
+
+func PlanningOperationID() string {
+	return OperationID(time.Unix(0, 0).UTC())
+}

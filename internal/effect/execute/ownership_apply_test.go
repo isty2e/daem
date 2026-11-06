@@ -92,7 +92,7 @@ func TestGlobalOwnershipRecoveryRequiresReaderAndBinderBeforeEffects(t *testing.
 
 	_, err = journal.LoadActivePlanWithOptions(
 		context.Background(),
-		input.Paths.journalPaths(),
+		input.Paths.JournalPaths(),
 		journal.PlanLoadOptions{
 			Filesystem:  testFilesystem(),
 			Resolver:    destinationResolver(input.Paths),

@@ -55,10 +55,10 @@ func promoteVisibleAcquire(
 	var journalFingerprint string
 	visible := false
 	if err := execution.Observe(prefix+"/observation", applyprogram.FailureGuardedRecovery, func() error {
-		if authority == nil || authority.journalBasis.validate() != nil {
+		if authority == nil || authority.journalBasis.Validate() != nil {
 			return fmt.Errorf("recovery journal execution basis is unavailable")
 		}
-		journalFingerprint = authority.journalBasis.recordFingerprint
+		journalFingerprint = authority.journalBasis.RecordFingerprint()
 		if authority.recoveryJournalRecord == nil {
 			return fmt.Errorf("recovery journal record authority is unavailable")
 		}
@@ -122,11 +122,11 @@ func promoteVisibleAcquire(
 	if err := journalGate.ApplyEffect(func() error {
 		var promoteErr error
 		promotion, promoteErr = journalpublication.PromoteProvisionalAcquire(ctx, authority.filesystem,
-			authority.recoveryJournalRecord, authority.recoveryJournal, authority.journalBasis.activeAuthority,
+			authority.recoveryJournalRecord, authority.recoveryJournal, authority.journalBasis.ActiveAuthority(),
 			journalFingerprint, intent, transition, stateCodec)
 		if refreshed, available := promotion.ActiveJournalAuthority(); available {
 			if authority.preparedRetirement != nil {
-				if err := authority.preparedRetirement.AdvanceActiveAuthority(authority.journalBasis.activeAuthority, refreshed); err != nil {
+				if err := authority.preparedRetirement.AdvanceActiveAuthority(authority.journalBasis.ActiveAuthority(), refreshed); err != nil {
 					promoteErr = errors.Join(promoteErr, fmt.Errorf("advance prepared journal retirement authority: %w", err))
 				}
 			}

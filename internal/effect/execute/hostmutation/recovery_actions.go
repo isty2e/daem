@@ -1,20 +1,19 @@
-package execute
+package hostmutation
 
 import (
 	"fmt"
 
-	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 )
 
-func recoveryHostActionsFor(actions []recovery.Action) ([]hostmutation.RestorationAction, error) {
-	hostActions := make([]hostmutation.RestorationAction, 0, len(actions))
+func RestorationActionsFor(actions []recovery.Action) ([]RestorationAction, error) {
+	hostActions := make([]RestorationAction, 0, len(actions))
 	for _, action := range actions {
 		switch action.Kind {
 		case recovery.ActionKindNoOp:
 			continue
 		case recovery.ActionKindRestoreWrite:
-			hostActions = append(hostActions, hostmutation.RestorationAction{
+			hostActions = append(hostActions, RestorationAction{
 				Kind: action.Kind, Scope: action.Scope, Destination: action.Destination,
 				ContentPath: action.ContentPath, BackupPath: action.BackupPath,
 				BackupHash: action.BackupHash, BackupKind: action.BackupKind, BackupWork: action.BackupWork,
@@ -23,7 +22,7 @@ func recoveryHostActionsFor(actions []recovery.Action) ([]hostmutation.Restorati
 				AggregateContract: action.AggregateContract,
 			})
 		case recovery.ActionKindRestoreDelete:
-			hostActions = append(hostActions, hostmutation.RestorationAction{
+			hostActions = append(hostActions, RestorationAction{
 				Kind: action.Kind, Scope: action.Scope, Destination: action.Destination,
 				ContentPath: action.ContentPath, BeforePathMode: action.BeforePathMode,
 				BeforePathExisted: action.BeforePathExisted, BeforeParentExisted: action.BeforeParentExisted,
@@ -35,5 +34,5 @@ func recoveryHostActionsFor(actions []recovery.Action) ([]hostmutation.Restorati
 			return nil, fmt.Errorf("unsupported recovery action %q for %q", action.Kind, action.Destination)
 		}
 	}
-	return hostmutation.OrderRestorationActions(hostActions), nil
+	return OrderRestorationActions(hostActions), nil
 }

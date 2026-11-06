@@ -38,7 +38,7 @@ func TestRecoveryForwardRemovalCertificatesUsePlannedBackupWork(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		state, err := recoveryActionBeforeRemovalState(action)
+		state, err := action.BeforeRemovalState()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -52,7 +52,7 @@ func TestRecoveryForwardRemovalCertificatesUsePlannedBackupWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	certificates, err := recoveryForwardRemovalCertificates(
+	certificates, err := hostmutation.RecoveryRemovalCandidates(
 		t.Context(),
 		actions,
 		demandSet,

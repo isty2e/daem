@@ -1,4 +1,4 @@
-package execute
+package applyprogram
 
 import (
 	"context"
@@ -12,9 +12,9 @@ func TestApplyRollbackErrorPreservesTypedOutcomeAndCauses(t *testing.T) {
 
 	primary := context.Canceled
 	retirement := errors.New("private retirement failure")
-	err := newApplyRollbackError(primary, retirement)
+	err := NewRollbackError(primary, retirement)
 
-	if !ApplyHostChangesRolledBack(err) {
+	if !HostChangesRolledBack(err) {
 		t.Fatal("ApplyHostChangesRolledBack = false, want true")
 	}
 	if !errors.Is(err, primary) || !errors.Is(err, retirement) {
@@ -30,7 +30,7 @@ func TestApplyRollbackErrorPreservesTypedOutcomeAndCauses(t *testing.T) {
 func TestApplyHostChangesRolledBackRejectsOrdinaryErrors(t *testing.T) {
 	t.Parallel()
 
-	if ApplyHostChangesRolledBack(errors.New("ordinary failure")) {
+	if HostChangesRolledBack(errors.New("ordinary failure")) {
 		t.Fatal("ApplyHostChangesRolledBack = true, want false")
 	}
 }

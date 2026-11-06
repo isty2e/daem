@@ -1,4 +1,4 @@
-package execute
+package nativeoperation
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func prepareNativeCapturedEffects(ctx context.Context, captured journalpublicati
 	return retiring, preparation, bindings, err
 }
 
-func observeNativeRuntime(ctx context.Context, captured journalpublication.CapturedNativeJournal, authority *mutationAuthority, input NativeApplyInput, store ownershipmutation.RegistryReader) (journalqualification.NativeRecoveryAssessment, error) {
+func observeNativeRuntime(ctx context.Context, captured journalpublication.CapturedNativeJournal, authority *operation, input NativeApplyInput, store ownershipmutation.RegistryReader) (journalqualification.NativeRecoveryAssessment, error) {
 	return captured.AssessRecovery(ctx, journalqualification.NativeRecoveryOptions{
 		Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal,
 		State: func(ctx context.Context) (durable.Snapshot, error) {

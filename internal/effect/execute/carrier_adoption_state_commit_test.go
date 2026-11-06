@@ -52,7 +52,7 @@ func TestAdoptedCarrierClaimUsesStateOnlyRecoveryBoundary(t *testing.T) {
 
 			recoveryPlan, planErr := journal.LoadActivePlanWithOptions(
 				context.Background(),
-				fixture.paths.journalPaths(),
+				fixture.paths.JournalPaths(),
 				testPlanLoadOptions(fixture.paths),
 			)
 			if planErr != nil {

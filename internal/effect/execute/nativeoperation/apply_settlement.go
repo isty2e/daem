@@ -1,10 +1,11 @@
-package execute
+package nativeoperation
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
@@ -18,7 +19,7 @@ import (
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
-func settleNativeApplyFailure(ctx context.Context, primary error, input NativeApplyInput, options ApplyOptions, authority *mutationAuthority, store ownershipmutation.RegistryStore, captured journalpublication.CapturedNativeJournal, retiring *journal.NativeJournalRetirement, execution *applyprogram.Execution, result *ApplyResult) (resultErr error) {
+func settleNativeApplyFailure(ctx context.Context, primary error, input NativeApplyInput, options execute.ApplyOptions, authority *operation, store ownershipmutation.RegistryStore, captured journalpublication.CapturedNativeJournal, retiring *journal.NativeJournalRetirement, execution *applyprogram.Execution, result *ApplyResult) (resultErr error) {
 	prefix, err := execution.BeginFailureSettlement(applyprogram.SettlementGuardedRecovery)
 	if err != nil {
 		return errors.Join(primary, err)
@@ -84,13 +85,13 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 	if err := execution.HandoffGuardedRecovery(); err != nil {
 		return refuse(err)
 	}
-	err = executeNativeRecoveryOperation(recoveryCtx, operation, authority, store, RecoveryOptions{
+	err = executeNativeRecoveryOperation(recoveryCtx, operation, authority, store, execute.RecoveryOptions{
 		Filesystem: input.Filesystem, Resolver: input.Resolver, OwnershipRegistryBinder: input.OwnershipRegistryBinder, StateCodec: input.StateCodec, Codecs: input.Codecs,
 		ValidateBeforeEffects: func(ctx context.Context, _ mutation.PhysicalAuthoritySet) error {
-			return options.validateCompensationAuthority(ctx)
+			return options.ValidateCompensation(ctx)
 		},
-		ValidateVisibilityAuthority: options.validateCompensationAuthority,
-		AcceptVisibilityChanges:     options.acceptCompensationVisibilityChanges,
+		ValidateVisibilityAuthority: options.ValidateCompensation,
+		AcceptVisibilityChanges:     options.AcceptCompensationVisibility,
 	}, retiring, prepared)
 	if err != nil {
 		return refuse(err)
@@ -101,5 +102,5 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 		return fmt.Errorf("%w; committed native state finalized without replaying host writes", primary)
 	}
 	result.ActionCount = 0
-	return newApplyRollbackError(primary, nil)
+	return applyprogram.NewRollbackError(primary, nil)
 }

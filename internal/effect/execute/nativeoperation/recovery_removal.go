@@ -1,4 +1,4 @@
-package execute
+package nativeoperation
 
 import (
 	"context"
@@ -46,7 +46,7 @@ func nativeRecoveryDestination(ctx context.Context, destinations mutationnamespa
 	return destinations.BorrowDestination(alias.Scope(), alias.AggregateRoot(), root, bound)
 }
 
-func prepareNativeRecoveryRemovals(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, ordinary []hostmutation.RestorationAction) error {
+func prepareNativeRecoveryRemovals(ctx context.Context, authority *operation, operation *journal.NativeRecoveryOperation, ordinary []hostmutation.RestorationAction) error {
 	physical, err := bindNativeRemovalIntents(ctx, authority, operation)
 	if err != nil {
 		return err
@@ -81,7 +81,7 @@ func prepareNativeRecoveryRemovals(ctx context.Context, authority *mutationAutho
 	if err != nil {
 		return err
 	}
-	certificates, err := recoveryForwardRemovalCertificates(ctx, ordinary, physical, operation.Codecs())
+	certificates, err := hostmutation.RecoveryRemovalCandidates(ctx, ordinary, physical, operation.Codecs())
 	if err != nil {
 		return err
 	}

@@ -67,7 +67,7 @@ func TestApplyRetainsClassifiableJournalForPostVisibilityStatefileFaults(t *test
 
 			recoveryPlan, planErr := journal.LoadActivePlanWithOptions(
 				context.Background(),
-				fixture.paths.journalPaths(),
+				fixture.paths.JournalPaths(),
 				testPlanLoadOptions(fixture.paths),
 			)
 			if planErr != nil {
@@ -97,7 +97,7 @@ func TestApplyRetainsNeedsRollbackJournalWhenIndeterminateStatefileIsNotVisible(
 
 	recoveryPlan, planErr := journal.LoadActivePlanWithOptions(
 		context.Background(),
-		fixture.paths.journalPaths(),
+		fixture.paths.JournalPaths(),
 		testPlanLoadOptions(fixture.paths),
 	)
 	if planErr != nil {
@@ -220,7 +220,7 @@ func TestStateOnlyApplyRetainsJournalForIndeterminateStatefileCommit(t *testing.
 
 	recoveryPlan, planErr := journal.LoadActivePlanWithOptions(
 		context.Background(),
-		fixture.paths.journalPaths(),
+		fixture.paths.JournalPaths(),
 		testPlanLoadOptions(fixture.paths),
 	)
 	if planErr != nil {
@@ -265,7 +265,7 @@ func TestStateOnlyApplyRetainsCleanBeforeJournalWhenIndeterminateCommitIsNotVisi
 
 	recoveryPlan, planErr := journal.LoadActivePlanWithOptions(
 		context.Background(),
-		fixture.paths.journalPaths(),
+		fixture.paths.JournalPaths(),
 		testPlanLoadOptions(fixture.paths),
 	)
 	if planErr != nil {
@@ -304,7 +304,7 @@ func TestStateOnlyRecoveryRejectsManifestRootReplacementAfterFinalReload(t *test
 
 	if _, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		"state-only-root-replacement",
 		time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
 		before,
@@ -319,7 +319,7 @@ func TestStateOnlyRecoveryRejectsManifestRootReplacementAfterFinalReload(t *test
 	}
 	plan, err := journal.LoadActivePlanWithOptions(
 		context.Background(),
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		testPlanLoadOptions(paths),
 	)
 	if err != nil {
@@ -333,7 +333,7 @@ func TestStateOnlyRecoveryRejectsManifestRootReplacementAfterFinalReload(t *test
 		StateReader: testStateReader(paths.StatefilePath),
 		Filesystem:  testFilesystem(),
 		reloadPlan: func(ctx context.Context, options journal.PlanLoadOptions) (recovery.Plan, error) {
-			current, err := journal.LoadActivePlanWithOptions(ctx, paths.journalPaths(), options)
+			current, err := journal.LoadActivePlanWithOptions(ctx, paths.JournalPaths(), options)
 			if err != nil {
 				return recovery.Plan{}, err
 			}

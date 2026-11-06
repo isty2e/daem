@@ -18,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/test/testkit/aggregatefixture"
 
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 
@@ -622,69 +623,11 @@ func managedMCPAggregateEffects(
 	specs []mcpEffectSpec,
 ) []effectpreparation.AggregateEffect {
 	t.Helper()
-	contracts := make([]lock.LockedSubjectContract, 0, len(specs))
-	desired := make([]aggregate.SubjectContribution, 0, len(specs))
-	projectionContracts := make([]aggregate.ProjectionContract, 0, len(specs))
+	entries := make([]aggregatefixture.MCPEntry, 0, len(specs))
 	for _, spec := range specs {
-		canonical, err := mcpcodec.CanonicalClaudeProjectMCPServerEntry(
-			mcpcodec.ClaudeProjectMCPServerProjection{
-				ServerID:        spec.serverID,
-				Command:         spec.command,
-				AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
-			},
-		)
-		if err != nil {
-			t.Fatalf("canonical MCP entry %q: %v", spec.serverID, err)
-		}
-		contract := snapshottest.MCPProjection(t, snapshottest.MCPProjectionInput{
-			PlacementID:         aggregate.MCPPlacementClaudeProject,
-			ServerID:            spec.serverID,
-			LauncherCommand:     spec.command,
-			CanonicalProjection: string(canonical),
-		})
-		item, present, err := contract.ManagedAggregateContribution()
-		if err != nil || !present {
-			t.Fatalf("aggregate contribution %q = %#v, %t, %v", spec.serverID, item, present, err)
-		}
-		contracts = append(contracts, contract)
-		desired = append(desired, item)
-		projectionContracts = append(projectionContracts, item.Contribution().Contract())
+		entries = append(entries, aggregatefixture.MCPEntry{ServerID: spec.serverID, Command: spec.command})
 	}
-	locked, err := lock.NewLockedSection(contracts, nil)
-	if err != nil {
-		t.Fatalf("NewLockedSection returned error: %v", err)
-	}
-	selection, err := aggregate.NewSelection(projectionContracts)
-	if err != nil {
-		t.Fatalf("NewSelection returned error: %v", err)
-	}
-	codec, present := testAggregateCodecs().Lookup(selection.CodecContractID())
-	if !present {
-		t.Fatalf("codec %q is not admitted", selection.CodecContractID())
-	}
-	snapshot, failure := codec.Read(before, selection)
-	if failure != nil {
-		t.Fatalf("codec Read returned failure: %v", failure)
-	}
-	fileMode := os.FileMode(0)
-	if before.Exists() {
-		fileMode = aggregate.DocumentFileMode
-	}
-	evidence, err := observe.NewAggregateEvidence(before, snapshot, fileMode)
-	if err != nil {
-		t.Fatalf("NewAggregateEvidence returned error: %v", err)
-	}
-	decisions, err := reconcileprojection.BuildAggregateDecisions(reconcileprojection.AggregateInput{
-		Locked:          locked,
-		Expected:        contracts,
-		Desired:         desired,
-		Evidence:        []observe.AggregateEvidence{evidence},
-		SelectedTargets: testSelectedTargets(t, target.TargetClaudeCode),
-		Codecs:          testAggregateCodecs(),
-	})
-	if err != nil {
-		t.Fatalf("BuildAggregateDecisions returned error: %v", err)
-	}
+	decisions := aggregatefixture.ClaudeProjectMCP(t, before, entries)
 	effects, err := effectpreparation.AggregateEffects(decisions)
 	if err != nil {
 		t.Fatalf("AggregateEffects returned error: %v", err)

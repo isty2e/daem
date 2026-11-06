@@ -1,4 +1,4 @@
-package execute
+package nativeoperation
 
 import (
 	"context"
@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	"github.com/isty2e/daem/internal/effect/execute/documentmutation"
 
@@ -32,32 +34,28 @@ const (
 
 // ExecuteNativeRecovery reopens the exact disclosed native16 operation. The
 // containing workflow retains leases and last-safe-point visibility ownership.
-func ExecuteNativeRecovery(ctx context.Context, plan journal.NativeRecoveryPlan, paths Paths, load journal.PlanLoadOptions, options RecoveryOptions) (resultErr error) {
+func ExecuteNativeRecovery(ctx context.Context, plan journal.NativeRecoveryPlan, paths execute.Paths, load journal.PlanLoadOptions, options execute.RecoveryOptions) (resultErr error) {
 	if ctx == nil || options.Filesystem == nil || options.ValidateBeforeEffects == nil || options.AcceptVisibilityChanges == nil || options.OwnershipRegistryBinder == nil || load.NativeDocuments == nil {
 		return fmt.Errorf("native recovery requires its selected dependencies and containing authority")
 	}
-	operation, err := journal.OpenNativeRecovery(ctx, paths.journalPaths(), plan, load)
+	operation, err := journal.OpenNativeRecovery(ctx, paths.JournalPaths(), plan, load)
 	if err != nil {
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, operation.Close()) }()
 	budget := operation.Budget()
-	authority, err := captureMutationAuthorityWithPhysicalWorkBudget(paths, true, operation.ManifestRoot(), options.Resolver, options.Filesystem, budget)
+	authority, err := newOperation(paths, operation.ManifestRoot(), options.Resolver, options.Filesystem, budget)
 	if err != nil {
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, authority.close()) }()
-	authority.ownershipRegistryBinder = options.OwnershipRegistryBinder
 	if err := authority.bindProjectStatefile(paths.ManifestRoot, paths.StatefilePath); err != nil {
 		return err
 	}
 	if err := authority.bindRecoveryJournal(paths.ManifestRoot, plan.OperationDir()); err != nil {
 		return err
 	}
-	if err := authority.bindOwnershipRegistry(paths.OwnershipRegistryPath); err != nil {
-		return err
-	}
-	store, err := authority.rootedOwnershipRegistry()
+	store, err := authority.bindOwnershipRegistry(paths.OwnershipRegistryPath, options.OwnershipRegistryBinder)
 	if err != nil {
 		return err
 	}
@@ -68,7 +66,7 @@ func ExecuteNativeRecovery(ctx context.Context, plan journal.NativeRecoveryPlan,
 	return executeNativeRecoveryOperation(ctx, operation, authority, store, options, nil, prepared)
 }
 
-func executeNativeRecoveryOperation(ctx context.Context, operation *journal.NativeRecoveryOperation, authority *mutationAuthority, store ownershipmutation.RegistryStore, options RecoveryOptions, retiring *journal.NativeJournalRetirement, prepared operationplan.EffectStructure) (resultErr error) {
+func executeNativeRecoveryOperation(ctx context.Context, operation *journal.NativeRecoveryOperation, authority *operation, store ownershipmutation.RegistryStore, options execute.RecoveryOptions, retiring *journal.NativeJournalRetirement, prepared operationplan.EffectStructure) (resultErr error) {
 	budget, plan := operation.Budget(), operation.Plan()
 	if plan.HasErrors() {
 		return fmt.Errorf("joint recovery has blocked or unavailable cleanup evidence")
@@ -144,7 +142,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 	if err := beforeEffect(); err != nil {
 		return err
 	}
-	hostActions, err := recoveryHostActionsFor(plan.OrdinaryActions())
+	hostActions, err := hostmutation.RestorationActionsFor(plan.OrdinaryActions())
 	if err != nil {
 		return err
 	}
@@ -271,14 +269,14 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		if !assessment.CleanBefore() && !assessment.CleanAfter() {
 			return fmt.Errorf("joint recovery is not clean enough to retire")
 		}
-		structure, err := compileActiveJournalRetirementStructure()
+		structure, err := journal.CompileRetirementSchedule()
 		if err != nil {
 			return err
 		}
-		retirementExecution := newActiveRetirementExecution(structure)
+		retirementExecution := journal.NewRetirementExecution(structure)
 		gate := nativeRetirementGate{ctx: ctx, before: beforeEffect, after: afterEffect, execution: retirementExecution}
 		err = retiring.ExecuteWithGate(ctx, assessment, &gate)
-		return errors.Join(err, retirementExecution.finish(err))
+		return errors.Join(err, retirementExecution.Finish(err))
 	}})
 	return runNativeRecoverySteps(steps, prepared)
 }
@@ -320,7 +318,7 @@ func runNativeRecoverySteps(steps []nativeRecoveryStep, prepared operationplan.E
 type nativeRetirementGate struct {
 	ctx           context.Context
 	before, after func() error
-	execution     *activeRetirementExecution
+	execution     *journal.RetirementExecution
 }
 
 func (gate *nativeRetirementGate) AdmitRetirementStep(step journal.RetirementExecutionStep) error {
@@ -352,7 +350,7 @@ func compileNativeRecoverySchedule(operation *journal.NativeRecoveryOperation) (
 			}
 		}
 	}
-	hostActions, err := recoveryHostActionsFor(operation.Plan().OrdinaryActions())
+	hostActions, err := hostmutation.RestorationActionsFor(operation.Plan().OrdinaryActions())
 	if err != nil {
 		return operationplan.EffectStructure{}, err
 	}

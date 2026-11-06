@@ -1,4 +1,4 @@
-package execute
+package nativeoperation
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 )
 
-func bindNativeRemovalIntents(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation) (recovery.RemovalDemandSet, error) {
+func bindNativeRemovalIntents(ctx context.Context, authority *operation, operation *journal.NativeRecoveryOperation) (recovery.RemovalDemandSet, error) {
 	plan, budget := operation.Plan(), operation.Budget()
 	complete, err := plan.RemovalDemands()
 	if err != nil {

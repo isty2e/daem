@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
 	"github.com/isty2e/daem/internal/effect/execute/controlwitness"
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
@@ -36,7 +37,7 @@ type mutationAuthority struct {
 	projectStatefile           *statefileoperation.Selected
 	recoveryJournal            *rootedpath.EntryAuthority
 	recoveryJournalRecord      *rootedpath.EntryAuthority
-	journalBasis               journalExecutionBasis
+	journalBasis               journalinventory.ExecutionBasis
 	physicalAuthorityRequests  []mutation.PhysicalAuthorityRequest
 	physicalWorkBudget         *physicalwork.Budget
 	generalTraversalPhase      *physicalwork.TraversalPhase
@@ -266,26 +267,9 @@ func (authority *mutationAuthority) bindPhysicalAuthority(
 	destination output.Destination,
 	consumers []target.Target,
 ) error {
-	if err := authority.destinations.Bind(scope, destination); err != nil {
-		return err
-	}
-	bound, err := authority.destinations.Resolve(scope, destination)
-	if err != nil {
-		return err
-	}
-	for _, consumer := range consumers {
-		if consumer == "" {
-			continue
-		}
-		request := mutation.PhysicalAuthorityRequest{
-			Path: bound.HostPath(), Target: string(consumer), Scope: string(scope),
-		}
-		if _, err := mutation.NewPhysicalAuthoritySet(request); err != nil {
-			return err
-		}
-		authority.physicalAuthorityRequests = append(authority.physicalAuthorityRequests, request)
-	}
-	return nil
+	requests, err := authority.destinations.BindPhysicalAuthority(scope, destination, consumers)
+	authority.physicalAuthorityRequests = append(authority.physicalAuthorityRequests, requests...)
+	return err
 }
 
 func (authority *mutationAuthority) physicalAuthority() (mutation.PhysicalAuthoritySet, error) {
@@ -312,7 +296,7 @@ func (authority *mutationAuthority) close() error {
 		closeErr = errors.Join(closeErr, fmt.Errorf("close recovery journal record authority: %w", err))
 	}
 	authority.recoveryJournalRecord = nil
-	authority.journalBasis = journalExecutionBasis{}
+	authority.journalBasis = journalinventory.ExecutionBasis{}
 	authority.physicalWorkBudget = nil
 	authority.recoveryBackups = nil
 	authority.generalExecutionWorkBudget = nil

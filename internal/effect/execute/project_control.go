@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
-	"unicode"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
@@ -57,37 +55,6 @@ func (authority *mutationAuthority) bindRecoveryJournal(
 	return nil
 }
 
-type journalExecutionBasis struct {
-	recordFingerprint string
-	activeAuthority   journalinventory.ActiveJournalAuthority
-}
-
-func newJournalExecutionBasis(
-	recordFingerprint string,
-	activeAuthority journalinventory.ActiveJournalAuthority,
-) (journalExecutionBasis, error) {
-	if recordFingerprint == "" {
-		return journalExecutionBasis{}, fmt.Errorf(
-			"recovery journal record fingerprint is required",
-		)
-	}
-	if err := activeAuthority.Validate(); err != nil {
-		return journalExecutionBasis{}, err
-	}
-	return journalExecutionBasis{
-		recordFingerprint: recordFingerprint,
-		activeAuthority:   activeAuthority,
-	}, nil
-}
-
-func (basis journalExecutionBasis) validate() error {
-	_, err := newJournalExecutionBasis(
-		basis.recordFingerprint,
-		basis.activeAuthority,
-	)
-	return err
-}
-
 func (authority *mutationAuthority) captureJournalExecutionBasis(
 	ctx context.Context,
 	recordFingerprint string,
@@ -103,7 +70,7 @@ func (authority *mutationAuthority) captureJournalExecutionBasis(
 	if err != nil {
 		return fmt.Errorf("capture active recovery journal authority: %w", err)
 	}
-	basis, err := newJournalExecutionBasis(recordFingerprint, captured)
+	basis, err := journalinventory.NewExecutionBasis(recordFingerprint, captured)
 	if err != nil {
 		return fmt.Errorf("build recovery journal execution basis: %w", err)
 	}
@@ -118,7 +85,7 @@ func (authority *mutationAuthority) setJournalExecutionBasis(
 	if authority == nil {
 		return fmt.Errorf("recovery journal retirement authority is unavailable")
 	}
-	basis, err := newJournalExecutionBasis(recordFingerprint, activeAuthority)
+	basis, err := journalinventory.NewExecutionBasis(recordFingerprint, activeAuthority)
 	if err != nil {
 		return err
 	}
@@ -134,19 +101,19 @@ func (authority *mutationAuthority) validateJournalExecutionBasis(
 	if authority == nil || authority.filesystem == nil {
 		return fmt.Errorf("recovery journal retirement authority is unavailable")
 	}
-	if err := authority.journalBasis.validate(); err != nil {
+	if err := authority.journalBasis.Validate(); err != nil {
 		return fmt.Errorf("recovery journal execution basis is unavailable: %w", err)
 	}
 	if err := journalinventory.ValidateActiveJournalAuthority(
 		ctx,
 		authority.filesystem,
 		authority.recoveryJournal,
-		authority.journalBasis.activeAuthority,
+		authority.journalBasis.ActiveAuthority(),
 	); err != nil {
 		return fmt.Errorf("active recovery journal changed %s: %w", phase, err)
 	}
 	return requireJournalAuthorityFingerprint(
-		authority.journalBasis.recordFingerprint,
+		authority.journalBasis.RecordFingerprint(),
 		plan,
 		phase,
 	)
@@ -162,18 +129,7 @@ func (authority *mutationAuthority) bindProjectControlEntry(
 	if authority.generalTraversalPhase == nil {
 		return nil, fmt.Errorf("project control traversal authority is unavailable")
 	}
-	if strings.IndexFunc(path, func(character rune) bool {
-		return character != '\x00' && unicode.IsControl(character)
-	}) >= 0 {
-		return rootedpath.BindCanonicalSelectedEntryAuthorityBounded(
-			authority.capturedRoot,
-			selectedRoot,
-			path,
-			physicalwork.MaximumPhysicalPathDepth,
-			authority.generalTraversalPhase,
-		)
-	}
-	return rootedpath.BindSelectedEntryAuthorityBounded(
+	return rootedpath.BindSelectedControlEntryAuthorityBounded(
 		authority.capturedRoot,
 		selectedRoot,
 		path,
@@ -265,7 +221,7 @@ func (authority *mutationAuthority) retireActiveJournal(
 		},
 		func() error {
 			var err error
-			structure, err = compileActiveJournalRetirementStructure()
+			structure, err = journal.CompileRetirementSchedule()
 			if err != nil {
 				return fmt.Errorf("compile active journal retirement schedule: %w", err)
 			}
@@ -283,7 +239,7 @@ func (authority *mutationAuthority) retireActiveJournal(
 			if err := authority.preparedRetirement.AdvanceActiveBasis(
 				ctx,
 				plan,
-				authority.journalBasis.activeAuthority,
+				authority.journalBasis.ActiveAuthority(),
 			); err != nil {
 				return fmt.Errorf("advance prepared journal retirement basis: %w", err)
 			}
@@ -336,13 +292,13 @@ func (authority *mutationAuthority) retireActiveJournal(
 			kind: operationplan.EffectStepRetirement,
 		},
 		func() error {
-			retirementExecution := newActiveRetirementExecution(structure)
+			retirementExecution := journal.NewRetirementExecution(structure)
 			retirementErr := authority.preparedRetirement.ExecuteActiveWithGate(
 				ctx,
 				plan,
 				retirementExecution,
 			)
-			return retirementExecution.finish(retirementErr)
+			return retirementExecution.Finish(retirementErr)
 		},
 	)
 }
@@ -362,7 +318,7 @@ func (authority *mutationAuthority) prepareActiveJournalRetirement(
 	prepared, err := journal.PrepareActiveJournalRetirement(
 		ctx,
 		plan,
-		authority.journalBasis.activeAuthority,
+		authority.journalBasis.ActiveAuthority(),
 		paths.RecoveryDir,
 		physicalwork.MaximumPhysicalPathDepth,
 		authority.physicalWorkBudget,

@@ -1,33 +1,32 @@
-package execute
+package hostmutation
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-func prepareRecoveryForwardRemovals(
+func PrepareRecoveryForwardRemovals(
 	ctx context.Context,
 	removals *removaloperation.Operation,
-	actions []hostmutation.RestorationAction,
+	actions []RestorationAction,
 	codecs aggregate.CodecCatalog,
 ) error {
 	return removals.PrepareRecoveryForward(
 		ctx,
 		func(demands recovery.RemovalDemandSet) ([]removaloperation.ForwardCandidate, error) {
-			return recoveryForwardRemovalCertificates(ctx, actions, demands, codecs)
+			return RecoveryRemovalCandidates(ctx, actions, demands, codecs)
 		},
 	)
 }
 
-func recoveryForwardRemovalCertificates(
+func RecoveryRemovalCandidates(
 	ctx context.Context,
-	actions []hostmutation.RestorationAction,
+	actions []RestorationAction,
 	demands recovery.RemovalDemandSet,
 	codecs aggregate.CodecCatalog,
 ) ([]removaloperation.ForwardCandidate, error) {
@@ -39,7 +38,7 @@ func recoveryForwardRemovalCertificates(
 		if action.Kind != recovery.ActionKindRestoreWrite {
 			continue
 		}
-		destination, err := hostmutation.ParseRestorationDestination(action.Scope, action.Destination)
+		destination, err := ParseRestorationDestination(action.Scope, action.Destination)
 		if err != nil {
 			return nil, fmt.Errorf("recovery action[%d] forward removal destination: %w", index, err)
 		}
@@ -70,23 +69,23 @@ func recoveryForwardRemovalCertificates(
 			}
 			certificates = appendUniqueForwardRemovalCertificate(
 				certificates,
-				constantForwardRemovalCertificate(relation, state, 0, codec.MaximumDocumentBytes()),
+				removaloperation.ConstantForwardCandidate(relation, state, 0, codec.MaximumDocumentBytes()),
 			)
 			continue
 		}
 
-		state, err := recoveryActionBeforeRemovalState(action)
+		state, err := action.BeforeRemovalState()
 		if err != nil {
 			return nil, fmt.Errorf("recovery action[%d] before removal state: %w", index, err)
 		}
-		if !removalStateIsDemanded(demands, relation, state) {
+		if !removaloperation.DemandsContainState(demands, relation, state) {
 			continue
 		}
 		switch action.BackupKind {
 		case recovery.PathKindFile, recovery.PathKindDirectory:
 			certificates = appendUniqueForwardRemovalCertificate(
 				certificates,
-				constantForwardRemovalCertificate(
+				removaloperation.ConstantForwardCandidate(
 					relation,
 					state,
 					action.BackupWork.Entries(),
@@ -149,7 +148,7 @@ func uniqueExistingBeforeRemovalState(
 	return result, found, nil
 }
 
-func recoveryActionBeforeRemovalState(action hostmutation.RestorationAction) (recovery.RemovalState, error) {
+func (action RestorationAction) BeforeRemovalState() (recovery.RemovalState, error) {
 	state := recovery.BeforePathState{
 		Existed:       true,
 		PathExisted:   action.BeforePathExisted,

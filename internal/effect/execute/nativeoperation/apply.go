@@ -1,4 +1,4 @@
-package execute
+package nativeoperation
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
-	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
@@ -36,7 +36,7 @@ import (
 // NativeApplyInput supplies the containing operation's live observations and
 // derived state. Ordinary Apply entrypoints remain closed to native effects.
 type NativeApplyInput struct {
-	ApplyInput
+	execute.ApplyInput
 	Preparation effectpreparation.NativeApplyStatePreparation
 	Documents   journalpublication.NativeDocumentObservationBatch
 	Registry    ownership.Registry
@@ -70,7 +70,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	if !input.Preparation.BeforeState().Equal(input.CurrentState) || !input.Documents.Evidence().BeforeState().Equal(input.CurrentState) || input.Budget == nil {
 		return nativeApplyWork{}, fmt.Errorf("native execution inputs differ from their complete observed Before")
 	}
-	documents, members, err := input.Documents.CaptureMembers(input.Preparation.AfterState(), forwardEffectPlanningOperationID(), input.Preparation.PiOrders()...)
+	documents, members, err := input.Documents.CaptureMembers(input.Preparation.AfterState(), journalpublication.PlanningOperationID(), input.Preparation.PiOrders()...)
 	if err != nil {
 		return nativeApplyWork{}, err
 	}
@@ -255,7 +255,7 @@ func maximumNativeWorkValidationCount(input NativeApplyInput, work nativeApplyWo
 	if !work.changed {
 		return 0, nil
 	}
-	ordinary, err := nativeOrdinaryApplyFor(input, work, forwardEffectPlanningOperationID())
+	ordinary, err := nativeOrdinaryApplyFor(input, work, journalpublication.PlanningOperationID())
 	if err != nil {
 		return 0, err
 	}
@@ -273,15 +273,15 @@ func maximumNativeWorkValidationCount(input NativeApplyInput, work nativeApplyWo
 			count++
 		}
 	}
-	count, err = addForwardValidationCount(count, ordinary.managedSchedule.WriteCount())
+	count, err = applyprogram.AddValidationCount(count, ordinary.managedSchedule.WriteCount())
 	if err != nil {
 		return 0, err
 	}
-	promoting, err := multiplyForwardValidationCount(ordinary.ownership.IntentCount(), 2)
+	promoting, err := applyprogram.MultiplyValidationCount(ordinary.ownership.IntentCount(), 2)
 	if err != nil {
 		return 0, err
 	}
-	return addForwardValidationCount(count, promoting)
+	return applyprogram.AddValidationCount(count, promoting)
 }
 
 func PrepareNativeApplyEffectPlan(input NativeApplyInput) (applyprogram.Plan, error) {
@@ -295,9 +295,9 @@ func PrepareNativeApplyEffectPlan(input NativeApplyInput) (applyprogram.Plan, er
 func prepareNativeApplyEffectPlan(input NativeApplyInput, work nativeApplyWork) (applyprogram.Plan, error) {
 	var builder operationplan.EffectStructureBuilder
 	if !work.changed {
-		return compileApplyEffectPlan(applyStateTransition{}, hostmutation.ManagedPathSchedule{}, claimoperation.State{}, nil)
+		return applyprogram.NoOpPlan()
 	}
-	ordinary, err := nativeOrdinaryApplyFor(input, work, forwardEffectPlanningOperationID())
+	ordinary, err := nativeOrdinaryApplyFor(input, work, journalpublication.PlanningOperationID())
 	if err != nil {
 		return applyprogram.Plan{}, err
 	}
@@ -351,7 +351,7 @@ func prepareNativeApplyEffectPlan(input NativeApplyInput, work nativeApplyWork) 
 
 // ApplyNativeWithEffectPlan settles failed published effects from the observed
 // durable phase. Unqualified or changed recovery evidence remains retained.
-func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan applyprogram.Plan, options ApplyOptions) (result ApplyResult, resultErr error) {
+func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan applyprogram.Plan, options execute.ApplyOptions) (result ApplyResult, resultErr error) {
 	defer func() {
 		if resultErr != nil {
 			result.nativeSettlement = nil
@@ -377,25 +377,21 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			return ApplyResult{}, err
 		}
 		defer func() { resultErr = errors.Join(resultErr, execution.Finish(resultErr)) }()
-		return ApplyResult{StatePath: input.Paths.StatefilePath, State: input.CurrentState}, nil
+		return ApplyResult{ApplyResult: execute.ApplyResult{StatePath: input.Paths.StatefilePath, State: input.CurrentState}}, nil
 	}
 	stateContent, err := input.StateCodec.Encode(input.Preparation.AfterState())
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	authority, err := captureMutationAuthorityWithPhysicalWorkBudget(input.Paths, true, input.ProjectRoot, input.Resolver, input.Filesystem, input.Budget)
+	authority, err := newOperation(input.Paths, input.ProjectRoot, input.Resolver, input.Filesystem, input.Budget)
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	defer func() { resultErr = errors.Join(resultErr, options.closeAuthority(authority)) }()
-	authority.ownershipRegistryBinder = input.OwnershipRegistryBinder
+	defer func() { resultErr = errors.Join(resultErr, authority.close()) }()
 	if err := authority.bindProjectStatefile(input.Paths.ManifestRoot, input.Paths.StatefilePath); err != nil {
 		return ApplyResult{}, err
 	}
-	if err := authority.bindOwnershipRegistry(input.Paths.OwnershipRegistryPath); err != nil {
-		return ApplyResult{}, err
-	}
-	store, err := authority.rootedOwnershipRegistry()
+	store, err := authority.bindOwnershipRegistry(input.Paths.OwnershipRegistryPath, input.OwnershipRegistryBinder)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -428,7 +424,9 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return ApplyResult{}, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, execution.Finish(resultErr)) }()
-	gate := applyprogram.NewVisibilityGate(func(ctx context.Context) error { return options.validatePhysicalAuthority(ctx, authority) }, options.acceptVisibilityChanges)
+	gate := applyprogram.NewVisibilityGate(func(ctx context.Context) error {
+		return options.ValidatePhysicalRequests(ctx, authority.physicalAuthorityRequests)
+	}, options.AcceptVisibility)
 	run := func(prefix string, action func() error) error {
 		failure := applyprogram.FailureGuardedRecovery
 		if prefix == "apply/native-journal-publication" {
@@ -461,7 +459,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			return err
 		}
 		var err error
-		captured, err = journalpublication.CaptureNativeJournalWithOptions(ctx, input.Paths.journalPaths(), id, created, work.documents, input.Preparation.AfterState(), work.edits, journalpublication.NativeCaptureOptions{CaptureOptions: journalpublication.CaptureOptions{
+		captured, err = journalpublication.CaptureNativeJournalWithOptions(ctx, input.Paths.JournalPaths(), id, created, work.documents, input.Preparation.AfterState(), work.edits, journalpublication.NativeCaptureOptions{CaptureOptions: journalpublication.CaptureOptions{
 			Filesystem: input.Filesystem, StateCodec: input.StateCodec, Codecs: input.Codecs,
 			OperationAuthority: authority.recoveryJournal, ManifestRoot: authority.capturedRoot,
 			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
@@ -577,7 +575,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		if err != nil || !before.Equal(input.CurrentState) {
 			return errors.Join(fmt.Errorf("native state changed before commit"), err)
 		}
-		commit := options.statefileCommit(ctx, authority, input.Paths.StatefilePath, stateContent, 0o600)
+		commit := authority.projectStatefile.Commit(ctx, stateContent, 0o600)
 		if !commit.Committed() {
 			return fmt.Errorf("native state commit: %w", commit.Failure())
 		}

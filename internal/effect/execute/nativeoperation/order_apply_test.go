@@ -1,4 +1,4 @@
-package execute
+package nativeoperation
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/effect/execute"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -193,7 +194,7 @@ func TestNativeApplyRollsBackPiOrderAfterReturnedPublicationError(t *testing.T) 
 	}
 }
 
-func nativeOrderApplyOptions(t *testing.T) ApplyOptions {
+func nativeOrderApplyOptions(t *testing.T) execute.ApplyOptions {
 	t.Helper()
 	store, err := mutation.NewStore(t.TempDir())
 	if err != nil {
@@ -214,7 +215,7 @@ func nativeOrderApplyOptions(t *testing.T) ApplyOptions {
 		}
 		return nil
 	}
-	return ApplyOptions{
+	return execute.ApplyOptions{
 		ValidatePhysicalAuthorityRequests: func(ctx context.Context, requests []mutation.PhysicalAuthorityRequest) error {
 			if leases == nil {
 				var domains []mutation.Domain
@@ -399,9 +400,9 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 		t.Fatal(err)
 	}
 	return NativeApplyInput{
-		ApplyInput: ApplyInput{
+		ApplyInput: execute.ApplyInput{
 			CurrentState: before, Owner: owner, Codecs: codecs, StateCodec: codec, Filesystem: testFilesystem(), ProjectRoot: manifest,
-			Paths: Paths{ManifestRoot: root, StateDir: root, StatefilePath: statePath, RecoveryDir: filepath.Join(root, "recovery"), DataDir: filepath.Join(root, "data"), OwnershipRegistryPath: registryPath},
+			Paths: execute.Paths{ManifestRoot: root, StateDir: root, StatefilePath: statePath, RecoveryDir: filepath.Join(root, "recovery"), DataDir: filepath.Join(root, "data"), OwnershipRegistryPath: registryPath},
 			Resolver: func(destination output.Destination) (string, error) {
 				if destination != alias.AggregateRoot() {
 					return "", errors.New("order fixture has no selected destination")

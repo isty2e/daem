@@ -18,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/diagnose"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	executedelegate "github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
@@ -112,7 +113,7 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 	if result.ExecutionAttempted {
 		phase = FailurePhaseExecution
 		outcome = FailureOutcomeIncomplete
-		if execute.ApplyHostChangesRolledBack(err) && !result.UncompensatedEffectsAttempted {
+		if applyprogram.HostChangesRolledBack(err) && !result.UncompensatedEffectsAttempted {
 			outcome = FailureOutcomeRolledBack
 		}
 	}

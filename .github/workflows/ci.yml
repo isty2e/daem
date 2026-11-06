@@ -387,3 +387,4 @@ jobs:
           go build -mod=readonly -trimpath \
             -o "${RUNNER_TEMP}/daem-${GOOS}-${GOARCH}${{ matrix.suffix }}" \
             ./cmd/daem
+          go build -mod=readonly ./internal/effect/execute/nativeoperation

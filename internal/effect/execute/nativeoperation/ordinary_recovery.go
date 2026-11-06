@@ -1,4 +1,4 @@
-package execute
+package nativeoperation
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 
 	"github.com/isty2e/daem/internal/effect/execute/registrysettlement"
@@ -20,7 +21,7 @@ type nativeOrdinaryRecoveryStage struct {
 	visits      []int
 }
 
-func prepareNativeOrdinaryRecovery(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, actions []hostmutation.RestorationAction) (nativeOrdinaryRecoveryStage, error) {
+func prepareNativeOrdinaryRecovery(ctx context.Context, authority *operation, operation *journal.NativeRecoveryOperation, actions []hostmutation.RestorationAction) (nativeOrdinaryRecoveryStage, error) {
 	plan := operation.Plan()
 	if len(actions) == 0 {
 		return nativeOrdinaryRecoveryStage{}, nil
@@ -37,7 +38,7 @@ func prepareNativeOrdinaryRecovery(ctx context.Context, authority *mutationAutho
 			return nativeOrdinaryRecoveryStage{}, err
 		}
 	}
-	if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), hostmutation.RestorationBackupRequests(actions), authority.journalBasis.activeAuthority); err != nil {
+	if err := authority.hostBackups().Prepare(ctx, plan.OperationDir(), hostmutation.RestorationBackupRequests(actions), authority.journalBasis.ActiveAuthority()); err != nil {
 		return nativeOrdinaryRecoveryStage{}, err
 	}
 	restoration, err := authority.hostMutation().StageRestoration(ctx, authority.physicalWorkBudget, authority.control, authority.hostBackups(), actions, operation.Codecs())
@@ -51,7 +52,7 @@ func prepareNativeOrdinaryRecovery(ctx context.Context, authority *mutationAutho
 	return nativeOrdinaryRecoveryStage{restoration: restoration, visits: visits}, nil
 }
 
-func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority *mutationAuthority, operation *journal.NativeRecoveryOperation, store ownershipmutation.RegistryStore, semanticGuard func(context.Context) error, gate applyprogram.VisibilityGate) (resultErr error) {
+func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority *operation, operation *journal.NativeRecoveryOperation, store ownershipmutation.RegistryStore, semanticGuard func(context.Context) error, gate applyprogram.VisibilityGate) (resultErr error) {
 	if stage.restoration == nil {
 		return nil
 	}
@@ -75,7 +76,7 @@ func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority 
 		visit++
 		return semanticGuard(ctx)
 	}
-	err = stage.restoration.Execute(ctx, authority.generalExecutionWorkBudget, beforeAction, recoveryIntentClaimGuardWithReader(intents, reader, authority), gate)
+	err = stage.restoration.Execute(ctx, authority.generalExecutionWorkBudget, beforeAction, claimoperation.ProvisionalRestorationGuard(intents, reader, authority.generalTraversalPhase), gate)
 	if err != nil {
 		return err
 	}
@@ -85,7 +86,7 @@ func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority 
 	return nil
 }
 
-func (authority *mutationAuthority) beginJointGeneralRecoveryExecution() error {
+func (authority *operation) beginJointGeneralRecoveryExecution() error {
 	if authority == nil || authority.physicalWorkBudget == nil || authority.generalExecutionWorkBudget != nil {
 		return fmt.Errorf("joint recovery requires its original unused host execution allocation")
 	}

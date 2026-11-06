@@ -6,6 +6,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -29,7 +30,7 @@ func PrepareApplyEffectPlan(input ApplyInput) (applyprogram.Plan, error) {
 	if err != nil {
 		return applyprogram.Plan{}, err
 	}
-	operationID := forwardEffectPlanningOperationID()
+	operationID := journalpublication.PlanningOperationID()
 	managedOwnership, err := claimoperation.PlanManagedPaths(
 		input.ManagedPathEffects,
 		input.Owner,

@@ -77,7 +77,7 @@ func TestRecoveryRetainsGlobalRootAuthorityAcrossAncestorRetarget(t *testing.T) 
 					) (recovery.Plan, error) {
 						current, err := journal.LoadActivePlanWithOptions(
 							ctx,
-							fixture.paths.journalPaths(),
+							fixture.paths.JournalPaths(),
 							loadOptions,
 						)
 						if err != nil {
@@ -471,7 +471,7 @@ func TestRecoveryRejectsDirectFileChangeAfterFinalReloadWithoutOverwritingIt(t *
 				ctx context.Context,
 				options journal.PlanLoadOptions,
 			) (recovery.Plan, error) {
-				current, err := journal.LoadActivePlanWithOptions(ctx, fixture.paths.journalPaths(), options)
+				current, err := journal.LoadActivePlanWithOptions(ctx, fixture.paths.JournalPaths(), options)
 				if err == nil {
 					writeRecoveryTestFile(t, fixture.admittedPath, external)
 				}
@@ -703,7 +703,7 @@ func TestRecoveryHostActionsStopAtLostVisibilityAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = rollback.Cleanup(context.Background()) })
-	if err := prepareRecoveryForwardRemovals(
+	if err := hostmutation.PrepareRecoveryForwardRemovals(
 		t.Context(),
 		authority.removals,
 		hostActions,
@@ -1031,7 +1031,7 @@ func newGlobalFileRecoveryFixture(
 	}
 	if _, err := journalpublication.CaptureJournalWithOptions(
 		context.Background(),
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		operationID,
 		time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC),
 		currentState,
@@ -1053,7 +1053,7 @@ func newGlobalFileRecoveryFixture(
 	writeRecoveryTestStatefile(t, paths.StatefilePath, currentState)
 	recoveryPlan, err := journal.LoadActivePlanWithOptions(
 		context.Background(),
-		paths.journalPaths(),
+		paths.JournalPaths(),
 		journal.PlanLoadOptions{
 			Filesystem:        testFilesystem(),
 			Resolver:          destinationResolver(paths),
