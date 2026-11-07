@@ -18,6 +18,147 @@ func reservationKey(t *testing.T, segments ...string) output.KeyPath {
 	return key
 }
 
+func reservationAlias(t *testing.T, value string) output.Destination {
+	t.Helper()
+	alias, err := output.Parse(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return alias
+}
+
+func TestDedicatedPathsProjectOwnerAliasesWithoutTakingSharedDocuments(t *testing.T) {
+	for _, test := range []struct {
+		selected target.Target
+		scope    target.Scope
+		mcp      []string
+		hooks    []string
+		resource []string
+		reserved []string
+		free     []string
+	}{
+		{
+			target.TargetPi, target.ScopeGlobal,
+			[]string{"~/.pi/agent/mcp.json"},
+			nil,
+			[]string{"~/.pi/agent/AGENTS.md", "@pi-agent/skills", "~/.agents/skills"},
+			[]string{"mcp.json", "mcp.json/child", "AGENTS.md", "skills", "skills/demo"},
+			[]string{"settings.json", "skills_extra", "agents/skills"},
+		},
+		{
+			target.TargetPi, target.ScopeProject,
+			[]string{".pi/mcp.json"},
+			nil,
+			[]string{"AGENTS.md", ".pi/skills"},
+			[]string{"mcp.json", "skills/demo"},
+			[]string{"AGENTS.md", "settings.json"},
+		},
+		{
+			target.TargetCodex, target.ScopeGlobal,
+			[]string{"~/.codex/config.toml"},
+			[]string{"~/.codex/hooks.json"},
+			[]string{"~/.codex/AGENTS.override.md", "~/.codex/skills"},
+			[]string{"hooks.json", "hooks.json/child", "AGENTS.override.md", "skills/demo"},
+			[]string{"config.toml", "review.config.toml", "skills_extra"},
+		},
+		{
+			target.TargetCodex, target.ScopeProject,
+			[]string{".codex/config.toml"},
+			[]string{".codex/hooks.json"},
+			[]string{"AGENTS.md", ".agents/skills"},
+			[]string{"hooks.json"},
+			[]string{"config.toml", "AGENTS.md", "skills/demo"},
+		},
+		{
+			target.TargetClaudeCode, target.ScopeGlobal,
+			[]string{"~/.claude.json"},
+			[]string{"~/.claude/settings.json"},
+			[]string{"~/.claude/CLAUDE.md", "~/.claude/skills"},
+			[]string{"CLAUDE.md", "skills/demo"},
+			[]string{"settings.json", ".claude.json"},
+		},
+		{
+			target.TargetOpenCode, target.ScopeProject,
+			[]string{".opencode/opencode.json"},
+			nil,
+			[]string{".opencode/skills", "AGENTS.md"},
+			[]string{".opencode/skills/demo"},
+			[]string{"opencode.json", ".opencode/opencode.json", ".opencode/tui.json"},
+		},
+		{
+			target.TargetOpenCode, target.ScopeGlobal,
+			[]string{"~/.config/opencode/opencode.json"},
+			nil,
+			[]string{"~/.config/opencode/AGENTS.md"},
+			[]string{"AGENTS.md"},
+			[]string{"opencode.json", "tui.json"},
+		},
+		{
+			target.TargetAntigravityCLI, target.ScopeGlobal,
+			[]string{"~/.gemini/config/mcp_config.json"},
+			nil,
+			[]string{"~/.gemini/config/skills"},
+			nil,
+			[]string{"settings.json", "keybindings.json", "skills/demo"},
+		},
+	} {
+		t.Run(string(test.selected)+"/"+string(test.scope), func(t *testing.T) {
+			input := configuration.DedicatedReservationsInput{Target: test.selected, Scope: test.scope}
+			for _, alias := range test.mcp {
+				input.MCPDocuments = append(input.MCPDocuments, reservationAlias(t, alias))
+			}
+			for _, alias := range test.hooks {
+				input.HookDocuments = append(input.HookDocuments, reservationAlias(t, alias))
+			}
+			for _, alias := range test.resource {
+				input.Resources = append(input.Resources, reservationAlias(t, alias))
+			}
+			facts, err := configuration.NewDedicatedReservations(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range test.reserved {
+				if err := facts.RequireUnreservedPath(path); !errors.Is(err, configuration.ErrReservedPath) {
+					t.Fatalf("%q lost its dedicated owner: %v", path, err)
+				}
+			}
+			for _, path := range test.free {
+				if err := facts.RequireUnreservedPath(path); err != nil {
+					t.Fatalf("%q acquired an unrelated reservation: %v", path, err)
+				}
+			}
+		})
+	}
+}
+
+func TestReservationAliasesDoNotBroadenDocumentAdmission(t *testing.T) {
+	alias := reservationAlias(t, "~/.pi/agent/skills")
+	resources := []output.Destination{alias}
+	facts, err := configuration.NewDedicatedReservations(configuration.DedicatedReservationsInput{
+		Target: target.TargetPi, Scope: target.ScopeGlobal, Resources: resources,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources[0] = reservationAlias(t, "@pi-agent/other")
+	if !errors.Is(facts.RequireUnreservedPath("skills/demo"), configuration.ErrReservedPath) {
+		t.Fatal("legacy home alias or caller mutation lost the reserved subtree")
+	}
+	if _, err := configuration.DocumentSpecForAlias(configuration.AliasInput{
+		Target: target.TargetPi, Scope: target.ScopeGlobal, Destination: alias,
+	}); !errors.Is(err, configuration.ErrDocumentPath) {
+		t.Fatalf("reservation interpretation admitted a generic home alias: %v", err)
+	}
+	if (configuration.DedicatedReservations{}).RequireUnreservedPath("settings.json") == nil {
+		t.Fatal("zero coverage admitted a path")
+	}
+	if _, err := configuration.NewDedicatedReservations(configuration.DedicatedReservationsInput{
+		Target: target.TargetPi, Scope: target.ScopeGlobal, Resources: []output.Destination{{}},
+	}); err == nil {
+		t.Fatal("unobserved resource location became empty coverage")
+	}
+}
+
 func TestDedicatedRolesFollowDocumentSemanticsRatherThanHostUnion(t *testing.T) {
 	const (
 		mcp = 1 << iota
@@ -69,7 +210,7 @@ func TestDedicatedRolesFollowDocumentSemanticsRatherThanHostUnion(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			facts, err := configuration.NewDedicatedKeys(configuration.DedicatedKeysInput{
+			facts, err := configuration.NewDedicatedReservations(configuration.DedicatedReservationsInput{
 				Target: test.selected, Scope: test.scope,
 				MCP: []output.KeyPath{reservationKey(t, "mcp")}, Hooks: []output.KeyPath{reservationKey(t, "hooks")},
 				Extensions: []output.KeyPath{reservationKey(t, "plugin")},
@@ -99,16 +240,16 @@ func TestDedicatedCoverageDistinguishesMissingFromUnselectedAndCopiesInputs(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := configuration.DedicatedKeysInput{Target: target.TargetOpenCode, Scope: target.ScopeProject}
-	missing, err := configuration.NewDedicatedKeys(input)
+	input := configuration.DedicatedReservationsInput{Target: target.TargetOpenCode, Scope: target.ScopeProject}
+	missing, err := configuration.NewDedicatedReservations(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if missing.ValidateDocument(spec) == nil || (configuration.DedicatedKeys{}).ValidateDocument(spec) == nil {
+	if missing.ValidateDocument(spec) == nil || (configuration.DedicatedReservations{}).ValidateDocument(spec) == nil {
 		t.Fatal("missing required coverage became known-empty")
 	}
 	input.Extensions = []output.KeyPath{reservationKey(t, "plugin")}
-	facts, err := configuration.NewDedicatedKeys(input)
+	facts, err := configuration.NewDedicatedReservations(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,10 +263,10 @@ func TestDedicatedCoverageDistinguishesMissingFromUnselectedAndCopiesInputs(t *t
 	if facts.RequireUnreservedKey(spec, output.KeyPath{}) == nil {
 		t.Fatal("root selector became key ownership")
 	}
-	if (configuration.DedicatedKeys{}).RequireUnreservedKey(configuration.DocumentSpec{}, reservationKey(t, "unrelated")) == nil {
+	if (configuration.DedicatedReservations{}).RequireUnreservedKey(configuration.DocumentSpec{}, reservationKey(t, "unrelated")) == nil {
 		t.Fatal("zero document and coverage bypassed the key guard")
 	}
-	wrongScope, err := configuration.NewDedicatedKeys(configuration.DedicatedKeysInput{
+	wrongScope, err := configuration.NewDedicatedReservations(configuration.DedicatedReservationsInput{
 		Target: target.TargetOpenCode, Scope: target.ScopeGlobal,
 		Extensions: []output.KeyPath{reservationKey(t, "plugin")},
 	})
@@ -136,7 +277,7 @@ func TestDedicatedCoverageDistinguishesMissingFromUnselectedAndCopiesInputs(t *t
 		t.Fatal("another scope's coverage was admitted")
 	}
 	input.Extensions = []output.KeyPath{{}}
-	if _, err := configuration.NewDedicatedKeys(input); err == nil {
+	if _, err := configuration.NewDedicatedReservations(input); err == nil {
 		t.Fatal("root coverage was admitted")
 	}
 	ag, err := configuration.NewDocumentSpec(configuration.DocumentInput{Target: target.TargetAntigravityCLI, Scope: target.ScopeGlobal, Path: "settings.json"})
@@ -146,7 +287,7 @@ func TestDedicatedCoverageDistinguishesMissingFromUnselectedAndCopiesInputs(t *t
 	if facts.ValidateDocument(ag) == nil {
 		t.Fatal("another target/scope's coverage was admitted")
 	}
-	unselected, err := configuration.NewDedicatedKeys(configuration.DedicatedKeysInput{Target: target.TargetAntigravityCLI, Scope: target.ScopeGlobal})
+	unselected, err := configuration.NewDedicatedReservations(configuration.DedicatedReservationsInput{Target: target.TargetAntigravityCLI, Scope: target.ScopeGlobal})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +305,7 @@ func TestEverySelectedDedicatedRoleRequiresCoverage(t *testing.T) {
 	}
 	for _, missingRole := range []string{"MCP", "hooks", "extensions"} {
 		t.Run(missingRole, func(t *testing.T) {
-			input := configuration.DedicatedKeysInput{
+			input := configuration.DedicatedReservationsInput{
 				Target: target.TargetCodex, Scope: target.ScopeProject,
 				MCP: []output.KeyPath{reservationKey(t, "mcp")}, Hooks: []output.KeyPath{reservationKey(t, "hooks")},
 				Extensions: []output.KeyPath{reservationKey(t, "plugin")},
@@ -177,7 +318,7 @@ func TestEverySelectedDedicatedRoleRequiresCoverage(t *testing.T) {
 			case "extensions":
 				input.Extensions = nil
 			}
-			facts, err := configuration.NewDedicatedKeys(input)
+			facts, err := configuration.NewDedicatedReservations(input)
 			if err != nil {
 				t.Fatal(err)
 			}

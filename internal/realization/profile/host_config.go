@@ -57,8 +57,18 @@ func ResolveHostConfigPlacement(input HostConfigPlacementInput) (HostConfigPlace
 		return HostConfigPlacement{}, err
 	}
 
+	facts, err := nativeConfigurationReservationsFor(selected, scope)
+	if err != nil {
+		return HostConfigPlacement{}, err
+	}
 	if owner, reserved := hostConfigPathOwner(selected, scope, input.Path); reserved {
 		return HostConfigPlacement{}, fmt.Errorf("%w: %q belongs to %s", ErrHostConfigReserved, input.Path, owner)
+	}
+	if err := facts.RequireUnreservedPath(input.Path); err != nil {
+		if errors.Is(err, configuration.ErrReservedPath) {
+			return HostConfigPlacement{}, fmt.Errorf("%w: %w", ErrHostConfigReserved, err)
+		}
+		return HostConfigPlacement{}, err
 	}
 	document, err := configuration.NewDocumentSpec(configuration.DocumentInput{
 		Target: selected, Scope: scope, Path: input.Path, Syntax: syntax,
@@ -74,10 +84,6 @@ func ResolveHostConfigPlacement(input HostConfigPlacementInput) (HostConfigPlace
 	}
 	if ownership == desiredhostconfig.OwnershipKeys && document.Grammar() == configuration.Opaque {
 		return HostConfigPlacement{}, fmt.Errorf("%w: key ownership requires an explicit supported syntax for %q", configuration.ErrGrammar, input.Path)
-	}
-	facts, err := nativeConfigurationKeysFor(selected, scope)
-	if err != nil {
-		return HostConfigPlacement{}, err
 	}
 	if err := facts.ValidateDocument(document); err != nil {
 		return HostConfigPlacement{}, err
@@ -151,7 +157,7 @@ func (placement HostConfigPlacement) ValidateStaticFootprint(footprint output.Fo
 	if !keyOwned {
 		return fmt.Errorf("key ownership requires a native key footprint")
 	}
-	facts, err := nativeConfigurationKeysFor(placement.target, placement.scope)
+	facts, err := nativeConfigurationReservationsFor(placement.target, placement.scope)
 	if err != nil {
 		return err
 	}
@@ -169,58 +175,76 @@ func (placement HostConfigPlacement) RequiredObservations() []configuration.Obse
 	return placement.document.RequiredObservations()
 }
 
-type nativeKeyContext struct {
+type nativeConfigurationContext struct {
 	target target.Target
 	scope  target.Scope
 }
 
 // Catalog definitions are immutable for the process version. Each selected
 // context compiles once, with compilation errors confined to that context.
-var nativeConfigurationKeyFacts = func() map[nativeKeyContext]func() (configuration.DedicatedKeys, error) {
-	result := make(map[nativeKeyContext]func() (configuration.DedicatedKeys, error))
+var nativeConfigurationReservationFacts = func() map[nativeConfigurationContext]func() (configuration.DedicatedReservations, error) {
+	result := make(map[nativeConfigurationContext]func() (configuration.DedicatedReservations, error))
 	for _, selected := range target.SupportedTargets() {
 		for _, scope := range target.SupportedScopes() {
-			result[nativeKeyContext{selected, scope}] = sync.OnceValues(func() (configuration.DedicatedKeys, error) {
-				return composeNativeConfigurationKeys(selected, scope)
+			result[nativeConfigurationContext{selected, scope}] = sync.OnceValues(func() (configuration.DedicatedReservations, error) {
+				return composeNativeConfigurationReservations(selected, scope)
 			})
 		}
 	}
 	return result
 }()
 
-func nativeConfigurationKeysFor(selected target.Target, scope target.Scope) (configuration.DedicatedKeys, error) {
-	compile, known := nativeConfigurationKeyFacts[nativeKeyContext{selected, scope}]
+func nativeConfigurationReservationsFor(selected target.Target, scope target.Scope) (configuration.DedicatedReservations, error) {
+	compile, known := nativeConfigurationReservationFacts[nativeConfigurationContext{selected, scope}]
 	if !known {
-		return configuration.DedicatedKeys{}, fmt.Errorf("native key coverage is missing for %s/%s", selected, scope)
+		return configuration.DedicatedReservations{}, fmt.Errorf("native reservation coverage is missing for %s/%s", selected, scope)
 	}
 	return compile()
 }
 
-func composeNativeConfigurationKeys(selected target.Target, scope target.Scope) (configuration.DedicatedKeys, error) {
-	input := configuration.DedicatedKeysInput{Target: selected, Scope: scope}
+func composeNativeConfigurationReservations(selected target.Target, scope target.Scope) (configuration.DedicatedReservations, error) {
+	input := configuration.DedicatedReservationsInput{Target: selected, Scope: scope}
 	for _, placement := range aggregate.MCPPlacementsForTarget(selected) {
 		if placement.Scope() != scope {
 			continue
 		}
 		key, err := placement.NativeKeyPrefix()
 		if err != nil {
-			return configuration.DedicatedKeys{}, err
+			return configuration.DedicatedReservations{}, err
 		}
 		input.MCP = append(input.MCP, key)
+		input.MCPDocuments = append(input.MCPDocuments, placement.ConfigPath())
 	}
 	if placement, present := aggregate.HookPlacementFor(selected, scope); present {
 		key, err := placement.NativeKeyPrefix()
 		if err != nil {
-			return configuration.DedicatedKeys{}, err
+			return configuration.DedicatedReservations{}, err
 		}
 		input.Hooks = append(input.Hooks, key)
+		input.HookDocuments = append(input.HookDocuments, placement.AggregateRoot())
 	}
 	for _, route := range profileDelegatedRoutes(selected) {
 		keys, err := route.NativeMembershipKeys()
 		if err != nil {
-			return configuration.DedicatedKeys{}, err
+			return configuration.DedicatedReservations{}, err
 		}
 		input.Extensions = append(input.Extensions, keys...)
 	}
-	return configuration.NewDedicatedKeys(input)
+
+	for _, placement := range profilePlacements(profilePlacementAdmissions(selected)) {
+		if placement.Scope() == scope {
+			input.Resources = append(input.Resources, placement.Root())
+		}
+	}
+	for _, location := range profileDiscoveries(selected) {
+		if location.Scope() != scope {
+			continue
+		}
+		alias, err := output.Parse(location.Path())
+		if err != nil {
+			return configuration.DedicatedReservations{}, err
+		}
+		input.Resources = append(input.Resources, alias)
+	}
+	return configuration.NewDedicatedReservations(input)
 }

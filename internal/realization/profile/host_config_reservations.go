@@ -13,9 +13,6 @@ type hostConfigPathReservation struct {
 }
 
 var piHostConfigPathReservations = []hostConfigPathReservation{
-	{"AGENTS.md", "instructions", true},
-	{"skills", "skills", false},
-	{"mcp.json", "MCP servers", false},
 	{"auth.json", "authentication", true},
 	{"auth.json.lock", "authentication locking", true},
 	{"settings.json.lock", "host settings locking", false},
@@ -32,10 +29,6 @@ var piHostConfigPathReservations = []hostConfigPathReservation{
 }
 
 var codexHostConfigPathReservations = []hostConfigPathReservation{
-	{"AGENTS.md", "instructions", true},
-	{"AGENTS.override.md", "instructions", true},
-	{"skills", "skills", true},
-	{"hooks.json", "hooks", false},
 	{"auth.json", "authentication", true},
 	{".credentials.json", "MCP authentication", true},
 	{"secrets", "encrypted credentials", true},

@@ -119,8 +119,8 @@ func DocumentSpecForAlias(input AliasInput) (DocumentSpec, error) {
 	if err != nil {
 		return DocumentSpec{}, err
 	}
-	nativePath, matched := strings.CutPrefix(input.Destination.RelativePath(), layout.aliasDirectory)
-	if input.Destination.RootRole() != layout.aliasRoot || !matched {
+	nativePath, matched := layout.nativePathFor(input.Destination)
+	if !matched {
 		return DocumentSpec{}, fmt.Errorf("%w: alias %q is outside its native layout", ErrDocumentPath, input.Destination.String())
 	}
 	return NewDocumentSpec(DocumentInput{Target: input.Target, Scope: input.Scope, Path: nativePath, Syntax: input.Syntax})

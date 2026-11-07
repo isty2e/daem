@@ -32,7 +32,7 @@ func TestComposedDedicatedKeysSelectOnlyTheDocumentsRoles(t *testing.T) {
 	} {
 		t.Run(string(test.selected)+"/"+string(test.scope)+"/"+test.path, func(t *testing.T) {
 			t.Parallel()
-			facts, err := nativeConfigurationKeysFor(test.selected, test.scope)
+			facts, err := nativeConfigurationReservationsFor(test.selected, test.scope)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -65,11 +65,50 @@ func TestComposedDedicatedKeysSelectOnlyTheDocumentsRoles(t *testing.T) {
 	}
 }
 
+func TestNativeDedicatedPathsUseCurrentPlacementsAndDiscoveries(t *testing.T) {
+	for _, test := range []struct {
+		selected target.Target
+		scope    target.Scope
+		reserved []string
+		free     []string
+	}{
+		{target.TargetPi, target.ScopeGlobal, []string{"AGENTS.md", "mcp.json", "skills/demo"}, []string{"settings.json", "models.json"}},
+		{target.TargetPi, target.ScopeProject, []string{"mcp.json", "skills/demo"}, []string{"AGENTS.md", "settings.json"}},
+		{target.TargetCodex, target.ScopeGlobal, []string{"AGENTS.md", "AGENTS.override.md", "hooks.json", "skills/demo"}, []string{"config.toml", "review.config.toml"}},
+		{target.TargetCodex, target.ScopeProject, []string{"hooks.json"}, []string{"config.toml", "AGENTS.md", "skills/demo"}},
+		{target.TargetClaudeCode, target.ScopeGlobal, []string{"CLAUDE.md", "skills/demo"}, []string{"settings.json", ".claude.json"}},
+		{target.TargetClaudeCode, target.ScopeProject, []string{"CLAUDE.md", "skills/demo"}, []string{"settings.json", "settings.local.json"}},
+		{target.TargetOpenCode, target.ScopeGlobal, []string{"AGENTS.md", "skills/demo"}, []string{"opencode.json", "tui.json"}},
+		{target.TargetOpenCode, target.ScopeProject, []string{".opencode/skills/demo"}, []string{"opencode.json", ".opencode/opencode.json", ".opencode/tui.json"}},
+		{target.TargetAntigravityCLI, target.ScopeGlobal, nil, []string{"settings.json", "keybindings.json", "skills/demo"}},
+	} {
+		t.Run(string(test.selected)+"/"+string(test.scope), func(t *testing.T) {
+			facts, err := nativeConfigurationReservationsFor(test.selected, test.scope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range test.reserved {
+				if err := facts.RequireUnreservedPath(path); !errors.Is(err, configuration.ErrReservedPath) {
+					t.Fatalf("%q lost its current owner: %v", path, err)
+				}
+			}
+			for _, path := range test.free {
+				if err := facts.RequireUnreservedPath(path); err != nil {
+					t.Fatalf("%q acquired another layer's owner: %v", path, err)
+				}
+			}
+		})
+	}
+	if _, err := nativeConfigurationReservationsFor(target.TargetAntigravityCLI, target.ScopeProject); !errors.Is(err, configuration.ErrNoNativeSurface) {
+		t.Fatalf("absent native scope was synthesized: %v", err)
+	}
+}
+
 func TestNativeConfigurationKeysRefuseUnknownContexts(t *testing.T) {
-	if _, err := nativeConfigurationKeysFor("unknown", target.ScopeGlobal); err == nil {
+	if _, err := nativeConfigurationReservationsFor("unknown", target.ScopeGlobal); err == nil {
 		t.Fatal("unknown target obtained native namespace facts")
 	}
-	if _, err := nativeConfigurationKeysFor(target.TargetPi, "system"); err == nil {
+	if _, err := nativeConfigurationReservationsFor(target.TargetPi, "system"); err == nil {
 		t.Fatal("unknown scope obtained native namespace facts")
 	}
 }

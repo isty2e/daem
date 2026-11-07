@@ -24,6 +24,7 @@ type nativeLayout struct {
 	root           rootFact
 	aliasRoot      output.RootRole
 	aliasDirectory string
+	legacyHomeDir  string
 	relativePrefix string
 	policy         string
 	rootFiles      []string
@@ -44,13 +45,13 @@ var (
 
 var nativeLayouts = map[scopeKey]nativeLayout{
 	{target.TargetPi, target.ScopeGlobal}: {
-		root: piRoot, aliasRoot: output.RootPiAgent, policy: "pi-native-v1", observations: piLoader,
+		root: piRoot, aliasRoot: output.RootPiAgent, legacyHomeDir: ".pi/agent/", policy: "pi-native-v1", observations: piLoader,
 	},
 	{target.TargetPi, target.ScopeProject}: {
 		root: projectRoot, aliasRoot: output.RootProject, aliasDirectory: ".pi/", relativePrefix: ".pi/", policy: "pi-native-v1", observations: piLoader,
 	},
 	{target.TargetCodex, target.ScopeGlobal}: {
-		root: codexRoot, aliasRoot: output.RootCodexHome, policy: "codex-native-v1", observations: codexRuntime,
+		root: codexRoot, aliasRoot: output.RootCodexHome, legacyHomeDir: ".codex/", policy: "codex-native-v1", observations: codexRuntime,
 	},
 	{target.TargetCodex, target.ScopeProject}: {
 		root: projectRoot, aliasRoot: output.RootProject, aliasDirectory: ".codex/", relativePrefix: ".codex/", policy: "codex-native-v1", observations: codexRuntime,
@@ -97,6 +98,23 @@ func selectLayout(selected target.Target, scope target.Scope) (nativeLayout, err
 
 func (layout nativeLayout) contains(nativePath string) bool {
 	return layout.subtree == "" || strings.HasPrefix(nativePath, layout.subtree) || slices.Contains(layout.rootFiles, nativePath)
+}
+
+func (layout nativeLayout) nativePathFor(destination output.Destination) (string, bool) {
+	if destination.RootRole() != layout.aliasRoot {
+		return "", false
+	}
+	return strings.CutPrefix(destination.RelativePath(), layout.aliasDirectory)
+}
+
+// Legacy owner aliases project reservations, not generic alias admission or
+// physical agreement with the selected root.
+func (layout nativeLayout) reservationPathFor(destination output.Destination) (string, bool) {
+	nativePath, matched := layout.nativePathFor(destination)
+	if !matched && layout.legacyHomeDir != "" && destination.RootRole() == output.RootHome {
+		nativePath, matched = strings.CutPrefix(destination.RelativePath(), layout.legacyHomeDir)
+	}
+	return nativePath, matched && nativePath != "" && layout.contains(nativePath)
 }
 
 type dedicatedAliasFact struct {
