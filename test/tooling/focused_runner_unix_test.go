@@ -95,12 +95,14 @@ func TestFocusedRunnerRejectsPackagePatternsAndSubtestRegexes(t *testing.T) {
 
 func TestFocusedRunnerRejectsConcurrentPackageExecution(t *testing.T) {
 	root := findRepoRoot(t)
+	fixtureRoot := createBlockingFocusedFixtureRepository(t, root)
 	temporaryRoot := t.TempDir()
 	ready := filepath.Join(temporaryRoot, "ready")
 	release := filepath.Join(temporaryRoot, "release")
 
 	first := focusedProbeCommand(
 		root,
+		fixtureRoot,
 		"TMPDIR="+temporaryRoot,
 		"DAEM_FOCUSED_PROBE_READY="+ready,
 		"DAEM_FOCUSED_PROBE_RELEASE="+release,
@@ -110,7 +112,7 @@ func TestFocusedRunnerRejectsConcurrentPackageExecution(t *testing.T) {
 	}
 	waitForFocusedPath(t, ready)
 
-	second := focusedProbeCommand(root, "TMPDIR="+temporaryRoot)
+	second := focusedProbeCommand(root, fixtureRoot, "TMPDIR="+temporaryRoot)
 	output, err := second.CombinedOutput()
 	var exitError *exec.ExitError
 	if !errors.As(err, &exitError) || exitError.ExitCode() != 2 {
@@ -131,6 +133,7 @@ func TestFocusedRunnerRejectsConcurrentPackageExecution(t *testing.T) {
 
 func TestFocusedRunnerRejectsAliasedSharedBase(t *testing.T) {
 	root := findRepoRoot(t)
+	fixtureRoot := createBlockingFocusedFixtureRepository(t, root)
 	temporaryRoot := t.TempDir()
 	outside := t.TempDir()
 	base := filepath.Join(temporaryRoot, "daem-focused-test-v1")
@@ -138,7 +141,7 @@ func TestFocusedRunnerRejectsAliasedSharedBase(t *testing.T) {
 		t.Fatalf("alias focused base: %v", err)
 	}
 
-	command := focusedProbeCommand(root, "TMPDIR="+temporaryRoot)
+	command := focusedProbeCommand(root, fixtureRoot, "TMPDIR="+temporaryRoot)
 	output, err := command.CombinedOutput()
 	var exitError *exec.ExitError
 	if !errors.As(err, &exitError) || exitError.ExitCode() != 2 {
@@ -183,11 +186,13 @@ func TestFocusedRunnerPreservesFailureAndCleansRoot(t *testing.T) {
 
 func TestFocusedRunnerForwardsTerminationAndCleansRoot(t *testing.T) {
 	root := findRepoRoot(t)
+	fixtureRoot := createBlockingFocusedFixtureRepository(t, root)
 	temporaryRoot := t.TempDir()
 	ready := filepath.Join(temporaryRoot, "ready")
 	release := filepath.Join(temporaryRoot, "never-released")
 	command := focusedProbeCommand(
 		root,
+		fixtureRoot,
 		"TMPDIR="+temporaryRoot,
 		"DAEM_FOCUSED_PROBE_READY="+ready,
 		"DAEM_FOCUSED_PROBE_RELEASE="+release,
@@ -229,14 +234,14 @@ func runFocusedFixture(t *testing.T, root string, fixtureRoot string, environmen
 	return string(output)
 }
 
-func focusedProbeCommand(root string, environment ...string) *exec.Cmd {
+func focusedProbeCommand(root, fixtureRoot string, environment ...string) *exec.Cmd {
 	command := exec.Command(
 		filepath.Join(root, "tools", "test.sh"),
 		"focused",
 		focusedProbePackage,
 		"^TestFocusedCacheProbe$",
 	)
-	command.Dir = root
+	command.Dir = fixtureRoot
 	command.Env = append(
 		focusedFixtureEnvironment(),
 		"GOENV="+filepath.Join(root, "internal", "archguard", "testdata", "hostile-go.env"),
@@ -255,6 +260,32 @@ func focusedFixtureEnvironment() []string {
 		}
 	}
 	return withoutEnvironment(environment, "GOENV", "GOFLAGS", "GOWORK", "TMPDIR")
+}
+
+func createBlockingFocusedFixtureRepository(t *testing.T, repositoryRoot string) string {
+	t.Helper()
+	// Lifecycle checks must not fingerprint unrelated authoring files.
+	root := createFocusedFixtureRepository(t)
+	for _, file := range []struct {
+		path string
+		mode os.FileMode
+	}{
+		{filepath.Join(focusedProbePackage, "probe_test.go"), 0o600},
+		{"tools/test-focused.sh", 0o700},
+	} {
+		content, err := os.ReadFile(filepath.Join(repositoryRoot, file.path))
+		if err != nil {
+			t.Fatalf("read focused fixture input %s: %v", file.path, err)
+		}
+		destination := filepath.Join(root, file.path)
+		if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+			t.Fatalf("create focused fixture parent: %v", err)
+		}
+		if err := os.WriteFile(destination, content, file.mode); err != nil {
+			t.Fatalf("write focused fixture input %s: %v", file.path, err)
+		}
+	}
+	return root
 }
 
 func createFocusedFixtureRepository(t *testing.T) string {
