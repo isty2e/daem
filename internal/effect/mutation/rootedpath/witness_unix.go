@@ -3,16 +3,71 @@
 package rootedpath
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"golang.org/x/sys/unix"
 )
 
+func readDirectoryNamesPlatform(ctx context.Context, platform *capturedRootPlatform, budget DirectoryObservationBudget) (result []string, resultErr error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := reopenCapturedRootFinal(platform); err != nil {
+		return nil, err
+	}
+	directory, err := openCapturedRootDirectory(platform)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, directory.Close())
+		if resultErr != nil {
+			result = nil
+		}
+	}()
+	if _, err := directory.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		names, readErr := directory.Readdirnames(128)
+		if err := budget.AdmitPhysicalWork(0, len(names), 0); err != nil {
+			return nil, err
+		}
+		for _, name := range names {
+			if name == "" || strings.ContainsAny(name, "/\x00") {
+				return nil, fmt.Errorf("directory entry name cannot be represented as an immediate child")
+			}
+			if name != "." && name != ".." {
+				result = append(result, name)
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return result, nil
+			}
+			return nil, readErr
+		}
+	}
+}
+
 func validateCapturedRootPlatform(platform *capturedRootPlatform) error {
 	if platform == nil || len(platform.directories) < 2 {
 		return newFailure(FailureRootUnavailable, "", "captured root witness is not initialized", nil)
+	}
+	return validateObservedDirectoryPlatform(platform)
+}
+
+func validateObservedDirectoryPlatform(platform *capturedRootPlatform) error {
+	if platform == nil || len(platform.directories) == 0 {
+		return newFailure(FailureRootUnavailable, "", "observed directory chain is not initialized", nil)
 	}
 	for index := range platform.directories {
 		current := platform.directories[index]

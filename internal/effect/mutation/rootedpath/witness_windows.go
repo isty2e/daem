@@ -3,12 +3,59 @@
 package rootedpath
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+func readDirectoryNamesPlatform(ctx context.Context, platform *capturedRootPlatform, budget DirectoryObservationBudget) ([]string, error) {
+	if platform == nil || len(platform.directories) == 0 {
+		return nil, fmt.Errorf("directory name observation requires a retained directory")
+	}
+	handle := platform.directories[len(platform.directories)-1].handle
+	// This query buffer holds a maximum-length Windows UTF-16 name plus the
+	// fixed header. It does not limit the number of directory entries.
+	const querySize = 2 * (1 << 16)
+	storage := make([]byte, querySize+windowsDirectoryInfoAlignment-1)
+	alignment := uintptr(windowsDirectoryInfoAlignment)
+	offset := int((alignment - uintptr(unsafe.Pointer(&storage[0]))%alignment) % alignment)
+	buffer := storage[offset : offset+querySize]
+	class := uint32(windows.FileFullDirectoryRestartInfo)
+	var result []string
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		clear(buffer)
+		err := windows.GetFileInformationByHandleEx(handle, class, &buffer[0], uint32(len(buffer)))
+		class = windows.FileFullDirectoryInfo
+		if errors.Is(err, windows.ERROR_NO_MORE_FILES) || errors.Is(err, windows.ERROR_HANDLE_EOF) {
+			return result, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		names, err := parseWindowsDirectoryNames(buffer)
+		if err != nil {
+			return nil, err
+		}
+		if len(names) == 0 {
+			continue
+		}
+		if err := budget.AdmitPhysicalWork(0, len(names), 0); err != nil {
+			return nil, err
+		}
+		result = append(result, names...)
+	}
+}
+
+func validateObservedDirectoryPlatform(platform *capturedRootPlatform) error {
+	return validateCapturedRootPlatform(platform)
+}
 
 func validateCapturedRootPlatform(platform *capturedRootPlatform) error {
 	if platform == nil || len(platform.directories) == 0 {

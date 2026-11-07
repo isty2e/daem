@@ -1,9 +1,11 @@
 package rootedpath
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -425,14 +427,113 @@ func ResolveFutureReferentPathBounded(
 }
 
 func resolveSelectorWithTraversal(path string, traversal *physicalTraversal) (string, error) {
-	if strings.ContainsRune(path, '\x00') || !filepath.IsAbs(path) {
-		return "", newFailure(FailureInvalidRoot, path, "root selector must be absolute and contain no NUL byte", nil)
-	}
-	if err := validatePlatformPhysicalRoot(path); err != nil {
+	absolute, directoryOnly, err := prepareRootSelector(path)
+	if err != nil {
 		return "", err
 	}
-	absolute, directoryOnly := platformRootSelectorPath(path)
 	return resolveReferentPathWithTraversal(absolute, traversal, true, directoryOnly)
+}
+
+func prepareRootSelector(path string) (string, bool, error) {
+	if strings.ContainsRune(path, '\x00') || !filepath.IsAbs(path) {
+		return "", false, newFailure(FailureInvalidRoot, path, "root selector must be absolute and contain no NUL byte", nil)
+	}
+	if err := validatePlatformPhysicalRoot(path); err != nil {
+		return "", false, err
+	}
+	absolute, directoryOnly := platformRootSelectorPath(path)
+	return absolute, directoryOnly, nil
+}
+
+// DirectoryObservationBudget charges the directory walk and observed entries
+// to the same operation allocation. File contents are not read by enumeration.
+type DirectoryObservationBudget interface {
+	PhysicalTraversalBudget
+	AdmitPhysicalWork(pathComponents int, entries int, bytes int64) error
+}
+
+// DirectoryNames is read-only path data, not filesystem or mutation authority.
+// An absent directory has an uncreated future path and no names.
+type DirectoryNames struct {
+	physical string
+	present  bool
+	names    []string
+}
+
+func (snapshot DirectoryNames) PhysicalPath() string { return snapshot.physical }
+func (snapshot DirectoryNames) Present() bool        { return snapshot.present }
+func (snapshot DirectoryNames) Names() []string      { return slices.Clone(snapshot.names) }
+
+func ReadDirectoryNamesBounded(ctx context.Context, selector string, maximumPhysicalDepth int, budget DirectoryObservationBudget) (result DirectoryNames, resultErr error) {
+	if ctx == nil {
+		return DirectoryNames{}, fmt.Errorf("directory name observation requires context")
+	}
+	if err := ctx.Err(); err != nil {
+		return DirectoryNames{}, err
+	}
+	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
+	if err != nil {
+		return DirectoryNames{}, err
+	}
+	absolute, _, err := prepareRootSelector(selector)
+	if err != nil {
+		return DirectoryNames{}, err
+	}
+	traversal.allowMissingAliasTargets = true
+	physical, platform, _, _, missing, err := resolveNativePathPlatform(absolute, true, false, false, traversal)
+	if err != nil {
+		if canceled := ctx.Err(); canceled != nil {
+			return DirectoryNames{}, canceled
+		}
+		return DirectoryNames{}, err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, closeCapturedRootPlatform(&platform), ctx.Err())
+		if resultErr != nil {
+			result = DirectoryNames{}
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return DirectoryNames{}, err
+	}
+	path := filepath.Join(physical, filepath.Join(missing...))
+	depth, err := absolutePathDepth(path)
+	if err != nil {
+		return DirectoryNames{}, err
+	}
+	if depth == 0 {
+		return DirectoryNames{}, newFailure(FailureInvalidRoot, selector, "filesystem root is not admitted for directory-name observation", nil)
+	}
+	if err := traversal.validateResolvedDepth(depth); err != nil {
+		return DirectoryNames{}, err
+	}
+	var names []string
+	if len(missing) == 0 {
+		names, err = readDirectoryNamesPlatform(ctx, &platform, budget)
+		if err != nil {
+			return DirectoryNames{}, err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return DirectoryNames{}, err
+	}
+	anchorDepth, err := absolutePathDepth(physical)
+	if err != nil {
+		return DirectoryNames{}, err
+	}
+	if err := budget.AdmitPathComponents(max(1, anchorDepth)); err != nil {
+		return DirectoryNames{}, err
+	}
+	// The root-only absent prefix still has identity and mount checks, but no
+	// parent name. This observer does not relax captured mutation-root admission.
+	if err := validateObservedDirectoryPlatform(&platform); err != nil {
+		return DirectoryNames{}, err
+	}
+	if len(missing) != 0 {
+		return DirectoryNames{physical: path}, nil
+	}
+	slices.Sort(names)
+	return DirectoryNames{physical: physical, present: true, names: names}, nil
 }
 
 // ResolveReferentPathBounded follows ancestor and final aliases without
