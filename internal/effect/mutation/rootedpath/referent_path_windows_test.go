@@ -24,6 +24,39 @@ func (budget *referentFrameTestBudget) AdmitPathComponents(count int) error {
 	return budget.err
 }
 
+func TestWindowsRootSelectorUsesAdmittedDOSNormalization(t *testing.T) {
+	base := referentTestRoot(t)
+	actual := filepath.Join(base, "actual", "inner")
+	want := filepath.Join(base, "codex")
+	for _, directory := range []string{actual, want} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(base, "link")
+	referentTestSymlink(t, actual, link)
+	for _, selector := range []string{link + `\..\codex`, want + `\`, want + `\.`} {
+		got, err := ResolveRootSelectorBounded(selector, 256, &referentTestBudget{limit: 10_000})
+		if err != nil || got != want {
+			t.Errorf("DOS selector %q = %q, %v; want %q", selector, got, err, want)
+		}
+	}
+	for _, selector := range []string{`\\server\share\config`, `\\?\C:\config`, `C:\config\NUL`, `C:\config\trailing `} {
+		if got, err := ResolveRootSelectorBounded(selector, 256, &referentTestBudget{limit: 10_000}); !hasFailureKind(err, FailureInvalidRoot) || got != "" {
+			t.Errorf("unsupported Windows selector %q returned %q, %v", selector, got, err)
+		}
+	}
+	file := filepath.Join(base, "file")
+	if err := os.WriteFile(file, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, selector := range []string{file + `\`, file + `\.`, file + "/", file + "/.", file + `\child\..`} {
+		if got, err := ResolveRootSelectorBounded(selector, 256, &referentTestBudget{limit: 10_000}); err == nil || got != "" {
+			t.Errorf("directory-requiring DOS selector %q returned %q, %v", selector, got, err)
+		}
+	}
+}
+
 func TestWindowsReferentLeafCompletesPendingReparseVerification(t *testing.T) {
 	base := referentTestRoot(t)
 	for _, name := range []string{"original", "other"} {

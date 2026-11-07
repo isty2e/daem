@@ -3,10 +3,19 @@
 package rootedpath
 
 import (
+	"path/filepath"
 	"strings"
 	"unicode"
 	"unicode/utf16"
 )
+
+func platformRootSelectorPath(value string) (path string, directoryOnly bool) {
+	// Ordinary DOS paths evaluate dot components before filesystem traversal.
+	// Device paths that suppress this normalization are not admitted here.
+	normalized := strings.ReplaceAll(value, "/", `\`)
+	final := normalized[strings.LastIndex(normalized, `\`)+1:]
+	return filepath.Clean(value), final == "" || final == "." || final == ".."
+}
 
 func validatePlatformPhysicalRoot(value string) error {
 	if err := validateWindowsAbsoluteSpelling(value, FailureInvalidRoot); err != nil {

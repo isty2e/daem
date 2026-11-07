@@ -111,6 +111,33 @@ func TestResolveReferentPathBoundedRefusesInvalidIngressBeforeTraversal(t *testi
 	}
 }
 
+func TestRootSelectorRequiresValidIngressAndTheOriginalTraversalBudget(t *testing.T) {
+	base := referentTestRoot(t)
+	for _, selector := range []string{"", "relative", base + string(filepath.Separator) + "bad\x00name"} {
+		budget := &referentTestBudget{limit: 10_000}
+		got, err := ResolveRootSelectorBounded(selector, 256, budget)
+		if err == nil || got != "" || budget.visits != 0 {
+			t.Errorf("invalid selector %q returned %q, %v after %d visits", selector, got, err, budget.visits)
+		}
+	}
+	if got, err := ResolveRootSelectorBounded(base, 256, nil); err == nil || got != "" {
+		t.Fatalf("missing budget returned %q, %v", got, err)
+	}
+	if got, err := ResolveRootSelectorBounded(base, 0, &referentTestBudget{limit: 10_000}); err == nil || got != "" {
+		t.Fatalf("invalid depth returned %q, %v", got, err)
+	}
+	if got, err := ResolveRootSelectorBounded(base, 1, &referentTestBudget{limit: 10_000}); err == nil || got != "" {
+		t.Fatalf("physical depth limit returned %q, %v", got, err)
+	}
+	if got, err := ResolveRootSelectorBounded(base, 256, &referentTestBudget{}); !errors.Is(err, errReferentTestBudget) || got != "" {
+		t.Fatalf("exhausted budget returned %q, %v", got, err)
+	}
+	volumeRoot := filepath.VolumeName(base) + string(filepath.Separator)
+	if got, err := ResolveRootSelectorBounded(volumeRoot, 256, &referentTestBudget{}); !errors.Is(err, errReferentTestBudget) || got != "" {
+		t.Fatalf("filesystem root bypassed the traversal budget: %q, %v", got, err)
+	}
+}
+
 func TestResolveReferentPathBoundedChargesFinalAliasAndPhysicalDepth(t *testing.T) {
 	base := referentTestRoot(t)
 	deep := filepath.Join(base, "one", "two", "three", "four", "five")

@@ -239,6 +239,9 @@ func resolveNativePathPlatform(
 			}
 			missing := []string{component.name}
 			for _, remainder := range pending {
+				if remainder.name == ".." {
+					return fail(newFailure(FailureRootUnavailable, candidatePath, "cannot resolve a parent through a missing directory", unix.ENOENT))
+				}
 				if remainder.name != "" && remainder.name != "." {
 					missing = append(missing, remainder.name)
 				}

@@ -393,6 +393,28 @@ func absolutePathDepth(value string) (int, error) {
 	return len(components), err
 }
 
+// ResolveRootSelectorBounded interprets an absolute locator expression without
+// retaining mutation authority. Physical traversal, including literal parent
+// components on POSIX, is charged to the supplied operation budget.
+func ResolveRootSelectorBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (string, error) {
+	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
+	if err != nil {
+		return "", err
+	}
+	if strings.ContainsRune(path, '\x00') || !filepath.IsAbs(path) {
+		return "", newFailure(FailureInvalidRoot, path, "root selector must be absolute and contain no NUL byte", nil)
+	}
+	if err := validatePlatformPhysicalRoot(path); err != nil {
+		return "", err
+	}
+	absolute, directoryOnly := platformRootSelectorPath(path)
+	return resolveReferentPathWithTraversal(absolute, traversal, true, directoryOnly)
+}
+
 // ResolveReferentPathBounded follows ancestor and final aliases without
 // retaining mutation authority. Missing ordinary suffixes remain path data;
 // missing alias targets and non-directory intermediate entries are refused.
@@ -409,11 +431,15 @@ func ResolveReferentPathBounded(
 	if err != nil {
 		return "", err
 	}
+	return resolveReferentPathWithTraversal(absolute, traversal, false, false)
+}
+
+func resolveReferentPathWithTraversal(absolute string, traversal *physicalTraversal, allowFilesystemRoot, directoryOnly bool) (string, error) {
 	physicalRoot, platform, _, _, suffix, err := resolveNativePathPlatform(
 		absolute,
 		true,
 		false,
-		true,
+		!directoryOnly,
 		traversal,
 	)
 	if err != nil {
@@ -425,7 +451,12 @@ func ResolveReferentPathBounded(
 	if err != nil {
 		return "", errors.Join(err, closePlatform())
 	}
-	if err := traversal.validateResolvedDepth(depth); err != nil {
+	if depth == 0 && allowFilesystemRoot {
+		err = traversal.visitComponent()
+	} else {
+		err = traversal.validateResolvedDepth(depth)
+	}
+	if err != nil {
 		return "", errors.Join(err, closePlatform())
 	}
 	if err := closePlatform(); err != nil {
